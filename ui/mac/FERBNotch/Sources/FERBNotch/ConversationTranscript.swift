@@ -402,7 +402,8 @@ private struct RequestView: View {
     }
 }
 
-/// A late entry (L6): a one-line quote of its request, then FERB's question or the answer.
+/// A late entry (L6): a one-line quote of its request, then FERB's question or the answer. A later answer said right
+/// under its own turn (APP-914) needs no quote.
 private struct LateReplyView: View {
     let reply: ConversationReply
     let turn: ConversationTurn
@@ -411,14 +412,16 @@ private struct LateReplyView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Label {
-                Text(turn.quote.isEmpty ? "A task from earlier" : turn.quote).lineLimit(1).truncationMode(.tail)
-            } icon: {
-                Image(systemName: "arrowshape.turn.up.left")
+            if !model.conversation.followsItsTurn(reply) {
+                Label {
+                    Text(turn.quote.isEmpty ? "A task from earlier" : turn.quote).lineLimit(1).truncationMode(.tail)
+                } icon: {
+                    Image(systemName: "arrowshape.turn.up.left")
+                }
+                .font(.system(size: 10)).foregroundStyle(Palette.secondary)
+                .help(turn.taskGoal ?? turn.request)
+                .accessibilityLabel("Reply to: " + (turn.quote.isEmpty ? "a task from earlier" : turn.quote))
             }
-            .font(.system(size: 10)).foregroundStyle(Palette.secondary)
-            .help(turn.taskGoal ?? turn.request)
-            .accessibilityLabel("Reply to: " + (turn.quote.isEmpty ? "a task from earlier" : turn.quote))
             if reply.part == .question, let question = turn.question {
                 // The question was shown here; the final answer follows it unless it went further below.
                 FerbBubble { MarkdownContent(question).equatable() }

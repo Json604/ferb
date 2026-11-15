@@ -532,6 +532,12 @@ impl Inner {
                 .as_ref()
                 .and_then(|id| self.deps.daemon.questions().and_then(|q| q.get(id)));
             if let Some(ap) = ap.filter(|a| a.state != "pending") {
+                // an answer given in a chat turn is read once that turn's reply is recorded (answer.rs)
+                let held = self.live().answer_holds.get(&ap.id).cloned();
+                if held.is_some_and(|h| !h.released()) {
+                    tokio::time::sleep(self.poll()).await;
+                    continue;
+                }
                 let words = ap
                     .choice
                     .clone()

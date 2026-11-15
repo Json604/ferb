@@ -26,6 +26,34 @@ final class ArchiveUpgradeTests: XCTestCase {
         try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 
+    /// A later answer (APP-914) is saved in FERB's database with its reply and reads back the same; a reply row without
+    /// one (every build before) reads as before; its unreadable card is left out, not the reply.
+    // decision: APP-914, APP-801
+    func testALaterAnswerIsSavedWithItsReplyAndOlderRepliesReadAsBefore() throws {
+        var chat = ConversationArchive()
+        let id = UUID()
+        chat.begin(id: id, request: "chat with Robin", sources: [])
+        chat.finish(id: id, answer: "Conversation handed over: Robin can swap on Saturday.", status: "done", artifacts: [])
+        chat.finish(id: id, answer: "Robin can swap on Saturday.", status: "done", artifacts: [], verified: true)
+        XCTAssertEqual(chat.turns[0].answer, "Conversation handed over: Robin can swap on Saturday.")
+        let reply = try XCTUnwrap(chat.replies.first)
+        XCTAssertEqual(reply.said?.answer, "Robin can swap on Saturday.")
+        let wire = try HistoryEntry(.reply(reply)).wire
+        XCTAssertEqual(HistoryEntry.read(wire), .reply(reply))
+        var older = wire
+        var body = try XCTUnwrap(older["body"] as? [String: Any])
+        body["said"] = nil
+        older["body"] = body
+        guard case let .reply(plain)? = HistoryEntry.read(older) else { return XCTFail("an older reply row reads") }
+        XCTAssertNil(plain.said)
+        var said = try XCTUnwrap(wire["body"] as? [String: Any])["said"] as! [String: Any]
+        said["cards"] = [["no": "type"]]
+        body["said"] = said
+        older["body"] = body
+        guard case let .reply(kept)? = HistoryEntry.read(older) else { return XCTFail("a bad card leaves the reply") }
+        XCTAssertEqual(kept.said?.answer, "Robin can swap on Saturday.")
+    }
+
     // decision: APP-801, STORE-403
     func testEveryReleasedBuildsArchiveReadsInFull() throws {
         for version in Self.releases {
@@ -49,6 +77,7 @@ final class ArchiveUpgradeTests: XCTestCase {
             XCTAssertEqual(card.line, "1 of 2 done", version)
             XCTAssertEqual(archive.turns.first { $0.requestID == "req-6" }?.runtimeSwitch?.choices, ["claude"], version)
             XCTAssertEqual(archive.replies.first?.part, .answer, version)
+            XCTAssertNil(archive.replies.first?.said, version)        // shows its turn's answer, as saved (APP-914)
             XCTAssertEqual(archive.notices.first?.quotes.first?.origin, "Mail", version)
             XCTAssertEqual(archive.notices.last?.proposals?.first?.decision, "confirmed", version)
             XCTAssertEqual(archive.notices.last?.cards?.first?.page, "memory", version)

@@ -71,7 +71,9 @@ final class ChatHistoryTests: XCTestCase {
         await model.prepareHistory()
         // a turn the daemon now holds a newer answer for
         let first = try XCTUnwrap(model.conversation.turns.first)
-        model.conversation.finish(id: first.id, answer: "The newer answer", status: "done", artifacts: [])
+        // (written in place: other words after an answer are a later answer, APP-914, not a new write of this turn)
+        model.conversation.turns[0].answer = "The newer answer"
+        model.saveConversation()
         await model.writeHistory()
 
         // an older FERB.app runs and saves its whole archive again, with a message of its own

@@ -886,14 +886,25 @@ pub fn control(
             .loop_statuses()
             .iter()
             .any(|v| v["state"] == "watching"))),
-        // a plan step waits for an event (`_plan_runs`)
-        "plan_waits" => Ok(json!(!d
-            .supervisor
-            .supervisor
-            .inner()
-            .live()
-            .plan_runs
-            .is_empty())),
+        // a plan step waits for an event (`_plan_runs`): its wait step has taken its place in the plan's events (its
+        // waiting state comes after it read the event cursor), so an event published now is one it sees
+        "plan_waits" => {
+            let inner = d.supervisor.supervisor.inner();
+            let trees: Vec<_> = {
+                let live = inner.live();
+                live.plan_runs
+                    .iter()
+                    .filter_map(|id| live.tree_of.get(id).cloned())
+                    .collect()
+            };
+            Ok(json!(trees.iter().any(|t| t
+                .lock()
+                .step_states
+                .values()
+                .any(
+                    |s| s["status"] == "waiting" && s.get("event").is_some()
+                ))))
+        }
         // make_more.py: the owner is back (`mention_paused`, a task of its own on the daemon's loop)
         "mention_paused" => {
             let inner = d.supervisor.supervisor.inner().clone();

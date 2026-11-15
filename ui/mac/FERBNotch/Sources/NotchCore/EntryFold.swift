@@ -67,7 +67,8 @@ public struct ChatEntry {
 
 public enum EntryFold {
     /// The archive the entries make, as FERB.app holds it: a message with its plan and answer is a turn; an answer
-    /// placed below is a late reply quoting its turn; an answer with no message (a resumed or scheduled task) is
+    /// placed below is a late reply quoting its turn; an answer that `follows` the message's answer is a later answer
+    /// in its own words (APP-914); an answer with no message (a resumed or scheduled task) is
     /// FERB's own turn; notices and posts are notices; an imported entry is read as the app saved it. Questions are not
     /// in the archive (the app holds open ones apart, `pendingApprovals`). Each entry's newest revision counts; a
     /// deleted one is left out.
@@ -132,13 +133,19 @@ public enum EntryFold {
                     turnOf[entry.id] = index
                     archive.turns.append(turn)
                 }
+                if body["follows"] is String, let newest = archive.turns.last {
+                    // a later answer (APP-914): said after the message's answer, in its own words, where it arrived
+                    archive.replies.append(ConversationReply(id: uuid(entry.id), turnID: archive.turns[index].id,
+                        createdAt: date(entry.createdAt), afterTurnID: newest.id, part: .answer, said: later(body)))
+                    continue
+                }
                 if entry.placement == "below", let newest = archive.turns.last {
                     archive.replies.append(ConversationReply(id: uuid(entry.id), turnID: archive.turns[index].id,
                                                              createdAt: date(entry.createdAt), afterTurnID: newest.id,
                                                              part: (body["part"] as? String).flatMap(ReplyPart.init)))
                 }
                 // the message's own answer is its newest one that follows no other
-                if body["follows"] as? String == nil { shown[index] = entry }
+                shown[index] = entry
             case "notice":
                 let quotes = (body["quotes"] as? [[String: Any]] ?? []).compactMap { quote -> NoticeQuote? in
                     guard let text = quote["text"] as? String, !text.isEmpty else { return nil }
@@ -226,6 +233,15 @@ public enum EntryFold {
         turn.runtimeSwitch = RuntimeSwitch(body["runtime_switch"])
         turn.cards = ResultCard.list(body["cards"])
         turn.question = body["question"] as? String
+    }
+
+    /// A later answer's own fields (APP-914), as answerLater keeps them.
+    static func later(_ body: [String: Any]) -> LaterAnswer {
+        LaterAnswer(answer: body["text"] as? String ?? "", displayText: body["display_text"] as? String,
+                    status: body["status"] as? String ?? "done", verified: body["verified"] as? Bool ?? false,
+                    artifacts: (body["artifacts"] as? [String] ?? []).map { URL(fileURLWithPath: $0) },
+                    note: body["note"] as? String, codeLines: body["lines"] as? [String],
+                    cards: ResultCard.list(body["cards"]), runtimeSwitch: RuntimeSwitch(body["runtime_switch"]))
     }
 
     /// The engine's times (ISO 8601 with an offset).

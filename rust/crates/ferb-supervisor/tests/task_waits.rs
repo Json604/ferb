@@ -351,6 +351,11 @@ fn time_wait() -> Value {
 
 /// The plan's steps run until `until` (the harness's condition), then the owner's stop; the task lines published.
 fn lines_until_stopped(steps: Vec<Value>, until: &str) -> Vec<String> {
+    progress_lines(&stopped_world(steps, until))
+}
+
+/// The plan's steps run until `until` (the harness's condition), then the owner's stop, until the task ended.
+fn stopped_world(steps: Vec<Value>, until: &str) -> World {
     let text = plan_answer(steps);
     let mut w = world_with("stop_while_step_asks", |calls| {
         let planner = calls.iter_mut().find(|c| c["key"] == "supervisor").unwrap();
@@ -367,7 +372,7 @@ fn lines_until_stopped(steps: Vec<Value>, until: &str) -> Vec<String> {
         steps.insert(at + 1, json!({"do": "wait", "until": "the task ended"}));
     });
     eprintln!("scripted: {}", report.verdict());
-    progress_lines(&w)
+    w
 }
 
 // A wait on a time says the time (a day ahead: with its day).
@@ -393,6 +398,70 @@ fn a_wait_beside_an_open_question_stays_quiet() {
     ask["until"] = Value::Null;
     ask["question"] = json!("Which one?");
     ask["options"] = json!(["One", "Two"]);
-    let lines = lines_until_stopped(vec![ask, time_wait()], "an approval is pending");
+    let w = stopped_world(
+        vec![ask, time_wait(), after(&["choose", "wait_noon"])],
+        "an approval is pending",
+    );
+    let asked = w.daemon.published.lock().unwrap().iter().any(|(topic, d)| {
+        topic == "task.step" && d["step"] == "choose" && d["status"] == "needs_you"
+    });
+    assert!(asked, "the plan ran to its question");
+    let lines = progress_lines(&w);
     assert!(!lines.iter().any(|l| l.starts_with("Waiting")), "{lines:?}");
+}
+
+/// The work after `steps` (a plan for one ask ends in one step, every other step leading to it).
+fn after(steps: &[&str]) -> Value {
+    let mut after = time_wait();
+    after["id"] = json!("sheet");
+    after["kind"] = json!("do");
+    after["goal"] = json!("Make the invented sheet");
+    after["until"] = Value::Null;
+    after["depends_on"] = json!(steps);
+    after
+}
+
+// A stop while two waits wait: the steps end one at a time, and the one not yet ended says nothing more once the task
+// is stopped (a task line after the stop would read as still waiting).
+// decision: ORCH-647
+#[test]
+fn a_stopped_task_says_no_wait_line_after_the_stop() {
+    let mut first = time_wait();
+    first["id"] = json!("wait_a");
+    let mut second = time_wait();
+    second["id"] = json!("wait_b");
+    second["goal"] = json!("Wait for the evening");
+    second["until"] = json!("2030-01-01T18:00:00+00:00");
+    let w = stopped_world(
+        vec![first, second, after(&["wait_a", "wait_b"])],
+        "a plan step waits",
+    );
+    let published = w.daemon.published.lock().unwrap().clone();
+    let waiting_line = |(topic, d): &(String, Value)| {
+        topic == "task.progress" && d["text"].as_str().is_some_and(|t| t.starts_with("Waiting"))
+    };
+    let stopped = published
+        .iter()
+        .position(|(topic, d)| {
+            topic == "task.step"
+                && ![
+                    "starting",
+                    "running",
+                    "checking",
+                    "retrying",
+                    "needs_you",
+                    "waiting",
+                ]
+                .contains(&d["status"].as_str().unwrap_or(""))
+        })
+        .expect("a step ended at the stop");
+    assert!(
+        published[..stopped].iter().any(waiting_line),
+        "{published:?}"
+    );
+    let after: Vec<&(String, Value)> = published[stopped..]
+        .iter()
+        .filter(|p| waiting_line(p))
+        .collect();
+    assert!(after.is_empty(), "{after:?}");
 }

@@ -455,6 +455,8 @@ pub(crate) const WAKE: &str = "\u{0}wake";
 /// A burst ends where the work that made it suspends in Python. The stream's own wake-ups don't mark that (the work
 /// and the stream share a task, and a tree's line reaches the turn's queue one hop later), so the work marks it on its
 /// line: the events before a wake mark are one burst whenever the stream takes them, and the mark goes no further.
+/// What one poll of a tree's work or of a worker's tool call told comes between two marks (ferb-worker's bursts.rs,
+/// `run_tree`'s forward), so a batch cut in the middle of a producer's run can't split or merge Python's bursts.
 fn as_python_wakes(batch: Vec<Value>) -> Vec<Value> {
     let mut out = Vec::with_capacity(batch.len());
     let mut burst = Vec::new();

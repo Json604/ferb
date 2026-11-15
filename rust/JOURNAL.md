@@ -2053,3 +2053,73 @@ afterwards.
   a one-ask outcome's `unconfirmed` is read as `note`.
 - Questions are never closed by a restart in the entries (wiring's job).
 - The schema (slice 3) waits for stage 1 recorded as cut over and the owner's word on the shared conversation.
+
+## 2026-11-15 · 70 · A chat's frames and a step's answer in Python's order however the threads run
+
+**What.**
+- The order of a chat's frames (ENG-3). A worker's tool call runs on its connection's task, beside the chat's; it
+  tells the tree's line `tool.called`, its progress line and `approval.requested`, and the stream's reads cut that
+  run wherever they happened to fall. ferb-worker `bursts.rs`: whatever one poll of a producer (the tree's work, a
+  worker's tool call) tells a tree's line goes onto it as one message; `run_tree` forwards it between two wake marks.
+  A poll ends where the work suspends, as a Python coroutine's run does (gateway.py:2256: publish, hooks.started,
+  the question; `_chat_send`'s two readers, chat.py:360/402).
+- An answer given in chat: the answering turn holds the waiting step (`answer_holds`, the loops' `SteerHold`) until
+  its reply is recorded, so `chat.reply` precedes `plan.answer` as in Python.
+- ORCH-647: a stopped or ended tree tells no wait line (`say_waiting`).
+- `a_wait_beside_an_open_question_stays_quiet` now runs its plan (it had been refused for two terminal steps and
+  passed without testing anything); ferbd's `plan_waits` waits for the wait step's waiting state.
+
+**Why.** `the_more_scenarios_through_the_program` failed once in the coordinator's combined run (journal 69) and
+passed three times alone.
+
+**Evidence.** A reader lagged 30 ms per message (a temporary patch, removed) changed `route_question`,
+`correct_pending_check`, `conversation_change` and `conversation_resume` before the fix; after it all 61 scenarios
+pass with 30 and 150 ms lag. `answer_in_chat` differed once in 9 natural runs (journal row 23: `plan.answer` where
+Python has `chat.reply`); with a 300 ms pause it differed every time before the hold and never after. Unfiltered
+`chat_replay`: 30 of 30. `task_waits` `a_stopped_task_says_no_wait_line_after_the_stop` fails without the guard.
+The coordinator's runs on the combined tree: `cargo test --workspace --no-fail-fast` three times, 884 passed, 0
+failed, 16 ignored each; clippy and portable clean; Swift 766, 0 failures.
+
+**Corrected drift.** Both orders were Python's by its single loop and the Rust engine's only by timing.
+
+**Open.**
+- Which of the two the original failure was is unknown (it was not captured).
+- The harness's 30 s timeouts fail under load averages above 100 (16 CPU hogs): `plan_repair`,
+  `check_in_after_five`, `plan_parts_checklist` gave empty lines. Not an order.
+- `probe_watch`'s harness still sleeps 500 ms.
+
+## 2026-11-15 · 71 · Every reply of a turn shows; the owner's decisions on the shared conversation and the cutover
+
+**What.**
+- APP-914: other words FERB says after a turn's answer (a reply while its task runs, then the task's end; more
+  replies to one message) are a later answer: in FERB.app a `ConversationReply` with its own words (`said`), placed
+  after the newest turn, with no quote line right under its turn. `receiveAfterAnswer` takes a turn's frames after
+  its session ended (`Conversation.swift:77` dropped them once `finishBackendWork` cleared `activeTaskID`);
+  `ConversationArchive.finish` no longer overwrites an answered turn with other words. `ChatProjector` mirrors it
+  (a task's end after a reply `follows` it); `EntryFold` draws answers that follow.
+- APP-915: the app reads an outcome's `note` and never `unconfirmed`. ORCH-606 (owner, 2026-11-11: one fixed short
+  line) renamed the field on purpose; journal 69's "app bug B2" was not one, and the coordinator was wrong to call it
+  so.
+- ENG-10 (owner): one conversation kept on the Mac; phones fetch it like from a server and store what they fetched;
+  FERB.app's behaviour and UI for earlier messages stay as they are, and turns started on a phone appear in it.
+- ENG-11 (owner): stage 1 is cut over. Schemas above 0062 may be added; the Python daemon leaves the repo in its own
+  commit.
+- PLAN: the phone apps' look is `~/Desktop/ferb-glass-lab`, the same on iPhone and Android (owner; to be recorded
+  as a decision when stage 3 starts). For the Mac app it stays undecided ("i like the settings window part of it not
+  all").
+
+**Why.** Journal 69's open items, and the owner's answers of 2026-11-15. On the dropped replies the owner asked why
+they had never met it: it needs more than one reply to one message, which their recent use (one answer, or one
+task's result) never produces; the recorded cases are delegated conversations. The owner: "ok fix them if you know
+it".
+
+**Evidence.** `EntryFoldTests` 71 of 71 with each later answer's words compared, and a sensitivity check that
+catches a dropped later answer; `testEveryReplyOfATurnAndItsTaskEndAreShownInOrder`; `ArchiveUpgradeTests` (a later
+answer saved and read back; an older reply row read as before). Swift 766, 0 failures. The golden's one change:
+`conversation_handover`'s task end `follows` the handover reply.
+
+**Open.**
+- Not live-checked; the new regression test was not run against the old code (reasoned from it).
+- A handover now shows two bubbles saying nearly the same thing (left for the owner's eyes).
+- "Conversation pause: <id>" (`supervisor.py:3369` and its port) shows a raw id against ORCH-519: to fix.
+- An older app build reading a row saved with `said` shows the turn's first answer there.

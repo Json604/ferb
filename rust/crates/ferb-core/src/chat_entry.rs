@@ -259,7 +259,8 @@ pub struct PlanBody {
 pub struct AnswerBody {
     /// `reply` (a planner turn's reply), `clarify` (FERB asks the owner something), `error`, or `task` (a task's end:
     /// its outcome or recorded result). A message's answer from another source is a new entry; a task's end that
-    /// arrives again (its outcome, then its recorded result) revises it.
+    /// arrives again (its outcome, then its recorded result) revises it. Other words after the message's answer are a
+    /// later answer that `follows` it (APP-914).
     pub from: String,
     pub text: String,
     pub display_text: Option<String>,
@@ -268,7 +269,9 @@ pub struct AnswerBody {
     pub verified: bool,
     /// The files it produced (absolute paths).
     pub artifacts: Vec<String>,
-    /// "Couldn't confirm: …" and code's lines of a one-ask answer.
+    /// "Couldn't confirm: …" and code's lines of a one-ask answer. `note` is the outcome's own `note`, which only a
+    /// result recorded before ORCH-606 carries; a newer outcome's `unconfirmed` stays in the record and is never shown
+    /// (APP-915).
     pub note: Option<String>,
     pub lines: Option<Vec<String>>,
     /// The offer of another AI service (ORCH-315).

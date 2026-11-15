@@ -86,3 +86,27 @@ status = "active"
 rule = "ChatProjector (ferb-supervisor flow/entries.rs) is pure: a chat.send frame, stream end, bus event or reminder banner in; entries made or revised, or the input back as live state, out; time, ids and the counter injected. It reproduces FERB.app's reducer and stores what the app saves (a turn: message, plan with its card or checklist, answers). A reply the app drops is kept as an answer that `follows`. EntryFoldTests proves the fold equals the app's transcript on every recorded scenario; the goldens are not Python's."
 why = "The owner sees the app's transcript today; computing the same thing once in the engine keeps it exactly while making it shared. A difference from the app would change what the owner sees without the owner."
 paths = ["rust/crates/ferb-supervisor/src/flow/entries.rs", "rust/crates/ferb-supervisor/tests/chat_entries.rs", "rust/fixtures/chat-entries/scenarios.json", "ui/mac/FERBNotch/Tests/NotchCoreTests/EntryFoldTests.swift"]
+
+[ENG-10]
+title = "One conversation, kept on the Mac; phones fetch it like from a server and keep what they fetched"
+by = "owner"
+date = 2026-11-15
+status = "active"
+words = "yes, since the data lives in mac(computer), the phone fetches it liek a server"
+words_source = "Owner 2026-11-15, asked: one conversation shared across your Mac and phones, older messages loaded as you scroll? Two further answers are in evidence."
+evidence = "\"yes i agree with one addiotion that phoen shodul store the info fethced locally too\"; on the Mac app reading it so: \"no only phoens. casue current mac behavious adn ui for prev and od messages im ok with. it sjust the phones\"; on phone turns on the Mac: \"ofc this, it should be shared\"."
+rule = "The engine on the Mac keeps the one conversation. Phones fetch it like from a server (older messages on scroll, changes since a cursor, live changes) and store what they fetched. FERB.app's behaviour and UI for earlier messages stay as they are, and turns started on a phone appear in it. Chat is kept as now; the pre-Rust archive is imported once, read-only; a result seen on one device is seen for notifications everywhere."
+why = "Stage 2 (ENG-1): the data lives on the Mac. Today a turn's frames reach only the connection that sent it and FERB.app writes the history rows, so a phone can neither read nor follow the conversation."
+untestable = "Not built yet beyond the entry contract, projector and fold (ENG-8, ENG-9); the store, the calls and the phone clients carry its tests as they land."
+
+[ENG-11]
+title = "Stage 1 is cut over: the Rust engine is the product and the store may change"
+by = "owner"
+date = 2026-11-15
+status = "active"
+words = "ok i gave the tak and all passed. works, we can move forward."
+words_source = "Owner 2026-11-15, after running the live check list on build 202611142038."
+evidence = "Asked then whether stage 1 is officially done (which lets the database change and means removing the Python code), the owner answered the table of choices: \"yes i agree\"."
+rule = "Stage 1 of ENG-1 is cut over on the owner's live verdict. Schemas above 0062 may be added (ENG-4's condition is met). The Python daemon is removed from the repo in its own commit, with the gate's Python checks retired then."
+why = "ENG-1 and ENG-4 make the cutover the owner's live verdict, and stage 2 needs the first schema above 0062."
+untestable = "A project state the owner declared; the journal records it."

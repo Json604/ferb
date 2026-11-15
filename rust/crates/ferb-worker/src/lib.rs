@@ -10,6 +10,7 @@
 //! - [`runs`]: what the worker shares with the supervisor about running calls (worker.py's `_active`,
 //!   `_worker_runs`, `_tree_of`, `_stalled`, `_retrying`, `_connection`, `_live`, `_last_steps`) and the
 //!   connection notice.
+//! - [`bursts`]: what one poll of a producer tells a tree's live line goes onto it as one burst.
 //! - [`errors`]: the classes a run fails with and the owner's words for each (`reason`, `couldnt`, ...).
 //! - [`ports`]: the seams (the host, the model runtime, the task tree).
 //!
@@ -20,6 +21,7 @@
 //! Portable: nothing here touches the store, a process or the Mac; time comes from the host's clock and the
 //! watchdog sleeps on tokio's timer.
 
+pub mod bursts;
 pub mod errors;
 pub mod ports;
 pub mod progress;

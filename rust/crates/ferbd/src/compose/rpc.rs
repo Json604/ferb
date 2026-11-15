@@ -79,7 +79,10 @@ pub fn register(server: &Server, p: &Parts) {
                 let left = ferb_rpc::server::caller_left_flag();
                 let left: ferb_gateway::gateway::Left =
                     Arc::new(move || left.as_ref().is_some_and(|l| l.is_set()));
-                match parts.call(gw, grant, name, args, left).await {
+                // a worker's tool call runs on this connection's task, beside the chat's: what each of its runs tells
+                // a tree's line is one burst (ferb-worker's bursts.rs)
+                let call = parts.call(gw, grant, name, args, left);
+                match ferb_worker::bursts::per_poll(call).await {
                     Ok(reply) => Ok(crate::basics::object(reply.to_json())),
                     // a stop cancelled the call: Python's CancelledError closes the bridge's connection, no line
                     Err(ferb_gateway::gateway::CallError::Cancelled) => {

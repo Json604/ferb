@@ -55,7 +55,10 @@ public struct ConversationTurn: Identifiable, Codable, Equatable {
     /// A single ask's checklist (APP-894): its plan's steps when it has three or more, collapsed once the task ended.
     public var checklist: StepChecklist?
     /// A one-ask answer's structured lines (ORCH-319): "Couldn't confirm: …" and code's lines. A turn saved with the
-    /// "Correction: …" field older daemons sent decodes without it (ORCH-540: no answer carries one).
+    /// "Correction: …" field older daemons sent decodes without it (ORCH-540: no answer carries one). `note` is the
+    /// outcome's own `note`, which only a result recorded before ORCH-606 carries (its answer ends with that line); a
+    /// newer outcome's `unconfirmed` (which conditions, and how to check them) stays in the record, never read here:
+    /// the answer itself ends with the one fixed line (APP-915).
     public var note: String?
     public var codeLines: [String]?
     /// The offer of another AI service when an account problem ended the work (ORCH-315).
@@ -198,9 +201,10 @@ extension ConversationTurn {
 }
 
 extension ConversationReply {
-    private enum CodingKeys: String, CodingKey { case id, turnID, createdAt, afterTurnID, part }
+    private enum CodingKeys: String, CodingKey { case id, turnID, createdAt, afterTurnID, part, said }
 
-    /// Read tolerantly (APP-801): a part this build doesn't know (a newer build's) reads as none, which shows the answer.
+    /// Read tolerantly (APP-801): a part this build doesn't know (a newer build's) reads as none, which shows the answer;
+    /// a reply saved before later answers (APP-914) has no words of its own.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
@@ -208,6 +212,7 @@ extension ConversationReply {
         createdAt = try c.decode(Date.self, forKey: .createdAt)
         afterTurnID = try c.decode(UUID.self, forKey: .afterTurnID)
         part = try c.lossy(ReplyPart.self, .part)
+        said = try c.lossy(LaterAnswer.self, .said)
     }
 }
 
@@ -243,6 +248,26 @@ extension ConversationNotice {
 }
 
 extension ConversationTurn {
+    /// The turn as one of its later answers shows it (APP-914): that answer's words, status, lines and cards in place of
+    /// the turn's own, for the reply that draws it (the quote, the answer, its cards and boxes).
+    public func saying(_ said: LaterAnswer) -> ConversationTurn {
+        var shown = self
+        shown.answer = said.answer
+        shown.displayText = said.displayText
+        shown.status = said.status
+        shown.verified = said.verified
+        shown.artifacts = said.artifacts
+        shown.note = said.note
+        shown.codeLines = said.codeLines
+        shown.cards = said.cards
+        shown.runtimeSwitch = said.runtimeSwitch
+        shown.responseNotice = nil
+        shown.statusInferred = nil
+        shown.question = nil
+        shown.liveLine = nil
+        return shown
+    }
+
     /// The daemon's name for one of the owner's own saved secrets (`Redactor.kinds`).
     static let savedSecret = "saved secret"
 
@@ -318,6 +343,55 @@ public struct ConversationReply: Identifiable, Codable, Equatable {
     public let afterTurnID: UUID
     /// What it shows: FERB's question, or the answer. Replies saved before parts existed show the answer.
     public var part: ReplyPart? = nil
+    /// A later answer of its turn, in its own words (APP-914): FERB said more after the turn's answer (a reply while
+    /// the task runs, then the task's end; several replies to one message). Nil: it shows its turn's answer or
+    /// question (L6), as every reply saved before this did.
+    public var said: LaterAnswer? = nil
+}
+
+/// What a later answer says (APP-914): an answer's own fields, as a turn holds its one answer.
+public struct LaterAnswer: Codable, Equatable {
+    public var answer: String
+    public var displayText: String?
+    public var status: String
+    public var verified = false
+    public var artifacts: [URL] = []
+    public var note: String?
+    public var codeLines: [String]?
+    public var cards: [ResultCard]?
+    public var runtimeSwitch: RuntimeSwitch?
+
+    public init(answer: String, displayText: String? = nil, status: String, verified: Bool = false,
+                artifacts: [URL] = [], note: String? = nil, codeLines: [String]? = nil, cards: [ResultCard]? = nil,
+                runtimeSwitch: RuntimeSwitch? = nil) {
+        self.answer = answer
+        self.displayText = displayText
+        self.status = status
+        self.verified = verified
+        self.artifacts = artifacts
+        self.note = note
+        self.codeLines = codeLines
+        self.cards = cards
+        self.runtimeSwitch = runtimeSwitch
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case answer, displayText, status, verified, artifacts, note, codeLines, cards, runtimeSwitch
+    }
+
+    /// Read tolerantly (APP-801): only its words are required; a card or offer that can't be read is left out.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        answer = try c.decode(String.self, forKey: .answer)
+        displayText = try c.decodeIfPresent(String.self, forKey: .displayText)
+        status = try c.value(.status, or: "done")
+        verified = try c.value(.verified, or: false)
+        artifacts = try c.value(.artifacts, or: [])
+        note = try c.decodeIfPresent(String.self, forKey: .note)
+        codeLines = try c.decodeIfPresent([String].self, forKey: .codeLines)
+        cards = try c.lossyList(ResultCard.self, .cards)
+        runtimeSwitch = try c.lossy(RuntimeSwitch.self, .runtimeSwitch)
+    }
 }
 
 public enum ReplyPart: String, Codable {
@@ -476,7 +550,8 @@ public struct ConversationArchive: Codable, Equatable {
         let shown: (Date) -> Bool = { when in day.map { $0.start <= when && when < $0.end } ?? true }
         var following: [UUID?: [TranscriptEntry]] = [:]
         for (anchor, entry) in appended(where: shown) { following[anchor, default: []].append(entry) }
-        let answeredBelow = Set(replies.map(\.turnID))
+        // A later answer (APP-914) is said after the turn's own answer, which stays on the turn
+        let answeredBelow = Set(replies.filter { $0.said == nil }.map(\.turnID))
         var entries = following[nil] ?? []
         for turn in turns {
             if shown(turn.createdAt) { entries.append(.turn(turn, answeredBelow: answeredBelow.contains(turn.id))) }
@@ -490,7 +565,8 @@ public struct ConversationArchive: Codable, Equatable {
         var items: [(Date, Int, UUID?, TranscriptEntry)] = []
         for reply in replies where include(reply.createdAt) {
             guard let answered = turns.first(where: { $0.id == reply.turnID }) else { continue }
-            items.append((reply.createdAt, items.count, reply.afterTurnID, .reply(reply, answering: answered)))
+            items.append((reply.createdAt, items.count, reply.afterTurnID,
+                          .reply(reply, answering: reply.said.map(answered.saying) ?? answered)))
         }
         for notice in notices where include(notice.createdAt) {
             items.append((notice.createdAt, items.count, notice.afterTurnID, .notice(notice)))
@@ -508,9 +584,55 @@ public struct ConversationArchive: Codable, Equatable {
         return notice?.entryID ?? reply?.id ?? newest.id
     }
 
-    /// The late replies shown for a turn, oldest first.
+    /// The late replies shown for a turn that show its own question or answer, oldest first (its later answers,
+    /// APP-914, say words of their own).
     public func repliesBelow(_ turnID: UUID) -> [ConversationReply] {
-        replies.filter { $0.turnID == turnID }
+        replies.filter { $0.turnID == turnID && $0.said == nil }
+    }
+
+    /// Whether a later answer (APP-914) shows right under its own turn: said while that turn was the chat's newest, on
+    /// its day, with no notice between them. It then needs no quote of the request; otherwise it quotes it (L6).
+    public func followsItsTurn(_ reply: ConversationReply) -> Bool {
+        guard reply.said != nil, reply.afterTurnID == reply.turnID,
+              let turn = turns.first(where: { $0.id == reply.turnID }),
+              Calendar.current.isDate(turn.createdAt, inSameDayAs: reply.createdAt) else { return false }
+        return !notices.contains { $0.afterTurnID == reply.turnID && $0.createdAt < reply.createdAt }
+    }
+
+    /// Whether `answer` is a later answer of the turn at `index` (APP-914): the turn already shows FERB's own answer (not
+    /// one the notch inferred, a question waiting on the owner, a merged message or a card, whose rows are its answer)
+    /// and these are other words. The same words again are the same answer.
+    private func isLaterAnswer(at index: Int, _ answer: String?) -> Bool {
+        let turn = turns[index]
+        guard let answer, !answer.isEmpty, answer != turn.answer, !turn.answer.isEmpty, turn.card == nil,
+              !turn.preview, turn.statusInferred != true else { return false }
+        return !Self.awaitingAnswer.contains(turn.status) && !["needs_user", "merged"].contains(turn.status)
+    }
+
+    /// FERB said more after the turn's answer (APP-914): kept as its own reply under the turn, placed after the chat's
+    /// newest turn as it arrives (right under the turn while it is the newest; at the bottom quoting it otherwise,
+    /// APP-580). The turn's own answer doesn't change. The same words said again update that reply: its status and
+    /// words, and its lines and cards unless `wordsOnly`. Returns whether anything changed; nothing changes for words
+    /// that aren't a later answer (`isLaterAnswer`).
+    @discardableResult
+    public mutating func answerLater(id: UUID, _ said: LaterAnswer, wordsOnly: Bool = false, at date: Date = Date()) -> Bool {
+        guard let index = turns.firstIndex(where: { $0.id == id }), isLaterAnswer(at: index, said.answer),
+              let newest = turns.last else { return false }
+        if let shown = replies.lastIndex(where: { $0.turnID == id && $0.said?.answer == said.answer }) {
+            let before = replies[shown]
+            var kept = said
+            if wordsOnly, let earlier = before.said {
+                kept.note = earlier.note
+                kept.codeLines = earlier.codeLines
+                kept.cards = earlier.cards
+                kept.runtimeSwitch = earlier.runtimeSwitch
+            }
+            replies[shown].said = kept
+            return replies[shown] != before
+        }
+        replies.append(ConversationReply(id: UUID(), turnID: id, createdAt: date, afterTurnID: newest.id, part: .answer,
+                                         said: said))
+        return true
     }
 
     /// `goal`: the turn is a task this chat didn't send, described by the daemon's goal.
@@ -802,10 +924,26 @@ public struct ConversationArchive: Codable, Equatable {
         guard let index = turns.lastIndex(where: { request != nil && $0.requestID == request })
             ?? turns.lastIndex(where: { $0.backendTaskID == taskID }) else { return false }
         let before = turns[index]
+        let repliesBefore = replies
         func words(_ key: String) -> String? { (event[key] as? String).flatMap { $0.isEmpty ? nil : $0 } }
-        turns[index].note = words("note")
-        turns[index].codeLines = (event["lines"] as? [String]).flatMap { $0.isEmpty ? nil : $0 }
-        turns[index].runtimeSwitch = RuntimeSwitch(event["runtime_switch"])
+        let note = words("note")
+        let codeLines = (event["lines"] as? [String]).flatMap { $0.isEmpty ? nil : $0 }
+        let offer = RuntimeSwitch(event["runtime_switch"])
+        let answer = event["answer"] as? String ?? event["summary"] as? String
+        if isLaterAnswer(at: index, answer), let answer {
+            // APP-914: the task's end after the turn's answer (a reply while it ran) is said after it, with its own
+            // lines and cards; the turn keeps its answer
+            let artifacts = (event["artifacts"] as? [String] ?? []).filter { $0.hasPrefix("/") }.map { URL(fileURLWithPath: $0) }
+            answerLater(id: turns[index].id, LaterAnswer(answer: answer, displayText: event["display_text"] as? String,
+                status: event["status"] as? String ?? "failed", verified: event["verified"] as? Bool ?? false,
+                artifacts: artifacts, note: note, codeLines: codeLines, cards: ResultCard.list(event["cards"]),
+                runtimeSwitch: offer))
+        } else {
+            turns[index].note = note
+            turns[index].codeLines = codeLines
+            turns[index].runtimeSwitch = offer
+            if let cards = ResultCard.list(event["cards"]) { turns[index].cards = keepingSettled(cards, turns[index].cards) }
+        }
         if let card = TurnCard(event["card"], taskID: taskID) { place(card, at: index) }
         // APP-894: what each step ended as, from the outcome's record; the checklist collapses to its one line
         if let ended = StepChecklist(event["checklist"], taskID: taskID) {
@@ -813,13 +951,12 @@ public struct ConversationArchive: Codable, Equatable {
             checklist.end(ended)
             turns[index].checklist = checklist
         }
-        if let cards = ResultCard.list(event["cards"]) { turns[index].cards = keepingSettled(cards, turns[index].cards) }
         // ORCH-579: the reply to the owner's stop tells this task's end (`told_in`: that message's request)
         // (only while the turn awaits its answer: this runs again once the answer is filed)
         if words("told_in") != nil, Self.awaitingAnswer.contains(turns[index].status) {
             toldElsewhere.insert(turns[index].id)
         }
-        return turns[index] != before
+        return turns[index] != before || replies != repliesBefore
     }
 
     /// A reply's cards (step 8e: a remembered fact, a reminder or schedule just set).
@@ -934,6 +1071,12 @@ public struct ConversationArchive: Codable, Equatable {
     public mutating func finish(id: UUID, answer: String, status: String, artifacts: [URL], displayText: String? = nil,
                                 verified: Bool = false, inferred: Bool = false, at date: Date = Date()) {
         guard let index = turns.firstIndex(where: { $0.id == id }) else { return }
+        // APP-914: other words after the turn's answer are a later answer, said after it; the turn keeps its own
+        if !inferred, isLaterAnswer(at: index, answer) {
+            answerLater(id: id, LaterAnswer(answer: answer, displayText: displayText, status: status, verified: verified,
+                                            artifacts: artifacts), wordsOnly: true, at: date)
+            return
+        }
         let before = turns[index].status
         let firstAnswer = Self.awaitingAnswer.contains(before) && !Self.awaitingAnswer.contains(status)
         let afterQuestion = before == "needs_user" && status != "needs_user" && !Self.awaitingAnswer.contains(status)
@@ -953,9 +1096,9 @@ public struct ConversationArchive: Codable, Equatable {
         // A task's end the reply to the owner's stop tells (ORCH-579) is filed here, never posted again below.
         guard toldElsewhere.remove(id) == nil else { return }
         guard firstAnswer || afterQuestion, turns[index].card == nil, let newest = turns.last else { return }
-        if firstAnswer && replies.contains(where: { $0.turnID == id }) { return }
+        if firstAnswer && !repliesBelow(id).isEmpty { return }
         // Its words so far are shown on the turn, or in the reply below it that showed the question.
-        let shownAt = replies.last(where: { $0.turnID == id })?.id ?? id
+        let shownAt = repliesBelow(id).last?.id ?? id
         guard shownAt != lastEntryID else { return }   // nothing is shown below it: answered in place
         replies.append(ConversationReply(id: UUID(), turnID: id, createdAt: date, afterTurnID: newest.id,
                                          part: status == "needs_user" ? .question : .answer))

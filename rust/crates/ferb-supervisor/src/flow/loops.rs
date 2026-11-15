@@ -217,6 +217,13 @@ pub struct SteerHold {
     released: Wake,
 }
 
+impl SteerHold {
+    /// The turn that holds it has recorded its reply.
+    pub(crate) fn released(&self) -> bool {
+        self.released.is_set()
+    }
+}
+
 /// The longest a turn waits for a woken loop to start its round (a loop busy elsewhere: the reply goes on).
 const HAND_OVER_S: f64 = 5.0;
 
@@ -257,15 +264,22 @@ impl Inner {
         })
     }
 
-    /// The hand-over's round may go on (the turn's reply is recorded).
-    pub(crate) fn release_hold(&self, tree_id: &str, hold: &Arc<SteerHold>) {
+    /// The hand-over's round (or answered step) may go on (the turn's reply is recorded).
+    pub(crate) fn release_hold(&self, key: &str, hold: &Arc<SteerHold>) {
         let mut live = self.live();
         if live
             .steer_holds
-            .get(tree_id)
+            .get(key)
             .is_some_and(|h| Arc::ptr_eq(h, hold))
         {
-            live.steer_holds.remove(tree_id);
+            live.steer_holds.remove(key);
+        }
+        if live
+            .answer_holds
+            .get(key)
+            .is_some_and(|h| Arc::ptr_eq(h, hold))
+        {
+            live.answer_holds.remove(key);
         }
         drop(live);
         hold.started.set();

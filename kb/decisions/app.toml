@@ -3716,3 +3716,22 @@ status = "active"
 rule = "DaemonRPC.call ends with its caller: a cancelled Swift task (a preview loop stopped when its view goes) shuts its call's socket at once, so the daemon ends the call (DMN-403) and the thread waiting for the reply is freed instead of both lasting up to the 10 s reply wait. A call taking 3 s or more is logged (os_log com.ferb.FERB, category rpc) with its method and its time queued, connecting with its hello, and waiting for the reply; never its parameters."
 why = "Journal 66: an answer's call stayed out over 15 s with no slow call in the daemon, and nothing recorded where. Each app call is its own connection, but a stopped preview loop left its blocked call and the daemon's capture running for nobody."
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/DaemonRPC.swift::call", "ui/mac/FERBNotch/Sources/NotchCore/DaemonRPC.swift::RPCTimings"]
+
+[APP-914]
+title = "Every reply and task end of a turn shows, in order; a later answer never overwrites the first"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "For APP-580, APP-825, ENG-9. Other words FERB says after a turn's answer (a reply while its task runs, then the task's end; more replies to one message) are a later answer: a reply under that turn with its own words (`said`), placed after the newest turn as it arrives; the turn keeps its answer, no \"Answered below\". Right under its turn it has no quote line, else it quotes it (L6). The same words again update it. A waiting question, a merged message or a card is answered in place as before. Frames after a turn's session ended are kept. The projector keeps it as an answer that `follows`."
+why = "Journal 69: frames after a turn's first answer were dropped (no session) and a turn held one answer, so a task's end overwrote a reply told while it ran (conversation_change lost the planner's reply; conversation_handover lost \"Conversation handed over\")."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/ConversationArchive.swift::ConversationArchive.answerLater", "ui/mac/FERBNotch/Sources/NotchCore/ConversationArchive.swift::ConversationArchive.finish", "ui/mac/FERBNotch/Sources/NotchCore/ConversationArchive.swift::ConversationArchive.applyOutcome", "ui/mac/FERBNotch/Sources/NotchCore/ConversationArchive.swift::LaterAnswer", "ui/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift::NotchModel.receiveAfterAnswer", "ui/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift::LateReplyView", "ui/mac/FERBNotch/Sources/NotchCore/EntryFold.swift::EntryFold.archive", "rust/crates/ferb-supervisor/src/flow/entries.rs::ChatProjector.answer_later"]
+
+[APP-915]
+title = "The app reads an outcome's note, never its unconfirmed: the record keeps which conditions"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "For ORCH-606 and ORCH-607. FERB.app's \"Couldn't confirm: …\" line comes only from an outcome's `note`, which a result recorded before 2026-11-11 carries (chat.status copies it from the record, chat.py:107, chat_rpc.rs) with an answer ending in that line. A newer outcome's `unconfirmed` (the conditions left unconfirmed and how to check them) is the record's, never read by the app or the projector (AnswerBody.note): the answer itself ends with the one fixed UNCONFIRMED_LINE."
+why = "Journal 69 listed `unconfirmed` read as `note` as an app bug. The daemon renamed the field on purpose with ORCH-606 (dd422f4f), the owner's \"One fixed short line\": showing it would put the condition text and how back into the reply."
+paths = ["ui/mac/FERBNotch/Sources/NotchCore/ConversationArchive.swift::ConversationTurn.note", "rust/crates/ferb-core/src/chat_entry.rs::AnswerBody"]
+untestable = "No behavior changed: the app already left `unconfirmed` unread; this records why, so it isn't \"fixed\" into the reply."

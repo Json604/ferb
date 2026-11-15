@@ -73,6 +73,69 @@ final class EntryFoldTests: XCTestCase {
             list[i]["body"] = body
         })
         XCTAssertTrue(differs("timer_set_and_fired") { list in list.removeAll { $0["kind"] as? String == "post" } })
+        // a later answer dropped, or its words changed (APP-914)
+        func isLater(_ entry: [String: Any]) -> Bool { (entry["body"] as? [String: Any])?["follows"] is String }
+        XCTAssertTrue(differs("conversation_change") { list in list.remove(at: list.lastIndex(where: isLater)!) })
+        XCTAssertTrue(differs("conversation_handover") { list in
+            let i = list.lastIndex(where: isLater)!
+            var body = list[i]["body"] as! [String: Any]
+            body["text"] = "Something else."
+            list[i]["body"] = body
+        })
+    }
+
+    /// Every reply and the task's end of a turn are shown, in order, none overwritten (APP-914): the recorded scenarios
+    /// where FERB said more after a turn's first answer, through the app's own reducer.
+    // decision: APP-914
+    func testEveryReplyOfATurnAndItsTaskEndAreShownInOrder() throws {
+        let scenarios = try Self.golden()
+        func said(_ name: String) -> [String] {
+            let timeline = scenarios.first { $0["name"] as? String == name }?["timeline"] as? [[String: Any]] ?? []
+            return appArchive(timeline).transcript().compactMap { entry -> String? in
+                switch entry {
+                case let .turn(turn, answeredBelow): return answeredBelow || turn.answer.isEmpty ? nil : turn.answer
+                case let .reply(_, shown): return shown.answer
+                case .notice: return nil
+                }
+            }
+        }
+        // a message with conversation changes: code's line for each change, then the planner's own reply
+        XCTAssertEqual(said("conversation_change"), [
+            "Conversation pause: id-000021:chat",
+            "Blocked by a safety check: a conversation I'm having for you changes only on your own instruction. The "
+                + "words I quoted from you aren't in this message or your recent messages in this chat, so that "
+                + "conversation didn't change. Say what should change in it.",
+            "No such delegated conversation",
+            "Pausing the chat with Robin.",
+            "Conversation handed back to you.\n\nI couldn't confirm part of this.",
+        ])
+        // a delegated conversation handed back while its task ran, then the task's end, checked
+        XCTAssertEqual(said("conversation_handover"), [
+            "Conversation handed over: Robin can swap seeds on Saturday.",
+            "Robin can swap seeds on Saturday.",
+        ])
+        let timeline = scenarios.first { $0["name"] as? String == "conversation_handover" }?["timeline"]
+            as? [[String: Any]] ?? []
+        let archive = appArchive(timeline)
+        XCTAssertEqual(archive.turns.count, 1)
+        XCTAssertEqual(archive.turns[0].status, "done")
+        let later = try XCTUnwrap(archive.replies.first?.said)
+        XCTAssertTrue(later.verified)            // the task's end keeps its own check mark
+
+        // where a later answer shows: right under its turn while that turn is the newest (no quote); after a newer
+        // message, at the bottom quoting its turn, and the turn keeps its own answer (no "Answered below")
+        var chat = ConversationArchive()
+        let a = UUID(), b = UUID()
+        chat.begin(id: a, request: "chat with Robin", sources: [])
+        chat.finish(id: a, answer: "Handed over.", status: "done", artifacts: [])
+        chat.finish(id: a, answer: "Robin says Saturday.", status: "done", artifacts: [])
+        chat.begin(id: b, request: "what's the weather", sources: [])
+        chat.finish(id: a, answer: "Robin confirmed.", status: "done", artifacts: [])
+        XCTAssertEqual(chat.replies.map { chat.followsItsTurn($0) }, [true, false])
+        XCTAssertEqual(chat.replies.map(\.afterTurnID), [a, b])
+        guard case let .turn(turn, answeredBelow) = chat.transcript()[0] else { return XCTFail("the turn first") }
+        XCTAssertEqual(turn.answer, "Handed over.")
+        XCTAssertFalse(answeredBelow)
     }
 
     // decision: ENG-8
@@ -165,6 +228,7 @@ final class EntryFoldTests: XCTestCase {
             case let .reply(reply, _):
                 out = ["entry": "reply", "part": reply.part?.rawValue ?? "", "turn": index[reply.turnID] ?? -1,
                        "after": index[reply.afterTurnID] ?? -1]
+                if let said = reply.said { out["said"] = encoded(said) }      // a later answer's own words (APP-914)
             case let .notice(notice):
                 out = encoded(notice)
                 for key in ["entryID", "createdAt", "noticedAt", "afterTurnID"] { out[key] = nil }

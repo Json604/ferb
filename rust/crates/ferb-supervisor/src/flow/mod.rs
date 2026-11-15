@@ -714,7 +714,8 @@ pub struct Turn {
     /// Trees whose loops this turn's correction wakes (`wake_loops` in `steering.apply`), handed over once the
     /// correction is applied (loops.rs `hand_over`).
     pub wake_after: BTreeSet<String>,
-    /// The hand-overs this turn holds: each woken loop's round waits, after its span, until the reply is recorded.
+    /// The hand-overs this turn holds: each woken loop's round waits, after its span, until the reply is recorded; so
+    /// does the step whose question this turn answered (keyed by its approval id).
     pub held: Vec<(String, Arc<loops::SteerHold>)>,
 }
 
@@ -919,6 +920,9 @@ pub struct Live {
     pub answer_checks: Vec<((String, String), Map<String, Value>)>,
     /// tree id -> a correction's hand-over to its resting loop (loops.rs `SteerHold`).
     pub steer_holds: HashMap<String, Arc<loops::SteerHold>>,
+    /// approval id -> a chat turn's answer to a waiting step's question, handed over once the turn's reply is recorded
+    /// (loops.rs `SteerHold`, answer.rs).
+    pub answer_holds: HashMap<String, Arc<loops::SteerHold>>,
     /// `_episode_jobs`: the episode captures after a task's outcome still under way (tree id, job).
     pub episode_jobs: Vec<(String, tokio::task::JoinHandle<()>)>,
     /// `_capture_lock`: one capture at a time, so two never race on the same cards.

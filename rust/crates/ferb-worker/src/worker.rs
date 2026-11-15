@@ -1150,7 +1150,7 @@ impl Worker {
                     if let Some(live) = runs.live_sender(&tree_id) {
                         let mut event = event;
                         event.insert("task_id".into(), Value::String(tree_id.clone()));
-                        let _ = live.send(event);
+                        crate::bursts::tell(&live, event);
                     }
                 }))
             }

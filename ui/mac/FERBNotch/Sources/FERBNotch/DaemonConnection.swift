@@ -322,7 +322,13 @@ extension NotchModel {
     func receiveChatEvent(_ event: [String: Any], localID: UUID) {
         let previousPlan = conversation.turns.first(where: { $0.id == localID })?.plan
         var applied = false
-        withWorkSession(localID) { applied = handleChatEvent(event, localID: localID) }
+        var inSession = false
+        withWorkSession(localID) {
+            inSession = true
+            applied = handleChatEvent(event, localID: localID)
+        }
+        // APP-914: the turn's session ended with its first answer, and its stream goes on
+        if !inSession { applied = receiveAfterAnswer(event, localID: localID) }
         if (ResultCard.list(event["cards"]) ?? []).contains(where: { $0.type == "event" && $0.isTimer }) {
             Task { await refreshRunningTimers() }          // a timer was just set: the closed notch counts it down
         }
@@ -464,6 +470,36 @@ extension NotchModel {
         default: break
         }
         return true
+    }
+
+    /// A frame of a turn whose session ended with its first answer while its stream goes on (APP-914): what FERB says
+    /// next (a reply while the task runs, another reply to the same message, an error) is a later answer said after
+    /// the first, and the task's end reaches the turn as its result does (`receiveOutcome`), after that answer. Live
+    /// frames, rows and questions come again on the bus. Returns whether the frame was applied to this turn.
+    private func receiveAfterAnswer(_ event: [String: Any], localID: UUID) -> Bool {
+        guard conversation.turns.contains(where: { $0.id == localID }) else { return false }
+        if let requestID = event["request_id"] as? String, !requestID.isEmpty,
+           !conversation.bindRequest(id: localID, requestID: requestID) { return false }
+        let type = event["type"] as? String ?? ""
+        switch type {
+        case "reply", "clarify", "error":
+            let failed = type == "error"
+            let status = failed ? "failed" : event["status"] as? String ?? "done"
+            let text = event["text"] as? String ?? (failed ? "FERB could not start this request." : "")
+            guard conversation.answerLater(id: localID, LaterAnswer(answer: text,
+                    displayText: event["display_text"] as? String, status: status, cards: ResultCard.list(event["cards"]),
+                    runtimeSwitch: RuntimeSwitch(event["runtime_switch"]))) else { return false }
+            saveConversation()
+            if let sound = SoundPolicy.outcomeSound(status) { feedback.play(sound) }
+            requestScroll(TranscriptTarget.answer(turn: localID), type == "clarify" ? .needsYou : .answer)
+            presentResult(event)
+            return true
+        case "outcome":
+            receiveOutcome(event)
+            return true
+        default:
+            return false
+        }
     }
 
     private func keepKnownFields(_ value: [String: Any]) -> [String: Any] {

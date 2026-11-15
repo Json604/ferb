@@ -16,8 +16,9 @@
 //! TurnCard.swift `steps`, StepChecklist.swift `states`), `subtask`, `verification`, `memory`, `timer`, the streamed
 //! plan and reply lines, `tool.called`, `action.*` (DaemonConnection.swift:361-464).
 //!
-//! Where the app drops what FERB said (a turn's stream frames after its first answer: `withWorkSession` finds no
-//! session), a reply, question or error is still kept, as an answer that `follows` the message's answer.
+//! What FERB says after a turn's answer (a reply while its task runs, then the task's end; several replies to one
+//! message: the frames after the turn's session ended) is a later answer, as the app keeps it (APP-914,
+//! `answerLater`): an answer entry that `follows` the message's answer, in its own words; the message's answer stays.
 
 use std::collections::{BTreeSet, HashMap};
 
@@ -155,6 +156,8 @@ struct Turn {
     recovered: Option<(Option<String>, Option<String>)>,
     /// Its late answers posted below, oldest first (entry ids).
     replies: Vec<String>,
+    /// Its later answers (APP-914), oldest first (entry ids).
+    later: Vec<String>,
     /// ORCH-579: its next answer is told in another message's reply.
     told_elsewhere: bool,
 }
@@ -270,10 +273,10 @@ impl ChatProjector {
             return false;
         };
         if !self.turns[t].active {
-            // the app has no session for this turn any more (withWorkSession) and drops the frame; a task's end still
-            // reaches it as task.result, a row's change as task.part; what FERB said is kept
+            // the app has no session for this turn any more (receiveAfterAnswer): what FERB says is a later answer, a
+            // task's end reaches it as its result does, a row's change as task.part; the rest comes again on the bus
             match ty.as_str() {
-                "reply" | "clarify" | "error" => self.extra_answer(t, &ty, frame, seams),
+                "reply" | "clarify" | "error" => self.later_reply(t, &ty, frame, seams),
                 "outcome" => self.receive_outcome(frame, None, seams),
                 "part" => self.apply_part(frame),
                 "event" => return self.stream_event(frame, seams),
@@ -440,8 +443,8 @@ impl ChatProjector {
     }
 
     /// ConversationArchive.applyOutcome: an outcome's own fields on the turn of its request, else its task's newest
-    /// turn.
-    fn apply_outcome(&mut self, event: &Value) {
+    /// turn; a task's end after the turn's answer is a later answer with its own lines and cards (APP-914).
+    fn apply_outcome(&mut self, event: &Value, seams: &mut dyn Seams) {
         let Some(task) = text(event, "task_id") else {
             return;
         };
@@ -461,10 +464,35 @@ impl ChatProjector {
         let Some(t) = index else {
             return;
         };
+        let note = words(event, "note");
+        let code_lines = strings(event, "lines").filter(|l| !l.is_empty());
+        let offer = runtime_switch(event.get("runtime_switch"));
+        let said = text(event, "answer").or_else(|| text(event, "summary"));
+        if self.is_later(t, said.as_deref()) {
+            let answer = AnswerBody {
+                from: "task".into(),
+                text: said.unwrap_or_default(),
+                display_text: text(event, "display_text"),
+                status: text(event, "status").unwrap_or_else(|| "failed".into()),
+                verified: flag(event, "verified").unwrap_or(false),
+                artifacts: paths(event),
+                note,
+                lines: code_lines,
+                runtime_switch: offer,
+                cards: result_cards(event.get("cards")),
+                ..AnswerBody::default()
+            };
+            self.answer_later(t, answer, false, seams);
+        } else {
+            let turn = &mut self.turns[t];
+            turn.note = note;
+            turn.code_lines = code_lines;
+            turn.runtime_switch = offer;
+            if let Some(cards) = result_cards(event.get("cards")) {
+                turn.cards = Some(cards);
+            }
+        }
         let turn = &mut self.turns[t];
-        turn.note = words(event, "note");
-        turn.code_lines = strings(event, "lines").filter(|l| !l.is_empty());
-        turn.runtime_switch = runtime_switch(event.get("runtime_switch"));
         if let Some(card) = card_from(event.get("card"), &task) {
             place_card(&mut turn.plan, card);
         }
@@ -481,9 +509,6 @@ impl ChatProjector {
                 .collect();
             checklist.finished = true;
             turn.plan.checklist = Some(checklist);
-        }
-        if let Some(cards) = result_cards(event.get("cards")) {
-            turn.cards = Some(cards);
         }
         if words(event, "told_in").is_some() && awaiting(&turn.status) {
             turn.told_elsewhere = true;
@@ -513,8 +538,8 @@ impl ChatProjector {
         }
     }
 
-    /// A reply, question or error after the turn's answer: FERB said it; the app's turn has no place for it.
-    fn extra_answer(&mut self, t: usize, ty: &str, frame: &Value, seams: &mut dyn Seams) {
+    /// A reply, question or error after the turn's session ended with its answer (receiveAfterAnswer): a later answer.
+    fn later_reply(&mut self, t: usize, ty: &str, frame: &Value, seams: &mut dyn Seams) {
         let error = ty == "error";
         let status = if error {
             "failed".to_string()
@@ -532,32 +557,100 @@ impl ChatProjector {
             from: ty.to_string(),
             text: said,
             display_text: text(frame, "display_text"),
-            status: status.clone(),
+            status,
             asks: ty == "clarify",
             runtime_switch: runtime_switch(frame.get("runtime_switch")),
             cards: result_cards(frame.get("cards")),
-            follows: self.turns[t].answer_entry.clone(),
             ..AnswerBody::default()
         };
-        let (state, open) = category(&status, answer.asks);
-        let kind = if error {
+        self.answer_later(t, answer, false, seams);
+    }
+
+    /// ConversationArchive.isLaterAnswer: the turn already shows FERB's own answer (not a question waiting on the
+    /// owner, a merged message or a card, whose rows are its answer) and these are other words (APP-914).
+    fn is_later(&self, t: usize, said: Option<&str>) -> bool {
+        let turn = &self.turns[t];
+        let Some(said) = said.filter(|s| !s.is_empty()) else {
+            return false;
+        };
+        said != turn.text
+            && !turn.text.is_empty()
+            && turn.plan.card.is_none()
+            && !awaiting(&turn.status)
+            && turn.status != "needs_user"
+            && turn.status != "merged"
+    }
+
+    /// ConversationArchive.answerLater (APP-914): a later answer of turn `t`, an answer entry that `follows` its
+    /// answer, shown after the chat's last entry as it arrives; the same words again revise it (its status and words,
+    /// and its lines and cards unless `words_only`). Nothing for words that aren't a later answer.
+    fn answer_later(
+        &mut self,
+        t: usize,
+        mut said: AnswerBody,
+        words_only: bool,
+        seams: &mut dyn Seams,
+    ) {
+        if !self.is_later(t, Some(&said.text)) {
+            return;
+        }
+        let shown = self.turns[t]
+            .later
+            .iter()
+            .rev()
+            .find(|id| {
+                self.entries
+                    .get(*id)
+                    .and_then(|e| e.body_as::<AnswerBody>())
+                    .is_some_and(|b| b.text == said.text)
+            })
+            .cloned();
+        if let Some(id) = shown {
+            let Some(mut entry) = self.entries.get(&id).cloned() else {
+                return;
+            };
+            let earlier: AnswerBody = entry.body_as().unwrap_or_default();
+            if words_only {
+                said.note = earlier.note.clone();
+                said.lines = earlier.lines.clone();
+                said.cards = earlier.cards.clone();
+                said.runtime_switch = earlier.runtime_switch.clone();
+            }
+            let kept = AnswerBody {
+                from: earlier.from,
+                asks: earlier.asks,
+                follows: earlier.follows,
+                ..said
+            };
+            let (state, open) = category(&kept.status, kept.asks);
+            entry.state = state;
+            entry.open = open;
+            entry.body = body(&kept);
+            self.revise(entry, seams);
+            return;
+        }
+        let (state, open) = category(&said.status, said.asks);
+        let kind = if said.from == "error" {
             EntryKind::Error
         } else {
             EntryKind::Answer
         };
         let turn = &self.turns[t];
+        said.follows = turn.answer_entry.clone();
         let (request, task, message) = (
             turn.request_id.clone(),
             turn.task_id.clone(),
             turn.message_entry.clone(),
         );
         let id = seams.new_id();
-        let mut entry = self.new_entry(id, kind, state, open, request, seams);
+        let mut entry = self.new_entry(id.clone(), kind, state, open, request, seams);
         entry.task_id = task;
         entry.answers = message;
         entry.placement = Some(Placement::Inline);
-        entry.body = body(&answer);
+        entry.body = body(&said);
         self.create(entry, seams);
+        self.turns[t].later.push(id.clone());
+        self.last_shown = Some(Shown::Entry(id));
     }
 
     /// `merged` (ORCH-529): the message was read together with another; its session ends (finishMerged).
@@ -581,7 +674,7 @@ impl ChatProjector {
         let Some(task) = text(event, "task_id") else {
             return;
         };
-        self.apply_outcome(event);
+        self.apply_outcome(event, seams);
         let runs = |x: &Turn| x.active && x.session_task.as_deref() == Some(task.as_str());
         let session = context
             .or(self.foreground)
@@ -622,7 +715,7 @@ impl ChatProjector {
                 self.recovered(&task, event, end);
             }
         }
-        self.apply_outcome(event);
+        self.apply_outcome(event, seams);
     }
 
     /// recordRecovered: a finished task this chat has no turn for (started elsewhere, a schedule's run, before a
@@ -889,7 +982,25 @@ impl ChatProjector {
     /// a question FERB asked, to a turn the chat no longer ends on is posted below, quoting it; a card fills in place;
     /// a stop's end told in another message's reply is filed on its own turn (ORCH-579). The turn's answer entry is a
     /// new one when it is the first, posted below, or from another source than the one shown; otherwise it is revised.
+    /// Other words after the turn's answer are a later answer (APP-914); the turn keeps its own.
     fn finish(&mut self, t: usize, end: End, seams: &mut dyn Seams) {
+        if self.is_later(t, Some(&end.said)) {
+            if end.from == "task" {
+                self.turns[t].ended = true;
+                self.dirty.insert(t);
+            }
+            let said = AnswerBody {
+                from: end.from.to_string(),
+                text: end.said,
+                display_text: end.display,
+                status: end.status,
+                verified: end.verified,
+                artifacts: end.artifacts,
+                ..AnswerBody::default()
+            };
+            self.answer_later(t, said, true, seams);
+            return;
+        }
         let before = self.turns[t].status.clone();
         let first_answer = awaiting(&before) && !awaiting(&end.status);
         let after_question =

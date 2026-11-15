@@ -644,7 +644,10 @@ impl ChatRpc {
             Some(Value::Object(m)) => m.clone(),
             _ => Map::new(),
         };
-        match self.deps.gateway.call(&grant, &name, &arguments).await {
+        // a worker's tool call runs on its connection's task, beside the chat's: what each of its runs tells a tree's
+        // line is one burst (ferb-worker's bursts.rs)
+        let call = self.deps.gateway.call(&grant, &name, &arguments);
+        match ferb_worker::bursts::per_poll(call).await {
             Ok(reply) => Ok(obj(reply)),
             Err(class) => Err(HandlerError::fault(&class, "")),
         }

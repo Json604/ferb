@@ -493,13 +493,33 @@ impl Inner {
         self.deps.daemon.on_task_start(&tree_id).await;
         let mut rx = self.runs.open_live(&tree_id);
         self.live().live_lines.insert(tree_id.clone());
-        let forward = |mut ev: Map<String, Value>| {
+        let one = |mut ev: Map<String, Value>| {
             if let Some(own) = ev.remove(SUBTASK_ID) {
                 ev.insert("task_id".into(), own);
             }
             let _ = emit.send(Value::Object(ev));
         };
-        let mut run = Box::pin(self.execute(&tree, &root_span));
+        // what one poll of a producer told (ferb-worker's bursts.rs) goes on as one burst, between two wake marks,
+        // however this line is read
+        let wake = || {
+            let mut mark = Map::new();
+            mark.insert(super::chat::WAKE.into(), Value::Bool(true));
+            let _ = emit.send(Value::Object(mark));
+        };
+        let forward = |mut ev: Map<String, Value>| match ev.remove(ferb_worker::bursts::BURST) {
+            Some(Value::Array(events)) => {
+                wake();
+                for ev in events {
+                    if let Value::Object(ev) = ev {
+                        one(ev);
+                    }
+                }
+                wake();
+            }
+            _ => one(ev),
+        };
+        // the tree's own work runs here, in this task: each of its runs between two suspensions is one burst
+        let mut run = ferb_worker::bursts::per_poll(self.execute(&tree, &root_span));
         // the shutdown's cancellation comes first: once it began, nothing more of this run is told
         let completed = loop {
             if self.shutting_down_now() {
@@ -975,7 +995,15 @@ impl Inner {
     /// line (`task.progress`, what FERB.app's Tasks list, short view and work box show) is the wait's own line, so a
     /// waiting task never shows its last finished step's words. Python's plan run told only the step's state.
     fn say_waiting(&self, root: &Arc<Tree>) {
-        let states = root.lock().step_states.clone();
+        let states = {
+            let st = root.lock();
+            // a stopped or ended tree says nothing more: its steps end one by one after a stop, and a wait not yet
+            // ended would still read as waiting
+            if !st.stop.is_empty() || st.outcome.is_some() {
+                return;
+            }
+            st.step_states.clone()
+        };
         let live = |s: &Value| {
             s.get("status")
                 .and_then(Value::as_str)

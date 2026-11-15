@@ -253,6 +253,12 @@ impl Inner {
                 }
             }
         }
+        // Python's waiting step reads the answer at its next poll, after this turn has recorded its reply (the turn runs
+        // on without suspending); on several threads the step would race the reply, so it waits for it (`SteerHold`,
+        // released with the turn's other hand-overs once the reply is recorded: `wake_deferred`)
+        let hold = Arc::new(super::loops::SteerHold::default());
+        self.live().answer_holds.insert(ap.id.clone(), hold.clone());
+        turn.lock().unwrap().held.push((ap.id.clone(), hold));
         let resolved = self
             .deps
             .daemon

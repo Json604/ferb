@@ -219,12 +219,25 @@ Lines are Python lines at `63369cb3`. "Fixtures" names what exists; a part witho
   `client_id` and `submission_id`); then the Mac app in three steps (ids on send; history from the engine; live from
   the watch), each leaving the app working. The phone lab sends no `session_id`: the default must become the current
   conversation, not "default".
-- Owner decisions open: the shared conversation (confirm the words), day tabs or continuous scroll, importing the
-  pre-Rust archive, retention, "seen" across devices, and whether stage 1 is cut over.
+- Owner, 2026-11-15 (ENG-10, ENG-11): one conversation kept on the Mac; PHONES fetch it like from a server and store
+  what they fetched; FERB.app's behaviour and UI for earlier messages stay as they are ("no only phoens ... current
+  mac behavious adn ui for prev and od messages im ok with"); chat kept as now; the pre-Rust archive imported once,
+  read-only; a result seen on one device is seen for notifications everywhere; stage 1 is cut over. So the Mac app is
+  NOT moved onto `chat.entries.page`/`watch` for its history (the design's Mac steps 2 and 3 are dropped); what the
+  Mac must gain is showing a turn that a phone started (owner: "ofc this, it should be shared"), with nothing
+  visible changed: a contained change inside the app (e.g. the watch feeding its existing reducer for turns it did
+  not send).
 - App bugs found by the fold, not fixed: frames after a turn's first answer are dropped (`Conversation.swift:72-90`,
   `NotchSession.swift:226`); a one-ask outcome's `unconfirmed` is read as `note` (`ConversationArchive.swift:806`).
 
 ## Stage 3: the phone role and Android
+
+- Owner, 2026-11-15: "i also made UI for hte phone apps that i want exactly same in both ios and android design wise,
+  its at: ferb-glass-lab in desktop." The phone apps' look is `~/Desktop/ferb-glass-lab` (read-only: `DESIGN.md`,
+  `tokens.json`, `Sources/FerbGlass` in SwiftUI, the `phone` scene; `./run.sh --scene phone`), the same on iPhone and
+  Android. Record it as an owner decision in kb when stage 3 starts; the Android app reproduces the tokens and
+  screens, it does not get its own design.
+- Owner, 2026-11-15 (ENG-10): a phone stores what it fetched from the Mac locally.
 
 - Source: `~/Desktop/ferb-phone-link` at `57b3f34` (read only): `rust/src` (transport on iroh 1.4.1 with a small
   pinned patch, `role.rs` classifying all 106 methods with five never allowed: `about.guide`,
