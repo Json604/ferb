@@ -230,7 +230,7 @@ fn unhash(text: &str) -> String {
 }
 
 /// The deliberate differences from Python (ENG-6), applied to the recording: (scenario, recorded, the port's).
-const FIXES: [(&str, &str, &str); 10] = [
+const FIXES: [(&str, &str, &str); 11] = [
     (
         "global_stop",
         "(from the task) FERB was stopped",
@@ -270,6 +270,13 @@ const FIXES: [(&str, &str, &str); 10] = [
         "answer_step.\\\\\\\", \\\\\\\"write: missing dependencies ['gather']\\\\\\\"]",
     ),
     ("plan_repair", "\": 2139,", "\": 2181,"),
+    // ORCH-649 (fixed against Python): a conversation change from chat is said by who the chat is with, not as
+    // "Conversation <action>: <id>" (ferb-supervisor's FIXES)
+    (
+        "conversation_change",
+        "Conversation pause: id-000021:chat",
+        "Paused the chat with Robin.",
+    ),
 ];
 
 /// ORCH-647 (fixed against Python): in these scenarios the task's only live step is a wait, so the port also tells
@@ -371,6 +378,8 @@ struct Report {
     frames: Vec<String>,
     calls: Vec<String>,
     tables: Vec<String>,
+    /// stage 2: the chat_entries table against the golden entries
+    entries: Vec<String>,
     stopped: Option<String>,
     checked: usize,
 }
@@ -381,14 +390,288 @@ impl Report {
             && self.frames.is_empty()
             && self.calls.is_empty()
             && self.tables.is_empty()
+            && self.entries.is_empty()
     }
 }
 
 const NOT_COMPARED: [&str; 3] = ["perception_floor", "recall_state", "trail_changes"];
 
-/// make.py `tables`: the recorder leaves out every full-text index (`_fts` in the name) with its shadow tables.
+/// make.py `tables`: the recorder leaves out every full-text index (`_fts` in the name) with its shadow tables. The
+/// stage-2 tables (migration 0063: the chat's entries, ENG-8) did not exist when Python recorded: they are compared
+/// with the chat-entries golden instead ([`entries_against_golden`]).
 fn compared(table: &str) -> bool {
-    !NOT_COMPARED.contains(&table) && !table.starts_with("learning_") && !table.contains("_fts")
+    !NOT_COMPARED.contains(&table)
+        && !ferb_store::chat_entries::TABLES.contains(&table)
+        && !table.starts_with("learning_")
+        && !table.contains("_fts")
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// stage 2: the wired projector against the pure one
+// ---------------------------------------------------------------------------------------------------------------
+
+/// The golden entries of every recorded scenario (`rust/fixtures/chat-entries/scenarios.json`, ferb-supervisor's
+/// `ChatProjector` folded over each scenario's timeline), by name.
+fn golden_entries() -> &'static HashMap<String, Vec<Value>> {
+    static G: OnceLock<HashMap<String, Vec<Value>>> = OnceLock::new();
+    G.get_or_init(|| {
+        fixture("chat-entries/scenarios.json")["scenarios"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|sc| (s(&sc["name"]), sc["entries"].as_array().unwrap().clone()))
+            .collect()
+    })
+}
+
+/// Entries as compared: per conversation in `pos` order; ids, the entries they name (`answers`, a later answer's
+/// `follows`) and `pos` replaced by their rank (the live engine's ids are its own, its positions start at
+/// `POS_BASE`); everything else as stored.
+fn normalized(entries: &[Value]) -> Vec<Value> {
+    let mut list: Vec<Value> = entries.to_vec();
+    list.sort_by(|a, b| {
+        (s(&a["conversation_id"]), a["pos"].as_u64())
+            .cmp(&(s(&b["conversation_id"]), b["pos"].as_u64()))
+    });
+    let names: HashMap<String, String> = list
+        .iter()
+        .enumerate()
+        .map(|(i, e)| (s(&e["id"]), format!("e{}", i + 1)))
+        .collect();
+    let rename = |v: &Value| match v.as_str() {
+        Some(id) => json!(names
+            .get(id)
+            .cloned()
+            .unwrap_or_else(|| format!("unknown:{id}"))),
+        None => v.clone(),
+    };
+    let mut rank: HashMap<String, u64> = HashMap::new();
+    list.iter()
+        .map(|e| {
+            let mut e = e.clone();
+            e["id"] = rename(&e["id"]);
+            e["answers"] = rename(&e["answers"]);
+            if e["body"].get("follows").is_some() {
+                e["body"]["follows"] = rename(&e["body"]["follows"]);
+            }
+            let r = rank.entry(s(&e["conversation_id"])).or_default();
+            *r += 1;
+            e["pos"] = json!(*r);
+            e
+        })
+        .collect()
+}
+
+/// Where the golden's timeline and what the engine saw differ, by scenario (the golden is the pure projector over a
+/// timeline built from the recording, and that timeline is a choice: a recording keeps each connection's lines in
+/// order, not their order across connections, so it places a stream's frames where the stream ended, takes a question
+/// no stream carried from `chat.status`, and dates what came later with the last time it saw; the engine takes each
+/// thing when it happens). Every other scenario is compared strictly.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Diff {
+    /// Two streams were open at once, or a question came beside a stream: the engine's interleaving is the real one,
+    /// the golden's puts the stream's frames at its end. Compared: the same entries, each in its final state, whatever
+    /// their order (`pos`, `seq`, `rev` and the ids left out; the entries an answer names compared by kind and request).
+    Order,
+    /// A question the golden took from `chat.status` (no request, its task the tree) and the engine from the event
+    /// itself (its request, its worker's task): `request_id` and `task_id` of questions left out.
+    StatusQuestion,
+    /// The clock moved during the scenario (a reminder, a schedule's run, a pause across a day): what was made or
+    /// revised after it carries the engine's time, the golden the last time its timeline saw. Times left out.
+    Times,
+    /// A question no stream carried and no `chat.status` of the recording listed (the recording ended before it was
+    /// polled): the engine posts it as it is asked; the golden never saw it. Questions the golden lacks left out.
+    UnlistedQuestion,
+    /// A task's result the engine took from the bus (`task.result`) that no stream carried and no `chat.status` of
+    /// the recording listed (it had been shown): the golden never saw it. Answers with words the golden lacks left out.
+    UnlistedResult,
+    /// A restart in the middle: the engine's start-up pass expired the question left open (pending questions die with
+    /// the process), which the golden's timeline doesn't model; the golden's open questions are expired here.
+    Restart,
+}
+
+const ENTRY_DIFFERENCES: &[(&str, &[Diff])] = &[
+    ("confirm_yes", &[Diff::Order, Diff::StatusQuestion]),
+    ("confirm_no", &[Diff::Order, Diff::StatusQuestion]),
+    ("pause_steer_resume", &[Diff::Order]),
+    ("steer_running_task", &[Diff::Order]),
+    ("stop_by_chat", &[Diff::Order]),
+    ("stop_plus_new_task", &[Diff::Order]),
+    ("confirm_stop_pending", &[Diff::Order, Diff::StatusQuestion]),
+    (
+        "worker_question_answered",
+        &[Diff::Order, Diff::StatusQuestion],
+    ),
+    ("check_in_after_five", &[Diff::Order, Diff::StatusQuestion]),
+    (
+        "restart_with_open_question",
+        &[Diff::Order, Diff::StatusQuestion, Diff::Restart],
+    ),
+    ("schedule_created_and_fired", &[Diff::Times]),
+    ("timer_set_and_fired", &[Diff::Times]),
+    // the newer recordings (supervisor/more_scenarios.json)
+    ("answer_in_chat", &[Diff::Order, Diff::StatusQuestion]),
+    ("ask_step", &[Diff::Order, Diff::StatusQuestion]),
+    ("route_question", &[Diff::Order, Diff::StatusQuestion]),
+    ("checker_runtime_down", &[Diff::Order, Diff::StatusQuestion]),
+    (
+        "correct_pending_check",
+        &[Diff::Order, Diff::StatusQuestion],
+    ),
+    ("loop_pause_stop", &[Diff::Order, Diff::StatusQuestion]),
+    ("owner_closed_tab", &[Diff::Order, Diff::StatusQuestion]),
+    (
+        "conversation_handover",
+        &[Diff::Order, Diff::StatusQuestion],
+    ),
+    ("conversation_change", &[Diff::Order, Diff::StatusQuestion]),
+    (
+        "conversation_resume",
+        &[Diff::Order, Diff::StatusQuestion, Diff::UnlistedResult],
+    ),
+    ("loop_steer_finish", &[Diff::Order]),
+    (
+        "mention_paused",
+        &[Diff::Order, Diff::StatusQuestion, Diff::Times],
+    ),
+    ("stated_scope", &[Diff::Order]),
+    ("browse_as_corrected", &[Diff::Order]),
+    (
+        "remember_then_forget",
+        &[Diff::Order, Diff::UnlistedQuestion],
+    ),
+    ("displaced_question", &[Diff::Order, Diff::UnlistedQuestion]),
+];
+
+/// The entries with a scenario's named differences applied (`golden`: the golden's side).
+fn with_differences(entries: Vec<Value>, diffs: &[Diff], golden: bool) -> Vec<Value> {
+    let by_id: HashMap<String, Value> = entries.iter().map(|e| (s(&e["id"]), e.clone())).collect();
+    let mut out: Vec<Value> = entries
+        .into_iter()
+        .map(|mut e| {
+            let kind = s(&e["kind"]);
+            if diffs.contains(&Diff::Restart) && golden && kind == "question" && e["open"] == true {
+                e["state"] = json!("expired");
+                e["open"] = json!(false);
+                e["body"]["answer"] =
+                    json!({"state": "expired", "how": null, "choice": null, "said": null});
+            }
+            if diffs.contains(&Diff::StatusQuestion) && kind == "question" {
+                e["request_id"] = Value::Null;
+                e["task_id"] = Value::Null;
+            }
+            if diffs.contains(&Diff::Times) {
+                for k in ["created_at", "updated_at", "day"] {
+                    e[k] = Value::Null;
+                }
+            }
+            e
+        })
+        .collect();
+    if diffs.contains(&Diff::Order) || diffs.contains(&Diff::Restart) {
+        let named = |id: &Value| match id.as_str().and_then(|i| by_id.get(i)) {
+            Some(r) => json!(format!("{}:{}", s(&r["kind"]), s(&r["request_id"]))),
+            None => id.clone(),
+        };
+        for e in &mut out {
+            e["seq"] = Value::Null;
+            e["rev"] = Value::Null;
+            if diffs.contains(&Diff::Order) {
+                e["answers"] = named(&e["answers"]);
+                if e["body"].get("follows").is_some() {
+                    e["body"]["follows"] = named(&e["body"]["follows"]);
+                }
+                e["pos"] = Value::Null;
+            }
+        }
+        if diffs.contains(&Diff::Order) {
+            for e in &mut out {
+                e["id"] = Value::Null;
+            }
+            out.sort_by_key(|e| e.to_string());
+        }
+    }
+    out
+}
+
+/// After a scenario, the `chat_entries` table equals the golden entries (the pure projector over the recorded
+/// timeline), normalized, with the scenario's named differences: the wired projector made the same conversation. A
+/// difference is reported per entry.
+fn entries_against_golden(name: &str, db: &Path) -> Vec<String> {
+    let Some(want) = golden_entries().get(name) else {
+        return vec![format!("{name}: no golden entries")];
+    };
+    let conn =
+        rusqlite::Connection::open_with_flags(db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .unwrap();
+    let mut mine = Vec::new();
+    for c in ferb_store::chat_entries::conversations(&conn).unwrap() {
+        let page = ferb_store::chat_entries::page(&conn, &c, None, None, 100_000).unwrap();
+        mine.extend(
+            page.entries
+                .iter()
+                .map(|e| serde_json::to_value(e).unwrap()),
+        );
+    }
+    let diffs: &[Diff] = ENTRY_DIFFERENCES
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map(|(_, d)| *d)
+        .unwrap_or(&[]);
+    if diffs.contains(&Diff::UnlistedQuestion) {
+        let asked: BTreeSet<String> = want
+            .iter()
+            .filter(|e| e["kind"] == "question")
+            .map(|e| s(&e["approval_id"]))
+            .collect();
+        mine.retain(|e| e["kind"] != "question" || asked.contains(&s(&e["approval_id"])));
+    }
+    if diffs.contains(&Diff::UnlistedResult) {
+        let said: BTreeSet<String> = want
+            .iter()
+            .filter(|e| e["kind"] == "answer")
+            .map(|e| s(&e["body"]["text"]))
+            .collect();
+        mine.retain(|e| e["kind"] != "answer" || said.contains(&s(&e["body"]["text"])));
+    }
+    let (want, mine) = (
+        with_differences(normalized(want), diffs, true),
+        with_differences(normalized(&mine), diffs, false),
+    );
+    let mut out = Vec::new();
+    for i in 0..want.len().max(mine.len()) {
+        match (want.get(i), mine.get(i)) {
+            (Some(a), Some(b)) if a == b => {}
+            (Some(a), Some(b)) => {
+                let keys: Vec<String> = a
+                    .as_object()
+                    .unwrap()
+                    .iter()
+                    .filter(|(k, v)| b.get(k.as_str()) != Some(v))
+                    .map(|(k, v)| {
+                        format!(
+                            "{k}: golden {} / table {}",
+                            cut(&v.to_string()),
+                            cut(&b[k].to_string())
+                        )
+                    })
+                    .collect();
+                out.push(format!(
+                    "entry {} ({}): {}",
+                    i + 1,
+                    s(&a["kind"]),
+                    keys.join("; ")
+                ));
+            }
+            (a, b) => out.push(format!(
+                "entry {}: golden {} / table {}",
+                i + 1,
+                a.map(|v| cut(&v.to_string())).unwrap_or("(none)".into()),
+                b.map(|v| cut(&v.to_string())).unwrap_or("(none)".into())
+            )),
+        }
+    }
+    out
 }
 
 fn is_shadow(name: &str) -> bool {
@@ -1077,6 +1360,7 @@ fn run_scenario(
     used.take(&run.control(json!({"do": "script"})));
     // the store as the recorder read it: before the daemon's shutdown
     let mine = dump(&home.join("ferb.db"), run_root);
+    report.entries = entries_against_golden(&name, &home.join("ferb.db"));
     if std::env::var("CHAT_REPLAY_DUMP").is_ok() {
         for t in ["journal", "spans"] {
             let at = if t == "journal" { 1 } else { 0 };
@@ -1307,6 +1591,7 @@ fn run_scenario(
     report
 }
 
+// decision: ENG-13
 #[test]
 fn the_recorded_chat_scenarios_through_the_program() {
     let chat = fixture("daemon/chat_scenarios.json");
@@ -1351,6 +1636,12 @@ fn the_recorded_chat_scenarios_through_the_program() {
                 .iter()
                 .take(if debug { usize::MAX } else { 3 })
                 .map(|f| format!("tables: {f}")),
+        );
+        why.extend(
+            r.entries
+                .iter()
+                .take(if debug { usize::MAX } else { 3 })
+                .map(|f| format!("entries: {f}")),
         );
         lines.push(format!("{name}: replays partly — {}", why.join("\n  ")));
         eprintln!("{}", lines.last().unwrap());
@@ -1486,6 +1777,12 @@ impl More {
                 .take(if debug { usize::MAX } else { 3 })
                 .map(|f| format!("tables: {f}")),
         );
+        why.extend(
+            r.entries
+                .iter()
+                .take(if debug { usize::MAX } else { 3 })
+                .map(|f| format!("entries: {f}")),
+        );
         (
             false,
             format!("{name}: replays partly — {}", why.join("\n  ")),
@@ -1493,6 +1790,7 @@ impl More {
     }
 }
 
+// decision: ENG-13
 #[test]
 fn the_more_scenarios_through_the_program() {
     let m = More::new();
@@ -1574,3 +1872,446 @@ fn a_conversation_turn_keeps_pythons_order_every_time() {
 
 /// Recordings of paths not judged here yet (none: every recording is judged).
 const IN_PROGRESS: [&str; 0] = [];
+
+// ---------------------------------------------------------------------------------------------------------------
+// stage 2: the chat's calls through the program (ENG-10: the conversation read like from a server)
+// ---------------------------------------------------------------------------------------------------------------
+
+/// A daemon whose scripted model answers every planner call as `plain_reply`'s one call did (a reply), its steps not
+/// replayed: the stage-2 calls' tests drive it themselves.
+struct Stage2 {
+    _folder: tempfile::TempDir,
+    _root: RunRoot,
+    run: Run,
+}
+
+fn stage2() -> Stage2 {
+    let chat = fixture("daemon/chat_scenarios.json");
+    let (folder, run_root) = RunRoot::new(recorded_root_len(&chat));
+    let sc = scenario(&chat, "plain_reply");
+    let root = PathBuf::from(&run_root.root);
+    let (home, user) = Run::paths(&root, "01");
+    let workspace = home.join("workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
+    std::fs::create_dir_all(&user).unwrap();
+    let mut script = script_of(
+        &sc,
+        &base_records("plain_reply"),
+        catalogs(),
+        &workspace.to_string_lossy(),
+    );
+    let times = |v: &Vec<Value>| -> Vec<Value> { (0..12).flat_map(|_| v.clone()).collect() };
+    script.calls = times(&script.calls);
+    script.supervise = times(&script.supervise);
+    script.systems = times(&script.systems);
+    script.contexts = times(&script.contexts);
+    let script_path = root.join("01-script.json");
+    write_script(&script_path, &script, &Used::default(), &run_root);
+    let run = Run::start(&root, "01", config(&script_path, "id"));
+    Stage2 {
+        _folder: folder,
+        _root: run_root,
+        run,
+    }
+}
+
+fn client(run: &Run) -> Raw {
+    let mut c = Raw::connect(&run.socket()).unwrap();
+    c.hello("cli").unwrap();
+    c
+}
+
+/// A unary call's answer line (events of other calls on the connection skipped).
+fn rpc(c: &mut Raw, id: i64, method: &str, params: Value) -> Value {
+    c.send(&json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}).to_string());
+    loop {
+        let line = c.recv().expect("an answer");
+        let v: Value = serde_json::from_str(&line).unwrap();
+        if v["id"] == id {
+            return v;
+        }
+    }
+}
+
+/// A stream's events, then its last line (its end or its error).
+fn streamed(c: &mut Raw, id: i64, method: &str, params: Value) -> (Vec<Value>, Value) {
+    c.send(&json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}).to_string());
+    let mut events = Vec::new();
+    loop {
+        let line = c.recv().expect("a stream line");
+        let v: Value = serde_json::from_str(&line).unwrap();
+        if v["id"] == id {
+            return (events, v);
+        }
+        if v["method"] == format!("{method}.event") {
+            events.push(v["params"].clone());
+        }
+    }
+}
+
+/// The next event of an open stream on `c`.
+fn next_event(c: &mut Raw) -> Value {
+    let line = c.recv().expect("an event");
+    let v: Value = serde_json::from_str(&line).unwrap();
+    if v.get("params").is_some() {
+        v["params"].clone()
+    } else {
+        v
+    }
+}
+
+fn page_all(c: &mut Raw, id: i64) -> Vec<Value> {
+    let r = rpc(c, id, "chat.entries.page", json!({"limit": 500}));
+    r["result"]["entries"].as_array().unwrap().clone()
+}
+
+// decision: ENG-10
+// decision: ENG-14
+#[test]
+fn a_repeated_submission_is_the_same_acceptance_and_starts_no_second_turn() {
+    let st = stage2();
+    let mut c = client(&st.run);
+    let send = json!({"text": "hi there", "client_id": "phone-a", "submission_id": "sub-1"});
+    let (events, end) = streamed(&mut c, 2, "chat.send", send.clone());
+    assert_eq!(end["result"]["ended"], true, "{end}");
+    let ack = &events[0];
+    assert_eq!(ack["type"], "ack");
+    for k in ["entry_id", "seq", "epoch", "submission_id"] {
+        assert!(!ack[k].is_null(), "the ack carries {k}: {ack}");
+    }
+    assert!(events.iter().any(|e| e["type"] == "reply"), "{events:?}");
+    let made = st.run.control(json!({"do": "script"}))["made"]
+        .as_array()
+        .unwrap()
+        .len();
+    // the same submission again: the same acceptance, marked a repeat, and nothing else
+    let (again, end) = streamed(&mut c, 3, "chat.send", send.clone());
+    assert_eq!(end["result"]["ended"], true);
+    assert_eq!(again.len(), 1, "{again:?}");
+    assert_eq!(again[0]["repeat"], true);
+    for k in [
+        "request_id",
+        "entry_id",
+        "seq",
+        "epoch",
+        "submission_id",
+        "message",
+    ] {
+        assert_eq!(again[0][k], ack[k], "{k}");
+    }
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(
+        st.run.control(json!({"do": "script"}))["made"]
+            .as_array()
+            .unwrap()
+            .len(),
+        made,
+        "no second turn"
+    );
+    // the same key with other words is refused; a submission id needs its client
+    let (_, refused) = streamed(
+        &mut c,
+        4,
+        "chat.send",
+        json!({"text": "something else", "client_id": "phone-a", "submission_id": "sub-1"}),
+    );
+    assert!(refused["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("already used"));
+    let (_, refused) = streamed(
+        &mut c,
+        5,
+        "chat.send",
+        json!({"text": "x", "submission_id": "sub-2"}),
+    );
+    assert!(refused.get("error").is_some(), "{refused}");
+    // one message entry, naming its client and submission; its answer
+    let entries = page_all(&mut c, 6);
+    let messages: Vec<&Value> = entries.iter().filter(|e| e["kind"] == "message").collect();
+    assert_eq!(messages.len(), 1, "{entries:?}");
+    assert_eq!(messages[0]["id"], ack["entry_id"]);
+    assert_eq!(messages[0]["client_id"], "phone-a");
+    assert_eq!(messages[0]["submission_id"], "sub-1");
+    assert!(entries.iter().any(|e| e["kind"] == "answer"));
+    // a caller without a client id gets today's bytes: no entry fields in its ack
+    let (plain, _) = streamed(
+        &mut c,
+        7,
+        "chat.send",
+        json!({"session_id": "owner", "text": "hello"}),
+    );
+    assert!(plain[0].get("entry_id").is_none(), "{}", plain[0]);
+}
+
+// decision: ENG-8
+// decision: ENG-14
+#[test]
+fn two_clients_sending_at_the_same_instant_are_ordered_by_commit() {
+    let st = stage2();
+    let gate = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let sock = st.run.socket();
+    let sends: Vec<_> = ["phone-a", "phone-b"]
+        .iter()
+        .map(|who| {
+            let (gate, sock, who) = (gate.clone(), sock.clone(), who.to_string());
+            std::thread::spawn(move || {
+                let mut c = Raw::connect(&sock).unwrap();
+                c.hello("cli").unwrap();
+                gate.wait();
+                let (events, _) = streamed(
+                    &mut c,
+                    2,
+                    "chat.send",
+                    json!({"text": format!("from {who}"), "client_id": who, "submission_id": "one"}),
+                );
+                events[0].clone()
+            })
+        })
+        .collect();
+    let acks: Vec<Value> = sends.into_iter().map(|t| t.join().unwrap()).collect();
+    let (a, b) = (
+        acks[0]["seq"].as_u64().unwrap(),
+        acks[1]["seq"].as_u64().unwrap(),
+    );
+    assert_ne!(a, b, "one counter, bumped in each commit");
+    let mut c = client(&st.run);
+    std::thread::sleep(Duration::from_millis(500));
+    let entries = page_all(&mut c, 3);
+    let messages: Vec<&Value> = entries.iter().filter(|e| e["kind"] == "message").collect();
+    assert_eq!(messages.len(), 2);
+    // the message committed first is first in the chat and in the changes
+    let first = if a < b { &acks[0] } else { &acks[1] };
+    assert_eq!(messages[0]["id"], first["entry_id"]);
+    let epoch = acks[0]["epoch"].clone();
+    let r = rpc(
+        &mut c,
+        4,
+        "chat.entries.changes",
+        json!({"epoch": epoch, "after_seq": 0}),
+    );
+    let seqs: Vec<u64> = r["result"]["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["seq"].as_u64().unwrap())
+        .collect();
+    assert!(seqs.windows(2).all(|w| w[0] < w[1]), "{seqs:?}");
+}
+
+// decision: ENG-10
+// decision: ENG-14
+#[test]
+fn a_second_client_watching_sees_a_turn_another_started_live() {
+    let st = stage2();
+    let mut w = client(&st.run);
+    w.send(r#"{"jsonrpc": "2.0", "id": 9, "method": "chat.entries.watch", "params": {}}"#);
+    let first = next_event(&mut w);
+    assert_eq!(first["type"], "caught_up", "{first}");
+    let mut c = client(&st.run);
+    let (events, _) = streamed(
+        &mut c,
+        2,
+        "chat.send",
+        json!({"text": "hi there", "client_id": "mac"}),
+    );
+    let request = events[0]["request_id"].clone();
+    let mut seen_message = false;
+    let mut seen_answer = false;
+    while !(seen_message && seen_answer) {
+        let ev = next_event(&mut w);
+        if ev["type"] == "change" {
+            assert!(ev.get("catchup").is_none());
+            let e = &ev["entry"];
+            seen_message |= e["kind"] == "message" && e["request_id"] == request;
+            seen_answer |= e["kind"] == "answer" && e["request_id"] == request;
+        }
+    }
+}
+
+// decision: ENG-10
+// decision: ENG-14
+#[test]
+fn a_returning_watcher_catches_up_with_exactly_what_it_missed() {
+    let st = stage2();
+    let mut c = client(&st.run);
+    let mut w = client(&st.run);
+    w.send(r#"{"jsonrpc": "2.0", "id": 9, "method": "chat.entries.watch", "params": {}}"#);
+    let up = next_event(&mut w);
+    let epoch = up["epoch"].clone();
+    let (events, _) = streamed(
+        &mut c,
+        2,
+        "chat.send",
+        json!({"text": "hi there", "client_id": "mac"}),
+    );
+    let request = events[0]["request_id"].clone();
+    let mut cursor = 0;
+    loop {
+        let ev = next_event(&mut w);
+        if ev["type"] == "change" {
+            cursor = cursor.max(ev["entry"]["seq"].as_u64().unwrap());
+            if ev["entry"]["kind"] == "answer" && ev["entry"]["request_id"] == request {
+                break;
+            }
+        }
+    }
+    drop(w);
+    std::thread::sleep(Duration::from_millis(300));
+    // more happens while it is away
+    let (more, _) = streamed(
+        &mut c,
+        3,
+        "chat.send",
+        json!({"text": "and again", "client_id": "mac"}),
+    );
+    assert_eq!(more[0]["type"], "ack");
+    std::thread::sleep(Duration::from_millis(500));
+    let missed = rpc(
+        &mut c,
+        4,
+        "chat.entries.changes",
+        json!({"epoch": epoch, "after_seq": cursor, "limit": 500}),
+    );
+    let want: Vec<Value> = missed["result"]["entries"].as_array().unwrap().clone();
+    assert!(!want.is_empty());
+    let mut back = client(&st.run);
+    back.send(
+        &json!({"jsonrpc": "2.0", "id": 9, "method": "chat.entries.watch",
+                "params": {"epoch": epoch, "after_seq": cursor}})
+        .to_string(),
+    );
+    let mut got = Vec::new();
+    loop {
+        let ev = next_event(&mut back);
+        if ev["type"] == "caught_up" {
+            assert_eq!(ev["head"], missed["result"]["head"]);
+            break;
+        }
+        assert_eq!(ev["catchup"], true, "{ev}");
+        got.push(ev["entry"].clone());
+    }
+    assert_eq!(
+        got, want,
+        "each missed entry once, at its latest state, in seq order"
+    );
+    let ids: BTreeSet<String> = got.iter().map(|e| s(&e["id"])).collect();
+    assert_eq!(ids.len(), got.len());
+    assert!(got.iter().all(|e| e["seq"].as_u64().unwrap() > cursor));
+}
+
+// decision: ENG-10
+// decision: ENG-14
+#[test]
+fn a_cursor_of_another_epoch_must_reset_and_one_ahead_is_told() {
+    let st = stage2();
+    let mut c = client(&st.run);
+    let (events, _) = streamed(
+        &mut c,
+        2,
+        "chat.send",
+        json!({"text": "hi there", "client_id": "mac"}),
+    );
+    let epoch = events[0]["epoch"].clone();
+    let r = rpc(
+        &mut c,
+        3,
+        "chat.entries.changes",
+        json!({"epoch": "not-this-one", "after_seq": 1}),
+    );
+    assert_eq!(r["result"]["reset_required"], true, "{r}");
+    assert_eq!(r["result"]["epoch"], epoch);
+    let r = rpc(
+        &mut c,
+        4,
+        "chat.entries.changes",
+        json!({"epoch": epoch, "after_seq": 999_999}),
+    );
+    assert_eq!(r["result"]["cursor_ahead"], true, "{r}");
+    let (frames, end) = streamed(
+        &mut c,
+        5,
+        "chat.entries.watch",
+        json!({"epoch": "not-this-one", "after_seq": 3}),
+    );
+    assert_eq!(frames.len(), 1);
+    assert_eq!(frames[0]["type"], "reset_required");
+    assert_eq!(end["result"]["ended"], true, "{end}");
+}
+
+// decision: ENG-10
+// decision: ENG-14
+#[test]
+fn a_long_body_comes_in_pieces_and_max_bytes_cuts_an_entry() {
+    let st = stage2();
+    let mut c = client(&st.run);
+    let long: String = (0..1200).map(|i| format!("w{i} ")).collect::<String>();
+    let full = long.trim_end().to_string();
+    let (events, _) = streamed(
+        &mut c,
+        2,
+        "chat.send",
+        json!({"text": long, "client_id": "mac"}),
+    );
+    let id = events[0]["entry_id"].clone();
+    std::thread::sleep(Duration::from_millis(300));
+    let mut text = String::new();
+    let mut offset = 0;
+    for n in 0.. {
+        let r = rpc(
+            &mut c,
+            10 + n,
+            "chat.entries.get",
+            json!({"id": id, "offset": offset, "max_chars": 1000}),
+        );
+        let e = &r["result"]["entry"];
+        text += e["body"]["text"].as_str().unwrap();
+        assert_eq!(e["text_piece"]["full_chars"], full.chars().count());
+        offset += e["text_piece"]["chars"].as_u64().unwrap();
+        if e["text_piece"]["more"] == false {
+            break;
+        }
+    }
+    assert_eq!(text, full);
+    let r = rpc(&mut c, 3, "chat.entries.page", json!({"max_bytes": 4096}));
+    let entries = r["result"]["entries"].as_array().unwrap();
+    assert_eq!(r["result"]["more"], true);
+    assert!(
+        r["result"].to_string().len() <= 4096,
+        "{}",
+        r["result"].to_string().len()
+    );
+    let cut = entries
+        .iter()
+        .find(|e| e["id"] == id)
+        .expect("the long message, cut");
+    assert_eq!(cut["body_cut"]["full_chars"], full.chars().count());
+    assert!(cut["body_cut"]["chars"].as_u64().unwrap() < full.chars().count() as u64);
+}
+
+// decision: ENG-10
+// decision: ENG-14
+#[test]
+fn a_clients_marks_only_move_forward() {
+    let st = stage2();
+    let mut c = client(&st.run);
+    let r = rpc(
+        &mut c,
+        2,
+        "chat.entries.mark",
+        json!({"client_id": "phone-a", "delivered_seq": 5, "read_pos": 3}),
+    );
+    assert_eq!(r["result"]["marks"]["delivered_seq"], 5, "{r}");
+    let r = rpc(
+        &mut c,
+        3,
+        "chat.entries.mark",
+        json!({"client_id": "phone-a", "delivered_seq": 2, "read_pos": 7}),
+    );
+    assert_eq!(r["result"]["marks"]["delivered_seq"], 5);
+    assert_eq!(r["result"]["marks"]["read_pos"], 7);
+    let r = rpc(&mut c, 4, "chat.entries.mark", json!({"delivered_seq": 2}));
+    assert!(r.get("error").is_some(), "a mark needs its client: {r}");
+    let r = rpc(&mut c, 5, "chat.entries.days", json!({}));
+    assert!(r["result"]["days"].is_array(), "{r}");
+}

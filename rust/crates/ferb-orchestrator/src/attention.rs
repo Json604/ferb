@@ -468,6 +468,8 @@ pub fn expire_derived(db: &Db, refs: &[String], replacement: &str, now: &str) ->
             &[text(&id)],
         )?;
         ferb_store::chat_history::clear_notice(db, &id, replacement)?;
+        // stage 2 (rule 7): the chat's entries say the same, as a revision every client reads
+        ferb_store::chat_entries::clear_notice(db.conn(), &id, replacement, now)?;
         for r in &cited {
             sql::exec(
                 c,

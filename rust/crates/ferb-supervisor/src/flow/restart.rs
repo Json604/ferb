@@ -43,6 +43,8 @@ impl Supervisor {
         }
         // main.py:526: learning captures are cancelled, journaled as deferred
         self.inner.stop_episodes().await;
+        // stage 2: what the bus told the chat's entries last is written before the store closes
+        self.inner.chat_log.flush(&self.inner);
     }
 
     /// supervisor.py:5003 `finish_episodes`: every pending episode capture, awaited (tests); none is cancelled.

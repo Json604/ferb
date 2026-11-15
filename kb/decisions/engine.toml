@@ -110,3 +110,32 @@ evidence = "Asked then whether stage 1 is officially done (which lets the databa
 rule = "Stage 1 of ENG-1 is cut over on the owner's live verdict. Schemas above 0062 may be added (ENG-4's condition is met). The Python daemon is removed from the repo in its own commit, with the gate's Python checks retired then."
 why = "ENG-1 and ENG-4 make the cutover the owner's live verdict, and stage 2 needs the first schema above 0062."
 untestable = "A project state the owner declared; the journal records it."
+
+[ENG-12]
+title = "Stage 2's store: migration 0063's chat entries, counters, submissions and marks, kept forever"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "Migration 0063: chat_streams (epoch, last_seq, last_pos, low_pos per conversation), chat_entries (the ENG-8 fields; unique pos and seq per conversation), chat_submissions, chat_clients, chat_client_marks (only forward), chat_entries_from. seq is bumped in the transaction. A stream's entries start at pos 2^32; imported older history goes below low_pos, never renumbered. No hard deletes (tombstones). chat_history's rows carry over as legacy entries with their bytes; chat_history stays. The archive import is by hand, read-only, idempotent. All six tables are kept forever (cleanup.PROTECTED)."
+why = "ENG-10: the Mac keeps the one conversation and phones read it like from a server, which needs a cursor (epoch and seq), pages by position and day, idempotent submissions and per-client delivery state. ENG-11 allows the first schema above 0062."
+rejected = ["Renumbering positions when the archive is imported: pos is set once (ENG-8) and every client's stored positions would go stale.", "pos and seq from one shared number: a revision would need a position.", "Deriving the chat from the journal: append-only rows, plan steps deleted after 90 days (journal 69)."]
+paths = ["ferb/store/migrations/0063_chat_entries.sql", "rust/crates/ferb-store/src/chat_entries.rs", "rust/crates/ferb-store/src/cleanup.rs", "rust/crates/ferb-store/tests/chat_entries.rs"]
+
+[ENG-13]
+title = "The chat entries are written where the stream's frames are made, in one queue, one order"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "ChatLog (flow/chat_log.rs) feeds ChatProjector from one queue in the order things happen: chat.rs take() queues each frame just before the stream gets it, then the stream's end; the daemon's last events consumer queues the bus events no stream carries; reminders are posted. The ack is written in ONE transaction with its chat.ack row and submission; the rest drains in a writer task. Routing: stream, then request, task, current conversation. At start: the journal backstop, then the start-up pass (cut work interrupted, open questions expired)."
+why = "Journal 70 made a stream's frame order explicit; feeding the projector on the same path keeps seq order equal to what each client saw, with no second ordering source, and keeps every recorded scenario byte-equal."
+rejected = ["Feeding bus events from the bus callback synchronously: a publisher may hold the store's lock, and a question would be made before the stream that carries it.", "Draining frames synchronously in take(): the store's lock taken mid-burst moved a confirmation's id ahead of a question's record (confirm_yes)."]
+paths = ["rust/crates/ferb-supervisor/src/flow/chat_log.rs", "rust/crates/ferb-supervisor/src/flow/chat.rs", "rust/crates/ferb-supervisor/src/flow/entries.rs", "rust/crates/ferbd/src/compose/mod.rs", "rust/crates/ferbd/src/compose/areas.rs", "rust/crates/ferbd/tests/chat_replay.rs"]
+
+[ENG-14]
+title = "The chat read like from a server: chat.entries.* and chat.send's client ids"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "chat.send takes optional client_id and submission_id (absent: today's bytes); with them the ack carries entry_id, seq, epoch; a repeat returns the same acceptance and starts no turn; other text under the same key is refused. New app_only methods (the phone role in stage 3): chat.entries.page, changes (reset_required, cursor_ahead), get (long bodies in pieces), days, watch (catch-up, caught_up, live; behind ends it), mark. conversation defaults to the current one. max_bytes cuts a reply (body_cut). Shown flags are unchanged; the entries hold every result."
+why = "ENG-10: phones page older messages, fetch changes since a cursor and follow live, over a link with 64 KiB frames; a resend after a dropped link must not start a second turn."
+paths = ["rust/crates/ferb-supervisor/src/flow/entries_rpc.rs", "rust/crates/ferb-supervisor/src/flow/chat_rpc.rs", "rust/crates/ferb-rpc/src/auth.rs", "rust/crates/ferb-rpc/tests/golden.rs", "rust/crates/ferbd/tests/chat_replay.rs"]

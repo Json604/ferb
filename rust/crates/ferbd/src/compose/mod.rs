@@ -696,6 +696,8 @@ impl Daemon {
         // main.py:418-430: what was running didn't finish; the trees that won't resume are told to the owner
         let resuming: std::collections::BTreeSet<String> =
             sup.supervisor.recover_after_restart().into_iter().collect();
+        // stage 2: the chat entries' journal backstop and start-up pass, before anything is served (chat_log.rs)
+        sup.supervisor.chat_entries_after_restart(&resuming);
         // L39 M1: the records a stopped daemon left go now, except those of trees that will resume
         let stuck = tool_parts.changes().sweep(&|t: &str| resuming.contains(t));
         if !stuck.is_empty() {
@@ -732,7 +734,8 @@ impl Daemon {
                     supervisor: sup.supervisor.clone(),
                     runtime: tokio::runtime::Handle::current(),
                 }),
-                owner: Arc::new(areas::OwnerSide::new(&events)) as Arc<dyn Owner>,
+                owner: Arc::new(areas::OwnerSide::new(&events, sup.supervisor.clone()))
+                    as Arc<dyn Owner>,
                 questions: Arc::new(ferb_supervisor::flow::daemon_seams::GatewayQuestions(
                     gw.clone(),
                 )) as Arc<dyn Questions>,
@@ -816,6 +819,15 @@ impl Daemon {
             let helper = matches!(opts.keychain, Keychain::Real)
                 .then(|| Arc::new(areas::helper(&opts, &home)));
             tools::browser::wire_parts(&tool_parts, desktop, helper);
+            // stage 2: the chat's entries read the bus last, after every consumer above has done its own work (a
+            // question's record among them), so queuing adds nothing before them (ferb-supervisor's chat_log.rs)
+            let chat = sup.supervisor.clone();
+            events.events.on(
+                Some(&ferb_supervisor::flow::chat_log::TOPICS),
+                Arc::new(move |topic: &str, data: Map<String, Value>| {
+                    chat.chat_bus(topic, Value::Object(data));
+                }),
+            );
         }
         // about.read's document: the About area's, as FERB.app's About page reads it
         if let Some(about) = b.deps.about.clone() {

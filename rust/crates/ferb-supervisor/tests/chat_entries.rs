@@ -62,6 +62,41 @@ fn s(v: &Value, k: &str) -> Option<String> {
     v.get(k).and_then(Value::as_str).map(str::to_string)
 }
 
+/// The deliberate differences from Python (ENG-6) the engine's frames carry, applied to a recorded frame's line before
+/// it enters the timeline: (scenario, recorded, the port's); the owner-facing ones of tests/replay/harness.rs `FIXES`
+/// (the others change only what a model reads). Global stop and the forget question (journal 43, 50): FERB's own
+/// words are not tagged "(from the task)". ORCH-649: a conversation change from chat is said by who the chat is with,
+/// not as "Conversation <action>: <id>".
+const FIXES: [(&str, &str, &str); 4] = [
+    (
+        "global_stop",
+        "(from the task) FERB was stopped",
+        "FERB was stopped",
+    ),
+    (
+        "remember_then_forget",
+        "(from the task) FERB deletes:",
+        "FERB deletes:",
+    ),
+    (
+        "displaced_question",
+        "(from the task) FERB deletes:",
+        "FERB deletes:",
+    ),
+    (
+        "conversation_change",
+        "Conversation pause: id-000021:chat",
+        "Paused the chat with Robin.",
+    ),
+];
+
+fn fixed(scenario: &str, text: String) -> String {
+    FIXES
+        .iter()
+        .filter(|(n, _, _)| *n == scenario)
+        .fold(text, |t, (_, a, b)| t.replace(a, b))
+}
+
 /// One scenario as a timeline of the conversation: what was sent, the frames, the events.
 struct Scenario {
     name: String,
@@ -72,6 +107,7 @@ struct Scenario {
 /// The timeline of one recorded scenario (see the file's comment).
 fn timeline(scenario: &Value, bodies: &Map<String, Value>) -> Vec<Value> {
     let steps = scenario["steps"].as_array().unwrap();
+    let name = scenario["name"].as_str().unwrap_or_default();
     // the journal's question.answered rows: the facts approval.resolved goes with
     let mut answered: BTreeMap<String, Value> = BTreeMap::new();
     if let Some(j) = scenario["tables"].get("journal") {
@@ -112,7 +148,7 @@ fn timeline(scenario: &Value, bodies: &Map<String, Value>) -> Vec<Value> {
             .unwrap()
             .iter()
             .filter_map(|l| l.get("recv"))
-            .map(|l| serde_json::from_str::<Value>(&line(l, bodies)).unwrap())
+            .map(|l| serde_json::from_str::<Value>(&fixed(name, line(l, bodies))).unwrap())
             .filter(|m| m["method"] == "chat.send.event")
             .map(|m| m["params"].clone())
             .collect()
@@ -884,4 +920,176 @@ fn a_card_is_revised_only_when_a_row_really_changes() {
     assert!(step.live.is_some());
     let plan = &by_kind(&p, EntryKind::Plan)[0];
     assert_eq!(plan.rev, 2);
+}
+
+// ---- after a restart (slice 4: the projector rebuilt from stored entries, and the start-up pass) ----
+
+/// Every recorded scenario, its projector rebuilt from the entries it ended with: the rebuilt one holds the same
+/// entries, and the same inputs again change nothing (each is made once: a message per request, a question per
+/// approval, a notice per id).
+// decision: ENG-9
+// decision: ENG-13
+#[test]
+fn a_projector_rebuilt_from_its_entries_holds_them_and_makes_nothing_twice() {
+    for sc in scenarios() {
+        let r = run(&sc.timeline);
+        for (session, entries) in &r.entries {
+            let refs: Vec<String> = entries.iter().filter_map(|e| e.reference.clone()).collect();
+            let next = entries.iter().map(|e| e.pos).max().unwrap_or(0) + 1;
+            let mut p = ChatProjector::restore(session, entries.clone(), refs, next);
+            assert_eq!(&p.entries(), entries, "{}: rebuilt", sc.name);
+            let mut c = Clock {
+                n: 1000,
+                seq: 10_000,
+            };
+            for item in sc
+                .timeline
+                .iter()
+                .filter(|t| s(t, "session").as_deref() == Some(session))
+            {
+                let again = match item["do"].as_str().unwrap() {
+                    "notice" => p.apply(
+                        Input::Bus {
+                            topic: "attention.notice",
+                            data: &item["data"],
+                        },
+                        &mut c,
+                    ),
+                    "notification" => p.apply(Input::Notification(&item["item"]), &mut c),
+                    "bus" if item["topic"] == "approval.requested" => p.apply(
+                        Input::Bus {
+                            topic: "approval.requested",
+                            data: &item["data"],
+                        },
+                        &mut c,
+                    ),
+                    _ => continue,
+                };
+                assert!(
+                    again.changes.iter().all(|ch| ch.entry.rev > 1),
+                    "{}: {} made a new entry after the rebuild",
+                    sc.name,
+                    item["do"]
+                );
+            }
+        }
+    }
+}
+
+// decision: ENG-9
+// decision: ENG-13
+#[test]
+fn the_start_up_pass_interrupts_cut_work_and_expires_open_questions() {
+    let (mut p, mut c) = (ChatProjector::new("s1", 1), Clock { n: 0, seq: 0 });
+    // a message the restart cut before any task, one whose task won't resume, one whose task will
+    frame(
+        &mut p,
+        &mut c,
+        "r1",
+        json!({"type": "ack", "request_id": "r1", "message": "hello?"}),
+    );
+    frame(
+        &mut p,
+        &mut c,
+        "r2",
+        json!({"type": "ack", "request_id": "r2", "message": "tidy notes"}),
+    );
+    frame(
+        &mut p,
+        &mut c,
+        "r2",
+        json!({"type": "plan", "task_id": "t2", "text": "On it.", "request_id": "r2"}),
+    );
+    frame(
+        &mut p,
+        &mut c,
+        "r3",
+        json!({"type": "ack", "request_id": "r3", "message": "watch it"}),
+    );
+    frame(
+        &mut p,
+        &mut c,
+        "r3",
+        json!({"type": "plan", "task_id": "t3", "text": "Watching.", "request_id": "r3"}),
+    );
+    p.apply(
+        Input::Bus {
+            topic: "approval.requested",
+            data: &json!({"approval_id": "a1", "kind": "owner_question", "reason": "Which?", "task_id": "t3"}),
+        },
+        &mut c,
+    );
+    let stored = p.entries();
+    let next = stored.iter().map(|e| e.pos).max().unwrap() + 1;
+    let mut back = ChatProjector::restore("s1", stored, Vec::new(), next);
+    let changes = back.after_restart(&|t| t == "t3", &mut c);
+    assert!(!changes.is_empty());
+    fn of(p: &ChatProjector, kind: EntryKind, request: &str) -> Entry {
+        p.entries()
+            .into_iter()
+            .find(|e| e.kind == kind && e.request_id.as_deref() == Some(request))
+            .unwrap()
+    }
+    let m1 = of(&back, EntryKind::Message, "r1");
+    assert_eq!(m1.state, EntryState::Interrupted);
+    assert_eq!(
+        m1.body_as::<MessageBody>().unwrap().notice.as_deref(),
+        Some(ferb_supervisor::flow::entries::ENDED_UNCONFIRMED)
+    );
+    assert_eq!(
+        of(&back, EntryKind::Message, "r2").state,
+        EntryState::Interrupted
+    );
+    let plan2 = of(&back, EntryKind::Plan, "r2");
+    assert_eq!((plan2.state, plan2.open), (EntryState::Interrupted, false));
+    // the resumed task's turn is left as it is
+    assert_eq!(of(&back, EntryKind::Message, "r3").state, EntryState::Open);
+    assert!(of(&back, EntryKind::Plan, "r3").open);
+    let q = back
+        .entries()
+        .into_iter()
+        .find(|e| e.kind == EntryKind::Question)
+        .unwrap();
+    assert_eq!((q.state, q.open), (EntryState::Expired, false));
+    assert_eq!(
+        q.body_as::<QuestionBody>().unwrap().answer.unwrap().state,
+        "expired"
+    );
+    // the pass again changes nothing; the resumed task's end still reaches its turn
+    assert!(back.after_restart(&|t| t == "t3", &mut c).is_empty());
+    let end = back.apply(
+        Input::Bus {
+            topic: "task.result",
+            data: &json!({"task_id": "t3", "status": "done", "answer": "It finished.", "request_id": "r3"}),
+        },
+        &mut c,
+    );
+    assert!(end
+        .changes
+        .iter()
+        .any(|ch| ch.entry.kind == EntryKind::Answer));
+    assert_eq!(of(&back, EntryKind::Message, "r3").state, EntryState::Done);
+}
+
+/// The journal backstop: a reply journaled for a message that has no answer becomes its answer, once.
+// decision: ENG-9
+// decision: ENG-13
+#[test]
+fn a_journaled_reply_answers_a_message_left_without_one() {
+    let (mut p, mut c) = (ChatProjector::new("s1", 1), Clock { n: 0, seq: 0 });
+    frame(
+        &mut p,
+        &mut c,
+        "r1",
+        json!({"type": "ack", "request_id": "r1", "message": "hi"}),
+    );
+    let stored = p.entries();
+    let mut back = ChatProjector::restore("s1", stored, Vec::new(), 2);
+    let made = back.answer_from_journal("r1", "Hello.", &mut c);
+    assert!(made.iter().any(|ch| ch.entry.kind == EntryKind::Answer));
+    assert!(back.answer_from_journal("r1", "Hello.", &mut c).is_empty());
+    assert!(
+        back.after_restart(&|_| false, &mut c).is_empty(),
+        "answered: nothing to interrupt"
+    );
 }

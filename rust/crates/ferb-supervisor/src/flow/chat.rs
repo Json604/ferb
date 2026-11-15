@@ -26,7 +26,14 @@ pub struct SendParams {
     pub input_paths: Vec<String>,
     /// The front window is captured at send (L12).
     pub screen: bool,
+    /// Stage 2 (ENG-10): the client that sends, and its own id for this submission (a repeat returns the same
+    /// acceptance). Absent: the stream's bytes are exactly as before.
+    pub client_id: Option<String>,
+    pub submission_id: Option<String>,
 }
+
+/// The longest `client_id` or `submission_id` (characters).
+pub const CLIENT_ID_MAX: usize = 200;
 
 /// A refusal before the stream starts (the RPC's error).
 #[derive(Clone, Debug, PartialEq)]
@@ -61,13 +68,76 @@ impl Supervisor {
             None => default.to_string(),
             Some(v) => ferb_py::value::py_str(v),
         };
+        let id = |k: &str| -> Result<Option<String>, Refused> {
+            match params.get(k) {
+                None | Some(Value::Null) => Ok(None),
+                Some(Value::String(s))
+                    if !s.trim().is_empty() && s.chars().count() <= CLIENT_ID_MAX =>
+                {
+                    Ok(Some(s.clone()))
+                }
+                Some(_) => Err(Refused(format!(
+                    "{k} must be a short text of at most {CLIENT_ID_MAX} characters"
+                ))),
+            }
+        };
+        let client_id = id("client_id")?;
+        let submission_id = id("submission_id")?;
+        if submission_id.is_some() && client_id.is_none() {
+            return Err(Refused(
+                "submission_id needs the client_id it belongs to".into(),
+            ));
+        }
+        // ENG-10: a client naming itself and no conversation writes in the current one (the phones send no session);
+        // a caller without a client id keeps today's default
+        let session_id = match (params.get("session_id"), &client_id) {
+            (None | Some(Value::Null), Some(_)) => self
+                .inner
+                .continuity(|c| c.current())
+                .unwrap_or_else(|_| "owner".into()),
+            _ => text("session_id", "default"),
+        };
         self.chat_send(SendParams {
-            session_id: text("session_id", "default"),
+            session_id,
             text: text("text", ""),
             input_paths: paths,
             // L12: captured as it arrives, when the daemon captures at send
             screen: self.inner.deps.daemon.captures_at_send(),
+            client_id,
+            submission_id,
         })
+    }
+}
+
+impl Supervisor {
+    /// Stage 2: once at start, after `recover_after_restart` and before the daemon serves: the chat entries' journal
+    /// backstop and start-up pass (`resuming`: the trees that will run again; chat_log.rs).
+    pub fn chat_entries_after_restart(&self, resuming: &BTreeSet<String>) {
+        self.inner.chat_log.after_restart(&self.inner, resuming);
+        self.inner.chat_log.start(&self.inner);
+    }
+
+    /// Stage 2: a bus event the chat's entries read (chat_log.rs `TOPICS`), as the daemon's events hand it over (redacted),
+    /// queued in the order it was published. The daemon registers it after its other consumers.
+    pub fn chat_bus(&self, topic: &str, data: Value) {
+        if super::chat_log::TOPICS.contains(&topic) {
+            self.inner.chat_log.bus(&self.inner, topic, data);
+        }
+    }
+
+    /// Stage 2: a reminder's banner (its notifications item), posted in the current conversation once.
+    pub fn chat_post(&self, item: Value) {
+        self.inner.chat_log.post(&self.inner, item);
+    }
+
+    /// Stage 2: the chat's entries as kept (chat_log.rs).
+    pub fn chat_log(&self) -> &super::chat_log::ChatLog {
+        &self.inner.chat_log
+    }
+
+    /// Everything the chat's entries were told, written now (tests, shutdown).
+    pub fn chat_flush(&self) {
+        self.inner.chat_log.flush(&self.inner);
     }
 }
 
@@ -113,29 +183,83 @@ impl Inner {
             .into_iter()
             .map(str::to_string)
             .collect();
-        let text = self.hide_code_reply(&self.redact_text(&params.text), &session);
+        let redacted = self.redact_text(&params.text);
+        let text = self.hide_code_reply(&redacted, &session);
         let request_id = self.new_id();
         let (tx, rx) = mpsc::unbounded_channel();
-        let entry = self.journal(
-            "chat.ack",
-            json!({"session_id": session, "request_id": request_id, "received_at": received}),
-            None,
+        // journal.py `append` as `self.journal` writes it (its id, then its time), on the ack's own transaction
+        let data = self.redact(
+            &json!({"session_id": session, "request_id": request_id, "received_at": received}),
         );
+        let (row_id, at) = (self.new_id(), self.now_iso());
+        let message = ferb_orchestrator::py::strip(&mark(&text).for_model).to_string();
+        let mut ack = Map::new();
+        ack.insert("type".into(), json!("ack"));
+        ack.insert("request_id".into(), json!(request_id));
+        ack.insert("message".into(), json!(message));
+        ack.insert("at".into(), json!(at));
+        if !hidden.is_empty() {
+            ack.insert("hidden".into(), json!(hidden));
+        }
+        // stage 2: the message entry, in ONE transaction with the chat.ack row and the client's submission (ENG-10)
+        let sha = ferb_store::chat_entries::text_sha256(&redacted);
+        let submission = match (&params.client_id, &params.submission_id) {
+            (Some(c), Some(s)) => Some((c.as_str(), s.as_str(), sha.as_str())),
+            _ => None,
+        };
+        let accepted = self.chat_log.accept(
+            self,
+            &session,
+            &request_id,
+            &Value::Object(ack.clone()),
+            // the files as the client sent them (what FERB.app's turn keeps)
+            &params.input_paths,
+            params.client_id.as_deref(),
+            submission,
+            |conn| {
+                super::store::journal_row(conn, &row_id, &at, "chat.ack", &data, None).map(|_| ())
+            },
+        );
+        match accepted {
+            Ok(Ok(a)) => {
+                if params.client_id.is_some() {
+                    ack.insert("entry_id".into(), json!(a.entry_id));
+                    ack.insert("seq".into(), json!(a.seq));
+                    ack.insert("epoch".into(), json!(a.epoch));
+                    if let Some(s) = &params.submission_id {
+                        ack.insert("submission_id".into(), json!(s));
+                    }
+                }
+            }
+            Ok(Err(super::chat_log::Repeat::Same(done))) => {
+                // the same submission again: the same acceptance, and no second turn
+                let _ = tx.send(self.repeated_ack(&done));
+                return Ok(rx);
+            }
+            Ok(Err(super::chat_log::Repeat::Conflict)) => {
+                return Err(Refused(
+                    "that submission_id was already used for a different message".into(),
+                ));
+            }
+            Err(_) => {
+                // the entries could not be written: the journal row as before (the start-up backstop makes the
+                // message's entry from it)
+                let _ = super::store::journal_row(
+                    self.db().conn(),
+                    &row_id,
+                    &at,
+                    "chat.ack",
+                    &data,
+                    None,
+                );
+            }
+        }
         if !hidden.is_empty() {
             self.journal(
                 "chat.secret_hidden",
                 json!({"session_id": session, "request_id": request_id, "kinds": hidden}),
                 None,
             );
-        }
-        let message = ferb_orchestrator::py::strip(&mark(&text).for_model).to_string();
-        let mut ack = Map::new();
-        ack.insert("type".into(), json!("ack"));
-        ack.insert("request_id".into(), json!(request_id));
-        ack.insert("message".into(), json!(message));
-        ack.insert("at".into(), json!(entry.at));
-        if !hidden.is_empty() {
-            ack.insert("hidden".into(), json!(hidden));
         }
         let _ = tx.send(Value::Object(ack));
         let me = self.me();
@@ -231,6 +355,7 @@ impl Inner {
                         // an observation outside any task goes to every open chat: it is about no message
                         wrapper["request_id"] = Value::Null;
                     }
+                    self.chat_log.frame(&self, &session, &request_id, &wrapper);
                     let _ = out.send(wrapper);
                 }
                 return;
@@ -239,8 +364,11 @@ impl Inner {
             if let Some(t) = ev.get("task_id").filter(|t| ferb_py::value::truthy(t)) {
                 my_tasks.insert(ferb_py::value::py_str(t));
             }
+            // stage 2: the entries are fed the frame on the stream's own path, just before the stream gets it
+            self.chat_log.frame(&self, &session, &request_id, &ev);
             if ev.get("type").and_then(Value::as_str) == Some("outcome") {
-                self.task_result(&ev, true);
+                let published = self.task_result(&ev, true);
+                self.chat_log.stream_result(&self, &published);
             }
             let _ = out.send(ev);
         };
@@ -272,6 +400,7 @@ impl Inner {
             if let Some(leave) = unsubscribe {
                 leave();
             }
+            self.chat_log.ended(&self, &session, &request_id);
             return;
         };
         let mut rest = Vec::new();
@@ -315,11 +444,12 @@ impl Inner {
                     json!({"session_id": session, "request_id": request_id, "text": said}),
                     Some(ferb_sanitize::origin::FERB),
                 );
-                let _ = out.send(stamp(
-                    json!({"type": "reply", "text": said, "status": "failed"}),
-                ));
+                let frame = stamp(json!({"type": "reply", "text": said, "status": "failed"}));
+                self.chat_log.frame(&self, &session, &request_id, &frame);
+                let _ = out.send(frame);
             }
         }
+        self.chat_log.ended(&self, &session, &request_id);
     }
 
     /// A tree of this request is running (its run takes the shutdown's path itself).
@@ -392,7 +522,7 @@ impl Inner {
     }
 
     /// notify.py:33 `_task_result`: what FERB told the owner about a task, recorded.
-    pub fn task_result(&self, ev: &Value, shown: bool) {
+    pub fn task_result(&self, ev: &Value, shown: bool) -> Value {
         let ev = self.redact(ev);
         let s = |k: &str| match ev.get(k) {
             None | Some(Value::Null) => String::new(),
@@ -431,9 +561,41 @@ impl Inner {
         };
         published.insert("at".into(), json!(at));
         published.insert("shown".into(), json!(shown));
-        self.deps
-            .daemon
-            .publish("task.result", Value::Object(published));
+        let published = Value::Object(published);
+        self.deps.daemon.publish("task.result", published.clone());
+        published
+    }
+
+    /// A submission accepted before, said again as its ack was (stage 2, ENG-10): the same request, message entry,
+    /// counter and epoch, marked a repeat; no second turn starts.
+    fn repeated_ack(&self, done: &ferb_store::chat_entries::Submission) -> Value {
+        let (entry, epoch) = {
+            let db = self.db();
+            let entry = ferb_store::chat_entries::get(db.conn(), &done.entry_id)
+                .ok()
+                .flatten();
+            let epoch = ferb_store::chat_entries::stream(db.conn(), &done.conversation_id)
+                .ok()
+                .flatten()
+                .map(|s| s.epoch);
+            (entry, epoch)
+        };
+        let said: ferb_core::chat_entry::MessageBody =
+            entry.as_ref().and_then(|e| e.body_as()).unwrap_or_default();
+        let mut ack = Map::new();
+        ack.insert("type".into(), json!("ack"));
+        ack.insert("request_id".into(), json!(done.request_id));
+        ack.insert("message".into(), json!(said.text));
+        ack.insert("at".into(), json!(done.accepted_at));
+        if !said.hidden.is_empty() {
+            ack.insert("hidden".into(), json!(said.hidden));
+        }
+        ack.insert("entry_id".into(), json!(done.entry_id));
+        ack.insert("seq".into(), json!(done.seq));
+        ack.insert("epoch".into(), json!(epoch));
+        ack.insert("submission_id".into(), json!(done.submission_id));
+        ack.insert("repeat".into(), json!(true));
+        Value::Object(ack)
     }
 }
 
@@ -484,7 +646,7 @@ fn one_burst(batch: Vec<Value>) -> Vec<Value> {
 }
 
 /// A Python value as `json.loads(json.dumps(v))` reads it.
-fn py_json(p: &ferb_sanitize::Py) -> Value {
+pub(crate) fn py_json(p: &ferb_sanitize::Py) -> Value {
     p.to_json(false)
         .ok()
         .and_then(|t| serde_json::from_str(&t).ok())

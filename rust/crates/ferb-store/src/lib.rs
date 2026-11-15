@@ -5,11 +5,13 @@
 //! at build time, decision: ENG-4) and the same `schema_version` rows.
 //!
 //! On top of it, the typed stores of `ferb/store`: `spans`, `task_results`, `chat_history`,
-//! `retention`, `cleanup`, `salvage`, and `swap` (`db.py:236`). `pyjson` and `pytime` (from `ferb-py`) write JSON
+//! `retention`, `cleanup`, `salvage`, and `swap` (`db.py:236`); and stage 2's `chat_entries` (migration 0063, no
+//! Python counterpart: the conversation as the engine keeps it for every client, decisions: ENG-8, ENG-10). `pyjson` and `pytime` (from `ferb-py`) write JSON
 //! and times as Python does; what the stores take from other Python packages comes in through
 //! named seams (`spans::Clock`, `spans::IdSource`, `Redact`, `cleanup::CardSources`,
 //! `cleanup::JournalSink`, `salvage::Seams`).
 
+pub mod chat_entries;
 pub mod chat_history;
 pub mod cleanup;
 mod migrate;

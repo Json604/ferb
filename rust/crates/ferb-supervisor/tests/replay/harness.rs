@@ -1848,7 +1848,11 @@ pub fn sql_json(v: rusqlite::types::Value) -> Value {
 pub const NOT_COMPARED: [&str; 3] = ["perception_floor", "recall_state", "trail_changes"];
 
 pub fn compared(table: &str) -> bool {
-    !NOT_COMPARED.contains(&table) && !table.starts_with("learning_")
+    // the stage-2 tables (migration 0063, ENG-8) did not exist when Python recorded; ferbd's chat_replay compares the
+    // entries with the chat-entries golden
+    !NOT_COMPARED.contains(&table)
+        && !ferb_store::chat_entries::TABLES.contains(&table)
+        && !table.starts_with("learning_")
 }
 
 pub fn dump(db: &Db, run: &RunRoot) -> BTreeMap<String, (Vec<String>, Vec<Vec<Value>>)> {
@@ -3079,7 +3083,7 @@ pub fn run_scenario(
 
 /// The deliberate differences from Python (ENG-6), applied to what the recording expects before it is compared:
 /// (scenario, recorded text, what the port says instead).
-pub const FIXES: [(&str, &str, &str); 10] = [
+pub const FIXES: [(&str, &str, &str); 11] = [
     // GATE-581: Python ends a task the global stop cut with "(from the task) FERB was stopped", marking FERB's own words
     // as the task's; the port says "FERB was stopped" (the outcome frame, the task row, the span, the journal)
     (
@@ -3126,6 +3130,14 @@ pub const FIXES: [(&str, &str, &str); 10] = [
         "answer_step.\\\\\\\", \\\\\\\"write: missing dependencies ['gather']\\\\\\\"]",
     ),
     ("plan_repair", "\": 2139,", "\": 2181,"),
+    // ORCH-649 (fixed against Python): Python said a conversation change from chat as "Conversation <action>: <id>",
+    // a raw id (against ORCH-519); the port says it by who the chat is with (lines.rs `conversation_changed`), in the
+    // reply frame and the chat.reply row
+    (
+        "conversation_change",
+        "Conversation pause: id-000021:chat",
+        "Paused the chat with Robin.",
+    ),
 ];
 
 /// ORCH-647 (fixed against Python): in these scenarios the task's only live step is a wait, so the port also tells

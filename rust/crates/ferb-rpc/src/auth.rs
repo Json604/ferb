@@ -69,6 +69,14 @@ pub const METHODS: &[Method] = &[
     m("chat.approve", &[Role::Cli], false),
     m("chat.attach", &[Role::Cli], false),
     m("chat.correct", &[Role::Cli], false),
+    // stage 2 (ENG-10): the chat as entries, read like from a server; FERB.app's own for now, the phone role's in
+    // stage 3 (reads Private, `mark` Plain). Not Python's: STAGE2_ADDITIONS names them.
+    m("chat.entries.changes", &[Role::Cli], true),
+    m("chat.entries.days", &[Role::Cli], true),
+    m("chat.entries.get", &[Role::Cli], true),
+    m("chat.entries.mark", &[Role::Cli], true),
+    m("chat.entries.page", &[Role::Cli], true),
+    m("chat.entries.watch", &[Role::Cli], true),
     m("chat.history.days", &[Role::Cli], true),
     m("chat.history.import", &[Role::Cli], true),
     m("chat.history.page", &[Role::Cli], true),
@@ -164,6 +172,18 @@ pub const METHODS: &[Method] = &[
     m("ui.click_through", &[Role::Cli], false),
     m("update.prepare", &[Role::Cli], false),
     m("verdict.set", &[Role::Cli], false),
+];
+
+/// The methods stage 2 added to Python's table (ENG-10: the chat as entries, read like from a server), all FERB.app's
+/// own (`app_only`) until stage 3 gives them to the phone role. The method-table golden test is Python's table plus
+/// exactly these.
+pub const STAGE2_ADDITIONS: [&str; 6] = [
+    "chat.entries.changes",
+    "chat.entries.days",
+    "chat.entries.get",
+    "chat.entries.mark",
+    "chat.entries.page",
+    "chat.entries.watch",
 ];
 
 /// The method's row, when FERB has such a method at all.

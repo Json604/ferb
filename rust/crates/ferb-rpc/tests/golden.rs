@@ -34,13 +34,17 @@ fn names(value: &Value) -> Vec<String> {
 
 // decision: DMN-23
 // decision: DMN-33
+// decision: ENG-10
+// decision: ENG-14
 #[test]
-fn the_method_table_is_python_s() {
+fn the_method_table_is_python_s_plus_the_stage_2_additions() {
+    use ferb_rpc::auth::STAGE2_ADDITIONS;
     let table = fixture("table.json");
+    let added = |name: &str| STAGE2_ADDITIONS.contains(&name);
     for role in Role::ALL {
         let ours: Vec<String> = METHODS
             .iter()
-            .filter(|m| m.roles.contains(&role))
+            .filter(|m| m.roles.contains(&role) && !added(m.name))
             .map(|m| m.name.to_owned())
             .collect();
         assert_eq!(
@@ -53,21 +57,35 @@ fn the_method_table_is_python_s() {
     assert_eq!(table["roles"].as_object().unwrap().len(), Role::ALL.len());
     let app_only: Vec<String> = METHODS
         .iter()
-        .filter(|m| m.app_only)
+        .filter(|m| m.app_only && !added(m.name))
         .map(|m| m.name.to_owned())
         .collect();
     assert_eq!(app_only, names(&table["app_only"]));
-    // the numbers the port was told to expect
+    // the stage-2 additions: each in the table once, FERB.app's own, for the app's role only (stage 3 adds the phone's)
+    for name in STAGE2_ADDITIONS {
+        let rows: Vec<_> = METHODS.iter().filter(|m| m.name == name).collect();
+        assert_eq!(rows.len(), 1, "{name}");
+        assert_eq!(rows[0].roles, &[Role::Cli], "{name}");
+        assert!(rows[0].app_only, "{name}");
+        assert!(
+            !names(&table["roles"]["cli"]).contains(&name.to_string()),
+            "{name} is not Python's"
+        );
+    }
+    // the numbers the port was told to expect, and the six of stage 2
     let count = |role| METHODS.iter().filter(|m| m.roles.contains(&role)).count();
     assert_eq!(
         (
             count(Role::Cli),
             count(Role::McpShim),
             count(Role::NativeHost),
-            app_only.len()
+            METHODS.iter().filter(|m| m.app_only).count()
         ),
-        (106, 3, 0, 20)
+        (106 + 6, 3, 0, 20 + 6)
     );
+    let mut sorted: Vec<&str> = METHODS.iter().map(|m| m.name).collect();
+    sorted.sort();
+    assert_eq!(sorted, METHODS.iter().map(|m| m.name).collect::<Vec<_>>());
 }
 
 // decision: DMN-510

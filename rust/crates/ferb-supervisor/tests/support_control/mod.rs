@@ -1258,7 +1258,11 @@ fn sql_json(v: rusqlite::types::Value) -> Value {
 const NOT_COMPARED: [&str; 3] = ["perception_floor", "recall_state", "trail_changes"];
 
 fn compared(table: &str) -> bool {
-    !NOT_COMPARED.contains(&table) && !table.starts_with("learning_")
+    // the stage-2 tables (migration 0063, ENG-8) did not exist when Python recorded; ferbd's chat_replay compares the
+    // entries with the chat-entries golden
+    !NOT_COMPARED.contains(&table)
+        && !ferb_store::chat_entries::TABLES.contains(&table)
+        && !table.starts_with("learning_")
 }
 
 pub fn dump(db: &Db, root: &str) -> BTreeMap<String, (Vec<String>, Vec<Vec<Value>>)> {

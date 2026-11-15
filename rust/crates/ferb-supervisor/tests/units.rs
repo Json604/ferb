@@ -484,3 +484,55 @@ fn every_unit_case() {
     assert!(skipped.is_empty(), "groups with no Rust case: {skipped:?}");
     assert_eq!(checked, 328);
 }
+
+// decision: ORCH-649
+// decision: ORCH-519
+#[test]
+fn a_conversation_change_is_said_by_who_it_is_with_never_its_id() {
+    let row = |recipients: Value| -> Map<String, Value> {
+        obj(&json!({
+            "id": "id-000021:chat", "tree_id": "id-000021", "status": "paused",
+            "scope": {"account": "gardener.invented", "app": "com.example.chat", "identity": "owner",
+                      "recipients": recipients, "site": "chat.example", "thread": "Seed swap",
+                      "topic": "the invented seed swap", "handover_when": "Robin names a day"},
+        }))
+    };
+    let cases = [
+        (json!(["Robin"]), "pause", "Paused the chat with Robin."),
+        (json!(["Robin"]), "resume", "Resumed the chat with Robin."),
+        (
+            json!(["Robin"]),
+            "takeover",
+            "Handed the chat with Robin back to you.",
+        ),
+        (json!(["Robin"]), "close", "Closed the chat with Robin."),
+        (
+            json!(["Robin", " Sam  Lee ", "Ada"]),
+            "pause",
+            "Paused the chat with Robin, Sam Lee and Ada.",
+        ),
+        // no one named: the line still never falls back to the id
+        (json!([]), "pause", "Paused that conversation."),
+        (
+            json!(["  "]),
+            "takeover",
+            "Handed that conversation back to you.",
+        ),
+        (Value::Null, "close", "Closed that conversation."),
+    ];
+    for (recipients, action, want) in cases {
+        let r = row(recipients);
+        let got = conversation_changed(action, &r);
+        assert_eq!(got, want);
+        for id in ["id-000021:chat", "id-000021", "id-"] {
+            assert!(!got.contains(id), "{got:?} names the id");
+        }
+        assert!(!got.contains(action), "{got:?} is the raw action");
+    }
+    // a row with no scope at all
+    let bare = obj(&json!({"id": "id-000021:chat"}));
+    assert_eq!(
+        conversation_changed("resume", &bare),
+        "Resumed that conversation."
+    );
+}

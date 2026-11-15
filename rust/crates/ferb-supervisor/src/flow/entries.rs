@@ -160,6 +160,11 @@ struct Turn {
     later: Vec<String>,
     /// ORCH-579: its next answer is told in another message's reply.
     told_elsewhere: bool,
+    /// Its task was cut by a restart and did not resume: its plan closes as `interrupted` (the start-up pass).
+    cut: bool,
+    /// The client that sent the message and its id for the submission (the engine adds them to the ack it feeds).
+    client_id: Option<String>,
+    submission_id: Option<String>,
 }
 
 impl Turn {
@@ -220,6 +225,286 @@ impl ChatProjector {
             .iter()
             .filter_map(|id| self.entries.get(id).cloned())
             .collect()
+    }
+
+    /// A projector rebuilt from stored entries after a restart (ENG-9): `stored` are the entries the rebuild needs, in
+    /// `pos` order (every open entry, the entries of their messages and of the last few turns: the store's
+    /// `open_entries`, `of_requests` and `recent`), `refs` every notice and post already posted (each is posted once),
+    /// `next_pos` the stream's next position. Each message's turn is filled back from its message, plan and answer
+    /// entries as `emit` wrote them; no stream feeds a turn after a restart (`active` is false, as the app's sessions
+    /// are gone), so a frame for one of them is a later frame (`receiveAfterAnswer`). The chat ends on the last entry.
+    pub fn restore(
+        conversation_id: &str,
+        stored: Vec<Entry>,
+        refs: Vec<String>,
+        next_pos: u64,
+    ) -> ChatProjector {
+        let mut p = ChatProjector::new(conversation_id, next_pos);
+        let mut seen = std::collections::HashSet::new();
+        for e in stored {
+            if e.conversation_id != conversation_id || !seen.insert(e.id.clone()) {
+                continue;
+            }
+            p.order.push(e.id.clone());
+            p.entries.insert(e.id.clone(), e);
+        }
+        p.order.sort_by_key(|id| p.entries[id].pos);
+        for r in refs {
+            p.notices.entry(r.clone()).or_insert(r);
+        }
+        let order = p.order.clone();
+        for id in &order {
+            let e = p.entries[id].clone();
+            match e.kind {
+                EntryKind::Question => {
+                    if let Some(a) = &e.approval_id {
+                        p.questions.insert(a.clone(), e.id.clone());
+                    }
+                }
+                EntryKind::Notice | EntryKind::Post => {
+                    if let Some(r) = &e.reference {
+                        p.notices.insert(r.clone(), e.id.clone());
+                    }
+                }
+                EntryKind::Message | EntryKind::Plan | EntryKind::Answer | EntryKind::Error => {
+                    p.restore_part(&e)
+                }
+                EntryKind::Legacy => {}
+            }
+        }
+        p.foreground = p.turns.iter().rposition(|t| t.message_entry.is_some());
+        // the chat ends on its last entry a client shows at the end (a question never moves it: `question`)
+        p.last_shown = order
+            .iter()
+            .rev()
+            .find(|id| !matches!(p.entries[*id].kind, EntryKind::Question | EntryKind::Legacy))
+            .map(|id| p.shown_as(id));
+        p
+    }
+
+    /// One stored message, plan or answer put back on its turn.
+    fn restore_part(&mut self, e: &Entry) {
+        let follows = e
+            .body_as::<AnswerBody>()
+            .and_then(|b| b.follows)
+            .filter(|_| matches!(e.kind, EntryKind::Answer | EntryKind::Error));
+        let t = match (&e.request_id, e.kind) {
+            (Some(r), _) => match self.by_request.get(r) {
+                Some(&t) => t,
+                None => {
+                    let t = self.turns.len();
+                    self.turns.push(Turn {
+                        request_id: Some(r.clone()),
+                        status: "working".into(),
+                        ..Turn::default()
+                    });
+                    self.by_request.insert(r.clone(), t);
+                    t
+                }
+            },
+            // an answer with no message: a recovered task's turn (recordRecovered)
+            (None, EntryKind::Answer) => {
+                let t = self.turns.len();
+                self.turns.push(Turn {
+                    recovered: Some((None, None)),
+                    ..Turn::default()
+                });
+                t
+            }
+            _ => return,
+        };
+        let turn = &mut self.turns[t];
+        if e.task_id.is_some() {
+            turn.task_id = e.task_id.clone();
+        }
+        match e.kind {
+            EntryKind::Message => {
+                let m: MessageBody = e.body_as().unwrap_or_default();
+                turn.message_entry = Some(e.id.clone());
+                turn.client_id = e.client_id.clone();
+                turn.submission_id = e.submission_id.clone();
+                turn.request = m.text;
+                turn.hidden = m.hidden;
+                turn.attachments = m.attachments;
+                turn.merged_into = m.merged_into;
+                turn.response_notice = m.notice;
+                if !turn.answered {
+                    turn.status = match e.state {
+                        EntryState::Open => "working",
+                        EntryState::Interrupted => "interrupted",
+                        EntryState::Merged => "merged",
+                        EntryState::Failed => "failed",
+                        EntryState::Cancelled => "cancelled",
+                        _ => "done",
+                    }
+                    .into();
+                }
+            }
+            EntryKind::Plan => {
+                turn.plan_entry = Some(e.id.clone());
+                turn.planned = true;
+                turn.plan = e.body_as().unwrap_or_default();
+                turn.ended = turn.ended || !e.open;
+                turn.cut = e.state == EntryState::Interrupted;
+            }
+            _ if follows.is_some() => turn.later.push(e.id.clone()),
+            _ => {
+                let a: AnswerBody = e.body_as().unwrap_or_default();
+                if e.placement == Some(Placement::Below) {
+                    turn.replies.push(e.id.clone());
+                }
+                if turn.recovered.is_some() {
+                    turn.recovered = Some((a.name.clone(), a.goal.clone()));
+                }
+                turn.answer_entry = Some(e.id.clone());
+                turn.answered = true;
+                turn.ended = turn.ended || a.from == "task";
+                turn.status = a.status;
+                turn.text = a.text;
+                turn.display_text = a.display_text;
+                turn.verified = a.verified;
+                turn.artifacts = a.artifacts;
+                turn.note = a.note;
+                turn.code_lines = a.lines;
+                turn.runtime_switch = a.runtime_switch;
+                turn.cards = a.cards;
+                turn.question = a.question;
+                turn.asks = a.asks;
+                turn.from = a.from;
+            }
+        }
+    }
+
+    /// How an entry stands at the end of the chat: as its turn (its message, plan or own answer in place) or itself (a
+    /// late answer posted below, a later answer, a notice, a post, a question).
+    fn shown_as(&self, id: &str) -> Shown {
+        let e = &self.entries[id];
+        let own = matches!(e.kind, EntryKind::Message | EntryKind::Plan)
+            || (matches!(e.kind, EntryKind::Answer | EntryKind::Error)
+                && e.placement != Some(Placement::Below)
+                && e.body_as::<AnswerBody>()
+                    .is_none_or(|b| b.follows.is_none()));
+        let turn = self.turns.iter().position(|t| {
+            t.message_entry.as_deref() == Some(id)
+                || t.plan_entry.as_deref() == Some(id)
+                || t.answer_entry.as_deref() == Some(id)
+        });
+        match turn {
+            Some(t) if own => Shown::Turn(t),
+            _ => Shown::Entry(id.to_string()),
+        }
+    }
+
+    /// The start-up pass after a restart (journal 69's B3): what can no longer happen is said. A message still waiting
+    /// with no task was cut with its stream; a turn whose task did not resume (`resumed` says which did) is
+    /// `interrupted` (its plan closes; a message still waiting on its answer or on the owner says so); every open
+    /// question expires (pending questions live in memory and die with the process, ferb/daemon/questions.py:121).
+    pub fn after_restart(
+        &mut self,
+        resumed: &dyn Fn(&str) -> bool,
+        seams: &mut dyn Seams,
+    ) -> Vec<Change> {
+        for t in 0..self.turns.len() {
+            let turn = &mut self.turns[t];
+            if turn.recovered.is_some() {
+                continue;
+            }
+            let running = turn.task_id.as_deref().is_some_and(resumed);
+            let waiting = turn.status == "working" || turn.status == "needs_user";
+            if turn.task_id.is_none() {
+                if turn.status == "working" && turn.message_entry.is_some() {
+                    // the stream ended with the process (stream_ended)
+                    turn.text.clear();
+                    turn.response_notice = Some(
+                        turn.response_notice
+                            .clone()
+                            .unwrap_or_else(|| ENDED_UNCONFIRMED.to_string()),
+                    );
+                    turn.status = "interrupted".into();
+                    self.dirty.insert(t);
+                }
+                continue;
+            }
+            if running {
+                continue;
+            }
+            if waiting {
+                turn.response_notice = Some(
+                    turn.response_notice
+                        .clone()
+                        .unwrap_or_else(|| ENDED_UNCONFIRMED.to_string()),
+                );
+                turn.status = "interrupted".into();
+                self.dirty.insert(t);
+            }
+            if turn.planned && !turn.ended && !turn.cut {
+                turn.cut = true;
+                self.dirty.insert(t);
+            }
+        }
+        let open: Vec<String> = self
+            .questions
+            .values()
+            .filter(|id| self.entries.get(*id).is_some_and(|e| e.open))
+            .cloned()
+            .collect();
+        let mut open: Vec<Entry> = open
+            .iter()
+            .filter_map(|id| self.entries.get(id).cloned())
+            .collect();
+        open.sort_by_key(|e| e.pos);
+        self.emit(seams);
+        for mut entry in open {
+            let mut asked: QuestionBody = entry.body_as().unwrap_or_default();
+            asked.answer = Some(QuestionAnswer {
+                state: "expired".into(),
+                ..QuestionAnswer::default()
+            });
+            entry.state = EntryState::Expired;
+            entry.open = false;
+            entry.body = body(&asked);
+            self.revise(entry, seams);
+        }
+        std::mem::take(&mut self.made)
+    }
+
+    /// The journal backstop (a crash between a turn's `chat.reply` row and its frame): the reply recorded for a message
+    /// that has no answer is its answer, as the reply frame would have made it. Nothing for a message already answered
+    /// or unknown here.
+    pub fn answer_from_journal(
+        &mut self,
+        request_id: &str,
+        said: &str,
+        seams: &mut dyn Seams,
+    ) -> Vec<Change> {
+        let Some(&t) = self.by_request.get(request_id) else {
+            return Vec::new();
+        };
+        if self.turns[t].answered || self.turns[t].message_entry.is_none() {
+            return Vec::new();
+        }
+        let frame = serde_json::json!({"type": "reply", "text": said, "request_id": request_id});
+        self.turns[t].active = true;
+        self.reply(t, "reply", &frame, seams);
+        self.emit(seams);
+        std::mem::take(&mut self.made)
+    }
+
+    /// The request ids this projector holds a turn for.
+    pub fn knows_request(&self, request_id: &str) -> bool {
+        self.by_request.contains_key(request_id)
+    }
+
+    /// Whether a turn here names this task.
+    pub fn knows_task(&self, task_id: &str) -> bool {
+        self.turns
+            .iter()
+            .any(|t| t.task_id.as_deref() == Some(task_id))
+    }
+
+    /// The position the next entry takes.
+    pub fn next_pos(&self) -> u64 {
+        self.next_pos
     }
 
     /// One input: the entries it created or revised, or the input back as live state.
@@ -327,6 +612,8 @@ impl ChatProjector {
             request: words(frame, "message").unwrap_or_default(),
             hidden: strings(frame, "hidden").unwrap_or_default(),
             attachments: strings(frame, "input_paths").unwrap_or_default(),
+            client_id: words(frame, "client_id"),
+            submission_id: words(frame, "submission_id"),
             ..Turn::default()
         };
         let t = self.turns.len();
@@ -1104,6 +1391,7 @@ impl ChatProjector {
                 .filter(|_| turn.status == "interrupted"),
         };
         let task = turn.task_id.clone();
+        let (client, submission) = (turn.client_id.clone(), turn.submission_id.clone());
         let mut entry = match self.stored(&self.turns[t].message_entry) {
             Some(e) => e,
             None => {
@@ -1116,6 +1404,10 @@ impl ChatProjector {
         entry.open = open;
         entry.task_id = task;
         entry.origin = Some("owner".into());
+        if client.is_some() {
+            entry.client_id = client;
+            entry.submission_id = submission;
+        }
         entry.body = body(&said);
         self.put(entry, seams);
     }
@@ -1125,7 +1417,9 @@ impl ChatProjector {
         if !turn.planned {
             return;
         }
-        let (state, open) = if turn.ended {
+        let (state, open) = if turn.cut {
+            (EntryState::Interrupted, false)
+        } else if turn.ended {
             category(&turn.status, false)
         } else {
             (EntryState::Open, true)

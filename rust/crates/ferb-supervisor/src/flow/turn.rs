@@ -2399,11 +2399,13 @@ impl Inner {
                         Err("That conversation belongs to another chat; use its chat or ferb conversations.".to_string())
                     } else {
                         self.change_conversation(&change.id, &change.action, &change.quote)
+                            .map(|()| row)
                     }
                 }
             };
+            // ORCH-649 (fixed against Python): said by who the chat is with, never by its id
             let text = match changed {
-                Ok(()) => format!("Conversation {}: {}", change.action, change.id),
+                Ok(row) => crate::lines::conversation_changed(&change.action, &row),
                 Err(words) => words,
             };
             events.push(json!({"type": "reply", "text": text}));

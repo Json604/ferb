@@ -150,6 +150,12 @@ impl ChatRpc {
                 "conversations.list" => self.conversations_list(&params),
                 "conversations.change" => self.conversations_change(&params),
                 "ui.click_through" => self.click_through(session, &params),
+                // stage 2: the chat as entries, read like from a server (entries_rpc.rs)
+                "chat.entries.page" => super::entries_rpc::page(self.sup().inner(), &params),
+                "chat.entries.changes" => super::entries_rpc::changes(self.sup().inner(), &params),
+                "chat.entries.get" => super::entries_rpc::get(self.sup().inner(), &params),
+                "chat.entries.days" => super::entries_rpc::days(self.sup().inner(), &params),
+                "chat.entries.mark" => super::entries_rpc::mark(self.sup().inner(), &params),
                 other => Err(HandlerError::fault("KeyError", format!("'{other}'"))),
             }
         })
@@ -881,6 +887,11 @@ pub fn register(server: &Server, rpc: Arc<ChatRpc>) {
         "conversations.list",
         "conversations.change",
         "ui.click_through",
+        "chat.entries.page",
+        "chat.entries.changes",
+        "chat.entries.get",
+        "chat.entries.days",
+        "chat.entries.mark",
     ] {
         let rpc = rpc.clone();
         server.register_unary(method, move |session: Session, params: Params| {
@@ -888,6 +899,16 @@ pub fn register(server: &Server, rpc: Arc<ChatRpc>) {
             async move { rpc.unary(method, &session, params).await }
         });
     }
+    let watching = rpc.clone();
+    server.register_stream(
+        "chat.entries.watch",
+        move |_session: Session, params: Params| -> Box<dyn EventStream> {
+            match super::entries_rpc::watch(watching.sup().inner(), &params) {
+                Ok(stream) => stream,
+                Err(e) => Box::new(Failed(Some(e))),
+            }
+        },
+    );
     let send = rpc.clone();
     server.register_stream(
         "chat.send",

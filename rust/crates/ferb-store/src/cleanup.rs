@@ -82,8 +82,9 @@ pub const DROPPED: [(&str, &str); 4] = [
 /// their steps are `live` (`cleanup.py:57`).
 pub const TRIMMED: [&str; 2] = ["decisions", "perception_receipts"];
 /// Never written by a run: what STORE-402 protects and what FERB keeps forever
-/// (`cleanup.py:59-63`).
-pub const PROTECTED: [&str; 33] = [
+/// (`cleanup.py:59-63`), then stage 2's chat tables (migration 0063, kept forever as `chat_history` is; no retention
+/// rule names them; decisions: ENG-8, STORE-401).
+pub const PROTECTED: [&str; 39] = [
     "memory_items",
     "memory_sources",
     "memory_profile",
@@ -117,6 +118,12 @@ pub const PROTECTED: [&str; 33] = [
     "chat_fts",
     "learning_nodes",
     "chat_history",
+    "chat_entries",
+    "chat_streams",
+    "chat_submissions",
+    "chat_clients",
+    "chat_client_marks",
+    "chat_entries_from",
 ];
 /// The protected rows of a table a run also removes from (`cleanup.py:66`): every learned node
 /// but the old rollups.

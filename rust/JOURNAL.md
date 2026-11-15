@@ -2123,3 +2123,51 @@ answer saved and read back; an older reply row read as before). Swift 766, 0 fai
 - A handover now shows two bubbles saying nearly the same thing (left for the owner's eyes).
 - "Conversation pause: <id>" (`supervisor.py:3369` and its port) shows a raw id against ORCH-519: to fix.
 - An older app build reading a row saved with `said` shows the turn's first answer there.
+
+## 2026-11-15 · 72 · Stage 2's store, wiring and calls: the conversation read like from a server
+
+**What.**
+- ENG-12: migration `0063_chat_entries.sql` (the first schema above 0062, allowed by ENG-11): `chat_streams`,
+  `chat_entries`, `chat_submissions`, `chat_clients`, `chat_client_marks`, and the backstop's watermark;
+  `chat_history` rows carried over as `legacy` entries with their bytes (`chat_history` stays). ferb-store
+  `chat_entries.rs`: pages, changes, cursors, idempotent submissions, forward-only marks, tombstones, and the
+  read-only archive import (idempotent; not run, not wired to run). A stream's own entries start at pos 2^32 so
+  imported older history always goes below them and `pos` is never renumbered. All six tables are kept forever, as
+  `chat_history` is.
+- ENG-13: `ferb-supervisor/src/flow/chat_log.rs` feeds `ChatProjector` from one queue on the producers' own paths;
+  the ack is written in one transaction with its `chat.ack` journal row and the submission row; a writer task drains
+  the rest; the bus is read by the daemon's last events consumer; projectors are rebuilt from stored entries after a
+  restart, with the journal backstop and a start-up pass (cut work `interrupted`, open questions expired).
+- ENG-14: `chat.entries.page|changes|get|days|watch|mark`, and `chat.send` with `client_id`/`submission_id` (a
+  repeat returns the same ack and starts no turn; a caller without them gets today's bytes; a client id with no
+  session writes in the current conversation, not "default").
+- ORCH-649: a conversation change is said by who it is with ("Paused the chat with Robin."), never its id.
+- T-1099 (owner): the phone apps get a sign-in button for Claude, Codex or an API key, as the Mac has.
+
+**Why.** ENG-10, ENG-11; journal 71's raw-id item.
+
+**Evidence.** All 61 scenarios through the binary keep frames, model calls and Python's tables byte-equal. 7 new
+tests through the real daemon (a repeated submission; two clients at the same instant; a second connection watching
+a turn live; a watcher catching up exactly after reconnecting; `reset_required` and `cursor_ahead`; long bodies and
+`max_bytes` cuts; forward-only marks), 13 store tests, 3 projector tests. The coordinator's runs: 908 passed, 0
+failed, 16 ignored, twice; Swift 766, 0 failures; clippy and portable clean. The method table is Python's 106 plus
+the 6 named additions.
+
+**What the entries comparison does and does not prove.** The stored entries equal the golden strictly on 33
+scenarios. On 28 they are compared with named differences (`chat_replay.rs` `ENTRY_DIFFERENCES`); for 26 of those
+the difference is `Order`: the golden places a stream's frames at the stream's end (the recordings keep each
+connection's order, not the order across connections), so those scenarios are compared as the same entries in their
+final states WHATEVER THEIR ORDER. So for scenarios with two streams or a question beside a stream, the engine's
+stored order (`pos`, which is what a phone displays) is not checked against anything: it is the order of commits,
+by construction, and unverified against what FERB.app shows for the same moments.
+
+**Corrected drift.** Draining frames synchronously moved `confirm_yes`'s confirmation id ahead of the question
+record; fixed by queuing only on the producers' paths and reading the bus last.
+
+**Open.**
+- An order check for the 26 scenarios (at least structural: a message before its plan before its answers; an answer
+  after what it answers; a question between its task's plan and end), and the comparison with FERB.app's order when
+  its change lands.
+- FERB.app's one change (turns a phone started); the phone role; the archive import's run with the owner present.
+- A notice cleared by a forget, or a tombstone, is not pushed live to watchers (they see it in `changes`).
+- Not live-checked.

@@ -278,6 +278,7 @@ fn conversation_handover() {
 
 // decision: ORCH-301
 // decision: ORCH-520
+// decision: ORCH-649
 #[test]
 fn conversation_change() {
     full("conversation_change");

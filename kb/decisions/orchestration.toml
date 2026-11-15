@@ -1876,3 +1876,12 @@ status = "active"
 rule = "Refines APP-777 while FERB has no profile of its own: a task the planner gives the owner's identity whose task names sites, and whose request words name none of the owner's profiles (a name or account email, as whole words), goes through FERB's one browsing question before its plan runs when nothing is picked (answer saved as browsing.owner_profile), and browses in the pick when one is (picked_only refuses another). Without a pick the planner's fact says FERB asks once by itself and a plan never asks it."
 why = "Live 2026-11-15 02:29, fresh install: the plan asked which Chrome profile as its own step (its fact said \"in a profile the owner names\"); browsing.choose was never asked, nothing was saved; the 02:39 task asked again. Open (owner's): remembered preferences as owner words; a refused named profile."
 paths = ["rust/crates/ferb-supervisor/src/flow/browse.rs::browse_as", "rust/crates/ferb-daemon/src/areas_b/browsers/mod.rs::names_profile", "rust/crates/ferb-orchestrator/src/browsing.rs::NOT_PICKED_TAIL", "rust/crates/ferb-daemon/src/areas_b/environment.rs"]
+
+[ORCH-649]
+title = "A conversation change from chat is said by who the chat is with, never by its id"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "Refines ORCH-519 (no ids): when the owner pauses, resumes, takes over or closes a delegated conversation from chat, code's line is one past-tense line per action naming the chat by its scope's recipients: \"Paused the chat with Robin.\", \"Resumed the chat with Robin.\", \"Handed the chat with Robin back to you.\", \"Closed the chat with Robin.\" (several people: \"Robin, Sam and Ada\"; no one named: \"that conversation\"). Never the conversation's id or the raw action. Fixed against Python, whose line was 'Conversation ' + action + ': ' + id (supervisor.py:3369). Refusals keep their own words."
+why = "Journal 71: \"Conversation pause: id-000021:chat\" showed a raw internal id to the owner; the owner, 2026-11-15: \"ok fix them if you know it\"."
+paths = ["rust/crates/ferb-supervisor/src/lines.rs::conversation_changed", "rust/crates/ferb-supervisor/src/flow/turn.rs", "rust/crates/ferb-supervisor/tests/replay/harness.rs::FIXES", "rust/crates/ferbd/tests/chat_replay.rs::FIXES", "rust/crates/ferb-supervisor/tests/chat_entries.rs::FIXES"]

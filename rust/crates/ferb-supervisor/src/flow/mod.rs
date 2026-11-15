@@ -36,9 +36,11 @@ pub mod attention;
 pub mod browse;
 pub mod card;
 pub mod chat;
+// stage 2: the chat as entries, projected from the frames and events (entries) and kept (chat_log)
+pub mod chat_log;
 pub mod conversations;
-// stage 2: the chat as entries, projected from the frames and events (not wired yet)
 pub mod entries;
+pub mod entries_rpc;
 pub mod fold;
 pub mod host;
 pub mod loops;
@@ -952,6 +954,8 @@ pub struct Inner {
     pub(crate) work_open: tokio::sync::watch::Sender<bool>,
     /// `self.conversations`: the delegated conversations' one store (conversations.rs).
     pub(crate) conversations: ferb_orchestrator::conversations::ConversationStoreShared,
+    /// Stage 2: the chat as entries, kept (chat_log.rs).
+    pub chat_log: chat_log::ChatLog,
 }
 
 impl Supervisor {
@@ -971,6 +975,7 @@ impl Supervisor {
             shutdown: tokio::sync::watch::channel(false).0,
             jobs: Mutex::new(Vec::new()),
             work_open: tokio::sync::watch::channel(true).0,
+            chat_log: chat_log::ChatLog::default(),
         });
         let host = Arc::new(host::Host {
             sup: Arc::downgrade(&inner),

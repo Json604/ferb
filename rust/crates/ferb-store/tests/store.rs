@@ -9,7 +9,7 @@ use std::{
     process::Command,
 };
 
-use ferb_store::{known_schema, split_sql, Db, Error, Migration};
+use ferb_store::{chat_entries, known_schema, split_sql, Db, Error, Migration};
 use rusqlite::types::Value as Sql;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -88,33 +88,87 @@ fn describe(db: &Db) -> Value {
     })
 }
 
-// decisions: ENG-3, ENG-4, STORE-409, STORE-417
+/// The schema objects migration 0063 adds over the store Python made (stage 2; the tables are
+/// `chat_entries::TABLES`): exactly these, and nothing else differs.
+// decisions: ENG-11, ENG-8
+const STAGE_2_OBJECTS: [&str; 19] = [
+    "chat_client_marks",
+    "chat_clients",
+    "chat_entries",
+    "chat_entries_approval",
+    "chat_entries_day",
+    "chat_entries_from",
+    "chat_entries_open",
+    "chat_entries_ref",
+    "chat_entries_request",
+    "chat_entries_task",
+    "chat_streams",
+    "chat_submissions",
+    "sqlite_autoindex_chat_client_marks_1",
+    "sqlite_autoindex_chat_clients_1",
+    "sqlite_autoindex_chat_entries_1",
+    "sqlite_autoindex_chat_entries_2",
+    "sqlite_autoindex_chat_entries_3",
+    "sqlite_autoindex_chat_streams_1",
+    "sqlite_autoindex_chat_submissions_1",
+];
+
+// decisions: ENG-3, ENG-4, ENG-11, STORE-409, STORE-417
 #[test]
 fn a_fresh_store_is_the_one_python_makes() {
+    // Python's store, plus exactly the named stage-2 additions (migration 0063, ENG-11): the
+    // fresh store less its 0063 version row and 0063 objects equals Python's, strictly.
     let python: Value =
         serde_json::from_slice(&fs::read(fixtures().join("fresh_store.json")).unwrap()).unwrap();
     let tmp = TempDir::new().unwrap();
     let db = Db::open(tmp.path().join("deep/er/ferb.db")).unwrap();
     let applied = db.migrate().unwrap();
     let rust = describe(&db);
+    let stage_2 = chat_entries::SCHEMA_VERSION;
 
-    assert_eq!(json!(applied), python["applied"]);
-    assert_eq!(json!(known_schema()), python["known_schema"]);
+    assert_eq!(applied.last(), Some(&stage_2));
+    assert_eq!(json!(applied[..applied.len() - 1]), python["applied"]);
+    assert_eq!(known_schema(), stage_2);
+    assert_eq!(json!(stage_2 - 1), python["known_schema"]);
+    let versions = rust["schema_version"].as_array().unwrap();
+    let (last, before) = versions.split_last().unwrap();
+    assert_eq!(last[0], json!(stage_2));
     assert_eq!(
-        rust["schema_version"], python["schema_version"],
+        json!(before),
+        python["schema_version"],
         "the recorded versions and checksums"
     );
     assert_eq!(rust["pragmas"], python["pragmas"]);
     assert_eq!(rust["mode"], python["mode"]);
-    let (ours, theirs) = (
-        rust["sqlite_master"].as_array().unwrap(),
-        python["sqlite_master"].as_array().unwrap(),
-    );
+    let (added, ours): (Vec<&Value>, Vec<&Value>) = rust["sqlite_master"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .partition(|o| STAGE_2_OBJECTS.contains(&o["name"].as_str().unwrap()));
+    let theirs = python["sqlite_master"].as_array().unwrap();
     for (a, b) in ours.iter().zip(theirs) {
-        assert_eq!(a, b);
+        assert_eq!(*a, b);
     }
     assert_eq!(ours.len(), theirs.len());
     assert!(ours.len() > 200, "the fixture holds the whole schema");
+    let mut names: Vec<&str> = added.iter().map(|o| o["name"].as_str().unwrap()).collect();
+    names.sort_unstable();
+    assert_eq!(
+        names, STAGE_2_OBJECTS,
+        "0063 adds exactly the named objects"
+    );
+    let mut tables: Vec<&str> = added
+        .iter()
+        .filter(|o| o["type"] == "table")
+        .map(|o| o["name"].as_str().unwrap())
+        .collect();
+    tables.sort_unstable();
+    let mut named = chat_entries::TABLES.to_vec();
+    named.sort_unstable();
+    assert_eq!(tables, named);
+    assert!(added
+        .iter()
+        .all(|o| chat_entries::TABLES.contains(&o["tbl_name"].as_str().unwrap())));
 }
 
 // decision: STORE-414

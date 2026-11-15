@@ -97,6 +97,38 @@ fn entry_of(row: &Map<String, Value>) -> Entry {
     }
 }
 
+/// One journal row written on `conn` (inside the caller's transaction when it has one), as `Inner::journal` writes
+/// it: `body` already redacted, the origin from its kind unless `made` names one.
+pub fn journal_row(
+    conn: &rusqlite::Connection,
+    id: &str,
+    at: &str,
+    kind: &str,
+    body: &Value,
+    made: Option<&str>,
+) -> Result<Entry, ferb_store::Error> {
+    let origin = match made {
+        Some(o) if !o.is_empty() => o.to_string(),
+        _ => journal_origin(kind, body),
+    };
+    conn.execute(
+        "INSERT INTO journal (id, at, kind, data_json, origin) VALUES (?, ?, ?, ?, ?)",
+        rusqlite::params![id, at, kind, ferb_py::json::dumps_utf8(body), origin],
+    )?;
+    let request_id = match body.get("request_id") {
+        None | Some(Value::Null) => String::new(),
+        Some(v) => ferb_py::value::py_str(v),
+    };
+    Ok(Entry {
+        id: id.to_string(),
+        at: at.to_string(),
+        kind: kind.into(),
+        data: body.clone(),
+        origin,
+        request_id,
+    })
+}
+
 struct Clock<'a>(&'a Inner);
 
 impl ferb_store::spans::Clock for Clock<'_> {
@@ -152,31 +184,10 @@ impl Inner {
     /// journal.py:54 `append`: redacted, never dropped.
     pub fn journal(&self, kind: &str, data: Value, made: Option<&str>) -> Entry {
         let body = self.redact(&data);
-        let origin = match made {
-            Some(o) if !o.is_empty() => o.to_string(),
-            _ => journal_origin(kind, &body),
-        };
         let id = self.new_id();
         let at = self.now_iso();
         let db = self.db();
-        db.conn()
-            .execute(
-                "INSERT INTO journal (id, at, kind, data_json, origin) VALUES (?, ?, ?, ?, ?)",
-                rusqlite::params![id, at, kind, ferb_py::json::dumps_utf8(&body), origin],
-            )
-            .expect("a journal write");
-        let request_id = match body.get("request_id") {
-            None | Some(Value::Null) => String::new(),
-            Some(v) => ferb_py::value::py_str(v),
-        };
-        Entry {
-            id,
-            at,
-            kind: kind.into(),
-            data: body,
-            origin,
-            request_id,
-        }
+        journal_row(db.conn(), &id, &at, kind, &body, made).expect("a journal write")
     }
 
     /// journal.py:90 `of_kind(kind, field, equals, missing)`: oldest first.

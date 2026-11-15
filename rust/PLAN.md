@@ -212,13 +212,23 @@ Lines are Python lines at `63369cb3`. "Fixtures" names what exists; a part witho
 - Slices 1 and 2 are done (ENG-8, ENG-9, journal 69): the entry contract (`ferb-core::chat_entry`), the pure
   projector (`ferb-supervisor/src/flow/entries.rs`) and FERB.app's fold (`NotchCore/EntryFold.swift`), 71 of 71
   recorded conversations folding to the app's own transcript. Nothing is wired; no schema, no RPC.
-- Next: slice 3, the `chat_entries` table (the first schema above 0062: needs stage 1 recorded as cut over and the
-  owner's word on the shared conversation), the legacy import, and rebuilding the projector from stored entries after
-  a restart; slice 4, wiring into `chat.rs` `take()` and the bus (add `input_paths` to the ack's entry; expire
-  questions at restart); slice 5, the RPCs (`chat.entries.page|changes|get|days|watch|mark`, `chat.send` with
-  `client_id` and `submission_id`); then the Mac app in three steps (ids on send; history from the engine; live from
-  the watch), each leaving the app working. The phone lab sends no `session_id`: the default must become the current
-  conversation, not "default".
+- Slices 3 to 5 are built (ENG-12, ENG-13, ENG-14, journal 72): migration 0063 (`chat_entries`, `chat_streams`,
+  `chat_submissions`, `chat_clients`, `chat_client_marks`, `chat_entries_from`; chat_history's rows carried over as
+  legacy entries), ferb-store `chat_entries` (pages, changes, cursors, submissions, marks, tombstones, the archive
+  import), the projector wired in `flow/chat_log.rs` (one queue in frame order; the ack in one transaction with its
+  journal row; the start-up pass and the journal backstop), and the calls `chat.entries.page|changes|get|days|watch|mark`
+  with `chat.send`'s `client_id`/`submission_id`. ferbd's `chat_replay` compares the stored entries with the golden
+  after every scenario.
+- Remaining in stage 2: (1) FERB.app's one contained change: show a turn a phone started (the watch feeding its
+  existing reducer for turns it did not send), nothing visible changed otherwise; (2) running the archive import once
+  with the owner watching (`ferb_store::chat_entries::import_archive(db, archive, conversation)` with the daemon
+  stopped, against the owner's archive folder; it refuses an archive whose `-wal` is not empty: checkpoint a copy first);
+  no internal command calls it yet. Stage 3 then classifies the six calls for the phone role (reads Private, `mark`
+  Plain) and decides what "seen everywhere for notifications" does to banners (today the shown flags stay global).
+- Known gaps: a watcher is not told live of a notice cleared by a forget (it reads it in `changes`); a revision made
+  outside the log (`clear_notice`, a tombstone) leaves a loaded projector's copy of that entry stale (notices are never
+  revised by it); the golden's timelines for 28 scenarios differ from the engine's real order (named in
+  `chat_replay.rs` `ENTRY_DIFFERENCES`).
 - Owner, 2026-11-15 (ENG-10, ENG-11): one conversation kept on the Mac; PHONES fetch it like from a server and store
   what they fetched; FERB.app's behaviour and UI for earlier messages stay as they are ("no only phoens ... current
   mac behavious adn ui for prev and od messages im ok with"); chat kept as now; the pre-Rust archive imported once,
@@ -239,7 +249,8 @@ Lines are Python lines at `63369cb3`. "Fixtures" names what exists; a part witho
   screens, it does not get its own design.
 - Owner, 2026-11-15 (ENG-10): a phone stores what it fetched from the Mac locally.
 - Owner, 2026-11-15 (T-1099): the phone apps have the same Claude / Codex / API-key sign-ins as the Mac, so they can
-  use the models when the laptop is off ("laptop wont be on alwys"). This makes the phone more than a remote for the
+  use the models when the laptop is off ("laptop wont be on alwys"): "not by itself. just a bitton ilke in mac to
+  login on phones too" — a sign-in button the owner presses, as in the Mac app's Settings; nothing signs in on its own. This makes the phone more than a remote for the
   Mac's engine: the portable crates already compile for iOS and Android (ENG-5), so the engine can run on the phone
   with its own runtime sign-in. To settle with the owner before building: what a phone does alone (chat and research
   with no Mac hands? its own history, merged into the Mac's when it is back?), where its secrets live (the phone's

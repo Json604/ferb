@@ -3,7 +3,8 @@
 //! STORE-407, STORE-408, STORE-420; SENSE-1). Read first (`plan`, any connection), deleted in
 //! short batches, dependents first (`delete_rows`). It never deletes what nothing else
 //! preserves: the task list and results, episodes, memory, verdicts, schedules, chat and day
-//! summaries are named nowhere here.
+//! summaries are named nowhere here (nor stage 2's chat tables, `chat_entries` and the rest of migration 0063: kept
+//! forever, STORE-401).
 //!
 //! Seam: the settings come in as `get(section, key, default)` (`ferb/config.py`); the daemon
 //! decides the cutoffs and runs the pass.

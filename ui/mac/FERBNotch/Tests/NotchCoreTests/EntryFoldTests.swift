@@ -101,7 +101,7 @@ final class EntryFoldTests: XCTestCase {
         }
         // a message with conversation changes: code's line for each change, then the planner's own reply
         XCTAssertEqual(said("conversation_change"), [
-            "Conversation pause: id-000021:chat",
+            "Paused the chat with Robin.", // ORCH-649: the engine names the chat, never its id
             "Blocked by a safety check: a conversation I'm having for you changes only on your own instruction. The "
                 + "words I quoted from you aren't in this message or your recent messages in this chat, so that "
                 + "conversation didn't change. Say what should change in it.",

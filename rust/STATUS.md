@@ -61,7 +61,7 @@ the phone apps share; they reach the Mac's own parts only through traits.
 
 | Stage | What | State |
 |---|---|---|
-| 2 | History owned by the engine, shared by every client | in progress: entry contract, projector and app fold verified on 71 scenarios (journal 69); store and wiring not started |
+| 2 | History owned by the engine, shared by every client | in progress: entry contract, projector and app fold verified on 71 scenarios (journal 69); store (migration 0063), wiring into the engine and the `chat.entries.*` calls built and tested through the program (journal 72): the stored entries equal the golden on 61 recorded scenarios (33 strictly, 28 with named differences of the golden's timeline); the Mac app's one change (phone-started turns), the phone role and the archive import's run remain |
 | 3 | Phone role in the daemon; Android app (from the phone lab) | not started |
 | 4 | iPhone app | not started |
 | 5 | Closed-app notifications | not started |

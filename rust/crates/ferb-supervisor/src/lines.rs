@@ -654,3 +654,33 @@ pub fn wait_cut(
         ferb_sanitize::terminal::printable(&line)
     ))
 }
+
+/// ORCH-649 (fixed against Python, whose line was `'Conversation ' + action + ': ' + id`, supervisor.py:3369): the
+/// owner's change to a delegated conversation, said back in the past tense and in the owner's terms. `row` is the
+/// conversation store's row (`ConversationStore.get`); the chat is named by who it is with (its scope's recipients),
+/// "that conversation" when the row names no one, and never by its id (ORCH-519: no ids). `action` is one
+/// `owner_change` accepted: pause, resume, takeover or close.
+pub fn conversation_changed(action: &str, row: &Map<String, Value>) -> String {
+    let names: Vec<String> = row
+        .get("scope")
+        .and_then(|s| s.get("recipients"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(squeeze)
+        .filter(|n| !n.is_empty())
+        .collect();
+    let chat = match names.as_slice() {
+        [] => "that conversation".to_string(),
+        [one] => format!("the chat with {one}"),
+        [rest @ .., last] => format!("the chat with {} and {last}", rest.join(", ")),
+    };
+    match action {
+        "pause" => format!("Paused {chat}."),
+        "resume" => format!("Resumed {chat}."),
+        "takeover" => format!("Handed {chat} back to you."),
+        "close" => format!("Closed {chat}."),
+        _ => format!("Changed {chat}."),
+    }
+}

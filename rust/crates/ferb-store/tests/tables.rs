@@ -13,6 +13,7 @@ use std::{
 };
 
 use ferb_store::{
+    chat_entries,
     chat_history::{self, ChatHistory},
     cleanup::{self, CardSources, JournalSink},
     pyjson::{self, Style},
@@ -758,7 +759,7 @@ fn the_clean_up_never_writes_a_protected_table() {
     assert!(!cleanup::pending(world.db.path()));
 }
 
-// decision: STORE-5
+// decisions: STORE-5, ENG-11
 #[test]
 fn the_rule_tables_are_python_s() {
     let fixture = fixture();
@@ -782,7 +783,11 @@ fn the_rule_tables_are_python_s() {
     let mut trimmed = cleanup::TRIMMED.to_vec();
     trimmed.sort();
     assert_eq!(json!(trimmed), c["trimmed"]);
-    assert_eq!(json!(cleanup::PROTECTED.to_vec()), c["protected"]);
+    // Python's list, then exactly the stage-2 tables (migration 0063), kept forever as
+    // chat_history is (decisions: ENG-11, ENG-8, STORE-401)
+    let mut protected = c["protected"].as_array().unwrap().clone();
+    protected.extend(chat_entries::TABLES.iter().map(|t| json!(t)));
+    assert_eq!(json!(cleanup::PROTECTED.to_vec()), Value::Array(protected));
     let rows: Map<String, Value> = cleanup::PROTECTED_ROWS
         .iter()
         .map(|(t, r)| (t.to_string(), json!(r)))
@@ -790,7 +795,7 @@ fn the_rule_tables_are_python_s() {
     assert_eq!(Value::Object(rows), c["protected_rows"]);
 }
 
-// decisions: STORE-1, STORE-2, STORE-3, STORE-4
+// decisions: STORE-1, STORE-2, STORE-3, STORE-4, ENG-11
 #[test]
 fn a_home_is_checked_and_set_aside_as_python_does() {
     let fixture = fixture();
@@ -909,17 +914,26 @@ fn a_home_is_checked_and_set_aside_as_python_does() {
             other => panic!("no such call: {other}"),
         };
         match (got, step.get("err")) {
-            (Ok(got), None) => same(&clean(&got), &step["ret"], &what),
-            (Err(error), Some(want)) => same(&clean(&raised(&error)), want, &what),
+            (Ok(got), None) => same(&clean(&got), &stage_2(&step["ret"]), &what),
+            (Err(error), Some(want)) => same(&clean(&raised(&error)), &stage_2(want), &what),
             (Ok(got), Some(want)) => panic!("{what}: Python raised {want}, Rust gave {got}"),
             (Err(error), None) => panic!("{what}: Rust failed: {error}"),
         }
         same(
             &listing(),
-            &step["files"],
+            &stage_2(&step["files"]),
             &format!("{what}: files in the home"),
         );
     }
+}
+
+/// Python's words with the one stage-2 difference: this build knows migration 0063 where
+/// Python's knew up to 0062, so "a newer FERB" names the newer number (decision: ENG-11).
+fn stage_2(want: &Value) -> Value {
+    let text = serde_json::to_string(want).unwrap();
+    let known = |v: i64| format!("this FERB knows up to {v})");
+    let version = chat_entries::SCHEMA_VERSION;
+    serde_json::from_str(&text.replace(&known(version - 1), &known(version))).unwrap()
 }
 
 fn unbase64(text: &str) -> Vec<u8> {

@@ -102,13 +102,17 @@ pub fn owner_secrets(opts: &Options, home: &Path) -> OwnerSecrets {
 pub struct OwnerSide {
     events: Arc<Events>,
     notifier: Mutex<Option<Arc<notify::Notifier>>>,
+    /// Stage 2: a reminder is posted in the chat's entries whether or not a banner is shown (ENG-13).
+    chat: ferb_supervisor::flow::Supervisor,
 }
 
 impl OwnerSide {
-    pub fn new(events: &Arc<Events>) -> OwnerSide {
+    /// The owner side; `chat` is the supervisor whose chat entries a reminder is posted in.
+    pub fn new(events: &Arc<Events>, chat: ferb_supervisor::flow::Supervisor) -> OwnerSide {
         OwnerSide {
             events: events.clone(),
             notifier: Mutex::new(None),
+            chat,
         }
     }
 }
@@ -147,6 +151,13 @@ impl Owner for OwnerSide {
         card: Value,
     ) -> LocalFuture<Result<(), String>> {
         let n = self.notifier();
+        if ident.starts_with("reminder:") {
+            // the item FERB.app's notifications stream carries (notify.rs `deliver`), redacted by the log
+            self.chat.chat_post(
+                serde_json::json!({"id": ident, "category": "reminder", "title": title,
+                "body": text, "target": target, "card": card}),
+            );
+        }
         let banner = banners::Banner {
             title: title.into(),
             text: text.into(),

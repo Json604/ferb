@@ -842,11 +842,14 @@ dependencies = [
 name = "ferb-store"
 version = "0.28.0"
 dependencies = [
+ "ferb-core",
  "ferb-py",
  "ferb-sanitize",
+ "getrandom 0.3.4",
  "hex",
  "libc",
  "rusqlite",
+ "serde",
  "serde_json",
  "sha2",
  "tempfile",
