@@ -108,7 +108,7 @@ fn stream_text(r: &Redactor, text: &str, chunk: usize) -> String {
     String::from_utf8(out).expect("utf-8")
 }
 
-// decision: GATE-596, GATE-598 (doubtful values stay masked), GATE-599 (the identifiers, `pii-` ids)
+// decision: GATE-596, GATE-598 (doubtful values stay masked), GATE-599 (the identifiers, `pii-` ids), GATE-600
 #[test]
 fn every_secret_shape_is_masked_and_every_declared_gap_still_shows() {
     let c = corpus();

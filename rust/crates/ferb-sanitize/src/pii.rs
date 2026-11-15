@@ -11,11 +11,14 @@
 //!   digit or a weak shape (passports, bank accounts, driving licences, voter ids) is found only this way.
 //!
 //! Contact data (names, emails, phone numbers, addresses, dates of birth) and technical identifiers (IP, MAC,
-//! IMEI, VIN) are not masked: FERB needs the first to act for its owner and reads the second in ordinary work.
+//! IMEI, VIN) are not masked by this layer: FERB needs the first to act for its owner and reads the second in
+//! ordinary work. The payment card rule ported from Python (formats.rs: 13 to 19 Luhn-valid digits, plain or in
+//! groups) still masks, as a "payment card", whatever has that shape: a 15-digit IMEI, a South African id written
+//! as 13 plain digits, an Emirates id. It is left as it is: it errs toward masking.
 //! A masked identifier stays usable: a field that needs it is filled through the hidden owner input (browser and
 //! Mac `secret`, gateway `ask_secret`), which the model never reads.
 //!
-//! decision: GATE-599 (agent).
+//! decision: GATE-599 (agent), GATE-600 (agent: checked against python-stdnum).
 
 use crate::formats::Hit;
 use crate::rx::Span;
@@ -114,15 +117,16 @@ fn aadhaar(v: &str) -> bool {
 }
 
 fn aadhaar_vid(v: &str) -> bool {
+    // python-stdnum's in_.vid: the first digit is 2-9, as an Aadhaar's
     let ds = digits(v);
-    ds.len() == 16 && verhoeff(&ds)
+    ds.len() == 16 && ds[0] >= 2 && verhoeff(&ds)
 }
 
 fn pan(v: &str) -> bool {
     let b = v.as_bytes();
     b.len() == 10
         && b[..5].iter().all(u8::is_ascii_uppercase)
-        && b"PCHFATBLJG".contains(&b[3])
+        && b"PCHFATBLJGK".contains(&b[3]) // K: a krish trust (python-stdnum's in_.pan)
         && b[5..9].iter().all(u8::is_ascii_digit)
         && b[9].is_ascii_uppercase()
 }
@@ -281,7 +285,12 @@ fn fr_nir(v: &str) -> bool {
     if v.len() != 15 {
         return false;
     }
-    let body = v[..13].replace("2A", "19").replace("2B", "18");
+    // 2A and 2B only as the department (characters 6-7), as python-stdnum's fr.nir
+    let body = match &v[5..7] {
+        "2A" => format!("{}19{}", &v[..5], &v[7..13]),
+        "2B" => format!("{}18{}", &v[..5], &v[7..13]),
+        _ => v[..13].to_string(),
+    };
     if !body.bytes().all(|c| c.is_ascii_digit()) || !v[13..].bytes().all(|c| c.is_ascii_digit()) {
         return false;
     }
@@ -432,6 +441,7 @@ fn cn_rid(v: &str) -> bool {
 }
 
 fn kr_rrn(v: &str) -> bool {
+    // no checksum: numbers issued since October 2020 end in random digits (python-stdnum's kr.rrn still checks it)
     let ds = digits(v);
     ds.len() == 13
         && v.len() == 13
@@ -488,7 +498,7 @@ fn tw_id(v: &str) -> bool {
     let b = v.as_bytes();
     if b.len() != 10
         || !b[0].is_ascii_uppercase()
-        || !matches!(b[1], b'1' | b'2')
+        || !matches!(b[1], b'1' | b'2' | b'8' | b'9') // 8, 9: the resident certificate's number (統一證號), same check
         || !b[1..].iter().all(u8::is_ascii_digit)
     {
         return false;
@@ -516,6 +526,90 @@ fn lk_nic_old(v: &str) -> bool {
     }
     let day: u32 = v[2..5].parse().unwrap_or(0);
     (1..=366).contains(&day) || (501..=866).contains(&day)
+}
+
+/// Sri Lanka's 12-digit NIC (since 2016): the year of birth (1900-2099), the day of the year (001-366, women
+/// 501-866), a serial and a check digit whose rule is not published: shape only, label-only.
+fn lk_nic_new(v: &str) -> bool {
+    let ds = digits(v);
+    if ds.len() != 12 || v.len() != 12 {
+        return false;
+    }
+    let year = weighted(&ds[..4], &[1000, 100, 10, 1]);
+    let day = weighted(&ds[4..7], &[100, 10, 1]);
+    (1900..=2099).contains(&year) && ((1..=366).contains(&day) || (501..=866).contains(&day))
+}
+
+/// Singapore's M-series FIN (issued since 2022): M, seven digits and a check letter. Its check-letter table is not
+/// published, and none is invented here: the shape only, and only after an NRIC/FIN label.
+fn sg_fin_m(v: &str) -> bool {
+    let b = v.as_bytes();
+    b.len() == 9
+        && b[0] == b'M'
+        && b[1..8].iter().all(u8::is_ascii_digit)
+        && b[8].is_ascii_uppercase()
+}
+
+/// Norway's fødselsnummer (python-stdnum's no.fodselsnummer): a date of birth DDMMYY (a D-number adds 40 to the
+/// day, an H-number 40 to the month), three individual digits that give the century, and two mod-11 check digits.
+/// FH-numbers (day 80 and above) carry no date and fail, as in stdnum. stdnum also refuses a date in the future;
+/// the redactor has no clock, so that one rule is not applied (a number dated in the future is masked).
+fn no_fnr(v: &str) -> bool {
+    let ds = digits(v);
+    if ds.len() != 11 || v.len() != 11 {
+        return false;
+    }
+    let c1 = (11 - weighted(&ds, &[3, 7, 6, 1, 8, 9, 4, 5, 2]) % 11) % 11;
+    let c2 = (11 - weighted(&ds, &[5, 4, 3, 2, 7, 6, 5, 4, 3, 2]) % 11) % 11;
+    if c1 != ds[9] || c2 != ds[10] {
+        return false;
+    }
+    let (mut day, mut month) = (ds[0] * 10 + ds[1], ds[2] * 10 + ds[3]);
+    let (yy, ind) = (ds[4] * 10 + ds[5], weighted(&ds[6..9], &[100, 10, 1]));
+    if day >= 80 {
+        return false;
+    }
+    if day > 40 {
+        day -= 40;
+    }
+    if month > 40 {
+        month -= 40;
+    }
+    let year = if ind < 500 {
+        1900 + yy
+    } else if ind < 750 && yy >= 54 {
+        1800 + yy
+    } else if yy < 40 {
+        2000 + yy
+    } else if ind >= 900 {
+        1900 + yy
+    } else {
+        return false;
+    };
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let days = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if leap => 29,
+        2 => 28,
+        _ => return false,
+    };
+    (1..=days).contains(&day)
+}
+
+/// Mexico's CLABE (18 digits: bank, branch, account, check digit): the check is 10 minus the sum of each digit
+/// times 3, 7, 1 (each product mod 10), mod 10 (Banxico's rule; python-stdnum 2.2 has no CLABE module).
+fn mx_clabe(v: &str) -> bool {
+    let ds = digits(v);
+    if ds.len() != 18 || v.len() != 18 {
+        return false;
+    }
+    let s: u32 = ds[..17]
+        .iter()
+        .zip([3, 7, 1].iter().cycle())
+        .map(|(d, w)| d * w % 10)
+        .sum();
+    (10 - s % 10) % 10 == ds[17]
 }
 
 fn ae_eid(v: &str) -> bool {
@@ -561,6 +655,7 @@ fn iban(v: &str) -> bool {
         ("BE", 16),
         ("BG", 22),
         ("BH", 22),
+        ("BI", 27),
         ("BR", 29),
         ("BY", 28),
         ("CH", 21),
@@ -568,12 +663,14 @@ fn iban(v: &str) -> bool {
         ("CY", 28),
         ("CZ", 24),
         ("DE", 22),
+        ("DJ", 27),
         ("DK", 18),
         ("DO", 28),
         ("EE", 20),
         ("EG", 29),
         ("ES", 24),
         ("FI", 18),
+        ("FK", 18),
         ("FO", 18),
         ("FR", 27),
         ("GB", 22),
@@ -582,6 +679,7 @@ fn iban(v: &str) -> bool {
         ("GL", 18),
         ("GR", 27),
         ("GT", 28),
+        ("HN", 28),
         ("HR", 21),
         ("HU", 28),
         ("IE", 22),
@@ -598,15 +696,19 @@ fn iban(v: &str) -> bool {
         ("LT", 20),
         ("LU", 20),
         ("LV", 21),
+        ("LY", 25),
         ("MC", 27),
         ("MD", 24),
         ("ME", 22),
         ("MK", 19),
+        ("MN", 20),
         ("MR", 27),
         ("MT", 31),
         ("MU", 30),
+        ("NI", 28),
         ("NL", 18),
         ("NO", 15),
+        ("OM", 23),
         ("PK", 24),
         ("PL", 28),
         ("PS", 29),
@@ -614,12 +716,15 @@ fn iban(v: &str) -> bool {
         ("QA", 29),
         ("RO", 24),
         ("RS", 22),
+        ("RU", 33),
         ("SA", 24),
         ("SC", 31),
+        ("SD", 18),
         ("SE", 24),
         ("SI", 19),
         ("SK", 24),
         ("SM", 27),
+        ("SO", 23),
         ("ST", 25),
         ("SV", 28),
         ("TL", 23),
@@ -629,6 +734,7 @@ fn iban(v: &str) -> bool {
         ("VA", 22),
         ("VG", 24),
         ("XK", 20),
+        ("YE", 30),
     ];
     let b = v.as_bytes();
     if b.len() < 15
@@ -660,9 +766,18 @@ fn iban(v: &str) -> bool {
 }
 
 fn de_steuer_id(v: &str) -> bool {
-    // ISO 7064 MOD 11,10; the first digit is not 0
+    // ISO 7064 MOD 11,10; the first digit is not 0; in the first ten digits exactly one digit appears two or three
+    // times and every other at most once (python-stdnum's de.idnr)
     let ds = digits(v);
     if ds.len() != 11 || v.len() != 11 || ds[0] == 0 {
+        return false;
+    }
+    let mut count = [0u32; 10];
+    for &d in &ds[..10] {
+        count[d as usize] += 1;
+    }
+    let repeated: Vec<u32> = count.iter().copied().filter(|&c| c > 1).collect();
+    if repeated.len() != 1 || !(2..=3).contains(&repeated[0]) {
         return false;
     }
     let mut product = 10;
@@ -678,8 +793,13 @@ fn de_steuer_id(v: &str) -> bool {
 }
 
 fn de_ausweis(v: &str) -> bool {
-    // 9 characters (digits and C F G H J K L M N P R T V W X Y Z) and a check digit, weights 7 3 1
+    // 9 characters (digits and C F G H J K L M N P R T V W X Y Z) and a check digit, weights 7 3 1; or the nine
+    // alone, as the card's front prints them (the check digit is only in the machine-readable zone): label-only
     let b = v.as_bytes();
+    let serial = |c: &u8| c.is_ascii_digit() || b"CFGHJKLMNPRTVWXYZ".contains(c);
+    if b.len() == 9 {
+        return b.iter().all(serial) && b.iter().any(u8::is_ascii_digit);
+    }
     if b.len() != 10
         || !b[9].is_ascii_digit()
         || !b[..9]
@@ -720,8 +840,9 @@ fn dk_cpr(v: &str) -> bool {
 }
 
 fn pt_nif(v: &str) -> bool {
+    // any first digit but 0, as python-stdnum's pt.nif (4 and 7 are issued too)
     let ds = digits(v);
-    if ds.len() != 9 || v.len() != 9 || !matches!(ds[0], 1 | 2 | 3 | 5 | 6 | 8 | 9) {
+    if ds.len() != 9 || v.len() != 9 || ds[0] == 0 {
         return false;
     }
     let r = 11 - weighted(&ds, &[9, 8, 7, 6, 5, 4, 3, 2]) % 11;
@@ -729,20 +850,20 @@ fn pt_nif(v: &str) -> bool {
 }
 
 fn ie_ppsn(v: &str) -> bool {
+    // python-stdnum's ie.pps: seven digits, the check letter, and an optional ninth letter; the 2013 format's A, B
+    // or H counts in the check, the old format's W, T or X is ignored
     const L: &[u8] = b"WABCDEFGHIJKLMNOPQRSTUV";
     let b = v.as_bytes();
     if !(8..=9).contains(&b.len())
         || !b[..7].iter().all(u8::is_ascii_digit)
-        || !b[7].is_ascii_uppercase()
+        || !L.contains(&b[7])
+        || b.get(8).is_some_and(|c| !b"ABHWTX".contains(c))
     {
         return false;
     }
     let mut s = weighted(&digits(&v[..7]), &[8, 7, 6, 5, 4, 3, 2]);
-    if let Some(&c) = b.get(8) {
-        let Some(i) = L.iter().position(|&x| x == c) else {
-            return false;
-        };
-        s += i as u32 * 9;
+    if let Some(&c @ (b'A' | b'B' | b'H')) = b.get(8) {
+        s += u32::from(c - b'A' + 1) * 9;
     }
     L[(s % 23) as usize] == b[7]
 }
@@ -793,9 +914,14 @@ fn tr_tckn(v: &str) -> bool {
 }
 
 fn il_id(v: &str) -> bool {
-    let ds = digits(v);
-    if ds.len() != 9 || v.len() != 9 {
+    // a shorter number is the same number with leading zeros (python-stdnum's il.idnr pads to nine): 3933742-3 is
+    // 039337423; label-only, so five to eight digits are read only after the label
+    let mut ds = digits(v);
+    if !(5..=9).contains(&ds.len()) || v.len() != ds.len() || ds.iter().all(|&d| d == 0) {
         return false;
+    }
+    while ds.len() < 9 {
+        ds.insert(0, 0);
     }
     let s: u32 = ds
         .iter()
@@ -836,10 +962,12 @@ fn mx_rfc(v: &str) -> bool {
 }
 
 fn in_epic(v: &str) -> bool {
+    // three letters and seven digits, Luhn over the digits (python-stdnum's in_.epic)
     let b = v.as_bytes();
     b.len() == 10
         && b[..3].iter().all(u8::is_ascii_uppercase)
         && b[3..].iter().all(u8::is_ascii_digit)
+        && luhn(&digits(&v[3..]))
 }
 
 fn ke_kra(v: &str) -> bool {
@@ -850,7 +978,7 @@ fn ke_kra(v: &str) -> bool {
         && b[10].is_ascii_uppercase()
 }
 
-/// A document number after its label: 6-12 letters and digits, at least five of them digits (passports, driving
+/// A document number after its label: 6-16 letters and digits, at least five of them digits (passports, driving
 /// licences, health cards: no check digit, so only after a label).
 fn document(v: &str) -> bool {
     (6..=16).contains(&v.len()) && v.bytes().filter(u8::is_ascii_digit).count() >= 5
@@ -914,19 +1042,20 @@ pub(crate) static KINDS: &[Kind] = &[
         labels: &["nhs", "nhs number", "nhs no"] },
     Kind { name: "driving licence number", check: uk_driving, bare: &[&[("", 16)]], labels: &[] },
     Kind { name: "Social Insurance Number", check: ca_sin, bare: &[],
-        labels: &["sin", "social insurance number", "social insurance", "numéro d'assurance sociale"] },
+        labels: &["sin", "social insurance number", "social insurance", "numéro d'assurance sociale",
+            "num\u{e9}ro d\u{2019}assurance sociale", "nas"] },
     Kind { name: "DNI", check: es_dni, bare: &[&[("", 8), ("-", 1)], &[("", 9)]],
-        labels: &["dni", "nif", "documento nacional de identidad"] },
+        labels: &["dni", "nif", "documento nacional de identidad", "d.n.i", "n.i.f"] },
     Kind { name: "NIE", check: es_nie, bare: &[&[("", 9)], &[("", 1), (DASH, 7), (DASH, 1)]],
-        labels: &["nie", "número de identidad de extranjero"] },
+        labels: &["nie", "número de identidad de extranjero", "nif", "n.i.f", "n.i.e"] },
     Kind { name: "codice fiscale", check: it_cf, bare: &[&[("", 16)]],
         labels: &["codice fiscale", "cf"] },
     Kind { name: "NIR", check: fr_nir, bare: &[&[("", 15)], &[("", 1), (SP, 2), (SP, 2), (SP, 2), (SP, 3), (SP, 3), (SP, 2)]],
         labels: &["nir", "insee", "numéro de sécurité sociale", "numero de securite sociale", "sécurité sociale", "securite sociale"] },
     Kind { name: "personnummer", check: se_pnr, bare: &[&[("", 6), ("-+", 4)], &[("", 8), ("-", 4)]],
-        labels: &["personnummer", "personal identity number"] },
+        labels: &["personnummer", "personal identity number", "personnr", "personbeteckning"] },
     Kind { name: "henkilötunnus", check: fi_hetu, bare: &[&[("", 11)], &[("", 6), ("-+", 4)]],
-        labels: &["henkilötunnus", "hetu", "personal identity code"] },
+        labels: &["henkilötunnus", "hetu", "personal identity code", "sotu", "personbeteckning"] },
     Kind { name: "national register number", check: be_nrn, bare: &[&[("", 2), (DOT, 2), (DOT, 2), (DASH, 3), (DOT, 2)]],
         labels: &["rijksregisternummer", "numéro de registre national", "national register number", "insz", "niss"] },
     Kind { name: "CPF", check: br_cpf, bare: &[&[("", 3), (DOT, 3), (DOT, 3), (DASH, 2)]],
@@ -936,21 +1065,24 @@ pub(crate) static KINDS: &[Kind] = &[
     Kind { name: "CUIL", check: ar_cuil, bare: &[&[("", 2), (DASH, 8), (DASH, 1)]],
         labels: &["cuil", "cuit"] },
     Kind { name: "RUT", check: cl_rut, bare: &[&[("", 2), (DOT, 3), (DOT, 3), (DASH, 1)], &[("", 1), (DOT, 3), (DOT, 3), (DASH, 1)]],
-        labels: &["rut", "run"] },
+        labels: &["rut", "run", "r.u.t"] },
     Kind { name: "resident identity number", check: cn_rid, bare: &[&[("", 18)]],
-        labels: &["\u{8eab}\u{4efd}\u{8bc1}", "\u{8eab}\u{4efd}\u{8bc1}\u{53f7}", "resident identity card", "resident id"] },
+        labels: &["\u{8eab}\u{4efd}\u{8bc1}", "\u{8eab}\u{4efd}\u{8bc1}\u{53f7}", "\u{516c}\u{6c11}\u{8eab}\u{4efd}\u{53f7}\u{7801}",
+            "\u{8eab}\u{4efd}\u{53f7}\u{7801}", "resident identity card", "resident id"] },
     Kind { name: "resident registration number", check: kr_rrn, bare: &[&[("", 6), (DASH, 7)]],
-        labels: &["\u{c8fc}\u{bbfc}\u{b4f1}\u{b85d}\u{bc88}\u{d638}", "rrn", "resident registration number"] },
+        labels: &["\u{c8fc}\u{bbfc}\u{b4f1}\u{b85d}\u{bc88}\u{d638}", "\u{c8fc}\u{bbfc}\u{bc88}\u{d638}", "rrn", "resident registration number"] },
     Kind { name: "NRIC", check: sg_nric, bare: &[&[("", 9)]], labels: &["nric", "fin"] },
+    Kind { name: "NRIC", check: sg_fin_m, bare: &[], labels: &["nric", "fin"] },
     Kind { name: "HKID", check: hk_hkid, bare: &[],
         labels: &["hkid", "hong kong identity card", "\u{8eab}\u{4efd}\u{8b49}"] },
     Kind { name: "Taiwan ID", check: tw_id, bare: &[],
-        labels: &["\u{8eab}\u{5206}\u{8b49}", "\u{8eab}\u{5206}\u{8b49}\u{5b57}\u{865f}", "national id"] },
+        labels: &["\u{8eab}\u{5206}\u{8b49}", "\u{8eab}\u{5206}\u{8b49}\u{5b57}\u{865f}", "\u{7d71}\u{4e00}\u{8b49}\u{865f}", "national id"] },
     Kind { name: "MyKad number", check: my_mykad, bare: &[&[("", 6), (DASH, 2), (DASH, 4)]],
-        labels: &["mykad", "no. k/p", "ic no", "ic number", "nric"] },
+        labels: &["mykad", "no. k/p", "ic no", "ic number", "nric", "kad pengenalan"] },
     Kind { name: "CNIC", check: pk_cnic, bare: &[&[("", 5), (DASH, 7), (DASH, 1)]],
         labels: &["cnic", "nicop"] },
     Kind { name: "NIC", check: lk_nic_old, bare: &[&[("", 10)]], labels: &["nic"] },
+    Kind { name: "NIC", check: lk_nic_new, bare: &[], labels: &["nic"] },
     Kind { name: "Emirates ID", check: ae_eid, bare: &[&[("", 3), (DASH, 4), (DASH, 7), (DASH, 1)]],
         labels: &["emirates id", "eid"] },
     Kind { name: "South African ID", check: za_id, bare: &[], labels: &["id number", "identity number", "id no", "sa id"] },
@@ -959,14 +1091,19 @@ pub(crate) static KINDS: &[Kind] = &[
     Kind { name: "INN", check: ru_inn, bare: &[], labels: &["inn", "\u{438}\u{43d}\u{43d}", "\u{418}\u{41d}\u{41d}"] },
     Kind { name: "IBAN", check: iban, bare: &[], labels: &["iban"] },
     Kind { name: "Steuer-ID", check: de_steuer_id, bare: &[],
-        labels: &["steuer-id", "steuerid", "steueridentifikationsnummer", "steuerliche identifikationsnummer", "idnr", "tax id", "tin"] },
+        labels: &["steuer-id", "steuerid", "steueridentifikationsnummer", "steuerliche identifikationsnummer", "idnr", "tax id", "tin",
+            "identifikationsnummer", "steuer-idnr"] },
     Kind { name: "Personalausweis number", check: de_ausweis, bare: &[],
-        labels: &["personalausweis", "ausweisnummer", "personalausweisnummer", "id card number", "identity card number"] },
-    Kind { name: "BSN", check: nl_bsn, bare: &[], labels: &["bsn", "burgerservicenummer", "sofinummer"] },
+        labels: &["personalausweis", "ausweisnummer", "personalausweisnummer", "id card number", "identity card number",
+            "ausweis-nr"] },
+    Kind { name: "BSN", check: nl_bsn, bare: &[], labels: &["bsn", "burgerservicenummer", "sofinummer", "sofi-nummer"] },
     Kind { name: "PESEL", check: pl_pesel, bare: &[], labels: &["pesel"] },
-    Kind { name: "CPR number", check: dk_cpr, bare: &[], labels: &["cpr", "cpr-nr", "cpr nr", "cpr-nummer"] },
-    Kind { name: "NIF", check: pt_nif, bare: &[], labels: &["nif", "contribuinte", "número de contribuinte", "numero de contribuinte"] },
-    Kind { name: "PPS number", check: ie_ppsn, bare: &[], labels: &["pps", "ppsn", "pps number", "pps no"] },
+    Kind { name: "CPR number", check: dk_cpr, bare: &[], labels: &["cpr", "cpr-nr", "cpr nr", "cpr-nummer", "personnummer"] },
+    Kind { name: "fødselsnummer", check: no_fnr, bare: &[],
+        labels: &["f\u{f8}dselsnummer", "fodselsnummer", "personnummer"] },
+    Kind { name: "NIF", check: pt_nif, bare: &[], labels: &["nif", "contribuinte", "número de contribuinte", "numero de contribuinte", "n.i.f",
+            "n\u{fa}mero de identifica\u{e7}\u{e3}o fiscal", "numero de identificacao fiscal"] },
+    Kind { name: "PPS number", check: ie_ppsn, bare: &[], labels: &["pps", "ppsn", "pps number", "pps no", "personal public service number"] },
     Kind { name: "tax file number", check: au_tfn, bare: &[], labels: &["tfn", "tax file number"] },
     Kind { name: "Medicare number", check: au_medicare, bare: &[], labels: &["medicare", "medicare card", "medicare no"] },
     Kind { name: "My Number", check: jp_my_number, bare: &[],
@@ -977,14 +1114,16 @@ pub(crate) static KINDS: &[Kind] = &[
     Kind { name: "Israeli ID", check: il_id, bare: &[],
         labels: &["teudat zehut", "\u{5ea}.\u{5d6}", "\u{5ea}\"\u{5d6}", "\u{5de}\u{5e1}\u{5e4}\u{5e8} \u{5d6}\u{5d4}\u{5d5}\u{5ea}"] },
     Kind { name: "Saudi national ID", check: sa_id, bare: &[],
-        labels: &["iqama", "\u{647}\u{648}\u{64a}\u{629}", "saudi id", "national id number"] },
+        labels: &["iqama", "\u{647}\u{648}\u{64a}\u{629}", "\u{625}\u{642}\u{627}\u{645}\u{629}", "saudi id", "national id number"] },
     Kind { name: "KRA PIN", check: ke_kra, bare: &[], labels: &["kra pin"] },
     Kind { name: "NIN", check: plain_digits_11, bare: &[], labels: &["nin", "national identification number"] },
     Kind { name: "sort code", check: uk_sort_code, bare: &[], labels: &["sort code"] },
+    Kind { name: "CLABE", check: mx_clabe, bare: &[], labels: &["clabe"] },
     Kind { name: "passport number", check: document, bare: &[],
         labels: &["passport", "passport no", "passport number", "pasaporte", "passeport", "reisepass", "passaporto",
             "passaporte", "paspoort", "\u{92a}\u{93e}\u{938}\u{92a}\u{94b}\u{930}\u{94d}\u{91f}", "\u{43f}\u{430}\u{441}\u{43f}\u{43e}\u{440}\u{442}",
-            "\u{41f}\u{430}\u{441}\u{43f}\u{43e}\u{440}\u{442}", "\u{62a}\u{62d}\u{627}\u{5e8}", "\u{62c}\u{648}\u{627}\u{632} \u{633}\u{641}\u{631}",
+            "\u{41f}\u{430}\u{441}\u{43f}\u{43e}\u{440}\u{442}", "\u{5d3}\u{5e8}\u{5db}\u{5d5}\u{5df}", "\u{62c}\u{648}\u{627}\u{632} \u{633}\u{641}\u{631}",
+            "\u{62c}\u{648}\u{627}\u{632}", "pass-nr", "passnummer",
             "\u{62a4}\u{7167}", "\u{65c5}\u{5238}", "\u{c5ec}\u{ad8c}", "pasaport"] },
     Kind { name: "driving licence number", check: document, bare: &[],
         labels: &["driving licence", "driving license", "driver's license", "drivers license", "driver license", "dl no",
@@ -1001,7 +1140,9 @@ pub(crate) static KINDS: &[Kind] = &[
         labels: &["account number", "account no", "acct no", "a/c no", "a/c", "bank account", "account #",
             "kontonummer", "numéro de compte", "numero de compte", "número de cuenta", "numero de cuenta",
             "número da conta", "numero da conta", "conto corrente",
-            "\u{916}\u{93e}\u{924}\u{93e} \u{938}\u{902}\u{916}\u{94d}\u{92f}\u{93e}"] },
+            "\u{916}\u{93e}\u{924}\u{93e} \u{938}\u{902}\u{916}\u{94d}\u{92f}\u{93e}",
+            "\u{916}\u{93e}\u{924}\u{93e} \u{928}\u{902}\u{92c}\u{930}", "acct", "acct #", "a/c number",
+            "konto-nr", "kontonr", "n\u{b0} de compte", "c/c"] },
 ];
 
 fn plain_digits_11(v: &str) -> bool {
@@ -1261,15 +1402,29 @@ fn labelled_value(s: &str, a: usize, kind: &Kind) -> Option<Span> {
     }
     for &z in ends.iter().rev() {
         let v = compact(&s[a..z]);
-        if (kind.check)(&v) && boundary_after(s, z) {
+        if (kind.check)(&v) && boundary_after(s, z) && !ipv4(&s[a..z]) {
             return Some((a, z));
         }
     }
     None
 }
 
+/// Short labels that are no word in any language FERB reads and whose kind's check is strong (Steuer-ID's ISO 7064
+/// with its repetition rule, the henkilötunnus' date and mod 31): any case counts (`IdNr`, `sotu`).
+const SHORT_ANY_CASE: &[&str] = &["idnr", "sotu"];
+
+/// An IPv4 address (four groups of 1-3 digits joined by "."): a technical identifier, never a labelled value
+/// (`NAS 192.168.1.10`: nine digits that pass Luhn one time in ten).
+fn ipv4(v: &str) -> bool {
+    let parts: Vec<&str> = v.split('.').collect();
+    parts.len() == 4
+        && parts
+            .iter()
+            .all(|p| (1..=3).contains(&p.len()) && p.bytes().all(|c| c.is_ascii_digit()))
+}
+
 /// A label stands as its own word; a label of four letters or fewer counts only written in capitals (SSN, SIN,
-/// PAN, RUN, INN, TIN: "run", "sin", "inn" and "tin" are English words).
+/// PAN, RUN, INN, TIN: "run", "sin", "inn" and "tin" are English words), but for `SHORT_ANY_CASE`.
 fn label_bounded(s: &str, a: usize, z: usize) -> bool {
     let b = s.as_bytes();
     let ascii_word = |c: u8| c.is_ascii_alphanumeric() || c == b'_';
@@ -1277,7 +1432,10 @@ fn label_bounded(s: &str, a: usize, z: usize) -> bool {
         && (z >= b.len() || !ascii_word(b[z]) || !b[z - 1].is_ascii());
     let text = &s[a..z];
     let one_short_word = text.len() <= 4 && text.bytes().all(|c| c.is_ascii_alphabetic());
-    bounded && (!one_short_word || !text.bytes().any(|c| c.is_ascii_lowercase()))
+    bounded
+        && (!one_short_word
+            || !text.bytes().any(|c| c.is_ascii_lowercase())
+            || SHORT_ANY_CASE.iter().any(|w| w.eq_ignore_ascii_case(text)))
 }
 
 fn find_label(s: &str, lower: &str, label: &str, out: &mut Vec<(usize, usize)>) {
@@ -1468,6 +1626,100 @@ mod tests {
             !uk_nhs("9434765918") && !luhn(&digits("046454287")) && !cn_rid("110105194912310021")
         );
         assert!(!iban("DE89370400440532013001") && !es_dni("12345678A") && !tw_id("A123456788"));
+    }
+
+    // decision: GATE-600
+    /// The corrections from the independent review, each with python-stdnum 2.2's documented examples (or the
+    /// issuer's published example) and a changed check character that fails. python-stdnum was the oracle for every
+    /// kind it has (300 generated valid numbers each, all accepted; see rust/JOURNAL.md); these are the kept few.
+    #[test]
+    fn the_reviewed_rules_accept_stdnum_specimens() {
+        // Portugal NIF: any first digit but 0 (stdnum pt.nif's example 501964843; 494313650 and 754016072 were missed)
+        assert!(pt_nif("501964843") && pt_nif("494313650") && pt_nif("754016072"));
+        assert!(!pt_nif("501964842") && !pt_nif("094313650"));
+        // Ireland PPS: the old format's ninth letter W, T or X is ignored; the 2013 format's counts
+        for v in [
+            "6433435F",
+            "6433435FT",
+            "6433435FW",
+            "6433435FX",
+            "6433435OA",
+        ] {
+            assert!(ie_ppsn(v), "stdnum ie.pps example {v}");
+        }
+        assert!(!ie_ppsn("6433435E") && !ie_ppsn("6433435VH") && !ie_ppsn("6433435FC"));
+        // Israel: a shorter number is padded to nine (stdnum il.idnr's 3933742-3)
+        assert!(il_id("39337423") && il_id("039337423") && !il_id("39337422"));
+        assert_eq!(pii_hits("ת.ז. 3933742-3")[0].kind, "Israeli ID");
+        // Germany Steuer-ID: stdnum de.idnr's example, one the oracle generated, and its "more digits repeated"
+        assert!(de_steuer_id("36574261809") && de_steuer_id("39170342364"));
+        assert!(!de_steuer_id("36554266806") && !de_steuer_id("36574261890"));
+        assert_eq!(pii_hits("IdNr 36574261809")[0].kind, "Steuer-ID");
+        // Germany Personalausweis: the specimen card's T22000129, with its check digit (MRZ) and as printed
+        assert!(de_ausweis("T220001293") && de_ausweis("T22000129") && !de_ausweis("T220001294"));
+        assert_eq!(
+            pii_hits("Ausweis-Nr. T22000129")[0].kind,
+            "Personalausweis number"
+        );
+        // France NIR: 2A/2B only as the department (stdnum fr.nir's examples)
+        assert!(
+            fr_nir("295109912611193") && fr_nir("253072B07300470") && fr_nir("253072A07300443")
+        );
+        assert!(!fr_nir("253072C07300443") && !fr_nir("295109912611199"));
+        assert!(
+            !fr_nir("2A5037512345636"),
+            "2A at the start was read as 19 before"
+        );
+        // IBAN: the SWIFT registry's examples of the twelve countries added (each valid for stdnum's iban)
+        for v in [
+            "BI4210000100010000332045181",
+            "DJ2100010000000154000100186",
+            "FK88SC123456789012",
+            "HN88CABF00000000000250005469",
+            "LY83002048000020100120361",
+            "MN121234123456789123",
+            "NI45BAPR00000013000003558124",
+            "OM810180000001299123456",
+            "RU0304452522540817810538091310419",
+            "SD2129010501234001",
+            "SO211000001001000100141",
+            "YE15CBYE0001018861234567891234",
+        ] {
+            assert!(iban(v), "{v}");
+        }
+        assert!(!iban("RU0304452522540817810538091310418"));
+        // PAN: K (a krish trust) as the fourth letter; stdnum in_.pan's examples
+        assert!(pan("ACUPA7085R") && pan("AAPPV8261K") && pan("AAAKA1234A") && !pan("AAAEA1234A"));
+        // voter ID: Luhn over the seven digits (stdnum in_.epic's WKH1186253 valid, WKH1186263 not)
+        assert!(in_epic("WKH1186253") && !in_epic("WKH1186263"));
+        // Aadhaar VID: never starts with 0 or 1 (stdnum in_.vid)
+        assert!(aadhaar_vid("2341234123412341") && !aadhaar_vid("1341234123412341"));
+        // Norway: stdnum no.fodselsnummer's 151086 95088, its 15108695077 fails
+        assert!(no_fnr("15108695088") && !no_fnr("15108695077"));
+        assert_eq!(
+            pii_hits("fødselsnummer 151086 95088")[0].kind,
+            "fødselsnummer"
+        );
+        assert_eq!(
+            pii_hits("Personnummer: 15108695088")[0].kind,
+            "fødselsnummer"
+        );
+        // Mexico CLABE: Banxico's worked example (as Wikipedia gives it)
+        assert!(mx_clabe("032180000118359719") && !mx_clabe("032180000118359718"));
+        assert_eq!(pii_hits("CLABE 032180000118359719")[0].kind, "CLABE");
+        // shape-only, label-only: Singapore's M series, Taiwan's 8/9, Sri Lanka's twelve digits
+        assert_eq!(pii_hits("FIN: M1234567K")[0].kind, "NRIC");
+        assert!(pii_hits("ref M1234567K sent").is_empty());
+        assert!(tw_id("A800000014") && !tw_id("A800000015") && !tw_id("A300000014"));
+        assert_eq!(pii_hits("統一證號 A800000014")[0].kind, "Taiwan ID");
+        assert!(
+            lk_nic_new("199012345678") && lk_nic_new("200058212345") && !lk_nic_new("199040012345")
+        );
+        assert_eq!(pii_hits("NIC 199012345678")[0].kind, "NIC");
+        assert!(pii_hits("build 199012345678 ok").is_empty());
+        // an IPv4 address after a label is no identifier (192168110 and 192168128 pass the SIN's Luhn)
+        assert!(ca_sin("192168110") && ca_sin("192168128"));
+        assert!(pii_hits("NAS 192.168.1.10 and SIN: 192.168.1.28").is_empty());
     }
 
     // decision: GATE-599

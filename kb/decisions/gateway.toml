@@ -1303,3 +1303,12 @@ status = "active"
 evidence = "Owner 2026-11-15 (relayed): \"i want you to run a worlwide PII info reaserhca nd then mkae it like the maskign list to cover all possibel PIIs that sholdnt be leaked\"; on use: \"ferb will ask me in a secret field it currenlty has. it deirectly goes in there.\""
 rule = "pii.rs masks, named in kinds and the pasted-secret notice but never a gate's hit: national, tax, social-security, bank and health ids of about 40 countries, bare only in the issuer's printed layout with its check digit (Aadhaar 4-4-4 Verhoeff, PAN, SSN, NINO, IBAN mod 97, CPF, CURP, codice fiscale, NIR, China id, NRIC…), otherwise only after a label naming them in English or the country's language (passports, licences, accounts, SIN, TFN, BSN…). Never a bare digit run. Names, emails, phones, addresses, dates of birth, IP, MAC, IMEI and VIN stay visible."
 paths = ["rust/crates/ferb-sanitize/src/pii.rs", "rust/crates/ferb-sanitize/src/redact.rs::Redactor.spans_of", "rust/fixtures/sanitize-shapes"]
+
+[GATE-600]
+title = "GATE-599's identifier rules checked against python-stdnum and widened where they missed real numbers"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "Refines GATE-599 with python-stdnum 2.2 as the oracle: PT NIF any first digit; PPS ignores a ninth W/T/X; Israeli id padded from 5-8 digits; Steuer-ID repetition rule; Ausweis 9 characters; NIR 2A/2B only as department; 89 IBAN lengths; PAN K; voter id Luhn; VID not 0/1; label-only shape for SG M series, Taiwan 8/9, Sri Lanka 12 digits; Norway fodselsnummer and CLABE added; no IPv4 after a label. The card rule masks IMEIs and plain ZA/Emirates ids as cards. No oracle: HKID, Emirates, Saudi, AU Medicare, 8-digit TFN, UK licence, SG M, TW 8/9, LK 12, CLABE, Ausweis."
+why = "A review rebuilt each rule against stdnum: no checksum was wrong, but real numbers were missed (494313650, 6433435FT, 3933742-3) and look-alikes passed (WKH1186263, 36554266806). Each change agrees with stdnum on 300 valid numbers and every check-character mutation."
+paths = ["rust/crates/ferb-sanitize/src/pii.rs", "rust/fixtures/sanitize-shapes"]

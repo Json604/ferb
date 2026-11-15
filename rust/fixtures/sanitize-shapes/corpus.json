@@ -3156,9 +3156,9 @@
    "sources": [
     "presidio:IN_VOTER"
    ],
-   "text": "Voter ID: TES5233560",
+   "text": "Voter ID: XGZ9295239",
    "secrets": [
-    "TES5233560"
+    "XGZ9295239"
    ]
   },
   {
@@ -3169,9 +3169,9 @@
     "dlp:US_SOCIAL_SECURITY_NUMBER",
     "macie:USA_SOCIAL_SECURITY_NUMBER"
    ],
-   "text": "SSN 243-09-8836 on file",
+   "text": "SSN 807-46-6836 on file",
    "secrets": [
-    "243-09-8836"
+    "807-46-6836"
    ]
   },
   {
@@ -3180,9 +3180,9 @@
    "sources": [
     "presidio:US_SSN"
    ],
-   "text": "Social Security Number: 338225746",
+   "text": "Social Security Number: 062311118",
    "secrets": [
-    "338225746"
+    "062311118"
    ]
   },
   {
@@ -3192,9 +3192,9 @@
     "presidio:US_ITIN",
     "dlp:US_INDIVIDUAL_TAXPAYER_IDENTIFICATION_NUMBER"
    ],
-   "text": "ITIN 901-82-0181",
+   "text": "ITIN 952-88-5701",
    "secrets": [
-    "901-82-0181"
+    "952-88-5701"
    ]
   },
   {
@@ -3205,9 +3205,9 @@
     "dlp:US_MEDICARE_BENEFICIARY_ID_NUMBER",
     "macie:USA_MEDICARE_BENEFICIARY_IDENTIFIER"
    ],
-   "text": "Medicare card 4TA6-N60-YH19",
+   "text": "Medicare card 1DW1-HT0-QN09",
    "secrets": [
-    "4TA6-N60-YH19"
+    "1DW1-HT0-QN09"
    ]
   },
   {
@@ -3217,9 +3217,9 @@
     "dlp:US_BANK_ROUTING_MICR",
     "macie:BANK_ACCOUNT_NUMBER"
    ],
-   "text": "Routing number: 414395644",
+   "text": "Routing number: 319414390",
    "secrets": [
-    "414395644"
+    "319414390"
    ]
   },
   {
@@ -3229,9 +3229,9 @@
     "presidio:US_BANK_NUMBER",
     "macie:BANK_ACCOUNT_NUMBER"
    ],
-   "text": "Account number: 1096287967",
+   "text": "Account number: 5641096287",
    "secrets": [
-    "1096287967"
+    "5641096287"
    ]
   },
   {
@@ -3387,9 +3387,9 @@
     "presidio:DE_TAX_ID",
     "dlp:GERMANY_TAXPAYER_IDENTIFICATION_NUMBER"
    ],
-   "text": "Steuer-ID: 38023282864",
+   "text": "Steuer-ID: 80332347566",
    "secrets": [
-    "38023282864"
+    "80332347566"
    ]
   },
   {
@@ -3399,9 +3399,9 @@
     "presidio:DE_ID_CARD",
     "dlp:GERMANY_IDENTITY_CARD_NUMBER"
    ],
-   "text": "Ausweisnummer TPK71KW369",
+   "text": "Ausweisnummer GKK35P6142",
    "secrets": [
-    "TPK71KW369"
+    "GKK35P6142"
    ]
   },
   {
@@ -3410,9 +3410,9 @@
    "sources": [
     "dlp:NETHERLANDS_BSN_NUMBER"
    ],
-   "text": "BSN: 191660127",
+   "text": "BSN: 856745327",
    "secrets": [
-    "191660127"
+    "856745327"
    ]
   },
   {
@@ -3422,9 +3422,9 @@
     "presidio:PL_PESEL",
     "dlp:POLAND_PESEL_NUMBER"
    ],
-   "text": "PESEL 61121021873",
+   "text": "PESEL 67062566655",
    "secrets": [
-    "61121021873"
+    "67062566655"
    ]
   },
   {
@@ -3433,9 +3433,9 @@
    "sources": [
     "dlp:DENMARK_CPR_NUMBER"
    ],
-   "text": "CPR-nr.: 070269-1631",
+   "text": "CPR-nr.: 250856-4595",
    "secrets": [
-    "070269-1631"
+    "250856-4595"
    ]
   },
   {
@@ -3444,9 +3444,9 @@
    "sources": [
     "dlp:PORTUGAL_CDC_NUMBER (NIF: memory)"
    ],
-   "text": "NIF 635666030",
+   "text": "NIF 340419202",
    "secrets": [
-    "635666030"
+    "340419202"
    ]
   },
   {
@@ -3455,9 +3455,9 @@
    "sources": [
     "dlp:IRELAND_PPSN"
    ],
-   "text": "PPS number: 0699998M",
+   "text": "PPS number: 0684823P",
    "secrets": [
-    "0699998M"
+    "0684823P"
    ]
   },
   {
@@ -3467,9 +3467,9 @@
     "dlp:BRAZIL_CPF_NUMBER",
     "macie:BRAZIL_CPF_NUMBER"
    ],
-   "text": "CPF 377.675.441-92",
+   "text": "CPF 725.935.079-26",
    "secrets": [
-    "377.675.441-92"
+    "725.935.079-26"
    ]
   },
   {
@@ -3479,9 +3479,9 @@
     "dlp:MEXICO_CURP_NUMBER",
     "macie:MEXICO_CURP_NUMBER"
    ],
-   "text": "CURP VOAM600309HDFSXZ97",
+   "text": "CURP BEFY810909HNLMYD94",
    "secrets": [
-    "VOAM600309HDFSXZ97"
+    "BEFY810909HNLMYD94"
    ]
   },
   {
@@ -3490,9 +3490,9 @@
    "sources": [
     "macie:MEXICO_INDIVIDUAL_RFC_NUMBER"
    ],
-   "text": "RFC: FMXX770918DN8",
+   "text": "RFC: JNVK620525WH1",
    "secrets": [
-    "FMXX770918DN8"
+    "JNVK620525WH1"
    ]
   },
   {
@@ -3501,9 +3501,9 @@
    "sources": [
     "macie:ARGENTINA_INDIVIDUAL_TAX_IDENTIFICATION_NUMBER"
    ],
-   "text": "CUIL 23-95951250-7",
+   "text": "CUIL 27-78810402-8",
    "secrets": [
-    "23-95951250-7"
+    "27-78810402-8"
    ]
   },
   {
@@ -3513,9 +3513,9 @@
     "dlp:ARGENTINA_DNI_NUMBER",
     "macie:ARGENTINA_DNI_NUMBER"
    ],
-   "text": "DNI 43.075.166",
+   "text": "DNI 21.923.550",
    "secrets": [
-    "43.075.166"
+    "21.923.550"
    ]
   },
   {
@@ -3525,9 +3525,9 @@
     "dlp:CHILE_CDI_NUMBER",
     "macie:CHILE_RUT_NUMBER"
    ],
-   "text": "RUT 15.014.342-K",
+   "text": "RUT 11.736.490-9",
    "secrets": [
-    "15.014.342-K"
+    "11.736.490-9"
    ]
   },
   {
@@ -3536,9 +3536,9 @@
    "sources": [
     "dlp:CHINA_RESIDENT_ID_NUMBER"
    ],
-   "text": "身份证号码 112634197407243879",
+   "text": "身份证号码 310101198912124323",
    "secrets": [
-    "112634197407243879"
+    "310101198912124323"
    ]
   },
   {
@@ -3547,9 +3547,9 @@
    "sources": [
     "dlp:JAPAN_INDIVIDUAL_NUMBER"
    ],
-   "text": "マイナンバー: 084482030008",
+   "text": "マイナンバー: 790760418472",
    "secrets": [
-    "084482030008"
+    "790760418472"
    ]
   },
   {
@@ -3559,9 +3559,9 @@
     "presidio:KR_RRN",
     "dlp:KOREA_RRN"
    ],
-   "text": "주민등록번호 911014-4593537",
+   "text": "주민등록번호 900608-4922100",
    "secrets": [
-    "911014-4593537"
+    "900608-4922100"
    ]
   },
   {
@@ -3571,9 +3571,9 @@
     "presidio:SG_NRIC_FIN",
     "dlp:SINGAPORE_NATIONAL_REGISTRATION_ID_NUMBER"
    ],
-   "text": "NRIC T5227563B",
+   "text": "NRIC F7655414P",
    "secrets": [
-    "T5227563B"
+    "F7655414P"
    ]
   },
   {
@@ -3582,9 +3582,9 @@
    "sources": [
     "dlp:HONG_KONG_ID_NUMBER"
    ],
-   "text": "HKID: O441561(3)",
+   "text": "HKID: P333039(0)",
    "secrets": [
-    "O441561(3)"
+    "P333039(0)"
    ]
   },
   {
@@ -3593,9 +3593,9 @@
    "sources": [
     "dlp:TAIWAN_ID_NUMBER"
    ],
-   "text": "身分證字號 I267174882",
+   "text": "身分證字號 L157082452",
    "secrets": [
-    "I267174882"
+    "L157082452"
    ]
   },
   {
@@ -3604,9 +3604,9 @@
    "sources": [
     "purview:Malaysia identity card number (memory)"
    ],
-   "text": "MyKad 730518-03-3697",
+   "text": "MyKad 890221-08-3433",
    "secrets": [
-    "730518-03-3697"
+    "890221-08-3433"
    ]
   },
   {
@@ -3615,9 +3615,9 @@
    "sources": [
     "dlp:INDONESIA_NIK_NUMBER"
    ],
-   "text": "NIK: 5974652401962793",
+   "text": "NIK: 3560471702967715",
    "secrets": [
-    "5974652401962793"
+    "3560471702967715"
    ]
   },
   {
@@ -3626,9 +3626,9 @@
    "sources": [
     "purview:Pakistan CNIC (memory)"
    ],
-   "text": "CNIC 61938-5180305-7",
+   "text": "CNIC 64600-5594977-7",
    "secrets": [
-    "61938-5180305-7"
+    "64600-5594977-7"
    ]
   },
   {
@@ -3637,9 +3637,9 @@
    "sources": [
     "purview (memory)"
    ],
-   "text": "NIC 913057923V",
+   "text": "NIC 943101807V",
    "secrets": [
-    "913057923V"
+    "943101807V"
    ]
   },
   {
@@ -3648,9 +3648,9 @@
    "sources": [
     "purview:U.A.E. identity card number (memory)"
    ],
-   "text": "Emirates ID 784-1974-3526077-9",
+   "text": "Emirates ID 784-1961-7974537-5",
    "secrets": [
-    "784-1974-3526077-9"
+    "784-1961-7974537-5"
    ]
   },
   {
@@ -3659,9 +3659,9 @@
    "sources": [
     "purview:Saudi Arabia National ID (memory)"
    ],
-   "text": "Iqama: 2267976195",
+   "text": "Iqama: 2182306007",
    "secrets": [
-    "2267976195"
+    "2182306007"
    ]
   },
   {
@@ -3670,9 +3670,9 @@
    "sources": [
     "dlp:ISRAEL_IDENTITY_CARD_NUMBER"
    ],
-   "text": "ת.ז. 703323477",
+   "text": "ת.ז. 058816760",
    "secrets": [
-    "703323477"
+    "058816760"
    ]
   },
   {
@@ -3682,9 +3682,9 @@
     "presidio:TR_NATIONAL_ID",
     "dlp:TURKEY_ID_NUMBER"
    ],
-   "text": "TC Kimlik No: 66177129302",
+   "text": "TC Kimlik No: 49949616682",
    "secrets": [
-    "66177129302"
+    "49949616682"
    ]
   },
   {
@@ -3694,9 +3694,9 @@
     "presidio:ZA_ID_NUMBER",
     "dlp:SOUTH_AFRICA_ID_NUMBER"
    ],
-   "text": "ID number: 5305278567084",
+   "text": "ID number: 7206094827082",
    "secrets": [
-    "5305278567084"
+    "7206094827082"
    ]
   },
   {
@@ -3705,9 +3705,9 @@
    "sources": [
     "presidio:NG_NIN"
    ],
-   "text": "NIN: 45324566651",
+   "text": "NIN: 72312085454",
    "secrets": [
-    "45324566651"
+    "72312085454"
    ]
   },
   {
@@ -3716,9 +3716,9 @@
    "sources": [
     "purview (memory)"
    ],
-   "text": "KRA PIN P459592404D",
+   "text": "KRA PIN P681993460G",
    "secrets": [
-    "P459592404D"
+    "P681993460G"
    ]
   },
   {
@@ -3727,9 +3727,9 @@
    "sources": [
     "purview (memory)"
    ],
-   "text": "СНИЛС 920-068-482 88",
+   "text": "СНИЛС 040-163-919 17",
    "secrets": [
-    "920-068-482 88"
+    "040-163-919 17"
    ]
   },
   {
@@ -3738,9 +3738,9 @@
    "sources": [
     "purview (memory)"
    ],
-   "text": "ИНН 372593507980",
+   "text": "ИНН 411766057838",
    "secrets": [
-    "372593507980"
+    "411766057838"
    ]
   },
   {
@@ -3750,9 +3750,9 @@
     "presidio:AU_TFN",
     "dlp:AUSTRALIA_TAX_FILE_NUMBER"
    ],
-   "text": "Tax File Number: 197 881 040",
+   "text": "Tax File Number: 266 645 011",
    "secrets": [
-    "197 881 040"
+    "266 645 011"
    ]
   },
   {
@@ -3762,9 +3762,9 @@
     "presidio:AU_MEDICARE",
     "dlp:AUSTRALIA_MEDICARE_NUMBER"
    ],
-   "text": "Medicare card: 3092355071",
+   "text": "Medicare card: 3416399635",
    "secrets": [
-    "3092355071"
+    "3416399635"
    ]
   },
   {
@@ -3775,9 +3775,9 @@
     "dlp:IBAN_CODE",
     "macie:GERMANY_BANK_ACCOUNT_NUMBER"
    ],
-   "text": "IBAN DE75 8595 4327 9076 0418 47 BIC DEUTDEFF",
+   "text": "IBAN DE76 0798 8510 8959 6662 88 BIC DEUTDEFF",
    "secrets": [
-    "DE75 8595 4327 9076 0418 47"
+    "DE76 0798 8510 8959 6662 88"
    ]
   },
   {
@@ -3787,9 +3787,9 @@
     "presidio:IBAN_CODE",
     "dlp:IBAN_CODE"
    ],
-   "text": "pay to GB54536922100476554147 today",
+   "text": "pay to GB04QAZG71412753476477 today",
    "secrets": [
-    "GB54536922100476554147"
+    "GB04QAZG71412753476477"
    ]
   },
   {
@@ -3798,9 +3798,9 @@
    "sources": [
     "dlp:FINANCIAL_ACCOUNT_NUMBER"
    ],
-   "text": "खाता संख्या 333039525708, IFSC SBIN0001234",
+   "text": "खाता संख्या 929305012749, IFSC SBIN0001234",
    "secrets": [
-    "333039525708"
+    "929305012749"
    ]
   },
   {
@@ -3809,9 +3809,9 @@
    "sources": [
     "dlp:FINANCIAL_ACCOUNT_NUMBER"
    ],
-   "text": "A/c No. 24591933433 IFSC HDFC0000123",
+   "text": "A/c No. 08486867733 IFSC HDFC0000123",
    "secrets": [
-    "24591933433"
+    "08486867733"
    ]
   },
   {
@@ -3822,9 +3822,9 @@
     "dlp:*_PASSPORT",
     "macie:*_PASSPORT_NUMBER"
    ],
-   "text": "Passport No: L6047187",
+   "text": "Passport No: W4589548",
    "secrets": [
-    "L6047187"
+    "W4589548"
    ]
   },
   {
@@ -3833,9 +3833,9 @@
    "sources": [
     "dlp:SPAIN_PASSPORT"
    ],
-   "text": "pasaporte OC5460055",
+   "text": "pasaporte RY8171382",
    "secrets": [
-    "OC5460055"
+    "RY8171382"
    ]
   },
   {
@@ -3844,9 +3844,9 @@
    "sources": [
     "dlp:RUSSIA_PASSPORT"
    ],
-   "text": "паспорт 94 97 779180",
+   "text": "паспорт 69 35 589661",
    "secrets": [
-    "94 97 779180"
+    "69 35 589661"
    ]
   },
   {
@@ -3855,9 +3855,9 @@
    "sources": [
     "dlp:INDIA_PASSPORT"
    ],
-   "text": "पासपोर्ट नंबर P0797453",
+   "text": "पासपोर्ट नंबर C5030005",
    "secrets": [
-    "P0797453"
+    "C5030005"
    ]
   },
   {
@@ -3866,9 +3866,9 @@
    "sources": [
     "macie:INDIA_DRIVERS_LICENSE"
    ],
-   "text": "Driving Licence No: MH12 77182306000",
+   "text": "Driving Licence No: MH12 43287436049",
    "secrets": [
-    "MH12 77182306000"
+    "MH12 43287436049"
    ]
   },
   {
@@ -3878,9 +3878,9 @@
     "presidio:US_DRIVER_LICENSE",
     "macie:DRIVERS_LICENSE"
    ],
-   "text": "Driver's License: L8816763",
+   "text": "Driver's License: Y2085808",
    "secrets": [
-    "L8816763"
+    "Y2085808"
    ]
   },
   {
@@ -3889,9 +3889,9 @@
    "sources": [
     "dlp:COLOMBIA_CDC_NUMBER"
    ],
-   "text": "Cédula: 9949616655",
+   "text": "Cédula: 0899643892",
    "secrets": [
-    "9949616655"
+    "0899643892"
    ]
   },
   {
@@ -3901,9 +3901,209 @@
     "presidio:US_HEALTH_INSURANCE_MEMBER_ID",
     "dlp:MEDICAL_ID"
    ],
-   "text": "Member ID: W448277231",
+   "text": "Member ID: W774744891",
    "secrets": [
-    "W448277231"
+    "W774744891"
+   ]
+  },
+  {
+   "id": "pii-pt-nif-4-7",
+   "shape": "Portugal NIF starting 4 or 7, labelled",
+   "sources": [
+    "review:stdnum pt.nif"
+   ],
+   "text": "NIF 784284466",
+   "secrets": [
+    "784284466"
+   ]
+  },
+  {
+   "id": "pii-ie-ppsn-old-t",
+   "shape": "Ireland PPSN, old format with T, labelled",
+   "sources": [
+    "review:stdnum ie.pps"
+   ],
+   "text": "Personal Public Service Number 6720171UT",
+   "secrets": [
+    "6720171UT"
+   ]
+  },
+  {
+   "id": "pii-il-id-short",
+   "shape": "Israel ID written without its leading zero, labelled",
+   "sources": [
+    "review:stdnum il.idnr"
+   ],
+   "text": "ת.ז. 1103828-8",
+   "secrets": [
+    "1103828-8"
+   ]
+  },
+  {
+   "id": "pii-sg-fin-m",
+   "shape": "Singapore M-series FIN (shape only), labelled",
+   "sources": [
+    "review"
+   ],
+   "text": "FIN: M2138081H",
+   "secrets": [
+    "M2138081H"
+   ]
+  },
+  {
+   "id": "pii-tw-arc",
+   "shape": "Taiwan resident certificate number (8/9), labelled",
+   "sources": [
+    "review"
+   ],
+   "text": "統一證號 J977573771",
+   "secrets": [
+    "J977573771"
+   ]
+  },
+  {
+   "id": "pii-lk-nic-new",
+   "shape": "Sri Lanka NIC, 12 digits, labelled",
+   "sources": [
+    "review"
+   ],
+   "text": "NIC 198460198988",
+   "secrets": [
+    "198460198988"
+   ]
+  },
+  {
+   "id": "pii-de-ausweis-front",
+   "shape": "Germany Personalausweis, the nine printed characters, labelled",
+   "sources": [
+    "review"
+   ],
+   "text": "Ausweis-Nr. LNHZ64RG0",
+   "secrets": [
+    "LNHZ64RG0"
+   ]
+  },
+  {
+   "id": "pii-de-idnr-mixed",
+   "shape": "Germany Steuer-ID after IdNr",
+   "sources": [
+    "review:stdnum de.idnr"
+   ],
+   "text": "IdNr 93565704254",
+   "secrets": [
+    "93565704254"
+   ]
+  },
+  {
+   "id": "pii-no-fnr",
+   "shape": "Norway fødselsnummer (two mod-11 digits), labelled",
+   "sources": [
+    "review:stdnum no.fodselsnummer",
+    "presidio:NO_*: memory"
+   ],
+   "text": "fødselsnummer 150561 22971",
+   "secrets": [
+    "150561 22971"
+   ]
+  },
+  {
+   "id": "pii-no-fnr-personnummer",
+   "shape": "Norway fødselsnummer after personnummer",
+   "sources": [
+    "review:stdnum no.fodselsnummer"
+   ],
+   "text": "Personnummer: 24096435017",
+   "secrets": [
+    "24096435017"
+   ]
+  },
+  {
+   "id": "pii-mx-clabe",
+   "shape": "Mexico CLABE (3-7-1 mod 10), labelled",
+   "sources": [
+    "review",
+    "dlp:MEXICO_CLABE_NUMBER (memory)"
+   ],
+   "text": "CLABE 207069870705408722",
+   "secrets": [
+    "207069870705408722"
+   ]
+  },
+  {
+   "id": "pii-cn-rid-gongmin",
+   "shape": "China resident id after 公民身份号码",
+   "sources": [
+    "review"
+   ],
+   "text": "公民身份号码 110105196403088677",
+   "secrets": [
+    "110105196403088677"
+   ]
+  },
+  {
+   "id": "pii-de-konto",
+   "shape": "German bank account after Konto-Nr.",
+   "sources": [
+    "review"
+   ],
+   "text": "Konto-Nr. 1318285146",
+   "secrets": [
+    "1318285146"
+   ]
+  },
+  {
+   "id": "pii-in-account-nambar",
+   "shape": "India bank account after खाता नंबर",
+   "sources": [
+    "review"
+   ],
+   "text": "खाता नंबर 009033060218",
+   "secrets": [
+    "009033060218"
+   ]
+  },
+  {
+   "id": "pii-iban-ru",
+   "shape": "IBAN of a country added by the review (RU, 33)",
+   "sources": [
+    "review:stdnum iban"
+   ],
+   "text": "IBAN RU7342661132549784740331206528252",
+   "secrets": [
+    "RU7342661132549784740331206528252"
+   ]
+  },
+  {
+   "id": "pii-passport-he",
+   "shape": "passport number after דרכון",
+   "sources": [
+    "review"
+   ],
+   "text": "דרכון 52333696",
+   "secrets": [
+    "52333696"
+   ]
+  },
+  {
+   "id": "pii-passport-ar",
+   "shape": "passport number after جواز سفر",
+   "sources": [
+    "review"
+   ],
+   "text": "جواز سفر: L29798652",
+   "secrets": [
+    "L29798652"
+   ]
+  },
+  {
+   "id": "pii-ca-nas",
+   "shape": "Canada SIN after NAS",
+   "sources": [
+    "review"
+   ],
+   "text": "NAS : 524 580 727",
+   "secrets": [
+    "524 580 727"
    ]
   }
  ],
@@ -4126,17 +4326,17 @@
   {
    "id": "stripe-publishable",
    "what": "Stripe publishable key (public by design)",
-   "text": "Stripe('pk_live_xJCg0yWSWRySYiFrkkxpPRYAMBQDEYM6lH9mrRG9Hf20abDW0d0y5jqQ3oOwQcdOYzq3CyQvxTdTcJWxnijIZbub3R60qXDGGwL')"
+   "text": "Stripe('pk_live_qVLMZfEbGJmWtg43D0AEgBbMa6Z41klI9mwDNi6v3FTxacqdmwxXphz2DgK8rAjVY5HBq4lmEIKztVgqvy41BGGsGU9jmmdFFai')"
   },
   {
    "id": "razorpay-key-id",
    "what": "Razorpay key id (public by design, shown in checkout)",
-   "text": "key: 'rzp_live_SyuEbtOm9maUCu'"
+   "text": "key: 'rzp_live_qoHMVstLCRY2kI'"
   },
   {
    "id": "mapbox-public",
    "what": "Mapbox public token pk.eyJ (public by design)",
-   "text": "mapboxgl.accessToken = 'pk.eyJ1IjoiZGVtbyIsImEiOiJ_vPGu0y1XBa9MhKU-tah-wl59UaDuBMS-jBjy2-_.ZfmsugP5LYWwYouxwJJuEd';"
+   "text": "mapboxgl.accessToken = 'pk.eyJ1IjoiZGVtbyIsImEiOiJVcKt9stakOSK9sQ5cL9ou5S7JnEGiSkM93c8EwX9.skHSSE249E0aOf2jEtaQdm';"
   },
   {
    "id": "aws-arn",
@@ -4406,7 +4606,7 @@
   {
    "id": "publishable-stripe",
    "what": "a Stripe publishable key under a key label",
-   "text": "STRIPE_KEY=pk_live_BCrCxVROIifrRMbC1SnwIqAjtvsxUhChDiokx812"
+   "text": "STRIPE_KEY=pk_live_JAk99tG69jjRCFYoIrNuWvqmBmiZzbBy2plIQN0d"
   },
   {
    "id": "repo-peertoken",
@@ -4446,7 +4646,7 @@
   {
    "id": "pii-neg-verhoeff-fail",
    "what": "a 4-4-4 number failing Verhoeff",
-   "text": "ref 8438 9277 4746 attached"
+   "text": "ref 6869 4091 2327 attached"
   },
   {
    "id": "pii-neg-plain12",
@@ -4537,7 +4737,7 @@
    "id": "pii-neg-imei",
    "what": "an IMEI",
    "text": "IMEI 35-209900-176148-1",
-   "known_fp": "the ported card rule: fifteen Luhn-valid digits in groups read as a payment card"
+   "known_fp": "the ported card rule (13 to 19 Luhn-valid digits, plain or in groups) masks a 15-digit IMEI and names it a payment card; plain-digit South African ids and Emirates ids are masked by it the same way"
   },
   {
    "id": "pii-neg-vin",
@@ -4583,6 +4783,26 @@
    "id": "pii-neg-run-word",
    "what": "a short label word in lower case",
    "text": "run 12345678 tests then sin 123456789"
+  },
+  {
+   "id": "pii-neg-nas-ip",
+   "what": "an IPv4 address after NAS (its nine digits pass Luhn)",
+   "text": "NAS 192.168.1.10 is back up"
+  },
+  {
+   "id": "pii-neg-epic-luhn",
+   "what": "a voter-id shape failing Luhn (stdnum's invalid example)",
+   "text": "Voter ID: WKH1186263"
+  },
+  {
+   "id": "pii-neg-steuer-repeat",
+   "what": "a Steuer-ID shape with more digits repeated (stdnum's invalid example)",
+   "text": "Steuer-ID: 36554266806"
+  },
+  {
+   "id": "pii-neg-cc-copy",
+   "what": "c/c as carbon copy",
+   "text": "c/c: finance team, 2 copies by 15/11"
   }
  ]
 }

@@ -9,7 +9,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 296 | 11 | 40 |
 | daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 88 | 7 | 7 |
 | engine | Rust engine (the rewrite) | `rust` | 15 | 0 | 0 |
-| gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 108 | 8 | 60 |
+| gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 109 | 8 | 60 |
 | hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 142 | 9 | 33 |
 | memory | Memory and memory import | `ferb/memory` | 59 | 3 | 0 |
 | orchestration | Orchestration | `ferb/orchestrator/*.py`, `ferb/decide`, `ferb/clock` | 153 | 7 | 35 |

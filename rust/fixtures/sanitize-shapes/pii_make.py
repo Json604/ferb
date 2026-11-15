@@ -75,7 +75,9 @@ class Gen:
         return self.u(3) + self.rng.choice("PCHFATBLJG") + self.u(1) + self.d(4) + self.u(1)
 
     def epic(self) -> str:
-        return self.u(3) + self.d(7)
+        # Luhn over the seven digits (python-stdnum's in_.epic)
+        body = self.d(6)
+        return self.u(3) + body + luhn_check(body)
 
     def ssn(self) -> str:
         while True:
@@ -204,13 +206,18 @@ class Gen:
         s = str(n)
         return f"{s[:2]}.{s[2:5]}.{s[5:]}-{dv}"
 
+    # existing county-level codes (GB/T 2260) that python-stdnum's cn.ric accepts for any birth year 1950-1999:
+    # Beijing Dongcheng and Chaoyang, Shanghai Huangpu, Tianjin Heping (most other districts date from 1983 or later)
+    COUNTIES = ["110101", "110105", "310101", "120101"]
+
     def china_id(self) -> str:
-        body = str(self.rng.randint(1, 6)) + self.d(5) + f"19{self.rng.randint(50, 99)}" + \
+        body = self.rng.choice(self.COUNTIES) + f"19{self.rng.randint(50, 99)}" + \
             f"{self.rng.randint(1, 12):02d}{self.rng.randint(1, 28):02d}" + self.d(3)
         w = [7, 9, 10, 5, 8, 4, 2, 1, 6, 3, 7, 9, 10, 5, 8, 4, 2]
         return body + "10X98765432"[sum(int(c) * x for c, x in zip(body, w)) % 11]
 
     def kr_rrn(self) -> str:
+        # no check digit: numbers issued since October 2020 end in random digits, so the old checksum is not a rule
         return f"{self.date6()}-{self.rng.randint(1, 4)}{self.d(6)}"
 
     def nric(self) -> str:
@@ -276,8 +283,9 @@ class Gen:
         body.append(c2)
         return "".join(map(str, body))
 
-    def iban(self, country: str = "DE", bban_len: int = 18) -> str:
-        bban = self.d(bban_len)
+    def iban(self, country: str = "DE", bban_len: int = 18, bank_letters: int = 0) -> str:
+        # bank_letters: a BBAN that starts with the bank's letters (GB: four, then the sort code and account)
+        bban = self.u(bank_letters) + self.d(bban_len - bank_letters)
         num = "".join(str(int(c, 36)) for c in bban + country + "00")
         check = 98 - int(num) % 97
         s = f"{country}{check:02d}{bban}"
@@ -286,6 +294,10 @@ class Gen:
     def steuer_id(self) -> str:
         while True:
             body = str(self.rng.randint(1, 9)) + self.d(9)
+            # exactly one digit appears two or three times, every other at most once (python-stdnum's de.idnr)
+            repeated = [body.count(c) for c in set(body) if body.count(c) > 1]
+            if len(repeated) != 1 or repeated[0] not in (2, 3):
+                continue
             product = 10
             for c in body:
                 s = (int(c) + product) % 10 or 10
@@ -316,7 +328,7 @@ class Gen:
 
     def pt_nif(self) -> str:
         while True:
-            body = self.rng.choice("1235689") + self.d(7)
+            body = self.rng.choice("123456789") + self.d(7)
             r = 11 - sum(int(c) * w for c, w in zip(body, range(9, 1, -1))) % 11
             return body + str(0 if r >= 10 else r)
 
@@ -344,8 +356,11 @@ class Gen:
         r = s % 11
         return body + str(0 if r <= 1 else 11 - r)
 
+    # existing province codes (Aceh, North Sumatra, Jakarta, West Java, Central Java, East Java, Bali, South Sulawesi)
+    PROVINCES = ["11", "12", "31", "32", "33", "35", "51", "73"]
+
     def nik(self) -> str:
-        return self.d(6) + self.date6("dmy") + self.d(4)
+        return self.rng.choice(self.PROVINCES) + self.d(4) + self.date6("dmy") + self.d(4)
 
     def tckn(self) -> str:
         ds = [self.rng.randint(1, 9)] + [int(c) for c in self.d(8)]
@@ -368,3 +383,62 @@ class Gen:
 
     def kra(self) -> str:
         return self.rng.choice("AP") + self.d(9) + self.u(1)
+
+    def il_id_short(self) -> str:
+        """Seven digits and the check digit, written 0000000-0: the nine-digit number with a leading zero."""
+        n = self.il_id_from("0" + self.d(7))
+        return f"{n[1:8]}-{n[8]}"
+
+    def il_id_from(self, body: str) -> str:
+        s = 0
+        for i, c in enumerate(body):
+            x = int(c) * (1 if i % 2 == 0 else 2)
+            s += x // 10 + x % 10
+        return body + str((10 - s % 10) % 10)
+
+    def sg_fin_m(self) -> str:
+        """Singapore's M-series FIN: its check-letter table is unpublished, so the letter is any (shape only)."""
+        return "M" + self.d(7) + self.u(1)
+
+    def taiwan_arc(self) -> str:
+        """Taiwan's resident certificate number: 8 or 9 as the second character, the national id's check."""
+        m = dict(zip(UP, [10, 11, 12, 13, 14, 15, 16, 17, 34, 18, 19, 20, 21, 22, 35, 23, 24, 25, 26, 27, 28, 29, 32,
+                          30, 31, 33]))
+        letter = self.u(1)
+        body = self.rng.choice("89") + self.d(7)
+        n = m[letter]
+        s = n // 10 + (n % 10) * 9 + sum(int(c) * w for c, w in zip(body, [8, 7, 6, 5, 4, 3, 2, 1]))
+        return letter + body + str((10 - s % 10) % 10)
+
+    def lk_nic_new(self) -> str:
+        """Sri Lanka's 12-digit NIC: year, day of the year (+500 for women), serial, a check digit of no published
+        rule (any)."""
+        day = self.rng.randint(1, 365) + self.rng.choice([0, 500])
+        return f"{self.rng.randint(1950, 2005)}{day:03d}{self.d(5)}"
+
+    def ausweis_front(self) -> str:
+        """The nine characters the Personalausweis prints on its front (the check digit is in the MRZ only)."""
+        return self.ausweis()[:9]
+
+    def ppsn_old_t(self) -> str:
+        """An old-format PPS number with the ninth letter T, which the check ignores."""
+        return self.ppsn() + "T"
+
+    def no_fnr(self) -> str:
+        """Norway's fødselsnummer: DDMMYY, individual digits 000-499 (born 1900-1999), two mod-11 check digits."""
+        while True:
+            body = self.date6("dmy") + f"{self.rng.randint(0, 499):03d}"
+            c1 = (11 - sum(int(c) * w for c, w in zip(body, [3, 7, 6, 1, 8, 9, 4, 5, 2]))) % 11
+            if c1 == 10:
+                continue
+            body += str(c1)
+            c2 = (11 - sum(int(c) * w for c, w in zip(body, [5, 4, 3, 2, 7, 6, 5, 4, 3, 2]))) % 11
+            if c2 == 10:
+                continue
+            return body + str(c2)
+
+    def clabe(self) -> str:
+        """Mexico's CLABE: bank (3), branch (3), account (11), check digit (weights 3 7 1, mod 10)."""
+        body = self.d(17)
+        s = sum(int(c) * w % 10 for c, w in zip(body, [3, 7, 1] * 6))
+        return body + str((10 - s % 10) % 10)

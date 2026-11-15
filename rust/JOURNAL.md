@@ -2261,3 +2261,34 @@ only add masking.
 - Owner's: an owner-granted "don't mask this" for identifiers (designed, not built) and its scope; whether a saved
   id fills on any site; contact data and technical ids left unmasked (recommended); a sealed handle minted when a
   chat message is redacted so an id is not typed twice.
+
+## 2026-11-15 · 75 · Personal identifiers checked against python-stdnum: narrow rules widened, two look-alikes refused, Norway and CLABE added
+
+**What.** GATE-600 refines GATE-599, in `ferb-sanitize/src/pii.rs`: Portugal NIF takes any first digit but 0;
+Ireland PPS ignores an old-format ninth W, T or X; Israeli ids are padded from 5–8 digits; the Steuer-ID gets its
+repetition rule; the Personalausweis's nine printed characters count after its label; NIR reads 2A/2B only as the
+department; IBAN has the registry's 89 lengths; PAN takes K; the voter id gets its Luhn digit; an Aadhaar VID never
+starts 0 or 1. Label-only, shape-only kinds for Singapore's M series, Taiwan's 8/9 and Sri Lanka's 12 digits; new
+kinds for Norway's fødselsnummer and Mexico's CLABE. An IPv4 address after a label is never a value. The broken
+Hebrew passport label is fixed and about 40 labels added. The header now says the ported card rule masks IMEIs and
+plain South African and Emirates ids as cards. The corpus generator's unrealistic values are corrected.
+
+**Why.** Journal 74's open item. An independent review rebuilt every rule and compared it with python-stdnum 2.2
+and published specimens: no checksum algorithm was wrong; some rules were too narrow (494313650, 6433435FT and
+3933742-3 are valid and were missed) and two look-alikes passed (WKH1186263, 36554266806). 41 of the 59 kinds were
+verified against an independent source.
+
+**Evidence.** stdnum as the oracle: 300 valid numbers per changed kind, all accepted and masked after their label;
+every check-character mutation agreed (pt_nif 2,700; ie_ppsn 6,600; il_id 2,700; de_steuer_id 2,700; fr_nir 2,667;
+iban 2,670; pan 4,500; in_epic 2,700; aadhaar_vid 3,300; no_fnr 5,400). Corpus: 333 of 340 positives masked (7
+declared limits), 88 of 88 identifiers; 138 of 139 negatives intact (the IMEI is declared). Repo text (2,271 files,
+88.7 MB): new maskings only in the changed test and corpus files. Python-recorded cases that flip: 0. Workspace: 922
+passed, 0 failed, 16 ignored; clippy and portable clean.
+
+**Open.**
+- Belgium's 2000+ variant and Norway's "not born yet" rule need a clock the redactor does not have.
+- No oracle for HKID, Emirates, Saudi, AU Medicare, 8-digit TFN, UK driving licence, Singapore M series, Taiwan
+  8/9, Sri Lanka 12-digit, CLABE (one published example), the Personalausweis.
+- GitHub's push protection refused commit 70d94eae for the corpus's invented key-shaped values (over 60 detections);
+  the commits are local until the owner chooses how to allow them. No value was altered and no scanner
+  configuration added.
