@@ -187,3 +187,53 @@ reason = "an invented value in a redaction or safety test (sequences like abcdef
 path = "rust/fixtures/mac-hands/pure.json"
 pattern = "GitHub token"
 reason = "an invented token (ghp_ + a made-up run, written by rust/fixtures/mac-hands/make.py) in an OCR line the screenshot-masking test proves is masked"
+
+[[secret]]
+path = "rust/fixtures/sanitize-shapes/corpus.json"
+pattern = "private key"
+reason = "invented key-shaped values in the redaction corpus; ferb-sanitize tests/shapes.rs proves the redactor masks them"
+
+[[secret]]
+path = "rust/fixtures/sanitize-shapes/corpus.json"
+pattern = "AWS access key"
+reason = "invented key-shaped values in the redaction corpus; ferb-sanitize tests/shapes.rs proves the redactor masks them"
+
+[[secret]]
+path = "rust/fixtures/sanitize-shapes/corpus.json"
+pattern = "GitHub token"
+reason = "invented key-shaped values in the redaction corpus; ferb-sanitize tests/shapes.rs proves the redactor masks them"
+
+[[secret]]
+path = "rust/fixtures/sanitize-shapes/corpus.json"
+pattern = "Slack token"
+reason = "invented key-shaped values in the redaction corpus; ferb-sanitize tests/shapes.rs proves the redactor masks them"
+
+[[secret]]
+path = "rust/fixtures/sanitize-shapes/corpus.json"
+pattern = "Anthropic API key"
+reason = "invented key-shaped values in the redaction corpus; ferb-sanitize tests/shapes.rs proves the redactor masks them"
+
+[[secret]]
+path = "rust/fixtures/sanitize-shapes/corpus.json"
+pattern = "OpenAI API key"
+reason = "invented key-shaped values in the redaction corpus; ferb-sanitize tests/shapes.rs proves the redactor masks them"
+
+[[secret]]
+path = "rust/fixtures/sanitize-shapes/corpus.json"
+pattern = "Google API key"
+reason = "invented key-shaped values in the redaction corpus; ferb-sanitize tests/shapes.rs proves the redactor masks them"
+
+[[secret]]
+path = "rust/fixtures/sanitize-shapes/corpus.json"
+pattern = "Stripe live key"
+reason = "invented key-shaped values in the redaction corpus; ferb-sanitize tests/shapes.rs proves the redactor masks them"
+
+[[secret]]
+path = "rust/fixtures/sanitize-shapes/corpus.json"
+pattern = "JSON web token"
+reason = "invented key-shaped values in the redaction corpus; ferb-sanitize tests/shapes.rs proves the redactor masks them"
+
+[[secret]]
+path = "rust/fixtures/sanitize-shapes/make.py"
+pattern = "private key"
+reason = "an invented PEM header in the generator of the redaction corpus (the unfinished-key case)"

@@ -456,17 +456,24 @@ fn small_functions_match_python() {
         match op {
             "label_class" => {
                 let label = s(&args["s"]);
+                // decision: GATE-596. The one recorded label the Rust-only vocabulary additions (shapes.rs) name
+                // where Python named nothing: a number glued after the naming word (as DB_PASSWORD2). Every other
+                // recorded label is compared strictly.
+                let want = match label.as_str() {
+                    "token2" if opt_s(out).is_none() => Some("secret".to_string()),
+                    _ => opt_s(out),
+                };
                 c.eq(
                     op,
                     &label,
                     labels::label_class(&label).map(|k| k.as_str().to_string()),
-                    opt_s(out),
+                    want.clone(),
                 );
                 c.eq(
                     "secret_key",
                     &label,
                     labels::secret_key(&label),
-                    opt_s(out).as_deref() == Some("secret"),
+                    want.as_deref() == Some("secret"),
                 );
             }
             "words" => {

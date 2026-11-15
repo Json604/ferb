@@ -2212,3 +2212,52 @@ the commit.
   turns from before the first watch are not imported.
 - One Swift run printed CoreData errors about the owner's AddressBook store: some test reaches the Contacts service
   (which one is not looked into; tests must not touch the owner's data: TEST-508).
+
+## 2026-11-15 · 74 · The redactor measured against the public scanners' lists and widened; labels followed by code stay readable; personal identifiers masked by layout and check digit
+
+**What.** All in `ferb-sanitize`, as hand-written Rust-only layers applied with the ported rules (`generated.rs`
+untouched; the Python-recorded fixtures unchanged):
+- GATE-596: `shapes.rs`: 53 vendor token shapes, webhook URLs, Telegram tokens, AWS key pairs, WIF, PuTTY and JWK
+  private members, URL `;param=` credentials as named kinds; labels in XML, attribute pairs, `=>`, `:=`, setters;
+  command-line passwords; `.netrc`/`.pgpass`; Kubernetes Secret data; labelled seed phrases; password hashes;
+  environment/version suffixes, listed glued names, `…_PASS`/`…_PW`; password words in other languages.
+- GATE-597 (owner: "yes to 2 and 3"): publishable keys (Stripe `pk_`, Razorpay key ids, Mapbox `pk.`), public keys
+  and certificates are not masked.
+- GATE-598 (owner: "yes"): after a secret label, what is structurally not a value stays readable: a comparison, a
+  type annotation, a placeholder, an environment or config lookup, markup, a publishable key. A quoted literal
+  compared with a label is masked (new).
+- GATE-599 (owner: "run a worlwide PII info reaserhca nd then mkae it like the maskign list"): `pii.rs`, 59
+  identifier kinds from about 40 countries: 26 found on their own (issuer layout plus check digit), 33 only after a
+  label; contact data and technical identifiers are not masked.
+- `kb/gate-allow.toml`: ten `[[secret]]` exceptions for the invented key-shaped values of
+  `rust/fixtures/sanitize-shapes` (the repo's own commit check flags them; nothing was re-encoded).
+
+**Why.** The owner asked whether passwords and API keys in a repo are masked before a model reads them, then: "just
+make sure this seed regex file is good and inclusive of almost all secrets there can be of a shape. if not update
+adn justify why". The coordinator's first answer (15 common shapes, all masked) was true and flattering.
+
+**Evidence.** `rust/fixtures/sanitize-shapes` (NOT Python-recorded): of 238 secret shapes taken from gitleaks,
+trufflehog, GitHub secret scanning and detect-secrets, 126 were masked before and 238 after; the stream agrees. The
+ten false positives of the ported label rule are now negatives that stay readable. Identifiers: 70 of 70 invented,
+check-valid ids masked; 28 look-alikes readable (phones, timestamps, tracking numbers, ISBNs, amounts, coordinates).
+Over the repo's 2,227 text files (85 MB): 367 values that were masked are now visible, every one code or a type
+(read in full); the new rules mask 4 + 10 more values, all invented test data. Python-recorded cases that flip: one
+(`token2` is a secret now) of 8,706. CPU: about 0.8–1.0 ms per KB with or without the new layers (85.0/87.9 s and
+66.9/68.8 s over the 85 MB); the coordinator's timing of the existing redactor: 0.4 ms for 2 KB, 8–12 ms for 20 KB,
+37 ms for 60 KB. Whole workspace on the merged tree: 921 passed, 0 failed, 16 ignored; clippy and portable clean.
+
+**From the code, for the owner's questions.** The owner's chat message is redacted before any model sees it and the
+raw text is discarded (`flow/chat.rs`). The hidden-input path already fills any value into a field without a model
+seeing it (`Gateway::ask_secret`, the browser's `secret` action, `D_SECRET`), with `remember` to save it: masking
+identifiers does not break form filling. No per-value "don't mask this" exists; `Redactor::configure`'s exclusions
+only add masking.
+
+**Open.**
+- The check-digit rules other than the few tested against published specimens are validated only against the
+  author's own generator: an independent verification against specifications and python-stdnum is running.
+- Still through: an unlabelled password that looks like a word; an unlabelled seed phrase or 64-hex key; a secret
+  only base64-wrapped; positional arguments; PKCS#12 blobs; a Kubernetes Secret as JSON; bare SIN, Taiwan and South
+  African ids; passports and accounts with no label.
+- Owner's: an owner-granted "don't mask this" for identifiers (designed, not built) and its scope; whether a saved
+  id fills on any site; contact data and technical ids left unmasked (recommended); a sealed handle minted when a
+  chat message is redacted so an id is not typed twice.

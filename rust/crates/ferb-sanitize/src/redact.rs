@@ -350,6 +350,12 @@ impl Redactor {
                 .into_iter()
                 .map(|(a, b)| (a, b, REDACTED)),
         );
+        // Rust-only (pii.rs, GATE-599): personal identifiers that work like credentials
+        out.extend(
+            crate::pii::pii_hits(s)
+                .into_iter()
+                .map(|h| (h.start, h.end, REDACTED)),
+        );
         if !self.exclusions().domains.is_empty() {
             for &(a, b) in &found {
                 // a URL urlsplit refuses is skipped (redact.py:187)
@@ -448,7 +454,11 @@ impl Redactor {
                 .into_iter()
                 .map(|(a, b)| (a, b, SAVED_SECRET))
                 .collect();
-        for h in format_hits(s, None) {
+        // Rust-only (pii.rs, GATE-599): an identifier is named too, never a hit for a gate (`hit`)
+        for h in format_hits(s, None)
+            .into_iter()
+            .chain(crate::pii::pii_hits(s))
+        {
             if holds_value(s, &h) && !taken.iter().any(|&(a, b, _)| a <= h.start && h.end <= b) {
                 taken.push((h.start, h.end, h.kind));
             }
@@ -680,6 +690,12 @@ impl Redactor {
                 && matches!(v, Py::Str(_) | Py::Int(_))
                 && labelled_value(cls, &to_str(v))
             {
+                redacted()
+            } else if matches!(v, Py::Str(_) | Py::Int(_))
+                && !INTERNAL_ID_KEYS.contains(&ks)
+                && crate::pii::key_hit(ks, &to_str(v)).is_some()
+            {
+                // Rust-only (pii.rs, GATE-599): a key that names an identifier, and a value of its shape
                 redacted()
             } else if let (true, Py::Str(s)) = (INTERNAL_ID_KEYS.contains(&ks), v) {
                 Py::Str(PyStr::marked(self.ident(&s.text), self.mark()))

@@ -154,6 +154,12 @@ fn relation(lines: &[(usize, usize, usize)], s: &str) -> (usize, BTreeSet<Relati
     if secret_colon_end(line) {
         kinds.insert(Relation::Secret);
     }
+    // Rust-only (shapes.rs, GATE-596): a structure whose values come on later lines is kept from its start
+    let texts: Vec<&str> = (0..=i).map(text).collect();
+    if let Some(j) = crate::shapes::stream_structure(&texts, i as usize) {
+        kinds.insert(Relation::Secret);
+        return (lines[j].0.min(start), kinds);
+    }
     if list_label_line(line) {
         kinds.insert(Relation::List);
     } else if list_line(line) {
@@ -317,6 +323,8 @@ impl<R: Deref<Target = Redactor>> RedactionStream<R> {
             || HOLD_WORDS.search(line, 0).is_some()
             || labels::OTP_LABEL.search(line, 0).is_some()
             || code_alone_so_far(line)
+            || crate::shapes::hold_line(line)
+            || crate::pii::names_identifier(line)
         {
             return true;
         }

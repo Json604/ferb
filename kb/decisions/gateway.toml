@@ -1266,3 +1266,40 @@ status = "active"
 rule = "For GATE-593. A question's options come from answers::choices, the table the supported-answers lookup reads (PRM-355). The third choice appears only when every need on the card is a file send. Typed answers count only as a choice's or its button's exact words (GATE-512), on the card's box or in chat. The words path (named sites, conditions) waits on the owner: it needs a scope field the planner fills, a change to GATE-512 for these cards, and host checks against the owner's typed text."
 why = "One table for what is offered and what FERB says it supports keeps them from drifting; the words path is not shipped half-enforced."
 paths = ["rust/crates/ferb-gateway/src/answers.rs::choices", "rust/crates/ferb-gateway/src/gateway.rs::Gateway.authorize_held"]
+
+[GATE-596]
+title = "The redactor masks the widely used secret shapes by a Rust-only layer, and its limits are declared"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "Adds to GATE-501/572, unmasking nothing. shapes.rs masks, beside the ported rules: vendor tokens by documented prefix and length, webhook URLs, Telegram tokens, an AWS secret beside its key id, WIF, PuTTY and JWK keys, URL ;param= credentials (named kinds); labels in XML, key/value attributes, =>, :=, setters; CLI passwords; .netrc/.pgpass; Kubernetes Secret data; labelled seed phrases; password hashes; other languages' password words. Not masked: unlabelled seed phrases, hex keys, random strings or short passwords; base64-wrapped secrets; positional arguments; public and publishable keys."
+why = "Owner: cover almost all secrets with a shape, each change justified, without over-masking. Lists: gitleaks, trufflehog, GitHub secret scanning, detect-secrets. Corpus: 126 of 238 shapes masked before, 238 after, no new false positive; 4 more values masked over the repo's 2,227 text files."
+paths = ["rust/crates/ferb-sanitize/src/shapes.rs", "rust/crates/ferb-sanitize/src/labels.rs::label_class", "rust/crates/ferb-sanitize/src/formats.rs::format_hits", "rust/crates/ferb-sanitize/src/stream.rs::relation", "rust/fixtures/sanitize-shapes"]
+
+[GATE-597]
+title = "Publishable keys, public keys and certificates are not masked"
+by = "owner"
+date = 2026-11-15
+status = "active"
+words = "yes to 2 and 3"
+words_source = "Owner 2026-11-15, relayed by the coordinator, answering GATE-596's questions 2 (publishable keys pass) and 3 (public keys and certificates pass)."
+rule = "The redactor leaves publishable keys (Stripe pk_live_/pk_test_, Razorpay key ids, Mapbox pk.), public keys and certificates visible, also under a secret-sounding label. Their secret counterparts (sk_/rk_, a Razorpay key secret, Mapbox sk., private key blocks) stay masked."
+paths = ["rust/crates/ferb-sanitize/src/shapes.rs::not_a_value", "rust/fixtures/sanitize-shapes"]
+
+[GATE-598]
+title = "Code or a template after a secret label is not masked; doubtful values stay masked"
+by = "agent"
+date = 2026-11-15
+status = "active"
+evidence = "Owner 2026-11-15, relayed by the coordinator, to fixing the ten false alarms GATE-596's report listed: \"yes\". 367 values the label rule masked in the repo's text are now visible (types, lookups, placeholders), none secret-shaped; no Python-recorded case flips."
+rule = "A labelled value is left visible when its structure says it is no value: a comparison operator; a type after ':' (a language's built-in type or a bracketed generic, the whole value or followed by code); a placeholder (<word>, ${…}, {{…}}, $VAR, %VAR%, %s, {name}, four or more x or one mark, CAPS_WITH_UNDERSCORES); an environment or config lookup (process.env, os.environ, getenv(, env::var(, ENV[, config., self.); markup; a publishable key (GATE-597). Kept masked: digit runs, other capitalised words, dotted values with no known root, a literal compared with a label."
+paths = ["rust/crates/ferb-sanitize/src/shapes.rs::not_a_value", "rust/crates/ferb-sanitize/src/labels.rs::labelled_spans"]
+
+[GATE-599]
+title = "Government, tax, bank and health ids are masked by shape and check digit; contact data is not"
+by = "agent"
+date = 2026-11-15
+status = "active"
+evidence = "Owner 2026-11-15 (relayed): \"i want you to run a worlwide PII info reaserhca nd then mkae it like the maskign list to cover all possibel PIIs that sholdnt be leaked\"; on use: \"ferb will ask me in a secret field it currenlty has. it deirectly goes in there.\""
+rule = "pii.rs masks, named in kinds and the pasted-secret notice but never a gate's hit: national, tax, social-security, bank and health ids of about 40 countries, bare only in the issuer's printed layout with its check digit (Aadhaar 4-4-4 Verhoeff, PAN, SSN, NINO, IBAN mod 97, CPF, CURP, codice fiscale, NIR, China id, NRIC…), otherwise only after a label naming them in English or the country's language (passports, licences, accounts, SIN, TFN, BSN…). Never a bare digit run. Names, emails, phones, addresses, dates of birth, IP, MAC, IMEI and VIN stay visible."
+paths = ["rust/crates/ferb-sanitize/src/pii.rs", "rust/crates/ferb-sanitize/src/redact.rs::Redactor.spans_of", "rust/fixtures/sanitize-shapes"]

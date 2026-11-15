@@ -120,6 +120,9 @@ pub enum LabelClass {
     Code,
     /// A random-looking value.
     Credential,
+    /// Rust-only (shapes.rs, GATE-596): a password a short label word names (`DB_PASS`, `ADMIN_PW`): any value but
+    /// a bare number (`total_pass: 12` is a count).
+    Password,
 }
 
 impl LabelClass {
@@ -129,6 +132,7 @@ impl LabelClass {
             LabelClass::Secret => "secret",
             LabelClass::Code => "code",
             LabelClass::Credential => "credential",
+            LabelClass::Password => "password",
         }
     }
 }
@@ -194,7 +198,8 @@ pub fn label_class(label: &str) -> Option<LabelClass> {
     if !prose && ws.len() >= 2 && CREDENTIAL_LAST.contains(&last) {
         return Some(LabelClass::Credential);
     }
-    None
+    // Rust-only (shapes.rs, GATE-596): the vocabulary's additions, asked only when Python's names nothing
+    crate::shapes::label_class(&ws, prose)
 }
 
 /// labels.py:78: a dict key whose value is a secret whatever it is.
@@ -271,6 +276,7 @@ pub fn labelled_value(cls: Option<LabelClass>, value: &str) -> bool {
         LabelClass::Secret => true,
         LabelClass::Code => CODE_VALUE.fullmatch(v),
         LabelClass::Credential => high_entropy(v),
+        LabelClass::Password => !v.bytes().all(|b| b.is_ascii_digit()),
     }
 }
 
@@ -939,7 +945,8 @@ pub fn labelled_spans(s: &str, found_urls: Option<&[Span]>) -> Vec<Span> {
     let mut spans: Vec<Span> = if s.contains('=') || s.contains(':') {
         key_label_spans(s, &mut ends)
             .into_iter()
-            .filter(|&m| !in_url(m))
+            // Rust-only (shapes.rs, GATE-598): code or a template after the label is no value
+            .filter(|&m| !in_url(m) && !crate::shapes::not_a_value(s, m))
             .collect()
     } else {
         Vec::new()
@@ -948,7 +955,10 @@ pub fn labelled_spans(s: &str, found_urls: Option<&[Span]>) -> Vec<Span> {
         for word in secret_words(s) {
             if !in_url(word) {
                 if let Some(value) = secret_value(s, word, &mut ends) {
-                    spans.push(value);
+                    // Rust-only (shapes.rs, GATE-598)
+                    if !crate::shapes::not_a_value(s, value) {
+                        spans.push(value);
+                    }
                 }
             }
         }
@@ -960,6 +970,12 @@ pub fn labelled_spans(s: &str, found_urls: Option<&[Span]>) -> Vec<Span> {
     }
     if lower.contains("codes") {
         spans.extend(code_list_spans(s));
+    }
+    // Rust-only (shapes.rs, GATE-596): labels in other syntaxes, command lines, credential files, seed phrases
+    for span in crate::shapes::labelled_spans(s, &lower, &in_url, &mut ends) {
+        if !spans.contains(&span) && !crate::shapes::not_a_value(s, span) {
+            spans.push(span);
+        }
     }
     spans
 }

@@ -602,6 +602,7 @@ pub fn compile_all() -> Vec<&'static str> {
         .iter()
         .copied()
         .chain(g::FORMAT_TABLE.iter().map(|f| &f.pat))
+        .chain(crate::shapes::patterns())
     {
         if !Rx::new(pat).compile() {
             failed.push(pat.name);

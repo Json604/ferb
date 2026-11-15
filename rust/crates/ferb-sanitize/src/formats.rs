@@ -569,6 +569,8 @@ pub fn format_hits(s: &str, found_urls: Option<&[Span]>) -> Vec<Hit> {
         out.extend(url_hits(s, url));
     }
     out.extend(card_hits(s, Some(&url_paths(s, found))));
+    // Rust-only (shapes.rs, GATE-596): vendor prefixes and structures the Python table lacks
+    out.extend(crate::shapes::format_hits(s, found));
     out
 }
 
