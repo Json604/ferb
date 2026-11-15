@@ -4,7 +4,7 @@
 //! [`Secret`] (wiped when dropped), the question keeps no copy once its wait ends, and nothing here writes a span
 //! or the journal. Asking for a hidden value is not a decision about whether a call may run (kb area gateway).
 //!
-//! decision: GATE-204, GATE-513, GATE-520, GATE-559, GATE-562, GATE-563, GATE-572, GATE-566, GATE-572
+//! decision: GATE-204, GATE-513, GATE-520, GATE-559, GATE-562, GATE-563, GATE-572, GATE-566, GATE-572, GATE-603
 
 use std::sync::Arc;
 
@@ -17,7 +17,7 @@ use serde_json::{json, Map, Value};
 use super::{lock, obj, CallError, Cancel, Gateway, Left, Refusal, TaskRecord, ASKS_AFTER_REFUSAL};
 use crate::hidden_words::*;
 use crate::questions::{card_parts, Approval, Asker, State};
-use crate::words::{quoted, REASON_CHARS};
+use crate::words::{fill, quoted, IDENTIFIER_NOT_CLEARED, REASON_CHARS};
 use ferb_policy::confirm;
 use ferb_rpc::auth::RunGrant;
 
@@ -144,12 +144,23 @@ impl Gateway {
         let (handle, remember) = (nonempty(&ask.handle), nonempty(&ask.remember));
         let kind = ask.kind.clone();
         if let Some(handle) = handle {
-            let target = target.to_string();
-            let found = tokio::task::spawn_blocking(move || {
-                store.reveal(&handle, &target, kind.as_deref())
+            let (name, place) = (handle.clone(), target.to_string());
+            let (found, any_site) = tokio::task::spawn_blocking(move || {
+                store.reveal_entry(&handle, &place, kind.as_deref())
             })
             .await
             .map_err(|e| HiddenError::Failed(format!("the store's thread ended: {e}")))??;
+            // GATE-605: an identifier kept for any site is the owner's private data with no site of its own; it goes
+            // into the exact page that asks only where the sink rule lets it (the call's question was asked first)
+            if any_site {
+                let host = super::page_of(target).0;
+                if !self.identifier_cleared(&self.root_of(&ctx.task_id), &host)? {
+                    return Err(HiddenError::Refused(fill(
+                        IDENTIFIER_NOT_CLEARED,
+                        &[("name", &format!("“{name}”")), ("site", &host)],
+                    )));
+                }
+            }
             return Ok(Some(found));
         }
         if self.unattended(&ctx.request_id) {
@@ -283,10 +294,23 @@ impl Gateway {
             return Ok(None);
         };
         if let Some(name) = remember {
-            // I14: the record serves the one site the owner named
+            // I14: the record serves the one site the owner named. GATE-603: a personal identifier, by its own layout
+            // and check digit (never by the page's label or the field's kind, which a page sets), typed for a web
+            // page is kept for any site; a card field's value never is, and an app keeps its own (GATE-605).
+            let card = ask
+                .kind
+                .as_deref()
+                .is_some_and(|k| ferb_identity::owner_secrets::CARD_KINDS.contains(&k));
+            let identifier = !card
+                && !target.starts_with("app:")
+                && ferb_sanitize::identifier_kind(value.expose()).is_some();
             let (target, kind, kept) = (target.to_string(), ask.kind.clone(), value.duplicate());
             tokio::task::spawn_blocking(move || {
-                store.remember(&name, &target, &kept, &sites, kind.as_deref())
+                if identifier {
+                    store.remember_identifier(&name, &kept)
+                } else {
+                    store.remember(&name, &target, &kept, &sites, kind.as_deref())
+                }
             })
             .await
             .map_err(|e| HiddenError::Failed(format!("the store's thread ended: {e}")))??;

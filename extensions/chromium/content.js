@@ -1519,6 +1519,25 @@
     if (!downloadsArmed) return;
     try { chrome.runtime.sendMessage({ ferbPrint: true }); } catch (_) { downloadsArmed = false; }
   };
+  // HAND-533 (0.19.11): the hook kept the page from bringing its window forward (window.focus, fullscreen,
+  // picture-in-picture): the kind only, told to the service worker for the tab's next result
+  const SURFACE_KINDS = ["focus", "fullscreen", "picture_in_picture"];
+  const onSurface = (e) => {
+    if (!downloadsArmed || !SURFACE_KINDS.includes(e.detail)) return;
+    try { chrome.runtime.sendMessage({ ferbSurface: e.detail }); } catch (_) { downloadsArmed = false; }
+  };
+  // HAND-534 (0.19.11): the page's window.open(url, "_blank", "noopener") goes as a link to a new tab goes
+  const onHookOpen = (e) => {
+    const href = typeof e.detail === "string" ? e.detail : "";
+    if (!downloadsArmed || !/^https?:/i.test(href)) return;
+    if (!live()) { passOn(href, "_blank"); return; }
+    try {
+      chrome.runtime.sendMessage({ ferbOpen: { url: href, background: false } }, (opened) => { if (opened !== true) passOn(href, "_blank"); });
+    } catch (_) {
+      downloadsArmed = false;
+      passOn(href, "_blank");
+    }
+  };
   function listenHook(token) {
     if (typeof token !== "string" || !/^[0-9a-f]{12}$/.test(token) || token === hookToken ||
         typeof document.addEventListener !== "function") return;
@@ -1527,12 +1546,16 @@
       document.removeEventListener(hookToken + ":popup", onPopup);
       document.removeEventListener(hookToken + ":closing", onClosing);
       document.removeEventListener(hookToken + ":print", onPrint);
+      document.removeEventListener(hookToken + ":surface", onSurface);
+      document.removeEventListener(hookToken + ":open", onHookOpen);
     }
     hookToken = token;
     document.addEventListener(token + ":armed", onArmed);
     document.addEventListener(token + ":popup", onPopup);
     document.addEventListener(token + ":closing", onClosing);
     document.addEventListener(token + ":print", onPrint);
+    document.addEventListener(token + ":surface", onSurface);
+    document.addEventListener(token + ":open", onHookOpen);
   }
   // whether FERB drives this tab now, and the hook's event names (asked once the listeners above exist)
   try {

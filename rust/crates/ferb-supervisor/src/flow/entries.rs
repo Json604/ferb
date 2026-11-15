@@ -25,7 +25,7 @@ use std::collections::{BTreeSet, HashMap};
 use ferb_core::chat_entry::{
     body, AnswerBody, Card, CardRow, Change, Checklist, Entry, EntryKind, EntryState, MessageBody,
     NoticeBody, NoticeQuote, Placement, PlanBody, PlanStep, PostBody, QuestionAnswer, QuestionBody,
-    RowQuestion,
+    RowQuestion, SealedId,
 };
 use serde_json::{Map, Value};
 
@@ -131,6 +131,7 @@ struct Turn {
     // ConversationTurn
     request: String,
     hidden: Vec<String>,
+    sealed: Vec<SealedId>,
     attachments: Vec<String>,
     task_id: Option<String>,
     status: String,
@@ -325,6 +326,7 @@ impl ChatProjector {
                 turn.submission_id = e.submission_id.clone();
                 turn.request = m.text;
                 turn.hidden = m.hidden;
+                turn.sealed = m.sealed;
                 turn.attachments = m.attachments;
                 turn.merged_into = m.merged_into;
                 turn.response_notice = m.notice;
@@ -611,6 +613,11 @@ impl ChatProjector {
             status: "working".into(),
             request: words(frame, "message").unwrap_or_default(),
             hidden: strings(frame, "hidden").unwrap_or_default(),
+            sealed: frame
+                .get("sealed")
+                .cloned()
+                .and_then(|v| serde_json::from_value(v).ok())
+                .unwrap_or_default(),
             attachments: strings(frame, "input_paths").unwrap_or_default(),
             client_id: words(frame, "client_id"),
             submission_id: words(frame, "submission_id"),
@@ -1383,6 +1390,7 @@ impl ChatProjector {
         let said = MessageBody {
             text: turn.request.clone(),
             hidden: turn.hidden.clone(),
+            sealed: turn.sealed.clone(),
             attachments: turn.attachments.clone(),
             merged_into: turn.merged_into.clone(),
             notice: turn

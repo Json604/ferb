@@ -70,6 +70,8 @@ pub struct Arrival {
     pub text: String,
     pub input_paths: Vec<String>,
     pub hidden: Vec<String>,
+    /// GATE-604: the identifiers kept sealed from it, (kind, name).
+    pub sealed: Vec<(String, String)>,
     pub entry: Option<Entry>,
     pub marked: Option<Marked>,
     pub paths: Vec<String>,
@@ -279,7 +281,7 @@ impl Inner {
         text: &str,
         input_paths: Vec<String>,
         request_id: String,
-        hidden: Vec<String>,
+        (hidden, sealed): (Vec<String>, Vec<(String, String)>),
         screen: bool,
         emit: &Emit,
     ) -> Flow<()> {
@@ -294,6 +296,7 @@ impl Inner {
                     text: text.to_string(),
                     input_paths,
                     hidden,
+                    sealed,
                     screen,
                     ..Arrival::default()
                 },
@@ -612,6 +615,7 @@ impl Inner {
                 paths: a.paths.clone(),
                 attached: !a.input_paths.is_empty(),
                 hidden: a.hidden.clone(),
+                sealed: a.sealed.clone(),
             })
             .collect();
         let text = crate::intake::take_in(

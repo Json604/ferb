@@ -4,9 +4,9 @@
 #   scripts/build-app-rust.sh [--arch arm64|x86_64] [OUT_DIR]
 #                                           build OUT_DIR/FERB.app (default build/rust-app-<arch>) for one architecture
 #                                           (default: this Mac's). A built app is signed again, e.g. with a Developer
-#                                           ID, by `scripts/build-app.sh --sign-only APP` (the signing is shared).
+#                                           ID, by `scripts/sign-app.sh APP` (the signing is shared: signing.sh).
 #
-# The app holds: the notch UI as its main executable (the same Swift build as build-app.sh); the agent app FERB
+# The app holds: the notch UI as its main executable (FERBNotch's SwiftPM release build); the agent app FERB
 # (Helpers/FERB.app, bundle id com.ferb.daemon, ui/mac/FERBAgent/Info.plist): its executable is `ferbd`, so macOS names
 # FERB in permission prompts and its grants attach to it as they did to the C host; `ferbd` runs there only as the
 # daemon, the models' tool bridge and the grant probe (rust/crates/ferbd/src/host.rs); `ferb-native-host` beside it in
@@ -14,9 +14,10 @@
 # reads (Resources/ferb, byte for byte from ferb/); the extension; the pinned Codex (package-lock.json) and Claude
 # Code (rust/packaging/package-lock.json); the pinned secret helper; the local embedding model; the background
 # service's definition naming `FERB daemon`. The database migrations and the o200k tokenizer are compiled into ferbd.
-# Pins (version, Codex, Claude Code, embedding model) come from the Rust sources (scripts/rust-parts.sh), not Python's.
-# Env: SIGN_IDENTITY as for build-app.sh (default "-", ad hoc); FERB_NOTARIZE=0 with devid signs for this Mac only
-# (scripts/signing.sh). Every Mach-O file in the bundle ends up signed.
+# Pins (version, Codex, Claude Code, embedding model) come from the Rust sources (scripts/rust-parts.sh).
+# Env: SIGN_IDENTITY (default "-", ad hoc; devid or release: scripts/signing.sh); FERB_NOTARIZE=0 with devid signs for
+# this Mac only. Every Mach-O file in the bundle ends up signed. The app stays within the owner's size cap (REL-401:
+# scripts/rust-parts.sh ferb_rust_size_cap), or the build fails after its size report.
 # Never installs, registers or starts anything.
 set -euo pipefail
 ROOT="${0:A:h:h}"
@@ -240,3 +241,4 @@ ferb_notarize_built "$APP" "$WORK"
 
 print "Built: $APP ($(du -sh "$APP" | cut -f1); FERB $VERSION, build $BUILD, $REVISION; Rust engine)"
 ferb_rust_size_report "$APP"
+ferb_rust_size_cap "$APP" "$ARCH" || die "FERB.app is over its size cap (above)"

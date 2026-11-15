@@ -346,7 +346,7 @@ fn masks_match_python() {
 
 struct NoRecognize;
 impl ocr::Recognize for NoRecognize {
-    fn recognize(&self, _: &[u8]) -> Result<Vec<ocr::TextRegion>, String> {
+    fn recognize(&self, _: &[u8]) -> Result<Vec<ocr::TextRegion>, ocr::Fault> {
         Ok(vec![])
     }
 }
@@ -733,6 +733,7 @@ fn permission_rows_match_python() {
     }
 }
 
+// decision: GATE-223 (the paths a script names: quoted POSIX paths and HFS paths on a mounted volume only)
 #[test]
 fn locks_after_wav_profiles_scripts_match_python() {
     let fx = load("pure.json");

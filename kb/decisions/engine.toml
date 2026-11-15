@@ -149,3 +149,22 @@ rule = "Every conversation's stored entries keep seven rules (ferb-supervisor te
 why = "Journal 72: on 26 scenarios the stored order (pos, what a phone shows; seq, what catch-up replays) was compared with nothing. A client (FERB.app after a relaunch, a phone) must tell the turns it sent from the others by any entry, and must know whether the daemon serves the entries."
 rejected = ["Sorting entries at read time: the order is the commit order of one queue (ENG-13), never repaired afterwards.", "Inferring the engine's interleaving from the stored entries: a live frame and an intermediate revision leave nothing stored, so the order cannot be rebuilt from them."]
 paths = ["rust/crates/ferb-supervisor/tests/support_entries/mod.rs", "rust/crates/ferb-supervisor/tests/chat_entries.rs", "rust/crates/ferb-supervisor/src/flow/chat_log.rs", "rust/crates/ferb-supervisor/src/flow/entries.rs", "rust/crates/ferb-supervisor/src/flow/chat_rpc.rs", "rust/crates/ferbd/tests/chat_replay.rs", "rust/crates/ferbd/src/standins.rs", "rust/fixtures/chat-entries/engine_chat.json", "rust/fixtures/chat-entries/engine_more.json"]
+
+[ENG-16]
+title = "The Python code leaves once what it still did works in Rust; the kb keeps its whole history"
+by = "owner"
+date = 2026-11-15
+status = "active"
+words = "yes you can do all of this, im giving permission. just to mkae it easy for you, you cna also just make a new kb record that fpllows hte rust reqrite that we have done, it still should have all teh history of decision, takss and eveyrthig it has today. but you are free to port anyways that is easier BUT ensure eveyrhign works. dont biase from my deciosin o fthis shoudlb be in pyhtin n all, port eveyrhig thats needed to be - you have authority."
+words_source = "Asked: (1) kb records untouched, removed paths read as history; (2) wire ferb trace and extension packaging first; (3) may AGENTS.md and README change; (4) where the version lives."
+rule = "ENG-11's removal goes ahead once what the Python code still did for the repo works without it: ferb trace, stats and extension packaging in the Rust program, the release scripts and their tests, the kb tool. Nothing stays Python because an older decision named a Python file; the agent ports what is needed. The kb keeps every decision, task, live check and term with its history; paths to removed files are read at the commit before the removal (PROJ-509). AGENTS.md and README.md follow the Rust rewrite."
+
+[ENG-17]
+title = "Fixture scripts stay as history; fixtures are frozen contracts changed only as named differences"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "rust/fixtures/<part>/make.py and their helpers stay in the repo unchanged after the Python code leaves; they run only in a worktree at the commit before the removal (rust/fixtures/README.md). A Python-recorded fixture changes only as a named difference (ENG-6, or a deliberate change listed in the journal and named in its test), never by regenerating it from the Rust code. Generated tables' headers point at that README."
+why = "The fixtures are what the Python build produced; deleting the scripts would lose how each was made, and regenerating from Rust would make a test compare the port with itself."
+untestable = "A rule about how frozen files may change; it shows in each commit's diff and the journal."
+paths = ["rust/fixtures/README.md"]

@@ -9,9 +9,10 @@
 # follow the signing identity: a Developer ID build (notarized) says only "Drag FERB to Applications"; any other also
 # says how to get past Gatekeeper the first time. FERB_DMG_VARIANT=before-devid|after-devid overrides it for previews.
 # dmg_layout.py writes the window's .DS_Store onto the mounted image (never by driving Finder), run with
-# $FERB_DMG_PYTHON, by default the checkout's uv environment, whose dev group pins ds_store and mac_alias.
+# $FERB_DMG_PYTHON, by default by uv in the script's own locked environment: `uv run --script --locked`, from its inline
+# metadata (PEP 723) and scripts/dmg_layout.py.lock, which pin ds_store and mac_alias with their hashes.
 #
-#   scripts/build-dmg.sh             build both apps (scripts/build-app.sh --arch arm64, then x86_64) into
+#   scripts/build-dmg.sh             build both apps (scripts/build-app-rust.sh --arch arm64, then x86_64) into
 #                                    $FERB_DMG_DIR/app-<arch>, then FERB-AppleSilicon.dmg and FERB-Intel.dmg there
 #   scripts/build-dmg.sh APP [DMG]   one image of an assembled app; default $FERB_DMG_DIR/<name for its architecture>
 #
@@ -36,11 +37,13 @@ dmg_name() {                          # $1: an architecture, as lipo names it
   esac
 }
 
-layout_python() {                     # dmg_layout.py's interpreter: FERB_DMG_PYTHON, or the checkout's uv environment
+layout_python() {                     # dmg_layout.py's interpreter: FERB_DMG_PYTHON, or its own locked uv environment
   if [[ -n "${FERB_DMG_PYTHON:-}" ]]; then
     "$FERB_DMG_PYTHON" -I "$@"
   else
-    uv run --frozen --project "$ROOT" python -I "$@"
+    command -v uv >/dev/null || die "needs uv to run scripts/dmg_layout.py (or set FERB_DMG_PYTHON)"
+    # --locked: refuses to run when the inline metadata and scripts/dmg_layout.py.lock disagree
+    uv run --quiet --script --locked "$@"
   fi
 }
 
@@ -57,7 +60,7 @@ make_dmg() {                          # $1: an assembled FERB.app, $2: the image
   ferb_check_release_app "$app" || exit 1
   variant=$(dmg_variant) || exit 1
   local bg="$ROOT/assets/dmg/background-$variant.png" bg2="$ROOT/assets/dmg/background-$variant@2x.png"
-  [[ -f "$bg" && -f "$bg2" ]] || die "no $bg and its @2x (uv run python scripts/make_dmg_background.py)"
+  [[ -f "$bg" && -f "$bg2" ]] || die "no $bg and its @2x (python3 -I scripts/make_dmg_background.py)"
   STAGE="${dmg:h}/.dmg-staging"
   rm -rf "${STAGE:?}" "${dmg:?}"
   mkdir -p "$STAGE"
@@ -101,7 +104,7 @@ if (( $# == 0 )); then
   ferb_check_release_app || exit 1                # before the builds, not after
   mkdir -p "$DMG_DIR"
   for arch in arm64 x86_64; do
-    "$ROOT/scripts/build-app.sh" --arch $arch "$DMG_DIR/app-$arch"
+    "$ROOT/scripts/build-app-rust.sh" --arch $arch "$DMG_DIR/app-$arch"
     make_dmg "$DMG_DIR/app-$arch/FERB.app" "$DMG_DIR/$(dmg_name $arch)"
   done
   exit 0

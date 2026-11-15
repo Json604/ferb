@@ -1,6 +1,6 @@
 #!/bin/zsh -f
 # FERB's update key (L34 Phase G), made once by the owner. Sparkle's generate_keys keeps the private EdDSA key in the
-# login Keychain and prints the public key, which this writes to scripts/sparkle-public-key.txt for build-app.sh (a
+# login Keychain and prints the public key, which this writes to scripts/sparkle-public-key.txt for build-app-rust.sh (a
 # public key: commit that file). The private key never enters this repository.
 #
 #   scripts/sparkle-keys.sh                 make the key once (or read the existing one), write the public key file

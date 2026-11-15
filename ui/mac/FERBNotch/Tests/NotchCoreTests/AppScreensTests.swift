@@ -95,6 +95,7 @@ final class AppScreensTests: XCTestCase {
     }
 
     // decision: APP-2
+    // decision: GATE-602
     func testRestoreRowsAndSavedSecretsCarryNamesNeverValues() {
         let trash = RestoreRow(["id": "r1", "kind": "trash", "original": "~/Desktop/a.txt", "reason": "trash",
                                 "at": "2026-10-31T10:00:00+00:00"])
@@ -106,6 +107,13 @@ final class AppScreensTests: XCTestCase {
                                    "unusable": false, "value": "4111"])
         XCTAssertEqual(card?.kindLabel, "card number")
         XCTAssertFalse(String(describing: card as Any).contains("4111"))
+        // GATE-602: only an identifier kept for any site can be let show; a password row never offers it
+        let id = SavedSecretRow(["place": "any site", "name": "PAN", "kind": "identifier", "unusable": false,
+                                 "shown": true])
+        XCTAssertEqual(id?.isIdentifier, true)
+        XCTAssertEqual(id?.shown, true)
+        XCTAssertEqual(id?.kindLabel, "ID, any site, the AI can see it")
+        XCTAssertEqual(SavedSecretRow(["place": "https://a.example", "name": "pw", "kind": "secret"])?.isIdentifier, false)
     }
 
     func testTheCleanupPlanAndResultComeFromTheCommandsJSONLines() {

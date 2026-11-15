@@ -15,6 +15,7 @@ ferb-core = { path = "../ferb-core" }
 ferb-py = { path = "../ferb-py" }
 ferb-rpc = { path = "../ferb-rpc" }
 ferb-sanitize = { path = "../ferb-sanitize" }
+ferb-trace = { path = "../ferb-trace" }
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 libc = "0.2"
 plist = { version = "1", default-features = false }

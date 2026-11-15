@@ -2754,6 +2754,82 @@ impl Gateway {
         Ok(Some(n))
     }
 
+    /// GATE-605 (refining GATE-603 under GATE-205, GATE-215, GATE-537, GATE-557, GATE-558): a sealed fill of a saved
+    /// ID kept for any site is the owner's private data going to the page's site. A site's own saved entry is bound to
+    /// that site (`OwnerSecrets::reveal`), so it never needed the sink; an ID has no site, so the form sink's question
+    /// is asked for it, under the form's key (once per site per task; its Yes carries to the form's submit): after
+    /// outside content was read, to a site the owner neither named nor approved. The card names the ID by its saved
+    /// name, never its value.
+    fn identifier_sink(&self, c: &Call, outside: &[String]) -> R<Option<Need>> {
+        if c.name != "browser.secret" || outside.is_empty() {
+            return Ok(None);
+        }
+        let given = |k: &str| {
+            c.arguments
+                .get(k)
+                .filter(|v| ferb_py::value::truthy(v))
+                .map(|v| ferb_py::value::strip(&ferb_py::value::py_str(v)).to_string())
+                .filter(|v| !v.is_empty())
+        };
+        let (Some(handle), Some(store)) = (given("secret"), self.d.owner_secrets.clone()) else {
+            return Ok(None);
+        };
+        let target = &c.spec.target;
+        let host = dest::normalize("host", target.site.as_deref().unwrap_or(""));
+        let place = target
+            .page
+            .as_deref()
+            .and_then(|p| ferb_identity::origin::normalize_origin(p).ok())
+            .unwrap_or_default();
+        if host.is_empty() || place.is_empty() {
+            return Ok(None);
+        }
+        // an unreadable names' file fills nothing either: the fill itself says why
+        if !store.fills_from_any_site(&handle, &place).unwrap_or(false) {
+            return Ok(None);
+        }
+        let root = c.root();
+        if self.destinations(|d| d.approved("host", &host))? || self.host_named(&host, &root)? {
+            return Ok(None);
+        }
+        let visited = self.visited_outside(&root)?;
+        self.sink_texts(&root)?; // the records read so far, for where this site was found (`found_via` reads them)
+        let mut n = Need::new(
+            "sink:new_destination",
+            confirm::key(&[json!("sink:new_destination"), json!(host)]),
+            Values::of(&[
+                ("destination", &host),
+                ("saved", &handle),
+                (
+                    "read",
+                    &confirm::shown_origins(visited.iter().map(String::as_str)),
+                ),
+                ("found_via", &self.found_via(&root, &host)),
+            ]),
+        );
+        n.reaches = Some(target.clone());
+        Ok(Some(n))
+    }
+
+    /// GATE-605: whether a saved ID kept for any site may go into a page on `host` now: no outside content read in
+    /// this task, the owner named or approved the site, or said yes to the form sink's question for it in this task.
+    /// Read again at the fill, against the exact page that asks (a frame of another site isn't the page asked about).
+    pub(crate) fn identifier_cleared(&self, root: &str, host: &str) -> R<bool> {
+        let host = dest::normalize("host", host);
+        if host.is_empty() {
+            return Ok(false);
+        }
+        if self.outside_read(root)?.is_empty()
+            || self.destinations(|d| d.approved("host", &host))?
+            || self.host_named(&host, root)?
+        {
+            return Ok(true);
+        }
+        let key = confirm::key(&[json!("sink:new_destination"), json!(host)]);
+        let reopened = self.reopened(root)?;
+        Ok(self.find(root, &key, &reopened)?.is_some_and(|r| r.granted))
+    }
+
     /// GATE-587, GATE-588: the form sink's rule extended to the owner's files. After outside content was read, a call
     /// that hands one of the owner's files to a site the owner neither named nor approved asks the form's question
     /// for that site (one key per site per task, so a Yes carries to the form's submit): an upload into a page (a
@@ -3001,6 +3077,11 @@ impl Gateway {
                     if let Some(p) = fact_target.path.clone() {
                         deletes.push((p, fact_sources));
                     }
+                }
+            }
+            if let Some(n) = self.identifier_sink(c, &outside)? {
+                if !needs.iter().any(|m| m.key == n.key) {
+                    needs.push(n);
                 }
             }
             for n in self.file_send_needs(c, &outside, &mut file_sent)? {

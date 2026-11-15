@@ -286,6 +286,8 @@ struct BridgeState {
     hellos: i64,
     window: Option<i64>,
     keepalive: Option<JoinHandle<()>>,
+    /// HAND-533: Chrome tab id -> what the extension said brought a window forward, not yet told.
+    surfaced: BTreeMap<i64, Vec<Map<String, Value>>>,
 }
 
 /// One paired profile's connection state (`Bridge`).
@@ -348,6 +350,7 @@ impl Bridge {
                 hellos: 0,
                 window: None,
                 keepalive: None,
+                surfaced: BTreeMap::new(),
             }),
             connected: watch::channel(false).0,
             adopted: watch::channel(0).0,
@@ -597,10 +600,12 @@ impl Bridge {
         let error = r.error.clone().unwrap_or_default();
         match r.status.as_str() {
             "ok" => {
-                if let Some(transfer) = r.value.as_object().and_then(|v| v.get("result_parts")) {
-                    return self.result_parts(transfer.clone(), timeout).await;
-                }
-                return Ok(r.value);
+                let mut value = match r.value.as_object().and_then(|v| v.get("result_parts")) {
+                    Some(transfer) => self.result_parts(transfer.clone(), timeout).await?,
+                    None => r.value,
+                };
+                self.keep_surfaced(&args, &mut value);
+                return Ok(value);
             }
             "stale" => return Err(Error::stale("the browser reconnected; take a new snapshot")),
             "duplicate" => {
@@ -645,6 +650,38 @@ impl Bridge {
         } else {
             error
         }))
+    }
+
+    /// HAND-533 (extension 0.19.11): a reply's `surfaced` facts (what brought a browser window forward, and whether
+    /// FERB's window went back down) are taken out of the reply and kept for the tab's next result, whatever command
+    /// carried them. Only the known fields, each of its known shape, are kept: the rest is dropped.
+    fn keep_surfaced(&self, args: &Value, value: &mut Value) {
+        let Some(tab) = args.get("tab_id").and_then(Value::as_i64) else {
+            return;
+        };
+        let Some(Value::Array(list)) = value
+            .as_object_mut()
+            .and_then(|v| v.shift_remove("surfaced"))
+        else {
+            return;
+        };
+        let kept: Vec<Map<String, Value>> = list.iter().filter_map(crate::surfaced::fact).collect();
+        if kept.is_empty() {
+            return;
+        }
+        let mut s = lock(&self.state);
+        let held = s.surfaced.entry(tab).or_default();
+        held.extend(kept);
+        let over = held.len().saturating_sub(crate::surfaced::KEPT);
+        held.drain(..over);
+    }
+
+    /// HAND-533: the window facts a tab's replies carried, not yet told (taken).
+    pub fn take_surfaced(&self, chrome_id: i64) -> Vec<Map<String, Value>> {
+        lock(&self.state)
+            .surfaced
+            .remove(&chrome_id)
+            .unwrap_or_default()
     }
 
     /// A reply too big for one message: its parts, read in order, joined and parsed.

@@ -2,9 +2,10 @@
 //! toolbox, with Python's exit statuses: 0 done, 1 failed (one plain line on stderr), 2 a command line argparse
 //! refuses or a toolbox command with no daemon, 3 the service switched off in Login Items, 130 a stop.
 //!
-//! What the program composes from other parts (the setup env's seams, the socket) comes from a [`Host`]. Commands
-//! whose code belongs to parts not ported yet (`trace`, `stats`, `runtimes`, `memory dashboard`, `browsers
-//! extension`, `mcp`, `daemon run`) answer exit 1 with a line saying so.
+//! What the program composes from other parts (the setup env's seams, the socket, the database for `stats`, the
+//! browser part for `browsers extension`) comes from a [`Host`]. `daemon run` and `mcp` are the agent program's
+//! (`ferbd daemon`, `ferbd mcp`); `runtimes` and `memory dashboard` are not ported yet (T-1112). Each answers exit 1
+//! with a line saying so.
 
 use std::cell::RefCell;
 use std::io::Write;
@@ -17,7 +18,7 @@ use super::args::{parse, Parsed, LOG_FLAGS};
 use super::setup::{self, Env};
 use super::{logs, plain_error, CliError, Rpc};
 
-/// ferb/trace/lines.py `step_line`.
+/// ferb/trace/lines.py `step_line` for a `tool.finished` event (default: [`logs::tool_step_line`]).
 pub type StepLine = Box<dyn Fn(&Value) -> String>;
 
 /// What `run` needs from the program around it.
@@ -37,8 +38,14 @@ pub trait Host {
     fn sleep(&mut self, seconds: f64);
     /// Puts text on the clipboard (`pbcopy`); false when it couldn't run.
     fn copy(&mut self, text: &str) -> bool;
-    /// ferb/trace/lines.py `step_line` for a `tool.finished` event; None until the traces part is ported.
+    /// ferb/trace/lines.py `step_line` for a `tool.finished` event; None: the traces part's own
+    /// ([`logs::tool_step_line`]).
     fn step_line(&self) -> Option<StepLine>;
+    /// `ferb browsers extension [path|install|package] [--out DIR]` (__init__.py:189): the exit status, its lines
+    /// written by the host.
+    fn extension(&mut self, action: &str, out_dir: Option<&str>) -> i32;
+    /// `ferb stats [--days N]` (admin.py:358): read straight from FERB's database, the daemon running or not.
+    fn stats(&mut self, days: i64) -> i32;
 }
 
 fn s(ns: &std::collections::BTreeMap<String, Value>, k: &str) -> Option<String> {
@@ -52,7 +59,16 @@ fn b(ns: &std::collections::BTreeMap<String, Value>, k: &str) -> bool {
 fn not_ported(host: &mut dyn Host, what: &str) -> i32 {
     let _ = writeln!(
         host.err(),
-        "ferb: `ferb {what}` isn't part of the Rust program yet; the Python build has it"
+        "ferb: `ferb {what}` isn't part of the Rust program yet (T-1112)"
+    );
+    1
+}
+
+/// `daemon run` and `mcp`: FERB.app's agent program runs them (ferbd's `run::main`), never this one.
+fn elsewhere(host: &mut dyn Host, what: &str, there: &str) -> i32 {
+    let _ = writeln!(
+        host.err(),
+        "ferb: `ferb {what}` isn't a command of this program: the Rust build runs it as `{there}`"
     );
     1
 }
@@ -73,9 +89,16 @@ pub fn run(argv: &[String], host: &mut dyn Host) -> i32 {
     };
     let cmd = s(&ns, "cmd").unwrap_or_default();
     match cmd.as_str() {
-        "daemon" | "stats" | "mcp" | "runtimes" | "trace" => return not_ported(host, &cmd),
+        "daemon" => return elsewhere(host, "daemon run", "ferbd daemon"),
+        "mcp" => return elsewhere(host, "mcp", "ferbd mcp"),
+        "runtimes" => return not_ported(host, "runtimes"),
+        "stats" => {
+            let days = ns.get("days").and_then(Value::as_i64).unwrap_or(7);
+            return host.stats(days);
+        }
         "browsers" if s(&ns, "bcmd").as_deref() == Some("extension") => {
-            return not_ported(host, "browsers extension")
+            let action = s(&ns, "action").unwrap_or_else(|| "path".into());
+            return host.extension(&action, s(&ns, "out").as_deref());
         }
         "memory" if s(&ns, "mcmd").as_deref() == Some("dashboard") => {
             return not_ported(host, "memory dashboard")
@@ -185,16 +208,16 @@ fn toolbox(
             .map(|f| f.to_string())
             .collect();
         let step = host.step_line();
-        let missing = |_: &Value| "(a tool step: its line comes with the traces port)".to_string();
         let line: &dyn Fn(&Value) -> String = match &step {
             Some(f) => f.as_ref(),
-            None => &missing,
+            None => &logs::tool_step_line,
         };
         return logs::run(client, &filters, host.out(), None, line);
     }
     let cell = RefCell::new(host);
     let mut out = HostOut(&cell);
     match cmd {
+        "trace" => trace(client, ns, &mut out),
         "verdict" => admin::verdict(
             client,
             &s(ns, "task_id").unwrap_or_default(),
@@ -240,6 +263,28 @@ fn toolbox(
         }
         _ => Ok(2),
     }
+}
+
+/// admin.py:115 `trace`: the story (default), `--full` (every span's fields, then where the time went) or `--json`
+/// (the whole `trace.get` answer with the timing breakdown), for a task id, its first characters, or the latest.
+fn trace(
+    client: &mut dyn Rpc,
+    ns: &std::collections::BTreeMap<String, Value>,
+    out: &mut dyn Write,
+) -> Result<i32, CliError> {
+    let task = s(ns, "task_id")
+        .filter(|t| !t.is_empty())
+        .unwrap_or_else(|| "last".into());
+    let result = client.call("trace.get", Some(serde_json::json!({ "task_id": task })))?;
+    let mode = if b(ns, "json") {
+        ferb_trace::Mode::Json
+    } else if b(ns, "full") {
+        ferb_trace::Mode::Full
+    } else {
+        ferb_trace::Mode::Story
+    };
+    out.write_all(ferb_trace::trace_output(&result, mode).as_bytes())?;
+    Ok(0)
 }
 
 /// The program's home for the setup commands (`$FERB_HOME` or ~/.ferb) and its socket.

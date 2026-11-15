@@ -102,7 +102,7 @@ fn month_day(m: u32, d: u32) -> bool {
     (1..=12).contains(&m) && (1..=31).contains(&d)
 }
 
-fn compact(v: &str) -> String {
+pub(crate) fn compact(v: &str) -> String {
     v.chars()
         .filter(|c| c.is_ascii_alphanumeric())
         .collect::<String>()

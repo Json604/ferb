@@ -294,6 +294,7 @@ fn stated_scope() {
 // decision: ORCH-524
 // decision: DMN-520
 // decision: ORCH-529
+// decision: GATE-504
 #[test]
 fn front_window() {
     full("front_window");

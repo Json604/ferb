@@ -141,7 +141,11 @@ pub const METHODS: &[Method] = &[
     m("schedules.change", &[Role::Cli], false),
     m("schedules.list", &[Role::Cli], false),
     m("secrets.delete", &[Role::Cli], true),
+    // GATE-602: the owner's "don't mask this" for a saved identifier, FERB.app's own. Not Python's:
+    // IDENTIFIER_ADDITIONS names them.
+    m("secrets.mask", &[Role::Cli], true),
     m("secrets.saved", &[Role::Cli], true),
+    m("secrets.unmask", &[Role::Cli], true),
     m("seen.image", &[Role::Cli], true),
     m("seen.list", &[Role::Cli], true),
     m("sense.pause", &[Role::Cli], false),
@@ -185,6 +189,10 @@ pub const STAGE2_ADDITIONS: [&str; 6] = [
     "chat.entries.page",
     "chat.entries.watch",
 ];
+
+/// The methods the owner's identifier choices added to Python's table (GATE-601, GATE-602): FERB.app's own
+/// (`app_only`), never a tool's or the phone's.
+pub const IDENTIFIER_ADDITIONS: [&str; 2] = ["secrets.mask", "secrets.unmask"];
 
 /// The method's row, when FERB has such a method at all.
 pub fn method(name: &str) -> Option<&'static Method> {
@@ -501,6 +509,17 @@ mod tests {
         assert!(allowed(Role::McpShim, "ping") && allowed(Role::Cli, "ping"));
         assert!(METHODS.iter().all(|m| !m.roles.contains(&Role::NativeHost)));
         assert!(!allowed(Role::Cli, "auth.hello") && !allowed(Role::Cli, ""));
+    }
+
+    /// GATE-604: `chat.send` seals the IDs in the text it is given, so only the owner's own connection may call it: a
+    /// model's tools reach the daemon as `mcp_shim` (tools.call only), the extension's relay has no methods, and the
+    /// shell's sandbox refuses the daemon's socket (ferb-shell `sandbox.rs`, the profiles fixture).
+    // decision: GATE-604
+    #[test]
+    fn only_the_owners_connection_may_send_a_chat_message() {
+        assert!(allowed(Role::Cli, "chat.send"));
+        assert!(!allowed(Role::McpShim, "chat.send"));
+        assert!(!allowed(Role::NativeHost, "chat.send"));
     }
 
     #[test]

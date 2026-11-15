@@ -186,6 +186,9 @@ impl Inner {
         let redacted = self.redact_text(&params.text);
         let text = self.hide_code_reply(&redacted, &session);
         let request_id = self.new_id();
+        // GATE-604 (owner GATE-601): each identifier of the owner's own words is kept sealed for any site, so FERB
+        // never asks for it again; the text stays masked, and the model learns only the names
+        let sealed = self.seal_identifiers(&params.text);
         let (tx, rx) = mpsc::unbounded_channel();
         // journal.py `append` as `self.journal` writes it (its id, then its time), on the ack's own transaction
         let data = self.redact(
@@ -200,6 +203,13 @@ impl Inner {
         ack.insert("at".into(), json!(at));
         if !hidden.is_empty() {
             ack.insert("hidden".into(), json!(hidden));
+        }
+        if !sealed.is_empty() {
+            let kept: Vec<Value> = sealed
+                .iter()
+                .map(|(kind, name)| json!({"kind": kind, "name": name}))
+                .collect();
+            ack.insert("sealed".into(), Value::Array(kept));
         }
         // stage 2: the message entry, in ONE transaction with the chat.ack row and the client's submission (ENG-10)
         let sha = ferb_store::chat_entries::text_sha256(&redacted);
@@ -261,11 +271,27 @@ impl Inner {
                 None,
             );
         }
+        if !sealed.is_empty() {
+            let names: Vec<&str> = sealed.iter().map(|(_, name)| name.as_str()).collect();
+            self.journal(
+                "identifier.sealed",
+                json!({"session_id": session, "request_id": request_id, "names": names}),
+                None,
+            );
+        }
         let _ = tx.send(Value::Object(ack));
         let me = self.me();
         let job = tokio::spawn(async move {
-            me.turn_stream(session, text, paths, request_id, hidden, params.screen, tx)
-                .await;
+            me.turn_stream(
+                session,
+                text,
+                paths,
+                request_id,
+                (hidden, sealed),
+                params.screen,
+                tx,
+            )
+            .await;
         });
         self.track(job);
         Ok(rx)
@@ -279,7 +305,7 @@ impl Inner {
         text: String,
         paths: Vec<String>,
         request_id: String,
-        hidden: Vec<String>,
+        (hidden, sealed): (Vec<String>, Vec<(String, String)>),
         screen: bool,
         out: mpsc::UnboundedSender<Value>,
     ) {
@@ -331,7 +357,7 @@ impl Inner {
                 &text,
                 paths,
                 request_id.clone(),
-                hidden,
+                (hidden, sealed),
                 screen,
                 &tx,
             )
@@ -470,6 +496,21 @@ impl Inner {
             return true;
         }
         self.tree_of(&tid).is_some_and(|t| my_tasks.contains(&t))
+    }
+
+    /// GATE-604: the identifiers of the owner's own message (`text` as typed or pasted, never what FERB read), each
+    /// kept sealed for any site through the daemon: (kind, name), once per name, in the message's order. An
+    /// identifier the owner let FERB show is no longer masked, so it is not among them.
+    fn seal_identifiers(&self, text: &str) -> Vec<(String, String)> {
+        let mut out: Vec<(String, String)> = Vec::new();
+        for (a, b, kind) in self.deps.redactor.identifiers(text).unwrap_or_default() {
+            if let Some(name) = self.deps.daemon.seal_identifier(kind, &text[a..b]) {
+                if !out.iter().any(|(_, n)| *n == name) {
+                    out.push((kind.to_string(), name));
+                }
+            }
+        }
+        out
     }
 
     /// areas/chat.py:24 `_hide_code_reply` (rule 14): a chat message while a question is open, before any model sees

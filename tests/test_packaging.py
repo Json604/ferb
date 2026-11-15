@@ -639,7 +639,7 @@ def test_dmg_holds_the_app_and_an_applications_link_and_is_notarized_only_with_a
             assert b"ferb-notary" not in f.read_bytes(), f
 
 
-# decision: REL-408, REL-409, REL-410, REL-411
+# decision: REL-408, REL-409, REL-427, REL-411
 def test_dmg_window_lays_out_exactly_the_app_the_applications_link_and_the_background(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Owner, 2026-11-04: a designed window, no text file. The image holds FERB.app, the Applications link and the
@@ -811,6 +811,7 @@ def test_the_appcast_refuses_a_dmg_that_isnt_notarized_developer_id_before_signi
     (root / "tools/kb/run").write_text('#!/bin/zsh\nprint -r -- "gate|$*" >> "$STUB_LOG"\nexit 1\n')
     (root / "tools/kb/run").chmod(0o755)
     app = _fake_app(tmp_path / "out")
+    shutil.rmtree(app / "Contents/Resources/python", ignore_errors=True)   # only the Rust build is released (ENG-16)
     info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
     info.update(LSMinimumSystemVersion="14.2", FERBVersion="0.28.0",
                 SUFeedURL="https://github.com/Json604/ferb/releases/latest/download/appcast-arm64.xml")

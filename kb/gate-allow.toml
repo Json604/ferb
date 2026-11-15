@@ -237,3 +237,8 @@ reason = "invented key-shaped values in the redaction corpus; ferb-sanitize test
 path = "rust/fixtures/sanitize-shapes/make.py"
 pattern = "private key"
 reason = "an invented PEM header in the generator of the redaction corpus (the unfinished-key case)"
+
+[[secret]]
+path = "scripts/tests/test_packaging.py"
+pattern = "private key"
+reason = "the same placeholder as tests/test_packaging.py carries (a key header around the words 'not a real key'), moved with the release-tooling tests; it is the stand-in notary key file the signing script is handed"

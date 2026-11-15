@@ -1796,7 +1796,51 @@ fn fixture() -> Value {
     serde_json::from_str(&text).unwrap()
 }
 
-// decision: ENG-3
+/// The one named difference in the hidden input's card (GATE-603, GATE-605): a value saved for a web page is kept for
+/// any site when it is an ID number, which the card says after "only" ("… usable only at this destination (or any
+/// site, if it's an ID number)." and "… for x.test only (or any site, if it's an ID number), as “login”."). Python's
+/// card has no such clause; an app's card is unchanged. Every other byte replays as recorded.
+fn any_site_clause(sc: &Value) -> Value {
+    const CLAUSE: &str = " (or any site, if it's an ID number)";
+    fn walk(v: &mut Value) {
+        match v {
+            Value::Object(m) => {
+                let web = ["reason", "question"].iter().any(|k| {
+                    m.get(*k)
+                        .and_then(Value::as_str)
+                        .is_some_and(|t| t.starts_with("Destination: https://"))
+                });
+                for (k, x) in m.iter_mut() {
+                    match x {
+                        Value::String(t) if web && (k == "reason" || k == "question") => {
+                            *t = t.replace(
+                                ", usable only at this destination.",
+                                &format!(", usable only at this destination{CLAUSE}."),
+                            );
+                        }
+                        Value::String(t)
+                            if web
+                                && k == "detail"
+                                && t.contains("saves it in your Mac's Keychain, for ") =>
+                        {
+                            let (head, tail) = t.split_once(" only").expect("the card's \"only\"");
+                            *t = format!("{head} only{CLAUSE}{tail}");
+                        }
+                        _ => walk(x),
+                    }
+                }
+            }
+            Value::Array(a) => a.iter_mut().for_each(walk),
+            _ => {}
+        }
+    }
+    let mut sc = sc.clone();
+    walk(&mut sc);
+    sc
+}
+
+// decision: ENG-3, GATE-219, GATE-220
+// decision: GATE-605
 #[test]
 fn every_scenario_replays_as_python_ran_it() {
     let f = fixture();
@@ -1813,7 +1857,7 @@ fn every_scenario_replays_as_python_ran_it() {
             continue;
         }
         count += 1;
-        let problems = rt.block_on(replay(sc, &root));
+        let problems = rt.block_on(replay(&any_site_clause(sc), &root));
         if !problems.is_empty() {
             failed.push(format!("{}\n{}", sc["name"], problems.join("\n")));
         }
@@ -2544,4 +2588,74 @@ fn ferbs_own_questions_are_asked_answered_and_set_aside() {
         rt.block_on(gw.await_own(&open.id, &Cancel::new())),
         Ok(None)
     );
+}
+
+/// GATE-603 (owner GATE-601: "filled on any site"): a value typed into the hidden input and saved is kept for any
+/// site only when it is a personal identifier by its own layout and check digit; a password keeps the site it was
+/// saved for, and so does an identifier-looking value typed into a card field.
+// decision: GATE-603
+// decision: GATE-601
+#[test]
+fn a_saved_identifier_is_kept_for_any_site_and_a_password_for_its_own() {
+    let sc = json!({"name": "any_site", "tool_schemas": {}, "tasks": [{"id": "task-1"}]});
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let root = root();
+    let mut r = build(&sc, &root);
+    setup(&mut r, &sc);
+    let ctx = r.ctx(&json!({}));
+    let save = |name: &str, value: &str, kind: Option<&str>| {
+        let ask = SecretAsk {
+            remember: Some(name.into()),
+            kind: kind.map(str::to_owned),
+            ..SecretAsk::default()
+        };
+        let gw = r.gw.clone();
+        let (ctx, value) = (ctx.clone(), value.to_owned());
+        rt.block_on(async move {
+            let asked = gw.ask_secret(&ctx, "https://tax.example", ask);
+            let answer = async {
+                loop {
+                    if let Some(ap) = gw.pending().first() {
+                        gw.resolve(&ap.id, true, None, Some(&value)).unwrap();
+                        break;
+                    }
+                    tokio::task::yield_now().await;
+                }
+            };
+            let (got, ()) = tokio::join!(asked, answer);
+            got.unwrap().unwrap()
+        });
+    };
+    save("PAN", "ABCPE1234F", None);
+    save("password", "invented-pw", None);
+    save("card PAN", "ABCPE1234F", Some("card_number"));
+    let records = r.secrets.records().unwrap();
+    let names = |place: &str| -> Vec<String> {
+        records[place]["entries"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect()
+    };
+    assert_eq!(names(ferb_identity::owner_secrets::ANY_SITE), vec!["PAN"]);
+    assert_eq!(names("https://tax.example"), vec!["password", "card PAN"]);
+    // the saved identifier fills elsewhere; the password does not
+    let fill = |handle: &str, target: &str| {
+        let ask = SecretAsk {
+            handle: Some(handle.into()),
+            ..SecretAsk::default()
+        };
+        rt.block_on(r.gw.ask_secret(&ctx, target, ask))
+            .map(|v| v.map(|s| s.expose().to_owned()))
+    };
+    assert_eq!(
+        fill("PAN", "https://other.example"),
+        Ok(Some("ABCPE1234F".into()))
+    );
+    assert!(fill("password", "https://other.example").is_err());
+    assert!(r.gw.pending().is_empty(), "a saved handle asks nothing");
 }

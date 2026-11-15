@@ -314,7 +314,7 @@ private struct TurnView: View {
                 Label("Preview · nothing here is done", systemImage: "eye")
                     .font(.system(size: 10.5, weight: .medium)).foregroundStyle(Palette.secondary)
             }
-            RequestView(turn: turn)
+            RequestView(turn: turn, show: { model.showIdentifier($0, turnID: turn.id) })
             ferbSide.frame(maxWidth: ChatSide.width, alignment: .leading)
         }
     }
@@ -367,6 +367,8 @@ private struct TurnView: View {
 /// description, shown on FERB's side.
 private struct RequestView: View {
     let turn: ConversationTurn
+    /// The owner's "Let the AI see" for an identifier kept sealed from this message (GATE-602).
+    var show: ((String) -> Void)? = nil
 
     var body: some View {
         if let goal = turn.taskGoal {
@@ -396,6 +398,21 @@ private struct RequestView: View {
                         .font(.system(size: 10)).foregroundStyle(Palette.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: ChatSide.width - 28, alignment: .trailing)
+                }
+                // GATE-602: the owner may let the AI see one kept identifier; it lasts until taken back in Settings
+                ForEach(turn.sealed ?? [], id: \.name) { kept in
+                    HStack {
+                        Spacer(minLength: 28)
+                        if kept.shown {
+                            Text("The AI can see “\(kept.name)” now.")
+                                .font(.system(size: 10)).foregroundStyle(Palette.secondary)
+                        } else if let show {
+                            Button("Let the AI see “\(kept.name)”") { show(kept.name) }
+                                .buttonStyle(.link).font(.system(size: 10))
+                                .help("FERB stops hiding this value from the AI until you change it in Settings → Data.")
+                        }
+                    }
+                    .frame(maxWidth: ChatSide.width - 28, alignment: .trailing)
                 }
             }
         }

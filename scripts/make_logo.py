@@ -1,8 +1,16 @@
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#   "pyobjc-core==12.2.2",
+#   "pyobjc-framework-cocoa==12.2.2",
+# ]
+# ///
 """Regenerate every FERB logo file from the one master, assets/logo/ferb-logo.svg (owner, 2026-11-01: the extension's
 logo is FERB's logo everywhere). The master draws its "f" as a path, so nothing depends on installed fonts. Rendering
-uses macOS's own SVG support (AppKit, through the checkout's PyObjC) and iconutil; nothing else to install.
+uses macOS's own SVG support (AppKit, through PyObjC) and iconutil. PyObjC is this script's own dependency, named at
+the top (PEP 723 inline metadata) and locked with its hashes in scripts/make_logo.py.lock.
 
-    uv run python scripts/make_logo.py
+    uv run --script --locked scripts/make_logo.py
 
 Writes, all from the master:
   assets/logo/ferb-logo-1024.png              the master at 1024 px (transparent margin, as the SVG draws it)

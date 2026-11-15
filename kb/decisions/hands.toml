@@ -1545,3 +1545,70 @@ rule = "Refines HAND-406. Beside a bad_mac or replay refusal of an extension's h
 why = "Live 2026-11-14: bad_mac for chrome/Profile 15 repeated 1,119 times in ten minutes beside an accepted connection for the same profile (242 for brave/Default in the first run); the records could not say which copy, process or counter sent them."
 evidence = "Owner's database: journal 27 (22:39:36.604) and 80 (22:49:36, repeats 1119); ext_installs e8893a44 chrome/Profile 15 paired_at 22:39:36.603871, last_seq 250590; browsers.pair_failed Profile 15 reason problem 22:39:36.737."
 paths = ["rust/crates/ferb-browser/src/bridge.rs", "rust/crates/ferb-browser/src/pairing.rs", "rust/crates/ferb-rpc/src/server.rs"]
+
+[HAND-531]
+title = "An image's text is read in the process, then on the CPU, then by a fresh child; failures recorded"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "Refines L13. ImageRedactor tries Vision as it chooses its devices, then on the CPU, then ferb read-image-text (Resources/bin/ferb, ENG-7; image in and regions out over pipes, nothing on disk, killed after 150 s, one at a time; a preview frame doesn't wait for one). With none the image is withheld as before, text unchanged. image.redaction_failed / _recovered and preview.failed record each step's error domain and code, never content."
+why = "Live 2026-11-15: after hours of running, every image the daemon redacted failed inside Vision's model runtime and was withheld, while a fresh process read images; nothing recorded why."
+evidence = "Unified log: daemon pid 35788, each request 16:50:57-16:52:10 'E5RT Error: create_precompiled_compute_operation (Code: 13)'. ~/Library/Caches/com.ferb.daemon e5rt bundles written 02:14, emptied 03:41:08; CacheDelete saw 940 MB free (urgency 3) at 20:21."
+paths = ["rust/crates/ferb-mac-hands/src/ocr.rs", "rust/crates/ferb-mac-hands/src/vision_child.rs", "rust/crates/ferb-mac-hands/src/native/vision.rs", "rust/crates/ferbd/src/compose/tools/mac.rs", "rust/crates/ferbd/src/compose/previews.rs"]
+
+[HAND-532]
+title = "Browser tasks work in the background on every route, sign-ins included"
+by = "owner"
+date = 2026-11-15
+status = "active"
+words = "in this iit madras task, it was wokring in minizmied window but my focus shofted when it had to login and the chrome window popped up - didint we fixed this??? PLEASE COVER EVEYRTHING TO WORK IN BACKGROUND IN BRWSER TASKS."
+words_source = "Owner 2026-11-15, a live report after a browser task (IIT Madras dashboard, task 0821c105) whose Google sign-in brought Chrome's window forward; relayed by the coordinator."
+rule = "Nothing a browser task does should bring a browser window forward or take the owner's focus, on any route, sign-ins included. What FERB can stop it stops in the shared path; what the browser does by itself is undone for FERB's own windows at once and told to the worker and the trace as a fact (HAND-533..537). FERB never switches the owner back to their app (HAND-212 stands)."
+evidence = "Task 0821c105, 2026-11-15 19:52:18: browser.act clicked FirebaseUI's \"Sign in with Google\" (signInFlow popup) in FERB's minimized Chrome window; no popup event; the url wait was met by 19:52:25; the owner was in full-screen Brave; no browser call was sampled."
+paths = ["extensions/chromium/background.js::keepDown", "extensions/chromium/protocol.js::ferbPageHook"]
+live = ["LIVE-947"]
+
+[HAND-533]
+title = "FERB's browser windows go back down when a page brings them forward, and the worker is told"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "For HAND-532, extension 0.19.11; refines HAND-212. FERB's minimized window, or a popup window FERB claimed for a task tab, found shown within 3 s of a page in it opening a tab or showing a dialog is minimized again at once; one shown with no such cause (Dock, Window menu, show_tab) is the owner's, left until minimized again. The owner's windows only become facts. The page hook refuses window.focus, fullscreen and picture-in-picture in a tab FERB drives. Each event is a `surfaced` fact on the tab's next reply, told to the worker once (`window_shown`). FERB never activates another app."
+why = "Chrome follows every tab or window a page opens, and a dialog, with its window's Show() (restore, raise, activate: chromium ScopedBrowserShower, BrowserView::Show), and no extension API runs before it. Putting FERB's own windows back and saying so is what is left; structure and timing decide."
+paths = ["extensions/chromium/background.js::keepDown", "extensions/chromium/background.js::surfacingTab", "extensions/chromium/protocol.js::ferbPageHook", "extensions/chromium/content.js", "rust/crates/ferb-browser/src/surfaced.rs", "rust/crates/ferb-browser/src/bridge.rs::keep_surfaced", "rust/crates/ferb-browser/src/tools.rs::news"]
+
+[HAND-534]
+title = "A page's new tab with no opener goes the way a link's new tab goes"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "For HAND-532, extension 0.19.11. While FERB drives a tab, the page's window.open(url, \"\" or \"_blank\", features naming noopener or noreferrer) for an http(s) URL returns null, as the browser's does, and goes as a link to a new tab goes (content.js asks the service worker; the daemon opens a background tab, HAND-443's path); when FERB doesn't open it, content.js opens it natively. A window.open with an opener link keeps the browser's own tab or window, which a sign-in needs."
+why = "A tab the page makes itself comes forward with its window (HAND-533); one FERB opens doesn't. With no opener link the page can't tell the two apart."
+paths = ["extensions/chromium/protocol.js::ferbPageHook", "extensions/chromium/content.js"]
+
+[HAND-535]
+title = "Browser input is sampled for screen changes like Mac input"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "For HAND-532. browser.act, navigate, media, secret, login_code, fill_secret and fill_otp (and ferb_browser's) declare on_screen, so the disturbance sentinel samples the desktop right before and after each (DMN-5) and a front-app, focus, fullscreen or Space change during one is that call's screen_changed_during_call fact (HAND-212) and in the trace. Reads stay unsampled. The engine's BrowserTool takes on_screen from the verb and every other fact from the catalog: a deliberate difference from Python's catalog, named in tools_catalog.rs."
+why = "Live 2026-11-15: Chrome came forward after a browser click and the record showed nothing (on_screen_calls 2: browser.open only). A page answering FERB's input can bring its browser forward as an app can."
+paths = ["rust/crates/ferb-browser/src/tools.rs::VERBS", "rust/crates/ferbd/src/compose/tools/browser.rs::BrowserTool"]
+
+[HAND-536]
+title = "A sign-in popup window that starts blank becomes the task's"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "For HAND-532, extension 0.19.11. Refines HAND-443 and HAND-511. Within 3 s of a task tab's input, a new tab whose first address is about:blank is checked by the browser's openerId as well, only in a popup-type window (FERB's own opens make blank tabs in normal windows). Confirmed, it is claimed as the task's popup (`popup` event) and its window goes down at once (HAND-533)."
+why = "FirebaseUI (signInFlow popup, the IIT Madras login) opens its sign-in window blank and gives it the address after; HAND-443 looked only at http(s) first addresses, so that window was never the task's and nothing put it back."
+paths = ["extensions/chromium/background.js::openedByInput", "extensions/chromium/background.js::popupWindowDown"]
+
+[HAND-537]
+title = "Extension 0.19.11 keeps protocol 21 and the minimum 0.19.0"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "HAND-532..536 ship as extension 0.19.11 with one optional reply field (`surfaced`), so the protocol and the minimum stay: an older extension keeps working without them (no window put back, no fact), and an older FERB reads the field as nothing, except in an act's reply, which it passes on as it is. The owner publishes 0.19.11 to the Chrome Web Store."
+why = "A protocol bump would stop every installed FERB until its browsers update (protocol.js, 0.19.3)."
+paths = ["extensions/chromium/manifest.json", "extensions/chromium/protocol.js"]

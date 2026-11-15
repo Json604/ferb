@@ -916,6 +916,7 @@ async fn a_wrapped_link_whose_break_is_outside_the_value_passes() {
 // B4: read order between the record and the value's first private read is not a condition.
 // decision: GATE-589
 // decision: GATE-590
+// decision: GATE-536, GATE-540
 #[tokio::test]
 async fn a_link_a_page_shows_counts_in_any_read_order() {
     let r = task(ASK, &[]);
@@ -1423,4 +1424,37 @@ async fn today_a_file_written_by_an_earlier_task_counts_as_the_owners() {
     r.quiet("fs.read", json!({"path": earlier.to_str().unwrap()}))
         .await;
     assert!(!r.opening_asks(&link(COLLECT)).await);
+}
+
+// decision: GATE-537
+#[tokio::test]
+async fn a_site_the_plan_resolved_from_the_owners_words_counts_as_named() {
+    let r = task(
+        "apply to the Basis Fellowship for me",
+        &["basisfellowship.example"],
+    );
+    r.outside_and_notes().await;
+    assert!(
+        !r.opening_asks(&format!(
+            "https://www.basisfellowship.example/apply?ref={V}"
+        ))
+        .await
+    );
+    assert!(
+        r.opening_asks(&format!("https://other.example/apply?ref={V}"))
+            .await
+    );
+    assert!(
+        r.opening_asks(&format!("https://apply.basisfellowship.example/x?ref={V}"))
+            .await
+    );
+    // the same words without the plan's site: code matches no names itself, so it asks
+    let bare = task("apply to the Basis Fellowship for me", &[]);
+    bare.outside_and_notes().await;
+    assert!(
+        bare.opening_asks(&format!(
+            "https://www.basisfellowship.example/apply?ref={V}"
+        ))
+        .await
+    );
 }

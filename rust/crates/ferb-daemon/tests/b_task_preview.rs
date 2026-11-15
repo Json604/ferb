@@ -210,7 +210,7 @@ async fn run(sc: &Value) -> (usize, usize, Vec<String>) {
         Arc::new(|image: Vec<u8>| {
             Box::pin(async move {
                 if image == b"bad" {
-                    Err("ValueError".to_owned())
+                    Err("ValueError".to_owned().into())
                 } else {
                     Ok(image)
                 }

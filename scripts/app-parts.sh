@@ -1,4 +1,4 @@
-# FERB.app's parts per architecture (L34), sourced by build-app.sh (zsh). Nothing here builds, signs or downloads.
+# FERB.app's parts per architecture (L34), sourced by build-app-rust.sh (zsh). Nothing here builds, signs or downloads.
 
 # _ferb_bytes PATH…: the total size in bytes of the regular files under each PATH (0 when there are none)
 _ferb_bytes() {
@@ -42,7 +42,7 @@ ferb_size_report() {
 # ferb_arch_names ARCH: the names one architecture goes by (ARCH: arm64 or x86_64; anything else returns 1).
 # FERB_UV_ARCH: uv's standalone CPython builds. FERB_NPM_CPU, FERB_CODEX_NPM: Codex's npm platform package.
 # FERB_CODEX_TRIPLE: its binary's folder. FERB_CODEX_BIN: that binary in FERB.app, relative to Contents
-# (ferb/runtimes/codex_exec.py native_bin names the same file).
+# (rust/crates/ferb-runtimes/src/codex/mod.rs native_bin names the same file).
 ferb_arch_names() {
   case ${1:-} in
     arm64)  FERB_UV_ARCH=aarch64; FERB_NPM_CPU=arm64; FERB_CODEX_TRIPLE=aarch64-apple-darwin ;;

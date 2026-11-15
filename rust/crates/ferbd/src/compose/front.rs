@@ -101,7 +101,7 @@ impl fw::Sources for Sources {
     }
     fn redact_image(&self, raw: &[u8]) -> Result<Vec<u8>, String> {
         match self.parts.mac() {
-            Some(m) => m.images.redact(raw),
+            Some(m) => m.images.redact(raw, "front_window"),
             None => Err(ferb_mac_hands::ocr::UNAVAILABLE.into()),
         }
     }

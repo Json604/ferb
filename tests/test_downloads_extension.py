@@ -668,7 +668,7 @@ def test_the_page_hook_brings_unseen_saves_in_and_binds_popups_to_a_token_while_
     assert out["empty"] == [["native-open", None, None, None], ["native-open", "", None, None],
                             ["native-open", "   ", None, None]]                   # empty URLs: native, untouched
     assert out["named"] == [["native-open", "https://s.example/named", "results", None]]
-    assert out["noopener"] == [["native-open", "https://s.example/nop", "_blank", "noopener"]]
+    assert out["noopener"] == []          # HAND-534 (0.19.11): a new tab with no opener goes as a link's goes (":open")
     assert out["script"] == [["native-open", "javascript:alert(1)", None, None]]
 
 

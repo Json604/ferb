@@ -702,3 +702,107 @@ kind = "build"
 status = "open"
 why = "Owner 2026-11-15: \"add in kb to test in phone apps to have the same claude/codex/api logins to use them. cause laptop wont be on alwys for htem to use those AIs\". Then: \"not by itself. just a bitton ilke in mac to login on phones too\". Stages 3-4; what a phone does with the Mac off: settle first."
 decisions = ["PROJ-508", "ENG-10"]
+
+[T-1100]
+title = "Rust tests for the daemon decisions whose only tests were Python"
+area = "daemon"
+kind = "build"
+status = "open"
+why = "Their only tests were Python (tests/, removed by ENG-16); each needs a Rust test tagged with it proving the same behaviour, or a GAP named in the journal. Recomputed after the removal plan: kb.py coverage."
+decisions = ["DMN-11", "DMN-13", "DMN-26", "DMN-400", "DMN-401", "DMN-504", "DMN-512", "DMN-518", "DMN-543", "DMN-549", "DMN-550"]
+
+[T-1101]
+title = "Rust tests for the gateway decisions whose only tests were Python"
+area = "gateway"
+kind = "build"
+status = "open"
+why = "Their only tests were Python (tests/, removed by ENG-16); each needs a Rust test tagged with it proving the same behaviour, or a GAP named in the journal. Recomputed after the removal plan: kb.py coverage. GATE-220, GATE-537, GATE-540: tests found or written (journal 76), to tag in ferb-gateway."
+decisions = ["GATE-220", "GATE-512", "GATE-537", "GATE-540", "GATE-552", "GATE-553", "GATE-577"]
+
+[T-1102]
+title = "Rust tests for the hands decisions whose only tests were Python"
+area = "hands"
+kind = "build"
+status = "open"
+why = "Their only tests were Python (tests/, removed by ENG-16); each needs a Rust test tagged with it proving the same behaviour, or a GAP named in the journal. Recomputed after the removal plan: kb.py coverage."
+decisions = ["HAND-1", "HAND-225", "HAND-229", "HAND-246", "HAND-403", "HAND-405", "HAND-409", "HAND-410", "HAND-425", "HAND-445", "HAND-497", "HAND-498", "HAND-502", "HAND-509", "HAND-510", "HAND-514"]
+
+[T-1103]
+title = "Rust tests for the memory decisions whose only tests were Python"
+area = "memory"
+kind = "build"
+status = "open"
+why = "Their only tests were Python (tests/, removed by ENG-16); each needs a Rust test tagged with it proving the same behaviour, or a GAP named in the journal. Recomputed after the removal plan: kb.py coverage."
+decisions = ["MEM-13", "MEM-33", "MEM-416", "MEM-417", "MEM-418"]
+
+[T-1104]
+title = "Rust tests for the orchestration decisions whose only tests were Python"
+area = "orchestration"
+kind = "build"
+status = "open"
+why = "Their only tests were Python (tests/, removed by ENG-16); each needs a Rust test tagged with it proving the same behaviour, or a GAP named in the journal. Recomputed after the removal plan: kb.py coverage."
+decisions = ["ORCH-302", "ORCH-304", "ORCH-305", "ORCH-309", "ORCH-314", "ORCH-324", "ORCH-327", "ORCH-333", "ORCH-507", "ORCH-509", "ORCH-510", "ORCH-512", "ORCH-514", "ORCH-516", "ORCH-521", "ORCH-522", "ORCH-523", "ORCH-525", "ORCH-530", "ORCH-539", "ORCH-547", "ORCH-548", "ORCH-554", "ORCH-557", "ORCH-566", "ORCH-568", "ORCH-571", "ORCH-578", "ORCH-583", "ORCH-601", "ORCH-616", "ORCH-621", "ORCH-622", "ORCH-624", "ORCH-627", "ORCH-628"]
+
+[T-1105]
+title = "Rust tests for the prompts decisions whose only tests were Python"
+area = "prompts"
+kind = "build"
+status = "open"
+why = "Their only tests were Python (tests/, removed by ENG-16); each needs a Rust test tagged with it proving the same behaviour, or a GAP named in the journal. Recomputed after the removal plan: kb.py coverage."
+decisions = ["PRM-314", "PRM-315", "PRM-334", "PRM-338"]
+
+[T-1106]
+title = "Rust tests for the runtimes decisions whose only tests were Python"
+area = "runtimes"
+kind = "build"
+status = "open"
+why = "Their only tests were Python (tests/, removed by ENG-16); each needs a Rust test tagged with it proving the same behaviour, or a GAP named in the journal. Recomputed after the removal plan: kb.py coverage."
+decisions = ["RUN-400", "RUN-401", "RUN-402", "RUN-403", "RUN-411", "RUN-414", "RUN-431", "RUN-432", "RUN-433", "RUN-442", "RUN-443", "RUN-444", "RUN-464"]
+
+[T-1107]
+title = "Rust tests for the perception decisions whose only tests were Python"
+area = "perception"
+kind = "build"
+status = "open"
+why = "Their only tests were Python (tests/, removed by ENG-16); each needs a Rust test tagged with it proving the same behaviour, or a GAP named in the journal. Recomputed after the removal plan: kb.py coverage."
+decisions = ["SENSE-4", "SENSE-6"]
+
+[T-1108]
+title = "Rust tests for the storage decisions whose only tests were Python"
+area = "storage"
+kind = "build"
+status = "open"
+why = "Their only tests were Python (tests/, removed by ENG-16); each needs a Rust test tagged with it proving the same behaviour, or a GAP named in the journal. Recomputed after the removal plan: kb.py coverage."
+decisions = ["STORE-410"]
+
+[T-1109]
+title = "A Rust offline-suite guard set to replace TEST-504's Python guards; TEST-502's runs in Rust"
+area = "tests"
+kind = "build"
+status = "open"
+why = "TEST-504 names tests/conftest.py's no_real_models, offline_trash, network_route and tests/support/runaway.py; the Rust tests have no per-test timeout, memory cap, model-call or network guard (rust/gate.sh test is plain cargo test). TEST-502's end-to-end list needs its Rust runs tagged."
+decisions = ["TEST-502", "TEST-504"]
+
+[T-1110]
+title = "REL-402 (Intel's cryptography pin) has nothing left to pin: supersede it on the owner's word"
+area = "release"
+kind = "chore"
+status = "open"
+why = "REL-402 pinned a Python wheel for Intel Macs; no Python ships with the Rust build (ENG-2) and uv.lock leaves with ENG-16. It is an owner decision, so only the owner's word supersedes it."
+decisions = ["REL-402"]
+
+[T-1111]
+title = "Remove the Python code: the deletion, the gate's Python checks, kb's historical commit, the docs"
+area = "engine"
+kind = "chore"
+status = "open"
+why = "ENG-11, ENG-16. Prepared in journal 76; the coordinator runs the deletion on a clean tree, retires kb/gate.toml's three Python checks, sets kb/config.toml historical to the commit before, and applies the AGENTS.md, README, HANDOFF and AGENT-BRIEF patches."
+decisions = ["ENG-11", "ENG-16"]
+
+[T-1112]
+title = "Port `ferb runtimes` (show, use, pins) and `ferb memory dashboard` to the Rust program"
+area = "daemon"
+kind = "build"
+status = "open"
+why = "The Rust `ferb` answers both with exit 1 (cli/run.rs not_ported). Also: the not-running line still says `ferb daemon run` (ferb-device cli/client.rs NOT_RUNNING, ferb-runtimes mcp_bridge.rs, a model-facing text): name `ferbd daemon` as a named difference."
+decisions = ["DMN-4"]

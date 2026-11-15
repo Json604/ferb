@@ -36,11 +36,13 @@ fn names(value: &Value) -> Vec<String> {
 // decision: DMN-33
 // decision: ENG-10
 // decision: ENG-14
+// decision: GATE-602
 #[test]
 fn the_method_table_is_python_s_plus_the_stage_2_additions() {
-    use ferb_rpc::auth::STAGE2_ADDITIONS;
+    use ferb_rpc::auth::{IDENTIFIER_ADDITIONS, STAGE2_ADDITIONS};
     let table = fixture("table.json");
-    let added = |name: &str| STAGE2_ADDITIONS.contains(&name);
+    let added =
+        |name: &str| STAGE2_ADDITIONS.contains(&name) || IDENTIFIER_ADDITIONS.contains(&name);
     for role in Role::ALL {
         let ours: Vec<String> = METHODS
             .iter()
@@ -62,7 +64,8 @@ fn the_method_table_is_python_s_plus_the_stage_2_additions() {
         .collect();
     assert_eq!(app_only, names(&table["app_only"]));
     // the stage-2 additions: each in the table once, FERB.app's own, for the app's role only (stage 3 adds the phone's)
-    for name in STAGE2_ADDITIONS {
+    for name in STAGE2_ADDITIONS.iter().chain(&IDENTIFIER_ADDITIONS) {
+        let name = *name;
         let rows: Vec<_> = METHODS.iter().filter(|m| m.name == name).collect();
         assert_eq!(rows.len(), 1, "{name}");
         assert_eq!(rows[0].roles, &[Role::Cli], "{name}");
@@ -81,7 +84,7 @@ fn the_method_table_is_python_s_plus_the_stage_2_additions() {
             count(Role::NativeHost),
             METHODS.iter().filter(|m| m.app_only).count()
         ),
-        (106 + 6, 3, 0, 20 + 6)
+        (106 + 6 + 2, 3, 0, 20 + 6 + 2)
     );
     let mut sorted: Vec<&str> = METHODS.iter().map(|m| m.name).collect();
     sorted.sort();

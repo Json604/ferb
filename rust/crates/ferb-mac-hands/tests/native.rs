@@ -80,3 +80,41 @@ fn reads_permission_states_without_asking() {
         native::pasteboard::access_behavior()
     );
 }
+
+/// HAND-531's last attempt for real: FERB's image-text reader (the `read_image_text` example, what
+/// `ferb read-image-text` runs) started as a child process, the image over its input, the regions back over its output.
+// decision: HAND-531
+#[test]
+#[ignore = "starts Vision in a child process on this Mac: run by hand (cargo builds the example with the tests)"]
+fn a_child_process_reads_an_image() {
+    let exe = std::env::current_exe().unwrap();
+    // the profile folder above this test binary (target/<profile>/deps, or a build folder below it)
+    let program = exe
+        .ancestors()
+        .map(|dir| dir.join("examples").join("read_image_text"))
+        .find(|p| p.is_file())
+        .unwrap_or_default();
+    assert!(
+        program.is_file(),
+        "build it: cargo test --examples ({program:?})"
+    );
+    let child = ferb_mac_hands::vision_child::ChildVision {
+        program,
+        args: vec![],
+        timeout: ferb_mac_hands::vision_child::CHILD_TIMEOUT,
+        gate: Default::default(),
+        wait: true,
+    };
+    let started = std::time::Instant::now();
+    let regions = child
+        .recognize(&native::vision::blank_png(160, 48))
+        .expect("the child read the image");
+    assert!(
+        regions.is_empty(),
+        "a blank image holds no text: {regions:?}"
+    );
+    println!("the child answered in {:?}", started.elapsed());
+    // the same image through the CPU attempt in this process
+    let cpu = native::vision::CpuVision.recognize(&native::vision::blank_png(160, 48));
+    println!("Vision on the CPU in this process: {cpu:?}");
+}

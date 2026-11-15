@@ -68,6 +68,24 @@ level = "commit"
 run = "uv run pytest -q -p no:cacheprovider tests/test_imports.py tests/test_release_checks.py"
 when = ["ferb/**", "tests/**", "extensions/**", "scripts/**", "pyproject.toml", "uv.lock"]
 
+[[check]]
+name = "kb tool tests (historical paths)"     # ~3 s: throwaway git repositories (PROJ-509)
+level = "commit"
+# kb.py needs Python 3.11+ (tomllib), as tools/kb/run picks it
+run = "for p in python3.14 python3.13 python3.12 python3.11 python3; do command -v $p >/dev/null && $p -c 'import tomllib' 2>/dev/null && exec $p -I -B tools/kb/test_kb_historical.py; done; echo 'needs Python 3.11 or newer' >&2; exit 1"
+when = ["tools/kb/**", "kb/config.toml"]
+
+[[check]]
+name = "release tooling tests (scripts/tests)" # ~10-20 s: stdlib unittest, stubs for every signing tool (REL-426)
+level = "push"
+run = "/usr/bin/python3 -I -m unittest discover -s scripts/tests -t ."
+when = ["scripts/**", "assets/**", "THIRD_PARTY_NOTICES.md", "package.json", "package-lock.json", "rust/packaging/**",
+        "rust/Cargo.toml", "rust/crates/ferbd/src/**", "rust/crates/ferb-runtimes/src/**",
+        "rust/crates/ferb-browser/src/**", "rust/crates/ferb-memory/src/embeddings.rs",
+        "rust/crates/ferb-device/src/install.rs", "extensions/chromium/manifest.json", "ui/mac/FERBNotch/Info.plist",
+        "ui/mac/FERBAgent/**", "ferb/**/*.md"]
+timeout = 600
+
 # The Python safety suite is no longer a push check (TEST-510, owner, 2026-11-13): the Rust engine replaces the
 # Python daemon, and the suite's timing-sensitive tests failed three pushes in a row on code they do not test.
 # Run it by hand while the Python sources remain: `nice -n 10 uv run pytest -q`.
@@ -104,7 +122,8 @@ timeout = 1800
 name = "Rust tests"
 level = "push"
 run = "rust/gate.sh test"
-when = ["rust/**", "ferb/store/migrations/**"]
+# ferb/: the runtime Markdown and migrations the engine reads; extensions/: ferb-browser tests/extension_version.rs
+when = ["rust/**", "ferb/**", "extensions/**"]
 timeout = 1800
 
 [[check]]

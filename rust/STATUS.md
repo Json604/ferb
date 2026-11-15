@@ -40,7 +40,7 @@ the phone apps share; they reach the Mac's own parts only through traits.
 | RPC handlers (106 methods), daemon composition | `ferb/daemon/main.py`, `areas/` | ~9,700 | `ferb-daemon`, `ferbd` | 71 of 106 methods verified against the recordings (journal 40); chat, tasks and the composition not started |
 | Files, recovery | `ferb/act/fs` | (in 21,723) | `ferb-fs` | verified (journal 18); Mac renderers and Trash locator not written |
 | Shell, sandbox, proxy | `ferb/act/shell` | (in 21,723) | `ferb-shell` | verified, live sandbox tests included (journal 20) |
-| Browser hands and extension bridge | `ferb/act/browser` | (in 21,723) | `ferb-browser` | verified: protocol, bridge, operations, 46 tools, downloads, upload copies (journal 21, 28, 36); no real browser run |
+| Browser hands and extension bridge | `ferb/act/browser` | (in 21,723) | `ferb-browser` | verified: protocol, bridge, operations, 46 tools, downloads, upload copies (journal 21, 28, 36); background first with extension 0.19.11, unpublished (journal 79); no real browser run |
 | Mac hands: AX, input, capture, recording, hearing | `ferb/act/mac` and `ferb/act/*.py` | (in 21,723) | `ferb-mac-hands` | logic verified on fakes (journal 35); native layer compiled only |
 | Model runtimes: Codex, Claude, APIs, tool bridge | `ferb/runtimes`, `ferb/cli/mcp.py` | 4,876 | `ferb-runtimes` | verified against scripted programs and servers (journal 24); sign-in, keys, checks not started |
 | Orchestration: answer models, plans, ledger, loops, steering, evidence, cards | `ferb/orchestrator` (not supervisor, worker), `ferb/decide` | ~7,300 | `ferb-orchestrator` | verified (journal 33) |
@@ -51,11 +51,11 @@ the phone apps share; they reach the Mac's own parts only through traits.
 | Memory: items, profile, learning, distill, playbooks, import job | `ferb/memory` (rest) | ~4,300 | `ferb-learning` | verified (journal 32); card reader process not ported |
 | Perception | `ferb/sense` | 3,817 | `ferb-sense` | verified on fixtures (journal 30); native sources unverified on a build |
 | Device: install, service, profile, scan | `ferb/device` | 2,276 | `ferb-device` | verified on recorded flows (journal 29); permissions are in `ferb-mac-hands` |
-| Internal commands the app calls, toolbox | `ferb/cli` | 2,442 | `ferb-device` | verified (journal 29); no `ferb` program yet |
+| Internal commands the app calls, toolbox | `ferb/cli` | 2,442 | `ferb-device`, `ferbd` (`ferb` program) | verified (journal 29); `trace` (220 recorded outputs), `stats` (20 cases) and `browsers extension` wired (journal 76); `runtimes` and `memory dashboard` not ported (T-1112) |
 | Traces | `ferb/trace`, trace output of `ferb/cli/admin.py` | 759 | `ferb-trace` | verified (journal 27) |
 | The daemon program | `ferb/daemon/main.py` | 748 | `ferbd` | every seam wired or named off (`seams-off.txt`, guarded by `tests/seams_wired.rs`); in-app service only (DMN-593); registration, update and five restarts proven on the owner's Mac; one recorded scenario differs intermittently (journal 42 to 57) |
 | Daemon host in FERB.app | `ui/mac/FERBAgent/main.c` | - | `ferbd` (`src/host.rs`) | built and run from inside the bundle on a temp home (journal 51); permissions unproven until installed |
-| Build, sign, package without Python | `scripts/` | - | `scripts/build-app-rust.sh` | builds an ad-hoc-signed FERB.app with no Python, arm64 and x86_64 (journal 51); release signing and notarization not run |
+| Build, sign, package without Python | `scripts/` | - | `scripts/build-app-rust.sh`, `sign-app.sh`, `build-dmg.sh` | builds an ad-hoc-signed FERB.app with no Python, arm64 and x86_64 (journal 51); release tooling free of pyproject and build-app.sh, 65 stdlib tests in `scripts/tests` (journal 76); release signing and notarization not run |
 
 ## Later stages
 

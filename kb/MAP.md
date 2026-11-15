@@ -7,19 +7,19 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | Area | Title | Paths | Active decisions | Open tasks | Pending live checks |
 |---|---|---|---|---|---|
 | app | FERB.app (notch UI, intro, sounds) | `ui`, `demo` | 296 | 11 | 40 |
-| daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 88 | 7 | 7 |
-| engine | Rust engine (the rewrite) | `rust` | 15 | 0 | 0 |
-| gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 109 | 8 | 60 |
-| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 142 | 9 | 33 |
-| memory | Memory and memory import | `ferb/memory` | 59 | 3 | 0 |
-| orchestration | Orchestration | `ferb/orchestrator/*.py`, `ferb/decide`, `ferb/clock` | 153 | 7 | 35 |
-| perception | Perception | `ferb/sense` | 17 | 2 | 0 |
-| project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `HANDOFF.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `kb`, `tools`, `spikes` | 9 | 8 | 0 |
-| prompts | Prompts and abilities | `ferb/orchestrator/prompts`, `ferb/abilities` | 47 | 3 | 10 |
-| release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 23 | 2 | 4 |
-| runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 55 | 5 | 5 |
-| storage | Storage | `ferb/store` | 26 | 6 | 3 |
-| tests | Tests | `tests` | 11 | 15 | 0 |
+| daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 88 | 9 | 7 |
+| engine | Rust engine (the rewrite) | `rust` | 17 | 1 | 0 |
+| gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `ferb/identity` | 114 | 9 | 60 |
+| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extensions` | 149 | 10 | 34 |
+| memory | Memory and memory import | `ferb/memory` | 59 | 4 | 0 |
+| orchestration | Orchestration | `ferb/orchestrator/*.py`, `ferb/decide`, `ferb/clock` | 153 | 8 | 35 |
+| perception | Perception | `ferb/sense` | 17 | 3 | 0 |
+| project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `HANDOFF.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `kb`, `tools`, `spikes` | 10 | 8 | 0 |
+| prompts | Prompts and abilities | `ferb/orchestrator/prompts`, `ferb/abilities` | 47 | 4 | 10 |
+| release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 25 | 3 | 4 |
+| runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 55 | 6 | 5 |
+| storage | Storage | `ferb/store` | 26 | 7 | 3 |
+| tests | Tests | `tests` | 11 | 16 | 0 |
 | voice | Voice | `ferb/voice` | 3 | 0 | 0 |
 
 ## Waiting on the owner

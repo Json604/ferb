@@ -1,5 +1,5 @@
-# FERB.app's one signing step (L27, L34), sourced by build-app.sh and build-dmg.sh (zsh). Callers set ROOT (the
-# checkout) before sourcing it.
+# FERB.app's one signing step (L27, L34), sourced by build-app-rust.sh, sign-app.sh and build-dmg.sh (zsh). Callers
+# set ROOT (the checkout) before sourcing it.
 #
 # SIGN_IDENTITY is one of:
 #   -        ad-hoc (the default): development builds and tests. macOS permissions don't carry over to a rebuild.
@@ -22,7 +22,7 @@
 #            only: a disk image takes devid or release). A Developer ID Application certificate also gets a secure
 #            timestamp, notarization and a stapled ticket.
 # A Developer ID build is signed, then notarized; the same bundle can be signed again, never rebuilt
-# (`build-app.sh --sign-only APP`). Notary credentials come only from the environment, are passed to notarytool and
+# (`scripts/sign-app.sh APP`). Notary credentials come only from the environment, are passed to notarytool and
 # are never written to a file or printed:
 #   NOTARY_KEYCHAIN_PROFILE                     a profile saved with `xcrun notarytool store-credentials`, or
 #   NOTARY_KEY, NOTARY_KEY_ID [, NOTARY_ISSUER]  an App Store Connect API key file, its ID (and issuer).
@@ -86,7 +86,7 @@ ferb_release_sha1() {
 # a second certificate with the same name can't sign). Devid: the one valid Developer ID Application identity of the
 # recorded team, by its SHA-1 (an Apple Development or Developer ID Installer certificate of the same team never
 # matches; two valid ones of the team are refused, not guessed). SIGN_IDENTITY itself stays "release" or "devid", so
-# a build script this one starts (build-dmg.sh -> build-app.sh) signs the same way. Otherwise the certificate it
+# a build script this one starts (build-dmg.sh -> build-app-rust.sh) signs the same way. Otherwise the certificate it
 # names, by its common name (a hash or a partial name both work, as with codesign); ad-hoc is "-"; an identity the
 # keychain doesn't list stays as given. FERB_IDENTITY_NAME is never printed (a Developer ID's is a legal name).
 ferb_resolve_identity() {

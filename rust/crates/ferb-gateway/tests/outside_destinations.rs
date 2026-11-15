@@ -29,7 +29,7 @@
 mod support;
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use ferb_core::interfaces::{BoxFuture, Clock, IdSource};
 use ferb_core::types::{ActionFacts, ActionSpec, Target, ToolContext, ToolResult};
@@ -38,9 +38,11 @@ use ferb_gateway::call_hooks::{HookParts, RealHooks};
 use ferb_gateway::gateway::{
     Cancel, Deps, FsRoots, Gateway, StoreIds, StoreTime, SyncProtection, TaskRecord, POSIX_FILES,
 };
+use ferb_gateway::gateway::{HiddenError, SecretAsk};
 use ferb_gateway::seams::{Describe, QuestionRouter, Usage};
 use ferb_gateway::tool::{Args, Facts, Registry, Tool, ToolError, ToolOutput};
-use ferb_identity::owner_secrets::Places;
+use ferb_identity::owner_secrets::{Keychain, OwnerSecrets, Places};
+use ferb_identity::Secret;
 use ferb_policy::confirm::{Apps, AppsUnread, RunningApp};
 use ferb_policy::small::{Request, Targets};
 use ferb_rpc::auth::{Identity, RunGrant};
@@ -187,6 +189,10 @@ struct World {
     tabs: Mutex<BTreeMap<String, Tab>>,
     pages: BTreeMap<String, String>,
     ran: Mutex<Vec<String>>,
+    /// The gateway, for the sealed fill's hidden input (the driver's `ask_secret_for`).
+    gw: OnceLock<Weak<Gateway>>,
+    /// The origin of the frame the field is in, when it isn't the tab's page (an embedded page of another site).
+    frame: Mutex<Option<String>>,
 }
 
 impl World {
@@ -383,6 +389,87 @@ impl Tool for Browser {
                 }
             }
         })
+    }
+}
+
+/// `browser.secret` (owner browser): ferb-browser `tools.rs` describes it as a fill_form on the tab's page; its run
+/// asks the gateway's hidden input for the field's frame origin (driver.rs `owner_secret_as`: the frame's origin,
+/// normalized), which fills a saved entry by its name (`SecretAsk.handle`) from the Keychain, asking nothing.
+struct SealedFill {
+    w: Arc<World>,
+}
+
+impl Tool for SealedFill {
+    fn name(&self) -> &str {
+        "browser.secret"
+    }
+    fn describe(&self, args: &Args) -> ActionSpec {
+        let page = text(args, "tab")
+            .and_then(|t| self.w.tab_url(&t))
+            .filter(|p| !p.is_empty());
+        ActionSpec {
+            target: Target {
+                site: host(page.as_deref()),
+                page,
+                ..Target::default()
+            },
+            ..ActionSpec::new("fill_form")
+        }
+    }
+    fn run<'a>(
+        &'a self,
+        args: &'a Args,
+        ctx: &'a ToolContext,
+    ) -> BoxFuture<'a, Result<ToolOutput, ToolError>> {
+        Box::pin(async move {
+            let page = self.w.tab_url(&text(args, "tab").unwrap()).unwrap();
+            let frame = self.w.frame.lock().unwrap().clone().unwrap_or(page);
+            let origin = ferb_identity::origin::normalize_origin(&frame).unwrap();
+            let gw = self.w.gw.get().unwrap().upgrade().unwrap();
+            let ask = SecretAsk {
+                handle: text(args, "secret"),
+                ..SecretAsk::default()
+            };
+            match gw.ask_secret(ctx, &origin, ask).await {
+                Ok(Some(_value)) => {
+                    self.w.ran(format!("browser.secret into {origin}"));
+                    Ok(out(json!({"ok": true}), vec![]))
+                }
+                Ok(None) => Ok(out(
+                    json!({"ok": false, "detail": "secret input declined"}),
+                    vec![],
+                )),
+                Err(HiddenError::Refused(m)) | Err(HiddenError::Failed(m)) => {
+                    Ok(out(json!({"error": m}), vec![]))
+                }
+                Err(HiddenError::Cancelled) => panic!("not stopped"),
+            }
+        })
+    }
+}
+
+/// The owner's Keychain as a map: never the real one.
+#[derive(Default)]
+struct MemoryKeychain(Mutex<BTreeMap<String, String>>);
+impl Keychain for MemoryKeychain {
+    fn store(&self, account: &str, value: &Secret) -> ferb_identity::Result<()> {
+        self.0
+            .lock()
+            .unwrap()
+            .insert(account.to_string(), value.expose().to_string());
+        Ok(())
+    }
+    fn lookup(&self, account: &str) -> ferb_identity::Result<Option<Secret>> {
+        Ok(self
+            .0
+            .lock()
+            .unwrap()
+            .get(account)
+            .cloned()
+            .map(Secret::new))
+    }
+    fn delete(&self, account: &str) -> ferb_identity::Result<bool> {
+        Ok(self.0.lock().unwrap().remove(account).is_some())
     }
 }
 
@@ -595,6 +682,8 @@ struct Run {
     db: Arc<Mutex<Db>>,
     w: Arc<World>,
     grant: RunGrant,
+    /// The owner's saved secrets (a memory Keychain).
+    secrets: Arc<OwnerSecrets>,
     /// The owner's file (an ordinary file in ~/Documents, not a protected folder).
     notes: String,
     /// A file in FERB's own workspace holding the same private value (as a task's own notes would).
@@ -704,6 +793,12 @@ fn task(words: &str, sites: &[&str]) -> Run {
         reg.add(Arc::new(Mac { name, w: w.clone() })).unwrap();
     }
     reg.add(Arc::new(ProbeSend { w: w.clone() })).unwrap();
+    reg.add(Arc::new(SealedFill { w: w.clone() })).unwrap();
+    let secrets = Arc::new(OwnerSecrets::with_keychain(
+        &home,
+        Arc::new(MemoryKeychain::default()),
+        Arc::new(BrowserPlaces),
+    ));
     let env = ferb_fs::files::FsEnv {
         home: user.to_str().unwrap().to_string(),
         trash: Arc::new(NoTrash),
@@ -763,7 +858,7 @@ fn task(words: &str, sites: &[&str]) -> Run {
         })),
         made_in_tree: None,
         excluded_host: None,
-        owner_secrets: None,
+        owner_secrets: Some(secrets.clone()),
         places: Arc::new(BrowserPlaces),
         username_holds: None,
     };
@@ -773,6 +868,7 @@ fn task(words: &str, sites: &[&str]) -> Run {
         *n += 1;
         format!("ap-{n}")
     }));
+    w.gw.set(Arc::downgrade(&gw)).ok().unwrap();
     gw.record_request(Request {
         request_id: "req-1".into(),
         words: words.replace("{notes}", &notes),
@@ -845,6 +941,7 @@ fn task(words: &str, sites: &[&str]) -> Run {
         db,
         w,
         grant,
+        secrets,
         notes,
         made,
         cards: Mutex::new(Vec::new()),
@@ -1743,5 +1840,146 @@ async fn a_no_on_the_three_choice_card_still_refuses_and_the_proxy_refuses_the_h
     assert!(
         r.gw.file_sent_lines("task-1").is_empty(),
         "a plain Send isn't listed"
+    );
+}
+
+// ---------- I: a saved ID kept for any site, filled by its name (GATE-605) ----------
+
+/// An invented PAN, kept sealed for any site.
+const PAN_VALUE: &str = "ABCPE1234F";
+/// The page on the host the outside page named.
+const COLLECT_PAGE: &str = "https://collect.example.net/up";
+
+impl Run {
+    /// The owner's PAN, kept sealed for any site as a chat message keeps it (GATE-604): the name it is kept under.
+    fn saved_pan(&self) -> String {
+        self.secrets
+            .seal_identifier("PAN", &Secret::from(PAN_VALUE))
+            .unwrap()
+    }
+
+    /// Open the page the outside page named, in tab t2 (an address with nothing private in it: unasked).
+    async fn open_collect(&self) {
+        let o = self
+            .call("browser.open", json!({"url": COLLECT_PAGE}))
+            .await;
+        assert_eq!((o.asked.len(), o.ran), (0, true), "{o:?}");
+    }
+}
+
+/// A saved ID has no site of its own, so its sealed fill is the owner's private data going to the page's site: after
+/// outside content was read, on a site the owner neither named nor approved, the form sink's question is asked, once
+/// per site per task, naming the ID by its saved name and never its value; the Yes carries to the form's submit.
+// decision: GATE-605
+// decision: GATE-205
+// decision: GATE-215
+// decision: GATE-557
+// decision: GATE-558
+#[tokio::test]
+async fn a_saved_id_filled_on_a_site_from_a_page_asks_once_per_site_naming_it_not_its_value() {
+    let r = task(ASK, &[]);
+    let name = r.saved_pan();
+    r.read_page_and_file().await;
+    r.open_collect().await;
+    let fill = json!({"tab": "t2", "element": "e2", "secret": name});
+    let o = r.call_answering("browser.secret", fill.clone(), true).await;
+    assert_eq!((o.asked, o.ran), asked_then_yes(&["sink:new_destination"]));
+    let cards = r.cards.lock().unwrap().join("\n\n");
+    assert!(
+        cards.contains("“PAN”") && cards.contains(COLLECT),
+        "{cards}"
+    );
+    assert!(!cards.contains(PAN_VALUE), "{cards}");
+    // once per site per task: the same fill again and the form's submit go unasked
+    assert_eq!(r.call("browser.secret", fill).await, through());
+    let o = r
+        .call(
+            "browser.act",
+            json!({"tab": "t2", "element": "e3", "action": "click"}),
+        )
+        .await;
+    assert_eq!(o, through());
+}
+
+// decision: GATE-605
+// decision: GATE-215
+#[tokio::test]
+async fn a_no_to_a_saved_id_fills_nothing_and_is_not_asked_again_in_the_task() {
+    let r = task(ASK, &[]);
+    let name = r.saved_pan();
+    r.read_page_and_file().await;
+    r.open_collect().await;
+    let fill = json!({"tab": "t2", "element": "e2", "secret": name});
+    let o = r.call("browser.secret", fill.clone()).await;
+    assert_eq!((o.asked, o.ran), asked_then_no(&["sink:new_destination"]));
+    let o = r.call("browser.secret", fill).await;
+    assert_eq!((o.asked.len(), o.ran), (0, false), "{o:?}");
+}
+
+/// The site the plan resolved from the owner's words counts as named (GATE-537): the saved ID fills unasked.
+// decision: GATE-605
+// decision: GATE-537
+#[tokio::test]
+async fn a_saved_id_fills_unasked_on_a_site_the_owner_named() {
+    let r = task(ASK, &[COLLECT]);
+    let name = r.saved_pan();
+    r.read_page_and_file().await;
+    r.open_collect().await;
+    let o = r
+        .call(
+            "browser.secret",
+            json!({"tab": "t2", "element": "e2", "secret": name}),
+        )
+        .await;
+    assert_eq!(o, through());
+}
+
+/// A site's own saved entry is bound to that exact site (`OwnerSecrets::reveal`): its fill never needed the sink
+/// rule, and still doesn't ask.
+// decision: GATE-605
+#[tokio::test]
+async fn a_sites_own_saved_entry_still_fills_unasked_there() {
+    let r = task(ASK, &[]);
+    r.secrets
+        .remember(
+            "password",
+            &format!("https://{COLLECT}"),
+            &Secret::from("invented-pw"),
+            &[],
+            None,
+        )
+        .unwrap();
+    r.read_page_and_file().await;
+    r.open_collect().await;
+    let o = r
+        .call(
+            "browser.secret",
+            json!({"tab": "t2", "element": "e2", "secret": "password"}),
+        )
+        .await;
+    assert_eq!(o, through());
+}
+
+/// The question is asked for the tab's page; the fill is checked again against the exact frame that asks: a field
+/// in an embedded page of another site gets nothing, and nothing is filled.
+// decision: GATE-605
+#[tokio::test]
+async fn a_saved_id_is_refused_to_an_embedded_page_of_another_site() {
+    let r = task(ASK, &[COLLECT]);
+    let name = r.saved_pan();
+    r.read_page_and_file().await;
+    r.open_collect().await;
+    *r.w.frame.lock().unwrap() = Some("https://tracker.example/frame".into());
+    let o = r
+        .call(
+            "browser.secret",
+            json!({"tab": "t2", "element": "e2", "secret": name}),
+        )
+        .await;
+    assert!(o.asked.is_empty() && !o.ran, "{o:?}");
+    let error = o.error.unwrap_or_default();
+    assert!(
+        error.contains("tracker.example") && error.contains("nothing was filled"),
+        "{error}"
     );
 }

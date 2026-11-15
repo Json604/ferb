@@ -579,8 +579,10 @@ fn hits_json(h: &[confirm::PrivateValue]) -> Value {
     )
 }
 
-// decision: GATE-506, GATE-507, GATE-516, GATE-517, GATE-518, GATE-524, GATE-526, GATE-527, GATE-528, GATE-532,
-// GATE-533, GATE-535, GATE-570, GATE-571, GATE-589
+// decision: GATE-506, GATE-507, GATE-516, GATE-517, GATE-518, GATE-524, GATE-526, GATE-527, GATE-528, GATE-532
+// decision: GATE-533, GATE-535, GATE-570, GATE-571, GATE-589
+// decision: GATE-531, GATE-536 (sink.json's harvested link cases: wrapped inside its own extent, text before it
+// never joined; a link as the owner's page has it, the value shown plainly first)
 #[test]
 fn the_sink_rule_matches_python() {
     let fx = fixture("sink.json");

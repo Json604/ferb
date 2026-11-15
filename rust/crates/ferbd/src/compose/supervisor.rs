@@ -1548,6 +1548,28 @@ impl Daemon for SupDaemon {
     fn approvals(&self) -> Vec<Approval> {
         self.gateway.pending()
     }
+    /// GATE-604: the identifier into the owner's saved secrets, for any site, through the signed helper. The helper
+    /// is a process: on the daemon's threaded runtime the wait is marked as blocking. A failure is journaled with the
+    /// kind only, never its message (GATE-573).
+    fn seal_identifier(&self, kind: &str, value: &str) -> Option<String> {
+        let store = self.tools.owner_secrets()?;
+        let value = ferb_identity::Secret::new(value.to_owned());
+        let seal = || store.seal_identifier(kind, &value);
+        let sealed = match tokio::runtime::Handle::try_current() {
+            Ok(h) if h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
+                tokio::task::block_in_place(seal)
+            }
+            _ => seal(),
+        };
+        match sealed {
+            Ok(name) => Some(name),
+            Err(_) => {
+                self.journal
+                    .note("identifier.seal_failed", serde_json::json!({"kind": kind}));
+                None
+            }
+        }
+    }
     fn approval(&self, id: &str) -> Option<Approval> {
         self.gateway.approval(id)
     }

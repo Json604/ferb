@@ -10,6 +10,9 @@ import re
 import sys
 
 VERSION = re.compile(r"\d+\.\d+\.\d+")
+# Where FERB's version lives; the two must be equal (scripts/tests/test_release_checks.py)
+VERSION_FILES = ("rust/crates/ferbd/src/compose/mod.rs (VERSION) and rust/Cargo.toml ([workspace.package] "
+                 "version)")
 
 
 def _parts(v: str) -> tuple[int, ...]:
@@ -17,24 +20,26 @@ def _parts(v: str) -> tuple[int, ...]:
 
 
 def problems(version: str, tag: str, released: list[str], store_extension: str, min_extension: str) -> list[str]:
-    """Why this can't be released yet; empty when it can. `version` is FERB's full version (ferb/__init__.py),
+    """Why this can't be released yet; empty when it can. `version` is FERB's full version (FERB.app's FERBVersion:
+    rust/crates/ferbd/src/compose/mod.rs VERSION, equal to rust/Cargo.toml's [workspace.package] version),
     `released` the tags already published, `store_extension` the version the Web Store serves ("" if unknown)."""
     out = []
     if not VERSION.fullmatch(version):
-        out.append(f"FERB {version} is a development version: set the release version in ferb/__init__.py and "
-                   "pyproject.toml, then rebuild")
+        out.append(f"FERB {version} is a development version: set the release version in {VERSION_FILES}, then "
+                   "rebuild")
     if tag != f"v{version}":
         out.append(f"the tag {tag} doesn't name FERB {version} (expected v{version})")
     newest = max((_parts(t) for t in released if VERSION.search(t)), default=None)
     if tag in released or (newest is not None and VERSION.fullmatch(version) and _parts(version) <= newest):
-        out.append(f"FERB {version} isn't newer than what's already released: bump the version in ferb/__init__.py "
-                   "and pyproject.toml, then rebuild")
+        out.append(f"FERB {version} isn't newer than what's already released: bump the version in {VERSION_FILES}, "
+                   "then rebuild")
     if not store_extension:
         out.append("couldn't read the extension version the Chrome Web Store serves")
     elif _parts(store_extension) < _parts(min_extension):
         out.append(f"the Chrome Web Store serves extension {store_extension} but this FERB needs {min_extension}: "
-                   "upload build/store/ferb-extension-*.zip (uv run ferb browsers extension package --out build/store) "
-                   "and wait until it is published")
+                   "upload build/store/ferb-extension-*.zip (`ferb browsers extension package --out build/store`, "
+                   "the Rust `ferb` program: cargo run --manifest-path rust/crates/ferbd/Cargo.toml --bin ferb -- "
+                   "browsers extension package --out build/store) and wait until it is published")
     return out
 
 

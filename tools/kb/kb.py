@@ -54,7 +54,10 @@ DEFAULT_CONFIG: dict = {
     "reconcile_dir": "kb/local/reconcile",
     "archive_dir": "kb/local/archive",
     "max_scan_bytes": 1_000_000,
-    "limits": {"title": 100, "words": 600, "rule": 600, "why": 300, "evidence": 300, "purpose": 500,
+    # Paths removed from the repository, read as history: [{commit, paths, why}]. A record's path that names nothing
+    # tracked now but files under those paths at that commit is checked there (path_exists).
+    "historical": [],
+    "limits":{"title": 100, "words": 600, "rule": 600, "why": 300, "evidence": 300, "purpose": 500,
                "meaning": 300, "ask": 400, "request": 500, "pass": 500, "result": 200, "waiver": 300,
                "untestable": 300, "words_source": 200, "legacy": 160, "surface": 200, "list_item": 200},
 }
@@ -173,6 +176,10 @@ class KB:
         self._files: list[str] | None = None
         self._tags: list[Tag] | None = None
         self._text: dict[str, str | None] = {}
+        self._tracked: set[str] | None = None
+        self._history: dict[str, list[str]] = {}
+        self._history_sets: dict[str, set[str]] = {}
+        self._text_at: dict[str, str | None] = {}
         self._load()
 
     # loading ----------------------------------------------------------
@@ -282,8 +289,10 @@ class KB:
             self._tags = out
         return self._tags
 
-    def symbol_exists(self, f: str, sym: str) -> bool:
-        text = self.read(f)
+    def symbol_exists(self, f: str, sym: str, text: str | None = None) -> bool:
+        """`text`: the file's text where it is read (default: the working tree's)."""
+        if text is None:
+            text = self.read(f)
         if text is None:
             return False
         parts = [p for p in sym.split(".") if p]
@@ -303,20 +312,83 @@ class KB:
             return all(p in names for p in parts)
         return all(re.search(rf"\b{re.escape(p)}\b", text) for p in parts)
 
-    def path_exists(self, entry: str) -> str | None:
-        """None when the entry names something real, else why not."""
-        base, _, sym = entry.partition("::")
-        base = base.strip().removeprefix("./")
+    def _exists_in(self, files: list[str], tracked: set[str], base: str, sym: str, text_of) -> str | None:
+        """None when `base` (a glob, file or folder; `sym` a symbol in it) names something among `files`."""
         if GLOB_CHARS & set(base):
-            return None if any(path_matches(base, f) for f in self.files()) else "matches no tracked file"
+            return None if any(path_matches(base, f) for f in files) else "matches no tracked file"
         b = base.rstrip("/")
-        if b in self.files():
-            if sym and not self.symbol_exists(b, sym):
+        if b in tracked:
+            if sym and not self.symbol_exists(b, sym, text_of(b)):
                 return f"has no symbol {sym}"
             return None
-        if any(f.startswith(b + "/") for f in self.files()):
+        if any(f.startswith(b + "/") for f in files):
             return "names a folder; symbols need a file" if sym else None
         return "is not a tracked file or folder"
+
+    def path_exists(self, entry: str) -> str | None:
+        """None when the entry names something real, else why not. The current tree wins: only a path that names
+        nothing tracked now is looked for in a `historical` commit, among the files under that entry's paths."""
+        base, _, sym = entry.partition("::")
+        base = base.strip().removeprefix("./")
+        if self._tracked is None:
+            self._tracked = set(self.files())
+        why = self._exists_in(self.files(), self._tracked, base, sym, lambda f: None)
+        if why is None or why.startswith(("has no symbol", "names a folder")):
+            return why
+        for h in self.historical():
+            commit = h["commit"]
+            files = self.history_files(h)
+            then = self._exists_in(files, self.history_set(h), base, sym, lambda f: self.read_at(commit, f) or "")
+            if then is None:
+                return None
+            if then.startswith(("has no symbol", "names a folder")):
+                why = f"{then} (at {commit[:12]}, kb/config.toml historical)"
+        return why
+
+    def removed_at(self, entry: str) -> str | None:
+        """The `historical` commit a path that names nothing tracked now is read at; None for a tracked path or one
+        no entry covers."""
+        base = entry.split("::", 1)[0].strip().removeprefix("./")
+        if self._tracked is None:
+            self._tracked = set(self.files())
+        if self._exists_in(self.files(), self._tracked, base, "", lambda f: None) is None:
+            return None
+        for h in self.historical():
+            files = self.history_files(h)
+            if self._exists_in(files, self.history_set(h), base, "", lambda f: None) is None:
+                return h["commit"]
+        return None
+
+    # history: paths removed from the repository (kb/config.toml `historical`) ---------------
+    def historical(self) -> list[dict]:
+        """The well-formed `historical` entries; check() reports the others."""
+        raw = self.cfg.get("historical")
+        return [h for h in raw if isinstance(h, dict) and isinstance(h.get("commit"), str) and h["commit"]
+                and isinstance(h.get("paths"), list) and h["paths"]
+                and all(isinstance(p, str) and p.strip() for p in h["paths"])] if isinstance(raw, list) else []
+
+    def history_files(self, h: dict) -> list[str]:
+        """The files at `h`'s commit that fall under its paths (none when the commit doesn't resolve)."""
+        key = h["commit"] + "\0" + "\0".join(h["paths"])
+        if key not in self._history:
+            out = run_git(self.root, "ls-tree", "-r", "-z", "--name-only", h["commit"], check=False)
+            self._history[key] = sorted(f for f in out.split("\0") if f and any_match(h["paths"], f))
+        return self._history[key]
+
+    def history_set(self, h: dict) -> set[str]:
+        key = h["commit"] + "\0" + "\0".join(h["paths"])
+        if key not in self._history_sets:
+            self._history_sets[key] = set(self.history_files(h))
+        return self._history_sets[key]
+
+    def read_at(self, commit: str, f: str) -> str | None:
+        key = commit + "\0" + f
+        if key not in self._text_at:
+            r = subprocess.run(["git", "show", f"{commit}:{f}"], cwd=self.root, capture_output=True)
+            b = r.stdout
+            self._text_at[key] = (None if r.returncode or len(b) > self.cfg["max_scan_bytes"] or b"\0" in b[:8192]
+                                  else b.decode("utf-8", errors="replace"))
+        return self._text_at[key]
 
     # queries ----------------------------------------------------------
     def all_ids(self) -> dict[str, str]:
@@ -373,8 +445,35 @@ class KB:
         return out
 
     # the check --------------------------------------------------------
+    def _historical_problems(self) -> list[str]:
+        raw = self.cfg.get("historical")
+        if not isinstance(raw, list):
+            return ["kb/config.toml: `historical` must be a list of {commit, paths, why} tables"]
+        out = []
+        for i, h in enumerate(raw):
+            where = f"kb/config.toml: historical[{i}]"
+            if not isinstance(h, dict):
+                out.append(f"{where} must be a table {{commit, paths, why}}")
+                continue
+            extra = sorted(set(h) - {"commit", "paths", "why"})
+            if extra:
+                out.append(f"{where}: unknown keys {extra} (allowed: commit, paths, why)")
+            c = h.get("commit")
+            if not isinstance(c, str) or not c.strip():
+                out.append(f"{where}: `commit` is required")
+            elif subprocess.run(["git", "rev-parse", "--verify", "--quiet", f"{c}^{{commit}}"], cwd=self.root,
+                                capture_output=True).returncode:
+                out.append(f"{where}: commit {c} does not resolve")
+            p = h.get("paths")
+            if not (isinstance(p, list) and p and all(isinstance(x, str) and x.strip() for x in p)):
+                out.append(f"{where}: `paths` must be a non-empty list of paths")
+            if not (isinstance(h.get("why"), str) and h["why"].strip()):
+                out.append(f"{where}: `why` is required")
+        return out
+
     def check(self) -> list[str]:
         e = list(self.errors)
+        e += self._historical_problems()
         lim = self.cfg["limits"]
         tp, lp = self.cfg["task_prefix"], self.cfg["live_prefix"]
         roles_owner, roles_agent = set(self.cfg["owner_roles"]), set(self.cfg["agent_roles"])
@@ -884,6 +983,10 @@ def print_record(kb: KB, ident: str):
         if v not in (None, "", []):
             print(f"  {k}: {', '.join(v) if isinstance(v, list) else as_text(v)}")
     if kind == "decision":
+        for p in rec.get("paths") or []:
+            gone = kb.removed_at(p)
+            if gone:
+                print(f"  removed path: {p} (read at {gone[:12]}, kb/config.toml historical)")
         for label, lst in (("tests", kb.tests_for(ident)), ("enforced at", kb.sites_for(ident))):
             for t in lst:
                 print(f"  {label}: {t.file}:{t.line}")
@@ -928,6 +1031,9 @@ def cmd_show(kb: KB, target: str):
     rel = kb.rel(p.resolve()) if p.exists() else target.removeprefix("./")
     areas = kb.areas_of(rel)
     print(f"{rel}")
+    gone = kb.removed_at(rel)
+    if gone:
+        print(f"  removed from the repository; read at {gone[:12]} (kb/config.toml historical)")
     print(f"  area: {', '.join(areas) or '(none: add it to kb/areas.toml)'}")
     gov = kb.governing(rel)
     if gov:

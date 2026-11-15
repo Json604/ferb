@@ -39,6 +39,7 @@ pub mod profile;
 pub mod recording;
 pub mod shots;
 pub mod tools;
+pub mod vision_child;
 pub mod wav;
 
 #[cfg(target_os = "macos")]

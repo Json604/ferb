@@ -2292,3 +2292,261 @@ passed, 0 failed, 16 ignored; clippy and portable clean.
 - GitHub's push protection refused commit 70d94eae for the corpus's invented key-shaped values (over 60 detections);
   the commits are local until the owner chooses how to allow them. No value was altered and no scanner
   configuration added.
+
+## 2026-11-15 · 76 · Ready to remove the Python code: trace, stats and the extension zip in Rust, release tooling off Python, kb paths read as history
+
+**What.** The preparation ENG-16 asks for before ENG-11's deletion; the deletion itself is T-1111 (not run).
+- `ferb trace [TASK] [--full|--json]`: the toolbox calls `trace.get` and writes ferb-trace's `trace_output`
+  (ferb-device now depends on ferb-trace). `ferb logs` prints a tool step as ferb-trace's step line (it printed a
+  placeholder). `ferb stats [--days N]`: `ferbd/src/stats.rs`, the database read-only, time injected (`Now`).
+  `ferb browsers extension [path|install|package] [--out]`: `ferbd/src/extension_cmd.rs` over ferb-browser's
+  `package` and ferb-device's `install_extension`. `ferb daemon run` and `ferb mcp` name `ferbd daemon`/`ferbd mcp`;
+  `runtimes` and `memory dashboard` stay unported (T-1112).
+- Release tooling: `scripts/sign-app.sh` (was `build-app.sh --sign-only`); `build-dmg.sh` builds with
+  build-app-rust.sh; dmg_layout.py and make_logo.py carry PEP 723 pins with `scripts/*.py.lock` (`uv run --script
+  --locked`); release-appcast.sh refuses an app carrying Python and reads only the Rust pins; release_checks.py names
+  the Rust version homes; REL-401's cap (720/750 MB) is `ferb_rust_size_cap` in build-app-rust.sh.
+  `scripts/tests`: 65 stdlib unittest tests ported from four pytest files (dropped: those of the Python build itself).
+- kb: `historical` in kb/config.toml (PROJ-509); inactive until the deletion names its commit.
+- Tests found or written for 17 decisions whose only tests were Python (REL-2, REL-401, REL-419, REL-423, REL-424,
+  APP-525, ORCH-527, GATE-2, 219, 223, 504, 531, 533, 536, 544, HAND-238, 241); 98 others are named by T-1100..T-1110.
+- Records: ENG-16 (owner), ENG-17, PROJ-509, REL-425..428 (REL-427/428 supersede REL-410/REL-3). Headers of the
+  generated tables and `rust/fixtures/README.md` say how a fixture script runs at the commit before the removal.
+
+**Why.** ENG-16 (owner): "port eveyrhig thats needed to be"; the kb keeps all its history.
+
+**Evidence.** `ferb trace`: 220 of 220 recorded outputs (story, full, json, plain) byte-equal through the program's
+dispatch. Step lines: 6 of 6 equal to ferb/cli/logs.py's. `ferb stats`: 20 of 20 Python-recorded cases
+(`rust/fixtures/stats`) equal, with the exit status. Extension: manifest 0.19.10 at or above all six minimums,
+protocol.js 21, the key gives FERB_EXTENSION_ID; `package`'s lines and refusals equal Python's for the same inputs (the zip's bytes were not compared with Python's).
+`scripts/tests`: 65 run, 6 skipped (need a built bundle), on /usr/bin/python3 3.9.6, 3.12 and 3.14. kb, simulated
+after the deletion (files hidden, `historical` = HEAD): 0 path errors (1,602 decision paths and 24 area paths read at
+that commit), 98 coverage gaps, all named by tasks. The Python suite passes (two Python tests changed to the
+deliberate script changes: the appcast's fake app has no Python; `ferb_release_constants ... python` is refused).
+
+**Open.**
+- Tags in ferb-gateway for the coordinator: GATE-219, GATE-220 (scenarios.rs), GATE-536, GATE-540, GATE-537
+  (link_rule.rs). TEST-504 is a gap: the Rust tests have no per-test timeout, memory cap, model-call or network guard.
+- The not-running line still says `ferb daemon run` (client.rs; mcp_bridge.rs's copy reaches a model): T-1112.
+- Not run: build-app-rust.sh, a signed or notarized build, `ferb browsers extension install` (writes to the
+  browsers' folders), stats on a real database.
+- `ferb stats` errors are one stderr line where Python printed a traceback; its repeat count reimplements
+  `repeat_stats` on a read-only connection (ferb-store has no read-only `Db`).
+
+## 2026-11-15 · 77 · The owner's identifier choices: "don't mask this" for one value, saved IDs on any site, IDs typed in chat kept sealed
+
+**What.** Only for the personal identifiers `pii.rs` masks (GATE-599); passwords, keys, tokens, OTPs and card details
+are untouched (rule 7). GATE-601 records the owner's words; GATE-602..604 are the mechanisms.
+- GATE-603: `OwnerSecrets` keeps identifiers in one record, `"any site"` (kind `"identifier"`), never linked to a
+  site. `reveal` falls back to it when the target's own record has no entry of that name (a site's own entry wins);
+  card fields and whole-browser targets still refuse. `secrets.list` names them as `identifiers`. A value typed into
+  the hidden input with `remember` goes there only when `ferb_sanitize::identifier_kind` finds it whole as a bare
+  identifier (issuer layout and check digit, no card, secret format or secret label) and the field is no card
+  field; anything else keeps its site exactly as before.
+- GATE-604: `chat.send` seals each identifier of the owner's own text that the redactor masks and no other rule
+  covers (`Redactor::identifiers`) through a new `Daemon::seal_identifier` seam (ferbd: `OwnerSecrets::
+  seal_identifier` on the helper, the wait marked blocking). Names are the kind ("PAN", then "PAN 2"); the same
+  value however written reuses its entry. The text stays masked; the ack carries `sealed: [{kind, name}]`; the
+  journal gets `identifier.sealed` (names) or `identifier.seal_failed` (kind only); the planner gets one more fact
+  line (`intake::sealed_note`). No prompt or catalog change.
+- GATE-602: `secrets.unmask {name}` / `secrets.mask {name}` (app_only, `IDENTIFIER_ADDITIONS` in the method table)
+  mark an any-site identifier `shown` in the handle file (the value stays in the Keychain); `secrets.saved` rows of
+  kind identifier carry `shown`; a delete or a new value under the name ends the grant. The redactor holds the shown
+  values' SHA-256 (letters and digits, upper-cased) in memory, loaded at start off the start-up path and after each
+  change, and leaves only a `pii.rs` span visible when it matches; a span any other rule masks stays masked. Mask
+  and delete clear the redactor's set first, so a Keychain failure leaves everything masked.
+- FERB.app: the ack's `sealed` is kept on the turn; the notice says the ID was kept sealed and fills on any site
+  (GATE-501's "didn't save it" stays for everything else) with a "Let the AI see “PAN”" link; Settings → Data →
+  Saved secrets shows "ID, any site" rows with Let the AI see / Hide from the AI. Playground answers both calls.
+
+**Why.** The owner's answers (GATE-601): "a. always, b. filled on any site, c. yes leave them unmaskwed, d. yes lets
+add that".
+
+**Follow-up: the sink rule for a saved ID (GATE-605).** "Filled on any site" answered being asked to type the ID
+again, not where the owner's data may go. A site's own saved entry is filled only at its exact place
+(`OwnerSecrets::reveal`), which is why its sealed fill never went through the sink (the form sink reads
+`typed_in_tab`, which never holds a sealed value); the any-site fallback had lost that protection.
+- `Gateway::identifier_sink` (in `floor_needs`): a `browser.secret` whose `secret` names an ID the page's place would
+  fill from the any-site record (`OwnerSecrets::fills_from_any_site`, names file only) asks the form sink's question
+  (`sink:new_destination`, the form's key for the host: once per site per task, its Yes carries to the submit) when
+  outside content was read and the site is neither approved nor named (GATE-537). The card names the ID by its saved
+  name ("This fills your saved ID “PAN” into a page on …"), never the value: one `saved` branch in `wording.rs`.
+- At the fill, `ask_secret` re-checks the exact frame's site (`identifier_cleared`): a frame of another site, or a
+  site not cleared, is refused and nothing is filled.
+- Apps: the sink has no app form, so `entry_for` gives an `app:` place only its own entries; a value typed for an app
+  stays the app's; `secrets.list` names identifiers only for a web place (before: for every place but "any site").
+- The hidden input's save card for a web page says "… usable only at this destination (or any site, if it's an ID
+  number)" and "for x.test only (or any site, if it's an ID number)": a named difference from Python's card in
+  `scenarios.rs` (`any_site_clause`); an app's card is unchanged.
+- Message entries (ENG-8): `MessageBody.sealed` ({kind, name}), absent when empty, so stored and golden bodies read
+  and write the same bytes; the projector takes it from the ack.
+- `chat.send` is the `cli` role's only (ferb-rpc `auth.rs:84`, not app_only): `cli` is proven by the socket peer's uid;
+  a model's tools come in as `mcp_shim` (tools.call only); the shell's sandbox denies the daemon's socket by path and
+  every outbound unix socket (ferb-shell `sandbox.rs:512-517`, `:535`; wired at ferbd `compose/tools/shell.rs:154`);
+  Claude runs with `--tools ""` (ferb-runtimes `claude/transport.rs:53`); Codex runs read-only without network and
+  its item gate stops a run on any item not FERB's (`codex/stream.rs:793-811`, `:1385-1401`). New test:
+  `only_the_owners_connection_may_send_a_chat_message` (ferb-rpc).
+
+Evidence (follow-up): ferb-gateway `outside_destinations.rs` 5 new (asks once per site naming “PAN”, value absent from
+the card, Yes carries to the submit; a No fills nothing and isn't asked again; a named site fills unasked; a site's own
+password still fills unasked; an embedded frame of another site refused), `scenarios.rs` with the named card
+difference, ferb-identity (app gets no fallback, listing for an app has no identifiers, the any-site flag),
+ferb-supervisor `chat_entries.rs` (sealed stored, absent when none), ferb-rpc (above). Runs in the shared tree: core,
+identity, policy, gateway, supervisor, sanitize, rpc 368 passed, 0 failed; ferb-daemon and ferbd 191 passed, 0 failed,
+5 ignored (chat_replay's recorded scenarios unchanged); clippy on the touched crates and `cargo fmt --check` clean;
+`./gate.sh portable` clean.
+
+**Evidence.** New tests: ferb-sanitize `tests/identifiers.rs` (5: one value shown and another of its kind masked,
+written either way; a mark from before a change not trusted; card, password label and grant; `identifier_kind` by
+shape only; the message's identifiers; contact data and technical ids visible), ferb-identity `tests/identifiers.rs`
+(3), ferb-gateway `scenarios.rs` (a remembered PAN kept for any site, a password and a card-field value for their
+site, the PAN filled on another site with no question), ferb-daemon `b_small.rs` (the RPCs through the real server),
+ferb-rpc golden (table = Python's + stage 2 + these 2), ferb-supervisor `planner.rs` (the note), Swift
+`RedactedHistoryTests` and `AppScreensTests`, ferbd `chat_replay.rs` (through the real program: an identifier its test
+Keychain can't keep is only masked, the ack has no `sealed`, the journal says `identifier.seal_failed {"kind": "PAN"}`
+and holds no value). Runs: sanitize, identity, gateway, rpc, daemon 281 passed, 0 failed; supervisor 94 passed;
+ferbd `chat_replay` 10 passed (the 61 recorded scenarios unchanged), run in a worktree of HEAD plus only this change;
+Swift focused 24, 0 failures; clippy (workspace) and portable clean. Python-recorded fixtures: no change in bytes
+(every new field is absent when empty).
+
+**Chosen differently from the brief.** The grant lives on the saved entry (Keychain value, `shown` flag in the
+handle file), not a keyed hash in the database: no migration and no key to keep, and a hash of an Aadhaar or PAN is
+guessable from its small space unless keyed. Consequence: only a saved identifier can be shown, which the chat path
+guarantees (every identifier typed in chat is saved first). In the hidden input, label-only kinds (passport, bank
+account) keep their site: a page sets the field label, so it can't decide what fills everywhere.
+
+**Unverified.** Not live-checked (a real Keychain save from chat, the app's link and Settings buttons). ferbd's
+other test binaries were not run on this change (the disk was full; in the shared tree another agent's unfinished
+change kept ferbd from compiling). No test drives `chat.send` through a store that succeeds (the program's test
+Keychain always refuses); the success path is covered piecewise (identity, supervisor note, Swift). The start-up load
+of shown values is untested. The seam's `block_in_place` assumes the daemon's multi-thread runtime (a current-thread
+one calls the helper inline, holding that thread for the helper's run). The stored message entry now carries
+`sealed`, but FERB.app's and the phones' folds from entries don't read it yet, so a turn folded from entries shows
+the old notice. GATE-605: the gateway tests use a stand-in `browser.secret` (the real driver's frame origin is not
+exercised); `mac.secret`'s app rule is tested in ferb-identity only.
+
+**Questions for the owner.**
+- (Answered by GATE-605: a new site that came from outside content asks once per task; the card says an ID number
+  is kept for any site.)
+- An ID the owner pastes that is someone else's (from a document) is kept too, as "PAN 2": fine, or keep only ones
+  the owner typed?
+- A shown ID is shown everywhere FERB reads it (pages, files), and the model can then type it like any text.
+- Notice and Settings wording ("kept it sealed as “PAN”, so I can fill it in on any site", "Let the AI see") is
+  for the owner's eyes.
+
+## 2026-11-15 · 78 · Image redaction after hours of running: Vision's compiled models were purged; retry on the CPU, then a fresh child process, and every failure recorded
+
+**What.** HAND-531. `ImageRedactor` (ferb-mac-hands `ocr.rs`) now takes a list of attempts and tries them in order:
+Vision as it chooses its devices (`native::vision::NativeVision`), Vision with every compute stage on the CPU
+(`CpuVision`: the device Vision lists as `MLCPUComputeDevice` for each stage), then FERB's own program in a
+short-lived child (`vision_child::ChildVision`: `ferb read-image-text`, image on stdin, JSON regions or the child's
+fault on stdout, nothing on disk, stderr discarded, killed after 150 s, one child at a time; a live preview's frame
+fails at once with `ferb.busy` instead of queueing). No attempt reads it: withheld, with the same text
+(`UNAVAILABLE`). Each failure is a `Fault` (step, NSError domain and code, the underlying NSError's domain and code;
+FERB's own `ferb.*` domains for decode, start, timeout, exit, reply, busy, rules, paint), never a message, the image
+or text read. ferbd's `MacImages` (tools/mac.rs) journals `image.redaction_failed` (withheld) and
+`image.redaction_recovered` (a later attempt read it, `read_by`) with `use` (tool, preview, front_window, recording,
+warm) and the faults, bounded like the previews' notes (first at once, then one per 600 s per kind/use/faults with
+`repeats`). `preview.failed` gains `faults` (task_preview's sanitizer error is now `Unmasked {error, facts}`; the
+shown text and `error` are unchanged), passed from the sanitizer through a task-local set in `compose/previews.rs`.
+`MacImages::warm` reads a blank picture with the in-process attempts and journals it, for the coordinator to call
+when the Mac comes back into use.
+
+**Why / cause.** Proven from the owner's Mac: (1) the unified log shows, for the installed daemon (pid 35788), every
+recognition from 16:50:57 to 16:52:10 followed within 10 ms by `[com.apple.TextRecognition] E5RT Error:
+e5rt_execution_stream_operation_create_precompiled_compute_operation_with_options call failed (Code: 13)`; no other
+process on the Mac logged that error between 02:00 and 17:30. (2) The daemon's Vision model cache,
+`~/Library/Caches/com.ferb.daemon/com.apple.e5rt.e5bundlecache/26B123/*`, was written 02:14:37-02:15:16 (the start's
+warm-up) and every file in it was removed at 03:41:08 (the bundle folders' change time; they hold 0 bytes now),
+while the Mac was locked (the redactions that worked were 02:19-02:46; unlock at 04:35). (3) Other programs' e5rt
+caches on this Mac were emptied within seconds to minutes of being written today (duetexpertd 20:08:03 → 20:08:38;
+my test process 20:21:09 → 20:21:48), and CacheDelete reported 940 MB free on the Data volume at urgency 3 at
+20:21:40 (`df`: 96% used). Inferred, not proven: macOS purged those compiled-model files for disk space (who deleted
+them at 03:41 isn't in the log), and the long-running process keeps using its record of the compiled model, so each
+request fails creating its compute operation from the missing files, for the rest of the process's life; a fresh
+process compiles again (30-65 s here) and works. Sleep or lock is not the cause by itself: `pmset -g log` shows no
+sleep today. Python did the same in-process call per image (images.py:81-106: new request, no device choice, no
+retry, no subprocess), so the Python daemon would fail the same way.
+
+**Evidence.** ferb-mac-hands `tests/image_fallback.rs` (10 + 1 by hand): CPU retry reads and paints, child reads when
+both fail, all fail → withheld with three faults and the same text, read-but-unpainted → withheld with no text in any
+fault, first success runs alone, the child's reply round trip and refusals, the child side's own retry, a real child
+over pipes (`/bin/sh`), exit / garbage / missing program, a preview doesn't queue behind a running child while other
+images wait; by hand: a hung child killed at its limit. ferbd: `compose::tools::mac` journaling test (bounded, repeats,
+recovered `read_by`, no content), `compose::previews` test (preview.failed carries `faults`, `error` unchanged).
+Real Vision, by hand on this Mac: `tests/native.rs a_child_process_reads_an_image` passed (the child, the
+`read_image_text` example, answered in 65.2 s cold; `CpuVision` in the test process returned `Ok([])`; 178.6 s in
+all). A second manual pair of child runs: the first failed in 6 s (`__objc2.missingError` 0, with
+`e5rt_e5_compiler_compile failed (Code: 11)` in the log), the next read the image in 59.5 s. Runs: ferb-mac-hands +
+ferb-daemon 111 passed, 0 failed; ferbd 100 passed, 1 failed (`seams_wired`: `browser.rs:1065 ..Default::default()`,
+another agent's open change, not this one); clippy on the three crates clean; fmt clean for them.
+
+**Unverified.** Live: whether the CPU attempt in the long-running daemon recovers after a purge (its compiled model
+is purged too, then it fails fast like the first) and how long the child takes per image when caches keep being
+purged (here 6-65 s, compiling each time); not wired yet: the child's command in `ferb` (`run::cli`), the span record
+of tool calls, the warm-up on unlock (listed for the coordinator). The by-hand test writes Vision's own cache under
+~/Library/Caches (read_image_text, native-<hash>), as any Vision run does.
+
+**Open for the owner.** The Mac is nearly out of disk (CacheDelete: 940 MB free); freeing space is what stops macOS
+from purging the compiled models. The child limit (150 s) and the new journal kinds' retention (kept, not in
+`OPERATIONAL_KINDS`) are the agent's choices awaiting the owner's word.
+
+## 2026-11-15 · 79 · Background first in browser tasks: what a page brings forward goes back down and is told; sign-in popups that start blank are the task's; browser input is sampled
+
+**What.** The owner's live report on task 0821c105 (HAND-532, his words kept): an IIT Madras dashboard check ran in
+FERB's minimized Chrome window, and at its Google sign-in "the chrome window popped up" and took his focus. Extension
+0.19.11 (protocol 21, minimum 0.19.0 kept, HAND-537) and the engine:
+- HAND-533: FERB's minimized window, or a popup window FERB claimed for a task tab, found shown within 3 s of a page
+  in it opening a tab or showing a dialog is minimized again at once (background.js `keepDown`, `putDown`,
+  `surfacingTab`, `windows.onFocusChanged`); one found shown with no such cause (Dock, Window menu, `show_tab`) is the
+  owner's and is left until it is minimized again. The owner's own windows only become facts. The page hook refuses
+  `window.focus`/`self.focus`, fullscreen (`requestFullscreen`, webkit forms) and picture-in-picture while FERB drives
+  the tab (protocol.js `ferbPageHook`, content.js `onSurface`). Each event is a `surfaced` fact on the responsible
+  tab's next reply; the bridge takes it out of any reply (`Bridge::keep_surfaced`, known fields only, 10 per tab) and
+  the tab's next result tells the worker once (`window_shown`, `surfaced.rs::told`, via `tools.rs::news`). FERB never
+  activates another app (HAND-212 stands).
+- HAND-534: a page's `window.open(url, "_blank", "noopener")` in a driven tab returns null and goes the way a link's
+  new tab goes (the daemon opens a background tab); content.js opens it natively when FERB doesn't.
+- HAND-535: browser.act, navigate, media, secret, login_code, fill_secret and fill_otp declare on_screen, so the
+  disturbance sentinel samples around them (DMN-5) and a front-app change is the call's `screen_changed_during_call`
+  fact. `BrowserTool::facts` (ferbd) now takes on_screen from the verb (before, every fact came from the frozen
+  catalog, so a verb's own on_screen was never read).
+- HAND-536: a new tab whose first address is about:blank in a popup-type window, within 3 s of a task tab's input,
+  is checked by the browser's openerId and claimed as the task's popup, and its window goes down at once.
+
+**Why / cause.** Known from Chromium's source (main, read 2026-11-15): every new tab or window a page opens is followed
+by its window's `Show()` (`browser_navigator.cc` ScopedBrowserShower; `BrowserWebContentsDelegate::AddNewContents`
+passes kShowWindow and `AddWebContents` sets user_gesture true); `BrowserView::Show` on a window that isn't visible (a
+minimized one) shows it activated (`NativeWidgetMac::Show(kNormal)` → `kShowAndActivateWindow` →
+`[NSApp activateIgnoringOtherApps:YES]` and `makeKeyAndOrderFront:`); on a visible one it calls `Activate()`; a popup's
+contents are focused too. Known from the site: app.onlinedegree.iitm.ac.in/auth/login loads FirebaseUI 3.5.2 with
+`signInFlow: 'popup'` (Firebase 7.14.2). Inferred, not proven: FirebaseUI opened Google's sign-in as a popup window
+(named target and a size) whose first address was blank, so HAND-443 (http(s) first addresses only) never claimed
+it; Chrome showed and activated it; it completed with the already signed-in account and closed itself, and the opener
+went on to the dashboard (the url wait was met at 19:52:25; no `popup` event, "nothing changed within 0.5 s" at the
+opener). Whether macOS granted Chrome the activation (cooperative activation since macOS 14) or only ordered the
+window front isn't known: the sampler sampled no browser call (on_screen_calls 2, browser.open only) and the change it
+recorded at 19:53:08 was the owner going to VS Code. The probe page (below) confirms it by hand.
+
+**Evidence.** ferb-browser `tests/extension_background.rs` (8 tests: the extension's own JavaScript under node with
+fake Chrome APIs and a fake clock, `tests/extension/harness.js`; with the popup's minimize and the owner's-window
+rule taken out, the two tests on them failed), `tests/background_first.rs` (2: a fake extension's reply carrying `surfaced` through the hub, the bridge
+and browser.navigate to `window_shown`, told once; the facts' shapes and words), `tests/tools_catalog.rs` (the catalog
+comparison names HAND-535's difference); ferbd `compose::tools::browser` unit test (on_screen from the verb, every
+other fact the catalog's). ferb-browser 59 passed, 0 failed; ferbd 126 passed, 0 failed (chat_replay 266 s); clippy
+-D warnings clean on both; `gate.sh fmt` clean. The workspace's lint and test weren't run here (other agents' work
+in progress; the disk was nearly full). Python's extension
+tests (node, fake Chrome): 98 passed after one assertion in tests/test_downloads_extension.py changed for HAND-534.
+
+**Changed against Python (deliberate).** HAND-535's on_screen for seven browser verbs (Python's catalog has false);
+the extension's new behaviour is the extension's own (0.19.11), shared by both daemons.
+
+**Unverified.** Everything live: no real browser ran. Whether the minimize after a popup or tab comes soon enough to
+spare the owner the flash; whether Chrome's activation is granted on this macOS; that FirebaseUI's sign-in still
+completes with its popup minimized (it ran in a background tab before); that a renderer-opened tab really un-minimizes
+FERB's window (source says yes). Not covered: Chrome's own UI that no extension reaches (permission and sign-in
+bubbles, the external-protocol prompt and the app it launches, passkey/WebAuthn sheets, FedCM's dialog), a page's
+`opener.focus()` across origins, and the keyboard focus Chrome took (FERB doesn't give it back, HAND-212).
+
+**Open for the owner.** Publish extension 0.19.11 to the Chrome Web Store (until then nothing of the extension's half
+runs; HAND-535's sampling and facts work with any extension). Then LIVE-947 with the probe page.

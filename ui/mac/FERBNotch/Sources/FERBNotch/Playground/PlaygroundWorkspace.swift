@@ -170,6 +170,10 @@ final class PlaygroundWorkspace {
         case "recovery.restore": recovered = true; return ["original": artifact.path, "restored_to": artifact.path, "in_place": true]
         case "secrets.saved": return ["entries": secrets]
         case "secrets.delete": secrets.removeAll { $0["name"] as? String == params["name"] as? String }; return ["ok": true]
+        case "secrets.unmask", "secrets.mask":
+            let shown = method == "secrets.unmask", name = params["name"] as? String
+            secrets = secrets.map { $0["name"] as? String == name ? $0.merging(["shown": shown]) { $1 } : $0 }
+            return ["name": name ?? "", "shown": shown]
         case "doctor.check": return ["selftest": [["name": "Playground services", "ok": true], ["name": "Sample data", "ok": true]]]
         case "reports.diagnostic", "reports.build": return try report()
         case "reports.send": return ["sent": false, "error": "Preview only. No diagnostic is sent from the playground."]

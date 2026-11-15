@@ -514,6 +514,18 @@ impl Daemon {
 
         // the gateway and its tools
         let owner_secrets = Arc::new(areas::owner_secrets(&opts, &home));
+        // GATE-602: the identifiers the owner let the AI see, read from the Keychain off the start-up path; until
+        // they are read they stay masked
+        {
+            let (store, r) = (owner_secrets.clone(), redactor.clone());
+            std::thread::spawn(move || {
+                if let Ok(values) = store.shown_values() {
+                    if !values.is_empty() {
+                        r.show_identifiers(values.iter().map(|v| v.expose()));
+                    }
+                }
+            });
+        }
         let tool_parts = tools::Parts::new(&opts, &config, &redactor, &db, &journal, &events);
         tool_parts.set_owner_secrets(owner_secrets.clone());
         let _ = preview_counts.set(tool_parts.previews().clone());

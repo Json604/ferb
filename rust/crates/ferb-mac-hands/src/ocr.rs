@@ -155,9 +155,69 @@ pub fn boxes_to_paint(
     Ok(boxes)
 }
 
+/// Where reading or masking an image failed, for FERB's records (HAND-531): the step, and the framework's error
+/// domain and code (an NSError's, with its underlying error's when it has one) or FERB's own (`ferb.*`). It never
+/// holds the image, text read from it or an error's message.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Fault {
+    /// The attempt that failed (`vision`, `vision_cpu`, `child`), or `rules` / `paint` after one read the image.
+    pub step: String,
+    pub domain: String,
+    pub code: i64,
+    /// The underlying error's domain and code (NSUnderlyingErrorKey), when there is one.
+    pub under: Option<(String, i64)>,
+}
+
+impl Fault {
+    /// A fault of `domain` and `code`; its step is set by the chain that tried it.
+    pub fn new(domain: &str, code: i64) -> Fault {
+        Fault {
+            step: String::new(),
+            domain: domain.to_string(),
+            code,
+            under: None,
+        }
+    }
+
+    /// The fault as FERB's records keep it: step, domain, code (and the underlying error's).
+    pub fn facts(&self) -> serde_json::Value {
+        let mut out = serde_json::Map::new();
+        out.insert("step".into(), self.step.clone().into());
+        out.insert("domain".into(), self.domain.clone().into());
+        out.insert("code".into(), self.code.into());
+        if let Some((d, c)) = &self.under {
+            out.insert("under_domain".into(), d.clone().into());
+            out.insert("under_code".into(), (*c).into());
+        }
+        serde_json::Value::Object(out)
+    }
+}
+
+/// FERB's own fault domains (an Apple framework's error keeps its own domain).
+pub mod domain {
+    /// The image couldn't be decoded for its size.
+    pub const DECODE: &str = "ferb.decode";
+    /// No CPU device was offered for a compute stage of the request.
+    pub const NO_CPU: &str = "ferb.no_cpu_device";
+    /// The child process couldn't be started (code: errno, or -1).
+    pub const START: &str = "ferb.start";
+    /// The child gave no answer in time (code: the limit in seconds); it was killed.
+    pub const TIMEOUT: &str = "ferb.timeout";
+    /// The child ended without an answer (code: its exit status, -1 for a signal).
+    pub const EXIT: &str = "ferb.exit";
+    /// The child's answer couldn't be read.
+    pub const REPLY: &str = "ferb.reply";
+    /// Another image's child was running and this one doesn't queue (a live preview's frame).
+    pub const BUSY: &str = "ferb.busy";
+    /// The text rules couldn't read a region.
+    pub const RULES: &str = "ferb.rules";
+    /// The boxes couldn't be painted.
+    pub const PAINT: &str = "ferb.paint";
+}
+
 /// Vision's text recognizer (`native::vision`).
 pub trait Recognize: Send + Sync {
-    fn recognize(&self, image: &[u8]) -> Result<Vec<TextRegion>, String>;
+    fn recognize(&self, image: &[u8]) -> Result<Vec<TextRegion>, Fault>;
 }
 
 /// Opaque boxes painted on a JPEG and re-encoded (`native::paint`; mask.py:116).
@@ -165,27 +225,97 @@ pub trait Paint: Send + Sync {
     fn paint(&self, image: &[u8], boxes: &[ImgBox]) -> Result<Vec<u8>, String>;
 }
 
-/// images.py:113: every image FERB stores or sends passes here.
+/// One way of reading an image's text, named for the record.
+#[derive(Clone)]
+pub struct Attempt {
+    pub step: &'static str,
+    pub recognize: Arc<dyn Recognize>,
+}
+
+/// An image read and masked: the image, the attempt that read it, and the attempts that failed before it (empty when
+/// the first read it).
+#[derive(Debug)]
+pub struct Redacted {
+    pub image: Vec<u8>,
+    pub read_by: &'static str,
+    pub faults: Vec<Fault>,
+}
+
+/// An image withheld: every fault on the way. Shown only as [`UNAVAILABLE`].
+#[derive(Debug, Default)]
+pub struct Withheld {
+    pub faults: Vec<Fault>,
+}
+
+impl std::fmt::Display for Withheld {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(UNAVAILABLE)
+    }
+}
+
+/// images.py:113: every image FERB stores or sends passes here. HAND-531: the recognizers are tried in order until
+/// one reads the image (Vision in this process, again on the CPU, then in a fresh child process); with none, the image
+/// is withheld as before. A painted box is never skipped: an image is returned only after its text was read.
 #[derive(Clone)]
 pub struct ImageRedactor {
     pub redactor: Arc<Redactor>,
-    pub recognize: Arc<dyn Recognize>,
+    pub recognize: Vec<Attempt>,
     pub paint: Arc<dyn Paint>,
 }
 
 impl ImageRedactor {
+    /// The masked image, or [`UNAVAILABLE`] (Python's RuntimeError text: a contract for the models and clients).
     pub fn redact(&self, image: &[u8], rects: &[ImgBox]) -> Result<Vec<u8>, String> {
-        let regions = self
-            .recognize
-            .recognize(image)
-            .map_err(|_| UNAVAILABLE.to_string())?;
-        let boxes =
-            boxes_to_paint(&self.redactor, &regions, rects).map_err(|_| UNAVAILABLE.to_string())?;
-        if boxes.is_empty() {
-            return Ok(image.to_vec());
+        self.redact_noted(image, rects)
+            .map(|r| r.image)
+            .map_err(|w| w.to_string())
+    }
+
+    /// [`redact`](Self::redact) with the faults on the way, for FERB's records.
+    pub fn redact_noted(&self, image: &[u8], rects: &[ImgBox]) -> Result<Redacted, Withheld> {
+        let mut faults = Vec::new();
+        let mut read = None;
+        for attempt in &self.recognize {
+            match attempt.recognize.recognize(image) {
+                Ok(regions) => {
+                    read = Some((attempt.step, regions));
+                    break;
+                }
+                Err(mut f) => {
+                    f.step = attempt.step.to_string();
+                    faults.push(f);
+                }
+            }
         }
-        self.paint
-            .paint(image, &boxes)
-            .map_err(|_| UNAVAILABLE.to_string())
+        let Some((read_by, regions)) = read else {
+            return Err(Withheld { faults });
+        };
+        let after = |faults: &mut Vec<Fault>, step: &str, domain: &str| {
+            let mut f = Fault::new(domain, 0);
+            f.step = step.to_string();
+            faults.push(f);
+        };
+        let Ok(boxes) = boxes_to_paint(&self.redactor, &regions, rects) else {
+            after(&mut faults, "rules", domain::RULES);
+            return Err(Withheld { faults });
+        };
+        if boxes.is_empty() {
+            return Ok(Redacted {
+                image: image.to_vec(),
+                read_by,
+                faults,
+            });
+        }
+        match self.paint.paint(image, &boxes) {
+            Ok(image) => Ok(Redacted {
+                image,
+                read_by,
+                faults,
+            }),
+            Err(_) => {
+                after(&mut faults, "paint", domain::PAINT);
+                Err(Withheld { faults })
+            }
+        }
     }
 }

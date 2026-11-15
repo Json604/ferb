@@ -83,6 +83,28 @@ final class RedactedHistoryTests: XCTestCase {
         XCTAssertFalse(try savedText(model).contains("hunter2"))
     }
 
+    /// An identifier the daemon kept sealed from the message (GATE-604) is said under it as kept, not "didn't save",
+    /// with the owner's choice to let the AI see it (GATE-602); both last across a restart.
+    // decision: GATE-604
+    // decision: GATE-602
+    func testAckWithSealedIdentifiersSaysTheyWereKeptAndOffersShowingThem() async throws {
+        let (model, id) = sent()
+        model.receiveChatEvent(["type": "ack", "request_id": "req-1", "text": "On it.", "message": "PAN [redacted]",
+                                "hidden": ["PAN", "GitHub token"], "sealed": [["kind": "PAN", "name": "PAN"]]],
+                               localID: id)
+        let turn = model.conversation.turns[0]
+        XCTAssertEqual(turn.sealed, [SealedIdentifier(kind: "PAN", name: "PAN")])
+        XCTAssertEqual(turn.hiddenNotice, "That looked like a PAN. I hid it from the AI and kept it sealed as “PAN”, "
+                       + "so I can fill it in on any site without asking you again. That looked like a GitHub token. "
+                       + "I hid it from the AI and didn't save it. Best not to paste keys and passwords into chats.")
+        model.showIdentifier("PAN", turnID: id)
+        for _ in 0..<200 where model.conversation.turns[0].sealed?.first?.shown != true { await Task.yield() }
+        XCTAssertEqual(model.conversation.turns[0].sealed?.first?.shown, true)
+        let restarted = NotchModel(rpc: QuietRPC(), preferences: model.preferences)
+        XCTAssertEqual(restarted.conversation.turns[0].sealed, model.conversation.turns[0].sealed)
+        XCTAssertFalse(try savedText(model).contains("hunter2"))
+    }
+
     private func sent() -> (NotchModel, UUID) {
         let model = NotchModel(rpc: QuietRPC(), preferences: scratchDefaults())
         model.session.draft = raw

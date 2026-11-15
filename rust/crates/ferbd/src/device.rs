@@ -2,8 +2,9 @@
 //! this program as its host.
 //!
 //! Composed here: the version, the daemon connection (the toolbox's daemon clients: `ferb memory`, `ferb ps`,
-//! `ferb browsers`...), the salvage check, the clipboard, `ferb logs`' lines, and the setup commands' environment
-//! (`setup --service`, `uninstall`, `doctor`: crate::setup_env, the service definition naming `ferbd daemon`).
+//! `ferb browsers`, `ferb trace`...), the salvage check, the clipboard, `ferb browsers extension`
+//! (crate::extension_cmd), and the setup commands' environment (`setup --service`, `uninstall`, `doctor`:
+//! crate::setup_env, the service definition naming `ferbd daemon`).
 
 use std::io::Write;
 
@@ -122,6 +123,20 @@ impl Host for ProgramHost {
     }
     fn step_line(&self) -> Option<StepLine> {
         None
+    }
+    fn stats(&mut self, days: i64) -> i32 {
+        crate::stats::stats_now(&self.home, &mut self.out, days)
+    }
+    fn extension(&mut self, action: &str, out_dir: Option<&str>) -> i32 {
+        let home = self.home.clone();
+        match action {
+            "install" => crate::extension_cmd::install(&home, &mut self.out, &mut self.err),
+            "package" => {
+                let source = crate::extension_cmd::source(&home);
+                crate::extension_cmd::package(&source, &home, out_dir, &mut self.out, &mut self.err)
+            }
+            _ => crate::extension_cmd::path(&home, &mut self.out),
+        }
     }
 }
 

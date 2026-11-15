@@ -94,3 +94,13 @@ rule = "The conversion to Rust is built on branch rust (main stays as it is unti
 why = "The owner wants the outcome and an easy way to follow the work, not questions about method."
 paths = ["rust/JOURNAL.md"]
 untestable = "A choice of branch, scope and working method; git and the journal show it."
+
+[PROJ-509]
+title = "kb paths to removed files are read at a named commit; the current tree wins"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "kb/config.toml `historical` lists {commit, paths, why}. A decision's or area's path that names nothing tracked now, but files under one of those paths at that commit, is checked there (a ::symbol in that file's text then). Anything tracked now is judged on the current tree only. The commit must resolve and paths can't be empty. `kb show` names the commit a path was removed at. Records keep their paths as written."
+why = "ENG-16: the records keep their whole history, and 1,602 path entries in 685 decisions plus 24 area paths name Python files the removal deletes. Rewriting them would edit owner records; turning the check off would let a mistyped path pass."
+rejected = ["Editing the records' paths to the Rust files: owner records are never reworded, and the Python file is what the decision was about.", "Not checking paths under removed folders: a mistyped path would then pass silently."]
+paths = ["tools/kb/kb.py", "tools/kb/test_kb_historical.py", "kb/config.toml"]

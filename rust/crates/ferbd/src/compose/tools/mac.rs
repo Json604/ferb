@@ -209,18 +209,104 @@ pub struct Images {
     pub native: bool,
 }
 
+tokio::task_local! {
+    /// Set around a live preview's frame (`compose::previews`): the frame's faults are put here for preview.failed,
+    /// and its image doesn't queue behind another image's child process (HAND-531).
+    pub static PREVIEW_FAULTS: Arc<std::sync::Mutex<Vec<ferb_mac_hands::ocr::Fault>>>;
+}
+
+/// One text-reading child process at a time in this process (HAND-531).
+fn child_gate() -> Arc<std::sync::Mutex<()>> {
+    static GATE: std::sync::OnceLock<Arc<std::sync::Mutex<()>>> = std::sync::OnceLock::new();
+    GATE.get_or_init(Default::default).clone()
+}
+
+/// The program that reads an image's text in a fresh process (HAND-531): inside FERB.app its
+/// `Contents/Resources/bin/ferb`, ENG-7's program for internal commands (it holds no permission, and Vision needs
+/// none); elsewhere the `ferb` built next to this executable. None when there is no such file.
+pub fn child_program() -> Option<std::path::PathBuf> {
+    let path = match crate::home::app_bundle() {
+        Some(app) => app.join(ferb_device::install::BUNDLE_CLI),
+        None => crate::host::real_exe()?.with_file_name("ferb"),
+    };
+    path.is_file().then_some(path)
+}
+
 impl Images {
+    /// The recognizers in the order they're tried (HAND-531): Vision in this process as it chooses its devices, again
+    /// with every stage on the CPU, then FERB's own program in a fresh process (one at a time; `wait` says whether
+    /// this image waits for a child already running; None: no child).
+    pub fn recognizers(child: Option<bool>) -> Vec<ferb_mac_hands::ocr::Attempt> {
+        use ferb_mac_hands::native::vision::{CpuVision, NativeVision};
+        use ferb_mac_hands::ocr::Attempt;
+        let mut out = vec![
+            Attempt {
+                step: "vision",
+                recognize: Arc::new(NativeVision),
+            },
+            Attempt {
+                step: "vision_cpu",
+                recognize: Arc::new(CpuVision),
+            },
+        ];
+        if let (Some(wait), Some(program)) = (child, child_program()) {
+            out.push(Attempt {
+                step: "child",
+                recognize: Arc::new(ferb_mac_hands::vision_child::ChildVision {
+                    program,
+                    args: vec![ferb_mac_hands::vision_child::COMMAND.to_string()],
+                    timeout: ferb_mac_hands::vision_child::CHILD_TIMEOUT,
+                    gate: child_gate(),
+                    wait,
+                }),
+            });
+        }
+        out
+    }
+
     pub fn redact(&self, image: &[u8]) -> Result<Vec<u8>, String> {
+        self.redact_noted(image, Some(true))
+            .map(|r| r.image)
+            .map_err(|w| w.to_string())
+    }
+
+    /// The masked image with the attempts that failed before one read it, or every fault (HAND-531). A daemon
+    /// without the Mac's parts reads nothing: withheld with no fault.
+    pub fn redact_noted(
+        &self,
+        image: &[u8],
+        child: Option<bool>,
+    ) -> Result<ferb_mac_hands::ocr::Redacted, ferb_mac_hands::ocr::Withheld> {
         if !self.native {
-            return Err(ferb_mac_hands::ocr::UNAVAILABLE.into());
+            return Err(ferb_mac_hands::ocr::Withheld::default());
         }
         ferb_mac_hands::ocr::ImageRedactor {
             redactor: self.redactor.clone(),
-            recognize: Arc::new(ferb_mac_hands::native::vision::NativeVision),
+            recognize: Self::recognizers(child),
             paint: Arc::new(ferb_mac_hands::native::paint::NativePaint),
         }
-        .redact(image, &[])
+        .redact_noted(image, &[])
     }
+}
+
+/// `f` on a plain thread of its own, its answer awaited: the first recognition can take minutes, and a shutdown
+/// never waits for it. Without a thread, `none` is the answer.
+fn on_image_thread<T: Send + 'static>(
+    f: impl FnOnce() -> T + Send + 'static,
+    none: T,
+) -> BoxFuture<'static, T> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let spawned = std::thread::Builder::new()
+        .name("ferb-image-redact".into())
+        .spawn(move || {
+            let _ = tx.send(f());
+        });
+    Box::pin(async move {
+        if spawned.is_err() {
+            return none;
+        }
+        rx.await.unwrap_or(none)
+    })
 }
 
 impl ferb_gateway::call_hooks::ImageSanitizer for Images {
@@ -230,20 +316,124 @@ impl ferb_gateway::call_hooks::ImageSanitizer for Images {
             redactor: self.redactor.clone(),
             native: self.native,
         };
-        // a plain thread: the first recognition can take minutes, and a shutdown never waits for it
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        let spawned = std::thread::Builder::new()
-            .name("ferb-image-redact".into())
-            .spawn(move || {
-                let _ = tx.send(me.redact(&image));
-            });
-        Box::pin(async move {
-            if spawned.is_err() {
-                return Err(ferb_mac_hands::ocr::UNAVAILABLE.to_string());
+        on_image_thread(
+            move || me.redact(&image),
+            Err(ferb_mac_hands::ocr::UNAVAILABLE.to_string()),
+        )
+    }
+}
+
+/// The Mac's image sanitizer: [`Images`], each image that needed more than Vision's first attempt journaled
+/// (HAND-531): `image.redaction_failed` when it was withheld, `image.redaction_recovered` when a later attempt read
+/// it; each with what the image was for (`use`) and the faults (step, error domain and code), never the image or its
+/// text. Bounded like the previews' notes: the first row at once, then one per [`NOTE_EVERY_S`] per kind, use and
+/// faults, with the repeats between.
+#[derive(Clone)]
+pub struct MacImages {
+    pub native: bool,
+    images: Arc<Images>,
+    journal: Arc<crate::basics::Journal>,
+    monotonic: Arc<dyn Fn() -> f64 + Send + Sync>,
+    noted: Arc<std::sync::Mutex<std::collections::HashMap<String, (f64, u64)>>>,
+}
+
+/// One row per kind, use and faults within this many seconds (the previews' bound, task_preview `NOTE_EVERY_S`).
+pub const NOTE_EVERY_S: f64 = ferb_daemon::areas_b::task_preview::NOTE_EVERY_S;
+
+impl MacImages {
+    pub fn new(
+        images: Images,
+        journal: Arc<crate::basics::Journal>,
+        monotonic: Arc<dyn Fn() -> f64 + Send + Sync>,
+    ) -> MacImages {
+        MacImages {
+            native: images.native,
+            images: Arc::new(images),
+            journal,
+            monotonic,
+            noted: Default::default(),
+        }
+    }
+
+    /// An image for `use_` (the front window, a recording's frame), waiting for a child process when it needs one.
+    pub fn redact(&self, image: &[u8], use_: &str) -> Result<Vec<u8>, String> {
+        let got = self.images.redact_noted(image, Some(true));
+        self.note(use_, &got);
+        got.map(|r| r.image).map_err(|w| w.to_string())
+    }
+
+    /// Reads a blank picture with this process's own attempts (no child: its work would be thrown away), journaled
+    /// like an image (`use` warm). Meant for when the Mac comes back into use: a recognizer that stopped working is
+    /// found then, and the CPU one is loaded, before the next picture needs it.
+    pub fn warm(&self) {
+        let blank = ferb_mac_hands::native::vision::blank_png(160, 48);
+        let got = self.images.redact_noted(&blank, None);
+        self.note("warm", &got);
+    }
+
+    /// The journal rows for one image (HAND-531).
+    pub fn note(
+        &self,
+        use_: &str,
+        got: &Result<ferb_mac_hands::ocr::Redacted, ferb_mac_hands::ocr::Withheld>,
+    ) {
+        let (kind, faults, read_by) = match got {
+            Ok(r) if r.faults.is_empty() => return,
+            Ok(r) => ("image.redaction_recovered", &r.faults, Some(r.read_by)),
+            // nothing was tried (a daemon without the Mac's parts): nothing to record
+            Err(w) if w.faults.is_empty() => return,
+            Err(w) => ("image.redaction_failed", &w.faults, None),
+        };
+        let facts: Vec<Value> = faults.iter().map(|f| f.facts()).collect();
+        let key = format!("{kind}:{use_}:{}", Value::Array(facts.clone()));
+        let now = (self.monotonic)();
+        let since = {
+            let mut noted = self.noted.lock().unwrap_or_else(|e| e.into_inner());
+            let (due, since) = noted.get(&key).copied().unwrap_or((f64::MIN, 0));
+            if now < due {
+                noted.insert(key, (due, since + 1));
+                return;
             }
-            rx.await
-                .unwrap_or_else(|_| Err(ferb_mac_hands::ocr::UNAVAILABLE.to_string()))
-        })
+            noted.insert(key, (now + NOTE_EVERY_S, 0));
+            since
+        };
+        let mut data = Map::new();
+        data.insert("use".into(), json!(use_));
+        data.insert("faults".into(), Value::Array(facts));
+        if let Some(step) = read_by {
+            data.insert("read_by".into(), json!(step));
+        }
+        if since != 0 {
+            data.insert("repeats".into(), json!(since));
+        }
+        self.journal.note(kind, Value::Object(data));
+    }
+}
+
+impl ferb_gateway::call_hooks::ImageSanitizer for MacImages {
+    fn sanitize<'a>(&'a self, image: &'a [u8]) -> BoxFuture<'a, Result<Vec<u8>, String>> {
+        let image = image.to_vec();
+        let me = self.clone();
+        // a live preview's frame: its faults go to preview.failed, and it never queues behind a running child
+        let preview = PREVIEW_FAULTS.try_with(|f| f.clone()).ok();
+        on_image_thread(
+            move || {
+                let got = me.images.redact_noted(&image, Some(preview.is_none()));
+                me.note(if preview.is_some() { "preview" } else { "tool" }, &got);
+                match got {
+                    Ok(r) => Ok(r.image),
+                    Err(w) => {
+                        if let Some(sink) = preview {
+                            sink.lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .extend(w.faults.iter().cloned());
+                        }
+                        Err(w.to_string())
+                    }
+                }
+            },
+            Err(ferb_mac_hands::ocr::UNAVAILABLE.to_string()),
+        )
     }
 }
 
@@ -314,7 +504,7 @@ pub struct Mac {
     /// FERB.app's speech recognition (`hearing.transcriber`: doctor's and setup's status probe).
     pub transcriber: Arc<ferb_sense::transcribe::Transcriber>,
     pub recordings: Arc<ferb_mac_hands::recording::RecordingManager>,
-    pub images: Arc<Images>,
+    pub images: Arc<MacImages>,
 }
 
 fn config_bool(
@@ -565,13 +755,18 @@ impl Mac {
             Arc::new(move || mono.monotonic()),
             Arc::new(move || ids.new_id()),
         );
-        let images = Arc::new(Images {
-            redactor: redactor.clone(),
-            native: native_on,
-        });
+        let clock = p.clock();
+        let images = Arc::new(MacImages::new(
+            Images {
+                redactor: redactor.clone(),
+                native: native_on,
+            },
+            p.journal(),
+            Arc::new(move || clock.monotonic()),
+        ));
         let img = images.clone();
         let recordings = ferb_mac_hands::recording::RecordingManager::new(
-            Arc::new(move |jpeg: &[u8]| img.redact(jpeg).map_err(HandError::Withheld)),
+            Arc::new(move |jpeg: &[u8]| img.redact(jpeg, "recording").map_err(HandError::Withheld)),
             Arc::new(RecordingFiles {
                 home: p.user_home().to_string_lossy().into_owned(),
                 protection: p.shell_protection(),
@@ -1302,5 +1497,91 @@ mod tests {
         assert_eq!(got.why, "no paired profile of chrome is connected");
         assert!(!got.late);
         owner_wait(gone)("w1", true);
+    }
+
+    fn fault(step: &str, domain: &str, code: i64) -> ferb_mac_hands::ocr::Fault {
+        let mut f = ferb_mac_hands::ocr::Fault::new(domain, code);
+        f.step = step.into();
+        f
+    }
+
+    /// HAND-531: an image withheld after every attempt, or read only by a later one, is journaled with what it was
+    /// for and each fault's step, domain and code (never the image or its text), at most once per kind, use and
+    /// faults in NOTE_EVERY_S, the rows between counted.
+    // decision: HAND-531
+    #[test]
+    fn an_image_that_needed_more_than_the_first_attempt_is_journaled_bounded_and_without_content() {
+        use ferb_mac_hands::ocr::{Redacted, Withheld};
+        let tmp = tempfile::tempdir().unwrap();
+        let j = Arc::new(journal(tmp.path()));
+        let now = Arc::new(std::sync::Mutex::new(100.0));
+        let t = now.clone();
+        let images = MacImages::new(
+            Images {
+                redactor: Arc::new(ferb_sanitize::redact::Redactor::new(&[], &[])),
+                native: false,
+            },
+            j.clone(),
+            Arc::new(move || *t.lock().unwrap()),
+        );
+        let withheld = || -> Result<Redacted, Withheld> {
+            Err(Withheld {
+                faults: vec![
+                    fault("vision", "com.apple.Vision", 9),
+                    fault("vision_cpu", "com.apple.Vision", 9),
+                    fault("child", ferb_mac_hands::ocr::domain::TIMEOUT, 150),
+                ],
+            })
+        };
+        images.note("tool", &withheld());
+        images.note("tool", &withheld());
+        images.note("tool", &withheld());
+        // the first attempt read it: nothing to record; a daemon that tried nothing: nothing either
+        let read = |faults| -> Result<Redacted, Withheld> {
+            Ok(Redacted {
+                image: b"Your verification code is 482913".to_vec(),
+                read_by: "vision",
+                faults,
+            })
+        };
+        images.note("tool", &read(vec![]));
+        images.note("tool", &Err(Withheld::default()));
+        let rows = j.of_kind("image.redaction_failed", "", "");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            rows[0].1,
+            json!({"use": "tool", "faults": [
+                {"step": "vision", "domain": "com.apple.Vision", "code": 9},
+                {"step": "vision_cpu", "domain": "com.apple.Vision", "code": 9},
+                {"step": "child", "domain": "ferb.timeout", "code": 150}]})
+        );
+        // a later window: one row, with the two it held back
+        *now.lock().unwrap() += NOTE_EVERY_S;
+        images.note("tool", &withheld());
+        let rows = j.of_kind("image.redaction_failed", "", "");
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[1].1["repeats"], json!(2));
+        // read by the CPU after Vision failed: recovered, with the attempt that read it; never the image or its text
+        let mut cpu = read(vec![fault("vision", "com.apple.Vision", 9)]);
+        if let Ok(r) = cpu.as_mut() {
+            r.read_by = "vision_cpu";
+        }
+        images.note("preview", &cpu);
+        let rec = j.of_kind("image.redaction_recovered", "", "");
+        assert_eq!(
+            rec.iter().map(|r| r.1.clone()).collect::<Vec<_>>(),
+            [json!({"use": "preview", "read_by": "vision_cpu",
+                    "faults": [{"step": "vision", "domain": "com.apple.Vision", "code": 9}]})]
+        );
+        let all = crate::basics::lock(&j.db)
+            .conn()
+            .query_row("SELECT group_concat(data_json) FROM journal", [], |r| {
+                r.get::<_, String>(0)
+            })
+            .unwrap();
+        assert!(
+            !all.contains("482913") && !all.contains("verification"),
+            "{all}"
+        );
     }
 }

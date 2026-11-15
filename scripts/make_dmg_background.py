@@ -2,7 +2,7 @@
 (ui/mac/FERBNotch/Sources/FERBNotch/StartupStudies.swift, GravityDenseStudy.swift) compiled with
 scripts/dmg-background/main.swift, with the words of each variant in scripts/dmg_layout.py.
 
-    uv run python scripts/make_dmg_background.py
+    python3 -I scripts/make_dmg_background.py      (the standard library only, with Xcode's swiftc)
 
 Writes assets/dmg/background-{before-devid,after-devid}.png and @2x.png. They are committed (as the logo files are,
 REL-3), so a disk-image build never renders: build-dmg.sh joins a variant's two PNGs into the image's TIFF. Run this

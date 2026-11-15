@@ -379,6 +379,12 @@ pub trait Daemon: Send + Sync {
     fn approvals(&self) -> Vec<ferb_gateway::questions::Approval> {
         Vec::new()
     }
+    /// GATE-604: keep one personal identifier from the owner's own chat message sealed for any site (the owner's
+    /// saved secrets, ferb-identity `OwnerSecrets::seal_identifier`): the name it is kept under, or None when it
+    /// could not be kept (the message is then only masked, as before). None by default: no store here.
+    fn seal_identifier(&self, _kind: &str, _value: &str) -> Option<String> {
+        None
+    }
 
     // --- the paths make_more.py records (fold.rs, card.rs, memory side entries, ...) ---
     /// memory's `settle_identity(why)` (MEM-429): the owner's core profile settles what moved into its block.

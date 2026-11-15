@@ -41,8 +41,10 @@ MINOS=$(/usr/libexec/PlistBuddy -c "Print :LSMinimumSystemVersion" "$INFO")
 FEED=$(/usr/libexec/PlistBuddy -c "Print :SUFeedURL" "$INFO" 2>/dev/null || true)
 FULL_VERSION=$(/usr/libexec/PlistBuddy -c "Print :FERBVersion" "$INFO")
 TEAM=$(codesign -dv "$MNT/FERB.app" 2>&1 | sed -n 's/^TeamIdentifier=//p')
-ENGINE=rust                                   # the Rust build carries no Python (scripts/build-app-rust.sh)
-[[ -d "$MNT/FERB.app/Contents/Resources/python" ]] && ENGINE=python
+# Only the Rust build is released (scripts/build-app-rust.sh): it carries no Python
+if [[ -d "$MNT/FERB.app/Contents/Resources/python" ]]; then
+  die "the app in ${DMG:t} carries Python (Contents/Resources/python): only FERB.app's Rust build (scripts/build-app-rust.sh) is released"
+fi
 hdiutil detach -quiet "$MNT"
 # The first build signed with the Developer ID: every appcast from then on names it as Sparkle's
 # minimumAutoupdateVersion, so an installed self-signed FERB asks the owner before that update (macOS asks for every
@@ -64,9 +66,9 @@ SIGN=$(find "$NOTCH/.build/artifacts" -path '*/Sparkle/bin/sign_update' -type f 
 # The release checks (scripts/release_checks.py): a bumped, non-development version named by the tag, and the Chrome
 # Web Store already serving an extension this FERB accepts.
 RELEASED=(${(f)"$(git -C "$ROOT" ls-remote --tags --refs origin 'v*' | sed 's#.*refs/tags/##')"})
-# the extension's store id and minimum: from the Python sources for the Python build, the Rust sources for the Rust one
+# the extension's store id and minimum, from the Rust sources (scripts/rust-parts.sh)
 source "$ROOT/scripts/rust-parts.sh"
-ferb_release_constants "$ROOT" "$ENGINE" || die "the $ENGINE sources don't name the extension's store id and minimum"
+ferb_release_constants "$ROOT" rust || die "the Rust sources don't name the extension's store id and minimum"
 STORE_ID=$FERB_STORE_EXTENSION
 MIN_EXT=$FERB_MIN_EXTENSION
 STORE_EXT=$(curl -fsS --max-time 20 "https://clients2.google.com/service/update2/crx?response=updatecheck&acceptformat=crx3&prodversion=140.0&x=id%3D$STORE_ID%26uc" \

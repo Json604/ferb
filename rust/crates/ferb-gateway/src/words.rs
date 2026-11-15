@@ -110,6 +110,11 @@ pub const REASON_CHARS: usize = 200;
 pub const FAILED_CHARS: usize = 500;
 pub const SEALED_FILLS: &[&str] = &["browser.secret", "ferb_browser.secret", "mac.secret"];
 pub const SINK_VALUES_SHOWN: usize = 3;
+/// GATE-605: a saved ID kept for any site, refused at a page whose site the sink rule hasn't cleared (a frame of
+/// another site than the page the call was asked about, or a site the owner said no to in this task).
+pub const IDENTIFIER_NOT_CLEARED: &str =
+    "the saved ID {name} goes to {site} only when the owner named that site or \
+said yes to sending their details there in this task; nothing was filled";
 pub const CARD_TYPED: &str =
     "card details go into a page only through FERB's sealed fill (browser.secret, with a \
 card the owner saved or the owner's hidden input), never typed: nothing was typed";

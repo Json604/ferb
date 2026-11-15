@@ -1,3 +1,10 @@
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#   "ds-store==1.3.3",
+#   "mac-alias==2.2.3",
+# ]
+# ///
 """The disk image's Finder window (REL-408, REL-409): one spec for scripts/make_dmg_background.py, which renders the
 background, and for scripts/build-dmg.sh, which writes the window's .DS_Store onto the mounted image with this script.
 
@@ -5,11 +12,13 @@ The image holds FERB.app, the Applications link and the hidden background (plus 
 both hidden). Two variants differ only in the background's words: before the Developer ID the window says how to get
 past Gatekeeper the first time; after it (signed with a Developer ID and notarized) only the drag line stays.
 
-    python scripts/dmg_layout.py spec VARIANT       the JSON the background renderer draws from
-    python scripts/dmg_layout.py ds-store VOLUME    write VOLUME/.DS_Store (the mounted image's root)
+    python3 scripts/dmg_layout.py spec VARIANT                    the JSON the background renderer draws from
+    uv run --script --locked scripts/dmg_layout.py ds-store VOLUME  write VOLUME/.DS_Store (the mounted image's root)
 
-The .DS_Store is written with ds_store and mac_alias (MIT, the libraries dmgbuild uses; uv dev group, pinned in
-uv.lock with hashes), never by driving Finder with AppleScript."""
+The .DS_Store is written with ds_store and mac_alias (MIT, the libraries dmgbuild uses), never by driving Finder with
+AppleScript. They are this script's own dependencies, named at the top (PEP 723 inline metadata) and locked with their
+hashes in scripts/dmg_layout.py.lock (`uv lock --script scripts/dmg_layout.py` after changing them); everything else
+here, the spec make_dmg_background.py reads, needs only the standard library."""
 
 from __future__ import annotations
 

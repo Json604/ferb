@@ -30,6 +30,11 @@
 // touching the system clipboard. Also optional only (ext_protocol.py lists each): picker fields set by value, scroll
 // left/right/screens/to, popup windows claimed, `closed_by_page` and `blank_tab`, print answered by the hook, a
 // snapshot's `content_type`, click `modifiers`, and secret fields by structure only (HAND-516).
+// Extension 0.19.11 keeps protocol 21 and the minimum (HAND-532..537): background first in browser tasks. The page hook
+// keeps a tab FERB drives from focusing, fullscreen or picture-in-picture, and sends its no-opener new tabs the way a
+// link's goes; FERB's minimized window and a task's claimed popup window go back down when a page brings them forward;
+// a popup window that starts blank is claimed. One optional reply field, `surfaced` (a list of facts: window, cause,
+// focused, put_back, prevented), which an older FERB reads as nothing (Rust) or passes on as a fact (an act's reply).
 const FERB_PROTOCOL = 21;
 const FERB_HOST = "com.ferb.native_host";
 
@@ -120,6 +125,38 @@ function ferbPageHook(token) {
     return close.apply(this, arguments);
   };
   const armed = () => !dispatch.call(document, new CustomEvent(token + ":armed", { cancelable: true }));
+  // Extension 0.19.11 (HAND-533): background first. While FERB drives the tab, what a page can do to bring its browser
+  // window forward (Chrome restores, raises and activates the window for each: chromium BrowserView::Show / Activate)
+  // is answered here as a browser that refused it would answer, and content.js is told ("<token>:surface", the kind):
+  // window.focus() (self.focus too: the same function), fullscreen and picture-in-picture. A tab FERB doesn't drive
+  // gets the browser's own behaviour.
+  const surface = (kind) => { try { dispatch.call(document, new CustomEvent(token + ":surface", { detail: kind })); } catch (_) { /* told or not */ } };
+  const focus = window.focus;
+  if (typeof focus === "function") window.focus = function () {
+    if (!armed()) return focus.apply(this, arguments);
+    surface("focus");
+  };
+  const refuse = (name) => { const e = new Error("FERB keeps this tab in the background"); e.name = name; return e; };
+  const hold = (proto, key, kind, answer) => {
+    const own = proto && Object.getOwnPropertyDescriptor(proto, key);
+    if (!own || typeof own.value !== "function") return;
+    const real = own.value;
+    Object.defineProperty(proto, key, { ...own, value: function () {
+      if (!armed()) return real.apply(this, arguments);
+      surface(kind);
+      return answer();
+    } });
+  };
+  const rejected = (name) => () => Promise.reject(refuse(name));
+  if (typeof Element === "function") {
+    hold(Element.prototype, "requestFullscreen", "fullscreen", rejected("TypeError"));
+    hold(Element.prototype, "webkitRequestFullscreen", "fullscreen", () => undefined);
+    hold(Element.prototype, "webkitRequestFullScreen", "fullscreen", () => undefined);
+  }
+  if (typeof HTMLVideoElement === "function")
+    hold(HTMLVideoElement.prototype, "requestPictureInPicture", "picture_in_picture", rejected("NotAllowedError"));
+  if (typeof DocumentPictureInPicture === "function")
+    hold(DocumentPictureInPicture.prototype, "requestWindow", "picture_in_picture", rejected("NotAllowedError"));
   const unseenSave = (el) => (el instanceof HTMLAnchorElement || el instanceof HTMLAreaElement) && !el.isConnected &&
     el.hasAttribute("download") && /^(blob|data):/i.test(String(el.href || ""));
   // In the document for one click() (cancelable, unlike a page's `new MouseEvent("click")`, so content.js can cancel it).
@@ -143,8 +180,16 @@ function ferbPageHook(token) {
     const name = target === undefined || target === null ? "" : String(target).toLowerCase();
     let href = "";
     if (raw.trim()) { try { href = new URL(raw, document.baseURI).href; } catch (_) { href = ""; } }
-    if (!/^https?:/i.test(href) || !["", "_blank"].includes(name) || /noopener|noreferrer/i.test(String(features || "")) ||
-        !armed()) return open.apply(window, arguments);
+    const unlinked = /noopener|noreferrer/i.test(String(features || ""));
+    // 0.19.11 (HAND-534): a page's new tab with no opener link (window.open(url, "_blank", "noopener")) gets null from
+    // the browser either way, so it goes the way a link to a new tab goes (content.js asks the service worker, which
+    // has the daemon open it as a background tab); a new tab the browser makes itself comes forward with its window.
+    // content.js opens it natively when FERB doesn't.
+    if (unlinked && /^https?:/i.test(href) && ["", "_blank"].includes(name) && armed()) {
+      dispatch.call(document, new CustomEvent(token + ":open", { detail: href.slice(0, 8192) }));
+      return null;
+    }
+    if (!/^https?:/i.test(href) || !["", "_blank"].includes(name) || unlinked || !armed()) return open.apply(window, arguments);
     const bytes = new Uint8Array(16);
     crypto.getRandomValues(bytes);
     const tag = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");

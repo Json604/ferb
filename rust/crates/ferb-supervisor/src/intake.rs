@@ -15,6 +15,8 @@ pub struct Arrival {
     pub paths: Vec<String>,
     pub attached: bool,
     pub hidden: Vec<String>,
+    /// GATE-604: the identifiers FERB kept sealed from it for any site, (kind, name).
+    pub sealed: Vec<(String, String)>,
 }
 
 /// What a turn continues (`_Start`): the request FERB asked a question about (`pending`), that question (`asked`),
@@ -55,6 +57,24 @@ fn unique(items: impl IntoIterator<Item = String>) -> Vec<String> {
 }
 
 /// supervisor.py:2575 `_take_in`'s texts.
+/// GATE-604: FERB's note beside the owner's words naming the identifiers it kept sealed from them, by the names a
+/// fill uses; never a value.
+pub fn sealed_note(sealed: &[(String, String)]) -> String {
+    let kept: Vec<String> = sealed
+        .iter()
+        .map(|(kind, name)| format!("the {kind} as \u{201c}{name}\u{201d}"))
+        .collect();
+    let list = match kept.split_last() {
+        Some((last, [])) => last.clone(),
+        Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
+        None => String::new(),
+    };
+    format!(
+        "FERB's note: FERB keeps {list} from the owner's message sealed for any site. Fill a field with \
+         browser_secret or mac_secret secret=<that name> instead of asking the owner to type it again."
+    )
+}
+
 pub fn take_in(arrivals: &[Arrival], start: &Start, wrap: &dyn Fn(&str) -> String) -> TurnText {
     let own_words = arrivals
         .iter()
@@ -119,6 +139,16 @@ pub fn take_in(arrivals: &[Arrival], start: &Start, wrap: &dyn Fn(&str) -> Strin
         let kinds: Vec<&str> = held.iter().map(String::as_str).collect();
         payload.push_str("\n\n");
         payload.push_str(&ferb_sanitize::formats::hidden_note(&kinds, "message"));
+    }
+    let mut sealed: Vec<(String, String)> = Vec::new();
+    for kept in arrivals.iter().flat_map(|a| a.sealed.iter()) {
+        if !sealed.iter().any(|(_, name)| *name == kept.1) {
+            sealed.push(kept.clone());
+        }
+    }
+    if !sealed.is_empty() {
+        payload.push_str("\n\n");
+        payload.push_str(&sealed_note(&sealed));
     }
     let mut words = if start.pending.is_empty() {
         own_words.clone()

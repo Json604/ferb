@@ -15,7 +15,8 @@
 //! A pattern that cannot be run (rx.rs) never panics: `text`, `ident`, `field`, `answer`, `py`, `value` and
 //! `json` then hide their whole input (`UNREADABLE`), and `spans`, `hit` and `kinds` return `Err(Unread)`.
 //!
-//! decision: GATE-572 (owner), GATE-573, GATE-501, GATE-502, GATE-206, GATE-211, GATE-212.
+//! decision: GATE-572 (owner), GATE-573, GATE-501, GATE-502, GATE-206, GATE-211, GATE-212, GATE-601 (owner),
+//! GATE-602, GATE-603, GATE-604.
 
 use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -23,7 +24,7 @@ use std::sync::{Arc, RwLock};
 
 use serde_json::Value;
 
-use crate::formats::{first_format, format_hits, holds_value, payment_card, urls};
+use crate::formats::{first_format, format_hits, holds_value, payment_card, urls, Hit};
 use crate::known::{known_spans, KnownValues, Registry, REDACTED};
 use crate::labels::{
     self, code_alone, code_words, content_lines, hidden_answer, label_class, labelled_code,
@@ -124,6 +125,26 @@ pub fn mask(s: &str, spans: &[(usize, usize, &str)]) -> String {
     out
 }
 
+/// GATE-603: the kind of personal identifier `value` is by its own shape: the whole value (spaces around it aside)
+/// is one identifier found bare (the issuer's layout and check digit, no label), and no card, secret format or
+/// secret label rule finds anything in it. None for anything else, a label-only kind alone included (a passport
+/// number is no identifier without its label), and when a pattern could not be run. What a page labels its field
+/// never counts: only the value decides.
+pub fn identifier_kind(value: &str) -> Option<&'static str> {
+    let v = value.trim();
+    checked(|| {
+        if v.is_empty() || !format_hits(v, None).is_empty() || !labelled_spans(v, None).is_empty() {
+            return None;
+        }
+        crate::pii::pii_hits(v)
+            .into_iter()
+            .find(|h| h.start == 0 && h.end == v.len())
+            .map(|h| h.kind)
+    })
+    .ok()
+    .flatten()
+}
+
 /// redact.py:88: the stretches of `s` a later pass reads: each line holding a mask, with the lines that aren't
 /// blank just above and below it (and up a list to its label), merged.
 fn around_masks(s: &str) -> Vec<Span> {
@@ -188,12 +209,24 @@ struct Exclusions {
 
 static NEXT_REDACTOR: AtomicU64 = AtomicU64::new(1);
 
+/// One identifier as the owner's "don't mask this" holds it (GATE-602): the SHA-256 of its letters and digits,
+/// upper-cased, so `abcpe-1234-f` and `ABCPE1234F` are one value. Kept in memory only.
+type Digest = [u8; 32];
+
+fn digest(value: &str) -> Option<Digest> {
+    use sha2::Digest as _;
+    let letters = crate::pii::compact(value);
+    (!letters.is_empty()).then(|| sha2::Sha256::digest(letters.as_bytes()).into())
+}
+
 /// redact.py:117.
 pub struct Redactor {
     id: u64,
     registry: Registry,
     exclusions: RwLock<Arc<Exclusions>>,
     config: AtomicU64,
+    /// The identifiers the owner said FERB may show (GATE-602), by digest; empty unless the owner granted one.
+    shown: RwLock<Arc<BTreeSet<Digest>>>,
 }
 
 impl std::fmt::Debug for Redactor {
@@ -235,9 +268,79 @@ impl Redactor {
                 apps: BTreeSet::new(),
             })),
             config: AtomicU64::new(0),
+            shown: RwLock::new(Arc::new(BTreeSet::new())),
         };
         r.configure(exclude_domains, exclude_apps);
         r
+    }
+
+    /// The owner's "don't mask this" for personal identifiers, as the whole set of values now granted (the saved
+    /// identifiers marked shown, GATE-602): each held only as a digest. A pii.rs span whose letters and digits
+    /// match one is left visible; a span any other rule masks (a card, a secret's format or label, a known key)
+    /// stays masked, so nothing but an identifier is ever exempt. A change drops every mark (a string redacted
+    /// while a grant held is read again). How many are held.
+    pub fn show_identifiers<'a, I: IntoIterator<Item = &'a str>>(&self, values: I) -> usize {
+        let new: BTreeSet<Digest> = values.into_iter().filter_map(digest).collect();
+        let n = new.len();
+        let mut held = self
+            .shown
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if **held != new {
+            *held = Arc::new(new);
+            self.config.fetch_add(1, Ordering::SeqCst);
+        }
+        n
+    }
+
+    fn shown(&self) -> Arc<BTreeSet<Digest>> {
+        Arc::clone(
+            &self
+                .shown
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        )
+    }
+
+    /// Whether the owner let FERB show this identifier's value (GATE-602).
+    fn shown_value(&self, held: &BTreeSet<Digest>, value: &str) -> bool {
+        !held.is_empty() && digest(value).is_some_and(|d| held.contains(&d))
+    }
+
+    /// The personal identifiers in `s` (pii.rs) the owner did not let FERB show.
+    fn masked_identifiers(&self, s: &str) -> Vec<Hit> {
+        let held = self.shown();
+        crate::pii::pii_hits(s)
+            .into_iter()
+            .filter(|h| !self.shown_value(&held, &s[h.start..h.end]))
+            .collect()
+    }
+
+    /// GATE-604: the personal identifiers `text` masks in `s` that no other rule masks (not a card, a secret's
+    /// format or label, a known key): (start, end, kind), in order, none overlapping. One the owner let FERB show
+    /// is not among them. What the owner's own chat message holds is kept sealed from these.
+    pub fn identifiers(&self, s: &str) -> Result<Vec<(usize, usize, &'static str)>, Unread> {
+        checked(|| {
+            let found = urls(s);
+            let mut others: Vec<Span> = known_spans(s, &self.registry.values(), false);
+            others.extend(
+                format_hits(s, Some(&found))
+                    .iter()
+                    .map(|h| (h.start, h.end)),
+            );
+            others.extend(labelled_spans(s, Some(&found)));
+            let mut hits = self.masked_identifiers(s);
+            hits.sort_by_key(|h| (h.start, std::cmp::Reverse(h.end)));
+            let mut out: Vec<(usize, usize, &'static str)> = Vec::new();
+            for h in hits {
+                let covered = others.iter().any(|&(a, b)| a < h.end && h.start < b);
+                let overlaps = out.last().is_some_and(|&(_, end, _)| h.start < end);
+                if !covered && !overlaps {
+                    out.push((h.start, h.end, h.kind));
+                }
+            }
+            out
+        })
     }
 
     // ---------- configuration and known values ----------
@@ -350,9 +453,10 @@ impl Redactor {
                 .into_iter()
                 .map(|(a, b)| (a, b, REDACTED)),
         );
-        // Rust-only (pii.rs, GATE-599): personal identifiers that work like credentials
+        // Rust-only (pii.rs, GATE-599): personal identifiers that work like credentials, but for those the owner
+        // let FERB show (GATE-602)
         out.extend(
-            crate::pii::pii_hits(s)
+            self.masked_identifiers(s)
                 .into_iter()
                 .map(|h| (h.start, h.end, REDACTED)),
         );
@@ -457,7 +561,7 @@ impl Redactor {
         // Rust-only (pii.rs, GATE-599): an identifier is named too, never a hit for a gate (`hit`)
         for h in format_hits(s, None)
             .into_iter()
-            .chain(crate::pii::pii_hits(s))
+            .chain(self.masked_identifiers(s))
         {
             if holds_value(s, &h) && !taken.iter().any(|&(a, b, _)| a <= h.start && h.end <= b) {
                 taken.push((h.start, h.end, h.kind));
@@ -694,6 +798,7 @@ impl Redactor {
             } else if matches!(v, Py::Str(_) | Py::Int(_))
                 && !INTERNAL_ID_KEYS.contains(&ks)
                 && crate::pii::key_hit(ks, &to_str(v)).is_some()
+                && !self.shown_value(&self.shown(), &to_str(v))
             {
                 // Rust-only (pii.rs, GATE-599): a key that names an identifier, and a value of its shape
                 redacted()

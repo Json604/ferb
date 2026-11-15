@@ -247,6 +247,8 @@ public struct SavedSecretRow: Identifiable, Equatable {
     public let name: String
     public let kind: String
     public let unusable: Bool
+    /// A personal identifier the owner let the AI see (GATE-602); always false for anything else.
+    public let shown: Bool
 
     public init?(_ row: [String: Any]) {
         guard let place = row["place"] as? String, let name = row["name"] as? String, !name.isEmpty else { return nil }
@@ -254,13 +256,18 @@ public struct SavedSecretRow: Identifiable, Equatable {
         self.name = name
         kind = text(row["kind"])
         unusable = flag(row["unusable"])
+        shown = flag(row["shown"])
     }
+
+    /// A personal identifier kept for any site (GATE-603): the only kind the AI may be let see (GATE-602).
+    public var isIdentifier: Bool { kind == "identifier" }
 
     public var kindLabel: String {
         switch kind {
         case "card_number": return "card number"
         case "card_csc": return "card security code"
         case "card_expiry": return "card expiry"
+        case "identifier": return shown ? "ID, any site, the AI can see it" : "ID, any site"
         default: return "secret"
         }
     }

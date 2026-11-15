@@ -190,8 +190,9 @@ pub fn secret_question(
     );
     if let Some(r) = remember.filter(|r| !r.is_empty()) {
         text.push_str(&format!(
-            " Entering it also saves it in your Mac's Keychain as {}, usable only at this destination.",
-            py_repr(r)
+            " Entering it also saves it in your Mac's Keychain as {}, usable only at this destination{}.",
+            py_repr(r),
+            any_site_id(target)
         ));
     }
     text
@@ -270,8 +271,9 @@ pub fn secret_detail(
             format!(", as “{name}”")
         };
         return format!(
-            "{what}FERB fills it in and saves it in your Mac's Keychain, for {place} only{named}. FERB's AI never \
-             sees it."
+            "{what}FERB fills it in and saves it in your Mac's Keychain, for {place} only{}{named}. FERB's AI never \
+             sees it.",
+            any_site_id(target)
         );
     }
     let into = if target.starts_with("app:") {
@@ -280,6 +282,17 @@ pub fn secret_detail(
         "that page"
     };
     format!("{what}FERB types it into {into} once and doesn't keep it. FERB's AI never sees it.")
+}
+
+/// GATE-603, GATE-605: a value typed for a web page that is an ID number by its own layout and check digit is kept for
+/// any site, which the card can't know before it is typed: it says so after "only" (Python's card has no such clause;
+/// the named difference in tests/scenarios.rs). An app keeps every value for itself.
+fn any_site_id(target: &str) -> &'static str {
+    if target.starts_with("app:") {
+        ""
+    } else {
+        " (or any site, if it's an ID number)"
+    }
 }
 
 /// `login_code_summary(origin)` (P27): the origin's host first.

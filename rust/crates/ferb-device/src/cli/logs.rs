@@ -1,5 +1,5 @@
 //! `ferb logs` (ferb/cli/logs.py): the daemon's bus, live, one line per event. A `tool.finished` event's line is
-//! ferb/trace/lines.py's `step_line`, which comes in through `step_line` until the traces part is ported.
+//! ferb/trace/lines.py's `step_line` ([`tool_step_line`], ferb-trace's).
 
 use serde_json::Value;
 
@@ -62,7 +62,36 @@ fn string(out: &mut String, s: &str) {
     out.push('"');
 }
 
-/// logs.py:13. `step_line` renders a `tool.finished` event (the traces part's).
+/// logs.py:14: a `tool.finished` event's line, `lines.step_line(ev["at"], d.get("tool", "?"), d.get("args") or {},
+/// d.get("why") or "", d.get("summary") or "", d.get("seconds"), d.get("error"))`.
+pub fn tool_step_line(ev: &Value) -> String {
+    let d = &ev["data"];
+    let field = |k: &str| match d.get(k) {
+        Some(v) if ferb_py::value::truthy(v) => ferb_py::value::py_str(v),
+        _ => String::new(),
+    };
+    let tool = match d.get("tool") {
+        Some(v) => ferb_py::value::py_str(v),
+        None => "?".into(),
+    };
+    let empty = Value::Object(Default::default());
+    let args = match d.get("args") {
+        Some(v) if ferb_py::value::truthy(v) => v,
+        _ => &empty,
+    };
+    let error = field("error");
+    ferb_trace::lines::step_line(
+        &ferb_py::value::py_str(&ev["at"]),
+        &tool,
+        args,
+        &field("why"),
+        &field("summary"),
+        d.get("seconds").and_then(Value::as_f64),
+        (!error.is_empty()).then_some(error.as_str()),
+    )
+}
+
+/// logs.py:13. `step_line` renders a `tool.finished` event ([`tool_step_line`] in the program).
 pub fn format_event(ev: &Value, step_line: &dyn Fn(&Value) -> String) -> Result<String, CliError> {
     if ev["topic"] == "tool.finished" {
         return Ok(step_line(ev));

@@ -89,6 +89,16 @@ extension NotchModel {
         action()
     }
 
+    /// The owner's "Let the AI see" under a message (GATE-602, owner GATE-601: lasting until taken back in Settings →
+    /// Data): FERB stops hiding the one identifier saved as `name`.
+    func showIdentifier(_ name: String, turnID: UUID) {
+        Task { @MainActor in
+            guard (try? await rpc.call("secrets.unmask", params: ["name": name])) != nil else { return }
+            conversation.markShown(id: turnID, name: name)
+            saveConversation()
+        }
+    }
+
     func saveConversation() {
         // In FERB's database (APP-805): the entries that changed are written; the preferences archive stays as it was.
         if chatStore.store == .daemon { writeHistorySoon(); return }

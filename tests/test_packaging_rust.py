@@ -68,10 +68,10 @@ def test_the_rust_builds_pins_come_from_the_rust_sources_and_name_todays_program
     # ferbd's own copy of the Codex pin is the runtimes crate's
     again = _zsh("ferb_rust_const $ROOT/rust/crates/ferbd/src/compose/runtimes.rs CODEX_VERSION")
     assert again.stdout.strip() == CODEX_VERSION
-    # the release checks read the same constants for a Rust app, Python's for a Python app
-    for engine in ("python", "rust"):
-        got = _vars(f"ferb_release_constants $ROOT {engine}", "FERB_STORE_EXTENSION", "FERB_MIN_EXTENSION")
-        assert (got["FERB_STORE_EXTENSION"], got["FERB_MIN_EXTENSION"]) == (STORE_EXTENSION_ID, MIN_EXTENSION_VERSION)
+    # the release checks read the same constants; only the Rust build is released (ENG-16)
+    got = _vars("ferb_release_constants $ROOT rust", "FERB_STORE_EXTENSION", "FERB_MIN_EXTENSION")
+    assert (got["FERB_STORE_EXTENSION"], got["FERB_MIN_EXTENSION"]) == (STORE_EXTENSION_ID, MIN_EXTENSION_VERSION)
+    assert _zsh("ferb_release_constants $ROOT python").returncode != 0
 
 
 def test_a_constant_is_read_only_when_named_exactly_once(tmp_path: Path) -> None:

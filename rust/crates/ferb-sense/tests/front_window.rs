@@ -158,6 +158,7 @@ impl Sources for Fake {
 }
 
 // decision: SENSE-403
+// decision: GATE-504
 #[test]
 fn front_window_captures_match_python() {
     let f = fixture("front_window.json");

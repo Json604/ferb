@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 
 use base64::Engine;
 use ferb_browser::profiles::{named, shown, BrowserProfile};
-use ferb_identity::owner_secrets::OwnerSecrets;
+use ferb_identity::owner_secrets::{OwnerSecrets, ANY_SITE};
 use ferb_rpc::{HandlerError, HandlerResult, Server};
 use ferb_runtimes::catalog::{self, ROLES};
 use rusqlite::OptionalExtension;
@@ -467,11 +467,21 @@ pub fn register(server: &Server, host: &Host, deps: &Arc<Deps>) {
             if place.is_empty() || name.is_empty() {
                 return Err(refusal("say which saved secret: its place and its name"));
             }
-            let (pl, nm) = (place.clone(), name.clone());
-            let out = tokio::task::spawn_blocking(move || d.owner_secrets.delete(&pl, &nm))
-                .await
-                .map_err(join)?
-                .map_err(identity_error)?;
+            let (pl, nm, r) = (place.clone(), name.clone(), h.redactor.clone());
+            let out = tokio::task::spawn_blocking(move || {
+                let identifier = pl == ANY_SITE;
+                if identifier {
+                    r.show_identifiers([]); // GATE-602: masked until the grants left are read again
+                }
+                let out = d.owner_secrets.delete(&pl, &nm)?;
+                if identifier {
+                    shown_again(&d.owner_secrets, &r)?;
+                }
+                Ok(out)
+            })
+            .await
+            .map_err(join)?
+            .map_err(identity_error)?;
             h.journal(
                 "secret.deleted",
                 json!({"place": place, "name": name}),
@@ -480,6 +490,42 @@ pub fn register(server: &Server, host: &Host, deps: &Arc<Deps>) {
             ok(out)
         }
     });
+    // GATE-602 (owner GATE-601): the owner's "don't mask this" for one saved identifier, and its end. FERB.app's
+    // own calls (app_only); no tool or model reaches them.
+    for (method, shown) in [("secrets.unmask", true), ("secrets.mask", false)] {
+        let (h, d) = (host.clone(), deps.clone());
+        server.register_unary(method, move |_s, p: Map<String, Value>| {
+            let (h, d) = (h.clone(), d.clone());
+            async move {
+                let name = P(&p).text_or_empty("name");
+                if name.is_empty() {
+                    return Err(refusal("say which saved identifier: its name"));
+                }
+                let (nm, r) = (name.clone(), h.redactor.clone());
+                let out = tokio::task::spawn_blocking(move || {
+                    if !shown {
+                        r.show_identifiers([]); // masked at once, whatever the Keychain answers next
+                    }
+                    let out = d.owner_secrets.set_shown(&nm, shown)?;
+                    shown_again(&d.owner_secrets, &r)?;
+                    Ok(out)
+                })
+                .await
+                .map_err(join)?
+                .map_err(identity_error)?;
+                h.journal(
+                    if shown {
+                        "secret.unmasked"
+                    } else {
+                        "secret.masked"
+                    },
+                    json!({"name": name}),
+                    Some("owner"),
+                )?;
+                ok(out)
+            }
+        });
+    }
     let (h, d) = (host.clone(), deps.clone());
     server.register_unary("seen.list", move |_s, p: Map<String, Value>| {
         let (h, d) = (h.clone(), d.clone());
@@ -490,6 +536,16 @@ pub fn register(server: &Server, host: &Host, deps: &Arc<Deps>) {
         let (h, d) = (h.clone(), d.clone());
         async move { seen_image(&h, &d, &p) }
     });
+}
+
+/// GATE-602: the redactor holds exactly the saved identifiers now marked shown (their values read from the Keychain).
+fn shown_again(
+    store: &OwnerSecrets,
+    redactor: &ferb_sanitize::Redactor,
+) -> ferb_identity::Result<()> {
+    let values = store.shown_values()?;
+    redactor.show_identifiers(values.iter().map(|v| v.expose()));
+    Ok(())
 }
 
 fn join(e: tokio::task::JoinError) -> HandlerError {

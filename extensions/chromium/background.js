@@ -528,6 +528,9 @@ chrome.runtime.onMessage.addListener((m, sender, reply) => {
   // HAND-512: a page in a tab FERB drives asked to print; the hook answered it without the browser's preview
   else if (m && m.ferbPrint && sender && sender.tab && (TABS.get(sender.tab.id) || {}).armed)
     tabState(sender.tab.id).prints = (tabState(sender.tab.id).prints || 0) + 1;
+  // HAND-533: the hook kept the page from bringing its window forward (focus, fullscreen, picture-in-picture)
+  else if (m && SURFACE_KINDS.has(m.ferbSurface) && sender && sender.tab && (TABS.get(sender.tab.id) || {}).armed)
+    surfacedFact(sender.tab.id, { cause: m.ferbSurface, prevented: true });
   // HAND-511: the top page of a tab FERB drives closes its own window (the hook's window.close)
   else if (m && m.ferbClosing && sender && sender.tab && !sender.frameId && (TABS.get(sender.tab.id) || {}).armed) {
     if (selfClosing.size > 200) selfClosing.delete(selfClosing.keys().next().value);
@@ -607,7 +610,8 @@ async function executeCommand(m) {
     // a dialog the page opens during the command (none expected) ends it at once, as a fact (dialogOpened)
     const value = await withTimeout(watch ? Promise.race([work, watch.opened.then((d) => dialogOpened(m.op, d, run))]) : work,
                                     m.timeout_ms || 30000, run);
-    body = { id: m.id, gen: m.gen, status: "ok", value };
+    if (tabId !== null && INPUT_OPS.has(m.op)) await settleSurfaced(tabId);   // HAND-533: what its input brought forward
+    body = { id: m.id, gen: m.gen, status: "ok", value: withSurfaced(tabId, value) };
   } catch (e) {
     if (m.op === "pointer") cancelPointer(m.args.tab_id, m.id);
     body = { id: m.id, gen: m.gen, status: "error", error: String((e && e.message) || e) };
@@ -1278,6 +1282,7 @@ chrome.debugger.onEvent.addListener((src, method, params) => {
   t.pendingDialog = d;
   t.dialogs.push(d);
   send("event", { event: "dialog", tab_id: src.tabId, ...d });
+  if (t.armed) causeInTabWindow(src.tabId, "dialog");          // HAND-533: Chrome brings a dialog's tab forward
   // the worker's choice made beforehand: act's expect_dialog for any dialog, leave_page (`leave`) only for "Leave site?"
   if (t.expect && (!t.expect.leave || d.type === "beforeunload")) {
     const expected = t.expect; t.expect = null;
@@ -1518,6 +1523,8 @@ async function claimPopup(token, tabId) {
     t.claiming = false;
     await send("event", { event: "popup", tab_id: tabId, opener_tab_id: relay.opener, url: maskUrl(relay.url) });
     opener.openedTabs = (opener.openedTabs || 0) + 1;                // HAND-487: the opener's act sees it opened a tab
+    const tab = await chrome.tabs.get(tabId);                         // HAND-533: a popup window goes down at once
+    await popupWindowDown(tab.windowId, relay.opener, tabId);
   } catch (e) { console.warn("FERB popup:", String(e.message || e)); }
   finally { t.claiming = false; }
 }
@@ -1525,7 +1532,10 @@ async function claimPopup(token, tabId) {
 // tab's window or Chrome names a task tab as its openerTabId (a popup window's), so the owner's own new tab in their
 // window is never touched; the task's when the browser's openerId names that task tab, else let go of at once.
 async function openedByInput(tabId, url) {
-  if (!/^https?:/i.test(String(url || "")) || !port) return;
+  // 0.19.11 (HAND-536): a popup window whose page starts blank (window.open("", name, features), then its address:
+  // Firebase's sign-in) is checked too; a blank tab only in a popup window, never one FERB's own open makes
+  const blank = /^about:blank$/i.test(String(url || ""));
+  if ((!blank && !/^https?:/i.test(String(url || ""))) || !port) return;
   const now = Date.now();
   let openers = [...TABS].filter(([id, t]) => id !== tabId && t.armed && t.lastInput && now - t.lastInput <= INPUT_OPENS_MS)
     .sort((a, b) => b[1].lastInput - a[1].lastInput).map(([id]) => id);
@@ -1537,13 +1547,14 @@ async function openedByInput(tabId, url) {
     try { const o = await chrome.tabs.get(id); if (o.windowId === tab.windowId || tab.openerTabId === id) near.push(id); }
     catch (_) { /* closed */ }
   }
-  if (!near.length && !(Number.isInteger(tab.openerTabId) && (TABS.get(tab.openerTabId) || {}).armed)) {
+  let popupWindow = false;
+  if (blank || (!near.length && !(Number.isInteger(tab.openerTabId) && (TABS.get(tab.openerTabId) || {}).armed))) {
     // HAND-511: a popup window (window.open with a size, "Sign in with Google") is a window of its own, and Chrome's
     // openerTabId names the active tab of the opener's window, which a background task tab isn't: such a window is
     // checked against every task tab with input just now, by the browser's own opener (openedBy) as any other
-    let popupWindow = false;
     try { popupWindow = chrome.windows && (await chrome.windows.get(tab.windowId)).type === "popup"; } catch (_) { popupWindow = false; }
     if (!popupWindow) return;
+    if (blank) openers = [...new Set([...near, ...openers])];
   }
   openers = near.length ? near : openers;
   if ((TABS.get(tabId) || {}).attached) return;
@@ -1565,6 +1576,7 @@ async function openedByInput(tabId, url) {
     t.claiming = false;
     await send("event", { event: "popup", tab_id: tabId, opener_tab_id: opener, url: maskUrl(url) });
     const by = TABS.get(opener); if (by) by.openedTabs = (by.openedTabs || 0) + 1;   // HAND-487
+    if (popupWindow) await popupWindowDown(tab.windowId, opener, tabId);              // HAND-533
   } catch (e) { console.warn("FERB new tab:", String(e.message || e)); }
   finally { t.claiming = false; }
 }
@@ -1578,6 +1590,130 @@ async function openedBy(tabId, openerTabId) {
     return typeof by === "string" && by.length > 0 && by === id;
   } catch (_) { return false; }
 }
+
+// ---------- FERB's windows stay in the background (0.19.11, HAND-533) ----------
+// Chrome brings a window forward by itself for what a page does in it. Every tab or window a page opens is followed by
+// its window's Show() (chromium browser_navigator.cc ScopedBrowserShower; BrowserView::Show restores a minimized
+// window, raises it and asks macOS to activate Chrome; a popup window is shown, activated and focused), and a dialog
+// brings its tab forward (measured, HAND-446). No extension can stop that Show, so FERB answers it at once: its own
+// windows (FERB's minimized window, and a popup window a task tab opened that FERB claimed) go back down when they are
+// found shown within SURFACE_CAUSE_MS of such a cause in them. FERB never activates another app or restores the
+// owner's (HAND-212), so if Chrome took the keyboard focus it stays there until the owner clicks their app. A FERB
+// window found shown with no such cause just before it is the owner's doing (the Dock, the Window menu, show_tab): it
+// is left as it is until it is minimized again, never minimized behind their back. Each time is a fact for the
+// responsible task tab's next result (`surfaced`): which window, why, whether it had the focus, whether it went back.
+// Only structural facts decide (a new tab with an opener in that window, a dialog event, a popup FERB claimed, timing).
+const SURFACE_CAUSE_MS = 3000, SURFACED_MAX = 10, KEEP_DOWN_AT_MS = [0, 150, 500, 1200, 2500];
+const SURFACE_KINDS = new Set(["focus", "fullscreen", "picture_in_picture"]);
+const surfaceCauses = new Map();     // window id -> {tabId, cause, newTab, at, done}: the latest cause in that window
+const ownerShown = new Set();        // FERB windows the owner has open themselves
+const taskPopupWindows = new Map();  // popup window id -> the task tab whose popup it is
+
+function surfacedFact(tabId, fact) {
+  if (!Number.isInteger(tabId)) return;
+  const t = tabState(tabId);
+  t.surfaced = (t.surfaced || []).slice(-(SURFACED_MAX - 1));
+  t.surfaced.push(fact);
+}
+// The tab's facts so far, in its command's reply (an object reply only; a later one carries them otherwise)
+function withSurfaced(tabId, value) {
+  const t = tabId !== null ? TABS.get(tabId) : null;
+  if (!t || !t.surfaced || !t.surfaced.length || !value || typeof value !== "object" || Array.isArray(value)) return value;
+  const out = { ...value, surfaced: t.surfaced };
+  t.surfaced = [];
+  return out;
+}
+// The task tab whose input came last (INPUT_OPENS_MS), for a new tab its page opened
+function lastInputTab() {
+  const now = Date.now();
+  const [best] = [...TABS].filter(([, t]) => t.armed && t.lastInput && now - t.lastInput <= INPUT_OPENS_MS)
+    .sort((a, b) => b[1].lastInput - a[1].lastInput);
+  return best ? best[0] : null;
+}
+function causeIn(windowId, tabId, cause, newTab = null) {
+  if (!Number.isInteger(windowId)) return;
+  const now = Date.now();
+  for (const [id, c] of surfaceCauses) if (now - c.at > SURFACE_CAUSE_MS) surfaceCauses.delete(id);
+  surfaceCauses.set(windowId, { tabId, cause, newTab, at: now, done: false });
+  for (const ms of KEEP_DOWN_AT_MS) setTimeout(() => keepDown().catch(() => {}), ms);
+}
+function causeInTabWindow(tabId, cause) {
+  chrome.tabs.get(tabId).then((tab) => causeIn(tab.windowId, tabId, cause)).catch(() => {});
+}
+// A tab a page opened (Chrome gives it an opener tab) in FERB's window or in a window holding a task tab
+async function surfacingTab(tab) {
+  if (!tab || !Number.isInteger(tab.openerTabId) || !Number.isInteger(tab.windowId)) return;
+  const by = (TABS.get(tab.openerTabId) || {}).armed ? tab.openerTabId : lastInputTab();
+  if ((await session()).windowId === tab.windowId || taskPopupWindows.has(tab.windowId)) {
+    causeIn(tab.windowId, by, "new_tab", tab.id);
+    return;
+  }
+  if (by === null) return;
+  try { if ((await chrome.tabs.get(by)).windowId === tab.windowId) causeIn(tab.windowId, by, "new_tab", tab.id); }
+  catch (_) { /* gone */ }
+}
+chrome.tabs.onCreated.addListener((tab) => { surfacingTab(tab).catch(() => {}); });
+
+const recentCause = (windowId) => {
+  const c = surfaceCauses.get(windowId);
+  return c && Date.now() - c.at <= SURFACE_CAUSE_MS ? c : null;
+};
+// One look at FERB's windows (and, when Chrome reports one focused, at that one); one look at a time, so two looks
+// never both see the same shown window (the second would take FERB's own put-back for the owner's)
+let keepDownChain = Promise.resolve();
+function keepDown(focusedId = null) {
+  const next = keepDownChain.then(() => keepDownNow(focusedId));
+  keepDownChain = next.catch(() => {});
+  return next;
+}
+async function keepDownNow(focusedId) {
+  if (windowCreation) return;                         // FERB's window is being made (and minimized) right now
+  const ferbId = (await session()).windowId;
+  const ids = new Set(taskPopupWindows.keys());
+  if (ferbId != null) ids.add(ferbId);
+  for (const id of ids) {
+    let w;
+    try { w = await chrome.windows.get(id); }
+    catch (_) { taskPopupWindows.delete(id); ownerShown.delete(id); continue; }
+    if (w.state === "minimized") { ownerShown.delete(id); continue; }
+    if (ownerShown.has(id)) continue;
+    const c = recentCause(id);
+    if (!c || c.done) { ownerShown.add(id); continue; }   // shown with nothing of FERB's just before it: the owner's
+    c.done = true;
+    await putDown(id, w, id === ferbId ? "ferb" : "popup", c.cause, c.tabId, c.newTab);
+  }
+  // A task tab in one of the owner's windows: Chrome brought that window forward. A fact only: it is theirs.
+  const c = Number.isInteger(focusedId) && focusedId >= 0 && !ids.has(focusedId) ? recentCause(focusedId) : null;
+  if (c && !c.done) {
+    c.done = true;
+    surfacedFact(c.tabId, { window: "owner", cause: c.cause, focused: true, put_back: false,
+                            ...(c.newTab !== null ? { new_tab: c.newTab } : {}) });
+  }
+}
+async function putDown(id, w, kind, cause, tabId, newTab = null) {
+  let down = false;
+  try { await chrome.windows.update(id, { state: "minimized" }); down = true; }
+  catch (e) { console.warn("FERB window:", String(e.message || e)); }
+  surfacedFact(tabId, { window: kind, cause, focused: !!w.focused, put_back: down,
+                        ...(newTab !== null ? { new_tab: newTab } : {}) });
+}
+// A popup window FERB claimed for a task tab (HAND-511) opened shown and focused: down at once
+async function popupWindowDown(windowId, opener, tabId) {
+  let w;
+  try { w = await chrome.windows.get(windowId); } catch (_) { return; }
+  if (w.type !== "popup") return;
+  taskPopupWindows.set(windowId, opener);
+  if (w.state === "minimized") return;
+  await putDown(windowId, w, "popup", "popup_window", opener, tabId);
+}
+// Before an input command answers: a cause it made is looked at once more, so its own reply can carry the fact
+async function settleSurfaced(tabId) {
+  const now = Date.now();
+  if ([...surfaceCauses.values()].some((c) => c.tabId === tabId && now - c.at <= SURFACE_CAUSE_MS))
+    await keepDown().catch(() => {});
+}
+chrome.windows.onFocusChanged.addListener((id) => { if (Number.isInteger(id) && id >= 0) keepDown(id).catch(() => {}); });
+chrome.windows.onRemoved.addListener((id) => { taskPopupWindows.delete(id); ownerShown.delete(id); });
 
 function idle(tr) {
   clearTimeout(tr.timer);
@@ -2223,6 +2359,7 @@ const commands = {
   async show_tab({tab_id}) {
     const tab = await chrome.tabs.get(tab_id);
     const w = await chrome.windows.get(tab.windowId);
+    ownerShown.add(tab.windowId);                 // HAND-533: the owner asked to see it; FERB never minimizes it now
     await chrome.windows.update(tab.windowId, w.state === "minimized" ? {state: "normal", focused: true} : {focused: true});
     await chrome.tabs.update(tab_id, {active: true});
     return {tab_id, window_id: tab.windowId, shown: true};

@@ -882,3 +882,139 @@ async fn banners_wait_while_the_mac_is_away() {
     n.flush_held().await;
     assert_eq!(titles(&mut poster), ["later"]);
 }
+
+/// GATE-602 (owner GATE-601: "always"): the owner's "don't mask this" for one saved identifier, through FERB.app's
+/// own calls. secrets.unmask makes the redactor show that value (and only it); secrets.saved lists it as shown;
+/// secrets.mask and a delete mask it again; a password can't be shown.
+// decision: GATE-602
+// decision: GATE-601
+#[tokio::test(flavor = "multi_thread")]
+async fn the_owner_shows_one_identifier_and_takes_it_back() {
+    #[derive(Default)]
+    struct Memory(Mutex<Vec<(String, String)>>);
+    impl Keychain for Memory {
+        fn store(&self, account: &str, value: &Secret) -> ferb_identity::Result<()> {
+            let mut k = self.0.lock().unwrap();
+            k.retain(|(a, _)| a != account);
+            k.push((account.into(), value.expose().into()));
+            Ok(())
+        }
+        fn lookup(&self, account: &str) -> ferb_identity::Result<Option<Secret>> {
+            let k = self.0.lock().unwrap();
+            Ok(k.iter()
+                .find(|(a, _)| a == account)
+                .map(|(_, v)| Secret::new(v.clone())))
+        }
+        fn delete(&self, account: &str) -> ferb_identity::Result<bool> {
+            let mut k = self.0.lock().unwrap();
+            let before = k.len();
+            k.retain(|(a, _)| a != account);
+            Ok(k.len() < before)
+        }
+    }
+    struct Hosts;
+    impl Places for Hosts {
+        fn is_browser(&self, _: &str) -> bool {
+            false
+        }
+        fn url_host(&self, url: &str) -> Option<String> {
+            url.split_once("://")
+                .map(|(_, rest)| rest.split('/').next().unwrap_or("").to_owned())
+        }
+    }
+    let home = Home::new("");
+    let db = store(&home);
+    let asked = Asked::default();
+    let mut deps = deps(&home, Seams::default(), &db, &asked);
+    let secrets = Arc::new(OwnerSecrets::with_keychain(
+        home.path(),
+        Arc::new(Memory::default()),
+        Arc::new(Hosts),
+    ));
+    secrets
+        .remember_identifier("PAN", &Secret::from("ABCPE1234F"))
+        .unwrap();
+    secrets
+        .remember(
+            "password",
+            "https://bank.example",
+            &Secret::from("invented-pw"),
+            &[],
+            None,
+        )
+        .unwrap();
+    let old = deps.about.take().unwrap();
+    deps.about = Some(Arc::new(about::Deps {
+        version: old.version.clone(),
+        guide: old.guide.clone(),
+        grants: old.grants.clone(),
+        containment: old.containment.clone(),
+        account: old.account.clone(),
+        store: old.store.clone(),
+        store_facts: old.store_facts.clone(),
+        permissions_in_force: old.permissions_in_force.clone(),
+        saved_logins: old.saved_logins.clone(),
+        owner_secrets: secrets.clone(),
+        evidence: None,
+        tree_of: old.tree_of.clone(),
+    }));
+    let d = Daemon::start(|server| areas_b::register(server, &deps)).await;
+    let mut c = d.connect().await;
+    c.send(r#"{"jsonrpc": "2.0", "id": 0, "method": "auth.hello", "params": {"role": "cli"}}"#)
+        .await;
+    c.recv().await.unwrap();
+    let mut n = 0;
+    let mut call = async |method: &str, params: Value| -> Value {
+        n += 1;
+        let line = json!({"jsonrpc": "2.0", "id": n, "method": method, "params": params});
+        c.send(&line.to_string()).await;
+        serde_json::from_str(&c.recv().await.unwrap()).unwrap()
+    };
+    let text = "PAN ABCPE1234F, and ABCPE1234G is my brother's";
+    let r = &home.host.redactor;
+    assert!(!r.text(text).contains("ABCPE1234F"));
+    let shown = call("secrets.unmask", json!({"name": "PAN"})).await;
+    assert_eq!(
+        shown["result"],
+        json!({"name": "PAN", "shown": true}),
+        "{shown}"
+    );
+    assert_eq!(
+        r.text(text),
+        "PAN ABCPE1234F, and [redacted] is my brother's"
+    );
+    let saved = call("secrets.saved", json!({})).await;
+    assert!(saved["result"]["entries"]
+        .as_array()
+        .unwrap()
+        .contains(&json!({"place": "any site", "name": "PAN", "kind": "identifier", "unusable": false, "shown": true})));
+    // never a password, never a name that isn't saved
+    for name in ["password", "nothing"] {
+        let refused = call("secrets.unmask", json!({"name": name})).await;
+        assert!(refused.get("error").is_some(), "{refused}");
+    }
+    let masked = call("secrets.mask", json!({"name": "PAN"})).await;
+    assert_eq!(masked["result"], json!({"name": "PAN", "shown": false}));
+    assert!(!r.text(text).contains("ABCPE1234F"));
+    call("secrets.unmask", json!({"name": "PAN"})).await;
+    assert!(r.text(text).contains("ABCPE1234F"));
+    call(
+        "secrets.delete",
+        json!({"place": "any site", "name": "PAN"}),
+    )
+    .await;
+    assert!(
+        !r.text(text).contains("ABCPE1234F"),
+        "a deleted identifier is masked again"
+    );
+    let kinds: Vec<String> = home
+        .journal_rows()
+        .iter()
+        .filter_map(|row| row[0].as_str().map(str::to_owned))
+        .collect();
+    assert!(
+        kinds.contains(&"secret.unmasked".to_string())
+            && kinds.contains(&"secret.masked".to_string()),
+        "{kinds:?}"
+    );
+}

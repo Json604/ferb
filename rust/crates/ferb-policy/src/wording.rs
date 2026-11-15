@@ -351,6 +351,14 @@ fn part(n: &Need, alongside: &[&str]) -> R<String> {
                 v.req("destination")?
             ) + &(if v.has("read") { format!("; this task read {}", v.opt("read")) } else { String::new() })
         }
+        // GATE-605: a saved ID kept for any site filled into a page, named by its saved name, never its value
+        "sink:new_destination" if v.has("saved") => {
+            format!(
+                "this fills your saved ID {} into a page on {}, a place you haven't named",
+                word(v.opt("saved")),
+                v.req("destination")?
+            ) + &(if v.has("read") { format!("; this task read {}", v.opt("read")) } else { String::new() })
+        }
         "sink:new_destination" if v.has("form") => {
             format!(
                 "this sends the page's answers to {}{}, a place you haven't named: {}",
@@ -520,6 +528,13 @@ fn short(n: &Need, alongside: &[&str]) -> R<Option<String>> {
         ),
         "sink:new_destination" if v.has("files") => {
             format!("send {} to {}", files_said(v), v.req("destination")?)
+        }
+        "sink:new_destination" if v.has("saved") => {
+            format!(
+                "send your saved ID {} to {}",
+                word(v.opt("saved")),
+                v.req("destination")?
+            )
         }
         "sink:new_destination" if v.has("form") => format!(
             "send {} to {}{}",
@@ -1000,6 +1015,21 @@ fn card_of(n: &Need, alongside: &[&str]) -> Option<Card> {
                 format!("Send your {one} to {dest}?"),
                 format!("{does} You haven't named this site to FERB{found}. Yes covers {dest} for this task."),
                 files.join("\n"),
+                "Send",
+                "Don't send",
+            ))
+        }
+        "sink:new_destination" if v.has("saved") => {
+            let dest = v.opt("destination");
+            let found = if v.has("found_via") { format!("; it found it {}", v.opt("found_via")) } else { String::new() };
+            Some(c(
+                format!("Send your details to {dest}?"),
+                format!(
+                    "This fills your saved ID {} into a page on {dest}. You haven't named this site to FERB{found}. \
+                     Yes covers {dest} for this task.",
+                    word(v.opt("saved"))
+                ),
+                v.opt("saved").to_string(),
                 "Send",
                 "Don't send",
             ))

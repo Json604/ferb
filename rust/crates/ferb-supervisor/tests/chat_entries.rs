@@ -846,6 +846,39 @@ fn an_error_fails_the_message() {
     );
 }
 
+/// GATE-604 under ENG-8: the IDs a message's ack says FERB kept sealed are stored on its message entry by kind and
+/// saved name (never a value), so a turn rebuilt from entries can say so; a message with none has no `sealed` key, so
+/// every body written before reads and writes the same.
+// decision: GATE-604
+// decision: ENG-8
+#[test]
+fn the_ids_kept_sealed_from_a_message_are_stored_on_it_by_name() {
+    let (mut p, mut c) = (ChatProjector::new("s1", 1), Clock { n: 0, seq: 0 });
+    frame(
+        &mut p,
+        &mut c,
+        "r1",
+        json!({"type": "ack", "request_id": "r1", "message": "my PAN is [PAN]",
+               "sealed": [{"kind": "PAN", "name": "PAN 2"}]}),
+    );
+    frame(
+        &mut p,
+        &mut c,
+        "r2",
+        json!({"type": "ack", "request_id": "r2", "message": "hi"}),
+    );
+    let messages = by_kind(&p, EntryKind::Message);
+    assert_eq!(
+        messages[0].body["sealed"],
+        json!([{"kind": "PAN", "name": "PAN 2"}])
+    );
+    assert!(
+        messages[1].body.get("sealed").is_none(),
+        "{}",
+        messages[1].body
+    );
+}
+
 // decision: DMN-583
 #[test]
 fn a_hidden_inputs_answer_and_a_hidden_secret_are_never_kept() {

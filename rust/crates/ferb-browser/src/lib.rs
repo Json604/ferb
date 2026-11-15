@@ -56,6 +56,7 @@ pub mod seal;
 pub mod snapshot;
 #[cfg(unix)]
 pub mod staging;
+pub mod surfaced;
 pub mod tools;
 
 #[rustfmt::skip] // written by rust/fixtures/browser/make.py

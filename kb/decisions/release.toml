@@ -26,7 +26,8 @@ legacy = "notes/daemon.md decision 13"
 title = "One logo master; every derived file is generated from it and committed"
 by = "agent"
 date = 2026-11-01
-status = "active"
+status = "superseded"
+superseded_by = "REL-428"
 rule = "assets/logo/ferb-logo.svg is the one master (128-unit canvas, the 96-unit square inset 16; the \"f\" an outline path, so nothing depends on installed fonts). Change the logo only there, then run `uv run python scripts/make_logo.py`, which rewrites every derived file (PNG, AppIcon.icns, extension and notch SVGs and PNGs, site favicon and touch icon) with macOS's own renderer and iconutil. Derived files are committed, so builds don't render."
 paths = ["assets/logo/ferb-logo.svg", "scripts/make_logo.py"]
 live = ["LIVE-25"]
@@ -154,7 +155,8 @@ live = ["LIVE-745"]
 title = "How the disk image's window is made: a rendered background and a written .DS_Store"
 by = "agent"
 date = 2026-11-04
-status = "active"
+status = "superseded"
+superseded_by = "REL-427"
 rule = "scripts/dmg_layout.py is the one spec. make_dmg_background.py compiles dmg-background/main.swift with the app's StartupStudies.swift and GravityDenseStudy.swift and renders each variant at 1x and 2x into assets/dmg, committed like the logo files (REL-3). build-dmg.sh stages FERB.app, the Applications link, a 1x+2x TIFF background and the volume icon, then dmg_layout.py writes the .DS_Store on the mounted image with ds_store and mac_alias (MIT, pinned dev group), never driving Finder; its alias and bookmark name /Volumes/FERB. FERB_DMG_VARIANT overrides the variant for previews."
 paths = ["scripts/build-dmg.sh", "scripts/dmg_layout.py", "scripts/make_dmg_background.py", "scripts/dmg-background/main.swift", "assets/dmg", "pyproject.toml", "THIRD_PARTY_NOTICES.md"]
 live = ["LIVE-745"]
@@ -309,3 +311,43 @@ status = "active"
 rule = "FERB_NOTARIZE=0 with SIGN_IDENTITY=devid signs every piece with the team's Developer ID exactly as REL-421 (timestamp, team requirement, library validation) and skips notarization and stapling, needing no notary credentials. build-dmg.sh refuses FERB_NOTARIZE=0, and ferb_check_devid_app (a DMG's app, release-appcast.sh) still requires a stapled, Gatekeeper-notarized app, so such a build is never shipped."
 why = "Installing builds on the developer's own Mac needs the team signature to keep macOS's permissions across builds; notarization needs the unlocked keychain's notary profile and minutes per build and adds nothing there."
 paths = ["scripts/signing.sh", "scripts/build-dmg.sh", "scripts/build-app-rust.sh"]
+
+[REL-425]
+title = "FERB's version lives in ferbd's VERSION, equal to the Rust workspace's version"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "FERB's version is rust/crates/ferbd/src/compose/mod.rs VERSION, and rust/Cargo.toml's [workspace.package] version is the same; a release-tooling test checks both. build-app-rust.sh (rust-parts.sh ferb_rust_pins), `ferb --version`, the store's build record and release_checks.py's messages use it. These are REL-2's two files that must agree; ferb/__init__.py and pyproject.toml no longer hold it."
+why = "ENG-16 removes ferb/__init__.py and pyproject.toml. The Rust build already read its version from ferbd's VERSION; the workspace version is what cargo shows. REL-418's 0.27.3 was the Python build's release; the Rust build carries 0.28.0."
+paths = ["rust/crates/ferbd/src/compose/mod.rs", "rust/Cargo.toml", "scripts/rust-parts.sh", "scripts/release_checks.py", "scripts/tests/test_release_checks.py"]
+
+[REL-426]
+title = "Release tooling serves the Rust build only: sign-app.sh, build-dmg, the appcast, scripts/tests"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "scripts/sign-app.sh APP is the one re-signing path (was build-app.sh --sign-only): signing.sh's ferb_sign_app then ferb_notarize_built, under SIGN_IDENTITY and FERB_NOTARIZE as a build signs; no rebuild. build-dmg.sh with no app builds each with build-app-rust.sh. release-appcast.sh refuses a DMG whose app carries Contents/Resources/python and reads the extension pins from the Rust sources only. The scripts' tests are stdlib unittest in scripts/tests, run by the gate."
+why = "ENG-16: build-app.sh, the Python build and pytest leave the repo; signing, disk images and appcasts stay shared and tested."
+paths = ["scripts/sign-app.sh", "scripts/build-dmg.sh", "scripts/release-appcast.sh", "scripts/rust-parts.sh", "scripts/tests"]
+
+[REL-427]
+title = "The disk image's window: a rendered background and a .DS_Store written with locked pins"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "scripts/dmg_layout.py is the one spec. make_dmg_background.py (stdlib) compiles dmg-background/main.swift with the app's StartupStudies.swift and GravityDenseStudy.swift and renders each variant at 1x and 2x into assets/dmg, committed (REL-428). build-dmg.sh stages FERB.app, the Applications link, a 1x+2x TIFF background and the volume icon, then dmg_layout.py writes the .DS_Store on the mounted image with ds_store and mac_alias (MIT; pinned by its PEP 723 metadata and scripts/dmg_layout.py.lock, `uv run --script --locked`), never driving Finder; alias and bookmark name /Volumes/FERB."
+why = "REL-410 with the pins moved: pyproject.toml's dev group and uv.lock leave with the Python daemon (ENG-16); a script's own metadata and lock keep exact, hash-checked pins without a project. FERB_DMG_VARIANT still overrides the variant for previews."
+supersedes = ["REL-410"]
+paths = ["scripts/build-dmg.sh", "scripts/dmg_layout.py", "scripts/dmg_layout.py.lock", "scripts/make_dmg_background.py", "scripts/dmg-background/main.swift", "assets/dmg", "THIRD_PARTY_NOTICES.md"]
+live = ["LIVE-745"]
+
+[REL-428]
+title = "One logo master; every derived file is generated from it, with locked PyObjC, and committed"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "assets/logo/ferb-logo.svg is the one master (128-unit canvas, the 96-unit square inset 16; the \"f\" an outline path, so nothing depends on installed fonts). Change the logo only there, then run `uv run --script --locked scripts/make_logo.py` (PyObjC pinned in its PEP 723 metadata and scripts/make_logo.py.lock), which rewrites every derived file (PNG, AppIcon.icns, extension and notch SVGs and PNGs, site favicon and touch icon) with macOS's own renderer and iconutil. Derived files are committed, so builds don't render."
+why = "REL-3 with the pins moved off pyproject.toml (ENG-16). Run once in its locked environment, it rewrote every logo file byte for byte."
+supersedes = ["REL-3"]
+paths = ["assets/logo/ferb-logo.svg", "scripts/make_logo.py", "scripts/make_logo.py.lock"]
+live = ["LIVE-25"]

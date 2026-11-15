@@ -440,6 +440,7 @@ fn every_turn_payload() {
                         paths: strs(&e["data"]["input_paths"]),
                         attached: !raw_paths.is_empty(),
                         hidden: Vec::new(),
+                        sealed: Vec::new(),
                     }
                 })
                 .collect();
@@ -503,4 +504,38 @@ fn an_open_browsing_question_says_what_its_answer_settles() {
         text.contains("a plan never asks the owner which profile again while this is open"),
         "{text}"
     );
+}
+
+/// GATE-604: the identifiers kept sealed from the owner's messages reach the planner as FERB's note naming them,
+/// once each, after the note of what was hidden; never a value.
+// decision: GATE-604
+#[test]
+fn the_sealed_identifiers_reach_the_planner_by_name_only() {
+    use ferb_supervisor::intake::{take_in, Arrival, Start};
+    let wrap = |t: &str| format!("<data>{t}</data>");
+    let one = |text: &str, sealed: Vec<(String, String)>| Arrival {
+        marked: ferb_sanitize::untrusted::mark(text),
+        paths: vec![],
+        attached: false,
+        hidden: vec!["PAN".into()],
+        sealed,
+    };
+    let pan = ("PAN".to_string(), "PAN".to_string());
+    let aadhaar = ("Aadhaar number".to_string(), "Aadhaar number".to_string());
+    let turn = take_in(
+        &[
+            one("file my taxes, PAN [redacted]", vec![pan.clone()]),
+            one("and Aadhaar [redacted]", vec![pan, aadhaar]),
+        ],
+        &Start::default(),
+        &wrap,
+    );
+    assert!(turn.payload.ends_with(
+        "FERB's note: the owner's message held a PAN; FERB hid it.\n\nFERB's note: FERB keeps the PAN as \u{201c}PAN\u{201d} \
+         and the Aadhaar number as \u{201c}Aadhaar number\u{201d} from the owner's message sealed for any site. Fill a \
+         field with browser_secret or mac_secret secret=<that name> instead of asking the owner to type it again."
+    ), "{}", turn.payload);
+    // nothing sealed: the payload as before
+    let plain = take_in(&[one("hello", vec![])], &Start::default(), &wrap);
+    assert!(!plain.payload.contains("sealed"));
 }

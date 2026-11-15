@@ -39,8 +39,26 @@ pub const TURN_S: f64 = 1.0;
 /// A noted preview problem: the first at once, then one row per window with a count.
 pub const NOTE_EVERY_S: f64 = 600.0;
 
-/// The frame sanitizer (text recognition masking, L13): the masked frame, or the error's class name.
-pub type Sanitize = Arc<dyn Fn(Vec<u8>) -> BoxFuture<Result<Vec<u8>, String>> + Send + Sync>;
+/// The frame sanitizer (text recognition masking, L13): the masked frame, or why it isn't one.
+pub type Sanitize = Arc<dyn Fn(Vec<u8>) -> BoxFuture<Result<Vec<u8>, Unmasked>> + Send + Sync>;
+
+/// A frame the sanitizer didn't mask: `error` is shown as the problem and journaled as preview.failed's error (the
+/// error's class name, or the sanitizer's text), `facts` are added to that journal row only (HAND-531: which step
+/// failed, with the framework's error domain and code; never the frame or text read from it).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Unmasked {
+    pub error: String,
+    pub facts: Map<String, Value>,
+}
+
+impl From<String> for Unmasked {
+    fn from(error: String) -> Unmasked {
+        Unmasked {
+            error,
+            facts: Map::new(),
+        }
+    }
+}
 /// `try_hold(keys, holder)` (the daemon's `locks.try_hold(..., during_reads=True)`): a guard holding every lock (they
 /// are released when it drops), None when any is busy, or the error's class name (an unknown lock kind: ValueError).
 pub type TryHold =
@@ -315,8 +333,8 @@ enum Fail {
     Locked,
     Withheld(String),
     Gone(String),
-    /// (type name, the journal's error name)
-    Failed(String, String),
+    /// (type name, the journal's error name, facts the journal row adds)
+    Failed(String, String, Map<String, Value>),
 }
 
 impl From<HandError> for Fail {
@@ -328,7 +346,7 @@ impl From<HandError> for Fail {
             HandError::Refused(t) | HandError::StaleRef(t) | HandError::NoTarget(t) => {
                 Fail::Gone(t)
             }
-            other => Fail::Failed(other.class().to_owned(), error_name(&other)),
+            other => Fail::Failed(other.class().to_owned(), error_name(&other), Map::new()),
         }
     }
 }
@@ -777,7 +795,7 @@ impl TaskPreviews {
         let now = move || clock.monotonic();
         let got: Result<(Vec<u8>, String), Fail> = async {
             let held = (inner.try_hold)(&locks, &format!("preview:{root}"))
-                .map_err(|class| Fail::Failed(class.clone(), class))?;
+                .map_err(|class| Fail::Failed(class.clone(), class, Map::new()))?;
             let Some(held) = held else {
                 return Err(Fail::Busy);
             };
@@ -786,7 +804,7 @@ impl TaskPreviews {
                 None => {
                     let Some(resolve) = resolve else {
                         let class = "AssertionError".to_owned();
-                        return Err(Fail::Failed(class.clone(), class));
+                        return Err(Fail::Failed(class.clone(), class, Map::new()));
                     };
                     *lock(&phase) = "resolve".into();
                     let (_, c) = preview_phase("resolve", &now, resolve()).await?;
@@ -800,7 +818,7 @@ impl TaskPreviews {
             *lock(&phase) = "ocr".into();
             let frame = preview_phase("ocr", &now, (inner.sanitize)(raw.0))
                 .await
-                .map_err(|class| Fail::Failed(class.clone(), class))?;
+                .map_err(|u| Fail::Failed(u.error.clone(), u.error, u.facts))?;
             Ok((frame, raw.1))
         }
         .await;
@@ -833,7 +851,7 @@ impl TaskPreviews {
                         st.counts.one(format!("{kind}_gone"));
                         Ended::Failed
                     }
-                    Fail::Failed(class, name) => {
+                    Fail::Failed(class, name, facts) => {
                         s.capture = None;
                         s.problem = Some(if (inner.allowed)() {
                             ("failed".into(), class)
@@ -848,12 +866,12 @@ impl TaskPreviews {
                         let previews = TaskPreviews {
                             inner: inner.clone(),
                         };
-                        let notes = previews.journal(
-                            &mut st,
-                            "preview.failed",
-                            kind,
-                            json!({"error": name}),
-                        );
+                        let notes = previews.journal(&mut st, "preview.failed", kind, {
+                            let mut data = Map::new();
+                            data.insert("error".into(), json!(name));
+                            data.extend(facts);
+                            Value::Object(data)
+                        });
                         drop(st);
                         previews.tell(notes);
                         Ended::Failed

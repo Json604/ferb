@@ -4524,3 +4524,12 @@ request = "Open Login Items after the move (with Open FERB at login on), then lo
 pass = "Open at Login lists FERB once; Allow in the Background lists FERB with its background service grouped under it; ~/Library/LaunchAgents holds neither com.ferb.FERB.login.plist nor com.ferb.daemon.plist; FERB opens after the login."
 decisions = ["APP-904"]
 sitting = "the first Developer ID release"
+
+[LIVE-947]
+title = "A browser task's sign-in window, new tabs and dialogs leave the owner where they are"
+area = "hands"
+surface = "FERB.app with this engine and the FERB extension 0.19.11; a paired Chrome profile; the background probe page served at a local or kartikey.xyz address; you in another app in full screen"
+request = "Ask FERB to open the probe page in that profile and click each of its twelve buttons in order, five seconds apart, then report what its results said about windows and copy the page's log."
+pass = "You keep working in your app the whole time: no Chrome window comes up and your typing never goes to Chrome. Where Chrome showed a window anyway, FERB's results say so (window_shown or screen_changed_during_call) and the window was minimized within a moment."
+decisions = ["HAND-532", "HAND-533", "HAND-534", "HAND-536"]
+sitting = "after 0.19.11 is published and loaded, and this engine is installed"

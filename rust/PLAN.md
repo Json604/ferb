@@ -196,6 +196,11 @@ Lines are Python lines at `63369cb3`. "Fixtures" names what exists; a part witho
 - Cutover is the owner's install: quit FERB.app, no running tasks (in-memory authority does not transfer), install,
   live checks (`kb/live.toml`). Python is deleted only after that, in its own commit, with the gate's Python
   checks retired by a recorded gate change.
+- Prepared for the removal (journal 76, ENG-16): `ferb trace`, `stats` and `browsers extension` in the Rust program;
+  the release scripts off pyproject and build-app.sh (sign-app.sh, PEP 723 locks, rust-only appcast), their tests in
+  `scripts/tests`; the kb tool's `historical` paths (PROJ-509); the version's home (REL-425); fixture scripts kept
+  as history (ENG-17, `rust/fixtures/README.md`). Left: T-1111 (the deletion itself, by the coordinator),
+  T-1100..T-1110 (98 decisions whose only tests were Python), T-1112 (`ferb runtimes`, `memory dashboard`).
 
 ## Stage 2: history owned by the engine
 

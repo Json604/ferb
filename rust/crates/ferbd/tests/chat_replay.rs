@@ -2572,3 +2572,52 @@ fn a_clients_marks_only_move_forward() {
     let r = rpc(&mut c, 5, "chat.entries.days", json!({}));
     assert!(r["result"]["days"].is_array(), "{r}");
 }
+
+/// GATE-604 through the real daemon: an identifier in the owner's message goes to the owner's saved secrets. A test
+/// daemon reaches no Keychain, so the save fails: the message is only masked, as before (no `sealed` in the ack, no
+/// handle file), and the journal names the kind that could not be kept, never the value.
+// decision: GATE-604
+#[test]
+fn an_identifier_the_keychain_cannot_keep_is_only_masked_and_its_kind_journaled() {
+    let st = stage2();
+    let mut c = client(&st.run);
+    let (events, _) = streamed(
+        &mut c,
+        2,
+        "chat.send",
+        json!({"text": "my PAN is ABCPE1234F", "client_id": "mac"}),
+    );
+    let ack = &events[0];
+    assert_eq!(ack["type"], "ack", "{ack}");
+    assert_eq!(ack["message"], "my PAN is [redacted]");
+    assert_eq!(ack["hidden"], json!(["PAN"]));
+    assert!(ack.get("sealed").is_none(), "{ack}");
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(!st.run.home.join("owner-secret-handles.json").exists());
+    let conn = rusqlite::Connection::open_with_flags(
+        st.run.home.join("ferb.db"),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
+    let rows: Vec<(String, String)> = conn
+        .prepare("SELECT kind, data_json FROM journal WHERE kind LIKE 'identifier.%'")
+        .unwrap()
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    assert_eq!(
+        rows,
+        vec![(
+            "identifier.seal_failed".to_string(),
+            r#"{"kind": "PAN"}"#.to_string()
+        )]
+    );
+    let all: String = conn
+        .query_row("SELECT group_concat(data_json) FROM journal", [], |r| {
+            r.get::<_, Option<String>>(0)
+        })
+        .unwrap()
+        .unwrap_or_default();
+    assert!(!all.contains("ABCPE1234F"));
+}

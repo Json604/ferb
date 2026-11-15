@@ -290,7 +290,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 `scripts/build-dmg.sh` writes the disk image's Finder window (`.DS_Store`, with an alias and a bookmark to its
 background) with [ds_store](https://github.com/dmgbuild/ds_store) 1.3.3 and
 [mac_alias](https://github.com/dmgbuild/mac_alias) 2.2.3 under the MIT License, installed unmodified in the
-development environment (uv dev group). Neither ships in FERB.app or the disk image.
+script's own environment (its inline metadata and scripts/dmg_layout.py.lock). Neither ships in FERB.app or the disk
+image.
 
 Copyright (c) 2014 Alastair Houghton (ds_store, mac_alias)
 Copyright (c) 2022 Russell Keith-Magee (mac_alias)

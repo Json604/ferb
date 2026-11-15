@@ -207,7 +207,19 @@ fn tools(secrets: Vec<SecretSpec>) -> (Tools, Tools) {
     (make(OWNER_BROWSER, owner), make(FERB_BROWSER, ferb))
 }
 
+/// HAND-535: the verbs whose calls became on_screen in the Rust engine.
+const ON_SCREEN_NOW: [&str; 7] = [
+    "navigate",
+    "act",
+    "media",
+    "login_code",
+    "secret",
+    "fill_secret",
+    "fill_otp",
+];
+
 // decisions: HAND-402, HAND-436, GATE-202, L31, L33
+// decision: HAND-535
 #[test]
 fn every_browser_tool_is_the_catalogs() {
     let c = catalog();
@@ -235,7 +247,14 @@ fn every_browser_tool_is_the_catalogs() {
                 "owner"
             };
             assert_eq!(t["identities"], json!([who]), "{name}");
-            assert_eq!(t["facts"], Value::Object(family.facts(v)), "{name}");
+            // The one deliberate difference (HAND-535): browser input is on_screen, so the desktop is sampled around
+            // it; Python's catalog has on_screen false for these verbs.
+            let mut want = t["facts"].clone();
+            if ON_SCREEN_NOW.contains(&v.verb) {
+                assert_eq!(want["on_screen"], false, "{name}: Python's catalog");
+                want["on_screen"] = true.into();
+            }
+            assert_eq!(want, Value::Object(family.facts(v)), "{name}");
             assert_eq!(
                 t["acts"],
                 json!(v.risk > 1 || v.generic_input),

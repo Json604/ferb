@@ -49,9 +49,27 @@ pub struct Over {
 /// during_reads=True), _screen_recording_allowed, note=self._note_preview)`.
 pub fn build(over: Over) -> TaskPreviews {
     let images = over.images;
+    // a frame's faults (HAND-531) are collected by the image sanitizer under this task-local and added to
+    // preview.failed's row; the shown text and the journal's error stay the sanitizer's
     let sanitize: tp::Sanitize = Arc::new(move |image: Vec<u8>| {
         let images = images.clone();
-        Box::pin(async move { images.sanitize(&image).await })
+        Box::pin(async move {
+            let faults = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let got = crate::compose::tools::mac::PREVIEW_FAULTS
+                .scope(faults.clone(), async { images.sanitize(&image).await })
+                .await;
+            got.map_err(|error| {
+                let faults = faults.lock().unwrap_or_else(|e| e.into_inner());
+                let mut facts = serde_json::Map::new();
+                if !faults.is_empty() {
+                    facts.insert(
+                        "faults".into(),
+                        serde_json::Value::Array(faults.iter().map(|f| f.facts()).collect()),
+                    );
+                }
+                tp::Unmasked { error, facts }
+            })
+        })
     });
     let locks = over.locks;
     let try_hold: tp::TryHold = Arc::new(move |keys: &[String], holder: &str| {
@@ -283,6 +301,59 @@ mod tests {
         assert_eq!(h.to_string(), "the tab hung");
         let r = hand_error(&ferb_browser::error::Error::refused("not this task's tab"));
         assert!(matches!(r, ferb_mac_hands::error::HandError::Refused(_)));
+    }
+
+    /// The Mac's sanitizer puts a preview frame's faults under the task-local; it fails with the usual text.
+    struct Failing;
+    impl ferb_gateway::call_hooks::ImageSanitizer for Failing {
+        fn sanitize<'a>(
+            &'a self,
+            _image: &'a [u8],
+        ) -> ferb_core::interfaces::BoxFuture<'a, Result<Vec<u8>, String>> {
+            let sink = crate::compose::tools::mac::PREVIEW_FAULTS
+                .try_with(|f| f.clone())
+                .ok();
+            Box::pin(async move {
+                if let Some(sink) = sink {
+                    let mut f = ferb_mac_hands::ocr::Fault::new("com.apple.Vision", 9);
+                    f.step = "vision".into();
+                    f.under = Some(("com.apple.e5rt".into(), 13));
+                    sink.lock().unwrap().push(f);
+                }
+                Err(ferb_mac_hands::ocr::UNAVAILABLE.to_string())
+            })
+        }
+    }
+
+    /// HAND-531: a frame that couldn't be masked journals preview.failed with its error as before, plus the step that
+    /// failed and the framework's error domain and code.
+    // decision: HAND-531
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_frame_that_couldnt_be_masked_journals_which_step_failed_and_its_error_code() {
+        let locks = ResourceLocks::new();
+        let l = locks.clone();
+        let notes: Arc<Mutex<Vec<(String, Value)>>> = Arc::new(Mutex::new(vec![]));
+        let n = notes.clone();
+        let p = GatewayPreviews(build(Over {
+            locks: Arc::new(move || Some(l.clone())),
+            images: Arc::new(Failing),
+            screen_recording: Arc::new(|| true),
+            note: Arc::new(move |k: &str, d: Value| n.lock().unwrap().push((k.into(), d))),
+        }));
+        let frames = Arc::new(Mutex::new(0));
+        declare(&p, &frames);
+        let got = p.0.frame("t1", None, None).await;
+        assert!(got.image.is_none());
+        let notes = notes.lock().unwrap().clone();
+        assert_eq!(
+            notes,
+            [(
+                "preview.failed".to_string(),
+                serde_json::json!({"surface": "window", "error": ferb_mac_hands::ocr::UNAVAILABLE,
+                    "faults": [{"step": "vision", "domain": "com.apple.Vision", "code": 9,
+                                "under_domain": "com.apple.e5rt", "under_code": 13}]})
+            )]
+        );
     }
 
     fn json_true() -> Value {

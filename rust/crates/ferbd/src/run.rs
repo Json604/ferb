@@ -40,6 +40,10 @@ pub fn main(args: &[String]) -> i32 {
 /// serves as the developer toolbox. It never runs the daemon, the tool bridge or the grant probe: those run as
 /// FERB.app's agent ([`main`], crate::host), which holds macOS's permissions; this program holds none.
 pub fn cli(args: &[String]) -> i32 {
+    // HAND-531: the fresh process that reads an image's text when the daemon's own Vision can't
+    if args.len() == 1 && args[0] == ferb_mac_hands::vision_child::COMMAND {
+        return ferb_mac_hands::native::vision::child_main();
+    }
     crate::device::run(args)
 }
 

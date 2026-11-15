@@ -164,6 +164,17 @@ pub struct MessageBody {
     pub merged_into: Option<String>,
     /// Why an interrupted message has no answer (state `interrupted`).
     pub notice: Option<String>,
+    /// The personal IDs FERB kept sealed from it (the ack's `sealed`, GATE-604): each one's kind and saved name, never
+    /// a value. Added under ENG-8 as an optional field: absent when none, so every body written before reads the same.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sealed: Vec<SealedId>,
+}
+
+/// One personal ID kept sealed from a message (GATE-604): its kind ("PAN") and the name it is saved under ("PAN 2").
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct SealedId {
+    pub kind: String,
+    pub name: String,
 }
 
 /// One plan step as a checklist line or a card's plan names it.

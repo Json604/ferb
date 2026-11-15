@@ -1152,6 +1152,13 @@ impl Driver {
         out
     }
 
+    /// HAND-533: what brought a browser window forward around this tab, as the extension told it, not yet reported.
+    pub fn surfaced_for(&self, tab: &TabRef) -> Vec<Map<String, Value>> {
+        self.tab(&tab.tab_id)
+            .map(|t| t.bridge.take_surfaced(t.chrome_id))
+            .unwrap_or_default()
+    }
+
     /// `opened_for`: new tabs this tab started, now this task's, not yet reported.
     pub fn opened_for(&self, tab: &TabRef) -> Vec<Map<String, Value>> {
         let mut out = vec![];

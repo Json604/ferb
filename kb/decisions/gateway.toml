@@ -1312,3 +1312,49 @@ status = "active"
 rule = "Refines GATE-599 with python-stdnum 2.2 as the oracle: PT NIF any first digit; PPS ignores a ninth W/T/X; Israeli id padded from 5-8 digits; Steuer-ID repetition rule; Ausweis 9 characters; NIR 2A/2B only as department; 89 IBAN lengths; PAN K; voter id Luhn; VID not 0/1; label-only shape for SG M series, Taiwan 8/9, Sri Lanka 12 digits; Norway fodselsnummer and CLABE added; no IPv4 after a label. The card rule masks IMEIs and plain ZA/Emirates ids as cards. No oracle: HKID, Emirates, Saudi, AU Medicare, 8-digit TFN, UK licence, SG M, TW 8/9, LK 12, CLABE, Ausweis."
 why = "A review rebuilt each rule against stdnum: no checksum was wrong, but real numbers were missed (494313650, 6433435FT, 3933742-3) and look-alikes passed (WKH1186263, 36554266806). Each change agrees with stdnum on 300 valid numbers and every check-character mutation."
 paths = ["rust/crates/ferb-sanitize/src/pii.rs", "rust/fixtures/sanitize-shapes"]
+
+[GATE-601]
+title = "Identifiers: a 'don't mask' lasts always, saved ones fill on any site, typed ones are kept sealed"
+by = "owner"
+date = 2026-11-15
+status = "active"
+words = "\"is there an option to not mask sometihg?? but only when user says or slects etcetc\"; then: \"a. always, b. filled on any site, c. yes leave them unmaskwed, d. yes lets add that\""
+words_source = "Owner 2026-11-15, relayed by the coordinator, on identifiers: 1 how long a 'don't mask' lasts; 2 a saved ID on any site; 3 contact data and technical ids unmasked; 4 an ID typed in chat kept sealed"
+rule = "Only for the personal identifiers GATE-599 masks, never passwords, keys, tokens, OTPs or cards (rule 7): the owner can let FERB stop masking one identifier, until the owner takes it back; a saved identifier fills on any site; contact data and technical ids stay unmasked; an identifier the owner types in chat is kept sealed from the first time, so FERB doesn't ask for it again (for these, GATE-501's notice says it was kept)."
+paths = ["rust/crates/ferb-sanitize/src/redact.rs", "rust/crates/ferb-identity/src/owner_secrets.rs", "rust/crates/ferb-supervisor/src/flow/chat.rs", "rust/crates/ferb-gateway/src/gateway/hidden.rs"]
+
+[GATE-602]
+title = "A 'don't mask' grant is for one saved identifier's value, given and taken back only in FERB.app"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "For GATE-601. A grant marks one entry of the any-site identifier record (GATE-603) `shown`; the value stays in the Keychain. Only FERB.app's app_only secrets.unmask and secrets.mask change it (no tool, no model, nothing read); secrets.saved lists it; a delete or a new value ends it. The redactor holds the shown values' SHA-256 in memory and leaves a pii.rs span visible when its letters and digits match; what another rule masks stays masked."
+why = "Owner: only when the user says or selects. One value, not a kind: the owner's PAN can show while another's stays masked. The Keychain already holds the value, so the database never holds it, not even as a hash guessable from the id's small space."
+paths = ["rust/crates/ferb-sanitize/src/redact.rs::Redactor.show_identifiers", "rust/crates/ferb-identity/src/owner_secrets.rs::OwnerSecrets.set_shown", "rust/crates/ferb-daemon/src/areas_b/about.rs"]
+
+[GATE-603]
+title = "Saved identifiers live in one 'any site' record; a hidden-input value counts only by its own layout"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "For GATE-601. Identifiers are kept in the record \"any site\" (kind \"identifier\"), never linked to a site; reveal falls back to it when the target's record has no such name (a site's own entry wins); secrets.list names them as `identifiers`. A hidden-input value saved with `remember` goes there only if the redactor finds it whole as a bare identifier (issuer layout and check digit, no card or secret rule) and the field is no card field; anything else keeps its site."
+why = "A page sets its field's label and kind: deciding by them would let a page turn a typed password into a value filled on every site. A value's own layout and check digit can't be set by a page."
+paths = ["rust/crates/ferb-identity/src/owner_secrets.rs", "rust/crates/ferb-gateway/src/gateway/hidden.rs", "rust/crates/ferb-sanitize/src/redact.rs::identifier_kind"]
+
+[GATE-604]
+title = "An identifier in the owner's own chat message is sealed for any site; the model gets its name"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "For GATE-601. chat.send (the owner's message only; never a page, file or tool result) seals each identifier the redactor would mask in it that no card or secret rule covers into the any-site record, named by kind (\"PAN\", then \"PAN 2\"; the same value reuses its entry). The text is masked as before; the ack carries `sealed` ({kind, name}); the planner gets FERB's note naming them. A failed save journals identifier.seal_failed with the kind only."
+why = "Owner: avoid typing an ID twice. Code finds and names them, so the model learns a fillable name without seeing the value; nothing read from elsewhere can add to the owner's saved values."
+paths = ["rust/crates/ferb-supervisor/src/flow/chat.rs", "rust/crates/ferb-supervisor/src/intake.rs::sealed_note", "rust/crates/ferbd/src/compose/supervisor.rs"]
+
+[GATE-605]
+title = "A saved ID filled on a site goes through the form sink; apps keep their own entries"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "Refines GATE-603. A browser.secret fill of an ID kept for any site is the owner's private data sent to the page's site: after outside content was read, on a site the owner neither named (GATE-537) nor approved, the form sink's question is asked (its key: once per site per task, its Yes carries to the submit; GATE-215, GATE-557, GATE-558), naming the ID by its saved name, never its value. The fill re-checks the exact frame's site. An app gets no any-site fallback; secrets.list names identifiers only for a web place."
+why = "'Filled on any site' answered re-typing the ID, not where the owner's data may go. A site's own entry fills only at its exact place, so it never needed the sink; an ID has no place, so a page could talk the model into filling it anywhere unasked. The sink has no app form."
+paths = ["rust/crates/ferb-gateway/src/gateway.rs::Gateway.identifier_sink", "rust/crates/ferb-gateway/src/gateway.rs::Gateway.identifier_cleared", "rust/crates/ferb-gateway/src/gateway/hidden.rs", "rust/crates/ferb-identity/src/owner_secrets.rs::entry_for", "rust/crates/ferb-policy/src/wording.rs", "rust/crates/ferb-gateway/src/hidden_words.rs"]

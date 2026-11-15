@@ -20,6 +20,9 @@ struct FakeHost {
     salvage_fails: bool,
     envs: Vec<bool>,
     daemon: Option<Vec<(String, Value)>>,
+    rpc: Option<Box<dyn Rpc>>,
+    extensions: Vec<(String, Option<String>)>,
+    stats: Vec<i64>,
 }
 
 struct Canned(Vec<(String, Value)>);
@@ -58,6 +61,9 @@ impl Host for FakeHost {
         Err(CliError::Io("[Errno 13] Permission denied: '/x'".into()))
     }
     fn connect(&mut self) -> Result<Box<dyn Rpc>, CliError> {
+        if let Some(rpc) = self.rpc.take() {
+            return Ok(rpc);
+        }
         match self.daemon.take() {
             Some(answers) => Ok(Box::new(Canned(answers))),
             None => Err(CliError::NotRunning(
@@ -74,6 +80,15 @@ impl Host for FakeHost {
     }
     fn step_line(&self) -> Option<Box<dyn Fn(&Value) -> String>> {
         None
+    }
+    fn extension(&mut self, action: &str, out_dir: Option<&str>) -> i32 {
+        self.extensions
+            .push((action.into(), out_dir.map(String::from)));
+        0
+    }
+    fn stats(&mut self, days: i64) -> i32 {
+        self.stats.push(days);
+        0
     }
 }
 
@@ -136,20 +151,48 @@ fn exit_statuses_and_error_lines_are_pythons() {
     assert_eq!(run(&argv(&["ps"]), &mut h), 0);
     assert_eq!(text(&h.out), "No processes.\n");
 
-    // parts not ported yet say so
-    for cmd in [
-        vec!["trace"],
-        vec!["stats"],
-        vec!["mcp"],
-        vec!["daemon", "run"],
-        vec!["runtimes"],
-        vec!["memory", "dashboard"],
-        vec!["browsers", "extension"],
-    ] {
+    // parts not ported yet say so; the agent's own commands name the program that runs them
+    for cmd in [vec!["runtimes"], vec!["memory", "dashboard"]] {
         let mut h = FakeHost::default();
         assert_eq!(run(&argv(&cmd), &mut h), 1, "{cmd:?}");
         assert!(text(&h.err).contains("isn't part of the Rust program yet"));
     }
+    for (cmd, there) in [
+        (vec!["mcp"], "ferbd mcp"),
+        (vec!["daemon", "run"], "ferbd daemon"),
+    ] {
+        let mut h = FakeHost::default();
+        assert_eq!(run(&argv(&cmd), &mut h), 1, "{cmd:?}");
+        assert!(text(&h.err).contains(there), "{}", text(&h.err));
+    }
+
+    // `browsers extension`: the host's, with its action (default `path`) and --out
+    let mut h = FakeHost::default();
+    assert_eq!(run(&argv(&["browsers", "extension"]), &mut h), 0);
+    assert_eq!(
+        run(
+            &argv(&["browsers", "extension", "package", "--out", "/tmp/x"]),
+            &mut h
+        ),
+        0
+    );
+    assert_eq!(run(&argv(&["browsers", "extension", "install"]), &mut h), 0);
+    assert_eq!(
+        h.extensions,
+        vec![
+            ("path".to_string(), None),
+            ("package".to_string(), Some("/tmp/x".to_string())),
+            ("install".to_string(), None)
+        ]
+    );
+    assert_eq!(h.envs, Vec::<bool>::new()); // no setup env, no daemon
+
+    // `stats`: the host's (the database, no daemon), --days defaulting to 7
+    let mut h = FakeHost::default();
+    assert_eq!(run(&argv(&["stats"]), &mut h), 0);
+    assert_eq!(run(&argv(&["stats", "--days", "30"]), &mut h), 0);
+    assert_eq!(h.stats, vec![7, 30]);
+    assert_eq!(run(&argv(&["stats", "--days", "x"]), &mut h), 2);
 }
 
 fn serve(path: PathBuf, script: Vec<Value>) -> std::thread::JoinHandle<Vec<String>> {
@@ -233,3 +276,187 @@ fn the_client_speaks_the_daemons_frames() {
         other => panic!("{other:?}"),
     }
 }
+
+/// What `ferb trace` asks the daemon for, the request recorded.
+struct Recorded(
+    Vec<(String, Value)>,
+    std::rc::Rc<std::cell::RefCell<Vec<Value>>>,
+);
+
+impl Rpc for Recorded {
+    fn call(&mut self, method: &str, params: Option<Value>) -> Result<Value, CliError> {
+        let (m, v) = self.0.remove(0);
+        assert_eq!(m, method);
+        self.1.borrow_mut().push(params.unwrap_or(Value::Null));
+        Ok(v)
+    }
+}
+
+/// `ferb trace [TASK] [--full|--json]` writes what cli/admin.py `trace` wrote for the same `trace.get` answer: every
+/// recorded case of rust/fixtures/trace/traces.json (made by the Python build's `admin.trace` on a fake client), each
+/// mode, through the program's dispatch.
+// decision: ORCH-527
+#[test]
+fn trace_writes_pythons_bytes_for_every_recorded_case() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/trace/traces.json");
+    let fixture = ferb_trace::py::loads(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let cases = fixture["cases"].as_array().unwrap();
+    let mut compared = 0;
+    for c in cases {
+        let task_id = c["task_id"].as_str().unwrap();
+        let with_episode = json!({
+            "task_id": task_id, "spans": c["spans"], "outcome": c["outcome"], "episode": c["episode"]
+        });
+        // `plain`: the answer when nothing was composed (no episode): the span tree
+        let bare = json!({"task_id": task_id, "spans": c["spans"], "outcome": c["outcome"], "episode": null});
+        for (flags, key, answer) in [
+            (&[][..], "story", &with_episode),
+            (&["--full"][..], "full", &with_episode),
+            (&["--json"][..], "json", &with_episode),
+            (&[][..], "plain", &bare),
+        ] {
+            // a few large cases keep only their length in the fixture (traces_match_python checks those)
+            let Some(want) = c[key].as_str() else {
+                continue;
+            };
+            let asked = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+            let mut h = FakeHost {
+                rpc: Some(Box::new(Recorded(
+                    vec![("trace.get".into(), answer.clone())],
+                    asked.clone(),
+                ))),
+                ..FakeHost::default()
+            };
+            let mut args = vec!["trace", task_id];
+            args.extend_from_slice(flags);
+            assert_eq!(run(&argv(&args), &mut h), 0, "{} {key}", c["name"]);
+            assert_eq!(text(&h.out), want, "{} {key}", c["name"]);
+            assert_eq!(asked.borrow().as_slice(), &[json!({"task_id": task_id})]);
+            compared += 1;
+        }
+    }
+    assert_eq!(
+        compared, 220,
+        "every recorded output with its bytes in the fixture"
+    );
+
+    // no task: the latest ("last"); --full and --json together: argparse's refusal
+    let asked = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let mut h = FakeHost {
+        rpc: Some(Box::new(Recorded(
+            vec![("trace.get".into(), json!({"task_id": "t-1", "spans": []}))],
+            asked.clone(),
+        ))),
+        ..FakeHost::default()
+    };
+    assert_eq!(run(&argv(&["trace"]), &mut h), 0);
+    assert_eq!(text(&h.out), "no spans for task t-1\n");
+    assert_eq!(asked.borrow().as_slice(), &[json!({"task_id": "last"})]);
+    let mut h = FakeHost::default();
+    assert_eq!(run(&argv(&["trace", "--full", "--json"]), &mut h), 2);
+}
+
+/// `ferb logs` prints a `tool.finished` event as ferb/trace/lines.py's step line (it printed a placeholder until the
+/// traces part was wired in). Each expected line is what ferb/cli/logs.py `format_event` printed for the same event.
+#[test]
+fn a_tool_step_in_the_logs_is_pythons_step_line() {
+    let cases: Value = serde_json::from_str(STEP_LINES).unwrap();
+    for case in cases.as_array().unwrap() {
+        let (ev, want) = (&case[0], case[1].as_str().unwrap());
+        let got = ferb_device::cli::logs::format_event(ev, &ferb_device::cli::logs::tool_step_line)
+            .unwrap();
+        assert_eq!(got, want, "{ev}");
+    }
+}
+
+/// Recorded from the Python build: `[event, format_event(event)]`.
+const STEP_LINES: &str = r##"[
+ [
+  {
+   "topic": "tool.finished",
+   "at": "2026-11-15T10:02:03.5+05:30",
+   "class": "info",
+   "data": {
+    "tool": "browser.open",
+    "args": {
+     "url": "https://example.com/a",
+     "tab": 2,
+     "x": null
+    },
+    "why": "to read the page",
+    "summary": "opened",
+    "seconds": 1.25
+   }
+  },
+  "10:02:03  browser.open  url=https://example.com/a  tab=2  (why: to read the page)  → opened  [1.2s]"
+ ],
+ [
+  {
+   "topic": "tool.finished",
+   "at": "2026-11-15T10:02:04+00:00",
+   "class": "info",
+   "data": {
+    "tool": "shell.run",
+    "args": {
+     "command": "ls -la"
+    },
+    "error": "exit 2: no such file",
+    "seconds": 0
+   }
+  },
+  "10:02:04  shell.run  command=ls -la  ✗ exit 2: no such file  [0.0s]"
+ ],
+ [
+  {
+   "topic": "tool.finished",
+   "at": "2026-11-15T23:59:59",
+   "class": "info",
+   "data": {}
+  },
+  "23:59:59  ?  → "
+ ],
+ [
+  {
+   "topic": "tool.finished",
+   "at": "2026-11-15T01:00:00",
+   "class": "info",
+   "data": {
+    "tool": "fs.read",
+    "args": null,
+    "why": "",
+    "summary": "",
+    "seconds": null,
+    "error": ""
+   }
+  },
+  "01:00:00  fs.read  → "
+ ],
+ [
+  {
+   "topic": "tool.finished",
+   "at": "2026-11-15T01:00:00",
+   "class": "info",
+   "data": {
+    "tool": "fs.read",
+    "args": {
+     "path": "/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "summary": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "seconds": 12
+   }
+  },
+  "01:00:00  fs.read  path=/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa…  → xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx  [12.0s]"
+ ],
+ [
+  {
+   "topic": "task.started",
+   "at": "2026-11-15T01:00:00",
+   "class": "notice",
+   "data": {
+    "id": "t-1",
+    "text": "é"
+   }
+  },
+  "01:00:00 * task.started             {\"id\":\"t-1\",\"text\":\"é\"}"
+ ]
+]"##;

@@ -1055,6 +1055,21 @@ impl Tool for BrowserTool {
         self.name
     }
 
+    /// The catalog's facts, but whether the call can change the owner's screen is the verb's own (HAND-535): browser
+    /// input is sampled by the disturbance sentinel, so a window it brought forward is the call's fact (HAND-212).
+    #[allow(clippy::field_reassign_with_default)] // a struct update with `..Default::default()` reads as a placeholder seam
+    fn facts(&self) -> ferb_gateway::tool::Facts {
+        // every browser verb is in the frozen catalog; a name that weren't would get the trait's own fallback
+        let mut f = ferb_gateway::tool::Facts::from_catalog(self.name).unwrap_or_else(|| {
+            let mut f = ferb_gateway::tool::Facts::default();
+            f.risk = 1;
+            f.reversible = true;
+            f
+        });
+        f.on_screen = self.verb.on_screen;
+        f
+    }
+
     fn describe(&self, args: &Args) -> ActionSpec {
         self.tools.describe(self.verb, &v(args))
     }
@@ -1642,6 +1657,39 @@ mod wiring_tests {
             escape: None,
             terminal: None,
             folders: vec![],
+        }
+    }
+
+    // decision: HAND-535
+    /// Browser input is on_screen (the desktop is sampled around it); reads stay as they were; every other fact is the
+    /// catalog's.
+    #[test]
+    fn browser_input_is_sampled_and_every_other_fact_is_the_catalogs() {
+        for (verb, sampled) in [
+            ("act", true),
+            ("navigate", true),
+            ("media", true),
+            ("secret", true),
+            ("login_code", true),
+            ("open", true),
+            ("snapshot", false),
+            ("wait", false),
+            ("screenshot", false),
+            ("close", false),
+        ] {
+            let t = tool(verb);
+            let f = t.facts();
+            assert_eq!(f.on_screen, sampled, "{verb}");
+            let catalog =
+                ferb_gateway::tool::Facts::from_catalog(t.name()).expect("in the catalog");
+            assert_eq!(
+                ferb_gateway::tool::Facts {
+                    on_screen: catalog.on_screen,
+                    ..f
+                },
+                catalog,
+                "{verb}"
+            );
         }
     }
 

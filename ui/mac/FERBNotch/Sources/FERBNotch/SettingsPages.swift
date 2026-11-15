@@ -689,6 +689,11 @@ struct DataSettingsPage: View {
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
+                        if row.isIdentifier {
+                            Button(row.shown ? "Hide from the AI" : "Let the AI see") {
+                                Task { await store.setShown(row, !row.shown) }
+                            }
+                        }
                         Button("Delete…", role: .destructive) { deleting = row }
                     }
                 }

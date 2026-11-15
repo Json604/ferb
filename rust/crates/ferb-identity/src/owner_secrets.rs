@@ -10,7 +10,9 @@
 //!   names; a new entry's account is `"<place> · <name>"` (`owner_secrets.py:342`).
 //!
 //! Decisions: GATE-548 (the helper makes and reads the items), GATE-2 and APP-2 (delete, never
-//! reading), GATE-206 and GATE-219 (a card detail fills only its own kind of field).
+//! reading), GATE-206 and GATE-219 (a card detail fills only its own kind of field), GATE-601 (owner),
+//! GATE-602, GATE-603 and GATE-604 (the owner's personal identifiers: one record for any site, sealed from
+//! a chat message, shown to the AI only on the owner's word).
 //!
 //! Seams: [`Places`] stands for `ferb.act.mac.browsers.is_browser` and `ferb.policy.urls.parse`;
 //! [`Keychain`] for the helper (Python's `keychain=` / `delete=` arguments); `typed_site` takes
@@ -44,6 +46,44 @@ pub const WHOLE_BROWSER: &str =
 pub const CARD_KINDS: [&str; 3] = ["card_number", "card_csc", "card_expiry"];
 /// The file's name in FERB's home (`owner_secrets.py:213`).
 pub const FILE_NAME: &str = "owner-secret-handles.json";
+/// The record holding the owner's personal identifiers, filled on any site (decision: GATE-603). Never a login
+/// place (`login_place` gives an https origin or app:<bundle id>) and never linked to one.
+pub const ANY_SITE: &str = "any site";
+/// An identifier entry's kind in its record's `kinds`.
+pub const IDENTIFIER: &str = "identifier";
+/// The record's list of the entries the owner let the AI see (decision: GATE-602).
+const SHOWN: &str = "shown";
+
+/// The entry `handle` fills at `target`: (whether it is an identifier kept for any site, its record, its Keychain
+/// account). The place's own entry first; else, for a web place only, an identifier kept for any site (GATE-603). An
+/// app (`app:<bundle id>`) gets only its own entries: the sink rule that guards an identifier on a site has no app
+/// form (GATE-605).
+fn entry_for<'a>(
+    records: &'a Map<String, Value>,
+    handle: &str,
+    target: &str,
+) -> Option<(bool, &'a Map<String, Value>, &'a str)> {
+    let entry = |place: &str| {
+        let record = records.get(place).and_then(Value::as_object)?;
+        text(object(record, "entries"), handle).map(|account| (place == ANY_SITE, record, account))
+    };
+    entry(target).or_else(|| {
+        if target.starts_with("app:") {
+            None
+        } else {
+            entry(ANY_SITE)
+        }
+    })
+}
+
+/// A value's letters and digits, upper-cased: one identifier however it is written (`ABCPE 1234 F`).
+fn letters(value: &str) -> String {
+    value
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .map(|c| c.to_ascii_uppercase())
+        .collect()
+}
 
 /// `owner_secrets.py:44`: one lock for every change, since stores are short-lived and worker
 /// threads share the file.
@@ -288,6 +328,16 @@ fn held(record: Option<&Value>, holding: Holding<'_>) -> Option<String> {
     holds.then(|| name.to_owned())
 }
 
+/// `name` off a record's shown list (GATE-602); the list goes when it empties.
+fn unshow(record: &mut Map<String, Value>, name: &str) {
+    if let Some(Value::Array(names)) = record.get_mut(SHOWN) {
+        names.retain(|n| n.as_str() != Some(name));
+        if names.is_empty() {
+            record.shift_remove(SHOWN);
+        }
+    }
+}
+
 /// The owner's saved secrets of one FERB home (`owner_secrets.py:211-215`).
 pub struct OwnerSecrets {
     path: PathBuf,
@@ -435,7 +485,7 @@ impl OwnerSecrets {
         own_sites.extend(sites.iter().map(String::as_str));
         let mut found = Vec::new();
         for (other, record) in records {
-            if other == place {
+            if other == place || other == ANY_SITE {
                 continue;
             }
             let other_host = site_host(places, other);
@@ -490,9 +540,18 @@ impl OwnerSecrets {
             let record = records[&place]
                 .as_object()
                 .expect("a loaded record is a dict");
+            let shown: Vec<&str> = list(record, SHOWN)
+                .iter()
+                .filter_map(Value::as_str)
+                .collect();
             for name in sorted_keys(object(record, "entries")) {
                 let kind = text(object(record, "kinds"), &name).unwrap_or("secret");
-                out.push(json!({"place": place, "name": name, "kind": kind, "unusable": false}));
+                let mut row =
+                    json!({"place": place, "name": name, "kind": kind, "unusable": false});
+                if kind == IDENTIFIER {
+                    row["shown"] = shown.contains(&name.as_str()).into(); // GATE-602
+                }
+                out.push(row);
             }
         }
         for u in list(&data, "unusable") {
@@ -530,6 +589,7 @@ impl OwnerSecrets {
                 let record = object_mut(records, place);
                 object_mut(record, "entries").shift_remove(name);
                 object_mut(record, "kinds").shift_remove(name);
+                unshow(record, name); // a deleted identifier's grant ends with it (GATE-602)
                 let bare = object(record, "entries").is_empty()
                     && !record.get("username").is_some_and(py::truthy)
                     && !record.get("sites").is_some_and(py::truthy);
@@ -605,6 +665,17 @@ impl OwnerSecrets {
             .map(|u| json!({"name": u["name"], "why": u["why"]}))
             .collect();
         out.insert("unusable".into(), unusable.into());
+        // GATE-603: the identifiers kept for any site, by name; absent when there are none (as Python's listing)
+        let identifiers = records
+            .get(ANY_SITE)
+            .and_then(Value::as_object)
+            .map(|r| sorted_keys(object(r, "entries")))
+            .unwrap_or_default();
+        // GATE-605: named only for a web place, where they can fill (an app keeps its own entries only), as a site's
+        // own entries are named only for the place they fill
+        if target != ANY_SITE && !target.starts_with("app:") && !identifiers.is_empty() {
+            out.insert("identifiers".into(), identifiers.into());
+        }
         let linked: Vec<Value> = self
             .linked(records, target, sites)
             .into_iter()
@@ -625,22 +696,41 @@ impl OwnerSecrets {
     /// `owner_secrets.py:316-329`: the value saved as `handle` for exactly `target`, for a field
     /// of kind `kind` (decisions: GATE-206, GATE-219).
     pub fn reveal(&self, handle: &str, target: &str, kind: Option<&str>) -> Result<Secret> {
+        self.reveal_entry(handle, target, kind)
+            .map(|(value, _)| value)
+    }
+
+    /// [`OwnerSecrets::reveal`], and whether the value came from the identifiers kept for any site (GATE-603), which
+    /// the caller passes through the sink rule (GATE-605): a site's own entry is bound to that site, one kept for any
+    /// site is not.
+    pub fn reveal_entry(
+        &self,
+        handle: &str,
+        target: &str,
+        kind: Option<&str>,
+    ) -> Result<(Secret, bool)> {
         refuse_whole_browser(self.places.as_ref(), target)?; // one saved that way before the rule is never filled
         let data = self.load()?;
-        let record = object(&data, "records")
-            .get(target)
-            .and_then(Value::as_object);
-        let Some(account) = record.and_then(|r| text(object(r, "entries"), handle)) else {
+        let records = object(&data, "records");
+        let Some((any_site, record, account)) = entry_for(records, handle, target) else {
             return refused("the secret handle is not bound to this exact destination");
         };
-        let saved = record.and_then(|r| text(object(r, "kinds"), handle));
+        let saved = text(object(record, "kinds"), handle);
         if let Some(why) = card_mismatch(saved, kind) {
             return refused(why);
         }
         match self.keychain.lookup(account)? {
-            Some(value) => Ok(value),
+            Some(value) => Ok((value, any_site)),
             None => refused("the saved secret is unavailable"),
         }
+    }
+
+    /// GATE-605: whether `handle` at `target` would be filled from the identifiers kept for any site (the place has
+    /// no entry of its own under that name). Reads only the names' file, never the Keychain.
+    pub fn fills_from_any_site(&self, handle: &str, target: &str) -> Result<bool> {
+        let data = self.load()?;
+        Ok(entry_for(object(&data, "records"), handle, target)
+            .is_some_and(|(any_site, _, _)| any_site))
     }
 
     /// `owner_secrets.py:331-352`: save `value` under the name `handle` for the place `target`,
@@ -699,6 +789,155 @@ impl OwnerSecrets {
             record.insert("sites".into(), all.into_iter().collect::<Vec<_>>().into());
             Ok(())
         })
+    }
+
+    /// GATE-603: save `value` as the personal identifier `handle`, filled on any site; a new value under a name ends
+    /// that name's grant (GATE-602: the owner let one value show, not a name). The caller decides that the value
+    /// is an identifier by its own shape (ferb-sanitize `identifier_kind`), never by a page's label.
+    pub fn remember_identifier(&self, handle: &str, value: &Secret) -> Result<()> {
+        self.edit(|data| self.put_identifier(data, handle, value))
+    }
+
+    fn put_identifier(
+        &self,
+        data: &mut Map<String, Value>,
+        handle: &str,
+        value: &Secret,
+    ) -> Result<()> {
+        let known = object(data, "records")
+            .get(ANY_SITE)
+            .and_then(Value::as_object)
+            .and_then(|record| text(object(record, "entries"), handle))
+            .map(str::to_owned);
+        let account = match known {
+            Some(account) => account,
+            None => {
+                let account = format!("{ANY_SITE} \u{b7} {handle}");
+                if accounts(data).contains(&account.as_str()) {
+                    return refused(
+                        "that name would reuse the Keychain item of another saved secret; save it under \
+                         another name",
+                    );
+                }
+                account
+            }
+        };
+        self.keychain.store(&account, value)?;
+        let record = object_mut(data, "records")
+            .entry(ANY_SITE)
+            .or_insert_with(|| Value::Object(empty()));
+        let record = record.as_object_mut().expect("a loaded record is a dict");
+        object_mut(record, "entries").insert(handle.to_owned(), account.into());
+        object_mut(record, "kinds").insert(handle.to_owned(), IDENTIFIER.into());
+        unshow(record, handle);
+        Ok(())
+    }
+
+    /// GATE-604: keep an identifier from the owner's own chat message sealed for any site, and the name it is kept
+    /// under: the same value already kept (however written) keeps its entry; else the kind's name (`kind`, "PAN"),
+    /// then "PAN 2", "PAN 3"… Each earlier entry of the kind is read from the Keychain to compare, never returned.
+    pub fn seal_identifier(&self, kind: &str, value: &Secret) -> Result<String> {
+        let wanted = letters(value.expose());
+        let data = self.load()?;
+        let kept: Vec<(String, String)> = object(&data, "records")
+            .get(ANY_SITE)
+            .and_then(Value::as_object)
+            .map(|record| {
+                object(record, "entries")
+                    .iter()
+                    .filter(|(name, _)| {
+                        *name == kind
+                            || name
+                                .strip_prefix(kind)
+                                .and_then(|n| n.strip_prefix(' '))
+                                .is_some_and(|n| n.parse::<u32>().is_ok())
+                    })
+                    .filter_map(|(name, account)| {
+                        Some((name.clone(), account.as_str()?.to_owned()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        for (name, account) in kept {
+            if let Ok(Some(saved)) = self.keychain.lookup(&account) {
+                if letters(saved.expose()) == wanted {
+                    return Ok(name);
+                }
+            }
+        }
+        self.edit(|data| {
+            let taken: BTreeSet<String> = object(data, "records")
+                .get(ANY_SITE)
+                .and_then(Value::as_object)
+                .map(|record| object(record, "entries").keys().cloned().collect())
+                .unwrap_or_default();
+            let name = (1..)
+                .map(|n| {
+                    if n == 1 {
+                        kind.to_owned()
+                    } else {
+                        format!("{kind} {n}")
+                    }
+                })
+                .find(|name| !taken.contains(name))
+                .expect("a free name");
+            self.put_identifier(data, &name, value)?;
+            Ok(name)
+        })
+    }
+
+    /// GATE-602: the owner's "don't mask this" for the saved identifier `handle` (`shown`), or its end. Only an
+    /// identifier kept for any site can be shown; a password, a card detail or anything a site holds never.
+    pub fn set_shown(&self, handle: &str, shown: bool) -> Result<Value> {
+        self.edit(|data| {
+            let identifier = object(data, "records")
+                .get(ANY_SITE)
+                .and_then(Value::as_object)
+                .is_some_and(|record| {
+                    text(object(record, "entries"), handle).is_some()
+                        && text(object(record, "kinds"), handle) == Some(IDENTIFIER)
+                });
+            if !identifier {
+                return refused(
+                    "nothing is saved as a personal identifier under that name; only a saved identifier can be \
+                     shown to the AI",
+                );
+            }
+            let record = object_mut(object_mut(data, "records"), ANY_SITE);
+            if shown {
+                let mut names: BTreeSet<String> = list(record, SHOWN)
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect();
+                names.insert(handle.to_owned());
+                record.insert(SHOWN.into(), names.into_iter().collect::<Vec<_>>().into());
+            } else {
+                unshow(record, handle);
+            }
+            Ok(json!({"name": handle, "shown": shown}))
+        })
+    }
+
+    /// GATE-602: the values of the identifiers the owner let the AI see, read from the Keychain, for the
+    /// redactor. Nothing is read when none is shown.
+    pub fn shown_values(&self) -> Result<Vec<Secret>> {
+        let data = self.load()?;
+        let Some(record) = object(&data, "records")
+            .get(ANY_SITE)
+            .and_then(Value::as_object)
+        else {
+            return Ok(Vec::new());
+        };
+        let mut out = Vec::new();
+        for name in list(record, SHOWN).iter().filter_map(Value::as_str) {
+            if let Some(account) = text(object(record, "entries"), name) {
+                if let Some(value) = self.keychain.lookup(account)? {
+                    out.push(value);
+                }
+            }
+        }
+        Ok(out)
     }
 
     /// `owner_secrets.py:354-362`: the record's username, from an owner-stated memory item

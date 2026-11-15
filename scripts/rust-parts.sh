@@ -1,9 +1,9 @@
 # FERB.app's Rust build (rust/PLAN.md part 13): its pins, parts and checks, sourced by build-app-rust.sh (zsh) after
-# app-parts.sh. Nothing here builds, signs or downloads. The Python build (build-app.sh) doesn't use this file.
+# app-parts.sh, and by release-appcast.sh for the release constants. Nothing here builds, signs or downloads.
 
 # ferb_rust_const FILE NAME: the value of `pub const NAME: &str = "…";` in the Rust source FILE (exactly one), or
 # status 1. The Rust build's pins come from the engine's own sources, the constants the programs enforce when they
-# run, never from Python files (build-app.sh and release-appcast.sh read the Python ones).
+# run.
 ferb_rust_const() {
   local file=${1:?} name=${2:?}
   local -a found
@@ -143,19 +143,33 @@ ferb_rust_size_report() {
   done
 }
 
-# ferb_release_constants ROOT ENGINE: what release-appcast.sh checks a release against, for an app of ENGINE
-# (python: FERB.app carries Contents/Resources/python; rust: it doesn't): FERB_STORE_EXTENSION and FERB_MIN_EXTENSION,
-# from the Python sources for a Python app (as release-appcast.sh always read them) and from the Rust sources
-# (ferb_rust_pins) for a Rust one.
+# ferb_release_constants ROOT [ENGINE]: what release-appcast.sh checks a release against: FERB_STORE_EXTENSION and
+# FERB_MIN_EXTENSION from the Rust sources (ferb_rust_pins). Only the Rust build is released: ENGINE, when given, is
+# rust; anything else (python: an app carrying Contents/Resources/python) returns 1.
 ferb_release_constants() {
   local root=${1:?}
-  case ${2:-} in
-    python)
-      FERB_STORE_EXTENSION=$(sed -n 's/^STORE_EXTENSION_ID = "\([a-p]*\)".*/\1/p' "$root/ferb/act/browser/autoinstall.py")
-      FERB_MIN_EXTENSION=$(sed -n 's/^MIN_EXTENSION_VERSION = "\(.*\)"$/\1/p' "$root/ferb/act/browser/ext_protocol.py") ;;
-    rust)
-      ferb_rust_pins "$root" || return 1 ;;
-    *) return 1 ;;
-  esac
+  if [[ -n "${2:-}" && "$2" != rust ]]; then
+    print -u2 "only FERB.app's Rust build is released, not a $2 one"
+    return 1
+  fi
+  ferb_rust_pins "$root" || return 1
   [[ -n "$FERB_STORE_EXTENSION" && -n "$FERB_MIN_EXTENSION" ]]
+}
+
+# decision: REL-401
+# ferb_rust_size_cap APP ARCH: FERB.app stays within the owner's cap, 720 MB for arm64 and 750 MB for x86_64 (Intel), in
+# MB of 10^6 bytes, counted as the size report counts (_ferb_bytes: every regular file's size). Status 1, with a plain
+# line naming the size and the cap, when it is over (or ARCH is neither).
+ferb_rust_size_cap() {
+  local app=${1:A} arch=${2:-} cap total
+  case $arch in
+    arm64)  cap=720 ;;
+    x86_64) cap=750 ;;
+    *) print -u2 "no size cap for architecture '$arch' (arm64 or x86_64)"; return 1 ;;
+  esac
+  total=$(_ferb_bytes "$app")
+  if (( total > cap * 1000000 )); then
+    printf 'FERB.app (%s) is %.1f MB, over its %d MB cap (REL-401; MB of 10^6 bytes)\n' "$arch" $(( total / 1e6 )) $cap >&2
+    return 1
+  fi
 }

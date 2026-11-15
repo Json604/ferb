@@ -44,7 +44,7 @@ pub use labels::{
     code_words, label_class, password_field, secret_key, secret_words, LabelClass, CODE_REACH,
 };
 pub use pyvalue::{JsonError, Py, PyStr};
-pub use redact::{mask, Field, Redactor, EXCLUDED, NODE_TEXT, SAVED_SECRET};
+pub use redact::{identifier_kind, mask, Field, Redactor, EXCLUDED, NODE_TEXT, SAVED_SECRET};
 pub use rx::{checked, Unread, UNREADABLE};
 pub use stream::{RedactionStream, MAX_PENDING, OVERSIZED};
 

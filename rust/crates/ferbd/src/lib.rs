@@ -16,6 +16,7 @@ pub mod basics;
 pub mod cleanup_cards;
 pub mod compose;
 pub mod device;
+pub mod extension_cmd;
 pub mod home;
 pub mod host;
 pub mod log;
@@ -33,3 +34,4 @@ pub mod standins;
 pub mod standins_c;
 #[cfg(feature = "stand-ins")]
 pub mod standins_chat;
+pub mod stats;

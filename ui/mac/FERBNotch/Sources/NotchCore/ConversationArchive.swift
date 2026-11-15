@@ -84,6 +84,9 @@ public struct ConversationTurn: Identifiable, Codable, Equatable {
     /// is written from the engine's entries only (`EntryWatch.swift`), never by this app's stream, results or drafts.
     /// Saved, so it stays so after a relaunch; nil for every turn this app sent.
     public var sentElsewhere: Bool?
+    /// The personal identifiers FERB kept sealed from this message for any site (the ack's `sealed`, GATE-604): kind
+    /// and saved name, never a value; `shown` once the owner let the AI see it (GATE-602).
+    public var sealed: [SealedIdentifier]?
 
     /// The typing-dots bubble (APP-300): from the acknowledgement until FERB's first words (a streamed plan line or
     /// reply, the plan, the reply).
@@ -159,7 +162,7 @@ public struct ConversationTurn: Identifiable, Codable, Equatable {
         case id, createdAt, request, sources, backendTaskID, answer, displayText, status, artifacts, responseNotice
         case requestID, ack, plan, parts, verified, question, taskGoal, taskName, statusInferred
         case planLine, planLines, direct, receipts, card, note, codeLines, runtimeSwitch, mergedInto
-        case cards, receiptCards, hiddenKinds, checklist, sentElsewhere
+        case cards, receiptCards, hiddenKinds, checklist, sentElsewhere, sealed
     }
 }
 
@@ -202,6 +205,36 @@ extension ConversationTurn {
         mergedInto = try c.decodeIfPresent(String.self, forKey: .mergedInto)
         hiddenKinds = try c.decodeIfPresent([String].self, forKey: .hiddenKinds)
         sentElsewhere = try c.decodeIfPresent(Bool.self, forKey: .sentElsewhere)
+        sealed = try c.lossyList(SealedIdentifier.self, .sealed)
+    }
+}
+
+/// One identifier FERB kept sealed from the owner's message (GATE-604): its kind ("PAN") and the name it is saved
+/// under, which fills it on any site; `shown` once the owner let the AI see it (GATE-602).
+public struct SealedIdentifier: Codable, Equatable {
+    public let kind: String
+    public let name: String
+    public var shown: Bool
+
+    public init(kind: String, name: String, shown: Bool = false) {
+        self.kind = kind
+        self.name = name
+        self.shown = shown
+    }
+
+    /// The ack's `{kind, name}`.
+    public init?(_ item: [String: Any]) {
+        guard let kind = item["kind"] as? String, let name = item["name"] as? String, !name.isEmpty else { return nil }
+        self.init(kind: kind, name: name)
+    }
+
+    private enum CodingKeys: String, CodingKey { case kind, name, shown }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try c.decode(String.self, forKey: .kind)
+        name = try c.decode(String.self, forKey: .name)
+        shown = try c.decodeIfPresent(Bool.self, forKey: .shown) ?? false
     }
 }
 
@@ -280,9 +313,19 @@ extension ConversationTurn {
     /// to change, since the value never left the Mac.
     public var hiddenNotice: String? {
         let kinds = hiddenKinds ?? []
-        let formats = kinds.filter { $0 != Self.savedSecret }
+        let kept = sealed ?? []
+        let formats = kinds.filter { kind in kind != Self.savedSecret && !kept.contains { $0.kind == kind } }
         var lines: [String] = []
         if kinds.contains(Self.savedSecret) { lines.append("That's one of your saved secrets. I hid it from the AI.") }
+        if !kept.isEmpty {
+            // GATE-604: kept sealed for any site, so FERB never asks for it again
+            let them = kept.count == 1 ? "it" : "them"
+            let names = kept.map { "“\($0.name)”" }
+            let named = names.count > 1 ? names.dropLast().joined(separator: ", ") + " and " + names[names.count - 1]
+                : names[0]
+            lines.append("That looked like \(Self.named(kept.map(\.kind))). I hid \(them) from the AI and kept \(them) "
+                         + "sealed as \(named), so I can fill \(them) in on any site without asking you again.")
+        }
         if !formats.isEmpty {
             let them = formats.count == 1 ? "it" : "them"
             lines.append("That looked like \(Self.named(formats)). I hid \(them) from the AI and didn't save \(them). "
@@ -765,7 +808,8 @@ public struct ConversationArchive: Codable, Equatable {
 
     /// `message`: the owner's message as the daemon redacted it (L7); it replaces the raw text the turn was sent with.
     /// Without one the raw text stays in memory only. `hidden`: the kinds of secret hidden in it (`hiddenNotice`).
-    public mutating func acknowledge(id: UUID, text: String, message: String? = nil, hidden: [String]? = nil) {
+    public mutating func acknowledge(id: UUID, text: String, message: String? = nil, hidden: [String]? = nil,
+                                     sealed: [SealedIdentifier]? = nil) {
         guard let index = turns.firstIndex(where: { $0.id == id }) else { return }
         if let message, !message.isEmpty {
             // As the daemon records it; paste markers an older daemon echoed back never show (APP-712)
@@ -773,9 +817,17 @@ public struct ConversationArchive: Codable, Equatable {
             turns[index].awaitingRedaction = false
         }
         if let hidden, !hidden.isEmpty { turns[index].hiddenKinds = hidden }
+        if let sealed, !sealed.isEmpty { turns[index].sealed = sealed }
         if turns[index].status == "working" { turns[index].awaitingReply = true }
         guard !text.isEmpty else { return }
         turns[index].ack = text
+    }
+
+    /// GATE-602: the owner let the AI see the identifier saved as `name`, kept from this message.
+    public mutating func markShown(id: UUID, name: String) {
+        guard let index = turns.firstIndex(where: { $0.id == id }),
+              let kept = turns[index].sealed?.firstIndex(where: { $0.name == name }) else { return }
+        turns[index].sealed?[kept].shown = true
     }
 
     /// The plan event (L7): its text, and its fields when the daemon sends them (`details`, ORCH-319): the plan line
