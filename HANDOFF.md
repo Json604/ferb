@@ -1,5 +1,10 @@
 # FERB handoff: end state on 2026-11-13, for the Rust rewrite
 
+> **History.** The Python code this file describes was removed from the repo after the Rust engine was cut over
+> (ENG-11, ENG-16; rust/JOURNAL.md). Paths below to `ferb/**/*.py`, `tests/`, `pyproject.toml`, `uv.lock` and
+> `scripts/build-app.sh` are read in git at the commit `kb/config.toml` `historical` names. What is current is in
+> `AGENTS.md` and `rust/STATUS.md`.
+
 This is the end state of the Python/Swift codebase as the last coordinating agent left it, written for the agent that
 converts this repo to mainly Rust. Read `AGENTS.md` first (the rules still bind you), then this file, then `kb/MAP.md`.
 

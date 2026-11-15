@@ -791,14 +791,6 @@ status = "open"
 why = "REL-402 pinned a Python wheel for Intel Macs; no Python ships with the Rust build (ENG-2) and uv.lock leaves with ENG-16. It is an owner decision, so only the owner's word supersedes it."
 decisions = ["REL-402"]
 
-[T-1111]
-title = "Remove the Python code: the deletion, the gate's Python checks, kb's historical commit, the docs"
-area = "engine"
-kind = "chore"
-status = "open"
-why = "ENG-11, ENG-16. Prepared in journal 76; the coordinator runs the deletion on a clean tree, retires kb/gate.toml's three Python checks, sets kb/config.toml historical to the commit before, and applies the AGENTS.md, README, HANDOFF and AGENT-BRIEF patches."
-decisions = ["ENG-11", "ENG-16"]
-
 [T-1112]
 title = "Port `ferb runtimes` (show, use, pins) and `ferb memory dashboard` to the Rust program"
 area = "daemon"
@@ -806,3 +798,11 @@ kind = "build"
 status = "open"
 why = "The Rust `ferb` answers both with exit 1 (cli/run.rs not_ported). Also: the not-running line still says `ferb daemon run` (ferb-device cli/client.rs NOT_RUNNING, ferb-runtimes mcp_bridge.rs, a model-facing text): name `ferbd daemon` as a named difference."
 decisions = ["DMN-4"]
+
+[T-1113]
+title = "Leftovers of the Python build outside the engine's behaviour"
+area = "daemon"
+kind = "chore"
+status = "open"
+why = "After ENG-16: ferb-device's installer still has Programs::Python, the venv and uv paths, and setup.rs:903 says a checkout runs `uv run ferb`; THIRD_PARTY_NOTICES.md names the Python files the adapted code came from; PLAYGROUND.md and com.ferb.daemon.plist's comment name build-app.sh."
+decisions = ["ENG-16"]

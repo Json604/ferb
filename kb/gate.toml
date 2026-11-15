@@ -51,24 +51,6 @@ builtin = "append_only"
 args = { globs = ["ferb/store/migrations/**"] }
 
 [[check]]
-name = "lockfile matches pyproject"          # 0.01 s
-level = "commit"
-run = "uv lock --check"
-when = ["pyproject.toml", "uv.lock"]
-
-[[check]]
-name = "type check (mypy ferb/core)"         # 0.4 s
-level = "commit"
-run = "uv run mypy ferb/core"
-when = ["ferb/**", "pyproject.toml"]
-
-[[check]]
-name = "imports, versions, extension minimum" # 8 s: every module imports; version files equal; extension >= minimum
-level = "commit"
-run = "uv run pytest -q -p no:cacheprovider tests/test_imports.py tests/test_release_checks.py"
-when = ["ferb/**", "tests/**", "extensions/**", "scripts/**", "pyproject.toml", "uv.lock"]
-
-[[check]]
 name = "kb tool tests (historical paths)"     # ~3 s: throwaway git repositories (PROJ-509)
 level = "commit"
 # kb.py needs Python 3.11+ (tomllib), as tools/kb/run picks it
@@ -86,10 +68,6 @@ when = ["scripts/**", "assets/**", "THIRD_PARTY_NOTICES.md", "package.json", "pa
         "ui/mac/FERBAgent/**", "ferb/**/*.md"]
 timeout = 600
 
-# The Python safety suite is no longer a push check (TEST-510, owner, 2026-11-13): the Rust engine replaces the
-# Python daemon, and the suite's timing-sensitive tests failed three pushes in a row on code they do not test.
-# Run it by hand while the Python sources remain: `nice -n 10 uv run pytest -q`.
-
 [[check]]
 name = "Swift tests (FERB.app)"              # ~20 s warm, minutes cold
 level = "push"
@@ -97,7 +75,7 @@ run = "scripts/swift-test-gate.sh"   # names the failing tests last, where the g
 when = ["ui/mac/FERBNotch/**"]
 timeout = 1800
 
-# --- Rust engine (area `engine`, ENG-1): only when rust/** changes; the Python and Swift checks stay as they are ---
+# --- Rust engine (area `engine`, ENG-1): when the engine or what it reads changes ---
 [[check]]
 name = "Rust format"                         # under 1 s
 level = "commit"

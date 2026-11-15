@@ -3,12 +3,12 @@
 macOS's login keychain admits code that has no Apple Team ID (FERB's self-made release certificate) to a saved item
 by that code's exact hash (the item's partition list holds "cdhash:<hash>"), so every change to ferb-secrets' bytes
 makes macOS ask again, once for every saved secret, with the login password. Its bytes change with its code and with
-the compiler and SDK that build it. So FERB.app never compiles the helper: build-app.sh takes the arm64 or x86_64
+the compiler and SDK that build it. So FERB.app never compiles the helper: build-app-rust.sh takes the arm64 or x86_64
 slice of assets/secret-helper/ferb-secrets, which this script builds from ferb/identity/secret_helper.swift and pins
 in assets/secret-helper/pin.json. The same bytes signed with the same certificate, identifier and flags keep the same
 code hash (measured), so an approval holds across releases until the helper's code changes on purpose.
 
-    python3 -I scripts/secret_helper.py --check   # build-app.sh: the pin matches the source and the binary
+    python3 -I scripts/secret_helper.py --check   # build-app-rust.sh: the pin matches the source and the binary
     python3 -I scripts/secret_helper.py --build   # after changing the helper's code (every saved secret asks again)
 """
 
@@ -25,7 +25,7 @@ SOURCE = ROOT / "ferb/identity/secret_helper.swift"
 FOLDER = ROOT / "assets/secret-helper"
 BINARY, PIN = FOLDER / "ferb-secrets", FOLDER / "pin.json"
 ARCHS = ("arm64", "x86_64")
-TARGET = "macos14.2"                       # FERB.app's minimum macOS (build-app.sh builds everything for it)
+TARGET = "macos14.2"                       # FERB.app's minimum macOS (the build targets it)
 
 
 def code(text: str) -> str:
@@ -84,7 +84,7 @@ def _run(*args: str) -> str:
 
 
 def build() -> None:
-    """Compile each slice as build-app.sh compiled it before (absolute source path mapped to ".", -O, stripped), join
+    """Compile each slice as the Python build's build-app.sh compiled it before (absolute source path mapped to ".", -O, stripped), join
     them, and record what built them."""
     text = SOURCE.read_text()
     with tempfile.TemporaryDirectory() as tmp:
@@ -102,7 +102,7 @@ def build() -> None:
             slices.append(str(out))
         FOLDER.mkdir(parents=True, exist_ok=True)
         _run("lipo", "-create", "-output", str(BINARY), *slices)
-        BINARY.chmod(0o644)                # data in the repository; build-app.sh makes the slice it ships executable
+        BINARY.chmod(0o644)                # data in the repository; build-app-rust.sh makes the slice it ships executable
         record = {"code_sha256": code_sha256(text), "source_sha256": hashlib.sha256(text.encode()).hexdigest(),
                   "binary_sha256": hashlib.sha256(BINARY.read_bytes()).hexdigest(),
                   "slices": {arch: hashlib.sha256(Path(s).read_bytes()).hexdigest() for arch, s in zip(ARCHS, slices)},

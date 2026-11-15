@@ -6,7 +6,7 @@ vibed/
 .idea/
 .vscode/
 
-# Python
+# Python (the release scripts' helpers; a checkout's old .venv and caches)
 __pycache__/
 *.pyc
 .pytest_cache/
@@ -40,9 +40,8 @@ calls.log
 *.pem
 *.key
 *.p8
-tests/.distill_usage.json
 
-# Packaged app and disk image (scripts/build-app.sh, scripts/build-dmg.sh)
+# Packaged app and disk image (scripts/build-app-rust.sh, scripts/build-dmg.sh)
 /build/
 
 # Vercel CLI link for site/

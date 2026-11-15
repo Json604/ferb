@@ -95,8 +95,10 @@ ferb_rust_python_left() {
   return 0
 }
 
-# ferb_rust_trim APP ARCH: remove the Codex parts FERB never runs (as ferb_trim_app does) and keep one architecture
-# in every universal Mach-O file. Run before signing.
+# ferb_rust_trim APP ARCH: remove the Codex parts FERB never runs and keep one architecture in every universal Mach-O
+# file. Run before signing. Codex's code_mode_host and shell tools are turned off on every start; voice is never
+# started (its dylibs are re-signed by signing.sh, so OpenAI's library-validated voice host couldn't load them); zsh
+# shipped up to Codex 0.157.1.
 ferb_rust_trim() {
   local app=${1:?} arch=${2:?}
   ferb_rust_arch_names "$arch" || return 1

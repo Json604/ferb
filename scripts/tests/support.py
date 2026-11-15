@@ -254,8 +254,7 @@ def sign_only(tmp: Path, **env: str) -> tuple[Path, list[str], subprocess.Comple
 
 SHA = "0123456789abcdef0123456789abcdef01234567"
 RELEASE_LISTED = f'  1) {SHA.upper()} "FERB Release Signing" (CSSMERR_TP_NOT_TRUSTED)'
-# Each piece macOS grants permissions to, in the Rust build (signing.sh's list also names the Python build's
-# interpreter, com.ferb.python, which this app doesn't carry)
+# Each piece macOS grants permissions to (signing.sh's list)
 RELEASE_PIECES = (("", "com.ferb.FERB"), ("Contents/Helpers/FERB.app", "com.ferb.daemon"),
                   ("Contents/Helpers/ferb-secrets", "com.ferb.secrets"))
 

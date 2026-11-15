@@ -2550,3 +2550,35 @@ bubbles, the external-protocol prompt and the app it launches, passkey/WebAuthn 
 
 **Open for the owner.** Publish extension 0.19.11 to the Chrome Web Store (until then nothing of the extension's half
 runs; HAND-535's sampling and facts work with any extension). Then LIVE-947 with the probe page.
+
+## 2026-11-15 · 80 · The Python daemon leaves the repo
+
+**What.** ENG-11 and ENG-16, prepared in journal 76; at `9d3f84bc` (P).
+- Removed (674 files): `ferb/**/*.py` (314), `tests/` (350), `pyproject.toml`, `uv.lock`, `.python-version`,
+  `scripts/build-app.sh`, `codex_standin.py`, `question_run.py`, `question_compare.py`, the two `python_client.rs`
+  tests, `ui/mac/FERBAgent/main.c` (the C host embedding Python; ferbd's `host.rs` replaced it). Two ignored Rust tests
+  that ran the Python through uv (`a_rust_seal_opens_in_python`, `python_and_rust_open_each_others_store`). The
+  Python build's parts of the scripts: `ferb_size_report`, `ferb_trim_app`, `FERB_UV_ARCH`, the interpreter's
+  signing and entitlements (`com.ferb.python`).
+- Kept in `ferb/` (97 files, what the engine and FERB.app read): the role, supervisor, memory, decide and abilities
+  Markdown, the memory dashboard files, the 59 migrations, `identity/secret_helper.swift`. All
+  `rust/fixtures/**/make.py` stay as history (ENG-17); `spikes/` stays as AGENTS.md says (five of its experiments
+  import `ferb` and no longer run).
+- kb: `historical` names P and every removed root (PROJ-509); the gate's three Python checks and the note about the
+  hand-run suite are retired; T-1111 is done and deleted; T-1113 lists the leftovers below. AGENTS.md, README.md,
+  HANDOFF.md and AGENT-BRIEF.md follow the Rust rewrite (owner rules 1–18 unchanged); the store listing and the relay
+  README name the Rust homes.
+
+**Evidence.** `kb check: ok (15 areas, 1234 decisions, 99 tasks, 479 live checks, 44 terms)`, no path problem (1,602
+decision paths and 24 area paths read at P). Rust: fmt, clippy and the iOS/Android check clean; 984 passed, 0
+failed, 15 ignored. `scripts/tests`: 65 run, 6 skipped (need a built bundle). The bundle's inputs: Resources/ferb
+assembled by `ferb_rust_runtime_markdown` plus the extension, migrations, helper source and packaging inputs, 129
+files, the same SHA-256 at P and after; `git diff 9d3f84bc` is empty for those paths and for every engine source,
+manifest and Cargo.lock (only test files changed under `rust/crates`). No full app build was run.
+
+**Open.** T-1113: ferb-device's installer still carries the Python build's paths (`Programs::Python`, the venv, uv)
+and `setup.rs:903` says a checkout runs `uv run ferb`; THIRD_PARTY_NOTICES.md names the Python files its adapted code
+came from (it ships in FERB.app, so it was left byte for byte); `ui/mac/FERBNotch/PLAYGROUND.md` and
+`com.ferb.daemon.plist`'s comment name build-app.sh (left: the Swift gate and the bundle). Comments in the
+migrations, `protocol.js` and the Swift sources name Python files as where a rule came from (bytes that ship or are
+checksummed: unchanged).

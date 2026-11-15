@@ -16,7 +16,7 @@ fn read(name: &str) -> Value {
         .join(name);
     let text = std::fs::read_to_string(&path).unwrap_or_else(|e| {
         panic!(
-            "fixture {} is missing ({e}): run `uv run python rust/fixtures/trace/make.py`",
+            "fixture {} is missing ({e}): it is frozen (rust/fixtures/README.md)",
             path.display()
         )
     });

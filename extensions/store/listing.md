@@ -5,7 +5,8 @@ Copy each block into the Developer Dashboard field with the same name.
 ## Package
 
 - File: `ferb-extension-<version>.zip`. The manifest is at the zip's root and there is no `key` field.
-- Build it from a checkout with `uv run ferb browsers extension package --out build/store`.
+- Build it from a checkout with the Rust `ferb` program: `cargo run --manifest-path rust/crates/ferbd/Cargo.toml --bin
+  ferb -- browsers extension package --out build/store`.
 
 ## Store listing
 
@@ -166,6 +167,6 @@ The extension is idle without the FERB macOS app, which talks to it through nati
    store_extension_id = "<id>"
    ```
 
-2. Upload each new extension version (`uv run ferb browsers extension package --out build/store`) and wait until the
+2. Upload each new extension version (`ferb browsers extension package --out build/store`) and wait until the
    store publishes it before releasing a FERB build that needs it (`scripts/release-appcast.sh` refuses otherwise).
 3. Users add the extension from FERB.app (setup's Pair browsers step, or Settings → Browsers), which pairs each profile.

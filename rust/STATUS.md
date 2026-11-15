@@ -23,6 +23,9 @@ the phone apps share; they reach the Mac's own parts only through traits.
 
 ## Stage 1: the Mac engine at parity (ENG-1)
 
+Cut over (ENG-11); the Python daemon was removed from the repo (ENG-16, journal 80). The Python column names
+files that are read in git at `9d3f84bc` (`kb/config.toml` `historical`).
+
 | Part | Python | Lines | Rust crate | State |
 |---|---|---|---|---|
 | Store: connection, migrations, checksums | `ferb/store/db.py`, migrations | 240 | `ferb-store` | verified (journal 3) |

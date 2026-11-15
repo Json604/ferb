@@ -11,11 +11,10 @@ mod common;
 use std::{
     collections::BTreeSet,
     fs,
-    process::Command,
     sync::{Arc, Mutex},
 };
 
-use common::{cases, fixtures, same, strings, unb64, unb64_text, Recorded};
+use common::{cases, same, strings, unb64, unb64_text, Recorded};
 use ferb_identity::{
     mailbox::{parse_feed, FeedError, GmailFeedMailbox, FEED_URL},
     origin::{normalize_origin, NFKC_DELIMITERS},
@@ -220,45 +219,6 @@ fn seals_match_python() {
             seal::SealError::Key
         );
     }
-}
-
-/// Needs `uv` and the Python build: a seal made here opens in Python's `seal.unseal`.
-#[test]
-#[ignore]
-fn a_rust_seal_opens_in_python() {
-    let key = seal::seal_key(b"invented pairing key");
-    let sealed = seal::seal(
-        &key[..],
-        &Secret::from("invented fill \u{e9}"),
-        "cmd-9",
-        "https://login.example",
-    )
-    .unwrap();
-    let repo = fixtures().join("../../..");
-    let out = Command::new("uv")
-        .args([
-            "run",
-            "python",
-            "rust/fixtures/identity/make.py",
-            "unseal",
-            &py::b64encode(&key[..]),
-            &sealed.nonce,
-            &sealed.ct,
-            "cmd-9",
-            "https://login.example",
-        ])
-        .current_dir(repo)
-        .output()
-        .unwrap();
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    assert_eq!(
-        py::b64decode(String::from_utf8(out.stdout).unwrap().trim()).unwrap(),
-        "invented fill \u{e9}".as_bytes()
-    );
 }
 
 // ---------- Chrome profiles ----------

@@ -12,15 +12,16 @@ patches. Judge designs by quality, the owner's goals and security, never by buil
   each part's Python sources, needs and known traps, and how to pick the work up; STATUS is the state of every
   part; JOURNAL is what was done and why. Read all three before touching `rust/`; add a journal entry and update
   the status row (and the plan, when it changes) in the commit that changes them.
-- `HANDOFF.md`: the end state of the Python build on 2026-11-13 and what to keep. Three of its statements are
-  corrected in journal entry 1 (the daemon host is C embedding Python, 58 migration files, Codex runs through
-  `app-server`).
+- `HANDOFF.md`: the end state of the Python build on 2026-11-13, kept as history: the Python code it describes was
+  removed from the repo (ENG-11, ENG-16) and is read in git at the commit `kb/config.toml` `historical` names.
 - `kb/`: the owner's decisions and agents' rulings, the work list, live checks and terms (overview `kb/MAP.md`;
   `tools/kb/run kb show <file>` before editing). Owner decisions are authoritative; a later decision supersedes an
   earlier one. If code, a prompt or this file disagrees with a decision, name both and ask the owner.
 - `README.md`: setup and use (being rewritten).
-- Runtime Markdown under `ferb/` (`ferb/orchestrator/prompts/*.md`, `ferb/memory/*.md`, `ferb/abilities/**`) is
-  executable input, not documentation; it changes only as the `prompts` area's decisions in kb/ say.
+- Runtime Markdown under `ferb/` (`ferb/orchestrator/prompts/*.md`, `ferb/memory/*.md`, `ferb/abilities/**`,
+  `ferb/decide/prompts/*.md`) is executable input, not documentation; it changes only as the `prompts` area's
+  decisions in kb/ say. With `ferb/store/migrations` (the store's schema) and `ferb/identity/secret_helper.swift`, it
+  is all that is left in `ferb/`: the Rust engine reads it, and FERB.app carries it byte for byte.
 - `vibed/` holds abandoned versions: never read, search or reuse it. `spikes/` holds historical experiments; look at a
   specific one only when needed.
 
@@ -72,9 +73,9 @@ patches. Judge designs by quality, the owner's goals and security, never by buil
 
 ## The Rust rewrite (branch `rust`, PROJ-508)
 
-The Python daemon in `ferb/` is being replaced by a Rust engine in `rust/`, built beside it. Until stage 1 is cut
-over, the Python daemon is the one that ships and the reference for behavior: on this branch it is read, run for
-fixtures and left as it is.
+The Rust engine in `rust/` replaced the Python daemon: stage 1 is cut over (ENG-11) and the Python code was removed
+from the repo (ENG-16). It stays readable in git at the commit `kb/config.toml` `historical` names, and the fixtures
+in `rust/fixtures` hold what it produced.
 
 - **Order (ENG-1):** 1. the Mac engine at exact parity (same RPC, events, extension protocol, tools and store;
   FERB.app and the extension unchanged), 2. history owned by the engine and shared by every client, 3. the phone
@@ -84,9 +85,10 @@ fixtures and left as it is.
   (`rust/gate.sh portable`); everything that touches Apple frameworks or macOS tools lives in
   `ferb-platform-macos` and reaches the engine only through traits. The crate list is at the top of
   `rust/STATUS.md`. No Windows or Linux code (PROJ-506). No Python ships with the Rust engine (ENG-2).
-- **How a part is ported (ENG-3):** read the Python fully and its decisions (`tools/kb/run kb show <file>`); write
-  `rust/fixtures/<part>/make.py`, which runs the Python code on invented data in a temporary home and records what
-  it produces; port; test the Rust against those fixtures. A ported behavior keeps its decision IDs
+- **How the parts were ported (ENG-3):** each `rust/fixtures/<part>/make.py` ran the Python code on invented data in
+  a temporary home and recorded what it produced; the Rust is tested against those fixtures. They are frozen
+  contracts (ENG-17): changed only as a named difference, never regenerated from the Rust code; the scripts run only
+  at the commit before the removal (`rust/fixtures/README.md`). A ported behavior keeps its decision IDs
   (`// decision: GATE-572` above the test). "Verified" means it matches the fixtures or a live check, never that it
   compiles. Every difference from Python that remains is listed in the journal; an unlisted difference is the worst
   outcome.
@@ -98,8 +100,8 @@ fixtures and left as it is.
   that one deliberate difference, so the comparison stays strict everywhere else, and the journal lists it under
   "Fixed against Python". Anything else that differs from Python is a drift, not a fix. `rust/PLAN.md` keeps the
   table of bugs found.
-- **The store (ENG-4):** one copy of the migrations (`ferb/store/migrations`), no schema above 0062 before stage 1
-  is cut over, so either daemon opens the same store.
+- **The store (ENG-4, ENG-11):** one copy of the migrations (`ferb/store/migrations`); schemas above 0062 are
+  allowed since the cutover.
 - **Tests** use temporary folders only: never `~/.ferb`, the Keychain, the real secrets helper, a browser's folders
   or a model provider. Time and ids are injected (TEST-508).
 - **Checks:** from `rust/`: `./gate.sh fmt`, `./gate.sh lint`, `./gate.sh test`, `./gate.sh portable`
@@ -114,21 +116,22 @@ fixtures and left as it is.
   rather than in waves. The shared brief is `rust/AGENT-BRIEF.md`. Subagents run on Opus or below (owner,
   2026-11-13); the coordinator's own model is kept for a big decision or an independent verification.
 
-## Development (the Python build)
+## Development
 
-Python 3.12, `uv sync --group dev`. The checkout's `.venv` is separate from the installed `~/.ferb/venv`.
-Tests are a small safety suite (TEST-500): the safety floor and past-bug guards, end-to-end runs with a fake
-model through the real daemon and gateway, an import check, upgrade tests, adapter contract tests. Don't test exact
-prompt text, owner-facing wording or internal wiring. For a change: focused tests, then `uv run pytest -q`,
-`uv run mypy ferb/core` and `git diff --check`. Live tests are explicit (`-m real`, Codex runtime) and need the owner's
-observation; `-m real_claude` runs only when the owner runs it.
+The engine is Rust (`rust/`, checks above); FERB.app is Swift (`ui/`, below). Release tooling in `scripts/` is zsh with
+a few stdlib Python helpers; its tests: `python3 -I -m unittest discover -s scripts/tests -t .`. Tests guard the
+safety floor and past bugs, and run end to end with stand-in models through the real daemon and gateway. Don't test
+exact prompt text, owner-facing wording or internal wiring. For a change: focused tests, then the gate's checks and
+`git diff --check`.
 
-Debug from evidence: `ferb trace TASK --full` / `--json`, `ferb stats`, `ferb doctor`, `ferb logs`. Explain changes
-through concrete behavior and trace evidence. Report checkout validation, installation status and the owner's live
-results separately.
+Debug from evidence with the Rust `ferb` program (`cargo run --manifest-path rust/crates/ferbd/Cargo.toml --bin ferb
+--`, or FERB.app's `Contents/Resources/bin/ferb`): `ferb trace TASK --full` / `--json`, `ferb stats`, `ferb doctor`,
+`ferb logs`. Explain changes through concrete behavior and trace evidence. Report checkout validation, installation
+status and the owner's live results separately.
 
-Extension protocol changes update the manifest, the JavaScript/Python protocol and the minimum versions together.
-Upgrading from any older FERB build must keep working (STORE-403).
+Extension protocol changes update the manifest, `extensions/chromium/protocol.js`, ferb-browser's `protocol.rs` and
+the minimum versions together (`rust/crates/ferb-browser/tests/extension_version.rs` checks them). Upgrading from any
+older FERB build must keep working (STORE-403).
 
 ## Knowledge and checks (repo-kb)
 - The repo's decisions, work list, live checks and terms are in `kb/` (overview: `kb/MAP.md`). They are the source
@@ -163,7 +166,7 @@ never force-push. The checkout can be shared by parallel agents: never `git stas
 
 ## The UI
 `ui/` is the owner's side (often built with Codex); `ui/AGENTS.md` covers it. The app talks to the daemon only through
-its RPCs (`ferb/daemon/main.py`, roles in `ferb/daemon/auth.py`); a UI change that needs a new or changed RPC is a
+its RPCs (methods and roles in `rust/crates/ferb-rpc`); a UI change that needs a new or changed RPC is a
 daemon change, recorded in kb/. `swift test` in `ui/mac/FERBNotch` after
 `source scripts/swiftpm-anonymous.sh`; SwiftPM must never use the owner's keychain.
 
@@ -171,14 +174,14 @@ daemon change, recorded in kb/. `swift test` in `ui/mac/FERBNotch` after
 - **What the owner runs:** the release FERB.app in /Applications; its background service is registered by the app
   (SMAppService, DMN-2), data in `~/.ferb`. Never install, restart or stop the owner's daemon,
   browsers or FERB.app without the owner's authorization, and never write to `~/.ferb` from a test.
-- **Release build:** `source scripts/swiftpm-anonymous.sh; SIGN_IDENTITY=release scripts/build-app.sh --arch arm64
+- **Release build:** `source scripts/swiftpm-anonymous.sh; SIGN_IDENTITY=release scripts/build-app-rust.sh --arch arm64
   build/app-arm64` (it needs Command Line Tools / Xcode that can read the current macOS SDK). To install, with the
   owner's go: quit FERB.app, move the old app to the Trash, `ditto build/app-arm64/FERB.app /Applications/FERB.app`,
   open it; its launch updates the service. Disk images: `SIGN_IDENTITY=release scripts/build-dmg.sh`.
-- **A checkout's daemon:** `uv run ferb setup --update` installs a development LaunchAgent; it refuses while FERB.app's
-  service is registered.
+- **A checkout's daemon:** the Rust `ferb setup --update` installs a development LaunchAgent; it refuses while
+  FERB.app's service is registered.
 - **Signing:** the "FERB Release Signing" certificate (SHA-1 in `scripts/release-cert.sha1`) and the Sparkle update
   key live in the owner's login keychain. Never commit, print or move the private keys: together they could ship a
   fake update to every user.
-- **Python tests:** `nice -n 10 uv run pytest -q` (each test is capped by `tests/support/runaway.py`); never two full
-  suites at once. Live tests (`-m real`) use the Codex runtime and need the owner watching.
+- **Rust tests:** `rust/gate.sh test` (`nice -n 10` while the owner works); never two full workspace runs at once.
+  Live checks are in `kb/live.toml` and need the owner watching.

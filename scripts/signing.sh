@@ -231,18 +231,17 @@ ferb_check_notary_credentials() {
   return 1
 }
 
-# $1: daemon | python | app; $2: the entitlements file to write. Only what each needs under the hardened runtime.
+# $1: daemon | app; $2: the entitlements file to write. Only what each needs under the hardened runtime.
 ferb_entitlements() {
   local -a keys
   case $1 in
     daemon) keys=(com.apple.security.automation.apple-events) ;;     # Automation checks and osascript (permissions.py)
-    python) keys=() ;;                                                # the `ferb` command and the native host
     app) keys=(com.apple.security.device.audio-input) ;;              # dictation / push-to-talk microphone
   esac
-  # Ad-hoc (or any non-Developer-ID) code has no Team ID, so library validation would refuse every extension module
-  # the interpreter loads, and the app's Sparkle.framework (L34 Phase G). One Developer ID team signs all of them, so
+  # Ad-hoc (or any non-Developer-ID) code has no Team ID, so library validation would refuse the app's
+  # Sparkle.framework (L34 Phase G) and anything else it loads. One Developer ID team signs all of them, so
   # validation stays on in that build.
-  if [[ $1 == (daemon|python|app) ]] && ! ferb_developer_id; then keys+=(com.apple.security.cs.disable-library-validation); fi
+  if [[ $1 == (daemon|app) ]] && ! ferb_developer_id; then keys+=(com.apple.security.cs.disable-library-validation); fi
   {
     print '<?xml version="1.0" encoding="UTF-8"?>'
     print '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">'
@@ -340,7 +339,6 @@ ferb_sign_app() {
   local app=${1:A} work=$2 f main
   mkdir -p "$work"
   ferb_entitlements daemon "$work/daemon.entitlements"
-  ferb_entitlements python "$work/python.entitlements"
   ferb_entitlements app "$work/app.entitlements"
   main="$app/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist" 2>/dev/null || print FERBNotch)"
   for f in "${(@f)$(ferb_macho_files "$app/Contents")}"; do
@@ -349,8 +347,6 @@ ferb_sign_app() {
     [[ $f == "$app/Contents/Frameworks/"* || ${f#$app/Contents/} == *.app/* ]] && continue
     ferb_vendor_signed "$f" && continue
     case $f in
-      "$app/Contents/Resources/python/bin/python3.12")
-        ferb_sign "$f" --identifier com.ferb.python --entitlements "$work/python.entitlements" ;;
       "$app/Contents/Helpers/ferb-secrets")
         ferb_sign "$f" --identifier com.ferb.secrets ;;
       *)
@@ -373,7 +369,6 @@ ferb_sign_app() {
     local piece ident requirement what=release
     ferb_devid && what="Developer ID team"
     for piece ident in "$app" com.ferb.FERB "$app/Contents/Helpers/FERB.app" com.ferb.daemon \
-        "$app/Contents/Resources/python/bin/python3.12" com.ferb.python \
         "$app/Contents/Helpers/ferb-secrets" com.ferb.secrets; do
       [[ -e $piece ]] || continue
       if ferb_devid; then requirement=$(ferb_team_requirement $ident); else requirement=$(ferb_requirement $ident); fi

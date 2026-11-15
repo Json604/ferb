@@ -163,25 +163,28 @@ switched off until there is a design without it. FERB still records activity, bu
 
 ## Development
 
-Requirements: macOS, Python 3.12 through [uv](https://docs.astral.sh/uv/), Node/npm, and Xcode Command Line Tools for
-the app.
+Requirements: macOS, Rust through [rustup](https://rustup.rs) (the toolchain is pinned in `rust/rust-toolchain.toml`),
+Node/npm, Xcode Command Line Tools for the app, and Python 3 for the release scripts' helpers
+([uv](https://docs.astral.sh/uv/) for the disk image's layout and the logo).
 
 ```sh
 git clone https://github.com/Json604/ferb.git
 cd ferb
-uv sync --group dev
-nice -n 10 uv run pytest -q        # offline safety suite: no real models, apps or accounts
-uv run mypy ferb/core
+tools/kb/run gate install                                  # the repository's checks, once per clone
+(cd rust && ./gate.sh fmt && ./gate.sh lint && nice -n 10 ./gate.sh test)   # offline: no real models, apps or accounts
+python3 -I -m unittest discover -s scripts/tests -t .     # the release scripts' tests
 git diff --check
 ```
 
-Live tests (`uv run pytest -m real`) use real models and disposable targets on surfaces you control, and need someone
-watching; the live checks are in `kb/live.toml`.
+Live checks use real models and disposable targets on surfaces you control, and need someone watching; they are in
+`kb/live.toml`.
 
-- `uv run ferb setup --update` installs the checkout as a development background service (it refuses while FERB.app's
-  service is registered). The checkout's `.venv` is separate from the installed `~/.ferb/venv`.
-- `scripts/build-app.sh [--arch arm64|x86_64] [OUT_DIR]` builds FERB.app; `scripts/build-dmg.sh` builds both apps and
-  disk images. Signing is described at the top of `scripts/signing.sh`.
+- `ferb setup --update` (the Rust `ferb` program: `cargo run --manifest-path rust/crates/ferbd/Cargo.toml --bin ferb
+  -- setup --update`) installs the checkout as a development background service (it refuses while FERB.app's service
+  is registered).
+- `scripts/build-app-rust.sh [--arch arm64|x86_64] [OUT_DIR]` builds FERB.app; `scripts/build-dmg.sh` builds both apps
+  and disk images; `scripts/sign-app.sh APP` signs a built app again. Signing is described at the top of
+  `scripts/signing.sh`.
 - The notch app is in `ui/mac/FERBNotch` (`swift test` after `source scripts/swiftpm-anonymous.sh`).
 - `ui/mac/FERBNotch/playground.sh` opens the intro playground: the real first-run intro with everything behind it faked
   (see `ui/mac/FERBNotch/PLAYGROUND.md`).
@@ -191,12 +194,13 @@ watching; the live checks are in `kb/live.toml`.
 ### Releasing
 
 1. If the browser extension changed: raise `version` in `extensions/chromium/manifest.json` (and
-   `MIN_EXTENSION_VERSION` in `ferb/act/browser/ext_protocol.py` when FERB needs the new one), build the store zip with
-   `uv run ferb browsers extension package --out build/store`, upload it with the listing text in
+   `MIN_EXTENSION_VERSION` in `rust/crates/ferb-browser/src/protocol.rs` when FERB needs the new one), build the store
+   zip with `ferb browsers extension package --out build/store`, upload it with the listing text in
    `extensions/store/listing.md`, and wait until the store publishes it.
-2. Set the release version in `ferb/__init__.py`, `pyproject.toml` and the `ferb` entry of `uv.lock` (no `.dev`;
-   newer than the last release tag), with an owner decision for the release.
-3. `SIGN_IDENTITY=release scripts/build-app.sh --arch arm64 build/next`, then
+2. Set the release version in `rust/crates/ferbd/src/compose/mod.rs` `VERSION` and `rust/Cargo.toml`'s
+   `[workspace.package] version` (equal; no `.dev`; newer than the last release tag), with an owner decision for the
+   release.
+3. `SIGN_IDENTITY=release scripts/build-app-rust.sh --arch arm64 build/next`, then
    `SIGN_IDENTITY=release scripts/build-dmg.sh build/next/FERB.app build/FERB-AppleSilicon.dmg` (the window picks the
    before/after Developer ID text from the signature).
 4. `scripts/release-appcast.sh vX.Y.Z build/FERB-AppleSilicon.dmg arm64`. It first runs `tools/kb/run gate release`

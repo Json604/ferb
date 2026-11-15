@@ -6,7 +6,6 @@ use std::{
     fs,
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
-    process::Command,
 };
 
 use ferb_store::{chat_entries, known_schema, split_sql, Db, Error, Migration};
@@ -558,55 +557,4 @@ fn compaction_needs_room_and_makes_an_old_store_incremental() {
         .unwrap();
     assert!(db.vacuum_slice(8).unwrap() > 0);
     while db.vacuum_slice(ferb_store::VACUUM_SLICE_PAGES).unwrap() > 0 {}
-}
-
-/// Each daemon opens the other's store (decisions: ENG-3, ENG-4). Runs the Python code, so it is
-/// not part of the default run: `cargo test -p ferb-store -- --ignored` (needs `uv`).
-#[test]
-#[ignore = "runs the Python store code through uv"]
-fn python_and_rust_open_each_others_store() {
-    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
-    let python = |command: &str, store: &Path| {
-        let out = Command::new("uv")
-            .args(["run", "python", "rust/fixtures/store/make.py", command])
-            .arg(store)
-            .current_dir(&repo)
-            .output()
-            .expect("uv is needed for this test");
-        assert!(
-            out.status.success(),
-            "{}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-        out.stdout
-    };
-    let tmp = TempDir::new().unwrap();
-
-    // made by Rust, opened by Python: nothing left to apply, nothing refused, the same records
-    let ours = tmp.path().join("rust.db");
-    let db = Db::open(&ours).unwrap();
-    db.migrate().unwrap();
-    let mut rust = describe(&db);
-    db.close().unwrap();
-    let seen: Value = serde_json::from_slice(&python("accept", &ours)).unwrap();
-    println!(
-        "python accept (store made by Rust): applied={} mode={}",
-        seen["applied"], seen["mode"]
-    );
-    assert_eq!(seen["applied"], json!([]));
-    rust.as_object_mut().unwrap().remove("sqlite_master");
-    for key in ["schema_version", "pragmas", "mode"] {
-        assert_eq!(seen[key], rust[key], "{key}");
-    }
-
-    // made by Python, opened by Rust
-    let theirs = tmp.path().join("python.db");
-    python("create", &theirs);
-    let db = Db::open(&theirs).unwrap();
-    assert_eq!(db.migrate().unwrap(), Vec::<i64>::new());
-    assert_eq!(db.schema_version().unwrap(), known_schema());
-    println!(
-        "rust migrate (store made by Python): applied=[] schema={}",
-        db.schema_version().unwrap()
-    );
 }

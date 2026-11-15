@@ -1,5 +1,9 @@
 # Brief for an agent porting one part
 
+> **History.** This is how the Python daemon's parts were ported while it was in the repo. The Python code is gone
+> (ENG-16): new work on the engine follows `AGENTS.md`; a fixture script runs only at the commit before the removal
+> (`rust/fixtures/README.md`).
+
 You port one part of the Python daemon (`ferb/`) to Rust, in one crate, checked against what the Python code
 produces. Read, in order: `AGENTS.md` (all of it; "The Rust rewrite" is the method, the 18 rules bind behavior),
 `rust/PLAN.md` (your part's sources, needs and traps; the traps are audit findings: check each against the code),
