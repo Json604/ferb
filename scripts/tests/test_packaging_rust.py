@@ -27,8 +27,7 @@ from scripts.tests.support import (BUILD_APP, BUILD_DMG, CRATES, DEVID_SHA, RELE
                                    stubs, version_tuple, workspace_version, zsh, zsh_vars)
 
 AGENT_PLIST = ROOT / "ui" / "mac" / "FERBAgent" / "Info.plist"
-# The owner's size cap in MB of 10^6 bytes (REL-401: 720 MB arm64, 750 MB Intel)
-MAX_APP_MB = {"arm64": 720, "x86_64": 750}
+ARCHS = ("arm64", "x86_64")
 
 
 class RustBuild(TempCase):
@@ -213,28 +212,14 @@ class RustBuild(TempCase):
         mbs = [float(mb) for mb, _ in rows]
         self.assertEqual(mbs, sorted(mbs, reverse=True))
 
-    # decision: REL-401
-    def test_the_size_cap_refuses_an_app_over_720_mb_arm64_or_750_mb_intel(self) -> None:
-        """FERB.app stays within the owner's cap (REL-401): 720 MB for arm64 and 750 MB for Intel, in MB of 10^6
-        bytes, counted as _ferb_bytes counts (the files' sizes, not their disk blocks: a sparse file stands in for a
-        big app here). At the cap passes; one byte over fails, naming the size and the cap; build-app-rust.sh checks it
-        after the size report."""
-        for arch, cap in MAX_APP_MB.items():
-            for extra, ok in ((-1, True), (0, True), (1, False)):
-                app = self.tmp / f"{arch}{extra}" / "FERB.app"
-                (app / "Contents").mkdir(parents=True)
-                (app / "Contents/Info.plist").write_bytes(b"x" * 1_000)
-                with open(app / "Contents/big.bin", "wb") as f:
-                    f.truncate(cap * 1_000_000 + extra - 1_000)               # sparse: no real disk use
-                done = zsh(f"ferb_rust_size_cap {shlex.quote(str(app))} {arch}")
-                self.assertEqual(done.returncode == 0, ok, (arch, extra, done.stderr))
-                if not ok:
-                    self.assertIn(f"{cap} MB", done.stderr)
-                    self.assertIn(f"{(cap * 1_000_000 + 1) / 1e6:.1f} MB", done.stderr)
-                    self.assertIn(arch, done.stderr)
-        self.assertNotEqual(zsh(f"ferb_rust_size_cap {shlex.quote(str(self.tmp))} ppc").returncode, 0)
+    # decision: REL-429
+    def test_the_build_reports_the_size_and_has_no_size_cap(self) -> None:
+        """The owner dropped the size cap (REL-429): build-app-rust.sh prints the size report and nothing refuses an
+        app for its size."""
         script = BUILD_APP.read_text()
-        self.assertIn('ferb_rust_size_report "$APP"\nferb_rust_size_cap "$APP" "$ARCH"', script)
+        self.assertIn('ferb_rust_size_report "$APP"', script)
+        self.assertNotIn("size_cap", script)
+        self.assertNotEqual(zsh("typeset -f ferb_rust_size_cap").returncode, 0)
 
     def test_the_notices_name_every_rust_crate_the_app_ships(self) -> None:
         """THIRD_PARTY_NOTICES.md's generated section is what scripts/rust_notices.py writes from the Cargo.lock files
@@ -451,14 +436,11 @@ class BuiltRustBundle(TempCase):
 
 
 class BuiltRustBundleSize(TempCase):
-    # decision: REL-401
-    def test_rust_bundle_is_within_the_size_cap_and_one_architecture(self) -> None:
+    def test_rust_bundle_is_one_architecture(self) -> None:
         bundle = _rust_bundle()
         archs = lipo_archs(bundle / "Contents/MacOS/FERBNotch")
         self.assertEqual(len(archs), 1, archs)
-        self.assertIn(archs[0], MAX_APP_MB)
-        done = zsh(f"ferb_rust_size_cap {shlex.quote(str(bundle))} {archs[0]}")
-        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn(archs[0], ARCHS)
         check = zsh(f"ferb_check_arch {shlex.quote(str(bundle))} {archs[0]}")
         self.assertEqual(check.returncode, 0, check.stderr)
 

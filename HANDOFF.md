@@ -46,7 +46,7 @@ interpret and decide. Code acts, exposes facts and enforces boundaries (AGENTS.m
 | Site | `site/` | — | static | Unchanged |
 | Relay (Cloudflare worker) | `relay/` | — | JS | Unchanged |
 
-Never read or reuse `vibed/` (abandoned versions). `spikes/` are historical experiments.
+Never read or reuse `vibed/` (abandoned versions). The `spikes/` experiments were removed on 2026-11-15 (git history keeps them).
 
 ## 4. Contracts the Rust daemon must keep exactly
 

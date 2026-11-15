@@ -12,7 +12,7 @@ claude_rules = true
 
 # The Python daemon's files, removed by ENG-11/ENG-16: records that name them are read at the last commit that had
 # them (PROJ-509).
-historical = [{commit = "9d3f84bc1258a824ddcc43e50e8653fdc5f68c96", paths = ["ferb", "tests", "pyproject.toml", "uv.lock", ".python-version", "scripts/build-app.sh", "scripts/codex_standin.py", "scripts/question_run.py", "scripts/question_compare.py", "rust/crates/ferbd/tests/python_client.rs", "rust/crates/ferb-rpc/tests/python_client.rs", "ui/mac/FERBAgent/main.c"], why = "ENG-11: the Python daemon left the repo"}]
+historical = [{commit = "9d3f84bc1258a824ddcc43e50e8653fdc5f68c96", paths = ["ferb", "tests", "pyproject.toml", "uv.lock", ".python-version", "scripts/build-app.sh", "scripts/codex_standin.py", "scripts/question_run.py", "scripts/question_compare.py", "rust/crates/ferbd/tests/python_client.rs", "rust/crates/ferb-rpc/tests/python_client.rs", "ui/mac/FERBAgent/main.c", "spikes"], why = "ENG-11: the Python daemon left the repo"}]
 
 [kb.limits]
 # Field length caps, in characters. They are what keeps records from growing into essays.

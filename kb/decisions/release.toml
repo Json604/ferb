@@ -59,7 +59,8 @@ legacy = "notes/runtimes.md Pin move 2026-11-01: App size (the earlier targets)"
 title = "FERB.app size cap raised to 720 MB arm64, 750 MB Intel after the runtime upgrades"
 by = "owner"
 date = 2026-11-01
-status = "active"
+status = "superseded"
+superseded_by = "REL-429"
 supersedes = ["REL-400"]
 words = "yeah ofc raise the cap"
 rule = "FERB.app stays within 720 MB (arm64) and 750 MB (Intel), in MB of 10^6 bytes, checked by tests/test_packaging.py MAX_APP_MB."
@@ -351,3 +352,14 @@ why = "REL-3 with the pins moved off pyproject.toml (ENG-16). Run once in its lo
 supersedes = ["REL-3"]
 paths = ["assets/logo/ferb-logo.svg", "scripts/make_logo.py", "scripts/make_logo.py.lock"]
 live = ["LIVE-25"]
+
+[REL-429]
+title = "FERB.app has no size cap; the build only reports its size"
+by = "owner"
+date = 2026-11-15
+status = "active"
+supersedes = ["REL-401"]
+words = "just so you know, i dont have any size limit, it was agent forced that i agreed, i dont even knwo why does it matter"
+words_source = "Owner 2026-11-15, told the 720/750 MB caps were now enforced on the Rust bundle; then, offered their removal: \"yeah, why is it even required\"."
+rule = "No build refuses FERB.app for its size. build-app-rust.sh prints the size report (ferb_rust_size_report) so growth stays visible."
+paths = ["scripts/build-app-rust.sh", "scripts/rust-parts.sh::ferb_rust_size_report"]

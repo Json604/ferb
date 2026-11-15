@@ -16,8 +16,8 @@
 # service's definition naming `FERB daemon`. The database migrations and the o200k tokenizer are compiled into ferbd.
 # Pins (version, Codex, Claude Code, embedding model) come from the Rust sources (scripts/rust-parts.sh).
 # Env: SIGN_IDENTITY (default "-", ad hoc; devid or release: scripts/signing.sh); FERB_NOTARIZE=0 with devid signs for
-# this Mac only. Every Mach-O file in the bundle ends up signed. The app stays within the owner's size cap (REL-401:
-# scripts/rust-parts.sh ferb_rust_size_cap), or the build fails after its size report.
+# this Mac only. Every Mach-O file in the bundle ends up signed. The build reports the app's size and has no
+# size cap (REL-429).
 # Never installs, registers or starts anything.
 set -euo pipefail
 ROOT="${0:A:h:h}"
@@ -241,4 +241,3 @@ ferb_notarize_built "$APP" "$WORK"
 
 print "Built: $APP ($(du -sh "$APP" | cut -f1); FERB $VERSION, build $BUILD, $REVISION; Rust engine)"
 ferb_rust_size_report "$APP"
-ferb_rust_size_cap "$APP" "$ARCH" || die "FERB.app is over its size cap (above)"

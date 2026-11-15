@@ -157,21 +157,3 @@ ferb_release_constants() {
   ferb_rust_pins "$root" || return 1
   [[ -n "$FERB_STORE_EXTENSION" && -n "$FERB_MIN_EXTENSION" ]]
 }
-
-# decision: REL-401
-# ferb_rust_size_cap APP ARCH: FERB.app stays within the owner's cap, 720 MB for arm64 and 750 MB for x86_64 (Intel), in
-# MB of 10^6 bytes, counted as the size report counts (_ferb_bytes: every regular file's size). Status 1, with a plain
-# line naming the size and the cap, when it is over (or ARCH is neither).
-ferb_rust_size_cap() {
-  local app=${1:A} arch=${2:-} cap total
-  case $arch in
-    arm64)  cap=720 ;;
-    x86_64) cap=750 ;;
-    *) print -u2 "no size cap for architecture '$arch' (arm64 or x86_64)"; return 1 ;;
-  esac
-  total=$(_ferb_bytes "$app")
-  if (( total > cap * 1000000 )); then
-    printf 'FERB.app (%s) is %.1f MB, over its %d MB cap (REL-401; MB of 10^6 bytes)\n' "$arch" $(( total / 1e6 )) $cap >&2
-    return 1
-  fi
-}

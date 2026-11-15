@@ -22,8 +22,8 @@ patches. Judge designs by quality, the owner's goals and security, never by buil
   `ferb/decide/prompts/*.md`) is executable input, not documentation; it changes only as the `prompts` area's
   decisions in kb/ say. With `ferb/store/migrations` (the store's schema) and `ferb/identity/secret_helper.swift`, it
   is all that is left in `ferb/`: the Rust engine reads it, and FERB.app carries it byte for byte.
-- `vibed/` holds abandoned versions: never read, search or reuse it. `spikes/` holds historical experiments; look at a
-  specific one only when needed.
+- `vibed/` holds abandoned versions: never read, search or reuse it. The old `spikes/` experiments were removed on
+  2026-11-15 and remain only in git history.
 
 ## Rules
 
