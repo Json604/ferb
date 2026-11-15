@@ -17,7 +17,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `HANDOFF.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `kb`, `tools`, `spikes` | 9 | 8 | 0 |
 | prompts | Prompts and abilities | `ferb/orchestrator/prompts`, `ferb/abilities` | 47 | 3 | 10 |
 | release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 23 | 2 | 4 |
-| runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 55 | 4 | 5 |
+| runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 55 | 5 | 5 |
 | storage | Storage | `ferb/store` | 26 | 6 | 3 |
 | tests | Tests | `tests` | 11 | 15 | 0 |
 | voice | Voice | `ferb/voice` | 3 | 0 | 0 |

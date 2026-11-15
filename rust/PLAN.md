@@ -238,6 +238,13 @@ Lines are Python lines at `63369cb3`. "Fixtures" names what exists; a part witho
   Android. Record it as an owner decision in kb when stage 3 starts; the Android app reproduces the tokens and
   screens, it does not get its own design.
 - Owner, 2026-11-15 (ENG-10): a phone stores what it fetched from the Mac locally.
+- Owner, 2026-11-15 (T-1099): the phone apps have the same Claude / Codex / API-key sign-ins as the Mac, so they can
+  use the models when the laptop is off ("laptop wont be on alwys"). This makes the phone more than a remote for the
+  Mac's engine: the portable crates already compile for iOS and Android (ENG-5), so the engine can run on the phone
+  with its own runtime sign-in. To settle with the owner before building: what a phone does alone (chat and research
+  with no Mac hands? its own history, merged into the Mac's when it is back?), where its secrets live (the phone's
+  keystore, never synced: rule 7), and which runtimes can sign in on a phone at all (Codex and Claude sign-ins are
+  desktop CLI flows today; an API key works anywhere). Live test on the owner's phones.
 
 - Source: `~/Desktop/ferb-phone-link` at `57b3f34` (read only): `rust/src` (transport on iroh 1.4.1 with a small
   pinned patch, `role.rs` classifying all 106 methods with five never allowed: `about.guide`,

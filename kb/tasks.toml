@@ -694,3 +694,11 @@ kind = "live"
 status = "open"
 why = "Owner 2026-11-14: \"a full device acces securoty audiot by an independent fable agent ... i will give it my amc, and my moto and any other access it needs to do the live security testsing at the extreme\". Before T-1097; the owner grants the access when it starts."
 decisions = ["PROJ-508"]
+
+[T-1099]
+title = "Phone apps sign in to Claude, Codex or an API key themselves, so FERB works when the Mac is off"
+area = "runtimes"
+kind = "build"
+status = "open"
+why = "Owner 2026-11-15: \"add in kb to test in phone apps to have the same claude/codex/api logins to use them. cause laptop wont be on alwys for htem to use those AIs\". Stages 3-4: build and live-test the same sign-ins on the phones. What a phone can do alone is to settle with the owner first."
+decisions = ["PROJ-508", "ENG-10"]
