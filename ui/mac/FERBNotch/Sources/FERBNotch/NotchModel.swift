@@ -102,6 +102,8 @@ final class NotchModel: ObservableObject {
     var shownTranscript: (day: Date, entries: [TranscriptEntry])?
     /// Where the chat is kept and what the daemon holds of it (APP-805).
     let chatStore = HistoryState()
+    /// The engine's shared conversation as this app follows it (ENG-10): turns other devices sent (`EntryWatch.swift`).
+    let entryWatch = EntryWatchState()
     /// What is shown of each day (APP-806); changed only through `updateWindow`.
     var dayWindows: [Date: DayWindow] = [:]
     /// The days the daemon has chat for (History), read when History opens.

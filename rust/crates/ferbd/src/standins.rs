@@ -16,6 +16,8 @@
 //!   the recorder's counter ids, the planner counts tokens by the byte ceiling, the untrusted-data wrapper has the
 //!   recorder's fixed id and a new chat the recorder's id. `fs_identity` (true): file results carry the recorder's
 //!   invented file facts.
+//! - `chat_trace`: a file the chat entries' log appends its trace to (ferb-supervisor `ChatLog::set_trace`: each input
+//!   the projectors are fed, in order, with the changes it made; the order check of `tests/chat_replay.rs`).
 //!
 //! The Keychain is always off (every helper call refused, `security` finds nothing), retention and the secrets'
 //! preload don't run, and no browser is started.
@@ -500,6 +502,21 @@ pub fn from_env(opts: &mut Options) -> Option<StandIns> {
         let n = Arc::new(AtomicU64::new(0));
         opts.run_tokens = Some(Arc::new(move || {
             format!("run-token-{:06}", n.fetch_add(1, Ordering::SeqCst) + 1)
+        }));
+    }
+    // the chat entries' trace (`chat_trace`: a file the order check reads, one JSON line per item, appended)
+    if let Some(path) = config.get("chat_trace").and_then(Value::as_str) {
+        let file = Arc::new(Mutex::new(PathBuf::from(path)));
+        opts.chat_trace = Some(Arc::new(move |item: &Value| {
+            use std::io::Write;
+            let path = file.lock().unwrap_or_else(|e| e.into_inner());
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&*path)
+            {
+                let _ = writeln!(f, "{item}");
+            }
         }));
     }
     let stand = Stand::default();

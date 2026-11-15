@@ -3735,3 +3735,30 @@ rule = "For ORCH-606 and ORCH-607. FERB.app's \"Couldn't confirm: …\" line com
 why = "Journal 69 listed `unconfirmed` read as `note` as an app bug. The daemon renamed the field on purpose with ORCH-606 (dd422f4f), the owner's \"One fixed short line\": showing it would put the condition text and how back into the reply."
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/ConversationArchive.swift::ConversationTurn.note", "rust/crates/ferb-core/src/chat_entry.rs::AnswerBody"]
 untestable = "No behavior changed: the app already left `unconfirmed` unread; this records why, so it isn't \"fixed\" into the reply."
+
+[APP-916]
+title = "FERB.app shows the turns another device sent, from the engine's entries, with the fold's mapping"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "For ENG-10. With the daemon's `entries` capability FERB.app watches chat.entries.watch and applies only message, plan, answer and error entries of requests whose client_id isn't its install id (or adopted, APP-918), through EntryFold's per-entry functions. A foreign message goes by the engine's pos, saved through the history like any turn. Its questions come on the bus and bind through its task. Its arrival is quiet (a task's result announces as today); a catch-up never replays an arrival. Without the capability nothing changes."
+why = "ENG-10: the Mac's behaviour and UI stay as they are and a phone's turns appear in its chat; one tested mapping instead of a third."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/EntryWatch.swift", "ui/mac/FERBNotch/Sources/NotchCore/EntryFold.swift", "ui/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift::NotchModel.connectDaemon"]
+
+[APP-917]
+title = "One writer per turn: a turn another device sent is written only from its entries"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "For APP-916, APP-914. A turn another device sent (saved `sentElsewhere`) or one this run adopted is written only from the engine's entries: receiveOutcome, applyOutcome, handleOutcome's turn writes, chat.status's running cards and checklists, reconcileMissingTask and interruptRestoredDrafts leave it alone; sessions, running tasks, known completions and the result's announcement stay as today. A result that arrives before its message's entry is filed as today (recordRecovered) and that turn takes the message when its entry comes, so no turn is doubled and none is deleted."
+why = "Two writers would double a later answer (finish, answerLater), and the history store can't delete a turn once written."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift::NotchModel.receiveOutcome", "ui/mac/FERBNotch/Sources/NotchCore/ConversationArchive.swift::ConversationTurn.sentElsewhere", "ui/mac/FERBNotch/Sources/FERBNotch/EntryWatch.swift"]
+
+[APP-918]
+title = "The watch cursor moves only after the history holds its changes; sends carry ids and are resent once"
+by = "agent"
+date = 2026-11-15
+status = "active"
+rule = "For ENG-14. The cursor (FERBEntriesCursor) is saved only after the history write or its outbox holds what it covers; changes dedupe by request and entry id. No cursor, reset_required or cursor_ahead: watch from now (nothing imported); behind or the stream's end: watch again from the cursor. chat.send carries the install id (FERBClientID) and a submission id per message; a link failure before any frame is resent once with the same ids, and a `repeat` ack adopts the turn. chat.entries.mark: delivered_seq per batch, read_pos while today's chat shows."
+why = "ENG-14: a cursor ahead of the saved history could lose a turn; a resend after a dropped link must never start a second turn."
+paths = ["ui/mac/FERBNotch/Sources/FERBNotch/EntryWatch.swift", "ui/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift::NotchModel.submitToDaemon", "ui/mac/FERBNotch/Sources/NotchCore/AppSettings.swift"]

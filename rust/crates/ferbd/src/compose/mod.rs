@@ -103,6 +103,9 @@ pub struct Options {
     pub question_ids: gateway::QuestionIds,
     /// Each run token's text (`secrets.token_urlsafe(32)`); None: the system's random bytes. Only a test sets it.
     pub run_tokens: Option<Arc<ferb_rpc::auth::TokenSource>>,
+    /// Where the chat entries' trace goes (ferb-supervisor `ChatLog::set_trace`); None: none is kept. Only a test sets
+    /// it (the stand-ins' `chat_trace`).
+    pub chat_trace: Option<ferb_supervisor::flow::chat_log::Trace>,
 }
 
 /// Replacements for seams the real composition fills, applied once each area's deps are built.
@@ -156,6 +159,7 @@ impl Options {
             resources: true,
             question_ids: Arc::new(gateway::random_question_id),
             run_tokens: None,
+            chat_trace: None,
         }
     }
 }
@@ -697,6 +701,9 @@ impl Daemon {
         let resuming: std::collections::BTreeSet<String> =
             sup.supervisor.recover_after_restart().into_iter().collect();
         // stage 2: the chat entries' journal backstop and start-up pass, before anything is served (chat_log.rs)
+        if let Some(trace) = &opts.chat_trace {
+            sup.supervisor.inner().chat_log.set_trace(trace.clone());
+        }
         sup.supervisor.chat_entries_after_restart(&resuming);
         // L39 M1: the records a stopped daemon left go now, except those of trees that will resume
         let stuck = tool_parts.changes().sweep(&|t: &str| resuming.contains(t));

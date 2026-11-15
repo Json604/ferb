@@ -933,6 +933,12 @@ pub fn control(
                 .unwrap_or_else(|e| json!({"error": e}));
             Ok(json!({"offer": offer, "answered": answered}))
         }
+        // stage 2: everything the chat log queued, applied and written now (the order check reads the store after it)
+        "chat_flush" => {
+            let inner = d.supervisor.supervisor.inner();
+            inner.chat_log.flush(inner);
+            Ok(Value::Null)
+        }
         "quiet_mark" => {
             let db = lock(&d.db);
             let q = |sql: &str| {

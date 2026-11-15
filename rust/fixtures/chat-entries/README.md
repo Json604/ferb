@@ -7,8 +7,9 @@ fixtures (ENG-3) and no Python script makes them.
 | File | What |
 |---|---|
 | `scenarios.json` | 71 scenarios: each one's `timeline` (built from the recordings) and the `entries` it ends with |
+| `engine_chat.json`, `engine_more.json` | the 28 and 33 scenarios ferbd replays through the real program: each one's `timeline` in the order the ENGINE fed its chat log (its real interleaving across connections and the bus) and the `entries` it stored |
 
-Written by `rust/crates/ferb-supervisor/tests/chat_entries.rs`:
+`scenarios.json` is written by `rust/crates/ferb-supervisor/tests/chat_entries.rs`:
 
     cd rust && UPDATE_GOLDEN=1 cargo test -p ferb-supervisor --test chat_entries    # write it again
     cd rust && cargo test -p ferb-supervisor --test chat_entries                    # compare, byte for byte
@@ -36,6 +37,23 @@ A recording keeps each connection's lines in order, not their order across conne
 where it ended is a choice, the same one for the engine and the app. `preview_attention` sends no message (an empty
 timeline); `login_sites` has two conversations (`s1`, `s2`).
 
+## The engine's own interleaving (`engine_*.json`)
+
+Written by `rust/crates/ferbd/tests/chat_replay.rs` from a run of the real `ferbd daemon` program (the test build's
+stand-ins `chat_trace`: ferb-supervisor `ChatLog::set_trace` writes every input the projectors are fed, in order, with
+the changes it made):
+
+    cd rust && UPDATE_GOLDEN=1 cargo test -p ferbd --test chat_replay -- the_recorded_chat the_more_scenarios   # write
+    cd rust && cargo test -p ferbd --test chat_replay                                                            # compare
+
+It is written only from a full run in which every scenario replays fully, and compared otherwise: a run that
+interleaved differently fails as `<name>: replays partly — engine order: …`. The timeline uses `scenarios.json`'s words
+with these differences: every bus event is `bus` (the engine reads all of them from the bus, as FERB.app's
+`logs.subscribe` does; there is no `result` or `notice` read from `chat.status`), a bus copy the engine held for its
+stream's end is placed where it was fed (that end), a `task.result` the stream fed itself is not repeated, and
+`{"do": "restart"}` marks the program's restart (its start-up pass). Entry ids are renamed `ce-000001`… by place (the log's
+own ids are random); paths are under `/FX`.
+
 ## How it is checked
 
 - `chat_entries.rs`: the golden bytes; one message per ack; nothing live stored; `seq` grows, `pos` fixed, each revision
@@ -43,4 +61,8 @@ timeline); `login_sites` has two conversations (`s1`, `s2`).
   the rules on invented frames (APP-580 placement, ORCH-579, ORCH-318, an error, DMN-583, a card's transitions only).
 - `ui/mac/FERBNotch/Tests/NotchCoreTests/EntryFoldTests.swift` reads this file from the repository and runs each
   timeline through FERB.app's own reducer, folds the entries with `EntryFold`, and compares the two transcripts on what
-  the owner sees (ids, `createdAt` and a notice's `noticedAt` left out): all 71 conversations equal.
+  the owner sees (ids, `createdAt` and a notice's `noticedAt` left out): all 71 conversations equal. It does the same
+  with `engine_*.json`: the app's reducer driven in the engine's real order against the engine's stored entries folded.
+- The order rules (`rust/crates/ferb-supervisor/tests/support_entries/mod.rs`): checked on the engine's trace after
+  every scenario ferbd replays, and on the pure projector over each recorded timeline and 40 invented interleavings of
+  its lanes each.

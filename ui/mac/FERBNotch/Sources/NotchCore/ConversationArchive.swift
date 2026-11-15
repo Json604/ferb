@@ -80,6 +80,10 @@ public struct ConversationTurn: Identifiable, Codable, Equatable {
     /// The intro's look-don't-act preview of a suggested task (kb area app): its rows say what FERB
     /// would do; nothing was done. Never saved (`forStorage`).
     public var preview = false
+    /// The owner sent this message from another of their devices (ENG-10: a phone; any client but this app): the turn
+    /// is written from the engine's entries only (`EntryWatch.swift`), never by this app's stream, results or drafts.
+    /// Saved, so it stays so after a relaunch; nil for every turn this app sent.
+    public var sentElsewhere: Bool?
 
     /// The typing-dots bubble (APP-300): from the acknowledgement until FERB's first words (a streamed plan line or
     /// reply, the plan, the reply).
@@ -155,7 +159,7 @@ public struct ConversationTurn: Identifiable, Codable, Equatable {
         case id, createdAt, request, sources, backendTaskID, answer, displayText, status, artifacts, responseNotice
         case requestID, ack, plan, parts, verified, question, taskGoal, taskName, statusInferred
         case planLine, planLines, direct, receipts, card, note, codeLines, runtimeSwitch, mergedInto
-        case cards, receiptCards, hiddenKinds, checklist
+        case cards, receiptCards, hiddenKinds, checklist, sentElsewhere
     }
 }
 
@@ -197,6 +201,7 @@ extension ConversationTurn {
         receiptCards = try c.lossyList(ResultCard.self, .receiptCards)
         mergedInto = try c.decodeIfPresent(String.self, forKey: .mergedInto)
         hiddenKinds = try c.decodeIfPresent([String].self, forKey: .hiddenKinds)
+        sentElsewhere = try c.decodeIfPresent(Bool.self, forKey: .sentElsewhere)
     }
 }
 
@@ -1059,7 +1064,8 @@ public struct ConversationArchive: Codable, Equatable {
     }
 
     public mutating func interruptRestoredDrafts() {
-        for id in turns.filter({ $0.status == "working" && $0.backendTaskID == nil }).map(\.id) {
+        // a message another device sent waits on the engine, not on this app (ENG-10)
+        for id in turns.filter({ $0.status == "working" && $0.backendTaskID == nil && $0.sentElsewhere != true }).map(\.id) {
             abortReply(id: id, reason: "FERB closed before this draft was confirmed.")
         }
     }

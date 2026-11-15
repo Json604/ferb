@@ -156,6 +156,37 @@ final class EntryFoldTests: XCTestCase {
         XCTAssertEqual(Self.shape(folded), Self.shape(saved.forStorage()))
     }
 
+    /// The engine's own interleaving (journal 72's open item): for the 61 scenarios ferbd replays through the real
+    /// program, the inputs in the order the ENGINE fed its chat log (`rust/fixtures/chat-entries/engine_chat.json` and
+    /// `engine_more.json`, written by `rust/crates/ferbd/tests/chat_replay.rs`: its real interleaving across the
+    /// connections and the bus, which a recording does not keep) through FERB.app's own reducer, against the entries
+    /// the engine stored, folded: what the app would show for the frames in that order is what the engine stored. For
+    /// the 26 scenarios whose stored order scenarios.json can't check (two streams at once, a question beside a stream)
+    /// this is the order check against the app.
+    // decision: ENG-9
+    // decision: ENG-15
+    func testTheEnginesOwnInterleavingFoldsToWhatTheAppShows() throws {
+        var compared = 0, differences: [String] = []
+        var names: Set<String> = []
+        for file in ["engine_chat.json", "engine_more.json"] {
+            for scenario in try Self.fixture(file) {
+                let name = scenario["name"] as? String ?? "?"
+                names.insert(name)
+                let timeline = scenario["timeline"] as? [[String: Any]] ?? []
+                let entries = ChatEntry.list(scenario["entries"])
+                for session in Set(timeline.compactMap { $0["session"] as? String }).sorted() {
+                    let app = Self.shape(appArchive(timeline.filter { $0["session"] as? String == session }))
+                    let folded = Self.shape(EntryFold.archive(entries.filter { $0.conversationID == session }))
+                    compared += 1
+                    if app != folded { differences.append("\(name) [\(session)]:\n  app:  \(app)\n  fold: \(folded)") }
+                }
+            }
+        }
+        XCTAssertEqual(names.count, 61, "28 chat and 33 more scenarios")
+        XCTAssertGreaterThanOrEqual(compared, 61)
+        XCTAssertTrue(differences.isEmpty, differences.joined(separator: "\n"))
+    }
+
     // MARK: the app's path
 
     /// The timeline through FERB.app's reducer, as the app runs it.
@@ -200,6 +231,10 @@ final class EntryFoldTests: XCTestCase {
                 model.receiveOutcome(item["data"] as? [String: Any] ?? [:], announce: false, recordEvent: false)
             case "notice":
                 model.receiveNotices([item["data"] as? [String: Any] ?? [:]])
+            case "restart":
+                // the engine's start-up pass after its restart (engine_*.json): what it changes (open questions
+                // expired, cut work interrupted) the app reads from chat.status, whose questions aren't in the archive
+                continue
             case "notification":
                 guard let banner = BannerItem(item["item"] as? [String: Any] ?? [:]),
                       case .reminder(let id) = banner.target else { continue }
@@ -246,11 +281,13 @@ final class EntryFoldTests: XCTestCase {
         return object
     }
 
-    private static func golden() throws -> [[String: Any]] {
+    private static func golden() throws -> [[String: Any]] { try fixture("scenarios.json") }
+
+    private static func fixture(_ file: String) throws -> [[String: Any]] {
         let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent()
-        let url = repo.appendingPathComponent("rust/fixtures/chat-entries/scenarios.json")
+        let url = repo.appendingPathComponent("rust/fixtures/chat-entries/" + file)
         let object = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any]
         return object?["scenarios"] as? [[String: Any]] ?? []
     }

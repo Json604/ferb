@@ -2171,3 +2171,44 @@ record; fixed by queuing only on the producers' paths and reading the bus last.
 - FERB.app's one change (turns a phone started); the phone role; the archive import's run with the owner present.
 - A notice cleared by a forget, or a tombstone, is not pushed live to watchers (they see it in `changes`).
 - Not live-checked.
+
+## 2026-11-15 · 73 · The stored order checked against the engine's own interleaving; FERB.app shows the turns another device sent
+
+**What.**
+- ENG-15: seven order rules for every conversation's stored entries (`ferb-supervisor/tests/support_entries`): `seq`
+  strictly grows in commit order and `pos` never moves; a message before its request's plan, answers, errors and
+  questions; a plan before its task's answers and its workers' questions; a question before the answer that told its
+  task's end; `answers` and `follows` name lower positions; and catch-up from any cut gives exactly what changed since.
+  Checked on the wired log's trace after every scenario the program replays and on the pure projector over invented
+  interleavings. The engine's real interleaving of the 61 replayed scenarios is kept in
+  `fixtures/chat-entries/engine_*.json` (not Python-recorded), and `EntryFoldTests` drives FERB.app's reducer in that
+  order. Every entry of a turn carries its message's `client_id`; `chat.attach` adds the `entries` capability.
+- APP-916, APP-917, APP-918: FERB.app watches `chat.entries.watch` and applies only other clients' turns, through
+  EntryFold's per-entry functions, saved through its own history; one writer per turn (`sentElsewhere`); the cursor
+  moves after the history write; `chat.send` carries the install's `client_id` and a `submission_id`, with one resend
+  if the link drops before any frame. Without the capability the app behaves exactly as before.
+
+**Why.** Journal 72: on 26 scenarios the stored order was compared with nothing. ENG-10: FERB.app keeps its behaviour
+and shows a phone's turns.
+
+**Evidence.** Rules: 61 of 61 replayed scenarios; 1,826 of 1,826 invented timelines; a sensitivity test per kind of
+break. App order: 61 of 61 transcripts equal when FERB.app's reducer is driven in the engine's order, 26 of them in
+an order the golden doesn't have; two runs wrote identical fixture files. `EntryWatchTests` (10): the 71 transcripts
+unchanged with the watch connected; a foreign turn live, after a relaunch, interleaved by `pos`, answered from the
+Mac; no duplicate; an old daemon unchanged. Rule 4 needs no exception: APP-580 decides where an answer shows, not its
+`pos`.
+
+**Seen once.** `correct_pending_check` swapped a journal row's and a span's ids under two parallel replays while the
+trace was written inside the drain's transaction; not reproduced in five solo runs, nor after the trace moved past
+the commit.
+
+**Named additions.** `chat.attach`'s `entries` capability. The golden's recorded multi-lane timelines break rule 4
+(an artifact of their order) and are not used as orders.
+
+**Open.**
+- Not live-checked: a second client against the real daemon is the owner's check (a script on the socket with the
+  `cli` role; the toolbox has no command for it).
+- For the owner's eyes: a foreign message arrives quietly; the app waits up to 3 s at connect for the catch-up;
+  turns from before the first watch are not imported.
+- One Swift run printed CoreData errors about the owner's AddressBook store: some test reaches the Contacts service
+  (which one is not looked into; tests must not touch the owner's data: TEST-508).

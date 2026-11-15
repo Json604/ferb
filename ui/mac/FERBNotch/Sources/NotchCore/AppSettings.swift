@@ -143,6 +143,8 @@ public enum AppSettings {
         "FERBConversationID": "the daemon conversation this chat continues (state)",
         "FERBChatHistoryImport": "when FERB's database took over the saved chat, and the archive's bytes then (APP-808, bookkeeping)",
         "FERBChatHistoryOutbox": "chat entries waiting to be written to FERB's database (APP-805; data, not a choice)",
+        "FERBClientID": "this install's id among the shared conversation's clients (ENG-14; made once, not a choice)",
+        "FERBEntriesCursor": "where the shared conversation's watch reads from next (ENG-10, bookkeeping)",
         "FERBIntroBeat": "where the intro tour was left (state)",
         "FERBIntroDone": "whether the intro tour finished (state)",
         "FERBIntroPendingGrant": "a permission the tour waits on across a restart (state)",

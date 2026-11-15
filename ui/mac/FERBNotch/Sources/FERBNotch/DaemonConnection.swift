@@ -14,6 +14,7 @@ extension NotchModel {
                     self.daemonLink.succeeded()
                     self.clickThrough.reconnected()     // the daemon may have restarted: its click-through windows
                     await self.prepareHistory()         // the chat in hand before the status read places anything
+                    await self.catchUpEntries()         // and the turns other devices sent (ENG-10)
                     await self.refreshDaemonStatus()
                     await self.refreshTimers()
                     // subscribed first, so a pause or resume after the paused tasks are read comes after it (APP-901)
@@ -36,6 +37,7 @@ extension NotchModel {
                 do { try await Task.sleep(for: .seconds(5)) } catch { return }
                 await self?.refreshDaemonStatus()
                 self?.clickThrough.retry()              // a click-through report that didn't get through
+                self?.markEntries()                     // the newest entry seen, while today's chat shows (ENG-14)
             }
         }
     }
@@ -43,6 +45,7 @@ extension NotchModel {
     func disconnectDaemon() {
         eventsTask?.cancel(); eventsTask = nil
         reconciliationTask?.cancel(); reconciliationTask = nil
+        stopEntryWatch()
         submissionTask?.cancel(); submissionTask = nil
         submissions.values.forEach { $0.cancel() }; submissions.removeAll()
         // Closing UI sockets only detaches; task.stop is exclusively an owner action.
@@ -56,6 +59,7 @@ extension NotchModel {
         conversationID = id
         preferences.set(id, forKey: "FERBConversationID")
         supportsAttachments = (attached["capabilities"] as? [String] ?? []).contains("input_paths")
+        entryWatch.supported = (attached["capabilities"] as? [String] ?? []).contains("entries")
         previewAccess.reconnected()         // the daemon may have been updated: a refused preview is asked for again
         connectionStatus = "Connected to FERB"
         // FERB's self-description says what this app shows (DMN-6): its how-tos, shortcuts, settings' places and its
@@ -130,13 +134,14 @@ extension NotchModel {
             // chat has no turn for.
             var cardsChanged = false
             for row in running {
-                guard let id = row["task_id"] as? String, let card = TurnCard(row["card"], taskID: id) else { continue }
+                guard let id = row["task_id"] as? String, let card = TurnCard(row["card"], taskID: id),
+                      watchedTurn(taskID: id, requestID: card.requestID.isEmpty ? nil : card.requestID) == nil else { continue }
                 if changeConversation({ $0.showCard(card, goal: Self.heading(row, empty: "")) }) { cardsChanged = true }
             }
             // A single ask's checklist as it stands (APP-894): its steps' live states after a reconnect.
             for row in running {
-                guard let id = row["task_id"] as? String, let checklist = StepChecklist(row["checklist"], taskID: id)
-                else { continue }
+                guard let id = row["task_id"] as? String, let checklist = StepChecklist(row["checklist"], taskID: id),
+                      watchedTurn(taskID: id, requestID: nil) == nil else { continue }
                 if changeConversation({ $0.showChecklist(checklist) }) { cardsChanged = true }
             }
             if cardsChanged { saveConversation() }
@@ -227,7 +232,8 @@ extension NotchModel {
                 let notice = "This task is no longer running; FERB has no confirmed final response."
                 if session.backendTaskID == taskID { session.detachUnavailableTask(notice) }
                 workSessions = workSessions.filter { $0.value.backendTaskID != taskID }
-                for turn in conversation.turns where turn.backendTaskID == taskID && ["working", "needs_user"].contains(turn.status) {
+                for turn in conversation.turns where turn.backendTaskID == taskID && ["working", "needs_user"].contains(turn.status)
+                    && !watchWrites(turn) {
                     conversation.finish(id: turn.id, answer: turn.answer, status: "interrupted", artifacts: turn.artifacts,
                         displayText: turn.displayText, verified: turn.isVerified, inferred: true)
                 }
@@ -283,9 +289,26 @@ extension NotchModel {
                 }
                 var params: [String: Any] = ["session_id": self.conversationID!, "text": text]
                 if !sources.isEmpty { params["input_paths"] = sources.map(\.path) }
-                for try await event in self.rpc.stream("chat.send", params: params) {
-                    guard !Task.isCancelled else { return }
-                    self.receiveChatEvent(event, localID: localID)
+                // ENG-14: with the shared conversation, this install's ids, so the one resend below is safe
+                params = self.entrySendParams(params)
+                let resendable = params["submission_id"] != nil
+                var resent = false
+                while true {
+                    var heard = false
+                    do {
+                        for try await event in self.rpc.stream("chat.send", params: params) {
+                            guard !Task.isCancelled else { return }
+                            heard = true
+                            self.receiveChatEvent(event, localID: localID)
+                            if event["type"] as? String == "ack" { await self.receiveOwnAck(event, localID: localID) }
+                        }
+                        break
+                    } catch {
+                        // The link dropped before FERB answered at all: the message may or may not have reached it.
+                        // Sent once more with the same ids, it never starts a second turn (a `repeat` ack says so).
+                        guard resendable, !heard, !resent, Self.linkFailed(error), !Task.isCancelled else { throw error }
+                        resent = true
+                    }
                 }
                 if self.conversation.turns.contains(where: { $0.id == localID && $0.isProvisional }) {
                     self.receiveChatEvent(["type": "reply_abort", "reason": "The stream ended before FERB confirmed its reply."], localID: localID)
@@ -307,6 +330,12 @@ extension NotchModel {
     }
 
     func finishSubmission(localID: UUID) {
+        // A resent message the engine already had (ENG-14): its turn is filled from the entries, nothing went wrong
+        if entryWatch.adoptedTurns.contains(localID) {
+            entryWatch.ackSeq.removeValue(forKey: localID)
+            withWorkSession(localID) { session.finishMerged() }
+            return
+        }
         withWorkSession(localID) {
             guard session.backendTaskID == nil else { return }
             acknowledgement.abort(turn: localID)
@@ -684,26 +713,31 @@ extension NotchModel {
     func receiveOutcome(_ event: [String: Any], announce: Bool = true, recordEvent: Bool = true) {
         guard let taskID = event["task_id"] as? String else { return }
         if recordEvent { taskStateRevision += 1 }
+        // ENG-10: a turn another device sent (or one this run adopted) is written from the engine's entries only; the
+        // rest (running tasks, the session, the announcement) is as for any task
+        let watched = watchedTurn(taskID: taskID, requestID: event["request_id"] as? String) != nil
         // The answer's own fields (ORCH-319) on its turn, before and after it is filed: a card fills in place.
-        let placed = conversation.applyOutcome(event)
+        let placed = watched ? false : conversation.applyOutcome(event)
         defer {
-            if conversation.applyOutcome(event) || placed { saveConversation() }
+            if !watched, conversation.applyOutcome(event) || placed { saveConversation() }
         }
         // The task ended, so its loops did too (L31), and its rows' live lines.
         standingWork.removeValue(forKey: taskID)
         stepLive = stepLive.filter { !$0.key.hasPrefix(taskID + ".") }
         if session.backendTaskID == taskID, session.activeTaskID != nil {
-            handleOutcome(event, announce: announce)
+            handleOutcome(event, announce: announce, writesTurn: !watched)
             taskActivities.removeValue(forKey: taskID)
             return
         }
         if let localID = workSessions.first(where: { $0.value.backendTaskID == taskID })?.key {
-            withWorkSession(localID) { handleOutcome(event, announce: announce) }
+            withWorkSession(localID) { handleOutcome(event, announce: announce, writesTurn: !watched) }
             taskActivities.removeValue(forKey: taskID)
         } else if let status = event["status"] as? String {
             let fresh = !knownCompletedTasks.contains(taskID)
             let artifacts = (event["artifacts"] as? [String] ?? []).filter { $0.hasPrefix("/") }.map { URL(fileURLWithPath: $0) }
-            if let turn = (event["request_id"] as? String).flatMap(conversation.turn(requestID:))
+            if watched {
+                // its answer comes as the engine's entry (EntryWatch.swift)
+            } else if let turn = (event["request_id"] as? String).flatMap(conversation.turn(requestID:))
                 ?? conversation.turns.first(where: { $0.backendTaskID == taskID }) {
                 // Bound here too, so Tasks and Inspect reach a turn found by its request.
                 conversation.bind(id: turn.id, taskID: taskID)
@@ -717,6 +751,11 @@ extension NotchModel {
                     answer: event["answer"] as? String ?? event["summary"] as? String ?? "", status: status,
                     artifacts: artifacts, displayText: event["display_text"] as? String,
                     verified: event["verified"] as? Bool ?? false, at: LiveProgress.time(event["at"]) ?? Date())
+                // a message another device sent whose entry hasn't come yet: that entry fills this turn (ENG-10)
+                if entryWatch.supported, let request = event["request_id"] as? String,
+                   let filed = conversation.turns.last(where: { $0.backendTaskID == taskID }) {
+                    entryWatch.recovered[request] = filed.id
+                }
             }
             knownCompletedTasks.insert(taskID)
             // A task this chat didn't start (a schedule's run, one from before a restart): done is a notification; a
@@ -912,7 +951,8 @@ extension NotchModel {
         }
     }
 
-    private func handleOutcome(_ event: [String: Any], announce: Bool) {
+    /// `writesTurn`: false for a turn the watch writes (ENG-10); the session still ends and announces as before.
+    private func handleOutcome(_ event: [String: Any], announce: Bool, writesTurn: Bool = true) {
         guard let id = event["task_id"] as? String, id == session.backendTaskID else { return }
         let alreadyAnnounced = knownCompletedTasks.contains(id)
         let status = event["status"] as? String ?? "failed"
@@ -930,6 +970,7 @@ extension NotchModel {
             presentResult(event)
         }
         let verified = event["verified"] as? Bool ?? false
+        guard writesTurn else { return }
         recordAnswer(announce: announce, displayText: event["display_text"] as? String, verified: verified)
         for turn in conversation.turns where turn.backendTaskID == id && ["working", "interrupted", "needs_user"].contains(turn.status) {
             conversation.finish(id: turn.id, answer: answer, status: status, artifacts: session.result?.artifacts ?? [],

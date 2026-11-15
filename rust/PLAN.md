@@ -219,16 +219,21 @@ Lines are Python lines at `63369cb3`. "Fixtures" names what exists; a part witho
   journal row; the start-up pass and the journal backstop), and the calls `chat.entries.page|changes|get|days|watch|mark`
   with `chat.send`'s `client_id`/`submission_id`. ferbd's `chat_replay` compares the stored entries with the golden
   after every scenario.
-- Remaining in stage 2: (1) FERB.app's one contained change: show a turn a phone started (the watch feeding its
-  existing reducer for turns it did not send), nothing visible changed otherwise; (2) running the archive import once
+- Journal 73: the order check (ENG-15: seven rules on the wired log's trace and on invented interleavings; the
+  engine's real interleaving kept in `fixtures/chat-entries/engine_*.json` and FERB.app's reducer driven in it equal to
+  the stored entries on all 61 replayed scenarios) and FERB.app's one change (APP-916..918: it watches
+  `chat.entries.watch` and shows turns another client sent; every entry of a turn names its client; `chat.attach` adds
+  `entries`). Not live-checked: a second client against the real daemon is the owner's check.
+- Remaining in stage 2: (1) the owner's live check of FERB.app showing another client's turn; (2) running the archive import once
   with the owner watching (`ferb_store::chat_entries::import_archive(db, archive, conversation)` with the daemon
   stopped, against the owner's archive folder; it refuses an archive whose `-wal` is not empty: checkpoint a copy first);
   no internal command calls it yet. Stage 3 then classifies the six calls for the phone role (reads Private, `mark`
   Plain) and decides what "seen everywhere for notifications" does to banners (today the shown flags stay global).
-- Known gaps: a watcher is not told live of a notice cleared by a forget (it reads it in `changes`); a revision made
-  outside the log (`clear_notice`, a tombstone) leaves a loaded projector's copy of that entry stale (notices are never
+- Known gaps: FERB.app shows another client's turns only from the moment it first watches (no cursor: no import of
+  older ones), and a result filed before its message's entry is joined to it only while the app runs; a watcher is not
+  told live of a notice cleared by a forget (it reads it in `changes`); a revision made outside the log (`clear_notice`, a tombstone) leaves a loaded projector's copy of that entry stale (notices are never
   revised by it); the golden's timelines for 28 scenarios differ from the engine's real order (named in
-  `chat_replay.rs` `ENTRY_DIFFERENCES`).
+  `chat_replay.rs` `ENTRY_DIFFERENCES`; the real order is now checked by ENG-15's rules and `engine_*.json`).
 - Owner, 2026-11-15 (ENG-10, ENG-11): one conversation kept on the Mac; PHONES fetch it like from a server and store
   what they fetched; FERB.app's behaviour and UI for earlier messages stay as they are ("no only phoens ... current
   mac behavious adn ui for prev and od messages im ok with"); chat kept as now; the pre-Rust archive imported once,

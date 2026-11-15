@@ -1556,7 +1556,23 @@ impl ChatProjector {
         }
     }
 
+    /// Every entry of a message's turn names the client that sent the message (ENG-14: a client tells the turns it
+    /// sent from the others by any of their entries, a revision read after a relaunch included).
+    fn stamp(&self, entry: &mut Entry) {
+        if entry.kind == EntryKind::Message || entry.client_id.is_some() {
+            return;
+        }
+        if let Some(t) = entry
+            .request_id
+            .as_ref()
+            .and_then(|r| self.by_request.get(r))
+        {
+            entry.client_id = self.turns[*t].client_id.clone();
+        }
+    }
+
     fn create(&mut self, mut entry: Entry, seams: &mut dyn Seams) {
+        self.stamp(&mut entry);
         entry.rev = 1;
         entry.seq = seams.next_seq();
         self.order.push(entry.id.clone());
@@ -1569,6 +1585,7 @@ impl ChatProjector {
 
     /// A revision only when something stored changed.
     fn revise(&mut self, mut entry: Entry, seams: &mut dyn Seams) {
+        self.stamp(&mut entry);
         let Some(stored) = self.entries.get(&entry.id) else {
             return;
         };

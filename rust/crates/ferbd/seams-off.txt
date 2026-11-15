@@ -48,6 +48,7 @@ value app_check | Options::real: None means the code-signature check (the real d
 value timer_tokens | Options::real: None means random tokens (the real daemon).
 value overrides | Options::real: None means no test stand-ins (the real daemon).
 value run_tokens | Options::real: None means random run tokens (the real daemon).
+value chat_trace | Options::real: None means the chat log keeps no trace (only the test stand-ins set one).
 value wrap_id | BuildParts: None means a random wrapper id, as wrap_untrusted makes.
 value new_chat | BuildParts: None means random chat ids.
 value notice_hex | BuildParts: None means random notice ids.

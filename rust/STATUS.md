@@ -61,7 +61,7 @@ the phone apps share; they reach the Mac's own parts only through traits.
 
 | Stage | What | State |
 |---|---|---|
-| 2 | History owned by the engine, shared by every client | in progress: entry contract, projector and app fold verified on 71 scenarios (journal 69); store (migration 0063), wiring into the engine and the `chat.entries.*` calls built and tested through the program (journal 72): the stored entries equal the golden on 61 recorded scenarios (33 strictly, 28 with named differences of the golden's timeline); the Mac app's one change (phone-started turns), the phone role and the archive import's run remain |
+| 2 | History owned by the engine, shared by every client | in progress: entry contract, projector and app fold verified on 71 scenarios (journal 69); store (migration 0063), wiring into the engine and the `chat.entries.*` calls built and tested through the program (journal 72): the stored entries equal the golden on 61 recorded scenarios (33 strictly, 28 with named differences of the golden's timeline); the stored order checked by seven rules on the engine's own trace after every replayed scenario and on 1,826 invented interleavings, and FERB.app's reducer driven in the engine's real order equal to the stored entries on all 61 (journal 73); FERB.app shows turns another client sent (the watch, APP-916..918; Swift-tested, not live-checked); the phone role and the archive import's run remain |
 | 3 | Phone role in the daemon; Android app (from the phone lab) | not started |
 | 4 | iPhone app | not started |
 | 5 | Closed-app notifications | not started |

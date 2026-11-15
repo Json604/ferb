@@ -14,6 +14,9 @@
 //! `CHAT_REPLAY=<name>` runs one scenario; `CHAT_REPLAY_DEBUG=1` prints every difference.
 
 mod support;
+// stage 2: the order rules every conversation's stored entries keep (shared with ferb-supervisor's chat_entries)
+#[path = "../../ferb-supervisor/tests/support_entries/mod.rs"]
+mod entry_rules;
 // the deliberate prompt changes since the recording (ENG-6, rust/fixtures/catalog/prompt_changes.json)
 #[path = "../../ferb-supervisor/tests/common/prompt_changes.rs"]
 mod prompt_changes;
@@ -378,8 +381,10 @@ struct Report {
     frames: Vec<String>,
     calls: Vec<String>,
     tables: Vec<String>,
-    /// stage 2: the chat_entries table against the golden entries
+    /// stage 2: the chat_entries table against the golden entries, and the order rules
     entries: Vec<String>,
+    /// stage 2: the engine's own interleaving as a timeline, with its stored entries (`chat-entries/engine_*.json`)
+    engine_order: Option<Value>,
     stopped: Option<String>,
     checked: usize,
 }
@@ -672,6 +677,139 @@ fn entries_against_golden(name: &str, db: &Path) -> Vec<String> {
         }
     }
     out
+}
+
+/// Stage 2's order check (journal 72's open item: for the scenarios compared as "the same entries whatever their order",
+/// the stored order was checked against nothing). After every scenario: the rules of `support_entries` over the chat
+/// log's trace (every input the projectors were fed, in the order the engine fed them) and the stored entries; the
+/// store's own `changes` after every cut equal to the stored entries above it, in `seq` order; and the engine's real
+/// interleaving written as a timeline FERB.app's reducer is driven with (`rust/fixtures/chat-entries/engine_*.json`,
+/// EntryFoldTests `testTheEnginesOwnInterleavingFoldsToWhatTheAppShows`).
+fn entry_order(
+    name: &str,
+    db: &Path,
+    trace_path: &Path,
+    run_root: &RunRoot,
+) -> (Vec<String>, Value) {
+    use ferb_core::chat_entry::Entry;
+    let items: Vec<Value> = std::fs::read_to_string(trace_path)
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| serde_json::from_str(&run_root.mask(l)).ok())
+        .collect();
+    let conn =
+        rusqlite::Connection::open_with_flags(db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .unwrap();
+    let mask = |e: &Entry| -> Entry {
+        serde_json::from_str(&run_root.mask(&serde_json::to_string(e).unwrap())).unwrap()
+    };
+    let conversations = ferb_store::chat_entries::conversations(&conn).unwrap();
+    let mut stored: Vec<Entry> = Vec::new();
+    let mut out = Vec::new();
+    for c in &conversations {
+        let page = ferb_store::chat_entries::page(&conn, c, None, None, 100_000).unwrap();
+        let mine: Vec<Entry> = page.entries.iter().map(mask).collect();
+        // what a client catching up reads: the store's changes after every cut, in seq order
+        let mut by_seq = mine.clone();
+        by_seq.sort_by_key(|e| e.seq);
+        let mut cuts = vec![0];
+        cuts.extend(by_seq.iter().map(|e| e.seq));
+        for k in cuts {
+            let got: Vec<Entry> = ferb_store::chat_entries::changes(&conn, c, k, 100_000)
+                .unwrap()
+                .entries
+                .iter()
+                .map(mask)
+                .collect();
+            let want: Vec<&Entry> = by_seq.iter().filter(|e| e.seq > k).collect();
+            if got.iter().collect::<Vec<_>>() != want {
+                out.push(format!(
+                    "{name} [{c}]: changes after {k} give {:?}, the entries above it are {:?} (rule 7, the store)",
+                    got.iter().map(|e| (&e.id, e.seq)).collect::<Vec<_>>(),
+                    want.iter().map(|e| (&e.id, e.seq)).collect::<Vec<_>>()
+                ));
+                break;
+            }
+        }
+        stored.extend(mine);
+    }
+    let trace = entry_rules::read(&items);
+    out.extend(entry_rules::check(name, &trace, &stored));
+    // the engine's interleaving as a timeline (the words of `chat-entries/scenarios.json`): each input the projectors
+    // were fed, in that order; a held bus copy where it was fed (the stream's end), a bus copy the stream fed itself
+    // left out; every bus input as the app's own `logs.subscribe` gives it (`bus`)
+    let mut timeline = Vec::new();
+    let mut streams: HashMap<String, usize> = HashMap::new();
+    for item in &items {
+        let Some(session) = item.get("conversation").and_then(Value::as_str) else {
+            continue;
+        };
+        let input = &item["input"];
+        let request = s(&input["request_id"]);
+        match input["do"].as_str().unwrap_or("") {
+            "frame" => {
+                let mut frame = input["frame"].clone();
+                if frame["type"] == "ack" && !streams.contains_key(&request) {
+                    let n = streams.len();
+                    streams.insert(request.clone(), n);
+                    let paths = frame
+                        .get("input_paths")
+                        .cloned()
+                        .unwrap_or_else(|| json!([]));
+                    timeline.push(json!({"do": "send", "stream": n, "session": session,
+                        "request_id": request, "text": frame["message"], "input_paths": paths,
+                        "at": frame["at"]}));
+                }
+                // what the engine added to the ack it fed (the stream's own frame carries none of it)
+                if let Some(f) = frame.as_object_mut() {
+                    for k in ["input_paths", "client_id", "submission_id"] {
+                        f.remove(k);
+                    }
+                }
+                let stream = streams.get(&request).copied();
+                timeline.push(
+                    json!({"do": "frame", "stream": stream, "session": session, "frame": frame}),
+                );
+            }
+            "end" => {
+                let stream = streams.get(&request).copied();
+                timeline.push(json!({"do": "end", "stream": stream, "session": session}));
+            }
+            "bus" => timeline.push(json!({"do": "bus", "session": session, "topic": input["topic"],
+                "data": input["data"], "at": input["data"].get("at").cloned().unwrap_or(Value::Null)})),
+            "notification" => timeline
+                .push(json!({"do": "notification", "session": session, "item": input["item"]})),
+            "restart" => timeline.push(json!({"do": "restart", "session": session})),
+            _ => {}
+        }
+    }
+    // the log's entry ids are random (its id source is never the daemon's): named by their place, as the golden's
+    let names: HashMap<String, String> = stored
+        .iter()
+        .enumerate()
+        .map(|(i, e)| (e.id.clone(), format!("ce-{:06}", i + 1)))
+        .collect();
+    let rename = |v: &Value| match v.as_str() {
+        Some(id) => json!(names
+            .get(id)
+            .cloned()
+            .unwrap_or_else(|| format!("unknown:{id}"))),
+        None => v.clone(),
+    };
+    let entries: Vec<Value> = stored
+        .iter()
+        .map(|e| {
+            let mut v = serde_json::to_value(e).unwrap();
+            v["id"] = rename(&v["id"]);
+            v["answers"] = rename(&v["answers"]);
+            if v["body"].get("follows").is_some() {
+                v["body"]["follows"] = rename(&v["body"]["follows"]);
+            }
+            v
+        })
+        .collect();
+    let export = json!({"name": name, "timeline": timeline, "entries": entries});
+    (out, export)
 }
 
 fn is_shadow(name: &str) -> bool {
@@ -1034,7 +1172,14 @@ fn run_scenario(
     let script_path = root.join(format!("{nn}-script.json"));
     let mut used = Used::default();
     write_script(&script_path, &script, &used, run_root);
-    let mut run = Run::start(&root, &nn, config(&script_path, "id"));
+    // stage 2: the chat log's trace (every input the projectors were fed, in order: the order check)
+    let trace_path = root.join(format!("{nn}-trace.jsonl"));
+    let _ = std::fs::remove_file(&trace_path);
+    let mut run = Run::start(&root, &nn, {
+        let mut c = config(&script_path, "id");
+        c["chat_trace"] = json!(trace_path.to_string_lossy());
+        c
+    });
     // the recorder's start: its journal rows, then the scenario's ids; the timer claim tokens where its loop was
     let first_request: usize = sc["steps"]
         .as_array()
@@ -1342,6 +1487,7 @@ fn run_scenario(
                     {
                         let mut c = config(&script_path, &s(&st["ids_prefix"]));
                         c["user_home"] = json!(user.to_string_lossy());
+                        c["chat_trace"] = json!(trace_path.to_string_lossy());
                         c
                     }
                     .to_string(),
@@ -1358,9 +1504,14 @@ fn run_scenario(
     }
     settle(&run);
     used.take(&run.control(json!({"do": "script"})));
+    // everything the chat log has queued, written (its writer drains a moment after each wake)
+    run.control(json!({"do": "chat_flush"}));
     // the store as the recorder read it: before the daemon's shutdown
     let mine = dump(&home.join("ferb.db"), run_root);
     report.entries = entries_against_golden(&name, &home.join("ferb.db"));
+    let (rules, export) = entry_order(&name, &home.join("ferb.db"), &trace_path, run_root);
+    report.entries.extend(rules);
+    report.engine_order = Some(export);
     if std::env::var("CHAT_REPLAY_DUMP").is_ok() {
         for t in ["journal", "spans"] {
             let at = if t == "journal" { 1 } else { 0 };
@@ -1605,7 +1756,7 @@ fn the_recorded_chat_scenarios_through_the_program() {
         .collect();
     let only = std::env::var("CHAT_REPLAY").ok();
     let debug = std::env::var("CHAT_REPLAY_DEBUG").is_ok();
-    let (mut lines, mut full, mut checked) = (Vec::new(), 0, 0);
+    let (mut lines, mut full, mut checked, mut orders) = (Vec::new(), 0, 0, Vec::new());
     for (i, sc) in chat["scenarios"].as_array().unwrap().iter().enumerate() {
         let name = s(&sc["name"]);
         if only.as_ref().is_some_and(|o| *o != name) {
@@ -1613,6 +1764,7 @@ fn the_recorded_chat_scenarios_through_the_program() {
         }
         let r = run_scenario(sc, &base_records(&name), catalogs(), i, &run_root, &schemas);
         checked += r.checked;
+        orders.extend(r.engine_order.clone());
         if r.full() {
             full += 1;
             lines.push(format!("{name}: replays fully"));
@@ -1650,6 +1802,13 @@ fn the_recorded_chat_scenarios_through_the_program() {
         "{full} of {} replay fully; {checked} comparisons",
         lines.len()
     );
+    let clean = full == lines.len();
+    lines.extend(engine_order_file(
+        "engine_chat.json",
+        &orders,
+        only.is_some(),
+        clean,
+    ));
     let failures: Vec<&String> = lines
         .iter()
         .filter(|l| !l.ends_with(": replays fully"))
@@ -1660,6 +1819,94 @@ fn the_recorded_chat_scenarios_through_the_program() {
         })
         .collect();
     assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// The engine's interleavings of one test's scenarios (`rust/fixtures/chat-entries/<file>`, not Python-recorded: the
+/// Rust engine's own run), written again with `UPDATE_GOLDEN=1` (a full run only), else compared: a scenario whose
+/// run interleaved differently is reported (`<name>: replays partly — engine order: ...`).
+fn engine_order_file(file: &str, orders: &[Value], filtered: bool, clean: bool) -> Vec<String> {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/chat-entries")
+        .join(file);
+    if std::env::var_os("UPDATE_GOLDEN").is_some() {
+        if filtered || !clean {
+            return vec![format!(
+                "{file}: UPDATE_GOLDEN writes it from a full run where every scenario replays fully only"
+            )];
+        }
+        let mut text = String::from("{\"about\": ");
+        text += &serde_json::to_string(
+            "Generated by rust/crates/ferbd/tests/chat_replay.rs (UPDATE_GOLDEN=1). Not Python-recorded: each scenario \
+             as the Rust engine ran it through the real program, its chat log's inputs in the order the engine fed them \
+             (`timeline`, the words of scenarios.json) and the entries it stored (`entries`).",
+        )
+        .unwrap();
+        text += ",\n\"scenarios\": [\n";
+        for (i, o) in orders.iter().enumerate() {
+            text += &format!("{{\"name\": {},\n\"timeline\": [\n", o["name"]);
+            let items: Vec<String> = o["timeline"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.to_string())
+                .collect();
+            text += &items.join(",\n");
+            text += "],\n\"entries\": [\n";
+            let items: Vec<String> = o["entries"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.to_string())
+                .collect();
+            text += &items.join(",\n");
+            text += if i + 1 == orders.len() {
+                "]}\n"
+            } else {
+                "]},\n"
+            };
+        }
+        text += "]}\n";
+        std::fs::write(&path, text).unwrap();
+        return Vec::new();
+    }
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return vec![format!("{file}: missing (UPDATE_GOLDEN=1 writes it)")];
+    };
+    let kept: Value = serde_json::from_str(&text).unwrap();
+    let kept: HashMap<String, &Value> = kept["scenarios"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|o| (s(&o["name"]), o))
+        .collect();
+    let mut out = Vec::new();
+    for o in orders {
+        let name = s(&o["name"]);
+        match kept.get(&name) {
+            Some(k) if *k == o => {}
+            Some(k) => {
+                let (a, b) = (
+                    k["timeline"].as_array().unwrap(),
+                    o["timeline"].as_array().unwrap(),
+                );
+                let at = (0..a.len().max(b.len()))
+                    .find(|i| a.get(*i) != b.get(*i))
+                    .map(|i| {
+                        format!(
+                            "timeline item {i}: kept {} / run {}",
+                            cut(&a.get(i).map(|v| v.to_string()).unwrap_or_default()),
+                            cut(&b.get(i).map(|v| v.to_string()).unwrap_or_default())
+                        )
+                    })
+                    .unwrap_or_else(|| "its entries".into());
+                out.push(format!("{name}: replays partly — engine order: {at}"));
+            }
+            None => out.push(format!(
+                "{name}: replays partly — engine order: not in {file}"
+            )),
+        }
+    }
+    out
 }
 
 /// What still differs, by scenario, with the reason (each a seam mismatch reported in rust/JOURNAL.md). Empty: a
@@ -1726,8 +1973,9 @@ impl More {
         }
     }
 
-    /// One recording through the program: whether it replays fully, else its first differences.
-    fn replay(&self, i: usize, sc: &Value, debug: bool) -> (bool, String) {
+    /// One recording through the program: whether it replays fully, else its first differences; and the engine's
+    /// interleaving (`entry_order`).
+    fn replay(&self, i: usize, sc: &Value, debug: bool) -> (bool, String, Option<Value>) {
         let more = &self.more;
         let name = s(&sc["name"]);
         let recs: Vec<Value> = more["records"][&name]
@@ -1757,7 +2005,7 @@ impl More {
             &self.schemas,
         );
         if r.full() {
-            return (true, format!("{name}: replays fully"));
+            return (true, format!("{name}: replays fully"), r.engine_order);
         }
         let mut why = Vec::new();
         if let Some(stop) = &r.stopped {
@@ -1786,6 +2034,7 @@ impl More {
         (
             false,
             format!("{name}: replays partly — {}", why.join("\n  ")),
+            r.engine_order,
         )
     }
 }
@@ -1796,20 +2045,28 @@ fn the_more_scenarios_through_the_program() {
     let m = More::new();
     let only = std::env::var("CHAT_REPLAY").ok();
     let debug = std::env::var("CHAT_REPLAY_DEBUG").is_ok();
-    let (mut lines, mut full) = (Vec::new(), 0);
+    let (mut lines, mut full, mut orders) = (Vec::new(), 0, Vec::new());
     for (i, sc) in m.more["scenarios"].as_array().unwrap().iter().enumerate() {
         let name = s(&sc["name"]);
         if only.as_ref().is_some_and(|o| *o != name) {
             continue;
         }
-        let (whole, line) = m.replay(i, sc, debug);
+        let (whole, line, order) = m.replay(i, sc, debug);
         if whole {
             full += 1;
         }
         eprintln!("{line}");
         lines.push(line);
+        orders.extend(order);
     }
     eprintln!("{full} of {} replay fully", lines.len());
+    let clean = full == lines.len();
+    lines.extend(engine_order_file(
+        "engine_more.json",
+        &orders,
+        only.is_some(),
+        clean,
+    ));
     let failures: Vec<&String> = lines
         .iter()
         .filter(|l| !l.ends_with(": replays fully"))
@@ -1830,7 +2087,7 @@ fn every_time(name: &str, runs: usize) {
         .expect("the recording");
     let mut partly = Vec::new();
     for n in 0..runs {
-        let (whole, line) = m.replay(i, sc, false);
+        let (whole, line, _) = m.replay(i, sc, false);
         if !whole {
             partly.push(format!("run {n}: {line}"));
         }

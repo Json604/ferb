@@ -16,6 +16,9 @@
 //! keeps each connection's lines in order but not their order across connections; the timeline's order (a stream's
 //! frames where it ended) is a choice, the same for the engine and the app.
 
+// the order rules every conversation's entries keep (shared with ferbd's chat_replay)
+mod support_entries;
+
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 
@@ -1092,4 +1095,350 @@ fn a_journaled_reply_answers_a_message_left_without_one() {
         back.after_restart(&|_| false, &mut c).is_empty(),
         "answered: nothing to interrupt"
     );
+}
+
+// ---- the order rules over invented interleavings (journal 72's open item) ----
+
+/// A small deterministic generator (xorshift64*): the same seed, the same interleaving.
+struct Rng(u64);
+
+impl Rng {
+    fn below(&mut self, n: usize) -> usize {
+        self.0 ^= self.0 >> 12;
+        self.0 ^= self.0 << 25;
+        self.0 ^= self.0 >> 27;
+        (self.0.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 33) as usize % n
+    }
+}
+
+/// A timeline's lanes: each stream's items (its send, frames and end, with the `task.result` chat.rs publishes right
+/// after an outcome), and everything else (questions, answers, results and notices `chat.status` read, banners), each
+/// lane in its own order.
+fn lanes(timeline: &[Value]) -> Vec<Vec<Value>> {
+    let mut streams: BTreeMap<u64, Vec<Value>> = BTreeMap::new();
+    let mut other = Vec::new();
+    let mut last_outcome: Option<(u64, Option<String>)> = None;
+    for item in timeline {
+        if let Some(n) = item.get("stream").and_then(Value::as_u64) {
+            last_outcome =
+                (item["frame"]["type"] == "outcome").then(|| (n, s(&item["frame"], "task_id")));
+            streams.entry(n).or_default().push(item.clone());
+            continue;
+        }
+        if item["do"] == "bus" && item["topic"] == "task.result" {
+            if let Some((n, task)) = last_outcome.take() {
+                if s(&item["data"], "task_id") == task {
+                    streams.entry(n).or_default().push(item.clone());
+                    continue;
+                }
+            }
+        }
+        last_outcome = None;
+        other.push(item.clone());
+    }
+    let mut out: Vec<Vec<Value>> = streams.into_values().collect();
+    if !other.is_empty() {
+        out.push(other);
+    }
+    out
+}
+
+/// What an item needs to have happened before it, by what it names: a request's message (its send), a task's plan,
+/// a question's asking (an answer to it). Causes an interleaving keeps, as the engine's one queue does.
+fn needs(item: &Value) -> (Vec<String>, Vec<String>, Vec<String>) {
+    let data = if item["do"] == "frame" {
+        &item["frame"]
+    } else {
+        &item["data"]
+    };
+    let mut requests: Vec<String> = s(data, "request_id").into_iter().collect();
+    requests.extend(s(data, "into"));
+    let task = s(data, "task_id").map(|t| t.split('.').next().unwrap_or_default().to_string());
+    let mut asked = Vec::new();
+    if item["do"] == "bus" && item["topic"] == "approval.resolved" {
+        asked.extend(s(data, "approval_id"));
+    }
+    let tasks = if item["do"] == "frame" && data["type"] == "plan" {
+        Vec::new()
+    } else {
+        task.into_iter().collect()
+    };
+    (requests, tasks, asked)
+}
+
+/// What an item makes happen for others: the request it sends, the task it plans, the question it asks.
+fn gives(item: &Value) -> (Option<String>, Option<String>, Option<String>) {
+    let request = (item["do"] == "send")
+        .then(|| s(item, "request_id"))
+        .flatten();
+    let plan = (item["do"] == "frame" && item["frame"]["type"] == "plan")
+        .then(|| s(&item["frame"], "task_id"))
+        .flatten();
+    let asked = if item["do"] == "frame" && item["frame"]["topic"] == "approval.requested" {
+        s(&item["frame"]["data"], "approval_id")
+    } else if item["do"] == "bus" && item["topic"] == "approval.requested" {
+        s(&item["data"], "approval_id")
+    } else {
+        None
+    };
+    (request, plan, asked)
+}
+
+/// One random interleaving of the lanes that keeps each lane's order and every item's causes (`needs`) before it.
+fn interleave(lanes: &[Vec<Value>], rng: &mut Rng) -> Vec<Value> {
+    let mut at = vec![0usize; lanes.len()];
+    let all: Vec<&Value> = lanes.iter().flatten().collect();
+    let (mut sent, mut planned, mut asked) = (HashSet::new(), HashSet::new(), HashSet::new());
+    let exists = |pick: &dyn Fn(&Value) -> Option<String>, x: &str| {
+        all.iter().any(|i| pick(i).as_deref() == Some(x))
+    };
+    let mut out = Vec::new();
+    loop {
+        let ready: Vec<usize> = (0..lanes.len())
+            .filter(|l| at[*l] < lanes[*l].len())
+            .filter(|l| {
+                let (requests, tasks, questions) = needs(&lanes[*l][at[*l]]);
+                requests
+                    .iter()
+                    .all(|r| sent.contains(r) || !exists(&|i| gives(i).0, r))
+                    && tasks
+                        .iter()
+                        .all(|t| planned.contains(t) || !exists(&|i| gives(i).1, t))
+                    && questions
+                        .iter()
+                        .all(|a| asked.contains(a) || !exists(&|i| gives(i).2, a))
+            })
+            .collect();
+        if ready.is_empty() {
+            // nothing left, or the rest wait on each other (the recorded order is kept for them)
+            for (l, lane) in lanes.iter().enumerate() {
+                out.extend(lane[at[l]..].iter().cloned());
+            }
+            return out;
+        }
+        let l = ready[rng.below(ready.len())];
+        let item = lanes[l][at[l]].clone();
+        at[l] += 1;
+        let (r, p, a) = gives(&item);
+        sent.extend(r);
+        planned.extend(p);
+        asked.extend(a);
+        out.push(item);
+    }
+}
+
+/// The order rules (`support_entries`) on the pure projector over every recorded scenario: in 40 invented
+/// interleavings of its lanes each, or as recorded when it has one lane (two streams at once, a question or a result beside a stream): whatever the
+/// interleaving, a message comes before its plan, answers, questions and error, a plan before its task's answers and
+/// questions, a question asked before its task's end before that end, an answer after what it answers, and catching up
+/// from any cut gives exactly the stored entries above it.
+// decision: ENG-8
+// decision: ENG-13
+// decision: ENG-15
+#[test]
+fn the_order_rules_hold_over_invented_interleavings() {
+    let mut runs = 0;
+    let mut failures = Vec::new();
+    for sc in scenarios() {
+        let lanes = lanes(&sc.timeline);
+        // one lane: its recorded order is the only one. Several: the recorded timeline itself is not an order the
+        // engine can make (it puts a stream's frames at the stream's end, after a question `chat.status` read that
+        // the stream's own plan preceded: README "Where the timelines come from"), so only interleavings that keep
+        // every cause before its effect
+        let mut timelines = Vec::new();
+        if lanes.len() <= 1 {
+            timelines.push(sc.timeline.clone());
+        } else {
+            let mut rng = Rng(0x9E37_79B9_7F4A_7C15 ^ (sc.name.len() as u64 + 1));
+            for _ in 0..40 {
+                timelines.push(interleave(&lanes, &mut rng));
+            }
+        }
+        for (n, timeline) in timelines.iter().enumerate() {
+            let r = run(timeline);
+            runs += 1;
+            let items: Vec<Value> = r
+                .made
+                .iter()
+                .map(|(session, item, out)| {
+                    json!({"conversation": session, "input": item,
+                           "changes": out.changes.iter().map(|c| &c.entry).collect::<Vec<_>>()})
+                })
+                .collect();
+            let stored: Vec<Entry> = r.entries.values().flatten().cloned().collect();
+            let trace = support_entries::read(&items);
+            for line in support_entries::check(&format!("{} #{n}", sc.name), &trace, &stored) {
+                failures.push(line);
+            }
+        }
+    }
+    assert!(runs > 71 * 10, "interleavings were made ({runs} runs)");
+    eprintln!("{runs} timelines checked");
+    assert!(
+        failures.is_empty(),
+        "{} broken:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}
+
+/// The rules see a broken order: an answer moved above its message, a plan made after its task's question, a revision
+/// the history lost (catch-up), two entries at one position.
+// decision: ENG-8
+// decision: ENG-15
+#[test]
+fn the_order_rules_see_a_broken_order() {
+    let all = scenarios();
+    let sc = all.iter().find(|s| s.name == "confirm_yes").unwrap();
+    let mut rng = Rng(7);
+    let r = run(&interleave(&lanes(&sc.timeline), &mut rng));
+    let items: Vec<Value> = r
+        .made
+        .iter()
+        .map(|(session, item, out)| {
+            json!({"conversation": session, "input": item,
+                   "changes": out.changes.iter().map(|c| &c.entry).collect::<Vec<_>>()})
+        })
+        .collect();
+    let stored: Vec<Entry> = r.entries.values().flatten().cloned().collect();
+    let check = |items: &[Value], stored: &[Entry]| {
+        support_entries::check("t", &support_entries::read(items), stored)
+    };
+    assert!(check(&items, &stored).is_empty());
+    let of = |kind: EntryKind| stored.iter().position(|e| e.kind == kind).unwrap();
+    // swapped positions of a message and its answer, everywhere they appear
+    let (m, a) = (
+        stored[of(EntryKind::Message)].clone(),
+        stored[of(EntryKind::Answer)].clone(),
+    );
+    let swap = |v: &mut Value| {
+        if v["id"] == json!(m.id) {
+            v["pos"] = json!(a.pos);
+        } else if v["id"] == json!(a.id) {
+            v["pos"] = json!(m.pos);
+        }
+    };
+    let mut moved_items = items.clone();
+    for i in &mut moved_items {
+        for c in i["changes"].as_array_mut().unwrap() {
+            swap(c);
+        }
+    }
+    let mut moved: Vec<Entry> = stored.clone();
+    for e in &mut moved {
+        let mut v = serde_json::to_value(&*e).unwrap();
+        swap(&mut v);
+        *e = serde_json::from_value(v).unwrap();
+    }
+    let broken = check(&moved_items, &moved).join("\n");
+    assert!(
+        broken.contains("(rule 3)") && broken.contains("(rule 6)"),
+        "{broken}"
+    );
+    // the plan made after the question its task's worker asked
+    let (p, q) = (
+        stored[of(EntryKind::Plan)].clone(),
+        stored[of(EntryKind::Question)].clone(),
+    );
+    let mut late: Vec<Entry> = stored.clone();
+    for e in &mut late {
+        if e.id == p.id {
+            e.pos = q.pos;
+        } else if e.id == q.id {
+            e.pos = p.pos;
+        }
+    }
+    assert!(check(&items, &late).join("\n").contains("(rule 4)"));
+    // a revision the history lost: catching up from before it misses it
+    let mut lost = items.clone();
+    let last = lost
+        .iter_mut()
+        .rev()
+        .find(|i| {
+            i["changes"]
+                .as_array()
+                .is_some_and(|c| c.iter().any(|e| e["rev"] != 1))
+        })
+        .unwrap();
+    last["changes"] = json!([]);
+    assert!(check(&lost, &stored).join("\n").contains("(rule 7)"));
+    // two entries at one position
+    let mut twice = stored.clone();
+    twice[1].pos = twice[0].pos;
+    assert!(check(&items, &twice)
+        .join("\n")
+        .contains("two entries at pos"));
+}
+
+/// Every entry of a message's turn names the client that sent it, a revision after a rebuild included; a message sent
+/// with no client id names none (ENG-15: a client tells its own turns from the others by any of their entries).
+// decision: ENG-15
+#[test]
+fn every_entry_of_a_turn_names_the_client_that_sent_it() {
+    let (mut p, mut c) = (ChatProjector::new("s1", 1), Clock { n: 0, seq: 0 });
+    frame(
+        &mut p,
+        &mut c,
+        "r1",
+        json!({"type": "ack", "request_id": "r1", "message": "tidy the folder",
+               "client_id": "phone-1", "submission_id": "sub-1"}),
+    );
+    frame(
+        &mut p,
+        &mut c,
+        "r1",
+        json!({"type": "plan", "request_id": "r1", "task_id": "t1", "text": "Tidying."}),
+    );
+    p.apply(
+        Input::Bus {
+            topic: "approval.requested",
+            data: &json!({"approval_id": "ap1", "request_id": "r1", "task_id": "t1.worker",
+                          "kind": "owner_question", "reason": "Which folder?", "options": ["Desktop"]}),
+        },
+        &mut c,
+    );
+    frame(
+        &mut p,
+        &mut c,
+        "r2",
+        json!({"type": "ack", "request_id": "r2", "message": "and the weather?"}),
+    );
+    frame(
+        &mut p,
+        &mut c,
+        "r2",
+        json!({"type": "reply", "request_id": "r2", "text": "Sunny."}),
+    );
+    let stored = p.entries();
+    for e in &stored {
+        let want = (e.request_id.as_deref() == Some("r1")).then_some("phone-1");
+        assert_eq!(
+            e.client_id.as_deref(),
+            want,
+            "{:?} of {:?}",
+            e.kind,
+            e.request_id
+        );
+    }
+    assert_eq!(
+        stored.iter().filter(|e| e.client_id.is_some()).count(),
+        3,
+        "message, plan, question"
+    );
+    // rebuilt after a restart: the task's end still names the client
+    let mut back = ChatProjector::restore("s1", stored, Vec::new(), 6);
+    let end = back.apply(
+        Input::Bus {
+            topic: "task.result",
+            data: &json!({"type": "outcome", "task_id": "t1", "request_id": "r1", "status": "done",
+                          "answer": "Tidied.", "verified": true}),
+        },
+        &mut c,
+    );
+    let answer = end
+        .changes
+        .iter()
+        .find(|ch| ch.entry.kind == EntryKind::Answer)
+        .expect("the task's end");
+    assert_eq!(answer.entry.client_id.as_deref(), Some("phone-1"));
 }

@@ -125,7 +125,14 @@ pub struct ChatLog {
     ids: Mutex<Arc<dyn IdSource>>,
     watchers: Mutex<Vec<Watcher>>,
     next_watcher: AtomicU64,
+    trace: Mutex<Option<Trace>>,
+    /// The trace's items of the drain under way, handed to the trace once it is committed (never inside the store's
+    /// transaction: the trace must not change how long the drain holds the store).
+    traced: Mutex<Vec<Value>>,
 }
+
+/// Where a trace of the log's work goes (tests only: ferbd's stand-ins write it to a file).
+pub type Trace = Arc<dyn Fn(&Value) + Send + Sync>;
 
 impl Default for ChatLog {
     fn default() -> Self {
@@ -137,6 +144,8 @@ impl Default for ChatLog {
             ids: Mutex::new(Arc::new(ferb_core::ids::RandomIds)),
             watchers: Mutex::new(Vec::new()),
             next_watcher: AtomicU64::new(1),
+            trace: Mutex::new(None),
+            traced: Mutex::new(Vec::new()),
         }
     }
 }
@@ -172,6 +181,29 @@ impl ChatLog {
 
     fn ids(&self) -> Arc<dyn IdSource> {
         lock(&self.ids).clone()
+    }
+
+    /// Every input the projectors are fed, in the order they are fed it, with the conversation it went to and the
+    /// changes it made; a bus event held for its stream's end or left out; the start-up pass's changes. Tests only (the
+    /// stand-ins' order check: the engine's real interleaving, `ferbd/tests/chat_replay.rs`); unset, nothing is kept.
+    pub fn set_trace(&self, trace: Trace) {
+        *lock(&self.trace) = Some(trace);
+    }
+
+    fn traced(&self, item: impl FnOnce() -> Value) {
+        if lock(&self.trace).is_some() {
+            lock(&self.traced).push(item());
+        }
+    }
+
+    /// The drain's trace items, to the trace (after its transaction ended).
+    fn hand_trace(&self) {
+        let sink = lock(&self.trace).clone();
+        if let Some(sink) = sink {
+            for item in std::mem::take(&mut *lock(&self.traced)) {
+                sink(&item);
+            }
+        }
     }
 
     // ---- inputs ----
@@ -298,6 +330,7 @@ impl ChatLog {
                 then(conn, &mut ctx)
             })
         };
+        self.hand_trace();
         match result {
             Ok(v) => {
                 drop(st);
@@ -416,6 +449,10 @@ impl ChatLog {
                 let mut seams = Stored::new(conn, &conversation, ctx.inner, ctx.ids);
                 let changes = p.after_restart(&|t| resumed.contains(t), &mut seams);
                 seams.ok()?;
+                self.traced(|| {
+                    json!({"conversation": conversation, "input": {"do": "restart"},
+                           "changes": changes.iter().map(|c| &c.entry).collect::<Vec<_>>()})
+                });
                 ctx.write(conn, &conversation, changes)?;
             }
             Ok(())
@@ -572,6 +609,11 @@ impl Ctx<'_> {
         let mut seams = Stored::new(conn, conversation, self.inner, self.ids);
         let out = p.apply(input, &mut seams);
         seams.ok()?;
+        self.inner.chat_log.traced(|| {
+            json!({"conversation": conversation, "input": traced_input(&input),
+                   "changes": out.changes.iter().map(|c| &c.entry).collect::<Vec<_>>(),
+                   "live": out.live.is_some()})
+        });
         if let Some(live) = out.live {
             let request_id = match input {
                 Input::Frame { request_id, .. } => Some(request_id.to_string()),
@@ -654,9 +696,17 @@ impl Ctx<'_> {
                 if let (Some(r), false) = (streamed, fed) {
                     match topic.as_str() {
                         // the stream fed it itself, right after its outcome
-                        "task.result" => return Ok(()),
+                        "task.result" => {
+                            self.inner
+                                .chat_log
+                                .traced(|| json!({"left_out": {"topic": topic, "data": data}}));
+                            return Ok(());
+                        }
                         // the stream carries it; held for its end
                         "task.part" | "approval.requested" => {
+                            self.inner
+                                .chat_log
+                                .traced(|| json!({"held": {"topic": topic, "data": data}}));
                             self.st
                                 .held
                                 .entry(r.clone())
@@ -681,6 +731,10 @@ impl Ctx<'_> {
                             data: &data,
                         },
                     )?;
+                } else {
+                    self.inner
+                        .chat_log
+                        .traced(|| json!({"unrouted": {"topic": topic, "data": data}}));
                 }
             }
             Queued::Post(item) => {
@@ -918,6 +972,18 @@ pub fn current(conn: &Connection) -> Result<String, ferb_store::Error> {
         )
         .optional()?;
     Ok(wrote.unwrap_or_else(|| "owner".to_string()))
+}
+
+/// An input as the trace keeps it (`ChatLog::set_trace`): the timeline's words (`frame`, `end`, `bus`, `notification`).
+fn traced_input(input: &Input<'_>) -> Value {
+    match input {
+        Input::Frame { request_id, frame } => {
+            json!({"do": "frame", "request_id": request_id, "frame": frame})
+        }
+        Input::StreamEnded { request_id } => json!({"do": "end", "request_id": request_id}),
+        Input::Bus { topic, data } => json!({"do": "bus", "topic": topic, "data": data}),
+        Input::Notification(item) => json!({"do": "notification", "item": item}),
+    }
 }
 
 /// An answer to a question with the facts its record keeps (compose.py `_question_record`'s `question.answered` row,

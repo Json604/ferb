@@ -191,6 +191,12 @@ fn the_chat_methods_on_the_real_server() {
                 "{{\"jsonrpc\": \"2.0\", \"id\": 58, \"error\": {{\"code\": -32004, \"message\": \"{}\"}}}}",
                 ferb_supervisor::flow::chat_rpc::NO_CONVERSATION
             )
+        } else if s(&serde_json::from_str::<Value>(&sent).unwrap()["method"]) == "chat.attach" {
+            // stage 2 (ENG-15), a named addition: this daemon serves the chat entries, and says so
+            want.replace(
+                "\"capabilities\": [\"input_paths\"]",
+                "\"capabilities\": [\"input_paths\", \"entries\"]",
+            )
         } else {
             want
         };

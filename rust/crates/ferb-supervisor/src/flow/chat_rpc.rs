@@ -96,6 +96,8 @@ fn refusal(message: impl Into<String>) -> HandlerError {
 /// What `conversations.list {id}` answers for an id no delegated conversation has (the fix against Python's
 /// internal error).
 pub const NO_CONVERSATION: &str = "There's no delegated conversation with that id.";
+/// `chat.attach`'s capabilities: Python's `input_paths`, and `entries` (stage 2, ENG-14).
+pub const CAPABILITIES: [&str; 2] = ["input_paths", "entries"];
 
 /// areas/shared.py:21 `TASK_PAGE, TASK_PAGE_MAX`: the Tasks page's rows per page, and most per call.
 pub const TASK_PAGE: i64 = 50;
@@ -598,7 +600,9 @@ impl ChatRpc {
         Ok(out)
     }
 
-    /// areas/chat.py:159 `_chat_attach`: chat is open again.
+    /// areas/chat.py:159 `_chat_attach`: chat is open again. Its capabilities add `entries` to Python's
+    /// `input_paths` (stage 2, ENG-14: this daemon serves `chat.entries.*` and `chat.send`'s client ids; a client that
+    /// doesn't see it talks to an older daemon and keeps today's calls).
     pub fn attach(&self, params: &Params) -> HandlerResult {
         let inner = self.sup().inner();
         {
@@ -617,7 +621,7 @@ impl ChatRpc {
             .map_err(|e| HandlerError::fault("ValueError", e.to_string()))?;
         (self.deps.prepare_persona)();
         Ok(obj(
-            json!({"ok": true, "session_id": conversation, "capabilities": ["input_paths"]}),
+            json!({"ok": true, "session_id": conversation, "capabilities": CAPABILITIES}),
         ))
     }
 
