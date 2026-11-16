@@ -1,0 +1,7 @@
+# Tests with their own time limit, as runaway.py's `ferb_timeout(seconds)` marker gave one long test its own (TEST-511).
+# Format: <crate>/<test target>::<test> | seconds | why. tests/guards.rs checks each names a test.
+# The seconds are a proposal for the owner (a limit): measured 2026-11-16, each of these ran 300-333 s with five agents
+# building on the Mac (load average about 30); the rest of the suite stays under runaway.py's 300.
+
+ferbd/chat_replay::the_recorded_chat_scenarios_through_the_program | 900 | every recorded chat scenario, each through its own daemon
+ferbd/chat_replay::the_more_scenarios_through_the_program | 900 | the further recorded scenarios, each through its own daemon

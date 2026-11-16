@@ -1,0 +1,86 @@
+[package]
+name = "ferb-link"
+version = "0.28.0"
+# 2024, not the workspace's 2021: the lab's code was written against edition 2024's drop order (temporaries in an
+# `if let` scrutinee and in a block's tail expression are dropped earlier), and it holds Mutex guards in exactly such
+# places; under 2021 several of them would be held across a second lock of the same Mutex.
+edition = "2024"
+license = "Apache-2.0"
+rust-version = "1.100"
+publish = false
+# src/bin/ferb_link_mac.rs is a module of the ferb-link program, not a program of its own.
+autobins = false
+description = "The phone link (stage 3): one crate for both sides over iroh. The phone side (client, the app's door, limits, the protocol) builds for Android and iOS; the Mac side (bridge, admin socket, store, Keychain secrets, the code-signature check) only on macOS."
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[lib]
+crate-type = ["lib", "cdylib"]
+
+[features]
+# The local relay used by tests and by `dev-relay`; never part of the phone library.
+devrelay = ["iroh-relay/server", "iroh-relay/test-utils", "dep:anyhow"]
+
+[dependencies]
+anyhow = { version = "1", optional = true }
+iroh = { version = "=1.4.1", features = ["unstable-net-report"] }
+iroh-relay = { version = "=1.4.1" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "io-std", "sync", "time", "fs", "process", "signal"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rand = "0.9"
+blake3 = "1"
+sha2 = "0.10"
+p256 = { version = "0.13", features = ["ecdsa"] }
+base64 = "0.22"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+url = "2"
+qrcode = { version = "0.14", default-features = false }
+# iroh's own log, read only by a lab build that asks for it (diag.rs)
+tracing = { version = "0.1", default-features = false, features = ["std"] }
+# The engine's method table and every method's phone class (role.rs reads `ferb_rpc::classes`, S2/S4): one authority
+# for the link, the daemon and the apps. A portable crate (engine/gate.sh portable checks it for iOS and Android).
+ferb-rpc = { path = "../ferb-rpc" }
+
+# (No Security framework: since S4 the helper never reads the Keychain, its keys come from FERB's daemon, and it has no
+# socket of its own whose callers it would check: kb PHN-143, PHN-441.)
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = { version = "0.21", default-features = false }
+ndk-context = "0.1"
+
+[dev-dependencies]
+iroh-relay = { version = "=1.4.1", features = ["server", "test-utils"] }
+# tests/real_daemon.rs: the bridge against the daemon's real phone area (ferb-daemon `phone`) on a real ferb-rpc server
+ferb-daemon = { path = "../ferb-daemon" }
+ferb-store = { path = "../ferb-store" }
+ferb-core = { path = "../ferb-core" }
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+
+[[bin]]
+name = "ferb-link"
+path = "src/bin/ferb-link.rs"
+
+[[bin]]
+name = "dev-relay"
+path = "src/bin/dev-relay.rs"
+required-features = ["devrelay"]
+
+# Published crates with one small patch each (engine/patches/README.md): iroh 1.4.1 (kb PHN-222: an idle endpoint keeps
+# its address-discovery connection); for iOS (kb PHN-478), netwatch 0.19.3 (n0-computer/net-tools#267: builds on the
+# current libc, and with netdev 0.47, which uses only APIs the iOS SDK offers) and n0-dns-resolver 0.1.0 (the
+# nameservers through libresolv, not the dynamic store the iOS SDK marks unavailable). engine/patches/apply.sh makes the copy (checked against the published crates' SHA-256) in engine/target/patched; run it before cargo. When this
+# crate joins the workspace, this table moves to engine/Cargo.toml (cargo reads `[patch]` only at a workspace root).
+[patch.crates-io]
+iroh = { path = "../../target/patched/iroh-1.4.1-ferb" }
+n0-dns-resolver = { path = "../../target/patched/n0-dns-resolver-0.1.0-ferb" }
+netwatch = { path = "../../target/patched/netwatch-0.19.3-ferb" }
+
+[profile.dev]
+opt-level = 1
+debug = 0
+
+[profile.release]
+opt-level = 2
+strip = true

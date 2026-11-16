@@ -260,14 +260,6 @@ status = "open"
 why = "No test resumes a tour with the daemon down; testAllowAllWaitsForTheDaemonsAnswer shows the same \"Getting my background part ready…\" wait only at the Allow all beat of a fresh tour."
 decisions = ["APP-638"]
 
-[T-1003]
-title = "FERB.app's Uninstall still removes browser files from FERB.app's own process"
-area = "daemon"
-kind = "bug"
-status = "open"
-why = "DMN-507: `ferb uninstall`, run by FERB.app, still deletes com.ferb.native_host.json and install requests in every browser folder from FERB.app's child (never Full Disk Access), so macOS 27 may show the banner then. The daemon should remove them (an RPC the app calls first)."
-decisions = ["DMN-507"]
-
 [T-27]
 title = "Switch to the Apple Developer ID: notarized builds, team-based identity, SMAppService back"
 area = "release"
@@ -343,14 +335,6 @@ status = "open"
 why = "RUN-417 now says plainly when the ChatGPT plan lacks the model; ORCH-315 offers a one-tap switch only for usage limits and sign-in failures."
 decisions = ["RUN-417", "ORCH-315"]
 ask = "When your ChatGPT plan doesn't include FERB's model, should FERB offer to switch to another signed-in service with one tap (it never switches by itself), like it does for usage limits?"
-
-[T-1047]
-title = "A permission switched on while a task runs waits silently for its restart"
-area = "app"
-kind = "bug"
-status = "open"
-why = "APP-598/662 never restart the service while a task runs, and nothing tells the owner; it restarts only when they leave System Settings again. Say so in the notch and restart once the task ends."
-decisions = ["APP-598", "APP-662", "APP-679"]
 
 [T-1050]
 title = "Setup changes ship only after a fresh-install run on a second macOS user"
@@ -615,11 +599,11 @@ why = "Their only tests were Python (tests/, removed by ENG-16); each needs a Ru
 decisions = ["STORE-410"]
 
 [T-1109]
-title = "A Rust offline-suite guard set to replace TEST-504's Python guards; TEST-502's runs in Rust"
+title = "TEST-502's end-to-end runs found and tagged in the Rust tests (the guard set is done: TEST-511)"
 area = "tests"
 kind = "build"
 status = "open"
-why = "TEST-504 names tests/conftest.py's no_real_models, offline_trash, network_route and tests/support/runaway.py; the Rust tests have no per-test timeout, memory cap, model-call or network guard (rust/gate.sh test is plain cargo test). TEST-502's end-to-end list needs its Rust runs tagged."
+why = "TEST-511 built TEST-504's guards for Rust (engine/gate.sh test through ferb-test-guard). Left: TEST-502's end-to-end list needs its Rust runs found and tagged; doc tests don't go through the runner."
 decisions = ["TEST-502", "TEST-504"]
 
 [T-1110]
@@ -680,22 +664,6 @@ why = "Red-team 2026-11-16 (3 iii) asked that a paste in a card's box never name
 decisions = ["ORCH-518", "GATE-510", "GATE-609", "HAND-571"]
 ask = "When you paste text into the box under one of FERB's questions, should it count as your own words like a paste in chat (today), or be treated as pasted data that can't name a site for the task and can't count as Yes or No?"
 
-[T-1118]
-title = "Project mode: FERB works in any folder the owner names; git publishes through a fixed action"
-area = "hands"
-kind = "build"
-status = "open"
-why = "Owner 2026-11-16 agreed to a project mode asked once per project, in any folder on the Mac he names; git uses his login through a fixed action no model holds; the Keychain and SSH keys stay closed to model-written commands. Not built."
-
-
-[T-1119]
-title = "A preview frame arriving while the text-reading helper is busy keeps the last good picture"
-area = "app"
-kind = "build"
-status = "open"
-why = "Live 2026-11-16: with the daemon's Vision cache purged, the child reader recovered 931 frames, but frames arriving while it was busy showed 'pixels withheld' (preview.failed, child ferb.busy). Told to the owner as still to fix."
-
-
 [T-1120]
 title = "Publish extension 0.19.12 to the Chrome Web Store"
 area = "hands"
@@ -720,20 +688,6 @@ status = "open"
 why = "ENG-10/ENG-12: the archive import is by hand with the owner present; the second-client check can't use a cli-role script since GATE-612 made chat.send app-only, so it needs another method (a phone, or a test client the app check accepts)."
 
 
-[T-1123]
-title = "Restart a failed daemon loop with a growing pause and journal it, as Python's _supervise"
-area = "engine"
-kind = "build"
-status = "open"
-why = "Audit 2026-11-16: main.py:596-631 restarted a failed loop and journaled daemon.loop_failed / daemon.background_failed. ferbd's loops.rs declares LOOP_RESTART_S and LOOP_RESTART_MAX_S but no loop is supervised; a panic ends the loop silently. Size: medium."
-
-[T-1124]
-title = "Cache the permissions and browser profiles 10 s and warm them at start, as Python's _Fresh"
-area = "engine"
-kind = "build"
-status = "open"
-why = "Audit 2026-11-16: main.py:477 and shared.py:139 primed a 10 s cache so the planner's first turn didn't wait; Rust reads check_all() on every call and ferb-daemon's Fresh is never built. Speed only, no behavior change. Size: small."
-
 [T-1125]
 title = "Drive the browser.* and ferb_browser.* tools through the program against a fake extension"
 area = "engine"
@@ -755,23 +709,100 @@ kind = "build"
 status = "open"
 why = "Audit 2026-11-16 (read both sides): StoredDataPage.swift:92 sends offset text.count (graphemes); data.cell counts SQLite code points (data_view.rs:645-673). A cut cell with emoji or combining marks repeats characters in the next piece. Size: small."
 
-[T-1128]
-title = "ferb program leftovers: --help, setup's Python venv line, cli/mod.rs's stale header"
+[T-1200]
+title = "Stage 3 S1: ferb-link, the lab's link crate, ported into the workspace with its suites"
+area = "phone"
+kind = "build"
+status = "open"
+why = "Built (journal 102): ferb-link from the lab, suites on 127.0.0.1 with a Rust stand-in, FFI fixed, PHN-444/445/453. Remains: no aarch64-apple-ios build (iroh's netwatch/netdev vs libc); joining the workspace; a recorded direct path; the public-relay beacon (PHN-220)."
+decisions = ["PHN-2", "PHN-18", "PHN-102", "PHN-108", "PHN-118", "PHN-119", "PHN-136", "PHN-142", "PHN-202", "PHN-203", "PHN-204", "PHN-206", "PHN-207", "PHN-208", "PHN-209", "PHN-210", "PHN-211", "PHN-212", "PHN-213", "PHN-215", "PHN-216", "PHN-217", "PHN-218", "PHN-220", "PHN-222", "PHN-224", "PHN-225", "PHN-301", "PHN-302", "PHN-303", "PHN-304", "PHN-305", "PHN-307", "PHN-309", "PHN-310", "PHN-311", "PHN-313", "PHN-407", "PHN-410", "PHN-418", "PHN-440", "PHN-442", "PHN-444", "PHN-445", "PHN-425", "PHN-453", "PHN-460", "PHN-461", "PHN-462", "PHN-463"]
+
+[T-1205]
+title = "Stage 3 S5: FERB.app Settings → Phone: pairing, the phone list, Use my own relay"
+area = "phone"
+kind = "build"
+status = "open"
+why = "Page, model, notch notice (journal 110); S4 (journal 113) points FERBAppActions.phoneLink at the daemon, whose phone.link_status, phone.pair_*, phone.relay_* reach the helper, and declares the phone bus topics. Left: the owner's live checks LIVE-1100.. on a FERB.app build."
+decisions = ["PHN-135", "PHN-205", "PHN-214", "PHN-215", "PHN-219", "PHN-418", "PHN-479", "PHN-480", "PHN-481"]
+
+[T-1211]
+title = "Stage 3 S11: apps/android :app: the screens, the app lock, notifications and Stay connected"
+area = "phone"
+kind = "build"
+status = "open"
+after = ["T-1221"]
+why = "Built (journal 115): lock, pairing and scanner, chat with outbox, questions, tasks, the Mac tab, notifications, Stay connected. Left: files, Watch live, Stop everything, settings, mark read and the Mac lock, which wait on T-1221; the owner's approval of strings.xml; LIVE-1100..1111, 1141..1144."
+decisions = ["PHN-8", "PHN-11", "PHN-13", "PHN-15", "PHN-16", "PHN-132", "PHN-402", "PHN-403", "PHN-404", "PHN-415", "PHN-417", "PHN-420", "PHN-421", "PHN-422", "PHN-447", "PHN-115", "PHN-406", "PHN-500", "PHN-501", "PHN-502", "PHN-503", "PHN-504", "PHN-505", "PHN-506", "PHN-507", "PHN-508", "PHN-509"]
+
+[T-1212]
+title = "Stage 3: phone sign-ins: ChatGPT by OpenAI's route, API keys; Claude's row says why no plan"
+area = "phone"
+kind = "build"
+status = "open"
+why = "Refines T-1099 for phones (PHN-423): the phone engine (after the iPhone app, PHN-401) uses Sign in with ChatGPT against the Responses API, no Codex program; whether OpenAI accepts it on mobile is to confirm with them; API keys always; no Claude.ai login (PHN-452)."
+decisions = ["PHN-423", "PHN-452"]
+
+[T-1213]
+title = "Journal a failed per-call background job as Python's _spawn did (daemon.background_failed)"
 area = "engine"
 kind = "build"
 status = "open"
-why = "Audit 2026-11-16 (read only): Python printed help and exited 0, Rust has no help; setup without an app bundle still prints 'Installing FERB's dedicated Python, its venv' (setup.rs:343, 373, ENG-2); cli/mod.rs:5-8 says trace, stats and packaging aren't ported, but they are. Size: small."
+why = "DMN-599 left the per-call spawns in ferbd/spawns.txt: the global stop's jobs, the approval, window and secret.refused notices, task paused/resumed. Python journaled their failures; here an Err is dropped and a panic only reaches daemon.unhandled. Also _macos_events (mainloop.rs) is unsupervised."
 
-[T-1129]
-title = "Give the test daemon fake Mac hands: today mac.* reads this Mac's real apps in a test"
+[T-1214]
+title = "Stage 3: the phone's own device line and lookup: its time, zone, city and state, its own permission"
+area = "phone"
+kind = "build"
+status = "open"
+after = ["T-1211"]
+why = "T-1130's phone half (SENSE-420): the phone asks its own Location and sends its own device record (ferb-core device::Place, id, name, kind) by a phone method; one line per device (SENSE-421), a phone lookup like device.facts (SENSE-422). PHN-467: a phone may read the Mac's facts."
+decisions = ["SENSE-420", "SENSE-421", "SENSE-422", "GATE-613", "PHN-467"]
+
+[T-1215]
+title = "Does a Yes to FERB using the Mac's screen, given from the phone, need the fingerprint?"
+area = "phone"
+kind = "question"
+status = "open"
+why = "GATE-207's routine class (the 30-minute answer) includes the foreground question; PHN-417 lists screen use among the fingerprint ones. S3 answers routine questions with no proof (PHN-470); telling screen use apart needs the gateway to say a question's needs."
+decisions = ["PHN-417", "PHN-470", "GATE-207"]
+ask = "From the phone's notification, FERB's routine questions (the ones your 'don't ask for 30 minutes' covers on the Mac) are answered without the fingerprint. One of them is 'let FERB use your screen in an app'. Should that one need the fingerprint from the phone, as you listed screen use, or stay routine like on the Mac?"
+
+[T-1216]
+title = "Where do files sent from the phone land on the Mac?"
+area = "phone"
+kind = "question"
+status = "open"
+why = "S3b (PHN-484) lands them in ~/Downloads/FERB from phone, each file as <id>-<name> and each folder as one folder there; the lab used its own state folder, which in FERB is FERB's state and would keep a message's attachments from FERB's tools."
+decisions = ["PHN-127", "PHN-484"]
+ask = "When you send a file or a folder from the phone to the Mac, it lands in Downloads, in a folder named 'FERB from phone', marked as downloaded. Is that the place you want, or another folder (and should it be changeable in Settings → Phone)?"
+
+[T-1217]
+title = "How many entries may one folder listing and one whole-folder fetch from the phone hold?"
+area = "phone"
+kind = "question"
+status = "open"
+why = "S3b keeps the lab's list_max 500 (a listing shows the first 500 and says it was cut) and tree_max 2000 (a folder fetched whole stops at 2000 files) as provisional numbers in ferb-daemon phone::files FileLimits; no owner decision sets them (rule 18)."
+decisions = ["PHN-113", "PHN-482"]
+ask = "Browsing a folder from the phone shows at most 500 of its entries (it says when it cut the rest), and fetching a whole folder takes at most 2,000 files at once. Keep those two limits, change them, or have none?"
+
+[T-1219]
+title = "Three tests fail only when the Mac is busy: a replay's row order and two window tests"
 area = "tests"
-kind = "build"
+kind = "bug"
 status = "open"
-why = "Audit 2026-11-16: with the stand-ins' native and mac off, ferbd still composes the real AX, events, apps and capture parts (tools/mac.rs Mac::build); mac.apps listed this Mac's running apps. Tests avoid it (TEST-508), so mac.* never runs through the program offline. Size: medium."
+why = "2026-11-16 full runs under load: ferbd chat_replay mention_paused once gave plan.answer before question.answered (passes alone, twice); Swift WindowHeaderClickTests and TimerPillTests each failed once in the full suite and pass alone. Find the races; a flaky gate hides real failures."
 
-[T-1130]
-title = "Device facts: each device's time, place and state reach FERB, the rest through a lookup"
-area = "perception"
+[T-1220]
+title = "sign-app.sh with an ad-hoc identity keeps FERB's own signed pieces as if they were vendor code"
+area = "release"
+kind = "bug"
+status = "open"
+why = "S4 (journal 113): SIGN_IDENTITY=- treats pieces already signed by FERB's team as vendor code and keeps their signature, so an ad-hoc test bundle needs them re-signed by hand. Developer ID and release builds are not affected."
+
+[T-1221]
+title = "ferb-mobile-ffi: the calls S11's app needs that the phone library doesn't expose yet"
+area = "phone"
 kind = "build"
 status = "open"
-why = "Owner 2026-11-16: 'i wanted the ferb mac,phone app to have timings, the location of that device. so it knwos things too and usese that info'. Proposed: one short line per device, the rest by a lookup tool; precision and the new permission await his answer."
+why = "Journal 115 has the list and signatures: status (chat.status with the gate's phone part), lock (link.lock), stop_everything (stop.engage), a read mark without pos, files and uploads with progress, send with attachments, the preview stream, settings, tasks.list, the Mac's name."
+decisions = ["PHN-125", "PHN-15", "PHN-417", "PHN-454", "PHN-113", "PHN-404", "PHN-506"]

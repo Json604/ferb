@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use ferb_daemon::areas_b::task_preview::{BoxFuture, PreviewAnswer, PreviewClock, TaskPreviews};
 use ferb_mac_hands::error::HandError;
 use ferb_mac_hands::locks::{Held, ResourceLocks};
-use ferb_mac_hands::point::{FrameFn, PreviewTarget, ResolveFn};
+use ferb_mac_hands::point::{OwnerOnlyFrame, PreviewFrameFn, PreviewTarget, ResolveFn};
 use serde_json::{json, Map, Value};
 use tokio::sync::watch;
 
@@ -102,7 +102,7 @@ fn error(b: &Value) -> HandError {
     }
 }
 
-fn capture_of(world: Arc<World>, name: String) -> FrameFn {
+fn capture_of(world: Arc<World>, name: String) -> PreviewFrameFn {
     Arc::new(move || {
         let world = world.clone();
         let name = name.clone();
@@ -122,7 +122,7 @@ fn capture_of(world: Arc<World>, name: String) -> FrameFn {
                 return Err(error(&b));
             }
             Ok((
-                b["frame"].as_str().unwrap().as_bytes().to_vec(),
+                OwnerOnlyFrame::captured(b["frame"].as_str().unwrap().as_bytes().to_vec()),
                 b["note"].as_str().unwrap_or("").to_owned(),
             ))
         })
@@ -174,10 +174,14 @@ async fn yields(n: usize) {
     }
 }
 
-/// ENG-6: the one deliberate difference. Python's frozen copy of the last frame (a new surface declared before it
-/// has a frame of its own) kept the image but not its `seq` and capture time, so the answer said `seq: 0` and an age
-/// counted from the monotonic clock's zero; Rust keeps both.
-fn fixed(scenario: &str, step: usize, expected: &Value) -> Option<Value> {
+/// ENG-6: the deliberate differences, each named.
+/// 1. Python's frozen copy of the last frame (a new surface declared before it has a frame of its own) kept the image
+///    but not its `seq` and capture time, so the answer said `seq: 0` and an age counted from the monotonic clock's
+///    zero; Rust keeps both.
+/// 2. APP-922 (owner): the preview shows frames as captured. There is no text-reading pass, so no snapshot has an
+///    `<kind>_ocr_ms` phase; and the one frame Python's sanitizer refused (`failures_journaled`'s `bad`, journaled as
+///    preview.failed ValueError) is shown, so that scenario's later answers, snapshot and notes are as written here.
+fn fixed(scenario: &str, step: usize, do_: &str, expected: &Value) -> Option<Value> {
     if scenario == "no_picture_first" && step == 9 {
         let mut v = expected.clone();
         assert_eq!(v["seq"], json!(0));
@@ -185,7 +189,62 @@ fn fixed(scenario: &str, step: usize, expected: &Value) -> Option<Value> {
         v["age_ms"] = json!(0);
         return Some(v);
     }
+    let line = json!({"state": "working", "line": "Working in Notes", "worker": "t.worker", "step": "worker"});
+    let with = |extra: Value| {
+        let mut v = line.clone();
+        for (k, x) in extra.as_object().unwrap() {
+            v[k] = x.clone();
+        }
+        v
+    };
+    if scenario == "failures_journaled" {
+        let gone = |text: &str| {
+            with(
+                json!({"image": "bad", "fresh": false, "seq": 1, "age_ms": 0,
+                        "problem": {"kind": "gone", "text": text}}),
+            )
+        };
+        let rust = match step {
+            4 => Some(with(
+                json!({"image": "bad", "fresh": true, "seq": 1, "age_ms": 0}),
+            )),
+            5 => Some(gone("window closed")),
+            6 => Some(gone("no window")),
+            7 => Some(with(
+                json!({"image": "ok", "fresh": true, "seq": 2, "age_ms": 0}),
+            )),
+            8 => Some(
+                json!({"requests": 6, "frames": 2, "capture_ms": 0.0, "cached": 4, "busy": 0,
+                "window_capture_ms": 0.0, "window_failed": 2, "window_frames": 2, "window_gone": 2,
+                "window_requests": 6, "window_resolve_ms": 0.0, "max_window_age_ms": 0.0,
+                "max_window_gap_ms": 601000.0}),
+            ),
+            _ => None,
+        };
+        if rust.is_some() {
+            return rust;
+        }
+    }
+    if do_ == "snapshot" {
+        let mut v = expected.clone();
+        let o = v.as_object_mut()?;
+        let before = o.len();
+        o.retain(|k, _| !k.ends_with("_ocr_ms"));
+        if o.len() != before {
+            return Some(v);
+        }
+    }
     None
+}
+
+/// The journal notes, with APP-922's named difference: no preview.failed for the frame Python's sanitizer refused.
+fn fixed_notes(scenario: &str, expected: &Value) -> Value {
+    if scenario == "failures_journaled" {
+        let first = expected[0].clone();
+        assert_eq!(expected[1][1]["error"], json!("ValueError"));
+        return json!([first]);
+    }
+    expected.clone()
 }
 
 async fn run(sc: &Value) -> (usize, usize, Vec<String>) {
@@ -207,15 +266,6 @@ async fn run(sc: &Value) -> (usize, usize, Vec<String>) {
     let n = notes.clone();
     let allowed = sc["allowed"].as_bool().unwrap();
     let previews = TaskPreviews::new(
-        Arc::new(|image: Vec<u8>| {
-            Box::pin(async move {
-                if image == b"bad" {
-                    Err("ValueError".to_owned().into())
-                } else {
-                    Ok(image)
-                }
-            })
-        }),
         Arc::new(
             move |keys: &[String], holder: &str| match l.try_hold(keys, holder, during) {
                 Ok(Some(held)) => Ok(Some(Box::new(held) as Box<dyn Send>)),
@@ -341,7 +391,7 @@ async fn run(sc: &Value) -> (usize, usize, Vec<String>) {
             "snapshot" => Value::Object(previews.snapshot()),
             other => panic!("step {other}"),
         };
-        let (expected, is_named) = match fixed(name, i, &results[i]) {
+        let (expected, is_named) = match fixed(name, i, st["do"].as_str().unwrap(), &results[i]) {
             Some(v) => (v, true),
             None => (results[i].clone(), false),
         };
@@ -361,19 +411,24 @@ async fn run(sc: &Value) -> (usize, usize, Vec<String>) {
         }
     }
     let got = Value::Array(notes.lock().unwrap().clone());
-    if dumps(&got) == dumps(&sc["notes"]) {
-        same += 1;
+    let want = fixed_notes(name, &sc["notes"]);
+    if dumps(&got) == dumps(&want) {
+        if want == sc["notes"] {
+            same += 1;
+        } else {
+            named += 1;
+        }
     } else {
         diffs.push(format!(
             "{name} notes:\n  python: {}\n  rust:   {}",
-            dumps(&sc["notes"]),
+            dumps(&want),
             dumps(&got)
         ));
     }
     (same, named, diffs)
 }
 
-// decision: APP-403, APP-404, APP-405, DMN-403, DMN-404, DMN-405, DMN-406, DMN-407, DMN-408, DMN-584
+// decision: APP-403, APP-404, APP-405, APP-922, DMN-403, DMN-404, DMN-406, DMN-407, DMN-408, DMN-584
 #[tokio::test]
 async fn every_scenario_matches_python() {
     let f = fixture();
@@ -391,9 +446,10 @@ async fn every_scenario_matches_python() {
         diffs.len(),
         diffs.join("\n")
     );
-    assert_eq!(named, 1, "the named fix was compared");
+    assert_eq!(named, 20, "the named differences were compared");
     println!(
-        "{} scenarios: {same} results equal, {named} differ by the named fix (frozen frame keeps its seq), 0 differ",
+        "{} scenarios: {same} results equal, {named} differ by the named differences (frozen frame keeps its seq; \
+         APP-922: no OCR phase, the refused frame shown), 0 other differences",
         scenarios.len()
     );
 }

@@ -76,10 +76,12 @@ final class AppSetupController: NSObject {
     lazy var model: SetupModel = {
         if let injectedModel { return injectedModel }
         let rpc = DaemonRPC()
-        return SetupModel(rpc: rpc, runner: SetupCommand(launcher: launcher), app: SystemAppPermissions(),
-                          system: SystemOpener(), keys: DaemonAPIKeyStore(rpc: rpc),
-                          service: DaemonService(inApp: inAppService),
-                          background: isPackaged ? background : nil)
+        let model = SetupModel(rpc: rpc, runner: SetupCommand(launcher: launcher), app: SystemAppPermissions(),
+                               system: SystemOpener(), keys: DaemonAPIKeyStore(rpc: rpc),
+                               service: DaemonService(inApp: inAppService),
+                               background: isPackaged ? background : nil)
+        model.restartStore = defaults                // APP-921: a restart a task deferred survives a relaunch
+        return model
     }()
 
     /// The packaged app's two programs: the `ferb` launcher (a script running the app's Python, or the Rust build's
@@ -301,6 +303,14 @@ final class AppSetupController: NSObject {
 
     /// Uninstall: FERB's SMAppService registration unregistered from macOS (the Rust build's own, or a 2026-11 build's),
     /// before `ferb uninstall` removes the rest. Nil when macOS lists none, else why not.
+    /// DMN-598: Uninstall's first step, while the service still runs: it removes FERB's files from the browsers'
+    /// folders (it holds Full Disk Access; this app doesn't). A service that doesn't answer leaves it to `ferb uninstall`.
+    func removeBrowserFilesForUninstall() async -> BrowserFilesRemoval {
+        guard isPackaged else { return BrowserFilesRemoval(lines: [], done: false) }
+        return BrowserFilesRemoval(reply: try? await model.rpc.call("setup.uninstall_browser_files", params: [:],
+                                                                    wait: 30))
+    }
+
     func unregisterService() async -> String? {
         guard isPackaged else { return nil }
         return await background.unregisterForUninstall()

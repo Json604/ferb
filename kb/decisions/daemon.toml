@@ -400,7 +400,8 @@ legacy = "notes/preview.md Rulings (step 8d): surfaces; fix list: parallel steps
 title = "Preview frames are masked and never stored"
 by = "agent"
 date = 2026-10-31
-status = "active"
+status = "superseded"
+superseded_by = "APP-922"
 rule = "A preview frame has secure, secret, card and code fields painted over before it leaves the capture (AX for Mac windows, the extension for tabs), then OCR masking of codes, card numbers and known secrets; when only OCR masked a window, the answer says so. Frames live in memory only: never written to disk, the database, a trace or a log, and none is captured after the task ends or for a tab the task doesn't own."
 why = "Rule 7: secrets never reach a trace, log or the database; the preview shows the owner's own windows."
 paths = ["ferb/daemon/task_preview.py", "ferb/sanitize/images.py"]
@@ -994,3 +995,53 @@ words_source = "Owner 2026-11-14, on DMN-595's about.diagnostics naming profiles
 rule = "Refines DMN-595. about.diagnostics names each browser profile as the environment facts do: browser, folder, display name and account_hint (the account email) when the profile is signed in. The owner's own account is not masked there (the redactor has no email rule); the 16,000-character bound stands."
 why = "Two profiles with the same name could not be told apart in FERB's own diagnostics."
 paths = ["rust/crates/ferbd/src/compose/tools/diagnostics.rs"]
+
+[DMN-597]
+title = "The worker's Screen Recording fact reads the real grant and says when only a restart is missing"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For APP-921. The environment facts read the daemon's Screen Recording grant under Python's key (screen). When setup.permissions' fresh reading (APP-662) saw a switch on that this daemon still reads off, the Screen Recording and hearing facts say it is on in macOS and works once FERB's background service restarts, which FERB.app does when no task runs."
+why = "T-1047: a task waiting on a grant the owner had just switched on wasn't told that only FERB's restart was missing. And the Rust facts read check_all's screen_recording key as 'screen', so they never said Screen Recording was missing at all."
+evidence = "env_seams.rs permissions() returned check_all's keys (screen_recording); environment.rs availability read granted(\"screen\"), defaulting to true. Python's desktop.py _permissions returned {accessibility, screen}."
+paths = ["engine/crates/ferb-daemon/src/areas_b/environment.rs", "engine/crates/ferbd/src/compose/env_seams.rs", "engine/crates/ferbd/src/areas_c/setup.rs"]
+
+[DMN-598]
+title = "Uninstall's browser files go through the daemon first; every removal is tried and listed"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For DMN-507; refines APP-5. FERB.app's Uninstall calls setup.uninstall_browser_files (app_only) before it unregisters the service: the daemon removes only FERB's own install requests and native-host manifests in every known browser folder, never an extension or a browser. `ferb uninstall --skip-browser-files` then touches no browser folder. Each removal is tried; a refused one is listed and the rest, the data folder and Keychain items still go."
+why = "T-1003: `ferb uninstall` ran as FERB.app's child (no Full Disk Access) and deleted files in browser folders, so macOS could show the 'blocked' banner; a refused delete aborted the rest, before the data folder and Keychain items on Delete everything."
+evidence = "Read check 2026-11-16: SettingsPages.swift FerbOutput.uninstall runs `ferb uninstall` after Application.swift's beforeUninstall; setup.rs uninstall removes requests; install.rs uninstall's `?` on remove_file of com.ferb.native_host.json."
+paths = ["engine/crates/ferb-daemon/src/areas_b/browsers/mod.rs", "engine/crates/ferb-browser/src/autoinstall.rs", "engine/crates/ferb-device/src/install.rs", "engine/crates/ferb-device/src/cli/setup.rs", "engine/crates/ferb-rpc/src/auth.rs", "apps/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift"]
+
+[DMN-599]
+title = "Every background loop is supervised: a failure is journaled and the loop starts again"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "As main.py _supervise and _spawn. Every loop of the composition runs through compose/guard.rs: an error or panic is journaled daemon.loop_failed (loop, failures since start, the error's kind and redacted words, 300 chars) and the loop starts again after min(60, 2^(failures-1)) s; a periodic one waits its period first. One-off work's failure is daemon.background_failed. Shutdown aborts a loop in its body or pause."
+why = "T-1123: a loop that panicked ended silently and for good; the trail's thread stopped recording and sense.status failed until a restart."
+evidence = "tests/loops_supervised.rs: one panic in the trail's thread left sense.status failing with DatabaseError and no loop_failed row before the guard; after it, one row, the 1 s pause, perception back. spawns.txt lists the per-call spawns."
+paths = ["engine/crates/ferbd/src/compose/guard.rs", "engine/crates/ferbd/src/compose/loops.rs", "engine/crates/ferbd/src/compose/memory_loops.rs", "engine/crates/ferbd/spawns.txt"]
+
+[DMN-600]
+title = "Permissions and browser profiles are kept 10 s, the permissions read at start, as Python's _Fresh"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "As areas/shared.py _Fresh (FRESH_S 10). The facts' TCC permissions and the discovered browser profiles the facts, live facts and browsing question name are kept 10 s; a later read gets the kept value and refreshes it in a worker thread. The start reads the permissions in the background. Pairing, Pair all and profile states read the browsers now, never the kept list."
+why = "T-1124: the Rust build read check_all() and every browser's Local State on each planner turn; Python primed them so the first turn didn't wait."
+evidence = "main.py:477 primes _fresh with _permissions; browsers.py:174 and environment.py:200 read through _fresh. ferb-daemon shared.rs Fresh tests; pairing paths call Cx::profiles (browsers/mod.rs)."
+paths = ["engine/crates/ferb-daemon/src/shared.rs", "engine/crates/ferb-daemon/src/areas_b/browsers/mod.rs", "engine/crates/ferbd/src/compose/env_seams.rs"]
+
+[DMN-601]
+title = "ferb -h prints Python's recorded argparse help; the Python build's setup lines stay only in its mode"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For DMN-3. `-h` / `--help` (or --h, --he, --hel) before `--` prints the help of the command named before it, as recorded from Python's argparse at 80 columns (fixtures/device/help.json), and exits 0. Named differences: setup's words no longer name an interpreter or venv. A checkout's setup says the Python words only with Programs::Python (the fixtures)."
+why = "T-1128: the Rust program had no help, and a checkout's setup still said it installed FERB's dedicated Python and a venv, which the Rust build has none of (ENG-2)."
+evidence = "ferb-device cli/help.rs tests: 33 recorded texts, all equal but the two named; tests/program.rs help_is_printed_and_exits_zero."
+paths = ["engine/crates/ferb-device/src/cli/help.rs", "engine/crates/ferb-device/src/cli/run.rs", "engine/crates/ferb-device/src/cli/setup.rs", "engine/fixtures/device/make_help.py"]

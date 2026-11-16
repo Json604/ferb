@@ -8,6 +8,7 @@ Nothing here builds the app, installs, registers a service, runs launchctl or re
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import plistlib
@@ -22,7 +23,7 @@ import time
 import unittest
 from pathlib import Path
 
-from scripts.tests.support import (BUILD_APP, BUILD_DMG, CRATES, DEVID_SHA, RELEASE_PIECES, ROOT, RUST_PARTS,
+from scripts.tests.support import (BUILD_APP, BUILD_DMG, CRATES, DEVID_SHA, RELEASE_PIECES, ROOT, RUST_PARTS, ent,
                                    SYSTEM_PATH, TempCase, compile_macho, devid_env, lipo_archs, rust_const, sign_only,
                                    stubs, version_tuple, workspace_version, zsh, zsh_vars)
 
@@ -105,6 +106,13 @@ class RustBuild(TempCase):
         self.assertEqual("Contents/" + named["FERB_RUST_AGENT"], const("BUNDLE_AGENT"))
         self.assertEqual("Contents/" + named["FERB_RUST_NATIVE_HOST"], const("BUNDLE_RUST_NATIVE_HOST"))
         self.assertEqual("Contents/" + named["FERB_RUST_CLI"], const("BUNDLE_CLI"))
+        # the phone link's helper: where the daemon starts it (ferbd compose/link.rs BUNDLED) and accepts it by its
+        # signature (ferb-rpc link_peer.rs HELPER)
+        link = zsh_vars(self, "ferb_rust_arch_names arm64", "FERB_RUST_LINK")["FERB_RUST_LINK"]
+        self.assertEqual("Contents/" + link,
+                         zsh(f"ferb_rust_const {CRATES / 'ferbd/src/compose/link.rs'} BUNDLED").stdout.strip())
+        self.assertEqual("Contents/" + link,
+                         zsh(f"ferb_rust_const {CRATES / 'ferb-rpc/src/link_peer.rs'} HELPER").stdout.strip())
         runtimes = (CRATES / "ferbd/src/compose/runtimes.rs").read_text()
         self.assertIn('format!("node/node_modules/@anthropic-ai/{package}/claude")', runtimes)
         self.assertEqual(named["FERB_CLAUDE_BIN"], "Resources/node/node_modules/@anthropic-ai/claude-code-darwin-arm64/claude")
@@ -204,7 +212,7 @@ class RustBuild(TempCase):
         named = {name: float(mb) for mb, name in rows}
         self.assertEqual(named, {"Claude Code (Resources/node/@anthropic-ai)": 4.0, "Codex (Resources/node/@openai)": 3.0,
                                  "Daemon: ferbd as the agent app (Helpers/FERB.app)": 2.0,
-                                 "ferb program (Resources/bin)": 0.9, "Helpers (native host, secrets)": 0.4,
+                                 "ferb program (Resources/bin)": 0.9, "Helpers (native host, secrets, phone link)": 0.4,
                                  "Embedding model (Resources/models)": 1.5, "Notch app (MacOS)": round(notch / 1e6, 1),
                                  "Sparkle (Frameworks)": 0.6,
                                  "Runtime Markdown and extension (Resources/ferb, extensions)": 0.2,
@@ -248,6 +256,15 @@ class RustBuild(TempCase):
         self.assertTrue(sign_calls and all(f"|--sign|{DEVID_SHA}|" in c and "|--timestamp|" in c for c in sign_calls))
         self.assertFalse(any(c.startswith("xcrun") for c in calls))           # nothing sent to Apple, nothing stapled
         self.assertIn("Not notarized", done.stdout)
+        # the phone link's helper: its own identifier, network entitlements only, hardened like every piece (PHN-441)
+        helper = app / "Contents/Helpers/ferb-link"
+        call = next(c for c in sign_calls if c.endswith(f"|{helper}"))
+        self.assertIn("|--identifier|com.ferb.link|", call)
+        self.assertIn("|--options|runtime|", call)
+        given = ent(self.tmp, helper)
+        self.assertIn("com.apple.security.network.client", given)
+        self.assertIn("com.apple.security.network.server", given)
+        self.assertEqual(given.count("<key>"), 2, given)
         (self.tmp / "plain").mkdir()
         without = sign_only(self.tmp / "plain", **local)[2]                   # without the switch: credentials needed
         self.assertTrue(without.returncode != 0 and "NOTARY_KEYCHAIN_PROFILE" in without.stderr)
@@ -313,7 +330,8 @@ class BuiltRustBundle(TempCase):
         self.assertEqual(signed.returncode, 0, signed.stderr)
         c = app / "Contents"
         for rel in ("MacOS/FERBNotch", "Helpers/FERB.app/Contents/MacOS/FERB", "Helpers/ferb-native-host",
-                    "Resources/bin/ferb", "Helpers/ferb-secrets", "Resources/extensions/chromium/manifest.json",
+                    "Resources/bin/ferb", "Helpers/ferb-secrets", "Helpers/ferb-link",
+                    "Resources/extensions/chromium/manifest.json",
                     "Resources/ferb/orchestrator/prompts/supervisor.md", "Library/LaunchAgents/com.ferb.daemon.plist"):
             self.assertTrue((c / rel).is_file(), rel)
         for rel in zsh("ferb_rust_runtime_markdown $ROOT").stdout.split():   # byte for byte
@@ -384,6 +402,82 @@ class BuiltRustBundle(TempCase):
                 daemon.send_signal(signal.SIGTERM)
                 self.assertEqual(daemon.wait(timeout=60), 0)
             self.assertFalse(sock.exists())
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+
+    # decision: PHN-441
+    # decision: PHN-468
+    def test_rust_bundles_phone_link_helper_is_signed_as_the_daemon_checks_it(self) -> None:
+        """Contents/Helpers/ferb-link: signed `com.ferb.link`, hardened, with the network entitlements alone, one
+        architecture as the daemon's, and its designated requirement names that identifier (what ferb-rpc link_peer.rs
+        derives from it on disk and checks the running helper against)."""
+        bundle = _rust_bundle()
+        helper = bundle / "Contents/Helpers/ferb-link"
+        details = subprocess.run(["codesign", "-dv", "--verbose=2", str(helper)], capture_output=True,
+                                 text=True).stderr
+        self.assertIn("Identifier=com.ferb.link", details)
+        self.assertRegex(details, r"flags=0x[0-9a-f]+\([a-z,]*runtime")          # hardened (ad hoc: "adhoc,runtime")
+        shown = subprocess.run(["codesign", "-d", "--entitlements", "-", "--xml", str(helper)], capture_output=True)
+        ents = plistlib.loads(shown.stdout) if shown.stdout.strip() else {}
+        self.assertEqual(ents, {"com.apple.security.network.client": True, "com.apple.security.network.server": True})
+        shown = subprocess.run(["codesign", "-d", "-r-", str(helper)], capture_output=True, text=True)
+        requirement = _designated_requirement(shown.stdout + shown.stderr)
+        if "Signature=adhoc" not in details:
+            self.assertTrue(requirement.startswith('identifier "com.ferb.link"'), requirement)
+        self.assertEqual(lipo_archs(helper), lipo_archs(bundle / "Contents/Helpers/FERB.app/Contents/MacOS/FERB"))
+
+    # decision: PHN-468
+    def test_rust_bundles_daemon_answers_the_link_role_only_to_its_helper(self) -> None:
+        """An ad-hoc build's daemon on a temporary home (FERB_DEV_HOME, never ~/.ferb, no service registered): the
+        bundle's own helper, started by this test with invented keys on its standard input and no relay but a dead
+        local address, says hello as the link and reads the daemon's phones (set_is_link passes for exactly it);
+        this test program, naming the same role, gets the unknown-role refusal."""
+        bundle = _rust_bundle()
+        agent = bundle / "Contents/Helpers/FERB.app/Contents/MacOS/FERB"
+        helper = bundle / "Contents/Helpers/ferb-link"
+        if "Signature=adhoc" not in subprocess.run(["codesign", "-dv", str(agent)], capture_output=True,
+                                                   text=True).stderr:
+            raise unittest.SkipTest("a certificate-signed daemon refuses FERB_DEV_HOME: re-sign a copy ad hoc "
+                                    "(SIGN_IDENTITY=- scripts/sign-app.sh COPY) to run this")
+        base = {"PATH": "/usr/bin:/bin", "HOME": str(self.tmp / "user")}
+        home = Path(tempfile.mkdtemp(prefix="ferb-"))
+        try:
+            daemon = subprocess.Popen([str(agent), "daemon"], env={**base, "FERB_DEV_HOME": str(home),
+                                                                   "HTTPS_PROXY": "http://127.0.0.1:9"},
+                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            sock = home / "run/ferb.sock"
+            link = None
+            try:
+                deadline = time.monotonic() + 60
+                while not sock.exists() and time.monotonic() < deadline and daemon.poll() is None:
+                    time.sleep(0.2)
+                self.assertTrue(sock.exists(), "no socket")
+                self.assertIn("result", _socket_call(sock, "ping"))
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:   # not the helper: refused
+                    s.settimeout(10)
+                    s.connect(str(sock))
+                    f = s.makefile("rwb")
+                    f.write(json.dumps({"jsonrpc": "2.0", "id": 0, "method": "auth.hello",
+                                        "params": {"role": "link"}}).encode() + b"\n")
+                    f.flush()
+                    self.assertIn("error", json.loads(f.readline()))
+                keys = json.dumps({"keys": {"identity": base64.b64encode(bytes([1]) * 32).decode(),   # invented
+                                             "state-key": base64.b64encode(bytes([2]) * 32).decode()}})
+                link = subprocess.Popen([str(helper), "run", "--daemon", str(sock), "--state", str(home / "link-test"),
+                                         "--shared-relay", "http://127.0.0.1:9", "--no-portmap"],
+                                        env=base, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+                assert link.stdin and link.stderr
+                link.stdin.write((keys + "\n").encode())
+                link.stdin.flush()
+                said = link.stderr.readline().decode()
+                self.assertIn("serving phones as", said)
+                link.stdin.close()
+                self.assertEqual(link.wait(timeout=30), 0)
+            finally:
+                if link and link.poll() is None:
+                    link.kill()
+                daemon.send_signal(signal.SIGTERM)
+                daemon.wait(timeout=60)
         finally:
             shutil.rmtree(home, ignore_errors=True)
 

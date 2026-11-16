@@ -28,7 +28,7 @@ final class NotificationPosterTests: XCTestCase {
     // decision: APP-508
     func testSetupAsksForFourAndAllowAllLeavesScreenRecordingLast() {
         XCTAssertEqual(SetupModel.askedAtSetup, ["accessibility", "screen_recording", "full_disk_access", "input_monitoring",
-                                                 "notifications", "microphone", "clipboard"])
+                                                 "notifications", "microphone", "clipboard", "location"])
         func row(_ id: String, _ status: GrantStatus) -> PermissionRow {
             PermissionRow(id: id, status: status, process: "daemon", required: true, pane: nil, requestable: true)
         }

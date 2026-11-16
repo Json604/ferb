@@ -116,6 +116,7 @@ fn reads(r: &Value) -> ContextReads {
             strs(&t["recipients"]),
         ],
         folders: strs(&r["folders"]),
+        projects: None,
         workspace: s(&r["workspace"]),
         posted: r["posted"].as_array().cloned().unwrap_or_default(),
         plan_steps: if r["plan"].as_bool().unwrap() {

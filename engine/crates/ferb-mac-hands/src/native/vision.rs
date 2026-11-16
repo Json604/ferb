@@ -131,6 +131,13 @@ pub fn child_main() -> i32 {
     crate::vision_child::serve(&mut input, &mut output, &[&NativeVision, &CpuVision])
 }
 
+/// The kept child's side (`ferb read-image-text --serve`, HAND-626): framed images on standard input until it closes,
+/// each answered on standard output; Vision loads its model once for all of them.
+pub fn serve_main() -> i32 {
+    let (mut input, mut output) = (std::io::stdin().lock(), std::io::stdout().lock());
+    crate::vision_child::serve_loop(&mut input, &mut output, &[&NativeVision, &CpuVision])
+}
+
 /// images.py:89: a plain white grayscale PNG, enough for Vision to load its recognizer (`warm_recognition`).
 pub fn blank_png(width: u32, height: u32) -> Vec<u8> {
     fn crc32(data: &[u8]) -> u32 {

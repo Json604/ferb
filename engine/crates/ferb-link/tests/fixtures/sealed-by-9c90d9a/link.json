@@ -1,0 +1,91 @@
+{
+  "devices": [
+    {
+      "id": "fixture-phone-id",
+      "name": "Fixture phone \"one\"  two",
+      "app": "test",
+      "paired_at": 1794300000,
+      "last_seen": 1794300100,
+      "unlock_pub": "Zml4dHVyZS11bmxvY2s",
+      "device_pub": "Zml4dHVyZS1kZXZpY2U"
+    }
+  ],
+  "own_relay": {
+    "url": "https://relay.invalid:7443"
+  },
+  "limits": {
+    "control_frame_max": 65536,
+    "chunk_bytes": 16384,
+    "shared_window": 1,
+    "good_window": 16,
+    "streams_max": 8,
+    "stall_s": 10,
+    "call_deadline_s": 10,
+    "shared_transfer_max": 1048576,
+    "shared_preview_max": 200000,
+    "shared_preview_every_s": 5,
+    "shared_bulk_per_min": 1000000,
+    "shared_bulk_burst": 2000000,
+    "ratelimit_pause_s": 60,
+    "shared_daily_max": 100000000,
+    "good_transfer_max": 0,
+    "good_preview_every_ms": 200,
+    "pair_window_s": 120,
+    "pair_wrong_max": 3,
+    "pair_confirm_s": 120,
+    "devices_max": 2,
+    "device_unused_days": 30,
+    "unlock_before_yes": true,
+    "unlock_idle_s": 300,
+    "unlock_max_s": 43200,
+    "audit_keep_days": 90,
+    "audit_max_bytes": 5000000,
+    "audit_keep": 20,
+    "fetch_notice_files": 40,
+    "fetch_notice_bytes": 1073741824,
+    "fetch_notice_window_s": 600,
+    "challenge_ttl_s": 120,
+    "list_max": 500,
+    "tree_max": 2000,
+    "upload_free_floor": 1073741824,
+    "upload_partial_keep_s": 3600,
+    "unpaired_slots": 4,
+    "unpaired_hello_s": 5,
+    "connects_per_min": 12,
+    "calls_per_10s": 60,
+    "own_relay_fallback_after_s": 30,
+    "own_relay_fallback": true,
+    "own_relay_probe_s": 60,
+    "handover_fresh_after_s": 10,
+    "dial_deadline_s": 10,
+    "redial_steps_s": [
+      1,
+      2,
+      4,
+      8,
+      15,
+      30,
+      60
+    ],
+    "redial_jitter_pct": 20,
+    "redial_long_after_s": 600,
+    "redial_long_every_s": 300,
+    "healthy_reset_s": 60,
+    "reconnecting_after_s": 10,
+    "give_up_after_s": 30
+  },
+  "shared_day": [
+    0,
+    0
+  ],
+  "file_day": [
+    0,
+    0,
+    0
+  ],
+  "upload_dir": null,
+  "high_value": [
+    "/tmp/fixture place"
+  ],
+  "seal": "-xf4CdAmtNvlfUFn7_Ah7XgQIv8Hr1IaI6LI3akNuRY"
+}

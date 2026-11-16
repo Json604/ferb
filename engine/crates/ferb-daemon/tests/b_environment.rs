@@ -347,6 +347,12 @@ impl Seams for Fake {
     fn unpaired_note(&self, browser: &str) -> String {
         s(&self.st["unpaired_notes"][browser])
     }
+    fn restart_pending(&self) -> BTreeSet<String> {
+        strs(&self.st["restart_pending"]).into_iter().collect()
+    }
+    fn device_line(&self) -> String {
+        s(&self.st["device_line"])
+    }
 }
 
 fn dumps(v: &Value) -> String {
@@ -520,4 +526,60 @@ fn environment_matches_python() {
         diffs.join("\n")
     );
     assert!(cases.len() >= 70);
+}
+
+/// T-1047: a task that can't capture because Screen Recording is off is told so; when a fresh reading saw the owner's
+/// switch on and only this daemon's restart is missing, it is told that instead (FERB.app restarts once no task runs),
+/// so it doesn't send the owner to grant it again.
+// decision: DMN-597
+#[test]
+fn a_switch_waiting_for_the_restart_is_said_so_in_the_facts() {
+    let avail = |pending: Value| {
+        let c = json!({"method": "_availability", "config": "", "files": {}, "state": {
+            "registered": [["screen"], ["audio"], ["mac:read", "mac:act"]],
+            "pairings": [], "identity_browser": false,
+            "permissions": {"accessibility": true, "screen": false},
+            "restart_pending": pending}});
+        let out: Value =
+            serde_json::from_str(run_case(&c)[0].strip_prefix("out ").unwrap()).unwrap();
+        out["text"].as_str().unwrap().to_string()
+    };
+    let off = avail(json!([]));
+    assert!(
+        off.contains("FERB doesn't have the Screen Recording permission"),
+        "{off}"
+    );
+    let waiting = avail(json!(["screen_recording"]));
+    assert!(waiting.contains(env::SCREEN_AFTER_RESTART), "{waiting}");
+    assert!(waiting.contains(env::HEARING_AFTER_RESTART), "{waiting}");
+    assert!(
+        !waiting.contains("FERB doesn't have the Screen Recording permission"),
+        "{waiting}"
+    );
+}
+
+/// SENSE-421, a named addition to Python's live facts: this device's one line comes first; a case with no device line
+/// (every recorded one) is Python's bytes, so the comparison above stays strict.
+// decision: SENSE-421
+#[test]
+fn the_device_line_leads_the_live_facts() {
+    let fx = fixture("daemon-b/environment.json");
+    let line = "- This Mac “Studio”: Monday 2026-11-16 10:05, time zone Asia/Kolkata (UTC+05:30); place: Pune, \
+                Maharashtra, India (city level)";
+    let mut seen = 0;
+    for c in fx["cases"].as_array().unwrap() {
+        if c["method"] != "_live_facts" {
+            continue;
+        }
+        let out = |c: &Value| -> String {
+            let got: Value =
+                serde_json::from_str(run_case(c)[0].strip_prefix("out ").unwrap()).unwrap();
+            got.as_str().unwrap().to_string()
+        };
+        let mut with = c.clone();
+        with["state"]["device_line"] = json!(line);
+        assert_eq!(out(&with), format!("{line}\n{}", out(c)), "{}", c["name"]);
+        seen += 1;
+    }
+    assert!(seen >= 5);
 }

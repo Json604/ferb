@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- :core's part of every app that uses it (kb PHN-448, PHN-496): the link needs the network; the signers need the
+     biometric prompt; and nothing of the app's data leaves the phone in a backup or a transfer to a new phone. These
+     application attributes merge into the app: an app that says otherwise fails the manifest merge, on purpose. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <!-- allowBackup=false ends cloud backup and adb backup; fullBackupContent=false is Android 11's (API 30) rule;
+         dataExtractionRules is Android 12+'s, the only one that also stops the device-to-device transfer -->
+    <application
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/ferb_data_extraction_rules" />
+</manifest>

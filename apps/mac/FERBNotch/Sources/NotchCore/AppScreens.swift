@@ -84,6 +84,10 @@ public enum AppGuide {
         HowTo(title: "Grant or check permissions", steps: "Settings → Permissions"),
         HowTo(title: "Connect a browser profile", steps: "Settings → Browsers → Add to… / Pair"),
         HowTo(title: "Give FERB its own Google account", steps: "Settings → Browsers → FERB's own account"),
+        HowTo(title: "Use FERB from a phone", steps: "Settings → Phone → Pair a phone: scan the code with FERB on the phone, then Pair it on the Mac"),
+        HowTo(title: "Rename or remove a paired phone", steps: "Settings → Phone → Paired phones → Rename / Remove…"),
+        HowTo(title: "Set up your own relay for the phone",
+              steps: "Settings → Phone → Use my own relay (paste the line the relay's setup printed, Test, Use this relay); the steps are under Set up your own relay"),
         HowTo(title: "Choose which notifications FERB posts", steps: "Settings → Sounds & Notifications"),
         HowTo(title: "Make FERB ignore an app or a site", steps: "Settings → Privacy → Apps / Sites FERB ignores"),
         HowTo(title: "Pause recording what happens on this Mac", steps: "Settings → Privacy → Pause recording"),
@@ -270,6 +274,32 @@ public struct SavedSecretRow: Identifiable, Equatable {
         case "identifier": return shown ? "ID, any site, the AI can see it" : "ID, any site"
         default: return "secret"
         }
+    }
+}
+
+// MARK: - Project folders
+
+/// One folder where the owner said Yes to FERB working on a code project and publishing its git repository
+/// (`projects.list`): the folder, how it reads, since when, and the exact push addresses the owner approved.
+public struct ProjectFolderRow: Identifiable, Equatable {
+    public var id: String { folder }
+    public let folder: String
+    public let shown: String
+    public let since: String
+    public let destinations: [String]
+    /// Addresses FERB may get from with the owner's login (HAND-642), and hosts whose GitHub CLI login it may use.
+    public let sources: [String]
+    public let ghHosts: [String]
+
+    public init?(_ row: [String: Any]) {
+        guard let folder = row["folder"] as? String, !folder.isEmpty else { return nil }
+        self.folder = folder
+        let shown = text(row["shown"])
+        self.shown = shown.isEmpty ? folder : shown
+        since = text(row["since"])
+        destinations = row["destinations"] as? [String] ?? []
+        sources = row["sources"] as? [String] ?? []
+        ghHosts = row["gh_hosts"] as? [String] ?? []
     }
 }
 

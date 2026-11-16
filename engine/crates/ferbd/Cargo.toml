@@ -63,6 +63,7 @@ serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 tokio = { version = "1.54.1", features = ["rt", "rt-multi-thread", "macros", "sync", "time", "net", "io-util", "io-std", "signal", "process", "fs"] }
 sha2 = "0.10.9"
 zeroize = "1"
+getrandom = "0.3"
 hex = "0.4"
 base64 = "0.22"
 futures-util = { version = "0.3.34", default-features = false, features = ["std"] }

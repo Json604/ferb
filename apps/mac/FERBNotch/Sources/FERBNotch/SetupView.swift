@@ -433,6 +433,10 @@ struct PermissionRowView: View {
                 if row.restartNeeded && row.status != .granted {
                     Text("On in macOS; FERB needs a restart to use it.").font(.caption).foregroundStyle(.orange)
                 }
+                if model.restartAfterTasks.contains(row.id) && row.status != .granted {     // APP-921
+                    Text("FERB restarts its background service for this when no task is running.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
             Spacer()
             if row.status != .granted {

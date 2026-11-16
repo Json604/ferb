@@ -1,5 +1,5 @@
-//! The live preview of a task's work (kb area app): masked frames of the one surface (a task's browser tab, or the
-//! app window a call targets) its latest call works on, for FERB.app only. Pixels live in memory only: never
+//! The live preview of a task's work (kb area app): frames, as captured, of the one surface (a task's browser tab, or
+//! the app window a call targets) its latest call works on, for FERB.app only. Pixels live in memory only: never
 //! journaled, saved, traced or logged. Port of `ferb/daemon/task_preview.py`.
 //!
 //! Before each call the gateway declares the surface ([`TaskPreviews::declare`]); nothing is resolved then. The first
@@ -11,8 +11,12 @@
 //! one capture in turn (DMN-584). Frames and capture time are counted per surface kind (APP-405, DMN-408); a capture
 //! that runs out of time or fails is noted (preview.slow / preview.failed, bounded).
 //!
+//! APP-922 (owner): a frame is shown as captured, never masked (no text reading); it is an [`OwnerOnlyFrame`], held in
+//! memory only and read only by the `tasks.preview` answer to FERB.app. Fixed against Python by the owner's word:
+//! Python masked each frame (DMN-405, superseded) and journaled a masking failure as preview.failed.
+//!
 //! Seams: the surface's capture comes with its [`PreviewTarget`] (`ferb_mac_hands::point`, the same type the Mac and
-//! browser capabilities resolve to); the frame sanitizer ([`Sanitize`]), the locks' `try_hold` ([`TryHold`]), the
+//! browser capabilities resolve to); the locks' `try_hold` ([`TryHold`]), the
 //! Screen Recording check, the journal note, the task's state ([`Status`], the supervisor's `preview_status`) and the
 //! time ([`PreviewClock`]: monotonic readings and the request's time limit).
 
@@ -22,7 +26,9 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
 use ferb_mac_hands::error::HandError;
-use ferb_mac_hands::point::{preview_phase, FrameFn, PreviewCtx, PreviewTarget, PREVIEW};
+use ferb_mac_hands::point::{
+    preview_phase, OwnerOnlyFrame, PreviewCtx, PreviewFrameFn, PreviewTarget, PREVIEW,
+};
 use serde_json::{json, Map, Value};
 use tokio::sync::watch;
 
@@ -39,26 +45,6 @@ pub const TURN_S: f64 = 1.0;
 /// A noted preview problem: the first at once, then one row per window with a count.
 pub const NOTE_EVERY_S: f64 = 600.0;
 
-/// The frame sanitizer (text recognition masking, L13): the masked frame, or why it isn't one.
-pub type Sanitize = Arc<dyn Fn(Vec<u8>) -> BoxFuture<Result<Vec<u8>, Unmasked>> + Send + Sync>;
-
-/// A frame the sanitizer didn't mask: `error` is shown as the problem and journaled as preview.failed's error (the
-/// error's class name, or the sanitizer's text), `facts` are added to that journal row only (HAND-531: which step
-/// failed, with the framework's error domain and code; never the frame or text read from it).
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct Unmasked {
-    pub error: String,
-    pub facts: Map<String, Value>,
-}
-
-impl From<String> for Unmasked {
-    fn from(error: String) -> Unmasked {
-        Unmasked {
-            error,
-            facts: Map::new(),
-        }
-    }
-}
 /// `try_hold(keys, holder)` (the daemon's `locks.try_hold(..., during_reads=True)`): a guard holding every lock (they
 /// are released when it drops), None when any is busy, or the error's class name (an unknown lock kind: ValueError).
 pub type TryHold =
@@ -99,7 +85,7 @@ impl PreviewClock for SystemClock {
 #[derive(Clone, Debug, PartialEq)]
 pub struct PreviewAnswer {
     pub fields: Map<String, Value>,
-    pub image: Option<Vec<u8>>,
+    pub image: Option<OwnerOnlyFrame>,
 }
 
 impl PreviewAnswer {
@@ -121,7 +107,7 @@ impl PreviewAnswer {
             out.insert(k.clone(), v.clone());
             if k == "step" {
                 if let Some(i) = &self.image {
-                    out.insert("image".into(), image(i));
+                    out.insert("image".into(), image(i.for_owner_app()));
                 }
             }
         }
@@ -191,8 +177,8 @@ impl Counts {
 struct Surface {
     target: PreviewTarget,
     locks: Vec<String>,
-    capture: Option<FrameFn>,
-    frame: Option<Vec<u8>>,
+    capture: Option<PreviewFrameFn>,
+    frame: Option<OwnerOnlyFrame>,
     note: String,
     problem: Option<(String, String)>,
     seq: i64,
@@ -289,7 +275,6 @@ impl State {
 }
 
 struct Inner {
-    sanitize: Sanitize,
     try_hold: TryHold,
     allowed: Arc<dyn Fn() -> bool + Send + Sync>,
     limit_s: f64,
@@ -405,7 +390,6 @@ impl Drop for Waiting {
 
 impl TaskPreviews {
     pub fn new(
-        sanitize: Sanitize,
         try_hold: TryHold,
         allowed: Arc<dyn Fn() -> bool + Send + Sync>,
         limit_s: f64,
@@ -414,7 +398,6 @@ impl TaskPreviews {
     ) -> TaskPreviews {
         TaskPreviews {
             inner: Arc::new(Inner {
-                sanitize,
                 try_hold,
                 allowed,
                 limit_s,
@@ -738,8 +721,8 @@ impl TaskPreviews {
         }
     }
 
-    /// One capture of a surface, under its locks only if they are free (never queued behind the worker), then masked
-    /// again by text recognition. A failure keeps the last frame and says why. The capture's own waits get only the
+    /// One capture of a surface, under its locks only if they are free (never queued behind the worker), shown as
+    /// captured (APP-922). A failure keeps the last frame and says why. The capture's own waits get only the
     /// time the preview has left (`PREVIEW`'s deadline), and each phase's time is counted per surface kind.
     async fn capture(
         inner: Arc<Inner>,
@@ -793,7 +776,7 @@ impl TaskPreviews {
         };
         let clock = inner.clock.clone();
         let now = move || clock.monotonic();
-        let got: Result<(Vec<u8>, String), Fail> = async {
+        let got: Result<(OwnerOnlyFrame, String), Fail> = async {
             let held = (inner.try_hold)(&locks, &format!("preview:{root}"))
                 .map_err(|class| Fail::Failed(class.clone(), class, Map::new()))?;
             let Some(held) = held else {
@@ -813,13 +796,10 @@ impl TaskPreviews {
                 }
             };
             *lock(&phase) = "capture".into();
-            let raw = capture().await?;
+            // APP-922: the frame as captured; nothing reads its text or paints it
+            let frame = capture().await?;
             drop(held);
-            *lock(&phase) = "ocr".into();
-            let frame = preview_phase("ocr", &now, (inner.sanitize)(raw.0))
-                .await
-                .map_err(|u| Fail::Failed(u.error.clone(), u.error, u.facts))?;
-            Ok((frame, raw.1))
+            Ok(frame)
         }
         .await;
         drop(tally);

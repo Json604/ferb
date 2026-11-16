@@ -1247,7 +1247,7 @@ impl Tool for BrowserTool {
                             .map(|i| i.jpeg().to_vec());
                     }
                 }
-                // an older extension: the tab's masked preview frame, used as it is
+                // an older extension: the tab's preview frame (as captured, APP-922), owner-only as the picture is
                 let t = target?;
                 let resolve = crate::compose::previews::browser_resolve(
                     driver.clone(),
@@ -1255,7 +1255,10 @@ impl Tool for BrowserTool {
                     owner.to_string(),
                 );
                 let (_, shoot) = resolve().await.ok()?;
-                shoot().await.ok().map(|(jpeg, _)| jpeg)
+                shoot()
+                    .await
+                    .ok()
+                    .map(|(frame, _)| frame.for_owner_app().to_vec())
             };
             // `PREVIEW_DEADLINE`: the capture's own waits fit the picture's limit
             let ctx = Arc::new(ferb_mac_hands::point::PreviewCtx {
@@ -1459,6 +1462,7 @@ pub fn browsers_deps(
         pair_timeout_s: 60.0,
         handoff_poll_s: 2.0,
         state: Arc::new(b::State::default()),
+        fresh: Some(s.tools.fresh()),
     }
 }
 

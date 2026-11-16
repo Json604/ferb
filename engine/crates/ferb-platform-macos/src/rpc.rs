@@ -4,6 +4,7 @@
 use std::path::Path;
 
 use ferb_rpc::app_peer::{mode_of_this_process, AppPeers};
+use ferb_rpc::link_peer::LinkPeers;
 use ferb_rpc::Server;
 
 use crate::security::SecurityFramework;
@@ -17,4 +18,10 @@ pub fn system(ferb_home: &Path) -> AppPeers<SecurityFramework> {
 pub fn attach(server: &Server, ferb_home: &Path) {
     server.set_peer_lookup(crate::peer::facts);
     server.set_is_app(system(ferb_home).into_check());
+}
+
+/// The phone link helper's check (stage 3, PHN-441): this process's mode, the real Security framework, the helper's own
+/// designated requirement inside FERB.app.
+pub fn link_system(ferb_home: &Path) -> LinkPeers<SecurityFramework> {
+    LinkPeers::new(mode_of_this_process(ferb_home), SecurityFramework)
 }

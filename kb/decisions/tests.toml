@@ -112,3 +112,33 @@ rule = "The full Python suite (`uv run pytest -q`) is not a push check any more.
 why = "The Rust engine replaces the Python daemon, which the owner has stopped using; the suite's flaky tests were blocking pushes of code they do not test."
 paths = ["kb/gate.toml"]
 untestable = "A gate rule: kb/gate.toml shows it."
+
+[TEST-511]
+title = "The Rust tests run under a guard: no network beyond loopback, no real places, a time and memory cap"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "Refines TEST-504 for Rust. gate.sh test runs every test binary through ferb-test-guard: sandbox-exec ends it on a connection beyond loopback, the Keychain, or a read or write in ~/.ferb, ~/.codex, ~/.claude, the Trash or a browser's folders (a path's metadata stays readable); a test past FERB_TEST_TIMEOUT_S (300) or a binary past FERB_TEST_MAX_RSS_MB (4096) is ended; each is named. A binary whose tests apply their own sandbox (nests.txt, each with why) runs with the caps only: sandboxes don't nest. A test may have its own time limit in slow.txt (runaway.py's ferb_timeout marker)."
+why = "T-1109: the Rust tests had none of TEST-504's guards: a test could reach a model provider, the owner's home or Trash, or run away, and only the gate's 30-minute limit would stop it."
+evidence = "tests/guards.rs runs a bad test per guard through the runner and checks it ends the run naming it. macOS refuses a sandbox inside one that restricts anything (sandbox_apply EPERM): binaries in ferb-test-guard/nests.txt (ferb-shell live) run with the caps only."
+paths = ["engine/crates/ferb-test-guard/src/main.rs", "engine/crates/ferb-test-guard/offline.sb", "engine/crates/ferb-test-guard/nests.txt", "engine/crates/ferb-test-guard/slow.txt", "engine/gate.sh"]
+
+[TEST-512]
+title = "A test daemon never reaches this Mac's apps, windows or events unless a by-hand test opts in"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For TEST-508. With the stand-ins' `mac` off (the default) ferbd's Mac hands are AbsentMac: no app running or in front, no window, tree, event, capture or quit; the previews read no window. Only a by-hand ignored test sets `mac` on."
+why = "T-1129: a test daemon composed the real AX, events, apps and capture parts; mac.apps listed this Mac's running apps in a test."
+evidence = "tools_mac.rs a_test_daemon_never_reads_this_macs_apps: with the native parts it listed Finder, VS Code and Brave; with AbsentMac none."
+paths = ["engine/crates/ferbd/src/compose/tools/mac.rs", "engine/crates/ferbd/src/compose/desktop_seams.rs"]
+
+[TEST-513]
+title = "Two long replay tests get 900 s; the 4 GB cap covers a test and the daemons it starts"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "yeah ok"
+words_source = "Owner 2026-11-16, asked: two long replay tests ran 300-333 s on a busy Mac and were given 900 s, is that fine? And: the 4 GB cap now covers a test plus the daemons it starts."
+rule = "For TEST-511. The tests listed in ferb-test-guard's slow.txt (chat_replay's two scenario tests) may run 900 s; every other test keeps 300 s. FERB_TEST_MAX_RSS_MB (4096) is measured over a test binary's whole process group."
+untestable = "A limit's value; the guard's own tests (TEST-511) prove the limits are enforced."

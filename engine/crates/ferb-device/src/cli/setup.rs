@@ -73,7 +73,12 @@ pub trait BrowserSetup {
         support: &Path,
         paired: Option<Vec<(String, String)>>,
     ) -> Vec<String>;
-    fn remove_requests(&mut self, home: &Path, support: &Path) -> Vec<PathBuf>;
+    /// FERB's install requests removed (uninstall): each removed, and each that couldn't be with why (DMN-598).
+    fn remove_requests(
+        &mut self,
+        home: &Path,
+        support: &Path,
+    ) -> (Vec<PathBuf>, Vec<(PathBuf, String)>);
     fn native_host_dirs(&mut self, support: &Path) -> Vec<PathBuf>;
 }
 
@@ -340,7 +345,11 @@ pub fn setup(env: &mut Env<'_>, update: bool) -> Result<i32, CliError> {
                 "Updating FERB from {} and restarting the daemon…",
                 b.display()
             ),
-            None => "Updating FERB in a new venv and restarting the daemon…".into(),
+            // T-1128: the Python build's words (its fixtures, `Programs::Python`); the Rust build has no venv (ENG-2)
+            None if matches!(env.inst.programs, crate::install::Programs::Python) => {
+                "Updating FERB in a new venv and restarting the daemon…".into()
+            }
+            None => "Updating FERB from this checkout's build and restarting the daemon…".into(),
         };
         env.say(&line);
         let t = (env.tokenizer)(&home);
@@ -371,7 +380,11 @@ pub fn setup(env: &mut Env<'_>, update: bool) -> Result<i32, CliError> {
             "1/4  Setting up FERB's background service from {}…",
             b.display()
         ),
-        None => "1/4  Installing FERB's dedicated Python, its venv and the LaunchAgent…".into(),
+        // T-1128: the Python build's words (its fixtures, `Programs::Python`); the Rust build has no Python (ENG-2)
+        None if matches!(env.inst.programs, crate::install::Programs::Python) => {
+            "1/4  Installing FERB's dedicated Python, its venv and the LaunchAgent…".into()
+        }
+        None => "1/4  Installing the LaunchAgent for this checkout's built daemon…".into(),
     };
     env.say(&first);
     let t = (env.tokenizer)(&home);
@@ -2016,6 +2029,19 @@ fn doctor_report(
 
 /// setup.py:988: `uninstall [--purge [--yes]]`.
 pub fn uninstall(env: &mut Env<'_>, purge: bool, confirmed: bool) -> Result<i32, CliError> {
+    uninstall_with(env, purge, confirmed, true)
+}
+
+/// `uninstall [--purge [--yes]] [--skip-browser-files]` (DMN-598). Every removal is tried; one that fails is said
+/// ("couldn't remove …: why") and the status is 1, after the rest, the data folder and the Keychain items went.
+/// `browser_files`: false when FERB's background service already removed FERB's files in the browsers' folders
+/// (FERB.app's Uninstall calls `setup.uninstall_browser_files` first): this process then touches no browser folder.
+pub fn uninstall_with(
+    env: &mut Env<'_>,
+    purge: bool,
+    confirmed: bool,
+    browser_files: bool,
+) -> Result<i32, CliError> {
     let home = env.inst.home.clone();
     let mut purge = purge;
     if purge {
@@ -2038,14 +2064,14 @@ pub fn uninstall(env: &mut Env<'_>, purge: bool, confirmed: bool) -> Result<i32,
         }
     }
     let binary = env.inst.granted_binary();
-    let requests = match (env.browser_support.clone(), env.browsers.as_mut()) {
-        (Some(support), Some(b)) => b.remove_requests(&home, &support),
-        _ => Vec::new(),
+    let (requests, mut failed) = match (env.browser_support.clone(), env.browsers.as_mut()) {
+        (Some(support), Some(b)) if browser_files => b.remove_requests(&home, &support),
+        _ => (Vec::new(), Vec::new()),
     };
     for path in &requests {
         env.say(&format!("removed {}", path.display()));
     }
-    let removed = match env.inst.uninstall(purge) {
+    let done = match env.inst.uninstall_steps(purge, browser_files) {
         Ok(r) => r,
         Err(e @ (InstallError::Install(_) | InstallError::SwitchedOff(_))) => {
             env.say(&e.to_string());
@@ -2053,10 +2079,18 @@ pub fn uninstall(env: &mut Env<'_>, purge: bool, confirmed: bool) -> Result<i32,
         }
         Err(e) => return Err(e.into()),
     };
-    for r in &removed {
+    for r in &done.removed {
         env.say(&format!("removed {r}"));
     }
-    if removed.is_empty() && requests.is_empty() {
+    failed.extend(
+        done.failed
+            .iter()
+            .map(|(what, why)| (PathBuf::from(what), why.clone())),
+    );
+    for (what, why) in &failed {
+        env.say(&format!("couldn't remove {}: {why}", what.display()));
+    }
+    if done.removed.is_empty() && requests.is_empty() && failed.is_empty() {
         env.say("Nothing to remove.");
     }
     if let Some(binary) = binary {
@@ -2075,7 +2109,7 @@ pub fn uninstall(env: &mut Env<'_>, purge: bool, confirmed: bool) -> Result<i32,
             "macOS can't remove permissions for you: in System Settings → Privacy & Security, remove {what} from Accessibility, Screen Recording (and Input Monitoring / Automation if granted)."
         ));
     }
-    Ok(0)
+    Ok(if failed.is_empty() { 0 } else { 1 })
 }
 
 fn tail(text: &str, n: usize) -> String {

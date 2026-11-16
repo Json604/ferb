@@ -3771,3 +3771,1249 @@ folder was refused.
 - secret.refused's Rust producer was checked (ferb-gateway gateway.rs:6734).
 - The app-only chat methods depend on FERB.app's signature check passing on the owner's install. That is a live check.
 - Nothing here ran live.
+
+## 2026-11-16 · 96 · Stage 3 slice S0: the phone lab's decisions in the kb, the owner's answers, and the slices as tasks
+
+**What.** Records only, no code.
+- A new kb area `phone` (prefix PHN; paths `apps/android`, `apps/ios`). The `app` area's `apps` became its
+  folders (`apps/mac`, `apps/AGENTS.md`, `apps/docs`, `apps/output`, `apps/.gitignore`) so each file has one area.
+- The phone lab's kb (`~/Desktop/ferb-phone-link` at `57b3f34`) imported into `kb/decisions/phone.toml`: 93 records
+  that still stood there (42 of them the owner's). The kb allows one prefix per area, so the lab's PHN-n stays PHN-n and its SEC-n, NET-n
+  and LIM-n became PHN-(100+n), PHN-(200+n) and PHN-(300+n). Each keeps the lab's words, rule, why and rejected;
+  `legacy` names the lab record; `evidence` names the lab file and commit with the lab's evidence where it fits.
+  The lab's paths and live checks were not carried (they name the lab's files).
+- Not imported: the nine records the lab had already superseded (PHN-7, PHN-9, PHN-12, PHN-14, SEC-3, SEC-7, SEC-22,
+  SEC-23, NET-23) or that were about the lab itself (SEC-1, REPO-1..4); the lab's tasks and live checks (its open
+  questions are listed in PLAN.md "Stage 3").
+- Today's records: owner PHN-401..423 (the first plan's nine answers, the public relay limit, reassessing the labs,
+  weather paused, phone control later, the relay order, questions in notifications and their split, the glass lab
+  as the design, 5 phones and the rest of the twelve, closed-app pushes, the lock-screen rule, sign-ins) and
+  SENSE-420 (device location, named in T-1130); agent rulings PHN-440..452 (iroh, the signed helper, pairing, the
+  three keys, the public relay's text-only rule, no timed start-overs there, UniFFI and cargo-ndk, CameraX with
+  zxing-cpp, SQLCipher, Compose, the computed sky, room for phone tools, the Claude row's words).
+- Superseded by today's records: PHN-1, PHN-3, PHN-4, PHN-5, PHN-6, PHN-10, PHN-17, PHN-104, PHN-201, PHN-227,
+  PHN-306, PHN-308, PHN-312, and PHN-414 (recorded and superseded today by PHN-418).
+- Tasks T-1200..T-1211 (slices S1..S11 with S3b) with `after`, T-1212 (phone sign-ins, refining T-1099), T-1213
+  (a Cursor sign-in, research first). Live checks LIVE-1100..1111.
+- PLAN.md "Stage 3" rewritten to the settled plan; STATUS.md has a row per slice, all not started.
+
+**Why.** T-1051 and stage 3's start: the lab's decisions were outside FERB's kb, and the owner answered both
+planning reports today (PHN-411: what the labs built is reassessed before it is ported).
+
+**Unverified / open.**
+- The rulings' reasons are the reassessment's, written from the lab's records and the reports' conclusions; none
+  is checked by code yet. Each active record is covered by its slice task, not by a test.
+- PHN-418's rule is the coordinator's reading of the owner's words; it conflicts with the lab's PHN-208 (fallback to
+  the public relays) and PHN-219 (stay on the own relay even when direct exists): questions 4 and 5 in PLAN.md.
+- PHN-444 and PHN-445 apply PHN-410 but narrow PHN-312's shared-relay figures and PHN-224 on the public relay:
+  questions 1 and 3 in PLAN.md. PHN-450 awaits his word (question 2).
+- T-1051 stays open: it names the earlier study `~/Desktop/FERB-mobile-research` (its plan and CSVs), which this
+  job did not read; the phone lab is its successor, but whether anything there is not carried by the lab is unchecked.
+- Text inside imported records cites the lab's own ids (SEC-, NET-, LIM-, T-, LIVE-); read them in the lab.
+
+## 2026-11-16 · 97 · A preview frame the busy reader skipped keeps the last picture; a restart a task defers is said and made after it; Uninstall's browser files go through the daemon
+
+**What.** Three tasks (T-1119, T-1047, T-1003), each in the shared path with its tests.
+- **HAND-598 (T-1119), superseded the same day by APP-922 and HAND-626 (entry 99): the owner rejected hiding the withheld frames.** `ocr::Withheld::busy()`: the attempts ended at the child reader's `ferb.busy` (a preview frame doesn't wait for a running child). `compose/previews.rs` passes it as `Unmasked.busy`; `task_preview.rs` treats such a frame as unchecked (`Fail::Unchecked`, `Ended::Unchecked`): it is never shown, the surface keeps its last checked frame and its problem (none), nothing is journaled, and `<kind>_ocr_busy` counts it. `MacImages::sanitize_noted` writes no `image.redaction_failed` row for it. Nothing queues: the next request captures the newest frame. A frame every reader failed on still shows "image redaction unavailable; pixels withheld" and journals `preview.failed`.
+- **APP-921 (T-1047, app).** `SetupModel.restartUnlessWorking(seenOn:rows:)` no longer returns without a word when chat.status lists a task: `deferRestart` keeps the rows in `restartAfterTasks` (UserDefaults `FERBRestartAfterTasks`, declared internal), and says once, through `NotchModel.noteFromSetup` (the quiet FERB message path `noteUpdate` uses), "Screen Recording is on in macOS. I'll restart my background service to use it when this task finishes." (or "I'll restart my background service to check … when this task finishes." when only leaving Settings triggered it). `tasksChanged(running:)` runs from Application.swift whenever the notch's `runningTasks` empties or FERB connects again (so also after a relaunch), and from `cameBack`; it restarts once chat.status confirms no task runs and the daemon still reads the row off. `restartService()` returns whether FERB answered and clears the wait. Settings' row says "FERB restarts its background service for this when no task is running."
+- **DMN-597 (T-1047, worker's fact).** What a task was told: the availability facts (`environment.rs`) read `granted("screen")`, but `env_seams.rs` filled the map from `check_all` (`screen_recording`), so the Rust build never said Screen Recording was missing (Python's `desktop.py _permissions` returned `screen`). `facts_permissions` maps to Python's keys. `setup.permissions`' fresh reading records the rows a new process read on while this daemon reads them off (`areas_c::setup::restart_seen`, process-wide, cleared by the restart itself); the Screen Recording and hearing facts then say it is on in macOS and works after FERB's restart, made once no task runs, and that the owner needn't grant it again (`SCREEN_AFTER_RESTART`, `HEARING_AFTER_RESTART`).
+- **DMN-598 (T-1003).** New app_only RPC `setup.uninstall_browser_files` (ferb-rpc `UNINSTALL_ADDITIONS`, golden counts +1 cli, +1 app_only): the browsers area, only with Full Disk Access (else `done: false`, nothing touched), removes FERB's recorded install requests, the store id's request in every known browser and each known browser's `NativeMessagingHosts/com.ferb.native_host.json`, each tried (`autoinstall::remove_requests_each`, `Removal::remove`), journals `browser.files_removed` (counts), resets the files key. FERB.app's Uninstall (`FerbOutput.uninstall`) calls it first (`FERBAppActions.removeBrowserFiles`), then `beforeUninstall` (login item, unregister, APP-5), then `ferb uninstall [--purge --yes] --skip-browser-files` when the daemon removed everything; the daemon's lines stay above the command's. `Installer::uninstall_steps(purge, browser_files)` tries each removal and lists a refused one (`Uninstalled.failed`); the purge's Keychain items and data folder still go; `ferb uninstall` prints "couldn't remove <path>: <why>" and exits 1. `Installer::uninstall` (Python's shape) raises with the first refused file only after every step ran.
+
+**Why.** T-1119: live 2026-11-16, frames that came while the child reader was busy showed "image redaction unavailable; pixels withheld" and journaled preview.failed (repeats 21). T-1047: a deferred restart waited silently and never came. T-1003: `ferb uninstall` ran in FERB.app's process (no Full Disk Access) and touched browser folders, and a refused delete aborted the purge before the data folder and Keychain items.
+
+**Evidence.** New tests, all passing: ferb-daemon `b_task_preview a_frame_the_busy_text_reader_couldnt_check_keeps_the_last_checked_frame` (the Python scenarios still match), ferb-mac-hands `image_fallback a_chain_that_ended_at_a_busy_child_is_unchecked_not_failed`, ferbd `previews a_frame_the_busy_reader_didnt_take_is_not_a_failure`, `env_seams the_facts_read_screen_recording_under_pythons_key`, `setup a_fresh_reading_records_what_waits_for_a_restart_until_read_off_again`, ferb-daemon `b_environment a_switch_waiting_for_the_restart_is_said_so_in_the_facts`, `b_browsers uninstall_removes_only_ferbs_browser_files_each_one_tried` (a 0500 folder refuses one manifest), ferb-device `installer_fixtures a_refused_removal_doesnt_stop_the_rest_of_the_uninstall`, ferb-rpc golden; Swift `SetupModelTests.testARestartARunningTaskDefersIsSaidOnceAndMadeWhenNoTaskRuns`, `FERBWindowViewTests.testUninstallHasTheServiceRemoveBrowserFilesBeforeItIsTurnedOff`.
+
+**Fixed against Python.** `uninstall` no longer stops at the first file it can't remove (Python raised there, before the purge). The availability facts read the daemon's Screen Recording grant (a port drift, now Python's key).
+
+**Named differences.** `uninstall --skip-browser-files` is not Python's: the argparse fixture's uninstall cases gain `skip_browser_files: false` (pure_fixtures), and APP_COMMANDS has its two forms. `setup.uninstall_browser_files` is not in Python's method table.
+
+**Unverified / open.**
+- Nothing ran live. Owner to try: (1) watch a task's round preview with Vision's cache purged: no "pixels withheld" while frames keep coming; (2) switch Screen Recording on in System Settings while a task runs: one chat line, no restart until it ends, then the row ticks; quit and reopen FERB.app mid-wait; (3) Settings → Uninstall (plain, then Delete everything) with Chrome and Brave installed: no "blocked from accessing data" banner, the output lists the browser files removed by the service.
+- Whether macOS refuses the daemon's own deletes there (it holds Full Disk Access) is unchecked; a refusal is listed and `ferb uninstall` tries again from FERB.app's process.
+- The deferral is told through the chat only; the tour's grant line doesn't show it.
+- `./gate.sh lint` and ferbd's clippy stop at another agent's in-progress ferb-gateway code (gateway.rs:2125); ferbd's own lints are unchecked here.
+
+## 2026-11-16 · 98 · Project mode: any folder can be a project, and git publishes with the owner's login without a model holding it
+
+**What.** HAND-620 (owner, his words verbatim) and HAND-621..625 (agent).
+- **The owner's case.** FERB built code and could not `git push`. git's credential helper is the Keychain, which the shell profile denies (com.apple.SecurityServer). ~/.ssh and ~/.config/gh are never-read. So FERB uploaded files through GitHub's web page.
+- **What a project opens.**
+  - Read and write: nothing new. Commands already read outside the never-read list and write in the folders a task names (HAND-203, HAND-204). Protected entries inside a project stay closed because the profile's later denies win (HAND-621, shown by a test).
+  - Toolchain folders: a task whose folder is in a project may also write ~/go and conda's base folders (HAND-622). The gateway adds them to ctx.folders. Every other cache measured is hidden or in ~/Library, so it is already writable.
+  - Can't be a project: a folder that is or holds FERB's state (workspace folders may be), FERB.app or its service definitions, or one inside a never-read or never-write entry (`projects::refusal`, from the lists only).
+- **project.publish** (ferb-shell `publish.rs`, ferbd `compose/tools/project.rs`, catalog addition after shell.rules, owner identity, scope shell, kind `publish`). Fixed arguments {folder, remote, branch, set_upstream}.
+  - Inside the sandbox, git works out the push: the repository's top folder, git dir, object format, branch, commit, and `remote get-url --push --all`, which applies insteadOf.
+  - Outside the sandbox, Apple's root-owned git pushes `<commit>:refs/heads/<branch>` (no `+`, `--no-verify`) to that exact address. It runs from a scratch bare repository in ~/.ferb/run/publish that borrows the project's objects through alternates. Environment: cleared; `GIT_CONFIG_NOSYSTEM`; `GIT_CONFIG_GLOBAL=/dev/null`; PATH of system folders only. Credential helper: osxkeychain only. Redirects off; protocols https and ssh only.
+  - So no repo config, hook, ~/.gitconfig, trace2 target or model-writable program runs.
+  - Refused before anything runs: local, file://, ext::, `helper::` and git:// addresses; an address with a password; several push addresses; borrowed objects (alternates) or linked packs; a folder that isn't the top of its repository.
+  - ssh: refused when ~/.ssh/config includes a file outside ~/.ssh or /etc/ssh, because commands can change such a file and ProxyCommand or Match exec would run it.
+  - After a push, the project's `refs/remotes/<remote>/<branch>` is updated inside the sandbox, with hooks off; the upstream is set too when asked.
+- **The question** (HAND-624). Asked by the gateway (`publish_need`, from the tool's new `prepare_publish` hook) before the first push of a folder to an exact address. The first one also makes the folder a project:
+  - "Work on this as a project in ~/code/site?", with "FERB's commands can then read and change files there and publish its git repository when you ask. Your saved logins and keys stay closed to them. Yes also publishes it now: branch main to <url>, with your git login (no AI sees it). FERB never forces a push, and asks again if the address changes."
+  - Later: "Publish ~/code/site to github.com/o/r.git?"
+  - The exact field shows the URL and branch. A Yes is journaled: project.granted and project.publish_approved, origin owner. The run pushes only to an address approved for that folder, so a remote changed while the question was open is refused, and the next call asks again. Never routine (GATE-207). No question for reading or writing: naming the folder already opens it (HAND-204).
+- **Settings and facts** (HAND-625). App-only `projects.list` and `projects.remove` (PROJECT_ADDITIONS); Settings → Data → Projects, with Remove. The worker gets one fact line naming the projects; there is no line without projects.
+- **trustd, measured** (local test CA, no third party).
+  - git and curl verify with LibreSSL and a CA file. With trustd denied, git with `GIT_SSL_CAINFO` or `http.sslCAInfo` passes in the sandbox. Without one, git's error is identical with and without the denial. So the denial doesn't break them, though which CA file they use by default wasn't checked.
+  - Go programs (gh, go) call trustd. With it denied: `x509: OSStatus -26276`, with or without `SSL_CERT_FILE`.
+  - So the live certificate failure was a Go program, most likely gh. Unchanged: the one-command trustd escape stays; trustd isn't opened by default (rule 6, its traffic would bypass the proxy).
+
+**Why.** The owner agreed to a project mode asked once per project. Running a project's commands unsandboxed would let a planted line read saved logins.
+
+**Evidence.**
+- ferb-shell `tests/project.rs` (12, real sandbox-exec, local smart-HTTP server over `git http-backend` that requires Basic auth):
+  - a project is writable and a visible folder isn't; ~/go only in a project; protected entries inside stay closed; hidden caches writable, their credentials closed;
+  - the push works with a credential file in a never-read folder that the sandboxed `cat` can't read; with no login it fails without prompting; a diverged branch is rejected;
+  - every planted setting (hooks; core.hooksPath, sshCommand, fsmonitor, askPass, gitProxy; credential.helper; receivepack, uploadpack; gpg.program, push.gpgSign; include.path; protocol.allow; the same in ~/.gitconfig with trace2) leaves the marker unwritten. The control: an ordinary `git push` from the project writes it;
+  - a pushInsteadOf redirect is the plan's URL and the only place the server saw; two push addresses are refused; local, file, ext and password addresses are refused; alternates and linked packs are refused; ssh includes are checked.
+- ferb-gateway `tests/project.rs` (4, real Gateway): the first card's text; the same address doesn't ask; a new address asks with the shorter card; a No records and runs nothing; the home folder's parent is refused unasked; ~/go reaches ctx.folders in a project.
+- ferb-policy unit tests; ferb-rpc golden and app-only; the ferbd wrapper forwards `prepare_publish`; every_tool and every_method gained project.publish and projects.list.
+
+**Named differences from Python.** New tool `project.publish` (catalog addition, listed to owner grants that aren't observing); new methods projects.list and projects.remove; the worker's project line and the profile's toolchain folders appear only when a project exists (all recorded fixtures unchanged).
+
+**Unverified / open.**
+- No real push was made: GitHub, the Keychain helper and ssh are untested live (LIVE-1130).
+- ferb-test-guard (another agent's, in progress) runs tests in sandbox-exec, where a nested sandbox-exec fails (`sandbox_apply: Operation not permitted`). Every sandbox test (not_read.rs too, and these) fails under it today.
+- Not built:
+  - fetch, pull and clone with the owner's login. A pull runs repository-controlled merge drivers, filters and submodule URLs; that is a follow-up with that risk. Public fetches work in the sandbox through the proxy.
+  - force pushes;
+  - gh's own login (a gh-only login isn't the Keychain item git reads);
+  - the account name in the question.
+- Gaps found, not fixed (rule 6 territory, the owner's call):
+  - ~/.gitconfig, ~/.config/git and /opt/homebrew/bin are writable by commands, and the owner's own terminal git and Homebrew programs read or run them;
+  - ~/.docker is never-read, so docker builds can't read their config.
+- The push's 300 s and the inspection's 20 s bounds are method details.
+- GATE-207's window still answers protected-folder read questions (unchanged; question for the owner).
+
+## 2026-11-16 · 99 · The Mac's live preview shows frames as captured (owner); images for models go to a kept, warm reader
+
+**What.** The owner rejected entry 97's T-1119 fix ("so you didnt solve but hid the issue???") and then asked why the preview is masked at all; APP-922 (owner) and PHN-454 (owner, stage 3) record his answers, HAND-626 the reader.
+- **APP-922: the preview is not masked.** `point::OwnerOnlyFrame` (no Serialize, no conversion, Debug shows its size; `captured()` to make, `for_owner_app()` to read) and `PreviewFrameFn`; `ResolveFn` now yields owner-only frames. Mac: `MacDriver::owner_preview_source` / `owner_window_source` capture the window and check it is still the app's, with no Accessibility looks (walk1/walk2), no masks, no painting; `MacTools::preview_target` uses it. Tabs: `Recording::capture_for_owner` returns the page's pixels as the extension sent them, unpainted (a page the debugger can't attach to still goes through the masked window capture: the extension sends no pixels then; an extension-side "withheld" with no pixels stays withheld, extension unchanged per ENG-1). `TaskPreviews` lost its sanitizer seam (`Sanitize`, `Unmasked`, the `ocr` phase); the `tasks.preview` handler (records.rs) is the one reader of the bytes, plus GATE-579's payment picture (owner-only, as GATE-578 wants it). Removed per frame: the OCR pass (Vision, or the child), the two Accessibility walks for secret fields, the mask computation and the JPEG repaint. Removed with them: `PREVIEW_FAULTS`, the preview's `image.redaction_failed`/`preview.failed` rows for masking, HAND-598's unchecked state and `<kind>_ocr_busy`, `ferb.busy`, `ChildVision`'s no-wait mode. No masked preview path is kept for phones (PHN-454).
+- **Kept (DMN-405's other half, now in APP-922):** frames in memory only; `tasks.preview` is cli and app_only (tested); nothing after the task ends or for a tab the task doesn't own (unchanged code); `preview.slow`, capture failures and the locked screen stay.
+- **HAND-626: the reader for everything a model sees or FERB stores.** `vision_child::Helper`: `ferb read-image-text --serve` (ferbd `run.rs`; `native::vision::serve_main`; the example takes `--serve`) kept running, framed images in and framed answers out (`serve_loop`), one image at a time; restarted on a fault (not on an image's own decode fault), an end or a timeout (`CHILD_TIMEOUT`); at most `HELPER_STARTS` = 3 starts per `HELPER_START_WINDOW` = 600 s (`ferb.start_limit`). `vision_child::Readers` (one per daemon, `mac::readers()`): after every in-process attempt failed, images skip them for `IN_PROCESS_RETRY` = 600 s; when one reads again, the helper is stopped. The helper ends with the daemon (its input closes). New limits for the coordinator: those three numbers.
+- **In-process recovery, by hand** (an example program reading in-memory images, deleting only its own `~/Library/Caches/vision_recover`; removed afterwards): purging the compiled models reproduced the live failure exactly (default and CPU both `TextRecognition.CRImageReaderError` 1, ~5 ms); a fresh request object, a new handler, the autorelease pool, an empty cache folder and `recognitionLevel = fast` did not recover; one revision-2 request (a model this process hadn't loaded) recompiled in 23 s and afterwards both revision-3 reads worked, but after a second purge revision 2 failed too. No dependable public in-process recovery: the kept helper is the fix.
+
+**Measured (by hand, debug build, `native.rs a_kept_child_reads_images`, a 1280x800 in-memory image):** first read 60.3 s (Vision's load), then 52, 35, 36, 34, 35 ms.
+
+**Named differences (b_task_preview):** no `<kind>_ocr_ms` in any snapshot; `failures_journaled`'s `bad` frame (Python's sanitizer refused it) is shown, so its steps 4-8 and notes are written in the test. 154 results equal, 20 named, 0 other.
+
+**Tests.** ferbd `previews`: the frame shown as captured with the code visible while the same image through the tool path is painted or withheld; the frame's bytes absent from notes, snapshot and Debug; only FERB.app may ask (`tasks.preview` roles); a source scan that `OwnerOnlyFrame::captured` and `for_owner_app` appear only in the preview path (and the payment picture). ferb-mac-hands `image_fallback`: kept helper reuse, restart on end and on a Vision fault, bounded start rate, start failure, the serving loop, the reader routing; `a_helper_that_hangs_is_killed_at_its_limit` (by hand, passed).
+
+**Unverified / open.** Nothing live. The owner should watch a task's round preview (it should show the window as it is, with no "pixels withheld") and run a screenshot-taking task after `~/Library/Caches/com.ferb.daemon` is purged by macOS (the first image waits for the helper's load, later ones are quick). PHN-454's conditions are for stage 3's builders. The helper's start is lazy: the first image after the daemon's Vision breaks still waits the cold load.
+
+## 2026-11-16 · 100 · Stage 3 slice S6: the phone's transcript golden from FERB.app's fold; three deleted-turn bugs and the fold's sealed IDs
+
+**What.**
+- ENG-22: `engine/fixtures/chat-entries/transcripts.json`: for every scenario of `scenarios.json`, `engine_chat.json`
+  and `engine_more.json` (145 scenarios, 146 conversations), each conversation as `EntryFold` shows it, in a neutral
+  snake_case shape (turn, reply, notice and reminder items in the Mac's order, each naming its entry; every question
+  with its state and where the Mac draws it). Written by `EntryFoldTranscriptTests` with `UPDATE_GOLDEN=1`, compared
+  byte for byte otherwise. The README holds the shape, which entry fields drive which item, what live state means for a
+  phone, and paging, cursors, `reset_required`/`cursor_ahead`/`behind` and `body_cut`.
+- `scenarios.json` 72 → 84: 12 written timelines for the phone (gaps ×3, sealed, legacy, deleted ×3, fresh, another
+  client, questions answered and expired at start-up, questions left open). `chat_entries.rs` keeps a copy of the store
+  and mirrors the entries it writes itself (`legacy`: migration 0063's rows; `delete`: STORE-424's tombstones; `fresh`:
+  STORE-427's marker; `restart`: the start-up pass), rebuilding the projector as `ChatLog::projector` does. The 72
+  existing scenarios are byte-identical. APP-919's case (`stop_beside_new_work_two_turns`) is in, unchanged.
+- `EntryFoldTests` drives the new steps through the app (`absorb`, `removeTurns`, the fresh notice, a relaunch, a
+  phone's turn through `applyEntryChange`), compares open questions too, and leaves out `tag` (drawn nowhere, APP-620)
+  and `sentElsewhere` (APP-917 bookkeeping).
+
+**Found, fixed.**
+- APP-924: the fold never read a message entry's `sealed` (GATE-604): another device's turn lost the line naming the
+  IDs kept sealed. `EntryFold.messageTurn`/`applyMessageEntry` read it.
+- APP-923: FERB.app's `removeTurns` hid a late answer of another turn and a notice that were drawn after the deleted
+  turn (`transcript()` draws by `afterTurnID`), leaving "Answered below" pointing at nothing. They are re-anchored to
+  the kept turn before.
+- ENG-23: the projector rebuilt after a delete ended the chat on the deleted answer (an earlier turn's end went below;
+  the app puts it inline), and held no session for a turn whose stream was still open: its reply was dropped, no answer
+  stored. `restore` skips tombstones; `ChatLog::projector` calls `streams_open` with the conversation's open streams.
+
+**Evidence.** ferb-supervisor `chat_entries`: 20 passed (golden, rules, the 40-interleavings order rules on the
+non-written timelines; `a_deleted_last_turn_no_longer_ends_the_chat` gave placement below and
+`a_reply_on_a_stream_still_open_when_another_turn_was_deleted` 0 answers before the fixes); clippy -D warnings clean on
+the lib and that test. Swift: full suite 805 tests, 0 failures, 3 skipped; EntryFoldTests 85 of 85 conversations app ==
+fold; with EntryFold.swift and StoredData.swift put back, `sealed_ids_in_message` and `deleted_turn_between` differ and
+the golden check fails. EntryWatchTests 83 conversations (restart and another client's scenarios left out).
+
+**What the Mac shows for the new cases.** Gaps: status `done_with_gaps`, no check mark, the answer ending with code's
+"Not done:" line; a checklist line "Parts not done", a card row "Delivered, with parts not done" (fold == reducer, no
+change). Legacy rows read as saved, before new turns. The fresh marker first in the new conversation (the fold tags it
+"noticed", the app doesn't; not drawn). A phone's turn in place. Questions: none shown once answered or expired; an
+open one in its card row or at the chat's end.
+
+**Not changed, for the owner or S7.** After a deleted turn, an earlier turn's late answer shows "Answered below" with
+its reply right under it. The gap lines exist only inside the answer's text (the outcome's `gaps` isn't kept on the
+entry). A sealed ID's "Let the AI see" is the Mac's own state, not in the entries. 15 recorded timelines deliver a
+question again after its answer (a stream's frames put at its end), so the open-question check skips them.
+
+**Unverified / open.** `streams_open`'s wiring in `ChatLog` is compile- and clippy-checked only (ferbd `chat_replay`
+not run; no program test deletes a turn while another streams). A turn cut by a restart with no resumed task isn't a
+scenario: the app learns it through `trace.get` (`reconcileMissingTask`), which the timeline can't drive. Nothing live.
+
+## 2026-11-16 · 101 · Stage 3 slice S10: apps/android :design, the glass lab's phone design in Compose, and its gallery
+
+**What exists.** `apps/android` is a Gradle project (Gradle 8.14.5, AGP 8.13.2, Kotlin 2.2.21, Compose BOM 2024.12.01
+= Compose 1.7.6; minSdk 30, compile and target 37, arm64) with `:design` and a debug-only `:gallery`; no `:core` or
+`:app` yet. `:design` holds the tokens (the phone's `Ink`, the Mac's `Tone` and `Lamp` for the glass pieces, the type,
+radii, spacing, the Android frame, the springs as Compose springs), the sky (sun, sunrise and sunset, moon, the
+lab's own skies, Astra's eight, the owner's picks, stars, the sun dot and moon, the season layer: autumn leaves,
+spring petals, summer and monsoon fireflies; weather left out, PHN-412), the glass panel, the phone's components
+(tabs and profile, cards and rows, marks, pills, composer, bubbles, typing dots, task card with Watch live and Stop,
+sheets, question and private answer, keypad, pairing code, the link picture, the unlock gate, FERB's mark, file icons,
+a QR frame) and the twelve lab screens as stateless composables. Agent rulings PHN-455 to PHN-459. T-1210 deleted.
+
+**How it is held to the lab.** `tools/lab_numbers.py` copies the lab's numbers (lab 23a0fde) to `lab-numbers.json`;
+`tools/sky_golden.swift` re-evaluates the lab's sky formulas (copied, importing nothing) to `sky-golden.json`;
+`tools/zone_places.py` writes the time-zone places from tzdata 2026f. 19 JVM tests (sky to 1e-9; every lab colour
+drawn or listed with its reason) and 59 Roborazzi screenshots on Robolectric's native renderer (12 screens at dawn,
+noon and night in Delhi on 2026-11-14, 17 showcases, 6 screens at 150 % text). Astra's presets as :design draws them
+differ from the lab's own PNGs by 0.65 to 0.74 of 255 on average, 5 at most. The gallery ran on the Pixel emulator
+(API 36): index, home with moving leaves, the question sheet and a blurred glass panel; it was uninstalled after.
+
+**Differences from the lab, all visible ones.** Roboto (the system face, PHN-409) where the lab draws SF Pro: wider
+letters, so lines wrap a little earlier; semibold may fall to bold on phones whose system font has no 600. Material
+Symbols where the lab draws SF Symbols (PHN-458). SwiftUI's blur and shadow radii taken as Gaussian sigma, a reading
+not checked against SwiftUI. The lab's `.lineSpacing` added to Roboto's natural line height. Android 11 has no
+backdrop blur (PHN-456). The composer shows the start of typed text where the lab shows its end. "No" in a question
+takes its own width and Yes the rest: the lab's `layoutPriority` read without a render to check. The lab has no
+render of its current phone scene (`shots/phone.png` predates it), so no screen was compared pixel for pixel.
+
+**Not from the lab.** The QR frame (the lab only has "Scan the code"); the Android status bar and gesture bar are drawn
+only in previews, the system draws them on a phone; the keypad is the lab's, and whether a private answer uses it or
+the system keyboard is S11's.
+
+**Unverified / open.** Blur and the season layer's speed on a real Motorola; the owner's eye on fonts and icons; the
+words (the home screen's lines come from the lab's `words/corpus.json` in S11; the gallery uses the lab's stand-ins).
+The gate does not run Android yet: `./gradlew :design:test :gallery:assembleDebug` from `apps/android` (56 s clean and
+cold, 12 s with the daemon warm, offline after the first download). THIRD_PARTY_NOTICES.md needs AndroidX Compose and
+Activity (Apache-2.0); the test tools are not shipped. The kb counts the new tags only once the files are tracked.
+
+**Deliberate difference (the relay sheet's words).** The lab's relay sheet says files and pictures go as "Small ones"
+and Watch live is "Off": its old rule. The owner's rule is that the shared relay carries text, questions and Stop
+only (PHN-410, PHN-444), so :design's sample says "Files and pictures: Not on the shared relay" and "Watch live: Not on
+the shared relay", and its explanation adds that those wait for a direct path or the owner's relay (`preview/
+labRelay`; the sheet now takes its words as a parameter). The home screen's "in 5 h 0 min" is the lab's own format
+(`MobileScreens.swift` sunLine) and is kept; `LabWordsTest` pins both.
+
+## 2026-11-16 · 102 · Stage 3 slice S1: ferb-link, the phone lab's link crate, in the engine; the public relay carries control only
+
+**What.** `engine/crates/ferb-link` is the lab's `rust/` (ferb-phone-link@57b3f34, ~6,600 lines) on the repo's
+toolchain, excluded from the workspace with its own Cargo.lock (as ferb-supervisor once was), edition 2024 kept (its
+drop order around Mutex guards), `relay/` (the own-relay setup script) beside it unchanged. The Mac side (`bridge`,
+`admin`, `daemon`, `store`, `secrets`, `peer`, the `ferb-link` program) is `cfg(target_os = "macos")`; the phone side
+(client, ffi, limits, wire, net, pairing, qr, role, relaytest, diag) is everything else. iroh 1.4.1 + the lab's one patch
+(PHN-222) through `engine/patches/apply.sh` (the published crate, SHA-256 checked, `patch -p1`, into
+`engine/target/patched`; upstream #4523 closed unfixed, #4589 open). The owner decided the open path reading
+(PHN-453): direct whenever it exists, the own relay when not, Always use my relay kept, and everything encrypted.
+
+**Changes, each with a test.** The app's door (PHN-446, PHN-460): `LinkClient` objects, handles at the C and JNI
+boundary (`ferb_link_client_*`, Kotlin `Native.open/send/next/close`), close, panics caught as `link_internal_error`,
+start/poll/close bounded (20 s, 60 s, 5 s); the lab's `start/command/poll` drive one client per process. The public
+relays (PHN-444, PHN-461): pictures, files both ways, folder lists, older chat pages, pages over 50 entries and replies
+over one control frame are refused before FERB is asked; a transfer whose path falls back stops; the client emits
+`bulk {allowed, tier}`. No timed start-overs there (PHN-445, PHN-462). `own_relay_always` (default off) drops both sides'
+IP transports while the own relay is in use; the phone's relay state reaches the app as `relay_state`. A
+`segmentation_offload` switch (iroh #4647) and port mapping off in tests. The stage 2 `chat.entries.*` calls are in the
+bridge's role table (reads private, mark plain) so the page rule can be applied; T-1201 decides the engine's classes.
+
+**Evidence.** `cargo test` (127.0.0.1 only, `--test-threads 3`): attacks 4, code 6, encryption 4, ffi 3, hardening 8,
+link 8, pairing 2, relay 13, remote 4: 52 passed; by hand (ignored): n0, vm, the direct-cost measure, the Keychain test.
+The tests talk to `tests/common/standin.rs`, a Rust stand-in of the daemon (fake answers; the lab's Python stand-in is
+S3's specification). `the_owners_relay_forwards_only_ciphertext` and `the_public_relay_forwards_only_ciphertext`
+record every byte a relay is given while a chat message, a hidden answer, a file each way and the pairing cross:
+none of their bytes appear (the recorder does see the relay's own plain HTTP upgrade). A peer with another key cannot
+complete a session as the Mac, a stranger is closed `not_paired`; the source has one endpoint builder (Minimal
+preset), no own sockets but the relay Test's. `cargo check --target aarch64-linux-android` passes (NDK 28 clang, as
+the lab's scripts/build-android.sh; cargo-ndk not installed, PHN-446). fmt and clippy `-D warnings` clean. The Android
+release library (arm64, 16 kB pages, debug info stripped): 14.2 MB with the lab's profile (opt-level 2), 10.1 MB with
+opt-level "s", lto and one codegen unit (PHN-446's build, for S9).
+
+**Wire changes.** Refusal codes on the public relay where the lab sent bulk under caps (`needs_direct_or_own_relay`,
+`transfer_too_large`); `link.status`/`status.shared_relay` is `{bulk: "refused", page_max, paused_s}` (the budget,
+daily total and halving are gone); a bridge adds `limit` and `max_bytes` to a public-relay `chat.entries.page`; the
+rate-limit notice's words; new Limits fields `shared_page_max`, `own_relay_always`; app events `bulk`, `relay_state`;
+the code `link_internal_error`; the door's new calls. The frames, hello, welcome, pairing code and LEVEL (2) are as
+the lab's.
+
+**Not ported (in the lab, for later slices).** Tests of FERB's protection lists, key places, the never-read list,
+quarantine and the Mac-screen prompts (S3, S3b); the check against FERB's Python method table (S2); the lab's
+`running.py` build check. PHN-419's 5 phones and warn-not-remove are S3's: limits.rs still says 2 and 30 days.
+
+**Open.** `aarch64-apple-ios` does not build: iroh's netwatch 0.19.3 (RTM_*, RTAX_*, RTF_* routing constants) and netdev
+0.46.3 (`in6_ifreq`) use libc items that libc 0.2.191 declares for macOS only; netdev 0.47 is the same. Joining the
+workspace needs the `[patch]` in engine/Cargo.toml and gate.sh to run apply.sh. No direct path was recorded (a UDP
+recorder would have to keep iroh from finding the loopback path around it): a direct path carries the same QUIC
+connection's packets as the relay, which the recordings show are ciphertext. A start-over under heavy parallel load
+once did not get through in time (passes alone and at 3 threads). The PHN-220 beacon: a second endpoint on n0's four
+relays costs about what an idle endpoint does (PHN-222: about 10 kB a minute, more at the five-minute full report),
+for as long as a paired phone has not been seen on the own relay; proposed: only the relay those phones last knew,
+and a bound in days the owner sets. Nothing ran on a phone or a real relay.
+
+**Addendum (2026-11-16): the iOS build.** Cause: libc 0.2.190 (2026-10-02, rust-lang/libc#5158) removed from iOS the
+items the iOS SDK has no header for, among them `net/route.h` (RTM_*, RTAX_*, RTF_*, `rt_msghdr`) and
+`netinet6/in6_var.h` (`in6_ifreq`); libc 0.2.189's `unix/bsd/apple/mod.rs` declares them for every Apple target,
+0.2.190's under `cfg(target_os = "macos")`. iroh's netwatch 0.19.3 and netdev 0.46.3 take them from libc on iOS (the
+routing sysctl they read is the same as before). Not the toolchain: the pinned 1.100 has `aarch64-apple-ios` (a
+check from the repo root used the default toolchain, which lacks it: run cargo from `engine/`). No newer version
+fits: iroh 1.4.1 is the latest and needs netwatch ^0.19.3; netwatch 0.19.3 (latest 0.19) needs netdev ^0.46.1 and
+0.46.3 is the latest 0.46; netwatch 0.20.0 also takes netdev 0.46. Upstream: netdev 0.47.0 fixed it
+(shellrow/netdev#195), netwatch in n0-computer/net-tools#267 (issue #261; merged 2026-11-06, not released). No
+feature of iroh or netwatch picks another network monitor on iOS. Fix (PHN-464): ferb-link's Cargo.toml caps libc at
+`<0.2.190` for iOS, which holds the whole build (Mac side too) on 0.2.189, as #261's reporter does for an iOS app; no
+patch. **Evidence:** before, `cargo check --target aarch64-apple-ios` stops at netdev's `in6_ifreq` (E0425); after,
+`cargo check --locked` passes for `aarch64-apple-ios` and `aarch64-apple-ios-sim`, `cargo build --lib` links the iOS
+cdylib, `cargo update -p libc` stays on 0.2.189 and `--precise 0.2.191` is refused; Android check passes (NDK 28 clang,
+`AR_aarch64_linux_android` = the NDK's llvm-ar, which the entry above left out); macOS `--test code --test ffi` 6 + 3
+pass; fmt, clippy `-D warnings` (macOS all targets with devrelay, and iOS) clean. Every `libc::` name the workspace's
+crates use exists in 0.2.189 (a name search, not a build), for when ferb-link joins the workspace and the cap reaches
+it. **Unverified / open:** nothing ran on an iPhone or simulator. netdev 0.46.3 on iOS imports SystemConfiguration
+functions the iOS SDK marks `API_UNAVAILABLE(ios)` (`SCNetworkInterfaceCopyAll`, `SCPreferencesCreate`,
+`SCDynamicStore*`; `nm -u` on the iOS library lists 15+): they link, but App Store review may reject the app (netdev
+0.47 removed them on iOS); it needs iroh on netwatch with netdev 0.47, or a patch, before stage 4 ships. The gate's
+`portable` does not check ferb-link yet; the simulator target is not in rust-toolchain.toml's list.
+
+**Second addendum (2026-11-16): the iOS library on APIs the iOS SDK offers (PHN-478, superseding PHN-464).** The
+owner (through the coordinator): build iOS on supported things from the start. The libc cap is gone (libc 0.2.191
+again) and three crates are patched the pinned way (`engine/patches`, SHA-256 checked): **netwatch 0.19.3** takes
+n0-computer/net-tools#267 as merged (its three source files apply to 0.19.3 unchanged: the routing constants defined
+locally with `net/route.h`'s values) and netdev 0.47.0 for 0.46.1, as in that PR; **n0-dns-resolver 0.1.0** (iroh-dns's
+resolver) read the nameservers on every Apple platform from the SystemConfiguration dynamic store, also
+`API_UNAVAILABLE(ios)`: on Apple's mobile platforms it now uses `res_ninit`/`res_getservers` from libresolv
+(netdev 0.47's iOS approach; `struct __res_state` 552 bytes and `union res_sockaddr_union` 128 checked with
+`_Static_assert` against the iOS 27.2 SDK for device and simulator; an IPv6 resolver's scope kept; search domains not
+read), SystemConfiguration only on macOS. No upstream issue or fix exists for the resolver; report one with the patch.
+`engine/crates/ferb-link/tools/ios_api_check.py` takes a built iOS library: for each import (`nm -um`) clang compiles
+its address under the SDK's headers for the library's platform, and it fails on an import marked unavailable, one no
+public header declares (but for the toolchain's own runtime symbols), or one needing a newer iOS than `--min-ios`; it
+also lists the required-reason APIs. A control library with `SCNetworkInterfaceCopyAll`,
+`SCDynamicStoreCreateWithOptions`, `system` and a private `_CTServerConnectionCreate` fails on all four. **Before**
+(iroh as published, libc 0.2.189): 197 imports, 23 from SystemConfiguration, all 23 unavailable on iOS
+(`SCDynamicStoreCreate`, `…CreateWithOptions`, `…CopyValue`, `…KeyCreateNetworkGlobalEntity`,
+`…KeyCreateNetworkServiceEntity`, `SCNetworkInterfaceCopyAll`, `…GetBSDName`, `…GetInterfaceType`,
+`…GetLocalizedDisplayName`, `SCNetworkProtocolGetConfiguration`, `SCNetworkServiceCopyAll`, `…CopyProtocol`,
+`…GetInterface`, `…GetName`, `SCPreferencesCreate`, `kSCDynamicStoreDomainState`, `…PropNetPrimaryService`,
+`…UseSessionKeys`, `kSCEntNetDNS`, `kSCEntNetIPv4`, `kSCNetworkProtocolTypeIPv4`, `…IPv6`,
+`kSCPropNetDNSServerAddresses`). **After:** 163 imports (CoreFoundation 13, Network 19, Security 10, libSystem 118,
+libresolv 3), none unavailable or undeclared, on the device and the simulator library; they need iOS 13.0
+(`nw_path_enumerate_gateways`, `nw_path_is_constrained`; rustc's default minimum is 10.0, the app's own is stage 4's
+choice); no import needs iOS 26 (netdev 0.47 has no `nw_path_is_ultra_constrained`, shellrow/netdev#182). `dlsym` is
+imported (Rust std's run-time lookups, I inferred; not traced). Required-reason APIs: `fstat` only
+(file timestamp: the app's PrivacyInfo.xcprivacy declares C617.1 if it is for files in the app's container, which I
+inferred, not traced to its caller); no `mach_absolute_time`, `stat`, `statfs`, `getattrlist`, UserDefaults or
+keyboard API. **The Mac side:** netwatch's change is the same code on macOS (equal constants; the PR's
+`constants_match_libc` passes on 0.19.3 with the patch); the resolver's macOS code is unchanged; but netdev 0.47 also
+changes macOS and Android (default-route parsing, preferring local addresses, 64-bit netlink counters, BSD ioctl
+layouts), which the lab never ran: netwatch's own 17 tests pass on macOS with it (default route, home router,
+monitor smoke), ferb-link's whole suite passes (52, 4 by hand), Android checks. **Unverified:** nothing ran on an
+iPhone, the simulator or Android; App Store review itself; the libresolv reader's answers on a device.
+
+## 2026-11-16 · 103 · Stage 3 slice S2: Role::Phone and every method's phone class in ferb-rpc
+
+**What.** `engine/crates/ferb-rpc/src/classes.rs` gives each of the engine's 127 methods (`auth::METHODS`) one row:
+the class (plain, private, sensitive, never: the lab's names and meaning, PHN-112, PHN-125), what a connection the Mac
+has not seen unlocked may do with it (`refused`; `allowed` for ping, chat.status, stop.engage, task.stop; `answer` for
+chat.approve, chat.answer, chat.correct, decided per question by the daemon: PHN-110, PHN-415, PHN-417), whether it is
+a stream, whether it opens something on the Mac's screen (the six of PHN-117), the parameters a phone may not send
+(chat.send: input_paths, test_run) and a one-line reason, grouped by area. A method with no row is `never`.
+`auth::Role::Phone` ("phone") is new; `Role::ALL` stays the three a local hello may name, so the local socket can't
+give it (the parser refuses "phone" with Python's words; the server's hello has a refusing arm for it); `allowed(Phone,
+m)` is "m exists and its class is not never". `engine/fixtures/phone/classes.json` is the table as data (written by
+`tests/phone_classes.rs` with UPDATE_GOLDEN=1, compared otherwise). Agent rulings PHN-465, PHN-466.
+
+**Why.** PHN-112 wants a test that fails when a method has no class; the portable crate that holds the method table is
+the one place both sides can read without a cycle (ferb-link may depend on ferb-rpc, which `gate.sh portable` already
+checks for iOS and Android). GATE-612 keeps the owner's words to FERB.app among local programs; the phone's way to them
+is the link's session, a different entry, so the role is not a local one.
+
+**Changed from the lab's table (112 rows).** `tasks.preview` plain → private (PHN-454: unmasked frames to an unlocked
+phone; both classes need the unlock window, private names it in the audit). `intro.preview` and
+`notifications.subscribe` are streams (the engine registers them so; both stay never). New rows: `data.*` reads private
+and `data.delete` sensitive (PHN-402); `secrets.unmask` and `secrets.mask` sensitive (PHN-402; mask changes protection);
+`projects.list` private, `projects.remove` sensitive (HAND-625); `tools.call`, `tools.list` never (a worker's run-token
+bridge, not FERB.app's); `setup.uninstall_browser_files` and `device.report` never, marked `owner_to_confirm`. Counts:
+plain 39, private 32, sensitive 47, never 9.
+
+**Evidence.** `cargo test -p ferb-rpc`: lib 27, golden 3, phone_classes 11, server 18 pass; the golden (Python's table,
+cli/mcp_shim/native_host/app_only) is unchanged. fmt, clippy `--all-targets -D warnings`, `cargo check --target
+aarch64-apple-ios` clean.
+
+**For S3 (not done here).** ferb-link: depend on ferb-rpc; replace role.rs's `METHODS`, `class`, `is_stream` and
+`ON_MAC_SCREEN` with `ferb_rpc::classes` (its `Class::Never(why)` becomes the row's `why`; `params_refused` the row's
+`refused_params`); keep `PICTURES`, `PAGES`, `OWN_CHECKS`, `SECRET_KINDS` (relay and question facts) with a test that
+each name has a row; its tests compare against `classes.json`, and the lab's standin/phone_role.py check goes. The
+daemon: a phone session is made only by the link bridge as `Role::Phone`; its gate replaces the app_only check by the
+class (unlock window, a proof for the exact call, `locked`); `phone.*`/`link.*` methods the daemon adds get rows (PHN-106:
+none reads or writes the link's own state; a second phone removing a lost one, PHN-420, is sensitive with the
+fingerprint); ferbd's every_method_answers should compare each row's `stream` with the registrations; the publish
+question (HAND-624, never routine) is not in PHN-417's fingerprint list: until the owner says, a Yes to it needs the
+fingerprint.
+
+**Open.** Owner questions: may a phone run Uninstall's browser-file removal, and may a phone report the Mac's
+location (both never for now); does a Yes to publishing a project from the phone need the fingerprint (the safer
+answer, yes, until he says). Unverified: no phone call reaches the daemon yet; `stream` is checked against the
+registrations by reading them, not by a test.
+
+## 2026-11-16 · 104 · Device facts on the Mac (T-1130): one line per device, device.facts, the exact location on a Yes, Location as the ninth permission
+
+**What was already there.** Every planner turn and worker run already had the instant: ferb-clock `time_block`
+(`now Monday 2026-11-16 10:05:31 IST`, time of day, the owner's last activity) and each tool result's footer. No
+device name, IANA zone, UTC offset or place reached a model; the planner's live facts held the AI in use, schedules,
+reminders and the paired profiles. `about.read` and `about.diagnostics` report FERB's own state, not the Mac's.
+Setup had seven required rows (accessibility, screen_recording, full_disk_access, input_monitoring and clipboard,
+the daemon's; notifications and microphone, FERB.app's) plus Automation per app: the "eight". FERB.app reads the
+sound output for its own sounds (AudioOutputFacts.swift); the daemon read none of the Mac's state.
+
+**What.**
+- SENSE-421: `ferb_core::device` (portable): `Place` (city, region, country, ISO code; cleaned, 80 characters a part)
+  and `line`: `- This Mac “Name”: Monday 2026-11-16 10:05, time zone Asia/Kolkata (UTC+05:30); place: Pune,
+  Maharashtra, India (city level)`, or `place unknown (time zone only)`. Never coordinates. `environment::Seams` gained
+  `device_line` (default ""), put first in `live_facts`, so planner turns (the situation block) and worker runs (their
+  instructions) get it; ferbd's EnvSeams writes it from the zoned clock, the computer name (native only) and the place
+  FERB.app reported.
+- SENSE-422: `device.facts` (a catalog addition after abilities.read: scope none, both identities, observation,
+  origin private). Device id, kind, name; local time, weekday, zone and offset; Location's state; the city or why it is
+  unknown; the Wi-Fi name FERB.app reported; then `ferb_mac_hands::native::device::read` (public API): battery
+  (IOKit power sources), Low Power Mode, network kind (SystemConfiguration's primary interface), screen locked
+  (CGSessionCopyCurrentDictionary's CGSSessionScreenIsLocked), displays, free disk (statfs on the home), boot and wake
+  (sysctl), the default output device and whether it plays (CoreAudio), appearance, locale, languages, macOS, model.
+  A fact not read is left out. Focus has no public reading on macOS and is not read. Not added to PLANNER_TOOLS: that
+  list is frozen with the recorded planner calls (b_runtimes, prompt_changes), so it isn't a one-line change.
+- GATE-613: `exact_location: true` asks FERB's own Yes/No through the gateway's one question store (`ask_own` with the
+  task's id, options Yes/No, buttons "Share it"/"Don't share", options only), once per task tree (the answer kept in
+  memory for the tree; a No holds too); refused to the check and without Location; set aside if the call is dropped.
+  After Yes the daemon publishes `device.location_wanted` (a new critical bus topic, in NOT_WAITED) and waits up to
+  30 s for FERB.app's `device.report {request_id, exact}`.
+- APP-925: Location is FERB.app's own grant (NSLocationUsageDescription and NSLocationWhenInUseUsageDescription; the
+  app's entitlements gain `com.apple.security.personal-information.location`, the daemon's none). `DeviceLocation.swift`:
+  the `LocationSource` seam (CLLocationManager, CLGeocoder, CoreWLAN in `SystemLocationSource`), and
+  `DeviceLocationReporter`, which sends `device.report {location, place, wifi}` at each connection and on a change
+  (permission, a significant move), geocoding again only after a 1 km move, and answers each `device.location_wanted`
+  with one precise fix. `device.report` is a new app_only method (ferb-rpc `DEVICE_ADDITIONS`). Setup: a ninth row
+  `location` (process app, required, asked in Allow all through macOS's question, its Privacy_LocationServices pane
+  when off); the playground's fakes follow.
+- Who holds the permission: Apple documents no way for a windowless launch agent to show the Location prompt (forum
+  thread 816619 reports an SMAppService agent authorized after its app; 840513 asks the same with no answer), so the
+  app holds it and the daemon gets the city. The place, Wi-Fi name and fixes are in the daemon's memory only; a
+  restart knows no city until FERB.app reports again. No migration.
+
+**What leaves the Mac.** A rough fix goes to Apple's geocoder (CLGeocoder) to be named, at most once per 1 km moved.
+The city line goes to the model provider with every turn. Coordinates go to the provider only in a task whose owner
+answered Share it. No offline alternative was built: the time zone alone names a region, not a city.
+
+**Evidence.** ferb-core device 2, bus 3; ferb-mac-hands device 1; ferbd compose::device 3 (the line without
+Location, a report denied clears place and Wi-Fi; the lookup's bytes; asks once per tree, a No gives nothing, the check
+and no permission ask nothing, a silent FERB.app gives no coordinates, an out-of-range fix is refused);
+b_environment's named addition (every recorded live-facts case with the line first equals Python's after it);
+ferb-rpc golden and the role test; ferb-gateway catalog 6 (the addition listed after abilities.read wherever that is);
+ferbd every_tool_through_the_program, every_method_answers, catalog_mcp, diagnostics, chat_replay. Whole runs:
+ferb-supervisor, ferb-gateway, ferb-context, ferb-orchestrator 323 passed, 0 failed; ferbd, ferb-core,
+ferb-mac-hands, ferb-rpc, ferb-daemon 392 passed, 2 failed, both in ferbd seams_wired: my OwnQuestion's
+`..Default::default()` (fixed: its fields spelled out, `approval_id` and `runtime_switch` named plain data in
+seams-off.txt), and project mode's `prepare_publish` and project.rs, not this work. Clippy -D warnings clean on the
+seven crates; ferb-core checks for iOS and Android. Swift: the whole suite 809 tests, 0 failures, 3 skipped
+(DeviceLocationTests 3, the Location row in SetupModelTests). scripts/tests test_packaging 34 passed (the Info.plist
+keys and the app's entitlement).
+
+**Unverified / open.** Nothing ran live. `native::device::read` has a by-hand test that was not run (it reads this
+Mac). Not run: macOS's Location question for FERB.app, CLGeocoder, CoreWLAN's Wi-Fi name, a precise fix, a signed
+build with the new entitlement, the notch's card for the new question. A scheduled run that asks for the exact
+location waits for an answer like any task question. The per-tree answers live as long as the daemon. LIVE-1131 is
+the owner's check; T-1214 is the phone's half (stage 3): a phone reports its own place through a phone method of
+its own, not `device.report` (S2 classed that never, journal 103).
+
+## 2026-11-16 · 105 · Background loops supervised, the 10-second cache, `ferb --help`, and the Rust offline-suite guards
+
+**What.** Five tasks from entry 95's audit (T-1123, T-1124, T-1128, T-1109's guard set, T-1129). Each fault was proven by a test that failed before the fix.
+- **DMN-599 (T-1123).** `compose/guard.rs` is main.py's `_supervise` and `_spawn`.
+  - When a loop's body returns an error or panics (caught with `catch_unwind`, also around making the body), the guard journals `daemon.loop_failed` {loop, failures, error: the kind and its redacted words, 300 chars}. The loop starts again after `min(60, 2^(failures-1))` s (LOOP_RESTART_S, LOOP_RESTART_MAX_S, main.py:93). A body that returns Ok ended by itself and isn't restarted.
+  - The body is told how many times it has failed. Retention and the hourly memory pass wait their period before the next pass, so a pass that calls a model never repeats every minute. The embedder waits EMBED_EVERY_S and loads its model again.
+  - A failed one-off job is journaled `daemon.background_failed` {what, error}.
+  - The time is injected (`Options.pause`). The stand-ins record each pause and never wait (control `loop_pauses`).
+  - Supervised loops: timers, held_banners, retention, resources, memory_pass, the trail's thread, the embedder, and `unhandled` (the panic hook's journal consumer). Supervised one-off jobs: sensing start, browser files, the permission prime, the search re-index, shown identifiers, Vision warm-up.
+  - Shutdown aborts a loop in its body or its pause.
+  - `tests/loops_supervised.rs every_loop_of_the_composition_is_supervised` reads src/compose. It refuses a spawn that isn't the guard's and isn't listed as per-call work in `crates/ferbd/spawns.txt` (each with why), and a stale line there.
+- **DMN-600 (T-1124).** ferb-daemon's `Fresh` is generic now and built (`tools::Parts::fresh()`, FRESH_S 10).
+  - Two reads go through it: the facts' permissions (DMN-597's `facts_permissions` in env_seams) and the browsers area's `fresh_profiles` (salted with the test folder mapping, as browsers.py:174).
+  - The start primes the permissions in the background (main.py:477).
+  - A refresh runs in a blocking task. If it panics, the kept value stays and the claim is freed.
+  - Pairing, Pair all and profile states call `Cx::profiles`, which reads the profiles now, so HAND-563..566's re-reads never see the kept list.
+- **DMN-601 (T-1128).** `ferb -h`, `--help`, `--h`, `--he` or `--hel` before `--` prints argparse's help for the command named before it and exits 0. This happens before salvage, any session or any connection. `--version` given first still wins.
+  - The texts are Python 3.12 argparse's at 80 columns for `build_parser` at P, recorded by `fixtures/device/make_help.py` into `help.json` (33 parsers).
+  - Three named differences: setup's two lines that named an interpreter and a venv, and uninstall's DMN-598 flag.
+  - A checkout's setup says "Installing the LaunchAgent for this checkout's built daemon…" and "Updating FERB from this checkout's build…" with `Programs::Rust`. The Python words stay with `Programs::Python` (the fixtures, unchanged).
+  - cli/mod.rs's header says what is ported.
+- **TEST-511 (T-1109's guards).** `engine/gate.sh test` builds `ferb-test-guard` and makes it cargo's target runner, so every test binary runs under `sandbox-exec -p offline.sb`.
+  - Any of these ends the binary with SIGKILL: a connection beyond loopback, a Keychain lookup (`com.apple.SecurityServer`), or a content read or write in ~/.ferb, ~/.codex, ~/.claude, ~/.Trash, ~/Library/Keychains, ~/Library/Safari or a browser folder FERB knows. The runner then names the tests that were running (by libtest's order and `--test-threads`).
+  - A path's metadata stays readable. ferb-sense's exclusions stat ~/.ferb and ~/Library/Keychains while resolving their default paths, which the first full run caught.
+  - A test past FERB_TEST_TIMEOUT_S (300, runaway.py's) is ended and named. Its start is libtest's "test X ... " line with one thread, or its 60-second warning with several. A test may have its own limit in `slow.txt` (runaway.py's `ferb_timeout` marker).
+  - A binary whose process group passes FERB_TEST_MAX_RSS_MB (4096, runaway.py's: the larger of resident size and footprint, per process) is ended with exit 3, naming the tests running.
+  - macOS refuses a sandbox inside a sandbox that restricts anything (`sandbox_apply: Operation not permitted`). The binaries whose tests apply their own run without the outer one: `nests.txt`, each with why, and a test checks that each names a test target that reaches sandbox-exec. Those are ferb-shell live, not_read and project; ferbd areas_c, every_tool_through_the_program, services and tools_waits; and the guard's own proofs. They keep the time and memory caps and get a HOME of their own, a fresh temporary folder that is removed afterwards.
+  - `tests/guards.rs` runs a bad test for each guard through the runner on its own binary. The bad tests do nothing unless FERB_TEST_GUARD_PROOF is set.
+- **TEST-512 (T-1129).** With the stand-ins' `mac` off, `Mac::build` uses `AbsentMac` (off id `mac.absent`) for AX, apps, shots, events and app control, with no window route, and the previews' window list reads nothing.
+
+**Why.** The owner asked for verified answers about the audit's findings.
+
+**Evidence.**
+- **T-1123, before the guard:** `a_loop_that_panics_is_journaled_and_started_again` failed with `one daemon.loop_failed row: []; sense.status then: {"error":{"code":-32603,"message":"DatabaseError"}}`. One panic had ended the trail's thread for good.
+- **T-1123, after:** one row {loop trail, failures 1, error "panic: …"}, pauses [1.0], perception answering again, and the row in `about.diagnostics`' journal read. Reverting the guard in place fails the test again. The source scan fails on an added `d.keep(tokio::spawn(...))` loop.
+- **T-1129, before:** the new test listed Finder, VS Code and Brave from this Mac. That was a read, with no action.
+- **The guard's proofs:** each bad test ends the run. Examples:
+  - "the sandbox ended …: the tests running then: bad_network"
+  - "bad_runaway_time ran for 1 s, over the 1 s limit (FERB_TEST_TIMEOUT_S)"
+  - "519 MB is over the 128 MB limit … the tests running then: bad_runaway_memory"
+- **Full guarded run (`cargo test --workspace --no-fail-fast` with the runner, at load average ~33):** 1075 s wall. Every binary passed except ferbd seams_wired, which fails on other agents' new code (compose/device.rs:403, tools/project.rs:102, Tool::prepare_publish).
+  - The largest process-group peaks: chat_replay 2533 MB, replay 2149 MB, wiring 1221 MB. That is under the 4096 cap; the next largest is 1.2 GB.
+  - chat_replay's two scenario tests ran 300-333 s at that load, so `slow.txt` gives each 900 s (a proposal for the owner).
+- **The runner's cost:** 34 quick binaries run directly against through the runner, three rounds: +558, -8 and +135 ms per binary. That is within the noise of a loaded Mac; at roughly 0.1 s it adds about 20 s over the gate's ~200 binaries.
+
+**Named differences.**
+- `daemon.loop_failed` also comes from loops Python didn't supervise. Its timer, retention, resources, embed and distill loops had their own error scopes, and an exception that escaped one ended it.
+- A panic is journaled twice: `daemon.unhandled` by the panic hook and `daemon.loop_failed` by the guard.
+- The help is always 80 columns wide.
+
+**Unverified / open.**
+- Nothing ran live.
+- `_macos_events` (mainloop.rs, on the main thread) isn't supervised. The per-call spawns in spawns.txt don't journal `daemon.background_failed` as Python's `_spawn` did (T-1213).
+- ferb-sense restarts a watcher that returns Err, but a panicking watcher still ends silently.
+- Doc tests don't go through the runner. A test process that leaves its process group (setsid) isn't measured or ended.
+- The Keychain guard ends only the process that asks. A `security` child dies, but the test binary doesn't.
+- The binaries in nests.txt are guarded only by the caps and their own HOME. Their commands run under the shell's own profile (its protection lists, loopback proxy), but nothing checks that profile against the real ~/.ferb.
+- T-1109 stays open for TEST-502's end-to-end tags.
+- The brief asked for the error's kind only, with no content. The row keeps Python's redacted words (main.py:625).
+
+## 2026-11-16 · 106 · Stage 3 slice S3: the daemon's phone area, its migration and the phone session's entry
+
+**What.** The daemon side of the phone link (kb T-1202, deleted). The lab's Python stand-in (ferb-phone-link@57b3f34
+`standin/phone.py`, `phone_role.py`, `daemon.py`) is the specification, read and not run.
+- Store (ENG-4): migration `0065_phone_devices.sql`: `phone_devices` (endpoint, name, app, the three public keys with
+  their purposes, paired_at, last_seen, warned_at, removed_at, removed_by; a partial unique index on the live
+  endpoint) and `phone_audit` (at, device, method, class, outcome, detail_json). `ferb-store/src/phones.rs` reads and
+  writes them; at most N live rows counted in the adding transaction. Public keys only.
+- ferb-rpc: `Role::Link` (not in `Role::ALL`); `wire::Request.proof`; `Session.phone` (`phone_gate::PhoneSession`:
+  device, session, the call's proof); `phone_gate.rs` (the `PhoneGate` trait, refusal codes −32011…−32022 and the new
+  −32023 `device_limit`); `link_peer.rs` (`LinkPeers`: the helper's own designated requirement at
+  `Contents/Helpers/ferb-link`, identifier `com.ferb.link` in a checkout); `Failure::Coded` and `HandlerError::coded`
+  so a handler answers with its own code; the server's hello answers role `link`/`phone` only for a peer passing
+  `set_is_link` (anyone else gets Python's unknown-role words, unchanged), and a phone session's calls pass
+  `PhoneGate::admit` instead of the local lists and the FERB.app check, then `PhoneGate::reply`. Methods added
+  (auth.rs `PHONE_ADDITIONS`, `PHONE_SESSION`, `LINK_ADDITIONS`; classes.rs rows): `phone.list` (private),
+  `phone.remove` (sensitive), `phone.rename`, `phone.pair_decide`, `phone.audit` (never; FERB.app's, app_only);
+  `phone.challenge`, `phone.unlock`, `phone.lock`, `phone.present`, `phone.keys`, `phone.session_end` (no local role;
+  plain, allowed while locked; each checks its own proof); `link.devices`, `link.events` (stream), `link.pair_request`,
+  `link.pair_wait`, `link.pair_cancel` (role link; never for a phone). 143 methods: plain 45, private 33, sensitive 48,
+  never 17.
+- ferb-daemon `phone` (new): `Phones` (pairing, list, rename, remove, audit, the 30-day warning given when the list is
+  read, `link.*`), `gate` (sessions, challenges, the unlock window, `verify_call`, `check_answer`,
+  `answer_needs_no_window`, `decorate`, `status_for`, the class dispatch, the reply's shaping, Mac prompts), `proof`
+  (ECDSA P-256/SHA-256 exactly as `p256.py` reads keys and signatures, high s accepted). Numbers (`Limits`): 5 phones and
+  30 days (PHN-419), unlock 300 s idle and 12 h at most (PHN-15, PHN-141), challenge 120 s and pairing Yes 120 s
+  (CONTRACT §7, kept by PHN-312/PHN-419), audit 90 days (PHN-130).
+- ferbd `compose/phone.rs`: the area on the daemon's store, clock, redactor, journal and bus; FERB's questions through
+  the gateway (routine = the gateway offered the 30-minute answer); the helper's check by the Security framework in the
+  real daemon (`ferb_platform_macos::rpc::link_system`); `seams-off.txt` `phone.no_prompts`. `SecurityFramework::designated`
+  now passes `is_directory` by the path (an app bundle is a folder, the helper a file).
+- Agent rulings PHN-468..472; owner question T-1215 (screen use from the phone).
+
+**Why.** PHN-124 and PHN-441: the daemon holds phones and keys, gives challenges and verifies every proof; the helper
+only passes calls on. Keeping the lab's wire (CONTRACT §12) means S1's `daemon.rs` needs no change to speak to it.
+
+**Stand-in → test.** (ferb-daemon tests/phone.rs unless named) `session()` unknown device → `only_a_paired_phone_opens_a_session`,
+`a_removed_phone_is_refused_at_once`; LOCKED_OK and `require_unlocked` → `a_locked_phone_reaches_only_status_stop_and_its_session`,
+`the_unlock_window_expires_on_the_injected_clock`; `challenge`/`verify_call` (one use, ttl, session-bound, exact
+method and params, wrong key) → `proofs_are_for_one_exact_call_with_a_fresh_challenge_of_this_session`; `_signed` strong
+→ `sensitive_calls_take_the_fingerprint_key_where_the_phone_has_one`; `check_answer`, `answer_needs_no_window`,
+`decorate` → `answers_follow_the_question_s_kind`, `a_hidden_answer_goes_only_through_the_sealed_path`; `status_for` →
+`a_locked_status_holds_its_words_back`; `present`, `_open_window` across sessions, `end` → `a_reconnect_that_proves_the_device_key_keeps_the_unlock`;
+`keys` → `late_keys_are_registered_once`; `setup`'s device table (now pairing) → `pairing_waits_for_the_owner_s_yes_and_stops_at_five`;
+`check()` and REFUSED_PARAMS → `the_class_table_drives_every_call`, `a_phone_s_turn_names_the_phone_as_its_client`;
+`open_prompt`/`answered` → `a_prompt_on_the_mac_is_clicked_on_the_phone_s_signed_yes`; the audit →
+`the_audit_records_what_phones_did_and_never_a_value`; `p256.verify` → `phone::proof` unit tests; the owner-only check →
+ferb-rpc tests/phone_entry.rs and `link_peer` unit tests. Not built here (S3b): `phone.files`, `phone.tree`,
+`phone.read`, `phone.put_*`, the protection lists, quarantine, the heavy-fetch notice.
+
+**Evidence.** ferb-daemon tests/phone.rs 17 passed (the class table over all 143 rows of classes.json: 136 checked,
+the six session calls and phone.remove by their own tests), lib phone::proof 2; ferb-rpc lib 30, golden 3,
+phone_classes 11, phone_entry 3, server 18; ferb-store all (phones 4, store 15 with the 0065 objects named,
+chat_entries, tables); ferb-platform-macos all; ferbd every_method_answers 2, phone_wired 1, seams_wired 3; ferb-supervisor
+`--tests` compiles (its harness's Session). fmt; clippy `--no-deps --all-targets -D warnings` clean on ferb-store,
+ferb-rpc, ferb-daemon, ferb-platform-macos; ferb-rpc checks for iOS and Android. Changed S2's tests where S3 changed the
+table (never set, locked-allowed set, PHN-106's test now with PHN-419's two exceptions) and regenerated classes.json
+(it also picked up PHN-467's two rows, no longer owner_to_confirm, edited by another agent).
+
+**Open / unverified.** Nothing ran against the real helper, a phone or a signed build: the helper's requirement
+derivation on a bare program, and `set_is_link` in the real daemon, are unproven. ferbd's clippy was blocked by another
+agent's half-done change (`compose/tools/project.rs`, ferb-shell `push`); ferbd's lib built and its three tests passed
+before that. The 30-day warning is given when Settings → Phone or the helper reads the list (no timer). No clicker for
+the Mac's prompts exists: the six on-screen methods say `needs_the_mac` (PHN-472). The routine reading of a question
+comes from the gateway's offered answers; screen use is routine there (T-1215). A login code (`owner_login_code`) is
+checked as hidden by the gate, but `resolve_approval` seals only the admin password and secrets (as Python). The
+phone tables sit in the data viewer's "Everything else" and in no cleanup list (cleanup never touches them).
+For S4: the bridge's own device store and `phone.setup` go; pairing through `link.pair_request`/`pair_wait`/`pair_cancel`,
+removals through `link.events`; −32023 in `daemon::REFUSALS`; role.rs from `ferb_rpc::classes`; sign the helper as
+`com.ferb.link` at `Contents/Helpers/ferb-link`. For S5: Settings → Phone on `phone.list`, `phone.pair_decide`,
+`phone.rename`, `phone.remove`, `phone.audit` and the bus events `phone.pair_requested`, `phone.unused`,
+`phone.removed`. For S3b: the file methods as phone session calls (rows in auth.rs/classes.rs), the gate's
+`fresh_unlock_required` for key places.
+
+## 2026-11-16 · 107 · Stage 3 slice S7: ferb-mobile, the phone's fold, store, sync, outbox and live state
+
+**What.** A new crate, `engine/crates/ferb-mobile` (in the workspace's `exclude` list, built by its own manifest),
+the portable core both phone apps share (T-1207, deleted; T-1208 and T-1212 no longer wait on it). No UI, no FFI.
+- **The fold (PHN-473).** `fold` ports FERB.app's `EntryFold.archive`, the archive's `transcript()`,
+  `followsItsTurn`, `rowPlacements` and the turn's derived lines (first reply, card rows as history draws them,
+  checklist lines, hidden notice, short names, paste markers, carried `legacy` rows in the app's saved form) into
+  `transcripts.json`'s shape. It is a pure function of each entry's newest copy (rev, then seq), so `entries::EntrySet`
+  folds the union of whatever was fetched, in any order. The zone (for a later answer's day) is the phone's.
+- **Live state (ENG-8).** `live::LiveState` takes the watch's `live` frames (plan and reply streams, the live line,
+  step task lines, step states, the activity line), per turn; a plan entry ends the streamed plan and the line, an
+  answer (or a merged, interrupted or deleted turn) ends everything, a restart of the watch or the link going offline
+  drops it all. `view` gives each working turn its typing dots, rows and checklist lines with live states
+  (`RowDisplay.forStep`, `ChecklistLine.make` ported), its open questions and a state (running, paused, sleeping,
+  needs_you).
+- **The store (PHN-474).** SQLCipher through rusqlite 0.42: `bundled-sqlcipher` (CommonCrypto) on Apple,
+  `bundled-sqlcipher-vendored-openssl` elsewhere. The app's random 32 bytes are the raw key, zeroized here. Schema v2
+  of its own (`user_version`; v1 → v2 adds `pending_gets` and the read mark), a newer file refused, `secure_delete`
+  on, `forget` deletes the database, journal, WAL and SHM.
+- **Sync (PHN-475).** `Mobile::sync`: a one-entry page names the current conversation and epoch; a new conversation
+  starts from its newest page; else `changes` after the cursor; `reset_required`/`cursor_ahead` drop and reread;
+  cut entries are recorded before the cursor passes them and read whole by `get` in pieces; then the watch from the
+  cursor, then the outbox. `behind` resyncs once; a failed watch waits for the link. `load_older` asks for the page
+  before the lowest pos; with the link's `bulk` false it is `NeedsBetterPath` without asking, asked again once when
+  `bulk {allowed: true}` comes.
+- **Outbox and answers (PHN-476).** Every message goes through the outbox (visible, cancellable) and is sent in order
+  with `client_id` and a `submission_id` (ENG-14). Transient failures stop the flush until the link returns; `locked`
+  waits for the unlock; a refusal fails it with the Mac's words. `sending` reverts to waiting at open; a row goes at
+  its ack. Answers are never queued; with the app's `Signer` the core signs the exact call (a hidden input's sealed
+  payload, SHA-256 only) using the question's `phone.challenge` or a fresh `link.challenge`.
+- **Transport (PHN-477).** `Transport` (call, send → the ack, watch → a sink), JSON as text; `door::DoorTransport`
+  over ferb-link's JSON door (`LinkClient::command`/`poll`) with one pump thread; no ferb-link dependency.
+- `Mobile` is the API for S8 (README "The API" and "Threading model").
+
+**Why.** Stage 3's plan (S7): the phones fetch the Mac's one conversation like from a server and keep it until
+Forget this Mac (ENG-10, PHN-408), show what FERB.app shows, and keep a visible outbox while the Mac is off (PHN-401).
+
+**Evidence.**
+- `tests/golden.rs`: all 145 scenarios / 146 conversations of the three fixture files folded equal `transcripts.json`
+  as JSON values, on the first run. A mutation (one row's words) fails one conversation. One named difference: a
+  relative attachment path ("notes.txt" in `attachment_and_bad_params`, both files).
+- `tests/incremental.rs`: every conversation, six rounds each (shuffled one at a time; pages newest first split at
+  seeded points; tombstones and revisions last; with duplicates and older revisions mixed in) equals the whole fold;
+  a late tombstone removes its item; a cut entry never replaces a whole one.
+- `tests/live.rs`: every recorded timeline's live frames (over 500 applied, over 100 step frames) leave nothing live
+  for a turn that has its answer, and never change the transcript; EntryWatchTests' phone turn; reset.
+- `tests/sync.rs`, `tests/outbox.rs` against `tests/common/mac.rs` (a fake Mac by ENG-14's rules, seqs reassigned per
+  commit, the public relay's refusal, injected send outcomes); `tests/store.rs`; `tests/door.rs`. 35 tests pass;
+  fmt and clippy `--all-targets -D warnings` clean; `cargo check --locked` passes for aarch64-linux-android (NDK 28),
+  aarch64-apple-ios and aarch64-apple-ios-sim.
+- Size (cdylib probe, release, opt z, LTO, stripped): Android 1.36 → 5.33 MB (+3.98 MB, vendored OpenSSL 3.6); iOS
+  1.18 → 1.24 MB (+67 KB, CommonCrypto).
+
+**Named differences from the Mac's fold.** A relative path stays as stored (FERB.app resolves it against its working
+folder). The newest copy at equal rev is the higher seq (FERB.app keeps the first seen; the engine never sends two).
+
+**Unverified / open.**
+- Nothing ran on a phone, against the real daemon, or over the real link; `DoorTransport` is tested on a fake door.
+- `transcripts.json` holds the Swift test's working folder for that relative path (a machine path in a tracked file).
+- ferb-link's `cancel` stops transfers, not calls: closing a watch through the door only stops delivering its frames
+  until the connection ends (S8 may add call cancellation).
+- The outbox keeps a message's words (encrypted) until its ack; FERB.app never saves a draft before the Mac redacts it.
+- Android's build needs `RANLIB_aarch64_linux_android` (OpenSSL calls ranlib by the target's name); an iOS app must set
+  `IPHONEOS_DEPLOYMENT_TARGET`. If the crate joins the workspace, `libsqlite3-sys`'s features unify: ferb-store would
+  build SQLCipher and vendored OpenSSL in a `--workspace` build.
+- Loop rounds (`loop.status`) and a wait's clock time are not drawn by the live view (the app formats `until`).
+- New numbers: `DoorTransport` CALL_BACKSTOP 60 s (= ferb-link POLL_WAIT_MAX), its poll 500 ms, `piece_chars` 12 000
+  (fits one control frame); page 50 and max_bytes 63 KiB come from the link's existing limits.
+
+## 2026-11-16 · 108 · Project mode, the owner's simple rule: forced pushes, fetch and clone with his login, the GitHub CLI's login
+
+**What.** HAND-640 (owner, his words verbatim): what FERB's commands can't do by default, FERB asks plainly and does on his Yes. The only exceptions are rule 6's four never-lifted things and rule 7. HAND-641..643 (agent) build what entry 98 had left out. No new blocks were added; entry 98's proposal to put ~/.gitconfig and /opt/homebrew/bin on the do-not-change list is dropped.
+
+- **Force push** (HAND-641). `project.publish` takes `force: true`. Before asking, FERB fetches the remote branch with the owner's login, isolated as a push is (rule 5: prepare before asking).
+  - The card is asked every time: never remembered, never routine, never covered by the project's earlier Yes. Card:
+    - "Overwrite main on github.com/o/r.git?"
+    - "The newest commit there is bbbbbbb “Their change” by Sam, 2026-11-15. Publishing replaces the branch with the one in ~/code/site, which drops 2 commits that only exist there. FERB can't undo this. If anyone adds to the branch before FERB pushes, FERB stops instead of overwriting it."
+    - The exact field reads "<url>\nbranch main: bbbbbbb → aaaaaaa". Buttons: "Overwrite it" / "Keep it".
+  - The Yes is a single-use journal row (`project.force_approved`, used up by `project.force_used`). The push uses `--force-with-lease=refs/heads/<branch>:<that commit>`.
+  - A force that would drop nothing (the branch isn't there, or it fast-forwards) is an ordinary push with no card.
+- **Fetch and clone** (HAND-642), new tool `project.fetch` {folder, remote, clone_from, gh_login} (ferb-shell `fetch.rs`).
+  - The download runs from a scratch git in FERB's state, with FERB's settings only (transfer.fsckObjects, no hooks, no submodules, protocols https and ssh). The project's existing objects are offered as haves, so only new objects come down.
+  - The packs enter through sandboxed `git index-pack --stdin` and the remote branches through sandboxed `git update-ref --stdin`. A clone's `git init`, remote and first checkout are sandboxed too. A merge or rebase is the worker's own sandboxed command.
+  - Submodules are listed with their address, not fetched; the worker clones one with `clone_from`.
+  - An address the project may push to or got from asks nothing. A new address or a clone asks once and is remembered (`project.fetch_approved`). Card: "Get github.com/o/r.git into ~/code/site with your git login?" with "FERB downloads the repository's branches into this folder so its commands can work on them. Your login is only used for the download, and nothing from the repository runs with it." When the folder isn't a project yet, it adds " Yes also makes ~/code/site a project." Buttons: "Get it" / "No".
+- **The GitHub CLI's login** (HAND-643): `gh_login: true` on either tool.
+  - FERB doesn't run gh. Homebrew's gh here is ad-hoc signed (`codesign`: `Signature=adhoc`, no Team ID) in /opt/homebrew, which FERB's commands can write, so no signature or path check makes running it with the login sound.
+  - FERB's code reads gh's saved login instead: the Keychain item `gh:<host>` via `/usr/bin/security`, with gh's `go-keyring-base64:` / `go-keyring-encoded:` forms decoded, else `oauth_token` in ~/.config/gh/hosts.yml. It writes the login into an owner-only file in the scratch folder for git's own `store` helper, and that file is removed with the folder. The token is never in argv, output or a model.
+  - Asked once per project and host. Card: "Use your GitHub CLI login for this project?" with "There's no git login for github.com in your Keychain, but the GitHub CLI (gh) is signed in. FERB would hand that login only to git, for ~/code/site, and never show it to anyone." Buttons: "Use it" / "No".
+- **Other changes.**
+  - The gateway's `publish_needs` builds all four questions, and `record_project_yes` records each Yes.
+  - Settings → Data → Projects also shows "Gets from <address>" and "Uses your GitHub CLI login for <host>". `projects.list` adds `sources` and `gh_hosts`.
+  - The worker's project line names `project.fetch`.
+  - The test helper `offered_beside` handles an addition that follows another addition (`project.fetch` after `project.publish`), and `tool_shift` counts it.
+  - Fixed for the device-facts agent's `seams_wired` run: `default Tool::prepare_publish` is listed in seams-off.txt; the tool's result is built by ferb-shell `publish::result` (no `..Default::default()` in the composition).
+
+**Evidence.**
+- ferb-shell `tests/project.rs`: 20 tests, real sandbox-exec, a local git server that requires a login. New since entry 98:
+  - a force replaces exactly the shown commit (dropped 1, its subject, author and date read);
+  - a force stops when someone pushed after the question (`stale info`; their commit stays);
+  - a force on a branch that is missing or fast-forwards is an ordinary push;
+  - a fetch gets a new commit and a new branch with the login. Hooks, fsmonitor, sshCommand, credential.helper, uploadpack and hooksPath planted in the repo leave the marker unwritten; the control, an ordinary `git fetch`, writes it;
+  - a clone checks out the default branch with its upstream; a non-empty folder is refused;
+  - submodules are listed;
+  - gh: no push without it, a push and a fetch with it; the token is in no fact; a planted `gh` in ~/bin and ~/.local/bin never runs; the scratch folder is gone afterwards;
+  - gh's keyring forms decode.
+- ferb-gateway `tests/project.rs`: 7 tests, real Gateway.
+  - A forced push asks every time with the exact card text, even for an approved address; the single-use Yes reaches the run; a No pushes nothing.
+  - A fetch from an approved push address asks nothing; a new address asks once and is remembered as a source.
+  - The gh card is asked once per project.
+- ferb-policy: none of the four rules is routine (GATE-207's window never answers them).
+
+**Unverified / open.**
+- Nothing ran live (LIVE-1140): GitHub, the Keychain helper, ssh, and gh's real Keychain item. Whether `/usr/bin/security` reads `gh:github.com` without a Keychain prompt depends on how gh created the item, which I didn't read (tests never touch the Keychain).
+- A clone of a sha256 repository uses ls-remote's id length; untested.
+- Git LFS: a sandboxed checkout can't download LFS objects (no login in the sandbox).
+- Tags aren't fetched, and remote branches deleted on the server aren't pruned.
+- The push and fetch time bound is 300 s (a method detail).
+
+## 2026-11-16 · 109 · Device facts, the owner's answers: plain words, a planner lookup, phone classes, a reader that recovers by itself, permissions explained
+
+Addendum to 104, after the owner's answers.
+
+**What.**
+- APP-926 (owner): no "AI", "AI service" or "servers" in anything the owner reads; plain and about FERB. The Location
+  strings: Info.plist (both keys) "FERB uses your city to get local time and place right. It asks before using your
+  exact location."; the row "Location" / "So FERB knows your city. It asks before using your exact location."; the
+  question "Use this Mac's exact location for this task?" / "FERB will use where this Mac is right now. Until now it
+  only knew your city. Your answer holds for the rest of this task." with "Use it" / "Not now". What a model reads
+  stays factual. Older strings that still say "AI service" (setup's sign-in lines, Settings → AI's subtitle) were not
+  changed here: the owner's rule applies from now on, and changing them is his call.
+- SENSE-422: `device.facts` is in PLANNER_TOOLS (the owner: "yeah, why not make it??"). The planner's grant is
+  observe-only, so `exact_location` gets "this call only looks (a planner lookup or the check), so it can't ask the
+  owner: ask for the exact location in a task step". The recorded planner calls: like ORCH-663's task.trace, a planner
+  lookup with no recorded neighbour is offered to every non-empty planner call (prompt_changes `tool_shift`, ferbd
+  chat_replay `with_additions`), and b_runtimes' check call names it with the other two additions.
+- PHN-467 (owner, "no, yes, yes"): `setup.uninstall_browser_files` stays never; a phone may read the Mac's device facts
+  (private), exact location from the phone as PHN-417 asks; `device.report` stays FERB.app's (the Mac's own reading);
+  a project publish's Yes from a phone needs the fingerprint (for S3's gate). classes.rs drops both `owner_to_confirm`
+  marks; classes.json regenerated; T-1214 names PHN-467.
+- HAND-627 (supersedes HAND-626): the image reader recovers without the owner noticing. A supervised check thread
+  (`ferb-image-check`, compose/guard.rs) ticks every TICK = 30 s: at the first tick and every SELF_TEST_EVERY = 300 s it
+  reads a small blank picture with this process's Vision; failing, images go to the kept child and the child is
+  started and warmed then, so the first screenshot pays no cold load; reading again, images go back and the child
+  stops; never a daemon restart. The child: after its first failure in a row it starts again at once, then waits
+  RESTART_BASE = 5 s doubling to RESTART_CEILING = 300 s; one start at a time (the helper's lock), and a picture that
+  comes while it starts waits for it (bounded by CHILD_TIMEOUT); within the wait an image is withheld with Python's
+  words plus "(FERB's image reader failed and starts again in about N s; try the picture again then)". HAND-626's
+  HELPER_STARTS / HELPER_START_WINDOW and IN_PROCESS_RETRY are gone. Rule 7 unchanged: an image goes out only after a
+  reader read it and its boxes were painted. Journal `image.reader_check` only on a change.
+- APP-927: the About document (about.get, about.read and its `permissions` section) carries `permission_reasons`
+  after `permissions`: for each setup permission and Automation its name, status, who holds it, what FERB uses it for,
+  what it doesn't do, what's shared, how to turn it off and what stops then (about.rs PERMISSION_REASONS). Statuses:
+  the daemon's four TCC rows; Location as FERB.app reported it (`device.report`); Notifications, Microphone and the
+  clipboard "set in FERB.app" / "see FERB.app's Settings → Permissions" (the daemon doesn't read them there). A test
+  checks the ids against FERB.app's `allowAllSequence` plus Automation and keeps "AI" and "server" out. Named
+  difference: b_small and ferbd replay add the section to Python's recorded about.get answers (`add_reasons`).
+
+**Evidence.** ferb-mac-hands image_fallback 18 passed (backoff schedule, the withheld reason, a failing self-test
+warms the child before a picture, going back when Vision reads, a picture during the start waits and is read, a child
+that keeps failing withholds with the reason and is retried on the ticks), 1 by hand ignored. One batch (ferb-daemon
+lib, b_small, b_runtimes; ferbd lib, chat_replay, replay, tools_context, seams_wired, loops_supervised,
+every_tool_through_the_program, every_method_answers, diagnostics; all ferb-mac-hands; ferb-supervisor planner,
+prompts): 214 passed, 0 failed. ferb-supervisor and ferb-orchestrator earlier: all passed except ferb-orchestrator
+waits' bus scan, which names the phone area's `phone.unused` (not this work). ferb-rpc 30/3/11/3/18 passed with
+classes.json regenerated; ferb-gateway catalog 7 passed. Clippy -D warnings clean on the seven crates. Swift: the
+whole suite 809, 0 failures (one earlier run under two concurrent cargo builds had 7 timing failures that did not
+repeat).
+
+**Unverified / open.** Nothing live: the self-test and warm-up on a real Mac whose Vision broke, the check thread's
+cost, FERB.app's Location prompt. The status of Notifications and Microphone in `permission_reasons` is not read by
+the daemon. The by-hand device reading wasn't run.
+
+## 2026-11-16 · 110 · Stage 3 slice S5: FERB.app Settings → Phone on a seam, the notch's pairing notice
+
+**What.** kb T-1205 (kept open: what waits for S4 is listed there). FERB.app only; no engine crate changed.
+- `apps/mac/FERBNotch/Sources/NotchCore/PhoneModel.swift`: the replies as types (`PhoneList`, `PhoneEntry`,
+  `PairRequest`, `PhoneAuditRow`, `PairingInvite`, `LinkStatus`, `RelayEntry`, `RelayCheck`), the seam
+  `PhoneService` and `RPCPhoneService` over two transports (the daemon's `phone.*` from journal 106; the link helper's
+  `link.status`, `link.pair_start`, `link.pair_cancel`, `link.relay_test`, `link.relay_set`, `link.limits_get`,
+  `link.limits_set` as `ferb-link/src/admin.rs` speaks them), the page's `PhoneSettingsModel` (pairing as idle,
+  starting, showing until, asking until, ended; the list with each phone's connection merged from the helper; rename,
+  remove, activity; the relay's Test, save, stop and Always use my relay), and `PhoneWords`, every string.
+- `Sources/FERBNotch/PhonePage.swift`: the page in the existing Settings style (`WindowPage`,
+  `WindowSettingsSection`): Pair a phone (the code drawn as PHN-142 says: black on white, a four-module margin, whole
+  points per module, about 320 points; the text to type; Copy, New code, Cancel; a countdown), the confirmation (the
+  phone's name, the six digits large, Pair it as the default key, Don't pair as Escape), Paired phones (connection,
+  paired date, last used, the 30-day warning, Rename inline, Remove… behind an alert, the five-phone limit), Recent
+  activity (what, when, which phone; `detail` is never read), Use my own relay (status line, saved address, Stop using
+  my relay, the switch with its sentence, secure fields for the ferbrelay:// line or an address and token, Test, Use
+  this relay) and Set up your own relay (the steps from `ferb-link/relay/README.md`; a Show in Finder button when a build
+  carries `relay/setup.sh`, else where it is in the source). `NotchModel.receivePhoneEvent`: every `phone.*` event goes
+  to the page; `phone.pair_requested` also adds a notice with a page card to Settings → Phone and announces it as a wait
+  on the owner. VoiceOver labels on the code, the digits, each row.
+- Shared files, one or two lines each: `SettingsTab.phone` (Connections group), `FERBAppActions.phoneLink` (nil in
+  the real app until S4), the bus case in `DaemonConnection.receiveBusEvent`, `NotchModel.onOpenPhone` and its wiring
+  in `Application.swift`, the page card in `ConversationTranscript.swift`, the alert's path in
+  `AppWindowPresentation.paths`, three how-tos in `AppGuide`, the playground's `PlaygroundPhone` (two invented phones,
+  a sample phone that answers a code after 4 s, a relay that only checks the address's shape) routed from
+  `PlaygroundWorkspace`; the playground's call log now drops `token` and `url`.
+- Agent rulings PHN-479 (the two sides and the seam), PHN-480 (the notch notice; the Yes only on the page; the list
+  read every other second while a pairing is open), PHN-481 (the token).
+
+**Why.** The daemon holds phones and the Yes (PHN-124, journal 106); the helper owns the invite, each connection's
+path and the relay setting, and its admin socket already admits only FERB.app by signature, so the app needs no new
+protocol. A pairing waits 120 s for an owner who may have left Settings, so it reaches the notch; the Yes stays a
+deliberate act beside the codes.
+
+**Found in the engine (not changed here).** `ferb-core/src/bus.rs` declares neither `phone.pair_requested`,
+`phone.unused` nor `phone.removed`: `Bus::publish` refuses an undeclared topic, so `logs.subscribe` never carries them
+and FERB.app sees none today (the page's list read covers pairing while the page is open; the notch notice waits for
+the fix). `phone.pair_ended` is journaled only. The helper's own `devices_max` default is 2 (`limits.rs`), the daemon's 5.
+A helper error crosses JSON-RPC as "code: message (what to do)" with the parts in `data`, which FERB.app's client drops;
+the page strips the code and makes sentences (`PhoneWords.linkMessage`).
+
+**For S4.** Give FERB.app the helper: start it with `--admin-app` FERB.app, its admin socket at a fixed place, and set
+`FERBAppActions.phoneLink` to a `DaemonRPC(socketPath:)` there (`Application.swift`). Keep the methods' shapes the
+page reads: `link.status` → `relay {state, connected, error {message, allow}}`, `own_relay {url}`, `devices [{id,
+online, tier}]`, and add `own_relay_always` (read from `link.limits_get` until then); `link.pair_start` → `{code, url,
+qr, seconds}`, refusing at the daemon's limit (`phone.list` max); `link.relay_test`/`link.relay_set {url, token?}` →
+`{steps, warnings}` / `{saved, test}`, `{off: true}`; `link.limits_set {own_relay_always}`. The helper's own
+`link.pair_decide` and `pairing.waiting_for_your_yes` go: the Yes is `phone.pair_decide`. Declare the three `phone.*`
+topics in the bus (CRITICAL: a pairing must not be dropped).
+
+**Evidence.** `swift build --build-tests` clean (no warning in the new files); `PhoneSettingsTests` 13 passed (pairing
+countdown and expiry, the owner's Yes, No, no answer, the daemon letting go, a sixth phone refused before a code and at
+the Yes, events, rename and remove, the relay's Test, save, switch and stop, a marker token absent from daemon calls,
+words, descriptions and preference keys, every relay line, the states without the helper or the service, activity
+without values, the notch notice once per request, the playground); `SpaceRuleTests` 7 passed (the alert's path). The
+full suite's result is in the report of this slice.
+
+**Open / unverified.** Nothing live and nothing against a real helper or daemon: the code's scan on a phone (PHN-135),
+the notch opening for a real `phone.pair_requested` (blocked on the bus topics), the helper's real error words. The
+owner reads every string before it ships. The old-link code (`qr_old`) for a phone app from before isn't offered: no
+phone app before this one exists. A macOS banner when the notch can't show is not posted for a pairing (the notice and
+the needs-you announcement only).
+
+## 2026-11-16 · 111 · Stage 3 slice S3b: a phone's files both ways, judged by the model tools' protection lists
+
+**What.** The daemon's file calls for a paired phone (kb T-1203, deleted), from the lab's `standin/phone.py` file calls
+and `standin/protection.py` (ferb-phone-link@57b3f34, read, not run), as CONTRACT §11–12 names them.
+- ferb-rpc: seven roleless methods (`auth::PHONE_FILES`): `phone.files`, `phone.tree`, `phone.read` (stream) private;
+  `phone.put_group`, `phone.put_begin` plain; `phone.put_chunk`, `phone.put_end` plain and allowed while locked (they ride
+  the begin's unlock: a transfer under way goes on after the phone locks). `phone_gate::FILE_CHANGED` −32024.
+  classes.json written again (it also took the rows another agent was adding meanwhile: S4's `phone.*`/`link.answer`).
+- ferb-daemon `phone::files` (new): the `Judge` seam (`Protection::fs_rules`, the gateway's own check; ferbd passes the
+  gateway's lists), `FileSeams` (inbox, free-space reader, the owner's added places, a task's file, a test hook),
+  `FileLimits`. The gate (gate.rs) leaves the audit of the seven to the area, adds the path to a refusal's audit row,
+  turns chat.send's `attachments` into `input_paths`; a session's end pauses its uploads; a removal deletes its parts.
+- Judging (PHN-482, PHN-483): the window first (the gate); then the path by its names: a NEVER_LIFTED rule
+  (`ferb_state`) is `file_not_allowed` with or without a proof; a `read:` entry, PHN-131/133's places, key names and the
+  owner's additions need the key place's own fresh proof (`{challenge, method: link.get|link.files|link.tree, params:
+  {path: as sent}}`, the fingerprint key where registered) before anything is opened; then one open (O_NONBLOCK), and
+  the kernel's name (F_GETPATH) judged again; a hard link is a key place, one to FERB's state refused (a bounded walk,
+  closed when it can't finish). Only ordinary files are sent; size, time and identity pinned (`file_changed`); the
+  hash in 16 MiB slices off the runtime, so a phone that leaves stops it.
+- Uploads (PHN-484): judged as a write first (nothing made in a protected place), a hidden `.<id>.ferb-part` 0600 made
+  through the folder's descriptor, `com.apple.quarantine` set before the first byte, linked to `<id>-<name>` (or its
+  place in a folder, links never followed) only when free; the floor 1 GiB (PHN-139), paused parts kept an hour, a
+  restart's leftovers swept by age; a hash the phone gives is checked. Landing in `~/Downloads/FERB from phone`
+  (owner question T-1216).
+- The heavy-fetch notice (PHN-485): 40 files or 1 GiB in 10 minutes (PHN-138), once per burst: bus
+  `phone.heavy_fetch` (added to ferb-core's critical topics), a journal row, an audit row, `link.events heavy_fetch`.
+- ferbd `compose/phone.rs` registers the area on the gateway's protection lists (`compose/mod.rs`: one new part).
+
+**Why.** PHN-113/115/116 (files both ways, the lock is the protection, no cap on the owner's own network), PHN-121/129/
+131/133/140 (key places, the fingerprint, the guarded list is FERB's never-read list plus the owner's places), PHN-127/
+139 (uploads), PHN-128/138 (the notice), PHN-114 (path safety and the audit). One judge for the phone and the model
+tools keeps the two from drifting (the owner's one-path rule).
+
+**Lab test → test** (ferb-daemon tests/phone_files.rs): attacks.rs finding_2 spellings → `no_spelling_of_a_path_dodges_
+the_fresh_proof`; its swap race → `a_link_swapped_between_the_check_and_the_open_is_judged_as_it_opened` (a hook at the
+moment, then 300 raced fetches); finding_2 own data → `ferb_s_own_data_is_never_shown_under_any_name`; finding_2 before it
+says anything → `a_key_place_asks_for_its_proof_before_it_says_anything`; attacks_home.rs → `the_lists_home_not_the_
+process_s_home_decides`; finding_11 → `an_upload_needs_the_unlock_and_is_quarantined`; hardening.rs trusts nothing (files)
+→ `no_claim_of_unlocked_or_fresh_opens_a_file`; fingerprint key only (key place) → `a_key_place_takes_the_fingerprint_key_
+only_where_the_phone_has_one`; uploads stop and go on / folders / tree / floor → `an_upload_stops_and_goes_on_by_the_same_
+phone_only`, `a_folder_arrives_whole_nothing_climbs_out_and_it_rides_with_a_message`, `a_folder_s_tree_leaves_key_files_
+out_and_counts_them`, `the_disk_keeps_its_floor`; heavy fetch → `a_phone_that_takes_unusually_much_is_said_so_once_per_
+burst`; the guarded places are FERB's list → `every_never_read_entry_and_phone_key_place_takes_its_own_fresh_fingerprint`
+(66 entries) and `an_upload_folder_in_a_protected_place_takes_nothing`. New: hard links, pipes/sockets/devices/bundles,
+empty/sparse/5 GiB, a change mid-read, a removed phone mid-transfer, a lock mid-upload, proofs for another path, a
+second use, another session, a paused upload's hour, the audit.
+
+**Differences from the lab.** The window is asked before a key place's proof (the lab took the proof alone); parts are
+hidden and named at the end (the lab wrote under the final name); quarantine before the first byte with the clock's
+time (the lab: at the end, time 0); a resumed upload is hashed again from the part file (the lab kept its hasher);
+`~name` paths are refused (the lab looked the account up); the asked-once `protected_folder` question is not used.
+
+**Evidence.** ferb-daemon tests/phone_files.rs 24 passed, tests/phone.rs 17 (the class table over the new rows), lib 18;
+ferb-rpc lib 30, golden 3, phone_classes 9 of 11 (the two failing are another agent's rows in progress: its never set
+and nothing of S3b); ferb-core tests/bus.rs 3; ferbd every_method_answers 2, phone_wired 1. fmt; clippy
+`--no-deps --all-targets -D warnings` clean on ferb-daemon, ferb-rpc, ferbd.
+
+**Open / unverified.** Nothing against the real helper, a phone or a signed build. The daemon does not know a session's
+tier: the public relay's refusal of files is ferb-link's alone (PHN-444/461); S4 could pass the tier per call (the
+helper's word). For S4: −32024 in `daemon::REFUSALS`; drop the bridge's own `note_fetch` (the daemon counts now) and
+forward `link.events heavy_fetch` to that phone as a `notice`; send `put_end {sha256}` when the phone gives one. For S5/
+FERB.app: show `phone.heavy_fetch`; a way for the owner to add key places (the seam is `FileSeams::added_places`, empty
+now; the never-read list in config already counts). `phone.read {artifact}` has no source of a task's files
+(`task_file` None): it answers not_found. list_max 500 and tree_max 2000 are the lab's, asked (T-1217); the hard-link
+walk's bound (20 000 names) is the lab's. FERB.app is not told when a phone uploads (only the audit).
+
+## 2026-11-16 · 112 · Stage 3 slice S8: ferb-mobile-ffi, the phone library's UniFFI bindings; the golden without a machine path
+
+**What.** A new crate, `engine/crates/ferb-mobile-ffi` (in the workspace's `exclude` list, its own Cargo.lock seeded
+from ferb-link's, ferb-link's `[patch]` table repeated since it is the build's root; edition 2024 so its test can share
+ferb-link's test world). T-1208 deleted; T-1209 no longer waits on it; T-1218 added (below).
+- **The bindings (PHN-492).** UniFFI 0.32.2 (MPL-2.0), proc macros only; the generator is this crate's Rust bin
+  (`--features bindgen`, no Python). `Mobile` wraps ferb-mobile's core, `Link` ferb-link's `LinkClient`; one library
+  per phone. Records copy ferb-mobile's transcript, live, outbox and link types field for field, each conversion a
+  full destructuring (a new core field fails the build); a question's `body` crosses as JSON text. One error enum,
+  `FerbError` (Kotlin `FerbException`), a variant per stable code (the core's fourteen, `internal` for a caught panic,
+  `bad_argument` for a state that is not the link's), with `detail` and `link_code`. Every exported call runs in
+  `catch_unwind`; every app callback is called inside one (a Kotlin exception in an infallible callback makes UniFFI
+  panic on that thread). Callbacks: `Clock`, `Ids`, `Listener`, `Signer`, `DeviceSigner`, `LinkListener`, and a
+  `Transport` an app may supply (a fake Mac in tests; watches by id, frames to an exported `WatchSink`). The explicit
+  close is `shutdown()` (idempotent, then every call `closed`): the bindings' own `close()` (Kotlin AutoCloseable)
+  frees the handle and clashed with an exported `close`; it also shuts down (Rust `Drop`). Calls block, bounded, as
+  S7's; the README lists the ones safe on the UI thread. Kotlin package `com.ferb.mobile` (`android = true`), Swift
+  module `FerbMobile` (`uniffi.toml`).
+- **The real link.** `LinkDoor` for `LinkClient` (a newtype: the orphan rule), ferb-mobile's `DoorTransport` as the
+  core's transport; `state`, `bulk`, `relay_state` forwarded to every attached core and to the app's `LinkListener`
+  as a typed `LinkStatus` (phase, path, the six-digit pairing code, paired, bulk, own relay URL and the Mac's
+  `own_relay_always`, the relay state, problem, retry). `pair` takes a QR's text or a typed code; `forget`,
+  `setActive`, `networkChanged`, `retry`, `endpointId`. A `relay_state` reaches the core as the words to show only
+  in `own_fallback` (S7's `link_event` stores whatever `relay` is as `relay_note`, so the link's raw `{"state":"own"}`
+  object would have shown as text; translated here, ferb-mobile untouched).
+- **Two gaps filled here (PHN-493).** ferb-link proves a session's presence by itself only with an in-process signer
+  (`device_sign`), which an app across FFI cannot give, and asks the app (`prove`) only during a start-over: `Link`
+  now signs `link.present` over the Mac's challenge with the app's `DeviceSigner` once per new unproved session, and
+  answers `prove`. S7's core had no unlock: PHN-125's "the signed unlock the app sends on open" is `Mobile.unlock
+  (signer)` (`link.challenge`, `call_payload(.., "link.unlock", {})`, `link.unlock` with the proof, then a sync that
+  sends what waited). Neither touched ferb-mobile; the FFI keeps the transport it handed the core.
+- **The phone's link key (PHN-494).** `LinkListener.persist` hands the link's state (with the private link key) as
+  opaque bytes; `LinkConfig.state` takes them back; bytes that are not the link's state are refused, never replaced by
+  a new identity (ferb-link's `LinkClient::start` would silently make a new key from unreadable state).
+- **Task 0: the golden's machine path.** `EntryFoldTranscriptTests.swift` wrote `turn.sources.map(\.path)`: Foundation
+  resolves the relative "notes.txt" of `attachment_and_bad_params` against the test's working folder, so
+  `transcripts.json` held `/Users/<owner>/…/apps/mac/FERBNotch/notes.txt`. It now writes `relativePath` (the stored
+  text; equal to `path` for an absolute one) for files and artifacts; regenerated with `UPDATE_GOLDEN=1`; no `/Users/`
+  in `engine/fixtures/chat-entries`; ferb-mobile's `golden.rs` compares exactly again (its named difference removed),
+  146 of 146 equal. In the app, `EntryFold.swift:164` (and 280, 295) still resolve a relative path against FERB.app's
+  working folder (`/` when launched from Finder); the engine normalizes a turn's paths (`flow/turn.rs:558`) before
+  the frame the projector reads, so a stored path is absolute in practice: not a live bug (inferred; I did not trace
+  every writer of `input_paths`).
+
+**Why.** Stage 3's S8 (PHN-446): the phone apps call the Rust core through generated Kotlin and Swift, one library each,
+objects with a close, panics as typed errors; S9 builds on it.
+
+**Evidence.**
+- `cargo test` (macOS): unit 2 (UniFFI's generated C functions for two test hooks: a panic inside the guard comes back
+  as the serialized `FerbError::Internal`, one past it as UniFFI's unexpected error with the panic's words); `tests/ffi.rs`
+  8 (every one-conversation scenario, synced from ferb-mobile's fake Mac behind an app-supplied `Transport`, gives
+  records that serialize to `transcripts.json`'s items and questions, 100+ scenarios; outbox; signed, hidden, refused
+  and offline answers; the public relay's older page; forget; shutdown then 18 calls all `closed`, wrong and short
+  keys; two cores at once and four threads; a panicking listener); `tests/link.rs` 1 on 127.0.0.1 with ferb-link's test
+  world (local relay, stand-in daemon, the Mac's bridge): start (state with a key persisted), a bad code `refused`
+  (`bad_request`), pairing by the typed code with the Mac's and phone's six digits equal, online and paired, the
+  device key asked, `Mobile.connect`, a locked `sync` `needs_unlock`, `stop` while locked, `unlock`, a message through
+  the door acknowledged and in the stand-in's state, forget, shutdown twice, the core told offline, a restart from the
+  kept state with the same endpoint id, a foreign state `bad_argument`. ferb-mobile's 35 still pass. fmt; clippy
+  `--all-targets -D warnings` (also `--features testing,bindgen`, and the iOS lib).
+- The generated bindings (scratch, not in the repo): `swiftc -typecheck` with the module map; a Swift program and a
+  Kotlin/JVM program (Gradle 8.14.5, Kotlin 2.2.21, JNA 5.17.0) each with a fake Mac in its own language against the
+  host library built with `--features testing`: open, sync, a turn's words, send, a signed answer, `NeedsSigner`,
+  `BadKey`, `testingPanic` → `FerbException.Internal`, `testingUnguardedPanic` → `InternalException`, a throwing
+  listener contained, two objects, `shutdown` then `Closed`, the bindings' `close()` then IllegalStateException.
+- Builds: release `--locked` for aarch64-linux-android (NDK 28; 16 kB LOAD alignment): `libferb_mobile_ffi.so`
+  16.3 MB (16 332 840 B; ferb-link alone with the same profile 10.1 MB, S7's SQLCipher+OpenSSL about 4 MB, the rest
+  ferb-mobile, UniFFI and the records); aarch64-apple-ios dylib 10.9 MB, ios-sim 10.9 MB (the static archives 159 MB
+  of LTO objects, before an app's link). x86_64 Android not built (the emulator needs it; S9).
+  `ferb-link/tools/ios_api_check.py --min-ios 13.0` on the iOS dylib: nothing unavailable; it fails on six imports its
+  allowlist lacks, all from SQLCipher's C code: `__CFConstantStringClassReference` (CFSTR) and the fortify
+  `__memcpy_chk`, `__memmove_chk`, `__memset_chk`, `__strlcat_chk`, `__strlcpy_chk`; required-reason APIs now also
+  disk space (`fstatfs`, `statfs`) and file timestamps (`fstat`, `lstat`, `stat`), for stage 4's PrivacyInfo.
+
+**Call cancellation (T-1218, not applied).** ferb-link was being edited by another agent throughout (S4: role.rs,
+bridge.rs, store.rs, its tests), so I left it alone. The patch (`src/ffi.rs` only; clippy-clean on a copy, untested):
+`running` becomes `Arc<Mutex<HashMap<..>>>`; in `"call"`, take `self.running.lock()` before `spawn_reporting`, insert
+the call's abort handle under its id after, and have the task remove its entry after `done(r)`. A `cancel` then aborts
+the call: its streams drop, the bridge's next event write fails and `forward_stream` ends the daemon stream; no result
+event follows. ferb-mobile's `DoorWatch::close` already sends that cancel.
+
+**Unverified / open.**
+- Nothing ran on a phone, an emulator or a simulator; the generated Kotlin was compiled for the JVM, not Android
+  (S9's Gradle build); JNA on Android and `android = true`'s cleaner untested.
+- My `cargo fmt` once formatted the files the tests share by path (ferb-link `tests/common/mod.rs`, `standin.rs`, and
+  ferb-mobile `tests/common/mac.rs`, at 10:19): mac.rs was reformatted back with edition 2021 (`cargo fmt --check` of
+  ferb-mobile passes); the ferb-link two got ferb-link's own edition's formatting, possibly over the S4 agent's
+  unformatted edits. The shared modules now carry `#[rustfmt::skip]`.
+- The link's `prove` path (start-overs) is not exercised by a test; the device key's `link.present` is (asked once);
+  whether the Mac recorded the presence was not read.
+- A hidden answer's value crosses UniFFI's buffers, which are not zeroized (the core's copy is).
+- Panics print through Rust's default hook (logcat on Android); none of this crate's panic messages holds a secret.
+- The relay-fallback sentence ("Your relay can't be reached; the public relay is used until it is back.") is mine,
+  shown only when the link gives no words; owner-facing text is the owner's to approve.
+- ferb-link now depends on ferb-rpc (S4's change): in the phone library; it added no measurable size.
+
+## 2026-11-16 · 113 · Stage 3 slice S4: the link's helper on the real daemon, started, contained, signed and packaged; its keys through ferb-secrets
+
+**What.** kb T-1204 (deleted; T-1218 deleted too, below; T-1205 no longer waits). Agent rulings PHN-486..491.
+- **The bridge on the daemon's phone area** (`ferb-link/src/bridge.rs`, `daemon.rs`, `store.rs`). The helper keeps no
+  phones: it reads `link.devices` before it lets any phone in and again on every `link.events` change; a
+  `device_removed` (or a daemon answer `unknown_phone`) cuts the phone's connections at once. Pairing: the helper still
+  holds the QR's window and checks the phone's proof (PHN-102), then `link.pair_request {endpoint, name, app, code,
+  keys}` and `link.pair_wait`; the Yes is FERB.app's `phone.pair_decide`; a phone that leaves is `link.pair_cancel`. Gone:
+  `phone.setup`, the bridge's device store, its `pair_decide`, `revoke`, `rename`, `upload_dir`, `high_value`, the
+  30-day expiry (the daemon warns, PHN-419), its own heavy-fetch count (S3b's daemon tells it: `link.events
+  heavy_fetch` becomes the phone's notice). `link.json` keeps relay settings, limits, relay marks per phone and the
+  day's file counter; with FERB's keys a changed or unverifiable file is set aside as `link.json.changed` (it can no
+  longer hold a phone). `daemon::REFUSALS` has −32023 `device_limit` and −32024 `file_changed`, and a test compares it
+  with ferb-rpc `phone_gate::CODES`. `put_end` passes the phone's `sha256` when it sends one. Each phone hello names the
+  connection's tier (one daemon connection per call), and the daemon refuses files on the shared relay too (PHN-491,
+  `files.rs shared_relay_refusal`, from the gate). `role.rs` reads `ferb_rpc::classes` (ferb-rpc is a dependency, all
+  targets); its own table is gone; `PICTURES`, `PAGES`, `OWN_CHECKS`, `SECRET_KINDS` stay with a test that each names a row.
+- **FERB.app's controls through the daemon** (PHN-489): app_only `phone.enable`, `phone.link_status`, `phone.pair_start`,
+  `phone.pair_cancel`, `phone.relay_test`, `phone.relay_set`, `phone.relay_always` (`auth::PHONE_LINK_ADDITIONS`, never
+  rows), `link.answer` for the helper (role link). ferb-daemon `phone/link.rs`: the daemon answers what it holds and asks
+  the helper the rest with an `ask` event on `link.events`; the helper answers `link.answer`; a 40 s bound. The helper's
+  admin socket (`admin.rs`), its code-signature check (`peer.rs`), the lab's `serve` harness and the Security framework
+  are gone from the crate. Errors reach the app as plain words, the code apart (`device_limit` −32023).
+- **The program** (`src/bin/ferb_link_mac.rs`): `ferb-link run --daemon SOCKET --state DIR` reads the keys as the first
+  line of stdin, runs until stdin closes, says what happens on stderr (no code, key or token). `phone` and
+  `relay-test` stay as lab tools.
+- **ferbd** (`compose/link.rs`, PHN-487, PHN-488): `[phone] enabled` in config; the supervised loop `phone link`
+  (guard: `daemon.loop_failed`, doubling pause) runs the helper while it is on, under `sandbox-exec` with a generated
+  profile (allow default; deny reading and writing the owner's home and FERB's home, writing anywhere, exec and fork;
+  then its state folder `~/.ferb/phone-link`, the socket and its own exec allowed again), env cleared, `kill_on_drop`.
+  Keys: one item, service `ferb`, account `phone-link` (JSON of base64 `identity`, `state-key`, `relay-token`) through the
+  pinned `ferb-secrets` (`HelperKeys`); made once by the daemon; a relay token the helper returns under `keys` is kept
+  there and stripped from the reply. `Options.link` (program, sandbox, args, keys); stand-ins name a helper with
+  `link_helper` and keep the item in memory. `spawns.txt`, `seams-off.txt` (also S3b's `task_file`, `hook`).
+- **The bus** (S5's find): `phone.pair_requested`, `phone.pair_ended` (now published), `phone.unused`, `phone.removed`
+  in ferb-core's critical topics; tests/bus.rs and ferb-orchestrator's NOT_WAITED (with S3b's `phone.heavy_fetch`).
+- **FERB.app** (coordinator's go, the Swift agent finished): `FERBAppActions.phoneLink` is the daemon's connection;
+  `RPCPhoneService` calls the `phone.*` names (the shapes S5 reads are kept: `relay`, `own_relay {url, has_token}`,
+  `own_relay_always`, `devices [{id, online, tier}]`, `{code, url, qr, seconds}`, `{steps, warnings}`, `{saved, test}`);
+  the playground and PhoneSettingsTests renamed.
+- **Packaging**: `rust-parts.sh FERB_RUST_LINK`; `build-app-rust.sh` runs `engine/patches/apply.sh`, builds the helper by
+  its manifest (`--locked`, `FERB_LINK_BUILD`), checks its architecture and `@rpath`, places it at
+  `Contents/Helpers/ferb-link`; `signing.sh` signs it `--identifier com.ferb.link`, hardened, with
+  `network.client`/`network.server` only (inert without App Sandbox; no other key, library validation as every piece),
+  before the bundle, and checks it in release and devid modes; `RELEASE_PIECES`, the fake app and two built-bundle tests
+  (identifier, entitlements, designated requirement, architecture; and an ad-hoc bundle's daemon on FERB_DEV_HOME
+  answering the bundle's own helper as `link` and refusing this test's `link` hello). `rust_notices.py` ships
+  ferb-link's crates (iroh's included).
+- **The FFI agent's T-1218**: call cancellation in `ffi.rs` (their patch, applied): a `call`'s abort handle under its
+  id, removed when it ends; `cancel {target}` aborts it.
+
+**Why.** PHN-441/468 (the helper only passes calls; the daemon decides), PHN-469 (one list of phones), PHN-143 (no
+Keychain question at install or update), PHN-444 (the public relay carries no files, now checked on both sides).
+
+**Wire changes.** Helper ↔ daemon: role `link` (`link.devices`, `link.events` with `ask`/`device_*`/`resync`/
+`heavy_fetch`, `link.pair_request`, `link.pair_wait`, `link.pair_cancel`, `link.answer`); the phone hello adds `tier`;
+`phone.setup` and the `cli`-role owner calls are gone. Helper ↔ phone: unchanged frames; the welcome's `limits.
+devices_max` is 5 (was 2); `link.status` (a phone's) `devices[].paired_at`/`last_seen` are the daemon's ISO text (were
+Unix seconds) and `unlock`/`device_key`/`fingerprint_key` booleans as before; `own_relay` adds `has_token`, and
+`own_relay_always` joins the status. A `device_limit` refusal can now come from the daemon (−32023). Builds with
+ferb-rpc in them serialize JSON objects in insertion order (serde_json `preserve_order` unifies in); no reader depends
+on member order (tests/hardening.rs builds its "another order" case by hand now).
+
+**Fixed against the lab.** The audit wrote each line with `writeln!`, in pieces: two calls audited at once interleaved
+into lines that read back as nothing (`a_start_over_costs_the_session_nothing` lost its first start-over's line in 2
+of 3 full runs). One `write_all` per line now.
+
+**Evidence.**
+- ferb-link `cargo test -- --test-threads 3` (127.0.0.1): lib 3 (role, secrets, the codes), attacks 4, cancel 1,
+  classes 1 (every row of classes.json: class, stream, on-screen, refused params, never's words), code 6,
+  encryption 4, ffi 3, hardening 9, link 8, pairing 2, real_daemon 4, relay 13, remote 4 — the lab's 52 (one, the
+  admin socket's, replaced; the Keychain one by hand → a test of given keys that runs) plus the new; 3 ignored by hand
+  (n0, vm, the direct-cost measure). `tests/real_daemon.rs`: the bridge against ferb-daemon's real `Phones` on a real
+  ferb-rpc server, stubs for FERB's other methods: pairing with the daemon's question (six digits, files, settings) and
+  the owner's Yes; locked → `locked`, the signed unlock, a sensitive call refused then signed, a never row and the
+  link's own calls refused at the bridge, the daemon's audit; a removal in FERB.app cutting the phone; FERB.app's
+  controls (status with the tier, the limit's −32023, a relay test's plain words, Always use my relay).
+- ferb-rpc all (lib 30, golden 3 with the counts, phone_classes 11, phone_entry 3, server 18); classes.json written
+  again (151 rows: plain 49, private 36, sensitive 48, never 25 incl. the S3b rows). ferb-daemon all (phone 17,
+  phone_files, lib incl. `files_are_refused_on_the_shared_relay_by_the_daemon_too`); ferb-core bus; ferb-orchestrator
+  waits; ferbd lib `link` 2, link_helper 2 (off on a fresh install; `phone.enable` starts a stand-in helper with both
+  keys on stdin and none in argv; off closes its stdin and it ends; the same keys again; gone with the daemon; one that
+  ends by itself journaled and started again), loops_supervised, every_method_answers, phone_wired, seams_wired.
+  FERBNotch `swift test --filter PhoneSettings` 13. scripts' tests 67 (8 skipped: built bundles).
+- A scratch FERB.app (`SIGN_IDENTITY=devid FERB_NOTARIZE=0 scripts/build-app-rust.sh --arch arm64 build/s4-helper-check`,
+  not installed, not opened): `Contents/Helpers/ferb-link`, 15.2 MB, arm64 like the daemon; `codesign -dv`:
+  `Identifier=com.ferb.link`, `flags=0x10000(runtime)`, Developer ID Application (team 8N7RNGH974), timestamped,
+  entitlements exactly `network.client` and `network.server`; designated requirement `identifier "com.ferb.link" and
+  anchor apple generic and … certificate leaf[subject.OU] = "8N7RNGH974"`. The built-bundle tests pass on it (the
+  link-role run skips: a certificate-signed daemon refuses FERB_DEV_HOME). An ad-hoc copy (`build/s4-helper-check-adhoc`)
+  ran `test_rust_bundles_daemon_answers_the_link_role_only_to_its_helper`: the built daemon on a temporary home answered
+  the built helper's `link` hello and `link.devices` (it printed `serving phones as …` and exited 0 when its stdin
+  closed) and refused the test program's `link` hello: `set_is_link` holds in a real bundle (Mode::Bundled, the
+  helper's designated requirement read from disk). Found doing it: `scripts/sign-app.sh` with `SIGN_IDENTITY=-` keeps a
+  piece already signed by FERB's own Developer ID team as "another team's" (`ferb_vendor_signed` compares with the
+  identity being used), so an ad-hoc re-sign of a devid build keeps the helper, native host, secrets helper and `ferb`
+  team-signed; I re-signed those four by hand in the copy. Not changed (release tooling; noted for the owner).
+
+- By hand, the profile (as `compose/link.rs profile` writes it) around the debug helper, with a short temporary home,
+  a local `dev-relay` and a fake daemon on the socket: the helper started, said `serving phones as …` and `relay: shared`,
+  answered an `ask status` with `{"state":"shared","connected":true}` and the local relay as its home, wrote only
+  `phone-link/audit.jsonl`, and stopped when its stdin closed (exit 0). Under the same profile `head` (exec allowed for
+  the check) was refused the owner's `~/.zshrc` ("Operation not permitted") and read `/etc/hosts`; `/bin/sh` and `/bin/ls`
+  could not be started (exit 71).
+
+**Under the test guard (gate.sh test, TEST-511).** The phone suites had never run inside ferb-test-guard's sandbox;
+there every link test binary was killed. Found by interposing `connect`/`sendto`/`sendmsg` in the test binaries
+(`DYLD_INSERT_LIBRARIES`, logging any destination that is not loopback): (1) netdev 0.47 (iroh's interface list,
+brought in by PHN-478's netwatch) finds the default interface with a UDP `connect()` to 10.254.254.254:1 (and
+[fdff:ffff:…]:1) at every endpoint bind: no datagram is sent, but the sandbox's `network-outbound` check applies to
+`connect`; (2) `an_idle_endpoint_makes_no_new_discovery_connections` built a raw iroh endpoint with port mapping on:
+three SSDP datagrams to 239.255.255.250:1900. Fixed: a test-only `NetConfig::loopback_only` (also `BridgeConfig`,
+`PhoneConfig`, the door's `dev.loopback`, ferb-mobile-ffi's test configuration) binds the endpoint's one IP socket to
+127.0.0.1, so the only direct path offered or tried is loopback; every test endpoint sets it; the raw endpoint is on
+127.0.0.1 without port mapping. After it the only non-loopback operation left in all three suites is (1), which no
+setting of iroh avoids; SBPL can't name an address (only `*` or `localhost`), so the narrowest guard change is a
+plain deny without the kill for UDP port 1: `(deny network-outbound (remote udp "*:1"))` after the kill rule (proposed
+to the coordinator, not made: nothing is allowed, only port-1 UDP is refused with EPERM instead of ending the binary).
+
+**Open / unverified.** The profile has not run around the signed helper inside FERB.app or against a real relay, and
+not over a long session (iroh's network monitor reads routes and interfaces: allowed, since only files, exec and fork are
+closed); App Sandbox (a container) was not chosen: the helper must reach the daemon's socket in ~/.ferb. Nothing ran on a phone or a real relay. The daemon refusing files on the shared relay trusts the tier the
+helper names (the helper is signature-checked; the bridge refuses first). A FERB.app build with the helper was not
+installed (never: the owner installs). ferb-mobile-ffi's lock must take ferb-rpc (S8's tests share ferb-link's test
+world; run below). The notices list, from `cargo metadata`, also names crates that only ferb-link's dev features turn on
+(iroh-relay's server): more than ships, never less.
+
+## 2026-11-16 · 114 · Stage 3 slice S9: apps/android :core, the Rust build through cargo-ndk, the vault and the phone's keys
+
+**What.** kb T-1209 (deleted; T-1211 no longer waits on it). Agent rulings PHN-495..499. A new Gradle module,
+`apps/android/core` (`com.ferb.core`), in the project S10 made (uncommitted, like S10's own files).
+- **The Rust build (PHN-495).** `core/build.gradle.kts`: `cargoNdk` runs `engine/patches/apply.sh` then cargo-ndk
+  4.1.2 (installed with `cargo install cargo-ndk --locked`) for arm64-v8a, `-P 30`, the crate's release profile,
+  `-Wl,-z,max-page-size=16384`, NDK 28.2.13676358 pinned, and copies only `libferb_mobile_ffi.so` (cargo also links
+  ferb-link's and iroh's own cdylibs: wasted link time, see below); `cargoHost` builds the host library and the
+  crate's generator (`--features bindgen`); `uniffiKotlin` writes `com.ferb.mobile` from the host library, since the
+  stripped `.so` has no UniFFI metadata left (`No UniFFI metadata found`). The bindings check each function's checksum
+  against the loaded library at load, so host and phone builds cannot drift unseen. Inputs are every engine crate's
+  sources and manifests, the lock files, the patches and the toolchain file (cargo decides what really rebuilds); one
+  cargo folder, `core/build/rust`. JNA 5.17.0's aar (its dispatchers, 16 kB-aligned) for the phone, its jar for the
+  JVM tests. Release Rust for debug APKs too: measured, a dev-profile `.so` is 34.2 MB against 16.3 MB, a cold build
+  144 s against 128 s, a change 8 to 15 s of CPU either way. x86_64 builds (17.9 MB, 16 kB) with
+  `-Pferb.abis=arm64-v8a,x86_64`; not by default: the emulator on this Mac is arm64 (its only system image is
+  arm64-v8a), so x86_64 serves only an Intel host, and it needs `rustup target add x86_64-linux-android` (installed
+  here, not in `engine/rust-toolchain.toml`).
+- **The vault (PHN-496).** `Vault`: `noBackupFilesDir/ferb` with `link.state` and `store.key` sealed by AES-256-GCM
+  (a version byte, the cipher's own IV, the purpose as additional data) under `ferb.key.wrap` (Keystore, StrongBox
+  when present else TEE, non-exportable, no user authentication, so the link and store open while the phone is locked
+  for Stay connected); `phone.db`; `client.id`. Atomic writes (temporary file, fsync, rename). An unreadable store key
+  drops the store and makes a new one (the store is a copy of the Mac's, ENG-10); unreadable link state (wrap key gone:
+  `KEYSTORE_RESET`; changed: `STATE_UNREADABLE`; refused by the link: `STATE_REFUSED`) wipes everything and the app
+  pairs again. `:core`'s manifest: `allowBackup="false"`, `fullBackupContent="false"` (Android 11), and
+  `dataExtractionRules` excluding all nine domains from cloud backup and device transfer (Android 12+); a merged app
+  that says otherwise fails the manifest merge.
+- **The three keys (PHN-497).** `KeystoreKeys`: P-256, StrongBox else TEE. device: no authentication (the link signs
+  `link.present` on its own thread). lock: every use (timeout 0, only inside the prompt's CryptoObject), class 3
+  biometric or device credential, only with a secure lock screen, `setInvalidatedByBiometricEnrollment(false)`. strong:
+  every use, class 3 biometric only, invalidated by enrolment, only when one is enrolled. Health without a prompt
+  (`initSign` throws `KeyPermanentlyInvalidatedException` on a destroyed key): OK, NONE, GONE. Keys go out as the
+  Keystore's SPKI DER and signatures as its DER, standard base64: what proof.rs reads; `Proofs` only checks the shape.
+  `PromptSigner` (the platform `BiometricPrompt`, API 30's `setAllowedAuthenticators`; no AndroidX biometric) shows
+  the prompt on the main thread and blocks the library's calling thread until it ends; the strong prompt has no PIN
+  fallback and its own cancel button; the words are the app's (`PromptText`). `DeviceKeySigner` for the link.
+- **The object the app uses (PHN-498).** `FerbPhone`: `start()` (on IO) reads the link state, makes the keys (all
+  three deleted first on a first start, so keys an earlier install left are never reused), starts the link (`Link.start`
+  with the public keys and `DeviceKeySigner`), opens the store (a store it can't open with its key is dropped and made
+  again once) and attaches them. `state: StateFlow<PhoneState>` (Starting, Open with `KeyHealth` and what was wiped,
+  Failed, Closed), `link: StateFlow<LinkStatus?>`, `changes: SharedFlow<Change>`, all posted to the main dispatcher
+  from the library's threads. `call { }` runs a blocking call on IO and returns `Outcome` (Ok, or Failed with the sealed
+  `FerbException` and its stable `code`, exhaustive). `unlock(signer)` is PHN-125's unlock (one prompt with the lock
+  key), `pair(code)` first remakes keys Android destroyed (and ones the phone can hold now) and restarts the link to
+  carry them, `forgetThisMac()` (PHN-408) runs the core's forget and the link's, deletes the store, its key and the
+  three keys, and starts again empty. `close()` shuts both down and frees both native objects, which lets the library
+  drop every callback (tested: a closed phone is garbage-collected; an open one is held, the control). `persist`
+  seals the link state on the link's thread at once and zeroes the bytes. `AndroidSignals`: ProcessLifecycleOwner's
+  start and stop to `setActive` (or stays active with `stayConnected`, S11's service), the default network's change or
+  loss to `networkChanged` after 400 ms of quiet, the one the link started on not counted (the lab's `Link.kt` rule,
+  kept for its reason: a handover arrives as several callbacks).
+- **Release signing (PHN-499).** Root `build.gradle.kts`: every app module's release build takes `ferb.release.*`
+  from `~/.gradle/gradle.properties` or `FERB_RELEASE_*`, the password else from the login Keychain item
+  `ferb-android-release` (asked only for a release build); without them a release stops at `preReleaseBuild` with what
+  is missing. README "Release signing" has the owner's one-time `keytool` and `security add-generic-password` lines.
+
+**Reassessed from the lab** (PHN-411; `~/Desktop/ferb-phone-link/android`, read only). Kept with their reasons: the
+platform BiometricPrompt (minSdk 30 suffices), the strong key's enrolment invalidation, the device key without a
+prompt, per-use authentication, the network rule. Changed: one AES-GCM key sealing the whole state file → a wrap key
+for two small secrets with purpose-bound AAD and the store in SQLCipher (PHN-448); a file under a lost key "start
+fresh" silently → said (`PhoneState.Open.wiped`) and only for the pairing, while a lost store is refetched without a
+word; `allowBackup=false` alone → plus `dataExtractionRules` (the lab's left device transfer on); `extractNativeLibs=true`
+→ libraries stored uncompressed and 16 kB-aligned, loaded from the APK; keys made only at pairing time, with fresh ones
+after Forget; the lock key's default enrolment invalidation → off (PHN-497's why); StrongBox for the signing keys
+too (the lab used it for the AES key only). FLAG_SECURE and the app lock are S11's.
+
+**What an attacker gets** (for the owner; inferred from Android's documented Keystore behaviour, checked only as far
+as the tests below say). A thief with the phone LOCKED: nothing on screen (S11's lock); the files are app-private;
+the link can run (Stay connected) and the Mac gives a locked connection only "something waits" and Stop (PHN-125).
+Someone holding the UNLOCKED phone (knows the PIN): can open the app, unlock toward the Mac with the PIN and read chat
+and ordinary files for the window, like the owner; cannot give a hard Yes or a sensitive change where a fingerprint is
+enrolled (the strong key); adding his own fingerprint destroys the strong key. A ROOTED phone (or malware with root):
+can call the Keystore as the app, so it can unseal the link state and the store and use the device key without a
+prompt; it cannot copy any key's private half out of the TEE or StrongBox, and cannot use the lock or strong key
+without a real fingerprint or PIN entry (the TEE checks the authentication token); with the link key copied elsewhere
+it lacks the device key, so it gets no notification words (PHN-126). An unlocked bootloader wipes the phone when
+unlocked; no root "detection" is built (no decision asks; it is bypassable). A BACKUP or a move to a NEW PHONE carries
+nothing: no file is in a backup or transfer, and the Keystore keys never leave the phone, so a copied file is
+unreadable; the new phone pairs afresh. APP DATA CLEARED or the app uninstalled: files and keys go; the Mac still lists
+the old phone until removed there. LOCK SCREEN REMOVED: Android destroys the lock and strong keys; chat stays readable
+offline, Stop works, but the Mac can't be unlocked: `KeyHealth.pairAgain`. FINGERPRINTS CHANGED: the strong key goes
+(`fingerprintsChanged`); chat and the PIN unlock go on; hard Yes and sensitive changes need pairing again (PHN-133).
+
+**Evidence.**
+- JVM (`./gradlew :core:testDebugUnitTest`, host library through JNA's jar): 14 tests. BindingsTest 1 (S8's scratch
+  check moved in, without its two panic hooks: they need the `testing` feature): every kind of call. FerbPhoneTest 8:
+  the first start's sealed persist (no plain text on disk), changes delivered on the main thread, the store not
+  readable on disk; unlock signed by the lock key over the fake Mac's challenge (verified in Java), `not_signed`,
+  closed after close; a restart from the kept state and store; a changed state file wiped; a lost store key only
+  refetched; a lost wrap key `KEYSTORE_RESET`; a refused state `STATE_REFUSED`; forget (new keys, links shut and freed,
+  empty store); pairing remakes a destroyed strong key and restarts the link; close lets the phone be collected.
+  VaultTest 5: the seal (purpose, a changed byte, a cut blob, another key → Unreadable; no key → KeyGone; fresh IVs),
+  the store key, the link state's losses, wipe, the wire form, and proof.rs's own fixed vector (the scalar 1…32,
+  RFC 6979, printed by a verbatim copy of proof.rs's verify in the scratch folder) verified in Java.
+- Emulator (Medium_Phone_API_36.0, arm64, API 36, 4 kB pages, no screen lock, no StrongBox; keys in SOFTWARE, as an
+  emulator has no TEE): `:core:connectedDebugAndroidTest` 6 of 6, and OnPhoneTest 10 runs of 10 by `am instrument`
+  after a flaky assertion was fixed (the forget test raced the core's own sync). The library loads through JNA;
+  `libferb_mobile_ffi.so` (16 335 008 B) and `libjnidispatch.so` stored, every LOAD aligned 16384; `zipalign -c -P 16`
+  passes. A Keystore-wrapped store key opens, closes and reopens the SQLCipher store from a second vault object; the
+  database holds no plain text. ProcessDeathTest: sealed in process 11900, `am force-stop`, opened in 11935. Forget
+  with Keystore keys: new keys, new store key, empty store. `dumpsys package`: no ALLOW_BACKUP flag; `bmgr backupnow`:
+  "Backup is not allowed"; the merged manifest has the three attributes. Device-key signatures (3, and one over
+  another payload) verified by the copy of proof.rs's verify: 3 accepted, the wrong one refused.
+- Release signing: a throwaway PKCS12 key in the scratch folder, the gallery's release turned on for the check only
+  (restored byte for byte): `apksigner verify` v3, one signer; without settings the build stopped in 14 s.
+- Builds offline after the first: `./gradlew --offline :core:testDebugUnitTest :core:assembleDebug
+  :core:assembleDebugAndroidTest` passed; a repeat with nothing changed 3.6 s. First-time downloads: JNA 5.17.0's aar,
+  androidx.annotation 1.9.1, androidx.test runner 1.6.2 and monitor 1.7.2, the Android test platform (UTP) and lint
+  for the release check; cargo-ndk's crates; Rust's x86_64-linux-android standard library.
+- Size per ABI: + 16.3 MB (arm64-v8a, stored uncompressed so the phone maps it in place) or 17.9 MB (x86_64), + 0.17 MB
+  JNA dispatcher, + the bindings' classes (about 10 600 lines of generated Kotlin; R8 at S11 decides the dex size).
+
+**Not done here (engine, another agent's):** a test freezing Android's signatures in proof.rs (the patch and the
+vectors: scratch `s9-proof-android-vectors.patch`, `s9-android-signatures.json`); ferb-link's `crate-type` includes
+`cdylib` (the lab's JNI library), so every phone build also links a 10 MB `libferb_link.so` nobody ships: dropping it
+saves link time once nothing needs the lab library; registering a key made after pairing (`link.keys`) is not in the
+phone library (PHN-133 says only pairing replaces the strong key; a phone paired without a fingerprint that gets one
+later would need it).
+
+**Unverified / open.**
+- Nothing ran on the Motorola: the wireless adb connection was refused (mDNS shows `adb-ZA223MW6W2…`, the TCP port
+  answers, `adb connect` fails: the phone no longer accepts this Mac's adb key; it needs pairing again with a code from
+  Developer options). Nothing was installed there. So StrongBox/TEE placement, a real lock and strong key, 16 kB-page
+  hardware and the prompt are unverified on hardware.
+- No prompt was answered: `PromptSigner` (lock and strong) never signed with a real fingerprint or PIN; the
+  instrumented test only shows the prompted keys refuse to sign without one (the emulator has no screen lock, so it
+  made neither: that branch ran on the emulator only as "not made"). By hand on the Motorola: lock key unlock; strong
+  key sign; add a fingerprint → strong GONE and `fingerprintsChanged`; remove the screen lock → lock GONE and
+  `pairAgain`; clear app data → a first start; a backup/transfer to another phone → nothing carried.
+- `FerbPhone` never ran against the real link from Kotlin (S8's Rust test did, on 127.0.0.1); `AndroidSignals` has no
+  test (it needs a process lifecycle and network changes: S11's app and the live checks).
+- The broad Rust inputs make Gradle re-run cargo on any engine change (cargo then finishes in seconds); measured once,
+  not on every kind of change. Another agent was editing ferb-link meanwhile, so one "unchanged" run rebuilt.
+- kb check: the new decisions' Kotlin test tags count only once `apps/android` is tracked (the whole folder is
+  untracked until the coordinator commits S10 and S9); until then kb lists PHN-495..498 (and S10's) as untested.

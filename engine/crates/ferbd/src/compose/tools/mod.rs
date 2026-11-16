@@ -13,6 +13,7 @@ pub mod context;
 pub mod diagnostics;
 pub mod mac;
 pub mod misc;
+pub mod project;
 pub mod shell;
 pub mod waits;
 pub mod wrap;
@@ -107,6 +108,8 @@ struct Inner {
     about: OnceLock<AboutDocument>,
     /// The permissions' states `about.diagnostics` reads (the About area's), once group B is built (DMN-595).
     diagnostics_permissions: OnceLock<diagnostics::Permissions>,
+    /// This Mac's device state: FERB.app's reports and the exact-location answers (T-1130, memory only).
+    device: Arc<crate::compose::device::DeviceState>,
     owner_secrets: OnceLock<Arc<ferb_identity::owner_secrets::OwnerSecrets>>,
     /// The live task records the gateway holds (`self.tasks`), mirrored for the tools that read a task's tree or
     /// deadline (the gateway keeps its own private).
@@ -138,6 +141,8 @@ struct Inner {
     attribution: Arc<ferb_sense::attribution::Attribution>,
     /// The daemon's one trail, once sensing builds it: observations in, and its last event (`signals`).
     trail: OnceLock<TrailHandle>,
+    /// `_fresh` (T-1124): the permissions and browser profiles kept FRESH_S.
+    fresh: ferb_daemon::shared::Fresh,
     /// desktop.py's Automation state (`_automation_cache`, `_automation_checks`, `_tab_granted`): a browser's front
     /// tab read through AppleScript only once the owner granted Automation for it.
     automation: Arc<ferb_daemon::areas_b::desktop::Automation>,
@@ -153,22 +158,14 @@ pub struct TrailHandle {
     pub last_event: Arc<Mutex<Option<ferb_core::when::DateTime>>>,
 }
 
-/// `CallHooks.previews` (call_hooks.py:79) over these parts: the gateway's locks once it is attached, the Mac's image
-/// masking, the Screen Recording check, the journal.
+/// `CallHooks.previews` (call_hooks.py:79) over these parts: the gateway's locks once it is attached, the Screen
+/// Recording check, the journal. No image masking: the owner's live preview shows frames as captured (APP-922).
 fn previews_of(opts: &Options, p: &Parts) -> ferb_daemon::areas_b::task_preview::TaskPreviews {
     let me = Arc::downgrade(&p.0);
-    let images: Arc<dyn ferb_gateway::call_hooks::ImageSanitizer> = match p.mac() {
-        Some(m) => m.images.clone(),
-        None => Arc::new(mac::Images {
-            redactor: p.redactor(),
-            native: opts.native,
-        }),
-    };
     let native = opts.native;
     let journal = p.journal();
     super::previews::build(super::previews::Over {
         locks: Arc::new(move || Some(me.upgrade()?.gateway.get()?.upgrade()?.locks().clone())),
-        images,
         // `_screen_recording_allowed`: read only when a capture failed, to say why (a daemon without the Mac's
         // parts can't read it: allowed, as Python's answer when the read raises)
         screen_recording: Arc::new(move || {
@@ -314,6 +311,7 @@ impl Parts {
             group_a: OnceLock::new(),
             about: OnceLock::new(),
             diagnostics_permissions: OnceLock::new(),
+            device: Arc::default(),
             owner_secrets: OnceLock::new(),
             tasks: Mutex::new(std::collections::HashMap::new()),
             shutting_down: std::sync::atomic::AtomicBool::new(false),
@@ -339,6 +337,10 @@ impl Parts {
                 }))
             },
             trail: OnceLock::new(),
+            fresh: ferb_daemon::shared::Fresh::new(
+                ferb_daemon::shared::FRESH_S,
+                opts.clock.clone(),
+            ),
             automation: Arc::default(),
             perception: OnceLock::new(),
         }));
@@ -395,6 +397,11 @@ impl Parts {
     }
 
     /// The daemon's one attribution (main.py:223).
+    /// The daemon's `_fresh`: slow reads kept FRESH_S (T-1124).
+    pub fn fresh(&self) -> ferb_daemon::shared::Fresh {
+        self.0.fresh.clone()
+    }
+
     pub fn attribution(&self) -> Arc<ferb_sense::attribution::Attribution> {
         self.0.attribution.clone()
     }
@@ -457,6 +464,10 @@ impl Parts {
     }
     pub fn set_diagnostics_permissions(&self, f: diagnostics::Permissions) {
         let _ = self.0.diagnostics_permissions.set(f);
+    }
+    /// This Mac's device state (`device.facts`, `device.report`, the facts line).
+    pub fn device(&self) -> Arc<crate::compose::device::DeviceState> {
+        self.0.device.clone()
     }
     pub fn diagnostics_permissions(&self) -> Option<diagnostics::Permissions> {
         self.0.diagnostics_permissions.get().cloned()
@@ -658,6 +669,10 @@ pub fn registry(p: &Parts) -> Registry {
     for t in shell::tools(p) {
         add(t);
     }
+    // HAND-623: a Rust addition after shell.rules (catalog_additions.json)
+    add(project::tool(p));
+    // HAND-642: after project.publish (catalog_additions.json)
+    add(project::fetch_tool(p));
     // add_trail, the task's evidence, time, skills, the context readers, secrets, about, conversations, learning
     for t in misc::rest(p) {
         add(t);

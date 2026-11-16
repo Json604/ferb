@@ -1,0 +1,32 @@
+{
+ "vectors": [
+  {
+   "what": "android device key 1",
+   "key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEy41bKTvs2hX+BZ1RcIfCPSa+Vaxg4xTwdz3fyojWkJRvRrDP3R9Neu8OPoN23sPGcTLnCYhF4fgSvP+wI0AbKQ==",
+   "payload": "{\"challenge\":\"vector-1\",\"method\":\"link.present\",\"params\":{}}",
+   "sig": "MEYCIQDuef/EpA6CmnUzp+aTLVLtO6lE6htzxv9axIqqhOkasAIhANokpUrIhDv8ruruRqneR8jdeDxgiGf7dvqlN5mZkv+w",
+   "valid": true
+  },
+  {
+   "what": "android device key 2",
+   "key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEy41bKTvs2hX+BZ1RcIfCPSa+Vaxg4xTwdz3fyojWkJRvRrDP3R9Neu8OPoN23sPGcTLnCYhF4fgSvP+wI0AbKQ==",
+   "payload": "{\"challenge\":\"vector-2\",\"method\":\"link.present\",\"params\":{}}",
+   "sig": "MEYCIQDdvLY0lMR9SxoviUT1K6uZd7ZXOHbe6qSBq6BzeeZl9gIhAJiYEzcCQXas1ey2Y0DRU/3do7CCXKswAB2vgn8bd/p2",
+   "valid": true
+  },
+  {
+   "what": "android device key 3",
+   "key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEy41bKTvs2hX+BZ1RcIfCPSa+Vaxg4xTwdz3fyojWkJRvRrDP3R9Neu8OPoN23sPGcTLnCYhF4fgSvP+wI0AbKQ==",
+   "payload": "{\"challenge\":\"vector-3\",\"method\":\"link.present\",\"params\":{}}",
+   "sig": "MEQCIA3SwSNw2mL13Ps+lV2zZCPkVGYnMn/Y4ypo9fmXErLLAiAm/nqKxG+mQd90wHsv0FgVNYC5OzaW9uQhe8FthdSyNw==",
+   "valid": true
+  },
+  {
+   "what": "android device key, another payload",
+   "key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEy41bKTvs2hX+BZ1RcIfCPSa+Vaxg4xTwdz3fyojWkJRvRrDP3R9Neu8OPoN23sPGcTLnCYhF4fgSvP+wI0AbKQ==",
+   "payload": "{}",
+   "sig": "MEUCIQDmzs1Ts/ZfzKSJsVgQd12xWGPytKbx1s5W7avGA0lPVwIgTxjaqxRn3oozkzQEzSNz/WhVweSaiQHINr4XFc5Z+Bk=",
+   "valid": false
+  }
+ ]
+}

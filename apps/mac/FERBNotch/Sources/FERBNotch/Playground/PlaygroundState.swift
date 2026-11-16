@@ -23,11 +23,11 @@ final class PlaygroundState: ObservableObject {
         var id: String { rawValue }
     }
 
-    /// The seven permissions Allow all asks for, in its order (SetupModel.allowAllSequence).
-    nonisolated static let permissions = ["microphone", "clipboard", "input_monitoring", "accessibility",
+    /// The eight permissions Allow all asks for, in its order (SetupModel.allowAllSequence).
+    nonisolated static let permissions = ["microphone", "location", "clipboard", "input_monitoring", "accessibility",
                                           "full_disk_access", "notifications", "screen_recording"]
     /// FERB.app's own (macOS asks the app); the rest are the daemon's (FERB's agent app).
-    nonisolated static let appPermissions: Set<String> = ["notifications", "microphone"]
+    nonisolated static let appPermissions: Set<String> = ["notifications", "microphone", "location"]
     /// A new grant of these reaches a running process only after it restarts (ferb/device/permissions.py).
     nonisolated static let restartToCheck: Set<String> = ["screen_recording", "input_monitoring", "full_disk_access"]
 
@@ -90,7 +90,11 @@ final class PlaygroundState: ObservableObject {
 
     // MARK: Facts
 
-    func grant(_ id: String) -> GrantStatus { GrantStatus(rawValue: saved.grants[id] ?? "") ?? .unknown }
+    /// A permission a saved state predates (Location, added later) reads as not asked yet.
+    func grant(_ id: String) -> GrantStatus {
+        let missing = Self.permissions.contains(id) ? GrantStatus.notDetermined.rawValue : ""
+        return GrantStatus(rawValue: saved.grants[id] ?? missing) ?? .unknown
+    }
 
     /// The owner flipped a switch or answered a popup. A switch that applies only after a restart waits for one (the
     /// fake service restart, or a simulated quit and reopen), as on a real Mac.

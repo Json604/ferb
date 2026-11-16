@@ -3782,3 +3782,73 @@ rule = "For HAND-563; refines APP-883, APP-892's words. After Pair all a profile
 why = "Live 2026-11-16: the tour said \"The others need a step from you\" for a profile that was paired and working, the orb flew to a browser window at every Pair all with nothing to do there, and \"(open this profile)\" asked the owner to do what FERB does by itself (HAND-403)."
 paths = ["apps/mac/FERBNotch/Sources/NotchCore/PairProgress.swift::PairProgress", "apps/mac/FERBNotch/Sources/FERBNotch/IntroSetupBeats.swift", "apps/mac/FERBNotch/Sources/FERBNotch/IntroCopy.swift::IntroCopy.notPairedDetail", "apps/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift::SetupModel.pairAll", "apps/mac/FERBNotch/Sources/NotchCore/SetupModels.swift::BrowserProfileRow"]
 live = ["LIVE-960"]
+
+[APP-921]
+title = "A restart a running task defers is remembered, said once, and made when no task runs"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "Refines APP-598 and APP-662; never a restart while a task runs. When a grant's restart waits on a running task (chat.status), FERB.app keeps the rows (FERBRestartAfterTasks, across launches), says it once as a quiet FERB message in the chat, and restarts the service when the app's task list is empty and chat.status confirms no task runs; a restart made any other way clears it. Settings' row says it waits."
+why = "T-1047: restartUnlessWorking returned without a word when chat.status listed a task; restartedForSwitch and cameBack's emptied set meant nothing restarted after the task ended, and only the setup window's row hinted at a restart."
+evidence = "Read check 2026-11-16: SetupModel.swift restartUnlessWorking (~697-703), grantAndConfirm's restartedForSwitch (~162-164), cameBack (~688-692); SetupView.swift row line (~433)."
+paths = ["apps/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift", "apps/mac/FERBNotch/Sources/FERBNotch/Application.swift", "apps/mac/FERBNotch/Sources/FERBNotch/UpdateNotes.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SetupView.swift"]
+
+[APP-922]
+title = "The Mac's live preview shows frames as captured; nothing of them is ever stored or sent"
+by = "owner"
+date = 2026-11-16
+status = "active"
+supersedes = ["DMN-405", "HAND-598"]
+words = "but why do we have this encryption in the feed, it doesnt capture in screen recording or screenshots. so ferb can not see it anyways, so why not jsut show it as it?? why maskin this???"
+words_source = "Owner 2026-11-16, asked while the round preview showed \"image redaction unavailable; pixels withheld\" (relayed by the coordinator; \"encryption\" is the masking of the live preview feed)."
+rule = "FERB.app's live preview on the Mac shows each frame as captured: no text reading, no field painting, never withheld for masking. Kept from DMN-405: frames live in memory only (OwnerOnlyFrame), never on disk, in the database, a trace, a log, a tool result or a model; only tasks.preview (app_only) carries them; none after the task ends or of a tab it doesn't own; the preview windows stay out of screen sharing (APP-406)."
+why = "A live frame shown only to the owner on his own Mac reaches nothing rule 7 protects; masking cost a Vision pass per frame and withheld frames while the reader was busy (T-1119)."
+paths = ["engine/crates/ferb-mac-hands/src/point.rs", "engine/crates/ferb-daemon/src/areas_b/task_preview.rs", "engine/crates/ferbd/src/compose/previews.rs", "engine/crates/ferb-mac-hands/src/driver/mod.rs", "engine/crates/ferb-browser/src/capture.rs"]
+
+[APP-923]
+title = "A deleted turn takes only itself: what other turns showed after it stays, after the kept turn before"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For STORE-424. removeTurns drops the deleted turns and their own replies; a reply of another turn or a notice drawn after a deleted turn (afterTurnID) is drawn after the kept turn before it (a reply with none, after its own turn; a notice with none, first), as the engine's entries fold, and saved so."
+why = "S6: a late answer to an earlier turn shown after the deleted turn, and a notice after it, vanished from the chat (transcript() draws by afterTurnID), leaving \"Answered below\" pointing at nothing."
+evidence = "EntryFoldTests testADeletedTurnKeepsWhatOtherTurnsShowedAfterIt; deleted_turn_between: the app's transcript differs from the fold with the old removeTurns, equal with the new."
+paths = ["apps/mac/FERBNotch/Sources/NotchCore/StoredData.swift::ConversationArchive.removeTurns"]
+
+[APP-924]
+title = "The fold reads a message entry's sealed IDs as the ack gives them"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For GATE-604, ENG-9. EntryFold.messageTurn and applyMessageEntry take the message entry's body.sealed ({kind, name}) as acknowledge takes the ack's, so the notice under the message names them on every client; a revision keeps the Mac's own shown mark (GATE-602)."
+why = "S6: the projector stores the ack's sealed on the message entry, but the fold never read it: a phone's or another device's turn lost the line saying which IDs FERB kept sealed."
+evidence = "EntryFoldTests testAMessagesSealedIDsFoldFromItsEntry; sealed_ids_in_message: app and fold differ without the change, equal with it."
+paths = ["apps/mac/FERBNotch/Sources/NotchCore/EntryFold.swift::EntryFold.messageTurn", "apps/mac/FERBNotch/Sources/NotchCore/EntryFold.swift::ConversationArchive.applyMessageEntry"]
+
+[APP-925]
+title = "Location is FERB.app's own grant, the ninth setup permission, reported to the daemon"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For SENSE-420, APP-508. FERB.app holds Location (NSLocationUsageDescription and the When-In-Use key, the location entitlement): a required app row asked in Allow all by macOS's question, its Privacy_LocationServices pane when off. It reports the state, city and Wi-Fi name through device.report (app_only) and answers device.location_wanted with one precise fix. The daemon holds no Location grant."
+why = "The daemon is a background agent with no window; Apple documents no way for it to show the Location prompt (forum threads 816619 and 840513 disagree), and FERB.app already holds the owner's other app grants. CoreWLAN gives the Wi-Fi name only to a process with Location."
+paths = ["apps/mac/FERBNotch/Sources/FERBNotch/DeviceLocation.swift::SystemLocationSource", "apps/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift::SetupModel.refreshPermissions", "apps/mac/FERBNotch/Info.plist", "scripts/signing.sh::ferb_entitlements", "engine/crates/ferb-rpc/src/auth.rs::DEVICE_ADDITIONS"]
+
+[APP-926]
+title = "Owner-facing words never mention AI: plain, friendly and about FERB"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "dont mention AI, it makes it hostile, jsut keep it normal and tied to ferb. your wording s are scary"
+words_source = "Owner 2026-11-16, on the Location strings proposed for T-1130 (the question said the AI service receives the coordinates on its servers)."
+rule = "Text the owner reads (FERB.app, macOS's usage strings, FERB's own questions) doesn't speak of AI, an AI service or servers: it says what FERB does, plainly and kindly. Applies to all owner-facing text from now on; what a model reads stays factual."
+why = "The owner found the wording hostile and scary; FERB's words should be normal and tied to FERB."
+
+[APP-927]
+title = "FERB explains each permission when asked: use, limits, what's shared, how to turn it off"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For APP-926, SENSE-420. The About document (about.get, about.read; its permissions section too) carries permission_reasons after permissions: for each setup permission and Automation, its name, status, who holds it, what FERB uses it for, what it doesn't do, what stays on the Mac and what is shared, how to turn it off and what stops then (about.rs PERMISSION_REASONS). Statuses: the daemon's grants; Location as FERB.app reported it; the others 'set in FERB.app'."
+why = "Owner 2026-11-16: if someone asks FERB why, does it have explanations? A model paraphrases the table, so each line is a fact of the code; a test checks its ids against FERB.app's setup list and keeps AI and server words out."
+paths = ["engine/crates/ferb-daemon/src/areas_b/about.rs::PERMISSION_REASONS", "engine/crates/ferb-daemon/src/areas_b/about.rs::add_reasons", "engine/crates/ferbd/src/compose/tools/context.rs::about_read"]

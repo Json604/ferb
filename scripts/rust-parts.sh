@@ -52,6 +52,7 @@ ferb_rust_arch_names() {
 # BUNDLE_RUST_NATIVE_HOST, BUNDLE_CLI, BUNDLE_MODELS; ferbd home.rs package_folder; setup_env.rs Sources).
 FERB_RUST_AGENT="Helpers/FERB.app/Contents/MacOS/FERB"           # ferbd: the nested com.ferb.daemon app's executable
 FERB_RUST_NATIVE_HOST="Helpers/ferb-native-host"
+FERB_RUST_LINK="Helpers/ferb-link"                               # the phone link's helper (ferb-rpc link_peer HELPER)
 FERB_RUST_CLI="Resources/bin/ferb"                               # the internal commands' program
 FERB_RUST_PACKAGE="Resources/ferb"                               # the runtime Markdown, byte for byte
 FERB_RUST_EXTENSION="Resources/extensions/chromium"
@@ -132,7 +133,7 @@ ferb_rust_size_report() {
         "$codex|Codex (Resources/node/@openai)"
         "$agent|Daemon: ferbd as the agent app (Helpers/FERB.app)"
         "$cli|ferb program (Resources/bin)"
-        "$helpers|Helpers (native host, secrets)"
+        "$helpers|Helpers (native host, secrets, phone link)"
         "$models|Embedding model (Resources/models)"
         "$notch|Notch app (MacOS)"
         "$sparkle|Sparkle (Frameworks)"

@@ -1,0 +1,38 @@
+# Spawns in src/compose that don't go through compose/guard.rs (T-1123), each with why. tests/loops_supervised.rs
+# fails on a spawn there that isn't listed (a loop or one-off job added outside the guard) and on a line here nothing
+# matches any more. A loop for the daemon's life never belongs here: it goes through Daemon::spawn_loop,
+# spawn_group_a_loop, spawn_background or guard::thread / guard::thread_once.
+#
+# Format: file | what the spawn line holds (a thread's name for a std::thread::Builder chain) | why
+# Every entry is per-call work that ends with its call: a panic in one is journaled `daemon.unhandled` by the panic
+# hook (src/log.rs), an error is the caller's.
+
+src/compose/mod.rs | self.keep(tokio::spawn(async move { g.run(name, body).await })); | the guard's own helper (Daemon::spawn_loop)
+src/compose/mod.rs | self.keep(tokio::spawn(async move { g.background(what, work).await })); | the guard's own helper (Daemon::spawn_background)
+src/compose/mod.rs | let _ = self.a.spawn(move |st| async move { | the guard's own helper (Daemon::spawn_group_a_loop)
+src/compose/mod.rs | tokio::spawn(async move { | the panic hook's journal consumer, run by the guard as the loop `unhandled` (built before the daemon exists)
+src/compose/mod.rs | let _ = a.spawn(move |st| async move { | sets group A's browsing hook once at start
+src/compose/loops.rs | d.a.spawn(move |st| async move { st.set_presence(presence) }); | sets group A's timer presence once at start
+src/compose/loops.rs | let _ = a.spawn(move |st| async move { | the Mac's return, once per return (`_owner_back`)
+src/compose/loops.rs | thread "ferb-automation-check" | one Automation check per app, kept 60 s
+src/compose/loops.rs | thread "ferb-device-profile" | one app install's profile update per event
+src/compose/memory_loops.rs | tokio::task::spawn_local(fut); | a distill note told to the owner, per note
+src/compose/consumers.rs | rt.spawn(async move { n.notify(banner, urgent).await }); | a question's banner, per question (Python's `_spawn`)
+src/compose/consumers.rs | rt.spawn(async move { | per event: browser.window_shown's line, secret.refused's notice (Python's `_spawn`)
+src/compose/desktop_seams.rs | let _ = a.spawn(move |st| async move { | one schedule change, per call
+src/compose/desktop_seams.rs | thread "ferb-automation" | one Automation check per call
+src/compose/desktop_seams.rs | rt.spawn(async move { | per task.paused / task.resumed event (Python's `_spawn`)
+src/compose/supervisor.rs | thread "ferb-browsing-question" | FERB's browsing question, asked once per call
+src/compose/supervisor.rs | let _ = a.spawn(|st| async move { | the persona's preparation, per chat
+src/compose/supervisor.rs | thread "ferb-input-monitoring" | the Input Monitoring request, once
+src/compose/rpc.rs | rt.spawn(async move { h.shutdown().await }); | the global stop: hearing ends (Python's `_spawn("stop: hearing")`)
+src/compose/rpc.rs | rt.spawn(async move { r.shutdown().await }); | the global stop: recordings end
+src/compose/rpc.rs | rt.spawn(async move { d.shutdown().await }); | the global stop: a browser driver lets its tabs go
+src/compose/rpc.rs | rt.spawn(async move { | the global stop: the shell's task-owned processes are killed
+src/compose/areas.rs | tokio::spawn(async move { | the intro's preview stream, per request
+src/compose/tools/browser.rs | let _ = a.spawn(|st| async move { | the downloads cap, per download over it
+src/compose/tools/browser.rs | rt.spawn(async move { d.shutdown().await }); | an unpaired profile's tabs close, per unpairing
+src/compose/tools/mac.rs | thread "ferb-image-redact" | one image redaction, awaited by its call
+src/compose/tools/mac.rs | thread "ferb-mac-call" | one Mac call on a thread of its own, awaited by its call
+src/compose/link.rs | .spawn() | the phone link's helper process, owned by the supervised loop "phone link" (compose/link.rs Runner::start)
+src/compose/link.rs | tokio::spawn(async move { | copies one helper run's standard error to FERB's log, ending with that run

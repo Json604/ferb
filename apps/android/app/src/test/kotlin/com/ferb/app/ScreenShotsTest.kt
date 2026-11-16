@@ -1,0 +1,275 @@
+package com.ferb.app
+
+import android.graphics.Bitmap
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.lifecycle.SavedStateHandle
+import androidx.test.core.app.ApplicationProvider
+import com.ferb.app.model.CardLine
+import com.ferb.app.model.ChatRow
+import com.ferb.app.model.Question
+import com.ferb.app.model.Work
+import com.ferb.app.model.WorkItem
+import com.ferb.app.ui.Host
+import com.ferb.app.ui.Main
+import com.ferb.app.ui.Message
+import com.ferb.app.ui.Sheets
+import com.ferb.core.KeyHealth
+import com.ferb.core.KeyState
+import com.ferb.design.Phone
+import com.ferb.design.components.MarkKind
+import com.ferb.design.components.PhoneTab
+import com.ferb.design.components.PlanPart
+import com.ferb.design.preview.labMoment
+import com.ferb.design.screens.LabAndroidChrome
+import com.ferb.design.screens.PhoneInsets
+import com.ferb.design.screens.PhoneScreen
+import com.ferb.design.sky.SkyMoment
+import com.ferb.mobile.LinkPath
+import com.ferb.mobile.LinkPhase
+import com.ferb.mobile.OlderState
+import com.ferb.mobile.OutboxItem
+import com.ferb.mobile.RelayStatus
+import com.github.takahirom.roborazzi.RoborazziOptions
+import com.github.takahirom.roborazzi.captureRoboImage
+import java.io.File
+import android.graphics.BitmapFactory
+import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
+
+/**
+ * The app's own screens, drawn by Robolectric's native renderer at the lab's Android size: the chat with the lab's
+ * own sample against :design's golden of the lab's chat (the app must look like the lab, PHN-416), and the states only
+ * the app has against the app's goldens (app/src/test/screenshots; `:app:recordRoborazziDebug` rewrites them).
+ */
+@RunWith(RobolectricTestRunner::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+@Config(qualifiers = "w412dp-h1000dp-port-mdpi")
+class ScreenShotsTest {
+    @get:Rule val compose = createComposeRule()
+
+    private val vm by lazy {
+        FerbViewModel(FakePhone(), Session { 0L }, Prefs(ApplicationProvider.getApplicationContext()), { true }, null, SavedStateHandle())
+    }
+    private val host = object : Host {
+        override fun stayConnected(on: Boolean) {}
+        override fun blockScreenshots(on: Boolean) {}
+        override fun askNotifications() {}
+    }
+
+    private val labRows = listOf(
+        ChatRow.Owner("a", "What's left on my calendar today?", emptyList(), null),
+        ChatRow.Ferb("b", "Two things: the design review at 4, and a call with the bank at 6:30."),
+        ChatRow.Owner("c", "Compare the three standing desks I bookmarked and put the cheapest in my cart", emptyList(), null),
+        ChatRow.Task("d", "t-1", "On it. Three parts.", 2, 3, listOf(
+            PlanPart(MarkKind.DONE, "Open your three desks", "3 pages read"),
+            PlanPart(MarkKind.RUNNING, "Compare price and delivery", "Reading delivery options"),
+            PlanPart(MarkKind.WAITING, "Put the cheapest in your cart"),
+        )),
+    )
+    private val asking = Question("ap-1", "t-1", "Run this in Terminal?", "To update Figma before opening the file you asked for.",
+        "brew upgrade --cask figma", "owner_question", "ferb.confirm", listOf("Yes", "No"), listOf("Yes, run it", "No"), false)
+    private val online = FakePhone.status()
+    private val base = UiState(gate = Gate.MAIN, link = online, keys = KeyHealth(KeyState.OK, KeyState.OK, KeyState.OK), questions = listOf(asking))
+
+    @Composable
+    private fun Frame(moment: SkyMoment, ui: UiState, tab: PhoneTab = PhoneTab.CHAT, sheet: Sheet? = null) {
+        Box(Modifier.size(Phone.frameWidth, Phone.frameHeight).testTag(PHONE)) {
+            PhoneScreen(moment, insets = PhoneInsets.Lab, glide = false, sheet = {
+                Sheets(vm, ui, sheet, PhoneInsets.Lab, host)
+                LabAndroidChrome()
+            }) { Main(vm, ui, tab, home = false, PhoneInsets.Lab, moment) }
+        }
+    }
+
+    private fun shoot(path: String) {
+        compose.mainClock.autoAdvance = false
+        compose.mainClock.advanceTimeByFrame()
+        compose.onNodeWithTag(PHONE).captureRoboImage("src/test/screenshots/$path", roborazziOptions = options)
+    }
+
+    // decision: PHN-416, PHN-455, PHN-509
+    @Test
+    fun the_chat_drawn_from_the_labs_sample_is_the_labs_chat() {
+        val moment = labMoment(12.5)
+        compose.setContent { Frame(moment, base.copy(rows = labRows)) }
+        compose.mainClock.autoAdvance = false
+        compose.mainClock.advanceTimeByFrame()
+        val out = File("build/lab-compare/chat-noon.png")
+        compose.onNodeWithTag(PHONE).captureRoboImage(out.path, roborazziOptions = RoborazziOptions(taskType = com.github.takahirom.roborazzi.RoborazziTaskType.Record))
+        val ours = BitmapFactory.decodeFile(out.path)
+        val golden = BitmapFactory.decodeFile(File(System.getProperty("ferb.design.goldens"), "screens/chat-noon.png").path)
+        val changed = changedFraction(ours, golden)
+        assertTrue("the app's chat differs from the lab's in ${"%.3f".format(changed * 100)} % of its pixels", changed < 0.001)
+    }
+
+    // decision: PHN-401, ORCH-651
+    @Test
+    fun chat_with_the_outbox_a_notice_and_older_messages_waiting() {
+        val rows = listOf(
+            ChatRow.Older("older", OlderState.NeedsBetterPath("Older messages need a direct connection or your own relay.")),
+            ChatRow.Owner("a", "Tidy my Downloads folder", emptyList(), null),
+            ChatRow.Ferb("b", "Done: 214 files moved to Archive.\nNot done: the two installers — they were still open."),
+            ChatRow.Cards("c", listOf(CardLine("Archive", "Downloads", file = true))),
+            ChatRow.Line("d", "The backup drive is almost full."),
+            ChatRow.Asking("q:ap-1", "ap-1", "Run this in Terminal?"),
+            ChatRow.Outbox("o:1", OutboxItem("1", "And empty the trash", "2026-01-02T10:00:00+00:00", "waiting", "link", null, false)),
+            ChatRow.Outbox("o:2", OutboxItem("2", "Rename the scans", "2026-01-02T10:00:00+00:00", "failed", null, "FERB on your Mac turned this down", false)),
+        )
+        compose.setContent { Frame(labMoment(12.5), base.copy(rows = rows, link = FakePhone.status(LinkPhase.WAITING))) }
+        shoot("chat-offline-outbox.png")
+    }
+
+    // decision: PHN-417, PHN-470
+    @Test
+    fun a_question_sheet_with_the_macs_words() {
+        compose.setContent { Frame(labMoment(22.5), base.copy(rows = labRows), sheet = Sheet.Asking("ap-1")) }
+        shoot("question.png")
+    }
+
+    // decision: PHN-110, PHN-502
+    @Test
+    fun a_private_code_takes_the_labs_keypad() {
+        val code = Question("ap-2", null, null, "The 6-digit code Northfield Energy sent you.", null, "owner_login_code", null, emptyList(), emptyList(), true)
+        compose.setContent { Frame(labMoment(12.5), base.copy(rows = labRows, questions = listOf(code)), sheet = Sheet.Asking("ap-2")) }
+        shoot("private-code.png")
+    }
+
+    // decision: PHN-110, PHN-502
+    @Test
+    fun a_private_password_takes_the_system_keyboard_in_its_password_mode() {
+        val pw = Question("ap-3", null, "Your Mac's password", "To install the printer driver you asked for.", null, "owner_admin_password", null, emptyList(), emptyList(), true)
+        compose.setContent { Frame(labMoment(12.5), base.copy(rows = labRows, questions = listOf(pw)), sheet = Sheet.Asking("ap-3")) }
+        shoot("private-password.png")
+    }
+
+    // decision: PHN-420, PHN-421, PHN-422, PHN-8
+    @Test
+    fun this_phone_with_its_switches() {
+        compose.setContent { Frame(labMoment(6.1), base.copy(rows = labRows), sheet = Sheet.Profile) }
+        shoot("profile.png")
+    }
+
+    // decision: PHN-13
+    @Test
+    fun tasks_waiting_running_and_earlier() {
+        val work = Work(
+            listOf(WorkItem(MarkKind.ASKING, "Renew the domain", "Asks before paying $12.99", approvalId = "ap-1")),
+            listOf(WorkItem(MarkKind.RUNNING, "Compare standing desks", "Comparing price and delivery", 2 to 3)),
+            listOf(WorkItem(MarkKind.DONE, "Back up the thesis folder", "Copied to the external drive"), WorkItem(MarkKind.FAILED, "Download the October invoice", "The site asked for a code that never came")),
+        )
+        compose.setContent { Frame(labMoment(12.5), base.copy(work = work), tab = PhoneTab.TASKS) }
+        shoot("tasks.png")
+    }
+
+    // decision: PHN-418, PHN-425, PHN-444
+    @Test
+    fun the_mac_through_the_shared_relay_and_its_sheet() {
+        val relay = FakePhone.status(path = LinkPath.PUBLIC_RELAY)
+        compose.setContent { Frame(labMoment(22.5), base.copy(link = relay), tab = PhoneTab.MAC, sheet = Sheet.Relay) }
+        shoot("mac-relay.png")
+    }
+
+    // decision: PHN-425
+    @Test
+    fun the_mac_with_its_relay_down_and_the_public_one_standing_in() {
+        val fallback = FakePhone.status(path = LinkPath.PUBLIC_RELAY).copy(ownRelayUrl = "https://relay.example.net:7443", relay = RelayStatus.OwnFallback(null))
+        compose.setContent { Frame(labMoment(12.5), base.copy(link = fallback), tab = PhoneTab.MAC) }
+        shoot("mac-own-fallback.png")
+    }
+
+    // decision: PHN-506
+    @Test
+    fun files_say_plainly_they_are_not_on_the_phone_yet() {
+        compose.setContent { Frame(labMoment(12.5), base, tab = PhoneTab.FILES, sheet = Sheet.NotYet(Feature.FILES)) }
+        shoot("files-not-yet.png")
+    }
+
+    // decision: PHN-408
+    @Test
+    fun forgetting_the_mac_asks_first() {
+        compose.setContent { Frame(labMoment(12.5), base.copy(rows = labRows), sheet = Sheet.Forget) }
+        shoot("forget.png")
+    }
+
+    // decision: PHN-8
+    @Test
+    fun a_phone_without_a_screen_lock_is_told_how() {
+        val moment = labMoment(12.5)
+        compose.setContent {
+            Box(Modifier.size(Phone.frameWidth, Phone.frameHeight).testTag(PHONE)) {
+                PhoneScreen(moment, insets = PhoneInsets.Lab, glide = false, sheet = { LabAndroidChrome() }) {
+                    Message(androidx.compose.ui.res.stringResource(R.string.no_lock_title), androidx.compose.ui.res.stringResource(R.string.no_lock_text),
+                        androidx.compose.ui.res.stringResource(R.string.no_lock_open_settings), PhoneInsets.Lab) {}
+                }
+            }
+        }
+        shoot("no-screen-lock.png")
+    }
+
+    // decision: PHN-442, PHN-302
+    @Test
+    fun a_wrong_code_is_said_in_plain_words() {
+        val moment = labMoment(6.1)
+        compose.setContent {
+            Box(Modifier.size(Phone.frameWidth, Phone.frameHeight).testTag(PHONE)) {
+                PhoneScreen(moment, insets = PhoneInsets.Lab, glide = false, sheet = { LabAndroidChrome() }) {
+                    com.ferb.app.ui.Pair(vm, false, null, androidx.compose.ui.res.stringResource(R.string.pair_wrong_code), PhoneInsets.Lab)
+                }
+            }
+        }
+        shoot("pair-wrong-code.png")
+    }
+
+    // decision: PHN-447
+    @Test
+    fun the_scanner_asks_for_the_camera_in_plain_words() {
+        val moment = labMoment(22.5)
+        compose.setContent {
+            Box(Modifier.size(Phone.frameWidth, Phone.frameHeight).testTag(PHONE)) {
+                PhoneScreen(moment, insets = PhoneInsets.Lab, glide = false, sheet = { LabAndroidChrome() }) {
+                    com.ferb.app.ui.Scanner(vm, PhoneInsets.Lab) {}
+                }
+            }
+        }
+        shoot("scanner-camera.png")
+    }
+
+    // accessibility: the chat and its outbox at 150 % text
+    @Config(qualifiers = "w412dp-h1000dp-port-mdpi", fontScale = 1.5f)
+    @Test
+    fun chat_at_150_percent_text() {
+        compose.setContent { Frame(labMoment(12.5), base.copy(rows = labRows.take(2) + ChatRow.Outbox("o:1", OutboxItem("1", "And empty the trash", "t", "waiting", "unlock", null, false)))) }
+        shoot("large-text/chat.png")
+    }
+
+    companion object {
+        const val PHONE = "phone"
+        val options = RoborazziOptions(compareOptions = RoborazziOptions.CompareOptions(changeThreshold = 0.001f))
+
+        /** The share of pixels whose colour differs by more than a rounding step in any channel. */
+        fun changedFraction(a: Bitmap, b: Bitmap): Double {
+            if (a.width != b.width || a.height != b.height) return 1.0
+            var changed = 0
+            for (y in 0 until a.height) for (x in 0 until a.width) {
+                val p = a.getPixel(x, y)
+                val q = b.getPixel(x, y)
+                val d = maxOf(Math.abs((p shr 16 and 255) - (q shr 16 and 255)), Math.abs((p shr 8 and 255) - (q shr 8 and 255)), Math.abs((p and 255) - (q and 255)))
+                if (d > 2) changed++
+            }
+            return changed.toDouble() / (a.width * a.height)
+        }
+    }
+}

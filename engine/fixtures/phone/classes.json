@@ -1,0 +1,1436 @@
+{
+  "counts": {
+    "plain": 49,
+    "private": 36,
+    "sensitive": 48,
+    "never": 25
+  },
+  "methods": {
+    "about.get": {
+      "class": "plain",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "FERB's version"
+    },
+    "about.guide": {
+      "class": "never",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "is FERB.app's own first-run and how-to data, written by the app"
+    },
+    "attention.ack": {
+      "class": "plain",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "marks a notice seen"
+    },
+    "automation.request": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": true,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "asks macOS for a permission"
+    },
+    "browser.show_handoff": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": true,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "shows a browser window for the owner"
+    },
+    "browsers.installed": {
+      "class": "plain",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "which browsers the Mac has"
+    },
+    "browsers.list": {
+      "class": "plain",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the paired browsers"
+    },
+    "browsers.pair": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "changes where FERB may act"
+    },
+    "browsers.unpair": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "changes where FERB may act"
+    },
+    "chat.answer": {
+      "class": "plain",
+      "locked": "answer",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the owner's answer; a hidden input only through the sealed path (PHN-110)"
+    },
+    "chat.approve": {
+      "class": "plain",
+      "locked": "answer",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the owner's answer; a hard question's Yes carries its own fingerprint proof"
+    },
+    "chat.attach": {
+      "class": "plain",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "follows a turn already running, or starts a fresh conversation (history kept)"
+    },
+    "chat.correct": {
+      "class": "plain",
+      "locked": "answer",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the owner's correction to a question"
+    },
+    "chat.entries.changes": {
+      "class": "private",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the owner's conversation"
+    },
+    "chat.entries.days": {
+      "class": "private",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the owner's conversation"
+    },
+    "chat.entries.get": {
+      "class": "private",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the owner's conversation"
+    },
+    "chat.entries.mark": {
+      "class": "plain",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "marks what this phone has seen; shows nothing"
+    },
+    "chat.entries.page": {
+      "class": "private",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the owner's conversation"
+    },
+    "chat.entries.watch": {
+      "class": "private",
+      "locked": "refused",
+      "stream": true,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the owner's conversation, live"
+    },
+    "chat.history.days": {
+      "class": "private",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "FERB.app's saved chat, read"
+    },
+    "chat.history.import": {
+      "class": "never",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "is FERB.app's own record of its chat window; a second writer would mix two chats"
+    },
+    "chat.history.page": {
+      "class": "private",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "FERB.app's saved chat, read"
+    },
+    "chat.history.put": {
+      "class": "never",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "is FERB.app's own record of its chat window; a second writer would mix two chats"
+    },
+    "chat.send": {
+      "class": "plain",
+      "locked": "refused",
+      "stream": true,
+      "on_mac_screen": false,
+      "refused_params": [
+        "input_paths",
+        "test_run"
+      ],
+      "owner_to_confirm": false,
+      "why": "the owner's message, as from FERB.app"
+    },
+    "chat.status": {
+      "class": "plain",
+      "locked": "allowed",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "a locked phone must be able to stop FERB and see that something waits (PHN-125)"
+    },
+    "clipboard.request": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": true,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "reads or writes the Mac's clipboard"
+    },
+    "conversations.change": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "changes which conversation FERB keeps"
+    },
+    "conversations.list": {
+      "class": "plain",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the conversations' names"
+    },
+    "data.cell": {
+      "class": "private",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the stored data (PHN-402)"
+    },
+    "data.context": {
+      "class": "private",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the stored data (PHN-402)"
+    },
+    "data.delete": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "deletes a turn (PHN-402)"
+    },
+    "data.row": {
+      "class": "private",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the stored data (PHN-402)"
+    },
+    "data.rows": {
+      "class": "private",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the stored data (PHN-402)"
+    },
+    "data.search": {
+      "class": "private",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the stored data (PHN-402)"
+    },
+    "data.tables": {
+      "class": "private",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the stored data (PHN-402)"
+    },
+    "device.report": {
+      "class": "never",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "is FERB.app's report of where this Mac is, from the Mac's own location; a phone's would move it"
+    },
+    "doctor.check": {
+      "class": "plain",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "FERB's health"
+    },
+    "identity.check": {
+      "class": "plain",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "whether FERB's own accounts are set"
+    },
+    "identity.choose": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "changes whose accounts FERB acts with"
+    },
+    "identity.find": {
+      "class": "private",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the owner's accounts and profiles"
+    },
+    "identity.pair": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "pairs a browser profile"
+    },
+    "intro.preview": {
+      "class": "never",
+      "locked": "refused",
+      "stream": true,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "is FERB.app's own first-run and how-to data, written by the app"
+    },
+    "intro.suggest": {
+      "class": "plain",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "first-run suggestions"
+    },
+    "jev.enable": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "changes what FERB may do"
+    },
+    "jev.reload": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "changes what FERB may do"
+    },
+    "jev.stats": {
+      "class": "plain",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the decision engine's counts"
+    },
+    "keys.delete": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "deletes a provider key"
+    },
+    "keys.store": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "stores a provider key"
+    },
+    "link.answer": {
+      "class": "never",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "is the phone link helper's own call about pairing and the device list, the Mac owner's side (PHN-106)"
+    },
+    "link.devices": {
+      "class": "never",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "is the phone link helper's own call about pairing and the device list, the Mac owner's side (PHN-106)"
+    },
+    "link.events": {
+      "class": "never",
+      "locked": "refused",
+      "stream": true,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "is the phone link helper's own call about pairing and the device list, the Mac owner's side (PHN-106)"
+    },
+    "link.pair_cancel": {
+      "class": "never",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "is the phone link helper's own call about pairing and the device list, the Mac owner's side (PHN-106)"
+    },
+    "link.pair_request": {
+      "class": "never",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "is the phone link helper's own call about pairing and the device list, the Mac owner's side (PHN-106)"
+    },
+    "link.pair_wait": {
+      "class": "never",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "is the phone link helper's own call about pairing and the device list, the Mac owner's side (PHN-106)"
+    },
+    "logs.subscribe": {
+      "class": "private",
+      "locked": "refused",
+      "stream": true,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "FERB's logs"
+    },
+    "memory.add": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "changes FERB's memory"
+    },
+    "memory.edit": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "changes FERB's memory"
+    },
+    "memory.forget": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "deletes from FERB's memory"
+    },
+    "memory.import.cancel": {
+      "class": "plain",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "stops an import"
+    },
+    "memory.import.estimate": {
+      "class": "plain",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the size of an import"
+    },
+    "memory.import.start": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "fills FERB's memory from another assistant's export"
+    },
+    "memory.import.status": {
+      "class": "plain",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "an import's progress"
+    },
+    "memory.learning": {
+      "class": "plain",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "whether learning is on"
+    },
+    "memory.list": {
+      "class": "private",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "what FERB remembers of the owner"
+    },
+    "memory.profile": {
+      "class": "private",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "what FERB remembers of the owner"
+    },
+    "memory.repeats": {
+      "class": "private",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "what FERB learned from the owner's tasks"
+    },
+    "memory.restore": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "changes FERB's memory"
+    },
+    "memory.retract": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "changes FERB's memory"
+    },
+    "memory.show": {
+      "class": "private",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "what FERB remembers of the owner"
+    },
+    "notices.list": {
+      "class": "plain",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "FERB's notices"
+    },
+    "notifications.categories": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "changes how the Mac shows FERB's notifications"
+    },
+    "notifications.subscribe": {
+      "class": "never",
+      "locked": "refused",
+      "stream": true,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "while open it takes FERB's notifications on the Mac away from FERB.app"
+    },
+    "phone.audit": {
+      "class": "never",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "is the record of what phones did, which no phone call reads or changes (PHN-114)"
+    },
+    "phone.challenge": {
+      "class": "plain",
+      "locked": "allowed",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the phone session's own call: the daemon's phone gate answers it and checks the proof it carries (PHN-124)"
+    },
+    "phone.enable": {
+      "class": "never",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "is FERB.app's control of the phone link (the pairing code, the owner's relay, the switch), the Mac owner's side (PHN-106)"
+    },
+    "phone.files": {
+      "class": "private",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "a folder's entries on the Mac (PHN-113); a key place needs its own fresh proof (PHN-121)"
+    },
+    "phone.keys": {
+      "class": "plain",
+      "locked": "allowed",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the phone session's own call: the daemon's phone gate answers it and checks the proof it carries (PHN-124)"
+    },
+    "phone.link_status": {
+      "class": "never",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "is FERB.app's control of the phone link (the pairing code, the owner's relay, the switch), the Mac owner's side (PHN-106)"
+    },
+    "phone.list": {
+      "class": "private",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the paired phones, so a second phone can remove a lost one (PHN-419)"
+    },
+    "phone.lock": {
+      "class": "plain",
+      "locked": "allowed",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the phone session's own call: the daemon's phone gate answers it and checks the proof it carries (PHN-124)"
+    },
+    "phone.pair_cancel": {
+      "class": "never",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "is FERB.app's control of the phone link (the pairing code, the owner's relay, the switch), the Mac owner's side (PHN-106)"
+    },
+    "phone.pair_decide": {
+      "class": "never",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "is the owner's Yes at the Mac to a new phone; a phone saying it would pair phones by itself (PHN-102, PHN-106)"
+    },
+    "phone.pair_start": {
+      "class": "never",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "is FERB.app's control of the phone link (the pairing code, the owner's relay, the switch), the Mac owner's side (PHN-106)"
+    },
+    "phone.present": {
+      "class": "plain",
+      "locked": "allowed",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the phone session's own call: the daemon's phone gate answers it and checks the proof it carries (PHN-124)"
+    },
+    "phone.put_begin": {
+      "class": "plain",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "starts a file sent from the phone into its upload folder (PHN-127)"
+    },
+    "phone.put_chunk": {
+      "class": "plain",
+      "locked": "allowed",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "carries an upload its unlocked begin started (PHN-127)"
+    },
+    "phone.put_end": {
+      "class": "plain",
+      "locked": "allowed",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "finishes, pauses or drops an upload its unlocked begin started (PHN-127)"
+    },
+    "phone.put_group": {
+      "class": "plain",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "starts a folder sent from the phone into its upload folder (PHN-127)"
+    },
+    "phone.read": {
+      "class": "private",
+      "locked": "refused",
+      "stream": true,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "one file from the Mac (PHN-113, PHN-115); a key place needs its own fresh proof (PHN-121)"
+    },
+    "phone.relay_always": {
+      "class": "never",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "is FERB.app's control of the phone link (the pairing code, the owner's relay, the switch), the Mac owner's side (PHN-106)"
+    },
+    "phone.relay_set": {
+      "class": "never",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "is FERB.app's control of the phone link (the pairing code, the owner's relay, the switch), the Mac owner's side (PHN-106)"
+    },
+    "phone.relay_test": {
+      "class": "never",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "is FERB.app's control of the phone link (the pairing code, the owner's relay, the switch), the Mac owner's side (PHN-106)"
+    },
+    "phone.remove": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "removes a paired phone: a second phone removes a lost one with its fingerprint (PHN-419)"
+    },
+    "phone.rename": {
+      "class": "never",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "changes the paired-phone list, which is the Mac owner's side (PHN-106)"
+    },
+    "phone.session_end": {
+      "class": "plain",
+      "locked": "allowed",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the phone session's own call: the daemon's phone gate answers it and checks the proof it carries (PHN-124)"
+    },
+    "phone.tree": {
+      "class": "private",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "a folder's files, to fetch it whole (PHN-113); key places inside are left out"
+    },
+    "phone.unlock": {
+      "class": "plain",
+      "locked": "allowed",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the phone session's own call: the daemon's phone gate answers it and checks the proof it carries (PHN-124)"
+    },
+    "ping": {
+      "class": "plain",
+      "locked": "allowed",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "a locked phone must be able to stop FERB and see that something waits (PHN-125)"
+    },
+    "projects.list": {
+      "class": "private",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the owner's project folders"
+    },
+    "projects.remove": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "changes what FERB may write and publish"
+    },
+    "ps.attach": {
+      "class": "private",
+      "locked": "refused",
+      "stream": true,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "a running command's output"
+    },
+    "ps.kill": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "ends a running command"
+    },
+    "ps.list": {
+      "class": "plain",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "running commands, no output"
+    },
+    "ps.send": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "types into a running command"
+    },
+    "questions.picture": {
+      "class": "private",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "a question's picture, such as a payment page (PHN-403)"
+    },
+    "recovery.list": {
+      "class": "private",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the recovery copies of the owner's files"
+    },
+    "recovery.restore": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "overwrites the owner's files"
+    },
+    "reminders.cancel": {
+      "class": "plain",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "cancels one of the owner's reminders"
+    },
+    "reminders.list": {
+      "class": "plain",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the owner's reminders"
+    },
+    "reports.build": {
+      "class": "private",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "a report of the owner's tasks"
+    },
+    "reports.diagnostic": {
+      "class": "private",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "a report of the owner's tasks"
+    },
+    "reports.send": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "sends a report off the Mac"
+    },
+    "results.ack": {
+      "class": "plain",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "marks a result seen"
+    },
+    "runtimes.check": {
+      "class": "plain",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "checks a runtime"
+    },
+    "runtimes.check_calls": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "spends a provider's calls"
+    },
+    "runtimes.model": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "changes FERB's model"
+    },
+    "runtimes.models": {
+      "class": "plain",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the models offered"
+    },
+    "runtimes.sign_in": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "signs FERB in to a provider"
+    },
+    "runtimes.status": {
+      "class": "plain",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "which runtimes are ready"
+    },
+    "runtimes.switch_task": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "moves a task to another runtime"
+    },
+    "runtimes.use": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "changes FERB's runtime"
+    },
+    "schedules.change": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "changes what FERB does on its own"
+    },
+    "schedules.list": {
+      "class": "plain",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the schedules"
+    },
+    "secrets.delete": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "deletes a saved secret"
+    },
+    "secrets.mask": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "changes what the redactor masks"
+    },
+    "secrets.saved": {
+      "class": "private",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the saved-secrets list, names only (PHN-404)"
+    },
+    "secrets.unmask": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "lets the AI see a saved identifier (PHN-402)"
+    },
+    "seen.image": {
+      "class": "private",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "a picture of what FERB saw on the Mac"
+    },
+    "seen.list": {
+      "class": "private",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "what FERB saw on the Mac"
+    },
+    "sense.pause": {
+      "class": "plain",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "stops FERB watching: only ever less"
+    },
+    "sense.resume": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "lets FERB watch the Mac again"
+    },
+    "sense.status": {
+      "class": "plain",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "whether FERB watches the Mac"
+    },
+    "settings.get": {
+      "class": "private",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the owner's settings (PHN-404)"
+    },
+    "settings.set": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "changes FERB's settings (PHN-404)"
+    },
+    "setup.browser_open": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": true,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "opens a browser on the Mac"
+    },
+    "setup.browser_pair": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "changes where FERB may act"
+    },
+    "setup.browsers": {
+      "class": "plain",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the browsers' setup state"
+    },
+    "setup.browsers_pair_all": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "changes where FERB may act"
+    },
+    "setup.browsers_pairing": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": true,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "changes where FERB may act"
+    },
+    "setup.finish": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "changes FERB's setup"
+    },
+    "setup.permission_request": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": true,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "asks macOS for a permission"
+    },
+    "setup.permissions": {
+      "class": "plain",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "which permissions FERB holds"
+    },
+    "setup.persona": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "changes FERB's persona"
+    },
+    "setup.uninstall_browser_files": {
+      "class": "never",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "is a step of FERB.app's Uninstall: from a phone it would cut FERB off from its browsers with FERB still installed"
+    },
+    "stop.engage": {
+      "class": "plain",
+      "locked": "allowed",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "a locked phone must be able to stop FERB and see that something waits (PHN-125)"
+    },
+    "stop.lift": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "lifts a stop"
+    },
+    "task.stop": {
+      "class": "plain",
+      "locked": "allowed",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "a locked phone must be able to stop FERB and see that something waits (PHN-125)"
+    },
+    "tasks.list": {
+      "class": "plain",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "which tasks run; no content"
+    },
+    "tasks.preview": {
+      "class": "private",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the Mac's screen, unmasked inside the link only (PHN-454, APP-922)"
+    },
+    "timeline.get": {
+      "class": "private",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "what FERB did, with its content"
+    },
+    "timers.repeat": {
+      "class": "plain",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "runs a loop again now"
+    },
+    "timers.states": {
+      "class": "plain",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "loops' states"
+    },
+    "tools.call": {
+      "class": "never",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "is a model worker's tool bridge, bound to its run token; the phone asks FERB through the chat"
+    },
+    "tools.list": {
+      "class": "never",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "is a model worker's tool bridge, bound to its run token; the phone asks FERB through the chat"
+    },
+    "trace.get": {
+      "class": "private",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "what a task did, with its content"
+    },
+    "ui.click_through": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": true,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "lets clicks through FERB's window"
+    },
+    "update.prepare": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "installs an update"
+    },
+    "verdict.set": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "records the owner's verdict on a task, which FERB learns from"
+    }
+  },
+  "_note": "Generated by engine/crates/ferb-rpc/tests/phone_classes.rs (UPDATE_GOLDEN=1) from engine/crates/ferb-rpc/src/classes.rs, the one authority. Not Python-recorded."
+}

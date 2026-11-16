@@ -199,6 +199,30 @@ final class AppScreensTests: XCTestCase {
         XCTAssertEqual(deleted?["name"] as? String, "password")
     }
 
+    func testProjectFoldersReadTheListAndRemoveByFolder() async {
+        let rpc = ScriptedRPC()
+        rpc.queue("projects.list", [
+            ["projects": [["folder": "/Users/a/code/site", "shown": "~/code/site", "since": "2026-11-16T07:00:00+05:30",
+                           "destinations": ["https://github.com/a/site.git"],
+                           "sources": ["https://github.com/a/lib.git"], "gh_hosts": ["github.com"]],
+                          ["folder": "/Users/a/code/tool", "shown": "~/code/tool", "destinations": [String]()],
+                          ["shown": "no folder"]]],
+            ["projects": [[String: Any]]()]])
+        rpc.replies["projects.remove"] = ["removed": true]
+        let store = FERBWindowStore(rpc: rpc)
+        await store.loadProjects()
+        XCTAssertEqual(store.projects.map(\.shown), ["~/code/site", "~/code/tool"])
+        XCTAssertEqual(store.projects[0].destinations, ["https://github.com/a/site.git"])
+        XCTAssertEqual(store.projects[0].since, "2026-11-16T07:00:00+05:30")
+        XCTAssertEqual(store.projects[1].destinations, [])
+        XCTAssertEqual(store.projects[0].sources, ["https://github.com/a/lib.git"])
+        XCTAssertEqual(store.projects[0].ghHosts, ["github.com"])
+        XCTAssertEqual(store.projects[1].sources, [])
+        await store.removeProject(store.projects[0])
+        XCTAssertEqual(rpc.params(of: "projects.remove").last?["folder"] as? String, "/Users/a/code/site")
+        XCTAssertTrue(store.projects.isEmpty)                 // the list was read again after Remove
+    }
+
     // decision: APP-5, APP-2
     func testUninstallingEverythingRunsThePurgeTheOwnerConfirmedInTheApp() {
         XCTAssertEqual(FerbOutput.uninstallArguments(purge: false), ["uninstall"])

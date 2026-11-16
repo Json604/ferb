@@ -10,13 +10,17 @@ pub mod checks;
 pub mod consumers;
 pub mod desktop;
 pub mod desktop_seams;
+pub mod device;
 pub mod egress;
 pub mod env_seams;
 pub mod front;
 pub mod gateway;
 pub mod group_c;
+pub mod guard;
+pub mod link;
 pub mod loops;
 pub mod memory_loops;
+pub mod phone;
 pub mod presence;
 pub mod previews;
 pub mod rpc;
@@ -106,6 +110,24 @@ pub struct Options {
     /// Where the chat entries' trace goes (ferb-supervisor `ChatLog::set_trace`); None: none is kept. Only a test sets
     /// it (the stand-ins' `chat_trace`).
     pub chat_trace: Option<ferb_supervisor::flow::chat_log::Trace>,
+    /// How a failed background loop waits before it starts again (compose/guard.rs; a test's recorder).
+    pub pause: Arc<dyn guard::Pause>,
+    /// The phone link's helper (stage 3 S4, compose/link.rs).
+    pub link: LinkOptions,
+}
+
+/// How this daemon runs the phone link's helper (compose/link.rs).
+#[derive(Clone)]
+pub struct LinkOptions {
+    /// The helper program: FERB.app's `Contents/Helpers/ferb-link`, a checkout's beside `ferbd`, a test's own; None:
+    /// this build has none and the phone feature can't run.
+    pub program: Option<PathBuf>,
+    /// Under its sandbox profile (the real daemon); a test daemon runs inside the test guard's, and sandboxes don't nest.
+    pub sandbox: bool,
+    /// More arguments for the helper (a test's relays, `--no-portmap`).
+    pub args: Vec<String>,
+    /// Where its one Keychain item is kept; None: through the secrets helper, as the daemon's `keychain` says.
+    pub keys: Option<Arc<dyn link::LinkKeys>>,
 }
 
 /// Replacements for seams the real composition fills, applied once each area's deps are built.
@@ -160,6 +182,13 @@ impl Options {
             question_ids: Arc::new(gateway::random_question_id),
             run_tokens: None,
             chat_trace: None,
+            pause: Arc::new(guard::RealPause),
+            link: LinkOptions {
+                program: link::program(crate::home::app_bundle().as_deref()),
+                sandbox: true,
+                args: Vec::new(),
+                keys: None,
+            },
         }
     }
 }
@@ -359,26 +388,37 @@ impl Daemon {
         // a panic is journaled `daemon.unhandled` (Python's `_loop_exception`): handed over a channel, so a panic on
         // a thread that holds the store's lock never waits for it
         {
-            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Map<String, Value>>();
+            let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Map<String, Value>>();
             crate::log::set_unhandled(move |row| {
                 let _ = tx.send(row);
             });
             let r = repeats.clone();
+            // supervised (T-1123); the channel outlives a failure
+            let rx = Arc::new(tokio::sync::Mutex::new(rx));
+            let g = guard::Guard::of(&journal, &redactor, &opts.pause);
             tokio::spawn(async move {
-                while let Some(row) = rx.recv().await {
-                    let last = row
-                        .get("frames")
-                        .and_then(Value::as_array)
-                        .and_then(|f| f.last())
-                        .and_then(Value::as_str)
-                        .unwrap_or("")
-                        .to_string();
-                    r.record(
-                        ferb_daemon::shared::UNHANDLED,
-                        &[ferb_daemon::shared::UNHANDLED, "panic", &last],
-                        row,
-                    );
-                }
+                g.run("unhandled", |_| {
+                    let (rx, r) = (rx.clone(), r.clone());
+                    async move {
+                        let mut rx = rx.lock().await;
+                        while let Some(row) = rx.recv().await {
+                            let last = row
+                                .get("frames")
+                                .and_then(Value::as_array)
+                                .and_then(|f| f.last())
+                                .and_then(Value::as_str)
+                                .unwrap_or("")
+                                .to_string();
+                            r.record(
+                                ferb_daemon::shared::UNHANDLED,
+                                &[ferb_daemon::shared::UNHANDLED, "panic", &last],
+                                row,
+                            );
+                        }
+                        Ok(())
+                    }
+                })
+                .await
             });
         }
         // the resource log: its first window starts here, so start-up's own work is in it (L30); the previews'
@@ -518,13 +558,20 @@ impl Daemon {
         // they are read they stay masked
         {
             let (store, r) = (owner_secrets.clone(), redactor.clone());
-            std::thread::spawn(move || {
-                if let Ok(values) = store.shown_values() {
-                    if !values.is_empty() {
-                        r.show_identifiers(values.iter().map(|v| v.expose()));
+            let g = guard::Guard::of(&journal, &redactor, &opts.pause);
+            let _ = guard::thread_once(
+                g,
+                "ferb-shown-identifiers",
+                "shown identifiers",
+                move || {
+                    if let Ok(values) = store.shown_values() {
+                        if !values.is_empty() {
+                            r.show_identifiers(values.iter().map(|v| v.expose()));
+                        }
                     }
-                }
-            });
+                    Ok(())
+                },
+            );
         }
         let tool_parts = tools::Parts::new(&opts, &config, &redactor, &db, &journal, &events);
         tool_parts.set_owner_secrets(owner_secrets.clone());
@@ -944,6 +991,32 @@ impl Daemon {
             },
         );
 
+        // stage 3 S3 (T-1202): the phone area and the phone link helper's check
+        let phones = phone::register(
+            &server,
+            phone::Parts {
+                db: db.clone(),
+                clock: clock.clone(),
+                redactor: redactor.clone(),
+                gateway: gw.clone(),
+                journal: journal.clone(),
+                events: events.clone(),
+                home: home.clone(),
+                real_peers: opts.app_check.is_none(),
+                // stage 3 S3b (T-1203): the phone's files, judged by the lists the gateway was given
+                protection: Arc::new(ferb_gateway::gateway::SyncProtection(
+                    gateway::protection(
+                        &config,
+                        &opts.user_home,
+                        &home,
+                        opts.app_bundle.as_deref(),
+                    )
+                    .map_err(|e| StartError::Failed(format!("FERB's protection lists: {e}")))?,
+                )),
+                user_home: opts.user_home.clone(),
+            },
+        );
+
         // DMN-510: serve before the slow part; every call but `ping` waits for the start to finish
         server.set_starting();
         server
@@ -954,6 +1027,22 @@ impl Daemon {
             "serving on its socket {} ms after the process started (only ping until the start is done)",
             crate::log::since_start_ms()
         ));
+
+        // stage 3 S4 (T-1204): the phone link's helper, run while the phone feature is on
+        let link_runner = link::Runner::new(
+            opts.link.program.clone(),
+            home.clone(),
+            opts.user_home.clone(),
+            ferb_core::paths::socket_path(&home),
+            config.clone(),
+            opts.link.keys.clone().unwrap_or_else(|| {
+                Arc::new(link::HelperKeys(areas::helper(&opts, &home))) as Arc<dyn link::LinkKeys>
+            }),
+            redactor.clone(),
+            opts.link.sandbox,
+            opts.link.args.clone(),
+        );
+        link::attach(&phones, &link_runner);
 
         let daemon = Arc::new(Daemon {
             opts,
@@ -983,6 +1072,7 @@ impl Daemon {
         if let Some(o) = &daemon.opts.overrides {
             o.started(&daemon);
         }
+        link_runner.start(&daemon);
         if let Err(e) = daemon.finish_start().await {
             daemon.journal.note(
                 "daemon.start_failed",
@@ -1106,9 +1196,10 @@ impl Daemon {
         // doesn't pay for it (on this Mac its first load took 50-100 s in Python and in Rust alike)
         if self.opts.mac {
             // a plain thread: a shutdown never waits for it
-            let _ = std::thread::Builder::new()
-                .name("ferb-vision-warm".into())
-                .spawn(ferb_mac_hands::native::vision::warm_recognition);
+            let _ = guard::thread_once(self.guard(), "ferb-vision-warm", "vision warm-up", || {
+                ferb_mac_hands::native::vision::warm_recognition();
+                Ok(())
+            });
         }
         // main.py:478 `_with_full_disk_access` (DMN-507, DMN-508): once FERB has Full Disk Access, FERB's files in
         // every installed browser, and the browser part of what FERB saw on this Mac when that was gathered before
@@ -1116,16 +1207,19 @@ impl Daemon {
         if self.opts.native {
             let cx = self.tools.browsers().and_then(|b| b.area());
             let a = self.a.clone();
-            tokio::spawn(async move {
-                let Some(cx) = cx else { return };
+            // `_spawn(..., "browser files")`: a failure is journaled `daemon.background_failed`
+            self.spawn_background("browser files", async move {
+                let Some(cx) = cx else { return Ok(()) };
                 let probe = cx.clone();
                 let readable = tokio::task::spawn_blocking(move || probe.other_app_data())
                     .await
                     .unwrap_or(false);
                 if !readable {
-                    return;
+                    return Ok(());
                 }
-                let _ = cx.connect_browsers().await;
+                cx.connect_browsers()
+                    .await
+                    .map_err(|e| format!("{}: {}", e.type_name, e.message))?;
                 let _ = a
                     .call(|st| async move {
                         // `persona_scan is not None and needs_browser_part()`: refresh reads the scan's presence
@@ -1135,6 +1229,19 @@ impl Daemon {
                         }
                     })
                     .await;
+                Ok(())
+            });
+        }
+        // main.py:477 `self._spawn(self._fresh.prime(self._permissions), "permission check")`: the planner's first
+        // turn won't wait for the TCC reads (T-1124); none without the Mac's parts
+        if self.opts.native {
+            let fresh = self.tools.fresh();
+            self.spawn_background("permission check", async move {
+                tokio::task::spawn_blocking(move || {
+                    fresh.prime(env_seams::PERMISSIONS, "", env_seams::read_permissions)
+                })
+                .await
+                .map_err(|e| format!("JoinError: {e}"))
             });
         }
         loops::start(self);
@@ -1156,6 +1263,44 @@ impl Daemon {
     /// Keeps a background loop for shutdown.
     pub fn keep(&self, job: JoinHandle<()>) {
         lock(&self.loops).push(job);
+    }
+
+    /// The guard over this daemon's journal (compose/guard.rs, `_supervise` and `_spawn`).
+    pub fn guard(&self) -> guard::Guard {
+        guard::Guard::of(&self.journal, &self.redactor, &self.opts.pause)
+    }
+
+    /// A loop for the daemon's life on the shared runtime (`_supervise`): a failure journaled and the loop started
+    /// again; aborted at shutdown. `body` is told how many times it failed before.
+    pub fn spawn_loop<F, Fut>(&self, name: &'static str, body: F)
+    where
+        F: FnMut(u32) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = Result<(), String>> + Send + 'static,
+    {
+        let g = self.guard();
+        self.keep(tokio::spawn(async move { g.run(name, body).await }));
+    }
+
+    /// One-off work in the background (`_spawn`): a failure journaled; aborted at shutdown.
+    pub fn spawn_background<Fut>(&self, what: &'static str, work: Fut)
+    where
+        Fut: std::future::Future<Output = Result<(), String>> + Send + 'static,
+    {
+        let g = self.guard();
+        self.keep(tokio::spawn(async move { g.background(what, work).await }));
+    }
+
+    /// A loop for the daemon's life on group A's thread, where its state lives (`_supervise`).
+    pub fn spawn_group_a_loop<F, Fut>(&self, name: &'static str, body: F)
+    where
+        F: FnMut(std::rc::Rc<AState>, u32) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = Result<(), String>> + 'static,
+    {
+        let g = self.guard();
+        let _ = self.a.spawn(move |st| async move {
+            let mut body = body;
+            g.run(name, |failures| body(st.clone(), failures)).await
+        });
     }
 
     /// `shutdown` (main.py:495): producers first, then what they started, then the server and the store. Each step

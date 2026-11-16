@@ -142,6 +142,8 @@ pub fn first(p: &Parts) -> Vec<Arc<dyn Tool>> {
         }) as Arc<dyn Tool>,
         super::context::tool_named(p, "abilities.list"),
         super::context::tool_named(p, "abilities.read"),
+        // SENSE-422: this Mac's facts, after abilities.read (a Rust addition to Python's registry)
+        crate::compose::device::tool(p),
         fs(ferb_fs::files::FS_LIST),
         fs(ferb_fs::files::FS_READ),
         Arc::new(FsLook { env: fs_env(p) }) as Arc<dyn Tool>,

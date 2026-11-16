@@ -1,8 +1,9 @@
 //! A task's live previews (`ferb/daemon/task_preview.py`, built as `call_hooks.py:79` builds them): the gateway's
 //! hooks declare each call's surface, FERB.app asks for frames (`tasks.preview`), the resource log counts them. A
 //! capture takes the surface's locks only when they are free: the gateway's own `try_hold` with `during_reads`
-//! (DMN-403, DMN-406), so a preview never queues behind, or ahead of, a worker's call. The frame goes through the
-//! same image masking as every image (L13), off the runtime's threads.
+//! (DMN-403, DMN-406), so a preview never queues behind, or ahead of, a worker's call. APP-922 (owner): the frame is
+//! shown as captured, an `OwnerOnlyFrame` for FERB.app's eyes only; it never passes the image masking the tools,
+//! evidence and recordings go through (L13), and nothing of it is stored or sent anywhere else.
 
 use std::collections::BTreeSet;
 use std::sync::{Arc, OnceLock};
@@ -36,41 +37,17 @@ impl PreviewClock for Clock {
     }
 }
 
-/// What the previews are built over: the gateway's resource locks (once it is built: `Gateway::locks`), the image
-/// masking, the Screen Recording check and the journal.
+/// What the previews are built over: the gateway's resource locks (once it is built: `Gateway::locks`), the Screen
+/// Recording check and the journal.
 pub struct Over {
     pub locks: Arc<dyn Fn() -> Option<ResourceLocks> + Send + Sync>,
-    pub images: Arc<dyn ferb_gateway::call_hooks::ImageSanitizer>,
     pub screen_recording: Arc<dyn Fn() -> bool + Send + Sync>,
     pub note: tp::Note,
 }
 
-/// `TaskPreviews(self._frame_sanitized, lambda keys, holder: self.gw.locks.try_hold(keys, holder,
-/// during_reads=True), _screen_recording_allowed, note=self._note_preview)`.
+/// `TaskPreviews(lambda keys, holder: self.gw.locks.try_hold(keys, holder, during_reads=True),
+/// _screen_recording_allowed, note=self._note_preview)`; Python's frame sanitizer is gone (APP-922).
 pub fn build(over: Over) -> TaskPreviews {
-    let images = over.images;
-    // a frame's faults (HAND-531) are collected by the image sanitizer under this task-local and added to
-    // preview.failed's row; the shown text and the journal's error stay the sanitizer's
-    let sanitize: tp::Sanitize = Arc::new(move |image: Vec<u8>| {
-        let images = images.clone();
-        Box::pin(async move {
-            let faults = Arc::new(std::sync::Mutex::new(Vec::new()));
-            let got = crate::compose::tools::mac::PREVIEW_FAULTS
-                .scope(faults.clone(), async { images.sanitize(&image).await })
-                .await;
-            got.map_err(|error| {
-                let faults = faults.lock().unwrap_or_else(|e| e.into_inner());
-                let mut facts = serde_json::Map::new();
-                if !faults.is_empty() {
-                    facts.insert(
-                        "faults".into(),
-                        serde_json::Value::Array(faults.iter().map(|f| f.facts()).collect()),
-                    );
-                }
-                tp::Unmasked { error, facts }
-            })
-        })
-    });
     let locks = over.locks;
     let try_hold: tp::TryHold = Arc::new(move |keys: &[String], holder: &str| {
         // before the gateway exists no call runs; the surface counts as busy until it does
@@ -84,7 +61,6 @@ pub fn build(over: Over) -> TaskPreviews {
         }
     });
     TaskPreviews::new(
-        sanitize,
         try_hold,
         over.screen_recording,
         tp::PREVIEW_LIMIT_S,
@@ -145,13 +121,13 @@ pub fn hand_error(e: &ferb_browser::error::Error) -> ferb_mac_hands::error::Hand
 
 /// `BrowserTools.preview_target`'s resolve (browser/tools.py:189): the tab, only while it is `owner`'s (a checker
 /// reaches its worker's), and its recording source; each frame checks ownership again and has the preview's time
-/// left as its limit.
+/// left as its limit. APP-922: the frame is the page as the browser sent it (`capture_for_owner`), never painted.
 pub fn browser_resolve(
     driver: Arc<ferb_browser::driver::Driver>,
     tab: String,
     owner: String,
 ) -> ferb_mac_hands::point::ResolveFn {
-    use ferb_mac_hands::point::{FrameFn, ResolveFn};
+    use ferb_mac_hands::point::{OwnerOnlyFrame, PreviewFrameFn, ResolveFn};
     let resolve: ResolveFn = Arc::new(move || {
         let (driver, tab, owner) = (driver.clone(), tab.clone(), owner.clone());
         Box::pin(async move {
@@ -162,13 +138,18 @@ pub fn browser_resolve(
                 .recording_source(&held, &owner)
                 .map_err(|e| hand_error(&e))?;
             let recording = Arc::new(recording);
-            let frames: FrameFn = Arc::new(move || {
+            let frames: PreviewFrameFn = Arc::new(move || {
                 let r = recording.clone();
                 Box::pin(async move {
                     let left = ferb_mac_hands::point::preview_left(monotonic());
-                    r.capture(left)
+                    r.capture_for_owner(left)
                         .await
-                        .map(|(jpeg, note)| (jpeg, note.unwrap_or_default()))
+                        .map(|image| {
+                            (
+                                OwnerOnlyFrame::captured(image.jpeg().to_vec()),
+                                String::new(),
+                            )
+                        })
                         .map_err(|e| hand_error(&e))
                 })
             });
@@ -182,31 +163,25 @@ pub fn browser_resolve(
 mod tests {
     use super::*;
     use ferb_gateway::call_hooks::Previews;
-    use ferb_mac_hands::point::{FrameFn, ResolveFn};
+    use ferb_mac_hands::point::{OwnerOnlyFrame, PreviewFrameFn, ResolveFn};
     use serde_json::{Map, Value};
     use std::sync::Mutex;
 
-    struct Plain;
-    impl ferb_gateway::call_hooks::ImageSanitizer for Plain {
-        fn sanitize<'a>(
-            &'a self,
-            image: &'a [u8],
-        ) -> ferb_core::interfaces::BoxFuture<'a, Result<Vec<u8>, String>> {
-            let mut out = image.to_vec();
-            out.extend_from_slice(b"+masked");
-            Box::pin(async move { Ok(out) })
-        }
-    }
+    /// An invented window whose pixels show a one-time code (the test's stand-in for a secret on screen).
+    const SECRET_WINDOW: &[u8] = b"window: your verification code is 482913";
 
     fn resolve(frames: Arc<Mutex<u32>>) -> ResolveFn {
         Arc::new(move || {
             let frames = frames.clone();
             Box::pin(async move {
-                let capture: FrameFn = Arc::new(move || {
+                let capture: PreviewFrameFn = Arc::new(move || {
                     let frames = frames.clone();
                     Box::pin(async move {
                         *frames.lock().unwrap() += 1;
-                        Ok((b"window".to_vec(), String::new()))
+                        Ok((
+                            OwnerOnlyFrame::captured(SECRET_WINDOW.to_vec()),
+                            String::new(),
+                        ))
                     })
                 });
                 Ok((Map::new(), capture))
@@ -218,7 +193,6 @@ mod tests {
         let l = locks.clone();
         GatewayPreviews(build(Over {
             locks: Arc::new(move || Some(l.clone())),
-            images: Arc::new(Plain),
             screen_recording: Arc::new(|| true),
             note: Arc::new(move |kind: &str, _d: Value| notes.lock().unwrap().push(kind.into())),
         }))
@@ -237,7 +211,11 @@ mod tests {
         );
     }
 
-    // decision: DMN-403, DMN-406
+    fn shown(a: &tp::PreviewAnswer) -> Option<Vec<u8>> {
+        a.image.as_ref().map(|i| i.for_owner_app().to_vec())
+    }
+
+    // decision: DMN-403, DMN-406, APP-922
     #[tokio::test(flavor = "current_thread")]
     async fn a_declared_surface_is_captured_through_the_gateways_locks_and_never_queues() {
         let locks = ResourceLocks::new();
@@ -247,9 +225,9 @@ mod tests {
         declare(&p, &frames);
         let keys = ["app:com.example.Notes".to_string()];
 
-        // the capability's resolve came through the gateway's type-erased target: a fresh, masked frame
+        // the capability's resolve came through the gateway's type-erased target: a fresh frame, as captured
         let first = p.0.frame("t1", None, None).await;
-        assert_eq!(first.image.as_deref(), Some(&b"window+masked"[..]));
+        assert_eq!(shown(&first).as_deref(), Some(SECRET_WINDOW));
         assert_eq!(first.fields["fresh"], json_true());
         assert_eq!(*frames.lock().unwrap(), 1);
 
@@ -257,7 +235,7 @@ mod tests {
         let acting = locks.hold(&keys, "t1.worker", false).await.unwrap();
         let busy = p.0.frame("t1", None, None).await;
         assert_eq!(busy.fields.get("busy"), Some(&json_true()));
-        assert_eq!(busy.image.as_deref(), Some(&b"window+masked"[..]));
+        assert_eq!(shown(&busy).as_deref(), Some(SECRET_WINDOW));
         assert_eq!(*frames.lock().unwrap(), 1);
         drop(acting);
 
@@ -282,7 +260,6 @@ mod tests {
     async fn before_the_gateway_is_built_the_surface_counts_as_busy() {
         let p = GatewayPreviews(build(Over {
             locks: Arc::new(|| None),
-            images: Arc::new(Plain),
             screen_recording: Arc::new(|| true),
             note: Arc::new(|_k: &str, _d: Value| {}),
         }));
@@ -303,57 +280,177 @@ mod tests {
         assert!(matches!(r, ferb_mac_hands::error::HandError::Refused(_)));
     }
 
-    /// The Mac's sanitizer puts a preview frame's faults under the task-local; it fails with the usual text.
-    struct Failing;
-    impl ferb_gateway::call_hooks::ImageSanitizer for Failing {
-        fn sanitize<'a>(
-            &'a self,
-            _image: &'a [u8],
-        ) -> ferb_core::interfaces::BoxFuture<'a, Result<Vec<u8>, String>> {
-            let sink = crate::compose::tools::mac::PREVIEW_FAULTS
-                .try_with(|f| f.clone())
-                .ok();
-            Box::pin(async move {
-                if let Some(sink) = sink {
-                    let mut f = ferb_mac_hands::ocr::Fault::new("com.apple.Vision", 9);
-                    f.step = "vision".into();
-                    f.under = Some(("com.apple.e5rt".into(), 13));
-                    sink.lock().unwrap().push(f);
-                }
-                Err(ferb_mac_hands::ocr::UNAVAILABLE.to_string())
-            })
-        }
-    }
-
-    /// HAND-531: a frame that couldn't be masked journals preview.failed with its error as before, plus the step that
-    /// failed and the framework's error domain and code.
-    // decision: HAND-531
+    /// APP-922: the owner's preview shows the window as captured, code and all, and the answer's only image is that
+    /// frame; the journal gets nothing of it. The frame is FERB.app's alone: an `OwnerOnlyFrame`, whose Debug never
+    /// shows its bytes.
+    // decision: APP-922
     #[tokio::test(flavor = "current_thread")]
-    async fn a_frame_that_couldnt_be_masked_journals_which_step_failed_and_its_error_code() {
+    async fn the_preview_shows_the_frame_as_captured_and_keeps_its_bytes_to_itself() {
         let locks = ResourceLocks::new();
-        let l = locks.clone();
-        let notes: Arc<Mutex<Vec<(String, Value)>>> = Arc::new(Mutex::new(vec![]));
-        let n = notes.clone();
-        let p = GatewayPreviews(build(Over {
-            locks: Arc::new(move || Some(l.clone())),
-            images: Arc::new(Failing),
-            screen_recording: Arc::new(|| true),
-            note: Arc::new(move |k: &str, d: Value| n.lock().unwrap().push((k.into(), d))),
-        }));
+        let notes = Arc::new(Mutex::new(vec![]));
+        let p = previews(&locks, notes.clone());
         let frames = Arc::new(Mutex::new(0));
         declare(&p, &frames);
         let got = p.0.frame("t1", None, None).await;
-        assert!(got.image.is_none());
-        let notes = notes.lock().unwrap().clone();
-        assert_eq!(
-            notes,
-            [(
-                "preview.failed".to_string(),
-                serde_json::json!({"surface": "window", "error": ferb_mac_hands::ocr::UNAVAILABLE,
-                    "faults": [{"step": "vision", "domain": "com.apple.Vision", "code": 9,
-                                "under_domain": "com.apple.e5rt", "under_code": 13}]})
-            )]
+        assert_eq!(shown(&got).as_deref(), Some(SECRET_WINDOW));
+        assert!(got.fields.get("problem").is_none());
+        let debug = format!("{got:?}");
+        assert!(!debug.contains("482913"), "{debug}");
+        assert!(notes.lock().unwrap().is_empty());
+        let snapshot = Value::Object(p.0.snapshot()).to_string();
+        assert!(
+            !snapshot.contains("482913") && !snapshot.contains("ocr"),
+            "{snapshot}"
         );
+    }
+
+    /// The text reader and painter of the tool path, faked: the window's text is the code line; painting marks it.
+    struct ReadsCode;
+    impl ferb_mac_hands::ocr::Recognize for ReadsCode {
+        fn recognize(
+            &self,
+            _image: &[u8],
+        ) -> Result<Vec<ferb_mac_hands::ocr::TextRegion>, ferb_mac_hands::ocr::Fault> {
+            Ok(vec![ferb_mac_hands::ocr::TextRegion {
+                text: "Your verification code is 482913".into(),
+                bbox: (0, 0, 100, 20),
+            }])
+        }
+    }
+    struct Fails;
+    impl ferb_mac_hands::ocr::Recognize for Fails {
+        fn recognize(
+            &self,
+            _image: &[u8],
+        ) -> Result<Vec<ferb_mac_hands::ocr::TextRegion>, ferb_mac_hands::ocr::Fault> {
+            Err(ferb_mac_hands::ocr::Fault::new("com.apple.Vision", 9))
+        }
+    }
+    struct Paints;
+    impl ferb_mac_hands::ocr::Paint for Paints {
+        fn paint(
+            &self,
+            _image: &[u8],
+            boxes: &[ferb_mac_hands::mask::ImgBox],
+        ) -> Result<Vec<u8>, String> {
+            Ok(format!("painted {} box(es)", boxes.len()).into_bytes())
+        }
+    }
+
+    /// APP-922 with rule 7: the same window that the owner's preview shows as captured is, on the tool path (what a
+    /// model, evidence or a recording gets), painted over, or withheld when its text can't be read.
+    // decision: APP-922, HAND-531
+    #[tokio::test(flavor = "current_thread")]
+    async fn the_same_image_is_shown_to_the_owner_but_masked_for_everything_else() {
+        let locks = ResourceLocks::new();
+        let p = previews(&locks, Arc::new(Mutex::new(vec![])));
+        let frames = Arc::new(Mutex::new(0));
+        declare(&p, &frames);
+        let preview = p.0.frame("t1", None, None).await;
+        assert_eq!(shown(&preview).as_deref(), Some(SECRET_WINDOW));
+        let tool =
+            |reader: Arc<dyn ferb_mac_hands::ocr::Recognize>| ferb_mac_hands::ocr::ImageRedactor {
+                redactor: Arc::new(ferb_sanitize::Redactor::new(&[], &[])),
+                recognize: vec![ferb_mac_hands::ocr::Attempt {
+                    step: "vision",
+                    recognize: reader,
+                }],
+                paint: Arc::new(Paints),
+            };
+        let masked = tool(Arc::new(ReadsCode))
+            .redact(SECRET_WINDOW, &[])
+            .unwrap();
+        assert_eq!(masked, b"painted 1 box(es)");
+        assert_eq!(
+            tool(Arc::new(Fails)).redact(SECRET_WINDOW, &[]),
+            Err(ferb_mac_hands::ocr::UNAVAILABLE.to_string())
+        );
+    }
+
+    /// APP-922: preview frames are FERB.app's alone. `tasks.preview` is the cli role's and app_only (the signed
+    /// FERB.app peer), never a model's tool bridge (mcp_shim) or the extension's channel (native_host).
+    // decision: APP-922, DMN-23
+    #[test]
+    fn only_ferb_app_may_ask_for_preview_frames() {
+        use ferb_rpc::auth::{method, Role};
+        let m = method("tasks.preview").expect("the method");
+        assert_eq!(m.roles, &[Role::Cli]);
+        assert!(m.app_only);
+    }
+
+    /// APP-922: the unmasked frame path stays apart from the masked image path. An `OwnerOnlyFrame` is made only by
+    /// the preview's own captures and its bytes are read only by the `tasks.preview` answer: no other source file in
+    /// the engine calls either, so no tool result, evidence, recording, trace, log or store can be handed one.
+    // decision: APP-922
+    #[test]
+    fn owner_only_frames_are_made_and_read_in_the_preview_path_only() {
+        let crates = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let allowed_make = [
+            "ferb-mac-hands/src/point.rs",
+            "ferb-mac-hands/src/driver/mod.rs",
+            "ferbd/src/compose/previews.rs",
+        ];
+        let allowed_read = [
+            "ferb-mac-hands/src/point.rs",
+            "ferb-daemon/src/areas_b/task_preview.rs",
+            "ferbd/src/areas_c/records.rs",
+            "ferbd/src/compose/previews.rs",
+            // GATE-579: the payment question's picture, taken once by FERB.app (questions.picture, app_only)
+            "ferbd/src/compose/tools/mac.rs",
+            "ferbd/src/compose/tools/browser.rs",
+        ];
+        let mut stack = vec![crates.clone()];
+        let (mut makes, mut reads) = (vec![], vec![]);
+        while let Some(dir) = stack.pop() {
+            for e in std::fs::read_dir(&dir).unwrap().flatten() {
+                let path = e.path();
+                let name = e.file_name().to_string_lossy().into_owned();
+                if path.is_dir() {
+                    // sources only; build folders and tests (fakes make frames) aren't the engine
+                    if name != "target" && name != "tests" && !name.starts_with('.') {
+                        stack.push(path);
+                    }
+                    continue;
+                }
+                if !name.ends_with(".rs") {
+                    continue;
+                }
+                let rel = path
+                    .strip_prefix(&crates)
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned();
+                if !rel.contains("/src/") {
+                    continue;
+                }
+                let text = std::fs::read_to_string(&path).unwrap();
+                if text.contains("OwnerOnlyFrame::captured(") {
+                    makes.push(rel.clone());
+                }
+                if text.contains(".for_owner_app()") {
+                    reads.push(rel);
+                }
+            }
+        }
+        makes.sort();
+        reads.sort();
+        for m in &makes {
+            assert!(
+                allowed_make.contains(&m.as_str()),
+                "a preview frame made in {m}"
+            );
+        }
+        for r in &reads {
+            assert!(
+                allowed_read.contains(&r.as_str()),
+                "a preview frame's bytes read in {r}"
+            );
+        }
+        assert!(
+            makes.iter().any(|m| m.ends_with("driver/mod.rs")),
+            "{makes:?}"
+        );
+        assert!(reads.iter().any(|r| r.ends_with("records.rs")), "{reads:?}");
     }
 
     fn json_true() -> Value {

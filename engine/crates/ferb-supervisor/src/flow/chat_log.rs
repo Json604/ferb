@@ -614,7 +614,16 @@ impl Ctx<'_> {
         stored.extend(store::of_requests(conn, conversation, &requests)?);
         stored.extend(store::recent(conn, conversation, RESTORE_RECENT)?);
         let refs = store::refs(conn, conversation)?;
-        let p = ChatProjector::restore(conversation, stored, refs, stream.last_pos + 1);
+        let mut p = ChatProjector::restore(conversation, stored, refs, stream.last_pos + 1);
+        // dropped by a rewrite while streams of it were open (none after a restart): their sessions go on
+        let open: Vec<String> = self
+            .st
+            .open
+            .iter()
+            .filter(|(_, c)| c.as_str() == conversation)
+            .map(|(r, _)| r.clone())
+            .collect();
+        p.streams_open(&open);
         self.st.projectors.insert(conversation.to_string(), p);
         Ok(())
     }

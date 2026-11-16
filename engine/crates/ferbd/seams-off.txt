@@ -11,6 +11,7 @@
 # --- deliberately off ---
 off chat.click_through | ChatDeps' `ui.click_through` handler is replaced by group C's (compose/mod.rs registers areas_c after the chat RPCs; Python chat.py:146 is the same one handler), which reads the Mac driver's report.
 off chat.conversations | ChatDeps.conversations is no longer read: chat.status and conversations.list read the supervisor's own conversation store, as Python's chat.py:118 reads `supervisor.conversations`.
+off mac.absent | A daemon started without the Mac's own parts (`mac` off: the test stand-ins, T-1129) reaches none of this Mac's apps, windows, accessibility trees or events: mac.* finds nothing and acts on nothing. The real daemon and a by-hand ignored test (`mac` on) use the native parts.
 off keychain.refused | A daemon started with `Keychain::Refused` (the test stand-ins) never reaches the Keychain or the signed helper (TEST-508); the real daemon uses the signed helper.
 off keychain.refused_security | As keychain.refused: `/usr/bin/security` is never run by a daemon started for a test.
 off jev.key | Jev is paid and switched off (owner 2026-10-27: notices paused until a Jev-free decision engine); its key is never read, as Python's areas/jev.py:24-48 with `[jev] on` unset.
@@ -36,6 +37,7 @@ off reader.paused | trail.query only reads: the pause gates recording only.
 off reader.test_task | trail.query only reads: test runs are told apart only when recording.
 off reader.paint | task.evidence only reads stored pictures: nothing is painted.
 off records.conversation_publish | conversations.py:161 publishes only from `observe`; this store applies the owner's changes, which publish nothing.
+off phone.no_prompts | Nothing in FERB finds or clicks a prompt on the Mac's screen yet (PORTING §5, T-1202): the phone area refuses the six on-screen methods from a phone with needs_the_mac before anything opens (PHN-120's fallback) until a clicker exists.
 
 # --- plain data fields set to None (never a seam) ---
 value error | A span's `Finish`: no error.
@@ -61,6 +63,8 @@ value sub | A refused logs stream holds no subscription.
 value watching | A refused logs stream is not listed as a client.
 value refused | An open logs stream has no refusal.
 value timeout | A program run with no time limit (its own).
+value approval_id | One of FERB's own questions asked for the first time (device.facts' exact location, GATE-613): no earlier id to ask again under.
+value runtime_switch | One of FERB's own questions that offers no switch of AI service (device.facts' exact location).
 off reader.reversible | SpanStore.task_origins only reads: whether a span's kind is reversible matters only when a span is written.
 off trail.reads_only | The retention pass's trail only purges; `record` never runs there, so its publish, device id, pause and test runs are never reached.
 off evidence.purge_only | The retention pass's evidence store only purges; nothing is stored or painted there.
@@ -100,4 +104,8 @@ default Tool::tab_picture | call_hooks.py:194 takes a tab's picture for browser 
 default Tool::real_path | The Mac tools name no file the gateway resolves (ferb/act/mac/tools.py defines no real_path); their files go through `file_paths`.
 default Tool::background_pid | HAND-546: only a browser call works in an app from the background (its tab's browser); a Mac tool's own app coming forward is its input's doing (HAND-212), not told to the owner.
 default Tool::put_back | HAND-560: a Mac tool puts the owner's app back itself, inside its own call (HAND-549: MacTools::after_input); only a browser call's comes after the sampler's look.
+default Tool::prepare_publish | HAND-624: only project.publish works a push out before its question; the browser and Mac tools publish nothing.
 off browser.sealer_in_process | A daemon started without the Keychain (a test's) seals the owner's fills with the driver's own seal (the same AES-GCM format, ferb-identity seal.rs) instead of the signed helper's.
+off phone.no_task_file | A finished task's file by its index (`link.get {what: "file"}`) has no source in the composition yet (S3b, T-1203): the phone is told there is no such file; a path the owner could open is fetched by `link.get {what: "path"}`.
+value hook | FileSeams.hook: a test's moment between a phone file's check and its open (ferb-daemon tests/phone_files.rs); the real daemon has none.
+value keys | LinkOptions.keys: None is the real daemon's way, the link's one Keychain item through its own secrets helper (compose/link.rs HelperKeys, PHN-487); only a test daemon names its own store.

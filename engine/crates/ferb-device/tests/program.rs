@@ -460,3 +460,34 @@ const STEP_LINES: &str = r##"[
   "01:00:00 * task.started             {\"id\":\"t-1\",\"text\":\"é\"}"
  ]
 ]"##;
+
+/// T-1128: `-h` / `--help` prints argparse's help (Python's recorded text) for the command before it and exits 0,
+/// before any setup, salvage or connection; `--version` first still wins.
+// decision: DMN-601
+#[test]
+fn help_is_printed_and_exits_zero() {
+    let recorded: Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../fixtures/device/help.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let mut h = FakeHost::default();
+    assert_eq!(run(&argv(&["--help"]), &mut h), 0);
+    let top = text(&h.out);
+    assert!(top.starts_with("usage: ferb [-h] [--version]\n"), "{top}");
+    assert!(!top.contains("venv"), "the named difference: {top}");
+    assert!(h.err.is_empty());
+    let mut h = FakeHost::default();
+    assert_eq!(run(&argv(&["memory", "add", "-h"]), &mut h), 0);
+    assert_eq!(text(&h.out), recorded["memory add"].as_str().unwrap());
+    let mut h = FakeHost::default();
+    assert_eq!(run(&argv(&["setup", "--service", "-h"]), &mut h), 0);
+    assert!(text(&h.out).starts_with("usage: ferb setup [-h]"));
+    assert_eq!((h.sessions, h.envs.clone()), (0, vec![]), "nothing set up");
+    let mut h = FakeHost::default();
+    assert_eq!(run(&argv(&["--version", "--help"]), &mut h), 0);
+    assert_eq!(text(&h.out), "ferb 0.28.0\n");
+}

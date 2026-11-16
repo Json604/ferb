@@ -357,14 +357,34 @@ extension StoredData {
 
 extension ConversationArchive {
     /// The owner deleted these turns (`data.delete`): their turns and the replies to them leave the chat this app holds,
-    /// so nothing shows or writes them back. Returns how many entries left.
+    /// so nothing shows or writes them back. A reply or notice of another turn that was shown after a deleted turn
+    /// stays, shown after the kept turn before it (as the engine's entries fold: ENG-8, STORE-424), never hidden with
+    /// it. Returns how many entries left.
     @discardableResult
     public mutating func removeTurns(requestIDs: Set<String>) -> Int {
         let gone = Set(turns.filter { $0.requestID.map(requestIDs.contains) ?? false }.map(\.id))
         guard !gone.isEmpty else { return 0 }
         let before = turns.count + replies.count
+        // each deleted turn's place: the kept turn before it, or none
+        var keptBefore: [UUID: UUID?] = [:]
+        var last: UUID?
+        for turn in turns {
+            if gone.contains(turn.id) { keptBefore[turn.id] = last } else { last = turn.id }
+        }
         turns.removeAll { gone.contains($0.id) }
         replies.removeAll { gone.contains($0.turnID) }
+        replies = replies.map { reply in
+            guard let place = keptBefore[reply.afterTurnID] else { return reply }
+            return ConversationReply(id: reply.id, turnID: reply.turnID, createdAt: reply.createdAt,
+                                     afterTurnID: place ?? reply.turnID, part: reply.part, said: reply.said)
+        }
+        notices = notices.map { notice in
+            guard let after = notice.afterTurnID, let place = keptBefore[after] else { return notice }
+            return ConversationNotice(id: notice.id, entryID: notice.entryID, createdAt: notice.createdAt,
+                                      noticedAt: notice.noticedAt, text: notice.text, quotes: notice.quotes,
+                                      tag: notice.tag, afterTurnID: place, proposals: notice.proposals,
+                                      cards: notice.cards)
+        }
         return before - turns.count - replies.count
     }
 }

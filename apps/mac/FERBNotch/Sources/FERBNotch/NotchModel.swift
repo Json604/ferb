@@ -161,6 +161,8 @@ final class NotchModel: ObservableObject {
     var guideDebounce: Duration = .seconds(1)
     private var guideObserver: NSObjectProtocol?
     let rpc: DaemonRPCTransport
+    /// This Mac's Location permission, city and exact fixes, told to the daemon (SENSE-420); nil outside the real app.
+    var deviceLocation: DeviceLocationReporter?
     /// FERB's click-through windows, told to the daemon (D31 fix round 4)
     let clickThrough: ClickThroughReport
     let preferences: UserDefaults
@@ -350,6 +352,8 @@ final class NotchModel: ObservableObject {
     var onBackgroundChange: ((Bool) -> Void)?
     /// A notice's page card (step 12c): the FERB window's Memory page, filtered to an import's source when it names one.
     var onOpenMemory: ((String?) -> Void)?
+    /// A phone asking to pair (T-1205): its notice's button opens Settings → Phone, where the owner answers.
+    var onOpenPhone: (() -> Void)?
     let acknowledgement = AcknowledgementNotice()
     var onAttentionArrival: (() -> Void)?
     var onOpenDocument: ((URL) -> Void)?

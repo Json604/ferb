@@ -165,8 +165,16 @@ public enum EntryFold {
         turn.requestID = entry.requestID
         turn.backendTaskID = entry.taskID
         if let hidden = body["hidden"] as? [String], !hidden.isEmpty { turn.hiddenKinds = hidden }
+        turn.sealed = sealed(body)
         messageState(entry, on: &turn)
         return turn
+    }
+
+    /// The IDs kept sealed from a message (GATE-604: the ack's `sealed`, kept on its entry), as the ack shows them; nil
+    /// when none.
+    static func sealed(_ body: [String: Any]) -> [SealedIdentifier]? {
+        let kept = (body["sealed"] as? [[String: Any]] ?? []).compactMap(SealedIdentifier.init)
+        return kept.isEmpty ? nil : kept
     }
 
     /// A merged or interrupted message's state on its turn.
@@ -343,6 +351,14 @@ extension ConversationArchive {
             }
             if turn.requestID == nil { turn.requestID = entry.requestID }
             if let hidden = entry.body["hidden"] as? [String], !hidden.isEmpty { turn.hiddenKinds = hidden }
+            if let sealed = EntryFold.sealed(entry.body) {
+                // the owner's "Let the AI see" on this Mac stays (GATE-602)
+                turn.sealed = sealed.map { kept in
+                    var kept = kept
+                    kept.shown = turn.sealed?.first { $0.name == kept.name }?.shown ?? false
+                    return kept
+                }
+            }
             if let task = entry.taskID { turn.backendTaskID = task }
             if turn.answer.isEmpty, ["working", "interrupted", "merged"].contains(turn.status) {
                 EntryFold.messageState(entry, on: &turn)

@@ -30,7 +30,7 @@ use ferb_policy::provenance::{self, ArgSources, Text};
 use ferb_policy::rules::{self, ActionRequest, Kind, REVERSIBLE};
 use ferb_policy::small::{Request, Requests};
 use ferb_policy::stores::{Confirmation, Confirmations, KnownDestinations, StandingPermissions};
-use ferb_policy::{carried, destinations as dest};
+use ferb_policy::{carried, destinations as dest, projects};
 use ferb_rpc::auth::RunGrant;
 use ferb_sanitize::origin;
 use ferb_sanitize::terminal::printable;
@@ -2081,6 +2081,10 @@ impl Gateway {
             Ok(Some(t)) => needs.push(t),
             Ok(None) => {}
         }
+        match self.publish_needs(c).await? {
+            Err(refused) => return Ok(Err(self.refuse_call(c, refused, None)?)),
+            Ok(p) => needs.extend(p),
+        }
         let mut unique: Vec<Need> = Vec::new();
         for n in needs {
             if !unique.iter().any(|u| u.key == n.key) {
@@ -2088,6 +2092,175 @@ impl Gateway {
             }
         }
         Ok(Ok(unique))
+    }
+
+    /// HAND-624, HAND-641..643: the project questions, worked out before they are asked (the tool's
+    /// `prepare_publish`): a push to an address not yet approved for the folder (`project:publish`), getting from an
+    /// address not yet approved or a clone (`project:fetch`), the GitHub CLI's login not yet allowed for the project and
+    /// host (`project:gh`), and every forced push (`project:force`, never remembered). A folder that can't be a
+    /// project (HAND-621) or a step the tool can't take is refused with its reason, unasked.
+    async fn publish_needs(&self, c: &mut Call) -> R<Result<Vec<Need>, Map<String, Value>>> {
+        let Some(prepared) = c.cancel.guard(c.tool.prepare_publish(&c.args)).await? else {
+            return Ok(Ok(Vec::new()));
+        };
+        let plan = match prepared {
+            Ok(p) => p,
+            Err(why) => return Ok(Err(obj(json!({ "error": why })))),
+        };
+        let get = |k: &str| {
+            plan.get(k)
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string()
+        };
+        let (action, folder, url, branch, host) = (
+            get("action"),
+            get("folder"),
+            get("url"),
+            get("branch"),
+            get("host"),
+        );
+        let pushing = action != "fetch" && action != "clone";
+        let place = format!("{host}/{}", get("path").trim_matches('/'));
+        if folder.is_empty() || url.is_empty() || (pushing && branch.is_empty()) {
+            return Ok(Err(obj(
+                json!({ "error": "the step couldn't be worked out" }),
+            )));
+        }
+        if let Some(why) = projects::refusal(&self.d.roots.protection.0, &folder) {
+            return Ok(Err(obj(json!({ "error": why }))));
+        }
+        let standing = projects::store::list(&lock(&self.d.db))?;
+        let project = standing.iter().find(|p| p.folder == folder);
+        let shown = projects::shown(&self.d.roots.home, &folder);
+        let new_project = if project.is_some() { "yes" } else { "new" };
+        let mut needs = Vec::new();
+        if pushing && !project.is_some_and(|p| p.destinations.contains(&url)) {
+            needs.push(Need::new(
+                projects::PUBLISH_RULE,
+                confirm::key(&[json!(projects::PUBLISH_RULE), json!(folder), json!(url)]),
+                Values::of(&[
+                    ("folder", &shown),
+                    ("real", &folder),
+                    ("url", &url),
+                    ("host", &host),
+                    ("dest", &place),
+                    ("branch", &branch),
+                    ("project", new_project),
+                    (
+                        "text",
+                        &format!("publish {shown} to {url} (branch {branch})"),
+                    ),
+                ]),
+            ));
+        }
+        if !pushing && !project.is_some_and(|p| p.gets_from(&url)) {
+            needs.push(Need::new(
+                projects::FETCH_RULE,
+                confirm::key(&[json!(projects::FETCH_RULE), json!(folder), json!(url)]),
+                Values::of(&[
+                    ("folder", &shown),
+                    ("real", &folder),
+                    ("url", &url),
+                    ("dest", &place),
+                    ("project", new_project),
+                    ("text", &format!("get {url} into {shown}")),
+                ]),
+            ));
+        }
+        if plan.get("gh") == Some(&Value::Bool(true))
+            && !project.is_some_and(|p| p.gh_hosts.contains(&host))
+        {
+            needs.push(Need::new(
+                projects::GH_RULE,
+                confirm::key(&[json!(projects::GH_RULE), json!(folder), json!(host)]),
+                Values::of(&[
+                    ("folder", &shown),
+                    ("real", &folder),
+                    ("host", &host),
+                    (
+                        "text",
+                        &format!("use the GitHub CLI's login for {shown} on {host}"),
+                    ),
+                ]),
+            ));
+        }
+        if let (true, Some(f)) = (pushing, plan.get("force").and_then(Value::as_object)) {
+            let fs = |k: &str| match f.get(k) {
+                Some(Value::String(v)) => v.clone(),
+                Some(Value::Number(n)) => n.to_string(),
+                _ => String::new(),
+            };
+            let remote = fs("remote_commit");
+            let mut n = Need::new(
+                projects::FORCE_RULE,
+                confirm::key(&[
+                    json!(projects::FORCE_RULE),
+                    json!(folder),
+                    json!(url),
+                    json!(branch),
+                    json!(get("commit")),
+                    json!(remote),
+                ]),
+                Values::of(&[
+                    ("folder", &shown),
+                    ("real", &folder),
+                    ("url", &url),
+                    ("dest", &place),
+                    ("branch", &branch),
+                    ("commit", &get("commit")),
+                    ("remote_commit", &remote),
+                    ("short", &fs("short")),
+                    ("subject", &fs("subject")),
+                    ("author", &fs("author")),
+                    ("date", &fs("date")),
+                    ("dropped", &fs("dropped")),
+                    ("local_short", &fs("local_short")),
+                    (
+                        "text",
+                        &format!(
+                            "overwrite {branch} on {place}, dropping {} commit(s) there",
+                            fs("dropped")
+                        ),
+                    ),
+                ]),
+            );
+            n.always = true;
+            n.fresh = true;
+            needs.push(n);
+        }
+        Ok(Ok(needs))
+    }
+
+    /// The owner's Yes to a project question: the folder becomes a project with the address (push or get) or the
+    /// GitHub CLI's host approved; a forced push's Yes is single-use, for this task's next push of that commit.
+    fn record_project_yes(&self, need: &Need, task_id: &str) -> R<()> {
+        let db = lock(&self.d.db);
+        let (clock, ids, v) = (self.d.clock.as_ref(), self.d.ids.as_ref(), &need.values);
+        match need.rule.as_str() {
+            projects::PUBLISH_RULE => {
+                projects::store::grant(&db, clock, ids, v.opt("real"), v.opt("url"), task_id)?
+            }
+            projects::FETCH_RULE => {
+                projects::store::grant_fetch(&db, clock, ids, v.opt("real"), v.opt("url"), task_id)?
+            }
+            projects::GH_RULE => {
+                projects::store::grant_gh(&db, clock, ids, v.opt("real"), v.opt("host"), task_id)?
+            }
+            projects::FORCE_RULE => projects::store::approve_force(
+                &db,
+                clock,
+                ids,
+                task_id,
+                v.opt("real"),
+                v.opt("url"),
+                v.opt("branch"),
+                v.opt("commit"),
+                v.opt("remote_commit"),
+            )?,
+            _ => {}
+        }
+        Ok(())
     }
 
     fn lift_needs(&self, c: &mut Call) -> Vec<Need> {
@@ -4044,6 +4217,8 @@ impl Gateway {
             if answer.granted {
                 for (need, cid) in ask.iter().zip(answer.ids.iter()) {
                     out.set_row(&need.key, cid);
+                    // HAND-624, HAND-641..643: the owner's Yes to a project question, recorded for the tool to read
+                    self.record_project_yes(need, &c.grant.task_id)?;
                     if need.always || need.spent_on_ask {
                         self.confirmations(|s| s.use_(cid))?;
                         if !need.spent_on_ask {
@@ -5719,11 +5894,31 @@ impl Gateway {
             }
         }
         let root = c.root();
-        let folders = lock(&self.inner)
+        let mut folders = lock(&self.inner)
             .task_folders
             .get(&root)
             .cloned()
             .unwrap_or_default();
+        // HAND-622: a task working in a project may also change the toolchains' visible folders (~/go)
+        if !folders.is_empty() {
+            let standing = projects::store::folders(&lock(&self.d.db)).unwrap_or_default();
+            if !standing.is_empty() {
+                let real: Vec<String> = folders
+                    .iter()
+                    .map(|f| {
+                        std::fs::canonicalize(f)
+                            .ok()
+                            .and_then(|p| p.to_str().map(str::to_string))
+                            .unwrap_or_else(|| f.clone())
+                    })
+                    .collect();
+                for m in projects::dev_tool_folders(&self.d.roots.home, &real, &standing) {
+                    if !folders.contains(&m) {
+                        folders.push(m);
+                    }
+                }
+            }
+        }
         let identities = c.tool.identities();
         let identity = if identities.len() == 1 {
             if identities.contains("ferb") {

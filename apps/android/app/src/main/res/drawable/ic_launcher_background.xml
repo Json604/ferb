@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FERB's mark's dark tile: Tone.ink3 at the top to Tone.ink0 at the bottom. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <gradient android:angle="270" android:startColor="#FF272521" android:endColor="#FF080706" />
+</shape>

@@ -740,3 +740,113 @@ fn a_checkout_still_refuses_while_ferb_apps_registration_runs() {
         .join("LaunchAgents/com.ferb.daemon.plist")
         .exists());
 }
+
+/// T-1003: a removal macOS refuses no longer aborts the uninstall. Each step is tried: the refused file is listed with
+/// why, the other browser's manifest and FERB's data folder still go, and the Keychain items are removed
+/// (`purge`). `browser_files` false (after the daemon removed them, `--skip-browser-files`): no browser folder is
+/// touched at all. The old `uninstall` still raises, but only after the rest went.
+// decision: DMN-598
+#[test]
+fn a_refused_removal_doesnt_stop_the_rest_of_the_uninstall() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let make = |home: PathBuf| {
+        let mut i = Installer::new(
+            home,
+            dir.path().join("LaunchAgents"),
+            Box::new(Recording {
+                seen: seen.clone(),
+                loaded: Default::default(),
+            }),
+            Box::new(Stepped::default()),
+            dir.path().to_path_buf(),
+            CodexPin {
+                version: "0".into(),
+                native_bin: "x".into(),
+            },
+            Sources {
+                repo_root: dir.path().to_path_buf(),
+                helper_source: dir.path().join("secret_helper.swift"),
+                extension: dir.path().join("extension"),
+            },
+        );
+        i.uid = UID;
+        i.native_hosts_dirs = vec![
+            dir.path().join("A/NativeMessagingHosts"),
+            dir.path().join("B/NativeMessagingHosts"),
+        ];
+        i
+    };
+    let manifests: Vec<PathBuf> = ["A", "B"]
+        .iter()
+        .map(|b| {
+            dir.path()
+                .join(b)
+                .join("NativeMessagingHosts")
+                .join(ferb_device::install::NATIVE_HOST_MANIFEST)
+        })
+        .collect();
+    let lay = |home: &Path| {
+        std::fs::create_dir_all(home).unwrap();
+        std::fs::write(home.join(ferb_device::install::MARKER), "").unwrap();
+        for m in &manifests {
+            std::fs::create_dir_all(m.parent().unwrap()).unwrap();
+            std::fs::write(m, "{}").unwrap();
+            std::fs::write(m.with_file_name("com.example.other.json"), "{}").unwrap();
+        }
+    };
+
+    let home = dir.path().join("one/.ferb");
+    lay(&home);
+    let locked = manifests[0].parent().unwrap().to_path_buf();
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o500)).unwrap();
+    let done = make(home.clone()).uninstall_steps(true, true).unwrap();
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(
+        done.failed,
+        vec![(
+            manifests[0].to_string_lossy().into_owned(),
+            "[Errno 13] Permission denied".to_string()
+        )]
+    );
+    assert!(done
+        .removed
+        .contains(&manifests[1].to_string_lossy().into_owned()));
+    assert!(done
+        .removed
+        .iter()
+        .any(|r| r.starts_with("Keychain items of ")));
+    assert_eq!(
+        done.removed.last(),
+        Some(&home.to_string_lossy().into_owned())
+    );
+    assert!(!home.exists() && manifests[0].exists() && !manifests[1].exists());
+    assert!(seen
+        .borrow()
+        .iter()
+        .any(|a| a.iter().any(|w| w == "delete-generic-password")));
+    for m in &manifests {
+        assert!(
+            m.with_file_name("com.example.other.json").exists(),
+            "only FERB's own manifest"
+        );
+    }
+
+    // after the daemon removed FERB's browser files: no browser folder is touched
+    let home = dir.path().join("two/.ferb");
+    lay(&home);
+    let done = make(home.clone()).uninstall_steps(true, false).unwrap();
+    assert!(done.failed.is_empty(), "{:?}", done.failed);
+    assert!(manifests.iter().all(|m| m.exists()));
+    assert!(!home.exists());
+
+    // the Python-shaped call raises with the refused file, once everything else was tried
+    let home = dir.path().join("three/.ferb");
+    lay(&home);
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o500)).unwrap();
+    let err = make(home.clone()).uninstall(true).unwrap_err();
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(err.to_string().contains("Permission denied"), "{err}");
+    assert!(!home.exists());
+}

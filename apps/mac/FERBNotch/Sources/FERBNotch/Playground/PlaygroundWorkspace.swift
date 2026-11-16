@@ -31,9 +31,13 @@ final class PlaygroundWorkspace {
     var seenResults: Set<String> = []
     var recovered = false
     var secrets: [[String: Any]] = [["place": "studio.example", "name": "Sample studio login", "kind": "password"]]
+    var projects: [[String: Any]] = [["folder": "/Users/demo/code/site", "shown": "~/code/site", "since": PlaygroundSamples.time(-86_400),
+                                      "destinations": ["https://github.com/demo/site.git"]]]
     var importFinished = false
     /// Settings → Stored data's invented database (STORE-423).
     let storedData = PlaygroundStoredData()
+    /// Settings → Phone's invented phones, pairing and relay (T-1205).
+    let phone = PlaygroundPhone()
     lazy var sampleImage = PlaygroundSamples.image()
     var artifact: URL { state.home.appendingPathComponent("Afternoon brief.txt") }
 
@@ -176,6 +180,11 @@ final class PlaygroundWorkspace {
             let shown = method == "secrets.unmask", name = params["name"] as? String
             secrets = secrets.map { $0["name"] as? String == name ? $0.merging(["shown": shown]) { $1 } : $0 }
             return ["name": name ?? "", "shown": shown]
+        case "projects.list": return ["projects": projects]
+        case "projects.remove":
+            let before = projects.count
+            projects.removeAll { $0["folder"] as? String == params["folder"] as? String }
+            return ["removed": projects.count < before]
         case "doctor.check": return ["selftest": [["name": "Playground services", "ok": true], ["name": "Sample data", "ok": true]]]
         case "reports.diagnostic", "reports.build": return try report()
         case "reports.send": return ["sent": false, "error": "Preview only. No diagnostic is sent from the playground."]
@@ -188,6 +197,7 @@ final class PlaygroundWorkspace {
                     "notices": notices.filter { $0["shown"] as? Bool != true && !seenNotices.contains($0["id"] as? String ?? "") }, "approvals": approvals]
         case "ping" where enabled: return ["pid": 0, "role": "app", "stopped": stopped]
         case let data where data.hasPrefix("data."): return storedData.answer(data, params)
+        case let call where call.hasPrefix("phone.") || call.hasPrefix("link."): return phone.answer(call, params)
         default: return nil
         }
     }

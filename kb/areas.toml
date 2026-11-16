@@ -6,7 +6,7 @@
 [app]
 title = "FERB.app (notch UI, intro, sounds)"
 prefix = "APP"
-paths = ["apps", "demo"]
+paths = ["apps/mac", "apps/AGENTS.md", "apps/docs", "apps/output", "apps/.gitignore", "demo"]
 purpose = "The Mac app the owner uses: notch, chat, settings, setup intro, orb, sounds, preview window, playground. The owner's side; talks to the daemon only through its RPC."
 
 [memory]
@@ -92,3 +92,9 @@ title = "Rust engine (the rewrite)"
 prefix = "ENG"
 paths = ["engine/*", "engine/crates", "engine/fixtures", "engine/packaging"]
 purpose = "The Rust replacement of the Python daemon, built beside it on branch rust: workspace, crates, fixtures taken from the Python build, and the work journal (engine/JOURNAL.md). A ported behavior keeps its original decision IDs; ENG decisions cover the rewrite itself."
+
+[phone]
+title = "Phone role, link and phone apps"
+prefix = "PHN"
+paths = ["apps/android", "apps/ios", "engine/patches"]
+purpose = "Stages 3-5 (ENG-1): pairing, devices and the phone role on the Mac, the iroh link and its relays, ferb-mobile, and the Android and iPhone apps. Engine crates (ferb-link, ferb-mobile*) sit under the engine area's paths. PHN-1..399 come from the phone lab at 57b3f34: its SEC-n is PHN-(100+n), NET-n PHN-(200+n), LIM-n PHN-(300+n)."

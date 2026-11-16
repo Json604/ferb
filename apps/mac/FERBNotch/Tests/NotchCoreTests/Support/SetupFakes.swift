@@ -55,6 +55,16 @@ final class FakeAppPermissions: AppPermissionsProviding {
         microphoneStatus = microphoneAnswer
         return microphoneAnswer
     }
+    /// On by default, so the older tests' rows are the ones they name; a Location test sets it.
+    var locationStatus: GrantStatus = .granted
+    /// What the owner answers in macOS's Location prompt.
+    var locationAnswer: GrantStatus = .granted
+    func location() -> GrantStatus { locationStatus }
+    func requestLocation() async -> GrantStatus {
+        requests.append("location")
+        locationStatus = locationAnswer
+        return locationAnswer
+    }
 }
 
 @MainActor

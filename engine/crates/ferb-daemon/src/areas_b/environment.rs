@@ -172,6 +172,16 @@ pub trait Seams: Send + Sync {
     fn hub(&self) -> Option<Arc<dyn Hub>>;
     /// `_unpaired_note(browser)` ("" for none).
     fn unpaired_note(&self, browser: &str) -> String;
+    /// DMN-597: the permissions (setup ids: `screen_recording`, `input_monitoring`) a fresh process last read on while
+    /// this daemon reads them off (setup.permissions' `fresh`, APP-662): on in macOS, usable once the service restarts.
+    fn restart_pending(&self) -> BTreeSet<String> {
+        BTreeSet::new()
+    }
+    /// SENSE-421: this device's one line (its name, local time, time zone and city, never coordinates), first in the
+    /// live facts; "" leaves it out (Python's facts had none: the recorded fixtures' seams give none).
+    fn device_line(&self) -> String {
+        String::new()
+    }
 }
 
 fn get(host: &Host, section: &str, key: &str) -> Result<Option<Value>, HandlerError> {
@@ -623,15 +633,36 @@ pub fn availability(s: &dyn Seams) -> Availability {
     {
         add("mac", "FERB doesn't have the Accessibility permission — the owner grants it in FERB's Settings → Permissions".into());
     }
+    // DMN-597: switched on in macOS, but this daemon sees it only after a restart, which FERB.app makes once no task runs
+    let restarting = s.restart_pending().contains("screen_recording");
     if registered.contains("screen") && !granted("screen") {
-        add("screen", "FERB doesn't have the Screen Recording permission — the owner grants it in FERB's Settings → Permissions".into());
+        add(
+            "screen",
+            if restarting {
+                SCREEN_AFTER_RESTART.into()
+            } else {
+                "FERB doesn't have the Screen Recording permission — the owner grants it in FERB's Settings → Permissions".into()
+            },
+        );
     }
     if registered.contains("audio") && !granted("screen") {
         // app sound is captured under Screen Recording
-        add("hearing", "FERB doesn't have the Screen Recording permission, which covers app sound — the owner grants it in FERB's Settings → Permissions".into());
+        add(
+            "hearing",
+            if restarting {
+                HEARING_AFTER_RESTART.into()
+            } else {
+                "FERB doesn't have the Screen Recording permission, which covers app sound — the owner grants it in FERB's Settings → Permissions".into()
+            },
+        );
     }
     availability::build(&registered, &problems, &shown_profiles)
 }
+
+/// DMN-597: the Screen Recording fact while the owner's switch is on in macOS and only FERB's restart is missing.
+pub const SCREEN_AFTER_RESTART: &str = "the owner switched Screen Recording on in macOS, but FERB's background service can use it only after a restart, which FERB.app makes as soon as no task is running — not during this task, and the owner needn't grant it again";
+/// DMN-597: the same for hearing (app sound is captured under Screen Recording).
+pub const HEARING_AFTER_RESTART: &str = "the owner switched Screen Recording (which covers app sound) on in macOS, but FERB's background service can use it only after a restart, which FERB.app makes as soon as no task is running — not during this task, and the owner needn't grant it again";
 
 /// environment.py `_add_secret_value`: one of FERB's own credentials, hidden by its value wherever it appears.
 pub fn add_secret_value(host: &Host, value: &Secret) {
@@ -744,10 +775,14 @@ pub fn live_facts(s: &dyn Seams, owner_state: bool, last_runs: bool) -> String {
         .map(|(role, model)| format!("{role} {model}"))
         .collect::<Vec<_>>()
         .join("; ");
-    let mut lines = vec![format!(
+    let mut lines: Vec<String> = Some(s.device_line())
+        .filter(|l| !l.is_empty())
+        .into_iter()
+        .collect();
+    lines.push(format!(
         "- The AI FERB uses now, from its settings (answer questions about FERB's AI or model from this, never \
          from memory): {shown}"
-    )];
+    ));
     if owner_state {
         // T-1066 and ORCH-577: the owner's schedules, reminders and timers as FERB's records hold them
         lines.extend(s.schedule_facts(last_runs).unwrap_or_default());

@@ -54,7 +54,25 @@ fn the_topic_lists_are_pythons() {
         v.sort_unstable();
         v
     };
-    assert_eq!(sorted(CRITICAL), strs(&fx["critical"]));
+    // Python's critical topics, and the ones added after it: FERB.app reads this Mac's exact location once the owner
+    // said Yes (decision: SENSE-422); the phone link's pairing, unused warning and removal for Settings → Phone and the
+    // notch (decision: PHN-419, journal 106)
+    // and a phone that took unusually much (decision: PHN-128, T-1203)
+    const ADDED: [&str; 6] = [
+        "device.location_wanted",
+        "phone.pair_requested",
+        "phone.pair_ended",
+        "phone.unused",
+        "phone.removed",
+        "phone.heavy_fetch",
+    ];
+    let python: Vec<&str> = CRITICAL
+        .iter()
+        .copied()
+        .filter(|t| !ADDED.contains(t))
+        .collect();
+    assert_eq!(CRITICAL.len(), python.len() + ADDED.len());
+    assert_eq!(sorted(&python), strs(&fx["critical"]));
     // Python's telemetry topics, and exactly one added after it: a browser window that came up during a task, for the
     // owner's line (decision: HAND-546)
     let python: Vec<&str> = TELEMETRY

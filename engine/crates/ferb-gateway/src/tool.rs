@@ -311,6 +311,16 @@ pub trait Tool: Send + Sync {
         Box::pin(async { None })
     }
 
+    /// HAND-624: a publish worked out before any question (rule 5): {folder, url, host, branch, commit, ...} as the
+    /// tool will push it, or why it can't (a plain fact; nothing ran outside the sandbox). None: the tool publishes
+    /// nothing.
+    fn prepare_publish<'a>(
+        &'a self,
+        _args: &'a Args,
+    ) -> BoxFuture<'a, Option<Result<Map<String, Value>, String>>> {
+        Box::pin(async { None })
+    }
+
     /// GATE-579: one picture of the surface a payment call works on, for the owner's eyes only (`pay_picture.py`
     /// `capture`, taken under the call's locks by the gateway); None when it has none.
     fn pay_picture<'a>(

@@ -67,6 +67,47 @@ final class FERBWindowViewTests: XCTestCase {
         XCTAssertEqual(ran, ["uninstall --purge --yes"])
     }
 
+    /// T-1003: the background service (Full Disk Access) removes FERB's browser files first, while it still runs; then
+    /// the service is turned off; then `ferb uninstall` leaves the browsers' folders alone. A file it couldn't remove is
+    /// listed, and then `ferb uninstall` tries it again itself.
+    // decision: DMN-598, APP-5
+    func testUninstallHasTheServiceRemoveBrowserFilesBeforeItIsTurnedOff() async {
+        var order: [String] = []
+        var packaged = actions()
+        packaged.removeBrowserFiles = {
+            order.append("browser files")
+            return BrowserFilesRemoval(reply: ["done": true, "failed": [] as [Any],
+                                              "removed": ["/u/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.ferb.native_host.json"]])
+        }
+        packaged.beforeUninstall = { order.append("service off"); return nil }
+        packaged.runFerb = { arguments, line, done in
+            order.append(arguments.joined(separator: " "))
+            line("removed /u/.ferb")
+            done(0)
+            return true
+        }
+        let output = FerbOutput()
+        output.uninstall(with: packaged, purge: true)
+        await settled(output)
+        XCTAssertEqual(order, ["browser files", "service off", "uninstall --purge --yes --skip-browser-files"])
+        XCTAssertEqual(output.lines, ["removed /u/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.ferb.native_host.json",
+                                      "removed /u/.ferb"])
+
+        order = []
+        packaged.removeBrowserFiles = {
+            order.append("browser files")
+            return BrowserFilesRemoval(reply: ["done": false, "removed": [] as [Any],
+                                              "failed": [["path": "/u/B/com.ferb.native_host.json", "error": "Permission denied"]]])
+        }
+        output.uninstall(with: packaged)
+        await settled(output)
+        XCTAssertEqual(order, ["browser files", "service off", "uninstall"])
+        XCTAssertEqual(output.lines.first, "couldn't remove /u/B/com.ferb.native_host.json: Permission denied")
+
+        // a service that didn't answer: `ferb uninstall` does it all, as before
+        XCTAssertEqual(BrowserFilesRemoval(reply: nil), BrowserFilesRemoval(lines: [], done: false))
+    }
+
     private func settled(_ output: FerbOutput) async {
         for _ in 0..<200 where output.running { await Task.yield() }
         await Task.yield()

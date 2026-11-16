@@ -122,17 +122,24 @@ pub fn start(d: &Arc<Daemon>) {
     let _ = d.memory_stop.set(stop.clone());
     reindex(d, stop.clone());
     embedder(d, stop);
-    let a = d.a.clone();
     let j = d.journal.clone();
     let device = device_id(d);
     let root = embedding_root(d);
-    let _ = a.spawn(move |st| async move {
-        loop {
-            memory_pass(&st, &j, &device, &root).await;
-            if st.shutting_down.get() {
-                return;
+    // supervised (T-1123); after a failure the next pass is at its hour, so a pass that calls a model and then fails
+    // never runs again at once
+    d.spawn_group_a_loop("memory_pass", move |st, failures| {
+        let (j, device, root) = (j.clone(), device.clone(), root.clone());
+        async move {
+            if failures > 0 {
+                tokio::time::sleep(Duration::from_secs(PASS_EVERY_S)).await;
             }
-            tokio::time::sleep(Duration::from_secs(PASS_EVERY_S)).await;
+            loop {
+                memory_pass(&st, &j, &device, &root).await;
+                if st.shutting_down.get() {
+                    return Ok(());
+                }
+                tokio::time::sleep(Duration::from_secs(PASS_EVERY_S)).await;
+            }
         }
     });
 }
@@ -149,34 +156,33 @@ fn device_id(d: &Daemon) -> String {
 fn reindex(d: &Arc<Daemon>, stop: Arc<AtomicBool>) {
     let path = crate::basics::lock(&d.db).path().to_path_buf();
     let (j, r) = (d.journal.clone(), d.redactor.clone());
-    std::thread::Builder::new()
-        .name("ferb-reindex".into())
-        .spawn(move || {
-            let work = || -> ferb_learning::Result<(bool, bool)> {
-                let db = ferb_store::Db::open(&path)
-                    .map_err(|e| ferb_learning::Error::Sql("OperationalError".into(), e.to_string()))?;
-                let _ = db.conn().execute_batch("PRAGMA busy_timeout = 60000");
-                let store = ferb_learning::store::Store::new(Rc::new(db));
-                let did = ferb_learning::learning::reindex_search(
-                    &store,
-                    ferb_learning::notes::REINDEX_BATCH_BYTES,
-                    &mut || stop.load(Ordering::SeqCst),
-                )?;
-                Ok((did, ferb_learning::learning::search_indexed(&store)?))
-            };
-            match work() {
-                Ok((true, finished)) => j.note(
-                    "memory.search_reindexed",
-                    json!({"version": ferb_learning::notes::SEARCH_TEXT_VERSION, "finished": finished}),
-                ),
-                Ok(_) => {}
-                Err(e) => j.note(
-                    "memory.search_reindex_failed",
-                    json!({"error": r.text(&format!("{}: {e}", e.class()))}),
-                ),
-            }
-        })
-        .expect("the re-index thread");
+    super::guard::thread_once(d.guard(), "ferb-reindex", "search re-index", move || {
+        let work = || -> ferb_learning::Result<(bool, bool)> {
+            let db = ferb_store::Db::open(&path)
+                .map_err(|e| ferb_learning::Error::Sql("OperationalError".into(), e.to_string()))?;
+            let _ = db.conn().execute_batch("PRAGMA busy_timeout = 60000");
+            let store = ferb_learning::store::Store::new(Rc::new(db));
+            let did = ferb_learning::learning::reindex_search(
+                &store,
+                ferb_learning::notes::REINDEX_BATCH_BYTES,
+                &mut || stop.load(Ordering::SeqCst),
+            )?;
+            Ok((did, ferb_learning::learning::search_indexed(&store)?))
+        };
+        match work() {
+            Ok((true, finished)) => j.note(
+                "memory.search_reindexed",
+                json!({"version": ferb_learning::notes::SEARCH_TEXT_VERSION, "finished": finished}),
+            ),
+            Ok(_) => {}
+            Err(e) => j.note(
+                "memory.search_reindex_failed",
+                json!({"error": r.text(&format!("{}: {e}", e.class()))}),
+            ),
+        }
+        Ok(())
+    })
+    .expect("the re-index thread");
 }
 
 /// The local model held by the embed thread, lent to group A's learning store (its `Rc<dyn Embedder>`).
@@ -202,9 +208,22 @@ fn embedder(d: &Arc<Daemon>, stop: Arc<AtomicBool>) {
     let a = d.a.clone();
     let path = crate::basics::lock(&d.db).path().to_path_buf();
     let (j, r, clock) = (d.journal.clone(), d.redactor.clone(), d.opts.clock.clone());
-    std::thread::Builder::new()
-        .name("ferb-embed".into())
-        .spawn(move || {
+    // supervised (T-1123): after a failure the model is loaded again once the pass's period has gone by
+    let stopped = stop.clone();
+    super::guard::thread(
+        d.guard(),
+        "ferb-embed",
+        "embedder",
+        move || stopped.load(Ordering::SeqCst),
+        move |failures| {
+            if failures > 0 {
+                for _ in 0..EMBED_EVERY_S {
+                    if stop.load(Ordering::SeqCst) {
+                        return Ok(());
+                    }
+                    std::thread::sleep(Duration::from_secs(1));
+                }
+            }
             let model = match ferb_memory::embeddings::StaticEmbedder::open(
                 &root,
                 &ferb_memory::embeddings::model(),
@@ -225,7 +244,7 @@ fn embedder(d: &Arc<Daemon>, stop: Arc<AtomicBool>) {
                         "memory.embedding_model",
                         json!({"state": "unavailable", "error": why}),
                     );
-                    return;
+                    return Ok(());
                 }
             };
             struct Now(Arc<dyn ferb_clock::clock::ZonedClock>);
@@ -234,7 +253,7 @@ fn embedder(d: &Arc<Daemon>, stop: Arc<AtomicBool>) {
                     ferb_daemon::areas_a::to_py(&self.0.now())
                 }
             }
-            let now = Now(clock);
+            let now = Now(clock.clone());
             while !stop.load(Ordering::SeqCst) {
                 let started = std::time::Instant::now();
                 let pass = (|| -> Result<Value, String> {
@@ -271,12 +290,14 @@ fn embedder(d: &Arc<Daemon>, stop: Arc<AtomicBool>) {
                 // the wait is cut short by a stop (checked each second)
                 for _ in 0..EMBED_EVERY_S {
                     if stop.load(Ordering::SeqCst) {
-                        return;
+                        return Ok(());
                     }
                     std::thread::sleep(Duration::from_secs(1));
                 }
             }
-        })
+            Ok(())
+        },
+    )
         .expect("the embedder thread");
 }
 

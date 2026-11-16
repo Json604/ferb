@@ -1,0 +1,70 @@
+package com.ferb.core
+
+import com.ferb.mobile.DeviceSigner
+import com.ferb.mobile.Link
+import com.ferb.mobile.LinkConfig
+import com.ferb.mobile.LinkListener
+import com.ferb.mobile.LinkStatus
+import com.ferb.mobile.Mobile
+
+/** How the core reaches the Mac: the real link ([LinkUplinks]), or a transport the tests supply. */
+interface Uplink {
+    /** Makes this the core's way to the Mac. */
+    fun attach(mobile: Mobile)
+    fun pair(code: String)
+    fun status(): LinkStatus?
+    fun setActive(on: Boolean)
+    fun networkChanged(kind: String?)
+    fun retry()
+    fun forget()
+
+    /** Bounded (the link: about 5 s): not on the main thread. */
+    fun shutdown()
+
+    /** Frees the native object (after [shutdown]). */
+    fun close()
+}
+
+/** What a start needs: the kept state, the names the Mac lists, the public keys for the pairing hello. */
+class UplinkStart(
+    val state: ByteArray?,
+    val name: String,
+    val app: String,
+    val keys: PublicKeys,
+    val listener: LinkListener,
+    val deviceSigner: DeviceSigner?,
+)
+
+fun interface UplinkFactory {
+    /** Blocking (the link: up to 20 s). @throws com.ferb.mobile.FerbException */
+    fun start(start: UplinkStart): Uplink
+}
+
+/** ferb-link through ferb-mobile-ffi's `Link`. [tune] lets a test point it at its own relays. */
+class LinkUplinks(private val tune: (LinkConfig) -> LinkConfig = { it }) : UplinkFactory {
+    override fun start(start: UplinkStart): Uplink {
+        val config = tune(
+            LinkConfig(
+                state = start.state,
+                name = start.name,
+                app = start.app,
+                unlockPub = start.keys.lock,
+                devicePub = start.keys.device,
+                strongPub = start.keys.strong,
+            ),
+        )
+        return LinkUplink(Link.start(config, start.listener, start.deviceSigner))
+    }
+}
+
+private class LinkUplink(private val link: Link) : Uplink {
+    override fun attach(mobile: Mobile) = mobile.connect(link)
+    override fun pair(code: String) = link.pair(code)
+    override fun status(): LinkStatus? = link.status()
+    override fun setActive(on: Boolean) = link.setActive(on)
+    override fun networkChanged(kind: String?) = link.networkChanged(kind)
+    override fun retry() = link.retry()
+    override fun forget() = link.forget()
+    override fun shutdown() = link.shutdown()
+    override fun close() = link.close()
+}

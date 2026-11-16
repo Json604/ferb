@@ -54,6 +54,9 @@ class Identity(TempCase):
         self.assertIs(info["LSUIElement"], True)                             # background first: no Dock icon
         self.assertTrue(info["NSMicrophoneUsageDescription"].strip())
         self.assertTrue(info["NSSpeechRecognitionUsageDescription"].strip())
+        # SENSE-420: Location is FERB.app's own grant; macOS shows these words in its question
+        self.assertTrue(info["NSLocationUsageDescription"].strip())
+        self.assertEqual(info["NSLocationWhenInUseUsageDescription"], info["NSLocationUsageDescription"])
         self.assertFalse((ROOT / "macapp").exists())                          # FERB Voice merged into the app
 
     # decision: REL-4
@@ -189,6 +192,8 @@ class Signing(TempCase):
         self.assertIn("com.apple.security.automation.apple-events", agent)
         self.assertIn("com.apple.security.cs.disable-library-validation", agent)   # ad-hoc code has no Team ID
         self.assertIn("com.apple.security.device.audio-input", ent(self.tmp, app))
+        self.assertIn("com.apple.security.personal-information.location", ent(self.tmp, app))   # SENSE-420
+        self.assertNotIn("com.apple.security.personal-information.location", agent)          # the daemon holds none
         self.assertIn("com.apple.security.cs.disable-library-validation", ent(self.tmp, app))
         self.assertFalse(any(s.endswith("/Helpers/FERB.app/Contents/MacOS/FERB") for s in signed))  # with its app
         self.assertTrue(any(c.startswith("codesign|--verify|--deep|--strict") and c.endswith(str(app))

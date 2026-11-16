@@ -274,6 +274,40 @@ pub fn is_addition(name: &str) -> bool {
     additions().iter().any(|a| a.name == name)
 }
 
+/// Whether a listing of Python's tools (`listed`, names) came from a grant an addition is offered to, judged from
+/// the listing alone, for the tests that compare recorded listings (the grant itself isn't recorded there): an
+/// addition that acts only where the listing holds a catalog tool that acts in one of its scopes (an observing grant,
+/// the checker's, holds none); one not offered to FERB's own identity only where the listing holds no tool that is
+/// FERB's identity's alone (HAND-623: project.publish pushes with the owner's login). Its `after` and
+/// `named_only` are the caller's.
+pub fn offered_beside(addition: &Addition, listed: &[String]) -> bool {
+    let rows = catalog().raw()["tools"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let row_of = |n: &str| rows.iter().find(|t| t["name"] == n).cloned();
+    let scopes = strings(&addition.row["scopes"]);
+    let identities = strings(&addition.row["identities"]);
+    if addition.row["acts"].as_bool().unwrap_or(false) {
+        let acting = listed.iter().filter_map(|n| row_of(n)).any(|t| {
+            t["acts"].as_bool().unwrap_or(false) && !strings(&t["scopes"]).is_disjoint(&scopes)
+        });
+        if !acting {
+            return false;
+        }
+    }
+    if !identities.contains("ferb") {
+        let ferb_only = listed.iter().filter_map(|n| row_of(n)).any(|t| {
+            let ids = strings(&t["identities"]);
+            ids.len() == 1 && ids.contains("ferb")
+        });
+        if ferb_only {
+            return false;
+        }
+    }
+    true
+}
+
 /// The catalog, read once.
 pub fn catalog() -> &'static Catalog {
     static C: OnceLock<Catalog> = OnceLock::new();

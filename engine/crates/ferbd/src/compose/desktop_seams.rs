@@ -112,6 +112,8 @@ fn hand_name(e: &ferb_mac_hands::error::HandError) -> String {
 /// The Mac driver as the desktop area reads it (`self.mac`).
 pub struct MacSide {
     tools: Arc<ferb_mac_hands::tools::MacTools>,
+    /// The Mac's own parts are on (a test daemon's are off: T-1129).
+    native: bool,
 }
 
 #[cfg(target_os = "macos")]
@@ -213,10 +215,17 @@ impl MacDriver for MacSide {
             }
         })
     }
+    // T-1129: a daemon without the Mac's own parts (a test's) reads none of this Mac's windows
     fn normal_windows(&self) -> Result<Vec<Window>, String> {
+        if !self.native {
+            return Ok(Vec::new());
+        }
         Ok(super::front::normal_windows())
     }
     fn window(&self, id: i64) -> Result<Option<Window>, String> {
+        if !self.native {
+            return Ok(None);
+        }
         Ok(window_now(id))
     }
     fn has_launched(&self) -> bool {
@@ -262,6 +271,7 @@ impl Seams for DesktopSeams {
         self.parts.mac().map(|m| {
             Arc::new(MacSide {
                 tools: m.tools.clone(),
+                native: self.parts.native(),
             }) as Arc<dyn MacDriver>
         })
     }

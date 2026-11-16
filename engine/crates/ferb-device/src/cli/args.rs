@@ -270,7 +270,11 @@ fn parser() -> Parser {
         }],
         vec![],
     );
-    let uninstall = p(vec![flag("--purge"), flag("--yes")], vec![]);
+    // DMN-598: `--skip-browser-files`, FERB.app's after its background service removed FERB's browser files
+    let uninstall = p(
+        vec![flag("--purge"), flag("--yes"), flag("--skip-browser-files")],
+        vec![],
+    );
     Parser {
         opts: vec![],
         pos: vec![],

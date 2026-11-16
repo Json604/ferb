@@ -23,8 +23,12 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 
 use ferb_core::chat_entry::{
-    AnswerBody, Entry, EntryKind, EntryState, MessageBody, Placement, QuestionBody,
+    AnswerBody, Change, Entry, EntryKind, EntryState, MessageBody, NoticeBody, Placement,
+    QuestionBody,
 };
+use ferb_store::chat_entries::POS_BASE;
+use ferb_supervisor::flow::chat_log::RESTORE_RECENT;
+use ferb_supervisor::flow::data_delete::FRESH_MARKER;
 use ferb_supervisor::flow::entries::{ChatProjector, Input, Projected, Seams};
 use serde_json::{json, Map, Value};
 
@@ -347,13 +351,662 @@ const STOPPED_SUMMARY: &str =
 const FILES_LINE: &str = "I'm listing every file the assignment workers made.";
 
 /// Timelines written here for chat cases found live that no recording has (ENG-18: the Python daemon is gone, ENG-16),
-/// in the steps a recorded timeline has; they come after the 71 recorded scenarios.
+/// in the steps a recorded timeline has; they come after the 71 recorded scenarios. Then the cases stage 3's phone
+/// transcript needs (S6, T-1206) that no recording has: the steps `legacy`, `delete`, `fresh` and `restart` are what
+/// the store and the start-up pass write themselves (README "The steps"), the rest go through the projector.
 fn invented() -> Vec<Scenario> {
-    vec![Scenario {
+    let mut out = vec![Scenario {
         name: STOP_TWO_TURNS.into(),
         source: "invented: chat_entries.rs, the live case of 2026-11-15".into(),
         timeline: stop_beside_new_work_two_turns(true),
-    }]
+    }];
+    type Made = fn() -> Vec<Value>;
+    let phone: [(&str, &str, Made); 12] = [
+        (
+            "gaps_single_task",
+            "ORCH-651: one task delivered, with parts not done",
+            gaps_single_task,
+        ),
+        (
+            "gaps_checklist",
+            "ORCH-651: a step of a checklist delivered with gaps",
+            gaps_checklist,
+        ),
+        (
+            "gaps_card_row",
+            "ORCH-651: one ask of a card delivered with gaps",
+            gaps_card_row,
+        ),
+        (
+            "sealed_ids_in_message",
+            "GATE-604: the ack's sealed IDs",
+            sealed_ids_in_message,
+        ),
+        (
+            "legacy_then_new",
+            "ENG-12: rows carried from chat_history, then new turns",
+            legacy_then_new,
+        ),
+        (
+            "deleted_turn_between",
+            "STORE-424: a turn deleted between two kept ones",
+            deleted_turn_between,
+        ),
+        (
+            "deleted_last_turn",
+            "STORE-424: the last turn deleted while an earlier one works",
+            deleted_last_turn,
+        ),
+        (
+            "reply_after_a_deleted_turn",
+            "STORE-424: a reply on a stream open across a delete",
+            reply_after_a_deleted_turn,
+        ),
+        (
+            "fresh_conversation",
+            "STORE-427: a fresh conversation's marker",
+            fresh_conversation,
+        ),
+        (
+            "turn_from_another_client",
+            "APP-916: a turn a phone sent, with its answer",
+            turn_from_another_client,
+        ),
+        (
+            "questions_answered_and_expired",
+            "ENG-13: questions answered, and one expired at start-up",
+            questions_answered_and_expired,
+        ),
+        (
+            "question_left_open",
+            "APP-300: a question still open in a card row and one at the chat's end",
+            question_left_open,
+        ),
+    ];
+    for (name, case, timeline) in phone {
+        out.push(Scenario {
+            name: name.into(),
+            source: format!("invented: chat_entries.rs, the phone transcript (S6), {case}"),
+            timeline: timeline(),
+        });
+    }
+    out
+}
+
+/// A timeline of conversation `s1` written by hand, in the recorded timelines' steps.
+struct Tl(Vec<Value>);
+
+fn at(m: u32) -> String {
+    format!("2026-01-01T09:{m:02}:00+00:00")
+}
+
+impl Tl {
+    fn new() -> Tl {
+        Tl(Vec::new())
+    }
+    /// A message sent and its ack; `ack` adds fields to the ack (sealed, hidden, a client's ids).
+    fn send(&mut self, stream: u64, request: &str, text: &str, m: u32, ack: Value) -> &mut Tl {
+        self.send_in("s1", stream, request, text, m, ack)
+    }
+    fn send_in(
+        &mut self,
+        session: &str,
+        stream: u64,
+        request: &str,
+        text: &str,
+        m: u32,
+        ack: Value,
+    ) -> &mut Tl {
+        let mut frame = json!({"type": "ack", "request_id": request, "message": text, "at": at(m)});
+        for (k, v) in ack.as_object().into_iter().flatten() {
+            frame[k] = v.clone();
+        }
+        self.0.push(
+            json!({"do": "send", "stream": stream, "session": session, "request_id": request,
+                           "text": text, "input_paths": [], "at": at(m)}),
+        );
+        self.0
+            .push(json!({"do": "frame", "stream": stream, "session": session, "frame": frame}));
+        self
+    }
+    fn frame(&mut self, stream: u64, f: Value) -> &mut Tl {
+        self.frame_in("s1", stream, f)
+    }
+    fn frame_in(&mut self, session: &str, stream: u64, f: Value) -> &mut Tl {
+        self.0
+            .push(json!({"do": "frame", "stream": stream, "session": session, "frame": f}));
+        self
+    }
+    /// A task's end on its stream, and the task.result chat.rs publishes with it.
+    fn outcome(&mut self, stream: u64, f: Value) -> &mut Tl {
+        self.frame(stream, f.clone());
+        let mut data = f.clone();
+        data["shown"] = json!(true);
+        self.0.push(
+            json!({"do": "bus", "session": "s1", "topic": "task.result", "data": data,
+                           "at": f["at"]}),
+        );
+        self
+    }
+    fn end(&mut self, stream: u64) -> &mut Tl {
+        self.end_in("s1", stream)
+    }
+    fn end_in(&mut self, session: &str, stream: u64) -> &mut Tl {
+        self.0
+            .push(json!({"do": "end", "stream": stream, "session": session}));
+        self
+    }
+    fn bus(&mut self, topic: &str, data: Value, m: u32) -> &mut Tl {
+        self.0
+            .push(json!({"do": "bus", "session": "s1", "topic": topic, "data": data, "at": at(m)}));
+        self
+    }
+    fn step(&mut self, v: Value) -> &mut Tl {
+        self.0.push(v);
+        self
+    }
+    fn done(&mut self) -> Vec<Value> {
+        std::mem::take(&mut self.0)
+    }
+}
+
+/// A one-task plan frame.
+fn plan(request: &str, task: &str, name: &str, goal: &str, line: &str, m: u32) -> Value {
+    json!({"type": "plan", "task_id": task, "text": line, "goal": goal, "name": name, "identity": "owner",
+           "plan_line": line, "lines": [], "request_id": request, "at": at(m)})
+}
+
+/// A task's end (`outcome`) as the final frame carries it.
+fn end_of(request: &str, task: &str, status: &str, answer: &str, verified: bool, m: u32) -> Value {
+    json!({"type": "outcome", "task_id": task, "status": status, "summary": answer, "answer": answer,
+           "verified": verified, "artifacts": [], "resources": [], "stop_reason": "", "request_id": request,
+           "at": at(m)})
+}
+
+/// A gap as the final frame carries it (`Gap::record`), and the answer with code's "Not done:" lines
+/// (`lines::with_gap_lines`, ORCH-652).
+fn gapped(answer: &str, gaps: &[(&str, &str)]) -> (String, Value) {
+    let gaps: Vec<ferb_supervisor::flow::Gap> = gaps
+        .iter()
+        .enumerate()
+        .map(|(i, (condition, reason))| ferb_supervisor::flow::Gap {
+            index: i as i64,
+            condition: condition.to_string(),
+            reason: reason.to_string(),
+            evidence: "Seen in the worker's report.".into(),
+        })
+        .collect();
+    let records: Vec<Value> = gaps
+        .iter()
+        .map(|g| json!({"index": g.index, "condition": g.condition, "reason": g.reason, "evidence": g.evidence}))
+        .collect();
+    (
+        ferb_supervisor::lines::with_gap_lines(answer, &gaps),
+        json!(records),
+    )
+}
+
+const PARTICIPANTS: (&str, &str) = (
+    "Five real participants took part in the test",
+    "Only you can bring real participants; none were invented",
+);
+
+/// ORCH-651: a single task whose check accepted it with a gap: the turn ends `done_with_gaps`, not verified, its
+/// answer ending with the "Not done:" line.
+fn gaps_single_task() -> Vec<Value> {
+    let (answer, gaps) = gapped(
+        "The usability report is written: /FX/work/report.pdf.",
+        &[PARTICIPANTS],
+    );
+    let mut end = end_of("r1", "t-hci", "done_with_gaps", &answer, false, 9);
+    end["artifacts"] = json!(["/FX/work/report.pdf"]);
+    end["gaps"] = gaps;
+    Tl::new()
+        .send(
+            0,
+            "r1",
+            "write the usability report for the HCI course",
+            0,
+            json!({}),
+        )
+        .frame(
+            0,
+            plan(
+                "r1",
+                "t-hci",
+                "Usability report",
+                "Write the usability report for the HCI course",
+                "I'm writing the usability report.",
+                0,
+            ),
+        )
+        .outcome(0, end)
+        .end(0)
+        .done()
+}
+
+/// ORCH-651 in a checklist: the middle step delivered with gaps, the steps after it run, the task ends
+/// `done_with_gaps` and its checklist keeps each step's end.
+fn gaps_checklist() -> Vec<Value> {
+    let steps = json!([
+        {"id": "draft", "label": "Draft the report", "kind": "do", "depends_on": [], "step_task_id": "t-hci2.step.draft"},
+        {"id": "test", "label": "Run the usability test", "kind": "do", "depends_on": ["draft"],
+         "step_task_id": "t-hci2.step.test"},
+        {"id": "summary", "label": "Write the summary", "kind": "do", "depends_on": ["test"],
+         "step_task_id": "t-hci2.step.summary"}]);
+    let state =
+        |status: &str, waits: Value| json!({"status": status, "waits_on": waits, "attempt": 1});
+    let mut start = plan(
+        "r1",
+        "t-hci2",
+        "HCI report",
+        "Draft, test and summarize the HCI report",
+        "I'm drafting, testing and summarizing the report.",
+        0,
+    );
+    start["checklist"] = json!({"steps": steps, "states": {
+        "test": {"status": "waiting", "waits_on": ["draft"], "attempt": 0},
+        "summary": {"status": "waiting", "waits_on": ["test"], "attempt": 0}}});
+    let (answer, gaps) = gapped(
+        "The report and its summary are ready: /FX/work/hci.pdf.",
+        &[PARTICIPANTS],
+    );
+    let mut end = end_of("r1", "t-hci2", "done_with_gaps", &answer, false, 12);
+    end["gaps"] = gaps;
+    end["checklist"] = json!({"steps": steps, "states": {
+        "draft": state("done", json!([])),
+        "test": state("done_with_gaps", json!(["draft"])),
+        "summary": state("done", json!(["test"]))}});
+    Tl::new()
+        .send(0, "r1", "draft the HCI report, run the usability test and write the summary", 0, json!({}))
+        .frame(0, start)
+        .frame(0, json!({"type": "step", "task_id": "t-hci2", "step": "draft", "status": "running", "request_id": "r1",
+                         "at": at(1)}))
+        .outcome(0, end)
+        .end(0)
+        .done()
+}
+
+/// ORCH-651 in a card: one ask answered at once, the other delivered with gaps (never counted done; the card ends
+/// `done_with_gaps` because every other row is done).
+fn gaps_card_row() -> Vec<Value> {
+    let plan_steps = json!([{"id": "worker", "label": "Write the usability report", "kind": "do", "depends_on": [],
+                             "step_task_id": "t-card.worker"}]);
+    let direct = json!({"part": "p1", "label": "Due date", "state": "done", "direct": true, "text": "Friday",
+                        "seq": "2026-01-01T09:00:00.000000+00:00", "card_request_id": "r1"});
+    let mut start = plan(
+        "r1",
+        "t-card",
+        "Report and due date",
+        "Write the usability report",
+        "It's due Friday. Writing the report now.",
+        0,
+    );
+    start["direct"] = json!([{"part": "p1", "label": "Due date", "text": "Friday"}]);
+    start["receipts"] = json!([]);
+    start["card"] = json!({"request_id": "r1", "rows": [direct, {"part": "p2", "label": "Report", "state": "working",
+        "direct": false, "step": "worker", "step_task_id": "t-card.worker"}], "done": 1, "total": 2, "steps": {},
+        "plan": plan_steps});
+    let (row_text, gaps) = gapped(
+        "The report is written: /FX/work/report.pdf.",
+        &[PARTICIPANTS],
+    );
+    let mut end = end_of(
+        "r1",
+        "t-card",
+        "done_with_gaps",
+        &format!("Due date: Friday\nReport: {row_text} (parts not done)\n1 of 2 done"),
+        false,
+        10,
+    );
+    end["gaps"] = gaps;
+    end["card"] = json!({"request_id": "r1", "rows": [direct, {"part": "p2", "label": "Report",
+        "state": "done_with_gaps", "direct": false, "step": "worker", "text": row_text,
+        "seq": "2026-01-01T09:10:00.000000+00:00", "verified": false, "card_request_id": "r1",
+        "step_task_id": "t-card.worker"}], "done": 1, "total": 2,
+        "steps": {"worker": {"status": "done_with_gaps", "waits_on": [], "attempt": 1, "part": "p2"}},
+        "plan": plan_steps, "line": "1 of 2 done", "lines": []});
+    Tl::new()
+        .send(
+            0,
+            "r1",
+            "when is the HCI report due, and write it",
+            0,
+            json!({}),
+        )
+        .frame(0, start)
+        .outcome(0, end)
+        .end(0)
+        .done()
+}
+
+/// GATE-604: a message with a personal ID the owner typed, kept sealed for any site: the ack carries the masked text,
+/// the format among the hidden kinds and `sealed` with its saved name.
+fn sealed_ids_in_message() -> Vec<Value> {
+    Tl::new()
+        .send(0, "r1", "renew my passport, number [PASSPORT]", 0,
+              json!({"message": "renew my passport, number [PASSPORT]", "hidden": ["PASSPORT"],
+                     "sealed": [{"kind": "PASSPORT", "name": "PASSPORT"}]}))
+        .frame(0, json!({"type": "reply", "text": "I can start the renewal form. Which country issued it?",
+                         "request_id": "r1", "at": at(1)}))
+        .end(0)
+        .send(1, "r2", "same for my second one, [PASSPORT 2]", 2,
+              json!({"message": "same for my second one, [PASSPORT 2]", "hidden": ["PASSPORT"],
+                     "sealed": [{"kind": "PASSPORT", "name": "PASSPORT 2"}]}))
+        .frame(1, json!({"type": "reply", "text": "Noted. I'll use it when the form asks.", "request_id": "r2",
+                         "at": at(3)}))
+        .end(1)
+        .done()
+}
+
+/// What FERB.app saved in chat_history (APP-805), as `StoredEntry.encoded()` writes it (sorted keys, dates as seconds
+/// since 2001, ids as UUIDs), carried over as legacy entries (ENG-12): two turns, a later answer (APP-914) and a
+/// notice; then new turns.
+fn legacy_then_new() -> Vec<Value> {
+    const T1: &str = "6F1C2D3E-0000-4000-8000-000000000001";
+    const T2: &str = "6F1C2D3E-0000-4000-8000-000000000002";
+    const R1: &str = "6F1C2D3E-0000-4000-8000-000000000003";
+    const N1: &str = "6F1C2D3E-0000-4000-8000-000000000004";
+    let row = |id: &str, kind: &str, minute: u32, body: Value, reference: Option<&str>| {
+        let mut v = json!({"do": "legacy", "session": "s1", "id": id, "kind": kind,
+                           "at": format!("2025-12-31T18:{minute:02}:00.000Z"), "day": "2025-12-31", "body": body});
+        if let Some(r) = reference {
+            v["ref"] = json!(r);
+        }
+        v
+    };
+    let t1 = json!({"answer": "Two meetings: the design review at 10 and lunch with Sam at 1.", "artifacts": [],
+        "backendTaskID": "old-t1", "createdAt": 788896800, "id": T1, "planLine": "I'm reading your calendar.",
+        "planLines": [], "request": "what's on my calendar tomorrow?", "requestID": "old-r1", "sources": [],
+        "status": "done", "taskName": "Calendar", "verified": true});
+    let t2 = json!({"answer": "I'll remind you at 9 tomorrow.", "artifacts": [], "createdAt": 788896860, "id": T2,
+        "request": "remind me to call the bank", "requestID": "old-r2", "sources": [], "status": "done",
+        "verified": false});
+    let r1 = json!({"afterTurnID": T2, "createdAt": 788897100, "id": R1, "part": "answer",
+        "said": {"answer": "Sam moved lunch to 1:30.", "artifacts": [], "status": "done", "verified": false},
+        "turnID": T1});
+    let n1 = json!({"afterTurnID": T2, "createdAt": 788897160, "entryID": N1, "id": "notice-old-1",
+        "noticedAt": 788897160, "quotes": [{"origin": "mail", "text": "Your renewal is ready."}],
+        "text": "An email about your passport renewal arrived."});
+    let mut tl = Tl::new();
+    tl.step(row(T1, "turn", 0, t1, None))
+        .step(row(T2, "turn", 1, t2, None))
+        .step(row(R1, "reply", 5, r1, None))
+        .step(row(N1, "notice", 6, n1, Some("notice-old-1")))
+        .send(0, "r1", "and the day after?", 0, json!({}))
+        .frame(0, json!({"type": "reply", "text": "Nothing on your calendar that day.", "request_id": "r1",
+                         "at": at(1)}))
+        .end(0);
+    tl.done()
+}
+
+/// STORE-424 between two kept turns: a long task's turn (A), a quick question (B) whose answer comes first, then A's
+/// end (below, quoting A, since the chat ended on B), a notice, a third turn (C); then B is deleted.
+fn deleted_turn_between() -> Vec<Value> {
+    Tl::new()
+        .send(0, "r1", "back up my photos folder", 0, json!({}))
+        .frame(
+            0,
+            plan(
+                "r1",
+                "t-backup",
+                "Photo backup",
+                "Back up the photos folder",
+                "I'm backing up your photos.",
+                0,
+            ),
+        )
+        .send(1, "r2", "what's the capital of Peru?", 1, json!({}))
+        .frame(
+            1,
+            json!({"type": "reply", "text": "Lima.", "request_id": "r2", "at": at(1)}),
+        )
+        .end(1)
+        .outcome(
+            0,
+            end_of(
+                "r1",
+                "t-backup",
+                "done",
+                "Backed up 120 photos to /FX/backup.",
+                true,
+                2,
+            ),
+        )
+        .end(0)
+        .step(
+            json!({"do": "notice", "session": "s1", "data": {"id": "notice-1",
+            "text": "The backup drive is almost full.", "quotes": [], "at": at(3)}}),
+        )
+        .send(2, "r3", "and the capital of Chile?", 4, json!({}))
+        .frame(
+            2,
+            json!({"type": "reply", "text": "Santiago.", "request_id": "r3", "at": at(4)}),
+        )
+        .end(2)
+        .step(json!({"do": "delete", "session": "s1", "request_id": "r2", "at": at(5)}))
+        .done()
+}
+
+/// STORE-424 at the end: a long task's turn (A), a quick question (B) answered, B deleted while A still works; then
+/// A's end comes on its open stream. With B gone the chat ends on A again.
+fn deleted_last_turn() -> Vec<Value> {
+    Tl::new()
+        .send(0, "r1", "download the March statements", 0, json!({}))
+        .frame(
+            0,
+            plan(
+                "r1",
+                "t-statements",
+                "March statements",
+                "Download the March statements",
+                "I'm downloading the March statements.",
+                0,
+            ),
+        )
+        .send(1, "r2", "how many days are in March?", 1, json!({}))
+        .frame(
+            1,
+            json!({"type": "reply", "text": "31.", "request_id": "r2", "at": at(1)}),
+        )
+        .end(1)
+        .step(json!({"do": "delete", "session": "s1", "request_id": "r2", "at": at(2)}))
+        .outcome(
+            0,
+            end_of(
+                "r1",
+                "t-statements",
+                "done",
+                "Downloaded 3 statements to /FX/statements.",
+                true,
+                3,
+            ),
+        )
+        .end(0)
+        .done()
+}
+
+/// STORE-424 while another turn's stream is open: a turn deleted before the planner's reply to an earlier message
+/// comes on that message's stream.
+fn reply_after_a_deleted_turn() -> Vec<Value> {
+    Tl::new()
+        .send(0, "r1", "is the bike shop open today?", 0, json!({}))
+        .send(1, "r2", "what's 2 plus 2?", 1, json!({}))
+        .frame(
+            1,
+            json!({"type": "reply", "text": "4.", "request_id": "r2", "at": at(1)}),
+        )
+        .end(1)
+        .step(json!({"do": "delete", "session": "s1", "request_id": "r2", "at": at(2)}))
+        .frame(
+            0,
+            json!({"type": "reply", "text": "Yes, until 6 pm.", "request_id": "r1", "at": at(3)}),
+        )
+        .end(0)
+        .done()
+}
+
+/// STORE-427: a turn in the first conversation, then `chat.attach {new}`: the new conversation starts with the marker
+/// notice, then its own turn.
+fn fresh_conversation() -> Vec<Value> {
+    let mut tl = Tl::new();
+    tl.send(0, "r1", "hello", 0, json!({}))
+        .frame(
+            0,
+            json!({"type": "reply", "text": "Hello.", "request_id": "r1", "at": at(0)}),
+        )
+        .end(0)
+        .step(json!({"do": "fresh", "session": "s2", "at": at(1)}))
+        .send_in("s2", 1, "r2", "what did I just say?", 2, json!({}))
+        .frame_in(
+            "s2",
+            1,
+            json!({"type": "reply", "text": "I don't have earlier messages in this conversation.",
+                                  "request_id": "r2", "at": at(2)}),
+        )
+        .end_in("s2", 1);
+    tl.done()
+}
+
+/// APP-916: a message sent from a phone (its client id and submission id on the ack, ENG-14) between two of the Mac's
+/// own, with a plan and an answer; every entry of its turn names the phone.
+fn turn_from_another_client() -> Vec<Value> {
+    Tl::new()
+        .send(0, "r1", "what's the weather today?", 0, json!({}))
+        .frame(
+            0,
+            json!({"type": "reply", "text": "Sunny, 24°C.", "request_id": "r1", "at": at(0)}),
+        )
+        .end(0)
+        .send(
+            1,
+            "r2",
+            "find the receipt from the bike shop",
+            1,
+            json!({"client_id": "phone-1", "submission_id": "sub-1"}),
+        )
+        .frame(
+            1,
+            plan(
+                "r2",
+                "t-receipt",
+                "Bike shop receipt",
+                "Find the receipt from the bike shop",
+                "I'm looking through your mail for it.",
+                1,
+            ),
+        )
+        .outcome(
+            1,
+            end_of(
+                "r2",
+                "t-receipt",
+                "done",
+                "Found it: /FX/mail/bike-receipt.pdf.",
+                true,
+                2,
+            ),
+        )
+        .end(1)
+        .send(2, "r3", "thanks", 3, json!({}))
+        .frame(
+            2,
+            json!({"type": "reply", "text": "You're welcome.", "request_id": "r3", "at": at(3)}),
+        )
+        .end(2)
+        .done()
+}
+
+/// A worker's question as the stream and the bus carry it.
+fn asked(approval: &str, request: &str, task: &str, reason: &str, options: Value) -> Value {
+    json!({"approval_id": approval, "capability": "plan.ask", "kind": "owner_question", "reason": reason,
+           "options": options, "task_id": format!("{task}.worker"), "request_id": request, "from_task": true,
+           "title": "Your task has a question"})
+}
+
+/// ENG-13: a question asked and answered, another left open when the program stops; the start-up pass expires it
+/// (the task resumed), the resumed task asks again, is answered and ends.
+fn questions_answered_and_expired() -> Vec<Value> {
+    let which = asked(
+        "ap-1",
+        "r1",
+        "t-book",
+        "Which restaurant?",
+        json!(["Rosa", "Kumo"]),
+    );
+    let time = asked(
+        "ap-2",
+        "r1",
+        "t-book",
+        "Book for 7 pm or 8 pm?",
+        json!(["7 pm", "8 pm"]),
+    );
+    let again = asked(
+        "ap-3",
+        "r1",
+        "t-book",
+        "Book for 7 pm or 8 pm?",
+        json!(["7 pm", "8 pm"]),
+    );
+    Tl::new()
+        .send(0, "r1", "book a table for two on Friday", 0, json!({}))
+        .frame(0, plan("r1", "t-book", "Table booking", "Book a table for two on Friday", "I'm booking a table.", 0))
+        .frame(0, json!({"type": "event", "topic": "approval.requested", "data": which, "request_id": "r1",
+                         "at": at(1)}))
+        .bus("approval.resolved", json!({"approval_id": "ap-1", "kind": "task", "state": "granted",
+                                         "answer": "option", "choice": "Rosa"}), 2)
+        .frame(0, json!({"type": "event", "topic": "approval.requested", "data": time, "request_id": "r1",
+                         "at": at(3)}))
+        .end(0)
+        .step(json!({"do": "restart", "session": "s1", "resumed": ["t-book"], "at": at(4)}))
+        .bus("approval.requested", again, 5)
+        .bus("approval.resolved", json!({"approval_id": "ap-3", "kind": "task", "state": "granted",
+                                         "answer": "option", "choice": "8 pm"}), 6)
+        .bus("task.result", end_of("r1", "t-book", "done", "Booked Rosa for two on Friday at 8 pm.", true, 7), 7)
+        .done()
+}
+
+/// APP-300 and APP-581: questions the scenario ends with still open: one a card row's step asked (the Mac shows it
+/// inside that row), one a single task asked (shown at the end of today's chat).
+fn question_left_open() -> Vec<Value> {
+    let plan_steps = json!([{"id": "worker", "label": "Order the paint", "kind": "do", "depends_on": [],
+                             "step_task_id": "t-paint.worker"}]);
+    let mut start = plan(
+        "r1",
+        "t-paint",
+        "Paint and hours",
+        "Order the paint",
+        "The shop opens at 9. Ordering now.",
+        0,
+    );
+    start["direct"] = json!([{"part": "p1", "label": "Opening hours", "text": "9 am"}]);
+    start["receipts"] = json!([]);
+    start["card"] = json!({"request_id": "r1", "rows": [
+        {"part": "p1", "label": "Opening hours", "state": "done", "direct": true, "text": "9 am",
+         "seq": "2026-01-01T09:00:00.000000+00:00", "card_request_id": "r1"},
+        {"part": "p2", "label": "Paint", "state": "working", "direct": false, "step": "worker",
+         "step_task_id": "t-paint.worker"}], "done": 1, "total": 2, "steps": {}, "plan": plan_steps});
+    let mut colour = asked(
+        "ap-1",
+        "r1",
+        "t-paint",
+        "Which colour?",
+        json!(["White", "Grey"]),
+    );
+    colour["task_id"] = json!("t-paint");
+    colour["source_task_id"] = json!("t-paint.worker");
+    colour["part"] = json!("p2");
+    Tl::new()
+        .send(0, "r1", "when does the shop open, and order the paint", 0, json!({}))
+        .frame(0, start)
+        .frame(0, json!({"type": "event", "topic": "approval.requested", "data": colour, "request_id": "r1",
+                         "at": at(1)}))
+        .send(1, "r2", "tidy my desktop", 2, json!({}))
+        .frame(1, plan("r2", "t-tidy", "Desktop tidy", "Tidy the desktop", "I'm tidying your desktop.", 2))
+        .frame(1, json!({"type": "event", "topic": "approval.requested",
+                         "data": asked("ap-2", "r2", "t-tidy", "Move the screenshots to Pictures?", json!(["Yes", "No"])),
+                         "request_id": "r2", "at": at(3)}))
+        .done()
 }
 
 /// The live case of 2026-11-15 (APP-919): a task the owner restarted with a second message (the same task now runs
@@ -470,34 +1123,281 @@ struct Run {
     entries: BTreeMap<String, Vec<Entry>>,
 }
 
+/// One conversation of a run: its projector (none after the store rewrote entries: ChatLog `rewrite` drops it and the
+/// next input rebuilds it from the store, `ChatLog::projector`), the seams, and the harness's copy of what the store
+/// holds (`ferb_store::chat_entries`: every entry at its newest revision, by id).
+struct Conv {
+    projector: Option<ChatProjector>,
+    seams: Fixed,
+    stored: BTreeMap<String, Entry>,
+    /// The stream's `last_pos` before anything is stored: imported rows sit below the stream's own entries.
+    base: u64,
+    /// The requests whose stream is open (ChatLog's `open`): a rebuild that isn't a restart keeps their sessions.
+    open: Vec<String>,
+}
+
+impl Conv {
+    fn last_pos(&self) -> u64 {
+        self.stored
+            .values()
+            .map(|e| e.pos)
+            .max()
+            .unwrap_or(self.base - 1)
+            .max(self.base - 1)
+    }
+
+    /// The projector, rebuilt from the store when the store rewrote entries (ChatLog `projector`: its open entries,
+    /// every entry of their messages, the last `RESTORE_RECENT`, every ref, the stream's next position).
+    fn projector(&mut self, conversation: &str) -> &mut ChatProjector {
+        if self.projector.is_none() {
+            let mut by_pos: Vec<Entry> = self.stored.values().cloned().collect();
+            by_pos.sort_by_key(|e| e.pos);
+            let mut stored: Vec<Entry> = by_pos.iter().filter(|e| e.open).cloned().collect();
+            let requests: HashSet<String> =
+                stored.iter().filter_map(|e| e.request_id.clone()).collect();
+            stored.extend(
+                by_pos
+                    .iter()
+                    .filter(|e| e.request_id.as_ref().is_some_and(|r| requests.contains(r)))
+                    .cloned(),
+            );
+            let recent = by_pos.len().saturating_sub(RESTORE_RECENT);
+            stored.extend(by_pos[recent..].iter().cloned());
+            let mut refs: Vec<String> = Vec::new();
+            for e in &by_pos {
+                if let Some(r) = &e.reference {
+                    if !refs.contains(r) {
+                        refs.push(r.clone());
+                    }
+                }
+            }
+            let next = self.last_pos() + 1;
+            let mut p = ChatProjector::restore(conversation, stored, refs, next);
+            p.streams_open(&self.open);
+            self.projector = Some(p);
+        }
+        self.projector.as_mut().unwrap()
+    }
+
+    /// An entry the store itself makes (`create`: the stream's next position, a new `seq`, rev 1).
+    fn create(&mut self, entry: Entry) -> Entry {
+        let entry = Entry {
+            pos: self.last_pos() + 1,
+            seq: self.seams.next_seq(),
+            rev: 1,
+            ..entry
+        };
+        self.projector = None;
+        entry
+    }
+
+    /// The turn of `request` deleted (STORE-424, `data_delete::plan` and `apply`): every entry not yet deleted whose
+    /// request is it or whose task is one of its tasks (the tasks of its trees), tombstoned in `pos` order as
+    /// `ferb_store::chat_entries::tombstone` does (a revision: `deleted`, `open` false, the body `{}`).
+    fn delete(&mut self, request: &str, at: &str) -> Vec<Change> {
+        let root = |t: &str| t.split('.').next().unwrap_or(t).to_string();
+        let trees: HashSet<String> = self
+            .stored
+            .values()
+            .filter(|e| e.request_id.as_deref() == Some(request))
+            .filter_map(|e| e.task_id.as_deref().map(root))
+            .collect();
+        let mut gone: Vec<Entry> = self
+            .stored
+            .values()
+            .filter(|e| !e.deleted)
+            .filter(|e| {
+                e.request_id.as_deref() == Some(request)
+                    || e.task_id
+                        .as_deref()
+                        .is_some_and(|t| trees.contains(&root(t)))
+            })
+            .cloned()
+            .collect();
+        gone.sort_by_key(|e| e.pos);
+        let mut out = Vec::new();
+        for e in gone {
+            let seq = self.seams.next_seq();
+            let tombstone = Entry {
+                deleted: true,
+                open: false,
+                body: json!({}),
+                rev: e.rev + 1,
+                seq,
+                updated_at: at.to_string(),
+                ..e
+            };
+            out.push(Change {
+                seq,
+                entry: tombstone,
+            });
+        }
+        self.projector = None;
+        out
+    }
+}
+
+/// An entry the store writes itself (a legacy row, the fresh-conversation notice), its place and counter set by the
+/// caller.
+fn stored_entry(conversation: &str, id: String, kind: EntryKind, at: &str, body: Value) -> Entry {
+    Entry {
+        id,
+        conversation_id: conversation.to_string(),
+        pos: 0,
+        seq: 0,
+        rev: 1,
+        kind,
+        state: EntryState::Done,
+        open: false,
+        request_id: None,
+        task_id: None,
+        approval_id: None,
+        reference: None,
+        answers: None,
+        placement: None,
+        origin: None,
+        client_id: None,
+        submission_id: None,
+        journal_id: None,
+        created_at: at.to_string(),
+        updated_at: at.to_string(),
+        day: at.chars().take(10).collect(),
+        body,
+        deleted: false,
+    }
+}
+
+/// One input to a conversation's projector (rebuilt first when the store rewrote entries).
+fn feed(conv: &mut Conv, conversation: &str, input: Input<'_>) -> Projected {
+    conv.projector(conversation);
+    let Conv {
+        projector, seams, ..
+    } = conv;
+    projector.as_mut().unwrap().apply(input, seams)
+}
+
 fn run(timeline: &[Value]) -> Run {
-    let mut projectors: BTreeMap<String, (ChatProjector, Fixed)> = BTreeMap::new();
+    let mut convs: BTreeMap<String, Conv> = BTreeMap::new();
     let mut ids = 0u64;
     let mut at = "2026-01-01T09:00:00+00:00".to_string();
     let mut requests: HashMap<u64, String> = HashMap::new();
     let mut made = Vec::new();
+    // a conversation with rows carried over from chat_history (migration 0063): they take the positions just below
+    // POS_BASE, the stream's own entries start at POS_BASE
+    let mut legacy: HashMap<String, u64> = HashMap::new();
+    for item in timeline.iter().filter(|i| i["do"] == "legacy") {
+        *legacy.entry(s(item, "session").unwrap()).or_default() += 1;
+    }
     for item in timeline {
         let session = s(item, "session").unwrap();
-        let (projector, seams) = projectors.entry(session.clone()).or_insert_with(|| {
-            (
-                ChatProjector::new(&session, 1),
-                Fixed {
+        let conv = convs.entry(session.clone()).or_insert_with(|| {
+            let base = if legacy.contains_key(&session) {
+                POS_BASE
+            } else {
+                1
+            };
+            Conv {
+                projector: Some(ChatProjector::new(&session, base)),
+                seams: Fixed {
                     at: at.clone(),
                     ids: 0,
                     seq: 0,
                 },
-            )
+                stored: BTreeMap::new(),
+                base,
+                open: Vec::new(),
+            }
         });
         if let Some(a) = s(item, "at").or_else(|| item.get("frame").and_then(|f| s(f, "at"))) {
             at = a;
         }
-        seams.at = at.clone();
-        seams.ids = ids;
+        conv.seams.at = at.clone();
+        conv.seams.ids = ids;
         let stream = item.get("stream").and_then(Value::as_u64);
         let out = match item["do"].as_str().unwrap() {
             "send" => {
                 requests.insert(stream.unwrap(), s(item, "request_id").unwrap());
+                conv.open.push(s(item, "request_id").unwrap());
                 continue;
+            }
+            // a chat_history row carried over as a legacy entry (migration 0063: id `h:<id>`, state done, the body
+            // `{"kind", "body": <the app's bytes>}`, positions in (at, id) order just below POS_BASE)
+            "legacy" => {
+                let n = legacy[&session];
+                let done = conv.stored.len() as u64;
+                let mut entry = stored_entry(
+                    &session,
+                    format!("h:{}", s(item, "id").unwrap()),
+                    EntryKind::Legacy,
+                    &at,
+                    json!({"kind": item["kind"], "body": item["body"]}),
+                );
+                entry.reference = s(item, "ref");
+                entry.day = s(item, "day").unwrap();
+                entry.pos = POS_BASE - n + done;
+                entry.seq = conv.seams.next_seq();
+                Projected {
+                    changes: vec![Change {
+                        seq: entry.seq,
+                        entry,
+                    }],
+                    live: None,
+                }
+            }
+            // the owner deleted a turn (Settings → Stored data, STORE-424)
+            "delete" => Projected {
+                changes: conv.delete(&s(item, "request_id").unwrap(), &at),
+                live: None,
+            },
+            // `chat.attach {new}`: the new conversation's first entry (STORE-427, `Inner::mark_fresh`)
+            "fresh" => {
+                let mut entry = stored_entry(
+                    &session,
+                    conv.seams.new_id(),
+                    EntryKind::Notice,
+                    &at,
+                    serde_json::to_value(NoticeBody {
+                        text: FRESH_MARKER.into(),
+                        quotes: Vec::new(),
+                        cards: None,
+                        at: Some(at.clone()),
+                    })
+                    .unwrap(),
+                );
+                entry.reference = Some(format!("conversation:{session}"));
+                entry.origin = Some(ferb_sanitize::origin::FERB.to_string());
+                let entry = conv.create(entry);
+                Projected {
+                    changes: vec![Change {
+                        seq: entry.seq,
+                        entry,
+                    }],
+                    live: None,
+                }
+            }
+            // the program started again: the projector rebuilt from the store, then the start-up pass (ENG-13) with
+            // the tasks the restart resumed
+            "restart" => {
+                let resumed: Vec<String> = item["resumed"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|t| t.as_str().map(str::to_string))
+                    .collect();
+                conv.projector = None;
+                conv.open.clear(); // every stream ended with the program
+                conv.projector(&session);
+                let Conv {
+                    projector, seams, ..
+                } = conv;
+                let changes = projector
+                    .as_mut()
+                    .unwrap()
+                    .after_restart(&|t| resumed.iter().any(|r| r == t), seams);
+                Projected {
+                    changes,
+                    live: None,
+                }
             }
             "frame" => {
                 let request = requests[&stream.unwrap()].clone();
@@ -511,53 +1411,66 @@ fn run(timeline: &[Value]) -> Run {
                         .unwrap_or(json!([]));
                     frame["input_paths"] = paths;
                 }
-                projector.apply(
+                feed(
+                    conv,
+                    &session,
                     Input::Frame {
                         request_id: &request,
                         frame: &frame,
                     },
-                    seams,
                 )
             }
             "end" => {
                 let request = requests[&stream.unwrap()].clone();
-                projector.apply(
+                conv.open.retain(|r| *r != request);
+                feed(
+                    conv,
+                    &session,
                     Input::StreamEnded {
                         request_id: &request,
                     },
-                    seams,
                 )
             }
-            "bus" => projector.apply(
+            "bus" => feed(
+                conv,
+                &session,
                 Input::Bus {
                     topic: item["topic"].as_str().unwrap(),
                     data: &item["data"],
                 },
-                seams,
             ),
-            "result" => projector.apply(
+            "result" => feed(
+                conv,
+                &session,
                 Input::Bus {
                     topic: "task.result",
                     data: &item["data"],
                 },
-                seams,
             ),
-            "notice" => projector.apply(
+            "notice" => feed(
+                conv,
+                &session,
                 Input::Bus {
                     topic: "attention.notice",
                     data: &item["data"],
                 },
-                seams,
             ),
-            "notification" => projector.apply(Input::Notification(&item["item"]), seams),
+            "notification" => feed(conv, &session, Input::Notification(&item["item"])),
             other => panic!("unknown timeline step {other}"),
         };
-        ids = seams.ids;
+        for c in &out.changes {
+            conv.stored.insert(c.entry.id.clone(), c.entry.clone());
+        }
+        ids = conv.seams.ids;
         made.push((session, item.clone(), out));
     }
-    let entries = projectors
+    let entries = convs
         .into_iter()
-        .map(|(k, (p, _))| (k, p.entries()))
+        .map(|(k, c)| {
+            let mut stored: Vec<Entry> = c.stored.into_values().collect();
+            stored.sort_by_key(|e| e.pos);
+            (k, stored)
+        })
         .collect();
     Run { made, entries }
 }
@@ -603,13 +1516,14 @@ fn golden(all: &[Scenario]) -> String {
 
 // decision: ENG-9
 // decision: ENG-18
+// decision: ENG-22
 #[test]
 fn the_recorded_scenarios_fold_into_the_golden_entries() {
     let all = scenarios();
     assert_eq!(
         all.len(),
-        72,
-        "28 daemon, 10 control and 33 more recorded scenarios, and 1 invented (ENG-18)"
+        84,
+        "28 daemon, 10 control and 33 more recorded scenarios, 1 invented (ENG-18) and 12 for the phone (S6)"
     );
     let made = golden(&all);
     let path = fixtures().join(GOLDEN);
@@ -725,7 +1639,8 @@ fn every_rule_holds_over_every_scenario() {
             }
         }
         for entries in r.entries.values() {
-            for e in entries {
+            // a tombstone's body is emptied (STORE-424)
+            for e in entries.iter().filter(|e| !e.deleted) {
                 // a merged message names the request it was read with (ORCH-529)
                 if e.kind == EntryKind::Message && e.state == EntryState::Merged {
                     assert!(e.body_as::<MessageBody>().unwrap().merged_into.is_some());
@@ -752,12 +1667,12 @@ fn every_rule_holds_over_every_scenario() {
         }
     }
     assert_eq!(
-        acks, 104,
-        "every ack of the 72 scenarios (101 recorded, 3 invented)"
+        acks, 125,
+        "every ack of the 84 scenarios (101 recorded, 3 for APP-919, 21 for the phone)"
     );
     assert_eq!(
-        live, 669,
-        "the live frames of the 72 scenarios (the invented one has none)"
+        live, 670,
+        "the live frames of the 84 scenarios (the invented ones have one: gaps_checklist's step)"
     );
 }
 
@@ -1418,6 +2333,59 @@ fn a_result_with_no_request_ends_the_newest_turn_of_its_task() {
     assert!(follows(ended[0]).is_none());
 }
 
+/// STORE-424: a deleted turn leaves the chat. After a delete the conversation's projector is rebuilt from the store
+/// (ChatLog `rewrite` drops it); the rebuild fills nothing back from a tombstone and the chat no longer ends on it,
+/// as FERB.app's `removeTurns` drops the turn: an earlier turn's end that comes next is its own answer in place
+/// (inline), not a late answer below. Before the fix the rebuilt projector ended the chat on the deleted answer.
+// decision: STORE-424
+// decision: APP-580
+// decision: ENG-23
+#[test]
+fn a_deleted_last_turn_no_longer_ends_the_chat() {
+    let all = scenarios();
+    let sc = all.iter().find(|s| s.name == "deleted_last_turn").unwrap();
+    let r = run(&sc.timeline);
+    let stored = &r.entries["s1"];
+    let ends: Vec<&Entry> = stored
+        .iter()
+        .filter(|e| e.kind == EntryKind::Answer && !e.deleted)
+        .collect();
+    assert_eq!(ends.len(), 1);
+    assert_eq!(ends[0].placement, Some(Placement::Inline));
+    assert!(ends[0].body_as::<AnswerBody>().unwrap().part.is_none());
+    // the projector rebuilt from entries holding tombstones: nothing of the deleted turn comes back
+    let mut p = ChatProjector::restore("s1", stored.clone(), Vec::new(), 6);
+    let mut c = Clock { n: 100, seq: 100 };
+    assert!(p
+        .after_restart(&|_| true, &mut c)
+        .iter()
+        .all(|ch| ch.entry.request_id.as_deref() != Some("r2")));
+}
+
+/// A turn whose stream is still open when another turn is deleted: FERB.app's session for it is still there and the
+/// reply is its answer. Before the fix the projector rebuilt after the delete held no session for it (`restore`:
+/// `active` false) and the reply was dropped: no answer was stored at all (`streams_open` keeps the sessions).
+// decision: STORE-424
+// decision: ENG-23
+#[test]
+fn a_reply_on_a_stream_still_open_when_another_turn_was_deleted() {
+    let r = run(&reply_after_a_deleted_turn());
+    let answers: Vec<&Entry> = r.entries["s1"]
+        .iter()
+        .filter(|e| e.kind == EntryKind::Answer && !e.deleted)
+        .collect();
+    assert_eq!(answers.len(), 1, "{answers:?}");
+    let body: AnswerBody = answers[0].body_as().unwrap();
+    assert_eq!(body.text, "Yes, until 6 pm.");
+    assert!(body.follows.is_none(), "the reply is the message's answer");
+    assert_eq!(answers[0].placement, Some(Placement::Inline));
+    let message = r.entries["s1"]
+        .iter()
+        .find(|e| e.kind == EntryKind::Message && e.request_id.as_deref() == Some("r1"))
+        .unwrap();
+    assert_eq!(message.state, EntryState::Done);
+}
+
 // ---- the order rules over invented interleavings (journal 72's open item) ----
 
 /// A small deterministic generator (xorshift64*): the same seed, the same interleaving.
@@ -1567,7 +2535,12 @@ fn the_order_rules_hold_over_invented_interleavings() {
         // the stream's own plan preceded: README "Where the timelines come from"), so only interleavings that keep
         // every cause before its effect
         let mut timelines = Vec::new();
-        if lanes.len() <= 1 {
+        // what the store and the start-up pass write themselves (a delete, a fresh conversation, carried-over rows, a
+        // restart) happens at its own moment: such a timeline keeps its one order
+        let written = sc.timeline.iter().any(|i| {
+            ["legacy", "delete", "fresh", "restart"].contains(&i["do"].as_str().unwrap_or(""))
+        });
+        if lanes.len() <= 1 || written {
             timelines.push(sc.timeline.clone());
         } else {
             let mut rng = Rng(0x9E37_79B9_7F4A_7C15 ^ (sc.name.len() as u64 + 1));

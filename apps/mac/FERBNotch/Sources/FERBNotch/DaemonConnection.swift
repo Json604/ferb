@@ -12,6 +12,8 @@ extension NotchModel {
                 do {
                     try await self.attachDaemon()
                     self.daemonLink.succeeded()
+                    // SENSE-420: a daemon that just started knows no city until FERB.app reports it
+                    if let device = self.deviceLocation { Task { await device.report() } }
                     self.clickThrough.reconnected()     // the daemon may have restarted: its click-through windows
                     await self.prepareHistory()         // the chat in hand before the status read places anything
                     await self.catchUpEntries()         // and the turns other devices sent (ENG-10)
@@ -574,6 +576,12 @@ extension NotchModel {
         switch event["topic"] as? String {
         case "runtimes.changed":                         // APP-882: Settings → AI follows a change made anywhere
             NotificationCenter.default.post(name: .ferbRuntimesChanged, object: nil)
+        case "phone.pair_requested", "phone.unused", "phone.removed":   // T-1205: Settings → Phone, and the notch for a pairing
+            receivePhoneEvent(topic: event["topic"] as? String ?? "", data: data)
+        case "device.location_wanted":                   // GATE-613: the owner said Yes; one precise fix, read now
+            if let id = data["request_id"] as? String, let device = deviceLocation {
+                Task { await device.answer(requestID: id) }
+            }
         case "timer.fired":
             timerFired(data["timer_id"] as? String)
             Task { await refreshRunningTimers() }

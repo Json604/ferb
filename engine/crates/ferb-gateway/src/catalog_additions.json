@@ -187,6 +187,234 @@
     "observation": true,
     "named_only": true
    }
+  },
+  {
+   "decision": "HAND-623",
+   "after": "shell.rules",
+   "name": "project.publish",
+   "description": "Publish a project folder's git repository: git push of one branch to the repository's remote, with the owner's own git login (the Keychain's credential helper or the SSH agent; with gh_login, the GitHub CLI's saved login). FERB runs it outside the sandbox with fixed arguments; commands can't push with the owner's login (saved logins and SSH keys are closed to them). Commit first with shell.run. folder is the repository's top folder; the push address is the remote's as git resolves it; only https and ssh addresses. A branch that diverged from the remote is rejected; pull first (project.fetch, then merge or rebase with shell.run), or, when the owner wants the remote branch replaced, call with force=true: FERB fetches the branch, asks the owner showing exactly what would be dropped (every time), and replaces only that commit (if anything was added since, nothing is overwritten). The first push of a folder asks the owner, showing the folder, branch and exact address (that Yes makes the folder a project); later pushes to the same address don't ask; a changed address asks again. If git finds no login and the GitHub CLI has one, call again with gh_login=true (FERB asks the owner once per project). The result says what was pushed (commit, range) and git's output.",
+   "input_schema": {
+    "additionalProperties": false,
+    "properties": {
+     "folder": {
+      "description": "the repository's top folder, an absolute path",
+      "minLength": 1,
+      "title": "Folder",
+      "type": "string"
+     },
+     "remote": {
+      "default": "origin",
+      "description": "the remote to push to",
+      "title": "Remote",
+      "type": "string"
+     },
+     "branch": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "the branch to push (default: the current branch)",
+      "title": "Branch"
+     },
+     "set_upstream": {
+      "default": false,
+      "description": "also make the remote branch this branch's upstream",
+      "title": "Set Upstream",
+      "type": "boolean"
+     },
+     "force": {
+      "default": false,
+      "description": "replace the remote branch with this one (the owner is asked every time, shown what would be dropped)",
+      "title": "Force",
+      "type": "boolean"
+     },
+     "gh_login": {
+      "default": false,
+      "description": "use the GitHub CLI's saved login when git has none (the owner is asked once per project)",
+      "title": "Gh Login",
+      "type": "boolean"
+     },
+     "effect": {
+      "type": "string",
+      "enum": [
+       "navigate",
+       "edit",
+       "send",
+       "pay",
+       "destroy",
+       "account_security"
+      ],
+      "description": "The kind of change this action makes, declared truthfully: the kinds are under Effects in your instructions."
+     },
+     "why": {
+      "type": "string",
+      "description": "Optional short explanation of what this action does toward the owner's request."
+     }
+    },
+    "required": [
+     "folder"
+    ],
+    "title": "Input",
+    "type": "object"
+   },
+   "added_by_gateway": [
+    "effect",
+    "why"
+   ],
+   "acts": true,
+   "scopes": [
+    "shell"
+   ],
+   "identities": [
+    "owner"
+   ],
+   "facts": {
+    "risk": 3,
+    "reversible": false,
+    "origin": "ferb",
+    "target_args": [
+     "folder"
+    ],
+    "method_args": [
+     "remote",
+     "branch",
+     "set_upstream",
+     "force",
+     "gh_login"
+    ],
+    "ledger_key": "project.publish"
+   }
+  },
+  {
+   "decision": "HAND-642",
+   "after": "project.publish",
+   "name": "project.fetch",
+   "description": "Get a git repository's branches from its remote with the owner's own git login (the Keychain's credential helper or the SSH agent; with gh_login, the GitHub CLI's saved login), for private repositories commands can't reach: into a project folder (git fetch of every branch into <remote>/<branch>), or, with clone_from, a new clone into folder (new or empty; its default branch checked out). FERB runs the download outside the sandbox with fixed arguments; nothing from the repository runs with the login. Merging or rebasing afterwards is an ordinary command (shell.run, e.g. git merge origin/main); it runs in the sandbox. Public repositories also work with plain git commands through FERB's proxy. Getting from an address already approved for the project asks nothing; a new address or a clone asks the owner once (that Yes makes the folder a project). Submodules aren't fetched with it: the result lists each with its address; get one with clone_from into its folder.",
+   "input_schema": {
+    "additionalProperties": false,
+    "properties": {
+     "folder": {
+      "description": "the repository's top folder, or the folder to clone into (absolute paths)",
+      "minLength": 1,
+      "title": "Folder",
+      "type": "string"
+     },
+     "remote": {
+      "default": "origin",
+      "description": "the remote to get from (a clone names it this)",
+      "title": "Remote",
+      "type": "string"
+     },
+     "clone_from": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "clone this address into folder instead of fetching an existing repository",
+      "title": "Clone From"
+     },
+     "gh_login": {
+      "default": false,
+      "description": "use the GitHub CLI's saved login when git has none (the owner is asked once per project)",
+      "title": "Gh Login",
+      "type": "boolean"
+     },
+     "effect": {
+      "type": "string",
+      "enum": [
+       "navigate",
+       "edit",
+       "send",
+       "pay",
+       "destroy",
+       "account_security"
+      ],
+      "description": "The kind of change this action makes, declared truthfully: the kinds are under Effects in your instructions."
+     },
+     "why": {
+      "type": "string",
+      "description": "Optional short explanation of what this action does toward the owner's request."
+     }
+    },
+    "required": [
+     "folder"
+    ],
+    "title": "Input",
+    "type": "object"
+   },
+   "added_by_gateway": [
+    "effect",
+    "why"
+   ],
+   "acts": true,
+   "scopes": [
+    "shell"
+   ],
+   "identities": [
+    "owner"
+   ],
+   "facts": {
+    "risk": 2,
+    "reversible": false,
+    "origin": "external:unlabeled",
+    "target_args": [
+     "folder"
+    ],
+    "method_args": [
+     "remote",
+     "clone_from",
+     "gh_login"
+    ],
+    "ledger_key": "project.fetch"
+   }
+  },
+  {
+   "decision": "SENSE-422",
+   "after": "abilities.read",
+   "name": "device.facts",
+   "description": "Read this Mac's facts now: its name, local date, time and time zone, its city (with FERB's Location permission), battery and Low Power Mode, network and Wi-Fi name, whether the screen is locked, displays, free disk space, when it started and last woke, the sound output and whether something is playing, light or dark appearance, language and region, macOS version and model. A fact it can't read is left out. exact_location true also gives this Mac's latitude and longitude, only after the owner says Yes to sharing them (asked once per task): use it only when the task needs the exact spot, not the city.",
+   "input_schema": {
+    "additionalProperties": false,
+    "properties": {
+     "exact_location": {
+      "default": false,
+      "description": "also give the exact latitude and longitude (the owner is asked first)",
+      "title": "Exact Location",
+      "type": "boolean"
+     },
+     "why": {
+      "type": "string",
+      "description": "Optional short explanation of what this action does toward the owner's request."
+     }
+    },
+    "title": "Input",
+    "type": "object"
+   },
+   "added_by_gateway": [
+    "why"
+   ],
+   "acts": false,
+   "scopes": [],
+   "identities": [
+    "ferb",
+    "owner"
+   ],
+   "facts": {
+    "risk": 1,
+    "reversible": true,
+    "observation": true,
+    "origin": "private"
+   }
   }
  ]
 }

@@ -3,7 +3,7 @@ import SwiftUI
 import NotchCore
 
 enum SettingsTab: Hashable, CaseIterable, Identifiable {
-    case general, notch, notifications, ai, browsers, permissions, privacy, data, stored, advanced, about
+    case general, notch, notifications, ai, browsers, permissions, phone, privacy, data, stored, advanced, about
 
     var id: SettingsTab { self }
 
@@ -18,6 +18,7 @@ enum SettingsTab: Hashable, CaseIterable, Identifiable {
         case .privacy: return "Privacy"
         case .data: return "Data"
         case .stored: return "Stored data"
+        case .phone: return "Phone"
         case .advanced: return "Advanced"
         case .about: return "About"
         }
@@ -34,6 +35,7 @@ enum SettingsTab: Hashable, CaseIterable, Identifiable {
         case .privacy: return "What FERB can notice, and what stays private."
         case .data: return "Your saved information and recovery options."
         case .stored: return "Everything FERB keeps in its database, as stored. Delete a turn or forget a memory here."
+        case .phone: return "Use FERB from your phone: pair it here, and set up your own relay if you like."
         case .advanced: return "Diagnostics and maintenance when you need them."
         case .about: return "Your FERB version and the services behind it."
         }
@@ -50,6 +52,7 @@ enum SettingsTab: Hashable, CaseIterable, Identifiable {
         case .privacy: return "hand.raised"
         case .data: return "externaldrive"
         case .stored: return "cylinder.split.1x2"
+        case .phone: return "iphone"
         case .advanced: return "slider.horizontal.3"
         case .about: return "info.circle"
         }
@@ -66,6 +69,7 @@ struct SettingsView: View {
     @StateObject private var privacyDraft = PrivacySettingsDraft()
     @StateObject private var cleanup = CleanupRunner()
     @StateObject private var stored: StoredDataModel
+    @StateObject private var phone: PhoneSettingsModel
 
     init(store: FERBWindowStore, selection: FERBWindowSelection, actions: FERBAppActions) {
         self.store = store
@@ -75,6 +79,8 @@ struct SettingsView: View {
         model.turnDeleted = actions.turnDeleted
         model.freshConversation = actions.freshConversation
         _stored = StateObject(wrappedValue: model)
+        // Settings → Phone (T-1205): the daemon's phone area, and the phone link's helper once S4 hands it over
+        _phone = StateObject(wrappedValue: PhoneSettingsModel(service: RPCPhoneService(daemon: store.rpc, link: actions.phoneLink)))
     }
 
     var body: some View {
@@ -91,6 +97,7 @@ struct SettingsView: View {
             case .privacy: PrivacySettingsPage(store: store, draft: privacyDraft)
             case .data: DataSettingsPage(store: store, actions: actions, cleanup: cleanup)
             case .stored: StoredDataSettingsPage(model: stored)
+            case .phone: PhoneSettingsPage(model: phone)
             case .advanced: AdvancedSettingsPage(store: store, actions: actions, output: advancedOutput)
             case .about: AboutSettingsPage(store: store)
             }
@@ -292,9 +299,10 @@ final class FerbOutput: ObservableObject {
     @Published private(set) var status: Int32?
     @Published private(set) var running = false
 
-    func run(_ arguments: [String], with actions: FERBAppActions, then: (() -> Void)? = nil) {
+    /// `keeping`: lines already shown that stay above the command's own (the daemon's browser-file step, DMN-598).
+    func run(_ arguments: [String], with actions: FERBAppActions, keeping: [String] = [], then: (() -> Void)? = nil) {
         guard let runFerb = actions.runFerb else { return }
-        lines = []
+        lines = keeping
         status = nil
         running = true
         let started = runFerb(arguments, { [weak self] line in self?.lines.append(line) },
@@ -305,12 +313,16 @@ final class FerbOutput: ObservableObject {
                               })
         if !started {
             running = false
-            lines = ["FERB is already running a setup step; try again when it finishes."]
+            lines = keeping + ["FERB is already running a setup step; try again when it finishes."]
         }
     }
 
+    /// DMN-598: first the background service, which holds Full Disk Access, removes FERB's files from the browsers'
+    /// folders (`removeBrowserFiles`); then the service is turned off (`beforeUninstall`, APP-5); then `ferb uninstall`,
+    /// told to leave the browsers' folders alone when the service already removed everything there. Each step's lines
+    /// stay shown.
     func uninstall(with actions: FERBAppActions, purge: Bool = false) {
-        guard let before = actions.beforeUninstall else {
+        guard actions.beforeUninstall != nil || actions.removeBrowserFiles != nil else {
             run(Self.uninstallArguments(purge: purge), with: actions)
             return
         }
@@ -319,15 +331,25 @@ final class FerbOutput: ObservableObject {
         status = nil
         running = true
         Task { @MainActor in
-            let refused = await before()                  // the background service off first, waited for
+            var skipBrowserFiles = false
+            if let removeBrowserFiles = actions.removeBrowserFiles {
+                let removal = await removeBrowserFiles()
+                lines = removal.lines
+                skipBrowserFiles = removal.done
+            }
+            let refused = await actions.beforeUninstall?()   // the background service off, waited for
             running = false
-            if let refused { lines = [refused]; return }
-            run(Self.uninstallArguments(purge: purge), with: actions)
+            if let refused { lines += [refused]; return }
+            run(Self.uninstallArguments(purge: purge, skipBrowserFiles: skipBrowserFiles), with: actions,
+                keeping: lines)
         }
     }
 
-    /// `ferb uninstall`, or with everything deleted after the owner's one Yes here (`--purge --yes`).
-    static func uninstallArguments(purge: Bool) -> [String] { purge ? ["uninstall", "--purge", "--yes"] : ["uninstall"] }
+    /// `ferb uninstall`, or with everything deleted after the owner's one Yes here (`--purge --yes`);
+    /// `--skip-browser-files` once the background service removed FERB's browser files (DMN-598).
+    static func uninstallArguments(purge: Bool, skipBrowserFiles: Bool = false) -> [String] {
+        (purge ? ["uninstall", "--purge", "--yes"] : ["uninstall"]) + (skipBrowserFiles ? ["--skip-browser-files"] : [])
+    }
 }
 
 private struct OutputLines: View {
@@ -713,11 +735,13 @@ struct DataSettingsPage: View {
                     }
                 }
             }
+            WindowSettingsSection(title: "Projects") { ProjectFoldersSection(store: store) }
             WindowSettingsSection(title: "Clean up") { CleanupSection(store: store, actions: actions, cleanup: cleanup) }
         }
         .task {
             await store.loadRestore()
             await store.loadSecrets()
+            await store.loadProjects()
             await store.checkHealth()
         }
         // Permanent: asked once here.
@@ -728,6 +752,37 @@ struct DataSettingsPage: View {
         } message: { row in
             Text("“\(row.name)” for \(row.place) is deleted from your Keychain. This can't be undone; FERB asks you again " +
                  "the next time it needs it.")
+        }
+    }
+}
+
+/// Settings → Data → Projects: each folder whose git repository the owner let FERB publish, the push addresses
+/// approved for it, and Remove (`projects.remove`, then the list again).
+private struct ProjectFoldersSection: View {
+    @ObservedObject var store: FERBWindowStore
+
+    var body: some View {
+        if store.projects.isEmpty {
+            Text("No project folders. When FERB first publishes a folder's git repository it asks, and the folder appears here.")
+                .foregroundStyle(.secondary)
+        }
+        ForEach(store.projects) { row in
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(row.shown).textSelection(.enabled)
+                    ForEach(row.destinations, id: \.self) { destination in
+                        Text("Publishes to \(destination)").font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                    }
+                    ForEach(row.sources, id: \.self) { source in
+                        Text("Gets from \(source)").font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                    }
+                    ForEach(row.ghHosts, id: \.self) { host in
+                        Text("Uses your GitHub CLI login for \(host)").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
+                Button("Remove") { Task { await store.removeProject(row) } }
+            }
         }
     }
 }

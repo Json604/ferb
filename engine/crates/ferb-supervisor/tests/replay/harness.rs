@@ -2253,6 +2253,7 @@ pub fn run_scenario(
         pid: None,
         token: None,
         app: None,
+        phone: None,
     };
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_time()

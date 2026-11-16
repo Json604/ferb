@@ -32,6 +32,7 @@ use crate::app_peer::AuditToken;
 use crate::auth::{self, AuthError, Role, RunGrant, RunTokens};
 use crate::framing::{closing, FrameError, FrameReader, FrameWriter, Phase};
 use crate::peer;
+use crate::phone_gate::{PhoneGate, PhoneSession, Refusal};
 use crate::wire::{self, Id, Params, Reject, Request};
 
 /// How long the notch waits for a reply (its socket read timeout, DaemonRPC.swift), and the CLI by default
@@ -80,6 +81,9 @@ pub struct Session {
     pub token: Option<AuditToken>,
     /// Whether that process is FERB.app: checked once per connection, on first need.
     pub app: Option<bool>,
+    /// A phone session (stage 3, `Role::Phone`): the phone, its link connection and the proof of the call being
+    /// answered. `None` on every other role.
+    pub phone: Option<PhoneSession>,
 }
 
 /// How a handler failed.
@@ -93,6 +97,9 @@ pub enum Failure {
     /// answered and nothing recorded; the connection ends, as Python's `_dispatch` lets it out of `_connection`
     /// (server.py:325-332, 425).
     Cancelled,
+    /// A refusal with its own JSON-RPC code (stage 3: the phone gate's −32011 … −32022, CONTRACT §12), answered with
+    /// that code and the message, unary or stream. Not Python's: no handler of the local roles returns it.
+    Coded(i64),
 }
 
 /// A handler's error. A unary call answers a refusal with `FAILED` and its message, a fault with `INTERNAL` and
@@ -120,6 +127,15 @@ impl HandlerError {
         HandlerError {
             failure: Failure::Fault,
             type_name: type_name.to_owned(),
+            message: message.into(),
+        }
+    }
+
+    /// A refusal answered with its own code (`Failure::Coded`): the phone gate's refusals (stage 3).
+    pub fn coded(code: i64, message: impl Into<String>) -> Self {
+        HandlerError {
+            failure: Failure::Coded(code),
+            type_name: "Refused".to_owned(),
             message: message.into(),
         }
     }
@@ -199,6 +215,7 @@ pub trait NativeChannel: Send + Sync + 'static {
 
 type ExtensionIds = dyn Fn() -> HashSet<String> + Send + Sync;
 type IsApp = dyn Fn(Option<AuditToken>) -> bool + Send + Sync;
+type Gate = Option<Arc<dyn PhoneGate>>;
 type PeerLookup = dyn Fn(BorrowedFd<'_>) -> PeerFacts + Send + Sync;
 
 /// What the platform says about the process on the other end of a connection (server.py:91-103,
@@ -303,6 +320,10 @@ struct Inner {
     native: RwLock<Option<Arc<dyn NativeChannel>>>,
     extension_ids: RwLock<Arc<ExtensionIds>>,
     is_app: RwLock<Arc<IsApp>>,
+    /// Whether a connection's process is the phone link's helper (stage 3): the only caller of `Role::Link` and
+    /// `Role::Phone`.
+    is_link: RwLock<Arc<IsApp>>,
+    phone_gate: RwLock<Gate>,
     peer_lookup: RwLock<Arc<PeerLookup>>,
     on_internal: RwLock<Arc<OnInternal>>,
     on_slow: RwLock<Arc<OnSlow>>,
@@ -347,6 +368,9 @@ impl Server {
                 extension_ids: RwLock::new(Arc::new(HashSet::new)),
                 // No check in place: nobody is FERB.app (fails closed; server.py:158-161).
                 is_app: RwLock::new(Arc::new(|_| false)),
+                // No check in place: nobody is the phone link's helper, and no phone session opens.
+                is_link: RwLock::new(Arc::new(|_| false)),
+                phone_gate: RwLock::new(None),
                 // No lookup in place: no pid and no audit token, so nobody is FERB.app either.
                 peer_lookup: RwLock::new(Arc::new(|_| PeerFacts::default())),
                 on_internal: RwLock::new(Arc::new(|_, _| {})),
@@ -441,6 +465,27 @@ impl Server {
             .is_app
             .write()
             .unwrap_or_else(PoisonError::into_inner) = Arc::new(check);
+    }
+
+    /// Whether a connection's process is the phone link's own helper (its audit token -> bool; `LinkPeers::into_check`):
+    /// the only caller that may say role `link` or `phone` (stage 3, PHN-441). Until set, nobody is. It may block, so it
+    /// runs on the blocking pool.
+    pub fn set_is_link(&self, check: impl Fn(Option<AuditToken>) -> bool + Send + Sync + 'static) {
+        *self
+            .inner
+            .is_link
+            .write()
+            .unwrap_or_else(PoisonError::into_inner) = Arc::new(check);
+    }
+
+    /// The daemon's phone area, asked about every phone session's hello and calls. Until set, a phone session's hello
+    /// is refused.
+    pub fn set_phone_gate(&self, gate: impl PhoneGate) {
+        *self
+            .inner
+            .phone_gate
+            .write()
+            .unwrap_or_else(PoisonError::into_inner) = Some(Arc::new(gate));
     }
 
     /// How a connection's process and audit token are read from its socket: the platform's part
@@ -726,6 +771,10 @@ async fn hello(
             .await;
         return None;
     }
+    let named = req.params.get("role").and_then(|role| role.as_str());
+    if matches!(named, Some("phone" | "link")) && is_link_peer(inner, token).await {
+        return link_hello(inner, req, uid, writer).await;
+    }
     let refuse = |code: i64, why: &str| {
         // HAND-406 (server.py:163-165): only a caller that named the native_host role is recorded
         if req.params.get("role").and_then(|role| role.as_str()) == Some(Role::NativeHost.as_str())
@@ -751,6 +800,7 @@ async fn hello(
                     pid,
                     token,
                     app: None,
+                    phone: None,
                 })
                 .map_err(|AuthError(why)| refuse(wire::UNAUTHORIZED, &why)),
             Role::McpShim => inner
@@ -762,6 +812,7 @@ async fn hello(
                     pid: None,
                     token: None,
                     app: None,
+                    phone: None,
                 })
                 .map_err(|AuthError(why)| refuse(wire::UNAUTHORIZED, &why)),
             Role::NativeHost => {
@@ -789,10 +840,17 @@ async fn hello(
                         pid: None,
                         token: None,
                         app: None,
+                        phone: None,
                     })
                     .map_err(|AuthError(why)| refuse(wire::UNAUTHORIZED, &why))
                 }
             }
+            // `parse_hello` never names them (`Role::ALL`); a phone comes only through the link (PHN-112), whose helper
+            // is answered by `link_hello` before this
+            Role::Phone | Role::Link => Err(refuse(
+                wire::UNAUTHORIZED,
+                "the phone role is given only by FERB's phone link",
+            )),
         },
     };
     match greeted {
@@ -816,7 +874,7 @@ async fn hello(
 async fn dispatch(
     inner: &Arc<Inner>,
     session: &mut Session,
-    req: Request,
+    mut req: Request,
     reader: &mut FrameReader,
     writer: &mut FrameWriter,
 ) -> Flow {
@@ -838,15 +896,42 @@ async fn dispatch(
             }
         }
     }
+    if let Some(phone) = session.phone.as_mut() {
+        // this call's proof, as the phone sent it (CONTRACT §12)
+        phone.proof = req.proof.take();
+    }
     if !auth::allowed(role, &req.method) {
-        let why = format!("{} not allowed for {}", req.method, role.as_str());
+        let why = match crate::classes::phone_method(&req.method) {
+            Some(row) if role == Role::Phone && auth::method(&req.method).is_some() => {
+                format!("{} cannot be done from a phone ({})", req.method, row.why)
+            }
+            _ => format!("{} not allowed for {}", req.method, role.as_str()),
+        };
         return flow(
             writer
                 .send(&wire::error_line(&req.id, wire::UNAUTHORIZED, &why))
                 .await,
         );
     }
-    if auth::app_only(&req.method) && !is_app(inner, session).await {
+    if role == Role::Phone {
+        // the class decides, not the local roles' lists or the FERB.app check (PHN-112, PHN-404)
+        let gate = phone_gate(inner);
+        let phone = session.phone.clone().unwrap_or_default();
+        let admitted = match &gate {
+            None => Err(Refusal::new(
+                wire::UNSUPPORTED,
+                "FERB's phone area isn't running",
+            )),
+            Some(gate) => gate.admit(&phone, &req.method, &mut req.params),
+        };
+        if let Err(refusal) = admitted {
+            return flow(
+                writer
+                    .send(&wire::error_line(&req.id, refusal.code, &refusal.message))
+                    .await,
+            );
+        }
+    } else if auth::app_only(&req.method) && !is_app(inner, session).await {
         let why = format!("{} is for FERB.app only", req.method);
         return flow(
             writer
@@ -881,6 +966,13 @@ async fn dispatch(
         } else {
             Some(call.await)
         };
+        // a phone session: what the phone gets of the result, and the audit's outcome
+        let outcome = match (role, phone_gate(inner), &session.phone) {
+            (Role::Phone, Some(gate), Some(phone)) => {
+                outcome.map(|result| gate.reply(phone, &req.method, result))
+            }
+            _ => outcome,
+        };
         let answered = match outcome {
             None => Flow::End,
             // CancelledError leaves `_dispatch`: no line, the connection ends
@@ -889,6 +981,15 @@ async fn dispatch(
             Some(Err(error)) if error.failure == Failure::Refusal => flow(
                 writer
                     .send(&wire::error_line(&req.id, wire::FAILED, &error.message))
+                    .await,
+            ),
+            Some(Err(HandlerError {
+                failure: Failure::Coded(code),
+                message,
+                ..
+            })) => flow(
+                writer
+                    .send(&wire::error_line(&req.id, code, &message))
                     .await,
             ),
             // failures are values, never a crashed connection
@@ -949,6 +1050,99 @@ async fn is_app(inner: &Inner, session: &mut Session) -> bool {
     };
     session.app = Some(verdict);
     verdict
+}
+
+fn phone_gate(inner: &Inner) -> Gate {
+    inner
+        .phone_gate
+        .read()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone()
+}
+
+/// Whether this connection's process is the phone link's helper (stage 3, PHN-441). A check that fails is a no.
+async fn is_link_peer(inner: &Inner, token: Option<AuditToken>) -> bool {
+    let check = read(&inner.is_link);
+    tokio::task::spawn_blocking(move || check(token))
+        .await
+        .unwrap_or(false)
+}
+
+/// The phone link helper's hello (already proven by its code signature): role `link` for its own calls, or role
+/// `phone` for one phone's link connection, which the daemon's phone gate opens only for a paired phone
+/// (CONTRACT §12). `None`: refused, the connection ends.
+async fn link_hello(
+    inner: &Inner,
+    req: &Request,
+    uid: u32,
+    writer: &mut FrameWriter,
+) -> Option<Session> {
+    let text = |key: &str| {
+        req.params
+            .get(key)
+            .and_then(|v| v.as_str())
+            .filter(|t| !t.trim().is_empty() && t.chars().count() <= 200)
+            .map(str::to_owned)
+    };
+    let refused = |code: i64, why: &str| wire::error_line(&req.id, code, why);
+    let greeted: Result<Session, Vec<u8>> =
+        if let Err(AuthError(why)) = auth::check_cli_peer(uid, inner.owner_uid) {
+            Err(refused(wire::UNAUTHORIZED, &why))
+        } else if req.params.get("role").and_then(|r| r.as_str()) == Some("link") {
+            Ok(Session {
+                role: Role::Link,
+                grant: None,
+                pid: None,
+                token: None,
+                app: None,
+                phone: None,
+            })
+        } else {
+            match (text("device"), phone_gate(inner)) {
+                (None, _) => Err(refused(
+                    wire::INVALID_REQUEST,
+                    "the phone role needs the device id",
+                )),
+                (Some(_), None) => Err(refused(
+                    wire::UNSUPPORTED,
+                    "FERB's phone area isn't running",
+                )),
+                (Some(device), Some(gate)) => {
+                    let session = text("session").unwrap_or_default();
+                    match gate.open(&device, &session) {
+                        Ok(()) => Ok(Session {
+                            role: Role::Phone,
+                            grant: None,
+                            pid: None,
+                            token: None,
+                            app: None,
+                            phone: Some(PhoneSession {
+                                device,
+                                session,
+                                proof: None,
+                                tier: text("tier"),
+                            }),
+                        }),
+                        Err(refusal) => Err(refused(refusal.code, &refusal.message)),
+                    }
+                }
+            }
+        };
+    match greeted {
+        Ok(session) => {
+            let mut result = Params::new();
+            result.insert("role".to_owned(), session.role.as_str().into());
+            writer
+                .send(&wire::result_line(&req.id, &result))
+                .await
+                .ok()?;
+            Some(session)
+        }
+        Err(refusal) => {
+            let _ = writer.send(&refusal).await;
+            None
+        }
+    }
 }
 
 /// A handler's future with a panic turned into a fault, as Python turns any exception into one.
@@ -1089,6 +1283,9 @@ async fn stream_call(
         if error.failure == Failure::Fault {
             let hook = read(&inner.on_internal);
             tell(|| hook(&req.method, error));
+        }
+        if let Failure::Coded(code) = error.failure {
+            return wire::error_line(&req.id, code, &error.message);
         }
         wire::error_line(
             &req.id,

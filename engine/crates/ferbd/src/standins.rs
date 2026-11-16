@@ -22,7 +22,8 @@
 //!   the projectors are fed, in order, with the changes it made; the order check of `tests/chat_replay.rs`).
 //!
 //! The Keychain is always off (every helper call refused, `security` finds nothing), retention and the secrets'
-//! preload don't run, and no browser is started.
+//! preload don't run, and no browser is started. A failed background loop's pause before it starts again is recorded,
+//! never waited (control `loop_pauses`).
 //!
 //! The control socket is `<home>/run/stand-ins.sock`: one JSON request per line, one `{"ok": ...}` or
 //! `{"error": ...}` per line.
@@ -272,6 +273,27 @@ pub struct StandIns {
     pub ids: Option<Arc<Seq>>,
     pub tokens: Arc<AtomicU64>,
     pub stand: Stand,
+    /// The pauses a failed loop asked for (control `loop_pauses`).
+    pub pauses: Arc<Mutex<Vec<f64>>>,
+}
+
+/// A failed loop's pause: recorded, never waited (TEST-508; compose/guard.rs).
+struct RecordedPause(Arc<Mutex<Vec<f64>>>);
+
+impl crate::compose::guard::Pause for RecordedPause {
+    fn sleep(&self, seconds: f64) -> ferb_core::interfaces::BoxFuture<'static, ()> {
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(seconds);
+        Box::pin(async {})
+    }
+    fn sleep_blocking(&self, seconds: f64, _stop: &dyn Fn() -> bool) {
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(seconds);
+    }
 }
 
 struct Seams {
@@ -388,6 +410,7 @@ impl Overrides for Seams {
                     root: host.home.join("evidence"),
                 })),
                 tree_of: Arc::new(|_| None),
+                app_location: old.app_location.clone(),
             }));
         }
         let perception = self.config["perception"].clone();
@@ -461,6 +484,25 @@ pub fn from_env(opts: &mut Options) -> Option<StandIns> {
     opts.native = flag("native", false);
     opts.mac = flag("mac", false);
     opts.keychain = Keychain::Refused;
+    // stage 3 S4: the phone link's helper only where a test names one (`link_helper`, `link_args`), its keys in memory,
+    // never under a sandbox of its own (the test guard's already holds it)
+    opts.link = crate::compose::LinkOptions {
+        program: config
+            .get("link_helper")
+            .and_then(Value::as_str)
+            .map(PathBuf::from),
+        sandbox: false,
+        args: config
+            .get("link_args")
+            .and_then(Value::as_array)
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        keys: Some(Arc::new(crate::compose::link::MemoryKeys::default())),
+    };
     // `retention` (false): the retention pass and the start's sweep of stale run folders in the temporary folder
     opts.retention = flag("retention", false);
     opts.memory_loops = flag("memory_loops", false);
@@ -522,6 +564,8 @@ pub fn from_env(opts: &mut Options) -> Option<StandIns> {
             }
         }));
     }
+    let pauses: Arc<Mutex<Vec<f64>>> = Arc::default();
+    opts.pause = Arc::new(RecordedPause(pauses.clone()));
     let stand = Stand::default();
     let script = config
         .get("script")
@@ -543,6 +587,7 @@ pub fn from_env(opts: &mut Options) -> Option<StandIns> {
         ids,
         tokens,
         stand,
+        pauses,
     })
 }
 
@@ -670,6 +715,14 @@ async fn control(d: &Arc<Daemon>, s: &StandIns, req: &Value) -> Result<Value, St
         }
         // an event a part of the daemon publishes, as it publishes it (HAND-546: a browser window that came up), for
         // the consumers wired to it; their work is spawned, so the caller looks for its effects after
+        // T-1123: the pauses failed loops asked for, in order
+        "loop_pauses" => Ok(json!(*s.pauses.lock().unwrap_or_else(|e| e.into_inner()))),
+        // T-1123: the trail's thread (a supervised loop) panics in its work
+        "panic_trail" => {
+            let p = d.tools.perception().ok_or("no perception")?;
+            p.panic_for_test();
+            Ok(Value::Null)
+        }
         "publish" => {
             let topic = req["topic"].as_str().unwrap_or("").to_string();
             let data = req["data"].as_object().cloned().unwrap_or_default();

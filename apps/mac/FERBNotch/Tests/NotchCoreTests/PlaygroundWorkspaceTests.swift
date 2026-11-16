@@ -118,6 +118,18 @@ final class PlaygroundWorkspaceTests: XCTestCase {
     }
 
     // decision: APP-619
+    func testTheSampleProjectFolderCanBeRemoved() async throws {
+        let services = try make()
+        let store = FERBWindowStore(rpc: services.daemon)
+        await store.loadProjects()
+        XCTAssertEqual(store.projects.map(\.shown), ["~/code/site"])
+        XCTAssertEqual(store.projects.first?.destinations, ["https://github.com/demo/site.git"])
+        await store.removeProject(try XCTUnwrap(store.projects.first))
+        XCTAssertTrue(store.projects.isEmpty)
+        XCTAssertNil(store.problem)
+    }
+
+    // decision: APP-619
     func testUnknownCallsNeverReportSuccess() async throws {
         let services = try make()
         do {

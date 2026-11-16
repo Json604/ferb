@@ -623,7 +623,7 @@ public enum PermissionCopy {
     public static func label(_ id: String) -> String {
         ["accessibility": "Accessibility", "screen_recording": "Screen Recording", "full_disk_access": "Full Disk Access",
          "input_monitoring": "Input Monitoring", "clipboard": "Paste from Other Apps",
-         "notifications": "Notifications", "microphone": "Microphone"][id] ?? id
+         "notifications": "Notifications", "microphone": "Microphone", "location": "Location"][id] ?? id
     }
 
     public static func reason(_ id: String) -> String {
@@ -633,7 +633,8 @@ public enum PermissionCopy {
          "input_monitoring": "FERB notices when you're typing, so it stays out of your way.",
          "clipboard": "FERB keeps what you copy on this Mac for 7 days. After macOS asks, set FERB to Allow.",
          "notifications": "FERB tells you when it needs you or finishes.",
-         "microphone": "FERB turns your voice, and the sound of an app it listens to during a task, into text on this Mac (Microphone and Speech Recognition)."][id] ?? ""
+         "microphone": "FERB turns your voice, and the sound of an app it listens to during a task, into text on this Mac (Microphone and Speech Recognition).",
+         "location": "So FERB knows your city. It asks before using your exact location."][id] ?? ""
     }
 
     public static func status(_ status: GrantStatus) -> String {

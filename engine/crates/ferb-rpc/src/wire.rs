@@ -56,6 +56,9 @@ pub struct Request {
     pub id: Id,
     pub method: String,
     pub params: Params,
+    /// A phone's proof for this call, passed through untouched by the phone link beside `params` (CONTRACT §12): read
+    /// only on a phone session (stage 3, PHN-124). An object, else absent; ignored on every other role.
+    pub proof: Option<Map<String, Value>>,
 }
 
 /// `auth.hello`'s parameters (server.py:63-66).
@@ -121,7 +124,16 @@ pub fn parse_request(line: &[u8]) -> Result<Request, Reject> {
         Some(Value::Object(params)) => params,
         Some(_) => return Err(Reject::Invalid(NOT_A_DICT)),
     };
-    Ok(Request { id, method, params })
+    let proof = match object.remove("proof") {
+        Some(Value::Object(proof)) => Some(proof),
+        _ => None,
+    };
+    Ok(Request {
+        id,
+        method,
+        params,
+        proof,
+    })
 }
 
 /// A float id: pydantic takes a whole one as that integer. One outside what a JSON integer holds here (below

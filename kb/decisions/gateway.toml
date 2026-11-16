@@ -1429,3 +1429,12 @@ rule = "chat.send, chat.approve, chat.answer and chat.correct are app_only (the 
 why = "Red-team review 2026-11-16, finding 3: code planted to run later as the owner (a git hook, a launch agent) could answer FERB's questions or type in a card's box, and GATE-510 and GATE-609 trust those words as the owner's."
 evidence = "Callers found: FERB.app (DaemonConnection.swift), its playground's in-app stand-in, tests and fixtures; no shipped program, CLI or extension calls them. ferb-rpc golden names the four; ferbd's stand-ins answer the app check true."
 paths = ["engine/crates/ferb-rpc/src/auth.rs::OWNER_APP_ONLY"]
+
+[GATE-613]
+title = "Exact location: FERB asks the owner once per task tree before coordinates reach the AI"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For SENSE-420. device.facts with exact_location asks FERB's own Yes/No (capability device.location, a task's question, buttons Use it / Not now, its words per APP-926); the answer holds for the task tree while the daemon runs. Without Location, or for the check, nothing is asked or read. After Yes FERB.app reads one precise fix (device.location_wanted, 30 s); a No or no fix returns no coordinates."
+why = "The owner: the exact spot only when a task needs it, asked for at that moment. Once per tree as terminal typing (GATE-585), so retries don't ask again; the question is worded as APP-926 says."
+paths = ["engine/crates/ferbd/src/compose/device.rs", "engine/crates/ferbd/src/compose/device.rs::ASK_SUMMARY"]

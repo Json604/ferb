@@ -34,6 +34,18 @@ final class SetupModel: ObservableObject {
     /// Grants whose switch applies only after a restart: the service restarts once when FERB comes back to the front.
     private var restartOnReturn: Set<String> = []
     @Published private(set) var restarting = false
+    /// Rows whose restart waits because a task was running (APP-921): restarted once no task runs, kept across launches
+    /// in `restartStore` (FERBRestartAfterTasks).
+    @Published private(set) var restartAfterTasks: Set<String> = []
+    /// Where `restartAfterTasks` is kept (the app's defaults; nil: in memory only).
+    var restartStore: UserDefaults? {
+        didSet { restartAfterTasks = Set(restartStore?.stringArray(forKey: Self.restartAfterTasksKey) ?? []) }
+    }
+    static let restartAfterTasksKey = "FERBRestartAfterTasks"
+    /// Says one line to the owner through the notch's quiet notice path (id, line); set by the app (APP-921).
+    var tell: ((String, String) -> Void)?
+    /// The time a deferral is told at (its notice's id); tests fix it.
+    var now: () -> Date = Date.init
     /// The grant being waited on now and what that wait is doing (asking macOS, opening Settings, waiting for the
     /// switch, checking, restarting): the tour shows it live (APP-665, APP-679). Nil when no grant is waited on.
     @Published private(set) var grantWait: GrantWait?
@@ -77,13 +89,15 @@ final class SetupModel: ObservableObject {
     /// What the setup window asks for: what every task needs. The rest are asked when first needed (owner 2026-10-26:
     /// "ask when first needed, like Claude and ChatGPT"); Settings → Permissions lists them all.
     static let askedAtSetup: Set<String> = ["accessibility", "screen_recording", "full_disk_access", "input_monitoring",
-                                            "notifications", "microphone", "clipboard"]
+                                            "notifications", "microphone", "clipboard", "location"]
     /// Stable order for the required setup grants. Quick grouping uses each row's restart requirement.
     /// Automation is requested per app on first use; Notifications never blocks on its unanswered banner.
-    static let allowAllSequence = ["microphone", "clipboard", "input_monitoring",
+    static let allowAllSequence = ["microphone", "location", "clipboard", "input_monitoring",
                                    "accessibility", "full_disk_access", "notifications", "screen_recording"]
     /// Answered in macOS's own popup: no wait for a switch afterwards.
-    static let answeredInPopup: Set<String> = ["notifications", "microphone", "clipboard"]
+    static let answeredInPopup: Set<String> = ["notifications", "microphone", "clipboard", "location"]
+    /// Location's pane in Privacy & Security (FERB.app's own grant, SENSE-420).
+    static let locationPane = URL(string: "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_LocationServices")
     static func allowAllOrder(_ rows: [PermissionRow]) -> [String] {
         allowAllSequence.filter { id in rows.contains { $0.id == id && $0.status != .granted && $0.blocked.isEmpty } }
     }
@@ -152,7 +166,7 @@ final class SetupModel: ObservableObject {
             polls += 1
             let front = frontmostApp() == SettingsAnchor.bundleID
             if inSettings && !front, allRows.first(where: { $0.id == row.id })?.restartToCheck == true {
-                await restartUnlessWorking(seenOn: false)
+                await restartUnlessWorking(seenOn: false, rows: [row.id])
             }
             inSettings = front
             // A silence already being started again stays shown as that until FERB answers.
@@ -161,7 +175,7 @@ final class SetupModel: ObservableObject {
                 unanswered = 0
                 if !restartedForSwitch, allRows.first(where: { $0.id == row.id })?.restartNeeded == true {
                     restartedForSwitch = true
-                    await restartUnlessWorking(seenOn: true)
+                    await restartUnlessWorking(seenOn: true, rows: [row.id])
                 }
                 if allRows.first(where: { $0.id == row.id })?.status != .granted { moveGrant(.waitingForSwitch) }
             } else {
@@ -618,11 +632,14 @@ final class SetupModel: ObservableObject {
         }
         let notifications = await app.notifications()
         let microphone = app.microphone()
+        let location = app.location()
         appRows = [
             PermissionRow(id: "notifications", status: notifications, process: "app", required: true,
                           pane: permissions?.appPanes["notifications"], requestable: notifications == .notDetermined),
             PermissionRow(id: "microphone", status: microphone, process: "app", required: true,
-                          pane: permissions?.appPanes[app.microphoneDeniedPane], requestable: microphone == .notDetermined)]
+                          pane: permissions?.appPanes[app.microphoneDeniedPane], requestable: microphone == .notDetermined),
+            PermissionRow(id: "location", status: location, process: "app", required: true,
+                          pane: Self.locationPane, requestable: location == .notDetermined)]
         return answered
     }
 
@@ -644,6 +661,9 @@ final class SetupModel: ObservableObject {
             } else if let pane = row.pane { system.open(pane) }
         case "microphone":
             if row.status == .notDetermined { step?(.asking); _ = await app.requestMicrophone() }
+            else if let pane = row.pane { step?(.opening); system.open(pane) }
+        case "location":
+            if row.status == .notDetermined { step?(.asking); _ = await app.requestLocation() }
             else if let pane = row.pane { step?(.opening); system.open(pane) }
         default:
             if row.requestable {
@@ -686,19 +706,65 @@ final class SetupModel: ObservableObject {
     /// Input Monitoring never ticked): a switch that applies only after a restart is checked by restarting the service,
     /// once per Grant, and never while a task runs (the "Restart FERB to check" button stays for that).
     func cameBack() async {
+        if !restartAfterTasks.isEmpty { await tasksChanged(running: false) }     // APP-921: a task's deferral, if it ended
         let pending = restartOnReturn.filter { id in allRows.contains { $0.id == id && $0.status != .granted } }
         restartOnReturn.removeAll()
         guard !pending.isEmpty else { return }
-        await restartUnlessWorking(seenOn: false)
+        await restartUnlessWorking(seenOn: false, rows: pending)
     }
 
     /// The service restarted to read a switch again, never while a task runs or a restart is under way. `seenOn`: a
-    /// fresh reading saw the switch on (APP-662), shown as such while it restarts.
-    private func restartUnlessWorking(seenOn: Bool) async {
+    /// fresh reading saw the switch on (APP-662), shown as such while it restarts. A running task defers it (APP-921):
+    /// the rows are kept for `tasksChanged`, and the owner is told once.
+    private func restartUnlessWorking(seenOn: Bool, rows: Set<String>) async {
         guard !restarting else { return }
         if let status = try? await rpc.call("chat.status", params: ["peek": true]),
-           let running = status["running"] as? [[String: Any]], !running.isEmpty { return }
+           let running = status["running"] as? [[String: Any]], !running.isEmpty {
+            deferRestart(rows, seenOn: seenOn, tasks: running.count)
+            return
+        }
         moveGrant(.restarting(seenOn: seenOn))
+        await restartService()
+    }
+
+    /// APP-921: the restart waits for the running task; rows not already waiting are said once in the notch.
+    private func deferRestart(_ rows: Set<String>, seenOn: Bool, tasks: Int) {
+        let new = rows.subtracting(restartAfterTasks)
+        guard !new.isEmpty else { return }
+        keepRestartAfterTasks(restartAfterTasks.union(new))
+        let ids = new.sorted()
+        tell?("restart-after-tasks-" + ids.joined(separator: "+") + "-\(Int(now().timeIntervalSince1970))",
+              Self.restartDeferredLine(ids, seenOn: seenOn, tasks: tasks))
+    }
+
+    /// The one line a deferred restart is told with (code-written, APP-921).
+    static func restartDeferredLine(_ ids: [String], seenOn: Bool, tasks: Int) -> String {
+        let names = ListFormatter.localizedString(byJoining: ids.map(PermissionCopy.label))
+        let when = tasks > 1 ? "when these tasks finish" : "when this task finishes"
+        return seenOn ? "\(names) is on in macOS. I'll restart my background service to use it \(when)."
+            : "I'll restart my background service to check \(names) \(when)."
+    }
+
+    private func keepRestartAfterTasks(_ rows: Set<String>) {
+        restartAfterTasks = rows
+        if rows.isEmpty { restartStore?.removeObject(forKey: Self.restartAfterTasksKey) }
+        else { restartStore?.set(rows.sorted(), forKey: Self.restartAfterTasksKey) }
+    }
+
+    /// The app's task list changed, or FERB answered again (APP-921): with no task running, a restart a task deferred
+    /// (this launch or an earlier one) is made now, once chat.status itself confirms no task runs. A row the daemon
+    /// already reads on needs none.
+    func tasksChanged(running: Bool) async {
+        guard !running, !restartAfterTasks.isEmpty, !restarting else { return }
+        guard let status = try? await rpc.call("chat.status", params: ["peek": true]) else { return }
+        if let tasks = status["running"] as? [[String: Any]], !tasks.isEmpty { return }
+        if await refreshPermissions() {
+            let waiting = restartAfterTasks.filter { id in !allRows.contains { $0.id == id && $0.status == .granted } }
+            keepRestartAfterTasks(waiting)
+            guard !waiting.isEmpty else { return }
+        }
+        guard !restarting else { return }
+        moveGrant(.restarting(seenOn: false))
         await restartService()
     }
 
@@ -707,16 +773,22 @@ final class SetupModel: ObservableObject {
         if let target = permissions?.grantTarget, !target.isEmpty { system.reveal(target) }
     }
 
-    func restartService() async {
+    /// True when FERB answers again afterwards; a restart made any way covers one a task deferred (APP-921).
+    @discardableResult
+    func restartService() async -> Bool {
         restarting = true
         message = "Restarting FERB's background service…"
         var ok = await service.restart()
         if let why = await serviceSpawnFailure(within: serviceCheckAfterStart) { ok = await repairService(why) }
         restarting = false
         message = ok ? nil : serviceError ?? "FERB's background service couldn't be restarted."
-        if ok { askedRestart.removeAll() }
+        if ok {
+            askedRestart.removeAll()
+            keepRestartAfterTasks([])
+        }
         moveGrant(.checking)
         await refreshPermissions()
+        return ok
     }
 
     /// Whether setup was finished (by this window or `ferb setup`), asked of the daemon at launch.

@@ -9,23 +9,30 @@ import XCTest
 /// Python-recorded: they are the engine's projection), the scenario's timeline is fed through the app's existing path
 /// (a submitted turn as `begin` makes it, `receiveChatEvent` for each stream frame, the stream task's end and
 /// `finishSubmission`, `receiveBusEvent`, `receiveOutcome` for a result `chat.status` read back, `receiveNotices`,
-/// `receiveReminder`), and the golden entries are folded with `EntryFold`. The two transcripts must be equal on what
-/// the owner sees: every entry in order, each turn's saved fields (its `Codable` form: words, statuses, plan, card and
-/// checklist, cards, answer, question, merged, hidden kinds, sources), "Answered below", each late reply's turn,
-/// the turn it follows and what it shows, each notice's text, quotes, tag and cards.
+/// `receiveReminder`; a turn another client sent through the watch, a row carried from chat_history, a deleted turn, a
+/// fresh conversation and a restart as `appModel` says), and the golden entries are folded with `EntryFold`. The two
+/// transcripts must be equal on what the owner sees: every entry in order, each turn's saved fields (its `Codable`
+/// form: words, statuses, plan, card and checklist, cards, answer, question, merged, hidden kinds, sealed IDs,
+/// sources), "Answered below", each late reply's turn, the turn it follows and what it shows, each notice's text,
+/// quotes and cards; and the open questions the app holds are the entries' open questions.
 ///
 /// Left out of the comparison (timing or identity only): every id (a turn's, reply's or notice's UUID; replies and
 /// notices are compared by the index of the turn they name), every `createdAt`, a notice's `noticedAt` (a reminder's
-/// is the moment the app received it). Live state is not in the comparison because it is not in the archive's saved
-/// form (live lines, typing dots, the streamed plan, step states, open questions).
+/// is the moment the app received it), a notice's `tag` (drawn nowhere, APP-620) and a turn's `sentElsewhere` (which
+/// writer keeps it, APP-917). Live state is not in the comparison because it is not in the archive's saved form (live
+/// lines, typing dots, the streamed plan, step states).
+///
+/// `transcripts.json` (S6, T-1206) is what this fold shows for every scenario, in a shape a phone can render
+/// (`testThePhoneTranscriptsAreWhatTheMacFoldShows`; README "The phone's transcript").
 ///
 /// The fixture is read from the repository by path, as other tests here read repository files (SoundFeedbackTests).
 @MainActor
 final class EntryFoldTests: XCTestCase {
     // decision: ENG-9
-    func testEveryRecordedScenarioFoldsToTheTranscriptTheAppBuilds() throws {
+    // decision: ENG-18
+    func testEveryRecordedScenarioFoldsToTheTranscriptTheAppBuilds() async throws {
         let scenarios = try Self.golden()
-        XCTAssertEqual(scenarios.count, 72)          // 71 recorded, 1 invented (ENG-18)
+        XCTAssertEqual(scenarios.count, 84)          // 71 recorded, 1 invented (ENG-18), 12 for the phone (S6)
         var compared = 0
         var differences: [String] = []
         for scenario in scenarios {
@@ -34,15 +41,27 @@ final class EntryFoldTests: XCTestCase {
             let entries = ChatEntry.list(scenario["entries"])
             let sessions = Set(timeline.compactMap { $0["session"] as? String })
             for session in sessions.sorted() {
-                let app = Self.shape(appArchive(timeline.filter { $0["session"] as? String == session }))
-                let folded = Self.shape(EntryFold.archive(entries.filter { $0.conversationID == session }))
+                let mine = entries.filter { $0.conversationID == session }
+                let model = await appModel(timeline.filter { $0["session"] as? String == session }, entries: mine)
+                let app = Self.shape(model.conversation)
+                let folded = Self.shape(EntryFold.archive(mine))
                 compared += 1
                 if app != folded {
                     differences.append("\(name) [\(session)]:\n  app:  \(app)\n  fold: \(folded)")
                 }
+                // the questions the Mac shows (its open ones, held apart) are the questions the entries keep open; not
+                // checked where the timeline delivers a question again after its answer (a recorded stream's frames put
+                // at its end, README "Where the timelines come from"), which the app's live order never does
+                let open = Set(Self.newest(mine).filter { $0.kind == "question" && $0.open }.compactMap(\.approvalID))
+                if !Self.asksAgainAfterAnswer(timeline), Set(model.pendingApprovals.map(\.id)) != open {
+                    differences.append("\(name) [\(session)]: open questions app \(model.pendingApprovals.map(\.id)), "
+                                       + "entries \(open.sorted())")
+                }
+                model.disconnectDaemon()
             }
         }
-        XCTAssertEqual(compared, 72, "every conversation of every scenario (preview_attention sends no message; login_sites has two)")
+        // preview_attention sends no message; login_sites and fresh_conversation have two conversations
+        XCTAssertEqual(compared, 85, "every conversation of every scenario")
         XCTAssertTrue(differences.isEmpty, differences.joined(separator: "\n"))
     }
 
@@ -87,11 +106,11 @@ final class EntryFoldTests: XCTestCase {
     /// Every reply and the task's end of a turn are shown, in order, none overwritten (APP-914): the recorded scenarios
     /// where FERB said more after a turn's first answer, through the app's own reducer.
     // decision: APP-914
-    func testEveryReplyOfATurnAndItsTaskEndAreShownInOrder() throws {
+    func testEveryReplyOfATurnAndItsTaskEndAreShownInOrder() async throws {
         let scenarios = try Self.golden()
-        func said(_ name: String) -> [String] {
+        func said(_ name: String) async -> [String] {
             let timeline = scenarios.first { $0["name"] as? String == name }?["timeline"] as? [[String: Any]] ?? []
-            return appArchive(timeline).transcript().compactMap { entry -> String? in
+            return await appArchive(timeline).transcript().compactMap { entry -> String? in
                 switch entry {
                 case let .turn(turn, answeredBelow): return answeredBelow || turn.answer.isEmpty ? nil : turn.answer
                 case let .reply(_, shown): return shown.answer
@@ -100,7 +119,8 @@ final class EntryFoldTests: XCTestCase {
             }
         }
         // a message with conversation changes: code's line for each change, then the planner's own reply
-        XCTAssertEqual(said("conversation_change"), [
+        let change = await said("conversation_change")
+        XCTAssertEqual(change, [
             "Paused the chat with Robin.", // ORCH-649: the engine names the chat, never its id
             "Blocked by a safety check: a conversation I'm having for you changes only on your own instruction. The "
                 + "words I quoted from you aren't in this message or your recent messages in this chat, so that "
@@ -110,13 +130,14 @@ final class EntryFoldTests: XCTestCase {
             "Conversation handed back to you.\n\nI couldn't confirm part of this.",
         ])
         // a delegated conversation handed back while its task ran, then the task's end, checked
-        XCTAssertEqual(said("conversation_handover"), [
+        let handover = await said("conversation_handover")
+        XCTAssertEqual(handover, [
             "Conversation handed over: Robin can swap seeds on Saturday.",
             "Robin can swap seeds on Saturday.",
         ])
         let timeline = scenarios.first { $0["name"] as? String == "conversation_handover" }?["timeline"]
             as? [[String: Any]] ?? []
-        let archive = appArchive(timeline)
+        let archive = await appArchive(timeline)
         XCTAssertEqual(archive.turns.count, 1)
         XCTAssertEqual(archive.turns[0].status, "done")
         let later = try XCTUnwrap(archive.replies.first?.said)
@@ -146,7 +167,7 @@ final class EntryFoldTests: XCTestCase {
     /// receipt, and no reply says it again.
     // decision: APP-919
     // decision: ENG-18
-    func testAStoppedTaskTwoTurnsRanTellsItsEndOnceOnTheTurnThatRanIt() throws {
+    func testAStoppedTaskTwoTurnsRanTellsItsEndOnceOnTheTurnThatRanIt() async throws {
         let scenarios = try Self.golden()
         let scenario = try XCTUnwrap(scenarios.first { $0["name"] as? String == "stop_beside_new_work_two_turns" })
         let timeline = scenario["timeline"] as? [[String: Any]] ?? []
@@ -162,7 +183,7 @@ final class EntryFoldTests: XCTestCase {
         })
         later.insert(moved, at: streamEnd + 1)
         for order in [timeline, later] {
-            let archive = appArchive(order)
+            let archive = await appArchive(order)
             XCTAssertEqual(archive.turns.count, 3)
             XCTAssertEqual(archive.turns[0].answer, "Stopped, as you asked.\n\nSites contacted: 1 site")
             XCTAssertEqual(archive.turns[1].answer, summary)
@@ -240,6 +261,54 @@ final class EntryFoldTests: XCTestCase {
         XCTAssertEqual(Self.shape(folded), Self.shape(saved.forStorage()))
     }
 
+    /// A deleted turn (STORE-424) takes only itself and its own replies: a late answer of an earlier turn that was
+    /// shown after it, and a notice that came after it, stay, shown after the kept turn before it (as the entries fold);
+    /// no "Answered below" is left pointing at nothing. Before APP-923 both were hidden with the deleted turn.
+    // decision: APP-923
+    // decision: STORE-424
+    func testADeletedTurnKeepsWhatOtherTurnsShowedAfterIt() {
+        var chat = ConversationArchive()
+        let a = UUID(), b = UUID(), c = UUID()
+        chat.begin(id: a, request: "back up my photos", sources: [])
+        _ = chat.bindRequest(id: a, requestID: "r1")
+        chat.begin(id: b, request: "capital of Peru?", sources: [])
+        _ = chat.bindRequest(id: b, requestID: "r2")
+        chat.finish(id: b, answer: "Lima.", status: "done", artifacts: [])
+        chat.finish(id: a, answer: "Backed up.", status: "done", artifacts: [])          // below, after b
+        _ = chat.addNotice(id: "n1", text: "The drive is almost full.")
+        chat.begin(id: c, request: "capital of Chile?", sources: [])
+        XCTAssertEqual(chat.removeTurns(requestIDs: ["r2"]), 1)
+        let shown = chat.transcript().map { entry -> String in
+            switch entry {
+            case let .turn(turn, below): return turn.request + (below ? " (answered below)" : "")
+            case let .reply(_, answering): return "reply: " + answering.answer
+            case let .notice(notice): return "notice: " + notice.text
+            }
+        }
+        XCTAssertEqual(shown, ["back up my photos (answered below)", "reply: Backed up.",
+                               "notice: The drive is almost full.", "capital of Chile?"])
+    }
+
+    /// The IDs kept sealed from a message (GATE-604) come from its entry as from its ack; a later revision keeps the
+    /// owner's "Let the AI see" on this Mac (GATE-602).
+    // decision: APP-924
+    // decision: GATE-604
+    func testAMessagesSealedIDsFoldFromItsEntry() throws {
+        let row: [String: Any] = ["id": "m1", "kind": "message", "pos": 1, "rev": 1, "state": "done",
+                                  "request_id": "r1", "created_at": "2026-01-01T09:00:00+00:00",
+                                  "body": ["text": "my passport is [PASSPORT]", "hidden": ["PASSPORT"],
+                                           "sealed": [["kind": "PASSPORT", "name": "PASSPORT"]]]]
+        let entry = try XCTUnwrap(ChatEntry(row))
+        var chat = EntryFold.archive([entry])
+        XCTAssertEqual(chat.turns.first?.sealed, [SealedIdentifier(kind: "PASSPORT", name: "PASSPORT")])
+        XCTAssertNotNil(chat.turns.first?.hiddenNotice)
+        chat.markShown(id: chat.turns[0].id, name: "PASSPORT")
+        var revised = row
+        revised["rev"] = 2
+        chat.applyMessageEntry(try XCTUnwrap(ChatEntry(revised)), at: 0, elsewhere: true)
+        XCTAssertEqual(chat.turns.first?.sealed?.first?.shown, true)
+    }
+
     /// The engine's own interleaving (journal 72's open item): for the 61 scenarios ferbd replays through the real
     /// program, the inputs in the order the ENGINE fed its chat log (`engine/fixtures/chat-entries/engine_chat.json` and
     /// `engine_more.json`, written by `engine/crates/ferbd/tests/chat_replay.rs`: its real interleaving across the
@@ -249,7 +318,7 @@ final class EntryFoldTests: XCTestCase {
     /// this is the order check against the app.
     // decision: ENG-9
     // decision: ENG-15
-    func testTheEnginesOwnInterleavingFoldsToWhatTheAppShows() throws {
+    func testTheEnginesOwnInterleavingFoldsToWhatTheAppShows() async throws {
         var compared = 0, differences: [String] = []
         var names: Set<String> = []
         for file in ["engine_chat.json", "engine_more.json"] {
@@ -259,8 +328,10 @@ final class EntryFoldTests: XCTestCase {
                 let timeline = scenario["timeline"] as? [[String: Any]] ?? []
                 let entries = ChatEntry.list(scenario["entries"])
                 for session in Set(timeline.compactMap { $0["session"] as? String }).sorted() {
-                    let app = Self.shape(appArchive(timeline.filter { $0["session"] as? String == session }))
-                    let folded = Self.shape(EntryFold.archive(entries.filter { $0.conversationID == session }))
+                    let mine = entries.filter { $0.conversationID == session }
+                    let app = Self.shape(await appArchive(timeline.filter { $0["session"] as? String == session },
+                                                          entries: mine))
+                    let folded = Self.shape(EntryFold.archive(mine))
                     compared += 1
                     if app != folded { differences.append("\(name) [\(session)]:\n  app:  \(app)\n  fold: \(folded)") }
                 }
@@ -274,13 +345,33 @@ final class EntryFoldTests: XCTestCase {
     // MARK: the app's path
 
     /// The timeline through FERB.app's reducer, as the app runs it.
-    private func appArchive(_ timeline: [[String: Any]]) -> ConversationArchive {
-        let model = NotchModel(rpc: ScriptedRPC(), preferences: scratchDefaults())
+    private func appArchive(_ timeline: [[String: Any]], entries: [ChatEntry] = []) async -> ConversationArchive {
+        let model = await appModel(timeline, entries: entries)
+        model.disconnectDaemon()
+        return model.conversation
+    }
+
+    /// The timeline through FERB.app, as the app runs it: its own turns from their streams; a turn another client sent
+    /// (its ack names a client id) from the engine's entries through the watch (`applyEntryChange`, APP-916), each
+    /// entry where the frame that made it came (`entries`: the scenario's, at their last revision); what the store writes
+    /// itself, as the app learns it: a row carried from chat_history is what the app's history gives back (`absorb`), a
+    /// deleted turn `removeTurns` (STORE-424), a fresh conversation the app's own notice (STORE-427); a restart a
+    /// relaunch (the saved history read back into a new model, no session and no open question left).
+    private func appModel(_ timeline: [[String: Any]], entries: [ChatEntry] = []) async -> NotchModel {
+        var model = NotchModel(rpc: ScriptedRPC(), preferences: scratchDefaults())
         var local: [Int: UUID] = [:]
+        var foreign: [Int: String] = [:]
         for item in timeline {
             let stream = (item["stream"] as? NSNumber)?.intValue ?? -1
             switch item["do"] as? String {
             case "send":
+                let ack = timeline.first {
+                    ($0["stream"] as? NSNumber)?.intValue == stream && ($0["frame"] as? [String: Any])?["type"] as? String == "ack"
+                }?["frame"] as? [String: Any]
+                if let client = ack?["client_id"] as? String, client != model.clientID {
+                    foreign[stream] = item["request_id"] as? String
+                    continue
+                }
                 // NotchModel.begin(request:outgoing:sources:keepComposer:), without the presentation and the stream
                 let sources = (item["input_paths"] as? [String] ?? []).map { URL(fileURLWithPath: $0) }
                 if let active = model.session.activeTaskID { model.workSessions[active] = model.session }
@@ -296,7 +387,17 @@ final class EntryFoldTests: XCTestCase {
                 model.workSessions[id] = model.session
                 local[stream] = id
             case "frame":
-                guard let id = local[stream], let frame = item["frame"] as? [String: Any] else { continue }
+                guard let frame = item["frame"] as? [String: Any] else { continue }
+                if let request = foreign[stream] {
+                    let type = frame["type"] as? String ?? ""
+                    let kinds = type == "ack" ? ["message"] : type == "plan" ? ["plan"]
+                        : ["reply", "clarify", "outcome", "error"].contains(type) ? ["answer", "error"] : []
+                    for entry in entries where entry.requestID == request && kinds.contains(entry.kind) {
+                        await model.applyEntryChange(entry, live: true)
+                    }
+                    continue
+                }
+                guard let id = local[stream] else { continue }
                 model.receiveChatEvent(frame, localID: id)
             case "end":
                 // submitToDaemon's tail: a provisional reply cut off, the live line, finishSubmission
@@ -316,9 +417,28 @@ final class EntryFoldTests: XCTestCase {
             case "notice":
                 model.receiveNotices([item["data"] as? [String: Any] ?? [:]])
             case "restart":
-                // the engine's start-up pass after its restart (engine_*.json): what it changes (open questions
-                // expired, cut work interrupted) the app reads from chat.status, whose questions aren't in the archive
-                continue
+                // the engine's start-up pass after its restart: FERB.app relaunched reads its saved history back; its
+                // streams and open questions are gone (what the pass changes it reads from chat.status)
+                let relaunched = NotchModel(rpc: ScriptedRPC(), preferences: scratchDefaults())
+                relaunched.conversation.absorb(model.conversation.storedEntries)
+                model.disconnectDaemon()
+                model = relaunched
+                local = [:]
+            case "legacy":
+                // a row the app saved in chat_history (APP-805), as the history gives it back at launch
+                guard let stored = HistoryEntry.read(["kind": item["kind"] ?? "", "body": item["body"] ?? [:]]) else {
+                    XCTFail("a legacy row the app can't read: \(item["id"] ?? "")")
+                    continue
+                }
+                model.conversation.absorb([stored])
+            case "delete":
+                // Settings → Stored data deleted the turn (StoredDataPage's turnDeleted)
+                model.removeTurns(requestIDs: [item["request_id"] as? String ?? ""])
+            case "fresh":
+                // startFreshConversation's line (STORE-427), when chat.attach {new} answered
+                _ = model.conversation.addNotice(id: "conversation:" + (item["session"] as? String ?? ""),
+                                                 text: StoredData.freshMarker, tag: nil,
+                                                 at: LiveProgress.time(item["at"]) ?? Date())
             case "notification":
                 guard let banner = BannerItem(item["item"] as? [String: Any] ?? [:]),
                       case .reminder(let id) = banner.target else { continue }
@@ -327,7 +447,29 @@ final class EntryFoldTests: XCTestCase {
                 XCTFail("unknown timeline step \(item["do"] ?? "")")
             }
         }
-        return model.conversation
+        return model
+    }
+
+    /// Whether the timeline delivers a question (a stream's event frame or a bus event) after that question's answer.
+    static func asksAgainAfterAnswer(_ timeline: [[String: Any]]) -> Bool {
+        var answered: Set<String> = []
+        for item in timeline {
+            let frame = item["frame"] as? [String: Any]
+            let (topic, data) = item["do"] as? String == "frame"
+                ? (frame?["topic"] as? String, frame?["data"] as? [String: Any])
+                : (item["topic"] as? String, item["data"] as? [String: Any])
+            guard let id = data?["approval_id"] as? String else { continue }
+            if topic == "approval.resolved" { answered.insert(id) }
+            if topic == "approval.requested", answered.contains(id) { return true }
+        }
+        return false
+    }
+
+    /// Each entry at its newest revision, in `pos` order.
+    static func newest(_ entries: [ChatEntry]) -> [ChatEntry] {
+        var newest: [String: ChatEntry] = [:]
+        for entry in entries where (newest[entry.id]?.rev ?? 0) < entry.rev { newest[entry.id] = entry }
+        return newest.values.sorted { $0.pos < $1.pos }
     }
 
     // MARK: what the owner sees
@@ -342,6 +484,8 @@ final class EntryFoldTests: XCTestCase {
                 out = encoded(turn)
                 out["id"] = nil
                 out["createdAt"] = nil
+                // which writer keeps the turn on this Mac (APP-917), not what it shows
+                out["sentElsewhere"] = nil
                 out["entry"] = "turn"
                 out["answeredBelow"] = answeredBelow
             case let .reply(reply, _):
@@ -350,7 +494,8 @@ final class EntryFoldTests: XCTestCase {
                 if let said = reply.said { out["said"] = encoded(said) }      // a later answer's own words (APP-914)
             case let .notice(notice):
                 out = encoded(notice)
-                for key in ["entryID", "createdAt", "noticedAt", "afterTurnID"] { out[key] = nil }
+                // `tag` is drawn nowhere since APP-620 (the generic "noticed" label removed, saved notices included)
+                for key in ["entryID", "createdAt", "noticedAt", "afterTurnID", "tag"] { out[key] = nil }
                 out["entry"] = "notice"
                 out["after"] = notice.afterTurnID.flatMap { index[$0] } ?? -1
             }

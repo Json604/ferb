@@ -10,6 +10,7 @@ pub mod call_facts;
 pub mod chat_entry;
 #[cfg(unix)]
 pub mod config;
+pub mod device;
 pub mod errors;
 pub mod ids;
 pub mod interfaces;

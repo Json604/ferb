@@ -308,6 +308,8 @@ pub struct Deps {
     /// How often a handed-off check's page is looked at.
     pub handoff_poll_s: f64,
     pub state: Arc<State>,
+    /// The daemon's `_fresh` (T-1124): the profiles as last discovered, kept FRESH_S; None: read every time.
+    pub fresh: Option<crate::shared::Fresh>,
 }
 
 /// The host and the seams, as every helper takes them.
@@ -452,10 +454,26 @@ impl Cx {
             .collect()
     }
 
-    /// `_fresh_profiles`: the profiles as last discovered. The composition's `_Fresh` cache is not applied here:
-    /// this reads them now.
+    /// `_fresh_profiles` (browsers.py:174): the profiles as last discovered, kept FRESH_S by the daemon's `_fresh`
+    /// (salted with the test mapping of browser folders): what the planner's facts, live facts and the browsing
+    /// question name. Pairing, Pair all and every profile-state read call [`Cx::profiles`], which reads now, so a
+    /// profile paired a moment ago is never judged from a kept list.
     pub fn fresh_profiles(&self) -> Vec<BrowserProfile> {
-        self.profiles()
+        let Some(fresh) = &self.deps.fresh else {
+            return self.profiles();
+        };
+        let mut dirs: Vec<(String, String)> = self
+            .deps
+            .browser_data_dirs
+            .iter()
+            .flatten()
+            .map(|(b, p)| (b.clone(), p.to_string_lossy().into_owned()))
+            .collect();
+        dirs.sort();
+        let me = self.clone();
+        fresh.get("browser_profiles", &format!("{dirs:?}"), move || {
+            me.profiles()
+        })
     }
 
     /// A browser's folder for reading one profile's files: the test mapping's, else under the support folder.
@@ -1054,6 +1072,55 @@ impl Cx {
         // Python passed None on to `_pair_one` (AttributeError) when no folder was named
         let p = found.ok_or_else(|| refusal("name the profile's browser and folder"))?;
         self.pair_one(p, self.deps.pair_timeout_s).await
+    }
+
+    /// `setup.uninstall_browser_files` (DMN-598): FERB.app's Uninstall, before it unregisters this service, has this
+    /// process (which holds Full Disk Access, DMN-507) remove FERB's own files from every known browser's folder: the
+    /// install requests FERB wrote (`External Extensions/<id>.json`, the recorded ones and the current id's) and the
+    /// native-host manifest (`NativeMessagingHosts/com.ferb.native_host.json`). Never an extension, its settings or a
+    /// browser. Each file is tried; one refused is listed with why. `done`: nothing is left for `ferb uninstall` to do
+    /// there (`--skip-browser-files`). Without Full Disk Access nothing is touched and `done` is false.
+    pub async fn remove_browser_files(&self) -> Result<Map<String, Value>, HandlerError> {
+        if !self.blocking(|c| c.other_app_data()).await {
+            return Ok(object(json!({"done": false, "removed": [], "failed": [],
+                "why": "FERB's background service doesn't have Full Disk Access, so it left the browsers' folders alone"})));
+        }
+        let state = self.deps.state.clone();
+        let done = {
+            let _held = state.files_lock.lock().await;
+            self.blocking(|c| {
+                let support = &c.deps.browser_support;
+                let store = c.store_id().unwrap_or_default();
+                let mut done = autoinstall::remove_requests_each(&c.host.home, support, &store);
+                let every: Vec<&str> = profiles::BROWSERS.iter().map(|b| b.key).collect();
+                for dir in autoinstall::native_host_dirs(support, &every) {
+                    let manifest = dir.join(ferb_device::install::NATIVE_HOST_MANIFEST);
+                    if manifest.is_file() {
+                        done.remove(&manifest);
+                    }
+                }
+                // written again from scratch if FERB connects the browsers later
+                *lock(&c.deps.state.files_done) = None;
+                done
+            })
+            .await
+        };
+        let shown = |p: &Path| p.to_string_lossy().into_owned();
+        let failed: Vec<Value> = done
+            .failed
+            .iter()
+            .map(|(p, why)| json!({"path": shown(p), "error": why}))
+            .collect();
+        self.host.journal(
+            "browser.files_removed",
+            json!({"removed": done.removed.len(), "failed": failed.len()}),
+            None,
+        )?;
+        Ok(object(json!({
+            "done": done.failed.is_empty(),
+            "removed": done.removed.iter().map(|p| shown(p)).collect::<Vec<_>>(),
+            "failed": failed,
+        })))
     }
 
     /// `_connect_browsers` (DMN-507, DMN-508): FERB's native host and the Web Store install request in every
@@ -2411,7 +2478,7 @@ async fn identity_pair(cx: Cx, params: Params) -> HandlerResult {
                      "hint": "is the FERB extension loaded in FERB's profile?"})))
 }
 
-/// The browser area's 13 methods (`areas/rpc.py`'s entries for them).
+/// The browser area's 14 methods (`areas/rpc.py`'s entries for them).
 pub fn register(server: &Server, host: &Host, deps: &Deps) {
     let cx = Cx::new(host, deps);
     macro_rules! unary {
@@ -2433,6 +2500,9 @@ pub fn register(server: &Server, host: &Host, deps: &Deps) {
     ));
     unary!("setup.browsers", |c, _p| setup_browsers(c));
     unary!("setup.browser_open", |c, p| setup_browser_open(c, p));
+    unary!("setup.uninstall_browser_files", |c, _p| async move {
+        c.remove_browser_files().await
+    });
     unary!("browser.show_handoff", |c, p| show_handoff(c, p));
     unary!("identity.find", |c, p| identity_find(c, p));
     unary!("identity.choose", |c, p| identity_choose(c, p));

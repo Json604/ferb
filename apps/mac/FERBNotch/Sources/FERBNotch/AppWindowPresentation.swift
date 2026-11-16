@@ -384,6 +384,8 @@ extension AppWindowPresentation {
         .init(name: "Memory's Forget confirmation", mechanism: .withParent, file: "WindowPages.swift", code: ".alert("),
         .init(name: "Stored data's delete, forget and fresh-conversation confirmations", mechanism: .withParent,
               file: "StoredDataPage.swift", code: ".alert("),
+        .init(name: "Settings → Phone's Remove confirmation", mechanism: .withParent, file: "PhonePage.swift",
+              code: ".alert("),
     ]
     // What counts as a presenter in the sources is listed by the build's scan (Tools/SettingsKeyScan, SourcePresenters).
 }

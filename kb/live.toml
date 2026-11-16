@@ -4623,3 +4623,174 @@ request = "Tell FERB once \"use my scaler Chrome for scaler things\" (it remembe
 pass = "The scaler task browses in the scaler profile with no profile question (task.profiles_remembered in the trace); after forgetting that memory the same request goes to the pick. The screen question's card begins \"FERB's extension can't reach this part of Google Chrome (a profile it isn't connected in), so FERB needs the window.\""
 decisions = ["HAND-586", "HAND-587", "HAND-588"]
 sitting = "after this engine and FERB.app are installed"
+
+[LIVE-1100]
+title = "Stage 3: pair the phone by its QR and the Mac's Yes"
+area = "phone"
+surface = "FERB.app with the stage 3 engine; the owner's Android phone with the release-signed APK sideloaded; both on the same Wi-Fi"
+request = "In FERB.app Settings → Phone press Pair a phone and scan the code with the phone app's scanner."
+pass = "The code reads at once without trying angles; both screens show the same 6-digit code; the Mac asks, naming the phone, and pairs only on Yes. A second scan of the same code, or one after 2 minutes, is refused with its reason. The phone appears in the Mac's list."
+decisions = ["PHN-102", "PHN-135", "PHN-136", "PHN-142", "PHN-442", "PHN-447"]
+sitting = "after S5 and S11 are built and the owner installs the build"
+
+[LIVE-1101]
+title = "Stage 3: pair by the typed code, without the camera"
+area = "phone"
+surface = "As LIVE-1100, a second pairing (or the first phone removed first)"
+request = "Copy the code text shown under the Mac's QR into the phone app's code field instead of scanning."
+pass = "Pairing completes exactly as by the QR (matching 6-digit code, the Mac's Yes); a code with a changed character is refused with a reason."
+decisions = ["PHN-136", "PHN-442"]
+sitting = "after S5 and S11 are built and the owner installs the build"
+
+[LIVE-1102]
+title = "Stage 3: direct on the same Wi-Fi: everything works, no caps"
+area = "phone"
+surface = "As LIVE-1100, paired; Mac and phone on the same Wi-Fi, no own relay set"
+request = "From the phone send a message, open the live preview of a running task and fetch a 20 MB disposable file from the Mac."
+pass = "The phone says direct; the reply, the preview and the file arrive; nothing is refused for size. The Mac's audit has a line for the fetch."
+decisions = ["PHN-202", "PHN-207", "PHN-418", "PHN-404"]
+sitting = "after S11"
+
+[LIVE-1103]
+title = "Stage 3: the owner's own relay, from mobile data"
+area = "phone"
+surface = "As LIVE-1100; the owner's VM with the relay set up by the setup script; the phone on mobile data"
+request = "Set the relay in Settings → Phone (Test, then save) while the phone is closed; open the phone app on mobile data, send a message and fetch a disposable file."
+pass = "The Test passes before it saves; the phone moves to the own relay by itself with nothing typed on it; the status says own relay (or direct when one is found) and never the public relay; the file arrives."
+decisions = ["PHN-205", "PHN-206", "PHN-210", "PHN-214", "PHN-219", "PHN-220", "PHN-418"]
+sitting = "after S5 and S11"
+
+[LIVE-1104]
+title = "Stage 3: on the public relay text, questions and Stop work; bulk is refused with its reason"
+area = "phone"
+surface = "As LIVE-1100, no own relay set; the phone on mobile data where no direct path forms (or the Mac's force-relay test switch on)"
+request = "From the phone send a task, answer its question, press Stop; then ask for a picture of the screen and a file."
+pass = "The message, reply, question, answer and Stop all go through; the picture and the file are refused before any bytes with the stable reason, and the app shows the message that your own relay performs better, pointing to FERB on the Mac for how to set it up."
+decisions = ["PHN-301", "PHN-302", "PHN-410", "PHN-418", "PHN-444"]
+sitting = "after S11"
+
+[LIVE-1105]
+title = "Stage 3: Wi-Fi to mobile data in a live session"
+area = "phone"
+surface = "As LIVE-1102, direct on Wi-Fi, a task running from the phone"
+request = "Turn the phone's Wi-Fi off mid-task, keep the app open 5 minutes, then turn Wi-Fi back on."
+pass = "The app stays online (reconnecting at most briefly); the task's replies keep arriving; on the public relay no timed start-overs happen (the phone's log); back on Wi-Fi it says direct again. Nothing is sent twice."
+decisions = ["PHN-218", "PHN-224", "PHN-225", "PHN-445"]
+sitting = "after S11"
+
+[LIVE-1106]
+title = "Stage 3: the app locks after five idle minutes"
+area = "phone"
+surface = "As LIVE-1100, paired"
+request = "Open the app (fingerprint), leave it in the background 4 minutes and reopen; then 6 minutes and reopen; then fetch a disposable file."
+pass = "After 4 minutes it opens where it was; after 6 it asks for the fingerprint or device lock before showing anything, and the earlier fetched files are gone. The app's content is hidden in the recent-apps picture."
+decisions = ["PHN-8", "PHN-11", "PHN-15", "PHN-420"]
+sitting = "after S11"
+
+[LIVE-1107]
+title = "Stage 3: a routine question answered from the notification"
+area = "phone"
+surface = "As LIVE-1100, Stay connected on, the phone locked in a pocket; a task on the Mac that asks a routine question (e.g. opening a site the task did not name)"
+request = "When the notification arrives, answer it from its buttons without opening the app."
+pass = "The notification shows the question's words (as the phone's lock-screen setting allows) and its buttons; the answer reaches the task without opening the app or the fingerprint; a money or deletion question's words are not on the lock screen."
+decisions = ["PHN-415", "PHN-417", "PHN-421", "PHN-422", "PHN-126"]
+sitting = "after S11"
+
+[LIVE-1108]
+title = "Stage 3: a hard Yes from the phone takes the fingerprint itself"
+area = "phone"
+surface = "As LIVE-1107; a disposable task that reaches a deletion question (a disposable file) and one that types into Terminal"
+request = "Answer Yes from the phone to each."
+pass = "Each Yes asks for the fingerprint (not the PIN on a phone with a fingerprint); the Mac acts only after it verifies the signature; a Yes sent without it is refused. The terminal question shows the exact command."
+decisions = ["PHN-105", "PHN-133", "PHN-137", "PHN-403", "PHN-417", "PHN-443"]
+sitting = "after S11"
+
+[LIVE-1109]
+title = "Stage 3: removing a phone on the Mac cuts it off at once"
+area = "phone"
+surface = "As LIVE-1102, the phone connected with a task running"
+request = "Remove the phone in Settings → Phone, then try to send a message from it."
+pass = "The phone's connection closes at once; its next call is refused as not paired; the removal is in the Mac's audit."
+decisions = ["PHN-114", "PHN-419"]
+sitting = "after S5 and S11"
+
+[LIVE-1110]
+title = "Stage 3: a turn sent from the phone appears on the Mac, and the history on the phone"
+area = "phone"
+surface = "As LIVE-1102, FERB.app's chat open on the Mac"
+request = "Send a message from the phone; then scroll back in the phone's chat to yesterday's turns made on the Mac."
+pass = "The phone's turn and its reply appear in FERB.app's chat as they happen; the phone shows the older Mac turns as FERB.app shows them, loaded as you scroll."
+decisions = ["ENG-10", "PHN-408"]
+sitting = "after S7 and S11"
+
+[LIVE-1111]
+title = "Stage 3: with the Mac off the phone shows history and holds an outbox it sends later"
+area = "phone"
+surface = "As LIVE-1110, then the Mac put to sleep or FERB quit"
+request = "Open the phone app, read the chat, write two messages, cancel one; then wake the Mac."
+pass = "The history stays readable; both messages wait in a visible outbox; the cancelled one is never sent; when the Mac is back the other is sent once and its reply arrives."
+decisions = ["PHN-401", "PHN-408"]
+sitting = "after S7 and S11"
+
+[LIVE-1130]
+title = "Project mode: FERB builds in a real folder and publishes to the owner's test repository, asked once"
+area = "hands"
+surface = "A FERB.app build with HAND-620..625; a disposable folder (~/Desktop/ferb-project-test); an empty test repository on the owner's GitHub (https); git's Keychain login set up on this Mac"
+request = "Make a small web page in ~/Desktop/ferb-project-test, commit it and publish it to <the test repository's https address>. Then change the page and publish again."
+pass = "The first publish asks once ('Work on this as a project in ~/Desktop/ferb-project-test?'), showing the branch and exact address; after Yes the commit is on GitHub. The second publish asks nothing. Settings → Data → Projects lists the folder, and Remove ends it. Nothing leaves the Keychain: the trace shows no token."
+decisions = ["HAND-620", "HAND-623", "HAND-624", "HAND-625"]
+sitting = "next live sitting"
+
+[LIVE-1131]
+title = "Location: the ninth permission, the city in every turn, the exact spot only after a Yes"
+area = "perception"
+surface = "A FERB.app build with SENSE-421, SENSE-422, GATE-613 and APP-925, installed by the owner; Location Services on in macOS"
+request = "Run setup's Allow all (or Settings → Permissions → Location). Then ask: 'what time is it here and which city am I in?' Then: 'find the nearest pharmacy to exactly where I am'; answer Use it; ask a second exact question in the same task; then a new task, answering Not now."
+pass = "macOS shows FERB's Location question with its words and the row ticks; the first answer names the city with no question asked; the exact request asks once ('Use this Mac's exact location for this task?'), and the trace shows coordinates only after the Yes and no second question; after Not now the trace has no coordinates. The trace's device.facts has battery, network and the Wi-Fi name."
+decisions = ["SENSE-420", "SENSE-421", "SENSE-422", "GATE-613", "APP-925"]
+sitting = "next live sitting"
+
+[LIVE-1140]
+title = "Project mode: force, fetch, clone and the GitHub CLI login against the owner's test repository"
+area = "hands"
+surface = "As LIVE-1130; a second clone of the test repository to push a commit from; optionally a Mac signed in to gh only"
+request = "Get the latest of the test repository into ~/Desktop/ferb-project-test; clone it into ~/Desktop/ferb-clone-test; rewrite the last commit and publish it replacing the remote branch."
+pass = "The fetch asks nothing (address already approved); the clone asks once. The force card names the remote commit and how many commits drop; Yes replaces it; a commit pushed from elsewhere between question and Yes stops it. With gh only, FERB asks once to use its login. The trace shows no token."
+decisions = ["HAND-640", "HAND-641", "HAND-642", "HAND-643"]
+sitting = "next live sitting"
+
+[LIVE-1141]
+title = "Stage 3: on the lock screen FERB's checks show no words; unlocked, the words and buttons come back"
+area = "phone"
+surface = "As LIVE-1107, the phone's own lock-screen setting on 'show all content'; a disposable task that asks one of FERB's checks"
+request = "With the phone locked, look at the check's notification; unlock the phone and look again; answer from it."
+pass = "Locked: 'FERB has a check for you' with no words and no buttons. Unlocked: the question's words and its buttons. Turning Hide checks on the lock screen off in This phone shows the words as the phone's setting allows."
+decisions = ["PHN-422", "PHN-504"]
+sitting = "after S11 and T-1221"
+
+[LIVE-1142]
+title = "Stage 3: Stay connected keeps questions coming with the app swiped away"
+area = "phone"
+surface = "As LIVE-1100, paired; This phone → Stay connected on (notifications allowed when asked)"
+request = "Swipe FERB away from recent apps; from the Mac start a task that asks a routine question; then turn Stay connected off, swipe the app away and repeat."
+pass = "With it on, the quiet 'FERB stays connected' line stays and the question arrives with its buttons; with it off, nothing arrives until FERB is opened (closed-app push is stage 5)."
+decisions = ["PHN-421", "PHN-501"]
+sitting = "after S11"
+
+[LIVE-1143]
+title = "Stage 3: a sign-in code and a password answered from the phone, kept nowhere"
+area = "phone"
+surface = "As LIVE-1102; a disposable task on a site of the owner's that asks for a code, and one that needs the Mac's password (a disposable action)"
+request = "Answer each from the phone's private sheet (the keypad for the code, the keyboard for the password)."
+pass = "Each asks for the fingerprint or PIN, reaches the task, and the field is empty after; a screenshot of the sheet is black; the keyboard offers no suggestions; nothing of the value is in the Mac's trace or the phone's log."
+decisions = ["PHN-109", "PHN-110", "PHN-502"]
+sitting = "after S11"
+
+[LIVE-1144]
+title = "Stage 3: the phone's look on the owner's Motorola: the sky, the tabs, the sheets and large text"
+area = "phone"
+surface = "The owner's Motorola with the debug or release APK; the phone's font size at its largest"
+request = "Open FERB at different times of day; go through Chat, Tasks, Files, Mac and This phone; open a question; turn the screen."
+pass = "Everything looks like the glass lab's phone screens; nothing is cut at the largest text; the state stays when the screen turns; the words read plainly (strings.xml as approved)."
+decisions = ["PHN-416", "PHN-509", "PHN-500"]
+sitting = "after S11"

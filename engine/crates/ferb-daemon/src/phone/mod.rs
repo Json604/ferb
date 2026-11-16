@@ -1,0 +1,904 @@
+//! The daemon's phone area (stage 3 S3, kb T-1202): what FERB's daemon does for a paired phone. It trusts nothing the
+//! phone link says about a phone (PHN-124): the link's helper only passes a phone's calls and proofs on.
+//!
+//! - **Paired phones** are the daemon's own table (`ferb_store::phones`, migration 0065), at most [`Limits::devices_max`]
+//!   (PHN-419). A pairing the helper has checked against the QR's one-time secret (PHN-102) waits for the owner's Yes on
+//!   the Mac with the six digits both screens show (`link.pair_request`, `phone.pair_decide`, `link.pair_wait`).
+//!   Renaming and removing are FERB.app's (PHN-106); a second phone removes a lost one with its fingerprint (PHN-419).
+//!   A removed phone's sessions end at once, every later call under it is refused, and the helper is told
+//!   (`link.events`) so it closes the phone's connections.
+//! - **Sessions, challenges, the unlock window** ([`gate`]): in memory, as the lab keeps them. A challenge is one use,
+//!   [`Limits::challenge_ttl_s`] old at most, and dies with its session (PHN-108); a restart ends every session. The
+//!   unlock lasts [`Limits::unlock_idle_s`] of idle time, [`Limits::unlock_max_s`] at most (PHN-15, PHN-141).
+//! - **Proofs** ([`proof`]): ECDSA P-256 over the exact JSON text the phone signed, which names the challenge, the
+//!   method and the exact parameters (or, for a hidden answer, only the SHA-256 of the text: PHN-110).
+//! - **The class table drives every call** (`ferb_rpc::classes`): `never` refused by the role check; `plain` and
+//!   `private` need the unlock window, but for what a locked phone may do (status, Stop, self-proving answers:
+//!   PHN-125); `sensitive` needs a proof for this exact call with a fresh challenge, by the fingerprint-only key when
+//!   the phone registered one (PHN-112, PHN-133). Answers: a plain No needs nothing; a hidden input's needs its sealed
+//!   proof by either key; a Yes to one of FERB's own checks needs the fingerprint unless it is a routine one, which the
+//!   notification's buttons answer (PHN-417, PHN-137). A project publish is never routine (HAND-624), so its Yes takes the
+//!   fingerprint (PHN-467).
+//! - **The audit** ([`ferb_store::phones::audit`]): every private, sensitive or answering call, every refusal, the
+//!   unlock and the keys, pairing and removal; method, phone, time, outcome and structural facts, never a value
+//!   (rule 7); kept [`Limits::audit_keep_days`] (PHN-130).
+//! - **A prompt on the Mac's screen** (PHN-120): with a [`MacPrompts`] in place, FERB asks the phone whether to click
+//!   the prompt a call left open and clicks on the signed Yes, or says the system refused a click from software;
+//!   without one (today: nothing in FERB clicks system prompts) the six on-screen methods are refused from a phone with
+//!   `needs_the_mac`, before anything opens.
+//!
+//! A phone's turn is the owner's: the handlers FERB.app's calls reach answer it, with the phone named as the client
+//! (`client_id` `phone:<endpoint>`), so the Mac shows which device sent it (APP-916).
+
+pub mod files;
+pub mod gate;
+pub mod link;
+pub mod proof;
+
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Duration;
+
+use ferb_core::interfaces::Clock;
+use ferb_rpc::phone_gate::{self, Refusal};
+use ferb_rpc::server::{BoxFuture, EventStream, HandlerError, HandlerResult};
+use ferb_rpc::{Params, Server, Session};
+use ferb_store::phones::{self as table, AddRefused, AuditRow, NewPhone, Phone};
+use ferb_store::Db;
+use serde_json::{json, Map, Value};
+use tokio::sync::{broadcast, Notify};
+
+/// The phone area's numbers, each from a decision.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Limits {
+    /// At most this many paired phones (PHN-419).
+    pub devices_max: usize,
+    /// A phone unused this long is warned about on the Mac, never removed by itself (PHN-419).
+    pub device_unused_days: i64,
+    /// One unlock opens FERB for this much idle time (PHN-15: five minutes; PHN-112's `unlock_idle_s`).
+    pub unlock_idle_s: f64,
+    /// And at most this long however much it is used (PHN-141: 12 hours).
+    pub unlock_max_s: f64,
+    /// A challenge's life (CONTRACT §7 `challenge_ttl_s`, whose defaults stand: PHN-312 as kept by PHN-419).
+    pub challenge_ttl_s: f64,
+    /// How long the owner has to say Yes to a pairing on the Mac (CONTRACT §7 `pair_confirm_s`; PHN-312: 120 s).
+    pub pair_confirm_s: f64,
+    /// The audit is kept this long (PHN-130: 90 days).
+    pub audit_keep_days: i64,
+}
+
+impl Default for Limits {
+    fn default() -> Self {
+        Limits {
+            devices_max: 5,
+            device_unused_days: 30,
+            unlock_idle_s: 300.0,
+            unlock_max_s: 12.0 * 3600.0,
+            challenge_ttl_s: 120.0,
+            pair_confirm_s: 120.0,
+            audit_keep_days: 90,
+        }
+    }
+}
+
+/// What the phone area needs to know of a question (the gateway's, through ferbd).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct QuestionFacts {
+    /// Still waiting for an answer.
+    pub pending: bool,
+    /// A hidden input (`SECRET_KINDS`): answered only through the sealed path (PHN-110).
+    pub hidden: bool,
+    /// One of FERB's own checks (`OWN_CHECKS`).
+    pub own_check: bool,
+    /// One the owner's "don't ask for 30 minutes" covers (GATE-207's class; the gateway offered that answer):
+    /// answered from the notification without the fingerprint (PHN-417).
+    pub routine: bool,
+}
+
+/// The questions FERB asks, as the phone area reads and asks them.
+pub trait Questions: Send + Sync {
+    fn facts(&self, approval_id: &str) -> Option<QuestionFacts>;
+    /// Asks one of FERB's own checks (its Yes needs the phone's proof) and returns its id.
+    fn ask_check(&self, reason: &str, exact: &str, task_id: &str) -> String;
+}
+
+/// A prompt left open on the Mac's screen.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ScreenPrompt {
+    pub title: String,
+    pub button: String,
+}
+
+/// Finding and clicking a prompt on the Mac's screen (PHN-120). Whether macOS takes a click from software is a fact
+/// only the attempt gives.
+pub trait MacPrompts: Send + Sync {
+    /// The prompt this call just left open, if any.
+    fn left_open(&self, method: &str, params: &Params) -> Option<ScreenPrompt>;
+    /// Clicks its button: `Err(why)` when the system did not take the click.
+    fn click(&self, prompt: &ScreenPrompt) -> Result<(), String>;
+}
+
+type Publish = dyn Fn(&str, Map<String, Value>) + Send + Sync;
+type Note = dyn Fn(&str, Value) + Send + Sync;
+type Redact = dyn Fn(&Value) -> Value + Send + Sync;
+type Nonce = dyn Fn() -> [u8; 16] + Send + Sync;
+
+/// What the phone area takes from the daemon.
+pub struct Seams {
+    pub db: Arc<Mutex<Db>>,
+    pub clock: Arc<dyn Clock>,
+    /// 16 random bytes for a challenge or a pairing's id (the system's random source; a test's own).
+    pub nonce: Arc<Nonce>,
+    /// The redactor, for the audit's facts.
+    pub redact: Arc<Redact>,
+    pub questions: Arc<dyn Questions>,
+    /// `None`: nothing clicks prompts on the Mac's screen; the six on-screen methods say `needs_the_mac`.
+    pub prompts: Option<Arc<dyn MacPrompts>>,
+    /// A journal row (pairing asked and decided, removal, the unused warning).
+    pub journal: Arc<Note>,
+    /// A bus event FERB.app hears (`phone.pair_requested`, `phone.unused`, `phone.removed`).
+    pub publish: Arc<Publish>,
+}
+
+impl Seams {
+    /// The system's random bytes. No challenge is better than a guessable one: without the system's random source
+    /// the daemon must not go on.
+    pub fn system_nonce() -> Arc<Nonce> {
+        Arc::new(|| {
+            let mut b = [0u8; 16];
+            getrandom::fill(&mut b).expect("the system's random source is unavailable");
+            b
+        })
+    }
+}
+
+/// A pairing waiting for the owner's Yes.
+#[derive(Clone, Debug)]
+struct Pending {
+    id: String,
+    new: NewPhone,
+    code: String,
+    made: f64,
+    decided: Option<bool>,
+}
+
+/// The daemon's phone area. Cheap to clone.
+#[derive(Clone)]
+pub struct Phones {
+    inner: Arc<Inner>,
+}
+
+pub(crate) struct Inner {
+    seams: Seams,
+    limits: Limits,
+    state: Mutex<gate::State>,
+    pairing: Mutex<Option<Pending>>,
+    decided: Notify,
+    events: broadcast::Sender<Value>,
+    /// The file area (stage 3 S3b, `files`), once `Phones::register_files` put it in place.
+    files: std::sync::OnceLock<files::Area>,
+    /// ferbd's control of the link's helper (S4, `link`), once `Phones::set_link` put it in place.
+    link: Mutex<Option<Arc<dyn link::LinkControl>>>,
+    /// The asks waiting for the helper's `link.answer` (S4).
+    asks: Mutex<link::Asks>,
+}
+
+pub(crate) fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+pub(crate) fn refused(code: i64, message: impl Into<String>) -> Refusal {
+    Refusal::new(code, message)
+}
+
+fn coded(r: Refusal) -> HandlerError {
+    HandlerError::coded(r.code, r.message)
+}
+
+fn store_fault(e: impl std::fmt::Display) -> HandlerError {
+    HandlerError::fault("OperationalError", e.to_string())
+}
+
+/// The lab's `clean_name`: control characters out, 40 characters, trimmed, "Phone" when nothing is left.
+pub fn clean_name(name: &str) -> String {
+    let s: String = name.chars().filter(|c| !c.is_control()).take(40).collect();
+    let s = s.trim().to_string();
+    if s.is_empty() {
+        "Phone".into()
+    } else {
+        s
+    }
+}
+
+fn text(params: &Params, key: &str) -> Option<String> {
+    params
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .filter(|t| !t.trim().is_empty())
+}
+
+/// A key a phone offers at pairing, kept only when it is one (the lab's `filter(verifying_key)`).
+fn offered_key(params: &Params, name: &str) -> Option<String> {
+    text(params, name).filter(|k| proof::key(k).is_some())
+}
+
+impl Phones {
+    pub fn new(seams: Seams, limits: Limits) -> Self {
+        let (events, _) = broadcast::channel(64);
+        Phones {
+            inner: Arc::new(Inner {
+                seams,
+                limits,
+                state: Mutex::new(gate::State::default()),
+                pairing: Mutex::new(None),
+                decided: Notify::new(),
+                events,
+                files: std::sync::OnceLock::new(),
+                link: Mutex::new(None),
+                asks: Mutex::new(link::Asks::default()),
+            }),
+        }
+    }
+
+    pub fn limits(&self) -> &Limits {
+        &self.inner.limits
+    }
+
+    /// The phone gate the server asks about phone sessions (`Server::set_phone_gate`).
+    pub fn gate(&self) -> gate::Gate {
+        gate::Gate(self.inner.clone())
+    }
+
+    /// Registers the area's methods and sets its gate on `server`.
+    pub fn register(&self, server: &Server) {
+        server.set_phone_gate(self.gate());
+        let unary: [(&str, Handler); 14] = [
+            ("phone.list", |p, s, _| p.list(&s)),
+            ("phone.rename", |p, _, a| p.rename(&a)),
+            ("phone.remove", |p, s, a| p.remove(&s, &a)),
+            ("phone.pair_decide", |p, _, a| p.pair_decide(&a)),
+            ("phone.audit", |p, _, a| p.audit_rows(&a)),
+            ("phone.challenge", |p, s, _| {
+                p.inner.on_session(&s, gate::challenge)
+            }),
+            ("phone.unlock", |p, s, _| {
+                p.inner.on_session(&s, gate::unlock)
+            }),
+            ("phone.lock", |p, s, _| {
+                p.inner.on_session(&s, gate::lock_phone)
+            }),
+            ("phone.present", |p, s, _| {
+                p.inner.on_session(&s, gate::present)
+            }),
+            ("phone.session_end", |p, s, _| {
+                p.inner.on_session(&s, gate::session_end)
+            }),
+            ("phone.keys", |p, s, a| p.keys(&s, &a)),
+            ("link.devices", |p, _, _| p.devices()),
+            ("link.pair_request", |p, _, a| p.pair_request(&a)),
+            ("link.pair_cancel", |p, _, a| p.pair_cancel(&a)),
+        ];
+        for (name, f) in unary {
+            let me = self.clone();
+            server.register_unary(name, move |s: Session, a: Params| {
+                let me = me.clone();
+                async move { f(&me, s, a) }
+            });
+        }
+        let me = self.clone();
+        server.register_unary("link.pair_wait", move |_s: Session, a: Params| {
+            let me = me.clone();
+            async move { me.pair_wait(&a).await }
+        });
+        let me = self.clone();
+        server.register_stream("link.events", move |_s: Session, _a: Params| {
+            Box::new(LinkEvents(me.inner.events.subscribe())) as Box<dyn EventStream>
+        });
+        // S4: FERB.app's control of the link through the daemon, and the helper's answers
+        self.register_link(server);
+    }
+
+    /// Gives the 30-day warning to every live phone unused that long and not yet warned (PHN-419): a journal row and a
+    /// bus event once, and `phone.list` says so until the phone is seen again. Never removes one.
+    pub fn sweep_unused(&self) -> Vec<String> {
+        let inner = &self.inner;
+        let now = inner.seams.clock.now();
+        let cutoff = now - chrono::Duration::days(inner.limits.device_unused_days);
+        let db = lock(&inner.seams.db);
+        let Ok(phones) = table::live(db.conn()) else {
+            return Vec::new();
+        };
+        let mut warned = Vec::new();
+        for p in phones {
+            let unused = ferb_core::when::parse(&p.last_seen).is_some_and(|seen| seen <= cutoff);
+            if unused && p.warned_at.is_none() {
+                let _ = table::mark_warned(db.conn(), p.id, &inner.now_iso());
+                (inner.seams.journal)(
+                    "phone.unused_warning",
+                    json!({"phone": p.endpoint, "last_seen": p.last_seen}),
+                );
+                let mut ev = Map::new();
+                ev.insert("phone".into(), json!(p.endpoint));
+                ev.insert("name".into(), json!(p.name));
+                ev.insert("last_seen".into(), json!(p.last_seen));
+                (inner.seams.publish)("phone.unused", ev);
+                warned.push(p.endpoint);
+            }
+        }
+        warned
+    }
+
+    fn phone_json(&self, p: &Phone) -> Value {
+        let inner = &self.inner;
+        let sessions = lock(&inner.state).sessions_of(&p.endpoint);
+        let unlocked = lock(&inner.state).device_unlocked(&p.endpoint, inner.mono(), &inner.limits);
+        json!({
+            "id": p.endpoint, "name": p.name, "app": p.app, "paired_at": p.paired_at, "last_seen": p.last_seen,
+            "unlock": p.unlock_pub.is_some(), "device_key": p.device_pub.is_some(),
+            "fingerprint_key": p.strong_pub.is_some(),
+            "unused_warning": p.warned_at.is_some(), "warned_at": p.warned_at,
+            "sessions": sessions, "unlocked": unlocked,
+        })
+    }
+
+    /// `phone.list`: the paired phones, the pairing waiting for the owner's Yes, the limit.
+    pub fn list(&self, _session: &Session) -> HandlerResult {
+        self.sweep_unused();
+        let phones = {
+            let db = lock(&self.inner.seams.db);
+            table::live(db.conn()).map_err(store_fault)?
+        };
+        let pairing = self.inner.pending_json();
+        let mut out = Params::new();
+        out.insert(
+            "phones".into(),
+            Value::Array(phones.iter().map(|p| self.phone_json(p)).collect()),
+        );
+        out.insert("pairing".into(), pairing);
+        out.insert("max".into(), json!(self.inner.limits.devices_max));
+        out.insert(
+            "unused_days".into(),
+            json!(self.inner.limits.device_unused_days),
+        );
+        Ok(out)
+    }
+
+    /// `phone.rename {id, name}` (FERB.app's).
+    pub fn rename(&self, params: &Params) -> HandlerResult {
+        let id = text(params, "id").ok_or_else(|| {
+            coded(refused(
+                phone_gate::BAD_REQUEST,
+                "phone.rename needs the phone's id",
+            ))
+        })?;
+        let name = clean_name(params.get("name").and_then(Value::as_str).unwrap_or(""));
+        let done = {
+            let db = lock(&self.inner.seams.db);
+            table::rename(db.conn(), &id, &name).map_err(store_fault)?
+        };
+        if !done {
+            return Err(coded(refused(phone_gate::NOT_FOUND, "No such phone.")));
+        }
+        let _ = self
+            .inner
+            .events
+            .send(json!({"event": "device_renamed", "id": id, "name": name}));
+        let mut out = Params::new();
+        out.insert("id".into(), json!(id));
+        out.insert("name".into(), json!(name));
+        Ok(out)
+    }
+
+    /// `phone.remove {id}`: FERB.app's, or a second phone's with its fingerprint (the gate checked the proof). Its
+    /// sessions end at once; the helper closes its connections (`link.events`); every later call under it is refused.
+    pub fn remove(&self, session: &Session, params: &Params) -> HandlerResult {
+        let inner = &self.inner;
+        let id = text(params, "id").ok_or_else(|| {
+            coded(refused(
+                phone_gate::BAD_REQUEST,
+                "phone.remove needs the phone's id",
+            ))
+        })?;
+        let by = session
+            .phone
+            .as_ref()
+            .map_or_else(|| "mac".to_owned(), |p| p.device.clone());
+        let removed = {
+            let db = lock(&inner.seams.db);
+            table::remove(db.conn(), &id, &by, &inner.now_iso()).map_err(store_fault)?
+        };
+        let Some(removed) = removed else {
+            return Err(coded(refused(phone_gate::NOT_FOUND, "No such phone.")));
+        };
+        lock(&inner.state).forget_device(&id);
+        files::forget_device(inner, &id);
+        let _ = inner
+            .events
+            .send(json!({"event": "device_removed", "id": id}));
+        (inner.seams.journal)("phone.removed", json!({"phone": id, "by": by}));
+        let mut ev = Map::new();
+        ev.insert("phone".into(), json!(id));
+        ev.insert("name".into(), json!(removed.name));
+        (inner.seams.publish)("phone.removed", ev);
+        if session.phone.is_none() {
+            inner.audit("", "phone.remove", "owner", "ok", json!({"removed": id}));
+        }
+        let mut out = Params::new();
+        out.insert("removed".into(), json!(id));
+        Ok(out)
+    }
+
+    /// `phone.audit {limit?}`: what phones did, newest last (FERB.app's; no phone reads it).
+    pub fn audit_rows(&self, params: &Params) -> HandlerResult {
+        let limit = params
+            .get("limit")
+            .and_then(Value::as_u64)
+            .unwrap_or(100)
+            .clamp(1, 1000) as usize;
+        let rows = {
+            let db = lock(&self.inner.seams.db);
+            table::audit_tail(db.conn(), limit).map_err(store_fault)?
+        };
+        let mut out = Params::new();
+        out.insert(
+            "rows".into(),
+            Value::Array(
+                rows.into_iter()
+                    .map(|r| json!({"at": r.at, "phone": r.device, "method": r.method, "class": r.class, "outcome": r.outcome, "detail": r.detail}))
+                    .collect(),
+            ),
+        );
+        Ok(out)
+    }
+
+    /// `phone.keys {device_pub?, strong_pub?}` with a proof by the fingerprint key (where the phone has one) signed for
+    /// exactly these keys as `link.keys`: a phone paired before these keys existed registers them, each once.
+    pub fn keys(&self, session: &Session, params: &Params) -> HandlerResult {
+        let inner = &self.inner;
+        let phone = session.phone.clone().unwrap_or_default();
+        let want: Vec<(&str, &Value)> = ["device_pub", "strong_pub"]
+            .into_iter()
+            .filter_map(|k| params.get(k).filter(|v| !v.is_null()).map(|v| (k, v)))
+            .collect();
+        if want.is_empty()
+            || want
+                .iter()
+                .any(|(_, v)| v.as_str().and_then(proof::key).is_none())
+        {
+            inner.audit(
+                &phone.device,
+                "phone.keys",
+                "link",
+                "bad_request",
+                json!({}),
+            );
+            return Err(coded(refused(
+                phone_gate::BAD_REQUEST,
+                "Those are not keys.",
+            )));
+        }
+        let dev = inner.live(&phone.device).map_err(coded)?;
+        let checked = {
+            let mut st = lock(&inner.state);
+            st.verify_call(
+                inner,
+                &dev,
+                &phone,
+                "link.keys",
+                &Value::Object(params.clone()),
+                true,
+            )
+        };
+        if let Err(r) = checked {
+            inner.audit(
+                &phone.device,
+                "phone.keys",
+                "link",
+                &gate::code_name(r.code),
+                json!({}),
+            );
+            return Err(coded(r));
+        }
+        let get = |k: &str| params.get(k).and_then(Value::as_str);
+        let now = {
+            let db = lock(&inner.seams.db);
+            table::add_keys(
+                db.conn(),
+                &phone.device,
+                get("device_pub"),
+                get("strong_pub"),
+            )
+            .map_err(store_fault)?
+        };
+        inner.audit(&phone.device, "phone.keys", "link", "ok", json!({}));
+        let _ = inner
+            .events
+            .send(json!({"event": "device_keys", "id": phone.device}));
+        let mut out = Params::new();
+        out.insert(
+            "device_pub".into(),
+            json!(now.as_ref().and_then(|p| p.device_pub.clone())),
+        );
+        out.insert(
+            "strong_pub".into(),
+            json!(now.as_ref().and_then(|p| p.strong_pub.clone())),
+        );
+        Ok(out)
+    }
+
+    /// `link.devices`: the live phones as the helper needs them (which endpoints are paired, with what keys).
+    pub fn devices(&self) -> HandlerResult {
+        self.sweep_unused();
+        let phones = {
+            let db = lock(&self.inner.seams.db);
+            table::live(db.conn()).map_err(store_fault)?
+        };
+        let mut out = Params::new();
+        out.insert(
+            "devices".into(),
+            Value::Array(
+                phones
+                    .iter()
+                    .map(|p| json!({"id": p.endpoint, "name": p.name, "app": p.app, "paired_at": p.paired_at,
+                                    "last_seen": p.last_seen, "unlock": p.unlock_pub.is_some(),
+                                    "device_key": p.device_pub.is_some(), "fingerprint_key": p.strong_pub.is_some()}))
+                    .collect(),
+            ),
+        );
+        out.insert("max".into(), json!(self.inner.limits.devices_max));
+        Ok(out)
+    }
+
+    /// `link.pair_request {endpoint, name, app?, code, unlock_pub?, device_pub?, strong_pub?}`: the helper checked the
+    /// phone's proof of the QR's one-time secret (PHN-102); the owner is now asked on the Mac, naming the phone and
+    /// the six digits both screens show. One pairing waits at a time: a new one replaces it (the old is a No).
+    pub fn pair_request(&self, params: &Params) -> HandlerResult {
+        let inner = &self.inner;
+        let bad = |why: &str| coded(refused(phone_gate::BAD_REQUEST, why));
+        let endpoint = text(params, "endpoint")
+            .filter(|e| e.chars().count() <= 200)
+            .ok_or_else(|| bad("link.pair_request needs the phone's endpoint id"))?;
+        let code =
+            text(params, "code").ok_or_else(|| bad("link.pair_request needs the six digits"))?;
+        let digits: Vec<char> = code.chars().collect();
+        let six = digits.len() == 7
+            && digits[3] == ' '
+            && digits
+                .iter()
+                .enumerate()
+                .all(|(i, c)| i == 3 || c.is_ascii_digit());
+        if !six {
+            return Err(bad("the pairing code is six digits, as \"123 456\""));
+        }
+        let live = {
+            let db = lock(&inner.seams.db);
+            table::live(db.conn()).map_err(store_fault)?
+        };
+        if live.len() >= inner.limits.devices_max {
+            return Err(coded(refused(
+                phone_gate::DEVICE_LIMIT,
+                format!(
+                    "FERB already has {} paired phones, the most it keeps. Remove one on the Mac first.",
+                    inner.limits.devices_max
+                ),
+            )));
+        }
+        if live.iter().any(|p| p.endpoint == endpoint) {
+            return Err(bad("this phone is paired already"));
+        }
+        let new = NewPhone {
+            endpoint: endpoint.clone(),
+            name: clean_name(params.get("name").and_then(Value::as_str).unwrap_or("")),
+            app: params
+                .get("app")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .chars()
+                .filter(|c| !c.is_control())
+                .take(40)
+                .collect(),
+            unlock_pub: offered_key(params, "unlock_pub"),
+            device_pub: offered_key(params, "device_pub"),
+            strong_pub: offered_key(params, "strong_pub"),
+        };
+        let id = proof::b64u(&(inner.seams.nonce)());
+        let pending = Pending {
+            id: id.clone(),
+            new: new.clone(),
+            code: code.clone(),
+            made: inner.mono(),
+            decided: None,
+        };
+        if let Some(old) = lock(&inner.pairing).replace(pending) {
+            if old.decided.is_none() {
+                inner.pair_ended(
+                    json!({"phone": old.new.endpoint, "paired": false, "why": "replaced"}),
+                );
+            }
+        }
+        inner.decided.notify_waiters();
+        let question = format!(
+            "Pair the phone \"{}\"? Check that it shows the code {code}. It will be able to do everything FERB.app can: \
+             send tasks, answer FERB's questions, see what FERB is doing, and, after its fingerprint or PIN, open and \
+             send files on this Mac and change FERB's settings.",
+            new.name
+        );
+        (inner.seams.journal)(
+            "phone.pair_requested",
+            json!({"phone": endpoint, "name": new.name, "app": new.app}),
+        );
+        let mut ev = Map::new();
+        ev.insert("request_id".into(), json!(id));
+        ev.insert("phone".into(), json!(endpoint));
+        ev.insert("name".into(), json!(new.name));
+        ev.insert("app".into(), json!(new.app));
+        ev.insert("code".into(), json!(code));
+        ev.insert("question".into(), json!(question));
+        (inner.seams.publish)("phone.pair_requested", ev);
+        let mut out = Params::new();
+        out.insert("request_id".into(), json!(id));
+        out.insert("seconds".into(), json!(inner.limits.pair_confirm_s));
+        Ok(out)
+    }
+
+    /// `phone.pair_decide {yes, request_id?}`: the owner's answer on the Mac. A Yes adds the phone, the limit checked
+    /// again in the same transaction.
+    pub fn pair_decide(&self, params: &Params) -> HandlerResult {
+        let inner = &self.inner;
+        let yes = params.get("yes").and_then(Value::as_bool) == Some(true);
+        let mut pairing = lock(&inner.pairing);
+        let waiting = pairing.as_mut().filter(|p| {
+            p.decided.is_none()
+                && inner.mono() - p.made < inner.limits.pair_confirm_s
+                && text(params, "request_id").is_none_or(|r| r == p.id)
+        });
+        let Some(p) = waiting else {
+            return Err(coded(refused(
+                phone_gate::NOT_FOUND,
+                "No phone is waiting for your answer.",
+            )));
+        };
+        let mut paired = false;
+        if yes {
+            let added = {
+                let db = lock(&inner.seams.db);
+                table::add(&db, &p.new, &inner.now_iso(), inner.limits.devices_max)
+                    .map_err(store_fault)?
+            };
+            match added {
+                Ok(phone) => {
+                    paired = true;
+                    let _ = inner.events.send(
+                        json!({"event": "device_added", "id": phone.endpoint, "name": phone.name}),
+                    );
+                }
+                Err(AddRefused::Full { max }) => {
+                    p.decided = Some(false);
+                    inner.decided.notify_waiters();
+                    return Err(coded(refused(
+                        phone_gate::DEVICE_LIMIT,
+                        format!("FERB already has {max} paired phones, the most it keeps. Remove one first."),
+                    )));
+                }
+                Err(AddRefused::AlreadyPaired) => paired = true,
+            }
+        }
+        p.decided = Some(paired);
+        let (endpoint, name) = (p.new.endpoint.clone(), p.new.name.clone());
+        drop(pairing);
+        inner.decided.notify_waiters();
+        inner.pair_ended(json!({"phone": endpoint, "paired": paired}));
+        inner.audit(
+            "",
+            "phone.pair_decide",
+            "owner",
+            if paired { "ok" } else { "denied" },
+            json!({"phone": endpoint}),
+        );
+        let mut out = Params::new();
+        out.insert("phone".into(), json!(endpoint));
+        out.insert("name".into(), json!(name));
+        out.insert("paired".into(), json!(paired));
+        Ok(out)
+    }
+
+    /// `link.pair_wait {request_id}`: waits for the owner's answer, at most until the pairing's time is up; a No, no
+    /// answer in time, or a pairing replaced is `paired: false`.
+    pub async fn pair_wait(&self, params: &Params) -> HandlerResult {
+        let inner = &self.inner;
+        let id = text(params, "request_id").unwrap_or_default();
+        loop {
+            let notified = inner.decided.notified();
+            let left = {
+                let pairing = lock(&inner.pairing);
+                match pairing.as_ref().filter(|p| p.id == id) {
+                    None => return Ok(paired_json(false, None)),
+                    Some(p) => match p.decided {
+                        Some(paired) => {
+                            let device = paired.then(|| p.new.endpoint.clone());
+                            return Ok(paired_json(paired, device));
+                        }
+                        None => inner.limits.pair_confirm_s - (inner.mono() - p.made),
+                    },
+                }
+            };
+            if left <= 0.0 {
+                let mut pairing = lock(&inner.pairing);
+                if let Some(p) = pairing
+                    .as_mut()
+                    .filter(|p| p.id == id && p.decided.is_none())
+                {
+                    p.decided = Some(false);
+                    inner.pair_ended(
+                        json!({"phone": p.new.endpoint, "paired": false, "why": "no answer"}),
+                    );
+                }
+                return Ok(paired_json(false, None));
+            }
+            // the injected clock decides the deadline; a real wait in slices sees it pass
+            let _ = tokio::time::timeout(Duration::from_secs_f64(left.min(1.0)), notified).await;
+        }
+    }
+
+    /// `link.pair_cancel {request_id}`: the phone left before the owner answered.
+    pub fn pair_cancel(&self, params: &Params) -> HandlerResult {
+        let inner = &self.inner;
+        let id = text(params, "request_id").unwrap_or_default();
+        let mut pairing = lock(&inner.pairing);
+        let cancelled = pairing
+            .as_ref()
+            .is_some_and(|p| p.id == id && p.decided.is_none());
+        if cancelled {
+            if let Some(p) = pairing.take() {
+                inner.pair_ended(
+                    json!({"phone": p.new.endpoint, "paired": false, "why": "phone left"}),
+                );
+            }
+        }
+        drop(pairing);
+        inner.decided.notify_waiters();
+        let mut out = Params::new();
+        out.insert("cancelled".into(), json!(cancelled));
+        Ok(out)
+    }
+}
+
+fn paired_json(paired: bool, device: Option<String>) -> Params {
+    let mut out = Params::new();
+    out.insert("paired".into(), json!(paired));
+    if let Some(d) = device {
+        out.insert("device".into(), json!(d));
+    }
+    out
+}
+
+type Handler = fn(&Phones, Session, Params) -> HandlerResult;
+
+impl Inner {
+    pub(crate) fn mono(&self) -> f64 {
+        self.seams.clock.monotonic()
+    }
+
+    pub(crate) fn now_iso(&self) -> String {
+        ferb_core::when::isoformat(&self.seams.clock.now())
+    }
+
+    pub(crate) fn nonce(&self) -> String {
+        proof::b64u(&(self.seams.nonce)())
+    }
+
+    /// The live phone of this endpoint, else the refusal a removed or unknown phone gets.
+    pub(crate) fn live(&self, device: &str) -> Result<Phone, Refusal> {
+        let db = lock(&self.seams.db);
+        match table::by_endpoint(db.conn(), device) {
+            Ok(Some(p)) => Ok(p),
+            Ok(None) => Err(refused(
+                phone_gate::UNKNOWN_PHONE,
+                "This phone is not one of FERB's paired phones.",
+            )),
+            Err(e) => Err(refused(wire_failed(), e.to_string())),
+        }
+    }
+
+    /// One audit row (rule 7: `detail` holds structural facts only, and is redacted); rows older than the kept days
+    /// go at the same time.
+    pub(crate) fn audit(
+        &self,
+        device: &str,
+        method: &str,
+        class: &str,
+        outcome: &str,
+        detail: Value,
+    ) {
+        let now = self.seams.clock.now();
+        let before = ferb_core::when::isoformat(
+            &(now - chrono::Duration::days(self.limits.audit_keep_days)),
+        );
+        let row = AuditRow {
+            at: ferb_core::when::isoformat(&now),
+            device: device.to_owned(),
+            method: method.to_owned(),
+            class: class.to_owned(),
+            outcome: outcome.to_owned(),
+            detail: (self.seams.redact)(&detail),
+        };
+        let db = lock(&self.seams.db);
+        let _ = table::audit(db.conn(), &row);
+        let _ = table::prune_audit(db.conn(), &before);
+    }
+
+    /// A phone session's own call (`PHONE_SESSION`): answered by the gate with the session's state.
+    fn on_session(
+        &self,
+        session: &Session,
+        f: fn(
+            &Inner,
+            &mut gate::State,
+            &Phone,
+            &ferb_rpc::phone_gate::PhoneSession,
+        ) -> Result<Params, Refusal>,
+    ) -> HandlerResult {
+        let phone = session.phone.clone().unwrap_or_default();
+        let dev = self.live(&phone.device).map_err(coded)?;
+        let mut st = lock(&self.state);
+        f(self, &mut st, &dev, &phone).map_err(coded)
+    }
+
+    fn pending_json(&self) -> Value {
+        let pairing = lock(&self.pairing);
+        match pairing
+            .as_ref()
+            .filter(|p| p.decided.is_none() && self.mono() - p.made < self.limits.pair_confirm_s)
+        {
+            Some(p) => {
+                json!({"request_id": p.id, "phone": p.new.endpoint, "name": p.new.name, "app": p.new.app,
+                               "code": p.code, "seconds_left": (self.limits.pair_confirm_s - (self.mono() - p.made)).ceil()})
+            }
+            None => Value::Null,
+        }
+    }
+
+    /// A pairing ended (paired, denied, replaced, timed out, the phone left): journaled, and on the bus so FERB.app stops
+    /// its countdown (S4).
+    fn pair_ended(&self, data: Value) {
+        (self.seams.journal)("phone.pair_ended", data.clone());
+        if let Value::Object(m) = data {
+            (self.seams.publish)("phone.pair_ended", m);
+        }
+    }
+
+    pub(crate) fn prompts(&self) -> Option<&Arc<dyn MacPrompts>> {
+        self.seams.prompts.as_ref()
+    }
+
+    pub(crate) fn questions(&self) -> &Arc<dyn Questions> {
+        &self.seams.questions
+    }
+}
+
+fn wire_failed() -> i64 {
+    ferb_rpc::wire::FAILED
+}
+
+/// `link.events`: the device list's changes, for the helper (a removed phone's connections close at once).
+struct LinkEvents(broadcast::Receiver<Value>);
+
+impl EventStream for LinkEvents {
+    fn next(&mut self) -> BoxFuture<'_, Option<HandlerResult>> {
+        Box::pin(async move {
+            loop {
+                match self.0.recv().await {
+                    Ok(Value::Object(m)) => return Some(Ok(m)),
+                    Ok(_) => continue,
+                    // the helper fell behind: it reads the list again
+                    Err(broadcast::error::RecvError::Lagged(_)) => {
+                        let mut m = Map::new();
+                        m.insert("event".into(), json!("resync"));
+                        return Some(Ok(m));
+                    }
+                    Err(broadcast::error::RecvError::Closed) => return None,
+                }
+            }
+        })
+    }
+}

@@ -1018,21 +1018,24 @@ impl MacTools {
                 resolve: None,
             });
         }
-        let (d, paint, name) = (self.driver.clone(), self.paint.clone(), app.clone());
+        // APP-922: the owner's own live preview, captured as it is (no painting, no text reading)
+        let (d, name) = (self.driver.clone(), app.clone());
         let resolve: ResolveFn = Arc::new(move || {
-            let (d, paint, name, window, shot, element) = (
+            let (d, name, window, shot, element) = (
                 d.clone(),
-                paint.clone(),
                 name.clone(),
                 window.clone(),
                 shot.clone(),
                 element.clone(),
             );
             Box::pin(async move {
-                let d2 = d.clone();
-                off(move || match &shot {
-                    Some(sh) => d2.recording_source(&name, sh, paint),
-                    None => d2.preview_source(&name, window.as_deref(), element.as_deref(), paint),
+                off(move || {
+                    d.owner_preview_source(
+                        &name,
+                        window.as_deref(),
+                        element.as_deref(),
+                        shot.as_deref(),
+                    )
                 })
                 .await
             })

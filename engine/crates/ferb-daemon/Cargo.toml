@@ -44,6 +44,9 @@ ferb-context = { path = "../ferb-context" }
 ferb-trace = { path = "../ferb-trace" }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 libc = "0.2"
+# stage 3's phone area (src/phone): the phones' P-256 proofs (ECDSA, SHA-256), one-time challenges
+p256 = { version = "0.13", features = ["ecdsa"] }
+getrandom = "0.3"
 
 [dev-dependencies]
 tempfile = "3"

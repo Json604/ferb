@@ -16,6 +16,8 @@
 <key>NSHighResolutionCapable</key><true/>
 <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
 <key>NSHumanReadableCopyright</key><string>FERB. Third-party notices are in Contents/Resources.</string>
+<key>NSLocationUsageDescription</key><string>FERB uses your city to get local time and place right. It asks before using your exact location.</string>
+<key>NSLocationWhenInUseUsageDescription</key><string>FERB uses your city to get local time and place right. It asks before using your exact location.</string>
 <key>NSMicrophoneUsageDescription</key><string>FERB uses your microphone while you dictate a request.</string>
 <key>NSSpeechRecognitionUsageDescription</key><string>FERB turns your spoken requests, and the sound of an app it listens to during a task, into text on this Mac.</string>
 </dict></plist>

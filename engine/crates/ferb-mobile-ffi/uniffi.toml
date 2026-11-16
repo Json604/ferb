@@ -1,0 +1,13 @@
+# The generated bindings' names (UniFFI reads this file in library mode, through cargo metadata).
+[bindings.kotlin]
+# apps/android :core (slice S9) consumes it under this package.
+package_name = "com.ferb.mobile"
+cdylib_name = "ferb_mobile_ffi"
+# android.system.SystemCleaner from API 33, JNA's cleaner below that (minSdk is 30).
+android = true
+kotlin_target_version = "2.2.21"
+
+[bindings.swift]
+module_name = "FerbMobile"
+ffi_module_name = "FerbMobileFFI"
+ffi_module_filename = "FerbMobileFFI"

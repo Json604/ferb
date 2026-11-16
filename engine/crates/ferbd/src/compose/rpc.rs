@@ -233,6 +233,54 @@ pub fn register(server: &Server, p: &Parts) {
             }
         });
     }
+    // HAND-625: the owner's project folders in Settings, FERB.app's own (app_only): the list, and Remove (the
+    // folder's grant and every push address approved for it end; a later publish asks again)
+    {
+        let tools = p.tools.clone();
+        server.register_unary("projects.list", move |_s: Session, _p: Params| {
+            let tools = tools.clone();
+            async move {
+                let db = tools.db();
+                let list = ferb_policy::projects::store::list(&crate::basics::lock(&db))
+                    .map_err(|e| ferb_error(&e.to_string()))?;
+                let home = tools.user_home().to_string_lossy().into_owned();
+                let rows: Vec<Value> = list
+                    .iter()
+                    .map(|p| {
+                        json!({"folder": p.folder, "shown": ferb_policy::projects::shown(&home, &p.folder),
+                               "since": p.since, "destinations": p.destinations,
+                               "sources": p.sources, "gh_hosts": p.gh_hosts})
+                    })
+                    .collect();
+                Ok(crate::basics::object(json!({ "projects": rows })))
+            }
+        });
+        let tools = p.tools.clone();
+        server.register_unary("projects.remove", move |_s: Session, params: Params| {
+            let tools = tools.clone();
+            async move {
+                let folder = params
+                    .get("folder")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                if folder.is_empty() {
+                    return Err(ferb_error("say which project folder"));
+                }
+                let db = tools.db();
+                let removed = ferb_policy::projects::store::remove(
+                    &crate::basics::lock(&db),
+                    tools.clock().as_ref(),
+                    tools.ids().as_ref(),
+                    &folder,
+                )
+                .map_err(|e| ferb_error(&e.to_string()))?;
+                Ok(crate::basics::object(json!({ "removed": removed })))
+            }
+        });
+    }
+    // T-1130 (APP-925): FERB.app's reports of the Location permission, the city and the Wi-Fi name, and its exact fixes
+    super::device::register(server, &p.tools);
     let _ = BTreeSet::<String>::new();
 }
 

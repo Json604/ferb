@@ -51,6 +51,26 @@ fn mac_tools_refuse_before_acting() {
     assert_eq!(inspect["is_error"], true, "{inspect}");
 }
 
+/// T-1129: a test daemon (the Mac's own parts off) reads none of this Mac's apps or windows: mac.apps lists none
+/// (Finder runs on every Mac), mac.snapshot finds no app, and nothing reaches an app. Only a by-hand ignored test
+/// (`"mac": true`, below) uses the real Mac hands.
+// decision: TEST-512
+#[test]
+fn a_test_daemon_never_reads_this_macs_apps() {
+    let tmp = root();
+    let (_run, mut shim) = started(tmp.path(), "02");
+    let apps = shim.call("mac.apps", json!({}));
+    assert!(!apps.to_string().contains("com.apple.finder"), "{apps}");
+    assert_eq!(frontmost(&mut shim), (0, None), "{apps}");
+    let snap = shim.call("mac.snapshot", json!({"app": "Finder"}));
+    assert_eq!(snap["is_error"], true, "{snap}");
+    let click = shim.call(
+        "mac.click",
+        json!({"app": "com.apple.finder", "x": 10, "y": 10}),
+    );
+    assert_eq!(click["is_error"], true, "{click}");
+}
+
 fn frontmost(shim: &mut Shim) -> (usize, Option<String>) {
     let apps = shim.call("mac.apps", json!({}));
     let list = apps["content"]["apps"]

@@ -2,11 +2,12 @@
 //! which offers each one that is installed, and for the runtime check, which offers them all (sorted) in its planner
 //! call. Here because both crates already depend on this one and neither may depend on the other.
 //!
-//! decision: ORCH-641, DMN-595, ORCH-663
+//! decision: ORCH-641, DMN-595, ORCH-663, SENSE-422
 
 /// Python's six, then `about.diagnostics` (DMN-595: FERB's own diagnostics, a Rust addition), in Python's order, then
-/// `task.trace` (ORCH-663: a task's trace, the planner's alone).
-pub const PLANNER_TOOLS: [&str; 8] = [
+/// `task.trace` (ORCH-663: a task's trace, the planner's alone), then `device.facts` (SENSE-422: this Mac's facts; the
+/// lookup is observe-only, so its exact location is refused there and asked in a task).
+pub const PLANNER_TOOLS: [&str; 9] = [
     "memory.read",
     "chat.history",
     "task.evidence",
@@ -15,5 +16,6 @@ pub const PLANNER_TOOLS: [&str; 8] = [
     "about.read",
     "about.diagnostics",
     "task.trace",
+    "device.facts",
 ];
 pub const PLANNER_SCOPES: [&str; 2] = ["task:read", "trail:read"];

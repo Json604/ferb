@@ -44,6 +44,13 @@ pub fn cli(args: &[String]) -> i32 {
     if args.len() == 1 && args[0] == ferb_mac_hands::vision_child::COMMAND {
         return ferb_mac_hands::native::vision::child_main();
     }
+    // HAND-626: the kept child, framed images until its input closes
+    if args.len() == 2
+        && args[0] == ferb_mac_hands::vision_child::COMMAND
+        && args[1] == ferb_mac_hands::vision_child::SERVE
+    {
+        return ferb_mac_hands::native::vision::serve_main();
+    }
     crate::device::run(args)
 }
 

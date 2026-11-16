@@ -631,6 +631,63 @@ impl Recording {
     }
 }
 
+impl Recording {
+    /// One frame of the tab for the owner's own live preview in FERB.app (APP-922): the page's pixels as the browser
+    /// sent them, nothing painted. Never for a recording, a tool result or anything stored (they use [`capture`]
+    /// (Self::capture)). A page the debugger can't attach to sends no pixels: its window is captured as the recording
+    /// would capture it (masked; the extension gives nothing else to show).
+    pub async fn capture_for_owner(&self, left: Option<f64>) -> Result<OwnerOnlyImage> {
+        let d = &self.driver;
+        d.owned_by(&self.tab.tab_id, &self.owner, true)?;
+        let t = d.live_tab(&self.tab)?;
+        if t.chrome_id != self.chrome_id || !Arc::ptr_eq(&t.bridge, &self.bridge) {
+            return Err(Error::refused("recording tab identity changed"));
+        }
+        let timeout = left.map_or(crate::bridge::CMD_TIMEOUT_S, |l| l.max(0.5));
+        let mut args = json!({"tab_id": t.chrome_id});
+        if t.stuck {
+            args["looks"] = false.into();
+        }
+        let result = t.bridge.call("record_frame", args, timeout, None).await?;
+        let no_pixels = result
+            .get("undebuggable")
+            .is_some_and(ferb_py::value::truthy)
+            || (result.get("data").is_none() && result.get("parts").is_none());
+        if no_pixels {
+            if result
+                .get("undebuggable")
+                .is_some_and(ferb_py::value::truthy)
+            {
+                let (jpeg, _) = d.native_window(&t, &result).await?;
+                return Ok(OwnerOnlyImage { jpeg });
+            }
+            return Err(Error::withheld(format!(
+                "pixels withheld: {}",
+                ferb_py::value::py_str(result.get("withheld").unwrap_or(&Value::Null))
+            )));
+        }
+        let jpeg = match result.get("data") {
+            Some(data) => b64(&ferb_py::value::py_str(data))?,
+            None => {
+                let malformed = || Error::driver("the browser's frame wasn't in FERB's format");
+                let n = py_int(result.get("parts")).ok_or_else(malformed)?;
+                let capture_id = result.get("capture_id").cloned().ok_or_else(malformed)?;
+                let mut joined = String::new();
+                for i in 0..n.max(0) {
+                    let mut a = json!({"tab_id": t.chrome_id, "part": i});
+                    a["capture_id"] = capture_id.clone();
+                    let part = t.bridge.call("record_frame", a, timeout, None).await?;
+                    joined.push_str(&ferb_py::value::py_str(
+                        part.get("data").ok_or_else(malformed)?,
+                    ));
+                }
+                b64(&joined)?
+            }
+        };
+        Ok(OwnerOnlyImage { jpeg })
+    }
+}
+
 type Key = (i64, &'static str, Option<i64>, String, String, String);
 
 fn key(frame: i64, e: &PageElement) -> Key {

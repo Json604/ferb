@@ -84,7 +84,17 @@ fn every_listing_is_python_s_byte_for_byte() {
         for a in catalog::additions() {
             let only_named = r.get(&a.name).unwrap().facts().named_only;
             let named = (grant.tools.is_empty() && !only_named) || grant.tools.contains(&a.name);
-            let want = all_names.contains(&a.after.as_str()) && named;
+            // HAND-623: project.publish pushes with the owner's login, so only an owner grant is offered it
+            let who = if grant.identity == Identity::Owner {
+                "owner"
+            } else {
+                "ferb"
+            };
+            let as_whom = r.get(&a.name).unwrap().identities().contains(who);
+            // an observing grant (the checker's) is offered no tool that acts
+            let observing =
+                grant.observe_only && ferb_gateway::listing::acts(r.get(&a.name).unwrap().as_ref());
+            let want = all_names.contains(&a.after.as_str()) && named && as_whom && !observing;
             match all_names.iter().position(|n| *n == a.name) {
                 Some(i) => {
                     assert!(want, "{label}: {} listed", a.name);
@@ -167,7 +177,13 @@ fn the_rust_additions_are_listed_as_written() {
         a.iter()
             .map(|a| (a.decision.as_str(), a.name.as_str()))
             .collect::<Vec<_>>(),
-        [("DMN-595", "about.diagnostics"), ("ORCH-663", "task.trace")]
+        [
+            ("DMN-595", "about.diagnostics"),
+            ("ORCH-663", "task.trace"),
+            ("HAND-623", "project.publish"),
+            ("HAND-642", "project.fetch"),
+            ("SENSE-422", "device.facts")
+        ]
     );
     for a in a {
         let tool = r.get(&a.name).unwrap();
@@ -187,8 +203,10 @@ fn the_rust_additions_are_listed_as_written() {
             a.row["acts"].as_bool().unwrap()
         );
         let f = tool.facts();
+        // the read-only additions observe; project.publish (HAND-623) acts and can't be undone
+        let acting = a.row["acts"].as_bool().unwrap();
         assert!(
-            f.observation && f.reversible && !f.generic_input,
+            f.observation != acting && f.reversible != acting && !f.generic_input,
             "{}",
             a.name
         );
@@ -361,4 +379,45 @@ fn the_deliberate_changes_are_the_only_ones() {
     );
     assert_eq!(e.schema["properties"]["name"]["title"], "Name");
     assert!(e.description.contains("not by a right-click at a point"));
+}
+
+/// The owner (2026-11-16): the planner may look up this Mac's facts too; its grant (observe-only) is offered and admits
+/// device.facts, as a worker's is.
+// decision: SENSE-422
+#[test]
+fn the_device_facts_are_a_planner_lookup_and_a_workers_tool() {
+    let r = registry();
+    let tool = r.get("device.facts").unwrap();
+    let grant = |tools: &[&str], observe_only: bool| RunGrant {
+        task_id: "t".into(),
+        worker_id: "w".into(),
+        scopes: ferb_orchestrator::lookups::PLANNER_SCOPES
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
+        identity: Identity::Owner,
+        expires_at: 1e9,
+        observe_only,
+        tools: tools.iter().map(|s| s.to_string()).collect(),
+        max_calls: 0,
+    };
+    for g in [
+        grant(&ferb_orchestrator::lookups::PLANNER_TOOLS, true),
+        grant(&[], false),
+    ] {
+        let listed: Vec<String> = tools_for(&r, &g, &Live::default())
+            .iter()
+            .map(|t| t["name"].as_str().unwrap().to_string())
+            .collect();
+        assert!(listed.contains(&"device.facts".to_string()), "{listed:?}");
+        assert!(ferb_gateway::admit::admit(
+            &g,
+            Some(tool.as_ref()),
+            "device.facts",
+            false,
+            true,
+            0
+        )
+        .is_ok());
+    }
 }

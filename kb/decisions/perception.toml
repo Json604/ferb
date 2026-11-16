@@ -177,3 +177,33 @@ status = "active"
 rule = "The watchers' Accessibility elements (ferb-sense Ax::system and Ax::app, which every focused-app, window-title and focused-field read goes through) exist only while AXIsProcessTrusted (a preflight that never prompts) says FERB is trusted, read at most every 2 s; untrusted, they read nothing, as an unreadable element already did. Setup's own request and the Mac tools at a task's first use are unchanged."
 why = "Live 2026-11-14: macOS answers an untrusted process's first Accessibility call by listing it switched off and showing its own 'control this computer' alert; the watchers made that call in the daemon's first second, outside setup's Allow all (APP-508). Python's focused_app did the same (ENG-6)."
 paths = ["rust/crates/ferb-sense/src/mac/apps.rs"]
+
+[SENSE-420]
+title = "Device location: city-level always, exact when a task needs it; a ninth permission"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "yes to both, and if rpecise is easy to get no issue"
+words_source = "Owner 2026-11-16, asked for T-1130: \"1. How precise? I recommend city-level always, with exact location only when a task needs it, asked for at that moment. 2. A ninth permission. [...]\""
+rule = "He was shown: 1. city-level location always, the exact location only when a task needs it, asked for at that moment; 2. location is a ninth macOS permission in FERB's setup, and the phone asks its own permission. Yes to both; he added that precise location is no issue if it is easy to get."
+why = "T-1130: each device's time and place reach FERB. Setup lists every permission with one Allow all; location joins them."
+
+[SENSE-421]
+title = "One line per device in every turn's live facts: its time, time zone and city, never coordinates"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For SENSE-420. The live facts every planner turn and worker run get start with this Mac's line (ferb-core device::line): its computer name, local weekday, date and time, IANA time zone with UTC offset, and the city, region and country FERB.app reverse-geocoded while it has Location; else 'place unknown (time zone only)'. FERB.app reports the place (device.report) at launch, on each connection and on a move; the daemon keeps it in memory only. A phone supplies the same record in stage 3."
+why = "T-1130: the owner wants each device's time and place known to FERB without growing prompts; the time block already had the instant, not the zone or place. The rest goes through device.facts."
+evidence = "Python's live facts had no device line: the recorded cases give none (b_environment named addition). Reverse geocoding sends a rough fix to Apple's geocoder, only after a move of 1 km or more."
+paths = ["engine/crates/ferb-core/src/device.rs::line", "engine/crates/ferbd/src/compose/device.rs::facts_line", "engine/crates/ferb-daemon/src/areas_b/environment.rs::live_facts", "apps/mac/FERBNotch/Sources/FERBNotch/DeviceLocation.swift::DeviceLocationReporter"]
+
+[SENSE-422]
+title = "device.facts: one read-only lookup for this Mac's state, each fact left out when unread"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For SENSE-420. device.facts (scope none, owner and ferb identities, origin private) gives device, time, Location state, city, the Wi-Fi name FERB.app reported, battery, Low Power Mode, network kind, screen lock, displays, free disk, boot and wake, audio output and whether it plays, appearance, locale, languages, macOS and model, read with public API; Focus has none and isn't read. exact_location true adds coordinates per GATE-613. Also a planner lookup (owner 2026-11-16: 'yeah, why not make it??'): observe-only there, so exact location is refused with 'ask in a task step'."
+why = "T-1130: the owner prefers lookups over prompt bulk; one tool, so the worker listing grows once. Wi-Fi name and place are personal, so the result is labelled private (the sink rule applies); nothing here is stored but the call's record."
+evidence = "ferb-gateway catalog: listed after abilities.read in every grant that holds it; ferbd every_tool_through_the_program runs it in the composed daemon; the Mac reading is by hand only (TEST-508)."
+paths = ["engine/crates/ferbd/src/compose/device.rs::tool", "engine/crates/ferb-mac-hands/src/native/device.rs::read", "engine/crates/ferb-gateway/src/catalog_additions.json"]

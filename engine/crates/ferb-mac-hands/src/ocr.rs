@@ -207,8 +207,8 @@ pub mod domain {
     pub const EXIT: &str = "ferb.exit";
     /// The child's answer couldn't be read.
     pub const REPLY: &str = "ferb.reply";
-    /// Another image's child was running and this one doesn't queue (a live preview's frame).
-    pub const BUSY: &str = "ferb.busy";
+    /// The kept child failed and waits before it starts again (HAND-627's backoff; code: the seconds left).
+    pub const BACKOFF: &str = "ferb.backoff";
     /// The text rules couldn't read a region.
     pub const RULES: &str = "ferb.rules";
     /// The boxes couldn't be painted.
@@ -241,15 +241,29 @@ pub struct Redacted {
     pub faults: Vec<Fault>,
 }
 
-/// An image withheld: every fault on the way. Shown only as [`UNAVAILABLE`].
+/// An image withheld: every fault on the way. Shown as [`UNAVAILABLE`]; when the kept reader is waiting to start again
+/// after failing (HAND-627), with [`BACKOFF_NOTE`] after it.
 #[derive(Debug, Default)]
 pub struct Withheld {
     pub faults: Vec<Fault>,
 }
 
+/// HAND-627: why an image is withheld while FERB's kept image reader waits to start again after failing (a named
+/// addition to Python's text, which had no kept reader). `{s}`: the seconds left.
+pub const BACKOFF_NOTE: &str =
+    "FERB's image reader failed and starts again in about {s} s; try the picture again then";
+
 impl std::fmt::Display for Withheld {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(UNAVAILABLE)
+        if let Some(b) = self.faults.iter().find(|x| x.domain == domain::BACKOFF) {
+            write!(
+                f,
+                "{UNAVAILABLE} ({})",
+                BACKOFF_NOTE.replace("{s}", &b.code.max(1).to_string())
+            )
+        } else {
+            f.write_str(UNAVAILABLE)
+        }
     }
 }
 

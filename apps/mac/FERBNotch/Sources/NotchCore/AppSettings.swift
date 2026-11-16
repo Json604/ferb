@@ -148,6 +148,7 @@ public enum AppSettings {
         "FERBIntroBeat": "where the intro tour was left (state)",
         "FERBIntroDone": "whether the intro tour finished (state)",
         "FERBIntroPendingGrant": "a permission the tour waits on across a restart (state)",
+        "FERBRestartAfterTasks": "permissions whose restart waits for the running task to end (APP-921, state)",
         "FERBIntroPlan": "the intro plan in progress (state)",
         "FERBIntroTour": "the tour version last played (APP-635, bookkeeping)",
         "FERBLastLaunchedBuild": "the build that last launched, for update notes (bookkeeping)",

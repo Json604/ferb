@@ -202,6 +202,7 @@ fn deps(home: &Home, s: Seams, db: &notify::SharedDb, asked: &Asked) -> areas_b:
             root: home.path().join("evidence"),
         })),
         tree_of: Arc::new(|_| None),
+        app_location: Arc::new(String::new),
     }));
     let scan = s.scan.clone();
     let answers = Arc::new(Mutex::new(s.answers));
@@ -229,6 +230,14 @@ fn keep(method: &str) -> bool {
 fn fixes(request: &str, python: &str) -> Option<String> {
     let v: Value = serde_json::from_str(request).ok()?;
     let id = v["id"].clone();
+    // decision: APP-927: the document carries why FERB has each permission after `permissions`
+    if v["method"] == "about.get" {
+        let mut line: Value = serde_json::from_str(python).ok()?;
+        let doc = line.get_mut("result")?.as_object_mut()?;
+        doc.contains_key("permissions").then_some(())?;
+        about::add_reasons(doc, "");
+        return Some(ferb_py::json::dumps(&line));
+    }
     if !python.contains("-32603") {
         return None;
     }
@@ -957,6 +966,7 @@ async fn the_owner_shows_one_identifier_and_takes_it_back() {
         owner_secrets: secrets.clone(),
         evidence: None,
         tree_of: old.tree_of.clone(),
+        app_location: old.app_location.clone(),
     }));
     let d = Daemon::start(|server| areas_b::register(server, &deps)).await;
     let mut c = d.connect().await;

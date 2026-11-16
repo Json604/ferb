@@ -1936,3 +1936,140 @@ words_source = "Owner 2026-11-16, answering three questions relayed by the coord
 rule = "Q1 \"Should a remembered preference count as naming a profile (\"use my scaler Chrome for scaler things\")?\": yes, only from the owner's own words. Q2 \"Should a task see the list of tabs in profiles it isn't allowed to use?\": yes, it can see them. Q3 \"Should the screen question say why FERB needs the window?\": yes, when it can."
 paths = ["engine/crates/ferb-supervisor/src/flow/browse.rs::owners_own", "engine/crates/ferb-browser/src/owner.rs::open_tabs", "engine/crates/ferb-policy/src/wording.rs::window_why"]
 live = ["LIVE-971"]
+
+[HAND-598]
+title = "A preview frame the busy text reader couldn't check keeps the last checked picture, quietly"
+by = "agent"
+date = 2026-11-16
+status = "superseded"
+superseded_by = "APP-922"
+rule = "Refines HAND-531 and APP-404. A preview frame withheld only because the child reader was busy with another image (its attempts end at ferb.busy) is unchecked, not failed: never shown; the preview keeps its last checked frame with no problem text; no preview.failed or image.redaction_failed row; counted as <kind>_ocr_busy. The next request captures the newest frame; nothing queues. A frame every reader failed on is withheld and said as before."
+why = "Live 2026-11-16: with Vision's cache purged the child reader recovered 931 preview frames, but every frame that came while it was busy showed 'image redaction unavailable; pixels withheld' in the round preview and journaled preview.failed."
+evidence = "T-1119. Journal: preview.failed {error: image redaction unavailable; pixels withheld, faults [..., {step: child, domain: ferb.busy}], repeats: 21}."
+paths = ["engine/crates/ferb-mac-hands/src/ocr.rs", "engine/crates/ferb-daemon/src/areas_b/task_preview.rs", "engine/crates/ferbd/src/compose/previews.rs", "engine/crates/ferbd/src/compose/tools/mac.rs"]
+
+[HAND-620]
+title = "Project mode: asked once per project folder anywhere on the Mac; git publish with the owner's login"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "yeah i agree, but it should be able to work on any folder in my laptop too, just so you know"
+words_source = "Owner 2026-11-16, agreeing to: ask once per project 'Work on this as a project in <folder>?'; Yes gives read/write there, dev caches and a fixed git publish with his login; Keychain, SSH keys closed."
+rule = "Any folder on the Mac can be a project, except FERB's own state, FERB.app and its service definitions. FERB asks once per project. A project gets normal read and write for FERB's commands, the developer tools' caches and a fixed git publish that uses the owner's existing login without any model holding it. The owner's Keychain and SSH keys stay closed to model-written commands."
+why = "Live 2026-11-16: FERB built code but could not git push (the sandbox closes the Keychain, ~/.ssh and ~/.config/gh), and fell back to uploading files through GitHub's web page. A fully unsandboxed shell would let a planted instruction send saved logins anywhere."
+rejected = ["A work mode that runs a project's commands outside the sandbox: any model-written command could read saved logins and SSH keys and send them anywhere"]
+paths = ["engine/crates/ferb-policy/src/projects.rs", "engine/crates/ferb-shell/src/publish.rs"]
+live = ["LIVE-1130"]
+
+[HAND-621]
+title = "What can be a project comes from the protection lists; protected entries inside one stay closed"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For HAND-620. Refused as a project: a folder that is or holds FERB's own state (its workspace's folders may be projects), FERB.app or its service definitions (so the home folder, ~/Library and / never are), or that lies inside a never-read or never-write entry. Never-read and never-write entries inside a project stay closed: the shell profile writes their denies after every folder it opens."
+why = "Structural and from the lists only (rule 3). FERB's own state and app are never lifted (rule 6). Entries inside a project need no refusal because the profile's later denies win."
+paths = ["engine/crates/ferb-policy/src/projects.rs::refusal", "engine/crates/ferb-shell/src/sandbox.rs"]
+
+[HAND-622]
+title = "A task working in a project may also write the toolchains' visible folders (~/go, conda's)"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For HAND-620. When a task's folder is a project or inside one, the shell may also write ~/go, ~/miniconda3, ~/anaconda3, ~/miniforge3 and ~/mambaforge. Every other toolchain cache measured is a hidden folder or in ~/Library and already writable (HAND-203, HAND-205). Credentials files in them (~/.cargo/credentials.toml, ~/.npmrc, ~/.docker) stay never-read."
+why = "Go's module cache and conda's environments live in visible folders, which HAND-203 closes. Builds in a project need them. Without projects the profile is unchanged (Python's bytes)."
+paths = ["engine/crates/ferb-policy/src/projects.rs::dev_tool_folders", "engine/crates/ferb-gateway/src/gateway.rs"]
+
+[HAND-623]
+title = "project.publish: a fixed git push from a FERB scratch repository, nothing a command can plant runs"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For HAND-620. Apple's git pushes <commit>:refs/heads/<branch> (forced only as HAND-641 says) to the remote's push address, from a scratch repo in FERB's state borrowing the project's objects. No repo, global or system config, hooks or inherited environment is read. Logins: osxkeychain, or HAND-643's. https and ssh only; no password in the address; no redirects."
+why = "Everything a command can write (.git/config, hooks, ~/.gitconfig, PATH programs, included ssh files) could run code outside the sandbox or redirect the push. Real sandbox tests prove each planted setting runs nothing, while an ordinary git push runs it."
+paths = ["engine/crates/ferb-shell/src/publish.rs", "engine/crates/ferbd/src/compose/tools/project.rs"]
+live = ["LIVE-1130"]
+
+[HAND-624]
+title = "The publish question: before a folder's first push to an exact address, kept with the project"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For HAND-620. The project question is asked only when FERB first publishes a folder, since naming a folder already opens it for writes (HAND-204). It shows the folder, branch and exact push address. A Yes makes the folder a project and approves that address across tasks. A changed address asks again. A No records nothing. It is never routine (GATE-207)."
+why = "One question where it matters: the owner's files leave with his login. Read/write needs none (HAND-204). Approving the exact final address (insteadOf applied) means a changed remote can't reuse the Yes."
+paths = ["engine/crates/ferb-gateway/src/gateway.rs::publish_needs", "engine/crates/ferb-policy/src/wording.rs", "engine/crates/ferb-policy/src/projects.rs::store"]
+live = ["LIVE-1130"]
+
+[HAND-625]
+title = "The owner's projects: a list with Remove in Settings and a fact line for the worker"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For HAND-620. The project records are journal rows (project.granted, project.publish_approved, project.removed) written only on the owner's Yes or his Remove. projects.list and projects.remove are FERB.app-only methods (Settings → Data → Projects). A worker's context gets one code-written line naming the projects and project.publish; none without projects."
+why = "The owner can see and end every grant. The journal is append-only and kept, so a removal is itself a record. The worker learns the folders and the action from code facts."
+paths = ["engine/crates/ferbd/src/compose/rpc.rs", "engine/crates/ferb-rpc/src/auth.rs", "engine/crates/ferb-supervisor/src/worker_context.rs", "apps/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift"]
+live = ["LIVE-1130"]
+
+[HAND-626]
+title = "Images the daemon's Vision can't read go to a kept, warm child; the daemon's Vision is retried"
+by = "agent"
+date = 2026-11-16
+status = "superseded"
+rule = "Refines HAND-531 for what a model sees or FERB stores. The child is kept (ferb read-image-text --serve, framed images in and answers out, nothing on disk), one image at a time; restarted when it faults, ends or times out (CHILD_TIMEOUT), at most HELPER_STARTS (3) per HELPER_START_WINDOW (600 s); stopped when this process's Vision reads again. After it fails, images skip it for IN_PROCESS_RETRY (600 s)."
+why = "Owner 2026-11-16 via the coordinator: a fresh child per image took 6-65 s on his Mac (Vision loads its model each time). By hand: a kept child read a 1280x800 image in 35-52 ms after a 60 s first load."
+evidence = "By hand 2026-11-16 (vision_recover, its own cache): purging the compiled models made both in-process reads fail (CRImageReaderError 1); a revision-2 request recompiled and recovered them once, not after a second purge."
+superseded_by = "HAND-627"
+paths = ["engine/crates/ferb-mac-hands/src/vision_child.rs", "engine/crates/ferb-mac-hands/src/native/vision.rs", "engine/crates/ferbd/src/compose/tools/mac.rs", "engine/crates/ferbd/src/run.rs"]
+
+[HAND-627]
+title = "Image reading recovers by itself: a self-test warms the kept child early, back when Vision reads"
+by = "agent"
+date = 2026-11-16
+status = "active"
+supersedes = ["HAND-626"]
+rule = "Refines HAND-531. A kept child reads what this process's Vision can't (ferb read-image-text --serve, framed images, nothing on disk). A supervised check thread ticks every TICK (30 s): a small test picture through this process's Vision at start and every SELF_TEST_EVERY (300 s); failing, images go to the child and it is started and warmed at once; reading again, the child stops. A failed child restarts at once, then after RESTART_BASE (5 s) doubling to RESTART_CEILING (300 s); one start at a time, a picture during it waits; in the wait an image is withheld saying when."
+why = "Owner 2026-11-16: the fail-safe, optimal way, recovering without disturbing him. Found before a task needs a picture, so no cold load mid-task; never a daemon restart; HAND-626's fixed 3-starts-per-10-minutes window withheld pictures for no reason."
+evidence = "By hand 2026-11-16 (vision_recover): after a purge both in-process reads failed (CRImageReaderError 1) and stayed failed; macOS rebuilding its cache later is what the self-test catches."
+paths = ["engine/crates/ferb-mac-hands/src/vision_child.rs::Readers", "engine/crates/ferb-mac-hands/src/vision_child.rs::backoff", "engine/crates/ferb-mac-hands/src/ocr.rs::BACKOFF_NOTE", "engine/crates/ferbd/src/compose/tools/mac.rs::start_image_checks"]
+
+[HAND-640]
+title = "Simple rule: what FERB's commands can't do, FERB asks plainly and does on the owner's Yes"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "why is this so complicated??? does it need to be??? cuayse this way we'd be fixing eveyrhting on new erros, why cna thsi be simple?? i allos, it does etcetc"
+words_source = "Owner 2026-11-16, on four questions: the 30-minute window and protected reads; blocking writes to git config and Homebrew; fetch/pull/clone with his login; force pushes."
+rule = "What FERB's commands can't do by default, FERB asks the owner plainly and on his Yes does it; nothing is left unsupported merely for caution. The exceptions stay AGENTS.md rule 6's four never-lifted things and rule 7 (no login or secret ever reaches a model). No new blocks are added: no do-not-change entries for ~/.gitconfig or /opt/homebrew/bin."
+why = "Earlier the same day: 'but if i want it to or it offers??? can it do it if i apprive??', about force push, pulls or clones of private repositories with his login, and gh-only logins being left out."
+rejected = ["Adding ~/.gitconfig, ~/.config/git and /opt/homebrew/bin to the do-not-change list", "Leaving force push, private fetch/clone and gh-only logins out for caution"]
+paths = ["engine/crates/ferb-shell/src/publish.rs", "engine/crates/ferb-shell/src/fetch.rs", "engine/crates/ferb-policy/src/projects.rs"]
+live = ["LIVE-1140"]
+
+[HAND-641]
+title = "A forced push asks every time, says what it drops, and replaces only that commit"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For HAND-640. project.publish force=true fetches the remote branch (isolated, with the login) and asks every time, never remembered or routine: the newest commit there, its subject, author and date, and how many commits would be dropped. The Yes is single-use; the push uses --force-with-lease on that exact commit, so anything added since stops it."
+why = "Replacing a remote branch can't be undone from FERB. The lease ties what is overwritten to what the owner was shown; a branch that moved after the question is refused, never clobbered."
+paths = ["engine/crates/ferb-shell/src/publish.rs::force_facts", "engine/crates/ferb-policy/src/projects.rs::take_force", "engine/crates/ferbd/src/compose/tools/project.rs"]
+live = ["LIVE-1140"]
+
+[HAND-642]
+title = "project.fetch: fetch or clone with the owner's login, nothing of the repository runs with it"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For HAND-640. A scratch git in FERB's state downloads with the login (FERB's settings only, objects checked). Packs and branch records enter through sandboxed index-pack and update-ref; a clone's checkout and any merge run sandboxed. An address the project may push to or got from asks nothing; a new one or a clone asks once. Submodules are listed, not fetched."
+why = "Reading isn't hard to undo, so an approved address asks nothing. Hostile hooks, filters, merge drivers or credential settings then run only inside the sandbox, without the login (tests prove this against an ordinary fetch that runs them)."
+paths = ["engine/crates/ferb-shell/src/fetch.rs", "engine/crates/ferb-shell/src/publish.rs::fetch_into", "engine/crates/ferbd/src/compose/tools/project.rs"]
+live = ["LIVE-1140"]
+
+[HAND-643]
+title = "The GitHub CLI's saved login, read by FERB's code (never by running gh), asked once per project"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For HAND-640. With gh_login, FERB reads gh's saved login itself (Keychain item gh:<host> via /usr/bin/security, else ~/.config/gh/hosts.yml) and hands it to git's own store helper in a FERB-private file removed after the call; never argv, output or a model. Asked once per project and host."
+why = "Homebrew's gh is unsigned and sits in /opt/homebrew/bin, which FERB's commands can write: running it with the login would run whatever a command put there. Reading gh's stored login with Apple's own tools needs no program a command can replace."
+paths = ["engine/crates/ferb-shell/src/publish.rs::gh_login", "engine/crates/ferb-gateway/src/gateway.rs::publish_needs"]
+live = ["LIVE-1140"]

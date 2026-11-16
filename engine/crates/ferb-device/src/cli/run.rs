@@ -75,7 +75,15 @@ fn elsewhere(host: &mut dyn Host, what: &str, there: &str) -> i32 {
 
 /// __init__.py:170.
 pub fn run(argv: &[String], host: &mut dyn Host) -> i32 {
-    let ns = match parse(argv) {
+    let parsed = parse(argv);
+    // argparse's -h / --help (T-1128): the help of the command named before it, exit 0, before any other check
+    if !matches!(parsed, Parsed::Version) {
+        if let Some(text) = super::help::asked(argv).and_then(|path| super::help::text(&path)) {
+            let _ = write!(host.out(), "{text}");
+            return 0;
+        }
+    }
+    let ns = match parsed {
         Parsed::Version => {
             let v = host.version();
             let _ = writeln!(host.out(), "ferb {v}");
@@ -152,7 +160,12 @@ pub fn run(argv: &[String], host: &mut dyn Host) -> i32 {
             if cmd == "doctor" {
                 return setup::doctor(&mut env);
             }
-            setup::uninstall(&mut env, b(&ns, "purge"), b(&ns, "yes"))
+            setup::uninstall_with(
+                &mut env,
+                b(&ns, "purge"),
+                b(&ns, "yes"),
+                !b(&ns, "skip_browser_files"),
+            )
         })();
         return match outcome {
             Ok(rc) => rc,

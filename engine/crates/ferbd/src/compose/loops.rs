@@ -2,8 +2,9 @@
 //! timer loop (scheduled runs, reminders, timers) and the schedules reconciled at start, held banners flushed every
 //! 10 s, the hourly retention pass starting a minute after start-up, and sensing with its trail.
 //!
-//! Each loop is supervised as `_supervise` does: a loop that fails is journaled and started again after a pause
-//! that doubles up to a minute.
+//! Each loop is supervised as `_supervise` does (compose/guard.rs): a loop that fails is journaled
+//! `daemon.loop_failed` and started again after a pause that doubles up to a minute; a periodic one waits its period
+//! before the pass after a failure.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -24,10 +25,6 @@ use super::areas::Shared;
 use super::tools::{Parts, TrailHandle};
 use super::{Daemon, Options};
 
-/// `LOOP_RESTART_S`, `LOOP_RESTART_MAX_S` (main.py:93).
-pub const LOOP_RESTART_S: f64 = 1.0;
-pub const LOOP_RESTART_MAX_S: f64 = 60.0;
-
 pub fn start(d: &Arc<Daemon>) {
     // `_build_timers` (ORCH-317): timers held for the owner follow the Mac's presence; its return wakes the timers and
     // brings the day's paused-task mentions (`_owner_back`)
@@ -46,55 +43,67 @@ pub fn start(d: &Arc<Daemon>) {
     }
     // the timer loop runs on group A's thread, where its state lives
     if d.opts.timer_loop {
-        let a = d.a.clone();
-        let _ = a.spawn(|st| async move { areas_a::schedules::run_timers(st).await });
+        d.spawn_group_a_loop("timers", |st, _| async move {
+            areas_a::schedules::run_timers(st).await;
+            Ok(())
+        });
     }
 
-    // held banners (notify.py:117)
+    // held banners (notify.py:117, `_supervise("held_banners", self._flush_held)`)
     let n = d.b.notifier.clone();
-    d.keep(tokio::spawn(async move {
-        loop {
-            tokio::time::sleep(Duration::from_secs(10)).await;
-            n.flush_held().await;
+    d.spawn_loop("held_banners", move |_| {
+        let n = n.clone();
+        async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(10)).await;
+                n.flush_held().await;
+            }
         }
-    }));
+    });
 
-    // the retention pass: hourly, a minute after start-up (retention.py:315)
+    // the retention pass: hourly, a minute after start-up (retention.py:315); after a failure, at its next hour
     if d.opts.retention {
         let a = d.a.clone();
         let purges = purges(&d.opts, &d.tools, &d.redactor);
         let j = d.journal.clone();
-        d.keep(tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_secs(60)).await;
-            loop {
-                let p = purges.clone();
-                let r =
-                    a.call(move |st| async move {
-                        areas_a::retention::purge_pass(&st, p.as_ref()).await
-                    })
-                    .await;
-                match r {
-                    Ok(Ok(_)) => {}
-                    Ok(Err(e)) => j.note("retention.failed", json!({"error": e})),
-                    Err(e) => j.note("retention.failed", json!({"error": e.to_string()})),
+        d.spawn_loop("retention", move |failures| {
+            let (a, purges, j) = (a.clone(), purges.clone(), j.clone());
+            async move {
+                let first = if failures == 0 { 60 } else { 3600 };
+                tokio::time::sleep(Duration::from_secs(first)).await;
+                loop {
+                    let p = purges.clone();
+                    let r = a
+                        .call(move |st| async move {
+                            areas_a::retention::purge_pass(&st, p.as_ref()).await
+                        })
+                        .await;
+                    match r {
+                        Ok(Ok(_)) => {}
+                        Ok(Err(e)) => j.note("retention.failed", json!({"error": e})),
+                        Err(e) => j.note("retention.failed", json!({"error": e.to_string()})),
+                    }
+                    tokio::time::sleep(Duration::from_secs(3600)).await;
                 }
-                tokio::time::sleep(Duration::from_secs(3600)).await;
             }
-        }));
+        });
     }
 
     // the resource log: a sample every SAMPLE_SECONDS (the owner's "every 5 minutes"); shutdown writes the last
     if crate::basics::lock(&d.resource_log).is_some() {
         let weak = Arc::downgrade(d);
-        d.keep(tokio::spawn(async move {
-            loop {
-                tokio::time::sleep(Duration::from_secs(crate::resources::SAMPLE_SECONDS)).await;
-                match weak.upgrade() {
-                    Some(d) => d.sample_resources(),
-                    None => return,
+        d.spawn_loop("resources", move |_| {
+            let weak = weak.clone();
+            async move {
+                loop {
+                    tokio::time::sleep(Duration::from_secs(crate::resources::SAMPLE_SECONDS)).await;
+                    match weak.upgrade() {
+                        Some(d) => d.sample_resources(),
+                        None => return Ok(()),
+                    }
                 }
             }
-        }));
+        });
     }
 
     // the memory: the search re-index, the embedder, the hourly pass (distill, cards, playbooks, the profile)
@@ -104,7 +113,10 @@ pub fn start(d: &Arc<Daemon>) {
 
     // sensing: the watchers per config (a daemon with its Mac parts off starts none)
     if let Some(sense) = d.b.sense.clone() {
-        d.keep(tokio::spawn(async move { sense.start().await }));
+        d.spawn_background("sensing start", async move {
+            sense.start().await;
+            Ok(())
+        });
     }
 }
 
@@ -330,6 +342,9 @@ enum Work {
     BannerFailed(Banner),
     ClipboardAccess(String),
     PurgeText,
+    /// A test's panic in the thread's work (the stand-ins' control `panic_trail`, T-1123).
+    #[cfg(feature = "stand-ins")]
+    Panic,
 }
 
 /// Perception (`areas/sensing.py:65` `self.perception = Perception(self)`), built always: it lives on the trail's
@@ -400,6 +415,12 @@ impl Perception {
         let _ = self.tx.send(Work::PurgeText);
     }
 
+    /// The stand-ins' control `panic_trail`: the trail's thread panics in its work (T-1123's test).
+    #[cfg(feature = "stand-ins")]
+    pub fn panic_for_test(&self) {
+        let _ = self.tx.send(Work::Panic);
+    }
+
     /// retention.py:350 `_perception_counts`: the batcher's wakes and its batches by flush reason since start (none
     /// while Jev is off: SENSE-3).
     pub fn counts(&self) -> (i64, BTreeMap<String, i64>) {
@@ -423,6 +444,11 @@ pub fn banner_of(v: &Value) -> Option<Banner> {
     })
 }
 
+/// The trail's thread has no stop of its own: it ends when every sender of its channel is gone (the daemon dropped).
+fn until_its_senders_are_gone() -> bool {
+    false
+}
+
 /// The trail on a thread of its own (its state is not shared across threads), with perception beside it:
 /// observations and perception's calls come in through one channel and are handled in order, as Python's
 /// `Trail.record` and `Perception` run on the loop. The trail's last event is kept for the time header (`signals`).
@@ -440,13 +466,20 @@ fn trail_thread(opts: &Options, s: &Shared, host: &Host) -> (TrailHandle, Percep
     let attribution = s.tools.attribution();
     let paused_marker = s.home.join("PAUSED");
     let last = last_event.clone();
-    std::thread::Builder::new()
-        .name("ferb-trail".into())
-        .spawn(move || {
-            let Ok(db) = ferb_store::Db::open(home.join("ferb.db")) else {
-                return;
-            };
-            let ids = IdsRef(ids);
+    let guard = super::guard::Guard::of(&s.journal, &s.redactor, &opts.pause);
+    // supervised (T-1123): a failure is journaled and the thread's parts are built again; the work waiting in the
+    // channel stays there. It ends once every sender is gone (the daemon dropped).
+    super::guard::thread(
+        guard,
+        "ferb-trail",
+        "trail",
+        until_its_senders_are_gone,
+        move |_| {
+            let db = ferb_store::Db::open(home.join("ferb.db"))
+                .map_err(|e| format!("OperationalError: {e}"))?;
+            let ids = IdsRef(ids.clone());
+            let host = host.clone();
+            let attribution = attribution.clone();
             let device = match config.get("device", "id") {
                 Ok(Some(Value::String(s))) => s,
                 _ => "unknown-device".into(),
@@ -579,10 +612,14 @@ fn trail_thread(opts: &Options, s: &Shared, host: &Host) -> (TrailHandle, Percep
                     Work::BannerFailed(b) => perception.banner_failed(&b),
                     Work::ClipboardAccess(state) => perception.clipboard_access(&state),
                     Work::PurgeText => purge(&perception),
+                    #[cfg(feature = "stand-ins")]
+                    Work::Panic => panic!("a test's panic in the trail's thread"),
                 }
             }
-        })
-        .expect("the trail's thread");
+            Ok(())
+        },
+    )
+    .expect("the trail's thread");
     let record = tx.clone();
     let emit: Emit = Arc::new(move |o: Observation| {
         let _ = record.send(Work::Record(o));

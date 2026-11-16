@@ -3,8 +3,9 @@
 //!
 //! - `wire`: the frames, byte for byte as Python writes them, and requests refused in pydantic's words.
 //! - `auth`: roles, the method table (who may call what, and what is FERB.app's alone), run tokens.
+//! - `classes`: what a paired phone (`Role::Phone`, stage 3) may call: every method's class.
 //!
-//! Those two build for any target: they are what every client shares, a phone's included. The rest is the
+//! Those three build for any target: they are what every client shares, a phone's included. The rest is the
 //! daemon's side and needs Unix sockets (`cfg(unix)`):
 //!
 //! - `server`: the Unix-socket server: hello first, the owner's uid, the role's methods, the starting gate,
@@ -13,6 +14,9 @@
 //!   code-signature calls behind `app_peer::Security` and the peer's pid and audit token behind
 //!   `Server::set_peer_lookup`. The Mac's answers to both are in `ferb-platform-macos`.
 //!
+//! - `phone_gate`, `link_peer` (stage 3): a phone session's entry, given only to the phone link's signed helper,
+//!   and the daemon's gate it asks about each call.
+//!
 //! The handlers themselves are other ports; they register through `Server::register_unary` and
 //! `Server::register_stream`. Everything here is checked against `engine/fixtures/rpc`, written by the Python
 //! build (ENG-3).
@@ -20,10 +24,15 @@
 #[cfg(unix)]
 pub mod app_peer;
 pub mod auth;
+pub mod classes;
 #[cfg(unix)]
 pub mod framing;
 #[cfg(unix)]
+pub mod link_peer;
+#[cfg(unix)]
 pub mod peer;
+#[cfg(unix)]
+pub mod phone_gate;
 #[cfg(unix)]
 pub mod server;
 pub mod wire;

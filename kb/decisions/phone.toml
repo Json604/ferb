@@ -1,0 +1,1903 @@
+# Decisions of area `phone` (kb/areas.toml): the phone role, the link and the phone apps (ENG-1 stages 3-5).
+# PHN-1..PHN-399 are imported from the phone lab (~/Desktop/ferb-phone-link at 57b3f34, read only): the lab's
+# PHN-n keeps its number; the lab's SEC-n is PHN-(100+n), NET-n PHN-(200+n), LIM-n PHN-(300+n), because an area
+# has one prefix. Text inside an imported record names the lab's own ids (SEC-, NET-, LIM-, T-, LIVE-); read them
+# in the lab. The lab's paths and live checks are not carried (they name the lab's files); `legacy` names the
+# lab record. PHN-401 and later are FERB's own records from 2026-11-16 on.
+
+# ---- imported from the lab's kb/decisions/phone.toml (PHN-n -> PHN-1..)
+
+[PHN-1]
+title = "One Rust crate is both sides; phone apps use three calls"
+by = "agent"
+date = 2026-11-10
+status = "superseded"
+rule = "The link is one Rust crate on stock iroh 1.4.1 from crates.io. The Mac bridge is a binary of it. Phone apps load it as a native library with three JSON-text calls (start, command, poll) through plain JNI or C; there is no iroh-ffi, no generated binding and no fork."
+why = "P9: the research needed a patched iroh-ffi (network change) and a forked iroh core (relay policy). Calling iroh from our own Rust needs neither."
+rejected = ["iroh-ffi 1.2.0 + patches: rebuilt per platform on every upgrade", "Swift + iroh-ffi on the Mac: two implementations of one protocol", "Python iroh 1.2.0 in the daemon: an older binding"]
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/phone.toml PHN-1."
+superseded_by = "PHN-446"
+legacy = "ferb-phone-link@57b3f34 PHN-1; lab paths: rust/src/ffi.rs"
+
+[PHN-2]
+title = "Redial with backoff and stop conditions"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "The phone redials after 1, 2, 4, 8, 15, 30, 60 s, then every 60 s, each with 20 % jitter; after 10 minutes of failing every 5 minutes. It resets after a 60 s healthy session, dials once at a network change, obeys retry_after_s, never dials in the background unless told to stay connected, and stops for errors a redial cannot fix."
+why = "P7: the lab redialed every second for ever."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/phone.toml PHN-2."
+legacy = "ferb-phone-link@57b3f34 PHN-2; lab paths: rust/src/client.rs::Backoff"
+
+[PHN-3]
+title = "The phone core keeps no files"
+by = "agent"
+date = 2026-11-10
+status = "superseded"
+rule = "The link client holds its state in memory and hands it to the app in a persist event; the app stores it encrypted with a hardware-backed key. Chat shown on the phone is stored the same way. Answers are never queued."
+why = "P8: the lab kept every message in plain JSON and resent pending text after a reconnect."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/phone.toml PHN-3."
+superseded_by = "PHN-448"
+legacy = "ferb-phone-link@57b3f34 PHN-3; lab paths: rust/src/client.rs"
+
+[PHN-4]
+title = "Reaching a closed app: stay connected, no hosted push"
+by = "agent"
+date = 2026-11-10
+status = "superseded"
+rule = "The app has one switch, Stay connected: an Android foreground service (type remoteMessaging, with its permanent notification) keeps the link up and posts FERB's questions as notifications. With it off, the link closes when the app leaves the screen and nothing dials. No push service is used; a hosted push sender is the owner's decision (T-6)."
+why = "P4: FCM and APNs need a sender holding a private key, so a server someone runs. A foreground service needs none."
+rejected = ["A FERB-operated push server: not invented here", "Silent reconnect loops in the background: Doze stops them and they hammer the relay"]
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/phone.toml PHN-4."
+superseded_by = "PHN-421"
+legacy = "ferb-phone-link@57b3f34 PHN-4; lab paths: android/app/src/main/java/local/ferb/link/LinkService.kt"
+
+[PHN-5]
+title = "Android storage is sealed with a Keystore key; the unlock key needs the lock screen"
+by = "agent"
+date = 2026-11-10
+status = "superseded"
+rule = "The link state (with the phone's link key) and the chat are AES-256-GCM files under a non-exportable Android Keystore key (StrongBox when present); backups are off. The unlock key is a Keystore P-256 key usable only after BiometricPrompt (strong biometric or device credential) for each signature; with no screen lock it does not exist."
+why = "P8 and P3."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/phone.toml PHN-5."
+superseded_by = "PHN-448"
+legacy = "ferb-phone-link@57b3f34 PHN-5; lab paths: android/app/src/main/java/local/ferb/link/Vault.kt, android/app/src/main/java/local/ferb/link/UnlockKey.kt"
+
+[PHN-6]
+title = "Stay connected, with notifications"
+by = "owner"
+date = 2026-11-10
+status = "superseded"
+words = "yes stay connected and notifications too"
+rule = "Stay connected stays, and the phone notifies the owner: FERB needs an answer (and which kind), a reply arrived, a task finished or failed, the link dropped for a reason he must act on. No hosted push sender is built."
+why = "Asked: Stay connected only, also a push sender he hosts, or a nudge through Discord or email."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/phone.toml PHN-6."
+superseded_by = "PHN-421"
+legacy = "ferb-phone-link@57b3f34 PHN-6; lab paths: android/app/src/main/java/local/ferb/link/LinkService.kt"
+
+[PHN-8]
+title = "The app opens only with the fingerprint or device lock, every time"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "also app open should also have fingerprint/passlock set up to open everytime"
+rule = "The phone app is locked like a banking app: on a cold start and whenever it returns from the background it asks for the fingerprint or the device lock before anything is shown. A phone with no screen lock cannot use the app."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/phone.toml PHN-8."
+legacy = "ferb-phone-link@57b3f34 PHN-8; lab paths: android/app/src/main/java/local/ferb/link/MainActivity.kt"
+
+[PHN-10]
+title = "Notifications may show their text on the lock screen"
+by = "owner"
+date = 2026-11-10
+status = "superseded"
+words = "also notification on lock screen is ok, nothing hard here."
+rule = "FERB's notifications may show their text on the lock screen, following the phone's own lock-screen notification setting like any messaging app. A hidden input's question never carries its content anywhere."
+why = "Reverses the review's finding 12 as it was built before (no reply or question text on the lock screen)."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/phone.toml PHN-10."
+superseded_by = "PHN-422"
+legacy = "ferb-phone-link@57b3f34 PHN-10; lab paths: android/app/src/main/java/local/ferb/link/LinkService.kt"
+
+[PHN-11]
+title = "Fetched files go when the app locks; files from key places go when their viewer closes"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "yeH THIS WORKS"
+rule = "He was shown: ordinary files are kept while the app stays unlocked, wiped when it locks, with a maximum age on top; files from the key and token places are wiped the moment you close the viewer. Copies he saved or shared elsewhere are his and are not touched."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/phone.toml PHN-11."
+legacy = "ferb-phone-link@57b3f34 PHN-11; lab paths: android/app/src/main/java/local/ferb/link/Link.kt"
+
+[PHN-13]
+title = "How the app does it: one gesture, answers from the notification, tasks, folders"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "Opening the app is one prompt and the Mac's unlock too; a reconnect inside the window asks nothing. A call refused as locked unlocks and is made once more. An ordinary question can be answered from its notification; a check, a private answer and a sensitive change open the app. Tasks is a tab: what runs, how far, Stop per task, what ran before. Several files and a folder go either way, each with its progress; a transfer either way can be paused and goes on where it stopped. A fetched file stays at most FETCHED_MAX_AGE_MS (24 hours)."
+why = "PHN-8, PHN-11, PHN-12, SEC-25, SEC-26, SEC-32, T-14."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/phone.toml PHN-13."
+legacy = "ferb-phone-link@57b3f34 PHN-13 (its paths are in the lab record)"
+
+[PHN-15]
+title = "The app locks five minutes after it was left"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "lets keep it 5 then"
+rule = "Read as five minutes (the unit is being confirmed with him). Back from the background after more than five minutes the app asks for the lock again; the Mac's unlock window is the same five idle minutes, and nothing interrupts an operation under way. Inside the five minutes the unlocked phone can do what the app-open unlock covers (chat, tasks, ordinary files), nothing that asks each time; the app's content is covered in recents and screenshots at once. When they pass in the background the app locks, tells the Mac to lock and removes the fetched files."
+why = "After seeing what ten minutes leaves open (PHN-14)."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/phone.toml PHN-15. There it superseded PHN-14."
+legacy = "ferb-phone-link@57b3f34 PHN-15; lab paths: android/app/src/main/java/local/ferb/link/MainActivity.kt, rust/src/limits.rs"
+
+[PHN-16]
+title = "A fetched file stays in the app 24 hours at most"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "agree with all except what is 'Hard maximum on the unlock' ??? what does it do and whats its limit?"
+rule = "He was shown a table of the open default values with the agent's view on each (the row as the coordinating agent relayed it): 'Maximum age of a cached fetched file: 24 hours.' Confirmed: FETCHED_MAX_AGE_MS stays 24 hours (PHN-11)."
+why = "Closes T-19."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/phone.toml PHN-16."
+legacy = "ferb-phone-link@57b3f34 PHN-16; lab paths: android/app/src/main/java/local/ferb/link/Link.kt"
+
+[PHN-17]
+title = "The scanner is set up for a code on a screen"
+by = "agent"
+date = 2026-11-10
+status = "superseded"
+rule = "The app's scanner (ScanActivity, zxing-android-embedded 4.3 with ZXing 3.4.1) looks for QR codes only, normal and light-on-dark in turn, with the reader's thorough search; the camera focuses continuously and measures light in the middle of the picture; the library's frame and one line of prompt show where to hold the code. The field under the Scan button takes the short code typed or pasted, and the old link."
+why = "SEC-35. Before: one focus sweep every two seconds, no metering, dark-on-light only. The library has no automatic zoom; a reader with one (ML Kit, or CameraX with a newer ZXing) is a new dependency that has to be downloaded, asked as T-24."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/phone.toml PHN-17."
+superseded_by = "PHN-447"
+legacy = "ferb-phone-link@57b3f34 PHN-17; lab paths: android/app/src/main/java/local/ferb/link/ScanActivity.kt, android/app/src/main/AndroidManifest.xml"
+
+[PHN-18]
+title = "The link says what it does in the phone's log, without addresses"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "The phone side writes short lines under the log tag ferb-link: state changes, each dial and why it ended, the kind of network the phone is on, a status arriving (counts), and once a minute the bytes by the way they travelled (relay, IPv4, IPv6), address-discovery reports and tries for a direct path. Never an address, an endpoint id, a relay's name or anything the owner typed. iroh's own log, which names addresses, is only in a build made with FERB_LINK_TRACE. The Mac side writes the same lines when FERB_LINK_DIAG is set."
+why = "The idle traffic and the handover could not be diagnosed from the phone: the app logged nothing, and the Mac's controls answer only the Mac app."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/phone.toml PHN-18."
+untestable = "Log lines for a person to read; what they say is checked against the counters in the measurements of NET-22."
+legacy = "ferb-phone-link@57b3f34 PHN-18; lab paths: rust/src/diag.rs, rust/src/client.rs, android/app/src/main/java/local/ferb/link/Link.kt"
+
+# ---- imported from the lab's kb/decisions/security.toml (SEC-n -> PHN-101..)
+
+[PHN-102]
+title = "Pairing needs the QR's one-time secret and the owner's Yes"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "The QR carries a 256-bit one-time secret. The phone proves it with a keyed hash over both endpoint ids; the secret never crosses the wire. The window is pair_window_s (120), single use, ended by pair_wrong_max (3) wrong proofs. Only after a right proof does the Mac ask, naming the phone; the owner's Yes pairs it."
+why = "P1: with the id-only QR a stranger got the prompt, blocked the real phone, and one click paired them."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/security.toml SEC-2."
+legacy = "ferb-phone-link@57b3f34 SEC-2; lab paths: rust/src/pairing.rs, rust/src/bridge.rs"
+
+[PHN-104]
+title = "Device list, limit, revocation at once"
+by = "agent"
+date = 2026-11-10
+status = "superseded"
+rule = "Paired phones are a list on the Mac (name, paired, last seen, lock key): at most devices_max (2); renamed and removed only from the owner's side. Removing one closes its live connections at once and is rechecked on every call. A phone unseen for device_unused_days (30) is removed."
+why = "P3: one peer, no list, no revocation."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/security.toml SEC-4."
+superseded_by = "PHN-419"
+legacy = "ferb-phone-link@57b3f34 SEC-4; lab paths: rust/src/store.rs, rust/src/bridge.rs"
+
+[PHN-105]
+title = "A Yes to FERB's own checks is signed by the phone's lock-bound key"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "For a question whose capability is one of FERB's own checks (questions.py OWN_CHECKS), anything but a plain No needs a P-256 signature over the exact answer and a one-time challenge, by a key the phone registered at pairing and can use only after a fingerprint, face or device credential. The Mac verifies it; a phone paired without such a key cannot give that answer."
+why = "P3 and FERB rule 5: whoever holds the unlocked phone must not be the owner for a hard-to-undo Yes; a claim from the app is not proof."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/security.toml SEC-5."
+legacy = "ferb-phone-link@57b3f34 SEC-5; lab paths: rust/src/bridge.rs"
+
+[PHN-106]
+title = "Link state is the owner's side only"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "The identity key, the device list, the relay setting and the limits are changed only through the admin socket (the owner's side). No phone method reads or writes them."
+why = "FERB rule 6: nothing lets FERB or a phone change its protection rules or config."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/security.toml SEC-6."
+legacy = "ferb-phone-link@57b3f34 SEC-6; lab paths: rust/src/admin.rs, rust/src/store.rs"
+
+[PHN-108]
+title = "A stale or replayed answer is refused"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "Before an answer is forwarded the bridge asks the daemon whether that question is still waiting; if not, the answer is refused with question_not_waiting. An unlock challenge is used once and dies with the connection. The phone never queues an answer."
+why = "FERB rule 5: a late Yes after a reconnect must not apply."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/security.toml SEC-8."
+legacy = "ferb-phone-link@57b3f34 SEC-8; lab paths: rust/src/bridge.rs"
+
+[PHN-109]
+title = "Passwords and codes can be answered from the phone, through a sealed path"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "why??? the connection is secure so why no secret transfer??? or did you mean something else?"
+rule = "A hidden input (a login code, the admin password, a secret) can be answered from a paired phone on every tier. The link is end-to-end encrypted between the phone and the Mac; a relay forwards ciphertext and holds no key."
+why = "He was told passwords could never be answered from a phone (SEC-7)."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/security.toml SEC-9. There it superseded SEC-7. Lab evidence: n0 docs, security-privacy, read 2026-11-10: 'All data transmitted between iroh endpoints is protected with end-to-end encryption'; a relay 'holds no key... (the rest in the lab record)"
+legacy = "ferb-phone-link@57b3f34 SEC-9; lab paths: rust/src/bridge.rs, standin/phone_role.py"
+
+[PHN-110]
+title = "The sealed path for a hidden answer"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "A hidden answer is chat.answer {approval_id, text} with an unlock proof whose signed text holds the question, its one-time challenge and only the SHA-256 of the value. The bridge forwards it straight to the daemon's own answer method, overwrites its copies, and never logs, stores, cuts or echoes it. The phone keeps it in a hidden field on a screen excluded from screenshots, stores it nowhere, and clears the field once sent. A phone without a lock key cannot answer one; a bare Yes or a correction never does."
+why = "FERB rule 7: a secret reaches no model, trace, log or database; it is filled only through the sealed path."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/security.toml SEC-10."
+legacy = "ferb-phone-link@57b3f34 SEC-10; lab paths: rust/src/bridge.rs, rust/src/daemon.rs, standin/daemon.py"
+
+[PHN-111]
+title = "The paired phone is the owner's full remote"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "why not allow everything??? and only throttle things when data transfer on both is involved, then there are limits on iroh's relay and all including preview images etc"
+rule = "Whatever FERB.app can do through the daemon, a paired phone can do, the preview included. Tier limits apply only to bulk data (pictures, preview, files, large replies) on the shared relay; a control call is never capped by tier."
+why = "He was shown the short fixed list (SEC-3) and asked what was missing."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/security.toml SEC-11. There it superseded SEC-3."
+legacy = "ferb-phone-link@57b3f34 SEC-11; lab paths: rust/src/role.rs, standin/phone_role.py"
+
+[PHN-112]
+title = "Every FERB method has a class; the class decides what the Mac checks"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "role.rs lists every method of FERB's app role in one of four classes. Plain: forwarded. Private (shows the owner's data): needs a Mac-verified unlock within unlock_idle_s (300), which use extends. Sensitive (changes protection, settings, keys, memory, schedules, or what FERB may do; lifts a stop; installs an update): needs a signature by the phone's lock-bound key over this exact call and a fresh one-time challenge. Never: 11 methods, each with its reason (T-12). An unclassified method is refused; a test reads FERB's own table and fails when one appears."
+why = "SEC-11's other half: a lost or borrowed unlocked phone must not be full control of the Mac."
+rejected = ["A short allowlist (SEC-3): the owner wants everything", "Everything plain: an unlocked phone left on a table could change settings and keys"]
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/security.toml SEC-12."
+legacy = "ferb-phone-link@57b3f34 SEC-12; lab paths: rust/src/role.rs, rust/src/bridge.rs"
+
+[PHN-113]
+title = "Any file the owner could open is reachable from the phone, securely"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "anything maybe BUT with security enforced so that not whole data transfer can be done to a cloud, to another link or phones storage. basically this phone app should allow users to control everything from phone only BUT secure enough too that nothing gets leaked or anything. so files should be accessible imo"
+rule = "A paired phone can browse and open any file the owner could open on the Mac, subject to FERB's own protected-folder question. Nothing leaves the Mac without the owner's say."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/security.toml SEC-13."
+legacy = "ferb-phone-link@57b3f34 SEC-13; lab paths: rust/src/bridge.rs"
+
+[PHN-114]
+title = "Unlock, path safety and the audit for files and private data"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "One unlock on the phone (a signed proof, verified on the Mac) opens the owner's data for unlock_idle_s of idle time, so a burst of files needs one prompt. Every path is resolved by the daemon first: where links and `..` really lead decides; FERB's own data is never shown; a protected folder is asked about once (a signed Yes) until the phone locks. A folder is never fetched as one. Every call and fetch is one line in audit.jsonl on the Mac (method, class, outcome, path, bytes; never a value), which no phone call reads or changes."
+why = "What this stops: a borrowed unlocked phone browsing files; link and `..` tricks; silent drains. What it cannot stop: a photo of the screen, a rooted phone, or the owner himself once unlocked."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/security.toml SEC-14."
+legacy = "ferb-phone-link@57b3f34 SEC-14; lab paths: rust/src/bridge.rs, rust/src/store.rs, standin/daemon.py"
+
+[PHN-115]
+title = "Files transfer both ways; the lock is the security, like a banking app"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "but i would want to transfer files from phone to mac or viceversa, we just have to make sure its secure and requires lock/pin whatever. secure like a banking app BUT a crazy using experience"
+rule = "Files move both ways: Mac to phone (saved, shared, opened in another app) and phone to Mac. The device unlock gates it. Reading of SEC-13 (to confirm with the owner, T-13): its three leaks are transfers without his say; after his unlock a transfer is his own act. The app must feel excellent, not merely work."
+why = "He was shown view-only files with no save to the phone and corrected it."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/security.toml SEC-15."
+legacy = "ferb-phone-link@57b3f34 SEC-15; lab paths: rust/src/bridge.rs, android/app/src/main/java/local/ferb/link/MainActivity.kt"
+
+[PHN-116]
+title = "The lock covers file transfer; no cap on the user's own network"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "forget cloud, the fingerprint/lock covers it and no cap limit. cause its user's own data and network."
+rule = "The device lock is the protection for file transfer. There is no daily volume or count limit on files where the data travels on the user's own network (a direct path, the own relay). The shared relay keeps its caps: that is n0's network (LIM-1, LIM-6)."
+why = "Asked whether a transfer after his unlock is his own act, and whether he wants a daily cap at all. Confirms the reading in SEC-15."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/security.toml SEC-16."
+legacy = "ferb-phone-link@57b3f34 SEC-16; lab paths: rust/src/bridge.rs, rust/src/limits.rs"
+
+[PHN-117]
+title = "Nothing is kept off the phone to protect the owner from himself"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "what are those 11 things, why not allow them???"
+rule = "A method stays off the phone only where calling it from a phone would break something. The six that open a prompt or window on the Mac's screen are callable (signed, like any sensitive call) and the reply says it needs a click on the Mac. Five stay off with their reason shown and remain a question (T-12): notifications.subscribe, intro.preview, about.guide, chat.history.put, chat.history.import."
+why = "Asked about the 11 methods refused under SEC-12. The split into six and five is the coordinator's reading of his standing 'allow everything' (SEC-11), to confirm with him."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/security.toml SEC-17."
+legacy = "ferb-phone-link@57b3f34 SEC-17; lab paths: rust/src/role.rs, standin/phone_role.py"
+
+[PHN-118]
+title = "Safe on a public Wi-Fi: nothing leaked to anyone on that network"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "i want our app to be secure even on a public wifi, nothing able to be leaked to anyone."
+rule = "On a network the owner does not trust, nobody on it and not its operator can read anything FERB sends or act on FERB; at most they can deny service. What metadata stays visible is listed in SECURITY.md. Local discovery stays off by default on this basis."
+why = "Asked while discussing local discovery (T-10)."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/security.toml SEC-18."
+legacy = "ferb-phone-link@57b3f34 SEC-18; lab paths: SECURITY.md, rust/src/net.rs"
+
+[PHN-119]
+title = "Metadata may be visible; nobody on the network may connect to FERB or read or alter data"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "its ok they can see some mere info, my concern was just that they shouldnt be able to connect to ferb or see data in anyway possible, so that connection needs to be secure and all"
+rule = "On an untrusted network visible metadata is acceptable. The bar is: nobody on the network, and not its operator, can connect to FERB or read or alter data. SECURITY.md and the tests are aimed at that bar."
+why = "Clarifies SEC-18."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/security.toml SEC-19."
+legacy = "ferb-phone-link@57b3f34 SEC-19; lab paths: SECURITY.md"
+
+[PHN-120]
+title = "A prompt on the Mac's screen: FERB clicks it on the owner's say from the phone"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "but ferb can click on mac so why cant it do it, its just says click there, if you cant then it does, right??"
+rule = "When something needs a click on the Mac's screen and the owner is on the phone, FERB itself makes the click on his Yes from the phone (with the unlock where the thing is sensitive). Only when the system refuses a click from software does the phone say it must be done at the Mac, with the reason."
+why = "He was told the phone would only say 'it needs a click there' (SEC-17). Not built in this lab yet (T-14); today the reply still only says so."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/security.toml SEC-20."
+legacy = "ferb-phone-link@57b3f34 SEC-20"
+
+[PHN-121]
+title = "Known high-value files and folders need a fresh fingerprint each time"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "yes, these known high profile files/folder should carry that."
+rule = "A fixed, named list of places that hold keys, tokens and private stores needs a fresh device-unlock proof for each access, bound to that exact path and a one-time challenge and verified on the Mac; the 5-minute unlock does not cover them. The owner can extend the list on the Mac; a phone cannot read or shorten it."
+why = "Asked after his audit showed a credential cache fetched under the idle-window unlock."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/security.toml SEC-21."
+legacy = "ferb-phone-link@57b3f34 SEC-21; lab paths: rust/src/role.rs, rust/src/bridge.rs"
+
+[PHN-124]
+title = "Nothing upstream of the daemon is trusted; the Mac's state cannot be forged by another local program"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "The daemon holds the paired phones and their keys, gives the challenges, verifies every unlock proof for the exact call, keeps the unlock window and opens or writes every file itself; the bridge only passes `proof` on. A file is opened once and the file that opened is judged: no spelling, link, other name of the volume or swap changes the answer. The link key, the relay token and the key sealing link.json are in the Keychain; a link.json changed by something else is not loaded. The admin socket and the daemon's owner-only call answer only the owner's own program, by code signature."
+why = "Review findings 2 and 5, and the stand-in's old `fresh: true` taken from the bridge. Verified at 04da199: a key file and FERB's own state came back through the Data volume's name, a hard link and a raced link; the admin socket and the device list were open to any program of the owner's."
+rejected = ["Verifying in the bridge and telling the daemon the result: the daemon then trusts the helper", "Comparing resolved path text before opening: the two looks can disagree", "The security CLI for the Keychain: every program can call it, so it protects nothing"]
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/security.toml SEC-24. There it superseded SEC-23. Lab evidence: 2026-11-10: rust/tests/attacks.rs (each finding's test fails on ad81bc1; the path tests also fail on 04da199) and rust/tests/hardening.rs pass. (the rest in the lab record)"
+untestable = "A caller with another user id (no second account without sudo); the login keychain itself."
+legacy = "ferb-phone-link@57b3f34 SEC-24 (its paths are in the lab record)"
+
+[PHN-125]
+title = "The Mac gives a connection nothing of FERB's before it has verified the phone's unlock"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "yeah lets have it. and about the mac sending to locked device, cant it be just remembered for sometime and refreshed??? cause it would be annoying to see 'FERB has a question' only in notification. BUT before doing this see if its safe."
+rule = "He was shown: the Mac treats every connection as locked until it receives the signed unlock the app already sends on open. So chat, tasks, previews and task files need the unlock window like files and settings do. A locked connection can learn that something waits (chat.status), stop FERB (stop.engage, task.stop) and answer what carries its own proof; nothing else."
+why = "Review finding 3: whoever holds the phone's link key without the fingerprint could task FERB and fetch what it produced."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/security.toml SEC-25. There it superseded PHN-7."
+legacy = "ferb-phone-link@57b3f34 SEC-25; lab paths: standin/phone.py, standin/phone_role.py, standin/daemon.py"
+
+[PHN-126]
+title = "Notification text goes to the paired phone itself, with no time limit"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "isnt this oversecurity, we just have to make it secure not annoy people with all this rubbish. that connects to the notification glance lock too"
+rule = "He was shown that after N hours without opening the app notifications would drop to 'FERB has a question'. There is no such limit: a paired phone under Stay connected always gets the full question and reply text for its notifications. The words go only to a connection that proves the phone's own device key (hardware-held, not exportable, no prompt); any other holder of the link key learns only that something waits and of which kind. A hidden input's content never travels. Removing the phone on the Mac ends it at once. A lost phone is handled by removing it on the Mac."
+why = "Analysis in SECURITY.md: a link key copied to another device cannot sign with the device key; root on the phone sees what the app shows either way; whoever holds the unlocked phone reads its notifications as with any messaging app."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/security.toml SEC-26."
+legacy = "ferb-phone-link@57b3f34 SEC-26 (its paths are in the lab record)"
+
+[PHN-127]
+title = "Uploads: the daemon takes them, behind the unlock and a free-disk floor"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "An upload is begun, written and finished by the daemon: it needs the unlock window, is refused before its first byte when it would leave less than upload_free_floor (1 GiB) free, lands 0600 under a random id, and is marked as downloaded (quarantine). One that stops part way is kept upload_partial_keep_s (1 hour) so it can go on where it stopped, by the same phone only. A folder is one folder in the upload place; every file's place inside it is cleaned and cannot climb out. A message's attachments are that phone's own finished uploads, by id."
+why = "Review finding 11; kb T-14 (pause and resume, folders)."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/security.toml SEC-27."
+legacy = "ferb-phone-link@57b3f34 SEC-27; lab paths: standin/phone.py, rust/src/bridge.rs, rust/src/client.rs"
+
+[PHN-128]
+title = "A phone that takes unusually much is said so, on the Mac and once in the chat"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "yes do that, BUT one time chat notification would be good too. cause sometimes my mac is on DND"
+rule = "When a phone fetched more than fetch_notice_files files or fetch_notice_bytes within fetch_notice_window_s, the Mac shows a notice and the phone's chat gets one message, once per burst, not per file. It is a notice, never a cap."
+why = "SEC-16 leaves file transfer uncapped; the notice is what tells him of a drain while it happens."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/security.toml SEC-28."
+legacy = "ferb-phone-link@57b3f34 SEC-28; lab paths: rust/src/bridge.rs, rust/src/limits.rs"
+
+[PHN-129]
+title = "Key places and sensitive changes take the fingerprint; the PIN only on a phone that has none"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "fingerprint is better for those. BUT what if a phone doesnt have fingerprint?? then its password only"
+rule = "For the places that need a fresh proof and for sensitive changes, a strong biometric is required when the phone has one enrolled; the device PIN or password is accepted for those only when the phone has none. Opening the app, the unlock window and ordinary files keep accepting either."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/security.toml SEC-29."
+legacy = "ferb-phone-link@57b3f34 SEC-29; lab paths: standin/phone.py, android/app/src/main/java/local/ferb/link/UnlockKey.kt"
+
+[PHN-130]
+title = "The audit is kept 90 days"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "yes i agree 90days"
+rule = "The audit of what phones did is kept 90 days."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/security.toml SEC-30."
+legacy = "ferb-phone-link@57b3f34 SEC-30; lab paths: rust/src/store.rs, rust/src/limits.rs"
+
+[PHN-131]
+title = "Chat app stores, Notes, phone backups and key files by type join the fresh-fingerprint places"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "yes i agree"
+rule = "He was shown: add chat app stores, Notes, phone backups and key files by type (.pem, .key, id_*) to the fresh-fingerprint list. They are on it."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/security.toml SEC-31."
+legacy = "ferb-phone-link@57b3f34 SEC-31; lab paths: standin/protection.py"
+
+[PHN-132]
+title = "Secure, but never at the cost of annoying the owner"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "isnt this oversecurity, we just have to make it secure not annoy people with all this rubbish. that connects to the notification glance lock too"
+rule = "Where a protection adds a visible step, a prompt, a delay or a degraded feature, it needs a concrete attack it stops that the invisible protections do not; otherwise it is left out. Not weakened by this: the Mac-side unlock before chat, the fresh fingerprint for key places and sensitive changes, the signed hard Yes, pairing with the matching code, the audit."
+why = "Said about a time limit on notification text; set as the bar for the whole app."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/security.toml SEC-32."
+legacy = "ferb-phone-link@57b3f34 SEC-32"
+
+[PHN-133]
+title = "How the rest is built: which key signs what, the lists, the click on a Mac prompt"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "The phone has a PIN-capable lock key and a fingerprint-only key (Android destroys it when a fingerprint is added). When the second is registered the daemon takes only its signature for the sensitive class, every fresh-proof file or folder and key registration; it is replaced only by pairing again. The guarded list is FERB's never-read list (sync-protection.py; a test fails when FERB's grows) plus SEC-31's places, shell history and dotenv files. The audit is cut into pieces; one older than audit_keep_days goes. A Mac prompt is clicked on the owner's signed Yes; a refused click is said."
+why = "SEC-29, SEC-21, SEC-30, SEC-20. A hard Yes and a private answer still take either key: his words name key places and settings; whether a hard Yes should be fingerprint-only is asked (T-21)."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/security.toml SEC-33. There it superseded SEC-22."
+legacy = "ferb-phone-link@57b3f34 SEC-33; lab paths: standin/phone.py, standin/protection.py, scripts/sync-protection.py, rust/src/store.rs"
+
+[PHN-134]
+title = "The five methods stay off the phone"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "yeah keep them off."
+rule = "He was asked: the five methods off the phone (FERB.app's notifications and its own chat-history data): keep them off? notifications.subscribe, intro.preview, about.guide, chat.history.put and chat.history.import stay refused from a phone, each with its reason."
+why = "Closes the question left by SEC-17."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/security.toml SEC-34."
+legacy = "ferb-phone-link@57b3f34 SEC-34; lab paths: rust/src/role.rs, standin/phone_role.py"
+
+[PHN-135]
+title = "The pairing QR must be simple for the camera to read"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "one thing to fix is the qr itself. the camera take so many angles brightness to recognize that qr, cant it be simplified??? why is this even happening?"
+rule = "The pairing code FERB shows is read by the phone's camera at once, without trying angles and brightness. What it carries and how it is drawn are made as simple as that needs; pairing stays exactly as safe (SEC-2)."
+why = "On his phone, with his own relay set, the code was a 109-module QR of 822 characters drawn at 2 points a module with a one-module margin on a dark window."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/security.toml SEC-35."
+legacy = "ferb-phone-link@57b3f34 SEC-35 (its paths are in the lab record)"
+
+[PHN-136]
+title = "The short pairing code: what it carries and what still reads"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "The QR and the typed fallback are one text: FERB- and, in 41 characters of the QR's dense text mode that survive a paste, the link version, the Mac's id, the whole 32-byte one-time secret, each relay (a known shared one as its number, pairing.rs KNOWN_RELAYS) and, with an own relay, its address, its token as bytes, and its authority's name and key in place of the certificate (the welcome brings that). Proof, window, single use and the six digits are unchanged. link.pair_start gives url (the old link, read by every build) beside code; the phone reads both."
+why = "SEC-35. 179 characters and 53 modules a side became 107 and 37 (shared relay); 822 and 109 became 233 and 53 (own relay with its authority). The token cannot stay out: the phone needs it to reach the Mac before it is paired."
+rejected = ["A short hand-typed code: it needs a meeting point (a server, or local discovery, T-10) and a password-authenticated key exchange library. Asked as T-25.", "Fewer secret bytes: SEC-2's 256 bits stay.", "Binary QR mode: scanners hand bytes back as text in a guessed character set.", "A pin of the relay's certificate instead of its authority's key: the Mac would have to fetch it, and it changes at renewal."]
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/security.toml SEC-36. Lab evidence: rust/tests/code.rs (MEASURE lines), rust/tests/pairing.rs, rust/tests/relay.rs (an own relay with its own authority, paired through the short code)."
+legacy = "ferb-phone-link@57b3f34 SEC-36; lab paths: rust/src/pairing.rs, rust/src/net.rs, rust/src/bridge.rs, rust/src/bin/ferb-link.rs"
+
+[PHN-137]
+title = "A hard-to-undo Yes takes the fingerprint itself where the phone has one"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "agree with all except what is 'Hard maximum on the unlock' ??? what does it do and whats its limit?"
+rule = "He was shown a table of the open default values with the agent's view on each (the row as the coordinating agent relayed it): 'Hard-to-undo Yes: fingerprint or PIN' as the default, with the view 'make it fingerprint-only, like key folders'. He agreed with the view. A Yes to one of FERB's own checks is signed by the phone's fingerprint-only key when it registered one; the PIN-capable key is taken only from a phone without one. Enforced on the Mac, the same way as the key places (SEC-29). A plain No needs nothing; a private answer keeps taking either key."
+why = "Closes T-21."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/security.toml SEC-37."
+legacy = "ferb-phone-link@57b3f34 SEC-37; lab paths: standin/phone.py, android/app/src/main/java/local/ferb/link/Link.kt"
+
+[PHN-138]
+title = "The heavy-fetch notice: 40 files or 1 GB in 10 minutes"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "agree with all except what is 'Hard maximum on the unlock' ??? what does it do and whats its limit?"
+rule = "He was shown a table of the open default values with the agent's view on each (the row as the coordinating agent relayed it): 'Heavy-fetch notice: 40 files or 1 GB in 10 minutes.' Confirmed: fetch_notice_files 40, fetch_notice_bytes 1 GB, fetch_notice_window_s 600 (SEC-28)."
+why = "Closes T-18."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/security.toml SEC-38."
+legacy = "ferb-phone-link@57b3f34 SEC-38; lab paths: rust/src/limits.rs"
+
+[PHN-139]
+title = "Uploads: refused under 1 GB free; a partial upload is kept one hour"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "agree with all except what is 'Hard maximum on the unlock' ??? what does it do and whats its limit?"
+rule = "He was shown a table of the open default values with the agent's view on each (the row as the coordinating agent relayed it): 'Upload floor: refuse when the Mac has under 1 GB free; partial uploads kept one hour.' Confirmed (SEC-27's upload_free_floor and upload_partial_keep_s)."
+why = "Closes T-22."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/security.toml SEC-39."
+legacy = "ferb-phone-link@57b3f34 SEC-39; lab paths: standin/phone.py"
+
+[PHN-140]
+title = "A hard-linked file asks for its own fingerprint"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "agree with all except what is 'Hard maximum on the unlock' ??? what does it do and whats its limit?"
+rule = "He was shown a table of the open default values with the agent's view on each (the row as the coordinating agent relayed it): 'A hard-linked file asks for its own fingerprint: keep on.' Confirmed: a file that exists under more than one name needs its own fresh proof when opened from the phone (SEC-24)."
+why = "Closes T-23."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/security.toml SEC-40."
+legacy = "ferb-phone-link@57b3f34 SEC-40; lab paths: standin/phone.py"
+
+[PHN-141]
+title = "One unlock lasts at most 12 hours"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "keep 12 hours."
+rule = "Said after the hard maximum on the unlock was explained to him (he had asked: what is 'Hard maximum on the unlock' ??? what does it do and whats its limit?). unlock_max_s stays 12 hours: an unlock that is kept in use ends after that at the latest; the 5 idle minutes and the app's own lock close a session long before (PHN-15)."
+why = "Closes T-20."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/security.toml SEC-41."
+legacy = "ferb-phone-link@57b3f34 SEC-41; lab paths: rust/src/limits.rs, standin/phone.py"
+
+[PHN-142]
+title = "How a pairing code is drawn"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "Every code is drawn from one matrix (qr.rs; link.pair_start carries it): level M, the mask under which nothing but the three corner squares passes ZXing 3.4's finder test, upright and in each quarter turn. The Mac app draws it black on white whatever the appearance, a four-module margin, whole points per module, about 320 points wide; the terminal uses half blocks with black on white set by the code itself and prints the text to type below. The Mac app and `pair old` can show the old link's code for an app from before."
+why = "Before: a one-module margin on a dark window, 2 to 4 points a module. ZXing takes a chance look-alike above the lower-left square for that square and reads nothing at that angle: about one old code in ten, even sharp."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/security.toml SEC-42. Lab evidence: scripts/scan-test.sh: of 231 simulated camera tries, shared relay 100 read before and 174 now; own relay with its authority 10 before and 136 now. (the rest in the lab record)"
+legacy = "ferb-phone-link@57b3f34 SEC-42 (its paths are in the lab record)"
+
+[PHN-143]
+title = "No user of FERB is asked for a Keychain password because of the phone link"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "The lab's question (ferb-link wants to access key ferb-phone-link) is the lab's: ferb-link is signed ad hoc, so each rebuild is another program to the Keychain. In FERB.app the link's secrets are one item made and read only by the pinned ferb-secrets helper, whose bytes, identifier and certificate stay the same across releases; a fresh install and an update then ask nothing. PORTING.md (The Keychain) has the cases that remain and what FERB does in each. The lab keeps its three values in one item, so a rebuild is one question, not three."
+why = "The owner, on seeing the question after a rebuild: 'will this keychain come to every user who download the app???' A stable own certificate alone is not enough: without an Apple Team ID the login keychain admits code by its exact hash."
+rejected = ["Signing the lab's binaries with one local identity: the login keychain would still ask (no Team ID), and trusting it needs his password.", "Allow all applications, or a helper anyone can run for the lab: weaker than a question."]
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/security.toml SEC-43. Lab evidence: A keychain file of the test's own: an ad-hoc rebuild is refused (-25293); two builds signed with one throwaway certificate both read the item. Apple forums 649081 and 98484; FERB kb REL-404, T-502."
+legacy = "ferb-phone-link@57b3f34 SEC-43; lab paths: rust/src/secrets.rs, PORTING.md, scripts/env.sh"
+
+[PHN-144]
+title = "The seal on link.json is judged from the file's own text, so a build with other settings opens it"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "The seal is the keyed hash of link.json's text as written: compact JSON (only the spacing between its parts dropped) without its last member, seal. A start checks the text on disk, never the state read into this build and written out again; a save is checked the same way before it is written. Refused: any change that says something else, members in another order, a seal missing, empty or not last. Accepted: other spacing only. The refusal says nothing was removed and names removing the file as the last resort; the Mac app shows a link that stopped by itself, in the link's words."
+why = "9c90d9a added a setting with a default, read the file 1388e17 had sealed, filled it in, hashed that and refused the owner's untouched state as changed; the Mac app showed nothing and the message offered removing the file. Every later setting would have done the same."
+rejected = ["Telling the owner to pass --accept-state after an update: it teaches waving the tamper check away.", "A second attempt with the newer settings left out: it fails again for the next build.", "Taking members in any order: no build writes that.", "A version number in the seal: the text rule is what every build already wrote."]
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/security.toml SEC-44. Lab evidence: States sealed by ferb-link built from 1388e17 and 9c90d9a (file keys, no network): rust/tests/fixtures. (the rest in the lab record)"
+legacy = "ferb-phone-link@57b3f34 SEC-44; lab paths: rust/src/store.rs, rust/tests/hardening.rs, rust/tests/fixtures/**, macapp/Sources/FerbLinkMac/App.swift"
+
+# ---- imported from the lab's kb/decisions/net.toml (NET-n -> PHN-201..)
+
+[PHN-201]
+title = "n0's public relays are the default"
+by = "owner"
+date = 2026-11-10
+status = "superseded"
+words = "mostly it will be n0's relay servers"
+rule = "With no own relay set, FERB and the phone use n0's public relays. The link behaves as a good citizen there: caps on bulk, backoff, no reconnect loops, clear errors."
+why = "They are free and need no setup; n0 calls them development and hobby use, with an unpublished rate limit."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/net.toml NET-1."
+superseded_by = "PHN-414"
+legacy = "ferb-phone-link@57b3f34 NET-1; lab paths: rust/src/net.rs"
+
+[PHN-202]
+title = "On the own relay or a direct connection everything works, safely"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "IF on own added server as relay or direct connection then everything is fine BUT with proper safety and all."
+rule = "On the owner's own relay or a direct path the shared-relay caps do not apply: live preview, large pictures and files work. Pairing, the phone's method list, the unlock proof and revocation apply on every tier."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/net.toml NET-2."
+legacy = "ferb-phone-link@57b3f34 NET-2; lab paths: rust/src/net.rs, rust/src/bridge.rs"
+
+[PHN-203]
+title = "A new endpoint only when the relay set changes, never as a retry"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "An endpoint is built at start and again only when the set of relays it may use changes (the owner changed the setting; the fallback began or ended). A failed dial or a dropped connection never rebuilds it."
+why = "iroh keeps using relays it remembers: after insert_relay/remove_relay a live connection stayed on the old relay, so the tier would be wrong. Each start costs a relay connection and a probe."
+rejected = ["insert_relay/remove_relay on the live endpoint: paths stay on the old relay", "iroh's PathSelector: unstable, feature-gated"]
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/net.toml NET-3. Lab evidence: 2026-11-10 tiers test: with insert/remove the Mac's selected path stayed Relay(old) after the switch (197 samples); with a rebuild the phone reaches tier own_relay."
+legacy = "ferb-phone-link@57b3f34 NET-3; lab paths: rust/src/net.rs::RelayPolicy"
+
+[PHN-204]
+title = "The Mac's id and relay are not published to n0's DNS"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "Both sides use iroh's Minimal preset: no address lookup is configured, nothing is published. The phone learns where the Mac is from the QR and over the link. An unpaired endpoint is closed at once when no pairing window is open."
+why = "P10: with the N0 preset anyone holding the Mac's id could look up its relay and see it online."
+rejected = ["N0 preset (publishes id -> relay to n0's DNS)"]
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/net.toml NET-4."
+legacy = "ferb-phone-link@57b3f34 NET-4; lab paths: rust/src/net.rs::bind"
+
+[PHN-205]
+title = "A direct setting to add an own relay"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "there should also be a direct option to add your own server as relay cause then there is no small limit cap, VMs have a good cap"
+rule = "The Mac has one setting, \"Use my own relay\", taking the relay's address (and access token). It is tested before it is saved. Paired phones learn it from the Mac, at pairing and over the link; nobody types it on the phone."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/net.toml NET-5."
+legacy = "ferb-phone-link@57b3f34 NET-5; lab paths: rust/src/net.rs, rust/src/relaytest.rs"
+
+[PHN-206]
+title = "Setting up an own relay is quick and smooth"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "also how to setup own relay server etc, making it quick, smooth and all"
+rule = "The repo carries one script that sets up iroh-relay on a small VM (TLS from Let's Encrypt, an access token, a service, a health check, an update path) and a short exact guide. Its output is the two values the Mac's setting takes."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/net.toml NET-6."
+legacy = "ferb-phone-link@57b3f34 NET-6"
+
+[PHN-207]
+title = "The tier is read from the path the Mac sends on"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "A connection's tier is the selected path as iroh reports it on the Mac: an IP path is direct; a relay path whose URL is the configured own relay is own_relay; any other relay path, or no selected path yet, is shared_relay. It is read again for every bulk chunk."
+why = "The Mac is the trusted side; a phone cannot talk itself into a better tier."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/net.toml NET-7."
+legacy = "ferb-phone-link@57b3f34 NET-7; lab paths: rust/src/net.rs::tier"
+
+[PHN-208]
+title = "Own relay down: a visible fallback to the shared relays"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "With an own relay set and unreachable for own_relay_fallback_after_s (30), each side moves to the shared relays (when own_relay_fallback is on), says so (state own_fallback with the reason), and applies the shared-relay caps. The own relay is tested every own_relay_probe_s (60); when it answers, the side moves back."
+why = "The basics must keep working when the owner's VM is down; the owner must see which tier is in use."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/net.toml NET-8."
+legacy = "ferb-phone-link@57b3f34 NET-8; lab paths: rust/src/net.rs::RelayPolicy"
+
+[PHN-209]
+title = "The own relay is restricted with a shared access token"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "The setup script configures iroh-relay's access = shared_token with a random token; the Mac sends it as the relay auth token and hands it to paired phones with the relay address. Endpoints without it are refused by the relay."
+why = "iroh-relay 1.4.1 offers everyone, allowlist, denylist, http and shared_token (src/main.rs AccessConfig). An allowlist would need a server edit for every new phone."
+rejected = ["access.allowlist of endpoint ids: a server edit per phone", "access.http: needs another service"]
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/net.toml NET-9."
+legacy = "ferb-phone-link@57b3f34 NET-9"
+
+[PHN-210]
+title = "The relay Test: one code per failing step"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "Test checks, in order: the address (https, or http to this Mac only), DNS, the TCP port, the TLS certificate, the relay's own version from /healthz (same major as FERB's iroh), then a real relay handshake with this device's key and the token. Each failure has its own code and fix. A relay is saved only after it passes."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/net.toml NET-10. Lab evidence: 2026-11-10: against the stock iroh-relay 1.4.1 binary in --dev mode with access.shared_token: no token -> own_relay_access_denied; with it -> accepted, relay version 1.4.1."
+legacy = "ferb-phone-link@57b3f34 NET-10; lab paths: rust/src/relaytest.rs"
+
+[PHN-211]
+title = "A relay on a shared machine: a high port and its own pinned certificate"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "setup.sh --shared installs the relay beside whatever the machine already runs: one folder, one service, its own user, a high port (7443), a certificate from an authority made on the spot whose key is thrown away, and one ufw rule when ufw is active. FERB pins that authority (the relay link carries it), so no DNS name, no port 80/443 and no public certificate are needed. --uninstall removes all of it."
+why = "The owner's VM already runs a web server on 80 and 443; nothing existing may be touched."
+rejected = ["Taking 80/443 or editing the web server's config", "Plain http on a high port: the token would cross in the clear", "A public certificate: needs a DNS record or a proxy rule from the owner"]
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/net.toml NET-11. Lab evidence: 2026-11-10 on the owner's VM (1 vCPU, 1 GB, Caddy on 80/443, ufw on): install, uninstall (users, units, ufw rules, listeners, /opt and running services identical to before), install... (the rest in the lab record)"
+legacy = "ferb-phone-link@57b3f34 NET-11; lab paths: relay/setup.sh, rust/src/net.rs::RelaySpec"
+
+[PHN-212]
+title = "Address discovery on the own relay, and the why line"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "setup.sh turns on the relay's address discovery (UDP 7842) so a device that uses only the own relay still learns its public address; the relay Test warns when it does not answer. After the tier line both sides show why the path is not direct, built only from iroh's network report of both ends (UDP, public address, port varies by destination, sign-in page), worded as what was observed. A tunnel such as a VPN to the owner's own server counts as direct and lifts the caps: that traffic is not on the shared relay."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/net.toml NET-12. Lab evidence: 2026-11-10 on the owner's VM: with discovery on, an endpoint using only that relay reported udp_v4 true and a public address; the Test lists 'address discovery answers'."
+legacy = "ferb-phone-link@57b3f34 NET-12; lab paths: rust/src/net.rs, rust/src/relaytest.rs, relay/setup.sh"
+
+[PHN-213]
+title = "The selected path is reported as facts, without the address; a force-relay test switch"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "link.status, the device list, tier events and the audit say what the selected path is: direct or relay, IPv4 or IPv6, and whether the phone's address as the Mac sees it is on the local network, in a carrier's shared range or public; never the address itself. The Mac has a test switch that removes its IP transports so every byte crosses a relay. The relay link stays one line carrying the whole certificate authority; pastes are made safe instead (whitespace inside a link is dropped, relay file PATH, a text box in the Mac app)."
+why = "On the owner's phone, mobile data showed direct where the research expected a relay; a wrapped 600-character link was read as several commands."
+rejected = ["A fingerprint pin instead of the certificate in the link: needs a custom certificate verifier on both sides and a new wire field; the paste was the fault, not the length"]
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/net.toml NET-13. Lab evidence: 2026-11-10 test: with the switch on, a direct session was on the relay tier after 0.9 s and back on direct after it was turned off."
+legacy = "ferb-phone-link@57b3f34 NET-13; lab paths: rust/src/net.rs::path_facts, rust/src/bin/ferb-link.rs"
+
+[PHN-214]
+title = "The owner's own relay is a main feature"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "also we do need it, cause the major usecase of the phone is when im away. so a good option would be to have my own relay server with no limit if needed."
+rule = "He was shown: is it needed, no; everything basic works on the free relay; your own relay only removes the size caps when you are away and cannot get direct. Own-relay setup, health and messages are first-class in the docs and in both apps; it stays optional."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/net.toml NET-14."
+legacy = "ferb-phone-link@57b3f34 NET-14 (its paths are in the lab record)"
+
+[PHN-215]
+title = "The relay setup says what it needs and checks it before it changes anything"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "what guarantee is that our own relay setup is adaptable to any VM, its the same on every VM, who decided the memory, the cpu, the connection and all, what if something we have mentioned not available there, is it needed??? who ensures safety of that VM??"
+rule = "The setup must make the answers true and written down: a preflight that checks every assumption before changing anything and says in plain words what is missing; requirements stated from measurement; what is optional; a tested-on list that is honest about what was never run; who keeps the server safe and what someone who takes it over can and cannot do."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/net.toml NET-15."
+legacy = "ferb-phone-link@57b3f34 NET-15; lab paths: relay/setup.sh, relay/README.md, SECURITY.md"
+
+[PHN-216]
+title = "The change from the relay to a direct connection: shown while it is tried, and timed"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "While a session is on a relay and nothing observed rules a direct path out (the test switch is off, both sides' network reports show UDP working or are not in yet), the Mac's status, the tier event and both apps say a direct connection is being tried. The time from the session's start to its first direct path is recorded per phone and shown."
+why = "On the owner's phone a session sat on the shared relay for a while on the same Wi-Fi before it went direct by itself."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/net.toml NET-16."
+legacy = "ferb-phone-link@57b3f34 NET-16; lab paths: rust/src/bridge.rs, rust/src/net.rs"
+
+[PHN-217]
+title = "Relay setup on a server with only a private address stays a stop"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "agree with all except what is 'Hard maximum on the unlock' ??? what does it do and whats its limit?"
+rule = "He was shown a table of the open default values with the agent's view on each (the row as the coordinating agent relayed it): 'Relay setup on a server with only a private address: stays a stop.' Confirmed: setup.sh stops on a machine whose own address is private until the public address is passed (--address), and says so (NET-15)."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/net.toml NET-17."
+legacy = "ferb-phone-link@57b3f34 NET-17; lab paths: relay/setup.sh"
+
+[PHN-218]
+title = "Why not direct: said from what both sides offer; a fresh start after a change of network"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "Each side says which kinds of address it offers for a direct connection (never the addresses) and how many attempts it started; the Mac shows both, writes them at every change of path, and builds the reason only from them. One state is shown: where the session is, whether a direct path is being tried and for how long, and the last change to direct only as history. (Starting over after a change of network: NET-23.)"
+why = "On his phone: relayed for minutes after Wi-Fi to mobile data with the own relay, direct within seconds when the app was started afresh on mobile data (own relay off). The status said 'was not possible', 'trying' and a stale '0.5 s' at once, and blamed a firewall nobody saw."
+rejected = ["n0's relays for address discovery only: iroh 1.4.1 takes any relay in its map as a possible home relay, and it adds no address the endpoints do not already offer.", "Blaming the own relay: the two runs differed in fresh start against handover as well."]
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/net.toml NET-18. Lab evidence: iroh 1.4.1 net_report.rs spawn_qad_probes (discovery connections kept unless the report is full), remote_state.rs handle_msg_network_change and UPGRADE_INTERVAL (60 s). rust/tests/relay.rs, rust/tests/remote.rs."
+legacy = "ferb-phone-link@57b3f34 NET-18; lab paths: rust/src/net.rs, rust/src/client.rs, rust/src/bridge.rs, rust/src/limits.rs, macapp/Sources/FerbLinkMac/App.swift"
+
+[PHN-219]
+title = "Always use my relay: a setting for someone who has one"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "also, if someone has their own relay then they should be given the option to switch to their own relay whenever they want and stay on it. only if it fails or something happens to their relay, our backups come - direct and then free relay"
+rule = "With an own relay set there is a setting, off by default, to use the own relay and stay on it even when a direct path exists. Only when the own relay fails does the session fall back, first to a direct connection, then to the shared relay, and it returns to the own relay when that works again. He can switch it at any time."
+why = "Not built yet: T-27."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/net.toml NET-19."
+legacy = "ferb-phone-link@57b3f34 NET-19; lab paths: rust/src/net.rs"
+
+[PHN-220]
+title = "A change of the relay setting never strands a paired phone"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "With an own relay set, the Mac also stays findable on the shared relays (a second endpoint of the same identity, no data of its own) for as long as a paired phone has not been seen on a path through the own relay as it is set now. Such a phone finds the Mac where it last knew it, is handed the setting in the welcome, and moves; the same door and checks apply there as everywhere. When every paired phone has been seen the second endpoint closes, and it is never open while the shared relays stand in for the own relay. The Mac app says how many phones are still to come."
+why = "The owner set his relay at a moment his phone was not connected (the app was being restarted by the agent's test). The Mac told only connected phones, moved 0.3 s later, and the phone dialed the shared relay for 18 minutes; nothing could ever have found it."
+rejected = ["Keeping the shared relays in the main endpoint's map: iroh 1.4.1 may then make one of them the Mac's home, and bulk would cross it.", "Waiting a while before moving: a phone may be off for weeks.", "Marking a phone as told when the welcome was written: only a path through the own relay proves it has the address, token and authority."]
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/net.toml NET-20. Lab evidence: rust/tests/relay.rs: set, replaced and switched off while the phone is off, replaced while connected, a stranger gets nothing; working again after 1.2 s and 25 s on 127.0.0.1. (the rest in the lab record)"
+legacy = "ferb-phone-link@57b3f34 NET-20; lab paths: rust/src/net.rs, rust/src/bridge.rs, rust/src/store.rs, rust/tests/relay.rs, macapp/Sources/FerbLinkMac/App.swift"
+
+[PHN-221]
+title = "Measured on the owner's phone: the handover keeps a session relayed, not the own relay"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "An agent's measurements, not the owner's verdict. Shared relay only (the own-relay half was not run). App started on mobile data: direct 0.5 s after connecting, 3 of 3. Wi-Fi to mobile data in a live session: not direct in 3 minutes, 3 of 3 (app 1388e17), one left 13 minutes; mobile data off and on changed nothing; back on Wi-Fi direct in 7 s. App 9c90d9a: the fresh start ran at 12 s and that session stayed relayed, 2 of 2. A new app process 18 s after the switch: relayed for the 105 s watched; 123 s after: direct in 0.5 s. A session begun soon after the switch does not recover by itself."
+why = "LIVE-35 left two differences (own relay, handover). NET-18's fresh start rests on 'a newly opened app goes direct within seconds', which holds only some minutes after the switch."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/net.toml NET-21. Lab evidence: 2026-11-10, moto g85 over adb, Mac 251f462 and ecc3e26. Phone on mobile: carrier-range IPv4 and global IPv6; the Mac's network has no IPv6; every direct path was IPv4. (the rest in the lab record)"
+untestable = "An agent's measurement or finding on the owner's phone in the lab, not a behaviour; kept for the link's port (T-1200) and the lab's open network questions."
+legacy = "ferb-phone-link@57b3f34 NET-21; lab paths: rust/src/client.rs, rust/src/net.rs"
+
+[PHN-222]
+title = "iroh is built with one patch: an idle endpoint keeps its address-discovery connection"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "The link builds against iroh 1.4.1 as published plus rust/patches/iroh-1.4.1.patch (scripts/iroh-patch.sh makes the copy, checked against the published crate's SHA-256; rust/Cargo.toml points at it). The patch changes one value in two places: the discovery connection iroh keeps to a relay counts as that address family's report from its first observation on. Nothing else of iroh and no timer of the link is changed. When an iroh release no longer needs it, the patch goes."
+why = "His phone, idle, used about 100 kB a minute each way. Each periodic report (every 20 to 26 s, a private constant) opened new discovery connections to every relay, a full handshake each, per address family: the kept one only counted after its observed address changed. Upstream main is the same."
+rejected = ["One relay in the map: one handshake per family per report is still about a quarter of the traffic, and no home relay could be chosen.", "Relays without address discovery: no public address is learned, so no direct path away from the Mac's network.", "A vendored copy of iroh: 1.6 MB to audit for a four-line change.", "Also lengthening iroh's five-minute full report (the bursts that remain): a second departure from upstream."]
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/net.toml NET-22. Lab evidence: His phone on mobile data, idle, direct: 111 kB a minute in and 87 out before (3 min); after, 10 each way in ordinary minutes and 69 in, 53 out in the minute of iroh's five-minute full... (the rest in the lab record)"
+legacy = "ferb-phone-link@57b3f34 NET-22; lab paths: rust/patches/iroh-1.4.1.patch, scripts/iroh-patch.sh, rust/Cargo.toml, rust/src/net.rs"
+
+[PHN-224]
+title = "On a relay the phone tries again every 30 seconds; a direct session is never disturbed"
+by = "owner"
+date = 2026-11-11
+status = "active"
+words = "is the retry for mobile to wifi at 150 and 300s only??? why not add more in between along with these?? cause this 150 and 300 is just mine. could not be universally true. so lets add multiples of 30. also if one direct connection after retrying has established, it doesnt go off right?? like above?"
+rule = "The times at which the phone starts its connection over are not tuned to his network. While a session is still on a relay after a change of network, the phone tries again every 30 seconds (30, 60, 90 ... s). Once a direct connection is established it stays: the start-over logic never touches a session that is direct."
+why = "He ran app 4da4f8c by hand (LIVE-41, LIVE-46, LIVE-47): one of three switches from Wi-Fi to mobile data stayed on the relay until the start-over at 300 s; the one at 150 s had not freed it."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/net.toml NET-24. There it superseded NET-23."
+legacy = "ferb-phone-link@57b3f34 NET-24; lab paths: rust/src/client.rs, rust/src/limits.rs"
+
+[PHN-225]
+title = "How the phone starts over: the new endpoint first, then the session moves"
+by = "agent"
+date = 2026-11-11
+status = "active"
+rule = "A start-over makes a second endpoint of the same identity (new sockets), connects, is welcomed and proves the phone's device key on it while the session goes on over the old one; then the session moves and the old endpoint closes. Calls made meanwhile wait and go out on the new connection; the app stays online. The Mac takes a phone's newest connection as that phone and gives the unlock only to a connection that proved the device key (SEC-26). One that does not get through closes the new endpoint and changes nothing. The Mac records each one: kinds, counts and times."
+why = "At 30 s it happens up to ten times in five minutes. Closing the old endpoint first (NET-23) cut the relayed session for about a second each time, and a call made in that second failed."
+rejected = ["Moving only when the spare went direct: the relay sends to the newer connection, so the session would hear nothing during every trial.", "Asking the app to queue and resend calls: a message could be sent twice."]
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/net.toml NET-25. Lab evidence: iroh-relay 1.4.1 server/clients.rs: an id's newer connection is the active one. rust/tests/relay.rs: 705 calls across four start-overs, none failed, slowest 267 ms; moved in 0.25 s. (the rest in the lab record)"
+legacy = "ferb-phone-link@57b3f34 NET-25 (its paths are in the lab record)"
+
+[PHN-226]
+title = "What keeps a session on the relay is not in the phone's process (proven from his phone's traces)"
+by = "agent"
+date = 2026-11-11
+status = "active"
+rule = "An agent's findings from his phone's traces, not his verdict. A new endpoint in the same process gets new local ports every time; its sockets use the network the phone is on now (address discovery answers on both families within half a second); it starts with no remembered address of the Mac; iroh sees the phone's interfaces. A start-over that failed and a new process that went direct did the same things at the same moments to within 20 ms. So it is not the phone's ports, not its socket binding, not a remembered address."
+why = "NET-23 named times (150 s, 300 s) without a cause; he asked what is stored that keeps it."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/net.toml NET-26. Lab evidence: Traces of 2026-11-10 (the session's scratch folder, not in the repo): 4 start-overs and 2 new processes, the local ports before and after, the address lists, the times of the first probes."
+untestable = "An agent's measurement or finding on the owner's phone in the lab, not a behaviour; kept for the link's port (T-1200) and the lab's open network questions."
+legacy = "ferb-phone-link@57b3f34 NET-26; lab paths: rust/src/client.rs, rust/src/net.rs"
+
+[PHN-227]
+title = "How long the 30-second tries run, what begins them again, and when they wait"
+by = "agent"
+date = 2026-11-11
+status = "superseded"
+rule = "Settings: handover_retry_every_s 30 for handover_retry_fast_for_s 300, then every handover_retry_slow_every_s 300, nothing after handover_retry_stop_after_s 3600, counted from the last change of network or opening of the app (either begins it again). A direct session ends it, and so do handover_retry_fails_max 2 in a row that could not connect. Never while a file travels or a call stays open (a task's stream); short calls end first. Not while the Mac says no direct path can be had (no UDP on one side, or its test switch)."
+why = "A new endpoint costs about 135 kB on the shared relays (iroh checks every relay from it): 30 s for ever would be about 16 MB an hour. Asked: T-30."
+rejected = ["Starting over under a task's open stream: the stream would break; streams cannot be resumed.", "A new endpoint with one relay only, to make it cheaper: adding the others later makes iroh run the full check anyway."]
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/net.toml NET-27. Lab evidence: His phone's trace of 2026-11-10: the minute of a new endpoint 78 kB out and 60 kB in, a quiet minute 3.5 kB. On 127.0.0.1, one relay, no address discovery: 10.9 kB out, 11.3 kB in. rust/tests/relay.rs."
+superseded_by = "PHN-445"
+legacy = "ferb-phone-link@57b3f34 NET-27; lab paths: rust/src/client.rs, rust/src/limits.rs"
+
+[PHN-228]
+title = "Who sends first: likely why a stuck session stays stuck; why early new connections fail is unknown"
+by = "agent"
+date = 2026-11-11
+status = "active"
+rule = "From code: in a running session the phone's probes leave at once and the Mac probes only when the phone's request arrives through the relay, so the phone's packet reaches the Mac's gateway first in every round; in a new connection the Mac probes about 100 ms before the phone. Measured earlier, 4 of 4: that gateway sends the Mac's next packets to a peer from another port for about 40 s when the peer's packet came first. Likely, not proven: that keeps a stuck session stuck. Unknown: why new connections fail in the first minute or two and work later, and why aeroplane mode was worse."
+why = "A cause decides where the fix goes (T-32): the phone's order of packets, the Mac's endpoint, or nothing either side can do."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/net.toml NET-28. Lab evidence: noq-proto 1.4.0 n0_nat_traversal.rs (initiate_nat_traversal_round, handle_reach_out); iroh 1.4.1 remote_state.rs (trigger_holepunching: the client only; the Mac keeps what it knew of a... (the rest in the lab record)"
+untestable = "An agent's measurement or finding on the owner's phone in the lab, not a behaviour; kept for the link's port (T-1200) and the lab's open network questions."
+legacy = "ferb-phone-link@57b3f34 NET-28; lab paths: rust/src/client.rs, rust/src/net.rs"
+
+# ---- imported from the lab's kb/decisions/limits.toml (LIM-n -> PHN-301..)
+
+[PHN-301]
+title = "The basics always work on the shared relay"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "i want that even on relay normal messages can be sent, things can be asked and its messages get to me etc — all the basic stuff."
+rule = "On n0's public relay these always work: send a message or task, FERB's replies and progress reach the phone, FERB's questions reach the phone and can be answered, stop a task, status. No bulk limit ever blocks them."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/limits.toml LIM-1."
+legacy = "ferb-phone-link@57b3f34 LIM-1; lab paths: rust/src/bridge.rs, rust/src/limits.rs"
+
+[PHN-302]
+title = "Every refusal says what stopped it"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "but correct error handling should be there to say what stopped something."
+rule = "Nothing is dropped silently and no failure is generic: every refusal or failure reaches the phone and the Mac with a stable code, what stopped it and, where something would allow it, what."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/limits.toml LIM-2."
+legacy = "ferb-phone-link@57b3f34 LIM-2; lab paths: rust/src/errors.rs"
+
+[PHN-303]
+title = "Limits are named settings, enforced on the Mac"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "Every cap, budget and timer is a field of limits.rs Limits with the validation's proposed value as default, kept in the Mac's link.json and changed only from the owner's side. The Mac enforces them; the phone is told them so it can explain. The owner confirms the values in T-2."
+why = "FERB rule 18: caps and budgets are owner decisions; AGENTS.md rule 3: code enforces boundaries on the trusted side."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/limits.toml LIM-3."
+legacy = "ferb-phone-link@57b3f34 LIM-3; lab paths: rust/src/limits.rs::Limits"
+
+[PHN-304]
+title = "Control and bulk never share a queue"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "Each call is its own QUIC stream at raised priority; bulk travels on its own lowered-priority stream as 16 KiB chunks, each acknowledged, with at most shared_window (1) unacknowledged on the shared relay. Control frames are at most 64 KiB, refused at the header."
+why = "P6/P11: one 1 MiB frame on a 64 kB/s relay delayed control 4.3 s (median); acknowledged chunks kept it at 147 ms."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/limits.toml LIM-4."
+legacy = "ferb-phone-link@57b3f34 LIM-4; lab paths: rust/src/wire.rs, rust/src/bridge.rs"
+
+[PHN-305]
+title = "No application ping; progress deadlines"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "The link sends no heartbeat of its own (QUIC's keep-alive only). A stream that makes no progress for stall_s (10) is reset; there is never a whole-frame deadline. A call unanswered after call_deadline_s + 5 shows reconnecting; the session is dropped only if a probe also gets no reply by give_up_after_s."
+why = "P7: the lab's 2 s ping cost 292 B/s at rest against 23 B/s; a fixed frame deadline killed slow relay transfers."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/limits.toml LIM-5."
+legacy = "ferb-phone-link@57b3f34 LIM-5; lab paths: rust/src/wire.rs::read_frame, rust/src/client.rs"
+
+[PHN-306]
+title = "Shared-relay bulk caps (defaults)"
+by = "agent"
+date = 2026-11-10
+status = "superseded"
+rule = "Defaults on the shared relay: one transfer 1 MiB; one preview picture 200 kB, at most every 5 s, never the live kind; a bulk budget of 1 MB a minute with a 2 MB burst, both directions; a daily bulk total of 100 MB. Control calls are never counted or delayed by any of them. The owner confirms the numbers (T-2)."
+why = "n0's limit is unpublished and its relays are free shared servers."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/limits.toml LIM-6. Lab evidence: Validation 2026-11-10: n0's rate-limit notice arrived inside a 4 MiB burst, then control p50 0.9 s; 100-300 kB took 0.4-0.5 s. Here 2026-11-10: all basics through n0 relayed 103 kB, 0 notices."
+superseded_by = "PHN-444"
+legacy = "ferb-phone-link@57b3f34 LIM-6; lab paths: rust/src/limits.rs::Limits"
+
+[PHN-307]
+title = "After the relay's slow-down notice"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "When the relay's rate-limit notice is seen (by the Mac, or reported by the phone), bulk on the shared relay pauses for ratelimit_pause_s (60) and the budget is halved until the relay connection is replaced by itself. FERB never reconnects to clear it. Both sides are told; control goes on."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/limits.toml LIM-7. Lab evidence: 2026-11-10 test on a 64 kB/s local relay: a 600 kB download raised the notice; the next download was refused with relay_rate_limited and a wait; chat.status still answered."
+legacy = "ferb-phone-link@57b3f34 LIM-7; lab paths: rust/src/bridge.rs"
+
+[PHN-308]
+title = "Pairing and device values (defaults)"
+by = "agent"
+date = 2026-11-10
+status = "superseded"
+rule = "Defaults: pairing window 120 s, 3 wrong proofs end it, the owner has 120 s to say Yes; 2 paired phones; a phone unseen for 30 days is removed; a hard Yes needs the phone's unlock. The owner confirms them (T-2)."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/limits.toml LIM-8."
+superseded_by = "PHN-419"
+legacy = "ferb-phone-link@57b3f34 LIM-8; lab paths: rust/src/limits.rs::Limits"
+
+[PHN-309]
+title = "Abuse caps"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "Unpaired endpoints: closed at once outside a pairing window; inside one, 4 at a time with 5 s to send a valid hello. A paired phone: 8 streams at once, 60 calls per 10 s, 12 new connections a minute; over a cap it gets too_many_requests with the wait, never a silent drop."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/limits.toml LIM-9. Lab evidence: 2026-11-10 tests: 12 silent strangers, at least 8 closed at once, the paired phone's call took 1 ms meanwhile; a 4 GiB frame header refused before allocation; a stalled stream reset... (the rest in the lab record)"
+legacy = "ferb-phone-link@57b3f34 LIM-9; lab paths: rust/src/bridge.rs, rust/src/limits.rs::Limits"
+
+[PHN-310]
+title = "One chunk in flight on the shared relay"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "shared_window defaults to 1: on the shared relay the next 16 KiB chunk is sent only after the previous one is acknowledged."
+why = "The validation proposed at most 4 in flight; measured, more than 1 starves control."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/limits.toml LIM-10. Lab evidence: 2026-11-10, 400 kB download through a 64 kB/s local relay while calling ping: window 1: p50 83-147 ms, max 250 ms, Stop 49 ms; window 2: p50 448, max 600; window 4: p50 849-947, max 1050 ms, transfer 58 s (3 runs)."
+legacy = "ferb-phone-link@57b3f34 LIM-10; lab paths: rust/src/limits.rs::Limits"
+
+[PHN-311]
+title = "A large reply is bulk"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "A reply larger than a control frame travels as acknowledged bulk chunks under the tier's rules and arrives whole; on the shared relay one over shared_transfer_max is refused with the reason, never cut."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/limits.toml LIM-11."
+legacy = "ferb-phone-link@57b3f34 LIM-11; lab paths: rust/src/bridge.rs, rust/src/limits.rs::Limits"
+
+[PHN-312]
+title = "The limit defaults are confirmed"
+by = "owner"
+date = 2026-11-10
+status = "superseded"
+words = "yes to the limits"
+rule = "The defaults of CONTRACT.md §7 as asked in T-2 stand: shared relay transfer 1 MiB, picture 200 kB every 5 s, bulk 1 MB/min with 2 MB burst, 60 s pause after the relay's notice, 100 MB/day; pairing 120 s and 3 tries; 2 phones, removed after 30 unused days; unlock good for 5 idle minutes; own-relay fallback to n0 after 30 s."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/limits.toml LIM-12."
+superseded_by = "PHN-419"
+legacy = "ferb-phone-link@57b3f34 LIM-12; lab paths: rust/src/limits.rs::Limits"
+
+[PHN-313]
+title = "Each side says its feature level; a refusal names the side that is behind"
+by = "agent"
+date = 2026-11-10
+status = "active"
+rule = "Inside link version 2 a build has a feature level (lib.rs LEVEL) and a build name, sent as optional `level` and `build` in the hello and the welcome; a side that sends none is level 0. A method the Mac does not know is refused as mac_link_older when the phone's level is higher (restart or update FERB's link on the Mac) and app_older when it is lower (update the app); only between equal levels is it method_not_allowed. The phone rewords the unknown-method reply of a Mac from before levels the same way. The Mac's device list and the app's Mac screen say when the builds differ."
+why = "On the owner's phone, Get this folder answered 'link.tree is not something FERB's phone link knows. Do it in FERB on the Mac' because the Mac-side process still running was started before folder fetch was built (LIVE-31)."
+evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/limits.toml LIM-13."
+legacy = "ferb-phone-link@57b3f34 LIM-13; lab paths: rust/src/lib.rs, rust/src/errors.rs, rust/src/role.rs, rust/src/client.rs, rust/src/bridge.rs, CONTRACT.md"
+
+# ---- 2026-11-16: the owner's answers to the first stage 3 plan and the reassessment of the labs
+
+[PHN-401]
+title = "With the Mac off the phone shows its history and keeps a visible outbox; a phone engine later"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "my answers: yes to all yyour recommeded, just remember that info and sending on the shared/iroh relay is to be limited - if you didnt knew, cuase its free adn has no uptime gurantee, a rate limit and ingress limimt."
+words_source = "Owner 2026-11-16, answering the first stage 3 plan's nine recommendations together; item 1 asked: \"When the Mac is off, what does the phone do?\""
+rule = "He was shown: when the Mac is off the phone shows its stored history, plus a visible outbox that sends when the Mac is back, each message cancellable. A phone engine (models run from the phone itself) comes after the iPhone app, API key first. He said yes."
+why = "The data lives on the Mac (ENG-10); the owner wants the phone useful when the laptop is off (T-1099)."
+
+[PHN-402]
+title = "The stored-data viewer, deleting turns and 'let the AI see' from the phone"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "my answers: yes to all yyour recommeded, just remember that info and sending on the shared/iroh relay is to be limited - if you didnt knew, cuase its free adn has no uptime gurantee, a rate limit and ingress limimt."
+words_source = "Owner 2026-11-16, the first plan's item 2: \"May the phone use the Stored data viewer, delete turns, and 'let the AI see'?\""
+rule = "He was shown: yes; viewing needs the phone unlocked; deleting and unmasking need the fingerprint. He said yes."
+why = "The viewer and the owner's delete are Mac features today (STORE-422..425); the phone is the owner's full remote (PHN-111)."
+
+[PHN-403]
+title = "Payments and terminal typing can be approved from the phone, with the fingerprint"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "my answers: yes to all yyour recommeded, just remember that info and sending on the shared/iroh relay is to be limited - if you didnt knew, cuase its free adn has no uptime gurantee, a rate limit and ingress limimt."
+words_source = "Owner 2026-11-16, the first plan's item 3: \"Payments and terminal typing approved from the phone?\""
+rule = "He was shown: yes, fingerprint only, with the payment page's picture shown on the phone. He said yes."
+why = "Rule 5's hardest questions; the fingerprint-only key (PHN-133, PHN-137) is the proof the Mac checks."
+
+[PHN-404]
+title = "Live preview, the saved-secrets list and settings changes from the phone"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "my answers: yes to all yyour recommeded, just remember that info and sending on the shared/iroh relay is to be limited - if you didnt knew, cuase its free adn has no uptime gurantee, a rate limit and ingress limimt."
+words_source = "Owner 2026-11-16, the first plan's item 4: \"Live preview, the saved-secrets list, and settings changes from the phone?\""
+rule = "He was shown: yes to all three. He said yes. (Settings changes are the sensitive class: signed by the phone's fingerprint key, PHN-112, PHN-133.)"
+
+[PHN-405]
+title = "The lab's decisions carry over, and the agent may go over them again and counter"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "jsut go over them agian adn counter if you want too. this lab is old so my decison can be wrong or not optimal too"
+words_source = "Owner 2026-11-16, the first plan's item 5: \"Do your lab decisions carry over unchanged: the limits, 2 phones, 30-day expiry, 5-minute lock, full text on the lock screen, 90-day audit? [Yes.]\""
+rule = "The phone lab's decisions are imported as they stood (PHN-1..PHN-399) and stand until a newer decision supersedes one. The agent re-examines them and proposes changes with reasons; a change to one of the owner's is recorded only on his word."
+why = "His answer to the whole list was \"yes to all\" (PHN-401's words); on item 5 he added these words."
+untestable = "How the lab's records are carried; each carried record has its own slice task."
+
+[PHN-406]
+title = "Live tests run on a release-signed APK the owner sideloads; the Play Store comes later"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "my answers: yes to all yyour recommeded, just remember that info and sending on the shared/iroh relay is to be limited - if you didnt knew, cuase its free adn has no uptime gurantee, a rate limit and ingress limimt."
+words_source = "Owner 2026-11-16, the first plan's item 6: \"App id and testing route?\""
+rule = "He was shown: a release-signed APK you sideload for live tests; Play Store later. He said yes. (The app id itself is not recorded here: the lab's is local.ferb.link.)"
+
+[PHN-407]
+title = "Relays: the default public ones plus the owner's own"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "my answers: yes to all yyour recommeded, just remember that info and sending on the shared/iroh relay is to be limited - if you didnt knew, cuase its free adn has no uptime gurantee, a rate limit and ingress limimt."
+words_source = "Owner 2026-11-16, the first plan's item 7: \"Relays: the default public ones plus your own?\""
+rule = "He was shown: yes (the public relays as shipped defaults, and his own relay). He said yes, adding that what goes over the shared relay is to be limited (PHN-410). The order is PHN-418."
+
+[PHN-408]
+title = "The phone keeps the chat it fetched until 'Forget this Mac'"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "my answers: yes to all yyour recommeded, just remember that info and sending on the shared/iroh relay is to be limited - if you didnt knew, cuase its free adn has no uptime gurantee, a rate limit and ingress limimt."
+words_source = "Owner 2026-11-16, the first plan's item 8: \"How long does the phone keep fetched chat?\""
+rule = "He was shown: until you press 'Forget this Mac'. He said yes."
+why = "ENG-10: the phone stores what it fetched."
+
+[PHN-409]
+title = "The sky uses the phone's location; Android uses the system font"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "my answers: yes to all yyour recommeded, just remember that info and sending on the shared/iroh relay is to be limited - if you didnt knew, cuase its free adn has no uptime gurantee, a rate limit and ingress limimt."
+words_source = "Owner 2026-11-16, the first plan's item 9: \"The live sky needs a place: the phone's location or a city you pick? And which font on Android?\""
+rule = "He was shown: the location; the system font. He said yes."
+
+[PHN-410]
+title = "What goes over the shared (public iroh) relay is limited"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "my answers: yes to all yyour recommeded, just remember that info and sending on the shared/iroh relay is to be limited - if you didnt knew, cuase its free adn has no uptime gurantee, a rate limit and ingress limimt."
+words_source = "Owner 2026-11-16, answering the first stage 3 plan; the second half of his answer is this standing constraint."
+rule = "Information and sending on the shared public relay are limited, because it is free, with no uptime guarantee, a rate limit and an ingress limit."
+
+[PHN-411]
+title = "What the labs built is reassessed, with reasons and benefits, before it is ported"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "there are many working/codes in those two labs that were just made, no reason why chose this and why not, whats the reasona dn ebenfit - so it eeds a proper thingking/reasses"
+words_source = "Owner 2026-11-16, about ~/Desktop/ferb-phone-link and ~/Desktop/ferb-glass-lab."
+rule = "Code and choices from the phone lab and the glass lab are not carried over because they were built: each choice is reassessed, saying why it was chosen over the alternatives and what it gains, before it is ported."
+untestable = "A way of working; the reassessment's rulings (PHN-440 and on) carry their reasons."
+
+[PHN-412]
+title = "Weather in the design is paused, not built now"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "the app design used weather calls to change the season/weather UI, that can be pasued and not build currently, since theres no free/normal way ig. if there is then tell adn we cna do it in both iphone adn android."
+words_source = "Owner 2026-11-16, about the glass lab's weather-driven sky."
+rule = "The design's weather calls that change the season and weather look are paused and not built now. If there is a free, ordinary way, the agent tells him, and it can be built in both the iPhone and the Android app."
+untestable = "Nothing is built; PHN-420 records the later source."
+
+[PHN-413]
+title = "FERB controlling the phone comes later, not now"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "i also plan to give ferb app in future control of controlling the phoen, so yeah, not now but alter cause it requires deep testing and better mehods"
+words_source = "Owner 2026-11-16, while settling stage 3."
+rule = "FERB will later be given control of the phone; not now, because it needs deep testing and better methods."
+untestable = "A later feature; nothing is built now (PHN-451 keeps room for it)."
+
+[PHN-414]
+title = "Relay order: direct when available, then the public relay with a message to use your own"
+by = "owner"
+date = 2026-11-16
+status = "superseded"
+superseded_by = "PHN-418"
+words = "the default is direct if avaibale, then public BUT a message that you should use your VM for better performance and direct to ferb on mac on how to do etcetc."
+words_source = "Owner 2026-11-16, on the reassessment's item 1: \"Default relay for shipped builds? [Your own VM relay; the public one as fallback. The paid option is $19 a month.]\""
+rule = "Shipped builds connect directly when a direct path is available, else through the public relay; then a message says the user's own relay (a VM) performs better and points to FERB on the Mac for how to set it up."
+supersedes = ["PHN-201"]
+
+[PHN-415]
+title = "FERB's questions are shown in the phone's notifications, to answer without opening the app"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "agree with you, BUT here why not show question in ontification??? i want it so its easy and user sdont hav eto open phone eveyr few minuted keep pressing fingerprint"
+words_source = "Owner 2026-11-16, on the reassessment's lock-screen and unlocking items (item 6: \"Lock screen never shows money, deletion or account questions?\")."
+rule = "FERB's questions are shown in the phone's notifications so they can be answered there, without opening the app and pressing the fingerprint every few minutes. Which ones need the fingerprint: PHN-417."
+
+[PHN-416]
+title = "The phone apps' design is the glass lab, the same on iPhone and Android"
+by = "owner"
+date = 2026-11-15
+status = "active"
+words = "i also made UI for hte phone apps that i want exactly same in both ios and android design wise, its at: ferb-glass-lab in desktop."
+words_source = "Owner 2026-11-15, recorded in engine/PLAN.md Stage 3 to be added to the kb when stage 3 starts."
+rule = "The phone apps look exactly as ~/Desktop/ferb-glass-lab designs them (DESIGN.md, tokens.json, Sources/FerbGlass, the phone scene), the same on iPhone and Android. The Android app reproduces its tokens and screens; it gets no design of its own. Weather is paused (PHN-412)."
+
+[PHN-417]
+title = "Routine questions are answered from the notification; the hard ones need the fingerprint"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "agree"
+words_source = "Owner 2026-11-16, asked how PHN-415 works; the question as put to him is in `rule`."
+rule = "He was shown: \"Routine questions: answered straight from the notification's buttons, no fingerprint. These are the same ones your 'don't ask for 30 minutes' already covers on the Mac. Money, deletion, account security, terminal typing and screen use: shown in the notification, but the Yes needs your fingerprint. On the lock screen, the text follows your phone's own setting.\" He agreed."
+why = "The routine class is GATE-207's; the fingerprint key is PHN-133's. Lock-screen wording: PHN-422."
+
+[PHN-418]
+title = "Relay order: own relay always when set, direct preferred; otherwise direct, then public"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "yeha bit this order shifts when i have my own relay. so my relay alwys, then direct, if nto then relay and it keeps finding direct"
+words_source = "Owner 2026-11-16, answering the coordinator's restatement of PHN-414 (direct when available, then the public relay, with a message that your own relay performs better)."
+rule = "The coordinating agent's reading of his words: no own relay set: direct when available, else the public relay (PHN-444) with the message recommending an own relay and pointing to FERB on the Mac for how. Own relay set: it is always the relay used, never the public one; a direct path is preferred whenever one exists; the own relay carries the session when direct is not available, and the link keeps looking for a direct path while on it."
+why = "To square with PHN-208 (fallback to the public relays when the own relay is down) and PHN-219 (stay on the own relay even when direct exists): engine/PLAN.md, awaiting the owner."
+supersedes = ["PHN-414"]
+
+[PHN-419]
+title = "Up to 5 phones; an unused one is warned at 30 days, never removed; a second phone removes a lost one"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "yes i agree"
+words_source = "Owner 2026-11-16, to: \"Still unanswered from the twelve: 5 phones per Mac, the 30-day warning, a second phone removing a lost one, [...]. I'll build with my recommendations on those [...]\""
+rule = "Paired phones are a list on the Mac: at most 5. A phone unused for 30 days gets a warning and is never removed by itself. Renaming and removing are done on the Mac, or a second paired phone removes a lost one with its fingerprint. A removed phone's live connections close at once and every call is rechecked. PHN-312's other values stand as recorded there."
+supersedes = ["PHN-104", "PHN-308", "PHN-312"]
+
+[PHN-420]
+title = "Scanner without Google services; a screenshot switch; coarse location once; Open-Meteo later"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "yes i agree"
+words_source = "Owner 2026-11-16, to the same list as PHN-419 (and items 7 and 8 of the twelve, which he had met with \"agree with you\", PHN-415)."
+rule = "As recommended: the QR scanner uses no Google services (CameraX with zxing-cpp; AVFoundation on iPhone). Whole-app screenshot blocking stays on, with a switch. Weather stays paused; later it comes from Open-Meteo, called straight from the phone. The phone asks once for a coarse location for the sun, and uses the time zone otherwise."
+
+[PHN-421]
+title = "Stay connected stays; closed-app notifications in stage 5 through a push the owner runs, no words"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "yes i agree"
+words_source = "Owner 2026-11-16, to the same list as PHN-419: \"the push sender for stage 5\"."
+rule = "Stay connected stays (an Android foreground service that keeps the link up and posts FERB's notifications: an answer needed and which kind, a reply, a task finished or failed, a dropped link he must act on). For a closed app, stage 5 adds notifications through a small push sender the owner runs; the push carries no words, and the app fetches the text from the Mac."
+supersedes = ["PHN-4", "PHN-6"]
+
+[PHN-422]
+title = "The lock screen never shows the words of money, deletion or account-security questions"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "yes i agree"
+words_source = "Owner 2026-11-16, to the same list as PHN-419; item 6 of the twelve, met earlier with \"agree with you, BUT ...\" (PHN-415)."
+rule = "FERB's notifications show their text on the lock screen as the phone's own setting allows, except the words of money, deletion and account-security questions, which the lock screen never shows (on by default, a setting). Questions still appear in notifications (PHN-415, PHN-417). A hidden input's content never travels."
+supersedes = ["PHN-10"]
+
+# ---- 2026-11-16: the agent's rulings from the reassessment (PHN-411)
+
+[PHN-440]
+title = "The link stays on iroh: one Rust crate, ferb-link, for the Mac and the phones"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "The link is one Rust crate, ferb-link, on iroh 1.4.1 from crates.io with the one pinned patch of PHN-222: the Mac's helper is a program of it and the phones use it through ferb-mobile. No address lookup (PHN-204). It is ported from the lab with its test suites."
+why = "End-to-end encrypted QUIC with hole punching, relay fallback and no FERB-run server; the lab measured tiers, handover, the own relay and abuse caps on it (PHN-2xx). Replacing it restarts those measurements."
+rejected = ["WebRTC data channels: need a signalling server FERB would run.", "A FERB-run relay or server as the default: a service someone operates (PHN-421 keeps only a small push sender, stage 5).", "A VPN account (Tailscale-style): a third party and an account per user."]
+
+[PHN-441]
+title = "The link runs as its own signed helper; the daemon decides everything"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "In FERB.app the link is a separate program in the bundle, signed with FERB's certificate, holding no macOS permission. ferbd starts and stops it; it reaches the daemon only over the RPC socket as role phone. The daemon holds devices and keys, gives challenges, verifies every proof and opens every file (PHN-124). Its secrets are read through ferb-secrets (PHN-143)."
+why = "The network code (UDP sockets, relays, iroh's dependencies) stays out of ferbd, which holds FERB's permissions and runs only daemon, mcp and grant-probe (ENG-7); a fault there lands in a process with no grants."
+rejected = ["iroh inside ferbd: the permission-holding process would parse untrusted network input.", "The helper verifying proofs: the daemon would then trust it (PHN-124)."]
+
+[PHN-442]
+title = "Pairing is kept as the lab built it"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "Pairing stays: a QR or typed code carrying a 256-bit one-time secret proven by a keyed hash, a 120 s single-use window, the matching 6-digit code on both screens and the owner's Yes on the Mac (PHN-102, PHN-136, PHN-142)."
+why = "It closed the validation's stranger-pairing hole and passed the review's attacks; a short typed code would need a meeting point (lab T-25)."
+
+[PHN-443]
+title = "The phone's three keys are kept"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "Each phone has three hardware-held keys: the device key (no prompt; proves this phone for notification text and the session, PHN-126), the lock key (PIN or biometric; the unlock window and private answers) and the fingerprint-only key (sensitive calls, key places, a hard Yes, payments and terminal typing: PHN-133, PHN-137, PHN-403). The daemon verifies each for the exact call."
+why = "Each stops a different holder: a copied link key, an unlocked phone in another hand, someone who knows the PIN. Merging two loses one of those."
+
+[PHN-444]
+title = "The public relay carries text, questions and Stop; bulk is refused with stable codes"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "On the public relays the link carries control only: messages and replies as text, FERB's questions and answers, Stop, status and the calls that drive them (PHN-301 always works). Pictures, live preview, files and large replies are refused before their first byte with a stable code saying a direct path or an own relay carries them (PHN-302)."
+why = "PHN-410: the public relay is free, with no uptime guarantee, a rate limit and an ingress limit. Confirming item 2 of the twelve is awaiting the owner (engine/PLAN.md)."
+supersedes = ["PHN-306"]
+
+[PHN-445]
+title = "No timed start-overs on the public relay; the own relay keeps the 30-second tries"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "On the own relay, a session on the relay after a change of network starts over every 30 s for 300 s, then every 300 s, not after 3600 s; it waits while a file travels or a stream is open, and stops on direct or two failed tries (as PHN-227). On the public relays the phone starts no timed start-overs; iroh's own try for a direct path goes on."
+why = "One start-over costs about 135 kB on the public relays (PHN-227's measure), ten in five minutes about 1.3 MB: PHN-410 limits that traffic. It narrows PHN-224 on the public relay: awaiting the owner."
+supersedes = ["PHN-227"]
+
+[PHN-446]
+title = "The phone apps call the Rust core through UniFFI bindings, built with cargo-ndk"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "The phone apps call ferb-mobile through ferb-mobile-ffi, whose Kotlin and Swift bindings UniFFI generates. Android's libraries are built with cargo-ndk (arm64-v8a, x86_64 for the emulator). Each client is an object with an explicit close; every exported call catches panics and returns a typed error."
+why = "Three JSON-text calls fit one link client; ferb-mobile adds a store, sync, outbox and the chat fold, dozens of typed calls on two platforms that hand-written JNI and C would let drift. The lab's library has no close, no catch_unwind, one global client."
+rejected = ["Hand-written JNI and C over JSON text (PHN-1): per-call glue on two platforms.", "Kotlin and Swift reimplementations of the core: two copies of the reducer and the sync."]
+supersedes = ["PHN-1"]
+
+[PHN-447]
+title = "The QR scanner is CameraX with zxing-cpp, without Google services"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "The Android scanner is CameraX (preview, analysis, focus and zoom) with zxing-cpp's Android reader, QR only, normal and inverted; no Google Play services and no ML Kit. The field below the camera takes the typed or pasted code (PHN-136). The iPhone uses AVFoundation's reader (stage 4)."
+why = "zxing-android-embedded 4.3 is on ZXing 3.4, has no automatic zoom and the weakness PHN-142 works around; ML Kit needs Google services or a bundled model; zxing-cpp is maintained and reads faster at angles. PHN-420 accepts it."
+supersedes = ["PHN-17"]
+
+[PHN-448]
+title = "The phone's store is SQLCipher under a Keystore key, kept out of backups and transfers"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "ferb-mobile keeps the link state, fetched chat and outbox in one SQLCipher database with a random key wrapped by a non-exportable Android Keystore key (StrongBox when present); dataExtractionRules keep it out of cloud backup and device transfer. Unlock keys: Keystore P-256, usable after BiometricPrompt per signature; none without a screen lock. The outbox holds messages only; answers are never queued."
+why = "ferb-mobile's store is SQL (pages, cursors, outbox) shared with the iPhone app; per-file AES-GCM fitted a chat file. allowBackup=false alone leaves Android 12+ device transfer on."
+supersedes = ["PHN-3", "PHN-5"]
+
+[PHN-449]
+title = "Android's UI is Jetpack Compose now; the iPhone's toolkit is chosen at stage 4"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "The Android app (apps/android :design and :app) is Jetpack Compose, reproducing the glass lab's tokens and screens (PHN-416). The iPhone app's UI toolkit is chosen when stage 4 starts."
+why = "The glass lab is SwiftUI; Compose is Android's current declarative toolkit, so screens port one to one. A shared layer would sit under the owner's design on both phones."
+rejected = ["Compose Multiplatform or Flutter for both phones: a non-native layer under the design, and the iPhone app is stage 4.", "Android Views: older, imperative, far from the SwiftUI source."]
+
+[PHN-450]
+title = "The live sky is computed on the phone from its clock and a coarse place, with no outside call"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "The sky's sun, moon and day phase are computed on the phone from its clock and one coarse location reading (PHN-420), or the time zone's place without it; nothing is fetched. Weather is not built (PHN-412); its later source is Open-Meteo, called from the phone with the coarse place, its terms checked first."
+why = "The owner asked: live or hardcoded placements? The sun's position is a formula, right at every latitude and season; fixed placements would be wrong for most places. Awaiting his word (engine/PLAN.md)."
+
+[PHN-451]
+title = "Room is kept for tools the phone itself runs later"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "The phone is a client of the Mac's engine now: nothing on it acts on the phone. The link, the role classes and ferb-mobile name the device a call comes from, so tools the phone runs later (PHN-413) can join FERB's gateway like any tool (rule 12) without a second path."
+why = "PHN-413: phone control is planned, after deep testing; building the seam now costs a field, retrofitting it later costs a protocol change."
+untestable = "Nothing acts on the phone yet; the tools that do will carry the tests."
+
+# ---- 2026-11-16: sign-ins on the phone (refines T-1099)
+
+[PHN-423]
+title = "Phones: a ChatGPT sign-in for when the laptop is closed; no Claude plan sign-in, the app says why"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "ok stop, id ont want the alwasy on now. i jsut wanted this extra login so users couldb speak when laptop is closed. BUT since the claude oe ne is not avaible on phone, dont add it and mention in app too why. also can we add cursor login??? to mac ad phones??? my one frien that and woudl like to use that too. se its aveibiy for phoen and mac"
+words_source = "Owner 2026-11-16, after research on item 11 of the twelve (\"Sign-ins: Claude by API key only; Codex through OpenAI's official route?\") and a proposed always-on machine for Claude."
+rule = "No always-on machine route now. The phone apps get the extra sign-in so users can talk to FERB with the laptop closed: ChatGPT through OpenAI's own route (Sign in with ChatGPT), with API keys as the certain route. A Claude plan sign-in is not offered on phones, and the app says why where the sign-ins are shown. A Cursor sign-in is his request, under research (T-1213)."
+evidence = "OpenAI: developers.openai.com/siwc/token-sharing-open-source (plan use for open-source apps; mobile acceptance to confirm with OpenAI). Anthropic: code.claude.com/docs/en/legal-and-compliance (a Claude plan only through its unmodified Claude Code; no third-party Claude.ai login)."
+
+[PHN-452]
+title = "The phone's sign-in screen says in plain words why there is no Claude plan sign-in"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "Where the phone lists sign-ins, Claude's row reads: \"Claude: Anthropic lets a Claude plan be used only through its own Claude Code program, which runs on your Mac. With your Mac on, your phone uses it; with it off, Claude on the phone needs an Anthropic API key.\" It offers the API key and nothing that takes a Claude.ai login."
+why = "PHN-423 asks the app to say why; the words state Anthropic's rule and the two routes that work, with no blame and no workaround."
+
+[PHN-424]
+title = "No Cursor sign-in in FERB, on the Mac or the phones"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "ok lets not do cursor then, leave it completly."
+words_source = "Owner 2026-11-16, told a Cursor account could work on the Mac only (its SDK with a key; per-use billing for Claude and GPT), not on phones."
+rule = "FERB adds no Cursor runtime or sign-in. PHN-423's request for one is withdrawn; nothing is built or kept on the list for it."
+evidence = "Research 2026-11-16: Cursor's CLI can't have its own tools switched off; its SDK could on the Mac after a live check; no route works from a phone (cursor.com/docs/sdk, cursor.com/docs/cli)."
+untestable = "A decision not to build something; there is no behaviour to test."
+
+[PHN-425]
+title = "Own relay down: fall back to the public relay, which keeps looking for direct within limits"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "yes fallback, but in shared relay it shoudl be looking for direct as i said. with proper limits ofc"
+words_source = "Owner 2026-11-16, asked: own relay down: fall back to the public relay (text only) or stay disconnected? And: may the 30-second restarts stop on the public relay? (\"yes\")"
+rule = "With the owner's relay unreachable the phone falls back to the public relay (text, questions and Stop only: PHN-410, PHN-444) with a notice, and returns to the owner's relay when it answers. On the public relay the link keeps looking for a direct path, bounded: the every-30-seconds start-overs stop (PHN-445) and iroh's own periodic attempt stays."
+
+
+[PHN-453]
+title = "Direct whenever it exists, the own relay when not; the Always use my relay switch kept"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "yeah agree, lets use this. jsut make sure info going in and out is encrypted"
+words_source = "Owner 2026-11-16, asked: \"direct whenever a direct path exists, your relay when it doesn't, and the lab's 'Always use my relay' switch kept for anyone who wants to force it.\""
+rule = "It settles the reading PHN-418 left open. With an own relay set, a direct path is used whenever one exists and the own relay carries the session when none does; the lab's Always use my relay switch (PHN-219) stays, off by default, for whoever wants to force the relay. Everything the link carries in and out is encrypted end to end."
+
+[PHN-454]
+title = "The live preview on the owner's paired phone is also unmasked, under the link's conditions"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "but their maksing is laso not neede imo, cause in my phone lab, scfrrenshots are blank. so yeah"
+words_source = "Owner 2026-11-16, told a phone preview would leave the Mac (encrypted to his device) with masking kept; the phone app blocks screenshots (FLAG_SECURE, PHN-420)."
+rule = "For stage 3 (not built now), with APP-922: the preview frames go unmasked only inside the end-to-end encrypted link to a paired, unlocked phone (the unlock window applies); never over the public relay (PHN-410, PHN-444); never stored on the phone or the Mac; shown only in a screen with screenshot blocking on (FLAG_SECURE and the iOS equivalent stay on for the preview view even when whole-app blocking is off); never in a notification."
+why = "The owner's phone shows his own Mac's preview to him only; with screenshots blocked there and nothing stored, masking protects nothing rule 7 covers. No masked preview path is kept for phones."
+untestable = "Stage 3 is not built; this sets the conditions its builders must meet and test."
+
+[PHN-455]
+title = "Android's screens are pinned by Roborazzi screenshots on Robolectric's native renderer"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "Slice S10. :design's twelve lab screens (dawn, noon, night), its component showcases and six screens at 150 % text are captured by Roborazzi on Robolectric's native graphics (SDK 35) and compared with goldens in apps/android/design/src/test/screenshots at a 0.1 % changed-pixel threshold; a plain :design:test verifies, :design:recordRoborazziDebug rewrites."
+why = "It runs on the JVM with no emulator and offline after the first download, and draws through Android's own renderer (blur, blend modes, fonts). Paparazzi and Compose preview screenshot testing draw with layoutlib, a second renderer (not tried here)."
+rejected = ["Paparazzi: layoutlib, a second renderer that is not the phone's", "Compose preview screenshot testing: alpha, tied to AGP versions", "Emulator screenshots in the gate: slow and not offline"]
+evidence = "apps/android, 2026-11-16: 78 tests pass; moving a pill corner from 16 to 18 failed 4 shots; Astra's eight presets drawn by :design differ from the lab's own PNGs by 0.65 to 0.74 of 255 on average, 5 at most."
+
+[PHN-456]
+title = "Glass panels blur a redrawn copy of the sky on Android 12 and later; Android 11 shows it unblurred"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "Slice S10. A GlassPanel redraws the sky behind it and blurs that copy with RenderEffect (30 dp, tokens.json glass.panel), under ink1 at 56 % and the top-lip highlight. On Android 11 (minSdk 30, no RenderEffect) it draws the sky's colours without sun, moon and stars. No third-party blur library. The lab's phone screens use no glass panel: their sheets and cards are white (PHN-416)."
+why = "The sky is FERB's own drawing, so the backdrop is known exactly and needs no capture of other views; a blurred smooth gradient is the gradient itself, so Android 11 loses only the glow of small lights. Haze would add a dependency for what the platform already does."
+rejected = ["Haze (Apache-2.0): a library for arbitrary backdrops FERB does not have", "A darker flat tint on Android 11: changes the look for no gain"]
+
+[PHN-457]
+title = "Android's design numbers are transcribed from the lab and pinned by checked-in copies of its numbers"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "Slice S10. Kotlin tokens name the lab file and constant they come from. tools/lab_numbers.py copies the lab's colours, radii, spacing, type and Android frame (with the lab commit) to lab-numbers.json; tools/sky_golden.swift re-evaluates the lab's sky formulas, copied, importing nothing from the lab, to sky-golden.json. LabNumbersTest and SkyMathTest hold the Kotlin to both; every lab colour is drawn or listed with its reason."
+why = "Generating Kotlin from SwiftUI would need a Swift parser for little gain; a hand port with a test against the lab's own numbers keeps the code readable and fails as soon as the two disagree. The lab is never built, only read."
+evidence = "Lab 23a0fde. Changing Ink.detail by one step or dropping a colour fails LabNumbersTest; the sky matches to 1e-9 for 60 sun positions, 60 sunrise and sunset days, 153 chosen skies."
+
+[PHN-458]
+title = "Android draws the closest Material Symbol where the lab draws an SF Symbol, from one table"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "Slice S10. Every SF Symbol the phone scene uses maps to one Material Symbol (androidx material-icons-extended, Apache-2.0) in design FerbIcons, drawn at 1.2 times the lab's point size so the glyph matches its visual size. The Android status bar and the QR frame are the only pieces not drawn by the lab's phone scene."
+why = "Apple licenses SF Symbols for its own platforms only, so they cannot ship on Android; one table makes a later swap (the owner's own icons, or a closer set) a one-line change per icon."
+rejected = ["Hand-drawn copies of SF Symbols: Apple's licence forbids it", "A separate icon set per screen: drift between screens"]
+
+[PHN-459]
+title = "Without a location the sky uses the time zone's principal place from the tz database"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "Slice S10, for PHN-420's time-zone fallback. design sky/ZonePlaces.kt, generated by tools/zone_places.py from the IANA tz database's zone.tab and its links (public domain), gives each zone its principal place to 0.01 degree; a zone with no place uses its standard offset's meridian on the equator. Nothing is fetched."
+why = "The sun's height needs a latitude as well as a longitude; the zone's own city is the nearest coarse place the phone knows without asking, works offline and covers old zone names (Asia/Calcutta)."
+
+# ---- 2026-11-16: slice S1 (T-1200), the link crate ported (engine/crates/ferb-link; journal 102)
+
+[PHN-460]
+title = "The link's door: client objects with handles and close, panics caught, every call bounded"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "ffi::LinkClient owns one link with its own runtime; C and JNI name clients by handles (a closed handle answers link_closed); every boundary call catches a panic as link_internal_error; start 20 s, poll 60 s, close 5 s at most. The lab's three calls drive one client per process. S1, until S8's UniFFI layer."
+why = "PHN-446: the lab's library had no close, no catch_unwind and one global client; stage 4 and S8 need several clients and typed failures. A handle table turns a call after close into an error instead of freed memory."
+
+[PHN-461]
+title = "Public relays: the Mac refuses bulk before FERB is asked; the phone hears what its path carries"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "PHN-444 as built: pictures, files both ways, folder lists, older chat pages, pages over shared_page_max (50, the engine's own page) and replies over one control frame are refused (needs_direct_or_own_relay, transfer_too_large); a transfer falling back stops. The client emits bulk {allowed, tier} on change."
+why = "Refusing in the bridge before the daemon reads or captures anything keeps the public relay's traffic to control; the event lets the app offer a refused item again when the path improves. The lab's shared-relay caps stay as settings old apps read."
+
+[PHN-462]
+title = "Always use my relay is the setting own_relay_always; the phone's relay state reaches the app"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "own_relay_always (off by default, PHN-453) makes both sides drop their IP transports while the owner's relay is in use, never during the fallback to the public relays. The phone's own relay policy emits relay_state events (own_fallback with its reason, own again). After a change of network a dropped link dials once at once (PHN-2); no timed start-overs on the public relays (PHN-445)."
+why = "One limits field reaches both sides through the welcome, so the owner's switch is one setting; the event is PHN-425's notice."
+
+[PHN-463]
+title = "Link tests: 127.0.0.1, a Rust stand-in of the daemon, and a recording relay for the encryption"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "tests/common/standin.rs ports the minimum of the lab's Python stand-in (fake answers; the phone gate the bridge needs). Port mapping is off in tests. A recorder in front of a relay carries chat, a hidden answer, files both ways and pairing, and none of their bytes appear in it."
+why = "The repo has no Python daemon and the gate's sandbox allows loopback only; the owner asked that what goes in and out be shown encrypted (PHN-453), which a recorded relay proves for both relays."
+
+[PHN-464]
+title = "The iOS build holds libc below 0.2.190 until an iroh release takes netwatch's and netdev's iOS fixes"
+by = "agent"
+date = 2026-11-16
+status = "superseded"
+superseded_by = "PHN-478"
+rule = "ferb-link's Cargo.toml has, for iOS, libc >=0.2.139, <0.2.190 (one libc for the build, so the Mac side gets it too); the lock is on 0.2.189. No patch of netwatch or netdev. The cap goes when iroh moves to netwatch with n0-computer/net-tools#267 and netdev 0.47."
+why = "libc 0.2.190 (#5158) dropped RTM_*/RTAX_*/RTF_* and in6_ifreq from iOS; netwatch 0.19.3 and netdev 0.46.3 still take them from libc. iroh 1.4.1 (latest) needs netwatch ^0.19.3, which needs netdev ^0.46.1: no newer version fits, no feature selects another path."
+evidence = "2026-11-16: libc 0.2.191 fails on netdev's in6_ifreq (E0425); 0.2.189 checks clean for ios, ios-sim, android, and links the iOS cdylib. libc 0.2.189's apple/mod.rs has them ungated, 0.2.190's under macos. net-tools#261 reporter caps libc <0.2.190 too."
+untestable = "A build configuration: its check is a cross-compile line of engine/gate.sh portable (cargo check --locked --target aarch64-apple-ios on ferb-link), not a test."
+
+# ---- 2026-11-16: slice S2 (T-1201), the phone role's classes in ferb-rpc
+
+[PHN-465]
+title = "The phone's classes: one table in ferb-rpc, a row per method, unrowed is never"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "ferb-rpc classes.rs gives every method of auth::METHODS a row: class, locked (refused, allowed, answer), stream, on_mac_screen, refused params, why. No row: never. allowed(Phone) is class not never. Role::Phone is not in Role::ALL, so no local hello names it; only the link's session gives it (S3). fixtures/phone/classes.json is the table as data."
+why = "PHN-112 wants a test that fails on an unclassified method; one authority in the portable crate lets ferb-link and the apps read it with no cycle, and keeps GATE-612's local check apart from the phone's entry."
+evidence = "S2: tests/phone_classes.rs; 127 methods: plain 39, private 32, sensitive 47, never 9. The lab's 112 rows kept but tasks.preview (private) and two never rows' stream flags (the engine's registrations)."
+
+[PHN-466]
+title = "The rows the lab never had: data, unmask, projects private or signed; four more never, two asked"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "data.* reads private, data.delete sensitive (PHN-402); secrets.unmask and secrets.mask sensitive; projects.list private, projects.remove sensitive; tasks.preview private (PHN-454). Never: tools.call and tools.list (a worker's run-token bridge), setup.uninstall_browser_files and device.report (both asked of the owner)."
+why = "PHN-112's rule (shows data: private; changes protection or what FERB may do: sensitive) and PHN-117's (never only where a phone's call breaks something); where no decision says who may do it, the safer class waits for the owner."
+evidence = "S2 report: the two never rows marked owner_to_confirm in classes.rs and classes.json."
+
+[PHN-467]
+title = "Phone: no Uninstall step, the Mac's facts readable, a project publish needs the fingerprint"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "no, yes, yes"
+words_source = "Owner 2026-11-16 to S2's three: may a phone run Uninstall's browser-file removal; should a phone be able to report where your Mac is; does a phone's Yes to a project publish need the fingerprint."
+rule = "1. setup.uninstall_browser_files stays never on a phone. 2. A paired phone may read the Mac's device facts, its city included (class private); an exact location asked from the phone needs what PHN-417 requires; device.report stays FERB.app's (the Mac's own reading); a phone sends its own device record by a phone method (T-1214). 3. A Yes to publishing a project (HAND-624) from a phone needs the fingerprint."
+why = "Closes the two owner_to_confirm rows in ferb-rpc classes and S2's open question for S3's phone gate. The reading of 2 is the coordinator's: the Mac's place is the Mac's sensor's, a phone's would move it."
+
+
+[PHN-468]
+title = "Only the link's signed helper opens phone sessions; the class gate, not the local lists, decides"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "A hello naming role link or phone is answered only for the phone link's helper, by its own designated requirement (FERB.app's Contents/Helpers/ferb-link, identifier com.ferb.link; checkout: the identifier), checked as FERB.app's is; anyone else gets Python's unknown-role refusal. Role::Link reaches only link.* (pairing, the device list, its changes). A phone session names its phone and connection; each call's proof rides beside params; ferb-daemon's phone gate admits it by its class and shapes the reply; refusals keep their own codes (-32011..-32022, and -32023 device_limit)."
+why = "PHN-441 and PHN-124: the daemon must not trust the helper for a proof, and a local program as the owner (FERB.app included) must not stand in for a phone. The lab's wire (CONTRACT §12) is kept, so S1's daemon client needs no change."
+evidence = "ferb-rpc tests/phone_entry.rs (cli, FERB.app, a model's tools refused a phone session; the helper refused FERB.app's methods), link_peer unit tests; ferbd tests/phone_wired.rs."
+
+[PHN-469]
+title = "Paired phones and the audit in the store; challenges, sessions and unlocks in memory"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "Migration 0065: phone_devices (endpoint, name, app, the three public keys, paired_at, last_seen, warned_at, removed_at, removed_by) and phone_audit (time, phone, method, class, outcome, structural facts). A removed row stays and nothing is accepted under it; pairing the same phone again is a new row. At most 5 live rows, counted in the adding transaction. Challenges, sessions and unlock windows stay in memory: a restart ends them. The 30-day warning is given when the list is read."
+why = "PHN-108 says a challenge dies with its connection and a restart ends every connection, so storing it adds nothing; an unlock lost at a restart asks one more fingerprint, the safer side. No secret is stored: private keys stay on the phone and the link's in the Keychain (S4)."
+evidence = "ferb-store tests/phones.rs (upgrade from 0064 with rows kept, the limit, removal, keys once, audit pruning); ferb-daemon tests/phone.rs."
+
+[PHN-470]
+title = "A routine question is answered from the notification with no proof; the rest as the lab built"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "An answer needs the phone's signed proof with the question's one-time challenge when it is a hidden input (sealed, either key) or a Yes to one of FERB's own checks that is not routine (fingerprint key where registered). Routine means the gateway offered the 30-minute answer (GATE-207's class): such a Yes, like an ordinary question's answer, needs the unlock window or a session that proved the device key. A plain No needs nothing; a correction needs the window."
+why = "PHN-417 (owner) takes routine questions off the fingerprint, narrowing PHN-105 and PHN-137 for them. GATE-207's routine class includes the foreground question, which PHN-417's words list among the fingerprint ones: asked of the owner; the gateway does not yet say a question's needs."
+evidence = "ferb-daemon tests/phone.rs answers_follow_the_question_s_kind, a_hidden_answer_goes_only_through_the_sealed_path."
+
+[PHN-471]
+title = "A phone's turn names the phone as its client"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "The phone gate sets chat.send's and chat.entries.mark's client_id to phone:<the phone's endpoint>, replacing any id the phone sent; submission_id stays the phone's. The handlers are FERB.app's own; the turn is the owner's, from that phone, and FERB.app shows it as another device's (APP-916)."
+why = "A phone naming FERB.app's install id would hide its turn on the Mac and mix two clients' marks; the endpoint is already authenticated by the link, so no new id is needed."
+evidence = "ferb-daemon tests/phone.rs a_phone_s_turn_names_the_phone_as_its_client."
+
+[PHN-472]
+title = "On-screen methods say needs_the_mac until FERB can click; a second phone lists and removes"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "Until something in FERB finds and clicks prompts on the Mac's screen, the six on_mac_screen methods are refused from a phone with needs_the_mac before anything opens; with a clicker the PHN-120 flow runs (FERB's own check on the phone, a signed Yes clicks, a refused click is said). phone.list is private and phone.remove sensitive for a phone (PHN-419); phone.rename, phone.pair_decide, phone.audit and every link.* method are never."
+why = "Opening a system prompt nobody can click from the phone would only annoy (PHN-132); PHN-120's fallback is to say it must be done at the Mac. PHN-419 (owner) narrows PHN-106 for the list a lost phone's removal needs."
+evidence = "ferb-daemon tests/phone.rs the_class_table_drives_every_call, a_prompt_on_the_mac_is_clicked_on_the_phone_s_signed_yes, a_removed_phone_is_refused_at_once; ferb-rpc tests/phone_classes.rs."
+
+# ---- 2026-11-16: slice S7 (T-1207), ferb-mobile: the phone's fold, store, sync and outbox
+
+[PHN-473]
+title = "The phone's fold is FERB.app's EntryFold in Rust, a pure function of each entry's newest copy"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "ferb-mobile fold ports EntryFold.archive and the archive's transcript to transcripts.json's shape (ENG-22); the newest copy is the higher rev, then seq, deleted ones left out. A phone folds the union of what it fetched, in any order; a cut body is never kept. The phone's zone decides a later answer's day."
+why = "The Mac's fold is the golden (ENG-9, ENG-10); a fold of the newest copies makes pages, changes and watch frames arriving in any order, twice or late reach the same chat, so sync needs no ordering of its own."
+evidence = "S7: tests/golden.rs 146 of 146 conversations equal (exactly since journal 112: the golden keeps a relative path as stored); tests/incremental.rs every scenario shuffled, paged, duplicated, revised late, tombstoned late."
+
+[PHN-474]
+title = "The phone's store: SQLCipher through rusqlite, CommonCrypto on Apple, vendored OpenSSL on Android"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-448. rusqlite 0.42 bundled-sqlcipher on Apple targets, bundled-sqlcipher-vendored-openssl elsewhere; the app's random 32 bytes as SQLCipher's raw key, zeroized here, never stored; the phone's own schema versions (user_version), an older file upgraded, a newer refused; secure_delete on; Forget this Mac deletes the files."
+why = "No system OpenSSL on either phone; Apple's CommonCrypto costs almost nothing there. A raw random key needs no key derivation. The workspace's rusqlite version keeps one libsqlite3-sys if the crate ever builds beside ferb-store."
+evidence = "S7 2026-11-16: cdylib probe, release, opt z, LTO, stripped: Android arm64 1.36 MB plain SQLite, 5.33 MB SQLCipher with OpenSSL 3.6 (+3.98 MB); iOS 1.18 MB, 1.24 MB on CommonCrypto (+67 KB). tests/store.rs: wrong key, v1 upgrade, newer refused."
+
+[PHN-475]
+title = "Phone sync by cursor: resets read the newest page; older pages wait for the link's word"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "A one-entry page names the current conversation; new: newest page; else changes after the cursor; reset_required or cursor_ahead drop and reread; cut entries kept to read whole before the cursor passes; behind resyncs once. An older page the link's bulk says it can't carry is NeedsBetterPath, asked again once on bulk allowed."
+why = "ENG-14's contract as a phone reads it; PHN-444 and PHN-461: the public relay refuses older pages, so asking would only cost a refusal; retrying on the link's own event, never a timer, keeps traffic off a free relay (PHN-410)."
+evidence = "S7 tests/sync.rs against a fake Mac from the fixtures: every one-conversation scenario paged two at a time equals the fold; offline catch-up; both resets; behind; a cut body; duplicates; the public relay asked nothing until bulk allowed."
+
+[PHN-476]
+title = "Outbox: each message sent in order with a submission id; a refusal fails it; answers never queue"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-401. A message is written to the outbox, then sent with client_id and submission_id (ENG-14); a failure the link can't carry stops the flush until the link returns (no timer, no count); a locked phone waits for its unlock; a refusal fails it with the Mac's words, never resent; sending reverts to waiting at open; removed at its ack."
+why = "One path for sent and waiting messages; the engine's dedupe makes a retry after an unknown outcome safe. Answers go now or not at all (PHN-448, CONTRACT), signed by the app's key over the exact call; a hidden value is sealed (SHA-256 only)."
+evidence = "S7 tests/outbox.rs: three waiting while off, one cancelled, two sent in order; ack lost then resent with the same id, one message on the Mac; a refusal failed, not resent; locked waits; a marker answer absent from proof, store file, listener."
+
+[PHN-477]
+title = "A Transport trait between the phone core and the Mac; the link plugs in by ferb-link's JSON door"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "ferb-mobile's Transport: call, send (returns chat.send's ack) and watch (frames to a sink), JSON as text. door::DoorTransport adapts LinkClient's command and poll (one pump thread routing results, stream events and the link's own events) with a 60 s backstop per call; ferb-mobile does not depend on ferb-link."
+why = "The tests run a fake Mac with no iroh; the same JSON door is what C, JNI and S8 already have, so no second protocol. The backstop only covers a link that went silent: the link's own 15 s deadline answers first."
+evidence = "S7 tests/door.rs: a call's result and error, a refusal at the door, chat.send at its ack, a watch's frames and end, the bulk event to the app, close."
+
+# ---- 2026-11-16: the iOS library uses only what the iOS SDK offers (journal 102, second addendum)
+
+[PHN-478]
+title = "iOS: netwatch and n0-dns-resolver patched so the phone library imports only APIs the iOS SDK offers"
+by = "agent"
+date = 2026-11-16
+status = "active"
+supersedes = ["PHN-464"]
+rule = "engine/patches: netwatch 0.19.3 gets net-tools#267 (routing constants local, netdev 0.47); n0-dns-resolver 0.1.0 reads nameservers via libresolv on Apple mobile, SystemConfiguration on macOS only. No libc cap. ferb-link/tools/ios_api_check.py fails a library importing anything unavailable or undeclared."
+why = "Coordinator relaying the owner, 2026-11-16: build iOS on supported APIs now, not hit an App Store wall later. netdev 0.46 and n0-dns-resolver call SystemConfiguration functions the iOS SDK marks API_UNAVAILABLE(ios); no iroh release avoids them."
+evidence = "2026-11-16, ios_api_check.py --min-ios 13.0 on the iOS debug dylib: before 197 imports, 23 SystemConfiguration ones unavailable; after 163, none unavailable or undeclared (device and simulator). macOS 52 ferb-link tests and netwatch's 17 pass; Android checks."
+untestable = "Patches and a build configuration: checked by gate lines (cargo check for aarch64-apple-ios and ios_api_check.py on the built library), not a test in the repo's suites."
+
+# ---- 2026-11-16: slice S5 (T-1205), FERB.app Settings → Phone
+
+[PHN-479]
+title = "Settings → Phone reads the daemon's phone area and the link helper's admin methods"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "FERB.app's PhoneService: phone.list, phone.pair_decide, phone.rename, phone.remove, phone.audit on the daemon; link.status, link.pair_start, link.pair_cancel, link.relay_test, link.relay_set, link.limits_get/limits_set on the helper through FERB.app's RPC client. Without the helper (FERBAppActions.phoneLink nil) the page says pairing isn't available yet."
+why = "The lab's Mac app drove the helper's admin socket, which already checks FERB.app's signature (admin.rs); the daemon holds phones and the Yes (journal 106). One protocol per side, no invented RPC; S4 only supplies the socket."
+evidence = "FERBNotch PhoneSettingsTests over two scripted transports: the without-link and service-off states, the relay calls going only to the helper; the playground answers both sides."
+
+[PHN-480]
+title = "A phone asking to pair opens the notch with its name and code and a button to Settings → Phone"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "phone.pair_requested adds a notice naming the phone and the six digits with a page card to Settings → Phone and announces it as a wait on the owner (the notch opens, APP-301). The Yes is given only on the page (phone.pair_decide). While a code or a request is open the page reads phone.list every other second."
+why = "The request waits 120 s for the owner, who may have left Settings; a Yes must stay a deliberate act on the page with the codes side by side, never a notch button. The list read covers the bus not carrying phone.* topics yet (ferb-core bus.rs)."
+evidence = "PhoneSettingsTests: testAPairingRequestOpensTheNotchWithAWayToSettingsPhone, testAPhoneThatAsksIsConfirmedOnlyByTheOwnersYes, testNoAndAnUnansweredRequestLeaveThePhoneUnpaired."
+
+[PHN-481]
+title = "The relay token: secure fields, memory only, sent only to the link helper, masked in every message"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "The ferbrelay:// line (its query holds the token) and an https address's token are typed into secure fields, kept only in the page's model, sent only in link.relay_test and link.relay_set, cleared once saved, and replaced by ••• in any message shown; the page writes no preference and logs nothing. The helper keeps it in the Keychain (PHN-143)."
+why = "Rule 7: a secret reaches no log, trace, store or model; a helper's error may quote what it was given. The playground's call log drops token and url for the same reason."
+evidence = "PhoneSettingsTests.testTheRelayTokenNeverLeavesForAnythingButTheHelper: a marker token absent from the daemon's calls, the page's words, the entry's descriptions and the sources' preference keys."
+
+# ---- 2026-11-16: slice S3b (T-1203), a phone's files through FERB's protection lists
+
+[PHN-482]
+title = "Phone paths use the model tools' lists: FERB's state never, every never-read entry a key place"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "ferb-daemon phone::files asks Protection::fs_rules (the gateway's check). A NEVER_LIFTED rule (FERB's state) is file_not_allowed even with a proof. Every read: entry, PHN-131's places, shell history, key names and the owner's additions is a key place: its own fresh fingerprint proof per access. A hard link is one; one to FERB's state is refused."
+why = "PHN-133 makes FERB's never-read list the guarded list and PHN-121 asks a fresh proof there; one judge keeps the phone and the model tools from drifting. The lab's asked-once protected_folder (-32015) is unused: FERB's protected folders are that list."
+evidence = "ferb-daemon tests/phone_files.rs every_never_read_entry_and_phone_key_place_takes_its_own_fresh_fingerprint (66 entries), ferb_s_own_data_is_never_shown_under_any_name, a_hard_linked_file_asks_for_its_own_fingerprint."
+
+[PHN-483]
+title = "The daemon opens a phone's file once, judges the kernel's name; the window first; a change stops it"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "Every file call needs the unlock window (the gate) before any path is looked at; a key place then also needs its proof. The path is judged by its names, opened once (O_NONBLOCK), judged again by F_GETPATH; only ordinary files are sent; size, time and identity are pinned and a change stops the read with file_changed (-32024)."
+why = "The lab let a key place's proof stand without the window; asking the window first tells a locked phone nothing about what exists, and the app always unlocks on opening (PHN-13), so no prompt is added (PHN-132). A pinned descriptor ends link swaps and short or grown files."
+evidence = "tests/phone_files.rs no_spelling_of_a_path_dodges_the_fresh_proof, a_link_swapped_between_the_check_and_the_open_is_judged_as_it_opened, pipes_sockets_devices_and_folders_are_never_sent_as_files, a_file_that_changes_while_it_is_sent_stops_with_file_changed."
+
+[PHN-484]
+title = "Uploads: a hidden part file quarantined before its first byte, named at the end, never over another"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "phone.put_begin writes .<id>.ferb-part 0600 through the inbox's descriptor (folder parts opened without following links), sets com.apple.quarantine first, and put_end links it to its name (<id>-<name>, or its place in a folder) only if that name is free. A session's end pauses it; a removed phone's parts go; old parts are swept by age."
+why = "PHN-127's random id and quarantine, with no half file ever under a finished name and no overwrite; a daemon restart forgets uploads, so parts are found by their suffix. The inbox is judged as a write: in a protected place nothing is taken."
+evidence = "tests/phone_files.rs an_upload_needs_the_unlock_and_is_quarantined, an_upload_stops_and_goes_on_by_the_same_phone_only, a_folder_arrives_whole_nothing_climbs_out_and_it_rides_with_a_message, a_paused_upload_is_kept_one_hour_then_goes."
+
+[PHN-485]
+title = "The daemon counts phone fetches for the heavy-fetch notice and turns attachments into input_paths"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "phone.read counts each fetch per phone; over PHN-138's numbers it tells once per burst: bus phone.heavy_fetch (critical), a journal row, an audit row and link.events heavy_fetch for the helper to put in the phone's chat. The gate replaces chat.send's attachments (this phone's finished uploads or folders, by id) with input_paths."
+why = "In FERB the Mac's notice is FERB.app's, through the daemon, not the lab bridge's admin socket; the bridge's own count goes in S4 so a burst is told once. input_paths stays refused from a phone (a path on the Mac); ids reach only what this phone sent."
+evidence = "tests/phone_files.rs a_phone_that_takes_unusually_much_is_said_so_once_per_burst, a_folder_arrives_whole_nothing_climbs_out_and_it_rides_with_a_message; ferb-core tests/bus.rs."
+
+# ---- 2026-11-16: slice S4 (T-1204), the link's helper started, signed and packaged; its keys through ferb-secrets
+
+[PHN-486]
+title = "ferb-link stays outside the workspace: its own Cargo.lock, built by manifest path after apply.sh"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "engine/crates/ferb-link keeps its own Cargo.lock and [patch.crates-io] (iroh, netwatch, n0-dns-resolver). build-app-rust.sh runs engine/patches/apply.sh, then cargo build --locked --manifest-path engine/crates/ferb-link/Cargo.toml --bin ferb-link; the gate builds and tests it the same way."
+why = "A [patch] at engine/Cargo.toml binds the whole workspace's lock to the patched copies: every cargo command and agent build there would fail until apply.sh ran, and iroh would compile in every gate run. No workspace member uses the patched crates."
+evidence = "S4: cargo tree over the workspace finds no iroh, netwatch or n0-dns-resolver; ferb-link builds against path deps ferb-rpc (normal) and ferb-daemon (dev) with its own lock."
+untestable = "A build layout: checked by building (build-app-rust.sh's cargo --locked line, the gate's ferb-link lines), not by a test in the suites."
+
+[PHN-487]
+title = "The link's three keys are one Keychain item the daemon reads through ferb-secrets and hands over"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "Service ferb, account phone-link: JSON of identity, state-key, relay-token (base64), read and written only by ferbd through the pinned ferb-secrets helper. ferbd makes the two keys once, passes all three as the first line of the helper's stdin (never argv, env, a file or a log), and keeps a new relay token the helper hands back to it alone."
+why = "PHN-143: the item's access belongs to ferb-secrets' stable signature, as every FERB secret's does, so no install or update asks; the helper never calls the Keychain, so its own signature never meets an item. A pipe at start needs no protocol for secrets on the socket."
+evidence = "ferbd compose/link.rs the_link_s_keys_are_one_item_made_once (memory store); ferb-link secrets given_keys_stay_in_memory_and_never_print, hardening the_keys_come_only_from_ferb_and_a_changed_state_file_is_never_used."
+
+[PHN-488]
+title = "The helper runs while the phone feature is on, supervised, sandboxed, and stops with the daemon"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "[phone] enabled (off on a fresh install) is turned on by the owner's first link action in Settings → Phone (a code, a relay) and off only by phone.enable. ferbd's loop 'phone link' (guard: daemon.loop_failed, doubling pause) runs it under sandbox-exec: no home or FERB data but its state folder and the socket, no exec. Its stdin closing stops it."
+why = "Simplest correct rule: no network until the owner wants phones, then always reachable; idle it costs one relay connection and iroh's checks (about 10 kB a minute, PHN-222). A crash or shutdown of the daemon closes the pipe, so the helper never outlives it."
+evidence = "ferbd compose/link.rs the_profile_opens_only_the_helper_s_own_folder_and_the_socket; tests/loops_supervised.rs (spawns.txt). By hand (journal 113): the helper under the profile reached a local relay and the socket; home reads, writes, exec refused."
+
+[PHN-489]
+title = "FERB.app reaches the helper only through the daemon: phone.* control methods and link.events asks"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "app_only phone.enable, phone.link_status, phone.pair_start, phone.pair_cancel, phone.relay_test, phone.relay_set, phone.relay_always (never from a phone). The daemon answers what it holds and asks the helper the rest: an ask event on link.events, answered by link.answer (role link). The helper has no socket; the lab's admin socket and serve are gone."
+why = "One socket and one peer check (FERB.app's) for the owner's side; the helper's surface is the iroh endpoint alone. Errors reach the app as plain words with the code apart (device_limit -32023)."
+evidence = "ferb-link tests/real_daemon.rs ferb_app_s_controls_reach_the_helper_through_the_daemon; hardening the_owners_controls_reach_the_helper_only_through_the_daemon; ferb-rpc golden and phone_classes; FERBNotch PhoneSettingsTests (13)."
+
+[PHN-490]
+title = "The helper keeps no phones: the daemon's list, its pairing and the owner's Yes in FERB.app"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "The helper reads link.devices before letting a phone in and on every link.events change; a removal cuts the phone's connections at once, unknown_phone too. A phone that proved the QR is asked of the owner by link.pair_request and link.pair_wait. link.json keeps only relay settings, limits and relay marks; in FERB a changed one is set aside."
+why = "PHN-469 makes the daemon's table the one list (PHN-124); a sealed list the helper also kept could disagree. With no phones in link.json an edit can only choose a relay or a limit, so setting it aside never strands a phone and asks the owner nothing."
+evidence = "ferb-link tests/real_daemon.rs a_phone_pairs_through_the_daemon_and_the_owner_s_yes_in_ferb_app, a_phone_removed_in_ferb_app_is_cut_off_at_once; the lab suites on the stand-in speaking the same protocol."
+
+[PHN-491]
+title = "Each phone call names its tier to the daemon, which refuses files on the shared relay too"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "The helper's phone hello carries tier (direct, own_relay, shared_relay) per daemon connection, so per call; PhoneSession.tier. The gate refuses phone.read, phone.tree, phone.put_begin and phone.put_group on shared_relay with file_not_allowed, after the helper's own needs_direct_or_own_relay."
+why = "Defence in depth for PHN-444: a helper that failed to refuse a file on the public relay would still not send one. A listing stays the helper's to judge by size; the transfers' chunks ride their begin."
+evidence = "ferb-daemon phone::files files_are_refused_on_the_shared_relay_by_the_daemon_too."
+
+# ---- 2026-11-16: slice S8 (T-1208), ferb-mobile-ffi: the phone library's UniFFI bindings
+
+[PHN-492]
+title = "The phone library: one UniFFI 0.32 crate over ferb-mobile and ferb-link, typed records, one error"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-446. ferb-mobile-ffi exports Mobile and Link (UniFFI 0.32.2 proc macros, generator a Rust bin, no Python); records copy the core's types by total destructuring, a question's body as JSON text; FerbError, one variant per stable code plus internal and bad_argument; every call in catch_unwind; shutdown() is the explicit close; calls block, bounded."
+why = "One library per phone (the apps link ferb-link through it); a total copy fails the build when the core adds a field; the bindings' own close() frees the handle, so the stable `closed` code needs a second name. UniFFI's runtime is MPL-2.0: THIRD_PARTY_NOTICES names it (owner's file)."
+evidence = "tests/ffi.rs: every one-conversation scenario's records equal transcripts.json; shutdown then every call closed; two cores at once. Unit tests through UniFFI's C functions: a panic is internal. Kotlin/JVM and Swift programs ran the generated bindings on the host library."
+
+[PHN-493]
+title = "The library proves the phone's presence each session and unlocks toward the Mac with the app's keys"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "With the app's DeviceSigner, Link signs link.present over the Mac's fresh challenge once per new session not yet proved, and answers the link's prove events; Mobile.unlock signs link.unlock's fresh challenge with the app's Signer (after its prompt), then syncs, which sends what waited. No timer, no retry."
+why = "PHN-125: the Mac gives a connection nothing of FERB's before the phone's signed unlock, which the app sends on open. ferb-link proves presence by itself only with an in-process signer an app cannot hand over, and S7's core had no unlock call."
+evidence = "tests/link.rs an_app_pairs_unlocks_and_sends_through_the_real_link (127.0.0.1, ferb-link's stand-in Mac): the device key signs after pairing; a locked sync is needs_unlock; Stop works locked; after unlock a message reaches the stand-in."
+
+[PHN-494]
+title = "The link's state, with the phone's private link key, reaches the app as opaque bytes it keeps sealed"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "LinkListener.persist hands the link's state as bytes at each change; the app stores it encrypted under a non-exportable Keystore or Keychain key, excluded from backups and device transfer, and gives it back as LinkConfig.state. Bytes that are not the link's state are refused (bad_argument), never replaced by a new key."
+why = "S1: the link hands its state to the app, which alone has the phone's secure storage. A silently new identity would unpair the phone with no word; the owner then sees a refusal and can pair again."
+evidence = "tests/link.rs: a first start persists a key at once; the paired state is persisted; a start from the kept state is the same endpoint id; a state that is not the link's is BadArgument."
+
+# ---- 2026-11-16: slice S9 (T-1209), apps/android :core: the Rust build, the Vault, the keys, the lifecycle object
+
+[PHN-495]
+title = "Android's Rust build: cargo-ndk, release profile for every APK, arm64-v8a by default"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-446. :core's Gradle tasks run engine/patches/apply.sh, then cargo-ndk (4.1.2, NDK 28.2 pinned, API 30) with the crate's release profile for debug and release APKs alike, 16 kB LOAD alignment, only libferb_mobile_ffi.so copied; the Kotlin is generated by the crate's own bin from the host library. arm64-v8a by default; x86_64 with -Pferb.abis."
+why = "Measured: a dev-profile .so is 34 MB, the release one 16.3 MB; a cold build 144 s vs 128 s, a change about 10-15 s either way once cargo's cache is warm. The emulator on this Mac is arm64; x86_64 serves only an Intel host. The stripped .so keeps no UniFFI metadata."
+evidence = "core OnPhoneTest the_library_loads_through_jna_and_every_native_library_is_16k_aligned (emulator, API 36); zipalign -c -P 16 passes; BindingsTest's checksums load the generated Kotlin against the host library (journal 114)."
+
+[PHN-496]
+title = "The phone's vault: noBackupFilesDir, an AES-GCM Keystore key, the store a refetchable copy"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-448, PHN-494. noBackupFilesDir/ferb holds link.state and store.key sealed (AES-256-GCM, purpose as AAD) by ferb.key.wrap, non-exportable, StrongBox else TEE, no user authentication; phone.db; client.id. An unreadable store key drops the store (a refetch); unreadable link state wipes all: pair again. :core's manifest: allowBackup and fullBackupContent false, dataExtractionRules excluding every domain."
+why = "Stay connected must open both with the phone locked, so the wrap key cannot need a prompt; the app lock guards the screen. The store copies the Mac's (ENG-10), so losing it costs only a fetch, never the pairing. allowBackup=false alone leaves Android 12+ device transfer on."
+evidence = "core VaultTest (4), FerbPhoneTest a_lost_keystore_key_means_pair_again_and_a_lost_store_key_only_a_refetch and the tampered and refused states; OnPhoneTest the_store_opens_and_closes_with_a_keystore_wrapped_key_and_nothing_is_backed_up; ProcessDeathTest across two processes."
+
+[PHN-497]
+title = "The three signing keys: per-use prompts, the lock key kept across new fingerprints, DER as is"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-443, PHN-133. Keystore P-256, StrongBox else TEE. device: no authentication. lock: every use, class 3 biometric or device credential, made only with a secure screen lock, not invalidated by enrolment. strong: every use, class 3 biometric only, invalidated by enrolment. Signatures are the Keystore's DER and keys its SPKI DER, standard base64; the platform BiometricPrompt signs."
+why = "A new fingerprint needs the PIN, which the lock key already accepts, so destroying it would only force re-pairing; the strong key is the one a PIN-holder must not reach. DER and SPKI are what proof.rs reads, so nothing is converted. minSdk 30 has the prompt with CryptoObject; no AndroidX layer."
+evidence = "Device-key signatures from the emulator verified by a verbatim copy of proof.rs's verify (3 valid, 1 wrong payload refused); proof.rs's fixed RFC 6979 vector verified in Java (VaultTest); OnPhoneTest: prompted keys refuse to sign without the owner."
+
+[PHN-498]
+title = "FerbPhone: one object for the app, callbacks as flows on main, a close that frees the library"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-446, PHN-493. FerbPhone starts the link then the store from the Vault, delivers Listener and LinkListener calls as SharedFlow and StateFlow on the main dispatcher, runs blocking calls on IO with Outcome (the sealed FerbException), and close() shuts down and frees both. Forget this Mac deletes the store, its key and the three keys and starts again; pair() first remakes keys Android destroyed."
+why = "The library calls back on its own threads with nothing locked; the UI must not block or be called off main. A key the forgotten Mac knows should verify nothing new. A paired phone keeps destroyed keys as GONE (Stop still works) and is told to pair again; only pairing replaces them (PHN-133)."
+evidence = "core FerbPhoneTest (8): sealed persist, changes on the main thread, unlock signed with the lock key, restart from kept state, forget, pairing with a remade key, and close letting the phone be collected while an open one is held (control)."
+
+[PHN-499]
+title = "A release APK is signed with the owner's key from outside the checkout; debug needs none"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-406. Every app module's release build type takes ferb.release.storeFile, keyAlias (default ferb) and password from ~/.gradle/gradle.properties or the environment, the password else from the login Keychain item ferb-android-release; a release build without them stops at its first task saying what is missing. No key in the repository; the owner makes his once with keytool (README)."
+why = "PHN-406: a sideloaded release-signed APK. Losing or leaking the key would break or fake updates, so it lives only with the owner; the Keychain keeps the password out of a plain file. A silently unsigned APK would fail later at install with a vaguer error."
+evidence = "With a throwaway PKCS12 key in the scratch folder and the gallery's release turned on for the check only: apksigner verify passed (v3, one signer); without settings the build stopped in 14 s with the message; debug builds unchanged."
+untestable = "A build configuration (root build.gradle.kts): checked by building, not by a test."
+
+[PHN-500]
+title = "The Android app is com.ferb.phone (Kotlin namespace com.ferb.app), one activity in Compose"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "Slice S11. apps/android :app has applicationId com.ferb.phone (the lab's was local.ferb.link), minSdk 30, target 37, arm64-v8a only unless -Pferb.abis; one activity (MainActivity) with the lab's tabs and sheets drawn from :design; the Application owns FerbPhone, AndroidSignals and the app lock, so a turned screen keeps them and a new process starts locked."
+why = "PHN-406 left the id open and an update must keep it, so it is set before the owner's first release-signed install; com.ferb.phone says what it is beside the Mac's com.ferb.FERB. One activity keeps FLAG_SECURE and the lock in one window."
+evidence = "app OnPhoneTest the_manifest_asks_only_what_the_app_uses_and_keeps_out_of_backups checks the package; the debug and a minified build ran on the emulator (API 36), unlocked and turned the screen without losing state."
+
+[PHN-501]
+title = "Stay connected is a remoteMessaging foreground service; it returns after an update, not a reboot"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-421. StayConnectedService, foregroundServiceType remoteMessaging, shown at once (FOREGROUND_SERVICE_IMMEDIATE) on the channel stay_connected, keeps the link active (AndroidSignals.stayConnected) and holds no loop of its own. Started only from the app on screen; MY_PACKAGE_REPLACED brings it back after an update; no RECEIVE_BOOT_COMPLETED, so after a reboot it returns when FERB is opened."
+why = "dataSync stops after 6 hours a day on Android 15, connectedDevice needs extra permissions and names hardware, specialUse needs a store's review; remoteMessaging carries messages between the owner's devices with no limit. The brief allowed no boot permission."
+evidence = "app OnPhoneTest stay_connected_runs_as_a_foreground_service_with_its_quiet_line and the manifest test (type remoteMessaging, not exported), emulator API 36."
+
+[PHN-502]
+title = "A private answer: a code on the lab's keypad, a password in the password keyboard, kept nowhere"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-109, PHN-110. owner_login_code uses the lab's own SecretKeypad (digits in a CharArray, zeroed on send and on close); owner_admin_password and owner_secret use BasicSecureTextField, obscured, password keyboard, no autocorrect. Plain remember only (never saved state); FLAG_SECURE while the sheet is open whatever the switch says; sent as AnswerInput.Hidden signed by the lock key."
+why = "A keyboard app may learn or sync what is typed, and the lab drew its own keypad for codes, so codes never reach one; a password needs letters, and Android keyboards neither learn from nor suggest in password fields. Saved state can outlive the screen."
+evidence = "app ScreenShotsTest a_private_code_takes_the_labs_keypad and a_private_password_takes_the_system_keyboard_in_its_password_mode; ModelTest a_private_answer_always_goes_signed_and_a_cancelled_prompt_sends_nothing."
+
+[PHN-503]
+title = "An answer goes unproved first; signed once when the Mac asks for proof; unlocked once when locked"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-13, PHN-470. AnswerFlow: send as is; on unlock_required (or unlock_invalid, fresh_unlock_required) sign once, with the fingerprint key where it is OK, else the lock key, and pair again when the fingerprint key is gone; on locked, unlock toward the Mac once and send again. A hidden value is always signed. The notification's buttons send unproved and, refused, say 'needs your fingerprint' and open the question."
+why = "The stored question entry does not say what its answer needs (the gate's phone part is only in chat.status, which the library does not expose), and code must not guess it from words (rule 4): the Mac's refusal is the fact. At most one extra prompt."
+evidence = "app ModelTest AnswerFlowTest (7): routine, fingerprint, lock key, fingerprints changed, closed window, private, refusal words."
+
+[PHN-504]
+title = "On the lock screen FERB's own checks lose their words and buttons; Android's setting covers the rest"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-422. Every notification is VISIBILITY_PRIVATE with a public version (FERB's name and 'FERB has a question' or 'FERB has news'). A question whose capability is one of FERB's own checks (role.rs OWN_CHECKS, which holds money, deletion and account security), while the owner's switch is on (default), is posted and re-posted wordless and without buttons when the screen goes off, and worded again when the phone is unlocked."
+why = "Android ignores an app's channel lockscreenVisibility (measured: NO_OVERRIDE came back), so only the notification's own content can keep words off the lock screen. The app can't tell money from other checks without judging words; the checks class is the structural superset."
+evidence = "app OnPhoneTest a_question_is_posted_with_its_buttons_and_no_words_on_the_lock_screen_for_checks (emulator API 36): routine buttons, a check posted wordless while locked and worded after, a private answer with no words or buttons."
+
+[PHN-505]
+title = "The app lock: one prompt opens the app and the Mac; locked after five minutes away; screens covered"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-8, PHN-15, PHN-125, PHN-420. AppLock (injected clock): locked at a cold start and after more than 5 minutes in the background (a timer there too). No screen lock: only the screen that says how. Unlock: with the Mac online the lock key signs the Mac's challenge in the one prompt (a cold start waits up to 6 s for it); otherwise the prompt alone. FLAG_SECURE by the switch, always while locked or private; recents always blank (API 33+)."
+why = "PHN-13's one gesture for both; a prompt that opens the app must not depend on the Mac being up. setRecentsScreenshotEnabled covers recents even with the screenshot switch off, as PHN-15 asks."
+evidence = "app AppLockTest (2), ViewModelTest gate and unlock tests, OnPhoneTest with_a_screen_lock_it_opens_on_the_prompt_and_shows_pairing (a real PIN prompt on the emulator) and without_a_screen_lock..."
+
+[PHN-506]
+title = "What the phone library doesn't carry yet is said plainly on the phone, never drawn invented"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "Slice S11. Files, sending files, Watch live, Stop everything, FERB's settings and speaking keep the lab's buttons and open one sheet: '<what> isn't connected on the phone yet. It comes in an update of FERB.' Watch live on the shared relay says the relay's rule instead. Tasks are drawn from the chat's own transcript (what waits, runs, ran)."
+why = "ferb-mobile-ffi exposes no phone.files/read/put, tasks.preview, stop.engage, settings.get, tasks.list or chat.status yet (journal 115 lists the additions); a fake list or a partial stop would mislead. The owner sees the lab's layout and an honest line."
+evidence = "app ScreenShotsTest files_say_plainly_they_are_not_on_the_phone_yet; the not-yet sheet's words in strings.xml."
+
+[PHN-507]
+title = "The home screen speaks the lab's corpus.json by its own rules; unmeasured signals never hold"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "Slice S11. assets/corpus.json is the glass lab's words/corpus.json; Corpus and Moment port Words.swift (phase, hour, sunset and sunrise, weekday, moon, counts, link, first run, just paired, the open before this one and its zone; the line picked by the day's ordinal). Weather (PHN-412), the owner's usual hours and late nights (a list of open times whose keeping is the owner's to decide) are not measured, so their rules never speak."
+why = "S10 left the home words to S11 and the lab's corpus is the owner's copy. Keeping one previous-open time is what the lab's away and first-today rules need; the habit list waits for his retention answer."
+evidence = "app WordsTest (3): first run and just paired, the offline line held all day, hour ranges across midnight and unmeasured signals."
+
+[PHN-508]
+title = "The phone's wrap key is made by one thread at a time"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-496. KeystoreProtector makes, reads and deletes ferb.key.wrap under one process-wide lock, so the link's first persist (its own thread) and the store's key (the start's thread) seal with the same key."
+why = "Found by S11 on the emulator: on a first start both made the key, one replaced the other, and the link's state failed to seal ('the link state could not be kept: KeyGone', 2 of 2 starts), so a restart could have lost the pairing."
+evidence = "core OnPhoneTest two_threads_making_the_wrap_key_at_once_both_seal_with_the_one_key fails without the lock (Unreadable) and passes with it; 3 fresh app starts logged no failure (were 2 of 2)."
+
+[PHN-509]
+title = "The app draws with :design's own pages; its chat from the lab's sample matches the lab's golden"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "Slice S11. :app composes :design's pages and pieces; :design gained only optional callbacks and overrides (tabs, rows, the link picture's words, a sheet's dismiss, the profile's extra rows, a note under the link) whose defaults draw as before. The app's chat, fed the lab's sample, is compared with :design's chat golden (under 0.1 % of pixels); app-only states have their own goldens."
+why = "PHN-416: no design of the app's own. A test that the app's composition equals the lab's golden catches a drift the :design goldens alone can't."
+evidence = "design :design:test 36 screen and 23 other goldens unchanged after the additions; app ScreenShotsTest the_chat_drawn_from_the_labs_sample_is_the_labs_chat and 14 app goldens."

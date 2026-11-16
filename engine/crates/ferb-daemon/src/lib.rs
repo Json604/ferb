@@ -6,4 +6,6 @@
 
 pub mod areas_a;
 pub mod areas_b;
+/// Stage 3 S3 (T-1202): the daemon's phone area: paired phones, challenges, the unlock window, proofs, the audit.
+pub mod phone;
 pub mod shared;

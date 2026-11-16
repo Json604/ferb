@@ -16,6 +16,8 @@ pub mod chat_history;
 pub mod cleanup;
 pub mod data_view;
 mod migrate;
+/// Stage 3's paired phones and their audit (migration 0065, T-1202).
+pub mod phones;
 pub mod pyval;
 pub mod retention;
 pub mod salvage;

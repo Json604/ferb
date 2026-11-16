@@ -207,3 +207,23 @@ rule = "When retention is on (the real daemon), the start calls the runtimes are
 why = "Each run folder holds a copy of FERB's Codex login; Python removed those a crash left at every start (main.py:435, review M1). The Rust port had the sweep but nothing called it."
 evidence = "ferbd tests/lifecycle.rs the_start_sweeps_stale_codex_run_folders: a two-day-old folder goes, a fresh one stays, the journal says count 1; it fails with the call disabled."
 paths = ["engine/crates/ferbd/src/compose/mod.rs", "engine/crates/ferb-daemon/src/areas_b/runtimes/mod.rs::sweep_stale_runs"]
+
+[ENG-22]
+title = "The phone's transcript golden: transcripts.json, from FERB.app's fold of every scenario's entries"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For ENG-9, ENG-10. engine/fixtures/chat-entries/transcripts.json holds, for every scenario of scenarios.json and engine_*.json, each conversation as EntryFold shows it: turn, reply, notice and reminder items in the Mac's order, each naming its entry, snake_case fields (README), and each question with its state and where the Mac draws it. EntryFoldTranscriptTests writes it with UPDATE_GOLDEN=1, else compares bytes; S7 is tested against it. Written timelines may use the steps the store writes (legacy, delete, fresh, restart), mirrored in chat_entries.rs."
+why = "S6 (T-1206): no expected transcript was stored; EntryFoldTests compared the Mac's reducer with its fold inside Swift only, so a Rust fold had nothing to be tested against. Gaps, sealed IDs, legacy rows, tombstones and the fresh marker had no scenario."
+evidence = "EntryFoldTranscriptTests (4): the golden byte for byte, two runs equal, what the 12 phone scenarios show, the legacy bodies re-encode to the app's bytes. EntryFoldTests: 85 of 85 conversations app == fold, open questions equal."
+paths = ["engine/fixtures/chat-entries/transcripts.json", "engine/fixtures/chat-entries/README.md", "apps/mac/FERBNotch/Tests/NotchCoreTests/EntryFoldTranscriptTests.swift", "engine/crates/ferb-supervisor/tests/chat_entries.rs"]
+
+[ENG-23]
+title = "A projector rebuilt after a rewrite skips tombstones and keeps the sessions of open streams"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For ENG-9, STORE-424. ChatProjector::restore fills nothing back from a deleted entry and the chat no longer ends on one; ChatLog's rebuild after a rewrite (a deleted turn, a fresh conversation) marks the turns whose chat.send stream is still open active again, with the task their plan bound (streams_open), as FERB.app's sessions for them go on. After a restart no stream is open."
+why = "S6's deleted-turn scenarios: the rebuilt projector ended the chat on the deleted answer (an earlier turn's end went below; FERB.app puts it inline) and, with no session for a turn still streaming, dropped that turn's reply: no answer was stored."
+evidence = "chat_entries.rs a_deleted_last_turn_no_longer_ends_the_chat (placement below before the fix) and a_reply_on_a_stream_still_open_when_another_turn_was_deleted (0 answers before); EntryFoldTests deleted_last_turn app == fold."
+paths = ["engine/crates/ferb-supervisor/src/flow/entries.rs::ChatProjector.restore", "engine/crates/ferb-supervisor/src/flow/entries.rs::ChatProjector.streams_open", "engine/crates/ferb-supervisor/src/flow/chat_log.rs"]

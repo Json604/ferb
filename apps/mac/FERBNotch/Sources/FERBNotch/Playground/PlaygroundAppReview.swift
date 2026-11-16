@@ -44,6 +44,7 @@ final class PlaygroundAppReview: PlayHost {
         actions.loginItems = LoginItemController(appService: PlaygroundLoginItem(), launchAgent: PlaygroundLoginItem(enabled: false), available: true)
         actions.updates = updates
         actions.logsDirectory = services.home.appendingPathComponent("logs")
+        actions.phoneLink = services.daemon          // Settings → Phone's link.* answered by the workspace (T-1205)
         actions.openNotificationSettings = { [opener = services.opener] in
             opener.open(URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension")!)
         }
@@ -68,6 +69,7 @@ final class PlaygroundAppReview: PlayHost {
         coordinator.onOpenWindow = { [weak self] in self?.show(.tasks) }
         coordinator.onOpenSettings = { [weak self] in self?.show(.settings) }
         coordinator.model.onOpenMemory = { [weak self] source in self?.window.showMemory(importedFrom: source) }
+        coordinator.model.onOpenPhone = { [weak self] in self?.window.show(.settings, tab: .phone) }
         coordinator.onInstallUpdate = { [weak updates] in updates?.checkNow() }
     }
 

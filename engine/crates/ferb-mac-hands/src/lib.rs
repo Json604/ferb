@@ -22,6 +22,7 @@ pub mod aftercheck;
 pub mod applescript;
 pub mod apps;
 pub mod ax;
+pub mod device;
 pub mod driver;
 pub mod error;
 #[cfg(target_os = "macos")]

@@ -112,6 +112,15 @@ const STAGE_2_OBJECTS: [&str; 19] = [
     "sqlite_autoindex_chat_submissions_1",
 ];
 
+/// The schema objects migration 0065 adds (stage 3, T-1202; the tables are `phones::TABLES`): exactly these.
+// decision: PHN-130
+const STAGE_3_OBJECTS: [&str; 4] = [
+    "phone_audit",
+    "phone_audit_at",
+    "phone_devices",
+    "phone_devices_live",
+];
+
 /// ORCH-651's named difference (migration 0064): Python's `tasks` table as 0064 rebuilds it, its CHECK naming
 /// done_with_gaps; any other object as recorded.
 fn tasks_with_gaps(object: &Value) -> Value {
@@ -131,6 +140,7 @@ fn tasks_with_gaps(object: &Value) -> Value {
 }
 
 // decisions: ENG-3, ENG-4, ENG-11, STORE-409, STORE-417, ORCH-651
+// decision: PHN-130
 #[test]
 fn a_fresh_store_is_the_one_python_makes() {
     // Python's store, plus exactly the named stage-2 additions (migration 0063, ENG-11): the
@@ -144,15 +154,19 @@ fn a_fresh_store_is_the_one_python_makes() {
     let stage_2 = chat_entries::SCHEMA_VERSION;
     // 0064 (ORCH-651) rebuilds `tasks` with done_with_gaps in its CHECK: the one other named addition
     let gaps = stage_2 + 1;
+    // 0065 (T-1202): stage 3's paired phones and their audit
+    let phones = ferb_store::phones::SCHEMA_VERSION;
+    assert_eq!(phones, gaps + 1);
 
-    assert_eq!(applied[applied.len() - 2..], [stage_2, gaps]);
-    assert_eq!(json!(applied[..applied.len() - 2]), python["applied"]);
-    assert_eq!(known_schema(), gaps);
+    assert_eq!(applied[applied.len() - 3..], [stage_2, gaps, phones]);
+    assert_eq!(json!(applied[..applied.len() - 3]), python["applied"]);
+    assert_eq!(known_schema(), phones);
     assert_eq!(json!(stage_2 - 1), python["known_schema"]);
     let versions = rust["schema_version"].as_array().unwrap();
-    let (before, last) = versions.split_at(versions.len() - 2);
+    let (before, last) = versions.split_at(versions.len() - 3);
     assert_eq!(last[0][0], json!(stage_2));
     assert_eq!(last[1][0], json!(gaps));
+    assert_eq!(last[2][0], json!(phones));
     assert_eq!(
         json!(before),
         python["schema_version"],
@@ -160,10 +174,25 @@ fn a_fresh_store_is_the_one_python_makes() {
     );
     assert_eq!(rust["pragmas"], python["pragmas"]);
     assert_eq!(rust["mode"], python["mode"]);
-    let (added, ours): (Vec<&Value>, Vec<&Value>) = rust["sqlite_master"]
+    let (phones_added, rest): (Vec<&Value>, Vec<&Value>) = rust["sqlite_master"]
         .as_array()
         .unwrap()
         .iter()
+        .partition(|o| STAGE_3_OBJECTS.contains(&o["name"].as_str().unwrap()));
+    let mut phone_names: Vec<&str> = phones_added
+        .iter()
+        .map(|o| o["name"].as_str().unwrap())
+        .collect();
+    phone_names.sort_unstable();
+    assert_eq!(
+        phone_names, STAGE_3_OBJECTS,
+        "0065 adds exactly the named objects"
+    );
+    assert!(phones_added
+        .iter()
+        .all(|o| ferb_store::phones::TABLES.contains(&o["tbl_name"].as_str().unwrap())));
+    let (added, ours): (Vec<&Value>, Vec<&Value>) = rest
+        .into_iter()
         .partition(|o| STAGE_2_OBJECTS.contains(&o["name"].as_str().unwrap()));
     let theirs = python["sqlite_master"].as_array().unwrap();
     for (a, b) in ours.iter().zip(theirs) {
@@ -647,7 +676,8 @@ fn a_populated_store_at_0063_upgrades_to_take_done_with_gaps() {
     let tasks_before = dump(c, "SELECT rowid, * FROM tasks ORDER BY rowid");
     let context_before = dump(c, "SELECT rowid, * FROM task_context ORDER BY rowid");
 
-    assert_eq!(db.migrate().unwrap(), vec![64]);
+    // 0065 (T-1202, the paired phones) follows
+    assert_eq!(db.migrate().unwrap(), vec![64, 65]);
     let c = db.conn();
     assert_eq!(
         dump(c, "SELECT rowid, * FROM tasks ORDER BY rowid"),

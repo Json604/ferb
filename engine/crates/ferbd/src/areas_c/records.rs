@@ -555,12 +555,13 @@ async fn tasks_preview(d: Deps, p: Params) -> Result<Map<String, Value>, Handler
         Value::Object(m) => m,
         _ => Map::new(),
     };
+    // APP-922: the frame as captured, to FERB.app only (tasks.preview is app_only); the one place its bytes are read
     if let Some(image) = answer.image {
         use base64::Engine;
         out.insert(
             "image".into(),
             base64::engine::general_purpose::STANDARD
-                .encode(image)
+                .encode(image.for_owner_app())
                 .into(),
         );
     }

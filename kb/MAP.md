@@ -6,20 +6,21 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 
 | Area | Title | Paths | Active decisions | Open tasks | Pending live checks |
 |---|---|---|---|---|---|
-| app | FERB.app (notch UI, intro, sounds) | `apps`, `demo` | 298 | 13 | 40 |
-| daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 88 | 9 | 7 |
-| engine | Rust engine (the rewrite) | `engine/*`, `engine/crates`, `engine/fixtures`, `engine/packaging` | 21 | 6 | 0 |
-| gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `engine/runtime/identity` | 121 | 9 | 61 |
-| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extension`, `extension-store` | 180 | 10 | 38 |
+| app | FERB.app (notch UI, intro, sounds) | `apps/mac`, `apps/AGENTS.md`, `apps/docs`, `apps/output`, `apps/.gitignore`, `demo` | 305 | 11 | 40 |
+| daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 92 | 8 | 7 |
+| engine | Rust engine (the rewrite) | `engine/*`, `engine/crates`, `engine/fixtures`, `engine/packaging` | 23 | 4 | 0 |
+| gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `engine/runtime/identity` | 122 | 9 | 61 |
+| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extension`, `extension-store` | 191 | 9 | 40 |
 | memory | Memory and memory import | `engine/runtime/memory` | 60 | 4 | 0 |
 | orchestration | Orchestration | `ferb/orchestrator/*.py`, `engine/runtime/decide`, `ferb/clock` | 163 | 9 | 38 |
-| perception | Perception | `ferb/sense` | 17 | 4 | 0 |
+| perception | Perception | `ferb/sense` | 20 | 3 | 1 |
+| phone | Phone role, link and phone apps | `apps/android`, `apps/ios`, `engine/patches` | 173 | 9 | 16 |
 | project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `HANDOFF.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `kb`, `tools`, `spikes` | 13 | 8 | 0 |
 | prompts | Prompts and abilities | `engine/runtime/orchestrator/prompts`, `engine/runtime/abilities` | 48 | 4 | 10 |
-| release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 25 | 3 | 4 |
+| release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 25 | 4 | 4 |
 | runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 58 | 6 | 6 |
 | storage | Storage | `engine/runtime/store` | 33 | 5 | 4 |
-| tests | Tests | `tests` | 11 | 6 | 0 |
+| tests | Tests | `tests` | 14 | 6 | 0 |
 | voice | Voice | `ferb/voice` | 3 | 0 | 0 |
 
 ## Waiting on the owner
@@ -40,6 +41,9 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 - T-1115 (project): AGENTS.md rule 13 says "The Mac app (`ui/`, FERB.app) is the product" and "`ui/` is the owner's side". The app now lives in apps/mac (apps/ also holds the phone apps). May rule 13 say `apps/mac` and `apps/` there, with nothing else changed?
 - T-1116 (orchestration): Should FERB also ask the gaps question at the first send, submit, pay, post or delete call (by the action's kind) of any step that runs after a step delivered with gaps, even when its plan didn't declare it?
 - T-1117 (gateway): When you paste text into the box under one of FERB's questions, should it count as your own words like a paste in chat (today), or be treated as pasted data that can't name a site for the task and can't count as Yes or No?
+- T-1215 (phone): From the phone's notification, FERB's routine questions (the ones your 'don't ask for 30 minutes' covers on the Mac) are answered without the fingerprint. One of them is 'let FERB use your screen in an app'. Should that one need the fingerprint from the phone, as you listed screen use, or stay routine like on the Mac?
+- T-1216 (phone): When you send a file or a folder from the phone to the Mac, it lands in Downloads, in a folder named 'FERB from phone', marked as downloaded. Is that the place you want, or another folder (and should it be changeable in Settings → Phone)?
+- T-1217 (phone): Browsing a folder from the phone shows at most 500 of its entries (it says when it cut the rest), and fetching a whole folder takes at most 2,000 files at once. Keep those two limits, change them, or have none?
 
 ## Terms
 

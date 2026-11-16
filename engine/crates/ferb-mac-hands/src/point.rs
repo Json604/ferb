@@ -49,12 +49,52 @@ impl Point {
     }
 }
 
-/// One masked frame (bytes, or bytes and a note on its masking).
+/// One masked frame (bytes, or bytes and a note on its masking): a recording's, which is stored.
 pub type Frame = (Vec<u8>, String);
 pub type FrameFn =
     Arc<dyn Fn() -> Pin<Box<dyn Future<Output = Result<Frame>> + Send>> + Send + Sync>;
+
+/// One live-preview frame as captured, unmasked, for the owner's own eyes in FERB.app only (APP-922). It lives in
+/// memory only and must never reach a model, a tool result, evidence, a recording, a trace, a log, the database or
+/// disk: it has no `Serialize`, no conversion into bytes or from a masked image's path, and `Debug` shows only its
+/// size. Its bytes are read in one place, the `tasks.preview` answer to FERB.app ([`OwnerOnlyFrame::for_owner_app`];
+/// a test checks no other caller exists).
+#[derive(Clone, PartialEq, Eq)]
+pub struct OwnerOnlyFrame(Vec<u8>);
+
+impl OwnerOnlyFrame {
+    /// A frame a live preview's own capture took (the preview's capture paths only).
+    pub fn captured(bytes: Vec<u8>) -> OwnerOnlyFrame {
+        OwnerOnlyFrame(bytes)
+    }
+
+    /// The bytes, for the `tasks.preview` answer to FERB.app and nothing else.
+    pub fn for_owner_app(&self) -> &[u8] {
+        &self.0
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl std::fmt::Debug for OwnerOnlyFrame {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<owner-only preview frame, {} bytes>", self.0.len())
+    }
+}
+
+/// One preview frame and a note on how it was captured ("" mostly).
+pub type PreviewFrame = (OwnerOnlyFrame, String);
+pub type PreviewFrameFn =
+    Arc<dyn Fn() -> Pin<Box<dyn Future<Output = Result<PreviewFrame>> + Send>> + Send + Sync>;
+/// A live preview's surface resolved: its facts and its owner-only frame capture.
 pub type ResolveFn = Arc<
-    dyn Fn() -> Pin<Box<dyn Future<Output = Result<(Map<String, Value>, FrameFn)>> + Send>>
+    dyn Fn() -> Pin<Box<dyn Future<Output = Result<(Map<String, Value>, PreviewFrameFn)>> + Send>>
         + Send
         + Sync,
 >;

@@ -507,15 +507,15 @@ fn stream_raise_fix(request: &str, expected: &str) -> Option<String> {
     ))
 }
 
-/// Named difference from Python (DMN-595, ORCH-663): the check's planner call offers the planner's lookups as the
-/// supervisor does, `about.diagnostics` and `task.trace` (Rust additions) with Python's six, sorted. The recorded planner builds and their run
+/// Named difference from Python (DMN-595, ORCH-663, SENSE-422): the check's planner call offers the planner's lookups as
+/// the supervisor does, `about.diagnostics`, `task.trace` and `device.facts` (Rust additions) with Python's six, sorted. The recorded planner builds and their run
 /// tokens are compared with it added; returns how many lists it named.
 fn planner_lookups_added(log: &mut Value) -> usize {
     let python: Vec<&str> = {
         let mut six: Vec<&str> = ferb_orchestrator::lookups::PLANNER_TOOLS
             .iter()
             .copied()
-            .filter(|t| *t != "about.diagnostics" && *t != "task.trace")
+            .filter(|t| !["about.diagnostics", "task.trace", "device.facts"].contains(t))
             .collect();
         six.sort();
         six

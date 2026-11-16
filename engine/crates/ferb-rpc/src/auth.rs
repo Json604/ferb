@@ -17,9 +17,18 @@ pub enum Role {
     Cli,
     McpShim,
     NativeHost,
+    /// A paired phone (stage 3, PHN-111, PHN-112): given only by the phone link's authenticated session, never by the
+    /// local socket's hello (it is not in [`Role::ALL`]). What it may call is `crate::classes`, not `Method::roles`.
+    Phone,
+    /// The phone link's own helper program (stage 3, PHN-441): FERB's signed helper inside FERB.app, proven by its code
+    /// signature as FERB.app is for `app_only` (`crate::link_peer`). Not in [`Role::ALL`]: a local hello naming "link"
+    /// gets it only from that helper. Its methods are the `link.*` rows (pairing, the device list); it opens phone
+    /// sessions (`Role::Phone`) and never reaches FERB.app's methods.
+    Link,
 }
 
 impl Role {
+    /// The roles a local connection may name in its hello (Python's three). Never [`Role::Phone`].
     pub const ALL: [Role; 3] = [Role::Cli, Role::McpShim, Role::NativeHost];
 
     /// The role's name on the wire (`Role.value`).
@@ -28,9 +37,12 @@ impl Role {
             Role::Cli => "cli",
             Role::McpShim => "mcp_shim",
             Role::NativeHost => "native_host",
+            Role::Phone => "phone",
+            Role::Link => "link",
         }
     }
 
+    /// The role a local hello names; `Role::Phone` is never one of them.
     pub fn from_wire(name: &str) -> Option<Role> {
         Role::ALL.into_iter().find(|role| role.as_str() == name)
     }
@@ -95,6 +107,9 @@ pub const METHODS: &[Method] = &[
     m("data.rows", &[Role::Cli], true),
     m("data.search", &[Role::Cli], true),
     m("data.tables", &[Role::Cli], true),
+    // T-1130 (APP-925): FERB.app reports the Location permission, the city and its exact fixes. Not Python's:
+    // DEVICE_ADDITIONS.
+    m("device.report", &[Role::Cli], true),
     m("doctor.check", &[Role::Cli], false),
     m("identity.check", &[Role::Cli], false),
     m("identity.choose", &[Role::Cli], true),
@@ -107,6 +122,14 @@ pub const METHODS: &[Method] = &[
     m("jev.stats", &[Role::Cli], false),
     m("keys.delete", &[Role::Cli], true),
     m("keys.store", &[Role::Cli], true),
+    // stage 3 (T-1202): the phone link helper's own calls (role link): a pairing the owner says Yes to on the Mac, the
+    // device list and its changes. Not Python's: LINK_ADDITIONS.
+    m("link.answer", &[Role::Link], false),
+    m("link.devices", &[Role::Link], false),
+    m("link.events", &[Role::Link], false),
+    m("link.pair_cancel", &[Role::Link], false),
+    m("link.pair_request", &[Role::Link], false),
+    m("link.pair_wait", &[Role::Link], false),
     m("logs.subscribe", &[Role::Cli], false),
     m("memory.add", &[Role::Cli], false),
     m("memory.edit", &[Role::Cli], false),
@@ -125,7 +148,39 @@ pub const METHODS: &[Method] = &[
     m("notices.list", &[Role::Cli], false),
     m("notifications.categories", &[Role::Cli], false),
     m("notifications.subscribe", &[Role::Cli], false),
+    // stage 3 (T-1202): FERB.app's Settings → Phone (PHONE_ADDITIONS, FERB.app's own), and a phone session's own calls
+    // (PHONE_SESSION: no local role; the phone gate answers them with the proof each carries)
+    m("phone.audit", &[Role::Cli], true),
+    m("phone.challenge", &[], false),
+    // stage 3 S4 (T-1204): FERB.app's control of the phone link, relayed by the daemon to its helper
+    // (PHONE_LINK_ADDITIONS, FERB.app's own)
+    m("phone.enable", &[Role::Cli], true),
+    m("phone.files", &[], false),
+    m("phone.keys", &[], false),
+    m("phone.link_status", &[Role::Cli], true),
+    m("phone.list", &[Role::Cli], true),
+    m("phone.lock", &[], false),
+    m("phone.pair_cancel", &[Role::Cli], true),
+    m("phone.pair_decide", &[Role::Cli], true),
+    m("phone.pair_start", &[Role::Cli], true),
+    m("phone.present", &[], false),
+    m("phone.put_begin", &[], false),
+    m("phone.put_chunk", &[], false),
+    m("phone.put_end", &[], false),
+    m("phone.put_group", &[], false),
+    m("phone.read", &[], false),
+    m("phone.relay_always", &[Role::Cli], true),
+    m("phone.relay_set", &[Role::Cli], true),
+    m("phone.relay_test", &[Role::Cli], true),
+    m("phone.remove", &[Role::Cli], true),
+    m("phone.rename", &[Role::Cli], true),
+    m("phone.session_end", &[], false),
+    m("phone.tree", &[], false),
+    m("phone.unlock", &[], false),
     m("ping", &[Role::Cli, Role::McpShim], false),
+    // HAND-625: the owner's project folders in Settings, FERB.app's own. Not Python's: PROJECT_ADDITIONS.
+    m("projects.list", &[Role::Cli], true),
+    m("projects.remove", &[Role::Cli], true),
     m("ps.attach", &[Role::Cli], false),
     m("ps.kill", &[Role::Cli], false),
     m("ps.list", &[Role::Cli], false),
@@ -171,6 +226,8 @@ pub const METHODS: &[Method] = &[
     m("setup.permission_request", &[Role::Cli], false),
     m("setup.permissions", &[Role::Cli], false),
     m("setup.persona", &[Role::Cli], false),
+    // DMN-598: FERB.app's Uninstall has the daemon remove FERB's browser files. Not Python's: UNINSTALL_ADDITIONS.
+    m("setup.uninstall_browser_files", &[Role::Cli], true),
     m("stop.engage", &[Role::Cli], false),
     m("stop.lift", &[Role::Cli], false),
     m("task.stop", &[Role::Cli], false),
@@ -220,6 +277,79 @@ pub const DATA_ADDITIONS: [&str; 7] = [
     "data.tables",
 ];
 
+/// DMN-598: FERB.app's Uninstall asks the daemon, which holds Full Disk Access, to remove FERB's own files from the
+/// browsers' folders before the service is unregistered: FERB.app's own (`app_only`), never a tool's or a command
+/// line's.
+pub const UNINSTALL_ADDITIONS: [&str; 1] = ["setup.uninstall_browser_files"];
+
+/// The owner's project folders in Settings (HAND-625): FERB.app's own (`app_only`), never a tool's or the phone's.
+pub const PROJECT_ADDITIONS: [&str; 2] = ["projects.list", "projects.remove"];
+
+/// FERB.app's reports of this Mac's Location permission, city, Wi-Fi name and exact fixes (APP-925): FERB.app's own
+/// (`app_only`): a model's tools, the extension or another program never set where FERB thinks the Mac is.
+pub const DEVICE_ADDITIONS: [&str; 1] = ["device.report"];
+
+/// Stage 3 (T-1202): FERB.app's Settings → Phone: the paired phones, their removal and renaming, the owner's Yes to a
+/// pairing, the audit. FERB.app's own (`app_only`); from a phone only `phone.list` (private) and `phone.remove`
+/// (sensitive: a second phone removes a lost one with its fingerprint, PHN-419), by their classes.
+pub const PHONE_ADDITIONS: [&str; 5] = [
+    "phone.audit",
+    "phone.list",
+    "phone.pair_decide",
+    "phone.remove",
+    "phone.rename",
+];
+
+/// Stage 3 (T-1202): a phone session's own calls: a challenge, the unlock and lock, the device key's proof, keys
+/// registered late, the session's end. No local role may call them; on a phone session the phone gate answers each,
+/// checking the proof it carries itself (CONTRACT §12).
+pub const PHONE_SESSION: [&str; 6] = [
+    "phone.challenge",
+    "phone.keys",
+    "phone.lock",
+    "phone.present",
+    "phone.session_end",
+    "phone.unlock",
+];
+
+/// Stage 3 S3b (T-1203): a phone session's file calls: browse, fetch (a stream) and upload. No local role may call
+/// them; on a phone session the phone gate leaves each to the daemon's file area, which checks the unlock window, a
+/// key place's fresh proof and the path itself (`ferb-daemon` `phone::files`), and audits it with its path.
+pub const PHONE_FILES: [&str; 7] = [
+    "phone.files",
+    "phone.put_begin",
+    "phone.put_chunk",
+    "phone.put_end",
+    "phone.put_group",
+    "phone.read",
+    "phone.tree",
+];
+
+/// Stage 3 S4 (T-1204): FERB.app's control of the phone link (Settings → Phone): the pairing code, the owner's relay,
+/// Always use my relay, how each phone is connected, the phone feature on or off. The daemon answers each, asking its
+/// helper over `link.events` where only the helper knows (kb PHN-441: the app reaches the helper only through the
+/// daemon). FERB.app's own (`app_only`); never a phone's, a tool's or the helper's.
+pub const PHONE_LINK_ADDITIONS: [&str; 7] = [
+    "phone.enable",
+    "phone.link_status",
+    "phone.pair_cancel",
+    "phone.pair_start",
+    "phone.relay_always",
+    "phone.relay_set",
+    "phone.relay_test",
+];
+
+/// Stage 3 (T-1202): the phone link helper's own calls (`Role::Link`): never FERB.app's, a tool's or a phone's.
+/// S4 adds `link.answer` (the helper's answer to one of the daemon's asks).
+pub const LINK_ADDITIONS: [&str; 6] = [
+    "link.answer",
+    "link.devices",
+    "link.events",
+    "link.pair_cancel",
+    "link.pair_request",
+    "link.pair_wait",
+];
+
 /// The method's row, when FERB has such a method at all.
 pub fn method(name: &str) -> Option<&'static Method> {
     METHODS
@@ -228,9 +358,14 @@ pub fn method(name: &str) -> Option<&'static Method> {
         .map(|at| &METHODS[at])
 }
 
-/// auth.py:72-73.
+/// auth.py:72-73. The phone role's methods are those its class does not refuse (`crate::classes`).
 pub fn allowed(role: Role, name: &str) -> bool {
-    method(name).is_some_and(|m| m.roles.contains(&role))
+    match role {
+        Role::Phone => {
+            method(name).is_some() && crate::classes::class(name) != crate::classes::Class::Never
+        }
+        _ => method(name).is_some_and(|m| m.roles.contains(&role)),
+    }
 }
 
 /// Whether only FERB.app's own process may call it (`method in APP_ONLY`; DMN-23, DMN-402).
@@ -591,6 +726,30 @@ mod tests {
         }
     }
 
+    /// The owner's project list and its Remove are FERB.app's alone: no model's tools, extension or command line.
+    // decision: HAND-625
+    #[test]
+    fn the_project_list_is_ferb_app_s_own() {
+        for name in PROJECT_ADDITIONS {
+            assert!(app_only(name), "{name}");
+            assert!(allowed(Role::Cli, name), "{name}");
+            assert!(!allowed(Role::McpShim, name), "{name}");
+            assert!(!allowed(Role::NativeHost, name), "{name}");
+        }
+    }
+
+    /// Where FERB thinks the Mac is comes only from FERB.app: no model's tools, extension or command line.
+    // decision: APP-925
+    #[test]
+    fn the_device_report_is_ferb_app_s_own() {
+        for name in DEVICE_ADDITIONS {
+            assert!(app_only(name), "{name}");
+            assert!(allowed(Role::Cli, name), "{name}");
+            assert!(!allowed(Role::McpShim, name), "{name}");
+            assert!(!allowed(Role::NativeHost, name), "{name}");
+        }
+    }
+
     // decision: DMN-23
     #[test]
     fn app_only_methods_are_cli_methods() {
@@ -613,6 +772,46 @@ mod tests {
             .filter(|m| m.app_only)
             .all(|m| m.roles == [Role::Cli]));
         assert!(!app_only("ping") && !app_only("no.such.method"));
+    }
+
+    /// Stage 3: the link helper's calls are its own, a phone session's own calls belong to no local role, and Settings →
+    /// Phone is FERB.app's alone.
+    // decision: PHN-441
+    // decision: PHN-106
+    #[test]
+    fn the_phone_link_s_methods_belong_to_their_own_callers() {
+        for name in LINK_ADDITIONS {
+            assert!(allowed(Role::Link, name), "{name}");
+            assert!(!app_only(name), "{name}");
+            for role in Role::ALL {
+                assert!(!allowed(role, name), "{name}");
+            }
+        }
+        for name in PHONE_SESSION {
+            assert!(method(name).is_some_and(|m| m.roles.is_empty()), "{name}");
+            for role in [Role::Cli, Role::McpShim, Role::NativeHost, Role::Link] {
+                assert!(!allowed(role, name), "{name}");
+            }
+        }
+        for name in PHONE_ADDITIONS.iter().chain(&PHONE_LINK_ADDITIONS) {
+            assert!(app_only(name) && allowed(Role::Cli, name), "{name}");
+            assert!(!allowed(Role::Link, name), "{name}");
+            assert!(
+                !allowed(Role::McpShim, name) && !allowed(Role::NativeHost, name),
+                "{name}"
+            );
+        }
+        // the helper reaches nothing of FERB.app's
+        for m in METHODS {
+            assert_eq!(
+                allowed(Role::Link, m.name),
+                LINK_ADDITIONS.contains(&m.name),
+                "{}",
+                m.name
+            );
+        }
+        assert!(!Role::ALL.contains(&Role::Link));
+        assert_eq!(Role::from_wire("link"), None);
     }
 
     // tests/test_auth.py:18-21

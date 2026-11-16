@@ -153,10 +153,14 @@ fn a_store_at_0062_upgrades_with_its_history_carried_in_order_and_its_bytes_kept
     let tmp = TempDir::new().unwrap();
     let db = upgraded(&tmp);
     let before = dump(db.conn(), "SELECT * FROM chat_history ORDER BY rowid");
-    // 0064 (ORCH-651) follows 0063
+    // 0064 (ORCH-651) and 0065 (T-1202, the paired phones) follow 0063
     assert_eq!(
         db.migrate().unwrap(),
-        vec![ce::SCHEMA_VERSION, ce::SCHEMA_VERSION + 1]
+        vec![
+            ce::SCHEMA_VERSION,
+            ce::SCHEMA_VERSION + 1,
+            ce::SCHEMA_VERSION + 2
+        ]
     );
     let conn = db.conn();
     assert_eq!(

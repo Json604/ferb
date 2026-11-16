@@ -388,6 +388,14 @@ const MINE: &[&str] = &[
 /// b_small.rs `fixes`: the internal errors Python gave bad parameters; Rust refuses in the area's own words.
 fn b_fix(request: &str, python: &str) -> Option<String> {
     let v: Value = serde_json::from_str(request).ok()?;
+    // decision: APP-927: the document carries why FERB has each permission after `permissions`
+    if v["method"] == "about.get" {
+        let mut line: Value = serde_json::from_str(python).ok()?;
+        let doc = line.get_mut("result")?.as_object_mut()?;
+        doc.contains_key("permissions").then_some(())?;
+        ferb_daemon::areas_b::about::add_reasons(doc, "");
+        return Some(ferb_py::json::dumps(&line));
+    }
     if !python.contains("-32603") {
         return None;
     }
@@ -483,8 +491,10 @@ fn group_b_small_areas_through_the_binary() {
         diffs.join("\n")
     );
     eprintln!("same {same:?} named {named}");
-    assert_eq!(named, 2, "attention.ack's two named fixes");
-    assert_eq!(same.get("about.get"), Some(&1), "about.get compared");
+    assert_eq!(
+        named, 3,
+        "attention.ack's two named fixes and about.get's permission reasons (APP-927)"
+    );
     for m in MINE {
         if *m != "seen.image" {
             assert!(

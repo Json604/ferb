@@ -632,6 +632,7 @@ fn world(setup: &Value, access: bool) -> World {
         pair_timeout_s: 60.0,
         handoff_poll_s: 0.0,
         state: Arc::new(State::default()),
+        fresh: None,
     };
     let open_tabs = hub.tabs.clone();
     World {
@@ -1940,4 +1941,105 @@ fn a_messages_words_touch_the_profiles_they_describe() {
     );
     assert!(touched_in_words(&known, "write a greeting").is_empty());
     assert!(touched_in_words(&known, "do it in my ex profile").is_empty());
+}
+
+/// T-1003: FERB.app's Uninstall has this daemon (which holds Full Disk Access) remove FERB's own files from every
+/// browser folder before it unregisters the service: the install request and the native-host manifest only, never the
+/// extension, another extension's request or another app's native host. A file macOS refuses is listed with why and the
+/// rest still go; asked again, what is gone stays gone (nothing left: `done`). Without Full Disk Access nothing is
+/// touched.
+// decision: DMN-598, DMN-507
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn uninstall_removes_only_ferbs_browser_files_each_one_tried() {
+    use std::os::unix::fs::PermissionsExt;
+    let store = ferb_browser::autoinstall::STORE_EXTENSION_ID;
+    let other = "a".repeat(32);
+    let ours = |w: &World| {
+        [
+            w.support
+                .join("Google/Chrome/NativeMessagingHosts/com.ferb.native_host.json"),
+            w.support
+                .join(format!("Google/Chrome/External Extensions/{store}.json")),
+            w.support
+                .join("BraveSoftware/Brave-Browser/NativeMessagingHosts/com.ferb.native_host.json"),
+        ]
+    };
+    let theirs = |w: &World| {
+        [
+            w.support
+                .join("Google/Chrome/NativeMessagingHosts/com.example.other_host.json"),
+            w.support
+                .join(format!("Google/Chrome/External Extensions/{other}.json")),
+            w.support.join(format!(
+                "Google/Chrome/Default/Extensions/{store}/1.0/manifest.json"
+            )),
+        ]
+    };
+    let lay = |w: &World| {
+        for f in ours(w).iter().chain(theirs(w).iter()) {
+            std::fs::create_dir_all(f.parent().unwrap()).unwrap();
+            std::fs::write(f, "{}\n").unwrap();
+        }
+    };
+
+    // no Full Disk Access: the browsers' folders are left alone
+    let w = world(&json!({}), false);
+    lay(&w);
+    let got = rpc(&w, "setup.uninstall_browser_files", json!({})).await;
+    assert_eq!(got["done"], json!(false), "{got}");
+    assert!(ours(&w).iter().all(|f| f.exists()));
+
+    let w = world(&json!({}), true);
+    lay(&w);
+    // macOS refuses one folder: that file is listed, the others still go
+    let brave = w
+        .support
+        .join("BraveSoftware/Brave-Browser/NativeMessagingHosts");
+    std::fs::set_permissions(&brave, std::fs::Permissions::from_mode(0o500)).unwrap();
+    let got = rpc(&w, "setup.uninstall_browser_files", json!({})).await;
+    std::fs::set_permissions(&brave, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let [chrome_host, chrome_request, brave_host] = ours(&w);
+    let shown = |p: &Path| json!(p.to_string_lossy());
+    assert_eq!(got["done"], json!(false), "{got}");
+    assert_eq!(
+        got["removed"],
+        json!([shown(&chrome_request), shown(&chrome_host)]),
+        "{got}"
+    );
+    assert_eq!(got["failed"][0]["path"], shown(&brave_host), "{got}");
+    assert_eq!(
+        got["failed"][0]["error"],
+        json!("Permission denied"),
+        "{got}"
+    );
+    assert!(!chrome_host.exists() && !chrome_request.exists() && brave_host.exists());
+    assert!(
+        theirs(&w).iter().all(|f| f.exists()),
+        "only FERB's own files"
+    );
+
+    // asked again: the one left goes; then nothing is left to do
+    let again = rpc(&w, "setup.uninstall_browser_files", json!({})).await;
+    assert_eq!(again["removed"], json!([shown(&brave_host)]), "{again}");
+    assert_eq!(again["done"], json!(true));
+    let last = rpc(&w, "setup.uninstall_browser_files", json!({})).await;
+    assert_eq!(
+        last,
+        json!({"done": true, "removed": [], "failed": []}),
+        "{last}"
+    );
+    assert!(theirs(&w).iter().all(|f| f.exists()));
+    let kinds: Vec<Value> = w
+        .home
+        .journal_rows()
+        .into_iter()
+        .map(|r| r[0].clone())
+        .collect();
+    assert_eq!(
+        kinds
+            .iter()
+            .filter(|k| **k == "browser.files_removed")
+            .count(),
+        3
+    );
 }

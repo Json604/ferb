@@ -255,6 +255,11 @@ impl Inner {
             )
             .unwrap_or_default()
         };
+        // HAND-625: the owner's projects as one fact line (the store's lock released before the reads below)
+        let projects = {
+            let folders = ferb_policy::projects::store::folders(&self.db()).unwrap_or_default();
+            ferb_policy::projects::fact_line(&self.deps.home, &folders)
+        };
         let reads = ContextReads {
             tree_id: tree.id.clone(),
             worker_id: tree.worker.id.clone(),
@@ -287,6 +292,7 @@ impl Inner {
                 spec.targets.recipients.clone(),
             ],
             folders: spec.folders.clone(),
+            projects,
             workspace: self.deps.workspace.clone(),
             posted: self.posted_answers(&tree.id),
             plan_steps,

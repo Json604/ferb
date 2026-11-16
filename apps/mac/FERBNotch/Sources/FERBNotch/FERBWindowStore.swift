@@ -60,6 +60,7 @@ final class FERBWindowStore: ObservableObject {
     @Published var restoreRows: [RestoreRow] = []
     @Published var restoreLine: String?
     @Published var savedSecrets: [SavedSecretRow] = []
+    @Published var projects: [ProjectFolderRow] = []
     @Published var settings = SettingsSnapshot()
     @Published var banners: [String: Bool] = [:]
     /// Whether the last read of the settings and of the banner switches answered: a page shows "Unknown" instead of a
@@ -293,6 +294,18 @@ final class FERBWindowStore: ObservableObject {
         guard await ask(shown ? "secrets.unmask" : "secrets.mask", ["name": row.name]) != nil else { return }
         note = shown ? "The AI can see “\(row.name)” now." : "“\(row.name)” is hidden from the AI again."
         await loadSecrets()
+    }
+
+    // MARK: Project folders (FERB.app-only `projects.list` / `projects.remove`)
+
+    func loadProjects() async {
+        guard let reply = await ask("projects.list") else { return }
+        projects = (reply["projects"] as? [[String: Any]] ?? []).compactMap(ProjectFolderRow.init)
+    }
+
+    func removeProject(_ row: ProjectFolderRow) async {
+        guard await ask("projects.remove", ["folder": row.folder]) != nil else { return }
+        await loadProjects()
     }
 
     // MARK: Settings (AI, Permissions and Browsers are plan C's SetupModel)

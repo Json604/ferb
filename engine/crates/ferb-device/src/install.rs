@@ -237,6 +237,28 @@ fn io_err(e: std::io::Error, path: &Path) -> InstallError {
     InstallError::Io(py::os_error_text(&e, Some(path)))
 }
 
+/// An OS error in plain words (`[Errno 1] Operation not permitted`), without a path.
+fn plain_os_error(e: &std::io::Error) -> String {
+    py::os_error_text(e, None)
+}
+
+/// What an uninstall removed, and each file it couldn't remove with why (DMN-598).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Uninstalled {
+    pub removed: Vec<String>,
+    pub failed: Vec<(String, String)>,
+}
+
+impl Uninstalled {
+    fn remove(&mut self, path: &Path) {
+        let shown = path.to_string_lossy().into_owned();
+        match std::fs::remove_file(path) {
+            Ok(()) => self.removed.push(shown),
+            Err(e) => self.failed.push((shown, plain_os_error(&e))),
+        }
+    }
+}
+
 type Result<T> = std::result::Result<T, InstallError>;
 
 /// Work run while the daemon is stopped; its error is raised again after the daemon is started.
@@ -1901,53 +1923,76 @@ impl Installer {
 
     // ---------- uninstall ----------
 
-    /// install.py:985.
+    /// install.py:985. A removal that fails is an error, as Python's, but only after every other step was tried
+    /// ([`uninstall_steps`](Self::uninstall_steps)).
     pub fn uninstall(&mut self, purge: bool) -> Result<Vec<String>> {
+        let done = self.uninstall_steps(purge, true)?;
+        match done.failed.into_iter().next() {
+            Some((what, why)) => Err(InstallError::Io(format!(
+                "{why}: {}",
+                py::py_repr_str(&what)
+            ))),
+            None => Ok(done.removed),
+        }
+    }
+
+    /// The uninstall, each removal tried whatever another one did (DMN-598): one macOS refuses is listed in `failed`
+    /// with why, and the rest, the data folder and the Keychain items (`purge`) still go. A FERB.app service still
+    /// registered or a service that can't be stopped stop it before anything is removed; a data folder that isn't
+    /// FERB's stops the purge (Python's order). `browser_files`: false when FERB's background service already removed FERB's native-host manifests
+    /// (FERB.app's Uninstall, `--skip-browser-files`), so no browser folder is touched here.
+    pub fn uninstall_steps(&mut self, purge: bool, browser_files: bool) -> Result<Uninstalled> {
         self.check_not_foreign("before uninstalling FERB from this checkout")?;
-        let mut removed = Vec::new();
+        let mut done = Uninstalled::default();
         if self.loaded() {
             self.unload()?;
-            removed.push(format!("background service {} (stopped)", self.label));
+            done.removed
+                .push(format!("background service {} (stopped)", self.label));
         }
+        let mut files = vec![];
         if self.labelled_plist() {
-            let p = self.plist_path();
-            std::fs::remove_file(&p).map_err(|e| io_err(e, &p))?;
-            removed.push(p.to_string_lossy().into_owned());
+            files.push(self.plist_path());
         }
         let login = self.launch_agents.join(format!("{APP_LOGIN_LABEL}.plist"));
         if labelled(&login, APP_LOGIN_LABEL) {
-            std::fs::remove_file(&login).map_err(|e| io_err(e, &login))?;
-            removed.push(login.to_string_lossy().into_owned());
+            files.push(login);
         }
-        for d in self.native_hosts_dirs.clone() {
-            let m = d.join(NATIVE_HOST_MANIFEST);
-            if m.exists() {
-                std::fs::remove_file(&m).map_err(|e| io_err(e, &m))?;
-                removed.push(m.to_string_lossy().into_owned());
-            }
+        if browser_files {
+            files.extend(
+                self.native_hosts_dirs
+                    .iter()
+                    .map(|d| d.join(NATIVE_HOST_MANIFEST))
+                    .filter(|m| m.exists()),
+            );
         }
         if let Some(link) = self.cli_link() {
             if Self::app_link(&link) {
-                std::fs::remove_file(&link).map_err(|e| io_err(e, &link))?;
-                removed.push(link.to_string_lossy().into_owned());
+                files.push(link);
             }
         }
         let record = self.record_path();
         if record.is_file() {
-            std::fs::remove_file(&record).map_err(|e| io_err(e, &record))?;
-            removed.push(record.to_string_lossy().into_owned());
+            files.push(record);
+        }
+        for f in files {
+            done.remove(&f);
         }
         if purge {
             self.check_purge_target()?;
             for (service, count) in self.remove_keychain_items() {
                 if count > 0 {
-                    removed.push(format!("Keychain items of {service}: {count}"));
+                    done.removed
+                        .push(format!("Keychain items of {service}: {count}"));
                 }
             }
-            std::fs::remove_dir_all(&self.home).map_err(|e| io_err(e, &self.home))?;
-            removed.push(self.home.to_string_lossy().into_owned());
+            match std::fs::remove_dir_all(&self.home) {
+                Ok(()) => done.removed.push(self.home.to_string_lossy().into_owned()),
+                Err(e) => done
+                    .failed
+                    .push((self.home.to_string_lossy().into_owned(), plain_os_error(&e))),
+            }
         }
-        Ok(removed)
+        Ok(done)
     }
 
     /// The Keychain service Claude Code uses for FERB's own Claude home (claude_login.keychain_service).

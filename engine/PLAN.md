@@ -254,34 +254,103 @@ Lines are Python lines at `63369cb3`. "Fixtures" names what exists; a part witho
 
 ## Stage 3: the phone role and Android
 
-- Owner, 2026-11-15: "i also made UI for hte phone apps that i want exactly same in both ios and android design wise,
-  its at: ferb-glass-lab in desktop." The phone apps' look is `~/Desktop/ferb-glass-lab` (read-only: `DESIGN.md`,
-  `tokens.json`, `Sources/FerbGlass` in SwiftUI, the `phone` scene; `./run.sh --scene phone`), the same on iPhone and
-  Android. Record it as an owner decision in kb when stage 3 starts; the Android app reproduces the tokens and
-  screens, it does not get its own design.
-- Owner, 2026-11-15 (ENG-10): a phone stores what it fetched from the Mac locally.
-- Owner, 2026-11-15 (T-1099): the phone apps have the same Claude / Codex / API-key sign-ins as the Mac, so they can
-  use the models when the laptop is off ("laptop wont be on alwys"): "not by itself. just a bitton ilke in mac to
-  login on phones too" — a sign-in button the owner presses, as in the Mac app's Settings; nothing signs in on its own. This makes the phone more than a remote for the
-  Mac's engine: the portable crates already compile for iOS and Android (ENG-5), so the engine can run on the phone
-  with its own runtime sign-in. To settle with the owner before building: what a phone does alone (chat and research
-  with no Mac hands? its own history, merged into the Mac's when it is back?), where its secrets live (the phone's
-  keystore, never synced: rule 7), and which runtimes can sign in on a phone at all (Codex and Claude sign-ins are
-  desktop CLI flows today; an API key works anywhere). Live test on the owner's phones.
+Settled on 2026-11-16 (slice S0, journal 96). The kb area is `phone` (prefix PHN, `kb/decisions/phone.toml`; area
+paths `apps/android` and `apps/ios`; the engine crates below sit under the `engine` area's paths). Read it with
+`tools/kb/run kb area phone`.
 
-- Source: `~/Desktop/ferb-phone-link` at `57b3f34` (read only): `rust/src` (transport on iroh 1.4.1 with a small
-  pinned patch, `role.rs` classifying all 106 methods with five never allowed: `about.guide`,
-  `chat.history.import`, `chat.history.put`, `intro.preview`, `notifications.subscribe`), `android/` (Kotlin),
-  `standin/` (a stand-in daemon: its answers are fake), `PORTING.md` (open questions Q1 to Q4), `kb/` (PHN-*,
-  SEC-*, NET-* decisions, not yet in this repo's kb; T-1051 is the task to bring them in).
-- Build: a `phone` role in the daemon with a mandatory test that every method is classified; pairing, revocation
-  and the three proof keys verified by the daemon itself, not the link helper; file browse, fetch and upload through
-  the same protection as model tools; the Android app moved into `apps/android` with its local chat replaced by the
-  stage 2 calls.
-- The phone library today has no close call, no `catch_unwind` and one global client per process
-  (`rust/src/ffi.rs`); fix before the iPhone app depends on it.
-- Android release needs: a non-debug build, the real app id (the lab uses `local.ferb.link`), the owner's Play
-  account.
+**Sources (read only).** The link lab `~/Desktop/ferb-phone-link` at `57b3f34`: `rust/src` (iroh 1.4.1 with one pinned
+patch; `role.rs` classifying the then 106 methods, five never allowed), `android/` (Kotlin), `standin/` (a stand-in
+daemon: fake answers), `CONTRACT.md`, `PORTING.md` (open questions Q1 to Q4), `SECURITY.md`, `relay/`. The design lab
+`~/Desktop/ferb-glass-lab` (`DESIGN.md`, `tokens.json`, `Sources/FerbGlass`, the `phone` scene, `./run.sh --scene
+phone`). The lab's kb is imported: its PHN-n is PHN-n here, SEC-n is PHN-(100+n), NET-n PHN-(200+n), LIM-n
+PHN-(300+n); its CONTRACT and PORTING docs cite the lab's ids. Every choice from the labs is reassessed before it
+is ported, with its reason and benefit (owner, PHN-411).
+
+**Decided by the owner** (verbatim words in the records):
+- PHN-401..409: the first plan's nine recommendations ("yes to all"): Mac off → stored history and a visible,
+  cancellable outbox; a phone engine after the iPhone app, API key first; the stored-data viewer, deleting turns and
+  "let the AI see" (viewing unlocked, deleting and unmasking with the fingerprint); payments and terminal typing
+  approved from the phone with the fingerprint, the payment page's picture shown; preview, saved-secrets list and
+  settings from the phone; the lab's decisions carry over and may be countered (PHN-405); a release-signed APK
+  sideloaded for live tests, Play later; public relays plus his own; fetched chat kept until "Forget this Mac"; the
+  sky at the phone's location, Android's system font.
+- PHN-410: what goes over the public (iroh/n0) relay is limited: free, no uptime guarantee, a rate limit, an
+  ingress limit.
+- PHN-418 (superseding PHN-414 and the lab's NET-1 = PHN-201): no own relay: direct when available, else the public
+  relay with a message that an own relay performs better, pointing to FERB on the Mac for how; own relay set: always
+  that relay, never the public one, direct preferred whenever it exists, and the link keeps looking for direct.
+  The rule is the coordinator's reading of his words.
+- PHN-415, PHN-417: questions appear in notifications; routine ones (GATE-207's class) are answered from the
+  notification's buttons with no fingerprint; money, deletion, account security, terminal typing and screen use are
+  shown but the Yes needs the fingerprint; lock-screen text follows the phone's setting.
+- PHN-419..422 ("yes i agree" to the remaining recommendations): at most 5 phones; an unused phone warned at 30
+  days, never removed by itself; a second phone removes a lost one with its fingerprint; a scanner without Google
+  services; whole-app screenshot blocking with a switch; weather paused, later Open-Meteo from the phone; a coarse
+  location asked once for the sun, else the time zone; Stay connected stays and stage 5 adds a push the owner runs,
+  with no words; the lock screen never shows the words of money, deletion or account-security questions.
+- PHN-412 weather paused; PHN-413 FERB controlling the phone later, not now; PHN-416 the glass lab is the design,
+  the same on both phones.
+- PHN-423 sign-ins: no always-on machine now; phones get a ChatGPT sign-in (OpenAI's Sign in with ChatGPT for
+  open-source apps, against the Responses API, no Codex program) so users can talk with the laptop closed, API keys
+  as the certain route; no Claude plan sign-in on phones (Anthropic allows a plan only through its own Claude Code),
+  and the app says why (PHN-452's words). Refines T-1099; T-1212 builds it.
+- SENSE-420 (for T-1130): device location city-level always, exact when a task needs it, asked then; location is a
+  ninth permission in setup, and the phone asks its own.
+
+**Agent rulings** (`by = "agent"`, each naming its slice): PHN-440 keep iroh, one crate `ferb-link` for both sides;
+PHN-441 the link as its own signed helper, no permission, the daemon verifying everything; PHN-442 pairing as built;
+PHN-443 the three keys; PHN-444 the public relay carries text, questions and Stop, bulk refused before its first byte
+with stable codes (supersedes the lab's LIM-6); PHN-445 no timed start-overs on the public relay, the 30 s tries kept
+on the own relay (supersedes NET-27); PHN-446 UniFFI and cargo-ndk (supersedes PHN-1); PHN-447 CameraX with
+zxing-cpp, AVFoundation on iPhone (supersedes PHN-17); PHN-448 SQLCipher under a Keystore key with
+dataExtractionRules (supersedes PHN-3, PHN-5); PHN-449 Compose now, the iPhone toolkit at stage 4; PHN-450 the sky
+computed on the phone from the clock and a coarse place, no outside call; PHN-451 room for phone-side tools later;
+PHN-452 the Claude row's words.
+
+**Recommended, awaiting the owner** (ask these):
+1. "Should the public relay carry only text, questions and Stop, with pictures, preview and files refused there?"
+   (Item 2 of the twelve; PHN-444 builds it. LIM-12's shared-relay bulk figures, kept by PHN-419, then go.)
+2. "Live sky computed on the phone from its clock and one coarse location reading, with no outside call, rather than
+   fixed placements?" (PHN-450, the answer to his "live or hardcoded?")
+3. "On the public relay, may the phone skip the every-30-seconds start-overs and leave the direct-path search to
+   iroh's own once-a-minute try?" (PHN-445 narrows his NET-24 = PHN-224 there.)
+4. "When your own relay is down, may the phone fall back to the public relay (text only) until it is back, or stay
+   off?" (PHN-418 says never the public relay with an own relay set; the lab's NET-8 = PHN-208 falls back.)
+5. "With your own relay set, does 'my relay always' mean your relay even when a direct path exists (the lab's
+   'Always use my relay' setting, NET-19 = PHN-219), or direct first?" (PHN-418's reading says direct first.)
+- No Cursor sign-in (PHN-424, owner). Open: whether OpenAI accepts Sign in with ChatGPT
+  from a mobile app (to confirm with OpenAI; API keys are the certain route).
+- The lab's own open questions, to ask when their slice comes: T-10 local discovery on the same Wi-Fi with no
+  internet; T-25 a short typed code; T-28 how hard to keep trying for direct; T-29 the idle link's re-check and
+  heartbeat; T-30 the 30-second tries' timings (partly answered by PHN-445); T-31 a second iroh patch to retry direct
+  at once; T-32 (blocked) fixing what holds a session on the relay.
+
+**The slices** (kb tasks; `after` gives the order). S1, S2, S6 and S10 need nothing and run at once.
+
+| Slice | Task | What | After |
+|---|---|---|---|
+| S1 | T-1200 | `engine/crates/ferb-link` from the lab (with `relay/`'s setup script); the lab's suites pass; FFI defects fixed; PHN-444, PHN-445 | - |
+| S2 | T-1201 | `Role::Phone` and the method classes in ferb-rpc; a test fails when a method has no class | - |
+| S3 | (T-1202, done: journal 106) | The daemon's phone area and its migration: devices, challenges, unlock window, proofs, audit | S2 |
+| S3b | (T-1203, done: journal 111) | Phone files through Protection | S3 |
+| S4 | T-1204 | Start, sign and package the helper; its Keychain item through ferb-secrets | S1, S3 |
+| S5 | T-1205 | FERB.app Settings → Phone: pairing, phones, own relay | S3, S4 |
+| S6 | T-1206 | The transcript golden: `transcripts.json` from the Mac fold; gapped, sealed and legacy scenarios | - |
+| S7 | T-1207 | `ferb-mobile`: store, sync, outbox, fold, reducer | S1, S6 |
+| S8 | (T-1208, done: journal 112) | `ferb-mobile-ffi` (UniFFI); call cancellation in ferb-link left as T-1218 | S7 |
+| S9 | (T-1209, done: journal 114) | `apps/android` :core, Gradle, the Rust build through cargo-ndk, the Vault and keys | S8 |
+| S10 | T-1210 | `apps/android` :design: tokens, components, sky | - |
+| S11 | T-1211 | `apps/android` :app screens, the lock, notifications, Stay connected | S3b, S5, S9, S10 |
+| - | T-1212 | Phone sign-ins (ChatGPT, API keys; Claude's row says why) | S7 |
+| - | T-1214 | The phone's device line and lookup (SENSE-421, SENSE-422 on the phone), its own Location permission; the Mac side is built (journal 104) | S3, S11 |
+
+Live checks: LIVE-1100..1111 (pairing by QR and typed code, direct on the same Wi-Fi, own relay, the public relay's
+text-only fallback, Wi-Fi to mobile data, the 5-minute lock, a notification answer, a fingerprint-signed Yes,
+removing a phone, a phone turn on the Mac, the outbox with the Mac off).
+
+Known before porting: the lab's library has no close call, no `catch_unwind` and one global client per process
+(`rust/src/ffi.rs`); S1 fixes them. Stage 2's remaining items (the owner's live check of another client's turn, the
+archive import) do not block S1, S2, S6 or S10.
 
 ## Stage 4: the iPhone app
 
@@ -295,6 +364,8 @@ Lines are Python lines at `63369cb3`. "Fixtures" names what exists; a part witho
 - The owner's words to another agent: "Include background notifications in the foundation" and "Follow the phone's
   notification privacy settings"; confirm and record them (they reverse the phone lab's PHN-6, "No hosted push
   sender is built").
+- Owner, 2026-11-16 (PHN-421, superseding the lab's PHN-4 and PHN-6): Stay connected stays, and stage 5 adds
+  closed-app notifications through a small push sender the owner runs, with no words in the push.
 - Simplest form first: a push that says FERB needs you, carrying no words (the lab's own design, PORTING D6); the
   app fetches the text from the Mac when opened. Previews in the notification are a later step. Android needs FCM
   for the same case.

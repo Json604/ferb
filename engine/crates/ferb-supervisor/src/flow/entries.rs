@@ -240,7 +240,8 @@ impl ChatProjector {
     /// `open_entries`, `of_requests` and `recent`), `refs` every notice and post already posted (each is posted once),
     /// `next_pos` the stream's next position. Each message's turn is filled back from its message, plan and answer
     /// entries as `emit` wrote them; no stream feeds a turn after a restart (`active` is false, as the app's sessions
-    /// are gone), so a frame for one of them is a later frame (`receiveAfterAnswer`). The chat ends on the last entry.
+    /// are gone), so a frame for one of them is a later frame (`receiveAfterAnswer`). The chat ends on the last entry
+    /// that isn't deleted; a deleted entry (a tombstone) is held but fills nothing back.
     pub fn restore(
         conversation_id: &str,
         stored: Vec<Entry>,
@@ -263,6 +264,11 @@ impl ChatProjector {
         let order = p.order.clone();
         for id in &order {
             let e = p.entries[id].clone();
+            if e.deleted {
+                // a deleted turn (STORE-424) left the chat: FERB.app drops its turn (`removeTurns`), so nothing of it
+                // is filled back, and the chat no longer ends on it
+                continue;
+            }
             match e.kind {
                 EntryKind::Question => {
                     if let Some(a) = &e.approval_id {
@@ -285,9 +291,27 @@ impl ChatProjector {
         p.last_shown = order
             .iter()
             .rev()
-            .find(|id| !matches!(p.entries[*id].kind, EntryKind::Question | EntryKind::Legacy))
+            .find(|id| {
+                let e = &p.entries[*id];
+                !e.deleted && !matches!(e.kind, EntryKind::Question | EntryKind::Legacy)
+            })
             .map(|id| p.shown_as(id));
         p
+    }
+
+    /// After a rebuild that was not a restart (the store rewrote entries: a deleted turn, STORE-424; a fresh
+    /// conversation, STORE-427), the turns whose `chat.send` stream is still open: FERB.app's sessions for them are
+    /// still there, so their frames stay the turn's own (`active`, the task its plan bound), as before the rebuild.
+    pub fn streams_open(&mut self, requests: &[String]) {
+        for request in requests {
+            if let Some(&t) = self.by_request.get(request) {
+                let turn = &mut self.turns[t];
+                turn.active = true;
+                if turn.planned && turn.session_task.is_none() {
+                    turn.session_task = turn.task_id.clone();
+                }
+            }
+        }
     }
 
     /// One stored message, plan or answer put back on its turn.

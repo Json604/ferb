@@ -27,6 +27,7 @@ pub mod idna;
 pub mod norm;
 pub mod payments;
 pub mod ppath;
+pub mod projects;
 pub mod protection;
 pub mod provenance;
 pub mod py;

@@ -418,7 +418,8 @@ final class PlaygroundDaemon: DaemonRPCTransport, @unchecked Sendable {
 
     private static func describe(_ params: [String: Any]) -> String {
         // Never logs what was typed into a secure field (there is none here, but the rule is FERB's: no secrets in logs)
-        let keys = params.keys.sorted().filter { !["code", "key", "text", "request"].contains($0) }
+        // (a relay's token, and its pasted ferbrelay:// line, which carries the token: T-1205)
+        let keys = params.keys.sorted().filter { !["code", "key", "text", "request", "token", "url"].contains($0) }
         return keys.isEmpty ? "" : "{" + keys.map { "\($0): \(params[$0] ?? "")" }.joined(separator: ", ") + "}"
     }
 

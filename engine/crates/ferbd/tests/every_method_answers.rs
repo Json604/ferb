@@ -36,6 +36,7 @@ fn reads() -> Vec<(&'static str, Value)> {
         ("memory.learning", json!({"op": "backlog"})),
         ("notices.list", json!({})),
         ("notifications.categories", json!({})),
+        ("projects.list", json!({})),
         ("ps.list", json!({})),
         ("recovery.list", json!({})),
         ("reminders.list", json!({})),

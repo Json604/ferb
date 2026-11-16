@@ -10,7 +10,9 @@
 # (Helpers/FERB.app, bundle id com.ferb.daemon, apps/mac/FERBAgent/Info.plist): its executable is `ferbd`, so macOS names
 # FERB in permission prompts and its grants attach to it as they did to the C host; `ferbd` runs there only as the
 # daemon, the models' tool bridge and the grant probe (engine/crates/ferbd/src/host.rs); `ferb-native-host` beside it in
-# Helpers; the `ferb` program (Resources/bin/ferb) for FERB.app's internal commands; the runtime Markdown the engine
+# Helpers; the phone link's helper `ferb-link` beside it (com.ferb.link, started by the daemon; engine/crates/ferb-link,
+# its own Cargo.lock and engine/patches); the `ferb` program (Resources/bin/ferb) for FERB.app's internal commands; the
+# runtime Markdown the engine
 # reads (Resources/ferb, byte for byte from engine/runtime/); the extension; the pinned Codex (package-lock.json) and Claude
 # Code (engine/packaging/package-lock.json); the pinned secret helper; the local embedding model; the background
 # service's definition naming `FERB daemon`. The database migrations and the o200k tokenizer are compiled into ferbd.
@@ -130,9 +132,16 @@ rustup_here cargo build --release --locked --target "$FERB_RUST_TARGET" \
   --manifest-path "$ROOT/engine/crates/ferbd/Cargo.toml" --bin ferbd --bin ferb
 rustup_here cargo build --release --locked --target "$FERB_RUST_TARGET" --manifest-path "$ROOT/engine/Cargo.toml" \
   -p ferb-native-host
+print "==> ferb-link, the phone link's helper (its own Cargo.lock; iroh and two of its crates patched: engine/patches)"
+# Not a workspace member: its [patch.crates-io] table would bind the whole workspace's lock to the patched copies, and
+# every cargo command in the workspace would then need engine/patches/apply.sh first (kb PHN-486).
+"$ROOT/engine/patches/apply.sh" || die "engine/patches/apply.sh couldn't make the patched crates"
+[[ -f "$ROOT/engine/crates/ferb-link/Cargo.lock" ]] || die "engine/crates/ferb-link/Cargo.lock is missing"
+FERB_LINK_BUILD="$VERSION $REVISION" rustup_here cargo build --release --locked --target "$FERB_RUST_TARGET" \
+  --manifest-path "$ROOT/engine/crates/ferb-link/Cargo.toml" --bin ferb-link
 print "    $(rustup_here rustc --version)"
 BUILT="$WORK/cargo/$FERB_RUST_TARGET/release"
-for program in ferbd ferb ferb-native-host; do
+for program in ferbd ferb ferb-native-host ferb-link; do
   [[ "$(lipo -archs "$BUILT/$program")" == "$ARCH" ]] || die "cargo built no $ARCH $program"
   # only the system's libraries, by absolute path: nothing for dyld to look up through an @rpath
   ! otool -L "$BUILT/$program" | tail -n +2 | grep -q '@rpath' || die "$program links a library by @rpath"
@@ -148,7 +157,8 @@ plist "Set :CFBundleVersion $BUILD" "$AGENT/Contents/Info.plist"
 cp "$BUILT/ferbd" "$CONTENTS/$FERB_RUST_AGENT"
 cp "$BUILT/ferb-native-host" "$CONTENTS/$FERB_RUST_NATIVE_HOST"
 cp "$BUILT/ferb" "$CONTENTS/$FERB_RUST_CLI"
-chmod 755 "$CONTENTS/$FERB_RUST_AGENT" "$CONTENTS/$FERB_RUST_NATIVE_HOST" "$CONTENTS/$FERB_RUST_CLI"
+cp "$BUILT/ferb-link" "$CONTENTS/$FERB_RUST_LINK"
+chmod 755 "$CONTENTS/$FERB_RUST_AGENT" "$CONTENTS/$FERB_RUST_NATIVE_HOST" "$CONTENTS/$FERB_RUST_CLI" "$CONTENTS/$FERB_RUST_LINK"
 
 print "==> Background service definition (FERB daemon; for SMAppService with a Developer ID, DMN-587)"
 SERVICE="$CONTENTS/Library/LaunchAgents/com.ferb.daemon.plist"     # ferb-device install.rs BUNDLE_SERVICE

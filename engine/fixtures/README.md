@@ -3,7 +3,7 @@
 Each folder here holds what the Python daemon (`ferb/`, removed from the repository by ENG-11) produced for
 invented inputs, and the script that recorded it (`make.py` and its helpers). The Rust crates' tests replay these
 files and must match them byte for byte (ENG-3). Some folders were never Python-recorded (`sanitize-shapes`,
-`chat-entries/engine_*.json`): their own scripts or tests say how they were made.
+`chat-entries/engine_*.json`, `phone`): their own scripts or tests say how they were made.
 
 **They are frozen contracts** (ENG-17). A fixture changes only through a named difference: a Python bug fixed in the
 port (ENG-6) or a deliberate change, each listed in `engine/JOURNAL.md` and named in the test that differs. A fixture is

@@ -112,7 +112,7 @@ enum PlaygroundPane: Equatable {
         let anchors = ["Privacy_Accessibility": "accessibility", "Privacy_ScreenCapture": "screen_recording",
                        "Privacy_AllFiles": "full_disk_access", "Privacy_ListenEvent": "input_monitoring",
                        "Privacy_Pasteboard": "clipboard", "Privacy_Microphone": "microphone",
-                       "Privacy_SpeechRecognition": "microphone"]
+                       "Privacy_SpeechRecognition": "microphone", "Privacy_LocationServices": "location"]
         guard let id = anchors.first(where: { text.hasSuffix($0.key) })?.value else { return nil }
         self = .permission(id)
     }

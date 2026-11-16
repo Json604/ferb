@@ -203,22 +203,129 @@ impl ferb_mac_hands::listen::Capture for NoCapture {
     }
 }
 
+/// The Mac hands when this daemon runs without the Mac's own parts (`mac` off: a test daemon, T-1129): no app is
+/// running or in front, no window, no accessibility tree, nothing posted, captured or quit. A test daemon never reads
+/// or touches this Mac's real apps unless it opts in (`mac` on, a by-hand ignored test).
+pub struct AbsentMac;
+
+const ABSENT: &str = "this FERB was started without the Mac's own parts";
+
+impl ferb_mac_hands::driver::Ax for AbsentMac {
+    fn read_tree(
+        &self,
+        _pid: i32,
+        _browser: bool,
+        _window: Option<&ferb_mac_hands::ax::El>,
+        _offset: usize,
+        _budget_s: Option<f64>,
+        _masks_only: bool,
+    ) -> ferb_mac_hands::ax::AxTree {
+        ferb_mac_hands::ax::AxTree::default()
+    }
+    fn expose_tree(&self, _pid: i32) -> bool {
+        false
+    }
+    fn app_window(&self, _pid: i32) -> Option<ferb_mac_hands::ax::El> {
+        None
+    }
+    fn press(&self, _el: &ferb_mac_hands::ax::El) -> ferb_mac_hands::error::Result<bool> {
+        Err(HandError::Refused(ABSENT.into()))
+    }
+    fn focus(&self, _el: &ferb_mac_hands::ax::El) -> bool {
+        false
+    }
+    fn has_focus(&self, _pid: i32, _el: &ferb_mac_hands::ax::El) -> Option<bool> {
+        None
+    }
+    fn set_value(
+        &self,
+        _el: &ferb_mac_hands::ax::El,
+        _text: &str,
+    ) -> ferb_mac_hands::error::Result<bool> {
+        Err(HandError::Refused(ABSENT.into()))
+    }
+    fn value(&self, _el: &ferb_mac_hands::ax::El) -> Option<String> {
+        None
+    }
+    fn menu_item_for_shortcut(
+        &self,
+        _pid: i32,
+        _key: &str,
+        _mods: &[String],
+    ) -> Option<(ferb_mac_hands::ax::El, String, bool)> {
+        None
+    }
+}
+
+impl ferb_mac_hands::driver::Apps for AbsentMac {
+    fn find(&self, _q: &str) -> Option<ferb_mac_hands::apps::RunningApp> {
+        None
+    }
+    fn frontmost(&self) -> Option<ferb_mac_hands::apps::RunningApp> {
+        None
+    }
+    fn activate(&self, _bundle_id: &str, _pid: Option<i32>) -> bool {
+        false
+    }
+}
+
+impl ferb_mac_hands::driver::Shots for AbsentMac {
+    fn window(&self, _id: i64) -> Option<ferb_mac_hands::driver::Window> {
+        None
+    }
+    fn front_window(
+        &self,
+        _pid: i32,
+        _like: Option<ferb_mac_hands::ax::Rect>,
+        _title: Option<&str>,
+    ) -> Option<ferb_mac_hands::driver::Window> {
+        None
+    }
+    fn on_screen(&self, _id: i64) -> bool {
+        false
+    }
+    fn window_at(&self, _x: f64, _y: f64) -> Option<ferb_mac_hands::driver::Window> {
+        None
+    }
+    fn capture(
+        &self,
+        _w: &ferb_mac_hands::driver::Window,
+        _max_edge: Option<u32>,
+        _preview: bool,
+    ) -> ferb_mac_hands::error::Result<(Vec<u8>, i64, i64)> {
+        Err(HandError::Refused(ABSENT.into()))
+    }
+}
+
+impl ferb_mac_hands::input::Events for AbsentMac {
+    fn post(
+        &self,
+        _event: &ferb_mac_hands::keys::Event,
+        _route: &ferb_mac_hands::keys::Route,
+    ) -> ferb_mac_hands::error::Result<()> {
+        Err(HandError::Refused(ABSENT.into()))
+    }
+}
+
+impl ferb_mac_hands::launched::AppControl for AbsentMac {
+    fn running(&self) -> Vec<ferb_mac_hands::apps::RunningApp> {
+        Vec::new()
+    }
+    fn unsaved(&self, _pid: i32) -> Option<bool> {
+        None
+    }
+    fn quit(&self, _pid: i32, _bundle_id: &str) -> bool {
+        false
+    }
+    fn hide(&self, _pid: i32, _bundle_id: &str) -> bool {
+        false
+    }
+}
+
 /// The image sanitizer (L13): Vision's text recognition, codes, cards and known secrets painted.
 pub struct Images {
     pub redactor: Arc<ferb_sanitize::redact::Redactor>,
     pub native: bool,
-}
-
-tokio::task_local! {
-    /// Set around a live preview's frame (`compose::previews`): the frame's faults are put here for preview.failed,
-    /// and its image doesn't queue behind another image's child process (HAND-531).
-    pub static PREVIEW_FAULTS: Arc<std::sync::Mutex<Vec<ferb_mac_hands::ocr::Fault>>>;
-}
-
-/// One text-reading child process at a time in this process (HAND-531).
-fn child_gate() -> Arc<std::sync::Mutex<()>> {
-    static GATE: std::sync::OnceLock<Arc<std::sync::Mutex<()>>> = std::sync::OnceLock::new();
-    GATE.get_or_init(Default::default).clone()
 }
 
 /// The program that reads an image's text in a fresh process (HAND-531): inside FERB.app its
@@ -232,60 +339,102 @@ pub fn child_program() -> Option<std::path::PathBuf> {
     path.is_file().then_some(path)
 }
 
-impl Images {
-    /// The recognizers in the order they're tried (HAND-531): Vision in this process as it chooses its devices, again
-    /// with every stage on the CPU, then FERB's own program in a fresh process (one at a time; `wait` says whether
-    /// this image waits for a child already running; None: no child).
-    pub fn recognizers(child: Option<bool>) -> Vec<ferb_mac_hands::ocr::Attempt> {
-        use ferb_mac_hands::native::vision::{CpuVision, NativeVision};
-        use ferb_mac_hands::ocr::Attempt;
-        let mut out = vec![
-            Attempt {
-                step: "vision",
-                recognize: Arc::new(NativeVision),
-            },
-            Attempt {
-                step: "vision_cpu",
-                recognize: Arc::new(CpuVision),
-            },
-        ];
-        if let (Some(wait), Some(program)) = (child, child_program()) {
-            out.push(Attempt {
-                step: "child",
-                recognize: Arc::new(ferb_mac_hands::vision_child::ChildVision {
-                    program,
-                    args: vec![ferb_mac_hands::vision_child::COMMAND.to_string()],
-                    timeout: ferb_mac_hands::vision_child::CHILD_TIMEOUT,
-                    gate: child_gate(),
-                    wait,
-                }),
-            });
-        }
-        out
-    }
+/// This process's image readers (HAND-531, HAND-627): Vision in this process as it chooses its devices, again with
+/// every stage on the CPU, then FERB's own program kept running as a child (`ferb read-image-text --serve`), when
+/// there is one. One set for the whole daemon, so the child is shared and kept warm.
+pub fn readers() -> &'static ferb_mac_hands::vision_child::Readers {
+    use ferb_mac_hands::native::vision::{CpuVision, NativeVision};
+    use ferb_mac_hands::ocr::Attempt;
+    use ferb_mac_hands::vision_child as vc;
+    static READERS: std::sync::OnceLock<vc::Readers> = std::sync::OnceLock::new();
+    READERS.get_or_init(|| {
+        let helper = child_program().map(|program| {
+            Arc::new(vc::Helper::new(
+                program,
+                vec![vc::COMMAND.to_string(), vc::SERVE.to_string()],
+                vc::CHILD_TIMEOUT,
+            ))
+        });
+        vc::Readers::new(
+            vec![
+                Attempt {
+                    step: "vision",
+                    recognize: Arc::new(NativeVision),
+                },
+                Attempt {
+                    step: "vision_cpu",
+                    recognize: Arc::new(CpuVision),
+                },
+            ],
+            helper,
+            ferb_mac_hands::native::vision::blank_png(160, 48),
+            vc::real_clock(),
+        )
+    })
+}
 
+/// HAND-627: the daemon's image-reader check, on a supervised thread of its own (compose/guard.rs): [`readers`]' tick
+/// at the start and every [`TICK`](ferb_mac_hands::vision_child::TICK) (the self-test when due; the kept child warmed
+/// while this process's Vision fails), journaled only when something changes (`image.reader_check`). Only in a daemon
+/// with the Mac's parts; it ends with the daemon.
+pub fn start_image_checks(p: &Parts) {
+    let guard = crate::compose::guard::Guard::of(
+        &p.journal(),
+        &p.redactor(),
+        &(Arc::new(crate::compose::guard::RealPause) as Arc<dyn crate::compose::guard::Pause>),
+    );
+    let journal = p.journal();
+    let weak = p.downgrade();
+    let stop = move || weak.upgrade().is_none_or(|p| p.shutting_down());
+    let stopping = stop.clone();
+    let _ =
+        crate::compose::guard::thread(guard, "ferb-image-check", "image_check", stop, move |_| {
+            while !stopping() {
+                let t = readers().tick();
+                if t.went_to_helper || t.switched_back || t.warmed == Some(false) {
+                    journal.note(
+                    "image.reader_check",
+                    json!({"tested": t.tested, "warmed": t.warmed, "switched_back": t.switched_back,
+                           "went_to_helper": t.went_to_helper}),
+                );
+                }
+                crate::compose::guard::Pause::sleep_blocking(
+                    &crate::compose::guard::RealPause,
+                    ferb_mac_hands::vision_child::TICK.as_secs_f64(),
+                    &stopping,
+                );
+            }
+            Ok(())
+        });
+}
+
+impl Images {
     pub fn redact(&self, image: &[u8]) -> Result<Vec<u8>, String> {
-        self.redact_noted(image, Some(true))
+        self.redact_noted(image, true)
             .map(|r| r.image)
             .map_err(|w| w.to_string())
     }
 
-    /// The masked image with the attempts that failed before one read it, or every fault (HAND-531). A daemon
-    /// without the Mac's parts reads nothing: withheld with no fault.
+    /// The masked image with the attempts that failed before one read it, or every fault (HAND-531). `helper`: the
+    /// kept child may read it when this process's Vision can't (HAND-627; a warm-up's blank image doesn't use it).
+    /// A daemon without the Mac's parts reads nothing: withheld with no fault.
     pub fn redact_noted(
         &self,
         image: &[u8],
-        child: Option<bool>,
+        helper: bool,
     ) -> Result<ferb_mac_hands::ocr::Redacted, ferb_mac_hands::ocr::Withheld> {
         if !self.native {
             return Err(ferb_mac_hands::ocr::Withheld::default());
         }
-        ferb_mac_hands::ocr::ImageRedactor {
+        let readers = readers();
+        let got = ferb_mac_hands::ocr::ImageRedactor {
             redactor: self.redactor.clone(),
-            recognize: Self::recognizers(child),
+            recognize: readers.attempts(helper),
             paint: Arc::new(ferb_mac_hands::native::paint::NativePaint),
         }
-        .redact_noted(image, &[])
+        .redact_noted(image, &[]);
+        readers.settle(&got);
+        got
     }
 }
 
@@ -357,7 +506,7 @@ impl MacImages {
 
     /// An image for `use_` (the front window, a recording's frame), waiting for a child process when it needs one.
     pub fn redact(&self, image: &[u8], use_: &str) -> Result<Vec<u8>, String> {
-        let got = self.images.redact_noted(image, Some(true));
+        let got = self.images.redact_noted(image, true);
         self.note(use_, &got);
         got.map(|r| r.image).map_err(|w| w.to_string())
     }
@@ -367,7 +516,7 @@ impl MacImages {
     /// found then, and the CPU one is loaded, before the next picture needs it.
     pub fn warm(&self) {
         let blank = ferb_mac_hands::native::vision::blank_png(160, 48);
-        let got = self.images.redact_noted(&blank, None);
+        let got = self.images.redact_noted(&blank, false);
         self.note("warm", &got);
     }
 
@@ -443,23 +592,15 @@ impl ferb_gateway::call_hooks::ImageSanitizer for MacImages {
     ) -> BoxFuture<'a, ferb_gateway::call_hooks::SanitizedNoted> {
         let image = image.to_vec();
         let me = self.clone();
-        // a live preview's frame: its faults go to preview.failed, and it never queues behind a running child
-        let preview = PREVIEW_FAULTS.try_with(|f| f.clone()).ok();
         on_image_thread(
             move || {
-                let got = me.images.redact_noted(&image, Some(preview.is_none()));
-                me.note(if preview.is_some() { "preview" } else { "tool" }, &got);
+                // a tool's image may wait for the kept child (HAND-627); the live preview never comes here (APP-922)
+                let got = me.images.redact_noted(&image, true);
+                me.note("tool", &got);
                 let notes = span_notes(&got);
                 let answer = match got {
                     Ok(r) => Ok(r.image),
-                    Err(w) => {
-                        if let Some(sink) = preview {
-                            sink.lock()
-                                .unwrap_or_else(|e| e.into_inner())
-                                .extend(w.faults.iter().cloned());
-                        }
-                        Err(w.to_string())
-                    }
+                    Err(w) => Err(w.to_string()),
                 };
                 (answer, notes)
             },
@@ -594,17 +735,38 @@ impl Mac {
         });
         // desktop.py:278 `owner_wait`: the owner's time never counts as a stall (the supervisor, once built)
         input.on_wait = owner_wait(p.downgrade());
+        // T-1129: without the Mac's own parts (a test daemon), none of this Mac's apps, windows or events is reached
+        let real = opts.mac;
+        let absent = || crate::off::off("mac.absent", Arc::new(AbsentMac));
+        let events: Arc<dyn ferb_mac_hands::input::Events> = if real {
+            Arc::new(native::events::NativeEvents::new())
+        } else {
+            absent()
+        };
+        let ax: Arc<dyn ferb_mac_hands::driver::Ax> = if real {
+            Arc::new(native::ax::AxDriver::new(
+                ferb_policy::confirm::browser_page,
+            ))
+        } else {
+            absent()
+        };
+        let apps: Arc<dyn ferb_mac_hands::driver::Apps> = if real {
+            Arc::new(native::apps::NativeApps::new(handlers.clone()))
+        } else {
+            absent()
+        };
+        let shots: Arc<dyn ferb_mac_hands::driver::Shots> = if real {
+            Arc::new(native::capture::NativeShots)
+        } else {
+            absent()
+        };
         let mut d = ferb_mac_hands::driver::MacDriver::new(ferb_mac_hands::driver::Parts {
             device_id,
             input,
-            gestures: Arc::new(ferb_mac_hands::input::RealGestures {
-                events: Arc::new(native::events::NativeEvents::new()),
-            }),
-            ax: Arc::new(native::ax::AxDriver::new(
-                ferb_policy::confirm::browser_page,
-            )),
-            apps: Arc::new(native::apps::NativeApps::new(handlers.clone())),
-            shots: Arc::new(native::capture::NativeShots),
+            gestures: Arc::new(ferb_mac_hands::input::RealGestures { events }),
+            ax,
+            apps,
+            shots,
             policy: Arc::new(MacPolicy),
             // one monotonic origin with the previews' clock (a capture's deadline means the same instant to both)
             time: Arc::new(ferb_mac_hands::driver::RealTime(
@@ -646,8 +808,13 @@ impl Mac {
         let db = p.db();
         let tasks = p.clone();
         let clock = p.clock();
+        let control: Arc<dyn ferb_mac_hands::launched::AppControl> = if real {
+            Arc::new(native::apps::NativeControl)
+        } else {
+            absent()
+        };
         d.launched = Some(Arc::new(ferb_mac_hands::launched::LaunchedApps::new(
-            Arc::new(native::apps::NativeControl),
+            control,
             Arc::new(
                 move |task: &str, app: &ferb_mac_hands::launched::Launched| {
                     let tree = tasks
@@ -666,7 +833,7 @@ impl Mac {
             ),
             Arc::new(move || ferb_core::when::isoformat(&clock.now())),
         )));
-        d.route = native::events::load_route().is_some();
+        d.route = real && native::events::load_route().is_some();
         d.handlers = handlers;
         // desktop.py:290 `web_secrets=self._web_secrets` (L13): a browser window's capture asks its paired profiles
         d.web_secrets = Some(web_secrets(p.downgrade()));
@@ -807,6 +974,10 @@ impl Mac {
             p.journal(),
             Arc::new(move || clock.monotonic()),
         ));
+        if native_on {
+            // HAND-627: a failing reader is found, and the kept child warmed, before a task needs a picture
+            start_image_checks(p);
+        }
         let img = images.clone();
         let recordings = ferb_mac_hands::recording::RecordingManager::new(
             Arc::new(move |jpeg: &[u8]| img.redact(jpeg, "recording").map_err(HandError::Withheld)),
@@ -1086,7 +1257,8 @@ impl Tool for MacTool {
             }))
     }
     /// GATE-579 (pay_picture.py:79-84; the gateway holds the call's locks and the time limit): a Mac app window's
-    /// payment picture is the live preview's capture of the call's window, used as it is; none without a surface.
+    /// payment picture is the live preview's capture of the call's window (as captured, APP-922; both are FERB.app's
+    /// alone), used as it is; none without a surface.
     fn pay_picture<'a>(
         &'a self,
         args: &'a Args,
@@ -1099,7 +1271,10 @@ impl Tool for MacTool {
                 .resolve?;
             let take = async move {
                 let (_, shoot) = resolve().await.ok()?;
-                shoot().await.ok().map(|(jpeg, _)| jpeg)
+                shoot()
+                    .await
+                    .ok()
+                    .map(|(frame, _)| frame.for_owner_app().to_vec())
             };
             // `PREVIEW_DEADLINE`: the capture's own waits fit the picture's limit
             let ctx = Arc::new(ferb_mac_hands::point::PreviewCtx {

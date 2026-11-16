@@ -160,6 +160,37 @@ final class SetupModelTests: XCTestCase {
         await eventually { model.allRows.first { $0.id == "notifications" }?.status == .granted }
     }
 
+    /// SENSE-420: Location is the ninth permission (with Automation per app): FERB.app's own, asked by macOS's question
+    /// in Allow all, its pane opened once it is off; required like every other.
+    // decision: APP-925
+    // decision: APP-926
+    func testLocationIsFERBAppsOwnRequiredRowInAllowAll() async {
+        let rig = SetupRig()
+        rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "granted", fda: "granted")
+        rig.app.microphoneStatus = .granted
+        rig.app.notificationStatus = .granted
+        rig.app.locationStatus = .notDetermined
+        let model = rig.model()
+        await model.refreshPermissions()
+        let row = model.setupRows.first { $0.id == "location" }!
+        XCTAssertEqual(row.process, "app")
+        XCTAssertTrue(row.required && row.requestable && row.status == .notDetermined)
+        XCTAssertTrue(SetupModel.allowAllOrder(model.setupRows).contains("location"))
+        XCTAssertTrue(SetupModel.quickPermissionOrder(model.setupRows).contains("location"))
+        await model.allowQuickPermissions()
+        XCTAssertTrue(rig.app.requests.contains("location"))
+        XCTAssertEqual(model.allRows.first { $0.id == "location" }?.status, .granted)
+        XCTAssertTrue(rig.opener.opened.isEmpty)                  // answered in macOS's own question
+        rig.app.locationStatus = .denied
+        await model.refreshPermissions()
+        await model.grant(model.allRows.first { $0.id == "location" }!)
+        XCTAssertEqual(rig.opener.opened.last, SetupModel.locationPane)
+        XCTAssertEqual(PermissionCopy.label("location"), "Location")
+        // APP-926: plain words about FERB, never "AI"
+        let reason = PermissionCopy.reason("location")
+        XCTAssertFalse(reason.isEmpty || reason.split(separator: " ").contains("AI") || reason.contains("server"))
+    }
+
     // decision: APP-686
     func testAllowAllNeverWaitsOnTheNotificationBanner() async {
         // A friend's Allow all stalled on macOS's notification banner (2026-10-27): it is asked, hinted, never awaited
@@ -194,6 +225,56 @@ final class SetupModelTests: XCTestCase {
         await model.cameBack()
         XCTAssertEqual(rig.service.restarts, 1)                         // never while a task runs
         XCTAssertTrue(model.offersRestart)                              // the button stays for that
+    }
+
+    /// T-1047: a switch turned on while a task runs used to wait without a word, and nothing restarted once the task
+    /// ended. Now the restart is remembered (across a relaunch too), said once in the notch, never made while a task
+    /// runs, and made when the app's task list empties and chat.status confirms it.
+    // decision: APP-921, APP-598, APP-662
+    func testARestartARunningTaskDefersIsSaidOnceAndMadeWhenNoTaskRuns() async {
+        let rig = SetupRig()
+        let defaults = UserDefaults(suiteName: "SetupModelTests.\(UUID().uuidString)")!
+        rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(screen: "denied", screenRestartNeeded: true)
+        rig.rpc.replies["chat.status"] = ["running": [["task_id": "t1", "goal": "work"]]]
+        let model = rig.model()
+        model.restartStore = defaults
+        model.now = { Date(timeIntervalSince1970: 1_000) }
+        var told: [(String, String)] = []
+        model.tell = { told.append(($0, $1)) }
+        model.frontmostApp = { SettingsAnchor.bundleID }
+        await model.refreshPermissions()
+        let row = model.allRows.first { $0.id == "screen_recording" }!
+        _ = await model.grantAndConfirm(row, polls: 3)       // a fresh reading sees it on while t1 runs
+        XCTAssertEqual(rig.service.restarts, 0)                 // never while a task runs
+        XCTAssertEqual(model.restartAfterTasks, ["screen_recording"])
+        XCTAssertEqual(told.map(\.1), ["Screen Recording is on in macOS. I'll restart my background service to use it when this task finishes."])
+        XCTAssertEqual(told.first?.0, "restart-after-tasks-screen_recording-1000")
+        await model.grant(row)
+        await model.cameBack()                                   // asked again while the task still runs: said once
+        XCTAssertEqual(told.count, 1)
+        XCTAssertEqual(rig.service.restarts, 0)
+
+        // the task list still shows a task: nothing
+        await model.tasksChanged(running: true)
+        XCTAssertEqual(rig.service.restarts, 0)
+        // a relaunch remembers it
+        let relaunched = rig.model()
+        relaunched.restartStore = defaults
+        XCTAssertEqual(relaunched.restartAfterTasks, ["screen_recording"])
+        // the app's list empties, but chat.status still lists the task: nothing
+        await relaunched.tasksChanged(running: false)
+        XCTAssertEqual(rig.service.restarts, 0)
+        // the task ended: one restart, and the wait is forgotten
+        rig.rpc.replies["chat.status"] = ["running": [] as [Any]]
+        rig.service.onRestart = { rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(screen: "granted") }
+        await relaunched.tasksChanged(running: false)
+        XCTAssertEqual(rig.service.restarts, 1)
+        XCTAssertTrue(relaunched.restartAfterTasks.isEmpty)
+        XCTAssertNil(defaults.stringArray(forKey: SetupModel.restartAfterTasksKey))
+        await relaunched.tasksChanged(running: false)
+        XCTAssertEqual(rig.service.restarts, 1)
+        XCTAssertEqual(SetupModel.restartDeferredLine(["input_monitoring", "screen_recording"], seenOn: false, tasks: 2),
+                       "I'll restart my background service to check Input Monitoring and Screen Recording when these tasks finish.")
     }
 
     /// Live 2026-11-04: the owner's Screen Recording switch was on, but the row ticked only after they left System
@@ -237,9 +318,10 @@ final class SetupModelTests: XCTestCase {
     // decision: APP-401, APP-536
     func testSetupPermissionsHaveNoSeparateHearingRow() async {
         // Hearing is the same Speech Recognition grant as dictation: the microphone row covers both
-        XCTAssertEqual(SetupModel.askedAtSetup.count, 7)
+        XCTAssertEqual(SetupModel.askedAtSetup.count, 8)
         XCTAssertEqual(SetupModel.askedAtSetup, ["accessibility", "screen_recording", "full_disk_access",
-                                                 "input_monitoring", "notifications", "microphone", "clipboard"])
+                                                 "input_monitoring", "notifications", "microphone", "clipboard",
+                                                 "location"])
         XCTAssertFalse(SetupModel.allowAllSequence.contains("hearing"))
         let rig = SetupRig()
         rig.rpc.replies["setup.permissions"] = SetupReplies.permissions()

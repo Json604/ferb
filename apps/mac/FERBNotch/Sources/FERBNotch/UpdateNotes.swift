@@ -27,6 +27,15 @@ extension NotchModel {
         }
     }
 
+    /// A line setup writes for the owner (APP-921: a restart a running task defers), as a quiet FERB message in the
+    /// chat, once per id.
+    func noteFromSetup(id: String, text: String) {
+        if conversation.addNotice(id: id, text: text, tag: "FERB") {
+            saveConversation()
+            onBackgroundChange?(true)
+        }
+    }
+
     /// The switch to the Developer ID waits for the owner (APP-903): FERB asks once per version in the chat; the
     /// menu's entry and Settings → General → Updates install it.
     func noteUpdateAsk(version: String) {

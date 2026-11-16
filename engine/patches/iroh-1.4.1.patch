@@ -1,0 +1,14 @@
+--- a/src/net_report.rs
++++ b/src/net_report.rs
+@@ -858 +858,4 @@
+-    let observer = Watchable::new(None);
++    // ferb-phone-link: the connection that is kept counts as this family's report from its first observation
++    // on. With `None` here it only counted after the observed address CHANGED, so every periodic report (each
++    // 20 to 26 s) made new discovery connections to every relay of the map, a full handshake each.
++    let observer = Watchable::new(Some(report.clone()));
+@@ -924 +927,4 @@
+-    let observer = Watchable::new(None);
++    // ferb-phone-link: the connection that is kept counts as this family's report from its first observation
++    // on. With `None` here it only counted after the observed address CHANGED, so every periodic report (each
++    // 20 to 26 s) made new discovery connections to every relay of the map, a full handshake each.
++    let observer = Watchable::new(Some(report.clone()));

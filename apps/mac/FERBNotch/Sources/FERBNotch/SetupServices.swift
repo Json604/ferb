@@ -26,6 +26,9 @@ protocol AppPermissionsProviding: AnyObject {
     func requestMicrophone() async -> GrantStatus
     /// Which pane to open while the microphone row is off: "microphone" or "speech_recognition".
     var microphoneDeniedPane: String { get }
+    /// Location (SENSE-420, the ninth permission): FERB.app holds it and tells the daemon the city.
+    func location() -> GrantStatus
+    func requestLocation() async -> GrantStatus
 }
 
 @MainActor
@@ -326,6 +329,13 @@ final class SystemAppPermissions: AppPermissionsProviding {
 
     var microphoneDeniedPane: String {
         Self.grant(AVCaptureDevice.authorizationStatus(for: .audio)) == .denied ? "microphone" : "speech_recognition"
+    }
+
+    func location() -> GrantStatus { AppBundle.isApp ? SystemLocationSource.shared.status : .unknown }
+
+    func requestLocation() async -> GrantStatus {
+        guard AppBundle.isApp else { return .unknown }
+        return await SystemLocationSource.shared.requestAuthorization()
     }
 
     func requestMicrophone() async -> GrantStatus {

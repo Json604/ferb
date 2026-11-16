@@ -4,6 +4,7 @@
     python3 -I scripts/rust_notices.py --check    exit 1 when the section isn't what --write would write
 
 The shipped crates are those `ferbd`, `ferb` and `ferb-native-host` (workspace members, locked by engine/Cargo.lock)
+and `ferb-link` (the phone link's helper, locked by its own engine/crates/ferb-link/Cargo.lock)
 depend on as normal dependencies on either Mac architecture: build-time and test-only crates
 don't ship. For each: its version, its licence expression, the licence FERB takes it under (MIT, then Apache-2.0,
 from an OR choice; every part of an AND) and the copyright lines of its licence files. MIT's and Apache-2.0's texts
@@ -25,7 +26,9 @@ END = "<!-- /rust-crates -->"
 TARGETS = ("aarch64-apple-darwin", "x86_64-apple-darwin")
 # (manifest, the packages of it that ship)
 SHIPPED = ((ROOT / "engine" / "crates" / "ferbd" / "Cargo.toml", ("ferbd",)),
-           (ROOT / "engine" / "Cargo.toml", ("ferb-native-host",)))
+           (ROOT / "engine" / "Cargo.toml", ("ferb-native-host",)),
+           # the phone link's helper: its own Cargo.lock, iroh's patched crates (engine/patches/apply.sh first)
+           (ROOT / "engine" / "crates" / "ferb-link" / "Cargo.toml", ("ferb-link",)))
 PREFERRED = ("MIT", "Apache-2.0")
 LICENCE_FILE = re.compile(r"^(LICEN[CS]E|COPYING|COPYRIGHT|UNLICENSE|NOTICE)", re.I)
 COPYRIGHT = re.compile(r"^\s*(copyright\s*(\(c\)|©|\d)|\(c\)\s*\d|©)", re.I)

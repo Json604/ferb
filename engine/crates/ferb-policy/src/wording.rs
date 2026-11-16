@@ -979,6 +979,112 @@ fn card_of(n: &Need, alongside: &[&str]) -> Option<Card> {
         return None;
     }
     match rule {
+        // HAND-624: the publish question (the first one for a folder also makes it a project)
+        crate::projects::PUBLISH_RULE => {
+            let exact = format!("{}\nbranch {}", v.opt("url"), v.opt("branch"));
+            Some(if v.get("project") == Some("new") {
+                c(
+                    format!("Work on this as a project in {}?", v.opt("folder")),
+                    format!(
+                        "FERB's commands can then read and change files there and publish its git repository when \
+                         you ask. Your saved logins and keys stay closed to them. Yes also publishes it now: branch {} \
+                         to {}, with your git login (no AI sees it). FERB never forces a push, and asks again if the \
+                         address changes.",
+                        v.opt("branch"),
+                        v.opt("url")
+                    ),
+                    exact,
+                    "Yes, publish",
+                    "No",
+                )
+            } else {
+                c(
+                    format!("Publish {} to {}?", v.opt("folder"), v.opt("dest")),
+                    format!(
+                        "Branch {} goes to {} with your git login (no AI sees it). FERB never forces a push, and asks \
+                         again if the address changes.",
+                        v.opt("branch"),
+                        v.opt("url")
+                    ),
+                    exact,
+                    "Publish",
+                    "Don't publish",
+                )
+            })
+        }
+        // HAND-641: replacing a remote branch, asked every time
+        crate::projects::FORCE_RULE => {
+            let dropped = match v.opt("dropped") {
+                "1" => "1 commit".to_string(),
+                n => format!("{n} commits"),
+            };
+            let newest = if v.has("subject") {
+                let by = [v.opt("author"), v.opt("date")]
+                    .into_iter()
+                    .filter(|x| !x.is_empty())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(
+                    "{} \u{201c}{}\u{201d}{}",
+                    v.opt("short"),
+                    v.opt("subject"),
+                    if by.is_empty() { String::new() } else { format!(" by {by}") }
+                )
+            } else {
+                v.opt("short").to_string()
+            };
+            Some(c(
+                format!("Overwrite {} on {}?", v.opt("branch"), v.opt("dest")),
+                format!(
+                    "The newest commit there is {newest}. Publishing replaces the branch with the one in {}, which \
+                     drops {dropped} that only exist there. FERB can't undo this. If anyone adds to the branch before \
+                     FERB pushes, FERB stops instead of overwriting it.",
+                    v.opt("folder")
+                ),
+                format!(
+                    "{}\nbranch {}: {} \u{2192} {}",
+                    v.opt("url"),
+                    v.opt("branch"),
+                    v.opt("short"),
+                    v.opt("local_short")
+                ),
+                "Overwrite it",
+                "Keep it",
+            ))
+        }
+        // HAND-642: getting from an address with the owner's login
+        crate::projects::FETCH_RULE => Some(c(
+            format!(
+                "Get {} into {} with your git login?",
+                v.opt("dest"),
+                v.opt("folder")
+            ),
+            format!(
+                "FERB downloads the repository's branches into this folder so its commands can work on them. Your login \
+                 is only used for the download, and nothing from the repository runs with it.{}",
+                if v.get("project") == Some("new") {
+                    format!(" Yes also makes {} a project.", v.opt("folder"))
+                } else {
+                    String::new()
+                }
+            ),
+            v.opt("url").to_string(),
+            "Get it",
+            "No",
+        )),
+        // HAND-643: the GitHub CLI's saved login for a project
+        crate::projects::GH_RULE => Some(c(
+            "Use your GitHub CLI login for this project?".to_string(),
+            format!(
+                "There's no git login for {} in your Keychain, but the GitHub CLI (gh) is signed in. FERB would hand \
+                 that login only to git, for {}, and never show it to anyone.",
+                v.opt("host"),
+                v.opt("folder")
+            ),
+            v.opt("host").to_string(),
+            "Use it",
+            "No",
+        )),
         "sink:private_url" => {
             let dest = v.opt("destination");
             let value = if v.has("matched") { v.opt("matched") } else { v.opt("value") };

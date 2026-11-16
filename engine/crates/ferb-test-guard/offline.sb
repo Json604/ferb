@@ -1,0 +1,43 @@
+;; The offline suite's sandbox (TEST-504, TEST-508; engine/crates/ferb-test-guard). Everything a test may do is
+;; allowed, but what follows ends the test binary at once (SIGKILL), so a test that ignores the error still fails the
+;; run. Parameter HOME: the account's home folder.
+(version 1)
+(allow default)
+
+;; No connection beyond this Mac's loopback: no model provider, no other host (no_real_models, network_route).
+(deny network-outbound (remote ip "*:*") (with send-signal SIGKILL))
+;; netdev (iroh's interface list, the phone crates' tests) finds the default interface with a UDP connect() to
+;; 10.254.254.254:1 and [fdff:ffff:...]:1, which sends no datagram: still refused, but with EPERM, not a kill (netdev
+;; then names no default interface). UDP port 1 only; every other non-loopback send still ends the binary.
+(deny network-outbound (remote udp "*:1"))
+(allow network-outbound (remote ip "localhost:*"))
+
+;; Never FERB's real home, the model programs' own homes, the Trash (offline_trash), the Keychain's files or a
+;; browser's folders: no file's or folder's contents read, nothing written, moved or deleted there. A path's metadata
+;; stays readable (whether it exists, what it links to): the privacy exclusions resolve their default paths with
+;; realpath, and a browser counts as installed by its folder's existence.
+(deny file-read-data file-write*
+  (subpath (string-append (param "HOME") "/.ferb"))
+  (subpath (string-append (param "HOME") "/.codex"))
+  (subpath (string-append (param "HOME") "/.claude"))
+  (subpath (string-append (param "HOME") "/.Trash"))
+  (subpath (string-append (param "HOME") "/Library/Keychains"))
+  (subpath (string-append (param "HOME") "/Library/Safari"))
+  (subpath (string-append (param "HOME") "/Library/Application Support/Google"))
+  (subpath (string-append (param "HOME") "/Library/Application Support/Chromium"))
+  (subpath (string-append (param "HOME") "/Library/Application Support/BraveSoftware"))
+  (subpath (string-append (param "HOME") "/Library/Application Support/Microsoft Edge"))
+  (subpath (string-append (param "HOME") "/Library/Application Support/Microsoft Edge Beta"))
+  (subpath (string-append (param "HOME") "/Library/Application Support/Microsoft Edge Dev"))
+  (subpath (string-append (param "HOME") "/Library/Application Support/Microsoft Edge Canary"))
+  (subpath (string-append (param "HOME") "/Library/Application Support/Vivaldi"))
+  (subpath (string-append (param "HOME") "/Library/Application Support/Arc"))
+  (subpath (string-append (param "HOME") "/Library/Application Support/com.operasoftware.Opera"))
+  (subpath (string-append (param "HOME") "/Library/Application Support/Firefox"))
+  (with send-signal SIGKILL))
+
+;; Never the Keychain itself (its server reads the files on the caller's behalf).
+(deny mach-lookup
+  (global-name "com.apple.SecurityServer")
+  (global-name "com.apple.securityd.xpc")
+  (with send-signal SIGKILL))

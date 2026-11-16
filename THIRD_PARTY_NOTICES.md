@@ -347,23 +347,62 @@ FERB.app's Rust build compiles these crates into its programs. Each line: the cr
   - Copyright (c) 2019 The RustCrypto Project Developers
 - **aho-corasick 1.1.5**: Unlicense OR MIT; used under MIT
   - Copyright (c) 2015 Andrew Gallant
+- **anstream 1.0.0**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) Individual contributors
+- **anstyle 1.0.14**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) Individual contributors
+- **anstyle-parse 1.0.0**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) Individual contributors
+- **anstyle-query 1.1.5**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) Individual contributors
 - **anyhow 1.0.104**: MIT OR Apache-2.0; used under MIT
   - Copyright the anyhow authors (David Tolnay)
+- **arc-swap 1.9.3**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2017 arc-swap developers
+- **arrayvec 0.7.8**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) Ulrik Sverdrup "bluss" 2015-2023
+- **asn1-rs 0.7.2**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2017 Pierre Chifflier
+- **asn1-rs-derive 0.6.0**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2017 Pierre Chifflier
+- **asn1-rs-impl 0.2.0**: MIT/Apache-2.0; used under MIT
+  - Copyright the asn1-rs-impl authors (Pierre Chifflier)
+- **async-trait 0.1.92**: MIT OR Apache-2.0; used under MIT
+  - Copyright the async-trait authors (David Tolnay)
 - **atomic-waker 1.1.2**: Apache-2.0 OR MIT; used under MIT
   - Copyright (c) 2016 Alex Crichton
   - Copyright (c) 2017 The Tokio Authors
+- **attohttpc 0.30.1**: MPL-2.0; used under MPL-2.0
+  - Copyright the attohttpc authors (Simon Bernier St-Pierre)
+- **backon 1.6.0**: Apache-2.0; used under Apache-2.0
+  - Copyright 2021 Datafuse Labs
+- **base16ct 0.2.0**: Apache-2.0 OR MIT; used under MIT
+  - Copyright (c) 2014 Steve "Sc00bz" Thomas (steve at tobtu dot com)
+  - Copyright (c) 2022 The RustCrypto Project Developers
+- **base16ct 1.0.0**: Apache-2.0 OR MIT; used under MIT
+  - Copyright (c) 2014 Steve "Sc00bz" Thomas (steve at tobtu dot com)
+  - Copyright (c) 2022-2025 The RustCrypto Project Developers
 - **base64 0.22.1**: MIT OR Apache-2.0; used under MIT
   - Copyright (c) 2015 Alice Maz
 - **base64 0.23.1**: MIT OR Apache-2.0; used under MIT
   - Copyright (c) 2025 Alice Maz, Marshall Pierce
+- **base64ct 1.8.3**: Apache-2.0 OR MIT; used under MIT
+  - Copyright (c) 2014 Steve "Sc00bz" Thomas (steve at tobtu dot com)
+  - Copyright (c) 2021-2025 The RustCrypto Project Developers
 - **bit-set 0.8.0**: Apache-2.0 OR MIT; used under MIT
   - Copyright (c) 2023 The Rust Project Developers
 - **bit-vec 0.8.0**: Apache-2.0 OR MIT; used under MIT
   - Copyright (c) 2023 The Rust Project Developers
+- **bit-vec 0.9.1**: Apache-2.0 OR MIT; used under MIT
+  - Copyright (c) 2023 The Rust Project Developers
 - **bitflags 2.13.2**: MIT OR Apache-2.0; used under MIT
   - Copyright (c) 2014 The Rust Project Developers
+- **blake3 1.8.7**: CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception; used under Apache-2.0
+  - Copyright 2019 Jack O'Connor and Samuel Neves
 - **block-buffer 0.10.4**: MIT OR Apache-2.0; used under MIT
   - Copyright (c) 2018-2019 The RustCrypto Project Developers
+- **block-buffer 0.12.1**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2018-2025 The RustCrypto Project Developers
 - **block2 0.6.2**: MIT; used under MIT
   - Copyright the block2 authors (Mads Marquart)
 - **bstr 1.13.1**: MIT OR Apache-2.0; used under MIT
@@ -383,6 +422,32 @@ FERB.app's Rust build compiles these crates into its programs. Each line: the cr
   - Copyright 2016 Djzin
 - **cipher 0.4.4**: MIT OR Apache-2.0; used under MIT
   - Copyright (c) 2016-2020 RustCrypto Developers
+- **clap 4.6.7**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) Individual contributors
+- **clap_builder 4.6.7**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) Individual contributors
+- **clap_derive 4.6.7**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) Individual contributors
+- **clap_lex 1.1.1**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) Individual contributors
+- **cmov 0.5.4**: Apache-2.0 OR MIT; used under MIT
+  - Copyright (c) 2022-2026 The RustCrypto Project Developers
+- **cobs 0.3.0**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2015 The cobs.rs Developers
+- **colorchoice 1.0.5**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) Individual contributors
+- **const-oid 0.10.2**: Apache-2.0 OR MIT; used under MIT
+  - Copyright (c) 2020-2026 The RustCrypto Project Developers
+- **const-oid 0.9.6**: Apache-2.0 OR MIT; used under MIT
+  - Copyright (c) 2020-2022 The RustCrypto Project Developers
+- **constant_time_eq 0.4.2**: CC0-1.0 OR MIT-0 OR Apache-2.0; used under Apache-2.0
+  - Copyright the constant_time_eq authors (Cesar Eduardo Barros)
+- **convert_case 0.10.0**: MIT; used under MIT
+  - Copyright (c) 2025 rutrum
+- **cordyceps 0.3.5**: MIT; used under MIT
+  - Copyright (c) 2022 Eliza Weisman
+- **core-foundation 0.10.1**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2012-2013 Mozilla Foundation
 - **core-foundation-sys 0.8.7**: MIT OR Apache-2.0; used under MIT
   - Copyright (c) 2012-2013 Mozilla Foundation
 - **cpufeatures 0.2.17**: MIT OR Apache-2.0; used under MIT
@@ -391,22 +456,79 @@ FERB.app's Rust build compiles these crates into its programs. Each line: the cr
   - Copyright (c) 2020-2026 The RustCrypto Project Developers
 - **crc32fast 1.5.5**: MIT OR Apache-2.0; used under MIT
   - Copyright (c) 2018 Sam Rijs, Alex Crichton and contributors
+- **crossbeam-utils 0.8.23**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2019 The Crossbeam Project Developers
+- **crypto-bigint 0.5.5**: Apache-2.0 OR MIT; used under MIT
+  - Copyright (c) 2021 The RustCrypto Project Developers
 - **crypto-common 0.1.7**: MIT OR Apache-2.0; used under MIT
   - Copyright (c) 2021 RustCrypto Developers
+- **crypto-common 0.2.2**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2021-2026 RustCrypto Developers
 - **ctr 0.9.2**: MIT OR Apache-2.0; used under MIT
   - Copyright (c) 2018-2022 RustCrypto Developers
   - Copyright (c) 2018 Artyom Pavlov
+- **ctutils 0.4.8**: Apache-2.0 OR MIT; used under MIT
+  - Copyright (c) 2025-2026 The RustCrypto Project Developers
+- **curve25519-dalek 5.0.0**: BSD-3-Clause; used under BSD-3-Clause
+  - Copyright (c) 2016-2021 isis agora lovecruft. All rights reserved.
+  - Copyright (c) 2016-2021 Henry de Valence. All rights reserved.
+- **curve25519-dalek-derive 0.1.1**: MIT/Apache-2.0; used under MIT
+  - Copyright the curve25519-dalek-derive authors
+- **dashmap 6.2.1**: MIT; used under MIT
+  - Copyright (c) 2019 Acrimon
+- **data-encoding 2.11.1**: MIT; used under MIT
+  - Copyright (c) 2015-2020 Julien Cretin
+  - Copyright (c) 2017-2020 Google Inc.
+- **data-encoding-macro 0.1.21**: MIT; used under MIT
+  - Copyright (c) 2015-2020 Julien Cretin
+  - Copyright (c) 2017-2020 Google Inc.
+- **data-encoding-macro-internal 0.1.19**: MIT; used under MIT
+  - Copyright (c) 2015-2020 Julien Cretin
+  - Copyright (c) 2017-2020 Google Inc.
+- **der 0.7.10**: Apache-2.0 OR MIT; used under MIT
+  - Copyright (c) 2020-2023 The RustCrypto Project Developers
+- **der 0.8.3**: Apache-2.0 OR MIT; used under MIT
+  - Copyright (c) 2020-2026 The RustCrypto Project Developers
+- **der-parser 10.0.0**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2017 Pierre Chifflier
 - **deranged 0.5.9**: MIT OR Apache-2.0; used under MIT
   - Copyright 2024 Jacob Pratt et al.
   - Copyright (c) 2024 Jacob Pratt et al.
+- **derive_more 2.1.1**: MIT; used under MIT
+  - Copyright (c) 2016 Jelte Fennema
+- **derive_more-impl 2.1.1**: MIT; used under MIT
+  - Copyright (c) 2016 Jelte Fennema
+- **diatomic-waker 0.2.3**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2024 Asynchronics and contributors
 - **digest 0.10.7**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2017 Artyom Pavlov
+- **digest 0.11.3**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2017-2025 RustCrypto Developers
   - Copyright (c) 2017 Artyom Pavlov
 - **dispatch2 0.3.1**: Zlib OR Apache-2.0 OR MIT; used under MIT
   - Copyright the dispatch2 authors (Mads Marquart, Mary)
 - **displaydoc 0.2.7**: MIT OR Apache-2.0; used under MIT
   - Copyright the displaydoc authors (Jane Lusby)
+- **ecdsa 0.16.9**: Apache-2.0 OR MIT; used under MIT
+  - Copyright 2018-2022 RustCrypto Developers
+  - Copyright (c) 2018-2022 RustCrypto Developers
+- **ed25519 3.0.0**: Apache-2.0 OR MIT; used under MIT
+  - Copyright 2018-2022 RustCrypto Developers
+  - Copyright (c) 2018-2026 RustCrypto Developers
+- **ed25519-dalek 3.0.0**: BSD-3-Clause; used under BSD-3-Clause
+  - Copyright (c) 2017-2019 isis agora lovecruft. All rights reserved.
+- **elliptic-curve 0.13.8**: Apache-2.0 OR MIT; used under MIT
+  - Copyright (c) 2020-2022 RustCrypto Developers
+- **embedded-io 0.4.0**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2022 The embedded-io authors
+- **embedded-io 0.6.1**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2023 The embedded-io authors
+- **enum-assoc 1.4.1**: MIT OR Apache-2.0; used under MIT
+  - Copyright the enum-assoc authors (Griffin O'Neill)
 - **equivalent 1.0.3**: Apache-2.0 OR MIT; used under MIT
   - Copyright (c) 2016--2023
+- **errno 0.3.14**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2014 Chris Wong
 - **errno 0.3.15**: MIT OR Apache-2.0; used under MIT
   - Copyright (c) 2014 Chris Wong
 - **fallible-iterator 0.3.0**: MIT/Apache-2.0; used under MIT
@@ -419,19 +541,34 @@ FERB.app's Rust build compiles these crates into its programs. Each line: the cr
   - Copyright 2015 The Fancy Regex Authors.
 - **fastrand 2.5.0**: Apache-2.0 OR MIT; used under MIT
   - Copyright the fastrand authors (Stjepan Glavina)
+- **ff 0.13.1**: MIT/Apache-2.0; used under MIT
+  - Copyright (c) 2017 Sean Bowe
 - **flate2 1.1.11**: MIT OR Apache-2.0; used under MIT
   - Copyright (c) 2014-2026 Alex Crichton
+- **fnv 1.0.7**: Apache-2.0 / MIT; used under MIT
+  - Copyright (c) 2017 Contributors
 - **foldhash 0.2.0**: Zlib; used under Zlib
   - Copyright (c) 2024 Orson Peters
 - **form_urlencoded 1.2.2**: MIT OR Apache-2.0; used under MIT
   - Copyright (c) 2013-2016 The rust-url developers
+- **futures 0.3.34**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2016 Alex Crichton
+  - Copyright (c) 2017 The Tokio Authors
+- **futures-buffered 0.2.13**: MIT; used under MIT
+  - Copyright (c) 2022 Conrad Ludgate
 - **futures-channel 0.3.34**: MIT OR Apache-2.0; used under MIT
   - Copyright (c) 2016 Alex Crichton
   - Copyright (c) 2017 The Tokio Authors
 - **futures-core 0.3.34**: MIT OR Apache-2.0; used under MIT
   - Copyright (c) 2016 Alex Crichton
   - Copyright (c) 2017 The Tokio Authors
+- **futures-executor 0.3.34**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2016 Alex Crichton
+  - Copyright (c) 2017 The Tokio Authors
 - **futures-io 0.3.34**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2016 Alex Crichton
+  - Copyright (c) 2017 The Tokio Authors
+- **futures-lite 2.6.1**: Apache-2.0 OR MIT; used under MIT
   - Copyright (c) 2016 Alex Crichton
   - Copyright (c) 2017 The Tokio Authors
 - **futures-macro 0.3.34**: MIT OR Apache-2.0; used under MIT
@@ -459,10 +596,18 @@ FERB.app's Rust build compiles these crates into its programs. Each line: the cr
   - Copyright (c) 2014 The Rust Project Developers
 - **ghash 0.5.1**: Apache-2.0 OR MIT; used under MIT
   - Copyright (c) 2019 RustCrypto Developers
+- **group 0.13.0**: MIT/Apache-2.0; used under MIT
+  - Copyright the group authors (Sean Bowe, Jack Grigg)
+- **h2 0.4.20**: MIT; used under MIT
+  - Copyright (c) 2017 h2 authors
+- **hashbrown 0.14.5**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2016 Amanieu d'Antras
 - **hashbrown 0.17.1**: MIT OR Apache-2.0; used under MIT
   - Copyright (c) 2016 Amanieu d'Antras
 - **hashlink 0.12.2**: MIT OR Apache-2.0; used under MIT
   - Copyright the hashlink authors
+- **heck 0.5.0**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2015 The Rust Project Developers
 - **hex 0.4.3**: MIT OR Apache-2.0; used under MIT
   - Copyright (c) 2013-2014 The Rust Project Developers.
   - Copyright (c) 2015-2020 The rust-hex Developers
@@ -480,6 +625,10 @@ FERB.app's Rust build compiles these crates into its programs. Each line: the cr
   - Copyright (c) 2019-2026 Sean McArthur & Hyper Contributors
 - **httparse 1.10.1**: MIT OR Apache-2.0; used under MIT
   - Copyright (c) 2015-2025 Sean McArthur
+- **httpdate 1.0.3**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2016 Pyfisch
+- **hybrid-array 0.4.15**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2022-2026 The RustCrypto Project Developers
 - **hyper 1.12.0**: MIT; used under MIT
   - Copyright (c) 2014-2026 Sean McArthur
 - **hyper-rustls 0.27.10**: Apache-2.0 OR ISC OR MIT; used under MIT
@@ -504,10 +653,15 @@ FERB.app's Rust build compiles these crates into its programs. Each line: the cr
   - Copyright © 2020-2024 Unicode, Inc.
 - **icu_provider 2.4.0**: Unicode-3.0; used under Unicode-3.0
   - Copyright © 2020-2024 Unicode, Inc.
+- **identity-hash 0.1.0**: Apache-2.0 OR MIT; used under MIT
+  - Copyright 2018 Parity Technologies (UK) Ltd.
+  - Copyright 2023 Team Offsetting
 - **idna 1.1.0**: MIT OR Apache-2.0; used under MIT
   - Copyright (c) 2013-2025 The rust-url developers
 - **idna_adapter 1.2.2**: Apache-2.0 OR MIT; used under MIT
   - Copyright (c) The rust-url developers
+- **igd-next 0.17.1**: MIT; used under MIT
+  - Copyright (c) 2015 Simon Bernier St-Pierre
 - **indexmap 2.14.2**: Apache-2.0 OR MIT; used under MIT
   - Copyright (c) 2016--2017
 - **inout 0.1.4**: MIT OR Apache-2.0; used under MIT
@@ -515,20 +669,46 @@ FERB.app's Rust build compiles these crates into its programs. Each line: the cr
   - Copyright (c) 2022 Artyom Pavlov
 - **ipnet 2.12.2**: MIT OR Apache-2.0; used under MIT
   - Copyright 2017 Juniper Networks, Inc.
+- **iroh-base 1.4.1**: MIT OR Apache-2.0; used under MIT
+  - Copyright the iroh-base authors (n0 team)
+- **iroh-dns 1.4.1**: MIT OR Apache-2.0; used under MIT
+  - Copyright the iroh-dns authors (n0 team)
+- **iroh-metrics 1.0.2**: MIT OR Apache-2.0; used under MIT
+  - Copyright 2026 N0, INC.
+- **iroh-metrics-derive 1.0.1**: MIT OR Apache-2.0; used under MIT
+  - Copyright the iroh-metrics-derive authors (Frando, n0 team)
+- **iroh-relay 1.4.1**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2020 Tailscale Inc & AUTHORS.
+- **is_terminal_polyfill 1.70.2**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) Individual contributors
+- **itoa 1.0.18**: MIT OR Apache-2.0; used under MIT
+  - Copyright the itoa authors (David Tolnay)
 - **itoa 1.0.19**: MIT OR Apache-2.0; used under MIT
   - Copyright the itoa authors (David Tolnay)
+- **lazy_static 1.5.1**: MIT OR Apache-2.0; used under MIT
+  - Copyright the lazy_static authors (Marvin Löbel)
 - **libc 0.2.191**: MIT OR Apache-2.0; used under MIT
   - Copyright (c) The Rust Project Developers
 - **libsqlite3-sys 0.40.0**: MIT; used under MIT
   - Copyright (c) 2014 The rusqlite developers
 - **litemap 0.8.3**: Unicode-3.0; used under Unicode-3.0
   - Copyright © 2020-2024 Unicode, Inc.
+- **lock_api 0.4.14**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2016 The Rust Project Developers
 - **log 0.4.35**: MIT OR Apache-2.0; used under MIT
   - Copyright (c) 2014 The Rust Project Developers
+- **lru 0.18.5**: MIT; used under MIT
+  - Copyright (c) 2016 Jerome Froelich
 - **lru-slab 0.1.3**: MIT OR Apache-2.0 OR Zlib; used under MIT
   - Copyright (c) 2024 The lru-slab Developers
+- **mac-addr 0.3.0**: MIT; used under MIT
+  - Copyright (c) 2025 shellrow
+- **matchers 0.2.0**: MIT; used under MIT
+  - Copyright (c) 2019 Eliza Weisman
 - **memchr 2.8.3**: Unlicense OR MIT; used under MIT
   - Copyright (c) 2015 Andrew Gallant
+- **minimal-lexical 0.2.1**: MIT/Apache-2.0; used under MIT
+  - Copyright (c) 2009 The Go Authors. All rights reserved.
 - **miniz_oxide 0.9.1**: MIT OR Zlib OR Apache-2.0; used under MIT
   - Copyright 2013-2014 RAD Game Tools and Valve Software
   - Copyright 2010-2014 Rich Geldreich and Tenacious Software LLC
@@ -537,10 +717,42 @@ FERB.app's Rust build compiles these crates into its programs. Each line: the cr
   - Copyright (c) 2020 Frommi
 - **mio 1.2.4**: MIT; used under MIT
   - Copyright (c) 2014 Carl Lerche and other MIO contributors
+- **n0-error 1.0.1**: MIT OR Apache-2.0; used under MIT
+  - Copyright 2026 N0, INC.
+- **n0-error-macros 1.0.1**: MIT OR Apache-2.0; used under MIT
+  - Copyright the n0-error-macros authors (Frando, n0 team)
+- **n0-future 0.3.2**: MIT OR Apache-2.0; used under MIT
+  - Copyright 2023 N0, INC.
+- **n0-watcher 1.0.1**: MIT OR Apache-2.0; used under MIT
+  - Copyright 2026 N0, INC.
+- **netdev 0.47.0**: MIT; used under MIT
+  - Copyright (c) 2021-2026 shellrow
+- **nom 7.1.3**: MIT; used under MIT
+  - Copyright (c) 2014-2019 Geoffroy Couprie
+- **noq 1.4.0**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2018-2025 The quinn Developers
+  - Copyright (c) 2025 N0, Inc.
+- **noq-proto 1.4.0**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2018-2025 The quinn Developers
+  - Copyright (c) 2025 N0, Inc.
+- **noq-udp 1.4.0**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2018-2025 The quinn Developers
+  - Copyright (c) 2025 N0, Inc.
+- **nu-ansi-term 0.50.3**: MIT; used under MIT
+  - Copyright (c) 2014 Benjamin Sago
+  - Copyright (c) 2021-2022 The Nushell Project Developers
+- **num-bigint 0.4.8**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2014 The Rust Project Developers
 - **num-conv 0.2.2**: MIT OR Apache-2.0; used under MIT
   - Copyright (c) Jacob Pratt
+- **num-integer 0.1.47**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2014 The Rust Project Developers
 - **num-traits 0.2.19**: MIT OR Apache-2.0; used under MIT
   - Copyright (c) 2014 The Rust Project Developers
+- **num_enum 0.7.6**: BSD-3-Clause OR MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2018, Daniel Wagner-Hall
+- **num_enum_derive 0.7.6**: BSD-3-Clause OR MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2018, Daniel Wagner-Hall
 - **objc2 0.6.5**: MIT; used under MIT
   - Copyright the objc2 authors (Mads Marquart)
 - **objc2-app-kit 0.3.2**: Zlib OR Apache-2.0 OR MIT; used under MIT
@@ -589,33 +801,78 @@ FERB.app's Rust build compiles these crates into its programs. Each line: the cr
   - Copyright the objc2-screen-capture-kit authors
 - **objc2-security 0.3.2**: Zlib OR Apache-2.0 OR MIT; used under MIT
   - Copyright the objc2-security authors
+- **objc2-system-configuration 0.3.2**: Zlib OR Apache-2.0 OR MIT; used under MIT
+  - Copyright the objc2-system-configuration authors
 - **objc2-uniform-type-identifiers 0.3.2**: Zlib OR Apache-2.0 OR MIT; used under MIT
   - Copyright the objc2-uniform-type-identifiers authors
 - **objc2-vision 0.3.2**: Zlib OR Apache-2.0 OR MIT; used under MIT
   - Copyright the objc2-vision authors
+- **oid-registry 0.8.1**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2017 Pierre Chifflier
 - **once_cell 1.21.4**: MIT OR Apache-2.0; used under MIT
   - Copyright the once_cell authors (Aleksey Kladov)
 - **opaque-debug 0.3.1**: MIT OR Apache-2.0; used under MIT
   - Copyright (c) 2018-2024 The RustCrypto Project Developers
+- **p256 0.13.2**: Apache-2.0 OR MIT; used under MIT
+  - Copyright (c) 2020-2023 RustCrypto Developers
+- **papaya 0.2.5**: MIT; used under MIT
+  - Copyright the papaya authors (Ibraheem Ahmed)
+- **parking 2.2.1**: Apache-2.0 OR MIT; used under MIT
+  - Copyright 2014-2020 The Rust Project Developers
+- **parking_lot_core 0.9.12**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2016 The Rust Project Developers
+- **pem 3.0.6**: MIT; used under MIT
+  - Copyright (c) 2016 Jonathan Creekmore
+- **pem 4.0.0**: MIT; used under MIT
+  - Copyright (c) 2016 Jonathan Creekmore
+- **pem-rfc7468 0.7.0**: Apache-2.0 OR MIT; used under MIT
+  - Copyright (c) 2021 The RustCrypto Project Developers
+- **pem-rfc7468 1.0.0**: Apache-2.0 OR MIT; used under MIT
+  - Copyright (c) 2021-2025 The RustCrypto Project Developers
 - **percent-encoding 2.3.2**: MIT OR Apache-2.0; used under MIT
   - Copyright (c) 2013-2025 The rust-url developers
 - **phf 0.12.1**: MIT; used under MIT
   - Copyright (c) 2014-2022 Steven Fackler, Yuki Okushi
 - **phf_shared 0.12.1**: MIT; used under MIT
   - Copyright (c) 2014-2022 Steven Fackler, Yuki Okushi
+- **pin-project 1.1.13**: Apache-2.0 OR MIT; used under MIT
+  - Copyright the pin-project authors
+- **pin-project-internal 1.1.13**: Apache-2.0 OR MIT; used under MIT
+  - Copyright the pin-project-internal authors
 - **pin-project-lite 0.2.17**: Apache-2.0 OR MIT; used under MIT
   - Copyright the pin-project-lite authors
+- **pkcs8 0.10.2**: Apache-2.0 OR MIT; used under MIT
+  - Copyright (c) 2020-2023 The RustCrypto Project Developers
+- **pkcs8 0.11.0**: Apache-2.0 OR MIT; used under MIT
+  - Copyright (c) 2020-2026 The RustCrypto Project Developers
 - **plist 1.10.3**: MIT; used under MIT
   - Copyright (c) 2015 Edward Barnard
 - **polyval 0.6.2**: Apache-2.0 OR MIT; used under MIT
   - Copyright (c) 2019-2023 RustCrypto Developers
+- **portable-atomic 1.15.0**: Apache-2.0 OR MIT; used under MIT
+  - Copyright the portable-atomic authors
+- **portmapper 0.19.3**: MIT OR Apache-2.0; used under MIT
+  - Copyright the portmapper authors (n0 team)
+- **postcard 1.1.3**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2019 Anthony James Munns
+- **postcard-derive 0.2.2**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2019 Anthony James Munns
 - **potential_utf 0.1.6**: Unicode-3.0; used under Unicode-3.0
   - Copyright © 2020-2024 Unicode, Inc.
 - **powerfmt 0.2.1**: MIT OR Apache-2.0; used under MIT
   - Copyright 2023 Jacob Pratt et al.
   - Copyright (c) 2023 Jacob Pratt et al.
+- **ppv-lite86 0.2.21**: MIT OR Apache-2.0; used under MIT
+  - Copyright 2019 The CryptoCorrosion Contributors
+  - Copyright (c) 2019 The CryptoCorrosion Contributors
+- **primeorder 0.13.6**: Apache-2.0 OR MIT; used under MIT
+  - Copyright (c) 2020-2023 RustCrypto Developers
+- **proc-macro-crate 3.5.0**: MIT OR Apache-2.0; used under MIT
+  - Copyright the proc-macro-crate authors (Bastian Köcher)
 - **proc-macro2 1.0.107**: MIT OR Apache-2.0; used under MIT
   - Copyright the proc-macro2 authors (David Tolnay, Alex Crichton)
+- **qrcode 0.14.1**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2016 kennytm
 - **quick-xml 0.42.0**: MIT; used under MIT
   - Copyright (c) 2016 Johann Tuffe
 - **quinn 0.11.12**: MIT OR Apache-2.0; used under MIT
@@ -629,23 +886,44 @@ FERB.app's Rust build compiles these crates into its programs. Each line: the cr
 - **rand 0.10.3**: MIT OR Apache-2.0; used under MIT
   - Copyright 2018 Developers of the Rand project
   - Copyright (c) 2014 The Rust Project Developers
+- **rand 0.9.5**: MIT OR Apache-2.0; used under MIT
+  - Copyright 2018 Developers of the Rand project
+  - Copyright (c) 2014 The Rust Project Developers
+- **rand_chacha 0.9.0**: MIT OR Apache-2.0; used under MIT
+  - Copyright 2018 Developers of the Rand project
+  - Copyright (c) 2014 The Rust Project Developers
 - **rand_core 0.10.1**: MIT OR Apache-2.0; used under MIT
   - Copyright (c) 2018-2026 The Rand Project Developers
 - **rand_core 0.6.4**: MIT OR Apache-2.0; used under MIT
   - Copyright 2018 Developers of the Rand project
   - Copyright (c) 2014 The Rust Project Developers
+- **rand_core 0.9.5**: MIT OR Apache-2.0; used under MIT
+  - Copyright 2018 Developers of the Rand project
+  - Copyright (c) 2014 The Rust Project Developers
 - **rand_pcg 0.10.2**: MIT OR Apache-2.0; used under MIT
   - Copyright (c) 2014-2017 Melissa O'Neill and PCG Project contributors
   - Copyright 2018 Developers of the Rand project
+- **rcgen 0.14.10**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2019-2026 est31 and contributors
 - **regex 1.13.1**: MIT OR Apache-2.0; used under MIT
   - Copyright (c) 2014 The Rust Project Developers
 - **regex-automata 0.4.18**: MIT OR Apache-2.0; used under MIT
   - Copyright (c) 2014 The Rust Project Developers
 - **regex-syntax 0.8.11**: MIT OR Apache-2.0; used under MIT
   - Copyright (c) 2014 The Rust Project Developers
+- **reloadable-core 0.1.0**: MIT; used under MIT
+  - Copyright the reloadable-core authors
+- **reloadable-state 0.1.0**: MIT; used under MIT
+  - Copyright the reloadable-state authors
 - **reqwest 0.12.28**: MIT OR Apache-2.0; used under MIT
   - Copyright 2016 Sean McArthur
   - Copyright (c) 2016-2025 Sean McArthur
+- **reqwest 0.13.5**: MIT OR Apache-2.0; used under MIT
+  - Copyright 2016 Sean McArthur
+  - Copyright (c) 2016-2026 Sean McArthur
+- **rfc6979 0.4.0**: Apache-2.0 OR MIT; used under MIT
+  - Copyright 2018-2022 RustCrypto Developers
+  - Copyright (c) 2018-2022 RustCrypto Developers
 - **ring 0.17.14**: Apache-2.0 AND ISC; used under Apache-2.0 AND ISC
   - Copyright (c) 2009 The Go Authors. All rights reserved.
   - Copyright 2015 The Chromium Authors. All rights reserved.
@@ -656,28 +934,66 @@ FERB.app's Rust build compiles these crates into its programs. Each line: the cr
   - Copyright (c) 2014 The rusqlite developers
 - **rustc-hash 2.1.3**: Apache-2.0 OR MIT; used under MIT
   - Copyright the rustc-hash authors (The Rust Project Developers)
+- **rusticata-macros 4.1.0**: MIT/Apache-2.0; used under MIT
+  - Copyright (c) 2017 Pierre Chifflier
 - **rustix 1.1.6**: Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT; used under MIT
   - Copyright the rustix authors (Dan Gohman, Jakub Konka)
 - **rustls 0.23.46**: Apache-2.0 OR ISC OR MIT; used under MIT
   - Copyright (c) 2016, Joseph Birr-Pixton
   - Copyright (c) 2016 Joseph Birr-Pixton
+- **rustls-cert-file-reader 0.4.2**: MIT; used under MIT
+  - Copyright the rustls-cert-file-reader authors
+- **rustls-cert-read 0.3.0**: MIT; used under MIT
+  - Copyright the rustls-cert-read authors
+- **rustls-cert-reloadable-resolver 0.7.1**: MIT; used under MIT
+  - Copyright the rustls-cert-reloadable-resolver authors
+- **rustls-pki-types 1.15.1**: MIT OR Apache-2.0; used under MIT
+  - Copyright 2023 Dirkjan Ochtman
+  - Copyright (c) 2023 Dirkjan Ochtman
 - **rustls-pki-types 1.16.0**: MIT OR Apache-2.0; used under MIT
   - Copyright 2023 Dirkjan Ochtman
   - Copyright (c) 2023 Dirkjan Ochtman
+- **rustls-platform-verifier 0.7.1**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2022 1Password
+- **rustls-webpki 0.103.16**: ISC; used under ISC
+  - Copyright 2015 Brian Smith.
 - **rustls-webpki 0.103.17**: ISC; used under ISC
   - Copyright 2015 Brian Smith.
+- **rustversion 1.0.23**: MIT OR Apache-2.0; used under MIT
+  - Copyright the rustversion authors (David Tolnay)
 - **ryu 1.0.23**: Apache-2.0 OR BSL-1.0; used under Apache-2.0
   - Copyright the ryu authors (David Tolnay)
+- **scopeguard 1.2.0**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2016-2019 Ulrik Sverdrup "bluss" and scopeguard developers
+- **sec1 0.7.3**: Apache-2.0 OR MIT; used under MIT
+  - Copyright (c) 2021-2022 The RustCrypto Project Developers
+- **security-framework 3.7.0**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2015 Steven Fackler
+- **security-framework-sys 2.17.0**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2015 Steven Fackler
+- **seize 0.5.1**: MIT; used under MIT
+  - Copyright (c) 2022 Ibraheem Ahmed
 - **serde 1.0.229**: MIT OR Apache-2.0; used under MIT
   - Copyright the serde authors (Erick Tryzelaar, David Tolnay)
+- **serde_bytes 0.11.19**: MIT OR Apache-2.0; used under MIT
+  - Copyright the serde_bytes authors (David Tolnay)
 - **serde_core 1.0.229**: MIT OR Apache-2.0; used under MIT
   - Copyright the serde_core authors (Erick Tryzelaar, David Tolnay)
 - **serde_derive 1.0.229**: MIT OR Apache-2.0; used under MIT
   - Copyright the serde_derive authors (Erick Tryzelaar, David Tolnay)
 - **serde_json 1.0.154**: MIT OR Apache-2.0; used under MIT
   - Copyright the serde_json authors
+- **serde_spanned 1.1.2**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) Individual contributors
 - **serde_urlencoded 0.7.1**: MIT/Apache-2.0; used under MIT
   - Copyright (c) 2016 Anthony Ramine
+- **serdect 0.4.3**: Apache-2.0 OR MIT; used under MIT
+  - Copyright (c) 2022-2025 The RustCrypto Project Developers
+- **sha1 0.11.0**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2016-2026 The RustCrypto Project Developers
+  - Copyright (c) 2016 Artyom Pavlov
+  - Copyright (c) 2009-2013 Mozilla Foundation
+  - Copyright (c) 2006-2009 Graydon Hoare
 - **sha1_smol 1.0.1**: BSD-3-Clause; used under BSD-3-Clause
   - Copyright (c) 2018, the respective contributors, as shown by the AUTHORS file.
   - Copyright (c) 2006-2009 Graydon Hoare
@@ -686,36 +1002,85 @@ FERB.app's Rust build compiles these crates into its programs. Each line: the cr
   - Copyright (c) 2006-2009 Graydon Hoare
   - Copyright (c) 2009-2013 Mozilla Foundation
   - Copyright (c) 2016 Artyom Pavlov
+- **sha2 0.11.1**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2016-2026 The RustCrypto Project Developers
+  - Copyright (c) 2016 Artyom Pavlov
+  - Copyright (c) 2009-2013 Mozilla Foundation
+  - Copyright (c) 2006-2009 Graydon Hoare
+- **sharded-slab 0.1.7**: MIT; used under MIT
+  - Copyright (c) 2019 Eliza Weisman
 - **signal-hook-registry 1.4.8**: MIT OR Apache-2.0; used under MIT
   - Copyright (c) 2017 tokio-jsonrpc developers
+- **signature 2.2.0**: Apache-2.0 OR MIT; used under MIT
+  - Copyright (c) 2018-2023 RustCrypto Developers
+- **signature 3.0.0**: Apache-2.0 OR MIT; used under MIT
+  - Copyright (c) 2018-2026 RustCrypto Developers
 - **simd-adler32 0.3.10**: MIT; used under MIT
   - Copyright (c) [2021] [Marvin Countryman]
+- **simdutf8 0.1.5**: MIT OR Apache-2.0; used under MIT
+  - Copyright the simdutf8 authors (Hans Kratz)
+- **simple-dns 0.12.0**: MIT; used under MIT
+  - Copyright (c) 2021 Ilson Roberto Balliego Junior
 - **siphasher 1.0.4**: MIT OR Apache-2.0; used under MIT
   - Copyright 2012-2016 The Rust Project Developers.
   - Copyright 2016-2026 Frank Denis.
 - **slab 0.4.12**: MIT; used under MIT
   - Copyright (c) 2019 Carl Lerche
+- **slotmap 1.1.1**: Zlib; used under Zlib
+  - Copyright (c) 2021 Orson Peters
+- **smallvec 1.16.4**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2018 The Servo Project Developers
 - **smallvec 1.16.5**: MIT OR Apache-2.0; used under MIT
   - Copyright (c) 2018 The Servo Project Developers
 - **socket2 0.6.5**: MIT OR Apache-2.0; used under MIT
   - Copyright (c) 2014 Alex Crichton
+- **sorted-index-buffer 0.2.1**: MIT OR Apache-2.0; used under MIT
+  - Copyright 2025 N0, INC.
+- **spez 0.1.2**: BSD-2-Clause; used under BSD-2-Clause
+  - Copyright (c) 2020, Mara Bos
+- **spin 0.10.1**: MIT; used under MIT
+  - Copyright (c) 2014 Mathijs van de Nes
+- **spki 0.7.3**: Apache-2.0 OR MIT; used under MIT
+  - Copyright (c) 2021-2023 The RustCrypto Project Developers
+- **spki 0.8.1**: Apache-2.0 OR MIT; used under MIT
+  - Copyright (c) 2021-2026 The RustCrypto Project Developers
 - **stable_deref_trait 1.2.1**: MIT OR Apache-2.0; used under MIT
   - Copyright (c) 2017 Robert Grosse
+- **strsim 0.11.1**: MIT; used under MIT
+  - Copyright (c) 2015 Danny Guo
+  - Copyright (c) 2016 Titus Wormer
+  - Copyright (c) 2018 Akash Kurdekar
+- **strum 0.28.0**: MIT; used under MIT
+  - Copyright (c) 2019 Peter Glotfelty
+- **strum_macros 0.28.0**: MIT; used under MIT
+  - Copyright (c) 2019 Peter Glotfelty
 - **subtle 2.6.1**: BSD-3-Clause; used under BSD-3-Clause
   - Copyright (c) 2016-2017 Isis Agora Lovecruft, Henry de Valence. All rights reserved.
   - Copyright (c) 2016-2024 Isis Agora Lovecruft. All rights reserved.
+- **syn 2.0.119**: MIT OR Apache-2.0; used under MIT
+  - Copyright the syn authors (David Tolnay)
 - **syn 3.0.10**: MIT OR Apache-2.0; used under MIT
+  - Copyright the syn authors (David Tolnay)
+- **syn 3.0.9**: MIT OR Apache-2.0; used under MIT
   - Copyright the syn authors (David Tolnay)
 - **sync_wrapper 1.0.2**: Apache-2.0; used under Apache-2.0
   - Copyright the sync_wrapper authors (Actyx AG)
+- **synstructure 0.13.2**: MIT; used under MIT
+  - Copyright 2016 Nika Layzell
 - **synstructure 0.14.0**: MIT; used under MIT
   - Copyright 2016 Nika Layzell
+- **system-configuration 0.8.0**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2024 Mullvad VPN AB
+- **system-configuration-sys 0.6.0**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2024 Mullvad VPN AB
 - **tempfile 3.27.0**: MIT OR Apache-2.0; used under MIT
   - Copyright (c) 2015 Steven Allen
 - **thiserror 2.0.21**: MIT OR Apache-2.0; used under MIT
   - Copyright the thiserror authors (David Tolnay)
 - **thiserror-impl 2.0.21**: MIT OR Apache-2.0; used under MIT
   - Copyright the thiserror-impl authors (David Tolnay)
+- **thread_local 1.1.10**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2016 The Rust Project Developers
 - **tiktoken-rs 0.12.1**: MIT; used under MIT
   - Copyright the tiktoken-rs authors (Roger Zurawicki)
 - **time 0.3.55**: MIT OR Apache-2.0; used under MIT
@@ -736,13 +1101,29 @@ FERB.app's Rust build compiles these crates into its programs. Each line: the cr
 - **tokio-rustls 0.26.6**: MIT OR Apache-2.0; used under MIT
   - Copyright 2017 quininer kel
   - Copyright (c) 2017 quininer kel
+- **tokio-rustls-acme 0.9.1**: Apache-2.0 OR MIT; used under MIT
+  - Copyright the tokio-rustls-acme authors (dignifiedquire, Florian Uekermann)
+- **tokio-stream 0.1.19**: MIT; used under MIT
+  - Copyright (c) Tokio Contributors
 - **tokio-util 0.7.20**: MIT; used under MIT
   - Copyright (c) Tokio Contributors
+- **tokio-websockets 0.13.3**: MIT; used under MIT
+  - Copyright (c) 2021 Jens Reidel
+- **toml 1.1.8+spec-1.1.0**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) Individual contributors
 - **toml_datetime 0.6.11**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) Individual contributors
+- **toml_datetime 1.1.2+spec-1.1.0**: MIT OR Apache-2.0; used under MIT
   - Copyright (c) Individual contributors
 - **toml_edit 0.22.27**: MIT OR Apache-2.0; used under MIT
   - Copyright (c) Individual contributors
+- **toml_edit 0.25.17+spec-1.1.0**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) Individual contributors
+- **toml_parser 1.1.5+spec-1.1.0**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) Individual contributors
 - **toml_write 0.1.2**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) Individual contributors
+- **toml_writer 1.1.3+spec-1.1.0**: MIT OR Apache-2.0; used under MIT
   - Copyright (c) Individual contributors
 - **tower 0.5.3**: MIT; used under MIT
   - Copyright (c) 2019 Tower Contributors
@@ -754,7 +1135,13 @@ FERB.app's Rust build compiles these crates into its programs. Each line: the cr
   - Copyright (c) 2019 Tower Contributors
 - **tracing 0.1.44**: MIT; used under MIT
   - Copyright (c) 2019 Tokio Contributors
+- **tracing-attributes 0.1.31**: MIT; used under MIT
+  - Copyright (c) 2019 Tokio Contributors
 - **tracing-core 0.1.36**: MIT; used under MIT
+  - Copyright (c) 2019 Tokio Contributors
+- **tracing-log 0.2.0**: MIT; used under MIT
+  - Copyright (c) 2019 Tokio Contributors
+- **tracing-subscriber 0.3.23**: MIT; used under MIT
   - Copyright (c) 2019 Tokio Contributors
 - **try-lock 0.2.5**: MIT; used under MIT
   - Copyright (c) 2018-2023 Sean McArthur
@@ -767,6 +1154,10 @@ FERB.app's Rust build compiles these crates into its programs. Each line: the cr
 - **unicode-normalization 0.1.26**: (MIT OR Apache-2.0) AND Unicode-3.0; used under MIT AND Unicode-3.0
   - Copyright (c) 2015 The Rust Project Developers
   - Copyright © 1991-2023 Unicode, Inc.
+- **unicode-segmentation 1.13.3**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2015 The Rust Project Developers
+- **unicode-xid 0.2.6**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2015 The Rust Project Developers
 - **universal-hash 0.5.1**: MIT OR Apache-2.0; used under MIT
   - Copyright (c) 2019-2020 RustCrypto Developers
 - **untrusted 0.9.0**: ISC; used under ISC
@@ -775,6 +1166,8 @@ FERB.app's Rust build compiles these crates into its programs. Each line: the cr
   - Copyright (c) 2013-2025 The rust-url developers
 - **utf8_iter 1.1.0**: Apache-2.0 OR MIT; used under MIT
   - Copyright the utf8_iter authors (Henri Sivonen)
+- **utf8parse 0.2.2**: Apache-2.0 OR MIT; used under MIT
+  - Copyright (c) 2016 Joe Wilm
 - **utf_types 1.0.0**: Apache-2.0 OR MIT; used under MIT
   - Copyright the utf_types authors (Henri Sivonen)
 - **uuid 1.29.2**: Apache-2.0 OR MIT; used under MIT
@@ -782,22 +1175,42 @@ FERB.app's Rust build compiles these crates into its programs. Each line: the cr
   - Copyright (c) 2018 Ashley Mannix, Christopher Armstrong, Dylan DPC, Hunar Roop Kahlon
 - **want 0.3.2**: MIT; used under MIT
   - Copyright (c) 2018-2019 Sean McArthur
+- **webpki-roots 1.0.11**: CDLA-Permissive-2.0; used under CDLA-Permissive-2.0
+  - Copyright the webpki-roots authors
 - **webpki-roots 1.0.12**: CDLA-Permissive-2.0; used under CDLA-Permissive-2.0
   - Copyright the webpki-roots authors
 - **winnow 0.7.15**: MIT; used under MIT
   - Copyright the winnow authors
+- **winnow 1.0.4**: MIT; used under MIT
+  - Copyright the winnow authors
 - **writeable 0.6.4**: Unicode-3.0; used under Unicode-3.0
   - Copyright © 2020-2024 Unicode, Inc.
+- **x509-parser 0.18.1**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2017 Pierre Chifflier
+- **xml-rs 0.8.29**: MIT; used under MIT
+  - Copyright (c) 2014 Vladimir Matveev
+- **xmltree 0.10.3**: MIT; used under MIT
+  - Copyright (c) 2015 Andrew Chin
+- **yasna 0.6.0**: MIT OR Apache-2.0; used under MIT
+  - Copyright (c) 2016 Masaki Hara
 - **yoke 0.8.4**: Unicode-3.0; used under Unicode-3.0
   - Copyright © 2020-2024 Unicode, Inc.
 - **yoke-derive 0.8.4**: Unicode-3.0; used under Unicode-3.0
   - Copyright © 2020-2024 Unicode, Inc.
+- **zerocopy 0.8.63**: BSD-2-Clause OR Apache-2.0 OR MIT; used under MIT
+  - Copyright 2023 The Fuchsia Authors
+  - Copyright 2019 The Fuchsia Authors.
+- **zerocopy-derive 0.8.63**: BSD-2-Clause OR Apache-2.0 OR MIT; used under MIT
+  - Copyright 2023 The Fuchsia Authors
+  - Copyright 2019 The Fuchsia Authors.
 - **zerofrom 0.1.8**: Unicode-3.0; used under Unicode-3.0
   - Copyright © 2020-2024 Unicode, Inc.
 - **zerofrom-derive 0.1.8**: Unicode-3.0; used under Unicode-3.0
   - Copyright © 2020-2024 Unicode, Inc.
 - **zeroize 1.9.1**: Apache-2.0 OR MIT; used under MIT
   - Copyright (c) 2018-2026 The RustCrypto Project Developers
+- **zeroize_derive 1.5.0**: Apache-2.0 OR MIT; used under MIT
+  - Copyright (c) 2019-2026 The RustCrypto Project Developers
 - **zerotrie 0.2.5**: Unicode-3.0; used under Unicode-3.0
   - Copyright © 2020-2024 Unicode, Inc.
 - **zerovec 0.11.9**: Unicode-3.0; used under Unicode-3.0
@@ -1009,6 +1422,102 @@ TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
 END OF TERMS AND CONDITIONS
 ```
 
+### BSD-2-Clause (spez 0.1.2)
+
+```
+BSD 2-Clause License
+
+Copyright (c) 2020, Mara Bos <m-ou.se@m-ou.se>
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
+### BSD-3-Clause (curve25519-dalek 5.0.0)
+
+```
+Copyright (c) 2016-2021 isis agora lovecruft. All rights reserved.
+Copyright (c) 2016-2021 Henry de Valence. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+1. Redistributions of source code must retain the above copyright
+notice, this list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright
+notice, this list of conditions and the following disclaimer in the
+documentation and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its
+contributors may be used to endorse or promote products derived from
+this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS
+IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED
+TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
+### BSD-3-Clause (ed25519-dalek 3.0.0)
+
+```
+Copyright (c) 2017-2019 isis agora lovecruft. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+1. Redistributions of source code must retain the above copyright
+notice, this list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright
+notice, this list of conditions and the following disclaimer in the
+documentation and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its
+contributors may be used to endorse or promote products derived from
+this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS
+IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED
+TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
 ### BSD-3-Clause (sha1_smol 1.0.1)
 
 ```
@@ -1108,7 +1617,7 @@ NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### CDLA-Permissive-2.0 (webpki-roots 1.0.12)
+### CDLA-Permissive-2.0 (webpki-roots 1.0.11, webpki-roots 1.0.12)
 
 ```
 # Community Data License Agreement - Permissive - Version 2.0
@@ -1482,7 +1991,7 @@ OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
 CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ```
 
-### ISC (rustls-webpki 0.103.17)
+### ISC (rustls-webpki 0.103.16, rustls-webpki 0.103.17)
 
 ```
 Except as otherwise noted, this project is licensed under the following
@@ -1522,6 +2031,384 @@ third-party/chromium/LICENSE.
 // WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 // ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 // OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+```
+
+### MPL-2.0 (attohttpc 0.30.1)
+
+```
+Mozilla Public License Version 2.0
+==================================
+
+1. Definitions
+--------------
+
+1.1. "Contributor"
+    means each individual or legal entity that creates, contributes to
+    the creation of, or owns Covered Software.
+
+1.2. "Contributor Version"
+    means the combination of the Contributions of others (if any) used
+    by a Contributor and that particular Contributor's Contribution.
+
+1.3. "Contribution"
+    means Covered Software of a particular Contributor.
+
+1.4. "Covered Software"
+    means Source Code Form to which the initial Contributor has attached
+    the notice in Exhibit A, the Executable Form of such Source Code
+    Form, and Modifications of such Source Code Form, in each case
+    including portions thereof.
+
+1.5. "Incompatible With Secondary Licenses"
+    means
+
+    (a) that the initial Contributor has attached the notice described
+        in Exhibit B to the Covered Software; or
+
+    (b) that the Covered Software was made available under the terms of
+        version 1.1 or earlier of the License, but not also under the
+        terms of a Secondary License.
+
+1.6. "Executable Form"
+    means any form of the work other than Source Code Form.
+
+1.7. "Larger Work"
+    means a work that combines Covered Software with other material, in
+    a separate file or files, that is not Covered Software.
+
+1.8. "License"
+    means this document.
+
+1.9. "Licensable"
+    means having the right to grant, to the maximum extent possible,
+    whether at the time of the initial grant or subsequently, any and
+    all of the rights conveyed by this License.
+
+1.10. "Modifications"
+    means any of the following:
+
+    (a) any file in Source Code Form that results from an addition to,
+        deletion from, or modification of the contents of Covered
+        Software; or
+
+    (b) any new file in Source Code Form that contains any Covered
+        Software.
+
+1.11. "Patent Claims" of a Contributor
+    means any patent claim(s), including without limitation, method,
+    process, and apparatus claims, in any patent Licensable by such
+    Contributor that would be infringed, but for the grant of the
+    License, by the making, using, selling, offering for sale, having
+    made, import, or transfer of either its Contributions or its
+    Contributor Version.
+
+1.12. "Secondary License"
+    means either the GNU General Public License, Version 2.0, the GNU
+    Lesser General Public License, Version 2.1, the GNU Affero General
+    Public License, Version 3.0, or any later versions of those
+    licenses.
+
+1.13. "Source Code Form"
+    means the form of the work preferred for making modifications.
+
+1.14. "You" (or "Your")
+    means an individual or a legal entity exercising rights under this
+    License. For legal entities, "You" includes any entity that
+    controls, is controlled by, or is under common control with You. For
+    purposes of this definition, "control" means (a) the power, direct
+    or indirect, to cause the direction or management of such entity,
+    whether by contract or otherwise, or (b) ownership of more than
+    fifty percent (50%) of the outstanding shares or beneficial
+    ownership of such entity.
+
+2. License Grants and Conditions
+--------------------------------
+
+2.1. Grants
+
+Each Contributor hereby grants You a world-wide, royalty-free,
+non-exclusive license:
+
+(a) under intellectual property rights (other than patent or trademark)
+    Licensable by such Contributor to use, reproduce, make available,
+    modify, display, perform, distribute, and otherwise exploit its
+    Contributions, either on an unmodified basis, with Modifications, or
+    as part of a Larger Work; and
+
+(b) under Patent Claims of such Contributor to make, use, sell, offer
+    for sale, have made, import, and otherwise transfer either its
+    Contributions or its Contributor Version.
+
+2.2. Effective Date
+
+The licenses granted in Section 2.1 with respect to any Contribution
+become effective for each Contribution on the date the Contributor first
+distributes such Contribution.
+
+2.3. Limitations on Grant Scope
+
+The licenses granted in this Section 2 are the only rights granted under
+this License. No additional rights or licenses will be implied from the
+distribution or licensing of Covered Software under this License.
+Notwithstanding Section 2.1(b) above, no patent license is granted by a
+Contributor:
+
+(a) for any code that a Contributor has removed from Covered Software;
+    or
+
+(b) for infringements caused by: (i) Your and any other third party's
+    modifications of Covered Software, or (ii) the combination of its
+    Contributions with other software (except as part of its Contributor
+    Version); or
+
+(c) under Patent Claims infringed by Covered Software in the absence of
+    its Contributions.
+
+This License does not grant any rights in the trademarks, service marks,
+or logos of any Contributor (except as may be necessary to comply with
+the notice requirements in Section 3.4).
+
+2.4. Subsequent Licenses
+
+No Contributor makes additional grants as a result of Your choice to
+distribute the Covered Software under a subsequent version of this
+License (see Section 10.2) or under the terms of a Secondary License (if
+permitted under the terms of Section 3.3).
+
+2.5. Representation
+
+Each Contributor represents that the Contributor believes its
+Contributions are its original creation(s) or it has sufficient rights
+to grant the rights to its Contributions conveyed by this License.
+
+2.6. Fair Use
+
+This License is not intended to limit any rights You have under
+applicable copyright doctrines of fair use, fair dealing, or other
+equivalents.
+
+2.7. Conditions
+
+Sections 3.1, 3.2, 3.3, and 3.4 are conditions of the licenses granted
+in Section 2.1.
+
+3. Responsibilities
+-------------------
+
+3.1. Distribution of Source Form
+
+All distribution of Covered Software in Source Code Form, including any
+Modifications that You create or to which You contribute, must be under
+the terms of this License. You must inform recipients that the Source
+Code Form of the Covered Software is governed by the terms of this
+License, and how they can obtain a copy of this License. You may not
+attempt to alter or restrict the recipients' rights in the Source Code
+Form.
+
+3.2. Distribution of Executable Form
+
+If You distribute Covered Software in Executable Form then:
+
+(a) such Covered Software must also be made available in Source Code
+    Form, as described in Section 3.1, and You must inform recipients of
+    the Executable Form how they can obtain a copy of such Source Code
+    Form by reasonable means in a timely manner, at a charge no more
+    than the cost of distribution to the recipient; and
+
+(b) You may distribute such Executable Form under the terms of this
+    License, or sublicense it under different terms, provided that the
+    license for the Executable Form does not attempt to limit or alter
+    the recipients' rights in the Source Code Form under this License.
+
+3.3. Distribution of a Larger Work
+
+You may create and distribute a Larger Work under terms of Your choice,
+provided that You also comply with the requirements of this License for
+the Covered Software. If the Larger Work is a combination of Covered
+Software with a work governed by one or more Secondary Licenses, and the
+Covered Software is not Incompatible With Secondary Licenses, this
+License permits You to additionally distribute such Covered Software
+under the terms of such Secondary License(s), so that the recipient of
+the Larger Work may, at their option, further distribute the Covered
+Software under the terms of either this License or such Secondary
+License(s).
+
+3.4. Notices
+
+You may not remove or alter the substance of any license notices
+(including copyright notices, patent notices, disclaimers of warranty,
+or limitations of liability) contained within the Source Code Form of
+the Covered Software, except that You may alter any license notices to
+the extent required to remedy known factual inaccuracies.
+
+3.5. Application of Additional Terms
+
+You may choose to offer, and to charge a fee for, warranty, support,
+indemnity or liability obligations to one or more recipients of Covered
+Software. However, You may do so only on Your own behalf, and not on
+behalf of any Contributor. You must make it absolutely clear that any
+such warranty, support, indemnity, or liability obligation is offered by
+You alone, and You hereby agree to indemnify every Contributor for any
+liability incurred by such Contributor as a result of warranty, support,
+indemnity or liability terms You offer. You may include additional
+disclaimers of warranty and limitations of liability specific to any
+jurisdiction.
+
+4. Inability to Comply Due to Statute or Regulation
+---------------------------------------------------
+
+If it is impossible for You to comply with any of the terms of this
+License with respect to some or all of the Covered Software due to
+statute, judicial order, or regulation then You must: (a) comply with
+the terms of this License to the maximum extent possible; and (b)
+describe the limitations and the code they affect. Such description must
+be placed in a text file included with all distributions of the Covered
+Software under this License. Except to the extent prohibited by statute
+or regulation, such description must be sufficiently detailed for a
+recipient of ordinary skill to be able to understand it.
+
+5. Termination
+--------------
+
+5.1. The rights granted under this License will terminate automatically
+if You fail to comply with any of its terms. However, if You become
+compliant, then the rights granted under this License from a particular
+Contributor are reinstated (a) provisionally, unless and until such
+Contributor explicitly and finally terminates Your grants, and (b) on an
+ongoing basis, if such Contributor fails to notify You of the
+non-compliance by some reasonable means prior to 60 days after You have
+come back into compliance. Moreover, Your grants from a particular
+Contributor are reinstated on an ongoing basis if such Contributor
+notifies You of the non-compliance by some reasonable means, this is the
+first time You have received notice of non-compliance with this License
+from such Contributor, and You become compliant prior to 30 days after
+Your receipt of the notice.
+
+5.2. If You initiate litigation against any entity by asserting a patent
+infringement claim (excluding declaratory judgment actions,
+counter-claims, and cross-claims) alleging that a Contributor Version
+directly or indirectly infringes any patent, then the rights granted to
+You by any and all Contributors for the Covered Software under Section
+2.1 of this License shall terminate.
+
+5.3. In the event of termination under Sections 5.1 or 5.2 above, all
+end user license agreements (excluding distributors and resellers) which
+have been validly granted by You or Your distributors under this License
+prior to termination shall survive termination.
+
+************************************************************************
+*                                                                      *
+*  6. Disclaimer of Warranty                                           *
+*  -------------------------                                           *
+*                                                                      *
+*  Covered Software is provided under this License on an "as is"       *
+*  basis, without warranty of any kind, either expressed, implied, or  *
+*  statutory, including, without limitation, warranties that the       *
+*  Covered Software is free of defects, merchantable, fit for a        *
+*  particular purpose or non-infringing. The entire risk as to the     *
+*  quality and performance of the Covered Software is with You.        *
+*  Should any Covered Software prove defective in any respect, You     *
+*  (not any Contributor) assume the cost of any necessary servicing,   *
+*  repair, or correction. This disclaimer of warranty constitutes an   *
+*  essential part of this License. No use of any Covered Software is   *
+*  authorized under this License except under this disclaimer.         *
+*                                                                      *
+************************************************************************
+
+************************************************************************
+*                                                                      *
+*  7. Limitation of Liability                                          *
+*  --------------------------                                          *
+*                                                                      *
+*  Under no circumstances and under no legal theory, whether tort      *
+*  (including negligence), contract, or otherwise, shall any           *
+*  Contributor, or anyone who distributes Covered Software as          *
+*  permitted above, be liable to You for any direct, indirect,         *
+*  special, incidental, or consequential damages of any character      *
+*  including, without limitation, damages for lost profits, loss of    *
+*  goodwill, work stoppage, computer failure or malfunction, or any    *
+*  and all other commercial damages or losses, even if such party      *
+*  shall have been informed of the possibility of such damages. This   *
+*  limitation of liability shall not apply to liability for death or   *
+*  personal injury resulting from such party's negligence to the       *
+*  extent applicable law prohibits such limitation. Some               *
+*  jurisdictions do not allow the exclusion or limitation of           *
+*  incidental or consequential damages, so this exclusion and          *
+*  limitation may not apply to You.                                    *
+*                                                                      *
+************************************************************************
+
+8. Litigation
+-------------
+
+Any litigation relating to this License may be brought only in the
+courts of a jurisdiction where the defendant maintains its principal
+place of business and such litigation shall be governed by laws of that
+jurisdiction, without reference to its conflict-of-law provisions.
+Nothing in this Section shall prevent a party's ability to bring
+cross-claims or counter-claims.
+
+9. Miscellaneous
+----------------
+
+This License represents the complete agreement concerning the subject
+matter hereof. If any provision of this License is held to be
+unenforceable, such provision shall be reformed only to the extent
+necessary to make it enforceable. Any law or regulation which provides
+that the language of a contract shall be construed against the drafter
+shall not be used to construe this License against a Contributor.
+
+10. Versions of the License
+---------------------------
+
+10.1. New Versions
+
+Mozilla Foundation is the license steward. Except as provided in Section
+10.3, no one other than the license steward has the right to modify or
+publish new versions of this License. Each version will be given a
+distinguishing version number.
+
+10.2. Effect of New Versions
+
+You may distribute the Covered Software under the terms of the version
+of the License under which You originally received the Covered Software,
+or under the terms of any subsequent version published by the license
+steward.
+
+10.3. Modified Versions
+
+If you create software not governed by this License, and you want to
+create a new license for such software, you may create and use a
+modified version of this License if you rename the license and remove
+any references to the name of the license steward (except to note that
+such modified license differs from this License).
+
+10.4. Distributing Source Code Form that is Incompatible With Secondary
+Licenses
+
+If You choose to distribute Source Code Form that is Incompatible With
+Secondary Licenses under the terms of this version of the License, the
+notice described in Exhibit B of this License must be attached.
+
+Exhibit A - Source Code Form License Notice
+-------------------------------------------
+
+  This Source Code Form is subject to the terms of the Mozilla Public
+  License, v. 2.0. If a copy of the MPL was not distributed with this
+  file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+If it is not possible or desirable to put the notice in a particular
+file, then You may include the notice in a location (such as a LICENSE
+file in a relevant directory) where a recipient would be likely to look
+for such a notice.
+
+You may add additional accurate notices of copyright ownership.
+
+Exhibit B - "Incompatible With Secondary Licenses" Notice
+---------------------------------------------------------
+
+  This Source Code Form is "Incompatible With Secondary Licenses", as
+defined by the Mozilla Public License, v. 2.0.
 ```
 
 ### Unicode-3.0 (icu_collections 2.4.0, icu_locale_core 2.4.0, icu_normalizer 2.4.0, icu_normalizer_data 2.4.0, icu_properties 2.4.0, icu_properties_data 2.4.0, icu_provider 2.4.0, litemap 0.8.3, potential_utf 0.1.6, tinystr 0.8.5, writeable 0.6.4, yoke 0.8.4, yoke-derive 0.8.4, zerofrom 0.1.8, zerofrom-derive 0.1.8, zerotrie 0.2.5, zerovec 0.11.9, zerovec-derive 0.11.7)
@@ -1641,6 +2528,30 @@ the following restrictions:
     misrepresented as being the original software.
 
 3. This notice may not be removed or altered from any source distribution.
+```
+
+### Zlib (slotmap 1.1.1)
+
+```
+Copyright (c) 2021 Orson Peters <orsonpeters@gmail.com>
+
+This software is provided 'as-is', without any express or implied warranty. In
+no event will the authors be held liable for any damages arising from the use of
+this software.
+
+Permission is granted to anyone to use this software for any purpose, including
+commercial applications, and to alter it and redistribute it freely, subject to
+the following restrictions:
+
+ 1. The origin of this software must not be misrepresented; you must not claim
+    that you wrote the original software. If you use this software in a product,
+    an acknowledgment in the product documentation would be appreciated but is
+    not required.
+
+ 2. Altered source versions must be plainly marked as such, and must not be
+    misrepresented as being the original software.
+
+ 3. This notice may not be removed or altered from any source distribution.
 ```
 
 <!-- /rust-crates -->

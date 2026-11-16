@@ -268,6 +268,7 @@ async fn setup_permissions(d: Deps, p: Params) -> Result<Map<String, Value>, Han
             .filter(|r| pending.contains(r))
             .collect()
     };
+    note_restart_seen(&pending, &restart);
     let mut rows = perm::rows(&grants, &setup_containment(&d), &restart);
     rows.push(clipboard);
     let done = d
@@ -281,6 +282,31 @@ async fn setup_permissions(d: Deps, p: Params) -> Result<Map<String, Value>, Han
     ok(json!({"rows": rows, "automation": automation,
               "automation_pane": perm::pane_url("automation"), "grant_target": grant_target(&d),
               "app_panes": perm::app_panes(ferb_device::install::APP_BUNDLE_ID), "setup_done": done}))
+}
+
+/// DMN-597: the permissions a fresh process last read on while this daemon reads them off. Only a restart of this
+/// process clears what it reads, so the set lives as long as the process; each fresh reading of a row updates it.
+fn restart_seen_set() -> &'static std::sync::Mutex<std::collections::BTreeSet<String>> {
+    static SEEN: std::sync::OnceLock<std::sync::Mutex<std::collections::BTreeSet<String>>> =
+        std::sync::OnceLock::new();
+    SEEN.get_or_init(Default::default)
+}
+
+/// What [`restart_seen_set`] holds now: the environment facts tell a task about it (DMN-597).
+pub fn restart_seen() -> std::collections::BTreeSet<String> {
+    lock(restart_seen_set()).clone()
+}
+
+/// A fresh reading of `read` rows: those in `restart` are on in macOS and wait for this daemon's restart.
+fn note_restart_seen(read: &[String], restart: &[String]) {
+    let mut seen = lock(restart_seen_set());
+    for id in read {
+        if restart.contains(id) {
+            seen.insert(id.clone());
+        } else {
+            seen.remove(id);
+        }
+    }
 }
 
 /// `_setup_permission_request` (rpc.py:543): the owner's Grant on one row: macOS's own prompt, made by this daemon
@@ -562,5 +588,24 @@ mod automation_tests {
         tokio::time::sleep(Duration::from_millis(700)).await;
         let rows = super::automation_rows(&checks, &apps[..1], Duration::from_secs(2)).await;
         assert_eq!(rows[0]["status"], "not_determined");
+    }
+}
+
+#[cfg(test)]
+mod restart_tests {
+    use super::*;
+
+    // decision: DMN-597
+    #[test]
+    fn a_fresh_reading_records_what_waits_for_a_restart_until_read_off_again() {
+        let ids = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        note_restart_seen(&ids(&["screen_recording"]), &ids(&["screen_recording"]));
+        assert!(restart_seen().contains("screen_recording"));
+        // another row read fresh leaves it as it was
+        note_restart_seen(&ids(&["input_monitoring"]), &[]);
+        assert!(restart_seen().contains("screen_recording"));
+        // read again and no longer on in macOS: nothing waits
+        note_restart_seen(&ids(&["screen_recording"]), &[]);
+        assert!(!restart_seen().contains("screen_recording"));
     }
 }

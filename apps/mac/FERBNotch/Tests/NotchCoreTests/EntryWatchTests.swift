@@ -11,7 +11,8 @@ final class EntryWatchTests: XCTestCase {
 
     // MARK: the recorded scenarios
 
-    /// The 72 scenarios' (71 recorded, 1 invented) transcripts are unchanged with the watch connected: the scenario's own entries,
+    /// The scenarios' transcripts (71 recorded, 1 invented, the phone's without a restart or another client's turn) are
+    /// unchanged with the watch connected: the scenario's own entries,
     /// stamped with this install's client id, go through the watch (interleaved: each request's entries right after the
     /// frame that bound its turn, the rest at the end; then all again as a relaunch's first read) and change nothing.
     // decision: ENG-10
@@ -23,6 +24,9 @@ final class EntryWatchTests: XCTestCase {
             let name = scenario["name"] as? String ?? "?"
             let timeline = scenario["timeline"] as? [[String: Any]] ?? []
             let rows = scenario["entries"] as? [[String: Any]] ?? []
+            // a restart is a relaunch (EntryFoldTests), and a turn another client sent isn't this install's own
+            if timeline.contains(where: { $0["do"] as? String == "restart"
+                || ($0["frame"] as? [String: Any])?["client_id"] != nil }) { continue }
             for session in Set(timeline.compactMap { $0["session"] as? String }).sorted() {
                 let steps = timeline.filter { $0["session"] as? String == session }
                 let alone = EntryFoldTests.shape(await appArchive(steps, watched: false).conversation)
@@ -52,7 +56,7 @@ final class EntryWatchTests: XCTestCase {
                 model.disconnectDaemon()
             }
         }
-        XCTAssertEqual(compared, 72)                // 71 recorded, 1 invented (ENG-18)
+        XCTAssertEqual(compared, 83)                // 71 recorded, 1 invented (ENG-18), 11 conversations for the phone (S6)
         XCTAssertTrue(differences.isEmpty, differences.joined(separator: "\n"))
     }
 
@@ -534,6 +538,17 @@ final class EntryWatchTests: XCTestCase {
                 guard let banner = BannerItem(item["item"] as? [String: Any] ?? [:]),
                       case .reminder(let id) = banner.target else { continue }
                 model.receiveReminder(id: id, text: banner.body, card: banner.card)
+            case "legacy":
+                // a row the app saved in chat_history, as its history gives it back (EntryFoldTests.appModel)
+                if let stored = HistoryEntry.read(["kind": item["kind"] ?? "", "body": item["body"] ?? [:]]) {
+                    model.conversation.absorb([stored])
+                }
+            case "delete":
+                model.removeTurns(requestIDs: [item["request_id"] as? String ?? ""])
+            case "fresh":
+                _ = model.conversation.addNotice(id: "conversation:" + (item["session"] as? String ?? ""),
+                                                 text: StoredData.freshMarker, tag: nil,
+                                                 at: LiveProgress.time(item["at"]) ?? Date())
             default:
                 XCTFail("unknown timeline step \(item["do"] ?? "")")
             }

@@ -125,6 +125,12 @@ impl<A: Around> Tool for Wrapped<A> {
     fn window_reason<'a>(&'a self, args: &'a Args) -> BoxFuture<'a, Option<String>> {
         self.inner.window_reason(args)
     }
+    fn prepare_publish<'a>(
+        &'a self,
+        args: &'a Args,
+    ) -> BoxFuture<'a, Option<Result<Map<String, Value>, String>>> {
+        self.inner.prepare_publish(args)
+    }
     fn pay_picture<'a>(&'a self, args: &'a Args, owner: &'a str) -> BoxFuture<'a, Option<Vec<u8>>> {
         self.inner.pay_picture(args, owner)
     }
@@ -221,6 +227,12 @@ mod tests {
         ) -> BoxFuture<'a, Option<(bool, Option<String>)>> {
             Box::pin(async { Some((true, None)) })
         }
+        fn prepare_publish<'a>(
+            &'a self,
+            _args: &'a Args,
+        ) -> BoxFuture<'a, Option<Result<Map<String, Value>, String>>> {
+            Box::pin(async { Some(Err("no".to_string())) })
+        }
         fn run<'a>(
             &'a self,
             _args: &'a Args,
@@ -249,5 +261,6 @@ mod tests {
             w.put_back(&Value::Null, &Value::Null, "t").await,
             Some((true, None))
         );
+        assert_eq!(w.prepare_publish(&a).await, Some(Err("no".to_string())));
     }
 }

@@ -1,0 +1,29 @@
+[package]
+name = "ferb-mobile"
+version = "0.28.0"
+edition = "2021"
+license = "Apache-2.0"
+rust-version = "1.100"
+publish = false
+description = "The phone's core (stage 3, slice S7): the chat fold, the live state, the SQLCipher store, sync over chat.entries.* and the outbox, shared by the Android and iPhone apps. No UI, no FFI (ferb-mobile-ffi wraps it)."
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+zeroize = "1"
+sha2 = "0.10"
+base64 = "0.22"
+
+# SQLCipher (kb PHN-448). On Apple targets SQLCipher uses CommonCrypto (no OpenSSL); elsewhere (Android) it builds a
+# vendored OpenSSL from source, so neither phone needs a system OpenSSL. One libsqlite3-sys per build: the version
+# is the workspace's (0.42), which a later move into the workspace needs (see README, "The store").
+[target.'cfg(target_vendor = "apple")'.dependencies]
+rusqlite = { version = "0.42", features = ["bundled-sqlcipher"] }
+[target.'cfg(not(target_vendor = "apple"))'.dependencies]
+rusqlite = { version = "0.42", features = ["bundled-sqlcipher-vendored-openssl"] }
+
+[dev-dependencies]
+tempfile = "3"

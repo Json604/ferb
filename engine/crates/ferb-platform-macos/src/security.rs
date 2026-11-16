@@ -139,6 +139,8 @@ impl Security for SecurityFramework {
     // app_peer.py:75-87
     fn designated(&self, bundle: &Path) -> Option<Requirement> {
         let raw = bundle.as_os_str().as_bytes();
+        // an app bundle is a folder; the phone link's helper (stage 3) is a bare program
+        let folder = u8::from(bundle.is_dir());
         // SAFETY: `raw` is `raw.len()` readable bytes; the call copies them. The result is null or an owned
         // CFURL.
         let url = Owned::new(unsafe {
@@ -146,7 +148,7 @@ impl Security for SecurityFramework {
                 ptr::null(),
                 raw.as_ptr(),
                 raw.len() as isize,
-                1,
+                folder,
             )
         })?;
         let mut code: CFTypeRef = ptr::null();

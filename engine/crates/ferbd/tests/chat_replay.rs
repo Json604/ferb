@@ -99,8 +99,18 @@ fn with_additions(tools: &Value, sorted: bool) -> Value {
         if !sorted && a.row["facts"]["named_only"].as_bool().unwrap_or(false) {
             continue;
         }
+        // HAND-623: an acting, owner-only addition (project.publish) only where its grant would be offered it
+        if !ferb_gateway::catalog::offered_beside(a, &names) {
+            continue;
+        }
         if let Some(i) = names.iter().position(|n| *n == a.after) {
             names.insert(i + 1, a.name.clone());
+        } else if sorted
+            && !list.is_empty()
+            && ferb_orchestrator::lookups::PLANNER_TOOLS.contains(&a.name.as_str())
+        {
+            // SENSE-422: a planner lookup with no recorded neighbour (device.facts) is offered to every planner call
+            names.push(a.name.clone());
         }
     }
     if sorted {

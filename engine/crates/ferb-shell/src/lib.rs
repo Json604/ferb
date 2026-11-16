@@ -13,6 +13,7 @@
 //! `local::SocketFacts`, the proxy's `allow`/`resolve` callbacks (the gateway), `manager::ManagerConfig`'s callbacks
 //! (the daemon).
 
+pub mod fetch;
 pub mod listeners;
 pub mod local;
 pub mod manager;
@@ -22,6 +23,7 @@ pub mod policy_lists;
 pub mod protection;
 pub mod proxy;
 pub mod pty;
+pub mod publish;
 pub mod pynet;
 pub mod pyos;
 pub mod sandbox;

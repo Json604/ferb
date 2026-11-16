@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FERB for Android (S11). Permissions, each for one thing (the merged manifest adds :core's INTERNET,
+     ACCESS_NETWORK_STATE and USE_BIOMETRIC):
+     POST_NOTIFICATIONS  FERB's questions and finished tasks (asked in context, PHN-415, PHN-421)
+     FOREGROUND_SERVICE(_REMOTE_MESSAGING)  Stay connected (PHN-421, PHN-501)
+     CAMERA  the pairing code's scanner, CameraX with zxing-cpp (PHN-447); asked when the owner taps Scan
+     No boot permission: after a restart of the phone Stay connected comes back when FERB is opened. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+
+    <!-- androidx.core adds a signature permission for ContextCompat.registerReceiver; FERB registers no receiver that way -->
+    <permission android:name="${applicationId}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" tools:node="remove" />
+    <uses-permission android:name="${applicationId}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" tools:node="remove" />
+
+    <application
+        android:name=".FerbApplication"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:theme="@style/Theme.Ferb"
+        android:supportsRtl="true"
+        android:usesCleartextTraffic="false">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- No link opens pairing: a web page or another app must never start it (the phone lab's rule). -->
+        </activity>
+
+        <!-- Stay connected (PHN-421, PHN-501) -->
+        <service
+            android:name=".StayConnectedService"
+            android:exported="false"
+            android:foregroundServiceType="remoteMessaging" />
+
+        <!-- an answer from a notification; only this app can send to it -->
+        <receiver android:name=".AnswerReceiver" android:exported="false" />
+
+        <!-- after an update, Stay connected comes back if it was on -->
+        <receiver android:name=".UpdatedReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- ProcessLifecycleOwner starts itself through the startup provider -->
+    </application>
+</manifest>

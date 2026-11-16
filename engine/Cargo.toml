@@ -30,8 +30,12 @@ members = [
     "crates/ferb-daemon",
     "crates/ferb-supervisor",
     "crates/ferbd",
+    "crates/ferb-test-guard",
 ]
 exclude = [
+    "crates/ferb-link",
+    "crates/ferb-mobile",
+    "crates/ferb-mobile-ffi",
 ]
 
 [workspace.package]

@@ -1,0 +1,70 @@
+[package]
+name = "ferb-mobile-ffi"
+version = "0.28.0"
+edition = "2024"
+license = "Apache-2.0"
+rust-version = "1.100"
+publish = false
+# src/bin/uniffi-bindgen.rs is built only with the `bindgen` feature.
+autobins = false
+description = "The phone library (stage 3, slice S8): ferb-mobile and ferb-link behind one set of UniFFI bindings for the Android and iPhone apps (kb PHN-446). One library file per phone."
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[lib]
+name = "ferb_mobile_ffi"
+# cdylib: Android's libferb_mobile_ffi.so (and the host library the bindings are generated from and the Kotlin check
+# loads); staticlib: the iPhone app links the archive; lib: the tests.
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[features]
+# The bindings generator (`cargo run --features bindgen --bin uniffi-bindgen`): never part of the phone library.
+bindgen = ["uniffi/cli", "uniffi/cargo-metadata"]
+# Two test hooks that panic on purpose (lib.rs `testing`), for the host library the Kotlin and Swift checks load.
+testing = []
+
+[dependencies]
+ferb-mobile = { path = "../ferb-mobile" }
+ferb-link = { path = "../ferb-link" }
+# MPL-2.0 (kb PHN-492): the runtime part (uniffi_core) is compiled into the phone library.
+uniffi = { version = "=0.32.2", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+zeroize = "1"
+
+[dev-dependencies]
+tempfile = "3"
+# tests/link.rs runs the real link against ferb-link's own test world (a local relay, the stand-in daemon, the Mac's
+# bridge; ferb-link/tests/common, shared by path), so it needs what that world needs.
+iroh-relay = { version = "=1.4.1", features = ["server", "test-utils"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time", "fs"] }
+p256 = { version = "0.13", features = ["ecdsa", "pkcs8"] }
+base64 = "0.22"
+sha2 = "0.10"
+rand = "0.9"
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+required-features = ["bindgen"]
+
+# ferb-link's patched crates (engine/patches/README.md; kb PHN-222, PHN-478). Cargo reads `[patch]` only at the root
+# of a build, and this crate is that root: the table is ferb-link's own, the same paths. Run engine/patches/apply.sh
+# before cargo.
+[patch.crates-io]
+iroh = { path = "../../target/patched/iroh-1.4.1-ferb" }
+n0-dns-resolver = { path = "../../target/patched/n0-dns-resolver-0.1.0-ferb" }
+netwatch = { path = "../../target/patched/netwatch-0.19.3-ferb" }
+
+[profile.dev]
+opt-level = 1
+debug = 0
+
+# The phone library (kb PHN-446): small over fast; one file per phone.
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "unwind"

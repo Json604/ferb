@@ -39,14 +39,28 @@ fn names(value: &Value) -> Vec<String> {
 // decision: GATE-602
 // decision: STORE-423
 // decision: GATE-612
+// decision: DMN-598
+// decision: PHN-441
 #[test]
 fn the_method_table_is_python_s_plus_the_stage_2_additions() {
-    use ferb_rpc::auth::{DATA_ADDITIONS, IDENTIFIER_ADDITIONS, OWNER_APP_ONLY, STAGE2_ADDITIONS};
+    use ferb_rpc::auth::{
+        DATA_ADDITIONS, DEVICE_ADDITIONS, IDENTIFIER_ADDITIONS, LINK_ADDITIONS, OWNER_APP_ONLY,
+        PHONE_ADDITIONS, PHONE_FILES, PHONE_LINK_ADDITIONS, PHONE_SESSION, PROJECT_ADDITIONS,
+        STAGE2_ADDITIONS, UNINSTALL_ADDITIONS,
+    };
     let table = fixture("table.json");
     let added = |name: &str| {
         STAGE2_ADDITIONS.contains(&name)
             || IDENTIFIER_ADDITIONS.contains(&name)
             || DATA_ADDITIONS.contains(&name)
+            || UNINSTALL_ADDITIONS.contains(&name)
+            || PROJECT_ADDITIONS.contains(&name)
+            || DEVICE_ADDITIONS.contains(&name)
+            || PHONE_ADDITIONS.contains(&name)
+            || PHONE_LINK_ADDITIONS.contains(&name)
+            || PHONE_SESSION.contains(&name)
+            || PHONE_FILES.contains(&name)
+            || LINK_ADDITIONS.contains(&name)
     };
     for role in Role::ALL {
         let ours: Vec<String> = METHODS
@@ -88,6 +102,11 @@ fn the_method_table_is_python_s_plus_the_stage_2_additions() {
         .iter()
         .chain(&IDENTIFIER_ADDITIONS)
         .chain(&DATA_ADDITIONS)
+        .chain(&UNINSTALL_ADDITIONS)
+        .chain(&PROJECT_ADDITIONS)
+        .chain(&DEVICE_ADDITIONS)
+        .chain(&PHONE_ADDITIONS)
+        .chain(&PHONE_LINK_ADDITIONS)
     {
         let name = *name;
         let rows: Vec<_> = METHODS.iter().filter(|m| m.name == name).collect();
@@ -99,6 +118,16 @@ fn the_method_table_is_python_s_plus_the_stage_2_additions() {
             "{name} is not Python's"
         );
     }
+    // stage 3 (T-1202): a phone session's own calls belong to no role; the link helper's to its own role only
+    for name in PHONE_SESSION.iter().chain(&PHONE_FILES) {
+        let row = METHODS.iter().find(|m| m.name == *name).unwrap();
+        assert!(row.roles.is_empty() && !row.app_only, "{name}");
+    }
+    for name in LINK_ADDITIONS {
+        let row = METHODS.iter().find(|m| m.name == name).unwrap();
+        assert_eq!(row.roles, &[Role::Link], "{name}");
+        assert!(!row.app_only, "{name}");
+    }
     // the numbers the port was told to expect, and the six of stage 2
     let count = |role| METHODS.iter().filter(|m| m.roles.contains(&role)).count();
     assert_eq!(
@@ -108,7 +137,12 @@ fn the_method_table_is_python_s_plus_the_stage_2_additions() {
             count(Role::NativeHost),
             METHODS.iter().filter(|m| m.app_only).count()
         ),
-        (106 + 6 + 2 + 7, 3, 0, 20 + 6 + 2 + 7 + 4)
+        (
+            106 + 6 + 2 + 7 + 1 + 2 + 1 + 5 + 7,
+            3,
+            0,
+            20 + 6 + 2 + 7 + 4 + 1 + 2 + 1 + 5 + 7
+        )
     );
     let mut sorted: Vec<&str> = METHODS.iter().map(|m| m.name).collect();
     sorted.sort();

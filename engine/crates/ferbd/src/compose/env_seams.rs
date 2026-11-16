@@ -274,15 +274,22 @@ impl Seams for EnvSeams {
         if !self.native {
             return BTreeMap::new();
         }
-        let found = ferb_mac_hands::native::permissions::check_all();
-        found
-            .as_object()
-            .map(|m| {
-                m.iter()
-                    .map(|(k, v)| (k.clone(), v.as_str() == Some("granted")))
-                    .collect()
-            })
-            .unwrap_or_default()
+        // `self._fresh.get(self._permissions)` (environment.py:200): TCC checks kept FRESH_S, primed at start
+        self.tools.fresh().get(PERMISSIONS, "", read_permissions)
+    }
+    fn restart_pending(&self) -> std::collections::BTreeSet<String> {
+        crate::areas_c::setup::restart_seen()
+    }
+    fn device_line(&self) -> String {
+        // SENSE-421: this Mac's name, local time and zone, and the city FERB.app reported (memory only)
+        let clock = self.tools.zoned();
+        let zone = clock.zone();
+        crate::compose::device::facts_line(
+            &self.tools.device(),
+            &crate::compose::device::computer_name(self.native),
+            &zone.local(&clock.now()),
+            zone.key(),
+        )
     }
     fn runtime_for(&self, role: &str) -> String {
         self.runtimes
@@ -404,4 +411,43 @@ pub fn inspection_parent(tools: &Parts, task_id: &str) -> Option<String> {
         parent.tree_id.clone(),
     );
     same.then_some(parent.id)
+}
+
+/// The `_fresh` key of the facts' permissions (T-1124).
+pub const PERMISSIONS: &str = "permissions";
+
+/// The facts' permissions read now (`_permissions`): what `_fresh` keeps and the start primes.
+pub fn read_permissions() -> BTreeMap<String, bool> {
+    facts_permissions(&ferb_mac_hands::native::permissions::check_all())
+}
+
+/// desktop.py `_permissions` as the facts read it: `accessibility` and `screen` (Python's keys) from the daemon's own
+/// grants (`check_all`, keyed by setup's ids). DMN-597, fixed against the port: the facts read `screen`, which
+/// check_all's `screen_recording` never filled, so a missing Screen Recording was never said.
+pub fn facts_permissions(found: &Value) -> BTreeMap<String, bool> {
+    let on = |k: &str| found.get(k).and_then(Value::as_str) == Some("granted");
+    let mut out = BTreeMap::new();
+    if found.get("accessibility").is_some() {
+        out.insert("accessibility".to_string(), on("accessibility"));
+    }
+    if found.get("screen_recording").is_some() {
+        out.insert("screen".to_string(), on("screen_recording"));
+    }
+    out
+}
+
+#[cfg(test)]
+mod facts_tests {
+    use super::*;
+
+    // decision: DMN-597
+    #[test]
+    fn the_facts_read_screen_recording_under_pythons_key() {
+        let found = serde_json::json!({"accessibility": "granted", "screen_recording": "denied",
+                                       "input_monitoring": "granted", "full_disk_access": "granted"});
+        let got = facts_permissions(&found);
+        assert_eq!(got.get("screen"), Some(&false));
+        assert_eq!(got.get("accessibility"), Some(&true));
+        assert!(facts_permissions(&serde_json::json!({})).is_empty());
+    }
 }

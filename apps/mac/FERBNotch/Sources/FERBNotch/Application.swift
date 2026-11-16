@@ -31,6 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var updates: UpdateCoordinator?
     private var sparkle: SparkleUpdater?
     private var updateOffer: AnyCancellable?
+    private var taskWatch: AnyCancellable?
     private let poster = NotificationPoster(center: AppBundle.isApp ? UserNotificationCenter() as NotificationCenterPosting : nil)
     private let clicks = NotificationClicks()
 
@@ -70,6 +71,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         NSApp.mainMenu = menu
         coordinator = PanelCoordinator()
         coordinator?.poster = poster
+        // SENSE-420: FERB.app holds Location and tells the daemon the city; the exact spot only on a task's Yes
+        if let model = coordinator?.model, AppBundle.isApp {
+            model.deviceLocation = DeviceLocationReporter(rpc: model.rpc, source: SystemLocationSource.shared)
+        }
         // FERB's one sound engine: the everyday sounds, the intro's tour and the banners' sound decision share it.
         let sound = FerbSoundEngine()
         coordinator?.model.feedback.player = sound
@@ -85,10 +90,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             actions.hotKeys = coordinator.hotKeys
             actions.turnDeleted = { [weak model = coordinator.model] request in model?.removeTurns(requestIDs: [request]) }
             actions.freshConversation = { [weak model = coordinator.model] in await model?.startFreshConversation() }
+            // Settings → Phone: the link's helper is reached only through the daemon (S4, T-1204; kb PHN-441)
+            actions.phoneLink = coordinator.model.rpc
             let loginItems = LoginItemController.installed(available: appSetup.isPackaged)
             self.loginItems = loginItems
             actions.loginItems = loginItems
             // Uninstall unregisters macOS's login item first; `ferb uninstall` then removes the fallback file
+            // DMN-598: before that, the service (Full Disk Access) removes FERB's files from the browsers' folders
+            actions.removeBrowserFiles = { [appSetup] in await appSetup.removeBrowserFilesForUninstall() }
             actions.beforeUninstall = { [loginItems, appSetup] in
                 loginItems.removeForUninstall()
                 return await appSetup.unregisterService()  // macOS stops listing FERB's background service
@@ -118,6 +127,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
             if appSetup.isPackaged {
                 let setup = appSetup.model
+                // APP-921: a restart a running task deferred is said once in the chat and made when no task runs
+                setup.tell = { [weak model = coordinator.model] id, line in model?.noteFromSetup(id: id, text: line) }
+                taskWatch = coordinator.model.$runningTasks.map { !$0.isEmpty }
+                    .combineLatest(coordinator.model.$connectionStatus.map { $0 == "Connected to FERB" })
+                    .removeDuplicates { $0 == $1 }
+                    .sink { [setup] running, connected in
+                        guard connected else { return }
+                        Task { @MainActor in await setup.tasksChanged(running: running) }
+                    }
                 actions.setup = setup
                 actions.replayIntro = { [appSetup] in appSetup.replayIntro() }
                 actions.runFerb = { [setup] arguments, line, done in setup.runner.run(arguments, line: line, done: done) }
@@ -131,6 +149,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             coordinator.onOpenWindow = { [window] in window.show(.tasks) }
             coordinator.onOpenSettings = { [window] in window.show(.settings) }
             coordinator.model.onOpenMemory = { [window] source in window.showMemory(importedFrom: source) }
+            coordinator.model.onOpenPhone = { [window] in window.show(.settings, tab: .phone) }
             ferbWindow = window
         }
         appSetup.notch = coordinator?.model

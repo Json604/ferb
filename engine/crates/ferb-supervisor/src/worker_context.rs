@@ -142,6 +142,8 @@ pub struct ContextReads {
     /// (apps, sites, paths, recipients).
     pub targets: [Vec<String>; 4],
     pub folders: Vec<String>,
+    /// HAND-625: the owner's project folders as one fact line (None: no projects, the context as before).
+    pub projects: Option<String>,
     pub workspace: String,
     /// The card's posted rows (`part`, `label`, `text`), a step's only.
     pub posted: Vec<Value>,
@@ -422,6 +424,9 @@ pub fn worker_context(
             ),
             "task targets",
         ));
+    }
+    if let Some(line) = &r.projects {
+        parts.push(protected(line.clone(), "task targets"));
     }
     parts.push(protected(
         format!(

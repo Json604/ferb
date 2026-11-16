@@ -2,15 +2,16 @@
 //! the setup commands FERB.app runs, and the toolbox's pure RPC clients. Errors are one plain line
 //! ([`plain_error`]), never a trace.
 //!
-//! Not ported here (each needs a part that isn't ported yet): `ferb trace` (ferb/trace render and timing), `ferb
-//! stats` (ferb/trace lines, ferb/memory playbooks), `ferb runtimes` (ferb/runtimes catalog), `ferb logs`'s
-//! `tool.finished` lines (ferb/trace lines), `ferb memory dashboard` (ferb/memory dashboard), `ferb browsers extension
-//! package|install` (ferb/act/browser autoinstall), `ferb mcp` (ported in ferb-runtimes) and `ferb daemon run` (ferbd).
+//! `ferb trace` (ferb-trace's render) is ported here; `ferb stats` and `ferb browsers extension` run through the
+//! program's [`run::Host`] (ferbd's src/host.rs); `-h` / `--help` is Python's recorded help ([`help`]). Not
+//! ported: `ferb runtimes` and `ferb memory dashboard` (T-1112, each says so). `ferb mcp` and `ferb daemon run` are
+//! ferbd's own modes (`ferbd mcp`, `ferbd daemon`; ENG-7): this program says so.
 
 pub mod admin;
 pub mod args;
 #[cfg(unix)]
 pub mod client;
+pub mod help;
 pub mod logs;
 pub mod run;
 pub mod setup;
@@ -21,7 +22,7 @@ use serde_json::Value;
 use crate::install::InstallError;
 
 /// What FERB.app runs (apps/mac/FERBNotch: AppSetup.swift, SetupModel.swift, SettingsPages.swift); they keep working.
-pub const APP_COMMANDS: [&[&str]; 12] = [
+pub const APP_COMMANDS: [&[&str]; 14] = [
     &["setup", "--service"],
     &["setup", "--service", "--update"],
     &["setup", "--service", "--app-service"],
@@ -33,6 +34,9 @@ pub const APP_COMMANDS: [&[&str]; 12] = [
     &["setup", "--cleanup"],
     &["uninstall"],
     &["uninstall", "--purge", "--yes"],
+    // DMN-598: after the background service removed FERB's browser files (setup.uninstall_browser_files)
+    &["uninstall", "--skip-browser-files"],
+    &["uninstall", "--purge", "--yes", "--skip-browser-files"],
     &["mcp"],
 ];
 

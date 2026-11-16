@@ -1,0 +1,12 @@
+# Test binaries that run without the offline sandbox (TEST-511): their tests apply sandboxes of their own, and macOS
+# refuses a sandbox inside one that restricts anything (`sandbox_apply: Operation not permitted`). They keep the time
+# and memory caps. Format: <crate>/<test target> | why. tests/guards.rs checks each names a test target.
+
+ferb-shell/live | ferb-shell's real-sandbox tests: commands run under its own sandbox-exec profile (TEST-501)
+ferb-shell/not_read | commands under the shell's sandbox, its never-read rules named
+ferb-shell/project | project folders and git publishing through the shell's sandbox
+ferbd/areas_c | setup and doctor read the shell sandbox's containment by running it
+ferbd/every_tool_through_the_program | shell.* and wait.for run commands under the shell's sandbox
+ferbd/services | the daemon's shell runs its commands under its sandbox
+ferbd/tools_waits | wait.for's scripts run under the shell's sandbox
+ferb-test-guard/guards | the guard's proofs: each runs this runner, whose sandbox is the one being proven

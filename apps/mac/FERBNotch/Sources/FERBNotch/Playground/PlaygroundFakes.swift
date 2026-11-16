@@ -64,6 +64,8 @@ final class PlaygroundAppPermissions: AppPermissionsProviding {
     func microphone() -> GrantStatus { state.grant("microphone") }
     func requestMicrophone() async -> GrantStatus { await state.ask("microphone") }
     var microphoneDeniedPane: String { "microphone" }
+    func location() -> GrantStatus { state.grant("location") }
+    func requestLocation() async -> GrantStatus { await state.ask("location") }
 }
 
 /// The Keychain, faked: an API key is accepted and dropped at once; nothing is stored anywhere.

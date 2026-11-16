@@ -29,6 +29,32 @@ final class FERBWindowSelection: ObservableObject {
     var title: String { section == .settings ? settingsTab.title : (section ?? .tasks).title }
 }
 
+/// `setup.uninstall_browser_files`' answer (DMN-598) as Uninstall shows it: a line per file removed or refused, and
+/// whether nothing is left for `ferb uninstall` to do in the browsers' folders.
+struct BrowserFilesRemoval: Equatable {
+    var lines: [String]
+    var done: Bool
+
+    init(lines: [String], done: Bool) {
+        self.lines = lines
+        self.done = done
+    }
+
+    /// From the daemon's reply; nil (it didn't answer, or is too old for the method): `ferb uninstall` does it all.
+    init(reply: [String: Any]?) {
+        guard let reply else {
+            self.init(lines: [], done: false)
+            return
+        }
+        let removed = (reply["removed"] as? [String] ?? []).map { "removed \($0)" }
+        let failed = (reply["failed"] as? [[String: Any]] ?? []).map { row in
+            "couldn't remove \(row["path"] as? String ?? "a file"): \(row["error"] as? String ?? "no reason given")"
+        }
+        let why = (reply["why"] as? String).map { [$0] } ?? []
+        self.init(lines: removed + failed + why, done: reply["done"] as? Bool == true)
+    }
+}
+
 /// What Settings needs from the rest of the app. Plan C's setup model and its `ferb` runner exist only in the installed
 /// FERB.app: in a development build they are nil and their pages say so.
 @MainActor
@@ -51,6 +77,9 @@ struct FERBAppActions {
     /// Runs before `ferb uninstall` (plan F removes FERB.app's login item and unregisters the background service
     /// here): nil to go on, else why not, and the uninstall doesn't run.
     var beforeUninstall: (@MainActor () async -> String?)?
+    /// Runs first of all at Uninstall (DMN-598): the background service removes FERB's files from the browsers'
+    /// folders while it still runs (it holds Full Disk Access; FERB.app doesn't).
+    var removeBrowserFiles: (@MainActor () async -> BrowserFilesRemoval)?
     /// Plan F's: Settings → General → Startup.
     var loginItems: LoginItemController?
     var updates: UpdateCoordinator?
@@ -58,6 +87,10 @@ struct FERBAppActions {
     var turnDeleted: ((String) -> Void)?
     /// Settings → Stored data → Start a fresh conversation (STORE-425): nil when done, else why not.
     var freshConversation: (() async -> String?)?
+    /// Settings → Phone reaches the phone link's helper through this: the daemon's connection, which relays the
+    /// `phone.link_status`, `phone.pair_*` and `phone.relay_*` calls to the helper (S4, T-1204); nil: no phone link
+    /// (the page says pairing isn't available).
+    var phoneLink: (any DaemonRPCTransport)?
     var logsDirectory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".ferb/logs", isDirectory: true)
     var openNotificationSettings: () -> Void = {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") { NSWorkspace.shared.open(url) }
@@ -191,7 +224,7 @@ struct FERBWindowView: View {
                         sidebarButton(section.title, symbol: section.symbol, destination: .section(section))
                     }
                     settingsGroup("Experience", tabs: [.general, .notch, .notifications])
-                    settingsGroup("Connections", tabs: [.ai, .browsers, .permissions])
+                    settingsGroup("Connections", tabs: [.ai, .browsers, .permissions, .phone])
                     settingsGroup("Manage FERB", tabs: [.privacy, .data, .stored, .advanced, .about])
                 }.padding(.horizontal, 12).padding(.bottom, 24)
             }.scrollIndicators(.automatic)

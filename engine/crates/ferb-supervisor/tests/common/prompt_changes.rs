@@ -182,15 +182,49 @@ pub fn tool_additions() -> &'static [(String, String, Value, bool)] {
 /// (decision: DMN-595): `reserve_tokens` counts the listing as `json.dumps` writes it, so each addition offered (its
 /// recorded neighbour `after` was) adds its row's bytes and the ", " before it. 0 for a call offered no tools.
 pub fn tool_shift(recorded_tools: &[String]) -> i64 {
-    tool_additions()
+    // HAND-642: an addition may follow another addition (project.fetch after project.publish): the listing grows as
+    // each one offered joins it
+    let mut listed: Vec<String> = recorded_tools.to_vec();
+    let mut offered: Vec<(String, Value)> = Vec::new();
+    for (name, after, row, named_only) in tool_additions() {
+        let named_only = *named_only;
+        let joins = listed.iter().any(|t| t == after)
+            && !recorded_tools.iter().any(|t| t == name)
+            && (!named_only || planner_call(recorded_tools))
+            && ferb_gateway::catalog::additions()
+                .iter()
+                .find(|a| a.name == *name)
+                .is_none_or(|a| ferb_gateway::catalog::offered_beside(a, recorded_tools));
+        if joins {
+            listed.push(name.clone());
+            // one that follows another addition: the filter below counts only those after a recorded tool
+            if ferb_gateway::catalog::is_addition(after) {
+                offered.push((name.clone(), row.clone()));
+            }
+        }
+    }
+    let chained: i64 = offered
         .iter()
-        .filter(|(name, after, _, named_only)| {
-            recorded_tools.iter().any(|t| t == after)
+        .map(|(_, row)| ferb_py::json::dumps(row).len() as i64 + 2)
+        .sum();
+    chained
+        + tool_additions()
+            .iter()
+            .filter(|(name, after, _, named_only)| {
+                // SENSE-422: a planner lookup with no recorded neighbour (device.facts) is offered to every planner call
+                (recorded_tools.iter().any(|t| t == after)
+                || (planner_call(recorded_tools)
+                    && ferb_orchestrator::lookups::PLANNER_TOOLS.contains(&name.as_str())))
                 && !recorded_tools.iter().any(|t| t == name)
                 && (!named_only || planner_call(recorded_tools))
-        })
-        .map(|(_, _, row, _)| ferb_py::json::dumps(row).len() as i64 + 2)
-        .sum::<i64>()
+                // HAND-623: an acting, owner-only addition only where its grant would be offered it
+                && ferb_gateway::catalog::additions()
+                    .iter()
+                    .find(|a| a.name == *name)
+                    .is_none_or(|a| ferb_gateway::catalog::offered_beside(a, recorded_tools))
+            })
+            .map(|(_, _, row, _)| ferb_py::json::dumps(row).len() as i64 + 2)
+            .sum::<i64>()
         + tool_changes_shift(recorded_tools)
 }
 
@@ -276,8 +310,25 @@ pub fn with_tool_names(text: &str) -> (String, i64) {
         let tail = &rest[start..];
         let end = tail.find('.').unwrap_or(tail.len());
         let mut names: Vec<String> = tail[..end].split(", ").map(str::to_string).collect();
+        // the tools the line names, by their catalog names (HAND-623: which grant this listing came from)
+        let rows = ferb_gateway::catalog::catalog().raw()["tools"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        let dotted: Vec<String> = names
+            .iter()
+            .filter_map(|n| rows.iter().find(|t| t["mcp_name"] == n.as_str()))
+            .filter_map(|t| t["name"].as_str().map(str::to_string))
+            .collect();
         // the worker's line: a tool offered only by name (the planner's) is never in it
         for (name, after, _, _) in tool_additions().iter().filter(|a| !a.3) {
+            let offered = ferb_gateway::catalog::additions()
+                .iter()
+                .find(|a| a.name == *name)
+                .is_none_or(|a| ferb_gateway::catalog::offered_beside(a, &dotted));
+            if !offered {
+                continue;
+            }
             let (name, after) = (name.replace('.', "_"), after.replace('.', "_"));
             if let Some(i) = names.iter().position(|n| *n == after) {
                 if !names.contains(&name) {

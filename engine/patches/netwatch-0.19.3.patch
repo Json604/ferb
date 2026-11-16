@@ -1,0 +1,248 @@
+diff -ru a/Cargo.toml b/Cargo.toml
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -196,7 +196,7 @@
+ ]
+ 
+ [target.'cfg(not(any(target_os = "espidf", all(target_family = "wasm", target_os = "unknown"), target_os = "windows")))'.dependencies.netdev]
+-version = "0.46.1"
++version = "0.47.0"
+ 
+ [target.'cfg(not(any(target_os = "espidf", all(target_family = "wasm", target_os = "unknown"), target_os = "windows")))'.dependencies.tokio]
+ version = "1"
+diff -ru a/src/interfaces/bsd/macos.rs b/src/interfaces/bsd/macos.rs
+--- a/src/interfaces/bsd/macos.rs
++++ b/src/interfaces/bsd/macos.rs
+@@ -1,5 +1,50 @@
++use libc::c_int;
++
+ use super::{MessageType, RoutingStack, WireFormat};
+ 
++// The routing socket constants from net/route.h. libc only exposes them on
++// macOS, the iOS SDK does not ship net/route.h, but the kernel interface is
++// the same on all Darwin targets.
++// https://github.com/rust-lang/libc/pull/5158
++
++pub(crate) const RTF_GATEWAY: c_int = 0x2;
++pub(crate) const RTF_IFSCOPE: c_int = 0x1000000;
++
++pub(crate) const RTA_DST: c_int = 0x1;
++pub(crate) const RTA_GATEWAY: c_int = 0x2;
++pub(crate) const RTA_NETMASK: c_int = 0x4;
++pub(crate) const RTA_IFP: c_int = 0x10;
++pub(crate) const RTA_IFA: c_int = 0x20;
++pub(crate) const RTA_BRD: c_int = 0x80;
++
++pub(crate) const RTAX_DST: c_int = 0;
++pub(crate) const RTAX_GATEWAY: c_int = 1;
++pub(crate) const RTAX_NETMASK: c_int = 2;
++pub(crate) const RTAX_IFP: c_int = 4;
++pub(crate) const RTAX_BRD: c_int = 7;
++pub(crate) const RTAX_MAX: c_int = 8;
++
++pub(crate) const RTM_VERSION: c_int = 5;
++
++// Message types
++pub(crate) const RTM_ADD: c_int = 0x1;
++pub(crate) const RTM_DELETE: c_int = 0x2;
++pub(crate) const RTM_CHANGE: c_int = 0x3;
++pub(crate) const RTM_GET: c_int = 0x4;
++pub(crate) const RTM_LOSING: c_int = 0x5;
++pub(crate) const RTM_REDIRECT: c_int = 0x6;
++pub(crate) const RTM_MISS: c_int = 0x7;
++pub(crate) const RTM_LOCK: c_int = 0x8;
++pub(crate) const RTM_RESOLVE: c_int = 0xb;
++pub(crate) const RTM_NEWADDR: c_int = 0xc;
++pub(crate) const RTM_DELADDR: c_int = 0xd;
++pub(crate) const RTM_IFINFO: c_int = 0xe;
++pub(crate) const RTM_NEWMADDR: c_int = 0xf;
++pub(crate) const RTM_DELMADDR: c_int = 0x10;
++pub(crate) const RTM_IFINFO2: c_int = 0x12;
++pub(crate) const RTM_NEWMADDR2: c_int = 0x13;
++pub(crate) const RTM_GET2: c_int = 0x14;
++
+ // Hardcoded based on the generated values here: https://cs.opensource.google/go/x/net/+/master:route/zsys_darwin.go
+ const SIZEOF_IF_MSGHDR_DARWIN15: usize = 0x70;
+ const SIZEOF_IFA_MSGHDR_DARWIN15: usize = 0x14;
+@@ -18,7 +63,7 @@
+ pub(super) const SIZEOF_SOCKADDR_INET6: usize = 0x1c;
+ 
+ pub(super) fn probe_routing_stack() -> RoutingStack {
+-    let rtm_version = libc::RTM_VERSION;
++    let rtm_version = RTM_VERSION;
+ 
+     let rtm = WireFormat {
+         ext_off: 36,
+@@ -57,23 +102,23 @@
+     };
+ 
+     let wire_formats = [
+-        (libc::RTM_ADD, rtm),
+-        (libc::RTM_DELETE, rtm),
+-        (libc::RTM_CHANGE, rtm),
+-        (libc::RTM_GET, rtm),
+-        (libc::RTM_LOSING, rtm),
+-        (libc::RTM_REDIRECT, rtm),
+-        (libc::RTM_MISS, rtm),
+-        (libc::RTM_LOCK, rtm),
+-        (libc::RTM_RESOLVE, rtm),
+-        (libc::RTM_NEWADDR, ifam),
+-        (libc::RTM_DELADDR, ifam),
+-        (libc::RTM_IFINFO, ifm),
+-        (libc::RTM_NEWMADDR, ifmam),
+-        (libc::RTM_DELMADDR, ifmam),
+-        (libc::RTM_IFINFO2, ifm2),
+-        (libc::RTM_NEWMADDR2, ifmam2),
+-        (libc::RTM_GET2, rtm2),
++        (RTM_ADD, rtm),
++        (RTM_DELETE, rtm),
++        (RTM_CHANGE, rtm),
++        (RTM_GET, rtm),
++        (RTM_LOSING, rtm),
++        (RTM_REDIRECT, rtm),
++        (RTM_MISS, rtm),
++        (RTM_LOCK, rtm),
++        (RTM_RESOLVE, rtm),
++        (RTM_NEWADDR, ifam),
++        (RTM_DELADDR, ifam),
++        (RTM_IFINFO, ifm),
++        (RTM_NEWMADDR, ifmam),
++        (RTM_DELMADDR, ifmam),
++        (RTM_IFINFO2, ifm2),
++        (RTM_NEWMADDR2, ifmam2),
++        (RTM_GET2, rtm2),
+     ]
+     .into_iter()
+     .collect();
+@@ -82,5 +127,53 @@
+         rtm_version,
+         wire_formats,
+         kernel_align: 4,
++    }
++}
++
++#[cfg(all(test, target_os = "macos"))]
++mod tests {
++    use super::*;
++
++    /// The constants above are defined locally because libc does not expose
++    /// them on iOS. Make sure they agree with libc where it does.
++    #[test]
++    fn constants_match_libc() {
++        let pairs = [
++            ("RTF_GATEWAY", RTF_GATEWAY, libc::RTF_GATEWAY),
++            ("RTF_IFSCOPE", RTF_IFSCOPE, libc::RTF_IFSCOPE),
++            ("RTA_DST", RTA_DST, libc::RTA_DST),
++            ("RTA_GATEWAY", RTA_GATEWAY, libc::RTA_GATEWAY),
++            ("RTA_NETMASK", RTA_NETMASK, libc::RTA_NETMASK),
++            ("RTA_IFP", RTA_IFP, libc::RTA_IFP),
++            ("RTA_IFA", RTA_IFA, libc::RTA_IFA),
++            ("RTA_BRD", RTA_BRD, libc::RTA_BRD),
++            ("RTAX_DST", RTAX_DST, libc::RTAX_DST),
++            ("RTAX_GATEWAY", RTAX_GATEWAY, libc::RTAX_GATEWAY),
++            ("RTAX_NETMASK", RTAX_NETMASK, libc::RTAX_NETMASK),
++            ("RTAX_IFP", RTAX_IFP, libc::RTAX_IFP),
++            ("RTAX_BRD", RTAX_BRD, libc::RTAX_BRD),
++            ("RTAX_MAX", RTAX_MAX, libc::RTAX_MAX),
++            ("RTM_VERSION", RTM_VERSION, libc::RTM_VERSION),
++            ("RTM_ADD", RTM_ADD, libc::RTM_ADD),
++            ("RTM_DELETE", RTM_DELETE, libc::RTM_DELETE),
++            ("RTM_CHANGE", RTM_CHANGE, libc::RTM_CHANGE),
++            ("RTM_GET", RTM_GET, libc::RTM_GET),
++            ("RTM_LOSING", RTM_LOSING, libc::RTM_LOSING),
++            ("RTM_REDIRECT", RTM_REDIRECT, libc::RTM_REDIRECT),
++            ("RTM_MISS", RTM_MISS, libc::RTM_MISS),
++            ("RTM_LOCK", RTM_LOCK, libc::RTM_LOCK),
++            ("RTM_RESOLVE", RTM_RESOLVE, libc::RTM_RESOLVE),
++            ("RTM_NEWADDR", RTM_NEWADDR, libc::RTM_NEWADDR),
++            ("RTM_DELADDR", RTM_DELADDR, libc::RTM_DELADDR),
++            ("RTM_IFINFO", RTM_IFINFO, libc::RTM_IFINFO),
++            ("RTM_NEWMADDR", RTM_NEWMADDR, libc::RTM_NEWMADDR),
++            ("RTM_DELMADDR", RTM_DELMADDR, libc::RTM_DELMADDR),
++            ("RTM_IFINFO2", RTM_IFINFO2, libc::RTM_IFINFO2),
++            ("RTM_NEWMADDR2", RTM_NEWMADDR2, libc::RTM_NEWMADDR2),
++            ("RTM_GET2", RTM_GET2, libc::RTM_GET2),
++        ];
++        for (name, ours, libc) in pairs {
++            assert_eq!(ours, libc, "{name}");
++        }
+     }
+ }
+diff -ru a/src/interfaces/bsd.rs b/src/interfaces/bsd.rs
+--- a/src/interfaces/bsd.rs
++++ b/src/interfaces/bsd.rs
+@@ -8,11 +8,9 @@
+     sync::LazyLock,
+ };
+ 
+-use libc::{AF_INET, AF_INET6, AF_LINK, AF_ROUTE, AF_UNSPEC, CTL_NET, c_int, uintptr_t};
+ #[cfg(any(target_os = "macos", target_os = "ios"))]
+-use libc::{
+-    NET_RT_DUMP, RTA_IFP, RTAX_BRD, RTAX_DST, RTAX_GATEWAY, RTAX_MAX, RTAX_NETMASK, RTF_GATEWAY,
+-};
++use libc::NET_RT_DUMP;
++use libc::{AF_INET, AF_INET6, AF_LINK, AF_ROUTE, AF_UNSPEC, CTL_NET, c_int, uintptr_t};
+ use n0_error::{e, ensure, stack_error};
+ use tracing::warn;
+ 
+@@ -35,7 +33,7 @@
+ #[cfg(any(target_os = "macos", target_os = "ios"))]
+ mod macos;
+ #[cfg(any(target_os = "macos", target_os = "ios"))]
+-use self::macos::*;
++pub(crate) use self::macos::*;
+ 
+ pub async fn default_route() -> Option<DefaultRouteDetails> {
+     let idx = default_route_interface_index()?;
+@@ -118,7 +116,7 @@
+     }
+ 
+     #[cfg(any(target_os = "macos", target_os = "ios"))]
+-    if rm.flags & libc::RTF_IFSCOPE as u32 != 0 {
++    if rm.flags & RTF_IFSCOPE as u32 != 0 {
+         return false;
+     }
+ 
+@@ -1077,9 +1075,6 @@
+     #[test]
+     #[cfg(target_endian = "little")]
+     fn test_parse_addrs() {
+-        #[cfg(any(target_os = "macos", target_os = "ios"))]
+-        use libc::{RTA_BRD, RTA_DST, RTA_GATEWAY, RTA_IFA, RTA_IFP, RTA_NETMASK};
+-
+         let parse_addrs_little_endian_tests = [
+             ParseAddrsTest {
+                 attrs: RTA_DST | RTA_GATEWAY | RTA_NETMASK | RTA_BRD,
+diff -ru a/src/netmon/bsd.rs b/src/netmon/bsd.rs
+--- a/src/netmon/bsd.rs
++++ b/src/netmon/bsd.rs
+@@ -1,7 +1,5 @@
+ use std::ops::ControlFlow;
+ 
+-#[cfg(any(target_os = "macos", target_os = "ios"))]
+-use libc::{RTAX_DST, RTAX_IFP};
+ use n0_error::stack_error;
+ use n0_future::{
+     task::AbortOnDropHandle,
+@@ -11,11 +9,9 @@
+ use tracing::{trace, warn};
+ 
+ use super::actor::NetworkMessage;
+-#[cfg(any(target_os = "freebsd", target_os = "netbsd", target_os = "openbsd"))]
+-use crate::interfaces::bsd::{RTAX_DST, RTAX_IFP};
+ use crate::{
+     interfaces::{
+-        bsd::{WireMessage, parse_rib},
++        bsd::{RTAX_DST, RTAX_IFP, RTM_MISS, WireMessage, parse_rib},
+         is_interesting_interface,
+     },
+     ip::is_link_local,
+@@ -174,7 +170,7 @@
+         WireMessage::Route(msg) => {
+             // RTM_MISS is not a route change and can be emitted often on
+             // dual-stack hosts with no IPv6 connectivity.
+-            if msg.r#type as libc::c_int == libc::RTM_MISS {
++            if msg.r#type as libc::c_int == RTM_MISS {
+                 return false;
+             }
+ 

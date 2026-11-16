@@ -184,6 +184,8 @@ pub struct Deps {
     pub evidence: Option<Arc<Evidence>>,
     /// `self.tasks.tree_of(task_id)`.
     pub tree_of: TreeOf,
+    /// APP-927: Location's state as FERB.app last reported it (`device.report`), "" before its first report.
+    pub app_location: Arc<dyn Fn() -> String + Send + Sync>,
 }
 
 /// `_runtime_for(role)` for the three configured roles (runtimes.py:30).
@@ -263,6 +265,170 @@ pub fn owner_browsing_profile(h: &Host) -> Result<Option<(String, String)>, Hand
 
 fn fault(e: impl std::fmt::Display) -> HandlerError {
     HandlerError::fault("DatabaseError", e.to_string())
+}
+
+/// One permission as FERB explains it when the owner asks why (APP-927): what FERB uses it for, what it doesn't do,
+/// what stays on the Mac and what is shared, how to turn it off and what stops then. Plain words about FERB (APP-926):
+/// a model paraphrases them, so each is a fact of the code as built.
+pub struct PermissionReason {
+    pub id: &'static str,
+    pub name: &'static str,
+    /// Whose grant it is: "daemon" (FERB's background part) or "app" (FERB.app); "per app" for Automation.
+    pub held_by: &'static str,
+    pub uses: &'static str,
+    pub does_not: &'static str,
+    pub shared: &'static str,
+    pub turn_off: &'static str,
+    pub without_it: &'static str,
+}
+
+/// Every permission of FERB's setup list (the daemon's five, FERB.app's three) and Automation, in setup's order.
+pub const PERMISSION_REASONS: [PermissionReason; 9] = [
+    PermissionReason {
+        id: "accessibility",
+        name: "Accessibility",
+        held_by: "daemon",
+        uses: "FERB clicks, types and reads what's in app windows for you, in the background.",
+        does_not: "It doesn't move your cursor or take your keyboard unless you say Yes, and it asks first before typing into a terminal or other hard-to-undo steps.",
+        shared: "What it reads in a window is used for the task you gave; only what that task needs goes to the service you connected in FERB's Settings, with passwords and codes hidden first.",
+        turn_off: "System Settings → Privacy & Security → Accessibility: switch FERB off.",
+        without_it: "FERB can't click, type or read inside apps.",
+    },
+    PermissionReason {
+        id: "screen_recording",
+        name: "Screen Recording",
+        held_by: "daemon",
+        uses: "FERB takes pictures of the app window a task works in to check its work, and listens to an app's sound when a task asks.",
+        does_not: "It doesn't record your whole screen in the background: a picture is of the window a task uses, taken during that task.",
+        shared: "Pictures stay on this Mac with text such as passwords painted over; only what a task needs goes to the service you connected in FERB's Settings.",
+        turn_off: "System Settings → Privacy & Security → Screen & System Audio Recording: switch FERB off.",
+        without_it: "FERB can't see app windows or check its work by looking, and can't listen to an app.",
+    },
+    PermissionReason {
+        id: "input_monitoring",
+        name: "Input Monitoring",
+        held_by: "daemon",
+        uses: "FERB notices when you're typing, so it waits instead of getting in your way. It also sees text you type in ordinary fields, which goes into its private record of your activity on this Mac.",
+        does_not: "It never reads password fields, anything typed while macOS's Secure Input is on, or the apps you exclude in FERB's Settings → Privacy, and it never blocks or changes your typing.",
+        shared: "That record stays on this Mac; a task gets a part of it only when the task needs it.",
+        turn_off: "System Settings → Privacy & Security → Input Monitoring: switch FERB off.",
+        without_it: "FERB can't tell when you're busy typing, and keeps no record of what you type.",
+    },
+    PermissionReason {
+        id: "full_disk_access",
+        name: "Full Disk Access",
+        held_by: "daemon",
+        uses: "FERB reads and tidies your files when a task asks, including folders macOS protects, such as Mail and browser data.",
+        does_not: "It keeps a copy before it changes or deletes a file, and asks first before changing a protected folder.",
+        shared: "Files stay on this Mac; only what a task needs goes to the service you connected in FERB's Settings.",
+        turn_off: "System Settings → Privacy & Security → Full Disk Access: switch FERB off.",
+        without_it: "FERB can't read many of your files, such as Mail and browser folders, and tasks on them stop.",
+    },
+    PermissionReason {
+        id: "clipboard",
+        name: "Paste from Other Apps",
+        held_by: "daemon",
+        uses: "FERB sees what you copy, so it can use it when you ask, and keeps it on this Mac for 7 days.",
+        does_not: "It skips what apps mark as private or passing (such as copied passwords).",
+        shared: "Kept only on this Mac; a task gets it only when the task needs it.",
+        turn_off: "System Settings → Privacy & Security → Paste from Other Apps: set FERB to Deny.",
+        without_it: "FERB can't see what you copied.",
+    },
+    PermissionReason {
+        id: "notifications",
+        name: "Notifications",
+        held_by: "app",
+        uses: "FERB tells you when it needs you or finishes, and gives your reminders, when the notch can't show them.",
+        does_not: "It only notifies about your own tasks, questions, reminders and notices.",
+        shared: "Nothing leaves this Mac for this.",
+        turn_off: "System Settings → Notifications → FERB.",
+        without_it: "You see FERB's news only in the notch.",
+    },
+    PermissionReason {
+        id: "microphone",
+        name: "Microphone",
+        held_by: "app",
+        uses: "FERB turns your voice into text while you dictate, and the sound of an app it listens to during a task (Microphone and Speech Recognition).",
+        does_not: "It listens only while you hold the dictation keys or a task listens to an app, never in the background.",
+        shared: "Speech is turned into text on this Mac; the sound is never sent anywhere.",
+        turn_off: "System Settings → Privacy & Security → Microphone (and Speech Recognition): switch FERB off.",
+        without_it: "You can't dictate to FERB, and it can't listen to an app.",
+    },
+    PermissionReason {
+        id: "location",
+        name: "Location",
+        held_by: "app",
+        uses: "FERB knows which city this Mac is in, so local times and places come out right. It uses your exact location only in a task where you say Yes.",
+        does_not: "It doesn't keep a history of where you've been: it holds only the city it last saw, until FERB restarts.",
+        shared: "To name the city, macOS asks Apple's location service, at most once per kilometer moved. Your city goes with each request to the service you connected in FERB's Settings; your exact location goes only in a task where you said Yes, and only for that task.",
+        turn_off: "System Settings → Privacy & Security → Location Services: switch FERB off.",
+        without_it: "FERB knows only your time zone, not your city, and can't use your exact location.",
+    },
+    PermissionReason {
+        id: "automation",
+        name: "Automation",
+        held_by: "per app",
+        uses: "FERB controls an app through its own commands (such as Mail or Music) when a task needs it; macOS asks you once per app, the first time.",
+        does_not: "It only uses the apps macOS asked you about and you allowed.",
+        shared: "Nothing extra leaves this Mac for this; what a task does with the app follows the task.",
+        turn_off: "System Settings → Privacy & Security → Automation: switch off FERB's apps one by one.",
+        without_it: "FERB can't control that app by its commands; it may click instead, with Accessibility.",
+    },
+];
+
+/// The document's `permission_reasons` (APP-927, a named addition to Python's document): each permission's reasons
+/// and its status now: the daemon's own grants (`grants`, by id: the four TCC rows), Location as FERB.app last reported
+/// it (`location`, "" before its first report); Notifications, Microphone and the clipboard as FERB.app's Settings shows
+/// them (this daemon doesn't read them here).
+pub fn permission_reasons(grants: &Map<String, Value>, location: &str) -> Value {
+    Value::Array(
+        PERMISSION_REASONS
+            .iter()
+            .map(|r| {
+                let status = match r.id {
+                    "location" if !location.is_empty() => json!(location),
+                    "location" | "notifications" | "microphone" => {
+                        json!("set in FERB.app (Settings → Permissions shows it)")
+                    }
+                    "automation" => json!("asked per app (Settings → Permissions lists them)"),
+                    id => grants
+                        .get(id)
+                        .cloned()
+                        .unwrap_or(json!("see FERB.app's Settings → Permissions")),
+                };
+                json!({"id": r.id, "name": r.name, "status": status, "held_by": r.held_by, "uses": r.uses,
+                       "does_not": r.does_not, "shared": r.shared, "turn_off": r.turn_off,
+                       "without_it": r.without_it})
+            })
+            .collect(),
+    )
+}
+
+/// APP-927, a named addition to Python's document: `permission_reasons` right after `permissions`, its statuses from
+/// that section's rows. The document builder calls it; the recorded documents' tests call it on Python's.
+pub fn add_reasons(doc: &mut Map<String, Value>, location: &str) {
+    let grants: Map<String, Value> = doc
+        .get("permissions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(|r| (ferb_py::value::py_str(&r["id"]), r["status"].clone()))
+        .collect();
+    let mut out = Map::new();
+    for (k, v) in std::mem::take(doc) {
+        if k == "permission_reasons" {
+            continue;
+        }
+        let after = k == "permissions";
+        out.insert(k, v);
+        if after {
+            out.insert(
+                "permission_reasons".into(),
+                permission_reasons(&grants, location),
+            );
+        }
+    }
+    *doc = out;
 }
 
 /// `_about_document`: the whole self-description, redacted (FERB.app's About page and `about.read` read this one).
@@ -347,7 +513,9 @@ pub fn document(h: &Host, d: &Deps) -> HandlerResult {
         "permissions_in_force": in_force,
         "saved_logins": (d.saved_logins)().map_err(fault)?,
     });
-    ok(h.redact(&doc))
+    let mut doc = doc.as_object().cloned().unwrap_or_default();
+    add_reasons(&mut doc, &(d.app_location)());
+    ok(h.redact(&Value::Object(doc)))
 }
 
 /// `_about_health`: the database's size and clean-up state; FERB's CPU and memory over the last day (L30).
@@ -770,4 +938,74 @@ fn seen_image(h: &Host, d: &Deps, params: &Map<String, Value>) -> HandlerResult 
         json!(base64::engine::general_purpose::STANDARD.encode(image)),
     );
     Ok(out)
+}
+
+#[cfg(test)]
+mod permission_reason_tests {
+    use super::*;
+
+    /// APP-927: one explanation for every permission FERB.app's setup lists (its Allow all order) plus Automation, the
+    /// same ids; APP-926: plain words about FERB, none about "AI" or servers.
+    // decision: APP-927
+    // decision: APP-926
+    #[test]
+    fn every_setup_permission_is_explained_in_plain_words() {
+        let swift = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../../apps/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift"),
+        )
+        .unwrap();
+        let line = swift
+            .split("static let allowAllSequence = [")
+            .nth(1)
+            .and_then(|t| t.split(']').next())
+            .unwrap();
+        let mut setup: Vec<String> = line
+            .split(',')
+            .map(|s| s.trim().trim_matches('"').to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        setup.push("automation".into());
+        setup.sort();
+        let mut ours: Vec<String> = PERMISSION_REASONS
+            .iter()
+            .map(|r| r.id.to_string())
+            .collect();
+        ours.sort();
+        assert_eq!(ours, setup);
+        for r in &PERMISSION_REASONS {
+            for text in [r.uses, r.does_not, r.shared, r.turn_off, r.without_it] {
+                assert!(!text.is_empty(), "{}", r.id);
+                let words: Vec<&str> = text.split(|c: char| !c.is_alphanumeric()).collect();
+                assert!(
+                    !words.contains(&"AI") && !text.to_lowercase().contains("server"),
+                    "{}: {text}",
+                    r.id
+                );
+            }
+        }
+    }
+
+    // decision: APP-927
+    #[test]
+    fn the_reasons_follow_permissions_with_each_status() {
+        let mut doc = serde_json::json!({"version": {}, "permissions": [
+            {"id": "accessibility", "status": "granted"}, {"id": "screen_recording", "status": "denied"}],
+            "settings": []})
+        .as_object()
+        .unwrap()
+        .clone();
+        add_reasons(&mut doc, "granted");
+        let keys: Vec<&String> = doc.keys().collect();
+        assert_eq!(
+            keys,
+            ["version", "permissions", "permission_reasons", "settings"]
+        );
+        let rows = doc["permission_reasons"].as_array().unwrap();
+        let status = |id: &str| rows.iter().find(|r| r["id"] == id).unwrap()["status"].clone();
+        assert_eq!(status("accessibility"), "granted");
+        assert_eq!(status("screen_recording"), "denied");
+        assert_eq!(status("location"), "granted");
+        assert!(status("microphone").as_str().unwrap().contains("FERB.app"));
+    }
 }

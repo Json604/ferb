@@ -65,7 +65,15 @@ pub const CRITICAL: &[&str] = &[
     "memory.forgot_derived",
     "memory.rollback",
     "memory.forgot",
-    "task.part", // ORCH-319
+    "task.part",              // ORCH-319
+    "device.location_wanted", // SENSE-422: FERB.app reads the exact location once the owner said Yes
+    // stage 3 (journal 106, S4): Settings → Phone and the notch hear a pairing that waits for the owner's Yes, its end,
+    // the 30-day warning and a removal (PHN-419, PHN-480)
+    "phone.pair_requested",
+    "phone.pair_ended",
+    "phone.unused",
+    "phone.removed",
+    "phone.heavy_fetch", // stage 3 S3b: a phone took unusually much (PHN-128): a notice, never a cap
 ];
 
 /// bus.py:36-44. May be dropped, oldest first.

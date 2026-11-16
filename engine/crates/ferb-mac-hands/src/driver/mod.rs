@@ -24,7 +24,10 @@ use crate::input::{off, Gestures, RealInput, Step};
 
 use crate::launched::LaunchedApps;
 use crate::mask::{self, Look, WebSecrets};
-use crate::point::{preview, preview_left, preview_phase, Frame, FrameFn, PREVIEW};
+use crate::point::{
+    preview, preview_left, preview_phase, Frame, FrameFn, OwnerOnlyFrame, PreviewFrame,
+    PreviewFrameFn, PREVIEW,
+};
 use crate::profile::Profiles;
 
 // ---------- words ----------
@@ -1795,24 +1798,46 @@ substituted or brought forward",
         shot_id: &str,
         paint: PaintFn,
     ) -> Result<(Map<String, Value>, FrameFn)> {
+        let (a, window) = self.shot_window(name, shot_id)?;
+        Ok(self.window_source(a, window, paint))
+    }
+
+    /// The window a fresh screenshot (`shot_id`, at most 30 s old) of the app showed.
+    fn shot_window(&self, name: &str, shot_id: &str) -> Result<(A, i64)> {
         let a = self.app(name)?;
         let shot = self.latest_shot(&a.bundle_id);
         match shot {
             Some(s) if s.id == shot_id && s.pid == a.pid && self.now() - s.at <= 30.0 => {
-                Ok(self.window_source(a, s.window, paint))
+                Ok((a, s.window))
             }
             _ => refused("take a fresh mac_screenshot to select the recording window"),
         }
     }
 
-    /// driver.py:960: only an explicit window or an observed element's exact window.
-    pub fn preview_source(
+    /// The live preview's surface (APP-922): driver.py:960's window (only an explicit window or an observed element's
+    /// exact window), or a fresh screenshot's (`shot`, as a recording selects it); its frames are captured as they are,
+    /// for the owner's eyes only ([`OwnerOnlyFrame`]): no Accessibility looks for secret fields, nothing painted.
+    pub fn owner_preview_source(
         self: &Arc<Self>,
         name: &str,
         window: Option<&str>,
         element: Option<&str>,
-        paint: PaintFn,
-    ) -> Result<(Map<String, Value>, FrameFn)> {
+        shot: Option<&str>,
+    ) -> Result<(Map<String, Value>, PreviewFrameFn)> {
+        let (a, id) = match shot {
+            Some(sh) => self.shot_window(name, sh)?,
+            None => self.preview_window(name, window, element)?,
+        };
+        Ok(self.owner_window_source(a, id))
+    }
+
+    /// driver.py:960: only an explicit window or an observed element's exact window.
+    fn preview_window(
+        &self,
+        name: &str,
+        window: Option<&str>,
+        element: Option<&str>,
+    ) -> Result<(A, i64)> {
         let a = self.app(name)?;
         let w = match window {
             Some(wid) if !wid.is_empty() && wid.chars().all(|c| c.is_ascii_digit()) => {
@@ -1833,9 +1858,61 @@ substituted or brought forward",
             }
         };
         match w {
-            Some(w) if w.pid == a.pid => Ok(self.window_source(a, w.id, paint)),
+            Some(w) if w.pid == a.pid => Ok((a, w.id)),
             _ => refused("preview window closed or ambiguous"),
         }
+    }
+
+    /// The window's facts and its owner-only frame capture (APP-922): the window checked as the recording's capture
+    /// checks it (still there, still the app's), captured, and checked again; never painted, never read for text.
+    fn owner_window_source(
+        self: &Arc<Self>,
+        a: A,
+        window_id: i64,
+    ) -> (Map<String, Value>, PreviewFrameFn) {
+        let mut target = Map::new();
+        target.insert("kind".into(), json!("window"));
+        target.insert("app".into(), json!(a.bundle_id));
+        target.insert("pid".into(), json!(a.pid));
+        target.insert("window_id".into(), json!(window_id));
+        let d = self.clone();
+        let capture: PreviewFrameFn = Arc::new(move || {
+            let (d, a) = (d.clone(), a.clone());
+            Box::pin(async move {
+                let current = {
+                    let (d, a) = (d.clone(), a.clone());
+                    move || {
+                        let (d, a) = (d.clone(), a.clone());
+                        async move {
+                            let w = d.blk(move |d| d.shots.window(window_id)).await;
+                            match w {
+                                Some(w)
+                                    if w.pid == a.pid
+                                        && d.resolve(&a.bundle_id).await?.pid == a.pid =>
+                                {
+                                    Ok(w)
+                                }
+                                _ => refused("recording window closed or changed owner"),
+                            }
+                        }
+                    }
+                };
+                let now = || d.now();
+                let w = preview_phase("resolve", &now, current()).await?;
+                let (image, _, _) = preview_phase("capture", &now, async {
+                    let shot = {
+                        let (d2, w2) = (d.clone(), w.clone());
+                        off(move || d2.shots.capture(&w2, Some(crate::shots::MAX_EDGE), true))
+                            .await?
+                    };
+                    current().await?;
+                    Ok::<_, HandError>(shot)
+                })
+                .await?;
+                Ok::<PreviewFrame, HandError>((OwnerOnlyFrame::captured(image), String::new()))
+            })
+        });
+        (target, capture)
     }
 
     fn window_source(

@@ -292,6 +292,65 @@ pub fn remove_requests(
     Ok(removed)
 }
 
+/// What removing FERB's own files from the browsers' folders did (DMN-598): each file removed, and each one that
+/// couldn't be with why.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Removal {
+    pub removed: Vec<PathBuf>,
+    pub failed: Vec<(PathBuf, String)>,
+}
+
+impl Removal {
+    /// One file removed, or why not (a file already gone counts as nothing).
+    pub fn remove(&mut self, path: &Path) {
+        if self.removed.iter().any(|p| p == path) || self.failed.iter().any(|(p, _)| p == path) {
+            return;
+        }
+        match std::fs::remove_file(path) {
+            Ok(()) => self.removed.push(path.to_path_buf()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => self.failed.push((path.to_path_buf(), why(&e))),
+        }
+    }
+}
+
+/// An error in plain words: Rust's text without its "(os error N)".
+pub fn why(e: &std::io::Error) -> String {
+    let text = e.to_string();
+    match text.split_once(" (os error") {
+        Some((plain, _)) => plain.to_string(),
+        None => text,
+    }
+}
+
+/// `remove_requests` for an uninstall that goes on whatever is refused (DMN-598): every request FERB recorded and the
+/// current id's in every browser are each tried; one that can't be removed is listed with why and stays recorded, and
+/// the rest still go. Only FERB's own request files (`External Extensions/<id>.json`) are ever touched.
+pub fn remove_requests_each(home: &Path, support: &Path, store_id: &str) -> Removal {
+    let mut out = Removal::default();
+    for path in recorded(home) {
+        if is_request(&path) && path.is_file() {
+            out.remove(&path);
+        }
+    }
+    if valid_id(store_id) {
+        for b in profiles::BROWSERS {
+            if let Ok(path) = request_file(b.key, support, store_id) {
+                if path.is_file() {
+                    out.remove(&path);
+                }
+            }
+        }
+    }
+    if home.join(REQUEST_RECORD).exists() {
+        let kept: Vec<PathBuf> = out.failed.iter().map(|(p, _)| p.clone()).collect();
+        if let Err(e) = save_record(home, &kept) {
+            out.failed.push((home.join(REQUEST_RECORD), why(&e)));
+        }
+    }
+    out
+}
+
 /// `ProfileStatus`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProfileStatus {

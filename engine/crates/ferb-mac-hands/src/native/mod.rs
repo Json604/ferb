@@ -9,6 +9,7 @@ pub mod audio;
 pub mod ax;
 pub mod capture;
 pub mod cf;
+pub mod device;
 pub mod events;
 pub mod paint;
 pub mod pasteboard;

@@ -19,6 +19,7 @@ ferb-core = { path = "../ferb-core" }
 ferb-policy = { path = "../ferb-policy", optional = true }
 ferb-py = { path = "../ferb-py" }
 ferb-sanitize = { path = "../ferb-sanitize" }
+base64 = "0.22"
 getrandom = "0.3"
 hex = "0.4"
 libc = "0.2"

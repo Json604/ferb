@@ -529,7 +529,11 @@ impl<P: Platform> BrowserSetup for Browsers<P> {
         )
     }
 
-    fn remove_requests(&mut self, home: &Path, support: &Path) -> Vec<PathBuf> {
+    fn remove_requests(
+        &mut self,
+        home: &Path,
+        support: &Path,
+    ) -> (Vec<PathBuf>, Vec<(PathBuf, String)>) {
         use ferb_browser::autoinstall as a;
         // an untrusted config: no current id (the record in FERB's home still lists every request FERB wrote)
         let store = match ferb_core::config::Config::new(home).get("browser", "store_extension_id")
@@ -537,10 +541,9 @@ impl<P: Platform> BrowserSetup for Browsers<P> {
             Ok(v) => a::store_extension_id(v.as_ref()),
             Err(_) => String::new(),
         };
-        a::remove_requests(home, support, &store).unwrap_or_else(|e| {
-            eprintln!("ferb: {}", ferb_shell::py_os_error(&e));
-            Vec::new()
-        })
+        // DMN-598: each one tried; one refused is said and the uninstall goes on
+        let done = a::remove_requests_each(home, support, &store);
+        (done.removed, done.failed)
     }
 
     fn native_host_dirs(&mut self, support: &Path) -> Vec<PathBuf> {
@@ -720,8 +723,9 @@ mod tests {
         let mut b = Browsers {
             platform: OnlyChrome,
         };
-        let removed = b.remove_requests(&home, &support);
+        let (removed, failed) = b.remove_requests(&home, &support);
         assert_eq!(removed, vec![requests.join(format!("{store}.json"))]);
+        assert!(failed.is_empty());
         assert!(requests.join(format!("{other}.json")).exists());
         assert!(installed.exists());
     }

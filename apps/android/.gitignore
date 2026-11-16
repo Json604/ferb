@@ -1,0 +1,13 @@
+# Gradle and Android build outputs
+.gradle/
+.kotlin/
+build/
+local.properties
+*.iml
+.idea/
+captures/
+.externalNativeBuild/
+.cxx/
+# Roborazzi writes comparison images next to the goldens when a check fails
+design/src/test/screenshots/**/*_compare.png
+design/src/test/screenshots/**/*_actual.png

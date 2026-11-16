@@ -502,17 +502,32 @@ impl Repeats {
 
 // ---------- values a slow call reads ----------
 
-type Read = Arc<dyn Fn() -> Value + Send + Sync>;
+type Kept = (f64, Arc<dyn Any + Send + Sync>);
 
-/// `_Fresh`: values read by a slow call (a TCC check, browser profile files), each kept for `ttl_s`. A read after that
-/// gets the kept value at once and refreshes it in a worker thread; only the first read (nothing kept yet) waits.
-/// Keyed by a name the caller gives (Python keys by the call itself) and its `salt`.
+/// `_Fresh` (areas/shared.py:142): values read by a slow call (a TCC check, browser profile files), each kept for
+/// `ttl_s`. A read after that gets the kept value at once and refreshes it in a worker thread (one refresh at a time
+/// per value; a refresh that fails or panics leaves the kept value); only the first read (nothing kept yet) waits, and
+/// start-up takes that one in the background ([`Fresh::prime`] in a worker thread). Keyed by a name the caller gives
+/// (Python keys by the call itself) and its `salt`: a different salt is a different value. Outside a tokio runtime a
+/// stale value is read again in place (Python's worker-thread case).
 #[derive(Clone)]
 pub struct Fresh {
     pub ttl_s: f64,
     clock: Arc<dyn Clock>,
-    held: Arc<Mutex<HashMap<String, (f64, Value)>>>,
+    held: Arc<Mutex<HashMap<String, Kept>>>,
     refreshing: Arc<Mutex<std::collections::HashSet<String>>>,
+}
+
+/// Ends a refresh's claim however the refresh ends (a panic included), as Python's done-callback does.
+struct Refreshing(Arc<Mutex<std::collections::HashSet<String>>>, String);
+
+impl Drop for Refreshing {
+    fn drop(&mut self) {
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&self.1);
+    }
 }
 
 impl Fresh {
@@ -525,45 +540,68 @@ impl Fresh {
         }
     }
 
+    fn keep<T: Send + Sync + 'static>(&self, key: &str, at: f64, value: T) {
+        self.held
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(key.to_string(), (at, Arc::new(value)));
+    }
+
     /// The kept value of `read` under `key`/`salt`, refreshed in the background once older than `ttl_s`.
-    pub fn get(&self, key: &str, salt: &str, read: Read) -> Value {
+    pub fn get<T, F>(&self, key: &str, salt: &str, read: F) -> T
+    where
+        T: Clone + Send + Sync + 'static,
+        F: Fn() -> T + Send + Sync + 'static,
+    {
         let key = format!("{key}\u{0}{salt}");
         let now = self.clock.monotonic();
-        let held = self.held.lock().expect("fresh").get(&key).cloned();
+        let held = self
+            .held
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&key)
+            .and_then(|(at, v)| v.clone().downcast::<T>().ok().map(|v| (*at, v)));
         let Some((at, value)) = held else {
             let value = read();
-            self.held
-                .lock()
-                .expect("fresh")
-                .insert(key, (now, value.clone()));
+            self.keep(&key, now, value.clone());
             return value;
         };
-        if now - at > self.ttl_s && self.refreshing.lock().expect("fresh").insert(key.clone()) {
+        let claimed = now - at > self.ttl_s
+            && self
+                .refreshing
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(key.clone());
+        if claimed {
+            let claim = Refreshing(self.refreshing.clone(), key.clone());
             match tokio::runtime::Handle::try_current() {
                 Ok(rt) => {
                     let me = self.clone();
                     rt.spawn_blocking(move || {
+                        let _claim = claim;
                         let value = read();
-                        let at = me.clock.monotonic();
-                        me.held
-                            .lock()
-                            .expect("fresh")
-                            .insert(key.clone(), (at, value));
-                        me.refreshing.lock().expect("fresh").remove(&key);
+                        me.keep(&key, me.clock.monotonic(), value);
                     });
                 }
                 Err(_) => {
+                    let _claim = claim;
                     let value = read();
-                    self.held
-                        .lock()
-                        .expect("fresh")
-                        .insert(key.clone(), (now, value.clone()));
-                    self.refreshing.lock().expect("fresh").remove(&key);
+                    self.keep(&key, now, value.clone());
                     return value;
                 }
             }
         }
-        value
+        (*value).clone()
+    }
+
+    /// `prime`: the first value of `read` taken now (a caller runs this in a worker thread), so no turn waits for it;
+    /// a read that fails is the read's own business, as Python's `except Exception: pass`.
+    pub fn prime<T, F>(&self, key: &str, salt: &str, read: F)
+    where
+        T: Clone + Send + Sync + 'static,
+        F: Fn() -> T + Send + Sync + 'static,
+    {
+        let _ = self.get(key, salt, read);
     }
 }
 

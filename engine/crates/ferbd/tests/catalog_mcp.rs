@@ -39,9 +39,11 @@ fn python_s(listing: &Value, grant_tools: &Value, label: &str) -> Value {
             .as_array()
             .is_some_and(|t| t.iter().any(|x| x == n))
     };
+    let listed: Vec<String> = names.iter().map(|n| n.to_string()).collect();
     for a in ferb_gateway::catalog::additions() {
         let only_named = a.row["facts"]["named_only"].as_bool().unwrap_or(false);
         let want = names.contains(&a.after.as_str())
+            && ferb_gateway::catalog::offered_beside(a, &listed)
             && if only_named {
                 names_it(&a.name)
             } else {

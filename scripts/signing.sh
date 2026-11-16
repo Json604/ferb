@@ -236,7 +236,11 @@ ferb_entitlements() {
   local -a keys
   case $1 in
     daemon) keys=(com.apple.security.automation.apple-events) ;;     # Automation checks and osascript (permissions.py)
-    app) keys=(com.apple.security.device.audio-input) ;;              # dictation / push-to-talk microphone
+    # the phone link's helper (kb PHN-441): network only, no permission of macOS's; inert without App Sandbox, they say
+    # what the program does and nothing more
+    link) keys=(com.apple.security.network.client com.apple.security.network.server) ;;
+    app) keys=(com.apple.security.device.audio-input                  # dictation / push-to-talk microphone
+               com.apple.security.personal-information.location) ;;  # SENSE-420: the city, and the exact spot on a Yes
   esac
   # Ad-hoc (or any non-Developer-ID) code has no Team ID, so library validation would refuse the app's
   # Sparkle.framework (L34 Phase G) and anything else it loads. One Developer ID team signs all of them, so
@@ -340,6 +344,7 @@ ferb_sign_app() {
   mkdir -p "$work"
   ferb_entitlements daemon "$work/daemon.entitlements"
   ferb_entitlements app "$work/app.entitlements"
+  ferb_entitlements link "$work/link.entitlements"
   main="$app/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist" 2>/dev/null || print FERBNotch)"
   for f in "${(@f)$(ferb_macho_files "$app/Contents")}"; do
     [[ -z $f || $f == $main ]] && continue
@@ -349,6 +354,8 @@ ferb_sign_app() {
     case $f in
       "$app/Contents/Helpers/ferb-secrets")
         ferb_sign "$f" --identifier com.ferb.secrets ;;
+      "$app/Contents/Helpers/ferb-link")            # the daemon accepts it by this signature alone (PHN-468)
+        ferb_sign "$f" --identifier com.ferb.link --entitlements "$work/link.entitlements" ;;
       *)
         ferb_sign "$f" ;;
     esac
@@ -369,7 +376,7 @@ ferb_sign_app() {
     local piece ident requirement what=release
     ferb_devid && what="Developer ID team"
     for piece ident in "$app" com.ferb.FERB "$app/Contents/Helpers/FERB.app" com.ferb.daemon \
-        "$app/Contents/Helpers/ferb-secrets" com.ferb.secrets; do
+        "$app/Contents/Helpers/ferb-secrets" com.ferb.secrets "$app/Contents/Helpers/ferb-link" com.ferb.link; do
       [[ -e $piece ]] || continue
       if ferb_devid; then requirement=$(ferb_team_requirement $ident); else requirement=$(ferb_requirement $ident); fi
       codesign --verify --strict -R="$requirement" "$piece" \

@@ -293,6 +293,13 @@ pub fn about_read(
         Some(sec) => {
             let mut m = Map::new();
             m.insert(sec.into(), doc.get(sec).cloned().unwrap_or(Value::Null));
+            // APP-927: the permissions come with why FERB has each (when the document carries it)
+            if let Some(why) = doc
+                .get("permission_reasons")
+                .filter(|_| sec == "permissions")
+            {
+                m.insert("permission_reasons".into(), why.clone());
+            }
             answer(Value::Object(m), false, Vec::new())
         }
         None => answer(Value::Object(doc), false, Vec::new()),

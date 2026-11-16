@@ -296,12 +296,17 @@ fn the_argument_parser_reads_every_command_line_as_argparse() {
         match parse(&argv) {
             Parsed::Version => assert_eq!(c["exit"], 0, "{argv:?}"),
             Parsed::Args(ns) => {
-                let want: BTreeMap<String, Value> = c["args"]
+                let mut want: BTreeMap<String, Value> = c["args"]
                     .as_object()
                     .unwrap_or_else(|| panic!("{argv:?}: Python refused"))
                     .iter()
                     .map(|(k, v)| (k.clone(), v.clone()))
                     .collect();
+                // DMN-598, the one named difference: `uninstall --skip-browser-files` is the Rust program's (FERB.app's
+                // Uninstall after the daemon removed FERB's browser files); not given, it reads false
+                if argv.first().map(String::as_str) == Some("uninstall") {
+                    want.insert("skip_browser_files".into(), Value::Bool(false));
+                }
                 assert_eq!(ns, want, "{argv:?}");
             }
             Parsed::Error(e) => assert_eq!(c["exit"], 2, "{argv:?}: Rust refused ({e})"),

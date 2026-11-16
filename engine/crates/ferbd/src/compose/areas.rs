@@ -825,6 +825,11 @@ pub fn group_b(
             );
             tree.tree_of(task_id).ok().flatten()
         }),
+        // APP-927: Location as FERB.app last reported it (device.report, memory only)
+        app_location: {
+            let device = s.tools.device();
+            Arc::new(move || device.reported().location)
+        },
     }));
 
     // intro: the suggestion reads what FERB saw on this Mac (MEM-13, group A's persona) and asks the model on group

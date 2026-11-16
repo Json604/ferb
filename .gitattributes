@@ -1,0 +1,2 @@
+# Patch files keep the whitespace of the lines they quote (git diff --check would flag a blank context line).
+engine/patches/*.patch -whitespace
