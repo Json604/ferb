@@ -851,11 +851,3 @@ status = "open"
 why = "PHN-421's push for a closed app; on iPhone it needs the owner's APNs key in the small sender he runs, the aps-environment entitlement and a provisioning profile; the push carries no words and the app fetches them (a Notification Service Extension can't reach the Mac without the link)."
 decisions = ["PHN-421", "PHN-566"]
 after = ["T-1242"]
-
-[T-1248]
-title = "The gate builds and tests apps/ios (the simulator) like apps/android"
-area = "phone"
-kind = "chore"
-status = "open"
-why = "apps/ios/tools/build.sh test runs the four packages' tests and the UI tests on a simulator; engine/gate.sh and kb/gate.toml don't run it yet (the coordinator's)."
-decisions = ["PHN-562"]

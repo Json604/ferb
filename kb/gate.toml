@@ -105,6 +105,24 @@ run = "engine/gate.sh test"
 when = ["engine/**", "extension/**"]
 timeout = 1800
 
+# --- the phone apps (area `phone`, stages 3 and 4): when an app or the Rust library both apps link changes ---
+[[check]]
+name = "Android app tests (design, core, app)"   # ~25 s warm; a Rust change rebuilds the phone library first (minutes)
+level = "push"
+# offline: the Gradle and Maven caches hold every dependency; the daemon is stopped whatever the result
+run = "cd apps/android && ./gradlew --offline -q :design:test :core:testDebugUnitTest :app:testDebugUnitTest :app:assembleDebug; r=$?; ./gradlew --stop >/dev/null 2>&1; exit $r"
+when = ["apps/android/**", "engine/crates/ferb-mobile/**", "engine/crates/ferb-mobile-ffi/**", "engine/crates/ferb-link/**",
+        "engine/patches/**"]
+timeout = 2400
+
+[[check]]
+name = "iPhone app builds and tests on the simulator"   # ~80 s warm; a Rust change rebuilds the phone library first
+level = "push"
+run = "apps/ios/tools/build.sh test"   # ad hoc signing, no team, SwiftPM anonymous (never the owner's keychain)
+when = ["apps/ios/**", "engine/crates/ferb-mobile/**", "engine/crates/ferb-mobile-ffi/**", "engine/crates/ferb-link/**",
+        "engine/patches/**"]
+timeout = 2400
+
 [[check]]
 name = "live checks recorded"
 level = "release"
