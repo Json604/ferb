@@ -12,9 +12,12 @@ import com.ferb.mobile.AnswerInput
 import com.ferb.mobile.Attachment
 import com.ferb.mobile.Cancelled
 import com.ferb.mobile.Change
+import com.ferb.mobile.DeviceReport
 import com.ferb.mobile.FerbException
 import com.ferb.mobile.Fetched
 import com.ferb.mobile.Folder
+import com.ferb.mobile.FoundFiles
+import com.ferb.mobile.LocationFix
 import com.ferb.mobile.LinkPath
 import com.ferb.mobile.LinkPhase
 import com.ferb.mobile.LinkStatus
@@ -23,13 +26,17 @@ import com.ferb.mobile.OlderState
 import com.ferb.mobile.OutboxItem
 import com.ferb.mobile.PhoneStatus
 import com.ferb.mobile.PreviewSink
+import com.ferb.mobile.RecentFiles
+import com.ferb.mobile.SecretInput
 import com.ferb.mobile.SettingValue
 import com.ferb.mobile.Signer
 import com.ferb.mobile.TaskPage
 import com.ferb.mobile.TransferListener
 import com.ferb.mobile.TranscriptView
+import com.ferb.mobile.Tree
 import com.ferb.mobile.Uploaded
 import java.io.File
+import java.lang.ref.WeakReference
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -71,6 +78,20 @@ class FakePhone : PhoneApi {
     var mac: MacInfo? = null
     var newKeys: PublicKeys? = null
 
+    /** A hidden answer: how many units the library's input held when it arrived, and only a weak hold on it. */
+    val hiddenUnits = ArrayList<Int>()
+    var hiddenSecret: WeakReference<SecretInput>? = null
+    val hiddenScript = ArrayDeque<Outcome<String>>()
+    val uploads = ArrayList<Triple<String, String?, String?>>()
+    val trees = HashMap<String, Tree>()
+    var groups = 0
+    val taskFiles = HashMap<Pair<String, Long>, ByteArray>()
+    var recent: Outcome<RecentFiles> = Outcome.Ok(RecentFiles(emptyList(), 0u))
+    var found: Outcome<FoundFiles>? = null
+    val reports = ArrayList<DeviceReport>()
+    var wanted: String? = null
+    val located = ArrayList<Triple<String, LocationFix?, String?>>()
+
     override suspend fun transcript(): Outcome<TranscriptView?> = Outcome.Ok(view?.copy(outbox = outbox.toList()))
     override suspend fun sync(): Outcome<Unit> { calls += "sync"; return Outcome.Ok(Unit) }
     override suspend fun send(text: String): Outcome<OutboxItem> {
@@ -85,6 +106,16 @@ class FakePhone : PhoneApi {
         answers += input to signer
         signer?.sign("payload")
         return answerScript.removeFirstOrNull() ?: Outcome.Ok("{}")
+    }
+    override suspend fun answerHidden(approvalId: String, secret: SecretInput, signer: Signer): Outcome<String> {
+        calls += "hidden:$approvalId"
+        hiddenUnits += secret.len().toInt()
+        hiddenSecret = WeakReference(secret)
+        val sig = signer.sign("hidden")
+        // the library empties and overwrites its copy whatever happens (mobile.rs answer_hidden)
+        secret.clear()
+        if (sig == null) return Outcome.Failed(FerbException.NotSigned("Nothing was sent.", null))
+        return hiddenScript.removeFirstOrNull() ?: Outcome.Ok("{}")
     }
     override suspend fun stop(taskIds: List<String>): Outcome<Unit> { calls += "stop:${taskIds.joinToString()}"; return stopResult }
     override suspend fun loadOlder(conversation: String): Outcome<OlderState> { calls += "older"; return Outcome.Ok(OlderState.Complete) }
@@ -131,8 +162,9 @@ class FakePhone : PhoneApi {
         listener.progress(fetchBytes.size.toULong(), fetchBytes.size.toULong())
         return Outcome.Ok(Fetched(path.substringAfterLast('/'), saveTo, (fetchBytes.size - offset).toULong(), fetchBytes.size.toULong()))
     }
-    override suspend fun upload(id: String, localPath: String, name: String, resume: String?, listener: TransferListener): Outcome<Uploaded> {
+    override suspend fun upload(id: String, localPath: String, name: String, resume: String?, group: String?, rel: String?, listener: TransferListener): Outcome<Uploaded> {
         calls += "upload:$name:${resume ?: "-"}"
+        uploads += Triple(name, group, rel)
         uploadRefusal?.let { return it }
         val size = File(localPath).length()
         listener.accepted(resume ?: "up-$name", 0u)
@@ -140,6 +172,30 @@ class FakePhone : PhoneApi {
         return Outcome.Ok(Uploaded(resume ?: "up-$name", "~/Downloads/FERB/$name", size.toULong()))
     }
     override suspend fun cancelTransfer(id: String): Outcome<Unit> { cancelled += id; fetchGate?.complete(Unit); return Outcome.Ok(Unit) }
+    override suspend fun tree(path: String, signer: Signer?): Outcome<Tree> {
+        calls += "tree:$path:${signer != null}"
+        return trees[path]?.let { Outcome.Ok(it) } ?: Outcome.Failed(FerbException.NotFound("No such folder.", null))
+    }
+    override suspend fun putGroup(name: String): Outcome<String> { calls += "group:$name"; groups++; return Outcome.Ok("g-$groups") }
+    override suspend fun fetchTaskFile(id: String, taskId: String, index: Long, saveTo: String, listener: TransferListener): Outcome<Fetched> {
+        calls += "task-file:$taskId:$index"
+        val bytes = taskFiles[taskId to index] ?: return Outcome.Failed(FerbException.NotFound("FERB has no such file.", "not_found"))
+        File(saveTo).apply { parentFile?.mkdirs(); writeBytes(bytes) }
+        listener.progress(bytes.size.toULong(), bytes.size.toULong())
+        return Outcome.Ok(Fetched("f", saveTo, bytes.size.toULong(), bytes.size.toULong()))
+    }
+    override suspend fun recentFiles(limit: Int): Outcome<RecentFiles> { calls += "recent:$limit"; return recent }
+    override suspend fun searchFiles(query: String, path: String?): Outcome<FoundFiles> {
+        calls += "search:$query:${path ?: "~"}"
+        return found ?: Outcome.Ok(FoundFiles(path ?: "~", query, emptyList(), 0u, 0u, false, false))
+    }
+    override suspend fun reportDevice(report: DeviceReport): Outcome<Boolean> { reports += report; return Outcome.Ok(true) }
+    override suspend fun locationWanted(): Outcome<String?> = Outcome.Ok(wanted)
+    override suspend fun answerLocation(requestId: String, fix: LocationFix?, whyNot: String?): Outcome<Unit> {
+        located += Triple(requestId, fix, whyNot)
+        if (wanted == requestId) wanted = null
+        return Outcome.Ok(Unit)
+    }
     override suspend fun watchLive(taskId: String, sink: PreviewSink): Outcome<Live> {
         calls += "live:$taskId"
         preview = sink

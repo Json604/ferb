@@ -28,7 +28,7 @@ pub use callbacks::{
 };
 pub use error::{FerbError, TransportError};
 pub use link::{Link, LinkConfig, LinkListener, LinkPhase, LinkProblem, LinkStatus, RelayStatus};
-pub use mobile::{AnswerInput, LivePreview, Mobile, MobileConfig, PreviewSink};
+pub use mobile::{AnswerInput, LivePreview, Mobile, MobileConfig, PreviewSink, SecretInput};
 
 /// This library's version (the engine's).
 #[uniffi::export]

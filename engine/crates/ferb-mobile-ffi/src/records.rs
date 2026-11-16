@@ -951,6 +951,11 @@ pub enum Change {
     Status,
     /// What the Mac told about itself changed: read `cached_mac_info` again.
     Mac,
+    /// The Mac asks for one precise fix of this phone's location, after the owner said Yes to it for a task: read one
+    /// (asking Android's permission then if needed) and answer with `answer_location`.
+    LocationWanted {
+        request_id: String,
+    },
     /// "Forget this Mac" ran or the core closed: every call now answers `closed`.
     Closed,
 }
@@ -966,7 +971,140 @@ impl Conv<Change> for ferb_mobile::Change {
             ferb_mobile::Change::Older { conversation } => Change::Older { conversation },
             ferb_mobile::Change::Status => Change::Status,
             ferb_mobile::Change::Mac => Change::Mac,
+            ferb_mobile::Change::LocationWanted { request_id } => {
+                Change::LocationWanted { request_id }
+            }
             ferb_mobile::Change::Closed => Change::Closed,
         }
+    }
+}
+
+// ---- the phone's own record and finding the Mac's files (T-1214, T-1211) ------------------------------------------
+
+/// A coarse place as the phone's geocoder named it: city, region, country, ISO code. Never coordinates.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, uniffi::Record)]
+pub struct DevicePlace {
+    pub city: String,
+    pub region: String,
+    pub country: String,
+    pub country_code: String,
+}
+
+/// What the phone tells FERB about itself (`Mobile.report_device`): what the app read from Android's own callbacks.
+/// A field it could not read is empty or none. `location`: "on", "off", "denied" or "unavailable".
+#[derive(Debug, Clone, PartialEq, Serialize, uniffi::Record)]
+pub struct DeviceReport {
+    pub name: String,
+    pub model: String,
+    pub os: String,
+    pub time_zone: String,
+    pub utc_offset_minutes: i32,
+    pub location: String,
+    pub place: Option<DevicePlace>,
+    pub battery_percent: Option<u8>,
+    pub charging: Option<bool>,
+    pub power_saver: Option<bool>,
+    pub network: String,
+    pub locale: String,
+    pub languages: Vec<String>,
+    pub screen_on: Option<bool>,
+    pub screen_locked: Option<bool>,
+}
+
+impl From<DeviceReport> for ferb_mobile::DeviceReport {
+    fn from(r: DeviceReport) -> Self {
+        let DeviceReport {
+            name,
+            model,
+            os,
+            time_zone,
+            utc_offset_minutes,
+            location,
+            place,
+            battery_percent,
+            charging,
+            power_saver,
+            network,
+            locale,
+            languages,
+            screen_on,
+            screen_locked,
+        } = r;
+        ferb_mobile::DeviceReport {
+            name,
+            model,
+            os,
+            time_zone,
+            utc_offset_minutes,
+            location,
+            place: place.map(|p| {
+                let DevicePlace {
+                    city,
+                    region,
+                    country,
+                    country_code,
+                } = p;
+                ferb_mobile::Place {
+                    city,
+                    region,
+                    country,
+                    country_code,
+                }
+            }),
+            battery_percent,
+            charging,
+            power_saver,
+            network,
+            locale,
+            languages,
+            screen_on,
+            screen_locked,
+        }
+    }
+}
+
+/// One precise fix the app read for the Mac's request (`Mobile.answer_location`).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, uniffi::Record)]
+pub struct LocationFix {
+    pub latitude: f64,
+    pub longitude: f64,
+    pub accuracy_m: f64,
+}
+
+mirror! {
+    /// One file the Mac found: `source` "made" (a task's result), "fetched" or "sent" (by this phone) for recent
+    /// files, "" for a search; `at` when; the task that made it.
+    FoundFile from ferb_mobile::FoundFile {
+        name: String,
+        path: String,
+        dir: bool,
+        size: u64,
+        modified: i64,
+        source: String,
+        at: Option<String>,
+        task_id: Option<String>,
+        task_name: Option<String>,
+    }
+}
+
+mirror! {
+    /// The Mac's recent files for this phone; `skipped`: key places and files gone, left out.
+    RecentFiles from ferb_mobile::RecentFiles {
+        files: Vec<FoundFile>,
+        skipped: u64,
+    }
+}
+
+mirror! {
+    /// A search of names under `path`: `looked` names looked at, `skipped` key places not looked into, `cut` more
+    /// matched than sent, `incomplete` the search stopped before it looked at every name.
+    FoundFiles from ferb_mobile::FoundFiles {
+        path: String,
+        query: String,
+        files: Vec<FoundFile>,
+        looked: u64,
+        skipped: u64,
+        cut: bool,
+        incomplete: bool,
     }
 }

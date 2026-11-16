@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  FERB's privacy manifest (kb PHN-568). No tracking, no tracking domains, nothing collected by FERB's makers: what the
+  app sends goes to the owner's own Mac, end to end encrypted. The required-reason APIs are what
+  engine/crates/ferb-link/tools/ios_api_check.py lists for the phone library (apps/ios/build/rust/ios_api_check.txt:
+  stat, fstat, lstat, statfs, fstatfs, all from SQLCipher's C code, the encrypted store in the app's container) and
+  what the app's Swift uses (UserDefaults for its own switches and tab; file dates of its own fetched files).
+-->
+<plist version="1.0">
+<dict>
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array/>
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<!-- files inside the app's container: the store (SQLite's own stat calls), fetched files' age -->
+				<string>C617.1</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryDiskSpace</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<!-- SQLite reads the volume's facts (statfs, fstatfs) before writing the store -->
+				<string>E174.1</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<!-- the app's own switches and where it was, read and written only by the app -->
+				<string>CA92.1</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

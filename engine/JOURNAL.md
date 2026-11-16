@@ -5265,3 +5265,201 @@ on one session ends that session's window; another session of the same phone (a 
 "Jev decisions" is FERB.app's own title for `retention.decision_days` and Jev is paused: the words are the owner's.
 The kb check passes only once the new test files are tracked (kb reads `git ls-files`; checked with a temporary
 index: ok). THIRD_PARTY_NOTICES needs nothing new from this entry.
+
+## 2026-11-16 · 117 · T-1214 and T-1211's rest: each phone's own facts for FERB, its exact spot after a Yes; whole folders, recent files and a name search; hidden answers by code units; a bridge bug
+
+**What.** kb T-1214 (deleted), T-1205 (deleted: only the owner's live checks LIVE-1100.. remained), T-1211's leftovers
+(kept for speaking, the strings' approval and the live checks), T-1200's stale `why` (iOS builds since PHN-478; the
+workspace by PHN-486; left: a recorded direct path, PHN-220's beacon proposal). Rulings PHN-523..538, SENSE-423, GATE-614;
+question T-1222; T-1217 asks the search bound too; LIVE-1145, LIVE-1146.
+- **The phone's record (PHN-523).** ferb-rpc: `phone.device_report` (plain, allowed locked), `phone.recent` and
+  `phone.search` (private), a new `auth::PHONE_OWN`; classes.json written again. ferb-daemon `phone/device.rs`: the
+  record cleaned (an IANA zone this Mac knows, else only the offset; the city only while `location` is "on"; never a
+  coordinate; known location states and network kinds only), taken inside the unlock window or, while the app is locked,
+  from a session that proved the device key; memory only; kept while connected and 12 h (`unlock_max_s`) after the last
+  report or disconnect (decided simply: the longest an unlock lasts; a restart forgets all, the phone tells again on its
+  next connection); a removal drops it. `want_fix`/`drop_fix`: one request to a connected phone through `link.events
+  location_wanted`, answered by the asked phone only (`{request_id, exact}` or `{request_id, error}`; an accuracy is
+  optional), audited without coordinates.
+- **The line and the lookup (SENSE-423).** `ferb_core::device::DeviceLine` gained `note`. ferbd's facts line: this Mac's,
+  then one per phone with a record: `- Phone “Moto”: Monday 2026-11-16 10:05, time zone Europe/London (UTC+00:00);
+  place: London, England, United Kingdom (city level); connected, in use now` (or `connected, locked` / `screen off` /
+  `connected`, from the phone's last report while connected; `not connected, last seen 2 h ago (Mon 16 Nov, 13:35)`
+  from the store's `last_seen`). A connected phone that hasn't reported gets `- Phone “Moto”: connected; it hasn't told
+  FERB its time or place since FERB started`. No frozen fixture changes: no recorded case has a phone. `device.facts`
+  adds `phones` (each with id, name, connected, status, last seen, its own name, model, OS, time, location state, city
+  or why not, battery, battery saver, network kind, screen, locale, languages; a fact unsaid left out) only when a phone
+  is paired, and a `device` argument (catalog_additions.json: description and schema) naming a phone for
+  `exact_location`.
+- **A phone's exact spot (GATE-614, PHN-524).** Asked once per task tree and device ("Use the exact location of your
+  phone “Moto” for this task?" / "FERB will ask your phone where it is right now. Until now it only knew its city. Your
+  answer holds for the rest of this task." / Use it, Not now); never by a look, never of a phone not connected; then the
+  phone is asked and has 60 s. The request and the fix are a few bytes of control text: they cross the public relay too.
+- **The bridge (PHN-525, a bug).** ferb-link refused every `phone.*` name from a phone ("is asked through the link's own
+  calls"), so `mac_info` (`phone.list`) and a second phone's `phone.remove` could never have worked against a real Mac:
+  the app's tests used a fake Mac. Now only `PHONE_SESSION` and `PHONE_FILES` are refused there; the rest go to the gate.
+  It also forwards `location_wanted` to that phone's sessions only. The crate's description no longer names the admin
+  socket and Keychain code S4 removed.
+- **Finding files (PHN-526..528).** ferb-daemon `phone/find.rs`: `phone.recent` (root tasks' outcome artifacts, newest
+  task first, from ferbd's new `made_files` seam; this phone's fetches and uploads from its own audit rows, a new
+  `ferb_store::phones::audit_ok_of`; newest first by the instant, each path once; a key place, FERB's data and a gone
+  file left out and counted); `phone.search` (names only, breadth first, hidden names, `~/Library` unless started there,
+  app bundles and links not entered; key places, key names and hard-linked files left out and counted; never started in a
+  key place; at most `list_max` results and `search_names_max` 100 000 names, both said). Both run off the runtime's
+  threads. ferbd `compose/phone.rs`: `task_file` from `tasks.outcome_json` (whole paths only), so `phone.read
+  {artifact}` works (seams-off.txt's `phone.no_task_file` gone).
+- **ferb-mobile `device.rs`, ferb-mobile-ffi.** `report_device` (sent when changed vs. what this connection has, again at
+  each connection's sync; a refusal waits for the next sync), `location_wanted`/`answer_location`
+  (`Change::LocationWanted`; the door and the FFI link forward the pushed event), `recent_files`, `search_files`,
+  `fetch_task_file` (`fetch` refactored into `fetch_what`). Hidden answers (PHN-529): `SecretInput` takes UTF-16 units
+  by value (`push`), grows by hand overwriting the old buffer, and `answer_hidden` decodes once and overwrites, sent or
+  not; `AnswerInput::Hidden` stays for older apps.
+- **The Android app (an Opus agent on this brief; PHN-530..538).** `DeviceSensors` registers once per process for the
+  time zone, battery (5-point steps or charging), battery saver, locale, screen on/off/present, location mode and the
+  default network, and reads model, OS and `DEVICE_NAME`; a pure `DeviceReporter`; no timer. City off until This phone →
+  "Share this phone's city with FERB" (FERB's words, then Android's coarse question); passive provider at 1 km plus one
+  network fix; the Geocoder only on the first fix and after 1 km; the sky from the coarse fix rounded to 2 decimals. The
+  exact fix only from FERB's sheet (Share once / Don't share; precise permission asked then; one fix within 20 s); in
+  the background a buttonless notification opens it. Files: a whole folder fetched file by file with progress, pause,
+  resume and Share of all; a folder sent as one group (copied file by file just before it goes) riding as one
+  attachment; Recent read when Files opens; a search field scoped to the open folder; result-card files by task and
+  index. Hidden answers: the keypad's and the password field's CharArray pushed into a `SecretInput`, zeroed at once,
+  the input cleared and destroyed in a `finally`. Manifest: ACCESS_COARSE_LOCATION and ACCESS_FINE_LOCATION (never
+  background). Strings: in strings.xml for the owner's approval; removed `feature_search`, `not_yet_search`,
+  `files_recent_not_yet`; `not_yet_voice` is the one "comes in an update" left.
+
+**What leaves the phone.** To the Mac: the record (city, region, country, code; never coordinates) and, after both
+Yeses, one fix. To the phone's geocoding service (Google's on a Motorola): the coarse coordinates, on the first fix and
+after a 1 km move. The city line reaches the model provider with every turn, as the Mac's does.
+
+**Evidence.** ferb-rpc all (classes.json written again; the locked list names `phone.device_report`). ferb-daemon
+tests/phone_device.rs 3 (who may report, the keep from the last report or disconnect, a fix answered only by the asked
+phone, one without accuracy), tests/phone_files.rs 26 (recent, search), tests/phone.rs 17. ferbd lib compose::device 6,
+compose::phone 1. ferb-mobile tests/device.rs 3 and the rest (51); ferb-mobile-ffi tests/device.rs 2 (`SecretInput`
+with a surrogate pair, a broken unit, closed, growth past 256); ffi.rs's answer test read the last call while the
+connect's sync ran on its own thread (failed 1 run in 6): it now takes the last non-sync call. ferb-link
+tests/real_daemon.rs 5 (new: `phone.list` through the real bridge, the request to one phone of two, the fix back).
+Clippy `-D warnings` on the workspace and the three phone crates. Android: design 80, core 29, app 78 JVM; emulator core 8,
+app 7 (one cold-boot PIN timing failure, then 2 of 2 alone and the full rerun passing). Goldens: new files-search,
+files-folder-whole, exact-location, share-city; changed files-places, files-folder, profile; the rest byte-identical.
+
+**Unverified / open.** Nothing against a real Mac or phone: no real Geocoder or GPS (Robolectric only), the real folder
+picker, multi-file Share, background location (little or none without background permission, by design), the screen's
+"locked" read at screen-off (a lock delay shows at the next event), a DST offset change (shows at the next event). The
+Motorola was not listed by adb: nothing installed. The hidden answer's Compose text buffer, the keyboard app and JVM
+copies can't be overwritten. A phone does not read the Mac's facts by a call (PHN-467 allows it): it asks FERB in the
+chat. T-1222 asks whether a locked app may report; T-1217 the three provisional numbers.
+
+## 2026-11-16 · 118 · Stage 4: the iPhone app in apps/ios, on the simulator: the library, the design, the core and the app, feature for feature with Android
+
+**What.** Stage 4 of ENG-1, built in six slices and tested on the iOS 18.6 simulator (Xcode 27.2); nothing ran on an
+iPhone (none here, no provisioning). Agent rulings PHN-560..574; tasks T-1240..1248. Two Opus agents did the design
+package (I3) and the app model (I5's model half) on briefs; I did the rest and checked theirs.
+- **I1, the library.** `apps/ios/tools/build-rust.sh`: `engine/patches/apply.sh`, release builds of ferb-mobile-ffi
+  for `aarch64-apple-ios` and `aarch64-apple-ios-sim` with `IPHONEOS_DEPLOYMENT_TARGET=17.0`, the Swift written by the
+  crate's own generator from the host library (the stripped archives keep no UniFFI metadata; the bindings' checksums
+  tie them), `ios_api_check.py` on the phone's dylib, `FerbMobileFFI.xcframework` (the two static archives, the header,
+  the module map) into `Packages/FerbMobile` (git-ignored, 308 MB of LTO objects; the linked dylib is 11.1 MB). Cargo's
+  output goes to `apps/ios/build/rust` and its log; the run is skipped when engine sources, lock files, patches, the
+  toolchain and the script are unchanged (a repeat: 11 s, "up to date"). The archives import CoreFoundation, Network,
+  Security, libSystem and libresolv only (no SystemConfiguration: PHN-478's patches hold); required-reason APIs are
+  stat, fstat, lstat, statfs, fstatfs, all from `sqlcipher.o` (nm). `aarch64-apple-ios-sim` is installed here but not in
+  `engine/rust-toolchain.toml` (the README says to add it). No x86_64 simulator slice (Apple silicon).
+- **I2, the project.** All code is in four Swift packages (`FerbMobile`, `FerbDesign`, `FerbCore`, `FerbApp`); the
+  project has three thin targets over Xcode's synchronized folders (`App`: `@main`, the icon, `PrivacyInfo.xcprivacy`;
+  `Gallery`; `UITests`) and is written by `tools/make_project.py` (object ids are hashes of names; `--check`); no
+  XcodeGen or Tuist (not installed, and a hand-kept pbxproj drifts). One command: `apps/ios/tools/build.sh` (`test`
+  runs every package's tests and the UI tests through the FERB scheme). The bundle id `com.ferb.phone` (Android's
+  applicationId) is `BUNDLE_ID` there. Simulator builds are signed ad hoc (`CODE_SIGN_IDENTITY=-`): an unsigned
+  simulator app has no entitlements and the Keychain refused it (the first run said "couldn't start": `exists` saw
+  -34018); no owner identity or Keychain item is touched. SwiftPM runs anonymously. The app icon is the logo's square
+  cropped full-bleed and flattened by hand (iOS masks icons and refuses alpha; REL-428 wants it from make_logo.py: T-1246).
+- **I3, FerbDesign** (agent; PHN-569). The glass lab (23a0fde, clean) copied as a library: tokens, Ink, the sky and
+  Astra's skies unchanged, the season layer (weather paused, PHN-412), every phone piece, the twelve screens as
+  stateless views with optional data and callbacks whose defaults draw the lab (PHN-509's rule), the words engine
+  (Words.swift and the lab's corpus.json byte for byte) and the time-zone table (549 zones, equal to Android's
+  ZonePlaces.kt), plus Android's additions (QR frame, folder list, Watch live page, settings sheet, message page) and
+  `FerbGallery`. Tests pin the numbers to apps/android `lab-numbers.json`, the sky to `sky-golden.json` (1e-9) and the
+  screens at dawn, noon and night (Delhi, 2026-11-14) to 45 PNG goldens at 402 x 874, scale 1, by an in-repo
+  ImageRenderer helper (swift-snapshot-testing isn't offline; `drawHierarchy` gives blanks without a host app), 0.1 %;
+  two recordings were byte-identical. Two lab bugs fixed in renders (the question sheet's No squeezed to nothing; the
+  pairing digits had no colour of their own), both as Android already draws them. I added two optional parameters
+  (UnlockPage's kind of biometric; ProfileSheet's lock title and a row in Stay connected's place); goldens unchanged.
+- **I4, FerbCore** (PHN-561, PHN-563). `FerbPhone` (`@MainActor @Observable`: state, link, `changes()` one stream per
+  reader; blocking calls on its own queues, `Outcome`), the `Vault` (Application Support/ferb excluded from backup,
+  completeUntilFirstUserAuthentication; `link.state` and `store.key` as Keychain items AfterFirstUnlockThisDeviceOnly,
+  never synchronizable; a new install deletes what an earlier one left, since iOS keeps Keychain items after an
+  uninstall; a link state this install kept and the Keychain lost is said, `keychainReset`, and wiped; the Keychain
+  unreadable before the first unlock is `not_ready`, never a wipe), the three keys (`SecureEnclaveBackend`: device
+  `.privateKeyUsage` AfterFirstUnlock; lock `.userPresence`, strong `.biometryCurrentSet`, both WhenPasscodeSet, a new
+  LAContext with the prompt's words per use; `SoftwareBackend` with CryptoKit for the simulator and tests; a strong key
+  reads GONE when the enrolled biometrics' state changed, without a prompt), `Proofs` (raw point plus the SPKI header;
+  DER signatures), `PhoneSignals` (NWPathMonitor, 400 ms, the first path not a change) and `Prompt`. iOS needs no DNS
+  context: no `NativeInit` twin.
+- **I5, the app.** `FerbAppModel` (agent; PHN-571..574): Android's FerbViewModel and model files feature for feature
+  (gates, pairing, chat with outbox and older pages, questions with routine/fingerprint/hidden needs, tasks, files both
+  ways with folders, recent and search, task files, Watch live, FERB's settings, Stop everything, the lock, the city
+  and the exact fix, the phone's facts, notifications planned as data, the lock telling the Mac), `Transfers.checkpoint`
+  before suspension and `resumeAfterBackground`. `FerbAppUI` (mine): the root and gates over the live sky, the tabs,
+  every sheet, the private answer (the lab's keypad for codes, a SecureField for passwords, code units handed over and
+  zeroed), Files with QuickLook and the share sheet on the owner's tap only, the Photos and Files pickers and a folder,
+  Watch live, the scanner (AVFoundation, PHN-564), local notifications with a category per question's buttons and the
+  public line as the hidden preview (PHN-573), the privacy cover (PHN-565), the background task that keeps the link up
+  until iOS ends it, then checkpoints, plans FERB's checks wordless and pauses the link (PHN-566), CoreLocation for the
+  city (reduced accuracy, Apple's geocoder) and the exact fix, the device facts. Info.plist: camera (Android's scan
+  words), Face ID, local network, location in use; no Bonjour types (PHN-204). `PrivacyInfo.xcprivacy`: no tracking;
+  FileTimestamp C617.1, DiskSpace E174.1, UserDefaults CA92.1 (PHN-568). Words: `tools/strings.py` writes the one
+  catalog from Android's strings.xml under the same names (PHN-567); 29 differ (Face ID, Touch ID or the passcode
+  through %@ where Android says fingerprint; Settings; no Stay connected; Apple's location service), 16 Android-only
+  are left out (channels, the prompt titles iOS draws itself, the Stay connected service), 13 are iOS-only.
+- **A UI-test seam**: a Debug build on the simulator honours `-FERBUITestUnlock YES` (the prompt alone passes: a UI test
+  can't answer Face ID's sheet; signing still goes through the keys) and `-FERBUITestFresh YES` (a new install).
+  Compiled out of Release and phone builds.
+
+**What reaches the iPhone when** (PHN-566, from the code: `Shell.swift` scene/beginBackground, `PhoneSignals`): open,
+everything; just left, everything for as long as iOS keeps FERB running (a background task; usually under 30 s), then
+transfers pause where they are and the link pauses; closed or suspended, nothing until FERB is opened (stage 5's push,
+T-1247). iOS can't blank screenshots (PHN-565): the app switcher shows a cover always, captures hide FERB (by the
+switch; always for Watch live and a private answer); a screenshot can't be stopped.
+
+**Evidence.** `apps/ios/tools/build.sh test` (4 min 30 s, the library up to date): FerbMobileTests 4 (sync from a fake
+Mac in Swift, the outbox with the Mac off, the store encrypted and other keys refused typed, the real link started on
+iOS: state handed over, a foreign state `bad_argument`, a typed code refused, a restart the same endpoint), FerbCoreTests
+14 (1 skipped: an unhosted bundle has no Keychain, -34018; the app itself proves it), FerbDesignTests 39, FerbAppTests
+67 (ChatModelTests: every conversation of scenarios.json, engine_chat.json, engine_more.json synced through the real
+library by a Swift FixtureMac), FERBUITests 4 on the simulator: launch locked with nothing of FERB's shown, one prompt
+to the pairing page, a typed code the Mac never made refused through the real link in Android's words, no camera
+offering the typed code, coming back within five minutes stays open. The iOS signature vectors
+(`engine/fixtures/phone/ios-signatures.json`, made on the simulator) checked by a verbatim copy of proof.rs's verify:
+4 of 4 as expected; Android's vectors and proof.rs's fixed RFC 6979 vector read the same in Swift. A Release build for
+`generic/platform=iOS` (unsigned): FERB.app 25 MB (its executable 26.2 MB with the Rust library linked in; no App Store thinning measured). The gallery ran on the simulator.
+
+**For the coordinator.** proof.rs (T-1244), beside `android_keystore_signatures_verify`:
+```rust
+    /// Signatures made by the iPhone app's FerbCore on the iOS simulator (a CryptoKit P-256 key through Proofs.swift:
+    /// the raw point plus the SPKI header, DER signatures, the encoding the Secure Enclave's keys take on a phone):
+    /// the Mac verifies them, and refuses one over another payload.
+    // decision: PHN-561
+    #[test]
+    fn ios_signatures_verify() {
+        let text = include_str!("../../../../fixtures/phone/ios-signatures.json");
+        let v: serde_json::Value = serde_json::from_str(text).unwrap();
+        for c in v["vectors"].as_array().unwrap() {
+            let ok = verify(c["key"].as_str().unwrap(), c["payload"].as_str().unwrap().as_bytes(), c["sig"].as_str().unwrap());
+            assert_eq!(ok, c["valid"].as_bool().unwrap(), "{}", c["what"]);
+        }
+    }
+```
+The gate (T-1248): `apps/ios/tools/build.sh test` (about 4.5 min warm; a cold library build adds about 4 min);
+`python3 -I apps/ios/tools/make_project.py --check` and `python3 -I apps/ios/tools/strings.py --check` alone take
+under a second.
+
+**Unverified / open.** No iPhone: no Secure Enclave key was made or used (software keys on the simulator through the
+same encoding), no Face ID or passcode prompt answered (the UI tests stand in for it), no camera, no Data Protection,
+no notification shown or answered on a device, no real suspension or checkpoint against the library, no picker from
+iCloud. No real Mac: no pairing, chat, answer, file or preview over a link to a Mac. TEST-508 says a test never reads
+the repository; the iOS tests read the engine's fixtures, Android's lab numbers and the design goldens through
+`#filePath`, as Android's tests read theirs (a note for the owner's rule). The goldens depend on this Xcode and
+simulator runtime (re-record on another). `notifications` are asked once, after FERB's words, when the phone is first
+paired (no switch to hang it on). The strings that differ from Android are for the owner (T-1245). THIRD_PARTY_NOTICES:
+nothing new beyond Android's list (UniFFI, SQLCipher in the library); no Swift dependency.

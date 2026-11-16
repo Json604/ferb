@@ -421,12 +421,26 @@ impl Mobile {
         signer: Option<Arc<dyn Signer>>,
         sink: Arc<dyn TransferSink>,
     ) -> MobileResult<Fetched> {
-        let t = self.shared.transport_bulk("This file")?;
         let mut params = json!({"what": "path", "path": path, "offset": offset});
         if let Some(s) = signer.as_ref() {
+            let t = self.shared.transport_bulk("This file")?;
             // the key place's proof is over the path alone (the Mac's `fresh`: `{path: as sent}`, method link.get)
             params["proof"] = Shared::proof(&t, "link.get", &json!({"path": path}), s)?;
         }
+        self.fetch_what(id, params, save_to, sink)
+    }
+
+    /// One file into `save_to` by the link's `get` (`params` name it: a path, or a task's file), resumed from the
+    /// params' `offset` when there is one.
+    pub(crate) fn fetch_what(
+        &self,
+        id: &str,
+        params: Value,
+        save_to: &str,
+        sink: Arc<dyn TransferSink>,
+    ) -> MobileResult<Fetched> {
+        let t = self.shared.transport_bulk("This file")?;
+        let offset = params["offset"].as_u64().unwrap_or(0);
         let reply = t
             .get(
                 id,
@@ -439,11 +453,18 @@ impl Mobile {
         let v = parse(&reply)?;
         let meta = &v["meta"];
         let received = v["received"].as_u64().unwrap_or(0);
+        let path = params["path"].as_str().unwrap_or("");
         Ok(Fetched {
             name: meta["name"]
                 .as_str()
                 .map(str::to_string)
-                .unwrap_or_else(|| path.rsplit('/').next().unwrap_or("file").to_string()),
+                .unwrap_or_else(|| {
+                    path.rsplit('/')
+                        .next()
+                        .filter(|n| !n.is_empty())
+                        .unwrap_or("file")
+                        .to_string()
+                }),
             saved_to: save_to.to_string(),
             received,
             total: meta["total"].as_u64().unwrap_or(offset + received),

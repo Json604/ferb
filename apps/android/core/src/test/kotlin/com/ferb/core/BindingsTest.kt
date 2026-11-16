@@ -11,6 +11,7 @@ import com.ferb.mobile.Listener
 import com.ferb.mobile.Mobile
 import com.ferb.mobile.MobileConfig
 import com.ferb.mobile.OlderState
+import com.ferb.mobile.SecretInput
 import com.ferb.mobile.Signer
 import com.ferb.mobile.libraryVersion
 import java.nio.file.Files
@@ -59,15 +60,20 @@ class BindingsTest {
         m.send("Hello from Kotlin")
         assertTrue(m.outbox().isEmpty())
         assertTrue(mac.sends.single().contains("\"submission_id\":\"sub-1\""))
-        // an answer is signed over the Mac's challenge; a hidden one without a signer is the typed error
+        // an answer is signed over the Mac's challenge
         val signer = Signs()
         m.answer("ap-1", AnswerInput.Approve(true, null), signer)
         assertTrue(signer.asked.single(), signer.asked.single().contains("\"challenge\":\"C-"))
-        try {
-            m.answer("ap-2", AnswerInput.Hidden("invented-secret"), null)
-            fail("a hidden answer without a signer")
-        } catch (_: FerbException.NeedsSigner) {
-        }
+        // decision: PHN-536
+        // a hidden answer goes from a SecretInput filled one UTF-16 unit at a time (never AnswerInput.Hidden's String),
+        // and the library empties it whatever happens (here the fake Mac refuses the answer)
+        val secret = SecretInput()
+        "invented-secret".forEach { secret.push(it.code.toUShort()) }
+        assertEquals(15u, secret.len())
+        runCatching { m.answerHidden("ap-2", secret, signer) }
+        assertTrue("emptied after the call", secret.isEmpty())
+        secret.destroy()
+        assertTrue("destroyed", runCatching { secret.len() }.isFailure)
         try {
             Mobile.open(Files.createTempDirectory("ferb-core-x").resolve("x.db").toString(), ByteArray(3), MobileConfig("p", 0, null, null, null), FixedClock(), Counted(), heard)
             fail("a short key")

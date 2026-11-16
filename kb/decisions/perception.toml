@@ -207,3 +207,14 @@ rule = "For SENSE-420. device.facts (scope none, owner and ferb identities, orig
 why = "T-1130: the owner prefers lookups over prompt bulk; one tool, so the worker listing grows once. Wi-Fi name and place are personal, so the result is labelled private (the sink rule applies); nothing here is stored but the call's record."
 evidence = "ferb-gateway catalog: listed after abilities.read in every grant that holds it; ferbd every_tool_through_the_program runs it in the composed daemon; the Mac reading is by hand only (TEST-508)."
 paths = ["engine/crates/ferbd/src/compose/device.rs::tool", "engine/crates/ferb-mac-hands/src/native/device.rs::read", "engine/crates/ferb-gateway/src/catalog_additions.json"]
+
+[SENSE-423]
+title = "Each paired phone's line after the Mac's, and its facts under phones in device.facts"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For SENSE-420, SENSE-421 (T-1214). After this Mac's line, one line per paired phone FERB has a record of: its name, wall time, zone, city while shared, then 'connected, in use now / locked / screen off' from its last report, or 'not connected, last seen 2 h ago'. device.facts lists them under phones; device names a phone for exact_location."
+why = "The owner wants each device's time and place known; the clause is facts only (the phone's own screen state as it reported it while connected), never a guess that the owner is with it. The recorded Python cases have no phone, so no frozen fixture changes."
+evidence = "ferbd compose::device tests a_phone_s_line_has_its_own_time_city_and_state, the_lookup_lists_each_phone_as_it_reported_itself; ferb-core device test."
+paths = ["engine/crates/ferbd/src/compose/device.rs::phone_line", "engine/crates/ferbd/src/compose/device.rs::phone_content"]
+live = ["LIVE-1145"]

@@ -244,6 +244,43 @@ pub fn audit_tail(conn: &Connection, limit: usize) -> Result<Vec<AuditRow>> {
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
+/// One phone's audit rows of these methods that ended `ok`, newest first, at most `limit` (T-1211: the files a phone
+/// fetched or sent, for its recent files).
+pub fn audit_ok_of(
+    conn: &Connection,
+    device: &str,
+    methods: &[&str],
+    limit: usize,
+) -> Result<Vec<AuditRow>> {
+    let marks = vec!["?"; methods.len().max(1)].join(", ");
+    let mut st = conn.prepare(&format!(
+        "SELECT at, device, method, class, outcome, detail_json FROM phone_audit \
+         WHERE device = ? AND outcome = 'ok' AND method IN ({marks}) ORDER BY seq DESC LIMIT ?"
+    ))?;
+    let mut args: Vec<rusqlite::types::Value> = vec![device.to_owned().into()];
+    args.extend(
+        methods
+            .iter()
+            .map(|m| rusqlite::types::Value::from((*m).to_owned())),
+    );
+    if methods.is_empty() {
+        args.push(String::new().into());
+    }
+    args.push((limit as i64).into());
+    let rows = st.query_map(rusqlite::params_from_iter(args), |r| {
+        let detail: String = r.get(5)?;
+        Ok(AuditRow {
+            at: r.get(0)?,
+            device: r.get(1)?,
+            method: r.get(2)?,
+            class: r.get(3)?,
+            outcome: r.get(4)?,
+            detail: serde_json::from_str(&detail).unwrap_or(Value::Null),
+        })
+    })?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
 /// Removes the audit rows written before `before` (an ISO time of the same form as `at`); how many went.
 pub fn prune_audit(conn: &Connection, before: &str) -> Result<usize> {
     Ok(conn.execute("DELETE FROM phone_audit WHERE at < ?", [before])?)

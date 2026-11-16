@@ -429,6 +429,26 @@ impl Bridge {
                     let _ = s.try_send(json!({"type": "notice", "error": ev["error"]}));
                 }
             }
+            Some("location_wanted") => {
+                // FERB asks this phone for one precise fix after the owner's Yes for a task (T-1214): a few bytes of
+                // text, carried on any path (the public relay too); the phone answers with phone.device_report
+                let id = ev["id"].as_str().unwrap_or_default().to_string();
+                let senders: Vec<mpsc::Sender<Value>> = self
+                    .inner
+                    .live
+                    .lock()
+                    .unwrap()
+                    .get(&id)
+                    .into_iter()
+                    .flatten()
+                    .map(|l| l.lock().unwrap().events.clone())
+                    .collect();
+                for s in senders {
+                    let _ = s.try_send(
+                        json!({"type": "location_wanted", "request_id": ev["request_id"]}),
+                    );
+                }
+            }
             Some("device_removed") => {
                 if let Some(id) = ev["id"].as_str() {
                     self.cut(id);
@@ -1745,12 +1765,19 @@ impl Session {
                 let _ = tx.set_priority(-1);
                 self.bulk_put(&mut tx, &mut rx, &req.params).await
             }
-            m if m.starts_with("phone.") => Err(LinkError::new(
-                errors::BAD_REQUEST,
-                format!(
-                    "{m} is asked through the link's own calls (link.get, link.files, link.put), which apply the limits of the connection."
-                ),
-            )),
+            // the phone session's own calls and the file calls go through the link's own (`link.*`), which apply
+            // the connection's limits; the phone area's other calls (`phone.list`, `phone.remove`, the phone's own
+            // device record, recent files and the name search) go on to FERB by their rows
+            m if ferb_rpc::auth::PHONE_SESSION.contains(&m)
+                || ferb_rpc::auth::PHONE_FILES.contains(&m) =>
+            {
+                Err(LinkError::new(
+                    errors::BAD_REQUEST,
+                    format!(
+                        "{m} is asked through the link's own calls (link.get, link.files, link.put), which apply the limits of the connection."
+                    ),
+                ))
+            }
             _ => self.forward(&mut tx, &mut rx, req).await,
         };
         // the audit: what was asked and how it ended; never a parameter's value (a path on the Mac is not one)

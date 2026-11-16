@@ -45,8 +45,8 @@ fn names(value: &Value) -> Vec<String> {
 fn the_method_table_is_python_s_plus_the_stage_2_additions() {
     use ferb_rpc::auth::{
         DATA_ADDITIONS, DEVICE_ADDITIONS, IDENTIFIER_ADDITIONS, LINK_ADDITIONS, OWNER_APP_ONLY,
-        PHONE_ADDITIONS, PHONE_FILES, PHONE_LINK_ADDITIONS, PHONE_SESSION, PROJECT_ADDITIONS,
-        STAGE2_ADDITIONS, UNINSTALL_ADDITIONS,
+        PHONE_ADDITIONS, PHONE_FILES, PHONE_LINK_ADDITIONS, PHONE_OWN, PHONE_SESSION,
+        PROJECT_ADDITIONS, STAGE2_ADDITIONS, UNINSTALL_ADDITIONS,
     };
     let table = fixture("table.json");
     let added = |name: &str| {
@@ -60,6 +60,7 @@ fn the_method_table_is_python_s_plus_the_stage_2_additions() {
             || PHONE_LINK_ADDITIONS.contains(&name)
             || PHONE_SESSION.contains(&name)
             || PHONE_FILES.contains(&name)
+            || PHONE_OWN.contains(&name)
             || LINK_ADDITIONS.contains(&name)
     };
     for role in Role::ALL {
@@ -119,7 +120,7 @@ fn the_method_table_is_python_s_plus_the_stage_2_additions() {
         );
     }
     // stage 3 (T-1202): a phone session's own calls belong to no role; the link helper's to its own role only
-    for name in PHONE_SESSION.iter().chain(&PHONE_FILES) {
+    for name in PHONE_SESSION.iter().chain(&PHONE_FILES).chain(&PHONE_OWN) {
         let row = METHODS.iter().find(|m| m.name == *name).unwrap();
         assert!(row.roles.is_empty() && !row.app_only, "{name}");
     }

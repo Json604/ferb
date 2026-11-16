@@ -152,6 +152,8 @@ pub const METHODS: &[Method] = &[
     // (PHONE_SESSION: no local role; the phone gate answers them with the proof each carries)
     m("phone.audit", &[Role::Cli], true),
     m("phone.challenge", &[], false),
+    // T-1214: the phone's own record (time, zone, city, battery) and the Mac's files it may find (PHONE_OWN)
+    m("phone.device_report", &[], false),
     // stage 3 S4 (T-1204): FERB.app's control of the phone link, relayed by the daemon to its helper
     // (PHONE_LINK_ADDITIONS, FERB.app's own)
     m("phone.enable", &[Role::Cli], true),
@@ -169,11 +171,13 @@ pub const METHODS: &[Method] = &[
     m("phone.put_end", &[], false),
     m("phone.put_group", &[], false),
     m("phone.read", &[], false),
+    m("phone.recent", &[], false),
     m("phone.relay_always", &[Role::Cli], true),
     m("phone.relay_set", &[Role::Cli], true),
     m("phone.relay_test", &[Role::Cli], true),
     m("phone.remove", &[Role::Cli], true),
     m("phone.rename", &[Role::Cli], true),
+    m("phone.search", &[], false),
     m("phone.session_end", &[], false),
     m("phone.tree", &[], false),
     m("phone.unlock", &[], false),
@@ -324,6 +328,12 @@ pub const PHONE_FILES: [&str; 7] = [
     "phone.read",
     "phone.tree",
 ];
+
+/// Stage 3 (T-1214, T-1211): a phone session's calls the daemon's phone area answers beside the files: the phone's own
+/// device record (its time zone, city, battery; and the one precise fix the owner said Yes to), the Mac's recent files
+/// (what FERB made, what this phone fetched or sent) and a search of file names. No local role may call them; the
+/// phone gate admits them by their rows, and the phone area judges every path as `PHONE_FILES` does.
+pub const PHONE_OWN: [&str; 3] = ["phone.device_report", "phone.recent", "phone.search"];
 
 /// Stage 3 S4 (T-1204): FERB.app's control of the phone link (Settings → Phone): the pairing code, the owner's relay,
 /// Always use my relay, how each phone is connected, the phone feature on or off. The daemon answers each, asking its
@@ -787,7 +797,7 @@ mod tests {
                 assert!(!allowed(role, name), "{name}");
             }
         }
-        for name in PHONE_SESSION {
+        for name in PHONE_SESSION.iter().chain(&PHONE_OWN) {
             assert!(method(name).is_some_and(|m| m.roles.is_empty()), "{name}");
             for role in [Role::Cli, Role::McpShim, Role::NativeHost, Role::Link] {
                 assert!(!allowed(role, name), "{name}");

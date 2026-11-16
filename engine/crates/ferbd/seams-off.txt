@@ -106,6 +106,5 @@ default Tool::background_pid | HAND-546: only a browser call works in an app fro
 default Tool::put_back | HAND-560: a Mac tool puts the owner's app back itself, inside its own call (HAND-549: MacTools::after_input); only a browser call's comes after the sampler's look.
 default Tool::prepare_publish | HAND-624: only project.publish works a push out before its question; the browser and Mac tools publish nothing.
 off browser.sealer_in_process | A daemon started without the Keychain (a test's) seals the owner's fills with the driver's own seal (the same AES-GCM format, ferb-identity seal.rs) instead of the signed helper's.
-off phone.no_task_file | A finished task's file by its index (`link.get {what: "file"}`) has no source in the composition yet (S3b, T-1203): the phone is told there is no such file; a path the owner could open is fetched by `link.get {what: "path"}`.
 value hook | FileSeams.hook: a test's moment between a phone file's check and its open (ferb-daemon tests/phone_files.rs); the real daemon has none.
 value keys | LinkOptions.keys: None is the real daemon's way, the link's one Keychain item through its own secrets helper (compose/link.rs HelperKeys, PHN-487); only a test daemon names its own store.

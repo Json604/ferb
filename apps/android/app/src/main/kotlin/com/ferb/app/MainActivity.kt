@@ -41,7 +41,8 @@ class MainActivity : ComponentActivity() {
             initializer {
                 val a = this@MainActivity.application as FerbApplication
                 val corpus = runCatching { a.assets.open("corpus.json").bufferedReader().use { Corpus(it.readText()) } }.getOrNull()
-                FerbViewModel(a.api, a.session, a.prefs, a::screenLockSet, corpus, createSavedStateHandle(), a.local)
+                FerbViewModel(a.api, a.session, a.prefs, a::screenLockSet, corpus, createSavedStateHandle(), a.local,
+                    locator = AndroidLocator(a), coarse = a.sensors.coarse, say = a::getString, locationAnswered = a.notifier::locationAnswered)
             }
         }
     }
@@ -85,8 +86,10 @@ class MainActivity : ComponentActivity() {
         val i = intent ?: return
         i.getStringExtra(EXTRA_QUESTION)?.let { vm.openQuestion(it) }
         i.getStringExtra(EXTRA_ENTRY)?.let { vm.openChat() }
+        i.getStringExtra(EXTRA_LOCATION)?.let { vm.openLocation(it) }
         i.removeExtra(EXTRA_QUESTION)
         i.removeExtra(EXTRA_ENTRY)
+        i.removeExtra(EXTRA_LOCATION)
     }
 
     private fun secure(on: Boolean) {
@@ -109,6 +112,13 @@ class MainActivity : ComponentActivity() {
         if (!file.isFile) return
         val i = if (share) Handout.share(this, file, name) else Handout.open(this, file, name)
         runCatching { startActivity(i) }.onSuccess { vm.handedOut(key) }
+    }
+
+    /** The owner tapped Share on a fetched folder: one share sheet for its files, each read-only for the app he picks. */
+    fun shareMany(files: List<java.io.File>) {
+        val here = files.filter { it.isFile }
+        if (here.isEmpty()) return
+        runCatching { startActivity(Handout.shareMany(this, here)) }
     }
 
     fun setBlockScreenshots(on: Boolean) {
@@ -156,5 +166,6 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val EXTRA_QUESTION = "com.ferb.app.QUESTION"
         const val EXTRA_ENTRY = "com.ferb.app.ENTRY"
+        const val EXTRA_LOCATION = "com.ferb.app.LOCATION"
     }
 }

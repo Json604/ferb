@@ -7,7 +7,7 @@ mod common;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-use ferb_rpc::auth::{allowed, Role, METHODS, PHONE_FILES, PHONE_SESSION};
+use ferb_rpc::auth::{allowed, Role, METHODS, PHONE_FILES, PHONE_OWN, PHONE_SESSION};
 use ferb_rpc::classes::{class, locked, phone_method, Class, Locked, PHONE_METHODS};
 use ferb_rpc::wire;
 use serde_json::{json, Value};
@@ -128,6 +128,7 @@ fn the_phone_reaches_everything_but_the_never_rows() {
         !m.roles.contains(&Role::Cli)
             && !PHONE_SESSION.contains(&m.name)
             && !PHONE_FILES.contains(&m.name)
+            && !PHONE_OWN.contains(&m.name)
     }) {
         assert_eq!(class(m.name), Class::Never, "{}", m.name);
     }
@@ -178,6 +179,9 @@ fn a_locked_phone_reaches_only_status_stop_and_self_proving_answers() {
     allowed_locked.extend(PHONE_SESSION);
     // and an upload's chunks and end, which ride the unlock its begin needed (stage 3 S3b, PHN-127)
     allowed_locked.extend(["phone.put_chunk", "phone.put_end"]);
+    // and the phone's own device record, which gives the phone nothing of FERB's; the daemon takes it while locked only
+    // from a connection that proved the phone's device key (T-1214, PHN-126)
+    allowed_locked.extend(["phone.device_report"]);
     assert_eq!(names(|row| row.locked == Locked::Allowed), allowed_locked);
     assert_eq!(
         names(|row| row.locked == Locked::Answer),

@@ -18,6 +18,7 @@ fetched until "Forget this Mac" (PHN-408). FERB.app's own fold is the golden for
 | `transport` | How the core reaches the Mac: the `Transport` trait (JSON as text), the link's codes and what each means. |
 | `door` | `DoorTransport`: the real link through ferb-link's JSON door (`LinkClient::command`/`poll`), without depending on ferb-link. |
 | `api` | `Mobile`, the object the apps use. |
+| `device` | The phone's own record for FERB and the Mac's request for one precise fix (T-1214); recent files and the name search (T-1211). |
 
 ## The API (for S8)
 
@@ -52,6 +53,10 @@ m.put_group(name)?; m.cancel_transfer(id)?;                        // a cancel i
 m.preview(task_id, have)?;               // one live-preview answer, the frame in memory only (PHN-454)
 m.settings()?; m.set_setting(key, value_json, signer)?;            // settings.set signed (PHN-404)
 m.tasks(limit, before)?; m.mac_info()?; m.cached_mac_info()?; m.register_keys(device, strong, signer)?;
+// T-1214, T-1211 (journal 117; `device`)
+m.report_device(report)?;               // phone.device_report when it changed; again at each connection's sync
+m.location_wanted()?; m.answer_location(request_id, fix, why_not)?;  // the Mac's one request for a precise fix
+m.recent_files(limit)?; m.search_files(query, path)?; m.fetch_task_file(id, task_id, index, save_to, sink)?;
 ```
 
 Files, folders and the preview are refused before anything is asked when the link's path carries no bulk

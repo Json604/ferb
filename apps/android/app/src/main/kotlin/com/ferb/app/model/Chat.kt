@@ -58,8 +58,11 @@ sealed interface ChatRow {
     data class Older(override val key: String, val state: OlderState) : ChatRow
 }
 
-/** One line of a result card or a file. */
-data class CardLine(val title: String, val detail: String?, val file: Boolean = false)
+/**
+ * One line of a result card or a file. A file a finished task made carries its [taskId] and [index] (its place among
+ * the outcome's sorted files): a tap fetches it from the Mac by those (kb PHN-535).
+ */
+data class CardLine(val title: String, val detail: String?, val file: Boolean = false, val taskId: String? = null, val index: Int? = null)
 
 object ChatModel {
     /** The rows of [view] with the outbox at the end. */
@@ -90,9 +93,9 @@ object ChatModel {
                     if (r.quotesRequest) turn?.words?.text?.let { out.add(ChatRow.Line("${r.entry}:quote", "“${oneLine(it)}”")) }
                     val said = r.said
                     when {
-                        said != null -> answer(r.entry, said, out)
+                        said != null -> answer(r.entry, said, out, turn?.taskId)
                         r.part == "question" -> turn?.question?.let { out.add(ChatRow.Ferb("${r.entry}:q", plain(it))) }
-                        else -> turn?.answer?.let { answer(r.entry, it, out) }
+                        else -> turn?.answer?.let { answer(r.entry, it, out, turn?.taskId) }
                     }
                 }
                 is Item.Notice -> notice(item.notice, out)
@@ -141,16 +144,16 @@ object ChatModel {
             live.activity?.let { out.add(ChatRow.Line("$e:activity", it)) }
             if (live.typing && live.streamingReply.isNullOrBlank()) out.add(ChatRow.Typing("$e:typing"))
         }
-        if (!t.answeredBelow) t.answer?.let { answer(e, it, out) }
+        if (!t.answeredBelow) t.answer?.let { answer(e, it, out, t.taskId) }
         else if (t.answer == null && t.question != null) out.add(ChatRow.Ferb("$e:asked", plain(t.question!!)))
     }
 
-    private fun answer(key: String, a: AnswerView, out: MutableList<ChatRow>) {
+    private fun answer(key: String, a: AnswerView, out: MutableList<ChatRow>, taskId: String?) {
         val text = plain(a.displayText ?: a.text)
         val extra = a.lines.orEmpty().filter { it.isNotBlank() }
         val body = (listOf(text) + extra).filter { it.isNotBlank() }.joinToString("\n")
         if (body.isNotEmpty()) out.add(ChatRow.Ferb("$key:answer", body))
-        val cards = a.cards.orEmpty().map(::cardLine) + a.artifacts.map { CardLine(fileName(it), folderOf(it), file = true) }
+        val cards = a.cards.orEmpty().map(::cardLine) + a.artifacts.mapIndexed { i, p -> CardLine(fileName(p), folderOf(p), file = true, taskId = taskId, index = i) }
         if (cards.isNotEmpty()) out.add(ChatRow.Cards("$key:cards", cards))
         a.note?.takeIf { it.isNotBlank() }?.let { out.add(ChatRow.Line("$key:note", it)) }
     }

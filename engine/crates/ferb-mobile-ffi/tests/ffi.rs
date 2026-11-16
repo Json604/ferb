@@ -126,7 +126,15 @@ fn answers_are_signed_never_queued() {
         Some(signer.clone()),
     )
     .unwrap();
-    let (method, params, proof) = mac.lock().calls.last().cloned().unwrap();
+    // (the sync the link's coming online started runs on its own thread meanwhile: the answer is the last answer call)
+    let (method, params, proof) = mac
+        .lock()
+        .calls
+        .iter()
+        .rev()
+        .find(|c| !c.0.starts_with("chat.entries"))
+        .cloned()
+        .unwrap();
     assert_eq!(method, "chat.approve");
     assert_eq!(params, json!({"approval_id": "ap-1", "granted": true}));
     let proof: Value = serde_json::from_str(&proof.unwrap()).unwrap();

@@ -56,6 +56,8 @@ pub struct MacState {
     pub frames: VecDeque<(Value, Vec<u8>)>,
     pub settings: serde_json::Map<String, Value>,
     pub mac_name: Option<String>,
+    /// `phone.device_report` refused as locked (an app locked on a connection that hasn't proved its device key).
+    pub device_locked: bool,
     /// Transfers by kind, with their params (get / put).
     pub transfers: Vec<(String, Value)>,
 }
@@ -94,6 +96,7 @@ impl FakeMac {
             frames: VecDeque::new(),
             settings: serde_json::Map::new(),
             mac_name: None,
+            device_locked: false,
             transfers: Vec::new(),
         })))
     }
@@ -354,6 +357,26 @@ impl Transport for FakeMac {
                  "updated_at": null, "answer": "", "verdict": null, "steps": {"done": 1, "total": 3}},
                 {"task_id": "t1", "name": "Backup", "goal": "Back up", "status": "done", "created_at": "2026-01-01T10:00:00+00:00",
                  "updated_at": "2026-01-01T11:00:00+00:00", "answer": "Copied.", "verdict": null}], "more": true}),
+            "phone.device_report" => {
+                if st.device_locked && p.get("request_id").is_none() {
+                    return Err(LinkFailure::new("locked", "Unlock first."));
+                }
+                if p.get("request_id").is_some() {
+                    json!({"delivered": true})
+                } else {
+                    json!({"ok": true})
+                }
+            }
+            "phone.recent" => json!({"files": [
+                {"name": "Invoice-Oct.pdf", "path": "/Users/o/Downloads/Invoice-Oct.pdf", "dir": false, "size": 4,
+                 "modified": 1, "source": "made", "at": "2026-11-16T09:00:00+05:30", "task_id": "t1",
+                 "task_name": "October invoice"},
+                {"name": "photo.jpg", "path": "/Users/o/Downloads/FERB from phone/photo.jpg", "dir": false, "size": 9,
+                 "modified": 2, "source": "sent", "at": "2026-11-16T08:00:00+05:30", "task_id": null, "task_name": null}],
+                "skipped": 2}),
+            "phone.search" => json!({"path": "/Users/o", "query": p["query"], "files": [
+                {"name": "Invoices", "path": "/Users/o/Documents/Invoices", "dir": true, "size": 0, "modified": 3}],
+                "looked": 1200, "skipped": 4, "cut": false, "incomplete": true}),
             "phone.list" => json!({"phones": [
                 {"id": "other", "name": "Old phone", "paired_at": "2026-01-01T00:00:00+00:00"},
                 {"id": "me", "name": "Pixel", "paired_at": "2026-11-10T09:00:00+00:00", "this": true}],
@@ -455,7 +478,15 @@ impl Transport for FakeMac {
                 .to_string(),
             );
         }
-        let path = p["path"].as_str().unwrap_or_default().to_string();
+        let path = if p["what"] == "file" {
+            format!(
+                "task:{}:{}",
+                p["task_id"].as_str().unwrap_or_default(),
+                p["index"]
+            )
+        } else {
+            p["path"].as_str().unwrap_or_default().to_string()
+        };
         if st.key_places.contains(&path) && p.get("proof").is_none() {
             return Err(LinkFailure::new(
                 "fresh_unlock_required",

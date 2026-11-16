@@ -10,7 +10,7 @@ rust-version = "1.100"
 publish = false
 # src/bin/ferb_link_mac.rs is a module of the ferb-link program, not a program of its own.
 autobins = false
-description = "The phone link (stage 3): one crate for both sides over iroh. The phone side (client, the app's door, limits, the protocol) builds for Android and iOS; the Mac side (bridge, admin socket, store, Keychain secrets, the code-signature check) only on macOS."
+description = "The phone link (stage 3): one crate for both sides over iroh. The phone side (client, the app's door, limits, the protocol) builds for Android and iOS; the Mac side (the bridge on the daemon's phone area, its store and the helper program) only on macOS."
 
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

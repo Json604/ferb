@@ -10,6 +10,12 @@ class Picked(val name: String, val size: Long?, val open: () -> InputStream?)
 /** A picked file copied into the app's own storage, ready to send. */
 data class Staged(val path: String, val name: String, val size: Long)
 
+/** A folder the owner picked in the system's folder picker: its name and every file under it (its path inside). */
+class PickedFolder(val name: String, val files: List<PickedFile>)
+
+/** One file of a [PickedFolder]: [rel] is its path inside the folder (`Scans/2026/a.pdf`). */
+class PickedFile(val rel: String, val size: Long?, val open: () -> InputStream?)
+
 /**
  * Where files live on the phone (PHN-11, PHN-15, PHN-16; kb ruling in the S11/T-1221 report): `cacheDir/files`, which
  * no backup or device transfer ever carries (the platform's rule for the cache, besides :core's manifest), private to
@@ -18,7 +24,11 @@ data class Staged(val path: String, val name: String, val size: Long)
  * `outgoing/<id>/<name>`: copies of what the owner picked, until sent. Only `fetched` is shared with other apps, and
  * only through FERB's FileProvider on the owner's tap.
  */
-class LocalFiles(val root: File, private val pick: (String) -> Picked?) {
+class LocalFiles(
+    val root: File,
+    private val pickFolder: (String) -> PickedFolder? = { null },
+    private val pick: (String) -> Picked?,
+) {
     val fetched: File get() = File(root, "fetched")
     val outgoing: File get() = File(root, "outgoing")
 
@@ -38,6 +48,33 @@ class LocalFiles(val root: File, private val pick: (String) -> Picked?) {
             dir.deleteRecursively()
             null
         }
+    }
+
+    /** Where a file of a whole folder fetched as [batch] is written: `fetched/<batch>/<folder>/<rel>`, each part made safe. */
+    fun folderTarget(batch: String, folder: String, rel: String): File =
+        File(File(File(fetched, batch), safe(folder)), safeRel(rel)).also { it.parentFile?.mkdirs() }
+
+    /** Where a file of a folder being sent waits, copied just before it goes: `outgoing/<batch>/<rel>`. */
+    fun sendTarget(batch: String, rel: String): File = File(File(outgoing, batch), safeRel(rel))
+
+    /** Reads a picked folder (a tree Uri as text): its name and files. Null when it can't be read. Blocking. */
+    fun folder(uri: String): PickedFolder? = runCatching { pickFolder(uri) }.getOrNull()
+
+    /** Copies one file of a picked folder to [target] (just before it is sent); false when it can't be read. Blocking. */
+    fun stageTo(target: File, open: () -> InputStream?): Boolean = try {
+        target.parentFile?.mkdirs()
+        val input = open() ?: return false
+        input.use { i -> target.outputStream().use { o -> i.copyTo(o) } }
+        true
+    } catch (e: Exception) {
+        target.delete()
+        false
+    }
+
+    /** Removes everything of one batch (a folder fetched or sent whole). */
+    fun removeBatch(batch: String) {
+        File(fetched, batch).deleteRecursively()
+        File(outgoing, batch).deleteRecursively()
     }
 
     /** Removes one transfer's file and its folder. */
@@ -75,5 +112,8 @@ class LocalFiles(val root: File, private val pick: (String) -> Picked?) {
             val n = name.substringAfterLast('/').substringAfterLast('\\').replace("\u0000", "").trim()
             return if (n.isEmpty() || n == "." || n == "..") "file" else n.take(200)
         }
+
+        /** A path inside a folder: each part made [safe], so nothing climbs out. */
+        fun safeRel(rel: String): String = rel.split('/', '\\').filter { it.isNotEmpty() }.joinToString("/") { safe(it) }.ifEmpty { "file" }
     }
 }

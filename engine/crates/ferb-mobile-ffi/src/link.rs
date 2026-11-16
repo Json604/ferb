@@ -325,6 +325,8 @@ impl LinkInner {
             }
             // the Mac's pushed `chat.status` (the bridge's, when it changes): what waits, for the notifications
             "status" => self.forward(text),
+            // the Mac asks for one precise fix after the owner's Yes for a task (T-1214)
+            "location_wanted" => self.forward(text),
             "persist" => {
                 let state = ev["state"].clone();
                 lock(&self.seen).paired = paired_in(&state);

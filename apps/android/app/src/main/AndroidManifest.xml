@@ -4,6 +4,11 @@
      POST_NOTIFICATIONS  FERB's questions and finished tasks (asked in context, PHN-415, PHN-421)
      FOREGROUND_SERVICE(_REMOTE_MESSAGING)  Stay connected (PHN-421, PHN-501)
      CAMERA  the pairing code's scanner, CameraX with zxing-cpp (PHN-447); asked when the owner taps Scan
+     ACCESS_COARSE_LOCATION  this phone's city for FERB on the Mac and the sky (SENSE-420, PHN-420); asked when the owner
+       turns on "Share this phone's city with FERB" in This phone, after FERB's own words
+     ACCESS_FINE_LOCATION  one exact fix when the Mac asks for it for a task the owner said yes to (GATE-613); asked
+       only then, on the phone's own sheet. No background location is ever asked: in the background Android gives FERB
+       little or no location.
      No boot permission: after a restart of the phone Stay connected comes back when FERB is opened. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
@@ -12,6 +17,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-feature android:name="android.hardware.location" android:required="false" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
 
     <!-- androidx.core adds a signature permission for ContextCompat.registerReceiver; FERB registers no receiver that way -->

@@ -8,6 +8,7 @@ import com.ferb.app.model.AnswerFlow
 import com.ferb.app.model.Answered
 import com.ferb.app.model.ChatModel
 import com.ferb.app.model.ChatRow
+import com.ferb.app.model.Coarse
 import com.ferb.app.model.Corpus
 import com.ferb.app.model.HomeWords
 import com.ferb.app.model.LiveWatch
@@ -42,12 +43,16 @@ import com.ferb.mobile.Change
 import com.ferb.mobile.FerbException
 import com.ferb.mobile.FileEntry
 import com.ferb.mobile.Folder
+import com.ferb.mobile.FoundFile
+import com.ferb.mobile.FoundFiles
 import com.ferb.mobile.LinkPath
 import com.ferb.mobile.LinkPhase
 import com.ferb.mobile.LinkStatus
 import com.ferb.mobile.MacInfo
 import com.ferb.mobile.OlderState
 import com.ferb.mobile.PhoneStatus
+import com.ferb.mobile.RecentFiles
+import com.ferb.mobile.SecretInput
 import com.ferb.mobile.Signer
 import com.ferb.mobile.TaskRow
 import com.ferb.mobile.TranscriptView
@@ -88,11 +93,16 @@ sealed interface Sheet {
     data class Days(val key: String) : Sheet
     data class Live(val taskId: String) : Sheet
     data class NotYet(val what: Feature) : Sheet
+
+    /** The Mac asks for this phone's exact location once, for a task (GATE-613); the owner says yes or no here. */
+    data class Location(val requestId: String) : Sheet
+
+    /** The words before Android's own question, when the owner turns on sharing the city (SENSE-420). */
+    data object City : Sheet
 }
 
 /** What the phone can't do yet (nothing on the Mac's side carries it): the screen says so plainly and fakes nothing. */
 enum class Feature(@StringRes val words: Int, @StringRes val text: Int) {
-    SEARCH(R.string.feature_search, R.string.not_yet_search),
     VOICE(R.string.feature_voice, R.string.not_yet_voice),
 }
 
@@ -100,7 +110,7 @@ enum class Feature(@StringRes val words: Int, @StringRes val text: Int) {
 data class Note(@StringRes val res: Int, val words: String? = null)
 
 /** This phone's own switches, as the profile sheet shows them. */
-data class PhoneSettings(val stayConnected: Boolean, val blockScreenshots: Boolean, val hideChecks: Boolean, val pairedSince: Long)
+data class PhoneSettings(val stayConnected: Boolean, val blockScreenshots: Boolean, val hideChecks: Boolean, val pairedSince: Long, val shareCity: Boolean = false)
 
 /** The prompts only the screen can show: the system's fingerprint prompt, with a key or without one. */
 interface Prompts {
@@ -110,12 +120,25 @@ interface Prompts {
     suspend fun local(): Boolean
 }
 
-/** The Files tab: the places' counts and the folder open. */
+/** The Files tab: the places' counts, the folder open, the Mac's recent files and a search. */
 data class FilesUi(
     val folder: Folder? = null,
     val loading: String? = null,
     val problem: Note? = null,
     val counts: Map<String, Long> = emptyMap(),
+    /** The Mac's recent files for this phone (`recentFiles`), or null before (or when they couldn't be read: [recentNote]). */
+    val recent: RecentFiles? = null,
+    val recentNote: Note? = null,
+    val search: SearchUi? = null,
+)
+
+/** A search of names on the Mac: what was asked, where, and what came back (or why nothing did). */
+data class SearchUi(
+    val query: String,
+    val path: String?,
+    val loading: Boolean = true,
+    val found: FoundFiles? = null,
+    val problem: Note? = null,
 )
 
 data class UiState(
@@ -165,6 +188,14 @@ class FerbViewModel(
     private val saved: SavedStateHandle,
     private val local: LocalFiles,
     private val now: () -> Long = System::currentTimeMillis,
+    /** One exact fix for the Mac's request (GATE-613); null where the phone can't read one (tests without it). */
+    private val locator: Locator? = null,
+    /** The last coarse fix while the owner shares the city (SENSE-420): the sky's place; else the time zone's. */
+    private val coarse: StateFlow<Coarse?> = MutableStateFlow(null),
+    /** The app's words for what goes to the Mac (a string resource as text). */
+    private val say: (Int) -> String = { "" },
+    /** The location request was answered here: its notification goes. */
+    private val locationAnswered: () -> Unit = {},
 ) : ViewModel() {
     private val _ui = MutableStateFlow(UiState())
     val ui: StateFlow<UiState> = _ui.asStateFlow()
@@ -221,6 +252,7 @@ class FerbViewModel(
                     is Change.Closed -> Unit
                     is Change.Status -> apply(lastView)
                     is Change.Mac -> readMac()
+                    is Change.LocationWanted -> { pendingLocation = c.requestId; showPending() }
                     else -> refresh()
                 }
             }
@@ -237,10 +269,12 @@ class FerbViewModel(
             session.locked.collect { locked ->
                 if (!locked) {
                     refresh(); saved["home"] = true
+                    // a request for the exact location that came while the app was closed or locked
+                    (api.locationWanted() as? Outcome.Ok)?.value?.let { pendingLocation = it; showPending() }
                 } else {
                     // PHN-15: nothing private stays open; the preview stops, the fetched files go
                     live.stop()
-                    if (_sheet.value is Sheet.Live || _sheet.value is Sheet.Settings || _sheet.value is Sheet.Days) _sheet.value = null
+                    if (_sheet.value is Sheet.Live || _sheet.value is Sheet.Settings || _sheet.value is Sheet.Days || _sheet.value is Sheet.Location) _sheet.value = null
                     transfers.locked()
                     _ui.update { it.copy(files = FilesUi(), settings = null, macTasks = null) }
                 }
@@ -257,6 +291,7 @@ class FerbViewModel(
                     openedKeyFiles.clear()
                     withContext(Dispatchers.IO) { local.dropOld(now()) }
                     markRead()
+                    showPending()
                 }
             }
         }
@@ -314,12 +349,26 @@ class FerbViewModel(
     }
 
     private var pending: String? = null
+    private var pendingLocation: String? = null
+
+    /** A notification's tap: the Mac's request for the exact location opens as soon as the app is unlocked. */
+    fun openLocation(requestId: String) {
+        pendingLocation = requestId
+        showPending()
+    }
 
     private fun showPending() {
-        val id = pending ?: return
-        if (_ui.value.gate != Gate.MAIN) return
-        pending = null
-        show(Sheet.Asking(id))
+        if (_ui.value.gate != Gate.MAIN || session.locked.value) return
+        pending?.let { id ->
+            pending = null
+            show(Sheet.Asking(id))
+            return
+        }
+        val loc = pendingLocation ?: return
+        // in front: the sheet; in the background the Notifier posts the request instead (no answer without the app)
+        if (!session.front.value || (_sheet.value != null && _sheet.value !is Sheet.Location)) return
+        pendingLocation = null
+        show(Sheet.Location(loc))
     }
 
     // ---- reading ---------------------------------------------------------------------------------------------------
@@ -585,17 +634,21 @@ class FerbViewModel(
      * without one, the lock key's prompt) is asked up front; a plain No and an empty answer never ask. A refusal still
      * asks once, as before (AnswerFlow).
      */
-    fun answer(approvalId: String, input: AnswerInput, hidden: Boolean = false) = busy("answer:$approvalId") {
+    fun answer(approvalId: String, input: AnswerInput) = busy("answer:$approvalId") {
         val p = prompts ?: return@busy
         val q = _ui.value.questions.firstOrNull { it.approvalId == approvalId }
         val declines = (input is AnswerInput.Approve && !input.granted) || (input is AnswerInput.Words && input.text.isEmpty())
-        val upfront = if (q != null && q.needsProof && !declines && !hidden) {
+        val upfront = if (q != null && q.needsProof && !declines) {
             if (q.needs?.fingerprint == true) KeyKind.STRONG else KeyKind.LOCK
         } else {
             null
         }
         val flow = AnswerFlow(api, { api.state.value.keys }) { kind -> p.signer(kind, Why.YES) }
-        when (val r = flow.answer(approvalId, input, hidden, upfront)) {
+        answered(approvalId, flow.answer(approvalId, input, upfront))
+    }
+
+    private fun answered(approvalId: String, r: Answered) {
+        when (r) {
             Answered.Sent -> { if ((_sheet.value as? Sheet.Asking)?.approvalId == approvalId) _sheet.value = null; refresh() }
             Answered.NotSent -> Unit
             Answered.NeedsPairingAgain -> note(Note(R.string.answer_needs_pairing))
@@ -603,11 +656,49 @@ class FerbViewModel(
         }
     }
 
+    /**
+     * A hidden answer (PHN-109, PHN-110; kb PHN-536): the [count] typed characters of [chars] go into the library's
+     * [SecretInput] one UTF-16 unit at a time (each a plain number, so the secret never becomes a String or a byte
+     * buffer here), [chars] is overwritten with zeros at once, before anything else happens, and the SecretInput is
+     * emptied and destroyed when the answer ends, whether it was sent, refused or the prompt was cancelled (the owner
+     * types it again then). Nothing the view model keeps holds the secret.
+     */
+    fun answerHidden(approvalId: String, chars: CharArray, count: Int): Job {
+        val secret = SecretInput()
+        try {
+            for (i in 0 until count.coerceIn(0, chars.size)) secret.push(chars[i].code.toUShort())
+        } finally {
+            chars.fill('\u0000')
+        }
+        val what = "answer:$approvalId"
+        return viewModelScope.launch {
+            try {
+                val p = prompts ?: return@launch
+                if (what in _ui.value.busy) return@launch
+                _ui.update { it.copy(busy = it.busy + what) }
+                try {
+                    val flow = AnswerFlow(api, { api.state.value.keys }) { kind -> p.signer(kind, Why.YES) }
+                    answered(approvalId, flow.answerHidden(approvalId, secret))
+                } finally {
+                    _ui.update { it.copy(busy = it.busy - what) }
+                }
+            } finally {
+                runCatching { secret.clear() }
+                secret.destroy()
+            }
+        }
+    }
+
     // ---- files (PHN-113, PHN-115, PHN-121, PHN-127) ----------------------------------------------------------------
 
-    /** The Files tab opened: the places' counts, read only when cheap (no prompt; left out when they can't be read). */
+    /**
+     * The Files tab opened: the Mac's recent files for this phone (the Mac's unlock: asked once if its window closed)
+     * and the places' counts, read only when cheap (no prompt; left out when they can't be read).
+     */
     fun filesOpened() {
-        if (_ui.value.files.counts.isNotEmpty() || session.locked.value || api.link.value?.phase != LinkPhase.ONLINE) return
+        if (session.locked.value || api.link.value?.phase != LinkPhase.ONLINE) return
+        loadRecent()
+        if (_ui.value.files.counts.isNotEmpty()) return
         viewModelScope.launch {
             val counts = HashMap<String, Long>()
             for (place in PLACES) {
@@ -616,6 +707,67 @@ class FerbViewModel(
             }
             _ui.update { it.copy(files = it.files.copy(counts = counts)) }
         }
+    }
+
+    /** The Mac's recent files: made by FERB, fetched or sent by this phone (T-1211). */
+    fun loadRecent() = busy("recent") {
+        when (val r = unlocker.run { api.recentFiles(RECENT_FILES) }) {
+            is Outcome.Ok -> _ui.update { it.copy(files = it.files.copy(recent = r.value, recentNote = null)) }
+            is Outcome.Failed -> if (r.error !is FerbException.NotSigned) _ui.update { it.copy(files = it.files.copy(recentNote = errorNote(r.error))) }
+        }
+    }
+
+    /** Searches names on the Mac, inside the folder open (or the whole home folder). Never by contents. */
+    fun search(query: String) {
+        val q = query.trim()
+        if (q.isEmpty()) return
+        val path = _ui.value.files.folder?.path
+        _ui.update { it.copy(files = it.files.copy(search = SearchUi(q, path))) }
+        busy("search") {
+            val r = unlocker.run { api.searchFiles(q, path) }
+            _ui.update { u ->
+                val s = u.files.search?.takeIf { it.query == q && it.path == path } ?: return@update u
+                u.copy(files = u.files.copy(search = when (r) {
+                    is Outcome.Ok -> s.copy(loading = false, found = r.value)
+                    is Outcome.Failed -> s.copy(loading = false, problem = if (r.error is FerbException.NotSigned) Note(R.string.files_not_opened) else errorNote(r.error))
+                }))
+            }
+        }
+    }
+
+    fun closeSearch() = _ui.update { it.copy(files = it.files.copy(search = null)) }
+
+    /** A found or recent file: a folder opens in the browser (the search closes), a file is fetched as from a folder. */
+    fun openFound(f: FoundFile) {
+        if (f.dir) { closeSearch(); openFolder(f.path) } else transfers.fetch(f.path, f.name, f.size.toLong(), false)
+    }
+
+    /**
+     * Gets the open folder whole (PHN-13): the Mac lists every file under it, then each is fetched into this phone's
+     * fetched files. A key place's folder is not fetched whole (each of its files asks for the fingerprint by itself).
+     */
+    fun fetchFolder() = busy("tree") {
+        val f = _ui.value.files.folder ?: return@busy
+        if (f.locked) return@busy
+        when (val r = unlocker.run { api.tree(f.path, null) }) {
+            is Outcome.Ok -> if (r.value.files.isEmpty()) note(Note(R.string.files_tree_empty)) else transfers.fetchFolder(r.value)
+            is Outcome.Failed -> if (r.error !is FerbException.NotSigned) _ui.update { it.copy(files = it.files.copy(problem = filesNote(r.error))) }
+        }
+    }
+
+    /** A folder the owner picked in the system's folder picker (a tree Uri as text): sent whole to the Mac. */
+    fun sendFolder(uri: String, forChat: Boolean) = busy("stage") {
+        val folder = withContext(Dispatchers.IO) { local.folder(uri) }
+        when {
+            folder == null -> note(Note(R.string.files_folder_unreadable))
+            folder.files.isEmpty() -> note(Note(R.string.files_folder_empty))
+            else -> transfers.sendFolder(folder, forChat)
+        }
+    }
+
+    /** A file on a finished task's result card (kb PHN-535): fetched by the task and its place; opened on a tap. */
+    fun fetchTaskFile(taskId: String, index: Int, name: String) {
+        transfers.fetchTaskFile(taskId, index.toLong(), name)
     }
 
     /** Opens a folder of the Mac; a key place asks for the fingerprint for that very path first (PHN-121). */
@@ -760,11 +912,12 @@ class FerbViewModel(
         if (s is Sheet.Asking) { presented.add(s.approvalId); saved["presented"] = ArrayList(presented) }
         if (_sheet.value is Sheet.Live && s !is Sheet.Live) live.stop()
         _sheet.value = s
+        if (s == null && pendingLocation != null) showPending()
     }
 
     fun note(n: Note?) = _ui.update { it.copy(note = n) }
 
-    private fun readSettings() = PhoneSettings(prefs.stayConnected, prefs.blockScreenshots, prefs.hideChecksOnLockScreen, prefs.pairedSince)
+    private fun readSettings() = PhoneSettings(prefs.stayConnected, prefs.blockScreenshots, prefs.hideChecksOnLockScreen, prefs.pairedSince, prefs.shareCity)
 
     /** The profile's switches changed outside the view model (the service, the screenshot switch): read them again. */
     fun refreshProfile() { _settings.value = readSettings() }
@@ -798,7 +951,51 @@ class FerbViewModel(
         return c.texts(m)
     }
 
-    fun skyPlace(): SkyPlace = SkyPlace.fromZone(ZoneId.systemDefault())
+    /**
+     * The sky's place (PHN-420): the last coarse fix, rounded to 2 decimals, while the owner shares the city; else the
+     * time zone's principal place.
+     */
+    fun skyPlace(): SkyPlace = coarse.value?.let { SkyPlace(it.latitude, it.longitude, ZoneId.systemDefault()) } ?: SkyPlace.fromZone(ZoneId.systemDefault())
+
+    /** The coarse fix as it changes (the sky follows it). */
+    val skyFix: StateFlow<Coarse?> get() = coarse
+
+    // ---- the exact location for a task (GATE-613, SENSE-420; kb PHN-537) -----------------------------------------------
+
+    /**
+     * The owner said yes on the sheet: Android's permission was asked by the screen first ([granted]); then one fix
+     * (satellites where allowed, else the network, at most [EXACT_WAIT_MS]) goes to the Mac, or the reason none does.
+     */
+    fun shareLocation(requestId: String, granted: Boolean) = busy("location") {
+        val l = locator
+        val fix = if (granted && l != null && l.coarse()) l.exact(EXACT_WAIT_MS) else null
+        val why = when {
+            fix != null -> null
+            !granted || l == null || !l.coarse() -> say(R.string.loc_why_denied)
+            else -> say(R.string.loc_why_none)
+        }
+        answerLocation(requestId, fix, why)
+    }
+
+    /** The owner said no: the Mac is told at once, plainly. */
+    fun declineLocation(requestId: String) = busy("location") {
+        answerLocation(requestId, null, say(R.string.loc_why_no))
+    }
+
+    private suspend fun answerLocation(requestId: String, fix: com.ferb.mobile.LocationFix?, why: String?) {
+        if ((_sheet.value as? Sheet.Location)?.requestId == requestId) _sheet.value = null
+        locationAnswered()
+        when (val r = api.answerLocation(requestId, fix, why)) {
+            is Outcome.Ok -> note(Note(if (fix != null) R.string.exact_sent else R.string.exact_not_sent))
+            is Outcome.Failed -> failed(r.error)
+        }
+    }
+
+    /** The owner's switch for sharing the city changed (the screen asked Android first): read the profile again. */
+    fun cityChanged(granted: Boolean) {
+        if (!granted) note(Note(R.string.city_denied))
+        refreshProfile()
+    }
 
     // ---- helpers ---------------------------------------------------------------------------------------------------
 
@@ -824,6 +1021,12 @@ class FerbViewModel(
     companion object {
         const val COLD_START_WAIT_MS = 6_000L
         const val TASKS_PAGE = 30
+
+        /** How many recent files the Files tab asks for. */
+        const val RECENT_FILES = 20
+
+        /** The exact fix's bound: the Mac waits 60 s for the answer; the owner's yes and the fix share that. */
+        const val EXACT_WAIT_MS = 20_000L
 
         /** The lab's three places (PhoneFilesPage), as the Mac's paths. */
         val PLACES = listOf("~/Desktop", "~/Documents", "~/Downloads")

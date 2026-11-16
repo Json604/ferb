@@ -9,15 +9,15 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | app | FERB.app (notch UI, intro, sounds) | `apps/mac`, `apps/AGENTS.md`, `apps/docs`, `apps/output`, `apps/.gitignore`, `demo` | 305 | 11 | 40 |
 | daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 92 | 8 | 7 |
 | engine | Rust engine (the rewrite) | `engine/*`, `engine/crates`, `engine/fixtures`, `engine/packaging` | 23 | 4 | 0 |
-| gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `engine/runtime/identity` | 122 | 9 | 61 |
+| gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `engine/runtime/identity` | 123 | 9 | 61 |
 | hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extension`, `extension-store` | 191 | 9 | 40 |
 | memory | Memory and memory import | `engine/runtime/memory` | 60 | 4 | 0 |
 | orchestration | Orchestration | `ferb/orchestrator/*.py`, `engine/runtime/decide`, `ferb/clock` | 163 | 9 | 38 |
-| perception | Perception | `ferb/sense` | 20 | 3 | 1 |
-| phone | Phone role, link and phone apps | `apps/android`, `apps/ios`, `engine/patches` | 186 | 8 | 16 |
+| perception | Perception | `ferb/sense` | 21 | 3 | 1 |
+| phone | Phone role, link and phone apps | `apps/android`, `apps/ios`, `engine/patches` | 217 | 14 | 18 |
 | project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `HANDOFF.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `kb`, `tools`, `spikes` | 13 | 8 | 0 |
 | prompts | Prompts and abilities | `engine/runtime/orchestrator/prompts`, `engine/runtime/abilities` | 48 | 4 | 10 |
-| release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 25 | 4 | 4 |
+| release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 25 | 5 | 4 |
 | runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 58 | 6 | 6 |
 | storage | Storage | `engine/runtime/store` | 33 | 5 | 4 |
 | tests | Tests | `tests` | 14 | 6 | 0 |
@@ -43,7 +43,12 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 - T-1117 (gateway): When you paste text into the box under one of FERB's questions, should it count as your own words like a paste in chat (today), or be treated as pasted data that can't name a site for the task and can't count as Yes or No?
 - T-1215 (phone): From the phone's notification, FERB's routine questions (the ones your 'don't ask for 30 minutes' covers on the Mac) are answered without the fingerprint. One of them is 'let FERB use your screen in an app'. Should that one need the fingerprint from the phone, as you listed screen use, or stay routine like on the Mac?
 - T-1216 (phone): When you send a file or a folder from the phone to the Mac, it lands in Downloads, in a folder named 'FERB from phone', marked as downloaded. Is that the place you want, or another folder (and should it be changeable in Settings → Phone)?
-- T-1217 (phone): Browsing a folder from the phone shows at most 500 of its entries (it says when it cut the rest), and fetching a whole folder takes at most 2,000 files at once. Keep those two limits, change them, or have none?
+- T-1217 (phone): From the phone: browsing a folder shows at most 500 of its entries, fetching a whole folder takes at most 2,000 files, and a name search looks at up to 100,000 names and shows at most 500 matches (each says when it stopped). Keep these limits, change them, or have none?
+- T-1222 (phone): With Stay connected on and FERB's app locked on the phone, the phone still tells your Mac its time zone, city (if you let it share it) and battery when they change, so FERB stays right about where and when you are. Nothing of FERB's goes to the locked phone. OK, or should it wait until you unlock the app?
+- T-1240 (phone): On iPhone an app can't stop screenshots. FERB covers itself in the app switcher, and hides while the screen is being recorded or mirrored (always for Watch live and private answers; for everything else with your 'Hide in screen recordings' switch, on by default). A screenshot taken while FERB is open shows what is on screen. Is that acceptable, or should Watch live not exist on iPhone?
+- T-1241 (phone): On iPhone, FERB's questions reach you while FERB is open and for a short while after you leave it; once iOS closes it, they wait on your Mac and show the moment you open FERB (until the closed-app notifications of stage 5). Where Android shows 'Stay connected', the iPhone shows 'While FERB is closed — Questions show when you open FERB'. OK as worded?
+- T-1242 (phone): For the iPhone app: keep the id com.ferb.phone (the Android app's), require iOS 17 or later (iPhone XS and newer), and which Apple developer team (the Mac's 8N7RNGH974?) signs it?
+- T-1245 (phone): The iPhone app uses the Android app's words, except where iPhone's differ; `python3 -I apps/ios/tools/strings.py --diff` lists every one (about 30). Are they right?
 
 ## Terms
 

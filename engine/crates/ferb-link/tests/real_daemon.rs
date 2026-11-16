@@ -304,9 +304,10 @@ async fn the_daemon_s_gate_decides_every_call() {
         .await
         .unwrap();
     assert_eq!(signed["method"], "settings.set");
+    // the phone area's own calls reach the daemon's gate by their rows (T-1214): FERB.app's are never a phone's
     assert_eq!(
         code(p.call("phone.pair_decide", json!({"yes": true})).await),
-        errors::BAD_REQUEST
+        errors::NOT_FROM_PHONE
     );
     assert_eq!(
         code(p.call("link.devices", json!({})).await),
@@ -314,6 +315,15 @@ async fn the_daemon_s_gate_decides_every_call() {
     );
     assert_eq!(
         code(p.call("phone.pair_start", json!({})).await),
+        errors::NOT_FROM_PHONE
+    );
+    // the session's and the files' own calls only through the link's (link.unlock, link.files, ...)
+    assert_eq!(
+        code(p.call("phone.files", json!({"path": "~"})).await),
+        errors::BAD_REQUEST
+    );
+    assert_eq!(
+        code(p.call("phone.unlock", json!({})).await),
         errors::BAD_REQUEST
     );
     // the daemon audited what the phone did, by class
@@ -419,4 +429,77 @@ async fn ferb_app_s_controls_reach_the_helper_through_the_daemon() {
     );
     assert_eq!(w.phones.code_cancel().await.unwrap()["ok"], true);
     drop(w.server);
+}
+
+/// T-1214, and a bridge bug found with it: a phone's `phone.list` (the Mac's name, this phone's pairing date),
+/// `phone.remove` and its own device record go through the bridge to the daemon's gate (the bridge refused every
+/// `phone.*` name before, so `mac_info` could never have worked against a real Mac); FERB's request for one precise fix
+/// reaches that phone only (`location_wanted`), and its answer reaches the daemon.
+// decision: PHN-525
+// decision: GATE-614
+// decision: PHN-523
+#[tokio::test(flavor = "multi_thread")]
+async fn the_phone_s_record_and_its_precise_fix_cross_the_real_bridge() {
+    let w = real(5).await;
+    let p = TestPhone::start("Moto", &w.shared, false, None, true).await;
+    w.pair(&p).await;
+    let other = TestPhone::start("Tab", &w.shared, false, None, true).await;
+    w.pair(&other).await;
+    p.unlock().await.expect("the signed unlock");
+    let listed = p.call("phone.list", json!({})).await.expect("phone.list");
+    assert!(
+        listed["phones"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["this"] == true && r["name"] == "Moto"),
+        "{listed}"
+    );
+    p.call(
+        "phone.device_report",
+        json!({"time_zone": "Asia/Kolkata", "location": "on",
+               "place": {"city": "Pune", "region": "Maharashtra", "country": "India", "country_code": "IN"}}),
+    )
+    .await
+    .expect("the phone's record");
+    let views = w.phones.device_views();
+    let me = views.iter().find(|v| v.name == "Moto").unwrap();
+    assert!(me.connected);
+    assert_eq!(
+        me.record.as_ref().unwrap().place.as_ref().unwrap().city,
+        "Pune"
+    );
+    let id = me.id.clone();
+    let rx = w.phones.want_fix(&id, "fix-1").expect("asked");
+    assert!(
+        wait(10, || p.seen.lock().unwrap().events.iter().any(
+            |e| e["type"] == "location_wanted" && e["request_id"] == "fix-1"
+        ))
+        .await,
+        "the phone never heard the request"
+    );
+    assert!(
+        !other
+            .seen
+            .lock()
+            .unwrap()
+            .events
+            .iter()
+            .any(|e| e["type"] == "location_wanted"),
+        "only the phone asked hears it"
+    );
+    let got = p
+        .call(
+            "phone.device_report",
+            json!({"request_id": "fix-1", "exact": {"latitude": 18.5, "longitude": 73.8, "accuracy_m": 20.0}}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(got["delivered"], true);
+    let fix = tokio::time::timeout(Duration::from_secs(5), rx)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!((fix.latitude, fix.longitude), (18.5, 73.8));
 }

@@ -726,6 +726,7 @@ words = "also we do need it, cause the major usecase of the phone is when im awa
 rule = "He was shown: is it needed, no; everything basic works on the free relay; your own relay only removes the size caps when you are away and cannot get direct. Own-relay setup, health and messages are first-class in the docs and in both apps; it stays optional."
 evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/net.toml NET-14."
 legacy = "ferb-phone-link@57b3f34 NET-14 (its paths are in the lab record)"
+live = ["LIVE-1103"]
 
 [PHN-215]
 title = "The relay setup says what it needs and checks it before it changes anything"
@@ -2018,3 +2019,304 @@ status = "active"
 rule = "For PHN-133. The vault keeps keys.mac, the public keys the Mac holds; a fingerprint key it lacks is offered as a This phone row and registered (link.keys) under the lock key's prompt."
 why = "A phone paired before a fingerprint was enrolled could not register one (journal 114); this asks only when there is something to register."
 evidence = "core RemoteTest; app FeaturesTest a_fingerprint_added_after_pairing_is_offered_and_registered."
+
+[PHN-523]
+title = "A phone's own record: phone.device_report, memory only, kept 12 h after it was last heard"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For SENSE-420, PHN-467 (T-1214). A phone sends its time zone, city (only while it shares it), battery, network kind, language and screen by phone.device_report (plain, allowed locked only from a session that proved its device key). The daemon keeps it in memory while connected and 12 h (unlock_max_s) after its last report or disconnect."
+why = "The Mac's place is memory only too (journal 104); 12 h is the longest one unlock lasts, so a record older than any unlock is not shown. The device key keeps a copied link key from writing where FERB thinks the phone is; nothing of FERB's goes to the phone."
+evidence = "ferb-daemon tests/phone_device.rs (who may report, the city never coordinates, the keep, removal); ferb-mobile tests/device.rs (sent on change and each connection, never on a timer)."
+paths = ["engine/crates/ferb-daemon/src/phone/device.rs::device_report", "engine/crates/ferb-mobile/src/device.rs::report_device"]
+
+[PHN-524]
+title = "Coordinates may cross any path of the link; the public relay carries the one precise fix"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-444, GATE-614. The Mac's location_wanted request and the phone's fix are a few bytes of control text, end-to-end encrypted like every message, so they cross the public relay too; only bulk (files, pictures, large replies) stays off it."
+why = "PHN-444 keeps the public relay to control-sized traffic for its limits, not for secrecy (the relay sees ciphertext only); refusing a 60-byte fix there would make the exact location fail away from home for no gain."
+evidence = "ferb-mobile tests/device.rs answers on shared_relay; ferb-link tests/real_daemon.rs carries the request and the fix."
+paths = ["engine/crates/ferb-link/src/bridge.rs::on_daemon_event"]
+live = ["LIVE-1145"]
+
+[PHN-525]
+title = "The bridge passes a phone's phone.* calls to the gate, except the session's and files' own"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "ferb-link's bridge refuses from a phone only the names in ferb-rpc auth::PHONE_SESSION and PHONE_FILES (they go through link.*, with the connection's limits); every other phone.* call (phone.list, phone.remove, phone.device_report, phone.recent, phone.search) goes to the daemon, whose gate decides by its row."
+why = "Found building T-1214: the bridge refused every phone.* name, so the app's mac_info (phone.list) and a second phone's removal could never have worked against a real Mac; the tests used a fake Mac."
+evidence = "ferb-link tests/real_daemon.rs the_phone_s_record_and_its_precise_fix_cross_the_real_bridge (phone.list through the bridge), the_daemon_s_gate_decides_every_call (never rows say not_from_phone)."
+paths = ["engine/crates/ferb-link/src/bridge.rs"]
+
+[PHN-526]
+title = "Recent files on the phone: what FERB's tasks made and what this phone fetched or sent"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-113 (T-1211). phone.recent (private) merges the files root tasks made (their outcome's artifacts) and this phone's own fetches and uploads (its audit rows), newest first, each path once; a key place, FERB's own data and a file gone since are left out and counted. Nothing new is recorded for it."
+why = "The daemon already holds both lists; a new record of the phone's history would be a second store of the same facts. The judge is the one every phone file call uses (PHN-482), so the list can't name what a fetch would refuse."
+evidence = "ferb-daemon tests/phone_files.rs recent_files_are_what_ferb_made_and_this_phone_moved_without_key_places; ferbd compose::phone tests."
+paths = ["engine/crates/ferb-daemon/src/phone/find.rs::recent", "engine/crates/ferbd/src/compose/phone.rs::made_files"]
+
+[PHN-527]
+title = "Search from the phone: names only, under a folder it may browse, never inside a key place"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-113 (T-1211). phone.search (private) matches names (case and Unicode form ignored), shallow folders first, never contents; it skips hidden names, ~/Library (unless started there), app bundles and links; key places and FERB's data are left out and counted; it never starts in a key place. At most list_max results and search_names_max (100 000) names looked at, both said when they stop."
+why = "The smallest sound search: the same judge as browsing, so a search shows nothing a listing wouldn't. Spotlight (mdfind) would reach content and places the judge can't see. The names bound keeps one search to seconds; it is provisional (T-1217)."
+evidence = "ferb-daemon tests/phone_files.rs a_name_search_never_looks_inside_key_places_and_says_when_it_stops."
+paths = ["engine/crates/ferb-daemon/src/phone/find.rs::search"]
+
+[PHN-528]
+title = "A finished task's files are the phone's by task and index, from the stored outcome"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-113 (T-1211). phone.read {artifact: {task_id, index}} reads the index-th whole path of that task's stored outcome artifacts (tasks.outcome_json, as the result card lists them), judged as any path; the phone library's fetch_task_file asks it through link.get what=file."
+why = "S3b left the source unset (task_file None): a result such as a downloaded invoice could be fetched only by typing its path. The outcome is what FERB.app's card shows, so index i is the card's i-th file."
+evidence = "ferbd compose::phone tests a_finished_task_s_files_are_the_phone_s_by_index_and_as_recent_files; ferb-mobile tests/device.rs."
+paths = ["engine/crates/ferbd/src/compose/phone.rs::task_file"]
+
+[PHN-529]
+title = "A hidden answer crosses the phone library one UTF-16 unit at a time and is overwritten"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-110, PHN-502. The apps hand a hidden answer to a SecretInput object unit by unit (each a number passed by value, never a string or byte buffer across the boundary); Mobile.answer_hidden takes it, decodes it once and overwrites every copy the library holds, sent or not. AnswerInput.Hidden stays for older apps."
+why = "S8 noted a hidden answer's text passed through UniFFI buffers nobody overwrites. Numbers by value leave no buffer; what remains is the app's own text field and the JVM's copies, which no library can reach."
+evidence = "ferb-mobile-ffi tests/device.rs a_hidden_answer_from_units_leaves_the_input_empty_whatever_happens."
+paths = ["engine/crates/ferb-mobile-ffi/src/mobile.rs::SecretInput"]
+
+[PHN-530]
+title = "The phone's facts come only from Android's own events, read in :app; no timer anywhere"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-523 (T-1214). DeviceSensors registers once per process for the time zone, battery (a 5-point step or a charging change), battery saver, locale, screen on/off/user present, location mode and the default network, and reads model, OS and DEVICE_NAME; a pure DeviceReporter turns them into the report. Nothing polls."
+why = "The owner's no-chatter brief: a report only when a fact changed. A pure reporter fed by injected events is testable on the JVM; the switch and the permission ask are the app's."
+evidence = "app DeviceTest: a day with no event sends nothing and no main-looper task is pending; broadcasts each send once."
+paths = ["apps/android/app/src/main/kotlin/com/ferb/app/DeviceSensors.kt", "apps/android/app/src/main/kotlin/com/ferb/app/model/Device.kt"]
+
+[PHN-531]
+title = "The phone's report goes on every change of its facts, its store or its link; the library dedupes"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-523. The app calls reportDevice whenever the facts, the phone's state or the link change; ferb-mobile sends only what this connection hasn't heard, and again on a new connection or pairing."
+why = "One rule in one place (the library) instead of the app tracking connections; a new connection or a Mac restarted must hear it again."
+evidence = "app DeviceTest; core DeviceFilesTest (sent again after a reconnect)."
+paths = ["apps/android/app/src/main/kotlin/com/ferb/app/model/Device.kt"]
+
+[PHN-532]
+title = "This phone's city is off until the owner turns it on; passive fixes, a geocode only after 1 km"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For SENSE-420. This phone → Share this phone's city with FERB shows FERB's words, then Android's coarse-location question. Fixes: the passive provider (1 km minimum) and one network fix when turned on or at start; Android's Geocoder only on the first fix and after a 1 km move; places in memory only. Background location is never asked."
+why = "SENSE-420: the phone asks its own permission. The passive provider costs nothing; the Geocoder sends the coarse fix to the phone's geocoding service (Google's on most phones), so it is asked as rarely as the Mac's (1 km)."
+evidence = "app DeviceTest (broadcasts, the permission, the 1 km rule, off forgets the place)."
+paths = ["apps/android/app/src/main/kotlin/com/ferb/app/DeviceSensors.kt"]
+
+[PHN-533]
+title = "A whole folder is fetched as its file list, file by file, in one batch; key-place folders are not"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-113, PHN-121 (T-1211). Get this whole folder reads phone.tree, then fetches each file into fetched/<batch>/<folder>/ with progress in files and bytes, pause, resume and cancel; a cut tree and left-out key files are said; Share hands all the files through the FileProvider. A key-place folder is not offered whole."
+why = "Pause and resume per file reuse the one-file fetch; a key place needs its own fingerprint per file (PHN-121), so a whole fetch of one would ask over and over."
+evidence = "app FilesMoreTest; core DeviceFilesTest."
+paths = ["apps/android/app/src/main/kotlin/com/ferb/app/model/Transfers.kt"]
+
+[PHN-534]
+title = "A folder is sent as one group, each file copied just before it goes; it rides as one attachment"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-127 (T-1211). The system folder picker (no storage permission), phone.put_group once, then each file uploaded with group and rel, copied into the app's cache only just before it goes; an unreadable file is left out and counted; the message carries the group id as its attachment (files.rs attachments takes a group)."
+why = "Copying the whole folder first would double its space on the phone; one attachment matches how the daemon lands a folder."
+evidence = "app FilesMoreTest; core DeviceFilesTest."
+paths = ["apps/android/app/src/main/kotlin/com/ferb/app/model/Transfers.kt"]
+
+[PHN-535]
+title = "A result card's file is fetched by its task and index, never by a path from the chat"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-528. A tap on a finished task's file calls fetchTaskFile(taskId, index); the Mac names its own file from the stored outcome."
+why = "The chat's text is data: a path read from it could name any file, while task and index can only name what that task made (and the Mac still judges it)."
+evidence = "app ChatModelTest over the fixtures, FilesMoreTest; core DeviceFilesTest."
+paths = ["apps/android/app/src/main/kotlin/com/ferb/app/model/Chat.kt"]
+
+[PHN-536]
+title = "A hidden answer becomes code units at once; the array is zeroed and the input destroyed"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-529, PHN-502. The keypad and the password field hand a CharArray to answerHidden, which pushes each char into a SecretInput, zeroes the array at once and clears and destroys the input in a finally; no String of the secret exists in :app or :core; AnswerInput.Hidden is not used."
+why = "S8's note: buffers nobody overwrote. What remains is Compose's text-field buffer, the keyboard app's memory and JVM copies, which the app can't reach."
+evidence = "app FilesMoreTest (sent, refused, cancelled: zeros, destroyed, a weak reference collected); core BindingsTest."
+paths = ["apps/android/app/src/main/kotlin/com/ferb/app/FerbViewModel.kt"]
+
+[PHN-537]
+title = "The exact fix is answered only from FERB's own sheet with the app open"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For GATE-614. On LocationWanted the open app shows a sheet (Share once / Don't share), asks Android's precise location only then, reads one fix within 20 s and answers; in the background a notification without buttons opens that sheet; a No, a closed sheet or a refusal sends a plain reason."
+why = "Coordinates never leave without the owner seeing FERB's own words on the phone; a notification button would share from the lock screen."
+evidence = "app DeviceTest (granted, denied, background notification, the answers)."
+paths = ["apps/android/app/src/main/kotlin/com/ferb/app/ui/Sheets.kt"]
+
+[PHN-538]
+title = "Recent files are read when Files opens; a search is scoped to the open folder"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-526, PHN-527. The Files tab reads recentFiles when it opens and shows made, fetched and sent with when and the task; its search field searches the folder open now (the Mac's home at the places page) and says what the Mac left out, cut or stopped."
+why = "No polling for recent files; a search inside the folder the owner is looking at is the narrowest one, which the Mac's bound rewards."
+evidence = "app FilesMoreTest; core DeviceFilesTest."
+paths = ["apps/android/app/src/main/kotlin/com/ferb/app/ui/Files.kt"]
+
+# ---- 2026-11-16: stage 4, the iPhone app (apps/ios), agent rulings
+
+[PHN-560]
+title = "The iPhone app needs iOS 17; the phone library itself builds for the same minimum"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "Stage 4. apps/ios targets iOS 17.0: the Xcode project, the four Swift packages and IPHONEOS_DEPLOYMENT_TARGET of the Rust build (apps/ios/tools/build-rust.sh); ios_api_check.py checks the library against 17.0. iPhone only (no iPad layout), portrait."
+why = "The design is the glass lab's SwiftUI, written for iOS 17 (@Observable, UnevenRoundedRectangle, the lab's own .iOS(.v17)); iOS 17 runs on every iPhone iOS 18 does (XS and later). The library alone would run on iOS 13."
+evidence = "apps/ios builds and runs on the iOS 18.6 simulator; build/rust/ios_api_check.txt: every import declared and available on iOS 17.0."
+untestable = "A build setting: the build itself enforces it (build-rust.sh runs ios_api_check.py --min-ios 17.0; Xcode refuses an older target)."
+
+[PHN-561]
+title = "iPhone keys and storage: the Secure Enclave's three keys, two Keychain items, one excluded folder"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-443, PHN-448, PHN-494, PHN-497. Secure Enclave P-256: device .privateKeyUsage AfterFirstUnlockThisDeviceOnly; lock +.userPresence, strong +.biometryCurrentSet, both WhenPasscodeSetThisDeviceOnly, a new LAContext per use. link.state, store.key: Keychain AfterFirstUnlockThisDeviceOnly, not synchronizable. Application Support/ferb excluded from backup, completeUntilFirstUserAuthentication. Wire form: raw point plus SPKI header, DER signatures. A new install deletes old items."
+why = "Android's semantics on iOS's own primitives: no app wrap key (the Keychain is sealed by the Secure Enclave), nothing in iCloud or a backup, Keychain items that outlive an uninstall never reused. The simulator has no Secure Enclave: software keys through the same encoding."
+evidence = "FerbCore KeysTests, VaultTests, FerbPhoneTests on the simulator; engine/fixtures/phone/ios-signatures.json verified by a verbatim copy of proof.rs (4 of 4 as expected)."
+
+[PHN-562]
+title = "The iPhone app's code is in four Swift packages; the Xcode project is written by a script"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "Stage 4. apps/ios/Packages: FerbMobile (the Rust xcframework and its generated Swift), FerbDesign, FerbCore, FerbApp. FERB.xcodeproj holds three thin targets over synchronized folders (App, Gallery, UITests) and is written by tools/make_project.py (deterministic, --check); no XcodeGen or Tuist. The bundle id com.ferb.phone is BUNDLE_ID there. Simulator builds are signed ad hoc (Sign to Run Locally); no team in the repo."
+why = "A hand-kept project drifts and conflicts; packages test alone on the simulator; nothing to install from the network. Ad hoc: an unsigned simulator app has no entitlements, so the Keychain refuses it (seen: the start failed with the Keychain unreadable)."
+evidence = "apps/ios/tools/build.sh builds FERB and FERB Gallery; make_project.py --check passes; the app started on the simulator only once signed ad hoc."
+untestable = "How the project is made: build.sh runs make_project.py --check before every build."
+
+[PHN-563]
+title = "FerbPhone on iPhone: the main actor, async calls off it, one stream of changes per reader"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-498. FerbCore FerbPhone is @MainActor @Observable (state, link); its blocking library calls run on its own queues (a serial one for start, pair and forget) and return Outcome; changes() gives each reader its own AsyncStream. PhoneSignals: the scene's phase to setActive, NWPathMonitor to networkChanged after 400 ms of quiet, the first path not a change. iOS needs no DNS context (no NativeInit twin)."
+why = "Android's FerbPhone with Swift's own tools; n0-dns-resolver reads nameservers through libresolv on iOS (PHN-478), so nothing like ndk_context exists."
+evidence = "FerbCore FerbPhoneTests (changes on the main actor, restart, refused state, pair, forget, close)."
+
+[PHN-564]
+title = "The iPhone scanner is AVFoundation's QR reader; without a camera the typed code"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-447, PHN-135. AVCaptureMetadataOutput, QR only, the back camera with continuous focus, the first code read once; the camera asked after the app's own words; denied or absent, the page says so and offers Type code. Not VisionKit's DataScannerViewController."
+why = "PHN-447 named AVFoundation; DataScanner needs a Neural Engine and refuses the simulator; one symbology, at once, nothing recorded."
+evidence = "FERBUITests testTheScannerWithoutACameraOffersTheTypedCode (the simulator has no camera); not run with a real camera."
+
+[PHN-565]
+title = "iOS can't blank screenshots: the app switcher is always covered, captures hide FERB"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-420, PHN-454, PHN-110 on iPhone. A cover (FERB's mark on black) whenever the scene is not active; while the screen is recorded or mirrored (UIScreen.isCaptured) the content is hidden when the owner's switch is on, always for Watch live and a private answer. A screenshot can't be prevented or blanked; no secure-field layer trick. The owner rules on this difference."
+why = "Android's FLAG_SECURE has no iOS equivalent; the documented signals are the scene phase and the capture state. The layer trick relies on undocumented behaviour."
+evidence = "FerbAppTests AppScreensTests (the cover when not active, captures by switch and always for Watch live and a private answer); the owner's question T-1240."
+
+[PHN-566]
+title = "iPhone has no Stay connected: the link lives while FERB runs, a short background, then pauses"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-421 on iPhone. Open: everything; left: a background task keeps the link up and local notifications posted until iOS ends it, then transfers checkpoint and the link pauses; closed or suspended: nothing until FERB opens (stage 5's push). This phone shows 'While FERB is closed' in Stay connected's place and says so. Notifications are asked once, after FERB's words, when first paired."
+why = "iOS gives apps no foreground service or open socket in the background; saying so is better than a switch that can't work."
+evidence = "apps/ios FerbAppUI Shell.swift scene/beginBackground; Transfers checkpoint tests; the owner's wording question T-1241."
+
+[PHN-567]
+title = "One iPhone string catalog, made from Android's strings.xml under the same names"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "apps/ios/tools/strings.py writes FerbAppModel's Localizable.xcstrings: every Android string and plural verbatim, except a listed set in iOS's words (Face ID/Touch ID/passcode through %@ where Android says fingerprint; Settings; no Stay connected), Android-only ones left out and a few iOS-only ones; --check in the build, --diff for the owner."
+why = "The owner approves the words once for both phones; a script keeps them from drifting and shows every difference."
+evidence = "apps/ios/tools/build.sh runs strings.py --check; FerbAppTests AppScreensTests testEveryKeyTheAppNamesIsInTheCatalog (and the plurals)."
+
+[PHN-568]
+title = "The iPhone app's privacy manifest: no tracking; file dates, disk space and its own defaults"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "App/PrivacyInfo.xcprivacy: no tracking, no domains, nothing collected; FileTimestamp C617.1 and DiskSpace E174.1 for SQLCipher's stat and statfs (ios_api_check.py lists them, from sqlcipher.o only), UserDefaults CA92.1. Info.plist: camera (Android's scan words), Face ID, local network and location in use; no Bonjour types (discovery is off, PHN-204)."
+why = "Apple refuses an app whose required-reason APIs are undeclared; the reasons are the narrowest that fit what the code does."
+evidence = "build/rust/ios_api_check.txt; nm of the archive: stat and statfs only in sqlcipher.o."
+untestable = "A manifest Apple reads at review; the import list it follows is checked by ios_api_check.py in every build."
+
+[PHN-569]
+title = "FerbDesign is the glass lab's Swift copied, pinned to Android's copy of the lab's numbers"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-416, PHN-457. Packages/FerbDesign copies the lab (23a0fde) Swift with its numbers; tests hold Ink, radii, spacing and type to apps/android lab-numbers.json, the sky to sky-golden.json (1e-9), the zone table to ZonePlaces.kt, and the twelve screens at dawn, noon and night to PNG goldens (ImageRenderer, 0.1 %). Screens take optional data and callbacks whose defaults draw the lab (PHN-509's rule)."
+why = "One design for both phones (the owner); the same numbers checked from both sides so neither drifts."
+evidence = "FerbDesignTests 39 on the simulator; goldens byte-identical across two recordings."
+
+[PHN-570]
+title = "The iPhone library build: one script, an xcframework of two static archives, skipped when unchanged"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-446, PHN-478. apps/ios/tools/build-rust.sh: apply.sh; release builds for aarch64-apple-ios and aarch64-apple-ios-sim; the Swift from the host library by the crate's own generator; ios_api_check.py on the phone's dylib; FerbMobileFFI.xcframework into the FerbMobile package (git-ignored); skipped when engine sources, locks, patches, the toolchain and the script are unchanged."
+why = "Android's cargo-ndk tasks for iPhone; the stripped archives keep no UniFFI metadata, so the host library feeds the generator and the checksums tie them."
+evidence = "Run twice: the second 'up to date'; FerbMobileTests 4 on the simulator."
+
+[PHN-571]
+title = "The iPhone's app model is one observable object over the PhoneApi seam, keeping nothing private"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-500, PHN-509. FerbAppModel AppModel (@MainActor @Observable) is Android's FerbViewModel feature for feature over the same PhoneApi seam; it follows FerbPhone's and Session's observable state (withObservationTracking, its owner held weakly). Only the tab, the home flag, the draft and the ids of questions already shown go to the scene's storage; never a private value."
+why = "One model on both phones keeps behaviour and tests alike; a relaunch keeps where the owner was but nothing to read."
+evidence = "FerbAppTests AppModelTests 10 and FeaturesTests 18 on the simulator (Android's ViewModelTest and FeaturesTest ported)."
+
+[PHN-572]
+title = "Before iOS suspends FERB every running transfer pauses where it is, and goes on after"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-13, PHN-566. When the background task iOS grants ends, Transfers.checkpoint() pauses each running transfer (cancelTransfer: the bytes saved stay, an upload keeps its id); back on screen resumeAfterBackground() goes on from the file's length or by the upload id. No transfer is restarted from zero."
+why = "iOS stops a suspended app's sockets; a transfer cut without a checkpoint would start over (engine/PLAN.md stage 4)."
+evidence = "FerbAppTests FeaturesTests (the checkpoint and resume over a fake phone); not run against a real suspension."
+
+[PHN-573]
+title = "iPhone notifications are planned as data; FERB's checks lose their words before suspension"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-415, PHN-417, PHN-422, PHN-519. FerbAppModel's NotificationPlanner decides each notification (id, words or none, buttons only for routine questions, the public line) from the Mac's status and the chat; the app posts it as a local notification with a category per question for its buttons. When the phone locks, or FERB is about to be suspended, FERB's own checks on show are re-posted wordless."
+why = "A suspended app can't take words off the lock screen later, so it does so before; decisions as data are tested without iOS."
+evidence = "FerbAppTests NotificationTests 5; AppScreensTests testARoutineQuestionGetsItsButtonsAndAWordlessCheckNone."
+
+[PHN-574]
+title = "iPhone files: Caches/files, unreadable while the phone is locked, out of backups"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-515, PHN-516, PHN-517. Fetched and outgoing files live in Caches/files with FileProtectionType.completeUnlessOpen, excluded from backup; gone at the app's lock, after 24 h and on Forget, a key place's at the next return. Picked files and folders are copied through NSFileCoordinator from the picker's URLs; a folder's security scope is kept until it is sent or dropped. Files open only on the owner's tap (QuickLook or the share sheet)."
+why = "Android's cache rule with iOS's own Data Protection: a fetched file can't be read while the phone is locked."
+evidence = "FerbAppTests FilesAndDeviceTests (LocalFiles 2); Data Protection itself only on a phone."

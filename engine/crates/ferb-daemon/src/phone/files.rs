@@ -116,7 +116,8 @@ pub trait Judge: Send + Sync {
 }
 
 type FreeBytes = dyn Fn(&Path) -> io::Result<u64> + Send + Sync;
-type TaskFile = dyn Fn(&str, u64) -> Option<PathBuf> + Send + Sync;
+pub type TaskFile = dyn Fn(&str, u64) -> Option<PathBuf> + Send + Sync;
+pub type MadeFiles = dyn Fn(usize) -> Vec<super::find::Made> + Send + Sync;
 type Hook = dyn Fn(&str, &str) + Send + Sync;
 
 /// What the file area takes from the daemon.
@@ -132,6 +133,8 @@ pub struct FileSeams {
     pub added_places: Vec<String>,
     /// A finished task's file by (task, index), for `phone.read {artifact}`; `None`: no task's files are offered.
     pub task_file: Option<Arc<TaskFile>>,
+    /// The files FERB's tasks made, newest first, at most this many (`phone.recent`, T-1211); `None`: none offered.
+    pub made_files: Option<Arc<MadeFiles>>,
     /// A test's look between the steps (`"before_open"`, `"piece"`) with the path: never set in the daemon.
     pub hook: Option<Arc<Hook>>,
 }
@@ -171,6 +174,9 @@ pub struct FileLimits {
     pub list_max: usize,
     /// Files in one folder fetched whole (the lab's `tree_max`, CONTRACT §7; no owner decision: asked).
     pub tree_max: usize,
+    /// Names one search of file names looks at before it stops and says so (`phone.search`, T-1211): a bound on its
+    /// time, not on what it finds (no owner decision: asked with T-1217).
+    pub search_names_max: usize,
     /// Names looked at in FERB's own folder for a hard link's other names before the answer is "closed" (the lab's
     /// `never_inode` budget).
     pub own_names_max: usize,
@@ -186,6 +192,7 @@ impl Default for FileLimits {
             fetch_notice_window_s: 600.0,
             list_max: 500,
             tree_max: 2000,
+            search_names_max: 100_000,
             own_names_max: 20_000,
         }
     }
@@ -228,8 +235,8 @@ struct State {
 
 /// The file area: its seams, numbers and state.
 pub(crate) struct Area {
-    seams: FileSeams,
-    limits: FileLimits,
+    pub(super) seams: FileSeams,
+    pub(super) limits: FileLimits,
     /// The added key places in every form a path to them can take (as written, resolved now, without the Data volume).
     places: Vec<Vec<String>>,
     state: std::sync::Mutex<State>,
@@ -276,7 +283,7 @@ impl Area {
     }
 
     /// The judgment of a path by its names: `Err` for FERB's own data, else whether it is a key place.
-    fn judged(&self, path: &str, more: &[String]) -> Result<bool, Refusal> {
+    pub(super) fn judged(&self, path: &str, more: &[String]) -> Result<bool, Refusal> {
         let rules = self.seams.judge.rules(path, ferb_policy::protection::READ);
         if rules.iter().any(|r| NEVER_LIFTED.contains(&r.as_str())) {
             return Err(own_data());
@@ -287,7 +294,7 @@ impl Area {
     }
 
     /// A key place by its name, for a listing's `locked` and a folder's walk: FERB's own data counts as closed too.
-    fn closed_or_key(&self, path: &str) -> (bool, bool) {
+    pub(super) fn closed_or_key(&self, path: &str) -> (bool, bool) {
         match self.judged(path, &[]) {
             Err(_) => (true, false),
             Ok(key) => (false, key),
@@ -330,7 +337,7 @@ impl Area {
 // ---- small path facts ----------------------------------------------------------------------------------------------
 
 /// A path as a Mac volume compares it: case and Unicode form ignored (protection.py `_key`).
-fn fold(s: &str) -> String {
+pub(super) fn fold(s: &str) -> String {
     py::casefold(&norm::nfc(s))
 }
 
@@ -338,7 +345,7 @@ fn key(p: &str) -> Vec<String> {
     ppath::parts(p).iter().map(|x| fold(x)).collect()
 }
 
-fn under(p: &str, root: &str) -> bool {
+pub(super) fn under(p: &str, root: &str) -> bool {
     let (a, b) = (key(p), key(root));
     a.len() >= b.len() && a[..b.len()] == b[..]
 }
@@ -362,7 +369,7 @@ fn resolved(p: &str) -> String {
 }
 
 /// A path as typed (cleaned), as it resolves by name now, and each without the Data volume's prefix.
-fn forms(p: &str) -> Vec<String> {
+pub(super) fn forms(p: &str) -> Vec<String> {
     let typed = ppath::clean(&ppath::normpath(p));
     let real = resolved(&typed);
     let mut out = vec![typed.clone(), real.clone()];
@@ -378,7 +385,7 @@ fn forms(p: &str) -> Vec<String> {
 }
 
 /// `~`, `~/x` by the lists' home; any other `~name` and anything not absolute afterwards: `None`.
-fn expand(path: &str, home: &str) -> Option<String> {
+pub(super) fn expand(path: &str, home: &str) -> Option<String> {
     if path.is_empty() || path.contains('\0') {
         return None;
     }
@@ -426,7 +433,7 @@ fn cstr(b: &[u8]) -> io::Result<CString> {
 
 // ---- refusals ------------------------------------------------------------------------------------------------------
 
-fn own_data() -> Refusal {
+pub(super) fn own_data() -> Refusal {
     refused(
         phone_gate::FILE_NOT_ALLOWED,
         "That is FERB's own data, which a phone never opens, with or without a fingerprint.",
@@ -440,11 +447,11 @@ fn by_number() -> Refusal {
     )
 }
 
-fn bad(why: &str) -> Refusal {
+pub(super) fn bad(why: &str) -> Refusal {
     refused(phone_gate::BAD_REQUEST, why)
 }
 
-fn coded(r: Refusal) -> HandlerError {
+pub(super) fn coded(r: Refusal) -> HandlerError {
     HandlerError::coded(r.code, r.message)
 }
 
@@ -490,7 +497,7 @@ fn kernel_path(_fd: RawFd) -> io::Result<String> {
     ))
 }
 
-fn stat_at(dir: RawFd, name: &[u8]) -> io::Result<libc::stat> {
+pub(super) fn stat_at(dir: RawFd, name: &[u8]) -> io::Result<libc::stat> {
     let c = cstr(name)?;
     // SAFETY: an all-zero `stat` is a valid value of this plain C struct; fstatat() overwrites it.
     let mut st: libc::stat = unsafe { std::mem::zeroed() };
@@ -501,7 +508,12 @@ fn stat_at(dir: RawFd, name: &[u8]) -> io::Result<libc::stat> {
     Ok(st)
 }
 
-fn open_at(dir: RawFd, name: &[u8], flags: libc::c_int, mode: libc::mode_t) -> io::Result<File> {
+pub(super) fn open_at(
+    dir: RawFd,
+    name: &[u8],
+    flags: libc::c_int,
+    mode: libc::mode_t,
+) -> io::Result<File> {
     let c = cstr(name)?;
     // SAFETY: `dir` is an open descriptor and `c` a NUL-terminated name; the mode is read only with O_CREAT.
     let fd = unsafe {
@@ -559,7 +571,7 @@ fn name_at(dir: RawFd, from: &str, to: &str) -> io::Result<()> {
 }
 
 /// The names in an open folder, read from that very folder (a duplicate of its descriptor).
-fn names_in(dir: RawFd) -> io::Result<Vec<Vec<u8>>> {
+pub(super) fn names_in(dir: RawFd) -> io::Result<Vec<Vec<u8>>> {
     // SAFETY: duplicating an open descriptor.
     let fd = unsafe { libc::dup(dir) };
     if fd < 0 {
@@ -595,7 +607,7 @@ fn names_in(dir: RawFd) -> io::Result<Vec<Vec<u8>>> {
     Ok(out)
 }
 
-fn kind(st: &libc::stat) -> libc::mode_t {
+pub(super) fn kind(st: &libc::stat) -> libc::mode_t {
     st.st_mode & libc::S_IFMT
 }
 
@@ -629,7 +641,7 @@ fn quarantine(_f: &File, _epoch: i64) -> io::Result<()> {
 
 // ---- the area's state on the phone area ----------------------------------------------------------------------------
 
-fn area(inner: &Inner) -> Result<&Area, Refusal> {
+pub(super) fn area(inner: &Inner) -> Result<&Area, Refusal> {
     inner.files.get().ok_or_else(off)
 }
 
@@ -654,22 +666,22 @@ pub(crate) fn shared_relay_refusal(phone: &PhoneSession, method: &str) -> Option
     })
 }
 
-fn phone_of(session: &Session) -> PhoneSession {
+pub(super) fn phone_of(session: &Session) -> PhoneSession {
     session.phone.clone().unwrap_or_default()
 }
 
 /// A file or folder opened for a phone and judged as it opened.
-struct Opened {
-    file: File,
-    real: String,
-    high: bool,
-    meta: std::fs::Metadata,
+pub(super) struct Opened {
+    pub(super) file: File,
+    pub(super) real: String,
+    pub(super) high: bool,
+    pub(super) meta: std::fs::Metadata,
 }
 
 /// Opens `path` (as the phone sent it) for this phone: the order of the lab's `Places.open`. FERB's own data is refused
 /// whatever is offered; a key place asks for its proof before anything is opened or said; then the file is opened once
 /// and the file that really opened is judged again.
-fn open_for_phone(
+pub(super) fn open_for_phone(
     inner: &Inner,
     a: &Area,
     phone: &PhoneSession,
@@ -805,7 +817,7 @@ fn not_a_file(dir: bool) -> Refusal {
     )
 }
 
-fn path_param(params: &Params, folder: bool) -> Result<String, Refusal> {
+pub(super) fn path_param(params: &Params, folder: bool) -> Result<String, Refusal> {
     match params.get("path") {
         Some(Value::String(s)) if !s.is_empty() => Ok(s.clone()),
         None | Some(Value::Null) if folder => Ok("~".into()),
@@ -815,7 +827,14 @@ fn path_param(params: &Params, folder: bool) -> Result<String, Refusal> {
     }
 }
 
-fn audit_refusal(inner: &Inner, device: &str, method: &str, class: &str, r: &Refusal, path: Value) {
+pub(super) fn audit_refusal(
+    inner: &Inner,
+    device: &str,
+    method: &str,
+    class: &str,
+    r: &Refusal,
+    path: Value,
+) {
     inner.audit(
         device,
         method,
@@ -1979,9 +1998,11 @@ pub(crate) fn forget_device(inner: &Inner, device: &str) {
 type Unary = fn(&Inner, &Session, &Params) -> HandlerResult;
 
 impl Phones {
-    /// Puts the file area in place and registers its seven methods on `server` (stage 3 S3b).
+    /// Puts the file area in place and registers its seven methods on `server` (stage 3 S3b), and the recent files and
+    /// the name search (T-1211, `find`).
     pub fn register_files(&self, server: &Server, seams: FileSeams, limits: FileLimits) {
         let _ = self.inner.files.set(Area::new(seams, limits));
+        super::find::register(self, server);
         let unary: [(&str, Unary); 6] = [
             ("phone.files", files),
             ("phone.tree", tree),

@@ -10,6 +10,7 @@ import com.ferb.mobile.FerbException
 import com.ferb.mobile.PhoneStatus
 import com.ferb.mobile.QuestionItem
 import com.ferb.mobile.QuestionNeeds
+import com.ferb.mobile.SecretInput
 import com.ferb.mobile.Signer
 import com.ferb.mobile.StatusQuestion
 
@@ -132,15 +133,14 @@ sealed interface Answered {
  * No need no proof from a session that proved the phone); if the Mac says this answer needs the phone's own proof
  * (`unlock_required`), it is signed once, by the fingerprint key where the phone has one (PHN-137), else the lock
  * key; if the Mac's unlock window had closed (`locked`), the phone unlocks toward the Mac and asks once more. A hidden
- * value always goes signed (the sealed path, either key). Never queued (PHN-448).
+ * value always goes signed (the sealed path, either key; [answerHidden]). Never queued (PHN-448).
  */
 class AnswerFlow(
     private val api: PhoneApi,
     private val keys: () -> KeyHealth?,
     private val signer: (KeyKind) -> Signer,
 ) {
-    suspend fun answer(approvalId: String, input: AnswerInput, hidden: Boolean, upfront: KeyKind? = null): Answered {
-        if (hidden) return done(api.answer(approvalId, input, signer(KeyKind.LOCK)))
+    suspend fun answer(approvalId: String, input: AnswerInput, upfront: KeyKind? = null): Answered {
         var unlockedOnce = false
         var signedOnce = false
         // the Mac's status said this answer needs the phone's proof: asked for at once, not after a refusal
@@ -177,6 +177,13 @@ class AnswerFlow(
             }
         }
     }
+
+    /**
+     * A hidden value always goes signed, on the sealed path (PHN-110), from the library's [SecretInput] (never a
+     * String): the library empties it whatever happens; the caller destroys it.
+     */
+    suspend fun answerHidden(approvalId: String, secret: SecretInput): Answered =
+        done(api.answerHidden(approvalId, secret, signer(KeyKind.LOCK)))
 
     private fun done(r: Outcome<String>): Answered = when (r) {
         is Outcome.Ok -> Answered.Sent

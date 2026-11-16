@@ -179,4 +179,22 @@ mod tests {
             assert_eq!(ok, c["valid"].as_bool().unwrap(), "{}", c["what"]);
         }
     }
+
+    /// Signatures made by the iPhone app's FerbCore on the iOS simulator (a CryptoKit P-256 key through Proofs.swift:
+    /// the raw point plus the SPKI header, DER signatures, the encoding the Secure Enclave's keys take on a phone):
+    /// the Mac verifies them, and refuses one over another payload.
+    // decision: PHN-561
+    #[test]
+    fn ios_signatures_verify() {
+        let text = include_str!("../../../../fixtures/phone/ios-signatures.json");
+        let v: serde_json::Value = serde_json::from_str(text).unwrap();
+        for c in v["vectors"].as_array().unwrap() {
+            let ok = verify(
+                c["key"].as_str().unwrap(),
+                c["payload"].as_str().unwrap().as_bytes(),
+                c["sig"].as_str().unwrap(),
+            );
+            assert_eq!(ok, c["valid"].as_bool().unwrap(), "{}", c["what"]);
+        }
+    }
 }

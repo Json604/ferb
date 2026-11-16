@@ -92,10 +92,12 @@ pub struct DeviceLine<'a> {
     pub zone: &'a str,
     /// Its coarse place when the device may read it and has a fix.
     pub place: Option<&'a Place>,
+    /// A last clause, when there is one ("connected, in use now"; "not connected, last seen 2 h ago"): "" for none.
+    pub note: &'a str,
 }
 
 /// `- This Mac “Studio”: Monday 2026-11-16 10:05, time zone Asia/Kolkata (UTC+05:30); place: Bengaluru, Karnataka,
-/// India (city level)`; without a place, `place unknown (time zone only)`.
+/// India (city level)`; without a place, `place unknown (time zone only)`; a note after a last `; `.
 pub fn line(d: &DeviceLine<'_>) -> String {
     let name = if d.name.is_empty() {
         String::new()
@@ -111,8 +113,13 @@ pub fn line(d: &DeviceLine<'_>) -> String {
         Some(t) => format!("place: {t} (city level)"),
         None => "place unknown (time zone only)".to_string(),
     };
+    let note = if d.note.is_empty() {
+        String::new()
+    } else {
+        format!("; {}", d.note)
+    };
     format!(
-        "- {}{name}: {}, time zone {zone}; {place}",
+        "- {}{name}: {}, time zone {zone}; {place}{note}",
         d.label,
         d.now.format("%A %Y-%m-%d %H:%M")
     )
@@ -141,6 +148,7 @@ mod tests {
             now: &now,
             zone: "Asia/Kolkata",
             place: Some(&place),
+            note: "",
         });
         assert_eq!(
             got,
@@ -154,10 +162,25 @@ mod tests {
             now: &at("2026-03-01T23:59:00-05:00"),
             zone: "America/New_York",
             place: None,
+            note: "",
         });
         assert_eq!(
             none,
             "- This Mac: Sunday 2026-03-01 23:59, time zone America/New_York (UTC-05:00); place unknown (time zone only)"
+        );
+        // a phone's line (T-1214): the same record with its last clause
+        let phone = line(&DeviceLine {
+            label: "Phone",
+            name: "Moto",
+            now: &at("2026-11-16T15:35:00+05:30"),
+            zone: "Asia/Kolkata",
+            place: Some(&place),
+            note: "connected, in use now",
+        });
+        assert_eq!(
+            phone,
+            "- Phone “Moto”: Monday 2026-11-16 15:35, time zone Asia/Kolkata (UTC+05:30); place: Pune, Maharashtra, \
+             India (city level); connected, in use now"
         );
     }
 

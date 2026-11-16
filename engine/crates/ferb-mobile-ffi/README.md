@@ -51,6 +51,13 @@ m.preview(taskId, have: Long?): PreviewFrame; m.watchLive(taskId, sink: PreviewS
 m.settings(): List<SettingValue>; m.setSetting(key, valueJson, signer): String
 m.tasks(limit: UInt, before: String?): TaskPage; m.macInfo(): MacInfo; m.cachedMacInfo(): MacInfo?
 m.registerKeys(devicePub?, strongPub?, signer)
+// T-1214, T-1211 (journal 117)
+m.reportDevice(report: DeviceReport): Boolean            // the phone's own record; again on each connection
+m.locationWanted(): String?; m.answerLocation(requestId, fix: LocationFix?, whyNot: String?)  // Change.LocationWanted
+m.recentFiles(limit: UInt): RecentFiles; m.searchFiles(query, path: String?): FoundFiles
+m.fetchTaskFile(id, taskId, index: ULong, saveTo, listener): Fetched
+SecretInput()  // .push(unit: UShort) per UTF-16 unit, .len(), .isEmpty(), .clear()
+m.answerHidden(approvalId, secret: SecretInput, signer: Signer): String   // the input is emptied whatever happens
 interface TransferListener { fun progress(done: ULong, of: ULong); fun accepted(uploadId: String, offset: ULong) }
 interface PreviewSink { fun frame(frame: PreviewFrame); fun ended(code: String?, detail: String?) }
 // Android only: the one JNI export, com.ferb.core.NativeInit.init(context): ndk_context for iroh's DNS (PHN-514)
@@ -78,8 +85,10 @@ fields of `engine/fixtures/chat-entries/README.md`, "The phone's transcript", in
 card's `type`, `PlanStep.repeats` its `loop`, `NoticeItem.reference` its `ref`, `TurnItem.words` the owner's words
 that the golden flattens into the turn). `QuestionItem.bodyJson` is the one JSON text: a question's body has no fixed
 shape. Each conversion destructures the core's type completely, so a field added there fails the build here.
-`Change`, `OlderState`, `RelayStatus` sealed; `LinkPath`, `LinkPhase` enums; `AnswerInput` sealed (`Approve(granted,
-choice)`, `Words(text)`, `Correct(text)`, `Hidden(secret)`).
+`Change` (with `LocationWanted(requestId)`), `OlderState`, `RelayStatus` sealed; `DeviceReport`, `DevicePlace`,
+`LocationFix`, `FoundFile`, `RecentFiles`, `FoundFiles` records; `LinkPath`, `LinkPhase` enums; `AnswerInput` sealed (`Approve(granted,
+choice)`, `Words(text)`, `Correct(text)`, `Hidden(secret)`: kept for older apps; `answerHidden` with a `SecretInput` is the
+one whose secret crosses no buffer).
 
 Errors: every call throws `FerbException`, sealed, one subclass per stable code, each with `detail` (the words) and
 `linkCode` (the link's own code, ferb-link `errors.rs`): `Closed`, `BadKey`, `WrongKey`, `StoreNewer`, `Store`,

@@ -35,7 +35,7 @@ pub const PUMP_POLL_MS: u64 = 500;
 /// byte (the bridge waits up to 30 minutes for that), so this backstop is as long.
 pub const TRANSFER_SILENCE: Duration = Duration::from_secs(1800);
 /// The link's own events (not a call's) the app hears.
-const LINK_EVENTS: [&str; 7] = [
+const LINK_EVENTS: [&str; 8] = [
     "state",
     "bulk",
     "relay_state",
@@ -43,6 +43,7 @@ const LINK_EVENTS: [&str; 7] = [
     "prove",
     "status",
     "notice",
+    "location_wanted",
 ];
 
 enum Waiter {

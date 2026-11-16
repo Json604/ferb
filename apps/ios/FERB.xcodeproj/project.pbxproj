@@ -1,0 +1,270 @@
+// !$*UTF8*$!
+// Written by apps/ios/tools/make_project.py; change the script, not this file.
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+		072B2ACD6EED88F2ED9B18E9 = {isa = XCBuildConfiguration; buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_OPTIMIZATION_LEVEL = "0";
+				IPHONEOS_DEPLOYMENT_TARGET = "17.0";
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			}; name = Debug; };
+		0D0713DE92A79CA9E311972F = {isa = PBXFileReference; lastKnownFileType = wrapper; path = FerbApp; sourceTree = "<group>"; };
+		1829662E69C0AEEB965892CD = {isa = XCLocalSwiftPackageReference; relativePath = Packages/FerbDesign; };
+		1A8127B41F4467D739F523A0 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (
+			); runOnlyForDeploymentPostprocessing = 0; };
+		1A8BD253F06918A765DD468C = {isa = PBXFileReference; lastKnownFileType = wrapper; path = FerbMobile; sourceTree = "<group>"; };
+		1AB990A11F5778DE3C995B37 = {isa = XCConfigurationList; buildConfigurations = (
+				65310A4802D43F2463D23650,
+				2FB21361E157EC331DF2606A,
+			); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		1EEB8A945324FB5F2D49EC06 = {isa = XCBuildConfiguration; buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = "1";
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = "17.0";
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
+				MARKETING_VERSION = "0.28.0";
+				PRODUCT_BUNDLE_IDENTIFIER = com.ferb.phone.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = "5.0";
+				TARGETED_DEVICE_FAMILY = "1";
+				TEST_TARGET_NAME = FERB;
+			}; name = Debug; };
+		244210E48437B6556980A702 = {isa = PBXProject; attributes = {BuildIndependentTargetsInParallel = 1; LastSwiftUpdateCheck = 1600; LastUpgradeCheck = 1600; }; buildConfigurationList = B2B4ECC9A8CC5D22C95C629A; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base, ); mainGroup = 664F835B1ED89846DAB355B5; minimizedProjectReferenceProxies = 1; packageReferences = (
+				C9401BCEC8ABE640A693061A,
+				9158CE975A862E333A09AB6B,
+				1829662E69C0AEEB965892CD,
+				372264377E1A61A9AE50998F,
+			); preferredProjectObjectVersion = 77; productRefGroup = BEAD8915881B60FC177E63AB; projectDirPath = ""; projectRoot = ""; targets = (
+				38914567A3F3A90537202F01,
+				E6F59257A49832D31554A621,
+				2DCB3AE110148E5ED0245D8F,
+			); };
+		2A3D6CDCB4014C6FBA63CA7B = {isa = XCConfigurationList; buildConfigurations = (
+				1EEB8A945324FB5F2D49EC06,
+				765591277DAEE0229B680117,
+			); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		2DCB3AE110148E5ED0245D8F = {isa = PBXNativeTarget; buildConfigurationList = 2A3D6CDCB4014C6FBA63CA7B; buildPhases = (
+				C1D2ECF52754E72CFB344E75,
+				1A8127B41F4467D739F523A0,
+				720D0F70808DB50588953113,
+			); buildRules = (
+			); dependencies = (
+				B35FB4B63C4E389E72AF102C,
+			); fileSystemSynchronizedGroups = (
+				D42EF5CFED2C9867593A4BF8,
+			); name = FERBUITests; packageProductDependencies = (
+			); productName = FERBUITests; productReference = 72A75BC3E980F11EB5C7E0BF; productType = "com.apple.product-type.bundle.ui-testing"; };
+		2EE7E789303A417D2318208E = {isa = PBXContainerItemProxy; containerPortal = 244210E48437B6556980A702; proxyType = 1; remoteGlobalIDString = 38914567A3F3A90537202F01; remoteInfo = FERB; };
+		2FB21361E157EC331DF2606A = {isa = XCBuildConfiguration; buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = "1";
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = FERB;
+				INFOPLIST_KEY_NSCameraUsageDescription = "FERB uses the camera only to read the code on your Mac. Nothing is recorded.";
+				INFOPLIST_KEY_NSFaceIDUsageDescription = "FERB opens with Face ID, and asks for it again before your Mac goes ahead with something you approve.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "FERB connects straight to your Mac when both are on the same network, so files and Watch live work at full speed.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "FERB uses your city to get local time and place right. It asks before using your exact location.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				IPHONEOS_DEPLOYMENT_TARGET = "17.0";
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				MARKETING_VERSION = "0.28.0";
+				PRODUCT_BUNDLE_IDENTIFIER = com.ferb.phone;
+				PRODUCT_NAME = FERB;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = "5.0";
+				TARGETED_DEVICE_FAMILY = "1";
+			}; name = Release; };
+		30943A48C2ACE2A5A019BC47 = {isa = XCBuildConfiguration; buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = "17.0";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			}; name = Release; };
+		361E1E038C614D223825540A = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (
+			); runOnlyForDeploymentPostprocessing = 0; };
+		372264377E1A61A9AE50998F = {isa = XCLocalSwiftPackageReference; relativePath = Packages/FerbMobile; };
+		38914567A3F3A90537202F01 = {isa = PBXNativeTarget; buildConfigurationList = 1AB990A11F5778DE3C995B37; buildPhases = (
+				5986AD35D2CBFC47D32E046D,
+				8195337F0FC0AE7D38A5B6FC,
+				361E1E038C614D223825540A,
+			); buildRules = (
+			); dependencies = (
+			); fileSystemSynchronizedGroups = (
+				EA6C782BF21F41D1C9D3F7A8,
+			); name = FERB; packageProductDependencies = (
+				417AF200CFC686CA6B460AF4,
+			); productName = FERB; productReference = AED1BC5BEC19DC92ABAF59B9; productType = "com.apple.product-type.application"; };
+		3D8B97C66B138F25A324259D = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (
+				CA7AC72C4E7414F4E054F958 /* FerbGallery */,
+			); runOnlyForDeploymentPostprocessing = 0; };
+		417AF200CFC686CA6B460AF4 = {isa = XCSwiftPackageProductDependency; package = C9401BCEC8ABE640A693061A; productName = FerbAppUI; };
+		43BDF95353160FC1F0938ED1 = {isa = XCConfigurationList; buildConfigurations = (
+				F2F04DD8E7EEF5C72C6CEC9D,
+				C20E4C8565F33BEEF89CDF57,
+			); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		558FF96A86C91B2AF59377DD = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "FERB Gallery.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		55C37EDFA3278B068F436F89 = {isa = PBXGroup; children = (
+				0D0713DE92A79CA9E311972F,
+				A44FA7E45C3B5EB22B2084F9,
+				E0E6C983C8C1EE9790755683,
+				1A8BD253F06918A765DD468C,
+			); path = Packages; sourceTree = "<group>"; };
+		5986AD35D2CBFC47D32E046D = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (
+			); runOnlyForDeploymentPostprocessing = 0; };
+		6325F84E95EADB3241844EE5 = {isa = PBXBuildFile; productRef = 417AF200CFC686CA6B460AF4; };
+		65310A4802D43F2463D23650 = {isa = XCBuildConfiguration; buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = "1";
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = FERB;
+				INFOPLIST_KEY_NSCameraUsageDescription = "FERB uses the camera only to read the code on your Mac. Nothing is recorded.";
+				INFOPLIST_KEY_NSFaceIDUsageDescription = "FERB opens with Face ID, and asks for it again before your Mac goes ahead with something you approve.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "FERB connects straight to your Mac when both are on the same network, so files and Watch live work at full speed.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "FERB uses your city to get local time and place right. It asks before using your exact location.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				IPHONEOS_DEPLOYMENT_TARGET = "17.0";
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				MARKETING_VERSION = "0.28.0";
+				PRODUCT_BUNDLE_IDENTIFIER = com.ferb.phone;
+				PRODUCT_NAME = FERB;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = "5.0";
+				TARGETED_DEVICE_FAMILY = "1";
+			}; name = Debug; };
+		664F835B1ED89846DAB355B5 = {isa = PBXGroup; children = (
+				EA6C782BF21F41D1C9D3F7A8,
+				FACAEC905202D38DB46869B4,
+				D42EF5CFED2C9867593A4BF8,
+				55C37EDFA3278B068F436F89,
+				BEAD8915881B60FC177E63AB,
+			); sourceTree = "<group>"; };
+		720D0F70808DB50588953113 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (
+			); runOnlyForDeploymentPostprocessing = 0; };
+		72A75BC3E980F11EB5C7E0BF = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FERBUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		765591277DAEE0229B680117 = {isa = XCBuildConfiguration; buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = "1";
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = "17.0";
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
+				MARKETING_VERSION = "0.28.0";
+				PRODUCT_BUNDLE_IDENTIFIER = com.ferb.phone.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = "5.0";
+				TARGETED_DEVICE_FAMILY = "1";
+				TEST_TARGET_NAME = FERB;
+			}; name = Release; };
+		8195337F0FC0AE7D38A5B6FC = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (
+				6325F84E95EADB3241844EE5 /* FerbAppUI */,
+			); runOnlyForDeploymentPostprocessing = 0; };
+		9158CE975A862E333A09AB6B = {isa = XCLocalSwiftPackageReference; relativePath = Packages/FerbCore; };
+		A44FA7E45C3B5EB22B2084F9 = {isa = PBXFileReference; lastKnownFileType = wrapper; path = FerbCore; sourceTree = "<group>"; };
+		A6D223D2E2874AFAA2FEA7BA = {isa = XCSwiftPackageProductDependency; package = 1829662E69C0AEEB965892CD; productName = FerbGallery; };
+		AED1BC5BEC19DC92ABAF59B9 = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FERB.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B2B4ECC9A8CC5D22C95C629A = {isa = XCConfigurationList; buildConfigurations = (
+				072B2ACD6EED88F2ED9B18E9,
+				30943A48C2ACE2A5A019BC47,
+			); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		B35FB4B63C4E389E72AF102C = {isa = PBXTargetDependency; target = 38914567A3F3A90537202F01; targetProxy = 2EE7E789303A417D2318208E; };
+		BEAD8915881B60FC177E63AB = {isa = PBXGroup; children = (
+				AED1BC5BEC19DC92ABAF59B9,
+				558FF96A86C91B2AF59377DD,
+				72A75BC3E980F11EB5C7E0BF,
+			); name = Products; sourceTree = "<group>"; };
+		C1D2ECF52754E72CFB344E75 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (
+			); runOnlyForDeploymentPostprocessing = 0; };
+		C20E4C8565F33BEEF89CDF57 = {isa = XCBuildConfiguration; buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = "1";
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "FERB Gallery";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				IPHONEOS_DEPLOYMENT_TARGET = "17.0";
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				MARKETING_VERSION = "0.28.0";
+				PRODUCT_BUNDLE_IDENTIFIER = com.ferb.phone.gallery;
+				PRODUCT_NAME = "FERB Gallery";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = "5.0";
+				TARGETED_DEVICE_FAMILY = "1";
+			}; name = Release; };
+		C9401BCEC8ABE640A693061A = {isa = XCLocalSwiftPackageReference; relativePath = Packages/FerbApp; };
+		CA7AC72C4E7414F4E054F958 = {isa = PBXBuildFile; productRef = A6D223D2E2874AFAA2FEA7BA; };
+		D42EF5CFED2C9867593A4BF8 = {isa = PBXFileSystemSynchronizedRootGroup; path = UITests; sourceTree = "<group>"; };
+		E0E6C983C8C1EE9790755683 = {isa = PBXFileReference; lastKnownFileType = wrapper; path = FerbDesign; sourceTree = "<group>"; };
+		E6F59257A49832D31554A621 = {isa = PBXNativeTarget; buildConfigurationList = 43BDF95353160FC1F0938ED1; buildPhases = (
+				F9B0B4AF140D9A33A0EF260E,
+				3D8B97C66B138F25A324259D,
+				F7FB2D108E298B7F81675E0F,
+			); buildRules = (
+			); dependencies = (
+			); fileSystemSynchronizedGroups = (
+				FACAEC905202D38DB46869B4,
+			); name = "FERB Gallery"; packageProductDependencies = (
+				A6D223D2E2874AFAA2FEA7BA,
+			); productName = "FERB Gallery"; productReference = 558FF96A86C91B2AF59377DD; productType = "com.apple.product-type.application"; };
+		EA6C782BF21F41D1C9D3F7A8 = {isa = PBXFileSystemSynchronizedRootGroup; path = App; sourceTree = "<group>"; };
+		F2F04DD8E7EEF5C72C6CEC9D = {isa = XCBuildConfiguration; buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = "1";
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "FERB Gallery";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				IPHONEOS_DEPLOYMENT_TARGET = "17.0";
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				MARKETING_VERSION = "0.28.0";
+				PRODUCT_BUNDLE_IDENTIFIER = com.ferb.phone.gallery;
+				PRODUCT_NAME = "FERB Gallery";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = "5.0";
+				TARGETED_DEVICE_FAMILY = "1";
+			}; name = Debug; };
+		F7FB2D108E298B7F81675E0F = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (
+			); runOnlyForDeploymentPostprocessing = 0; };
+		F9B0B4AF140D9A33A0EF260E = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (
+			); runOnlyForDeploymentPostprocessing = 0; };
+		FACAEC905202D38DB46869B4 = {isa = PBXFileSystemSynchronizedRootGroup; path = Gallery; sourceTree = "<group>"; };
+	};
+	rootObject = 244210E48437B6556980A702;
+}

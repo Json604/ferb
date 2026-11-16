@@ -382,10 +382,16 @@
    "decision": "SENSE-422",
    "after": "abilities.read",
    "name": "device.facts",
-   "description": "Read this Mac's facts now: its name, local date, time and time zone, its city (with FERB's Location permission), battery and Low Power Mode, network and Wi-Fi name, whether the screen is locked, displays, free disk space, when it started and last woke, the sound output and whether something is playing, light or dark appearance, language and region, macOS version and model. A fact it can't read is left out. exact_location true also gives this Mac's latitude and longitude, only after the owner says Yes to sharing them (asked once per task): use it only when the task needs the exact spot, not the city.",
+   "description": "Read this Mac's facts now: its name, local date, time and time zone, its city (with FERB's Location permission), battery and Low Power Mode, network and Wi-Fi name, whether the screen is locked, displays, free disk space, when it started and last woke, the sound output and whether something is playing, light or dark appearance, language and region, macOS version and model; and under phones, each of the owner's paired phones as it last told FERB: connected or when last seen, its local time and time zone, its city (when the owner lets the phone share it), battery and battery saver, network kind, screen, language. A fact it can't read is left out. exact_location true also gives the latitude and longitude of this Mac, or of the phone named by device, only after the owner says Yes to sharing them (asked once per task and device): use it only when the task needs the exact spot, not the city.",
    "input_schema": {
     "additionalProperties": false,
     "properties": {
+     "device": {
+      "default": "",
+      "description": "whose exact location exact_location gives: empty for this Mac, or one of the phones by its name or id as listed under phones",
+      "title": "Device",
+      "type": "string"
+     },
      "exact_location": {
       "default": false,
       "description": "also give the exact latitude and longitude (the owner is asked first)",

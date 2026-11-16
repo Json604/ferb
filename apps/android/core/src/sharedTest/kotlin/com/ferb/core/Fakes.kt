@@ -54,6 +54,18 @@ class FakeMac : Transport {
     private val frameAt = AtomicInteger(0)
     val settingCalls = CopyOnWriteArrayList<String>()
 
+    /** T-1214, T-1211: what `phone.device_report` brought (its params as sent), `link.tree`'s folders (path → files by
+     * their path inside), a finished task's files (`taskId#index` → bytes), and the recent and search replies. */
+    val reports = CopyOnWriteArrayList<String>()
+    val trees = ConcurrentHashMap<String, Map<String, ByteArray>>()
+    @Volatile var treeSkipped = 0
+    val taskFiles = ConcurrentHashMap<String, ByteArray>()
+    val groups = CopyOnWriteArrayList<String>()
+    @Volatile var recent = """{"files":[],"skipped":0}"""
+    @Volatile var search = """{"path":"~","query":"","files":[],"looked":0,"skipped":0,"cut":false,"incomplete":false}"""
+    val searches = CopyOnWriteArrayList<String>()
+    val puts = CopyOnWriteArrayList<String>()
+
     override fun call(method: String, paramsJson: String, proofJson: String?): String {
         calls.add(method)
         proofJson?.let(proofs::add)
@@ -81,6 +93,17 @@ class FakeMac : Transport {
                 """{"key":"$key","value":$value}"""
             }
             "tasks.list" -> tasks
+            "phone.device_report" -> { reports.add(paramsJson); """{"ok":true}""" }
+            "phone.recent" -> recent
+            "phone.search" -> { searches.add(paramsJson); search }
+            "link.put_group" -> { groups.add(field(paramsJson, "name")); """{"group":"g-${groups.size}","saved":"~/Downloads/FERB from phone/${field(paramsJson, "name")}"}""" }
+            "link.tree" -> {
+                val path = field(paramsJson, "path")
+                val fs = trees[path] ?: throw TransportException.Failed("not_found", "No such folder.", null, null)
+                fs.entries.joinToString(",", """{"path":"$path","name":"${path.substringAfterLast('/')}","files":[""", """],"bytes":${fs.values.sumOf { it.size }},"skipped":$treeSkipped,"cut":false}""") { (rel, b) ->
+                    """{"rel":"$rel","size":${b.size}}"""
+                }
+            }
             "phone.list" -> """{"phones":[{"id":"p1","name":"Invented phone","paired_at":"2026-11-10T09:00:00+05:30","this":true}],"mac":{"name":"$macName"}}"""
             else -> throw TransportException.Failed("method_not_allowed", "$method is not allowed", null, null)
         }
@@ -96,9 +119,15 @@ class FakeMac : Transport {
             val i = frameAt.getAndIncrement()
             return frames.getOrElse(i) { frames.lastOrNull() ?: """{"meta":{"state":"done"},"size":0,"received":0}""" }
         }
-        val path = field(paramsJson, "path")
+        // a finished task's own file (`what: file`): the Mac finds it from the task's record, never from a path
+        val path = if (paramsJson.contains("\"what\":\"file\"")) {
+            val task = field(paramsJson, "task_id")
+            val index = paramsJson.substringAfter("\"index\":").takeWhile { it.isDigit() }
+            "task:$task#$index".also { k -> taskFiles["$task#$index"]?.let { files[k] = it } }
+        } else field(paramsJson, "path")
         if (path in keyPlaces && !paramsJson.contains("\"proof\"")) throw TransportException.Failed("fresh_unlock_required", "This file asks for your fingerprint each time.", null, null)
-        val bytes = files[path] ?: throw TransportException.Failed("not_found", "No such file.", null, null)
+        val bytes = files[path] ?: trees.entries.firstNotNullOfOrNull { (dir, fs) -> fs[path.removePrefix("$dir/")]?.takeIf { path.startsWith("$dir/") } }
+            ?: throw TransportException.Failed("not_found", "No such file.", null, null)
         val offset = paramsJson.substringAfter("\"offset\":").takeWhile { it.isDigit() }.toIntOrNull() ?: 0
         val out = File(saveTo!!)
         if (!append) out.writeBytes(ByteArray(0))
@@ -119,6 +148,7 @@ class FakeMac : Transport {
     }
 
     override fun put(id: String, path: String, optsJson: String, progress: TransferProgress): String {
+        puts.add(optsJson)
         cancelled.remove(id)
         val resume = optsJson.substringAfter("\"resume\":", "null").let { if (it.startsWith("\"")) it.drop(1).substringBefore('"') else null }
         val uid = resume ?: "up-${uploads.size + 1}"

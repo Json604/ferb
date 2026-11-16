@@ -4,20 +4,27 @@ import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import android.webkit.MimeTypeMap
 import androidx.core.content.FileProvider
 import com.ferb.app.model.LocalFiles
 import com.ferb.app.model.Picked
+import com.ferb.app.model.PickedFile
+import com.ferb.app.model.PickedFolder
 import java.io.File
 
 /** FERB's FileProvider: only `cacheDir/files/fetched` is reachable through it (res/xml/ferb_files.xml). */
 class FerbFiles : FileProvider()
 
-/** The phone's own [LocalFiles]: `cacheDir/files`, picked files read through the system's ContentResolver. */
+/**
+ * The phone's own [LocalFiles]: `cacheDir/files`, picked files read through the system's ContentResolver, and a picked
+ * folder (ACTION_OPEN_DOCUMENT_TREE: no storage permission, only the folder the owner picks) walked through the
+ * documents provider that holds it.
+ */
 fun LocalFiles.Companion.forPhone(context: Context): LocalFiles {
     val app = context.applicationContext
-    return LocalFiles(File(app.cacheDir, "files")) { text ->
+    return LocalFiles(File(app.cacheDir, "files"), pickFolder = { text -> pickedFolder(app, Uri.parse(text)) }, pick = { text ->
         val uri = Uri.parse(text)
         var name: String? = null
         var size: Long? = null
@@ -30,7 +37,38 @@ fun LocalFiles.Companion.forPhone(context: Context): LocalFiles {
             }
         }
         Picked(name ?: uri.lastPathSegment?.substringAfterLast('/') ?: "file", size) { app.contentResolver.openInputStream(uri) }
+    })
+}
+
+/** Every file under a picked folder, each with its path inside it; read lazily (each opened only when it is sent). */
+private fun pickedFolder(app: Context, tree: Uri): PickedFolder? {
+    val resolver = app.contentResolver
+    val rootId = DocumentsContract.getTreeDocumentId(tree)
+    val rootDoc = DocumentsContract.buildDocumentUriUsingTree(tree, rootId)
+    val name = resolver.query(rootDoc, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)?.use { c ->
+        if (c.moveToFirst()) c.getString(0) else null
+    } ?: return null
+    val files = ArrayList<PickedFile>()
+    val cols = arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+        DocumentsContract.Document.COLUMN_MIME_TYPE, DocumentsContract.Document.COLUMN_SIZE)
+    fun walk(docId: String, prefix: String) {
+        val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, docId)
+        resolver.query(children, cols, null, null, null)?.use { c ->
+            while (c.moveToNext()) {
+                val id = c.getString(0) ?: continue
+                val n = c.getString(1)?.takeIf { it.isNotBlank() } ?: continue
+                if (c.getString(2) == DocumentsContract.Document.MIME_TYPE_DIR) {
+                    walk(id, "$prefix$n/")
+                } else {
+                    val size = if (c.isNull(3)) null else c.getLong(3)
+                    val doc = DocumentsContract.buildDocumentUriUsingTree(tree, id)
+                    files.add(PickedFile("$prefix$n", size) { resolver.openInputStream(doc) })
+                }
+            }
+        }
     }
+    walk(rootId, "")
+    return PickedFolder(name, files)
 }
 
 /**
@@ -56,6 +94,17 @@ object Handout {
         val send = Intent(Intent.ACTION_SEND).setType(type(name)).putExtra(Intent.EXTRA_STREAM, u)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         send.clipData = ClipData.newRawUri(name, u)
+        return Intent.createChooser(send, context.getString(R.string.share_with)).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+
+    /** A fetched folder's files (a folder can't be opened in another app): one share sheet for all, each read-only. */
+    fun shareMany(context: Context, files: List<File>): Intent {
+        val uris = ArrayList(files.map { uri(context, it) })
+        val types = files.map { type(it.name) }.distinct()
+        val type = types.singleOrNull() ?: types.map { it.substringBefore('/') }.distinct().singleOrNull()?.let { "$it/*" } ?: "*/*"
+        val send = Intent(Intent.ACTION_SEND_MULTIPLE).setType(type).putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        send.clipData = ClipData.newRawUri(files.firstOrNull()?.name ?: "", uris.first()).also { c -> uris.drop(1).forEach { c.addItem(ClipData.Item(it)) } }
         return Intent.createChooser(send, context.getString(R.string.share_with)).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
 }

@@ -63,8 +63,9 @@ import com.ferb.design.sky.rememberSkyNow
 import kotlinx.coroutines.launch
 
 /**
- * Everything on screen: the live sky behind every page (the time zone's place, PHN-420/PHN-450: no location is asked
- * now), the page the gate allows, and a sheet over it. Nothing of FERB's is drawn before the gate is MAIN (PHN-8).
+ * Everything on screen: the live sky behind every page (PHN-420/PHN-450: the phone's coarse place while the owner
+ * shares the city, else the time zone's), the page the gate allows, and a sheet over it. Nothing of FERB's is drawn
+ * before the gate is MAIN (PHN-8).
  */
 @Composable
 fun FerbRoot(vm: FerbViewModel, activity: MainActivity) {
@@ -72,7 +73,8 @@ fun FerbRoot(vm: FerbViewModel, activity: MainActivity) {
     val tab by vm.tab.collectAsState()
     val home by vm.home.collectAsState()
     val sheet by vm.sheet.collectAsState()
-    val place = remember { vm.skyPlace() }
+    val fix by vm.skyFix.collectAsState()
+    val place = remember(fix) { vm.skyPlace() }
     val moment = rememberSkyNow(place)
     val density = LocalDensity.current
     val top = with(density) { WindowInsets.statusBars.getTop(this).toDp() }
@@ -88,6 +90,12 @@ fun FerbRoot(vm: FerbViewModel, activity: MainActivity) {
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         vm.sendFiles(uris.map { it.toString() }, pickForChat)
     }
+    // a whole folder: the system's folder picker, which grants this one folder and nothing else
+    val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        uri?.let { vm.sendFolder(it.toString(), pickForChat) }
+    }
+    val city = rememberCity(activity, vm)
+    val exact = rememberExact(activity, vm)
     val host = remember(activity) {
         object : Host {
             override fun stayConnected(on: Boolean) = stay(on)
@@ -98,6 +106,13 @@ fun FerbRoot(vm: FerbViewModel, activity: MainActivity) {
                 runCatching { picker.launch(arrayOf("*/*")) }
             }
             override fun handOut(key: String, file: java.io.File, name: String, share: Boolean) = activity.handOut(key, file, name, share)
+            override fun pickFolder(forChat: Boolean) {
+                pickForChat = forChat
+                runCatching { folderPicker.launch(null) }
+            }
+            override fun shareMany(files: List<java.io.File>) = activity.shareMany(files)
+            override fun shareCity(on: Boolean) = city(on)
+            override fun shareExact(requestId: String) = exact(requestId)
         }
     }
 
@@ -214,6 +229,54 @@ fun rememberStayConnected(activity: MainActivity, vm: FerbViewModel): (Boolean) 
             vm.show(Sheet.Notifications)
         } else {
             ask.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+}
+
+/**
+ * The owner's switch for sharing this phone's city (SENSE-420, kb PHN-532): off at once; on asks Android's coarse
+ * location question in context, after FERB's own words (Sheet.City), and only the city then goes to the Mac.
+ */
+@Composable
+fun rememberCity(activity: MainActivity, vm: FerbViewModel): (Boolean) -> Unit {
+    val app = activity.application as FerbApplication
+    val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        app.prefs.shareCity = granted
+        app.sensors.city()
+        vm.show(Sheet.Profile)
+        vm.cityChanged(granted)
+    }
+    return { on ->
+        when {
+            !on -> { app.prefs.shareCity = false; app.sensors.city(); vm.refreshProfile() }
+            activity.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED -> {
+                app.prefs.shareCity = true; app.sensors.city(); vm.refreshProfile()
+            }
+            vm.sheet.value != Sheet.City -> vm.show(Sheet.City)
+            else -> ask.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+        }
+    }
+}
+
+/**
+ * The owner said yes to the Mac's request for this phone's exact location (GATE-613, kb PHN-537): Android's own
+ * question for the precise location only now, and only if it isn't given yet; then one fix, or why there is none.
+ */
+@Composable
+fun rememberExact(activity: MainActivity, vm: FerbViewModel): (String) -> Unit {
+    var asking by remember { mutableStateOf<String?>(null) }
+    val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+        val id = asking ?: return@rememberLauncherForActivityResult
+        asking = null
+        // the owner may allow only the approximate location: a fix still goes, with its (coarse) accuracy
+        vm.shareLocation(id, result.values.any { it })
+    }
+    return { id ->
+        if (activity.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            vm.shareLocation(id, true)
+        } else {
+            asking = id
+            ask.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
         }
     }
 }

@@ -39,7 +39,9 @@ import com.ferb.app.Note
 import com.ferb.app.R
 import com.ferb.app.Sheet
 import com.ferb.app.UiState
+import com.ferb.app.model.CardLine
 import com.ferb.app.model.ChatRow
+import com.ferb.app.model.Phase
 import com.ferb.app.model.WorkItem
 import com.ferb.design.FerbIcon
 import com.ferb.design.FerbIcons
@@ -186,7 +188,7 @@ private fun Chat(vm: FerbViewModel, ui: UiState, draft: String, insets: PhoneIns
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            items(rows, key = { it.key }) { row -> ChatRowView(vm, ui, row) }
+            items(rows, key = { it.key }) { row -> ChatRowView(vm, ui, row, host) }
         }
         Composer(vm, draft, stringResource(R.string.chat_placeholder), Modifier.padding(start = 16.dp, end = 16.dp, bottom = insets.bottom + 8.dp), host)
     }
@@ -200,7 +202,7 @@ private fun statusLine(ui: UiState): Pair<Int, Boolean>? = when {
 }
 
 @Composable
-private fun ChatRowView(vm: FerbViewModel, ui: UiState, row: ChatRow) {
+private fun ChatRowView(vm: FerbViewModel, ui: UiState, row: ChatRow, host: Host) {
     val ink = LocalSkyInk.current
     when (row) {
         is ChatRow.Owner -> Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -223,7 +225,8 @@ private fun ChatRowView(vm: FerbViewModel, ui: UiState, row: ChatRow) {
         is ChatRow.Cards -> Card {
             row.cards.forEachIndexed { i, c ->
                 if (i > 0) Divide()
-                CardRow(c.title, c.detail, leading = { if (c.file) FileIcon(c.title, 26.dp) else RowIcon(FerbIcons.doc) })
+                if (c.taskId != null && c.index != null) TaskFileRow(vm, c, host)
+                else CardRow(c.title, c.detail, leading = { if (c.file) FileIcon(c.title, 26.dp) else RowIcon(FerbIcons.doc) })
             }
         }
         is ChatRow.Typing -> TypingDots()
@@ -239,6 +242,31 @@ private fun ChatRowView(vm: FerbViewModel, ui: UiState, row: ChatRow) {
                 Modifier.fillMaxWidth().pressable({ vm.loadOlder() }).padding(horizontal = 6.dp, vertical = 8.dp))
         }
     }
+}
+
+/**
+ * A file a finished task made, on its result card (kb PHN-535): a tap fetches it from the Mac (by the task and its
+ * place, never by a path read in the chat), the row says how far it got, and once here a tap opens it in the app the
+ * owner picks. It is a fetched file like any other: gone when FERB locks.
+ */
+@Composable
+private fun TaskFileRow(vm: FerbViewModel, c: CardLine, host: Host) {
+    val moving by vm.transfers.list.collectAsState()
+    val t = moving.firstOrNull { it.task?.taskId == c.taskId && it.task?.index == c.index!!.toLong() }
+    val detail = when {
+        t == null -> c.detail
+        t.phase == Phase.DONE -> stringResource(R.string.tr_card_ready)
+        t.problem != null -> noteText(t.problem)
+        t.phase == Phase.RUNNING -> stringResource(R.string.tr_card_getting, (t.fraction * 100).toInt())
+        else -> stringResource(R.string.tr_card_paused)
+    }
+    CardRow(c.title, detail, leading = { FileIcon(c.title, 26.dp) }, trailing = { Opens() }, onClick = {
+        when {
+            t == null -> vm.fetchTaskFile(c.taskId!!, c.index!!, c.title)
+            t.phase == Phase.DONE -> host.handOut(t.key, java.io.File(t.local), t.name, share = false)
+            t.phase != Phase.RUNNING -> vm.transfers.resume(t.key)
+        }
+    })
 }
 
 /** A message in the outbox (PHN-401): the owner's bubble, faded until it is sent, with what it waits for and Cancel. */

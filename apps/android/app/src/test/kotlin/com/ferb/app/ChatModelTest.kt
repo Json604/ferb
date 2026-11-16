@@ -69,6 +69,26 @@ class ChatModelTest {
         assertTrue(rows.filterIsInstance<ChatRow.Ferb>().any { it.text.contains("Not done:") })
     }
 
+    // decision: PHN-535
+    @Test
+    fun a_finished_tasks_files_on_its_card_carry_the_task_and_their_place() {
+        var files = 0
+        for (c in all) {
+            val view = FixtureMac.transcript(FixtureMac(c))
+            val lines = ChatModel.rows(view).filterIsInstance<ChatRow.Cards>().flatMap { it.cards }.filter { it.index != null }
+            for (t in view.items.mapNotNull { (it as? com.ferb.mobile.Item.Turn)?.turn }) {
+                val a = t.answer ?: continue
+                if (t.answeredBelow || t.taskId == null) continue
+                a.artifacts.forEachIndexed { i, path ->
+                    files++
+                    assertTrue("${c.scenario}: $path is tappable by its task and place",
+                        lines.any { it.taskId == t.taskId && it.index == i && it.title == ChatModel.fileName(path) })
+                }
+            }
+        }
+        assertTrue("the fixtures hold task files ($files)", files > 0)
+    }
+
     // decision: ENG-12
     @Test
     fun legacy_rows_and_a_turn_from_another_device_are_drawn_like_any_turn() {

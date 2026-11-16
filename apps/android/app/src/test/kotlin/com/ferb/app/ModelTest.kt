@@ -86,7 +86,7 @@ class AnswerFlowTest {
     // decision: PHN-417, PHN-470, PHN-503
     @Test
     fun a_routine_answer_goes_with_no_prompt() = runBlocking {
-        assertEquals(Answered.Sent, flow().answer("ap-1", AnswerInput.Approve(true, 1), hidden = false))
+        assertEquals(Answered.Sent, flow().answer("ap-1", AnswerInput.Approve(true, 1)))
         assertEquals(listOf("answer:ap-1:false"), phone.calls)
         assertTrue(signers.isEmpty())
     }
@@ -95,7 +95,7 @@ class AnswerFlowTest {
     @Test
     fun a_yes_the_mac_wants_proved_is_signed_once_by_the_fingerprint_key() = runBlocking {
         phone.answerScript.add(FakePhone.refused("unlock_required"))
-        assertEquals(Answered.Sent, flow().answer("ap-1", AnswerInput.Approve(true, 1), hidden = false))
+        assertEquals(Answered.Sent, flow().answer("ap-1", AnswerInput.Approve(true, 1)))
         assertEquals(listOf("answer:ap-1:false", "answer:ap-1:true"), phone.calls)
         assertEquals(listOf(KeyKind.STRONG), signers.map { it.kind })
     }
@@ -105,7 +105,7 @@ class AnswerFlowTest {
     fun a_phone_without_a_fingerprint_signs_with_its_lock_key() = runBlocking {
         keys = KeyHealth(KeyState.OK, KeyState.OK, KeyState.NONE)
         phone.answerScript.add(FakePhone.refused("unlock_required"))
-        assertEquals(Answered.Sent, flow().answer("ap-1", AnswerInput.Approve(true, 1), hidden = false))
+        assertEquals(Answered.Sent, flow().answer("ap-1", AnswerInput.Approve(true, 1)))
         assertEquals(listOf(KeyKind.LOCK), signers.map { it.kind })
     }
 
@@ -114,7 +114,7 @@ class AnswerFlowTest {
     fun changed_fingerprints_mean_pair_again_not_a_pin() = runBlocking {
         keys = KeyHealth(KeyState.OK, KeyState.OK, KeyState.GONE)
         phone.answerScript.add(FakePhone.refused("unlock_required"))
-        assertEquals(Answered.NeedsPairingAgain, flow().answer("ap-1", AnswerInput.Approve(true, 1), hidden = false))
+        assertEquals(Answered.NeedsPairingAgain, flow().answer("ap-1", AnswerInput.Approve(true, 1)))
         assertEquals(1, phone.calls.size)
     }
 
@@ -122,29 +122,34 @@ class AnswerFlowTest {
     @Test
     fun a_closed_mac_window_unlocks_and_asks_once_more() = runBlocking {
         phone.answerScript.add(FakePhone.refused("locked"))
-        assertEquals(Answered.Sent, flow().answer("ap-1", AnswerInput.Words("the blue one"), hidden = false))
+        assertEquals(Answered.Sent, flow().answer("ap-1", AnswerInput.Words("the blue one")))
         assertEquals(listOf("answer:ap-1:false", "unlock", "answer:ap-1:false"), phone.calls)
         // and never more than once
         phone.calls.clear()
         phone.answerScript.add(FakePhone.refused("locked")); phone.answerScript.add(FakePhone.refused("locked"))
-        assertTrue(flow().answer("ap-2", AnswerInput.Words("x"), hidden = false) is Answered.Failed)
+        assertTrue(flow().answer("ap-2", AnswerInput.Words("x")) is Answered.Failed)
         assertEquals(3, phone.calls.size)
     }
 
     // decision: PHN-110, PHN-109
+    // decision: PHN-536
     @Test
     fun a_private_answer_always_goes_signed_and_a_cancelled_prompt_sends_nothing() = runBlocking {
-        assertEquals(Answered.Sent, flow().answer("ap-1", AnswerInput.Hidden("123456"), hidden = true))
-        assertEquals("answer:ap-1:true", phone.calls.single())
-        phone.answerScript.add(Outcome.Failed(FerbException.NotSigned("Nothing was sent.", null)))
-        assertEquals(Answered.NotSent, flow(cancel = true).answer("ap-1", AnswerInput.Hidden("123456"), hidden = true))
+        val secret = com.ferb.mobile.SecretInput().apply { "123456".forEach { push(it.code.toUShort()) } }
+        assertEquals(Answered.Sent, flow().answerHidden("ap-1", secret))
+        assertEquals("hidden:ap-1", phone.calls.single())
+        assertEquals(listOf(6), phone.hiddenUnits)
+        val again = com.ferb.mobile.SecretInput().apply { push('1'.code.toUShort()) }
+        assertEquals(Answered.NotSent, flow(cancel = true).answerHidden("ap-1", again))
+        assertTrue("emptied whatever happened", secret.isEmpty() && again.isEmpty())
+        secret.destroy(); again.destroy()
     }
 
     // decision: PHN-302
     @Test
     fun a_refusal_comes_back_with_the_macs_words() = runBlocking {
         phone.answerScript.add(Outcome.Failed(FerbException.Refused("That question isn't waiting any more, so nothing was sent.", "question_not_waiting")))
-        val r = flow().answer("ap-1", AnswerInput.Approve(true, 1), hidden = false) as Answered.Failed
+        val r = flow().answer("ap-1", AnswerInput.Approve(true, 1)) as Answered.Failed
         assertEquals("question_not_waiting", (r.error as FerbException.Refused).linkCode)
     }
 }

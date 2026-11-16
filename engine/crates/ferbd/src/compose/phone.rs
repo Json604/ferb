@@ -6,7 +6,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use ferb_core::interfaces::Clock;
-use ferb_daemon::phone::files::{FileLimits, FileSeams, Judge};
+use ferb_daemon::phone::files::{FileLimits, FileSeams, Judge, MadeFiles, TaskFile};
+use ferb_daemon::phone::find::Made;
 use ferb_daemon::phone::{Limits, MacPrompts, Phones, QuestionFacts, Questions, Seams};
 use ferb_gateway::gateway::{Gateway, OwnEvent, OwnQuestion, SyncProtection};
 use ferb_gateway::questions::{State, OWN_CHECKS, SECRET_KINDS};
@@ -94,6 +95,85 @@ impl Questions for GatewayQuestions {
     }
 }
 
+/// A task's outcome as stored (`tasks.outcome_json`).
+fn outcome_of(db: &SharedDb, task_id: &str) -> Option<Value> {
+    let db = crate::basics::lock(db);
+    let text: String = db
+        .conn()
+        .query_row(
+            "SELECT outcome_json FROM tasks WHERE id = ?",
+            [task_id],
+            |r| r.get(0),
+        )
+        .ok()?;
+    serde_json::from_str(&text).ok()
+}
+
+fn artifacts(outcome: &Value) -> Vec<String> {
+    outcome["artifacts"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .filter(|p| p.starts_with('/'))
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// `phone.read {artifact: {task_id, index}}`: the index-th file the task's outcome names (the result card's files,
+/// sorted as stored). The file area judges it as any path.
+pub fn task_file(db: SharedDb) -> Arc<TaskFile> {
+    Arc::new(move |task_id: &str, index: u64| {
+        let outcome = outcome_of(&db, task_id)?;
+        artifacts(&outcome)
+            .into_iter()
+            .nth(index as usize)
+            .map(PathBuf::from)
+    })
+}
+
+/// `phone.recent`'s first source: the files FERB's root tasks made, newest task first, at most `most`.
+pub fn made_files(db: SharedDb) -> Arc<MadeFiles> {
+    Arc::new(move |most: usize| {
+        let rows = {
+            let db = crate::basics::lock(&db);
+            ferb_store::task_results::TaskResults::new(&db)
+                .page("9999", most as i64)
+                .unwrap_or_default()
+        };
+        let mut out = Vec::new();
+        for r in rows {
+            let outcome: Value = r
+                .get("outcome_json")
+                .and_then(Value::as_str)
+                .and_then(|t| serde_json::from_str(t).ok())
+                .unwrap_or(Value::Null);
+            let id = r.get("id").and_then(Value::as_str).unwrap_or_default();
+            let goal = r.get("goal").and_then(Value::as_str).unwrap_or_default();
+            let name =
+                ferb_orchestrator::names::shown_name(r.get("name").and_then(Value::as_str), goal);
+            let at = r
+                .get("updated_at")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            for path in artifacts(&outcome) {
+                out.push(Made {
+                    path,
+                    at: at.to_string(),
+                    task_id: id.to_string(),
+                    task_name: name.clone(),
+                });
+                if out.len() >= most {
+                    return out;
+                }
+            }
+        }
+        out
+    })
+}
+
 /// Builds the phone area, registers its methods and gate on `server`, and puts the helper's check in place.
 pub fn register(server: &Server, p: Parts) -> Phones {
     let redactor = p.redactor.clone();
@@ -128,7 +208,9 @@ pub fn register(server: &Server, p: Parts) -> Phones {
             inbox: p.user_home.join("Downloads").join("FERB from phone"),
             free_bytes: FileSeams::system_free_bytes(),
             added_places: Vec::new(),
-            task_file: off("phone.no_task_file", None),
+            // T-1211: a finished task's files (its outcome's `artifacts`), for result cards and recent files
+            task_file: Some(task_file(p.db.clone())),
+            made_files: Some(made_files(p.db.clone())),
             hook: None,
         },
         FileLimits::default(),
@@ -137,4 +219,75 @@ pub fn register(server: &Server, p: Parts) -> Phones {
         server.set_is_link(ferb_platform_macos::rpc::link_system(&p.home).into_check());
     }
     phones
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    fn db() -> (tempfile::TempDir, SharedDb) {
+        let dir = tempfile::tempdir().unwrap();
+        let db = ferb_store::Db::open(dir.path().join("ferb.db")).unwrap();
+        db.migrate().unwrap();
+        let c = db.conn();
+        for (id, parent, goal, outcome, at) in [
+            (
+                "t1",
+                None,
+                "Download the October invoice",
+                r#"{"artifacts": ["/Users/o/Downloads/Invoice-Oct.pdf", "/Users/o/Downloads/receipt.txt"]}"#,
+                "2026-11-16T09:00:00+05:30",
+            ),
+            (
+                "t1.1",
+                Some("t1"),
+                "a step",
+                r#"{"artifacts": ["/Users/o/step.txt"]}"#,
+                "2026-11-16T09:30:00+05:30",
+            ),
+            (
+                "t2",
+                None,
+                "Compare desks",
+                r#"{"artifacts": ["relative.txt"]}"#,
+                "2026-11-16T10:00:00+05:30",
+            ),
+        ] {
+            c.execute(
+                "INSERT INTO tasks (id, tree_id, parent_id, request_id, goal, identity, role, scopes_json, status, \
+                 outcome_json, created_at, updated_at) VALUES (?, 't1', ?, 'r', ?, 'owner', 'mixed', '[]', 'done', ?, ?, ?)",
+                rusqlite::params![id, parent, goal, outcome, at, at],
+            )
+            .unwrap();
+        }
+        (dir, Arc::new(Mutex::new(db)))
+    }
+
+    /// T-1211: a finished task's files reach the phone: by index for its result card (`phone.read {artifact}`) and
+    /// as recent files (root tasks only, whole paths only, newest task first).
+    // decision: PHN-528
+    #[test]
+    fn a_finished_task_s_files_are_the_phone_s_by_index_and_as_recent_files() {
+        let (_dir, db) = db();
+        let file = task_file(db.clone());
+        assert_eq!(
+            file("t1", 1),
+            Some(PathBuf::from("/Users/o/Downloads/receipt.txt"))
+        );
+        assert_eq!(file("t1", 2), None);
+        assert_eq!(file("t2", 0), None, "only a whole path");
+        assert_eq!(file("nope", 0), None);
+        let made = made_files(db)(10);
+        let paths: Vec<&str> = made.iter().map(|m| m.path.as_str()).collect();
+        assert_eq!(
+            paths,
+            vec![
+                "/Users/o/Downloads/Invoice-Oct.pdf",
+                "/Users/o/Downloads/receipt.txt"
+            ]
+        );
+        assert_eq!(made[0].task_id, "t1");
+        assert!(!made[0].task_name.is_empty());
+    }
 }

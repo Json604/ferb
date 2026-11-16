@@ -1,7 +1,7 @@
 {
   "counts": {
-    "plain": 49,
-    "private": 36,
+    "plain": 50,
+    "private": 38,
     "sensitive": 48,
     "never": 25
   },
@@ -675,6 +675,15 @@
       "owner_to_confirm": false,
       "why": "the phone session's own call: the daemon's phone gate answers it and checks the proof it carries (PHN-124)"
     },
+    "phone.device_report": {
+      "class": "plain",
+      "locked": "allowed",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the phone's own time zone, city and state for FERB (SENSE-420); nothing of FERB's goes back. While the app is locked only from a connection that proved the phone's device key (PHN-126)"
+    },
     "phone.enable": {
       "class": "never",
       "locked": "refused",
@@ -810,6 +819,15 @@
       "owner_to_confirm": false,
       "why": "one file from the Mac (PHN-113, PHN-115); a key place needs its own fresh proof (PHN-121)"
     },
+    "phone.recent": {
+      "class": "private",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the files FERB made and this phone fetched or sent (PHN-113); key places are left out"
+    },
     "phone.relay_always": {
       "class": "never",
       "locked": "refused",
@@ -854,6 +872,15 @@
       "refused_params": [],
       "owner_to_confirm": false,
       "why": "changes the paired-phone list, which is the Mac owner's side (PHN-106)"
+    },
+    "phone.search": {
+      "class": "private",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "file names under a folder the phone may browse (PHN-113); never contents, key places left out"
     },
     "phone.session_end": {
       "class": "plain",

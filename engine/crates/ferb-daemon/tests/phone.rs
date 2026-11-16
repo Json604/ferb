@@ -789,8 +789,11 @@ async fn the_class_table_drives_every_call() {
     };
     let mut checked = 0;
     for (name, row) in methods {
-        if ferb_rpc::auth::PHONE_SESSION.contains(&name.as_str()) || name == "phone.remove" {
-            continue; // their own tests above
+        if ferb_rpc::auth::PHONE_SESSION.contains(&name.as_str())
+            || name == "phone.remove"
+            || name == "phone.device_report"
+        {
+            continue; // their own tests (phone.device_report: tests/phone_device.rs, the device key's proof)
         }
         let class = row["class"].as_str().unwrap();
         let locked_rule = row["locked"].as_str().unwrap();

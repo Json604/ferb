@@ -334,16 +334,16 @@ PHN-452 the Claude row's words.
 | S3 | (T-1202, done: journal 106) | The daemon's phone area and its migration: devices, challenges, unlock window, proofs, audit | S2 |
 | S3b | (T-1203, done: journal 111) | Phone files through Protection | S3 |
 | S4 | T-1204 | Start, sign and package the helper; its Keychain item through ferb-secrets | S1, S3 |
-| S5 | T-1205 | FERB.app Settings → Phone: pairing, phones, own relay | S3, S4 |
+| S5 | (T-1205, done: journal 110, 113, 117) | FERB.app Settings → Phone: pairing, phones, own relay | S3, S4 |
 | S6 | T-1206 | The transcript golden: `transcripts.json` from the Mac fold; gapped, sealed and legacy scenarios | - |
 | S7 | T-1207 | `ferb-mobile`: store, sync, outbox, fold, reducer | S1, S6 |
 | S8 | (T-1208, done: journal 112) | `ferb-mobile-ffi` (UniFFI); call cancellation in ferb-link left as T-1218 | S7 |
 | S9 | (T-1209, done: journal 114) | `apps/android` :core, Gradle, the Rust build through cargo-ndk, the Vault and keys | S8 |
 | S10 | (T-1210, done: journal 101) | `apps/android` :design: tokens, components, sky | - |
-| S11 | T-1211 | `apps/android` :app screens, the lock, notifications, Stay connected (built in part: journal 115) | S3b, S5, S9, S10 |
+| S11 | T-1211 | `apps/android` :app screens, the lock, notifications, Stay connected (built: journal 115, 116, 117; speaking is the owner's decision) | S3b, S5, S9, S10 |
 | - | (T-1221, done: journal 116) | ferb-mobile-ffi additions S11 needs: lock, stop everything, status, a read mark, files, preview, settings, tasks, the Mac's name | S8 |
 | - | T-1212 | Phone sign-ins (ChatGPT, API keys; Claude's row says why) | S7 |
-| - | T-1214 | The phone's device line and lookup (SENSE-421, SENSE-422 on the phone), its own Location permission; the Mac side is built (journal 104) | S3, S11 |
+| - | (T-1214, done: journal 117) | The phone's device line and lookup (SENSE-421, SENSE-422 on the phone), its own Location permission | S3, S11 |
 
 Live checks: LIVE-1100..1111 (pairing by QR and typed code, direct on the same Wi-Fi, own relay, the public relay's
 text-only fallback, Wi-Fi to mobile data, the 5-minute lock, a notification answer, a fingerprint-signed Yes,
@@ -355,10 +355,14 @@ archive import) do not block S1, S2, S6 or S10.
 
 ## Stage 4: the iPhone app
 
-- Nothing exists. Swift app in `apps/ios` on the same Rust client library, built for `aarch64-apple-ios`; Keychain
-  and Secure Enclave keys converted to the wire form Android uses (P-256, SubjectPublicKeyInfo DER, SHA-256 ECDSA
-  over the original bytes); transfers checkpoint before iOS suspends the app.
-- Needs from the owner: bundle id, provisioning, a physical iPhone for the live check.
+- Built on the simulator (journal 118; rulings PHN-560..574): `apps/ios` with four Swift packages over the same Rust
+  library (`tools/build-rust.sh`: an xcframework for `aarch64-apple-ios` and the Apple-silicon simulator), the glass
+  lab's SwiftUI copied as FerbDesign, FerbCore (Secure Enclave keys in Android's wire form, Keychain vault), the app
+  feature for feature with Android; `apps/ios/tools/build.sh test`. iOS has no Stay connected (PHN-566) and can't blank
+  screenshots (PHN-565).
+- Left: the owner's answers (T-1240 screenshots, T-1241 the background words, T-1242 bundle id, minimum iOS, team;
+  T-1245 the words), a physical iPhone and provisioning (T-1243, then LIVE-1100..1111 with it), proof.rs's iOS vectors
+  (T-1244), the gate (T-1248), the icon from make_logo.py (T-1246); closed-app notifications are stage 5 (T-1247).
 
 ## Stage 5: closed-app notifications
 

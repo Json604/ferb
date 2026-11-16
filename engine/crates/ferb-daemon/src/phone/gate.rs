@@ -217,6 +217,13 @@ impl State {
         None
     }
 
+    /// This session proved the phone's own device key (PHN-126).
+    pub(crate) fn proved_present(&self, phone: &PhoneSession) -> bool {
+        self.sessions
+            .get(&(phone.device.clone(), phone.session.clone()))
+            .is_some_and(|s| s.present)
+    }
+
     pub(crate) fn is_unlocked(&mut self, phone: &PhoneSession, now: f64, limits: &Limits) -> bool {
         self.open_window(phone, now, limits).is_some()
     }
@@ -614,6 +621,7 @@ pub(crate) fn session_end(
 ) -> Result<Params, Refusal> {
     st.sessions
         .remove(&(phone.device.clone(), phone.session.clone()));
+    inner.device_disconnected(&phone.device, st.sessions_of(&phone.device));
     // its uploads under way pause, kept for the same phone to go on with (PHN-127)
     super::files::session_ended(inner, phone);
     let mut out = Params::new();
@@ -750,7 +758,7 @@ impl Gate {
             }
         }
         // a file call refused before the file area: the path as sent (the owner's own audit; never a content)
-        if PHONE_FILES.contains(&method) {
+        if PHONE_FILES.contains(&method) || method == "phone.search" {
             for key in ["path", "name", "size"] {
                 if let Some(v) = params.get(key).filter(|v| v.is_string() || v.is_u64()) {
                     d.insert(key.into(), v.clone());

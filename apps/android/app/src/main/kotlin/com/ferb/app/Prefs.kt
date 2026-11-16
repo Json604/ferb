@@ -24,6 +24,14 @@ class Prefs(context: Context) {
         get() = p.getBoolean("hide_checks", true)
         set(v) = p.edit().putBoolean("hide_checks", v).apply()
 
+    /**
+     * SENSE-420: the owner turned on "Share this phone's city with FERB" (and Android allowed coarse location). Off
+     * until he does; the city itself is kept in memory only.
+     */
+    var shareCity: Boolean
+        get() = p.getBoolean("share_city", false)
+        set(v) = p.edit().putBoolean("share_city", v).apply()
+
     /** When this phone was first seen paired (epoch ms), for "Paired with … since". */
     var pairedSince: Long
         get() = p.getLong("paired_since", 0)

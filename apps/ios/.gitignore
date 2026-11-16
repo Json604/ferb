@@ -1,0 +1,10 @@
+# Build output: the Rust phone library and Xcode's derived data (apps/ios/tools/build-rust.sh, build.sh)
+build/
+DerivedData/
+# Made by apps/ios/tools/build-rust.sh from engine/crates/ferb-mobile-ffi (never edited by hand)
+Packages/FerbMobile/FerbMobileFFI.xcframework/
+Packages/FerbMobile/Sources/FerbMobile/Generated/
+# Xcode's per-user state
+xcuserdata/
+*.xcuserstate
+.swiftpm/

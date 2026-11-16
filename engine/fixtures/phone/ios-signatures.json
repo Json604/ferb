@@ -1,0 +1,33 @@
+{
+  "made_by" : "apps/ios/Packages/FerbCore KeysTests.testIOSVectorsVerify on the iOS simulator (no Secure Enclave there): a CryptoKit P-256 key through FerbCore's Proofs, the encoding the Secure Enclave's keys take on a phone (raw point plus the SPKI header; DER signatures)",
+  "vectors" : [
+    {
+      "key" : "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAES5Yfirb9x8pZKhS8pT2ywoap9/rnO7THbymyycwQJLFuijhtbQe/20FQcxF43gwhyRhJLS9niy8azYY5QXOhQA==",
+      "payload" : "{\"challenge\":\"vector-1\",\"method\":\"link.present\",\"params\":{}}",
+      "sig" : "MEUCIHrUdfyIZyVAvcfZJapFe6gZ0Ms/bUqp1KR4vyEAQT+gAiEAjQTKzngYo0JO+B+gcHfGU3P10ANp8rjCpebpdmbGSOI=",
+      "valid" : true,
+      "what" : "ios simulator key 1"
+    },
+    {
+      "key" : "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAES5Yfirb9x8pZKhS8pT2ywoap9/rnO7THbymyycwQJLFuijhtbQe/20FQcxF43gwhyRhJLS9niy8azYY5QXOhQA==",
+      "payload" : "{\"challenge\":\"vector-2\",\"method\":\"link.present\",\"params\":{}}",
+      "sig" : "MEYCIQDeuqOCtjZVQT9ReqPPlUJc0GNs5eFadUjyIFlQCDGyyAIhAKv3G8yBES1XBSrfivEHDVZ5AwkEU2v1APYd21jBud1N",
+      "valid" : true,
+      "what" : "ios simulator key 2"
+    },
+    {
+      "key" : "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAES5Yfirb9x8pZKhS8pT2ywoap9/rnO7THbymyycwQJLFuijhtbQe/20FQcxF43gwhyRhJLS9niy8azYY5QXOhQA==",
+      "payload" : "{\"challenge\":\"vector-3\",\"method\":\"link.present\",\"params\":{}}",
+      "sig" : "MEUCIGB7MVeNXnEsaYqMlPdEO1wdgWqWqbWdZoUjhQykKIG6AiEAwKdZDGXG4JGz7qbvalAh9kMHb5RmMXtZp6kHwMH2Z5Q=",
+      "valid" : true,
+      "what" : "ios simulator key 3"
+    },
+    {
+      "key" : "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAES5Yfirb9x8pZKhS8pT2ywoap9/rnO7THbymyycwQJLFuijhtbQe/20FQcxF43gwhyRhJLS9niy8azYY5QXOhQA==",
+      "payload" : "{}",
+      "sig" : "MEUCIHUITMRNJLrZKETWXuI0EcMG8VB9EP5YNwKjQcyJlPDOAiEAwizCdRLCP9VrUzjrKvJQ0Cw3sEz6k10VSXtuOxOV9zw=",
+      "valid" : false,
+      "what" : "ios simulator key, another payload"
+    }
+  ]
+}

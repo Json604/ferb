@@ -212,9 +212,60 @@ class ScreenShotsTest {
             Transfer("b1.0", Way.SEND, "IMG_2041.jpg", "/x/a", done = 2_400_000, total = 2_400_000, phase = Phase.DONE, batch = "b1"),
             Transfer("b1.1", Way.SEND, "IMG_2042.jpg", "/x/b", done = 800_000, total = 2_600_000, phase = Phase.RUNNING, batch = "b1"),
         ))
-        val ui = base.copy(files = FilesUi(counts = mapOf("~/Desktop" to 38L, "~/Documents" to 112L, "~/Downloads" to 9L)))
+        val recent = com.ferb.mobile.RecentFiles(listOf(
+            com.ferb.mobile.FoundFile("Desk comparison.pdf", "~/Downloads/Desk comparison.pdf", false, 320_000u, 1_767_348_000, "made", "2026-01-02T10:00:00+00:00", "t-1", "Compare standing desks"),
+            com.ferb.mobile.FoundFile("Lease agreement.pdf", "~/Documents/Lease agreement.pdf", false, 1_100_000u, 1_767_348_000, "fetched", "2026-01-02T09:00:00+00:00", null, null),
+        ), 1u)
+        val ui = base.copy(files = FilesUi(counts = mapOf("~/Desktop" to 38L, "~/Documents" to 112L, "~/Downloads" to 9L), recent = recent))
         compose.setContent { Frame(labMoment(12.5), ui, tab = PhoneTab.FILES) }
         shoot("files-places.png")
+    }
+
+    // decision: PHN-113, PHN-121
+    // decision: PHN-538
+    @Test
+    fun a_search_of_names_says_what_it_left_out() {
+        val found = com.ferb.mobile.FoundFiles("~/Documents", "lease", listOf(
+            com.ferb.mobile.FoundFile("Leases", "~/Documents/Leases", true, 0u, 0, "", null, null, null),
+            com.ferb.mobile.FoundFile("Lease agreement.pdf", "~/Documents/Leases/Lease agreement.pdf", false, 1_100_000u, 1_767_348_000, "", null, null, null),
+        ), 5000u, 2u, true, true)
+        val folder = Folder("~/Documents", "~", false, emptyList(), 0u, false)
+        val ui = base.copy(files = FilesUi(folder = folder, search = SearchUi("lease", "~/Documents", loading = false, found = found)))
+        compose.setContent { Frame(labMoment(12.5), ui, tab = PhoneTab.FILES) }
+        shoot("files-search.png")
+    }
+
+    // decision: PHN-13, PHN-115
+    // decision: PHN-533
+    @Test
+    fun a_whole_folder_on_its_way_says_its_files_and_what_was_left_out() {
+        vm.transfers.setForTest(listOf(
+            Transfer("d1.0", Way.FETCH, "return.pdf", "/x/d", "~/Documents/Taxes/2025/return.pdf", 2_000_000, 2_000_000, Phase.DONE, batch = "d1", rel = "2025/return.pdf"),
+            Transfer("d1.1", Way.FETCH, "receipts.zip", "/x/e", "~/Documents/Taxes/receipts.zip", 1_500_000, 6_000_000, Phase.RUNNING, batch = "d1", rel = "receipts.zip"),
+            Transfer("d1.2", Way.FETCH, "notes.txt", "/x/f", "~/Documents/Taxes/notes.txt", 0, 4_000, Phase.PAUSED, batch = "d1", rel = "notes.txt"),
+        ), listOf(com.ferb.app.model.Batch("d1", Way.FETCH, "Taxes", "~/Documents/Taxes", skipped = 2, cut = true)))
+        val folder = Folder("~/Documents/Taxes", "~/Documents", false, listOf(
+            FileEntry("2025", "~/Documents/Taxes/2025", true, false, 0u, 0, false),
+            FileEntry("receipts.zip", "~/Documents/Taxes/receipts.zip", false, false, 6_000_000u, 1_767_348_000, false),
+        ), 2u, false)
+        compose.setContent { Frame(labMoment(12.5), base.copy(files = FilesUi(folder = folder)), tab = PhoneTab.FILES) }
+        shoot("files-folder-whole.png")
+    }
+
+    // decision: GATE-613, SENSE-420
+    // decision: PHN-537
+    @Test
+    fun the_macs_request_for_the_exact_place_asks_on_the_phone() {
+        compose.setContent { Frame(labMoment(12.5), base.copy(rows = labRows), sheet = Sheet.Location("loc-1")) }
+        shoot("exact-location.png")
+    }
+
+    // decision: SENSE-420, PHN-420
+    // decision: PHN-532
+    @Test
+    fun sharing_the_city_is_explained_before_androids_question() {
+        compose.setContent { Frame(labMoment(6.1), base.copy(rows = labRows), sheet = Sheet.City) }
+        shoot("share-city.png")
     }
 
     // decision: PHN-113, PHN-121, PHN-11

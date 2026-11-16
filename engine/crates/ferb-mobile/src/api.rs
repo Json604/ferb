@@ -107,6 +107,11 @@ pub enum Change {
     Status,
     /// What the Mac told about itself changed (its name, this phone's pairing date): read `mac_info` again.
     Mac,
+    /// The Mac asks for one precise fix of this phone's location, after the owner said Yes to it for a task
+    /// (GATE-613): read one and answer with `answer_location` (T-1214).
+    LocationWanted {
+        request_id: String,
+    },
     /// "Forget this Mac" ran or the core closed: every call now answers `closed`.
     Closed,
 }
@@ -412,6 +417,8 @@ pub(crate) struct State {
     pub(crate) status: Option<PhoneStatus>,
     /// The app locked: the watch stays closed until the next unlock's sync (PHN-125).
     pub(crate) locked: bool,
+    /// The phone's own record for the Mac and the Mac's request for a precise fix (T-1214; memory only).
+    pub(crate) device: crate::device::DeviceState,
 }
 
 pub(crate) struct Shared {
@@ -515,6 +522,7 @@ impl Mobile {
                     older_waiting: HashSet::new(),
                     status: None,
                     locked: false,
+                    device: Default::default(),
                 }),
                 sync_lock: Mutex::new(()),
                 outbox_lock: Mutex::new(()),
@@ -540,6 +548,7 @@ impl Mobile {
             st.transport = None;
             st.link.path = LinkPath::Offline;
             st.link.watching = false;
+            st.device.offline();
             for c in st.convs.values_mut() {
                 c.live.reset();
             }
@@ -1048,6 +1057,7 @@ impl Shared {
                         start_sync = true;
                     }
                     if path == LinkPath::Offline {
+                        st.device.offline();
                         st.link.watching = false;
                         st.generation += 1;
                         watch_to_close = st.watch.take();
@@ -1077,6 +1087,12 @@ impl Shared {
                         Value::String(s) => Some(s.clone()),
                         other => Some(other.to_string()),
                     };
+                }
+                "location_wanted" => {
+                    // the Mac asks for one precise fix, after the owner's Yes for a task (T-1214, GATE-613)
+                    drop(st);
+                    crate::device::wanted(this, &ev);
+                    return;
                 }
                 "status" => {
                     // the Mac's pushed `chat.status` (the bridge's, when it changes): memory only
@@ -1377,6 +1393,8 @@ impl Shared {
     fn sync(this: &Arc<Shared>) -> MobileResult<()> {
         let _one = lock(&this.sync_lock);
         let t = this.transport()?;
+        // the phone's own record, when this connection hasn't heard it yet (T-1214); a refusal waits for the next sync
+        let _ = Self::send_device(this, &t);
         if lock(&this.state).locked {
             // the app is locked (PHN-125): only what waits (the Mac's status, allowed locked), never the conversation
             let _ = Self::read_status(this, &t);

@@ -79,6 +79,9 @@ class Notifier(
                 when (c) {
                     is Change.Transcript, is Change.Live -> scope.launch { lookTranscript() }
                     is Change.Status -> scope.launch { lookStatus() }
+                    // the Mac asks for the exact location (GATE-613): with the app away, a notification; the sheet
+                    // that answers is in the app only (no button here shares anything), kb PHN-537
+                    is Change.LocationWanted -> if (!quiet) location(c.requestId)
                     else -> Unit
                 }
             }
@@ -225,6 +228,16 @@ class Notifier(
         notify(keyOf("q:$id"), b.build())
     }
 
+    /** The Mac's request for this phone's exact location: words and a tap that opens the app's sheet; no buttons. */
+    fun location(requestId: String) {
+        val i = Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP).putExtra(MainActivity.EXTRA_LOCATION, requestId)
+        val tap = PendingIntent.getActivity(context, "loc:$requestId".hashCode(), i, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        post(KEY_LOCATION, CH_QUESTIONS, context.getString(R.string.n_exact_title), context.getString(R.string.n_exact_text), tap)
+    }
+
+    /** The request was answered in the app: its notification goes. */
+    fun locationAnswered() = nm.cancel(keyOf(KEY_LOCATION))
+
     /** After an answer from the notification: gone, or replaced by what stopped it (PHN-302). */
     fun answered(approvalId: String, problem: String?, needsApp: Boolean) {
         val key = keyOf("q:$approvalId")
@@ -296,6 +309,7 @@ class Notifier(
         const val CH_LINK = "connection"
         const val CH_STAY = "stay_connected"
         const val KEY_LINK = "link"
+        const val KEY_LOCATION = "location"
         fun keyOf(key: String): Int = key.hashCode()
 
         /** The questions a status brings, for a test or a receiver: each with its needs. */

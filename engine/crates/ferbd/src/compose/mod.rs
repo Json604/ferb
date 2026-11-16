@@ -1021,6 +1021,8 @@ impl Daemon {
             },
         );
         let _ = phone_slot.set(phones.clone());
+        // T-1214: the paired phones' own records in the facts line and device.facts
+        tool_parts.device().set_phones(phones.clone());
 
         // DMN-510: serve before the slow part; every call but `ping` waits for the start to finish
         server.set_starting();

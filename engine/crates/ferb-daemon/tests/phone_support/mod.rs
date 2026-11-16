@@ -386,6 +386,31 @@ impl Conn {
         }
     }
 
+    /// Starts a call without waiting for its answer (a stream such as `link.events`).
+    pub async fn start(&mut self, method: &str, params: Value) {
+        self.next += 1;
+        let req = json!({"jsonrpc": "2.0", "id": self.next, "method": method, "params": params});
+        self.writer
+            .write_all(format!("{req}\n").as_bytes())
+            .await
+            .unwrap();
+    }
+
+    /// The next line the daemon sends (a stream's event's params, or an answer), within a few seconds.
+    pub async fn next_line(&mut self) -> Value {
+        let mut line = String::new();
+        let n = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            self.reader.read_line(&mut line),
+        )
+        .await
+        .expect("a line in time")
+        .unwrap();
+        assert!(n > 0, "the connection closed");
+        let v: Value = serde_json::from_str(&line).unwrap();
+        v.get("params").cloned().unwrap_or(v)
+    }
+
     pub async fn ok(&mut self, method: &str, params: Value) -> Value {
         self.call(method, params, None)
             .await

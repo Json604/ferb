@@ -1,0 +1,2 @@
+# SwiftPM's and the editor's build output (xcodebuild uses apps/ios/build/dd-design)
+.build/

@@ -85,8 +85,6 @@
     <string name="answer_needs_pairing">This answer needs your fingerprint, and this phone\'s fingerprint key changed. Answer on your Mac, or pair this phone again.</string>
 
     <!-- what isn't on the phone yet -->
-    <string name="feature_search">Searching your Mac</string>
-    <string name="not_yet_search">Searching your Mac from the phone comes in an update of FERB. Until then, open a place below and look through its folders.</string>
     <string name="feature_voice">Speaking to FERB</string>
     <string name="not_yet_voice">Speaking to FERB from the phone comes in an update of FERB. Until then, type your message here.</string>
     <string name="not_on_shared_relay">Not on the shared relay. This waits until your phone reaches your Mac directly or through your own relay.</string>
@@ -105,7 +103,47 @@
     <string name="place_downloads">Downloads</string>
     <string name="files_places">Places</string>
     <string name="files_recent">Recent</string>
-    <string name="files_recent_not_yet">Recent files from your Mac come in an update of FERB.</string>
+    <string name="recent_made">Made by FERB, %1$s</string>
+    <string name="recent_made_for">Made for %1$s, %2$s</string>
+    <string name="recent_fetched">Got on this phone, %1$s</string>
+    <string name="recent_sent">Sent from this phone, %1$s</string>
+    <string name="recent_empty">Nothing yet. Files FERB makes for you, and files you move between this phone and your Mac, show here.</string>
+    <plurals name="recent_skipped">
+        <item quantity="one">%1$d more is left out: it needs your fingerprint, or is no longer on your Mac.</item>
+        <item quantity="other">%1$d more are left out: they need your fingerprint, or are no longer on your Mac.</item>
+    </plurals>
+    <string name="search_mac">your Mac</string>
+    <string name="search_in">Search in %1$s</string>
+    <string name="search_close">Close search</string>
+    <string name="search_found_in">Found in %1$s</string>
+    <string name="search_found_mac">Found on your Mac</string>
+    <string name="search_looking">Looking…</string>
+    <string name="search_none">Nothing here has “%1$s” in its name.</string>
+    <string name="search_cut">Showing the first %1$d matches. Type more of the name to narrow it down.</string>
+    <string name="search_incomplete">FERB stopped after looking at %1$d names; search inside a folder to find more.</string>
+    <plurals name="search_skipped">
+        <item quantity="one">%1$d place that needs your fingerprint wasn\'t searched.</item>
+        <item quantity="other">%1$d places that need your fingerprint weren\'t searched.</item>
+    </plurals>
+    <string name="files_get_folder">Get this whole folder</string>
+    <string name="files_send_folder">Folder</string>
+    <string name="files_tree_empty">There are no files in this folder to get.</string>
+    <string name="files_tree_cut">FERB fetched the first %1$d files of this folder.</string>
+    <plurals name="files_tree_skipped">
+        <item quantity="one">%1$d file that needs your fingerprint was left out; open it on its own.</item>
+        <item quantity="other">%1$d files that need your fingerprint were left out; open them one by one.</item>
+    </plurals>
+    <string name="files_folder_unreadable">That folder couldn\'t be read, so nothing was sent.</string>
+    <string name="files_folder_empty">That folder has no files in it, so nothing was sent.</string>
+    <string name="tr_folder_here">%1$s is on this phone</string>
+    <string name="tr_folder_progress">%1$d of %2$d files, %3$s of %4$s</string>
+    <plurals name="tr_unreadable">
+        <item quantity="one">%1$d file couldn\'t be read, so it wasn\'t sent.</item>
+        <item quantity="other">%1$d files couldn\'t be read, so they weren\'t sent.</item>
+    </plurals>
+    <string name="tr_card_getting">Getting it, %1$d%%</string>
+    <string name="tr_card_ready">On this phone. Tap to open</string>
+    <string name="tr_card_paused">Paused. Tap to go on</string>
     <string name="files_needs_better_path">Getting and sending files is available when connected directly or through your relay.</string>
     <string name="files_empty">This folder is empty.</string>
     <string name="files_cut">Showing the first %1$d of %2$d.</string>
@@ -197,6 +235,27 @@
     <string name="profile_screenshots_detail">Blank in screenshots and recent apps</string>
     <string name="profile_lock_screen">Hide checks on the lock screen</string>
     <string name="profile_lock_screen_detail">Money, deleting, accounts</string>
+    <string name="profile_city">Share this phone\'s city with FERB</string>
+    <string name="profile_city_detail">The city only, never the exact spot</string>
+
+    <!-- this phone's place (SENSE-420, GATE-613) -->
+    <string name="city_title">Share this phone\'s city?</string>
+    <string name="city_text">FERB on your Mac then knows which city you\'re in, for things like local times and places nearby. Only the city goes to your Mac, never the exact spot. To name the city, Android\'s own location service looks it up. Android asks next; you can turn this off here any time.</string>
+    <string name="city_continue">Continue</string>
+    <string name="city_denied">Android didn\'t allow location for FERB, so FERB goes by the time zone.</string>
+    <string name="exact_title">Share this phone\'s exact location?</string>
+    <string name="exact_text">FERB on your Mac asks where this phone is right now, for a task you said yes to. It\'s read once and goes only to your Mac.</string>
+    <string name="exact_reading">Finding where this phone is…</string>
+    <string name="exact_share">Share once</string>
+    <string name="exact_no">Don\'t share</string>
+    <string name="exact_sent">Sent to your Mac.</string>
+    <string name="exact_not_sent">Your Mac was told this phone didn\'t share it.</string>
+    <string name="n_exact_title">FERB would like this phone\'s exact location</string>
+    <string name="n_exact_text">For a task on your Mac. Tap to choose in FERB.</string>
+    <!-- what FERB on the Mac is told when no fix goes -->
+    <string name="loc_why_no">The owner said no on the phone.</string>
+    <string name="loc_why_denied">Android\'s location permission wasn\'t given on the phone.</string>
+    <string name="loc_why_none">The phone couldn\'t find where it is in time.</string>
     <string name="forget_title">Forget this Mac?</string>
     <string name="forget_text">This phone stops using FERB on your Mac. The chat kept here is deleted. Your Mac keeps everything; to use it here again, pair this phone again.</string>
     <string name="forget_yes">Forget this Mac</string>

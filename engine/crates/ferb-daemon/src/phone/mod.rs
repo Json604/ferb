@@ -30,7 +30,9 @@
 //! A phone's turn is the owner's: the handlers FERB.app's calls reach answer it, with the phone named as the client
 //! (`client_id` `phone:<endpoint>`), so the Mac shows which device sent it (APP-916).
 
+pub mod device;
 pub mod files;
+pub mod find;
 pub mod gate;
 pub mod link;
 pub mod proof;
@@ -182,6 +184,8 @@ pub(crate) struct Inner {
     asks: Mutex<link::Asks>,
     /// The Mac's computer name, for a phone's `phone.list` (T-1221), once `Phones::set_mac_name` put it in place.
     mac_name: std::sync::OnceLock<MacName>,
+    /// Each phone's own record and the open requests for a precise fix (T-1214, `device`; memory only).
+    devices: Mutex<device::Devices>,
 }
 
 /// The Mac's computer name now (ferbd reads the system's; empty when unknown).
@@ -242,6 +246,7 @@ impl Phones {
                 link: Mutex::new(None),
                 asks: Mutex::new(link::Asks::default()),
                 mac_name: std::sync::OnceLock::new(),
+                devices: Mutex::new(device::Devices::default()),
             }),
         }
     }
@@ -290,7 +295,7 @@ impl Phones {
     /// Registers the area's methods and sets its gate on `server`.
     pub fn register(&self, server: &Server) {
         server.set_phone_gate(self.gate());
-        let unary: [(&str, Handler); 14] = [
+        let unary: [(&str, Handler); 15] = [
             ("phone.list", |p, s, _| p.list(&s)),
             ("phone.rename", |p, _, a| p.rename(&a)),
             ("phone.remove", |p, s, a| p.remove(&s, &a)),
@@ -312,6 +317,7 @@ impl Phones {
                 p.inner.on_session(&s, gate::session_end)
             }),
             ("phone.keys", |p, s, a| p.keys(&s, &a)),
+            ("phone.device_report", |p, s, a| p.device_report(&s, &a)),
             ("link.devices", |p, _, _| p.devices()),
             ("link.pair_request", |p, _, a| p.pair_request(&a)),
             ("link.pair_cancel", |p, _, a| p.pair_cancel(&a)),
@@ -471,6 +477,7 @@ impl Phones {
         };
         lock(&inner.state).forget_device(&id);
         files::forget_device(inner, &id);
+        inner.forget_device_record(&id);
         let _ = inner
             .events
             .send(json!({"event": "device_removed", "id": id}));

@@ -1,0 +1,981 @@
+{
+  "version": 1,
+  "about": "The words FERB's phone app puts on its home screen, chosen by what the phone knows about the moment. Each slot has rules; the highest-priority rule whose conditions all hold wins, and one of its lines is shown (the same one all day, a different one tomorrow). Edit this file and press Reload in the lab's Words scene. Placeholders: {sunset} {sunrise} {sunsetIn} {sunriseIn} {done} {waiting} {failed} {running} {day} {lastOpen} {awayDays} {time} {place} {temp} {rainAt} {season}.",
+  "conditions": {
+    "phase": "where the sun is: night, dawn, sunrise, morning, midday, afternoon, golden-hour, sunset, dusk",
+    "hour": "local hour range, 'from-to', may wrap midnight (22-4)",
+    "weekend": "true on Saturday and Sunday",
+    "usual": "this hour against the owner's own opening hours: usual, earlier (earlier in the day than they ever open), later, rare",
+    "firstToday": "the first open since 4 am",
+    "awayHours": "hours since the app was last opened",
+    "lateNights": "nights in the last 7 with an open between midnight and 4 am",
+    "waiting": "questions FERB is waiting on",
+    "done": "tasks finished since the last open",
+    "failed": "tasks that could not finish since the last open",
+    "running": "tasks running now",
+    "link": "how the phone reaches the Mac: direct, own, shared, offline",
+    "newPlace": "the phone's time zone changed since the last open",
+    "firstRun": "the very first open, before pairing",
+    "justPaired": "the first open after pairing",
+    "sunsetIn": "minutes until sunset (only while the sun is up)",
+    "sunriseIn": "minutes until sunrise (only before sunrise)",
+    "numbers": "a number, or >=n, <=n, >n, <n, or a range a-b",
+    "weather": "the weather now: clear, cloudy, overcast, rain, storm, snow, fog, wind",
+    "temp": "the temperature now, in degrees",
+    "rainIn": "minutes until the forecast says rain (only when it does)",
+    "season": "spring, summer, monsoon (South Asia, June to September), autumn, winter; the south of the world the other way round",
+    "moon": "full or new, on those nights only",
+    "weekday": "1 Sunday ... 7 Saturday"
+  },
+  "slots": {
+    "greeting": [
+      {
+        "id": "first-run",
+        "priority": 100,
+        "when": {
+          "firstRun": true
+        },
+        "lines": [
+          "Hello",
+          "Hi, I'm FERB"
+        ]
+      },
+      {
+        "id": "just-paired",
+        "priority": 95,
+        "when": {
+          "justPaired": true
+        },
+        "lines": [
+          "All set",
+          "You're connected"
+        ]
+      },
+      {
+        "id": "back-after-a-week",
+        "priority": 88,
+        "when": {
+          "awayHours": ">=168"
+        },
+        "lines": [
+          "It's been a while",
+          "Welcome back"
+        ]
+      },
+      {
+        "id": "back-after-days",
+        "priority": 85,
+        "when": {
+          "awayHours": ">=48"
+        },
+        "lines": [
+          "Welcome back",
+          "Good to see you"
+        ]
+      },
+      {
+        "id": "new-place-morning",
+        "priority": 80,
+        "when": {
+          "newPlace": true,
+          "phase": [
+            "dawn",
+            "sunrise",
+            "morning"
+          ]
+        },
+        "lines": [
+          "Morning, wherever you are",
+          "New place, new morning"
+        ]
+      },
+      {
+        "id": "new-place-day",
+        "priority": 80,
+        "when": {
+          "newPlace": true,
+          "phase": [
+            "midday",
+            "afternoon",
+            "golden-hour"
+          ]
+        },
+        "lines": [
+          "Hello from somewhere new",
+          "Afternoon, wherever you are"
+        ]
+      },
+      {
+        "id": "new-place-evening",
+        "priority": 80,
+        "when": {
+          "newPlace": true,
+          "phase": [
+            "sunset",
+            "dusk",
+            "night"
+          ]
+        },
+        "lines": [
+          "Evening, wherever you are",
+          "New place, same FERB"
+        ]
+      },
+      {
+        "id": "late-again",
+        "priority": 76,
+        "when": {
+          "hour": "0-4",
+          "lateNights": ">=3"
+        },
+        "lines": [
+          "Another late one",
+          "Up late again"
+        ]
+      },
+      {
+        "id": "late",
+        "priority": 72,
+        "when": {
+          "hour": "0-4"
+        },
+        "lines": [
+          "Still up?",
+          "Late one tonight",
+          "Quiet hours"
+        ]
+      },
+      {
+        "id": "before-the-sun",
+        "priority": 70,
+        "when": {
+          "hour": "4-8",
+          "phase": [
+            "night",
+            "dawn"
+          ]
+        },
+        "lines": [
+          "Up before the sun",
+          "Early start"
+        ]
+      },
+      {
+        "id": "weekend-morning",
+        "priority": 62,
+        "when": {
+          "weekend": true,
+          "phase": [
+            "sunrise",
+            "morning"
+          ]
+        },
+        "lines": [
+          "Happy {day}",
+          "Slow {day} morning"
+        ]
+      },
+      {
+        "id": "sunrise",
+        "priority": 60,
+        "when": {
+          "phase": "sunrise"
+        },
+        "lines": [
+          "Good morning",
+          "The sun's just up"
+        ]
+      },
+      {
+        "id": "golden-hour",
+        "priority": 58,
+        "when": {
+          "phase": "golden-hour"
+        },
+        "lines": [
+          "Golden hour",
+          "Good afternoon"
+        ]
+      },
+      {
+        "id": "sunset",
+        "priority": 58,
+        "when": {
+          "phase": "sunset"
+        },
+        "lines": [
+          "Good evening",
+          "Sun's going down"
+        ]
+      },
+      {
+        "id": "morning",
+        "priority": 50,
+        "when": {
+          "hour": "4-12"
+        },
+        "lines": [
+          "Good morning",
+          "Morning"
+        ]
+      },
+      {
+        "id": "afternoon",
+        "priority": 50,
+        "when": {
+          "hour": "12-17"
+        },
+        "lines": [
+          "Good afternoon",
+          "Afternoon"
+        ]
+      },
+      {
+        "id": "evening",
+        "priority": 50,
+        "when": {
+          "hour": "17-22"
+        },
+        "lines": [
+          "Good evening",
+          "Evening"
+        ]
+      },
+      {
+        "id": "night",
+        "priority": 50,
+        "when": {
+          "hour": "22-24"
+        },
+        "lines": [
+          "Good evening",
+          "Winding down?"
+        ]
+      },
+      {
+        "id": "fallback",
+        "priority": 0,
+        "when": {},
+        "lines": [
+          "Hello"
+        ]
+      }
+    ],
+    "subline": [
+      {
+        "id": "first-run",
+        "priority": 100,
+        "when": {
+          "firstRun": true
+        },
+        "lines": [
+          "Pair with your Mac and ask for anything. It happens there."
+        ]
+      },
+      {
+        "id": "just-paired",
+        "priority": 98,
+        "when": {
+          "justPaired": true
+        },
+        "lines": [
+          "Your phone and your Mac are linked. Try asking for something.",
+          "Linked to your Mac. Ask for anything."
+        ]
+      },
+      {
+        "id": "mac-offline",
+        "priority": 96,
+        "when": {
+          "link": "offline"
+        },
+        "lines": [
+          "Your Mac is asleep or offline. Messages wait until it's back.",
+          "Can't reach your Mac right now. Anything you send waits for it."
+        ]
+      },
+      {
+        "id": "waiting-many",
+        "priority": 94,
+        "when": {
+          "waiting": ">=2"
+        },
+        "lines": [
+          "{waiting} things need your yes.",
+          "{waiting} questions are waiting for you."
+        ]
+      },
+      {
+        "id": "waiting-one",
+        "priority": 93,
+        "when": {
+          "waiting": 1
+        },
+        "lines": [
+          "One thing needs your yes.",
+          "A question is waiting for you."
+        ]
+      },
+      {
+        "id": "failed-many",
+        "priority": 90,
+        "when": {
+          "failed": ">=2"
+        },
+        "lines": [
+          "{failed} tasks couldn't finish. They're below.",
+          "{failed} things got stuck while you were away."
+        ]
+      },
+      {
+        "id": "failed-one",
+        "priority": 89,
+        "when": {
+          "failed": 1
+        },
+        "lines": [
+          "One task couldn't finish. It's below.",
+          "Something got stuck while you were away."
+        ]
+      },
+      {
+        "id": "new-place",
+        "priority": 84,
+        "when": {
+          "newPlace": true
+        },
+        "lines": [
+          "New time zone. It's {time} here.",
+          "You've moved time zones. It's {time} where you are."
+        ]
+      },
+      {
+        "id": "late-streak",
+        "priority": 78,
+        "when": {
+          "hour": "0-4",
+          "lateNights": ">=3"
+        },
+        "lines": [
+          "{lateNights} late nights this week.",
+          "Late nights add up. Sunrise is at {sunrise}."
+        ]
+      },
+      {
+        "id": "running-many",
+        "priority": 70,
+        "when": {
+          "running": ">=2"
+        },
+        "lines": [
+          "Working on {running} things on your Mac.",
+          "{running} tasks running on your Mac."
+        ]
+      },
+      {
+        "id": "running-one",
+        "priority": 69,
+        "when": {
+          "running": 1
+        },
+        "lines": [
+          "Working on one thing on your Mac.",
+          "One task running on your Mac."
+        ]
+      },
+      {
+        "id": "done-overnight-many",
+        "priority": 67,
+        "when": {
+          "done": ">=2",
+          "firstToday": true,
+          "awayHours": ">=6"
+        },
+        "lines": [
+          "{done} things done overnight.",
+          "Finished {done} things while you slept."
+        ]
+      },
+      {
+        "id": "done-overnight-one",
+        "priority": 66,
+        "when": {
+          "done": 1,
+          "firstToday": true,
+          "awayHours": ">=6"
+        },
+        "lines": [
+          "One thing done overnight.",
+          "Finished one thing while you slept."
+        ]
+      },
+      {
+        "id": "done-many",
+        "priority": 65,
+        "when": {
+          "done": ">=2",
+          "awayHours": ">=1"
+        },
+        "lines": [
+          "Finished {done} things while you were away.",
+          "{done} done since you last looked."
+        ]
+      },
+      {
+        "id": "done-one",
+        "priority": 64,
+        "when": {
+          "done": 1,
+          "awayHours": ">=1"
+        },
+        "lines": [
+          "One thing finished while you were away.",
+          "Done one thing since you last looked."
+        ]
+      },
+      {
+        "id": "sunset-soon",
+        "priority": 56,
+        "when": {
+          "sunsetIn": "1-45"
+        },
+        "lines": [
+          "Sunset in {sunsetIn} min.",
+          "The sun sets at {sunset}, in {sunsetIn} min."
+        ]
+      },
+      {
+        "id": "sunrise-soon",
+        "priority": 56,
+        "when": {
+          "sunriseIn": "1-60"
+        },
+        "lines": [
+          "Sunrise in {sunriseIn} min.",
+          "Light at {sunrise}."
+        ]
+      },
+      {
+        "id": "shared-relay",
+        "priority": 40,
+        "when": {
+          "link": "shared"
+        },
+        "lines": [
+          "On the shared relay: messages work, big files wait.",
+          "Connected through the shared relay."
+        ]
+      },
+      {
+        "id": "back-again",
+        "priority": 36,
+        "when": {
+          "awayHours": "<1"
+        },
+        "lines": [
+          "Nothing new since {lastOpen}.",
+          "All quiet since {lastOpen}."
+        ]
+      },
+      {
+        "id": "earlier-than-usual",
+        "priority": 32,
+        "when": {
+          "usual": "earlier"
+        },
+        "lines": [
+          "Earlier than usual.",
+          "You're up earlier than usual."
+        ]
+      },
+      {
+        "id": "later-than-usual",
+        "priority": 32,
+        "when": {
+          "usual": "later"
+        },
+        "lines": [
+          "Later than usual.",
+          "Later than you usually check in."
+        ]
+      },
+      {
+        "id": "day",
+        "priority": 10,
+        "when": {
+          "phase": [
+            "sunrise",
+            "morning",
+            "midday",
+            "afternoon",
+            "golden-hour"
+          ]
+        },
+        "lines": [
+          "Sunset at {sunset}.",
+          "The sun sets at {sunset} today."
+        ]
+      },
+      {
+        "id": "evening",
+        "priority": 10,
+        "when": {
+          "phase": [
+            "sunset",
+            "dusk"
+          ]
+        },
+        "lines": [
+          "The sun set at {sunset}.",
+          "Sunrise tomorrow at {sunrise}."
+        ]
+      },
+      {
+        "id": "night",
+        "priority": 10,
+        "when": {
+          "phase": [
+            "night",
+            "dawn"
+          ]
+        },
+        "lines": [
+          "Sunrise at {sunrise}.",
+          "Light at {sunrise}."
+        ]
+      },
+      {
+        "id": "fallback",
+        "priority": 0,
+        "when": {},
+        "lines": [
+          "Ask for anything. It happens on your Mac."
+        ]
+      }
+    ],
+    "away": [
+      {
+        "id": "overnight",
+        "priority": 60,
+        "when": {
+          "firstToday": true,
+          "awayHours": ">=6",
+          "hour": "4-12"
+        },
+        "lines": [
+          "Overnight"
+        ]
+      },
+      {
+        "id": "days",
+        "priority": 55,
+        "when": {
+          "awayHours": ">=48"
+        },
+        "lines": [
+          "Since {awayDays} days ago",
+          "While you were away"
+        ]
+      },
+      {
+        "id": "recent",
+        "priority": 50,
+        "when": {
+          "awayHours": "<1"
+        },
+        "lines": [
+          "Since {lastOpen}"
+        ]
+      },
+      {
+        "id": "default",
+        "priority": 0,
+        "when": {},
+        "lines": [
+          "While you were away",
+          "Since you last looked"
+        ]
+      }
+    ],
+    "placeholder": [
+      {
+        "id": "first-run",
+        "priority": 100,
+        "when": {
+          "firstRun": true
+        },
+        "lines": [
+          "Try: tidy my Downloads folder"
+        ]
+      },
+      {
+        "id": "just-paired",
+        "priority": 95,
+        "when": {
+          "justPaired": true
+        },
+        "lines": [
+          "Try: what's on my calendar today?"
+        ]
+      },
+      {
+        "id": "running",
+        "priority": 70,
+        "when": {
+          "running": ">=1"
+        },
+        "lines": [
+          "Add to this, or ask something new"
+        ]
+      },
+      {
+        "id": "morning",
+        "priority": 40,
+        "when": {
+          "phase": [
+            "dawn",
+            "sunrise",
+            "morning"
+          ]
+        },
+        "lines": [
+          "What's first today?",
+          "Ask FERB"
+        ]
+      },
+      {
+        "id": "evening",
+        "priority": 40,
+        "when": {
+          "phase": [
+            "sunset",
+            "dusk"
+          ]
+        },
+        "lines": [
+          "Anything before you call it a day?",
+          "Ask FERB"
+        ]
+      },
+      {
+        "id": "late",
+        "priority": 45,
+        "when": {
+          "hour": "0-4"
+        },
+        "lines": [
+          "Something for the morning?",
+          "Ask FERB"
+        ]
+      },
+      {
+        "id": "default",
+        "priority": 0,
+        "when": {},
+        "lines": [
+          "Ask FERB"
+        ]
+      }
+    ],
+    "chat": [
+      {
+        "id": "first-run",
+        "priority": 100,
+        "when": {
+          "firstRun": true
+        },
+        "lines": [
+          "I'm FERB. I live on your Mac. Pair me up and I'll do the clicking."
+        ]
+      },
+      {
+        "id": "just-paired",
+        "priority": 98,
+        "when": {
+          "justPaired": true
+        },
+        "lines": [
+          "We're linked. Ask me anything, I'll handle it on the Mac.",
+          "Hey. Got your Mac on the line now."
+        ]
+      },
+      {
+        "id": "storm",
+        "priority": 90,
+        "when": {
+          "weather": "storm"
+        },
+        "lines": [
+          "Storm out there. Stay in, I've got the Mac.",
+          "Thunder outside. Good day to let me do the running around."
+        ]
+      },
+      {
+        "id": "rain-now",
+        "priority": 86,
+        "when": {
+          "weather": "rain"
+        },
+        "lines": [
+          "Rainy one. Good day to stay in.",
+          "It's raining. I'll be here."
+        ]
+      },
+      {
+        "id": "rain-soon",
+        "priority": 85,
+        "when": {
+          "rainIn": "1-180",
+          "weather": [
+            "clear",
+            "cloudy",
+            "overcast",
+            "wind"
+          ]
+        },
+        "lines": [
+          "Rain around {rainAt}. Umbrella?",
+          "Looks like rain by {rainAt}."
+        ]
+      },
+      {
+        "id": "snow",
+        "priority": 84,
+        "when": {
+          "weather": "snow"
+        },
+        "lines": [
+          "It's snowing. Take it slow out there.",
+          "Snow day. Coffee's on you, the rest is on me."
+        ]
+      },
+      {
+        "id": "fog",
+        "priority": 82,
+        "when": {
+          "weather": "fog"
+        },
+        "lines": [
+          "Foggy out. Easy on the roads.",
+          "Can't see much out there. Fog."
+        ]
+      },
+      {
+        "id": "heat",
+        "priority": 80,
+        "when": {
+          "temp": ">=36"
+        },
+        "lines": [
+          "{temp}° out. Water, shade, stay cool.",
+          "Hot one. {temp}°. Maybe don't go out at noon."
+        ]
+      },
+      {
+        "id": "cold",
+        "priority": 80,
+        "when": {
+          "temp": "<=4"
+        },
+        "lines": [
+          "{temp}° out. Layers.",
+          "Cold one, {temp}°. Stay warm."
+        ]
+      },
+      {
+        "id": "wind",
+        "priority": 76,
+        "when": {
+          "weather": "wind"
+        },
+        "lines": [
+          "Windy today. Hold on to your hat.",
+          "Bit of wind out there."
+        ]
+      },
+      {
+        "id": "late-again",
+        "priority": 74,
+        "when": {
+          "hour": "0-4",
+          "lateNights": ">=3"
+        },
+        "lines": [
+          "Get some sleep. I'll keep an eye on things.",
+          "Late again, huh. I'm not going anywhere."
+        ]
+      },
+      {
+        "id": "late",
+        "priority": 70,
+        "when": {
+          "hour": "0-4"
+        },
+        "lines": [
+          "Can't sleep? Same, I never do.",
+          "Quiet hour. Anything on your mind?"
+        ]
+      },
+      {
+        "id": "full-moon",
+        "priority": 68,
+        "when": {
+          "moon": "full",
+          "phase": [
+            "dusk",
+            "night"
+          ],
+          "weather": [
+            "clear",
+            "wind"
+          ]
+        },
+        "lines": [
+          "Full moon tonight. Worth a look.",
+          "Big moon out tonight."
+        ]
+      },
+      {
+        "id": "golden-light",
+        "priority": 66,
+        "when": {
+          "phase": "golden-hour",
+          "weather": [
+            "clear",
+            "cloudy",
+            "wind"
+          ]
+        },
+        "lines": [
+          "Nice light out right now.",
+          "Golden hour. Good time for a walk."
+        ]
+      },
+      {
+        "id": "monsoon",
+        "priority": 64,
+        "when": {
+          "season": "monsoon",
+          "weather": [
+            "clear",
+            "cloudy",
+            "overcast"
+          ]
+        },
+        "lines": [
+          "Monsoon sky. Rain's never far.",
+          "Keep an umbrella close this time of year."
+        ]
+      },
+      {
+        "id": "friday-evening",
+        "priority": 62,
+        "when": {
+          "weekday": 6,
+          "hour": "16-23"
+        },
+        "lines": [
+          "It's Friday. Anything to wrap up before the weekend?",
+          "Friday evening. Want me to tidy up the week?"
+        ]
+      },
+      {
+        "id": "weekend",
+        "priority": 60,
+        "when": {
+          "weekend": true
+        },
+        "lines": [
+          "Weekend. I'll keep things quiet.",
+          "Slow day? I'm around if you need me."
+        ]
+      },
+      {
+        "id": "all-done",
+        "priority": 58,
+        "when": {
+          "done": ">=3",
+          "waiting": 0,
+          "failed": 0
+        },
+        "lines": [
+          "Got through the list. You're clear.",
+          "Busy while you were out. All handled."
+        ]
+      },
+      {
+        "id": "mild-morning",
+        "priority": 54,
+        "when": {
+          "phase": [
+            "sunrise",
+            "morning"
+          ],
+          "weather": [
+            "clear"
+          ],
+          "temp": "14-30"
+        },
+        "lines": [
+          "Clear and {temp}°. Good one.",
+          "{temp}° and sunny. Nice start."
+        ]
+      },
+      {
+        "id": "spring",
+        "priority": 50,
+        "when": {
+          "season": "spring"
+        },
+        "lines": [
+          "Spring's in. Windows open kind of day.",
+          "Longer days now. Sunset's at {sunset}."
+        ]
+      },
+      {
+        "id": "summer",
+        "priority": 50,
+        "when": {
+          "season": "summer"
+        },
+        "lines": [
+          "Long days. Sunset's not till {sunset}.",
+          "Summer. Take it easy."
+        ]
+      },
+      {
+        "id": "autumn",
+        "priority": 50,
+        "when": {
+          "season": "autumn"
+        },
+        "lines": [
+          "Days are getting shorter. Sun's down at {sunset}.",
+          "Sweater weather soon."
+        ]
+      },
+      {
+        "id": "winter",
+        "priority": 50,
+        "when": {
+          "season": "winter"
+        },
+        "lines": [
+          "Early dark these days. Sunset at {sunset}.",
+          "Winter mode. Stay warm."
+        ]
+      },
+      {
+        "id": "casual",
+        "priority": 0,
+        "when": {},
+        "lines": [
+          "How's it going?",
+          "All good here.",
+          "Quiet on the Mac. I'm around.",
+          "What are we doing today?"
+        ]
+      }
+    ]
+  }
+}

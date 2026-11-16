@@ -8,6 +8,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import com.ferb.app.model.AppLock
+import com.ferb.app.model.DeviceReporter
 import com.ferb.app.model.LibraryPhone
 import com.ferb.app.model.LocalFiles
 import com.ferb.app.model.PhoneApi
@@ -42,6 +43,10 @@ class FerbApplication : Application() {
         private set
     lateinit var local: LocalFiles
         private set
+    lateinit var reporter: DeviceReporter
+        private set
+    lateinit var sensors: DeviceSensors
+        private set
     val scope = MainScope()
 
     /** The activity on screen, for the system's fingerprint prompt (never kept beyond its life). */
@@ -59,6 +64,11 @@ class FerbApplication : Application() {
         local = LocalFiles.forPhone(this)
         scope.launch { phone.start() }
         signals.start()
+        // the phone's own facts for FERB on the Mac (T-1214): from Android's callbacks, sent when they change
+        reporter = DeviceReporter(DeviceSensors.snapshot(this))
+        sensors = DeviceSensors(this, reporter, prefs, scope)
+        sensors.start()
+        reporter.start(scope, phone.state, phone.link) { api.reportDevice(it) }
         scope.launch { signals.foreground.collect { session.foreground(it) } }
         tellMacOnLock(scope, session, api, local)
         notifier.start(scope)

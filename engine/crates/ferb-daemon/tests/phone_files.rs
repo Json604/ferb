@@ -107,6 +107,18 @@ fn lay_out(home: &Path) {
 }
 
 async fn fx(strong: bool, inbox: Option<&str>, added: Vec<String>, limits: FileLimits) -> Fx {
+    fx_made(strong, inbox, added, limits, None).await
+}
+
+type MadeFn = Arc<dyn Fn(usize) -> Vec<ferb_daemon::phone::find::Made> + Send + Sync>;
+
+async fn fx_made(
+    strong: bool,
+    inbox: Option<&str>,
+    added: Vec<String>,
+    limits: FileLimits,
+    made: Option<MadeFn>,
+) -> Fx {
     let w = world(None).await;
     let home = std::fs::canonicalize(w.dir.path()).unwrap().join("home");
     std::fs::create_dir_all(&home).unwrap();
@@ -147,6 +159,7 @@ async fn fx(strong: bool, inbox: Option<&str>, added: Vec<String>, limits: FileL
             free_bytes: Arc::new(move |_p: &Path| Ok(f.load(Ordering::SeqCst))),
             added_places: added,
             task_file: None,
+            made_files: made,
             hook: Some(Arc::new(move |stage: &str, path: &str| {
                 if let Some(hook) = h.lock().unwrap().as_ref() {
                     hook(stage, path);
@@ -1594,4 +1607,189 @@ async fn every_browse_fetch_and_upload_is_audited_with_its_path_never_its_conten
     for secret in ["plain\"", "SECRET-KEY-MATERIAL", "UPLOADED-CONTENT"] {
         assert!(!audit.contains(secret), "{secret}");
     }
+}
+
+/// T-1211: the Mac's recent files for a phone: what FERB's tasks made and what this phone fetched or sent, newest
+/// first, each path once; a key place, FERB's own data and a file gone since are left out and counted. Only after the
+/// unlock.
+// decision: PHN-526
+// decision: PHN-482
+#[tokio::test]
+async fn recent_files_are_what_ferb_made_and_this_phone_moved_without_key_places() {
+    let home = Arc::new(Mutex::new(PathBuf::new()));
+    let h = home.clone();
+    let made: MadeFn = Arc::new(move |_most: usize| {
+        let home = h.lock().unwrap().clone();
+        let at = |rel: &str| home.join(rel).to_string_lossy().into_owned();
+        let row = |rel: &str, when: &str, task: &str| ferb_daemon::phone::find::Made {
+            path: at(rel),
+            at: when.into(),
+            task_id: task.into(),
+            task_name: format!("Task {task}"),
+        };
+        vec![
+            row("docs/invoice.pdf", "2026-11-16T09:00:00+05:30", "t2"),
+            row(".ssh/k.txt", "2026-11-16T08:00:00+05:30", "t1"),
+            row(".ferb/ferb.db", "2026-11-16T07:00:00+05:30", "t1"),
+            row("docs/gone.txt", "2026-11-16T06:00:00+05:30", "t1"),
+            row("docs/invoice.pdf", "2026-11-15T06:00:00+05:30", "t0"),
+        ]
+    });
+    let f = fx_made(true, None, Vec::new(), FileLimits::default(), Some(made)).await;
+    *home.lock().unwrap() = f.home.clone();
+    std::fs::write(f.home.join("docs/invoice.pdf"), b"%PDF").unwrap();
+    let mut locked = Conn::phone(&f.w, P1, "locked").await;
+    assert_eq!(
+        locked
+            .call("phone.recent", json!({}), None)
+            .await
+            .unwrap_err()
+            .0,
+        code::LOCKED
+    );
+    let mut c = f.open("s1").await;
+    fetch(&mut c, &f.s("docs/plain.txt"), None).await.unwrap();
+    fetch_proven(&mut c, &f.keys.strong, &f.s(".ssh/k.txt"))
+        .await
+        .unwrap();
+    upload(&mut c, json!({"name": "note.txt"}), b"hello")
+        .await
+        .unwrap();
+    let r = c.ok("phone.recent", json!({"limit": 10})).await;
+    let files = r["files"].as_array().unwrap();
+    let names: Vec<(&str, &str)> = files
+        .iter()
+        .map(|v| (v["name"].as_str().unwrap(), v["source"].as_str().unwrap()))
+        .collect();
+    // the phone's moves are now (10:00 +05:30 on the fake clock), after the tasks' files
+    assert_eq!(names.len(), 3, "{r}");
+    assert!(names.contains(&("plain.txt", "fetched")), "{r}");
+    assert!(
+        names
+            .iter()
+            .any(|(n, s)| n.ends_with("note.txt") && *s == "sent"),
+        "{r}"
+    );
+    assert_eq!(names[2], ("invoice.pdf", "made"), "{r}");
+    assert_eq!(files[2]["task_name"], "Task t2");
+    assert_eq!(files[2]["size"], 4);
+    // the key place (made and fetched, one path), FERB's database and the gone file
+    assert_eq!(r["skipped"], 3, "{r}");
+    let text = r.to_string();
+    assert!(
+        !text.contains(".ssh") && !text.contains("ferb.db"),
+        "{text}"
+    );
+}
+
+/// T-1211: a search of names under a folder the phone may browse: case and Unicode form ignored, shallow first,
+/// never inside a key place (left out and counted) or FERB's own data, nor hidden names or ~/Library; a search that
+/// starts in a key place is refused; the provisional bounds say when they cut.
+// decision: PHN-527
+// decision: PHN-482
+#[tokio::test]
+async fn a_name_search_never_looks_inside_key_places_and_says_when_it_stops() {
+    let limits = FileLimits {
+        list_max: 3,
+        ..FileLimits::default()
+    };
+    let f = fx(true, None, Vec::new(), limits).await;
+    for rel in [
+        "docs/Invoice-Oct.pdf",
+        "docs/old/invoice-sep.pdf",
+        "Library/Exports/invoice-lib.pdf",
+        ".hidden/invoice-hidden.pdf",
+        "docs/id_invoice",
+    ] {
+        let p = f.home.join(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, b"x").unwrap();
+    }
+    std::fs::write(f.home.join(".ssh/invoice-key.txt"), SECRET).unwrap();
+    let mut c = f.open("s1").await;
+    let r = c
+        .ok("phone.search", json!({"query": "INVOICE", "path": "~"}))
+        .await;
+    let paths: Vec<String> = r["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v["path"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(
+        paths,
+        vec![f.s("docs/Invoice-Oct.pdf"), f.s("docs/old/invoice-sep.pdf")],
+        "{r}"
+    );
+    // id_invoice (a key file by its name) is left out and counted; hidden folders (.ssh) and ~/Library are not
+    // looked into at all
+    assert_eq!(r["skipped"], 1, "{r}");
+    assert_eq!(
+        (r["cut"].as_bool(), r["incomplete"].as_bool()),
+        (Some(false), Some(false))
+    );
+    let text = r.to_string();
+    for hidden in [
+        "invoice-key",
+        "invoice-mail",
+        "invoice-hidden",
+        "id_invoice",
+    ] {
+        assert!(!text.contains(hidden), "{hidden}: {text}");
+    }
+    // inside ~/Library when asked there
+    let lib = c
+        .ok(
+            "phone.search",
+            json!({"query": "invoice", "path": f.s("Library/Exports")}),
+        )
+        .await;
+    assert_eq!(lib["files"].as_array().unwrap().len(), 1, "{lib}");
+    // a key place is never searched; FERB's own data never
+    assert_eq!(
+        c.call(
+            "phone.search",
+            json!({"query": "k", "path": f.s(".ssh")}),
+            None
+        )
+        .await
+        .unwrap_err()
+        .0,
+        code::FILE_NOT_ALLOWED
+    );
+    assert!(c
+        .call(
+            "phone.search",
+            json!({"query": "k", "path": f.s(".ferb")}),
+            None
+        )
+        .await
+        .is_err());
+    // the bounds say so
+    for i in 0..5 {
+        std::fs::write(f.home.join(format!("docs/report-{i}.txt")), b"x").unwrap();
+    }
+    let cut = c.ok("phone.search", json!({"query": "report"})).await;
+    assert_eq!(
+        (cut["files"].as_array().unwrap().len(), cut["cut"].as_bool()),
+        (3, Some(true))
+    );
+    let few = fx(
+        true,
+        None,
+        Vec::new(),
+        FileLimits {
+            search_names_max: 2,
+            ..FileLimits::default()
+        },
+    )
+    .await;
+    let mut c2 = few.open("s2").await;
+    let stopped = c2.ok("phone.search", json!({"query": "plain"})).await;
+    assert_eq!(stopped["incomplete"], true, "{stopped}");
+    assert_eq!(stopped["looked"], 2);
+    assert!(c2
+        .call("phone.search", json!({"query": "  "}), None)
+        .await
+        .is_err());
 }

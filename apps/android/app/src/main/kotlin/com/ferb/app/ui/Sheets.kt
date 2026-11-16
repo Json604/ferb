@@ -16,6 +16,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.TextObfuscationMode
 import androidx.compose.foundation.text.input.clearText
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
@@ -78,6 +80,18 @@ interface Host {
 
     /** The owner's tap on a fetched file: the system's Open with or Share sheet. */
     fun handOut(key: String, file: java.io.File, name: String, share: Boolean)
+
+    /** The system's folder picker (ACTION_OPEN_DOCUMENT_TREE, no storage permission): a folder to send whole. */
+    fun pickFolder(forChat: Boolean) {}
+
+    /** A fetched folder's files, shared together (a folder can't be opened in another app). */
+    fun shareMany(files: List<java.io.File>) {}
+
+    /** The owner's switch for sharing this phone's city (SENSE-420): Android's own question when turned on. */
+    fun shareCity(on: Boolean) {}
+
+    /** The owner said yes to the Mac's request for the exact location: Android's question if needed, then the fix. */
+    fun shareExact(requestId: String) {}
 }
 
 /** The sheet over the page (Mobile.swift Sheet; MobileScreens.swift's sheets), or nothing. */
@@ -125,6 +139,19 @@ fun Sheets(vm: FerbViewModel, ui: UiState, sheet: Sheet?, insets: PhoneInsets, h
             }
         }
         is Sheet.NotYet -> Plain(stringResource(sheet.what.words), stringResource(sheet.what.text), insets, close)
+        is Sheet.Location -> {
+            val busy = "location" in ui.busy
+            Plain(stringResource(R.string.exact_title), stringResource(if (busy) R.string.exact_reading else R.string.exact_text), insets,
+                onClose = { vm.declineLocation(sheet.requestId) }) {
+                Pill(stringResource(R.string.exact_share), Modifier.padding(top = 18.dp), onClick = if (busy) null else ({ host.shareExact(sheet.requestId) }))
+                Pill(stringResource(R.string.exact_no), Modifier.padding(top = 4.dp), PillKind.PLAIN, height = 44.dp,
+                    onClick = if (busy) null else ({ vm.declineLocation(sheet.requestId) }))
+            }
+        }
+        Sheet.City -> Plain(stringResource(R.string.city_title), stringResource(R.string.city_text), insets, close) {
+            Pill(stringResource(R.string.city_continue), Modifier.padding(top = 18.dp), onClick = { host.shareCity(true) })
+            Pill(stringResource(R.string.cancel), Modifier.padding(top = 4.dp), PillKind.PLAIN, height = 44.dp, onClick = { vm.show(Sheet.Profile) })
+        }
         Sheet.Help -> Plain(stringResource(R.string.help_title), stringResource(R.string.help_text), insets, close)
     }
 }
@@ -205,9 +232,10 @@ private fun PrivateAnswer(vm: FerbViewModel, q: Question, insets: PhoneInsets, b
         var count by remember(q.approvalId) { mutableIntStateOf(0) }
         DisposableEffect(q.approvalId) { onDispose { digits.fill('\u0000'); count = 0 } }
         val send: () -> Unit = {
-            val value = String(digits, 0, count)
-            digits.fill('\u0000'); count = 0
-            vm.answer(q.approvalId, AnswerInput.Hidden(value), hidden = true)
+            // the digits go into the library's SecretInput one by one and this array is zeroed at once (kb PHN-536)
+            val n = count
+            count = 0
+            vm.answerHidden(q.approvalId, digits, n)
         }
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
             SheetFrame(title = title, bottomInset = insets.bottom, lift = (4 * 57 + 18).dp + insets.bottom, onDismiss = close) {
@@ -245,9 +273,12 @@ private fun PrivateAnswer(vm: FerbViewModel, q: Question, insets: PhoneInsets, b
             Pill(stringResource(R.string.private_decline), kind = PillKind.GREY, fill = false,
                 onClick = if (busy) null else ({ field.clearText(); vm.answer(q.approvalId, AnswerInput.Words("")) }))
             Pill(stringResource(R.string.private_send), Modifier.weight(1f), onClick = if (busy || field.text.isEmpty()) null else ({
-                val value = field.text.toString()
+                // read character by character (no String of it here), the field cleared, the copy zeroed by the view
+                // model once its units are in the library's SecretInput (kb PHN-536)
+                val t = field.text
+                val chars = CharArray(t.length) { t[it] }
                 field.clearText()
-                vm.answer(q.approvalId, AnswerInput.Hidden(value), hidden = true)
+                vm.answerHidden(q.approvalId, chars, chars.size)
             }))
         }
     }
@@ -317,6 +348,9 @@ private fun Profile(vm: FerbViewModel, ui: UiState, insets: PhoneInsets, host: H
             Divide()
             CardRow(stringResource(R.string.profile_lock_screen), stringResource(R.string.profile_lock_screen_detail), leading = { RowIcon(FerbIcons.bell) },
                 trailing = { PhoneSwitch(s.hideChecks, vm::hideChecks, stringResource(R.string.profile_lock_screen)) })
+            Divide()
+            CardRow(stringResource(R.string.profile_city), stringResource(R.string.profile_city_detail), leading = { RowIcon(Icons.Rounded.LocationOn) },
+                trailing = { PhoneSwitch(s.shareCity, host::shareCity, stringResource(R.string.profile_city)) })
             if (ui.newKeys) {
                 Divide()
                 CardRow(stringResource(R.string.keys_row), stringResource(R.string.keys_row_detail), leading = { RowIcon(FerbIcons.fingerprint) },

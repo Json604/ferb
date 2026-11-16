@@ -4794,3 +4794,21 @@ request = "Open FERB at different times of day; go through Chat, Tasks, Files, M
 pass = "Everything looks like the glass lab's phone screens; nothing is cut at the largest text; the state stays when the screen turns; the words read plainly (strings.xml as approved)."
 decisions = ["PHN-416", "PHN-509", "PHN-500"]
 sitting = "after S11"
+
+[LIVE-1145]
+title = "Stage 3: the phone's time and city in FERB's answers, and its exact spot only after a Yes"
+area = "phone"
+surface = "The owner's Motorola paired with a FERB.app build that has T-1214 (installed by the owner); the debug or release APK; This phone → Share this phone's city on"
+request = "On the Mac ask: 'what time is it where my phone is, which city is it in, and is it charging?' Then 'where exactly is my phone right now?' and answer Use it; then the same in a new task, answering Not now. Once with the phone on mobile data (the public relay), once with the app in the background."
+pass = "The first answer has the phone's own time zone, city and battery with no question; the trace's live facts show the phone's line and never coordinates. The exact request asks once naming the phone; the phone shows its own location question when it hasn't allowed precise location yet (the app open) or a notification (in the background); coordinates only after both Yeses, on the public relay too; after Not now none. With the city turned off in This phone the next answer has only the time zone."
+decisions = ["SENSE-420", "SENSE-423", "PHN-523", "PHN-524", "GATE-614"]
+sitting = "after T-1214"
+
+[LIVE-1146]
+title = "Stage 3: a whole folder both ways, recent files and a name search from the phone"
+area = "phone"
+surface = "As LIVE-1102 (direct or the owner's relay); a disposable folder of a few files on the Mac and on the phone; a finished task that saved a file (e.g. a downloaded PDF)"
+request = "From Files fetch the disposable folder whole and share it; send a folder from the phone; open Recent; search for part of the PDF's name; open the task's result file from the chat."
+pass = "The folder arrives with per-folder progress and any key file is left out and counted; the sent folder lands in Downloads/FERB from phone; Recent lists the task's file and what was just fetched and sent, nothing from a key place; the search finds the PDF and says so when it stops early; the result file opens. The Mac's phone audit names each path, never a content."
+decisions = ["PHN-113", "PHN-526", "PHN-527", "PHN-528"]
+sitting = "after T-1211"

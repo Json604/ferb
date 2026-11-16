@@ -347,6 +347,16 @@ pub const PHONE_METHODS: &[PhoneMethod] = &[
     plain("phone.put_chunk", "carries an upload its unlocked begin started (PHN-127)").locked(Locked::Allowed),
     plain("phone.put_end", "finishes, pauses or drops an upload its unlocked begin started (PHN-127)")
         .locked(Locked::Allowed),
+    // ---- stage 3 (T-1214, T-1211): the phone's own record and finding the Mac's files (`auth::PHONE_OWN`)
+    // decision: PHN-467
+    plain(
+        "phone.device_report",
+        "the phone's own time zone, city and state for FERB (SENSE-420); nothing of FERB's goes back. While the app is \
+         locked only from a connection that proved the phone's device key (PHN-126)",
+    )
+    .locked(Locked::Allowed),
+    private("phone.recent", "the files FERB made and this phone fetched or sent (PHN-113); key places are left out"),
+    private("phone.search", "file names under a folder the phone may browse (PHN-113); never contents, key places left out"),
     // ---- FERB.app's Settings → Phone: the link's state is the Mac owner's side (PHN-106), except what PHN-419 gives a
     //      second phone
     private(

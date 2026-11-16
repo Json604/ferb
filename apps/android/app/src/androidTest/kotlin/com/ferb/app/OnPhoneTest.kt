@@ -48,7 +48,7 @@ class OnPhoneTest {
         shell("locksettings clear --old 1111")
     }
 
-    // decision: PHN-448, PHN-501, PHN-447, PHN-421, PHN-500
+    // decision: PHN-448, PHN-501, PHN-447, PHN-421, PHN-500, SENSE-420, GATE-613
     @Test
     fun the_manifest_asks_only_what_the_app_uses_and_keeps_out_of_backups() {
         assertEquals("com.ferb.phone", context.packageName)
@@ -59,6 +59,7 @@ class OnPhoneTest {
                 "android.permission.INTERNET", "android.permission.ACCESS_NETWORK_STATE", "android.permission.USE_BIOMETRIC",
                 "android.permission.POST_NOTIFICATIONS", "android.permission.FOREGROUND_SERVICE",
                 "android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING", "android.permission.CAMERA",
+                "android.permission.ACCESS_COARSE_LOCATION", "android.permission.ACCESS_FINE_LOCATION",
             ),
             info.requestedPermissions!!.toSet(),
         )

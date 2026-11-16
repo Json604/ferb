@@ -12,8 +12,9 @@ use crate::callbacks::{
 use crate::error::{FerbError, guard, guard_or};
 use crate::link::{Link, LinkInner};
 use crate::records::{
-    Attachment, Cancelled, Conv, ConversationInfo, Fetched, Folder, LinkState, MacInfo, OlderState,
-    OutboxItem, PhoneStatus, PreviewFrame, SettingValue, TaskPage, TranscriptView, Tree, Uploaded,
+    Attachment, Cancelled, Conv, ConversationInfo, DeviceReport, Fetched, Folder, FoundFiles,
+    LinkState, LocationFix, MacInfo, OlderState, OutboxItem, PhoneStatus, PreviewFrame,
+    RecentFiles, SettingValue, TaskPage, TranscriptView, Tree, Uploaded,
 };
 
 fn signer_of(s: Arc<dyn Signer>) -> Arc<dyn ferb_mobile::Signer> {
@@ -90,8 +91,99 @@ pub enum AnswerInput {
     /// The owner's words for a safety check's task (`chat.correct`).
     Correct { text: String },
     /// A hidden input (a login code, a password): sent on the sealed path, signed over its SHA-256 only; never
-    /// stored or logged. Needs a `Signer`.
+    /// stored or logged. Needs a `Signer`. Prefer `Mobile.answer_hidden` with a `SecretInput`: this variant's text
+    /// crosses the library's boundary in a buffer nobody overwrites.
     Hidden { secret: String },
+}
+
+/// The UTF-16 units a `SecretInput` takes before it grows (a login code, a password: far fewer).
+const SECRET_UNITS: usize = 256;
+
+/// A hidden answer typed on the phone, handed over one UTF-16 unit at a time (`push`), so it never crosses the
+/// library's boundary as one string or byte buffer: each unit is a plain number passed by value, and the library's
+/// only copy is overwritten when the answer is sent, `clear`ed or dropped (kb S8's note; T-1211 D). What the app's
+/// own text field kept is the app's to clear.
+#[derive(uniffi::Object)]
+pub struct SecretInput {
+    units: Mutex<Vec<u16>>,
+}
+
+impl Default for SecretInput {
+    fn default() -> Self {
+        SecretInput {
+            units: Mutex::new(Vec::with_capacity(SECRET_UNITS)),
+        }
+    }
+}
+
+impl SecretInput {
+    /// The secret as text, and the units overwritten (an empty input after).
+    fn take_text(&self) -> Result<String, FerbError> {
+        let mut units = lock(&self.units);
+        let mut text = String::with_capacity(units.len() * 3);
+        let mut bad = false;
+        for c in char::decode_utf16(units.iter().copied()) {
+            match c {
+                Ok(c) => text.push(c),
+                Err(_) => bad = true,
+            }
+        }
+        units.zeroize();
+        units.clear();
+        if bad {
+            text.zeroize();
+            return Err(FerbError::bad_argument(
+                "The hidden answer had a broken character; type it again.",
+            ));
+        }
+        Ok(text)
+    }
+}
+
+#[uniffi::export]
+impl SecretInput {
+    #[uniffi::constructor]
+    pub fn new() -> Arc<SecretInput> {
+        Arc::new(SecretInput::default())
+    }
+
+    /// One UTF-16 unit of the secret (Kotlin's `Char.code`, Swift's `utf16`), in order.
+    pub fn push(&self, unit: u16) {
+        let mut units = lock(&self.units);
+        if units.len() == units.capacity() {
+            // grow by hand, overwriting the old buffer (a plain push would leave a copy behind)
+            let mut more = Vec::with_capacity(units.capacity().max(SECRET_UNITS) * 2);
+            more.extend_from_slice(&units);
+            units.zeroize();
+            *units = more;
+        }
+        units.push(unit);
+    }
+
+    /// How many units it holds.
+    pub fn len(&self) -> u32 {
+        lock(&self.units).len() as u32
+    }
+
+    pub fn is_empty(&self) -> bool {
+        lock(&self.units).is_empty()
+    }
+
+    /// Overwrites and empties it (the sheet closed without sending).
+    pub fn clear(&self) {
+        let mut units = lock(&self.units);
+        units.zeroize();
+        units.clear();
+    }
+}
+
+impl Drop for SecretInput {
+    fn drop(&mut self) {
+        self.units
+            .get_mut()
+            .unwrap_or_else(|p| p.into_inner())
+            .zeroize();
+    }
 }
 
 impl std::fmt::Debug for AnswerInput {
@@ -319,6 +411,24 @@ impl Mobile {
         })
     }
 
+    /// Answers a hidden input (a login code, a password) from a `SecretInput`, which is emptied and overwritten
+    /// whatever happens: sent on the sealed path, signed over the value's SHA-256 only (`signer` is required).
+    /// Network and the fingerprint prompt: not on the UI thread.
+    pub fn answer_hidden(
+        &self,
+        approval_id: String,
+        secret: Arc<SecretInput>,
+        signer: Arc<dyn Signer>,
+    ) -> Result<String, FerbError> {
+        let text = secret.take_text();
+        guard(|| {
+            let answer = ferb_mobile::Answer::Hidden { secret: text? };
+            Ok(self
+                .core()?
+                .answer(&approval_id, answer, Some(signer_of(signer)))?)
+        })
+    }
+
     /// Stops these tasks (never queued). Network: not on the UI thread.
     pub fn stop(&self, task_ids: Vec<String>) -> Result<(), FerbError> {
         guard(|| Ok(self.core()?.stop(&task_ids)?))
@@ -511,6 +621,79 @@ impl Mobile {
                     Arc::new(TransferAdapter(listener)),
                 )?
                 .conv())
+        })
+    }
+
+    /// Fetches the `index`-th file a finished task made (its result card's file) into `save_to`, like `fetch`.
+    /// Direct or the owner's relay only. Blocks until done: on a background thread.
+    pub fn fetch_task_file(
+        &self,
+        id: String,
+        task_id: String,
+        index: u64,
+        save_to: String,
+        listener: Arc<dyn TransferListener>,
+    ) -> Result<Fetched, FerbError> {
+        guard(|| {
+            Ok(self
+                .core()?
+                .fetch_task_file(
+                    &id,
+                    &task_id,
+                    index,
+                    &save_to,
+                    Arc::new(TransferAdapter(listener)),
+                )?
+                .conv())
+        })
+    }
+
+    /// The Mac's recent files for this phone: what FERB made and what this phone fetched or sent, newest first
+    /// (needs the unlock). Network.
+    pub fn recent_files(&self, limit: u32) -> Result<RecentFiles, FerbError> {
+        guard(|| Ok(self.core()?.recent_files(limit)?.conv()))
+    }
+
+    /// Finds files and folders whose names hold `query` under `path` on the Mac (`~` when none); never by contents;
+    /// key places are left out and counted (needs the unlock). Network.
+    pub fn search_files(
+        &self,
+        query: String,
+        path: Option<String>,
+    ) -> Result<FoundFiles, FerbError> {
+        guard(|| Ok(self.core()?.search_files(&query, path.as_deref())?.conv()))
+    }
+
+    // ---- the phone's own record (T-1214) ----------------------------------------------------------------------
+
+    /// The phone's facts as the app read them now: sent to the Mac at once when online and changed, and again on
+    /// each new connection; memory only on both sides. Returns whether it went now. Network: not on the UI thread.
+    pub fn report_device(&self, report: DeviceReport) -> Result<bool, FerbError> {
+        guard(|| Ok(self.core()?.report_device(report.into())?))
+    }
+
+    /// The Mac's open request for one precise fix (its id), if any.
+    pub fn location_wanted(&self) -> Result<Option<String>, FerbError> {
+        guard(|| Ok(self.core()?.location_wanted()?))
+    }
+
+    /// Answers the Mac's request for one precise fix: `fix`, or `why_not` (the owner said no here, Android refused,
+    /// no fix in time). Network: not on the UI thread.
+    pub fn answer_location(
+        &self,
+        request_id: String,
+        fix: Option<LocationFix>,
+        why_not: Option<String>,
+    ) -> Result<(), FerbError> {
+        guard(|| {
+            let fix = fix.map(|f| ferb_mobile::Fix {
+                latitude: f.latitude,
+                longitude: f.longitude,
+                accuracy_m: f.accuracy_m,
+            });
+            Ok(self
+                .core()?
+                .answer_location(&request_id, fix, why_not.as_deref())?)
         })
     }
 

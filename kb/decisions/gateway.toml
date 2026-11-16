@@ -1438,3 +1438,13 @@ status = "active"
 rule = "For SENSE-420. device.facts with exact_location asks FERB's own Yes/No (capability device.location, a task's question, buttons Use it / Not now, its words per APP-926); the answer holds for the task tree while the daemon runs. Without Location, or for the check, nothing is asked or read. After Yes FERB.app reads one precise fix (device.location_wanted, 30 s); a No or no fix returns no coordinates."
 why = "The owner: the exact spot only when a task needs it, asked for at that moment. Once per tree as terminal typing (GATE-585), so retries don't ask again; the question is worded as APP-926 says."
 paths = ["engine/crates/ferbd/src/compose/device.rs", "engine/crates/ferbd/src/compose/device.rs::ASK_SUMMARY"]
+
+[GATE-614]
+title = "A phone's exact location: asked once per task tree and phone, then the phone asked over the link"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For SENSE-420, GATE-613. device.facts {exact_location, device: a phone} asks FERB's own Yes/No naming the phone (Use it / Not now), once per task tree and device (the Mac's answer is not the phone's); only a connected phone is asked; the daemon sends location_wanted to it and waits 60 s for its fix; a No, no answer or a refusal on the phone gives no coordinates."
+why = "The owner: the exact spot only when a task needs it, asked at that moment. 60 s, not the Mac's 30 s: the phone may need the owner's tap and Android's own location question first."
+evidence = "ferbd compose::device test a_phone_s_exact_location_is_asked_per_phone_and_only_when_it_can_answer; ferb-daemon tests/phone_device.rs; ferb-link tests/real_daemon.rs."
+paths = ["engine/crates/ferbd/src/compose/device.rs::exact_phone", "engine/crates/ferb-daemon/src/phone/device.rs::want_fix"]

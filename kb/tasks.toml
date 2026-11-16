@@ -714,23 +714,15 @@ title = "Stage 3 S1: ferb-link, the lab's link crate, ported into the workspace 
 area = "phone"
 kind = "build"
 status = "open"
-why = "Built (journal 102): ferb-link from the lab, suites on 127.0.0.1 with a Rust stand-in, FFI fixed, PHN-444/445/453. Remains: no aarch64-apple-ios build (iroh's netwatch/netdev vs libc); joining the workspace; a recorded direct path; the public-relay beacon (PHN-220)."
+why = "Built (journal 102, 113, 116); iOS builds since PHN-478; it stays outside the workspace (PHN-486). Remains: a recorded direct path (the encryption recorder covers the relays only), and PHN-220's beacon, proposed in journal 102 (only the relay those phones last knew, a bound in days the owner sets)."
 decisions = ["PHN-2", "PHN-18", "PHN-102", "PHN-108", "PHN-118", "PHN-119", "PHN-136", "PHN-142", "PHN-202", "PHN-203", "PHN-204", "PHN-206", "PHN-207", "PHN-208", "PHN-209", "PHN-210", "PHN-211", "PHN-212", "PHN-213", "PHN-215", "PHN-216", "PHN-217", "PHN-218", "PHN-220", "PHN-222", "PHN-224", "PHN-225", "PHN-301", "PHN-302", "PHN-303", "PHN-304", "PHN-305", "PHN-307", "PHN-309", "PHN-310", "PHN-311", "PHN-313", "PHN-407", "PHN-410", "PHN-418", "PHN-440", "PHN-442", "PHN-444", "PHN-445", "PHN-425", "PHN-453", "PHN-460", "PHN-461", "PHN-462", "PHN-463"]
-
-[T-1205]
-title = "Stage 3 S5: FERB.app Settings → Phone: pairing, the phone list, Use my own relay"
-area = "phone"
-kind = "build"
-status = "open"
-why = "Page, model, notch notice (journal 110); S4 (journal 113) points FERBAppActions.phoneLink at the daemon, whose phone.link_status, phone.pair_*, phone.relay_* reach the helper, and declares the phone bus topics. Left: the owner's live checks LIVE-1100.. on a FERB.app build."
-decisions = ["PHN-135", "PHN-205", "PHN-214", "PHN-215", "PHN-219", "PHN-418", "PHN-479", "PHN-480", "PHN-481"]
 
 [T-1211]
 title = "Stage 3 S11: apps/android :app: the screens, the app lock, notifications and Stay connected"
 area = "phone"
 kind = "build"
 status = "open"
-why = "Built (journal 115, 116): everything of S11 but four: searching the Mac's files and recent files (no Mac method yet), speaking to FERB, fetching or sending a whole folder (the app uses neither tree nor put_group). Also the owner's approval of strings.xml and LIVE-1100..1111, 1141..1144."
+why = "Built (journal 115, 116, 117): all of S11 but speaking to FERB from the phone (not built: the Mac's dictation is on-device; phone speech is the owner's product decision; the app says so plainly). Left: the owner's approval of strings.xml and LIVE-1100..1111, 1141..1146."
 decisions = ["PHN-8", "PHN-11", "PHN-13", "PHN-15", "PHN-16", "PHN-132", "PHN-402", "PHN-403", "PHN-404", "PHN-415", "PHN-417", "PHN-420", "PHN-421", "PHN-422", "PHN-447", "PHN-115", "PHN-406", "PHN-500", "PHN-501", "PHN-502", "PHN-503", "PHN-504", "PHN-505", "PHN-506", "PHN-507", "PHN-508", "PHN-509"]
 
 [T-1212]
@@ -748,14 +740,14 @@ kind = "build"
 status = "open"
 why = "DMN-599 left the per-call spawns in ferbd/spawns.txt: the global stop's jobs, the approval, window and secret.refused notices, task paused/resumed. Python journaled their failures; here an Err is dropped and a panic only reaches daemon.unhandled. Also _macos_events (mainloop.rs) is unsupervised."
 
-[T-1214]
-title = "Stage 3: the phone's own device line and lookup: its time, zone, city and state, its own permission"
+[T-1222]
+title = "May a phone whose FERB app is locked still tell the Mac its time zone, city and battery?"
 area = "phone"
-kind = "build"
+kind = "question"
 status = "open"
-after = ["T-1211"]
-why = "T-1130's phone half (SENSE-420): the phone asks its own Location and sends its own device record (ferb-core device::Place, id, name, kind) by a phone method; one line per device (SENSE-421), a phone lookup like device.facts (SENSE-422). PHN-467: a phone may read the Mac's facts."
-decisions = ["SENSE-420", "SENSE-421", "SENSE-422", "GATE-613", "PHN-467"]
+why = "PHN-125 lists what a locked connection may do (status, Stop, self-proving answers). PHN-523 also takes the phone's own record then, from a connection that proved the device key: nothing of FERB's goes back, but it is a call PHN-125's list doesn't name."
+decisions = ["PHN-125", "PHN-523"]
+ask = "With Stay connected on and FERB's app locked on the phone, the phone still tells your Mac its time zone, city (if you let it share it) and battery when they change, so FERB stays right about where and when you are. Nothing of FERB's goes to the locked phone. OK, or should it wait until you unlock the app?"
 
 [T-1215]
 title = "Does a Yes to FERB using the Mac's screen, given from the phone, need the fingerprint?"
@@ -780,9 +772,9 @@ title = "How many entries may one folder listing and one whole-folder fetch from
 area = "phone"
 kind = "question"
 status = "open"
-why = "S3b keeps the lab's list_max 500 (a listing shows the first 500 and says it was cut) and tree_max 2000 (a folder fetched whole stops at 2000 files) as provisional numbers in ferb-daemon phone::files FileLimits; no owner decision sets them (rule 18)."
-decisions = ["PHN-113", "PHN-482"]
-ask = "Browsing a folder from the phone shows at most 500 of its entries (it says when it cut the rest), and fetching a whole folder takes at most 2,000 files at once. Keep those two limits, change them, or have none?"
+why = "S3b keeps the lab's list_max 500 and tree_max 2000; T-1211's name search (PHN-527) adds search_names_max 100 000 names looked at, and shows at most list_max results. All provisional in ferb-daemon phone::files FileLimits; no owner decision sets them (rule 18)."
+decisions = ["PHN-113", "PHN-482", "PHN-527"]
+ask = "From the phone: browsing a folder shows at most 500 of its entries, fetching a whole folder takes at most 2,000 files, and a name search looks at up to 100,000 names and shows at most 500 matches (each says when it stopped). Keep these limits, change them, or have none?"
 
 [T-1219]
 title = "Three tests fail only when the Mac is busy: a replay's row order and two window tests"
@@ -797,3 +789,73 @@ area = "release"
 kind = "bug"
 status = "open"
 why = "S4 (journal 113): SIGN_IDENTITY=- treats pieces already signed by FERB's team as vendor code and keeps their signature, so an ad-hoc test bundle needs them re-signed by hand. Developer ID and release builds are not affected."
+
+[T-1240]
+title = "iPhone can't blank screenshots: is the switcher cover plus hiding during recording enough?"
+area = "phone"
+kind = "question"
+status = "open"
+why = "PHN-420 and PHN-454 assumed screenshots come out blank, as Android's FLAG_SECURE makes them. iOS gives apps no such switch: FERB covers itself in the app switcher always and hides while the screen is recorded or mirrored (PHN-565); a screenshot of an open FERB shows what is on screen."
+decisions = ["PHN-420", "PHN-454", "PHN-565"]
+ask = "On iPhone an app can't stop screenshots. FERB covers itself in the app switcher, and hides while the screen is being recorded or mirrored (always for Watch live and private answers; for everything else with your 'Hide in screen recordings' switch, on by default). A screenshot taken while FERB is open shows what is on screen. Is that acceptable, or should Watch live not exist on iPhone?"
+
+[T-1241]
+title = "iPhone has no Stay connected: are 'While FERB is closed: Questions show when you open FERB' right?"
+area = "phone"
+kind = "question"
+status = "open"
+why = "PHN-421's Stay connected is an Android foreground service; iOS has none (PHN-566). Open: everything; just left: until iOS suspends FERB (usually under 30 s); closed: nothing until it opens or stage 5's push. This phone shows that line instead, with a sheet."
+decisions = ["PHN-421", "PHN-566"]
+ask = "On iPhone, FERB's questions reach you while FERB is open and for a short while after you leave it; once iOS closes it, they wait on your Mac and show the moment you open FERB (until the closed-app notifications of stage 5). Where Android shows 'Stay connected', the iPhone shows 'While FERB is closed — Questions show when you open FERB'. OK as worded?"
+
+[T-1242]
+title = "The iPhone app's bundle id (com.ferb.phone), minimum iOS (17) and the Apple team to sign with"
+area = "phone"
+kind = "question"
+status = "open"
+why = "Stage 4 runs on the simulator signed ad hoc. A phone needs the owner's Apple developer team and a provisioning profile; the id is BUNDLE_ID in apps/ios/tools/make_project.py (PHN-562); iOS 17 covers every iPhone iOS 18 does (PHN-560)."
+decisions = ["PHN-560", "PHN-562"]
+ask = "For the iPhone app: keep the id com.ferb.phone (the Android app's), require iOS 17 or later (iPhone XS and newer), and which Apple developer team (the Mac's 8N7RNGH974?) signs it?"
+
+[T-1243]
+title = "Stage 4 on a real iPhone: Secure Enclave keys, Face ID, the camera, notifications, suspension"
+area = "phone"
+kind = "build"
+status = "open"
+why = "Everything ran on the simulator only: software keys (no Secure Enclave), no Face ID prompt answered, no camera, no Data Protection, notifications not shown, no suspension. apps/ios/README.md 'On an iPhone' lists the checks; then LIVE-1100..1111 with the iPhone. Needs T-1242."
+decisions = ["PHN-561", "PHN-564", "PHN-565", "PHN-566", "PHN-572", "PHN-573", "PHN-574"]
+after = ["T-1242"]
+
+[T-1245]
+title = "The owner reads the iPhone's words that differ from Android's (strings.py --diff)"
+area = "phone"
+kind = "question"
+status = "open"
+why = "PHN-567: the catalog is Android's strings verbatim except where iOS's words differ (Face ID, passcode, Settings, no Stay connected) and a few iOS-only ones; the owner approves words."
+decisions = ["PHN-567"]
+ask = "The iPhone app uses the Android app's words, except where iPhone's differ; `python3 -I apps/ios/tools/strings.py --diff` lists every one (about 30). Are they right?"
+
+[T-1246]
+title = "make_logo.py writes the iPhone's full-bleed app icon from the logo"
+area = "release"
+kind = "chore"
+status = "open"
+why = "REL-428: every logo file comes from the SVG master. Stage 4's apps/ios/App/Assets.xcassets/AppIcon is the 1024 PNG's square cropped to the edges and flattened by hand (iOS masks icons itself and refuses alpha)."
+decisions = ["REL-1", "REL-428"]
+
+[T-1247]
+title = "Stage 5 on iPhone: closed-app notifications through APNs, no words in the push"
+area = "phone"
+kind = "build"
+status = "open"
+why = "PHN-421's push for a closed app; on iPhone it needs the owner's APNs key in the small sender he runs, the aps-environment entitlement and a provisioning profile; the push carries no words and the app fetches them (a Notification Service Extension can't reach the Mac without the link)."
+decisions = ["PHN-421", "PHN-566"]
+after = ["T-1242"]
+
+[T-1248]
+title = "The gate builds and tests apps/ios (the simulator) like apps/android"
+area = "phone"
+kind = "chore"
+status = "open"
+why = "apps/ios/tools/build.sh test runs the four packages' tests and the UI tests on a simulator; engine/gate.sh and kb/gate.toml don't run it yet (the coordinator's)."
+decisions = ["PHN-562"]
