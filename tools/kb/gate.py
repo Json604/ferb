@@ -333,7 +333,8 @@ def run_checks(ctx: Ctx, checks: list[dict], upto: str, only_ci: bool = False) -
                     r = subprocess.run(c["run"], shell=True, cwd=ctx.root, env=env, capture_output=True, text=True,
                                        timeout=c.get("timeout", 3600))
                     status = "ok" if r.returncode == 0 else "FAIL"
-                    detail = [] if status == "ok" else (r.stdout + r.stderr).strip().splitlines()[-40:]
+                    # The end of a failed command's output names what failed; all of what is kept is printed (30 lines).
+                    detail = [] if status == "ok" else (r.stdout + r.stderr).strip().splitlines()[-30:]
                 except subprocess.TimeoutExpired:
                     status, detail = "FAIL", [f"timed out after {c.get('timeout', 3600)} s"]
             results.append(Result(c["name"], status, round(time.monotonic() - t0, 2), detail))
