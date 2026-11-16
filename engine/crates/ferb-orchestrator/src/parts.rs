@@ -18,6 +18,11 @@ use crate::py::strip;
 pub const KIND: &str = "chat.part";
 pub const DONE: &[&str] = &["done", "updated"];
 pub const STOPPED: &str = "stopped";
+/// ORCH-651 (not Python's): a row delivered with conditions not done. Never counted as done; the card ends
+/// "done_with_gaps" when every other row is done or stopped.
+pub const GAPPED: &str = "done_with_gaps";
+/// ORCH-651: the record index's mark on a gapped row.
+pub const PARTLY_NOT_DONE: &str = "parts not done";
 pub const UPDATED_WHY: &str = "Updated";
 pub const WHY_CORRECTION: &str = "done after your correction";
 pub const WHY_FOLLOW_UP: &str = "changed after your follow-up";
@@ -238,8 +243,21 @@ impl Card {
     pub fn ended(&self) -> &'static str {
         let (done, total) = self.tally();
         let stopped = self.stopped();
-        if done + stopped < total {
+        let records = self.records();
+        let gapped = self
+            .parts
+            .iter()
+            .filter(|p| {
+                p.direct.is_none()
+                    && self.shown(p, &records)
+                    && state_in(records.get(&p.id), &[GAPPED])
+            })
+            .count();
+        if done + stopped + gapped < total {
             return "failed";
+        }
+        if gapped > 0 {
+            return GAPPED;
         }
         if done > 0 {
             "done"
@@ -328,6 +346,17 @@ impl Card {
             .and_then(|v| v.as_str())
             .map(String::from);
         let before = before.as_deref();
+        if outcome == GAPPED {
+            if before == Some(GAPPED) && same_run {
+                return false;
+            }
+            let why = if latest.is_empty() || same_run {
+                ""
+            } else {
+                WHY_FOLLOW_UP
+            };
+            return self.post(part, GAPPED, text, note, why, false, step_task);
+        }
         if outcome == "failed" || outcome == STOPPED {
             if matches!(before, Some("failed") | Some(STOPPED)) && !same_run {
                 return self.post(part, outcome, text, "", "", false, step_task);
@@ -489,6 +518,7 @@ pub fn composed(card: &Card, lines: &[String], artifacts: &[String], chars: usiz
             }
         }
         let counts = DONE.contains(&state.as_str())
+            || state == GAPPED
             || state == "failed"
             || state == STOPPED
             || state == "asks";
@@ -502,6 +532,9 @@ pub fn composed(card: &Card, lines: &[String], artifacts: &[String], chars: usiz
             && (truthy(row.get("note")) || !truthy(row.get("verified")))
         {
             said.push_str(&format!(" ({PARTLY_UNCONFIRMED})"));
+        }
+        if state == GAPPED {
+            said.push_str(&format!(" ({PARTLY_NOT_DONE})"));
         }
         out.push(format!(
             "{}: {said}",

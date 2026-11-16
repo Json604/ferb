@@ -558,6 +558,26 @@ fn continuity<'a>(
     )
 }
 
+/// `continuity` for a reader acting for `task`: when the supervisor lent that task a chat (the planner's lookups,
+/// `{request}.lookups`), the reader's continuity holds the same loan, as Python's one shared Continuity did. Without
+/// it the planner's task.evidence refused every task of its own chat and chat.history listed none (live 2026-11-16,
+/// request 50cfdb4f: "that task isn't one of this conversation's tasks").
+// decision: ORCH-662
+fn continuity_for<'a>(
+    db: &'a ferb_store::Db,
+    p: &Parts,
+    task: &str,
+) -> ferb_orchestrator::continuity::Continuity<'a> {
+    let c = continuity(db, p);
+    if let Some(conversation) = p
+        .supervisor()
+        .and_then(|s| s.inner().lent_conversation(task))
+    {
+        c.lend(task, &conversation);
+    }
+    c
+}
+
 fn task_root(p: &Parts, task_id: &str) -> Option<String> {
     p.task(task_id).map(|t| t.tree_id.unwrap_or(t.task_id))
 }
@@ -644,6 +664,16 @@ pub fn tool_named(p: &Parts, name: &'static str) -> Arc<dyn Tool> {
             let p = parts.clone();
             let (a, caller) = (a.clone(), c.task_id.clone());
             Box::pin(async move { evidence_run(&p, &a, &caller) })
+        }),
+        // decision: ORCH-663 (the owner, 2026-11-16): a task's trace for the planner, read from the store
+        "task.trace" => Arc::new(move |a, c| {
+            let p = parts.clone();
+            let (a, caller) = (a.clone(), c.task_id.clone());
+            Box::pin(async move {
+                tokio::task::spawn_blocking(move || trace_run(&p, &a, &caller))
+                    .await
+                    .map_err(gone)?
+            })
         }),
         "chat.history" => Arc::new(move |a, c| {
             let p = parts.clone();
@@ -1018,6 +1048,47 @@ fn evidence_run(
     Ok(answer(ans.content, ans.is_error, ans.read_sources).into())
 }
 
+/// task.trace (ORCH-663): one task of the caller's chat (the tasks chat.history include_tasks lists for it: its
+/// conversation's, and the scheduled runs' for the owner's chat), its trace read from the store, labelled with that
+/// task's origins as task.evidence labels its records, so page text in it reaches the model as data.
+fn trace_run(
+    p: &Parts,
+    a: &Args,
+    caller: &str,
+) -> Result<ferb_gateway::tool::ToolOutput, ToolError> {
+    let task_id = s_or(a, "task_id");
+    if task_id.is_empty() || !conversation_tasks(p, caller).contains(&task_id) {
+        return Ok(error(
+            "that task isn't one of this conversation's tasks (chat.history include_tasks=true lists them)",
+        )
+        .into());
+    }
+    let args = ferb_orchestrator::trace_read::TraceArgs {
+        step: s(a, "step").filter(|v| !v.is_empty()),
+        kind: s(a, "kind").filter(|v| !v.is_empty()),
+        errors_only: b(a, "errors_only"),
+        since: s(a, "since").filter(|v| !v.is_empty()),
+        after: a.get("after").and_then(Value::as_u64).map(|v| v as usize),
+        limit: u(a, "limit", ferb_orchestrator::trace_read::LAST_CALLS),
+        call: s(a, "call").filter(|v| !v.is_empty()),
+        offset: u(a, "offset", 0),
+        max_chars: u(a, "max_chars", 12000),
+    };
+    let db = p.db();
+    let d = crate::basics::lock(&db);
+    let Some(content) =
+        ferb_orchestrator::trace_read::trace(&d, &task_id, &args).map_err(failed)?
+    else {
+        return Ok(error("no record of that task or call in it").into());
+    };
+    let origins = spans(&d, p).task_origins(&task_id).map_err(failed)?;
+    let sources = origins
+        .into_iter()
+        .map(|o| ("origin".to_string(), o))
+        .collect();
+    Ok(answer(content, false, sources).into())
+}
+
 /// `_conversation_tasks`: the tasks of the conversation a running task belongs to (from its live record's tree and
 /// the stored chat); none for a task without a live record.
 fn conversation_tasks(p: &Parts, task_id: &str) -> BTreeSet<String> {
@@ -1028,7 +1099,9 @@ fn conversation_tasks(p: &Parts, task_id: &str) -> BTreeSet<String> {
         return BTreeSet::new();
     };
     let tree = rec.tree_id.unwrap_or_else(|| task_id.to_string());
-    continuity(&db, p).readable_tasks(&tree).unwrap_or_default()
+    continuity_for(&db, p, &tree)
+        .readable_tasks(&tree)
+        .unwrap_or_default()
 }
 
 async fn chat_history_run(
@@ -1061,7 +1134,7 @@ async fn chat_history_run(
         });
     let home = p.home().join("ferb.db");
     let db = ferb_store::Db::open(&home).map_err(failed)?;
-    let c = continuity(&db, p);
+    let c = continuity_for(&db, p, root.as_deref().unwrap_or(task));
     let ans = ferb_orchestrator::evidence::chat_history(&c, root, Some(&search), &args)
         .await
         .map_err(failed)?;
@@ -1097,7 +1170,7 @@ fn chat_search(
     let Ok(db) = ferb_store::Db::open(p.home().join("ferb.db")) else {
         return Vec::new();
     };
-    let c = continuity(&db, p);
+    let c = continuity_for(&db, p, root);
     let Ok(Some(conversation)) = c.conversation_of(root) else {
         return Vec::new();
     };

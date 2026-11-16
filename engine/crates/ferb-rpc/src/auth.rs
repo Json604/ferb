@@ -65,10 +65,10 @@ pub const METHODS: &[Method] = &[
     m("browsers.list", &[Role::Cli], false),
     m("browsers.pair", &[Role::Cli], false),
     m("browsers.unpair", &[Role::Cli], false),
-    m("chat.answer", &[Role::Cli], false),
-    m("chat.approve", &[Role::Cli], false),
+    m("chat.answer", &[Role::Cli], true),
+    m("chat.approve", &[Role::Cli], true),
     m("chat.attach", &[Role::Cli], false),
-    m("chat.correct", &[Role::Cli], false),
+    m("chat.correct", &[Role::Cli], true),
     // stage 2 (ENG-10): the chat as entries, read like from a server; FERB.app's own for now, the phone role's in
     // stage 3 (reads Private, `mark` Plain). Not Python's: STAGE2_ADDITIONS names them.
     m("chat.entries.changes", &[Role::Cli], true),
@@ -81,7 +81,7 @@ pub const METHODS: &[Method] = &[
     m("chat.history.import", &[Role::Cli], true),
     m("chat.history.page", &[Role::Cli], true),
     m("chat.history.put", &[Role::Cli], true),
-    m("chat.send", &[Role::Cli], false),
+    m("chat.send", &[Role::Cli], true),
     m("chat.status", &[Role::Cli], false),
     m("clipboard.request", &[Role::Cli], false),
     m("conversations.change", &[Role::Cli], false),
@@ -202,6 +202,11 @@ pub const STAGE2_ADDITIONS: [&str; 6] = [
 /// The methods the owner's identifier choices added to Python's table (GATE-601, GATE-602): FERB.app's own
 /// (`app_only`), never a tool's or the phone's.
 pub const IDENTIFIER_ADDITIONS: [&str; 2] = ["secrets.mask", "secrets.unmask"];
+
+/// GATE-612: the owner's own words and answers (a chat message, a question's Yes or No, its typed answer, a safety
+/// check's box) come only from FERB.app (`app_only`), never from any other program running as the owner. Python had
+/// them for the cli role without the app check (the one named difference from its recorded table).
+pub const OWNER_APP_ONLY: [&str; 4] = ["chat.answer", "chat.approve", "chat.correct", "chat.send"];
 
 /// The methods of FERB.app's stored-data viewer and the owner's delete (STORE-423, STORE-424): FERB.app's own
 /// (`app_only`), never a tool's, the phone's or a command line's.
@@ -541,6 +546,21 @@ mod tests {
         assert!(allowed(Role::Cli, "chat.send"));
         assert!(!allowed(Role::McpShim, "chat.send"));
         assert!(!allowed(Role::NativeHost, "chat.send"));
+    }
+
+    /// GATE-612: a chat message, a question's answer and a safety check's box are FERB.app's alone: any other program
+    /// running as the owner (a planted git hook, a launch agent) is refused them, as it is the stored data.
+    // decision: GATE-612
+    #[test]
+    fn the_owners_words_and_answers_are_ferb_app_s_alone() {
+        for name in OWNER_APP_ONLY {
+            assert!(allowed(Role::Cli, name), "{name}");
+            assert!(app_only(name), "{name}");
+            assert!(
+                !allowed(Role::McpShim, name) && !allowed(Role::NativeHost, name),
+                "{name}"
+            );
+        }
     }
 
     #[test]

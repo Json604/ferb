@@ -471,16 +471,27 @@ enum PlayScript {
                 p.step("order", "running", part: "order")
                 p.live("order", "switching to the $69 Arc 75 Lite")
             }, check: { probe in PlayProbe.all(probe.cardAgrees(), probe.expect("order", .running)) }),
+            // ORCH-651: a part delivered with a condition it couldn't meet: what was delivered, then code's "Not done:"
+            PlayBeat(caption: "A part delivered with gaps says what isn't done", wait: 1.8, run: { p in
+                p.part("summary", "Write summary", "done_with_gaps",
+                       text: "Saved the summary to `Desktop/summary.txt`.\n\nNot done: the summary is under 15 words — "
+                           + "the list's three launch dates alone take 18 words; tell me which to drop.",
+                       step: "write", done: 3, total: 6)
+            }, check: { probe in
+                guard let row = probe.card?.row("summary") else { return "no summary row" }
+                if row.text?.contains("Not done:") != true { return "the gapped row doesn't say what isn't done" }
+                return PlayProbe.all(probe.cardAgrees(), probe.expect("summary", .gaps))
+            }),
             PlayBeat(caption: "The notch is closed when the answer lands", wait: 1.4, run: { p in
                 p.step("order", "done", part: "order")
                 p.part("order", "Order the keyboard", "done", text: "Ordered the Arc 75 Lite for $69.00 on shop.example.",
-                       step: "order", done: 5, total: 6)
+                       step: "order", done: 4, total: 6)
                 p.host?.closeNotch()
             }),
             PlayBeat(caption: "It opens itself and scrolls to the answer: index, file card, sites chip with a boxed +2",
                      wait: 1.6, run: { p in
-                var card: [String: Any] = ["request_id": p.ids.request, "rows": [[String: Any]](), "done": 5, "total": 6,
-                                           "line": "5 of 6 done", "lines": [String]()]
+                var card: [String: Any] = ["request_id": p.ids.request, "rows": [[String: Any]](), "done": 4, "total": 6,
+                                           "line": "4 of 6 done", "lines": [String]()]
                 card["rows"] = p.model.conversation.turns.first { $0.requestID == p.ids.request }?.card?.rows.map { row in
                     var value: [String: Any] = ["part": row.part, "label": row.label, "state": row.state, "direct": row.direct,
                                                 "seq": row.seq ?? ""]
@@ -489,11 +500,11 @@ enum PlayScript {
                     if let step = row.step { value["step"] = step }
                     return value
                 } ?? []
-                p.finish(["type": "outcome", "status": "done_unverified", "verified": false,
-                          "answer": "Read email list: I read all 12 entries.\nWrite summary: Saved the one-line summary.\n"
+                p.finish(["type": "outcome", "status": "done_with_gaps", "verified": false,
+                          "answer": "Read email list: I read all 12 entries.\nWrite summary: Saved the summary. (parts not done)\n"
                               + "Tokyo date: Saturday, 7 November.\nKeyboard reviews: Two reviews of the Arc 75 "
                               + "(not all of it confirmed)\nOrder the keyboard: Ordered the Arc 75 Lite for $69.00.\n"
-                              + "Typing practice slot: Couldn't do: the calendar step it needed couldn't be done.\n5 of 6 done",
+                              + "Typing practice slot: Couldn't do: the calendar step it needed couldn't be done.\n4 of 6 done",
                           "card": card,
                           "cards": [["type": "file", "path": p.workspace.artifact.path, "name": "summary.txt"],
                                     ["type": "link", "host": "reviews.example"], ["type": "link", "host": "keyboards.example"],

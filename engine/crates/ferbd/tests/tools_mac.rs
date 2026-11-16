@@ -399,3 +399,57 @@ fn real_machine_checks() {
         .unwrap_or(0);
     eprintln!("evidence day folders in the temp home: {kept}");
 }
+
+/// HAND-582, HAND-583: the fact that refuses a Mac call on a web page a connected profile's browser tools can take
+/// (the gateway's `unavailable`, before any question: nothing done, the owner not asked) names the profile, the tab
+/// and the route; for mac.open, browser.open in a paired profile.
+// decision: HAND-582, HAND-583
+#[test]
+fn a_mac_call_on_a_web_page_a_connected_profile_holds_points_to_the_browser_tools() {
+    use ferb_daemon::areas_b::browsers::PageRoute;
+    use ferb_mac_hands::tools::WebTarget;
+    use ferbd::compose::tools::mac::web_route_fact;
+    let route = PageRoute {
+        profiles: vec![(
+            "chrome".into(),
+            "Profile 29".into(),
+            "Google Chrome “ds.study.iitm.ac.in”".into(),
+        )],
+        tab_ref: Some("chrome:Profile 29:652423352".into()),
+    };
+    let input = WebTarget {
+        browser: "chrome".into(),
+        url: "https://ds.study.iitm.ac.in/".into(),
+        opens: false,
+    };
+    let fact = Value::Object(web_route_fact(&input, &route));
+    assert_eq!(fact["code"], "use_browser_tools");
+    assert_eq!(fact["performed"], false);
+    assert_eq!(fact["asked_owner"], false);
+    assert_eq!(fact["profiles"], json!(["chrome/Profile 29"]));
+    assert_eq!(fact["tab_ref"], "chrome:Profile 29:652423352");
+    assert_eq!(
+        fact["detail"],
+        "This is a web page in Google Chrome “ds.study.iitm.ac.in” (chrome/Profile 29), where FERB's extension is \
+         connected, so it belongs to the browser tools, which work in the background with the window minimized: \
+         browser.use_tab tab_ref=chrome:Profile 29:652423352 takes this tab, then browser.snapshot and browser.act. \
+         The Mac tools would need the browser's window in front. If this task isn't allowed that profile, the refusal \
+         of browser.open says so: then ask the owner with owner.ask (naming the profile, options Yes and No) whether \
+         the task should use it. Nothing was done and the owner wasn't asked."
+    );
+    let open = WebTarget {
+        opens: true,
+        ..input
+    };
+    let fact = Value::Object(web_route_fact(
+        &open,
+        &PageRoute {
+            tab_ref: None,
+            ..route
+        },
+    ));
+    assert!(fact.get("tab_ref").is_none());
+    assert!(fact["detail"].as_str().unwrap().starts_with(
+        "Open web pages with browser.open, not mac.open: it opens the page in a paired profile"
+    ));
+}

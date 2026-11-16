@@ -46,6 +46,9 @@ pub struct Facts {
     pub target_args: Vec<String>,
     /// Target fields filled from the agent's notes, left out of P19's hash.
     pub noted_targets: Vec<String>,
+    /// Offered and admitted only to a grant that names it in its tools (ORCH-663: the planner's task.trace; a worker's
+    /// or the check's grant names none, so never theirs).
+    pub named_only: bool,
 }
 
 fn list(v: Option<&Value>) -> Vec<String> {
@@ -82,6 +85,7 @@ impl Facts {
             method_args: list(f.get("method_args")),
             target_args: list(f.get("target_args")),
             noted_targets: list(f.get("noted_targets")),
+            named_only: flag("named_only"),
         })
     }
 }
@@ -298,6 +302,12 @@ pub trait Tool: Send + Sync {
 
     /// `browser_page(args)`: a browser's own page the input would land on (rule 5).
     fn browser_page<'a>(&'a self, _args: &'a Args) -> BoxFuture<'a, Option<String>> {
+        Box::pin(async { None })
+    }
+
+    /// HAND-586: for input into a browser that asks for the screen, why the browser tools can't take it, when the
+    /// tool knows: "page" (a web page no connected profile holds) or "controls" (the browser's own controls).
+    fn window_reason<'a>(&'a self, _args: &'a Args) -> BoxFuture<'a, Option<String>> {
         Box::pin(async { None })
     }
 

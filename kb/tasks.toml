@@ -822,3 +822,110 @@ status = "open"
 why = "PROJ-510 moved ui/ to apps/. The owner's rules 1-18 are kept word for word, so rule 13's two `ui/` mentions were left as written."
 decisions = ["PROJ-510"]
 ask = "AGENTS.md rule 13 says \"The Mac app (`ui/`, FERB.app) is the product\" and \"`ui/` is the owner's side\". The app now lives in apps/mac (apps/ also holds the phone apps). May rule 13 say `apps/mac` and `apps/` there, with nothing else changed?"
+
+[T-1116]
+title = "A plan step that sends without declaring it isn't asked before it starts after a gapped step"
+area = "orchestration"
+kind = "question"
+status = "open"
+why = "ORCH-653 decides by the plan's declared structure (rule 4). A do step whose plan names no action check can still send or submit; FERB's existing confirmations (new recipient, payment, deletion) still ask, but not the gaps question."
+decisions = ["ORCH-651", "ORCH-653"]
+ask = "Should FERB also ask the gaps question at the first send, submit, pay, post or delete call (by the action's kind) of any step that runs after a step delivered with gaps, even when its plan didn't declare it?"
+
+[T-1117]
+title = "A paste in a question card's box: the owner's words, or data that names no site and answers nothing?"
+area = "gateway"
+kind = "question"
+status = "open"
+why = "Red-team 2026-11-16 (3 iii) asked that a paste in a card's box never name a site or count as an option. ORCH-518 (owner) counts all the owner pastes into chat as their words, answers and corrections included, so it isn't built. HAND-571 already stops FERB's own keys and pastes reaching the box."
+decisions = ["ORCH-518", "GATE-510", "GATE-609", "HAND-571"]
+ask = "When you paste text into the box under one of FERB's questions, should it count as your own words like a paste in chat (today), or be treated as pasted data that can't name a site for the task and can't count as Yes or No?"
+
+[T-1118]
+title = "Project mode: FERB works in any folder the owner names; git publishes through a fixed action"
+area = "hands"
+kind = "build"
+status = "open"
+why = "Owner 2026-11-16 agreed to a project mode asked once per project, in any folder on the Mac he names; git uses his login through a fixed action no model holds; the Keychain and SSH keys stay closed to model-written commands. Not built."
+
+
+[T-1119]
+title = "A preview frame arriving while the text-reading helper is busy keeps the last good picture"
+area = "app"
+kind = "build"
+status = "open"
+why = "Live 2026-11-16: with the daemon's Vision cache purged, the child reader recovered 931 frames, but frames arriving while it was busy showed 'pixels withheld' (preview.failed, child ferb.busy). Told to the owner as still to fix."
+
+
+[T-1120]
+title = "Publish extension 0.19.12 to the Chrome Web Store"
+area = "hands"
+kind = "live"
+status = "open"
+why = "0.19.12 drops a stale pairing key, sends a queued pairing code once the link is up and backs off reconnects (HAND-563..566). The daemon works with 0.19.11; the owner publishes when the zip is made."
+
+
+[T-1121]
+title = "Put the owner's app back the instant a popup takes focus, not when the click's reply arrives"
+area = "hands"
+kind = "build"
+status = "open"
+why = "HAND-570 acts when the tab's reply carries the fact (about 4 s after the click in the live case). Acting at the popup itself needs the extension's popup event to carry the focus fact."
+
+
+[T-1122]
+title = "Stage 2 leftovers: the shared conversation's live checks and the one-time archive import"
+area = "engine"
+kind = "live"
+status = "open"
+why = "ENG-10/ENG-12: the archive import is by hand with the owner present; the second-client check can't use a cli-role script since GATE-612 made chat.send app-only, so it needs another method (a phone, or a test client the app check accepts)."
+
+
+[T-1123]
+title = "Restart a failed daemon loop with a growing pause and journal it, as Python's _supervise"
+area = "engine"
+kind = "build"
+status = "open"
+why = "Audit 2026-11-16: main.py:596-631 restarted a failed loop and journaled daemon.loop_failed / daemon.background_failed. ferbd's loops.rs declares LOOP_RESTART_S and LOOP_RESTART_MAX_S but no loop is supervised; a panic ends the loop silently. Size: medium."
+
+[T-1124]
+title = "Cache the permissions and browser profiles 10 s and warm them at start, as Python's _Fresh"
+area = "engine"
+kind = "build"
+status = "open"
+why = "Audit 2026-11-16: main.py:477 and shared.py:139 primed a 10 s cache so the planner's first turn didn't wait; Rust reads check_all() on every call and ferb-daemon's Fresh is never built. Speed only, no behavior change. Size: small."
+
+[T-1125]
+title = "Drive the browser.* and ferb_browser.* tools through the program against a fake extension"
+area = "engine"
+kind = "build"
+status = "open"
+why = "Audit 2026-11-16: offline, every_tool_through_the_program.rs only reaches each browser tool's own 'no tab open' refusal. A scripted extension behind the relay of browser_keepalive.rs, answering the ops as fixtures/browser/ops.json recorded, would run each to its result shape. Size: medium."
+
+[T-1126]
+title = "Drive owner.ask and browser.pair through the program with a scripted owner's answer"
+area = "engine"
+kind = "build"
+status = "open"
+why = "Audit 2026-11-16: both wait on the owner's chat answer, so the every-tool test only checks their declarations; owner.ask has run in live tasks, browser.pair never through the Rust program. Size: small."
+
+[T-1127]
+title = "Stored-data viewer: count a cut cell's offset in Unicode code points, as the daemon does"
+area = "app"
+kind = "build"
+status = "open"
+why = "Audit 2026-11-16 (read both sides): StoredDataPage.swift:92 sends offset text.count (graphemes); data.cell counts SQLite code points (data_view.rs:645-673). A cut cell with emoji or combining marks repeats characters in the next piece. Size: small."
+
+[T-1128]
+title = "ferb program leftovers: --help, setup's Python venv line, cli/mod.rs's stale header"
+area = "engine"
+kind = "build"
+status = "open"
+why = "Audit 2026-11-16 (read only): Python printed help and exited 0, Rust has no help; setup without an app bundle still prints 'Installing FERB's dedicated Python, its venv' (setup.rs:343, 373, ENG-2); cli/mod.rs:5-8 says trace, stats and packaging aren't ported, but they are. Size: small."
+
+[T-1129]
+title = "Give the test daemon fake Mac hands: today mac.* reads this Mac's real apps in a test"
+area = "tests"
+kind = "build"
+status = "open"
+why = "Audit 2026-11-16: with the stand-ins' native and mac off, ferbd still composes the real AX, events, apps and capture parts (tools/mac.rs Mac::build); mac.apps listed this Mac's running apps. Tests avoid it (TEST-508), so mac.* never runs through the program offline. Size: medium."

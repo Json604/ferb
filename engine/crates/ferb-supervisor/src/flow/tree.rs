@@ -20,7 +20,7 @@ use futures_util::stream::{FuturesUnordered, StreamExt};
 use futures_util::FutureExt;
 use serde_json::{json, Map, Value};
 
-use super::{Emit, Failure, Flow, Inner, Tree, TreeState};
+use super::{Emit, Failure, Flow, Gap, Inner, Tree, TreeState};
 use crate::words::*;
 
 /// supervisor.py `RESTORED_WAITS`: the waits a restart asks again as themselves.
@@ -104,9 +104,46 @@ pub fn step_task(tree_id: &str, step_id: &str) -> String {
 fn ended_as(status: &str) -> &'static str {
     match status {
         "done" | "done_unverified" => "done",
+        "done_with_gaps" => "done_with_gaps", // ORCH-652
         "cancelled" | "needs_user" => "not_finished",
         _ => "failed",
     }
+}
+
+/// ORCH-653: when a plan ended unfinished only because the owner said not to go on after a step delivered with gaps
+/// (each step left is that step or waits on one), the steps not started that way; None otherwise.
+fn after_gaps_only(steps: &[Step], states: &[(String, StepState)]) -> Option<Vec<String>> {
+    let state = |id: &str| states.iter().find(|(k, _)| k == id).map(|(_, s)| s);
+    let said_no: Vec<String> = steps
+        .iter()
+        .filter(|s| {
+            state(&s.id).is_some_and(|st| {
+                st.status == "cancelled" && st.output.get("after_gaps") == Some(&Value::Bool(true))
+            })
+        })
+        .map(|s| s.id.clone())
+        .collect();
+    if said_no.is_empty() {
+        return None;
+    }
+    // a step left waits on one the owner said no to, directly or through others
+    let mut behind: BTreeSet<String> = said_no.iter().cloned().collect();
+    loop {
+        let more: Vec<String> = steps
+            .iter()
+            .filter(|s| !behind.contains(&s.id) && s.depends_on.iter().any(|d| behind.contains(d)))
+            .map(|s| s.id.clone())
+            .collect();
+        if more.is_empty() {
+            break;
+        }
+        behind.extend(more);
+    }
+    let left_alone = steps.iter().any(|s| {
+        let done = state(&s.id).is_some_and(|st| DONE.contains(&st.status.as_str()));
+        !done && !behind.contains(&s.id)
+    });
+    (!left_alone).then_some(said_no)
 }
 
 /// plan_executor.py:86 `_blocked`.
@@ -852,6 +889,7 @@ impl Inner {
             let stored_status = status(&step.id).unwrap_or_else(|| "pending".into());
             let mut st: Option<&str> = match stored_status.as_str() {
                 "done" | "done_unverified" => Some("done"),
+                "done_with_gaps" => Some("done_with_gaps"), // ORCH-652
                 "failed" | "blocked" => Some("failed"),
                 "cancelled" | "needs_user" => Some("not_finished"),
                 "paused" => Some("needs_you"),
@@ -1172,7 +1210,11 @@ impl Inner {
     pub fn finish_step(&self, member: &Arc<Tree>, out: &Outcome) -> String {
         let mut status = {
             let st = member.lock();
-            if out.status == OutcomeStatus::Done && (st.stands_unconfirmed || st.kept_contradicted)
+            if out.status == OutcomeStatus::Done && !st.gaps.is_empty() {
+                // ORCH-652: delivered, with conditions not done: never "done"
+                "done_with_gaps".to_string()
+            } else if out.status == OutcomeStatus::Done
+                && (st.stands_unconfirmed || st.kept_contradicted)
             {
                 "done_unverified".to_string()
             } else {
@@ -1189,11 +1231,13 @@ impl Inner {
             }
             .into();
         }
-        self.set_status(
-            &member.worker.id,
-            &status,
-            Some(&json!({"summary": out.summary})),
-        );
+        let mut record = json!({"summary": out.summary});
+        if status == "done_with_gaps" {
+            // ORCH-651: its outcome names what wasn't done
+            record["status"] = json!(status);
+            record["gaps"] = Value::Array(member.lock().gaps.iter().map(Gap::as_json).collect());
+        }
+        self.set_status(&member.worker.id, &status, Some(&record));
         status
     }
 
@@ -1355,7 +1399,11 @@ impl Inner {
             self.step_state(&tree_id, &step.id, s, map);
         };
         tell("starting");
-        let result = if step.kind == "wait" {
+        // ORCH-653: a step with a declared outside effect after a step delivered with gaps starts on the owner's Yes
+        let gate = self.after_gaps(tree, &step, &prior).await.err();
+        let result = if let Some(result) = gate {
+            Value::Object(result)
+        } else if step.kind == "wait" {
             match self.wait_step(tree, &step).await {
                 Ok(v) => v,
                 Err(Failure::Cancelled) => return Err(Failure::Cancelled),
@@ -1383,6 +1431,103 @@ impl Inner {
             .unwrap_or_else(|| "None".into());
         tell(ended_as(&status));
         Ok(result)
+    }
+
+    /// ORCH-653: whether `step` declares an outside effect before it runs, by structure only (rule 4): an outside
+    /// conversation (kind converse, or a conversation scope), or a condition it answers whose code check is an action
+    /// check (sent, paid, submitted, trashed, deleted).
+    fn declares_outside_effect(&self, tree: &Arc<Tree>, step: &Step) -> bool {
+        if step.kind == "converse" || step.conversation.is_some() {
+            return true;
+        }
+        let spec = tree.spec();
+        let answering = answer_steps(spec.plan.as_ref(), &spec.parts);
+        self.answer_conditions(&spec, &step.id, &answering)
+            .iter()
+            .any(|c| ferb_orchestrator::verify::ACTION_CHECKS.contains(&c.check.kind.as_str()))
+    }
+
+    /// ORCH-653: before a step with a declared outside effect whose dependencies include a step delivered with gaps,
+    /// one question through the owner-question path naming the gaps; Ok on the owner's Yes (or when nothing to ask),
+    /// else the step's result: not started on a No, waiting for the owner when the question couldn't be asked.
+    async fn after_gaps(
+        &self,
+        tree: &Arc<Tree>,
+        step: &Step,
+        prior: &Map<String, Value>,
+    ) -> Result<(), Map<String, Value>> {
+        let gapped: Vec<(&String, Vec<Gap>)> = step
+            .depends_on
+            .iter()
+            .filter_map(|d| {
+                let out = prior.get(d)?;
+                (out.get("status").and_then(Value::as_str) == Some("done_with_gaps")).then(|| {
+                    let gaps = out
+                        .get("gaps")
+                        .and_then(Value::as_array)
+                        .map(|a| a.iter().filter_map(Gap::of_json).collect())
+                        .unwrap_or_default();
+                    (d, gaps)
+                })
+            })
+            .collect();
+        if gapped.is_empty() || !self.declares_outside_effect(tree, step) {
+            return Ok(());
+        }
+        let steps: Vec<Step> = self
+            .plans(|p| p.load(&tree.id))
+            .map(|l| l.plan.steps)
+            .unwrap_or_default();
+        let label = |id: &str| {
+            steps
+                .iter()
+                .find(|s| s.id == id)
+                .map(step_label)
+                .unwrap_or_else(|| id.to_string())
+        };
+        let question = crate::lines::after_gaps_question(
+            &gapped
+                .iter()
+                .map(|(d, gaps)| (label(d), gaps.clone()))
+                .collect::<Vec<_>>(),
+            &step_label(step),
+        );
+        let task = tree.worker_task();
+        let reply = loop {
+            let wait = std::sync::Arc::new(super::owner_wait::Wait::new(
+                &tree.id,
+                &question,
+                &[GAPS_GO_ON, GAPS_STOP],
+                origin::INFERRED,
+                TASK_ASK,
+            ));
+            wait.lock()
+                .extra
+                .insert("question_kind".into(), json!("after_gaps"));
+            let reply = self
+                .wait_for_owner(tree, &task, &wait, &step.id, false, true)
+                .await;
+            if reply.kind != "steer" || !tree.lock().stop.is_empty() {
+                break reply;
+            }
+        };
+        self.journal(
+            "plan.after_gaps",
+            json!({"task_id": tree.id, "step": step.id, "answer": reply.kind,
+                "go_on": reply.kind == "answer" && reply.choice.as_deref() == Some(GAPS_GO_ON)}),
+            None,
+        );
+        if reply.kind == "answer" && reply.choice.as_deref() == Some(GAPS_GO_ON) {
+            return Ok(());
+        }
+        if reply.kind == "declined" {
+            return Err(obj(json!({"status": "needs_user",
+                "summary": format!("You need to answer this before I continue: {question}"),
+                "question": question})));
+        }
+        Err(obj(
+            json!({"status": "cancelled", "summary": GAPS_NOT_STARTED, "after_gaps": true}),
+        ))
     }
 
     /// `_execute_plan`'s `execute`: one step's work.
@@ -2212,7 +2357,17 @@ impl Inner {
                     .iter()
                     .map(ConditionResult::as_dict)
                     .collect();
-                obj(json!({"note": note, "verified": verified, "verification": verification}))
+                let mut record =
+                    obj(json!({"note": note, "verified": verified, "verification": verification}));
+                let gaps = member.lock().gaps.clone();
+                if !gaps.is_empty() {
+                    // ORCH-652: what was not done and why, for the plan's record and the steps after it (data)
+                    record.insert(
+                        "gaps".into(),
+                        Value::Array(gaps.iter().map(Gap::as_json).collect()),
+                    );
+                }
+                record
             }
             _ => Map::new(),
         }
@@ -2305,7 +2460,56 @@ impl Inner {
             return Ok(self.card_outcome(tree, &card, artifacts, evidence));
         }
         let status = result["status"].as_str().unwrap_or("").to_string();
+        if let Some(not_started) = after_gaps_only(&plan.steps, &states) {
+            // ORCH-653: the owner said not to go on after a step delivered with gaps, and nothing else is left: the
+            // task is what was delivered, with its gaps and each step not started told as not done
+            let mut gaps = self.plan_gaps(tree, &plan.steps, &states);
+            for id in not_started {
+                let label = plan
+                    .steps
+                    .iter()
+                    .find(|s| s.id == id)
+                    .map(step_label)
+                    .unwrap_or(id);
+                gaps.push(Gap {
+                    index: -1,
+                    condition: label,
+                    reason: GAPS_SAID_NO.into(),
+                    evidence: String::new(),
+                });
+            }
+            let answer = plan
+                .steps
+                .iter()
+                .filter_map(|s| state(&s.id))
+                .filter(|s| DONE.contains(&s.status.as_str()))
+                .filter_map(|s| {
+                    s.output
+                        .get("answer")
+                        .filter(|a| ferb_py::value::truthy(a))
+                        .map(ferb_py::value::py_str)
+                })
+                .map(|a| ferb_orchestrator::py::strip(&a).to_string())
+                .filter(|a| !a.is_empty())
+                .collect::<Vec<_>>()
+                .join("\n\n");
+            {
+                let mut st = tree.lock();
+                st.gaps = gaps;
+                st.owner_answer = answer.clone();
+            }
+            return Ok(outcome(
+                &tree.worker.id,
+                "done",
+                &answer,
+                artifacts,
+                evidence,
+            ));
+        }
         if status == "done" {
+            // ORCH-652: every step's gaps, in plan order
+            let gaps = self.plan_gaps(tree, &plan.steps, &states);
+            tree.lock().gaps = gaps;
             let members: Vec<Option<Arc<Tree>>> = answering
                 .iter()
                 .map(|k| {
@@ -2397,6 +2601,40 @@ impl Inner {
             artifacts,
             evidence,
         ))
+    }
+
+    /// ORCH-652: every step's gaps in plan order: those that ran here, and those saved before a restart.
+    fn plan_gaps(
+        &self,
+        tree: &Arc<Tree>,
+        steps: &[Step],
+        states: &[(String, StepState)],
+    ) -> Vec<Gap> {
+        let mut gaps: Vec<Gap> = Vec::new();
+        for step in steps {
+            let ran = tree
+                .lock()
+                .ran
+                .iter()
+                .find(|(k, _)| *k == step.id)
+                .map(|(_, m)| m.lock().gaps.clone());
+            let these = ran.unwrap_or_else(|| {
+                states
+                    .iter()
+                    .find(|(k, _)| *k == step.id)
+                    .and_then(|(_, s)| s.output.get("gaps").and_then(Value::as_array).cloned())
+                    .unwrap_or_default()
+                    .iter()
+                    .filter_map(Gap::of_json)
+                    .collect()
+            });
+            for g in these {
+                if !gaps.contains(&g) {
+                    gaps.push(g);
+                }
+            }
+        }
+        gaps
     }
 
     /// supervisor.py:6038 `_release_resources`.
@@ -2840,6 +3078,8 @@ impl Inner {
                 .all(|r| r.met == Some(true) || r.path == DECLINED);
         let unconfirmed = st.unconfirmed.clone();
         let (answer_unmarked, owner_answer) = (st.answer_unmarked.clone(), st.owner_answer.clone());
+        // ORCH-652: a gap is told by its own "Not done:" line, never also as unconfirmed
+        let gapped: Vec<i64> = st.gaps.iter().map(|g| g.index).collect();
         drop(st);
         let note = if declined && verified {
             String::new()
@@ -2853,6 +3093,7 @@ impl Inner {
             outcomes
                 .iter()
                 .filter(|r| r.met != Some(true) && r.path != DECLINED)
+                .filter(|r| !gapped.contains(&r.index))
                 .map(|r| self.owner_text(src, r))
                 .collect::<Vec<_>>()
                 .join("; ")
@@ -3014,11 +3255,19 @@ impl Inner {
             let (text, n, v) = self.checked_answer(&src, &out);
             note = n;
             verified = v;
-            status = if verified {
+            // ORCH-651: delivered with gaps: the answer, then code's "Not done:" line for each gap
+            let gaps = self.tree_gaps(tree, &src);
+            if !gaps.is_empty() {
+                verified = false;
+            }
+            status = if !gaps.is_empty() {
+                "done_with_gaps".into()
+            } else if verified {
                 "done".into()
             } else {
                 "done_unverified".into()
             };
+            let text = crate::lines::with_gap_lines(&text, &gaps);
             answer = if note.is_empty() {
                 text
             } else {
@@ -3126,7 +3375,14 @@ impl Inner {
         if !lines.is_empty() {
             final_.insert("lines".into(), json!(lines));
         }
-        if (status == "done" || status == "done_unverified")
+        if status == "done_with_gaps" {
+            let gaps = self.tree_gaps(tree, &src);
+            final_.insert(
+                "gaps".into(),
+                Value::Array(gaps.iter().map(Gap::as_json).collect()),
+            );
+        }
+        if (status == "done" || status == "done_unverified" || status == "done_with_gaps")
             && !ferb_orchestrator::py::strip(&how).is_empty()
         {
             final_.insert("how".into(), json!(how));
@@ -3149,6 +3405,17 @@ impl Inner {
         final_.extend(self.told_in(tree)); // ORCH-579 (control.rs)
         final_.extend(self.checklist(tree, Some(&status)));
         Ok(final_)
+    }
+
+    /// ORCH-652: the gaps a task's answer tells: the tree's own (a single task's, or every step's once its plan
+    /// ended), else its answering step's.
+    pub(crate) fn tree_gaps(&self, tree: &Arc<Tree>, src: &Arc<Tree>) -> Vec<Gap> {
+        let own = tree.lock().gaps.clone();
+        if !own.is_empty() || Arc::ptr_eq(tree, src) {
+            return own;
+        }
+        let answering = src.lock().gaps.clone();
+        answering
     }
 
     /// supervisor.py:4704 `_result_cards`.

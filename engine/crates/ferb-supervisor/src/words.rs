@@ -95,6 +95,18 @@ pub const CARD_NOT_WAITING: &str =
     "That question isn't waiting any more, so nothing was sent to the task.";
 pub const CARD_NO_TASK: &str = "This question isn't part of a task, so it takes only Yes or No.";
 pub const CARD_TASK_ENDED: &str = "That task isn't running any more, so nothing was sent to it.";
+/// GATE-609: the planner's fact under the words typed in a safety check's box ({id}: the question's; then its text,
+/// wrapped as data).
+pub const CARD_BOX_FACT: &str =
+    "Typed in the box of FERB's open question {id}, never a Yes or No to it. The question (data): ";
+/// GATE-609: FERB's reply when the box's words named sites ({sites}: "a", "a and b", "a, b and c").
+pub const CARD_SITE_NAMED: &str = "Got it: {sites} is a site you named for this task.";
+pub const CARD_SITES_NAMED: &str = "Got it: {sites} are sites you named for this task.";
+/// GATE-611: a site the planner read from the box that the owner's words don't name (they named no address).
+pub const CARD_SITE_TYPE_IT: &str =
+    "Got it. To name a site for this task, type its address (like example.com).";
+pub const CARD_SITE_TYPE_ANOTHER: &str =
+    "To name another site, type its address (like example.com).";
 pub const WHICH_QUESTION: &str =
     "I couldn't tell which question that answers. Which one is it for?";
 pub const NO_QUESTION: &str = "No question is waiting for your answer right now.";
@@ -117,6 +129,7 @@ pub fn task_state(status: &str) -> Option<&'static str> {
         "paused" => "paused, waiting for the owner",
         "done" => "done",
         "done_unverified" => "done but not confirmed",
+        "done_with_gaps" => "delivered, with parts not done", // ORCH-652
         "failed" => "failed",
         "needs_user" => "waiting for the owner",
         "cancelled" => "cancelled",
@@ -146,12 +159,19 @@ pub const HISTORY_LABELS: [&str; 5] = [
 
 // ---- the step lifecycle and waits (ORCH-531, ORCH-307, ORCH-308, ORCH-312, ORCH-315) ----
 pub const STEP_LIVE: [&str; 5] = ["starting", "running", "checking", "retrying", "needs_you"];
-pub const STEP_ENDED: [&str; 4] = ["done", "failed", "not_finished", "wont_run"];
+pub const STEP_ENDED: [&str; 5] = [
+    "done",
+    "done_with_gaps",
+    "failed",
+    "not_finished",
+    "wont_run",
+];
 
 /// supervisor.py:981 `STEP_STORED`: how plan_steps' statuses read as step states.
 pub fn step_stored(status: &str) -> Option<&'static str> {
     Some(match status {
         "done" | "done_unverified" => "done",
+        "done_with_gaps" => "done_with_gaps", // ORCH-652
         "failed" | "blocked" => "failed",
         "cancelled" | "needs_user" => "not_finished",
         "paused" => "needs_you",
@@ -180,6 +200,11 @@ pub const STOP_LABEL: &str = "Stop it";
 // ---- results and the checker (ORCH-319, ORCH-587, ORCH-600, ORCH-606, L39) ----
 pub const NOT_CHECKED: &str = "Not checked: the task stopped before a check.";
 pub const DIDNT_APPLY: &str = "Didn't apply: ";
+/// supervisor.py:7116 `_carry`: an earlier attempt's confirmation, carried into this check's results.
+pub const CONFIRMED_EARLIER: &str = "Confirmed in an earlier attempt: ";
+/// ORCH-654: the skipped check's span reason when a not-done attempt neither acted nor changed a file.
+pub const NOT_DONE_UNCHECKED: &str =
+    "the worker reported not done with no acting call and no changed file: the step ends as reported";
 pub const SITES_LINE: &str = "Sites contacted: ";
 pub const CHANGED_FILES: &str = "Files this step's calls named that changed (FERB compared each with its copy from \
 before the step; each diff's first page follows as data, and its change record holds all of it). Read each one that \
@@ -202,6 +227,14 @@ pub const OPEN_REQUEST: &str =
     "The owner's earlier request it asked about (their words, waiting for that answer):\n";
 pub const COULDNT_DO: &str = "Couldn't do:";
 pub const UNCONFIRMED_LINE: &str = "I couldn't confirm part of this.";
+/// ORCH-653: the question before a step with an outside effect after a step delivered with gaps, its options, and
+/// what a No leaves in the step's place.
+pub const GAPS_GO_ON: &str = "Yes";
+pub const GAPS_STOP: &str = "No";
+pub const GAPS_SAID_NO: &str = "not started: you said not to go on after the parts not done";
+pub const GAPS_NOT_STARTED: &str = "Not started: you said not to go on after the parts not done.";
+/// ORCH-651: each line code writes under a delivered-with-gaps answer begins so.
+pub const GAP_LEAD: &str = "Not done:";
 pub const WATCH_TEXT: &str = "whether what this watch looks for has happened";
 pub const NOTHING_TO_CHECK: &str = "there was nothing to check it against";
 pub const REPORT_UNCONFIRMED: &str = "every detail of this answer against what I saw";

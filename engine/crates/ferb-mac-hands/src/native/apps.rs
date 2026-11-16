@@ -188,6 +188,16 @@ impl Apps for NativeApps {
                 .collect()
         })
     }
+    /// HAND-571: the system-wide focused element's process (a key non-activating panel's included).
+    fn keyboard_focus_pid(&self) -> Option<i32> {
+        use crate::ax::AxSource;
+        let src = super::ax::NativeAx::default();
+        let (err, focused) = src.raw_attr(&src.system(), "AXFocusedUIElement");
+        match (err, focused.as_el()) {
+            (0, Some(f)) => src.pid_of(&f),
+            _ => None,
+        }
+    }
     /// apps.py:116: Accessibility's focused application first (NSWorkspace's flag goes stale in a daemon).
     fn frontmost(&self) -> Option<RunningApp> {
         use crate::ax::AxSource;

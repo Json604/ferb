@@ -58,6 +58,7 @@ pub fn admit(
         Some(_) if !grant.tools.is_empty() && !grant.tools.contains(name) => {
             Some("outside this worker's scopes")
         }
+        Some(t) if !crate::listing::named(grant, t) => Some("outside this worker's scopes"),
         _ => None,
     };
     if let Some(reason) = outside {

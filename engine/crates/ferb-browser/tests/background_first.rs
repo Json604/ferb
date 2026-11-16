@@ -404,3 +404,154 @@ fn only_known_facts_of_known_shapes_are_kept_and_each_reads_plainly() {
         assert_eq!(fact(&bad), None, "{bad}");
     }
 }
+
+/// HAND-570: the daemon's put-back as the browser part sees it: what it was asked, and its answer.
+struct PutsBack {
+    asked: Mutex<Vec<(String, i32)>>,
+}
+
+impl Host for PutsBack {
+    fn pair(
+        &self,
+        _: &str,
+        _: &str,
+    ) -> Option<BoxFuture<'_, ferb_browser::Result<Map<String, Value>>>> {
+        None
+    }
+    fn handoff(
+        &self,
+        _: TabRef,
+        _: String,
+        _: ToolContext,
+    ) -> Option<BoxFuture<'_, ferb_browser::Result<Map<String, Value>>>> {
+        None
+    }
+    fn resolve(&self, p: &str, c: &ToolContext, e: bool) -> ferb_browser::Result<String> {
+        NoHost.resolve(p, c, e)
+    }
+    fn owner_path(&self, p: &str, w: &str) -> String {
+        NoHost.owner_path(p, w)
+    }
+    fn read(&self, p: &str) -> ferb_browser::Result<Vec<u8>> {
+        NoHost.read(p)
+    }
+    fn new_file(&self, p: &str, d: &[u8], c: &ToolContext) -> ferb_browser::Result<()> {
+        NoHost.new_file(p, d, c)
+    }
+    fn display_of(&self, r: ferb_browser::mask::Rect) -> Option<i64> {
+        NoHost.display_of(r)
+    }
+    fn recordings(&self) -> Option<Arc<dyn ferb_browser::tools::Recordings>> {
+        None
+    }
+    fn put_back_owner_app(
+        &self,
+        task: &str,
+        browser_pid: i32,
+    ) -> Option<BoxFuture<'_, Option<Map<String, Value>>>> {
+        self.asked
+            .lock()
+            .unwrap()
+            .push((task.to_string(), browser_pid));
+        Some(Box::pin(async {
+            json!({"app_put_back": true, "previous": "Brave Browser"})
+                .as_object()
+                .cloned()
+        }))
+    }
+}
+
+/// HAND-570: the window of the task's that took the focus is the moment the owner's app goes back: asked of the
+/// daemon while the tab's result is made (not at a later call), its answer on the fact, the worker's line and the
+/// owner's.
+// decision: HAND-570
+#[tokio::test(start_paused = true)]
+async fn the_owners_app_goes_back_when_the_fact_arrives() {
+    let answering = Arc::new(PutsBack {
+        asked: Mutex::new(vec![]),
+    });
+    let random = Arc::new(Counter::new());
+    let pairings = Arc::new(Pairings::new(
+        Arc::new(Installs),
+        Arc::new(Clocked),
+        random.clone(),
+    ));
+    let published: Arc<Mutex<Vec<(String, Value)>>> = Arc::default();
+    let seen = published.clone();
+    let hub = Hub::new(
+        pairings,
+        Arc::new(NoLedger),
+        Arc::new(move |topic: &str, data: Map<String, Value>| {
+            seen.lock()
+                .unwrap()
+                .push((topic.to_string(), Value::Object(data)));
+        }),
+        Arc::new(|| "dev-1".to_string()),
+        random.clone(),
+        Arc::new(Apps),
+        Arc::new(|_| Some("com.google.Chrome".to_string())),
+    );
+    let tasks = Tasks {
+        running: Arc::new(|t: &str| t == "task-a"),
+        root: Arc::new(|t: &str| t.split('.').next().unwrap_or(t).to_string()),
+        ..Tasks::default()
+    };
+    let driver = ferb_browser::driver::Driver::new(
+        hub.clone(),
+        Kind::Owner {
+            choose: Arc::new(|_| Ok(("chrome".to_string(), "Default".to_string()))),
+            input: None,
+        },
+        tasks,
+        None,
+        random,
+    );
+    let tools = Tools {
+        family: OWNER_BROWSER,
+        driver: driver.clone(),
+        policy: Arc::new(Https),
+        host: answering.clone(),
+    };
+    let sent: Arc<Mutex<Vec<(String, Value)>>> = Arc::default();
+    connect(hub, sent.clone());
+    settle().await;
+
+    // the task's tab: opened blank, then its address (the fake's first navigate carries nothing)
+    let tab = driver
+        .open_for("https://sign.example/start", "task-a", None, None, false)
+        .await
+        .expect("open");
+    let nav = verb("navigate").unwrap();
+    let args = json!({"tab": tab.tab_id, "url": "https://sign.example/login"});
+    let first = tools.run(nav, &args, &ctx()).await.expect("navigate");
+    assert_eq!(
+        *answering.asked.lock().unwrap(),
+        [("task-a".to_string(), 4242)]
+    );
+    assert_eq!(
+        first.content["window_shown"][0],
+        json!(
+            "the page opened a new tab, and the browser brought FERB's minimized browser window to the front and took \
+             the keyboard focus from the owner's app; FERB minimized it again at once. FERB put Brave Browser back in \
+             front"
+        )
+    );
+    let shown: Vec<Value> = published
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(t, _)| t == "browser.window_shown")
+        .map(|(_, d)| d["shown"].clone())
+        .collect();
+    assert_eq!(
+        shown,
+        vec![
+            json!([{"cause": "new_tab", "window": "ferb", "focused": true, "put_back": true,
+                     "app_put_back": true, "previous": "Brave Browser"}])
+        ]
+    );
+    // the refused request alone (no window came up) asks nothing more
+    let args = json!({"tab": tab.tab_id, "url": "https://sign.example/next"});
+    tools.run(nav, &args, &ctx()).await.expect("navigate");
+    assert_eq!(answering.asked.lock().unwrap().len(), 1);
+}

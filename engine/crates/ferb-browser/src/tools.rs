@@ -383,6 +383,17 @@ pub trait Host: Send + Sync {
     fn display_of(&self, rect: Rect) -> Option<i64>;
     /// Recordings (browser.record), `None` when the daemon has none.
     fn recordings(&self) -> Option<Arc<dyn Recordings>>;
+    /// HAND-570: a window of the task's took the keyboard focus (a surfaced fact) and the browser (`browser_pid`) is
+    /// the front app now: the app that was in front before the task's call goes back in front at once. The answer's
+    /// fields for the fact: `app_put_back`, `previous` and a plain `app_why`; None when nothing needs putting back
+    /// (the browser isn't in front, or it was in front before) or the daemon can't.
+    fn put_back_owner_app(
+        &self,
+        _task: &str,
+        _browser_pid: i32,
+    ) -> Option<BoxFuture<'_, Option<Map<String, Value>>>> {
+        None
+    }
 }
 
 /// The recordings manager as browser.record uses it.
@@ -1389,7 +1400,9 @@ impl Tools {
             news.insert("closed_tabs".into(), json!(closed));
         }
         // HAND-533: a window the page brought forward (and FERB put back down), a fact for the worker (HAND-212)
-        let surfaced = self.driver.surfaced_for(tab);
+        let mut surfaced = self.driver.surfaced_for(tab);
+        // HAND-570: a window of the task's took the keyboard focus: the owner's app goes back now, not at a later call
+        self.put_back_owner_app(tab, &mut surfaced).await;
         let shown: Vec<String> = surfaced.iter().map(crate::surfaced::told).collect();
         if !shown.is_empty() {
             news.insert("window_shown".into(), json!(shown));
@@ -1403,6 +1416,32 @@ impl Tools {
                 .map(|t| web(Some(crate::rules::text_or_empty(t.get("url"))))),
         );
         Ok((news, sources))
+    }
+
+    /// HAND-570: when one of the tab's window facts says a window of the task's (FERB's own, or its pop-up) came up
+    /// with the keyboard focus, the daemon puts the owner's app back at once; whether it did goes on that fact
+    /// (`app_put_back`, `previous`, `app_why`: apart from the extension's `put_back`, the window minimized).
+    async fn put_back_owner_app(&self, tab: &TabRef, facts: &mut [Map<String, Value>]) {
+        let Some(at) = facts.iter().position(|f| {
+            crate::surfaced::came_up(f)
+                && f.get("focused") == Some(&Value::Bool(true))
+                && f.get("window").and_then(Value::as_str) != Some("owner")
+        }) else {
+            return;
+        };
+        let Some(t) = self.driver.tab(&tab.tab_id) else {
+            return;
+        };
+        let (Some(owner), Some(pid)) = (t.owner.filter(|o| !o.is_empty()), t.bridge.browser_pid())
+        else {
+            return;
+        };
+        let Some(work) = self.host.put_back_owner_app(&owner, pid) else {
+            return;
+        };
+        if let Some(answer) = work.await {
+            facts[at].extend(answer);
+        }
     }
 
     /// `_http` (HAND-494).

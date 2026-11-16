@@ -3772,3 +3772,13 @@ rule = "Refines APP-914, APP-825. A task's end is filed on the turn of the sessi
 why = "Live 2026-11-15: a stop beside new work, while a task restarted by a second message ran, showed the stopped summary three times; recordAnswer's turns.first matched the task's first turn, already answered, and APP-914 posted the end there again at the bottom."
 evidence = "Owner's chat_history: reply 3E1DA219, said = the stopped summary, turnID B85892C6 (the task's first turn), after turn 95361593. Engine: chat_entries pos 4294967320 follows 4294967307, that turn's answer; 4294967321 the same words on turn 0BEBF605."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/Conversation.swift::NotchModel.recordAnswer", "ui/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift::NotchModel.receiveOutcome", "rust/crates/ferb-supervisor/src/flow/entries.rs::ChatProjector.handle_outcome", "rust/crates/ferb-supervisor/src/flow/entries.rs::ChatProjector.receive_outcome"]
+
+[APP-920]
+title = "The tour and Settings say a profile's real state; the orb flies only to a browser's own step"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For HAND-563; refines APP-883, APP-892's words. After Pair all a profile FERB reads connected counts as paired whatever its result said. A failed row says Try again unless its reason has an owner step (off, too_old, removed, not_added, requested, problem, Add); only those are 'a step from you'. The orb flies after Pair all, only to a browser where FERB is off, home at the next pick. Settings: an older key reads 'Needs pairing again' with Pair; a closed paired profile 'Paired · not open now'."
+why = "Live 2026-11-16: the tour said \"The others need a step from you\" for a profile that was paired and working, the orb flew to a browser window at every Pair all with nothing to do there, and \"(open this profile)\" asked the owner to do what FERB does by itself (HAND-403)."
+paths = ["apps/mac/FERBNotch/Sources/NotchCore/PairProgress.swift::PairProgress", "apps/mac/FERBNotch/Sources/FERBNotch/IntroSetupBeats.swift", "apps/mac/FERBNotch/Sources/FERBNotch/IntroCopy.swift::IntroCopy.notPairedDetail", "apps/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift::SetupModel.pairAll", "apps/mac/FERBNotch/Sources/NotchCore/SetupModels.swift::BrowserProfileRow"]
+live = ["LIVE-960"]

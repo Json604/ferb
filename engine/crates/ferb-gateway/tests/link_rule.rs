@@ -1458,3 +1458,678 @@ async fn a_site_the_plan_resolved_from_the_owners_words_counts_as_named() {
         .await
     );
 }
+
+// ================= GATE-606..608: what FERB typed itself, one answer per site, the live GitHub case =================
+
+/// The owner's GitHub account as FERB's identity facts name it (a private record tied to no site).
+const ACCOUNT: &str = "Json604";
+/// A repository name FERB's worker composed and typed itself.
+const REPO: &str = "notes-archive-7K2Q";
+const GITHUB_NEW: &str = "https://github.com/new";
+
+/// What one call did: the rules of the questions it asked, its error, and each card as the owner saw it.
+#[derive(Debug, Default)]
+struct Done {
+    asked: Vec<String>,
+    error: Option<String>,
+    cards: Vec<String>,
+}
+
+impl Run {
+    /// One call under `grant`; every question is answered `yes` (or No).
+    async fn answering(&self, grant: &RunGrant, tool: &str, args: Value, yes: bool) -> Done {
+        let before = self.questions().len();
+        let args = args.as_object().cloned().unwrap();
+        let gw = self.gw.clone();
+        let grant = grant.clone();
+        let name = tool.to_string();
+        let job = async move {
+            gw.call_as(&grant, &name, &args, Cancel::new(), Arc::new(|| false))
+                .await
+        };
+        tokio::pin!(job);
+        let mut seen: BTreeSet<String> = BTreeSet::new();
+        let mut cards = Vec::new();
+        let reply = loop {
+            tokio::select! {
+                biased;
+                r = &mut job => break r.expect("the call returns"),
+                () = tokio::task::yield_now() => {
+                    if let Some(ap) = self.gw.pending().into_iter().find(|a| !seen.contains(&a.id)) {
+                        seen.insert(ap.id.clone());
+                        cards.push(format!("{} | {} | {}", ap.summary, ap.detail, ap.exact));
+                        let want = if yes { "Yes" } else { "No" };
+                        let i = ap.options.iter().position(|o| o == want).expect("a Yes/No question") + 1;
+                        self.gw.resolve(&ap.id, true, Some(i), None).unwrap();
+                    }
+                }
+            }
+        };
+        Done {
+            asked: self.questions()[before..].concat(),
+            error: reply
+                .content
+                .get("error")
+                .filter(|e| ferb_py::value::truthy(e))
+                .map(ferb_py::value::py_str),
+            cards,
+        }
+    }
+
+    async fn yes(&self, tool: &str, args: Value) -> Done {
+        let g = self.grant.clone();
+        self.answering(&g, tool, args, true).await
+    }
+
+    async fn no(&self, tool: &str, args: Value) -> Done {
+        let g = self.grant.clone();
+        self.answering(&g, tool, args, false).await
+    }
+
+    /// A record of the context FERB gave the model (`context.exposure`), private, tied to no site: FERB's identity
+    /// facts or memory.
+    fn context(&self, text: &str) {
+        let db = self.db.lock().unwrap();
+        let n: i64 = db
+            .conn()
+            .query_row("SELECT count(*) FROM spans", [], |r| r.get(0))
+            .unwrap();
+        db.conn()
+            .execute(
+                "INSERT INTO spans (id, task_id, kind, started_at, ended_at, input_json, output_json, origin) VALUES \
+                 (?, 'task-1', 'context.exposure', '2026-01-01T09:00:00+00:00', '2026-01-01T09:00:00+00:00', '{}', \
+                 ?, 'private')",
+                rusqlite::params![format!("ctx-{n}"), json!({ "payload": text }).to_string()],
+            )
+            .unwrap();
+    }
+
+    /// A finished tool call of this task as the gateway records it (for results the stand-ins don't make).
+    fn recorded_call(&self, tool: &str, output: Value, origin: &str) {
+        let db = self.db.lock().unwrap();
+        let n: i64 = db
+            .conn()
+            .query_row("SELECT count(*) FROM spans", [], |r| r.get(0))
+            .unwrap();
+        db.conn()
+            .execute(
+                "INSERT INTO spans (id, task_id, kind, started_at, ended_at, input_json, output_json, origin) VALUES \
+                 (?, 'task-1', 'tool.call', '2026-01-01T09:00:00+00:00', '2026-01-01T09:00:00+00:00', ?, ?, ?)",
+                rusqlite::params![
+                    format!("rec-{n}"),
+                    json!({"tool": tool, "args": {}}).to_string(),
+                    output.to_string(),
+                    origin
+                ],
+            )
+            .unwrap();
+    }
+
+    /// Type `value` into tab `tab` (a fill), then read the tab back (the page shows what was typed).
+    async fn type_and_read(&self, tab: &str, value: &str) {
+        self.quiet(
+            "browser.act",
+            json!({"tab": tab, "action": "type", "element": "e1", "text": value}),
+        )
+        .await;
+        self.quiet("browser.snapshot", json!({"tab": tab})).await;
+    }
+
+    fn submit(tab: &str) -> Value {
+        json!({"tab": tab, "action": "click", "element": "send"})
+    }
+
+    /// A second task of the owner's, in the same store and gateway (a later request): its own tree.
+    fn next_task(&self, words: &str) -> RunGrant {
+        self.gw.record_request(Request {
+            request_id: "req-2".into(),
+            words: words.to_string(),
+            targets: Targets::default(),
+            payload: String::new(),
+            asked_origins: BTreeSet::new(),
+        });
+        let now = start();
+        let span_id = {
+            let d = self.db.lock().unwrap();
+            let at = when::isoformat(&now);
+            d.conn()
+                .execute(
+                    "INSERT INTO spans (id, task_id, kind, started_at, input_json) VALUES ('task-2-span', 'task-2', \
+                     'task', ?, '{}')",
+                    rusqlite::params![at],
+                )
+                .unwrap();
+            d.conn()
+                .execute(
+                    "INSERT INTO tasks (id, tree_id, parent_id, request_id, goal, identity, role, scopes_json, \
+                     status, created_at, updated_at) VALUES ('task-2', 'task-2', NULL, 'req-2', 'g', 'owner', \
+                     'worker', ?, 'running', ?, ?)",
+                    rusqlite::params!["[]", at, at],
+                )
+                .unwrap();
+            "task-2-span".to_string()
+        };
+        self.gw.add_task(TaskRecord {
+            task_id: "task-2".into(),
+            request_id: "req-2".into(),
+            started_at: now,
+            deadline: Some(now + chrono::Duration::minutes(10)),
+            span_id,
+            tree_id: None,
+        });
+        RunGrant {
+            task_id: "task-2".into(),
+            worker_id: "w2".into(),
+            ..self.grant.clone()
+        }
+    }
+}
+
+/// The live case of 2026-11-15 on the owner's own GitHub, replayed: outside content read, FERB's identity facts name
+/// the account, the worker opens the signed-in new-repository page, types a name it composed, reads the page back
+/// (which shows the name), submits, then opens the new repository's address (which carries the account name).
+/// Before: the form asked "Send your details to github.com?" (the name, read back from the signed-in page) and the link
+/// asked again under its own key. Now: the form isn't asked (GATE-607); the link still is, once: the account name was
+/// read in FERB's own context, tied to no site, and the owner never named github.com (GATE-589 C stands).
+// decision: GATE-606
+// decision: GATE-607
+#[tokio::test]
+async fn the_live_github_sequence_asks_once_and_only_about_the_link() {
+    let r = task("make a new repository for my notes", &[]);
+    r.read_page(NEWS).await;
+    r.context(&format!("Your accounts: GitHub {ACCOUNT} (Brave)"));
+    r.page(
+        GITHUB_NEW,
+        &format!("Create a new repository. Owner {ACCOUNT}. Repository name"),
+        true,
+    );
+    let tab = r.read_page(GITHUB_NEW).await;
+    r.type_and_read(&tab, REPO).await;
+    let form = r.no("browser.act", Run::submit(&tab)).await;
+    assert!(form.asked.is_empty(), "{form:?}");
+    let repo = format!("https://github.com/{ACCOUNT}/{REPO}");
+    let link = r.yes("browser.open", json!({ "url": repo })).await;
+    assert_eq!(link.asked, ["sink:private_url"], "{link:?}");
+    assert!(link.error.is_none(), "{link:?}");
+    // what remains, as the owner sees it
+    assert_eq!(link.cards.len(), 1);
+    assert!(
+        link.cards[0].starts_with("Open github.com? The link includes “json604” | FERB treats “json604” as yours because it read it in your chats or FERB's memory."),
+        "{}",
+        link.cards[0]
+    );
+}
+
+/// The same sequence when the form question is asked (the name was in the owner's file before FERB typed it) and the
+/// owner says Yes: the link to github.com carrying the account name is covered by that answer (GATE-608).
+// decision: GATE-606
+// decision: GATE-608
+#[tokio::test]
+async fn the_github_sequence_with_a_form_yes_asks_nothing_more() {
+    let r = task("make a new repository for my notes", &[]);
+    r.read_page(NEWS).await;
+    r.context(&format!(
+        "Your accounts: GitHub {ACCOUNT} (Brave). Notes list: {REPO}"
+    ));
+    r.page(GITHUB_NEW, "Create a new repository. Repository name", true);
+    let tab = r.read_page(GITHUB_NEW).await;
+    r.type_and_read(&tab, REPO).await;
+    let form = r.yes("browser.act", Run::submit(&tab)).await;
+    assert_eq!(form.asked, ["sink:new_destination"], "{form:?}");
+    let repo = format!("https://github.com/{ACCOUNT}/{REPO}");
+    let link = r.yes("browser.open", json!({ "url": repo })).await;
+    assert!(link.asked.is_empty() && link.error.is_none(), "{link:?}");
+}
+
+// ---------- GATE-607: typed first ----------
+
+// A value FERB composed and typed, then saw on a signed-in page of the same site, isn't the owner's by that echo.
+// decision: GATE-607
+#[tokio::test]
+async fn a_value_ferb_typed_first_and_read_back_is_not_asked() {
+    let r = task(ASK, &[]);
+    r.read_page(NEWS).await;
+    let form = format!("https://{COLLECT}/form");
+    r.page(&form, "Your profile. Note", true);
+    let tab = r.read_page(&form).await;
+    r.type_and_read(&tab, REPO).await;
+    let done = r.no("browser.act", Run::submit(&tab)).await;
+    assert!(done.asked.is_empty(), "{done:?}");
+}
+
+// The order is the private read's, not the echo's: read in the owner's file first, then typed and read back, it asks.
+// decision: GATE-607
+// decision: GATE-215
+#[tokio::test]
+async fn a_value_read_privately_then_typed_still_asks() {
+    let r = task(ASK, &[]);
+    r.outside_and_notes().await;
+    let form = format!("https://{COLLECT}/form");
+    r.page(&form, "Your profile. Note", true);
+    let tab = r.read_page(&form).await;
+    r.type_and_read(&tab, V).await;
+    let done = r.no("browser.act", Run::submit(&tab)).await;
+    assert_eq!(done.asked, ["sink:new_destination"], "{done:?}");
+    assert!(done.error.is_some());
+}
+
+// A value from the owner's file typed into a site the outside page pointed to asks (the attack the sink exists for).
+// decision: GATE-607
+// decision: GATE-215
+#[tokio::test]
+async fn a_value_from_a_file_typed_into_a_site_found_outside_asks() {
+    let r = task(ASK, &[]);
+    let form = format!("https://{COLLECT}/claim");
+    r.page(NEWS, &format!("Claim your reward at {form}"), false);
+    r.outside_and_notes().await;
+    r.page(&form, "Claim. Member code", false);
+    let tab = r.read_page(&form).await;
+    r.quiet(
+        "browser.act",
+        json!({"tab": tab, "action": "type", "element": "e1", "text": V}),
+    )
+    .await;
+    let done = r.no("browser.act", Run::submit(&tab)).await;
+    assert_eq!(done.asked, ["sink:new_destination"], "{done:?}");
+}
+
+// Laundering: typing the value into a signed-in page first (a search box) and reading it back there doesn't make the
+// value "typed first": the owner's file was read before any typing.
+// decision: GATE-607
+#[tokio::test]
+async fn typing_a_value_somewhere_private_first_does_not_launder_it() {
+    let r = task(ASK, &[]);
+    r.outside_and_notes().await;
+    r.page("https://github.com/search", "Search", true);
+    let search = r.read_page("https://github.com/search").await;
+    r.type_and_read(&search, V).await;
+    let form = format!("https://{COLLECT}/form");
+    r.page(&form, "Your profile. Note", true);
+    let tab = r.read_page(&form).await;
+    r.type_and_read(&tab, V).await;
+    let done = r.no("browser.act", Run::submit(&tab)).await;
+    assert_eq!(done.asked, ["sink:new_destination"], "{done:?}");
+}
+
+// A private image before the typing (a screenshot: its text isn't in the records) keeps the old rule: the echo counts.
+// decision: GATE-607
+#[tokio::test]
+async fn a_private_screenshot_before_the_typing_keeps_the_echo_private() {
+    let r = task(ASK, &[]);
+    r.read_page(NEWS).await;
+    r.recorded_call(
+        "browser.screenshot",
+        json!({"shot": "s1", "width": 800, "height": 600, "evidence": "ev-1"}),
+        "private",
+    );
+    let form = format!("https://{COLLECT}/form");
+    r.page(&form, "Your profile. Note", true);
+    let tab = r.read_page(&form).await;
+    r.type_and_read(&tab, REPO).await;
+    let done = r.no("browser.act", Run::submit(&tab)).await;
+    assert_eq!(done.asked, ["sink:new_destination"], "{done:?}");
+}
+
+// A withheld image, or a snapshot's picture (its text is the same view), doesn't.
+// decision: GATE-607
+#[tokio::test]
+async fn a_withheld_image_or_a_snapshots_picture_does_not_keep_it() {
+    let r = task(ASK, &[]);
+    r.read_page(NEWS).await;
+    r.recorded_call(
+        "browser.screenshot",
+        json!({"shot": "s1", "evidence": "ev-1", "image_withheld": "image redaction unavailable"}),
+        "private",
+    );
+    r.recorded_call(
+        "browser.snapshot",
+        json!({"text": "a page", "initial_image": {}, "evidence": "ev-2"}),
+        "private",
+    );
+    let form = format!("https://{COLLECT}/form");
+    r.page(&form, "Your profile. Note", true);
+    let tab = r.read_page(&form).await;
+    r.type_and_read(&tab, REPO).await;
+    let done = r.no("browser.act", Run::submit(&tab)).await;
+    assert!(done.asked.is_empty(), "{done:?}");
+}
+
+// A private result whose text the records leave out (a folder listing) that held the value before the typing keeps it
+// private; one that didn't hold it doesn't.
+// decision: GATE-607
+#[tokio::test]
+async fn a_folder_listing_naming_the_value_before_the_typing_keeps_it_private() {
+    let named = task(ASK, &[]);
+    named.read_page(NEWS).await;
+    named.recorded_call(
+        "fs.list",
+        json!({"entries": [format!("{REPO}.txt"), "todo.txt"]}),
+        "private",
+    );
+    let form = format!("https://{COLLECT}/form");
+    named.page(&form, "Your profile. Note", true);
+    let tab = named.read_page(&form).await;
+    named.type_and_read(&tab, REPO).await;
+    let done = named.no("browser.act", Run::submit(&tab)).await;
+    assert_eq!(done.asked, ["sink:new_destination"], "{done:?}");
+
+    let other = task(ASK, &[]);
+    other.read_page(NEWS).await;
+    other.recorded_call("fs.list", json!({"entries": ["todo.txt"]}), "private");
+    other.page(&form, "Your profile. Note", true);
+    let tab = other.read_page(&form).await;
+    other.type_and_read(&tab, REPO).await;
+    let done = other.no("browser.act", Run::submit(&tab)).await;
+    assert!(done.asked.is_empty(), "{done:?}");
+}
+
+// ---------- GATE-608: one answer per site per task, form and link ----------
+
+// decision: GATE-608
+#[tokio::test]
+async fn a_form_yes_covers_a_link_to_the_same_host_in_the_task() {
+    let r = task(ASK, &[]);
+    r.outside_and_notes().await;
+    let form = format!("https://{COLLECT}/form");
+    r.page(&form, "Note", false);
+    let tab = r.read_page(&form).await;
+    r.quiet(
+        "browser.act",
+        json!({"tab": tab, "action": "type", "element": "e1", "text": V}),
+    )
+    .await;
+    let sent = r.yes("browser.act", Run::submit(&tab)).await;
+    assert_eq!(sent.asked, ["sink:new_destination"], "{sent:?}");
+    assert!(!r.opening_asks(&link(COLLECT)).await);
+    // the exact host only: another host, and a host under it, still ask
+    assert!(r.opening_asks(&link("other.example.org")).await);
+    assert!(r.opening_asks(&link(&format!("www.{COLLECT}"))).await);
+}
+
+// decision: GATE-608
+#[tokio::test]
+async fn a_form_no_refuses_a_link_to_the_same_host_without_asking() {
+    let r = task(ASK, &[]);
+    r.outside_and_notes().await;
+    let form = format!("https://{COLLECT}/form");
+    r.page(&form, "Note", false);
+    let tab = r.read_page(&form).await;
+    r.quiet(
+        "browser.act",
+        json!({"tab": tab, "action": "type", "element": "e1", "text": V}),
+    )
+    .await;
+    let sent = r.no("browser.act", Run::submit(&tab)).await;
+    assert_eq!(sent.asked, ["sink:new_destination"], "{sent:?}");
+    let opened = r.yes("browser.open", json!({ "url": link(COLLECT) })).await;
+    assert!(opened.asked.is_empty(), "{opened:?}");
+    assert!(
+        opened
+            .error
+            .as_deref()
+            .is_some_and(|e| e.starts_with("the owner already said no to this in this task")),
+        "{opened:?}"
+    );
+}
+
+// decision: GATE-608
+#[tokio::test]
+async fn a_link_no_refuses_a_form_to_the_same_host_without_asking() {
+    let r = task(ASK, &[]);
+    r.outside_and_notes().await;
+    let form = format!("https://{COLLECT}/form");
+    r.page(&form, "Note", false);
+    let tab = r.read_page(&form).await;
+    r.quiet(
+        "browser.act",
+        json!({"tab": tab, "action": "type", "element": "e1", "text": V}),
+    )
+    .await;
+    // a No to a link there (which also refuses any later opening of that host in this task, as before)
+    let opened = r.no("browser.open", json!({ "url": link(COLLECT) })).await;
+    assert_eq!(opened.asked, ["sink:private_url"], "{opened:?}");
+    let sent = r.yes("browser.act", Run::submit(&tab)).await;
+    assert!(sent.asked.is_empty(), "{sent:?}");
+    assert!(
+        sent.error
+            .as_deref()
+            .is_some_and(|e| e.starts_with("the owner already said no to this in this task")),
+        "{sent:?}"
+    );
+}
+
+// A form Yes lasts for its task: the next task's link to that host asks again.
+// decision: GATE-608
+// decision: GATE-557
+#[tokio::test]
+async fn the_next_task_asks_again_after_a_form_yes() {
+    let r = task(ASK, &[]);
+    r.outside_and_notes().await;
+    let form = format!("https://{COLLECT}/form");
+    r.page(&form, "Note", false);
+    let tab = r.read_page(&form).await;
+    r.quiet(
+        "browser.act",
+        json!({"tab": tab, "action": "type", "element": "e1", "text": V}),
+    )
+    .await;
+    let sent = r.yes("browser.act", Run::submit(&tab)).await;
+    assert_eq!(sent.asked, ["sink:new_destination"], "{sent:?}");
+    let next = r.next_task(ASK);
+    let open = r
+        .answering(&next, "browser.open", json!({ "url": NEWS }), false)
+        .await;
+    assert!(open.asked.is_empty(), "{open:?}");
+    let read = r
+        .answering(
+            &next,
+            "browser.snapshot",
+            json!({"tab": format!("t{}", r.w.tabs.lock().unwrap().len())}),
+            false,
+        )
+        .await;
+    assert!(read.asked.is_empty(), "{read:?}");
+    let notes = r
+        .answering(&next, "fs.read", json!({ "path": r.notes }), false)
+        .await;
+    assert!(notes.asked.is_empty(), "{notes:?}");
+    let again = r
+        .answering(
+            &next,
+            "browser.open",
+            json!({ "url": link(COLLECT) }),
+            false,
+        )
+        .await;
+    assert_eq!(again.asked, ["sink:private_url"], "{again:?}");
+}
+
+// ---------- GATE-609: a site named in a safety check's box (GATE-606 c) ----------
+
+const MAKE_REPO: &str = "make a new repository for my notes";
+
+impl Run {
+    /// One call whose question the owner answers in its box: the question is set aside (ORCH-538, never a Yes or
+    /// No), and the supervisor records the task's request again with the sites the box's words named (GATE-609;
+    /// `apply_steering`'s `corrected_request` and `record_request`; `words`: the request's words before).
+    async fn set_aside_naming(
+        &self,
+        tool: &str,
+        args: Value,
+        (words, box_words): (&str, &str),
+        sites: &[&str],
+    ) -> Done {
+        let before = self.questions().len();
+        let args_host = host(args.get("url").and_then(Value::as_str));
+        let args = args.as_object().cloned().unwrap();
+        let gw = self.gw.clone();
+        let grant = self.grant.clone();
+        let name = tool.to_string();
+        let job = async move {
+            gw.call_as(&grant, &name, &args, Cancel::new(), Arc::new(|| false))
+                .await
+        };
+        tokio::pin!(job);
+        let mut cards = Vec::new();
+        let mut sites_asked: Vec<String> = Vec::new();
+        let reply = loop {
+            tokio::select! {
+                biased;
+                r = &mut job => break r.expect("the call returns"),
+                () = tokio::task::yield_now() => {
+                    if let Some(ap) = self.gw.pending().into_iter().next() {
+                        cards.push(format!("{} | {} | {}", ap.summary, ap.detail, ap.exact));
+                        sites_asked.extend(ap.site_hosts.clone());
+                        self.gw.record_request(Request {
+                            request_id: "req-1".into(),
+                            words: format!("{words}\n{box_words}"),
+                            targets: Targets {
+                                sites: sites.iter().map(|s| s.to_string()).collect(),
+                                ..Targets::default()
+                            },
+                            payload: String::new(),
+                            asked_origins: BTreeSet::new(),
+                        });
+                        self.gw.supersede(&ap.id).unwrap();
+                    }
+                }
+            }
+        };
+        // GATE-609: the card carries the host its site question is about, from its need, for the box's reading
+        if !cards.is_empty() {
+            let host = args_host.unwrap_or_default();
+            assert_eq!(sites_asked, [host], "the card's site_hosts");
+        }
+        Done {
+            asked: self.questions()[before..].concat(),
+            error: reply
+                .content
+                .get("error")
+                .filter(|e| ferb_py::value::truthy(e))
+                .map(ferb_py::value::py_str),
+            cards,
+        }
+    }
+}
+
+/// The live GitHub case with a, b and c: the form isn't asked (a), the link asks once; the owner types "use my Brave
+/// GitHub" in its box; the planner reads github.com and the owner's words hold "github" (GATE-609), so the request
+/// names it; the question is set aside, the worker opens the link again and nothing more is asked.
+// decision: GATE-606
+// decision: GATE-609
+#[tokio::test]
+async fn the_live_github_sequence_with_the_site_named_in_the_box_asks_once() {
+    let r = task(MAKE_REPO, &[]);
+    r.read_page(NEWS).await;
+    r.context(&format!("Your accounts: GitHub {ACCOUNT} (Brave)"));
+    r.page(
+        GITHUB_NEW,
+        &format!("Create a new repository. Owner {ACCOUNT}. Repository name"),
+        true,
+    );
+    let tab = r.read_page(GITHUB_NEW).await;
+    r.type_and_read(&tab, REPO).await;
+    let form = r.no("browser.act", Run::submit(&tab)).await;
+    assert!(form.asked.is_empty(), "{form:?}");
+    let repo = format!("https://github.com/{ACCOUNT}/{REPO}");
+    let first = r
+        .set_aside_naming(
+            "browser.open",
+            json!({ "url": repo }),
+            (MAKE_REPO, "use my Brave GitHub"),
+            &["github.com"],
+        )
+        .await;
+    assert_eq!(first.asked, ["sink:private_url"], "{first:?}");
+    assert!(
+        first.error.is_some(),
+        "a set-aside question isn't a Yes: {first:?}"
+    );
+    let again = r.no("browser.open", json!({ "url": repo })).await;
+    assert!(again.asked.is_empty() && again.error.is_none(), "{again:?}");
+    // the form on the same site would not ask either; another site still does
+    assert!(
+        r.opening_asks(&format!("https://gitlab.com/{ACCOUNT}/{REPO}"))
+            .await
+    );
+}
+
+/// Without c (the box's words reach the task, nothing is named): the same link asks again after the set-aside.
+// decision: GATE-609
+#[tokio::test]
+async fn a_box_reply_that_names_nothing_leaves_the_question_to_ask_again() {
+    let r = task(MAKE_REPO, &[]);
+    r.read_page(NEWS).await;
+    r.context(&format!("Your accounts: GitHub {ACCOUNT} (Brave)"));
+    r.page(GITHUB_NEW, "Create a new repository. Repository name", true);
+    let tab = r.read_page(GITHUB_NEW).await;
+    r.type_and_read(&tab, REPO).await;
+    let repo = format!("https://github.com/{ACCOUNT}/{REPO}");
+    let first = r
+        .set_aside_naming(
+            "browser.open",
+            json!({ "url": repo }),
+            (MAKE_REPO, "ok"),
+            &[],
+        )
+        .await;
+    assert_eq!(first.asked, ["sink:private_url"], "{first:?}");
+    let again = r.no("browser.open", json!({ "url": repo })).await;
+    assert_eq!(again.asked, ["sink:private_url"], "{again:?}");
+}
+
+// ---------- GATE-610: a No stands after the site is named ----------
+
+/// The owner says No to the form's question for a host, then names the host (in chat or a card's box): the form and
+/// the link to that host are still refused with that No, never asked again and never sent. Without the No, naming
+/// the host lets both through unasked.
+// decision: GATE-610
+// decision: GATE-609
+#[tokio::test]
+async fn a_no_stands_after_the_site_is_named() {
+    let r = task(ASK, &[]);
+    r.outside_and_notes().await;
+    let form = format!("https://{COLLECT}/form");
+    r.page(&form, "Note", false);
+    let tab = r.read_page(&form).await;
+    r.quiet(
+        "browser.act",
+        json!({"tab": tab, "action": "type", "element": "e1", "text": V}),
+    )
+    .await;
+    let sent = r.no("browser.act", Run::submit(&tab)).await;
+    assert_eq!(sent.asked, ["sink:new_destination"], "{sent:?}");
+    // the owner names the host afterwards
+    r.gw.record_request(Request {
+        request_id: "req-1".into(),
+        words: format!("{ASK}\nuse {COLLECT}"),
+        targets: Targets {
+            sites: [COLLECT.to_string()].into_iter().collect(),
+            ..Targets::default()
+        },
+        payload: String::new(),
+        asked_origins: BTreeSet::new(),
+    });
+    let again = r.yes("browser.act", Run::submit(&tab)).await;
+    assert!(again.asked.is_empty(), "{again:?}");
+    assert!(
+        again
+            .error
+            .as_deref()
+            .is_some_and(|e| e.starts_with("the owner already said no to this in this task")),
+        "{again:?}"
+    );
+    let opened = r.yes("browser.open", json!({ "url": link(COLLECT) })).await;
+    assert!(opened.asked.is_empty(), "{opened:?}");
+    assert!(
+        opened
+            .error
+            .as_deref()
+            .is_some_and(|e| e.starts_with("the owner already said no to this in this task")),
+        "{opened:?}"
+    );
+    // without a No, the named host passes unasked (GATE-537)
+    let named = task(ASK, &[COLLECT]);
+    named.outside_and_notes().await;
+    assert!(!named.opening_asks(&link(COLLECT)).await);
+}

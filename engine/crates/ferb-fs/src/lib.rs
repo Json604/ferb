@@ -22,6 +22,7 @@ pub mod files;
 pub mod hooks;
 pub mod identity;
 pub mod look;
+pub mod protected;
 pub mod pypath;
 pub mod recovery;
 pub mod sys;

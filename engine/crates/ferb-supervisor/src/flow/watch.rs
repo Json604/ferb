@@ -69,6 +69,13 @@ impl ferb_gateway::seams::Observer for Watch {
         }
     }
 
+    /// HAND-581: the owner's answer to the task's own question; profiles it names join the task's.
+    fn owner_answered(&self, grant: &RunGrant, question: &str, options: &[String], answer: &str) {
+        if let Some(sup) = self.sup.upgrade() {
+            sup.owner_answered_task(&grant.task_id, question, options, answer);
+        }
+    }
+
     /// `waiting`: an owner wait pauses the stall timer.
     fn waiting(&self, worker: &str, on: bool) {
         if let Some(sup) = self.sup.upgrade() {

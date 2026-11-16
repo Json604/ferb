@@ -688,6 +688,35 @@ pub fn destination_key(host: &str) -> String {
     key(&[s(SINK_DESTINATION), s(host)])
 }
 
+/// The form sink's key for a site (GATE-215, GATE-557): one answer per site per task.
+pub const SINK_SENT: &str = "sink:new_destination";
+
+/// The form sink's key for `host` (`[SINK_SENT, host]`).
+pub fn sent_key(host: &str) -> String {
+    key(&[s(SINK_SENT), s(host)])
+}
+
+/// GATE-608: the other key of a site's one answer in a task. Sending the owner's data to an exact host in a form (an
+/// upload, a fill, a submit: `sent_key`) and opening a link that carries it there (`destination_key`) are one
+/// question per host per task: an answer recorded under either key answers the other, Yes or No. Only those two
+/// rules, only the same host string; any other key has none.
+pub fn site_partner(key_text: &str) -> Option<String> {
+    let Ok(Value::Array(parts)) = serde_json::from_str::<Value>(key_text) else {
+        return None;
+    };
+    let [Value::String(rule), Value::String(host)] = parts.as_slice() else {
+        return None;
+    };
+    if host.is_empty() {
+        return None;
+    }
+    match rule.as_str() {
+        SINK_SENT => Some(destination_key(host)),
+        SINK_DESTINATION => Some(sent_key(host)),
+        _ => None,
+    }
+}
+
 /// `_FINE.split(text)`: pieces between runs of whitespace and the punctuation framing a value (empty ones kept).
 pub fn fine_split(text: &str) -> Vec<&str> {
     let sep = |c: char| py::is_space(c) || "=:\"',;/&?#@<>()[]{}|~`!*+".contains(c);
@@ -2162,6 +2191,7 @@ pub fn url_private_values(
         owner,
         &known_to_site,
         cover.as_ref(),
+        &Written::default(),
     );
     if hits.is_empty() {
         return hits;
@@ -2269,6 +2299,20 @@ pub fn text_private_values(
     outside: &Records,
     owner: &Text,
 ) -> Vec<PrivateValue> {
+    text_private_values_written(text, private, outside, owner, &Written::default())
+}
+
+/// GATE-607: `text_private_values` with what FERB itself wrote in this task tree: a value FERB wrote (typed, filled,
+/// put in any call's arguments) before any private record held it is not the owner's private data by that record (a
+/// page showing back what FERB typed), unless a private read before that writing could have held it without the sink
+/// seeing its text (`Written::blind`).
+pub fn text_private_values_written(
+    text: &str,
+    private: &Records,
+    outside: &Records,
+    owner: &Text,
+    written: &Written<'_>,
+) -> Vec<PrivateValue> {
     if private.is_empty() || py::strip(text).is_empty() {
         return Vec::new();
     }
@@ -2279,7 +2323,47 @@ pub fn text_private_values(
             .filter(|t| !t.is_empty())
             .map(str::to_string),
     );
-    private_hits(&pieces, private, outside, owner, &HashSet::new(), None)
+    private_hits(
+        &pieces,
+        private,
+        outside,
+        owner,
+        &HashSet::new(),
+        None,
+        written,
+    )
+}
+
+/// GATE-607: what FERB wrote in this task tree, for the form sink's order of writing and reading.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Written<'a> {
+    /// Each tool call's arguments in this task tree (every string in them as one text) with its span order
+    /// (`SpanStore::call_arguments`): what FERB typed, filled or otherwise wrote.
+    pub args: &'a [(i64, Text)],
+    /// This tree's private reads the sink's records hold no text of, with their span order: an image given to the model
+    /// without a text of the same view (`None`), or a result whose text the records leave out (`Some`, that text).
+    pub blind: &'a [(i64, Option<Text>)],
+}
+
+impl Written<'_> {
+    /// Whether `value` (a token, a grouped value or a phrase the sink matched) was written by FERB at or before
+    /// `first_private`, the span order of the first private record holding it, and no private read before that writing
+    /// could have held it out of the sink's sight. The arguments' spellings are the link rule's (`arg_holds`, GATE-590).
+    fn first(&self, value: &str, first_private: i64) -> bool {
+        let Some(at) = self
+            .args
+            .iter()
+            .filter(|(o, t)| *o <= first_private && arg_holds(t, value))
+            .map(|(o, _)| *o)
+            .min()
+        else {
+            return false;
+        };
+        !self
+            .blind
+            .iter()
+            .any(|(o, t)| *o < at && t.as_ref().is_none_or(|t| arg_holds(t, value)))
+    }
 }
 
 fn private_hits(
@@ -2289,6 +2373,7 @@ fn private_hits(
     owner: &Text,
     known_to_site: &HashSet<String>,
     cover: Option<&SameHost<'_>>,
+    written: &Written<'_>,
 ) -> Vec<PrivateValue> {
     let mut first_private: HashMap<String, i64> = HashMap::new();
     for (order, t) in private {
@@ -2318,6 +2403,7 @@ fn private_hits(
                         .any(|(o, ts)| *o < fp && ts.contains(*m))
                     && !is_year(m)
                     && !cover.is_some_and(|c| c.covers_token(m))
+                    && !written.first(m, fp)
             })
             .cloned()
             .collect();
@@ -2350,6 +2436,7 @@ fn private_hits(
                     && !outside
                         .iter()
                         .any(|(o, t)| *o < min && in_runs(runs(t), &groups, &forms))
+                    && !written.first(&value, min)
                 {
                     first_private.insert(py::lower(&value), min);
                     matched = vec![py::lower(&value)];
@@ -2372,6 +2459,7 @@ fn private_hits(
                     && !outside
                         .iter()
                         .any(|(o, t)| *o < min && phrase(&value, t, &none))
+                    && !written.first(&value, min)
                 {
                     first_private.insert(py::lower(&value), min);
                     matched = vec![py::lower(&value)];
@@ -2450,6 +2538,7 @@ fn private_hits(
                     && !outside
                         .iter()
                         .any(|(o, x)| o < order && in_runs(runs(x), &pair_v, &[]))
+                    && !written.first(&k, *order)
                 {
                     hits.push(PrivateValue {
                         piece: k.clone(),

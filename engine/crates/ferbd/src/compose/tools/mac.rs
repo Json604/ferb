@@ -947,6 +947,57 @@ pub struct MacTool {
     pub name: &'static str,
     pub tools: Arc<MacTools>,
     pub native: bool,
+    /// HAND-582, HAND-583: the browser area, for a web page a paired profile's browser tools can take.
+    pub parts: Option<super::WeakParts>,
+}
+
+/// HAND-582, HAND-583: the fact that refuses a Mac call on a web page a paired, connected profile's browser tools can
+/// take (before any question, nothing done): what the page is and the route the worker should use instead.
+pub fn web_route_fact(
+    target: &ferb_mac_hands::tools::WebTarget,
+    route: &ferb_daemon::areas_b::browsers::PageRoute,
+) -> Map<String, Value> {
+    let named = |(b, f, label): &(String, String, String)| format!("{label} ({b}/{f})");
+    let profiles: Vec<String> = route.profiles.iter().map(named).collect();
+    let ask = "If this task isn't allowed that profile, the refusal of browser.open says so: then ask the owner with \
+               owner.ask (naming the profile, options Yes and No) whether the task should use it. Nothing was done \
+               and the owner wasn't asked";
+    let detail = if target.opens {
+        format!(
+            "Open web pages with browser.open, not mac.open: it opens the page in a paired profile ({}) in the \
+             background, while mac.open would bring the browser to the front. {ask}.",
+            profiles.join(", ")
+        )
+    } else {
+        let tab = route
+            .tab_ref
+            .as_deref()
+            .map(|t| format!(": browser.use_tab tab_ref={t} takes this tab, then browser.snapshot and browser.act"))
+            .unwrap_or_default();
+        format!(
+            "This is a web page in {}, where FERB's extension is connected, so it belongs to the browser tools, \
+             which work in the background with the window minimized{tab}. The Mac tools would need the browser's \
+             window in front. {ask}.",
+            profiles.join(", ")
+        )
+    };
+    let mut out = Map::new();
+    out.insert("code".into(), json!("use_browser_tools"));
+    out.insert(
+        "profiles".into(),
+        json!(route
+            .profiles
+            .iter()
+            .map(|(b, f, _)| format!("{b}/{f}"))
+            .collect::<Vec<_>>()),
+    );
+    if let Some(t) = &route.tab_ref {
+        out.insert("tab_ref".into(), json!(t));
+    }
+    out.insert("performed".into(), json!(false));
+    out.insert("asked_owner".into(), json!(false));
+    out.insert("detail".into(), json!(detail));
+    out
 }
 
 fn v(a: &Args) -> Value {
@@ -965,6 +1016,22 @@ impl Tool for MacTool {
     }
     fn unavailable<'a>(&'a self, args: &'a Args) -> BoxFuture<'a, Option<Map<String, Value>>> {
         Box::pin(async move {
+            if matches!(
+                self.name,
+                "mac.act" | "mac.click" | "mac.pointer" | "mac.open"
+            ) {
+                // HAND-582, HAND-583: a web page a paired, connected profile's browser tools can take
+                let target = self.tools.web_target(self.name, &v(args)).await?;
+                let area = self
+                    .parts
+                    .as_ref()?
+                    .upgrade()
+                    .and_then(|p| p.browsers().and_then(|b| b.area()))?;
+                let route = area
+                    .page_route(&target.browser, &target.url, target.opens)
+                    .await?;
+                return Some(web_route_fact(&target, &route));
+            }
             if self.name != "mac.applescript" {
                 return None;
             }
@@ -973,6 +1040,9 @@ impl Tool for MacTool {
                 .await
                 .map(crate::basics::object)
         })
+    }
+    fn window_reason<'a>(&'a self, args: &'a Args) -> BoxFuture<'a, Option<String>> {
+        Box::pin(async move { self.tools.window_reason(self.name, &v(args)).await })
     }
     fn locks(&self, args: &Args) -> Vec<String> {
         self.tools.locks(self.name, &v(args))
@@ -1295,6 +1365,7 @@ pub fn mac_tools(p: &Parts) -> Vec<Arc<dyn Tool>> {
                 name,
                 tools: m.tools.clone(),
                 native: m.images.native,
+                parts: Some(p.downgrade()),
             }) as Arc<dyn Tool>
         })
         .collect()

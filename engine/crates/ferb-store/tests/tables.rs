@@ -937,13 +937,14 @@ fn a_home_is_checked_and_set_aside_as_python_does() {
     }
 }
 
-/// Python's words with the one stage-2 difference: this build knows migration 0063 where
-/// Python's knew up to 0062, so "a newer FERB" names the newer number (decision: ENG-11).
+/// Python's words with the one stage-2 difference: this build knows migrations 0063 and 0064 where
+/// Python's knew up to 0062, so "a newer FERB" names the newer number (decision: ENG-11, ORCH-651).
 fn stage_2(want: &Value) -> Value {
     let text = serde_json::to_string(want).unwrap();
     let known = |v: i64| format!("this FERB knows up to {v})");
-    let version = chat_entries::SCHEMA_VERSION;
-    serde_json::from_str(&text.replace(&known(version - 1), &known(version))).unwrap()
+    // and migration 0064 (ORCH-651) after it: the newest this build knows
+    let python = chat_entries::SCHEMA_VERSION - 1;
+    serde_json::from_str(&text.replace(&known(python), &known(ferb_store::known_schema()))).unwrap()
 }
 
 fn unbase64(text: &str) -> Vec<u8> {

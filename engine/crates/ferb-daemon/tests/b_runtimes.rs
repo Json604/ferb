@@ -91,7 +91,8 @@ impl RunControl for Control {
     }
 }
 
-struct Scripted(W);
+/// The scripted runtime, and whether its schema has ORCH-652's gaps (a worker report's or a check's).
+struct Scripted(W, bool);
 
 impl Adapter for Scripted {
     fn name(&self) -> &str {
@@ -125,6 +126,7 @@ impl Adapter for Scripted {
                 return Err(exc(spec));
             }
             let body = w.clone();
+            let gaps = self.1;
             let events = EventStream::spawn(move |mut y| async move {
                 for t in entry
                     .get("tools")
@@ -149,7 +151,10 @@ impl Adapter for Scripted {
                     .unwrap_or_default()
                 {
                     let kind: RuntimeEventKind = serde_json::from_value(e[0].clone()).unwrap();
-                    let data = e[1].as_object().cloned().unwrap_or_default();
+                    let mut data = e[1].as_object().cloned().unwrap_or_default();
+                    if gaps {
+                        gaps_answered(&mut data);
+                    }
                     if y.emit(RuntimeEvent { kind, data }).await.is_err() {
                         return Ok(());
                     }
@@ -176,7 +181,9 @@ impl Adapter for Scripted {
 impl Factory for W {
     fn build(&self, b: &Build) -> Result<Built, RuntimeError> {
         let mut entry = json!({"name": b.name, "role": b.role, "mode": b.mode, "tools": b.tool_names,
-            "schema_sha256": sha(ferb_py::json::dumps(&b.schema).as_bytes()), "model": b.model, "effort": b.effort,
+            // ORCH-652's gaps and HAND-580's task profiles (not Python's) taken out: the named changes
+            "schema_sha256": sha(ferb_py::json::dumps(&ferb_context::schemas::as_recorded(&b.schema)).as_bytes()),
+            "model": b.model, "effort": b.effort,
             "planner": b.planner, "limit_s": b.limit_s});
         if b.name == "codex" {
             entry["cache_role"] = json!(b.cache_role);
@@ -184,7 +191,10 @@ impl Factory for W {
         }
         self.0.log(json!(["build", entry]));
         Ok(Built {
-            adapter: Arc::new(Scripted(self.clone())),
+            adapter: Arc::new(Scripted(
+                self.clone(),
+                ferb_context::schemas::before_gaps(&b.schema) != b.schema,
+            )),
             retried: Arc::new(Vec::new),
         })
     }
@@ -497,15 +507,15 @@ fn stream_raise_fix(request: &str, expected: &str) -> Option<String> {
     ))
 }
 
-/// Named difference from Python (DMN-595): the check's planner call offers the planner's lookups as the supervisor
-/// does, `about.diagnostics` (a Rust addition) with Python's six, sorted. The recorded planner builds and their run
+/// Named difference from Python (DMN-595, ORCH-663): the check's planner call offers the planner's lookups as the
+/// supervisor does, `about.diagnostics` and `task.trace` (Rust additions) with Python's six, sorted. The recorded planner builds and their run
 /// tokens are compared with it added; returns how many lists it named.
 fn planner_lookups_added(log: &mut Value) -> usize {
     let python: Vec<&str> = {
         let mut six: Vec<&str> = ferb_orchestrator::lookups::PLANNER_TOOLS
             .iter()
             .copied()
-            .filter(|t| *t != "about.diagnostics")
+            .filter(|t| *t != "about.diagnostics" && *t != "task.trace")
             .collect();
         six.sort();
         six
@@ -517,6 +527,30 @@ fn planner_lookups_added(log: &mut Value) -> usize {
         let planner = (e[0] == "build" && e[1]["mode"] == "supervisor") || e[0] == "token.issue";
         if planner && e[1]["tools"] == json!(python) {
             e[1]["tools"] = json!(rust);
+            n += 1;
+        }
+    }
+    n
+}
+
+/// Named difference from Python (RUN-466, owner 2026-11-16): a Codex check resumes the checker's fixed thread for its
+/// cache key (`cache_role` "checker", `[runtimes] codex_checker_cache` on by default), where Python's checker ran
+/// an ephemeral thread (`cache_role` null). Returns how many recorded builds it named.
+fn checker_cache_added(log: &mut Value) -> usize {
+    let mut n = 0;
+    for e in log.as_array_mut().unwrap() {
+        let is_build = e[0] == "build";
+        let Some(b) = e.get_mut(1) else { continue };
+        let checker = b["role"]
+            .as_str()
+            .is_some_and(|r| r.split(':').next() == Some("checker"));
+        if is_build
+            && b["name"] == "codex"
+            && b["mode"] == "worker"
+            && checker
+            && b["cache_role"].is_null()
+        {
+            b["cache_role"] = json!("checker");
             n += 1;
         }
     }
@@ -666,6 +700,12 @@ async fn play(name: &str) -> (usize, usize, usize) {
     let rust_log = renumber(&st.world.0.log.lock().unwrap());
     let mut python_log = expand(&sc["log"]);
     let lookups = planner_lookups_added(&mut python_log);
+    let checker_cache = checker_cache_added(&mut python_log);
+    assert_eq!(
+        checker_cache,
+        usize::from(name == "checks"),
+        "{name}: the Codex checker builds named (the runtime check's one checker call)"
+    );
     diff(
         &format!("{name} log"),
         &python_log,
@@ -734,7 +774,7 @@ async fn keys() {
     eprintln!("keys: {same} lines");
 }
 
-// decision: DMN-595, ORCH-641
+// decision: DMN-595, ORCH-641, RUN-466, ORCH-652
 #[tokio::test(flavor = "multi_thread")]
 async fn checks() {
     let (same, named, lookups) = play("checks").await;
@@ -796,4 +836,99 @@ async fn signed_out_transcripts() {
         total += n;
     }
     eprintln!("signed-out transcripts: {total} lines");
+}
+
+/// Per role: the cache role built, and whether the planner's developer-role refusal came with it.
+type Roles = Vec<(String, Option<String>, bool)>;
+
+/// What the daemon builds for each role on Codex, with and without `[runtimes] codex_checker_cache`.
+fn cache_roles(config: &str) -> (Runtimes, Setup, Roles) {
+    let st = setup(config, None, false);
+    let auth = st.home.path().join("codex-home/auth.json");
+    std::fs::create_dir_all(auth.parent().unwrap()).unwrap();
+    std::fs::write(&auth, "{\"tokens\":{}}").unwrap();
+    let rt = Runtimes::new(st.home.host.clone(), st.deps.clone());
+    let planner = ferb_context::schemas::supervisor_schema();
+    let mut out = vec![];
+    for (role, mode, schema) in [
+        ("orchestrator", "supervisor", planner.clone()),
+        ("orchestrator", "supervisor", json!({"type": "object"})),
+        ("checker", "worker", json!({"type": "object"})),
+        ("checker:codex", "worker", json!({"type": "object"})),
+        ("worker:default", "worker", json!({"type": "object"})),
+        ("worker:codex", "worker", json!({"type": "object"})),
+    ] {
+        let (b, _) = rt
+            .build_runtime("codex", role, mode, &[], &schema, None, "", "")
+            .unwrap_or_else(|e| panic!("{role}: {e}"));
+        let refusal = b.cache_hooks.as_ref().is_some_and(|h| h.refusal.is_some());
+        assert_eq!(b.cache_hooks.is_some(), b.cache_role.is_some(), "{role}");
+        out.push((role.to_string(), b.cache_role, refusal));
+    }
+    (rt, st, out)
+}
+
+// decision: RUN-401, RUN-416, RUN-466, RUN-467
+#[tokio::test(flavor = "multi_thread")]
+async fn codex_cache_roles_and_their_journal_lines() {
+    let (rt, st, roles) = cache_roles("");
+    let r = |s: &str| Some(s.to_string());
+    assert_eq!(
+        roles,
+        vec![
+            ("orchestrator".into(), r("planner"), true),
+            ("orchestrator".into(), None, false), // a one-turn call that isn't the planner's chat turn
+            ("checker".into(), r("checker"), false),
+            ("checker:codex".into(), r("checker"), false), // the owner's one-tap switch (ORCH-315)
+            ("worker:default".into(), None, false),        // workers keep their own thread
+            ("worker:codex".into(), None, false),
+        ]
+    );
+    // the hooks the factory hands Codex: a fallback journaled by role, a skipped planner turn as before
+    let checker = rt.cache_hooks("checker");
+    (checker.fallback)(
+        "task-1.verify",
+        "Codex could not complete thread/resume: no rollout",
+    );
+    let planner = rt.cache_hooks("planner");
+    (planner.fallback)(
+        "req-1",
+        "the planner template could not be written (OSError)",
+    );
+    (planner.skipped)("req-1", "a scheduled run's turn");
+    assert_eq!(
+        st.home.journal_rows(),
+        vec![
+            json!(["runtime.cache_fallback", {"runtime": "codex", "role": "checker", "task_id": "task-1.verify",
+                "why": "Codex could not complete thread/resume: no rollout"}, "ferb"]),
+            json!(["runtime.cache_fallback", {"runtime": "codex", "role": "planner", "request_id": "req-1",
+                "why": "the planner template could not be written (OSError)"}, "ferb"]),
+            json!(["runtime.cache_skipped", {"runtime": "codex", "role": "planner", "request_id": "req-1",
+                "why": "a scheduled run's turn"}, "ferb"]),
+        ]
+    );
+    // each switch turns off only its own role
+    let (_, _, off) = cache_roles("[runtimes]\ncodex_checker_cache = false\n");
+    assert_eq!(off[0].1, r("planner"));
+    assert_eq!(off[2].1, None);
+    let (_, _, off) = cache_roles("[runtimes]\ncodex_planner_cache = false\n");
+    assert_eq!(off[0].1, None);
+    assert_eq!(off[2].1, r("checker"));
+}
+
+/// ORCH-652's named difference: a report or check recorded against Python's schema, answered as a model given today's
+/// (whose `gaps` is required) answers it: with `"gaps": []`.
+// decision: ORCH-652
+fn gaps_answered(data: &mut Map<String, Value>) {
+    for v in data.values_mut() {
+        let Some(text) = v.as_str() else { continue };
+        let Ok(Value::Object(mut report)) = serde_json::from_str::<Value>(text) else {
+            continue;
+        };
+        let answers = report.contains_key("how") || report.contains_key("next");
+        if answers && !report.contains_key("gaps") {
+            report.insert("gaps".into(), json!([]));
+            *v = Value::String(ferb_py::json::dumps(&Value::Object(report)));
+        }
+    }
 }

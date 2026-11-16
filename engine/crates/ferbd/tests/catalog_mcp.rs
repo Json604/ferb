@@ -33,8 +33,20 @@ fn python_s(listing: &Value, grant_tools: &Value, label: &str) -> Value {
         Some(t) if !t.is_empty() => t.iter().any(|x| x == n),
         _ => true,
     };
+    // ORCH-663: one offered only by name (task.trace) is listed only where the grant names it
+    let names_it = |n: &str| {
+        grant_tools
+            .as_array()
+            .is_some_and(|t| t.iter().any(|x| x == n))
+    };
     for a in ferb_gateway::catalog::additions() {
-        let want = names.contains(&a.after.as_str()) && named(&a.name);
+        let only_named = a.row["facts"]["named_only"].as_bool().unwrap_or(false);
+        let want = names.contains(&a.after.as_str())
+            && if only_named {
+                names_it(&a.name)
+            } else {
+                named(&a.name)
+            };
         match names.iter().position(|n| *n == a.name) {
             Some(i) => {
                 assert!(want, "{label}: {} listed", a.name);

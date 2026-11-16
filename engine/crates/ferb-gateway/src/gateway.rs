@@ -1892,6 +1892,9 @@ impl Gateway {
         let home = self.d.roots.home.clone();
         PathCheck(Arc::new(move |path: &std::path::Path, access: &str| {
             let p = path.to_string_lossy();
+            if access == ferb_fs::protected::WITHIN {
+                return within_answer(&protection.0, &p, &lifted);
+            }
             let rules = protection.0.fs_rules(&p, access);
             if rules.is_empty() {
                 return None;
@@ -1911,6 +1914,38 @@ impl Gateway {
             Some(closed_text(&protection.0, &name, &p, &rules, &home))
         }))
     }
+}
+
+/// The answer to ferb-fs's `within` query (HAND-597): the never-read folders that are `path`, lie inside it or hold
+/// it, minus those this task may read, as a JSON array of {rule, why}; None when there are none. A fact for the
+/// result, never a refusal.
+fn within_answer(
+    protection: &Protection<'_>,
+    path: &str,
+    lifted: &BTreeSet<(String, String)>,
+) -> Option<String> {
+    let found: Vec<Value> = protection
+        .reads_within(path)
+        .into_iter()
+        .filter(|r| !lifted.contains(&(r.clone(), "read".to_string())))
+        // a listed folder that isn't on this Mac hid nothing; another app's container is never looked at, so counts
+        .filter(|r| {
+            protection.entry(r).is_some_and(|e| {
+                e.app_data
+                    || [&e.path, &e.typed]
+                        .iter()
+                        .any(|p| std::fs::symlink_metadata(p).is_ok())
+            })
+        })
+        .map(|r| {
+            let shown = protection
+                .entry(&r)
+                .map(|e| e.shown.clone())
+                .unwrap_or_else(|| r.trim_start_matches("read:").to_string());
+            json!({"rule": r, "why": ferb_policy::protection::never_read_why(&shown)})
+        })
+        .collect();
+    (!found.is_empty()).then(|| Value::Array(found).to_string())
 }
 
 fn closed_text(
@@ -2011,7 +2046,13 @@ impl Gateway {
                 Err(refused) => return Ok(Err(self.refuse_call(c, refused, None)?)),
             }
         }
-        if let Some(f) = foreground {
+        if let Some(mut f) = foreground {
+            // HAND-586: a browser's card says why it needs the window, when the tool knows
+            if !f.values.has("script") {
+                if let Some(why) = c.cancel.guard(c.tool.window_reason(&c.args)).await? {
+                    f.values.set("window", &why);
+                }
+            }
             needs.push(f);
             if let Some(page) = c.cancel.guard(c.tool.browser_page(&c.args)).await? {
                 let app = c
@@ -2085,6 +2126,23 @@ impl Gateway {
         Ok(self.spans(|s| s.owner_answers(root))?)
     }
 
+    /// GATE-610: a host the sink checks pass unasked (approved for good, or named for this task, GATE-537), unless
+    /// the owner said No to sending to it or opening it in this task tree (either site key, GATE-608's partners; a No
+    /// reopened by the owner aside). Typed words never undo a No: naming the site after it (in chat or a card's box)
+    /// leaves the question to be asked, and `authorize_held` refuses it with that No.
+    fn site_cleared(&self, host: &str, root: &str) -> R<bool> {
+        let reopened = self.reopened(root)?;
+        for key in [confirm::sent_key(host), confirm::destination_key(host)] {
+            if self
+                .find(root, &key, &reopened)?
+                .is_some_and(|r| !r.granted)
+            {
+                return Ok(false);
+            }
+        }
+        Ok(self.destinations(|d| d.approved("host", host))? || self.host_named(host, root)?)
+    }
+
     /// `_host_named(host, root)` (M4, GATE-537).
     fn host_named(&self, host_norm: &str, root: &str) -> R<bool> {
         let rec = self.task(root);
@@ -2100,12 +2158,7 @@ impl Gateway {
                     .sites
                     .iter()
                     .filter(|h| !ferb_py::value::strip(h).is_empty())
-                    .map(|h| {
-                        let after = h.rsplit("://").next().unwrap_or(h);
-                        let host = after.split('/').next().unwrap_or(after);
-                        let n = dest::normalize("host", host);
-                        n.strip_prefix("www.").map(str::to_string).unwrap_or(n)
-                    })
+                    .map(|h| dest::site_host(h))
                     .collect()
             })
             .unwrap_or_default();
@@ -2367,18 +2420,10 @@ impl Gateway {
     /// arguments (B2) and the owner's files (single-author records, C2). Call after `sink_texts`.
     #[allow(clippy::type_complexity)]
     fn link_facts(&self, root: &str) -> R<(Vec<(i64, Text)>, Vec<(i64, Text)>, Vec<i64>)> {
-        let floor = lock(&self.inner)
-            .outside
-            .get(root)
-            .map_or(0, |k| k.args_floor);
-        let new_args = self.spans(|s| s.call_arguments(root, floor))?;
-        let (records, tools, convo, args) = {
+        let args = self.written_args(root)?;
+        let (records, tools, convo) = {
             let mut i = lock(&self.inner);
             let known = i.outside.entry(root.to_string()).or_default();
-            for (rowid, text) in new_args {
-                known.args_floor = known.args_floor.max(rowid);
-                known.args.push((rowid, provenance::prepare(&text)));
-            }
             let mut records: Vec<(i64, Text)> = known
                 .payloads
                 .iter()
@@ -2387,12 +2432,7 @@ impl Gateway {
             for (_, j) in &known.joined_files {
                 records.extend(j.iter().map(|(r, _, t)| (*r, t.clone())));
             }
-            (
-                records,
-                known.tools.clone(),
-                known.convo_links.clone(),
-                known.args.clone(),
-            )
+            (records, known.tools.clone(), known.convo_links.clone())
         };
         let mut sources: Vec<(i64, Text)> = Vec::new();
         let mut single: Vec<i64> = Vec::new();
@@ -2417,6 +2457,77 @@ impl Gateway {
         }
         sources.sort_by_key(|(r, _)| *r);
         Ok((sources, args, single))
+    }
+
+    /// GATE-590 B2, GATE-607: each tool call's arguments in this task tree, prepared, with its span order (read once
+    /// per call, kept per tree).
+    fn written_args(&self, root: &str) -> R<Vec<(i64, Text)>> {
+        let floor = lock(&self.inner)
+            .outside
+            .get(root)
+            .map_or(0, |k| k.args_floor);
+        let new_args = self.spans(|s| s.call_arguments(root, floor))?;
+        let mut i = lock(&self.inner);
+        let known = i.outside.entry(root.to_string()).or_default();
+        for (rowid, text) in new_args {
+            known.args_floor = known.args_floor.max(rowid);
+            known.args.push((rowid, provenance::prepare(&text)));
+        }
+        Ok(known.args.clone())
+    }
+
+    /// GATE-607: this tree's private reads whose content the sink's records don't hold as text, before span order
+    /// `before`: a result that gave the model an image (kept as evidence, not withheld) from a call other than a
+    /// snapshot (a snapshot's own text is the same view), as `None`; a result the records keep no text of
+    /// (`SpanStore::payload_outputs`' calls that return no content: a folder listing, an opened page), as its text.
+    fn blind_reads(&self, root: &str) -> R<Vec<(i64, Option<Text>)>> {
+        /// `payload_outputs`' calls whose output the records leave out (ferb-store `spans.rs`).
+        const NO_CONTENT: [&str; 12] = [
+            "fs.list",
+            "fs.write",
+            "fs.patch",
+            "fs.mkdir",
+            "fs.trash",
+            "fs.delete",
+            "browser.open",
+            "browser.navigate",
+            "browser.close",
+            "ferb_browser.open",
+            "ferb_browser.navigate",
+            "ferb_browser.close",
+        ];
+        let (w, p) = tree_where(root);
+        let rows: Vec<(i64, Option<String>, String, String)> = {
+            let db = lock(&self.d.db);
+            let mut st = db.conn().prepare(&format!(
+                "SELECT rowid, origin, input_json, output_json FROM spans WHERE kind = 'tool.call' AND {w} \
+                 AND output_json IS NOT NULL ORDER BY rowid"
+            ))?;
+            let rows = st
+                .query_map(rusqlite::params_from_iter(p.iter()), |r| {
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+                })?
+                .collect::<Result<_, _>>()?;
+            rows
+        };
+        let mut out = Vec::new();
+        for (rowid, labels, input, output) in rows {
+            if !origin::split(labels.as_deref()).contains(origin::PRIVATE) {
+                continue;
+            }
+            let input: Value = serde_json::from_str(&input).unwrap_or(Value::Null);
+            let output: Value = serde_json::from_str(&output).unwrap_or(Value::Null);
+            let tool = input.get("tool").and_then(Value::as_str).unwrap_or("");
+            let has = |k: &str| output.get(k).is_some_and(ferb_py::value::truthy);
+            if has("evidence") && !has("image_withheld") && !tool.ends_with(".snapshot") {
+                out.push((rowid, None));
+            } else if NO_CONTENT.contains(&tool) {
+                let mut parts: Vec<String> = Vec::new();
+                all_strings(&output, &mut parts);
+                out.push((rowid, Some(provenance::prepare(&parts.join("\n")))));
+            }
+        }
+        Ok(out)
     }
 
     /// A file FERB wrote (GATE-589): in FERB's workspace, or made or changed by this task tree (its change records).
@@ -2578,7 +2689,7 @@ impl Gateway {
         if outside_labels.is_empty() {
             return Ok(None);
         }
-        if self.destinations(|d| d.approved("host", &host))? || self.host_named(&host, &root)? {
+        if self.site_cleared(&host, &root)? {
             return Ok(None);
         }
         let (private, outside_only, sites) = self.sink_texts(&root)?;
@@ -2695,7 +2806,7 @@ impl Gateway {
             return Ok(None);
         }
         let root = c.root();
-        if self.destinations(|d| d.approved("host", &host))? || self.host_named(&host, &root)? {
+        if self.site_cleared(&host, &root)? {
             return Ok(None);
         }
         let mut typed = self.spans(|s| s.typed_in_tab(&c.grant.task_id, &tab))?;
@@ -2722,8 +2833,23 @@ impl Gateway {
         }
         let (private, outside_only, _) = self.sink_texts(&root)?;
         let owner_text = self.sink_owner_text(&c.rec, &root)?;
-        let mut values =
-            confirm::text_private_values(&typed.join("\n"), &private, &outside_only, &owner_text);
+        let typed = typed.join("\n");
+        let mut values = confirm::text_private_values(&typed, &private, &outside_only, &owner_text);
+        if !values.is_empty() {
+            // GATE-607: a value FERB wrote before any private record held it isn't the owner's by a page showing it back
+            let args = self.written_args(&root)?;
+            let blind = self.blind_reads(&root)?;
+            values = confirm::text_private_values_written(
+                &typed,
+                &private,
+                &outside_only,
+                &owner_text,
+                &confirm::Written {
+                    args: &args,
+                    blind: &blind,
+                },
+            );
+        }
         if !values.is_empty() {
             let own = (self.d.owner_contacts)();
             values.retain(|v| !confirm::own_contact(&v.piece, &own));
@@ -2818,7 +2944,7 @@ impl Gateway {
             return Ok(None);
         }
         let root = c.root();
-        if self.destinations(|d| d.approved("host", &host))? || self.host_named(&host, &root)? {
+        if self.site_cleared(&host, &root)? {
             return Ok(None);
         }
         let visited = self.visited_outside(&root)?;
@@ -2848,10 +2974,7 @@ impl Gateway {
         if host.is_empty() {
             return Ok(false);
         }
-        if self.outside_read(root)?.is_empty()
-            || self.destinations(|d| d.approved("host", &host))?
-            || self.host_named(&host, root)?
-        {
+        if self.outside_read(root)?.is_empty() || self.site_cleared(&host, root)? {
             return Ok(true);
         }
         let key = confirm::key(&[json!("sink:new_destination"), json!(host)]);
@@ -2916,7 +3039,7 @@ impl Gateway {
         }
         let mut needs = Vec::new();
         for (host, given, base) in sends {
-            if self.destinations(|d| d.approved("host", &host))? || self.host_named(&host, &root)? {
+            if self.site_cleared(&host, &root)? {
                 continue;
             }
             if c.spec.kind == Kind::RUN_SHELL {
@@ -3201,6 +3324,16 @@ fn arg_sources_back(v: Option<&Value>) -> ArgSources {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// Every string in a JSON value, in order (GATE-607's blind reads).
+fn all_strings(v: &Value, out: &mut Vec<String>) {
+    match v {
+        Value::String(t) => out.push(t.clone()),
+        Value::Array(a) => a.iter().for_each(|x| all_strings(x, out)),
+        Value::Object(m) => m.values().for_each(|x| all_strings(x, out)),
+        _ => {}
+    }
 }
 
 /// `_owner_parts`: a stored record of FERB's conversation as the sink's owner-data parts, prepared.
@@ -3802,7 +3935,13 @@ impl Gateway {
         let mut approved: Option<Vec<String>> = None;
         let reopened = self.reopened(root)?;
         for need in needs {
-            let row = self.find(root, &need.key, &reopened)?;
+            let mut row = self.find(root, &need.key, &reopened)?;
+            if row.is_none() {
+                // GATE-608: a site's one answer in this task: the form's and the link's question for the same host
+                if let Some(partner) = confirm::site_partner(&need.key) {
+                    row = self.find(root, &partner, &reopened)?;
+                }
+            }
             if let Some(r) = &row {
                 if !r.granted {
                     out.ids.push(r.id.clone());
@@ -4136,6 +4275,17 @@ impl Gateway {
             let terminal = needs.iter().any(|n| n.rule == confirm::TERMINAL_INPUT);
             let mut ap = self.approval(&ap_id).expect("just asked");
             ap.corrects = true;
+            // decision: GATE-609
+            ap.site_hosts = needs
+                .iter()
+                .filter(|n| confirm::site_partner(&n.key).is_some())
+                .filter_map(|n| match serde_json::from_str::<Value>(&n.key) {
+                    Ok(Value::Array(parts)) => {
+                        parts.get(1).and_then(Value::as_str).map(str::to_string)
+                    }
+                    _ => None,
+                })
+                .collect();
             self.set_card(&mut ap, needs, &shown_typed, terminal);
             if !ap.labels.is_empty() && routine {
                 ap.labels.push(ALLOW_WINDOW_LABEL.into());
@@ -4731,6 +4881,11 @@ impl Gateway {
                     Some(&span.id),
                 )
             })?;
+        }
+        if retry.is_empty() && ap.hidden.is_empty() {
+            // HAND-581: the owner's answer to the task's own question (profiles it names join the task's)
+            self.observer()
+                .owner_answered(grant, &asked, &worker_options, &text);
         }
         let mut given = obj(json!({"answer": text}));
         if !ap.hidden.is_empty() {
@@ -6064,9 +6219,6 @@ impl Gateway {
         explained: bool,
     ) -> Map<String, Value> {
         let mut back = Map::new();
-        if explained {
-            return back;
-        }
         let front = screen.get("frontmost_app");
         let Some(after) = front.and_then(|f| f.get("after")).filter(|a| a.is_object()) else {
             return back;
@@ -6096,6 +6248,11 @@ impl Gateway {
                     back.insert("why".into(), Value::String(w));
                 }
             }
+        }
+        if explained {
+            // HAND-570: the page's own fact told the owner already, and its put-back ran when it arrived; this is the
+            // one more try at the call's end, the browser still in front: the worker's fact says how it went
+            return back;
         }
         let site = c.spec.target.site.clone().unwrap_or_default();
         self.publish(

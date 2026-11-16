@@ -326,12 +326,45 @@ fn env(p: &Parts) -> Env {
     }
 }
 
+/// `wait.for` (wait.py:220 `WaitFor`): its run, and what the gateway reads off it, as Python's: `describe` makes a wait
+/// with a script a shell command (so the shell's rules run on it, as on shell.run) and `file_paths` names each watched
+/// file for the protection lists (FERB's own files refused). The composition once described every wait as a read and
+/// declared no files (audit of 2026-11-16).
+pub struct WaitForTool {
+    run: super::Run,
+}
+
+impl Tool for WaitForTool {
+    fn name(&self) -> &str {
+        "wait.for"
+    }
+    fn describe(&self, args: &Args) -> ActionSpec {
+        match ferb_clock::wait::WaitInput::from_json(&Value::Object(args.clone())) {
+            Ok(input) => input.describe(),
+            // the model's validators refuse such arguments before describe (one script per wait)
+            Err(_) => ActionSpec::new("read"),
+        }
+    }
+    fn file_paths(&self, args: &Args) -> Option<Vec<(String, String)>> {
+        Some(
+            ferb_clock::wait::WaitInput::from_json(&Value::Object(args.clone()))
+                .map(|i| i.file_paths())
+                .unwrap_or_default(),
+        )
+    }
+    fn run<'a>(
+        &'a self,
+        args: &'a Args,
+        ctx: &'a ToolContext,
+    ) -> BoxFuture<'a, Result<ferb_gateway::tool::ToolOutput, ToolError>> {
+        (self.run)(args, ctx)
+    }
+}
+
 /// `wait.for`.
 pub fn wait_for(p: &Parts) -> Arc<dyn Tool> {
     let parts = p.clone();
-    Arc::new(Catalogued {
-        name: "wait.for",
-        describe: Arc::new(|_a: &Args| ActionSpec::new("read")),
+    Arc::new(WaitForTool {
         run: Arc::new(move |a: &Args, ctx: &ToolContext| {
             let p = parts.clone();
             let a = a.clone();

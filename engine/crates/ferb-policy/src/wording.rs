@@ -1335,9 +1335,19 @@ fn card_of(n: &Need, alongside: &[&str]) -> Option<Card> {
         }
         FOREGROUND => {
             let app = v.get("app").unwrap_or("the app");
+            // HAND-586 (the owner, 2026-11-16: "yes it should if it can"): why a browser needs its window, when code
+            // knows: a page in a profile FERB's extension isn't connected in, or the browser's own controls
+            let why = match v.get("window") {
+                Some("page") => window_why(app, "a profile it isn't connected in"),
+                Some("controls") => window_why(app, "the browser's own controls"),
+                Some("browser") => {
+                    window_why(app, "a profile it isn't connected in, or the browser's own controls")
+                }
+                _ => String::new(),
+            };
             Some(Card {
                 question: format!("Let FERB use your screen in {app} for this task?"),
-                detail: format!("{app} will come to the front while FERB works in it. One Yes covers {app} until this task ends."),
+                detail: format!("{why}{app} will come to the front while FERB works in it. One Yes covers {app} until this task ends."),
                 clause: format!("{app} comes to the front while FERB types"),
                 ..Card::default()
             })
@@ -1386,6 +1396,11 @@ fn card_of(n: &Need, alongside: &[&str]) -> Option<Card> {
 }
 
 /// `card`: FERB's question card (GATE-513), built from the needs' facts.
+/// HAND-586: the foreground card's first sentence for a browser whose part FERB can't reach through its extension.
+pub fn window_why(app: &str, which: &str) -> String {
+    format!("FERB's extension can't reach this part of {app} ({which}), so FERB needs the window. ")
+}
+
 pub fn card(needs: &[Need], typed: &str, apps: &dyn Apps) -> R<Card> {
     let rules = rules_of(needs);
     let said = covered(needs);

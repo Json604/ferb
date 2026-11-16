@@ -1403,6 +1403,26 @@ async fn a_send_to_a_recipient_from_a_page_asks() {
     );
 }
 
+/// GATE-609: a site the owner named (in chat or a safety check's box, GATE-606 c) stops only the "not named" sink
+/// questions; a message to a new recipient on that very site still asks first.
+// decision: GATE-609
+// decision: GATE-537
+#[tokio::test]
+async fn a_named_site_still_asks_before_a_message_to_a_new_recipient_there() {
+    let r = task(ASK, &[COLLECT]);
+    r.read_page_and_file().await;
+    let o = r
+        .call(
+            "probe.send",
+            json!({"to": format!("drop@{COLLECT}"), "text": "my notes"}),
+        )
+        .await;
+    assert!(
+        o.asked.concat().iter().any(|q| q == "floor:new_recipient") && !o.ran,
+        "{o:?}"
+    );
+}
+
 #[tokio::test]
 async fn typing_a_recipient_from_a_page_into_an_app_asks() {
     // GATE-509: the typed address is the one structural point an injected recipient is seen in an app

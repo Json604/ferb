@@ -18,9 +18,21 @@ public struct PairProgress: Equatable {
         public var why: String
         /// FERB's Web Store page adds the extension here in one click (removed, not added, or waiting for a restart).
         public var canAdd: Bool
-        /// Why Pair all skipped it, as the daemon names it (HAND-411: removed, requested, not_added, off, too_old, or
-        /// a connection problem's own); "" otherwise.
+        /// Why Pair all skipped it or why its pairing failed, as the daemon names it (HAND-411: removed, requested,
+        /// not_added, off, too_old, problem; HAND-564: no_answer, not_connected); "" otherwise.
         public var reason: String = ""
+        /// HAND-564: the owner has a step to take for it (FERB can't fix it by pairing again): added or turned on in
+        /// the browser, updated, or a refusal of the copy holding FERB's key. A pairing that didn't take (no answer,
+        /// not connected) has none: Try again pairs it.
+        public var needsOwner: Bool {
+            switch state {
+            case .pairing, .paired: return false
+            case .skipped: return true
+            case .failed: return canAdd || Self.ownerSteps.contains(reason)
+            }
+        }
+        /// The reasons that name a step only the owner can take.
+        public static let ownerSteps: Set<String> = ["off", "too_old", "removed", "not_added", "requested", "problem"]
         public var shown: ProfileName { ProfileName(label: label, name: name, email: email) }
         /// The browser and the name, for a list row (its email drawn beside it).
         public var title: String { shown.title }
@@ -72,6 +84,24 @@ public struct PairProgress: Equatable {
         rows[index].reason = reason
     }
 
+    /// HAND-564: after Pair all, every profile FERB reads connected now counts as paired, whatever its result said
+    /// (a pairing that converged after its wait). True when that changed a row.
+    @discardableResult
+    public mutating func reconcile(connected: Set<String>) -> Bool {
+        var changed = false
+        for i in rows.indices where rows[i].state != .paired && connected.contains(rows[i].id) {
+            rows[i].state = .paired
+            rows[i].why = ""
+            rows[i].canAdd = false
+            rows[i].reason = ""
+            changed = true
+        }
+        return changed
+    }
+
+    /// Rows FERB can't fix by pairing again: the owner's own step.
+    public var needOwner: [Row] { rows.filter(\.needsOwner) }
+
     public static func == (a: PairProgress, b: PairProgress) -> Bool {
         a.rows == b.rows && a.profiles == b.profiles && a.finished == b.finished
     }
@@ -84,6 +114,6 @@ public struct PairProgress: Equatable {
                    name: value["name"] as? String ?? folder, email: value["email"] as? String ?? "", state: state,
                    why: state == .paired || state == .pairing ? "" : (why ?? ""),
                    canAdd: value["can_add"] as? Bool ?? false,
-                   reason: state == .skipped ? value["reason"] as? String ?? "" : "")
+                   reason: state == .skipped || state == .failed ? value["reason"] as? String ?? "" : "")
     }
 }

@@ -32,6 +32,12 @@ pub fn offered(grant: &RunGrant, tool: &dyn Tool) -> bool {
         && tool.scopes().is_subset(&grant.scopes)
         && !(grant.observe_only && !observes(tool))
         && (grant.tools.is_empty() || grant.tools.contains(tool.name()))
+        && named(grant, tool)
+}
+
+/// ORCH-663: a tool offered only by name is offered and admitted only to a grant that names it.
+pub fn named(grant: &RunGrant, tool: &dyn Tool) -> bool {
+    !tool.facts().named_only || grant.tools.contains(tool.name())
 }
 
 /// A tool's schema as the models get it: its own, plus `effect`, `destination` and `why` (`gateway.py:725-731`).

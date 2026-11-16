@@ -706,6 +706,10 @@ async fn start_stream(
                 resumed =
                     resume_cached(&run, request, &isolated, &workdir, refused.is_empty()).await;
                 developer = resumed.is_some() && refused.is_empty();
+            } else if rt.cache_role.is_some() {
+                // a worker-mode run (the checker) resumes its role's template only for the cache key: its whole
+                // context stays in the user turn, never the developer role (RUN-416's rule for any refused turn)
+                resumed = resume_cached(&run, request, &isolated, &workdir, false).await;
             }
             if let Ok(mut r) = run.context_role.lock() {
                 *r = if developer { "developer" } else { "user" }.into();
@@ -886,7 +890,10 @@ fn turn_params(
 }
 
 /// codex_stream.py `_resume_cached` (P20, RUN-416): the template thread's id, or None and `on_cache_fallback` told
-/// why, when the turn takes the ephemeral path instead.
+/// why, when the turn takes the ephemeral path instead. Each run writes its template into its own CODEX_HOME (a fresh
+/// owner-only folder), where Codex also keeps the thread's writer lock: runs of one role resuming the same id at once
+/// share no file. The resumed thread is not ephemeral: Codex appends the run's turn to that template, which goes
+/// with the run's folder.
 async fn resume_cached(
     run: &Arc<CodexRun>,
     request: &ModelRequest,
@@ -897,17 +904,19 @@ async fn resume_cached(
     let rt = &run.rt;
     let role = rt.cache_role.as_deref().unwrap_or_default();
     let thread_id = cache_thread_id(role, &rt.model, &rt.cache_scope);
-    let effort = rt.sent_effort().unwrap_or_else(|| "low".into());
+    // the effort the turn sends (a supervisor run always sends one), none when it sends none
+    let effort = rt.sent_effort();
+    let unmatched = format!("the resumed {role} thread did not match FERB's isolation");
     let why = match write_template(
         codex_home,
         workdir,
         &thread_id,
         &rt.model,
         &request.system,
-        &effort,
+        effort.as_deref(),
     ) {
         Err(e) => format!(
-            "the planner template could not be written ({})",
+            "the {role} template could not be written ({})",
             crate::error::os_error(&e).class
         ),
         Ok(path) => {
@@ -928,7 +937,7 @@ async fn resume_cached(
                         r.message
                     }
                 }
-                Err(_) => "the resumed planner thread did not match FERB's isolation".into(),
+                Err(_) => unmatched,
                 Ok(thread) => {
                     let thread = Value::Object(thread);
                     let same_id = thread
@@ -938,7 +947,7 @@ async fn resume_cached(
                     if isolated_thread(&thread, rt).unwrap_or(false) && same_id {
                         return Some(thread_id);
                     }
-                    "the resumed planner thread did not match FERB's isolation".into()
+                    unmatched
                 }
             }
         }

@@ -77,10 +77,22 @@ fn new_forms(new: &str) -> Vec<String> {
 /// system): the recordings all count UTF-8 bytes (`utf8_byte_ceiling_tokenizer_unavailable`), so each change adds
 /// its new text's bytes less its old text's.
 pub fn reserved_shift(system: &str) -> i64 {
-    changes()
-        .iter()
-        .filter(|(_, _, new)| new_forms(new).iter().any(|f| system.contains(f.as_str())))
-        .map(|(_, old, new)| new.len() as i64 - old.len() as i64)
+    let all = changes();
+    all.iter()
+        .enumerate()
+        .filter(|(n, (_, _, new))| {
+            // a later change may change this one's text again (ORCH-663 on ORCH-640's line): look for what it became
+            let mut became = new.clone();
+            for (_, o, w) in &all[n + 1..] {
+                if became.contains(o.as_str()) {
+                    became = became.replace(o.as_str(), w);
+                }
+            }
+            new_forms(&became)
+                .iter()
+                .any(|f| system.contains(f.as_str()))
+        })
+        .map(|(_, (_, old, new))| new.len() as i64 - old.len() as i64)
         .sum()
 }
 
@@ -139,9 +151,10 @@ pub fn apply_value(v: &Value) -> Value {
 }
 
 /// The Rust engine's own tools (ferb-gateway's `catalog_additions.json`, each with its decision; DMN-595
-/// `about.diagnostics`): (name, the tool it follows, its listed row as `tools_for` writes it).
-pub fn tool_additions() -> &'static [(String, String, Value)] {
-    static A: OnceLock<Vec<(String, String, Value)>> = OnceLock::new();
+/// `about.diagnostics`, ORCH-663 `task.trace`): (name, the tool it follows, its listed row as `tools_for` writes it,
+/// whether it is offered only to a grant naming it: the planner's lookups).
+pub fn tool_additions() -> &'static [(String, String, Value, bool)] {
+    static A: OnceLock<Vec<(String, String, Value, bool)>> = OnceLock::new();
     A.get_or_init(|| {
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../ferb-gateway/src/catalog_additions.json");
@@ -158,7 +171,8 @@ pub fn tool_additions() -> &'static [(String, String, Value)] {
                     row.insert(k.into(), t[k].clone());
                 }
                 let s = |k: &str| t[k].as_str().expect(k).to_string();
-                (s("name"), s("after"), Value::Object(row))
+                let named_only = t["facts"]["named_only"].as_bool().unwrap_or(false);
+                (s("name"), s("after"), Value::Object(row), named_only)
             })
             .collect()
     })
@@ -170,12 +184,35 @@ pub fn tool_additions() -> &'static [(String, String, Value)] {
 pub fn tool_shift(recorded_tools: &[String]) -> i64 {
     tool_additions()
         .iter()
-        .filter(|(name, after, _)| {
-            recorded_tools.iter().any(|t| t == after) && !recorded_tools.iter().any(|t| t == name)
+        .filter(|(name, after, _, named_only)| {
+            recorded_tools.iter().any(|t| t == after)
+                && !recorded_tools.iter().any(|t| t == name)
+                && (!named_only || planner_call(recorded_tools))
         })
-        .map(|(_, _, row)| ferb_py::json::dumps(row).len() as i64 + 2)
+        .map(|(_, _, row, _)| ferb_py::json::dumps(row).len() as i64 + 2)
         .sum::<i64>()
         + tool_changes_shift(recorded_tools)
+}
+
+/// Python's planner lookups as the recordings offered them (supervisor.py `PLANNER_TOOLS`, frozen with them).
+const RECORDED_LOOKUPS: [&str; 6] = [
+    "memory.read",
+    "chat.history",
+    "task.evidence",
+    "trail.query",
+    "trail.days",
+    "about.read",
+];
+
+/// A recorded call offered only the planner's lookups: the one grant that names its tools, so the one offered a tool
+/// that only a grant naming it gets (ORCH-663).
+pub fn planner_call(recorded_tools: &[String]) -> bool {
+    !recorded_tools.is_empty()
+        && recorded_tools.iter().all(|t| {
+            RECORDED_LOOKUPS
+                .iter()
+                .any(|l| t == l || *t == l.replace('.', "_"))
+        })
 }
 
 /// The deliberate changes to Python's tools (engine/fixtures/catalog/tool_changes.json, each with its decision; HAND-551
@@ -239,7 +276,8 @@ pub fn with_tool_names(text: &str) -> (String, i64) {
         let tail = &rest[start..];
         let end = tail.find('.').unwrap_or(tail.len());
         let mut names: Vec<String> = tail[..end].split(", ").map(str::to_string).collect();
-        for (name, after, _) in tool_additions() {
+        // the worker's line: a tool offered only by name (the planner's) is never in it
+        for (name, after, _, _) in tool_additions().iter().filter(|a| !a.3) {
             let (name, after) = (name.replace('.', "_"), after.replace('.', "_"));
             if let Some(i) = names.iter().position(|n| *n == after) {
                 if !names.contains(&name) {

@@ -91,8 +91,13 @@ extension IntroController {
     func browsers() async {
         var line = IntroCopy.browsers
         var progress = PairProgress()
+        var orbOut = false          // the orb waits at a browser's own "turn on" prompt until the owner's next pick
         while live {
             let picked = await ask(line)
+            if orbOut {
+                orbOut = false
+                await orb.flyHome()
+            }
             if case .choice(let id)? = picked, let rowID = Pick.addedRow(id),
                let row = progress.rows.first(where: { $0.id == rowID }) {
                 await addAndPair(row, into: &progress)
@@ -107,22 +112,19 @@ extension IntroController {
             await working(IntroCopy.lookingAtBrowsers) { await setup.refreshBrowsers() }
             guard live else { return }
             say(IntroCopy.pairing(PairProgress()).waiting(since: since))
-            // The orb waits at a paired browser's front window, where its own "turn FERB on" prompt appears.
-            let labels = setup.browsers?.browsers.map(\.label) ?? []
-            let point = labels.isEmpty ? nil : apps.frontWindow(of: labels)
-            let trip = point.map { point in
-                Task { [orb] in await orb.launch(to: point, instruction: IntroCopy.pairingOrb) }
-            }
             await setup.pairAll { [weak self] live in
                 guard let self, self.live else { return }
                 self.say(IntroCopy.pairing(live).waiting(since: since))
             }
             progress = setup.pairProgress ?? PairProgress()
-            if let trip {
-                await trip.value
-                await orb.flyHome()
-            }
             guard live else { return }
+            // APP-511, APP-920: the orb goes only where the browser itself has a step for the owner: FERB turned off
+            // there (its own "turn on" prompt). Nothing to do there, no flight.
+            let off = Array(Set(progress.rows.filter { $0.reason == "off" && $0.state != .paired }.map(\.label))).sorted()
+            if !off.isEmpty, let point = apps.frontWindow(of: off) {
+                orbOut = true
+                Task { [orb] in await orb.launch(to: point, instruction: IntroCopy.pairingOrb) }
+            }
             let unsupported = setup.browsers?.unsupported ?? []      // HAND-415: said, never passed over
             if let why = setup.message, !why.isEmpty {     // HAND-411: "Paired." only when every profile is
                 line = IntroCopy.noting(unsupported, on: why == SetupModel.noBrowserProfiles ? IntroCopy.noProfiles(why)

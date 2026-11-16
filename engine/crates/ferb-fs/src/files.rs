@@ -986,6 +986,9 @@ fn list_work(a: &ListArgs, ctx: &ToolContext, env: &FsEnv) -> Result<ToolResult,
         "retrieval".into(),
         json!(next.map(|_| "fs.list with next_offset until null")),
     );
+    if let Some(f) = crate::protected::fact(ctx, &p, crate::protected::LIST_FACT) {
+        d.insert("not_read".into(), f); // HAND-597: absent when none, so Python's bytes
+    }
     let mut r = result(d);
     r.read_sources = vec![source_of(&p, ctx, &env.home)?];
     Ok(r)

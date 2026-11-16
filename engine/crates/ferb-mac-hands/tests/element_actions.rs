@@ -258,6 +258,16 @@ impl Ax for ChatAx {
     fn press(&self, el: &El) -> Result<bool> {
         ok(self.0.perform(Some(el), "AXPress"))
     }
+    fn page_url(&self, el: &El) -> Option<Option<String>> {
+        if !self.0.src.apps.browser.load(Ordering::SeqCst) {
+            return Some(None);
+        }
+        Some(match FakeTree::id_of(el).as_str() {
+            "msg" => Some("https://example.com/a#part".into()),
+            "doc" => Some("chrome://settings/".into()),
+            _ => None,
+        })
+    }
     fn perform(&self, el: &El, action: &str) -> Result<bool> {
         ok(self.0.perform(Some(el), action))
     }
@@ -308,6 +318,16 @@ struct FakeApps {
     running: Vec<RunningApp>,
     front: Mutex<i32>,
     calls: Mutex<Vec<String>>,
+    /// HAND-584: macOS accepts an activation but leaves the front app as it is.
+    ignores: std::sync::atomic::AtomicBool,
+    /// HAND-584: the app that raises itself again: after an activation, the second read of the front app finds it
+    /// in front, for as many activations as the count.
+    bounce: Mutex<Option<(i32, usize)>>,
+    /// Reads of the front app left before the bounce shows (0: none pending).
+    rebound: std::sync::atomic::AtomicUsize,
+    /// HAND-582: Chat plays a browser: it opens web links, and its "Message" element is inside a web page's
+    /// content (https://example.com/a), its document bubble on the browser's own settings page.
+    browser: AtomicBool,
 }
 
 impl FakeApps {
@@ -321,6 +341,10 @@ impl FakeApps {
             ],
             front: Mutex::new(NOTES),
             calls: Mutex::new(vec![]),
+            ignores: std::sync::atomic::AtomicBool::new(false),
+            bounce: Mutex::new(None),
+            rebound: std::sync::atomic::AtomicUsize::new(0),
+            browser: AtomicBool::new(false),
         }
     }
     fn calls(&self) -> Vec<String> {
@@ -354,15 +378,40 @@ impl Apps for FakeApps {
             .collect()
     }
     fn frontmost(&self) -> Option<RunningApp> {
+        let left = self.rebound.load(Ordering::SeqCst);
+        if left > 0 {
+            self.rebound.store(left - 1, Ordering::SeqCst);
+            if left == 1 {
+                if let Some((pid, _)) = *self.bounce.lock().unwrap() {
+                    *self.front.lock().unwrap() = pid;
+                }
+            }
+        }
         let f = self.front();
         self.running.iter().find(|a| a.pid == f).cloned()
+    }
+    fn opens_web_links(&self, bundle_id: &str) -> bool {
+        bundle_id == CHAT_ID && self.browser.load(Ordering::SeqCst)
+    }
+    fn known_opens_web_links(&self, bundle_id: &str) -> bool {
+        self.opens_web_links(bundle_id)
     }
     fn activate(&self, bundle_id: &str, pid: Option<i32>) -> bool {
         self.calls
             .lock()
             .unwrap()
             .push(format!("activate {bundle_id}"));
-        *self.front.lock().unwrap() = pid.unwrap_or(0);
+        if !self.ignores.load(Ordering::SeqCst) {
+            *self.front.lock().unwrap() = pid.unwrap_or(0);
+        }
+        let mut b = self.bounce.lock().unwrap();
+        if let Some((pid, left)) = *b {
+            if left > 0 {
+                *b = Some((pid, left - 1));
+                // the app comes back at the second read after this activation
+                self.rebound.store(2, Ordering::SeqCst);
+            }
+        }
         true
     }
 }
@@ -1174,6 +1223,153 @@ async fn the_put_back_a_browser_call_uses_skips_when_someone_switched_since() {
     );
     assert_eq!(m.apps.calls().len(), 1);
     assert_eq!(m.apps.front(), OTHER);
+}
+
+/// HAND-582, HAND-583: the web page a Mac call would act on or open in a browser, as structural facts: input into a
+/// page's content (inside an AXWebArea with a site's address) of a browser app, and mac.open of an http(s) address
+/// for a browser or the default one. Never the browser's own pages, its toolbar or a non-browser app. The daemon then
+/// asks the paired profiles whether their browser tools can take it (ferbd `web_route_fact`).
+// decision: HAND-582, HAND-583, HAND-586
+#[tokio::test]
+async fn the_web_page_a_mac_call_would_touch_in_a_browser_is_named() {
+    use ferb_mac_hands::tools::WebTarget;
+    let m = mac();
+    let snap = m.snapshot().await;
+    let msg = Mac::id(&snap["elements"], "Message");
+    let doc = Mac::id(&snap["elements"], "Document bubble");
+    let send = Mac::id(&snap["elements"], "Send");
+    let act = |el: &str| json!({"app": "Chat", "action": "press", "element": el});
+    // not a browser: nothing
+    assert_eq!(m.tools.web_target("mac.act", &act(&msg)).await, None);
+    assert_eq!(m.tools.window_reason("mac.act", &act(&msg)).await, None);
+    m.apps.browser.store(true, Ordering::SeqCst);
+    // HAND-586: why the screen question's card says the browser needs its window
+    assert_eq!(
+        m.tools
+            .window_reason("mac.act", &act(&msg))
+            .await
+            .as_deref(),
+        Some("page")
+    );
+    assert_eq!(
+        m.tools
+            .window_reason("mac.act", &act(&send))
+            .await
+            .as_deref(),
+        Some("controls")
+    );
+    let page = Some(WebTarget {
+        browser: ferb_mac_hands::apps::pair_key(CHAT_ID),
+        url: "https://example.com/a#part".into(),
+        opens: false,
+    });
+    assert_eq!(m.tools.web_target("mac.act", &act(&msg)).await, page);
+    // the browser's own UI (outside any page) and its own settings page: left to today's rules
+    assert_eq!(m.tools.web_target("mac.act", &act(&send)).await, None);
+    assert_eq!(m.tools.web_target("mac.act", &act(&doc)).await, None);
+    // a read is never refused here
+    assert_eq!(
+        m.tools
+            .web_target("mac.snapshot", &json!({"app": "Chat"}))
+            .await,
+        None
+    );
+    // mac.open of a site's address in the browser, or with no app (the default browser); never another app or scheme
+    let open = |bundle: &str, url: &str| json!({"bundle_id": bundle, "url": url});
+    assert_eq!(
+        m.tools
+            .web_target("mac.open", &open(CHAT_ID, "https://example.com/"))
+            .await,
+        Some(WebTarget {
+            browser: ferb_mac_hands::apps::pair_key(CHAT_ID),
+            url: "https://example.com/".into(),
+            opens: true
+        })
+    );
+    assert_eq!(
+        m.tools
+            .web_target("mac.open", &json!({"url": "https://example.com/"}))
+            .await
+            .map(|t| t.browser),
+        Some(String::new())
+    );
+    assert_eq!(
+        m.tools
+            .web_target("mac.open", &open(NOTES_ID, "https://example.com/"))
+            .await,
+        None
+    );
+    assert_eq!(
+        m.tools
+            .web_target("mac.open", &open(CHAT_ID, "mailto:someone@example.com"))
+            .await,
+        None
+    );
+}
+
+/// HAND-584: a put-back counts only when the owner's app is still in front after the settle: macOS ignoring the
+/// activation is "couldn't"; an app that raises itself again right after (a browser's new window appearing) is put
+/// back once more and counts only if that holds; one that keeps coming back is "couldn't" with why. Live 2026-11-16
+/// 04:28 (task 0abecb83): the notice said Brave was put back and it wasn't.
+// decision: HAND-584
+#[tokio::test]
+async fn a_put_back_is_reported_only_when_the_owners_app_stays_in_front() {
+    let m = mac();
+    let notes = RunningApp::new(NOTES_ID, "Notes", NOTES, false);
+    let chat = RunningApp::new(CHAT_ID, "Chat", CHAT, true);
+    // macOS accepts the activation and leaves Chat in front
+    *m.apps.front.lock().unwrap() = CHAT;
+    m.apps.ignores.store(true, Ordering::SeqCst);
+    let (back, why) = m.tools.put_back(&chat, &notes, "t1").await;
+    assert!(!back);
+    assert_eq!(why.as_deref(), Some("macOS didn't bring it back"));
+    assert_eq!(m.apps.front(), CHAT);
+    // Chat raises itself once more right after the put-back: activated away again, and Notes holds
+    m.apps.ignores.store(false, Ordering::SeqCst);
+    *m.apps.bounce.lock().unwrap() = Some((CHAT, 1));
+    m.apps.calls.lock().unwrap().clear();
+    assert_eq!(m.tools.put_back(&chat, &notes, "t1").await, (true, None));
+    assert_eq!(
+        m.apps.calls(),
+        [
+            format!("activate {NOTES_ID}"),
+            format!("activate {NOTES_ID}")
+        ]
+    );
+    assert_eq!(m.apps.front(), NOTES);
+    // Chat keeps coming back: not put back, and the owner's line says so (notify.rs front_app_line)
+    *m.apps.front.lock().unwrap() = CHAT;
+    *m.apps.bounce.lock().unwrap() = Some((CHAT, 5));
+    let (back, why) = m.tools.put_back(&chat, &notes, "t1").await;
+    assert!(!back);
+    assert_eq!(
+        why.as_deref(),
+        Some("Chat came back in front after FERB put it back")
+    );
+}
+
+/// HAND-570: when a browser window of the task took the focus, the app the sampler saw in front before the call goes
+/// back while the browser is still in front; nothing when the browser was in front before or isn't now.
+// decision: HAND-570
+#[tokio::test]
+async fn the_owners_app_goes_back_after_a_browser_window_took_the_focus() {
+    let m = mac();
+    // Chat plays the browser that came to the front during the call; Notes was in front before it
+    *m.apps.front.lock().unwrap() = CHAT;
+    let notes = json!({"pid": NOTES, "bundle_id": NOTES_ID, "name": "Notes"});
+    let back = m.tools.owner_app_back(&notes, CHAT, "t1").await;
+    assert_eq!(
+        back.map(Value::Object),
+        Some(json!({"app_put_back": true, "previous": "Notes"}))
+    );
+    assert_eq!(m.apps.calls(), [format!("activate {NOTES_ID}")]);
+    // the browser isn't in front any more (put back, or the owner went elsewhere): nothing to do
+    assert_eq!(m.tools.owner_app_back(&notes, CHAT, "t1").await, None);
+    // the browser itself was in front before the call: nothing of the owner's to put back
+    *m.apps.front.lock().unwrap() = CHAT;
+    let chat = json!({"pid": CHAT, "bundle_id": CHAT_ID, "name": "Chat"});
+    assert_eq!(m.tools.owner_app_back(&chat, CHAT, "t1").await, None);
+    assert_eq!(m.apps.calls().len(), 1);
 }
 
 /// HAND-560: the owner's line names what FERB did in the app.

@@ -941,20 +941,56 @@ final class IntroControllerTests: XCTestCase {
         XCTAssertFalse(t.lines.all.contains { $0.text.hasPrefix("I'm working in") })
     }
 
-    // decision: APP-511
-    func testTheBrowsersBeatPointsTheOrbWhilePairing() async {
+    /// APP-511: the orb flies to a browser only where that browser has a step for the owner (FERB turned off there: its
+    /// own "turn on" prompt), and waits there until the owner's next pick. Live 2026-11-16: it flew at every Pair all
+    /// and had nothing to do; with every profile on, it stays home.
+    // decision: APP-511, APP-920
+    func testTheBrowsersBeatPointsTheOrbOnlyAtABrowsersOwnTurnOnStep() async {
         let t = tour(apps: Self.mac(browser: true))
         t.rig.rpc.replies["setup.browsers"] = ["browsers": [["browser": "example", "label": "Example Browser",
                                                               "profiles": [[String: Any]]()]]]
-        var pairedWhenHome: [Bool] = []
-        t.orb.onFlyHome = { [rpc = t.rig.rpc] in pairedWhenHome.append(rpc.methods().contains("setup.browsers_pairing")) }
         t.controller.start(beats: [.browsers, .home])
         await t.pick("pairAll")
         await eventually { t.progress.done }
-        XCTAssertEqual(t.orb.launches.count, 1)
-        XCTAssertEqual(t.orb.launches.first?.instruction, IntroCopy.pairingOrb)
-        XCTAssertEqual(t.orb.launches.first?.point, CGPoint(x: 720, y: 791))    // inside a window too wide to stand beside
-        XCTAssertEqual(pairedWhenHome, [true])                                  // home after the pair-all reply
+        XCTAssertEqual(t.orb.launches.count, 0)                                 // every profile on: nothing to point at
+
+        let off = tour(apps: Self.mac(browser: true))
+        let skipped: [[String: Any]] = [["browser": "example", "folder": "Default", "name": "Personal",
+                                         "label": "Example Browser", "reason": "off", "step": "turn FERB on there"]]
+        off.rig.rpc.events["setup.browsers_pairing"] = [
+            ["type": "plan", "profiles": 1, "todo": [[String: Any]](), "skipped": skipped],
+            ["type": "done", "profiles": 1, "paired": 0, "results": [[String: Any]](), "skipped": skipped]]
+        off.rig.rpc.replies["setup.browsers"] = ["browsers": [["browser": "example", "label": "Example Browser",
+                                                                "profiles": [[String: Any]]()]]]
+        off.controller.start(beats: [.browsers, .home])
+        await off.pick("pairAll")
+        await eventually { off.orb.launches.count == 1 }
+        XCTAssertEqual(off.orb.launches.first?.instruction, IntroCopy.pairingOrb)
+        XCTAssertEqual(off.orb.launches.first?.point, CGPoint(x: 720, y: 791))  // inside a window too wide to stand beside
+        let homes = off.orb.flyHomes
+        await off.pick("next")
+        await eventually { off.orb.flyHomes > homes }                          // home at the owner's next pick
+    }
+
+    /// HAND-564: a pairing that didn't take (no answer, not connected) is never "a step from you"; Try again pairs it.
+    // decision: HAND-564, APP-920
+    func testAPairingThatDidntTakeAsksNoStepOfTheOwner() {
+        var progress = PairProgress()
+        progress.apply(["type": "plan", "profiles": 2,
+                        "todo": [["browser": "chrome", "folder": "Default", "name": "Personal", "label": "Google Chrome"],
+                                 ["browser": "chrome", "folder": "Profile 1", "name": "Work", "label": "Google Chrome"]]])
+        progress.apply(["type": "result", "browser": "chrome", "folder": "Default", "name": "Personal",
+                        "label": "Google Chrome", "paired": true])
+        progress.apply(["type": "result", "browser": "chrome", "folder": "Profile 1", "name": "Work",
+                        "label": "Google Chrome", "paired": false, "reason": "not_connected",
+                        "why": "Google Chrome took the pairing, but its FERB extension didn't connect with it in time."])
+        let line = IntroCopy.notPaired(progress, message: "")
+        XCTAssertFalse(line.detail?.contains("step from you") ?? true, line.detail ?? "")
+        XCTAssertEqual(line.detail, "One didn't take: Try again pairs it.")
+        XCTAssertEqual(line.checklist.first { $0.id == "chrome/Profile 1" }?.status, "Try again")
+        progress.apply(["type": "result", "browser": "chrome", "folder": "Profile 1", "name": "Work",
+                        "label": "Google Chrome", "paired": false, "reason": "off", "why": "turn FERB on there"])
+        XCTAssertEqual(IntroCopy.notPaired(progress, message: "").detail, "One needs a step from you.")
     }
 
     /// An installed Chrome-family browser FERB doesn't know is named after Pair all, never passed over (HAND-415).

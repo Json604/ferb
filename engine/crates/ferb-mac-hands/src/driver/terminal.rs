@@ -685,6 +685,52 @@ impl MacDriver {
         Ok(self.browser_page_at(self.hit_in_shot(&a, shot_id, x, y).as_ref()))
     }
 
+    /// HAND-582: the web page this input would act on in a browser app, as (the browser's pair key, the page's
+    /// address): the element (or, for typing, the focus) is inside a page's content (an AXWebArea's descendant) whose
+    /// address is a site's (http, https), never one of the browser's own pages (rule 5 asks those), its toolbar, a
+    /// dialog or a permission or extension prompt (outside any web area). None otherwise.
+    pub fn web_content(
+        &self,
+        app: &str,
+        action: &ComputerAction,
+    ) -> Result<Option<(String, String)>> {
+        let a = self.app(app)?;
+        if !self.browser_now(&a.bundle_id) {
+            return Ok(None);
+        }
+        let el = if let Some(e) = action.element.as_deref().filter(|e| !e.is_empty()) {
+            Some(self.node(&a.bundle_id, e)?.r#ref)
+        } else if matches!(action.kind, K::Type | K::Key | K::Edit) {
+            self.focus_of(&a)
+        } else {
+            return Ok(None);
+        };
+        Ok(self.web_content_at(&a.bundle_id, el.as_ref()))
+    }
+
+    /// HAND-582: [`Self::web_content`] for a point of the app's latest screenshot.
+    pub fn pointer_web_content(
+        &self,
+        app: &str,
+        shot_id: &str,
+        x: f64,
+        y: f64,
+    ) -> Result<Option<(String, String)>> {
+        let a = self.app(app)?;
+        if !self.browser_now(&a.bundle_id) {
+            return Ok(None);
+        }
+        let hit = self.hit_in_shot(&a, shot_id, x, y);
+        Ok(self.web_content_at(&a.bundle_id, hit.as_ref()))
+    }
+
+    fn web_content_at(&self, bundle_id: &str, el: Option<&El>) -> Option<(String, String)> {
+        let url = el.and_then(|e| self.ax.page_url(e)).flatten()?;
+        let site = url.starts_with("https://") || url.starts_with("http://");
+        (site && !self.policy.browser_page(Some(&url)))
+            .then(|| (crate::apps::pair_key(bundle_id), url))
+    }
+
     fn browser_page_at(&self, el: Option<&El>) -> Option<String> {
         let url = el.and_then(|e| self.ax.page_url(e)).flatten();
         if self.policy.browser_page(url.as_deref()) {

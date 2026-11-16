@@ -299,6 +299,8 @@ pub(crate) fn models() -> Vec<ModelDef> {
                 opt("keep_tabs_open", T::Bool, no),
                 opt("parts", lm("Part"), nothing),
                 opt("earlier_results", ls(), nothing),
+                // HAND-580: the owner's named browser profiles (a Rust addition)
+                opt("profiles", ls(), nothing),
             ],
             vec![],
             None,
@@ -527,9 +529,23 @@ pub(crate) fn models() -> Vec<ModelDef> {
                 ),
                 opt("probe", om("Probe"), none),
                 opt("part_updates", T::List(Box::new(T::Dict), 0), nothing),
+                // ORCH-652 (not Python's): the conditions it couldn't meet and why
+                opt("gaps", lm("ReportGap"), nothing),
             ],
             vec![],
             Some(worker_tags),
+        ),
+        model(
+            "ReportGap",
+            vec![req("condition", s()), req("reason", s())],
+            vec![],
+            None,
+        ),
+        model(
+            "CheckGap",
+            vec![req("index", T::Int), req("reason", s())],
+            vec![],
+            None,
         ),
         model(
             "QuestionOutcome",
@@ -577,7 +593,14 @@ pub(crate) fn models() -> Vec<ModelDef> {
                 req("results", lm("CheckerResult")),
                 req(
                     "next",
-                    lit(&["accept", "retry", "ask", "accept_unconfirmed", "fail"]),
+                    lit(&[
+                        "accept",
+                        "retry",
+                        "ask",
+                        "accept_unconfirmed",
+                        "accept_with_gaps",
+                        "fail",
+                    ]),
                 ),
                 opt("findings", lm("Finding"), nothing),
                 opt("missing", s(), empty),
@@ -586,6 +609,8 @@ pub(crate) fn models() -> Vec<ModelDef> {
                 opt("question", s(), empty),
                 opt("reason", s(), empty),
                 opt("dropped_edits", ls(), nothing),
+                // ORCH-652 (not Python's): with accept_with_gaps, the unmet conditions and why
+                opt("gaps", lm("CheckGap"), nothing),
             ],
             vec![older_shape],
             Some(checker_tags),
@@ -1580,10 +1605,11 @@ fn task_from(v: &Py) -> TaskSpec {
         keep_tabs_open: r.b("keep_tabs_open"),
         parts: r.each("parts", part_from),
         earlier_results: r.ls("earlier_results"),
+        profiles: r.ls("profiles"),
     }
 }
 fn task_to(m: &TaskSpec) -> Py {
-    dict(vec![
+    let mut fields = vec![
         ("goal", ps(&m.goal)),
         ("name", ps(&m.name)),
         ("identity", ps(&m.identity)),
@@ -1598,7 +1624,12 @@ fn task_to(m: &TaskSpec) -> Py {
         ("keep_tabs_open", Py::Bool(m.keep_tabs_open)),
         ("parts", pl(&m.parts, part_to)),
         ("earlier_results", pls(&m.earlier_results)),
-    ])
+    ];
+    // HAND-580: present only when the planner named profiles (Python's dump has no such key)
+    if !m.profiles.is_empty() {
+        fields.push(("profiles", pls(&m.profiles)));
+    }
+    dict(fields)
 }
 
 fn until_from(v: &Py) -> Until {
@@ -1937,9 +1968,45 @@ fn worker_from(v: &Py) -> WorkerReport {
         loop_action: r.os("loop_action"),
         probe: r.maybe("probe", probe_from),
         part_updates: r.list("part_updates").to_vec(),
+        gaps: r.each("gaps", report_gap_from),
     }
 }
+fn report_gap_from(v: &Py) -> ReportGap {
+    let r = R::of(v);
+    ReportGap {
+        condition: r.s("condition"),
+        reason: r.s("reason"),
+    }
+}
+fn report_gap_to(m: &ReportGap) -> Py {
+    dict(vec![
+        ("condition", ps(&m.condition)),
+        ("reason", ps(&m.reason)),
+    ])
+}
+fn check_gap_from(v: &Py) -> CheckGap {
+    let r = R::of(v);
+    CheckGap {
+        index: r.i("index"),
+        reason: r.s("reason"),
+    }
+}
+fn check_gap_to(m: &CheckGap) -> Py {
+    dict(vec![("index", pi(&m.index)), ("reason", ps(&m.reason))])
+}
+/// ORCH-652: `gaps` is in a dump only when there are some, so a report or verdict without one dumps as Python's.
+fn with_gaps(mut d: Py, gaps: Py) -> Py {
+    if let (Py::Dict(map), Py::List(l)) = (&mut d, &gaps) {
+        if !l.0.is_empty() {
+            map.0.insert("gaps".into(), gaps.clone());
+        }
+    }
+    d
+}
 fn worker_to(m: &WorkerReport) -> Py {
+    with_gaps(worker_to_python(m), pl(&m.gaps, report_gap_to))
+}
+fn worker_to_python(m: &WorkerReport) -> Py {
     dict(vec![
         ("status", ps(&m.status)),
         ("reason", ps(&m.reason)),
@@ -2051,9 +2118,13 @@ fn checker_from(v: &Py) -> CheckerOutcome {
         question: r.s("question"),
         reason: r.s("reason"),
         dropped_edits: r.ls("dropped_edits"),
+        gaps: r.each("gaps", check_gap_from),
     }
 }
 fn checker_to(m: &CheckerOutcome) -> Py {
+    with_gaps(checker_to_python(m), pl(&m.gaps, check_gap_to))
+}
+fn checker_to_python(m: &CheckerOutcome) -> Py {
     dict(vec![
         ("results", pl(&m.results, result_to)),
         ("next", ps(&m.next)),

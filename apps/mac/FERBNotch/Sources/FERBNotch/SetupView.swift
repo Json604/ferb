@@ -462,7 +462,8 @@ struct BrowsersStepView: View {
                 ForEach(snapshot.unsupported) { other in       // HAND-415: named, never passed over
                     Text(other.message + ".").font(.callout).foregroundStyle(.secondary)
                 }
-                if snapshot.browsers.contains(where: { $0.profiles.contains { $0.state == .on && !$0.ferbIdentity } }) {
+                // HAND-564: also when a paired profile needs pairing again (an older key, a new copy)
+                if snapshot.browsers.contains(where: { $0.profiles.contains(where: \.offersPair) }) {
                     HStack {
                         Button("Pair all") { Task { await model.pairAll() } }.disabled(model.pairing)
                         if model.pairing { ProgressView().controlSize(.small) }

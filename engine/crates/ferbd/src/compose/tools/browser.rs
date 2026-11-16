@@ -38,6 +38,8 @@ pub struct BrowserHost {
     home: String,
     area: Arc<OnceLock<ferb_daemon::areas_b::browsers::Cx>>,
     recordings: Option<Arc<dyn ferb_browser::tools::Recordings>>,
+    /// HAND-570: the Mac's put-back and the sampler's front app before the call, looked up when needed.
+    parts: Option<super::WeakParts>,
 }
 
 fn area_err(e: ferb_rpc::HandlerError) -> ferb_browser::error::Error {
@@ -139,6 +141,22 @@ impl ferb_browser::tools::Host for BrowserHost {
     }
     fn recordings(&self) -> Option<Arc<dyn ferb_browser::tools::Recordings>> {
         self.recordings.clone()
+    }
+
+    /// HAND-570: the app in front before the task's call (the disturbance sampler's look) goes back through the Mac's
+    /// own put-back (HAND-549, HAND-560) while the browser is still in front.
+    fn put_back_owner_app(
+        &self,
+        task: &str,
+        browser_pid: i32,
+    ) -> Option<BoxFuture<'_, Option<Map<String, Value>>>> {
+        let parts = self.parts.as_ref()?.upgrade()?;
+        let mac = parts.mac()?.tools.clone();
+        let previous = parts.sentinel()?.front_before(task)?;
+        let task = task.to_string();
+        Some(Box::pin(async move {
+            mac.owner_app_back(&previous, browser_pid, &task).await
+        }))
     }
 }
 
@@ -347,10 +365,10 @@ fn driver_tasks(p: &Parts) -> Tasks {
             Some(u) => Err(format!("only http(s) URLs can be opened, not {}", u.scheme)),
             None => Err("only http(s) URLs can be opened, not this".into()),
         }),
-        // APP-777: a tree that browses as the owner in their pick opens tabs only there (driver `picked_only`)
-        browses_as_owner: Arc::new(move |task| {
-            p9().and_then(|p| p.supervisor().map(|s| s.inner().browses_as_owner(task)))
-                .unwrap_or(false)
+        // APP-777, HAND-580: a tree kept to the owner's pick and the profiles their words named opens tabs only there
+        task_profiles: Arc::new(move |task| {
+            let (pick, named) = p9()?.supervisor()?.inner().task_profiles(task)?;
+            Some(ferb_browser::driver::TaskProfiles { pick, named })
         }),
     }
 }
@@ -946,6 +964,7 @@ impl Browsers {
                     redactor: p.redactor(),
                 }) as Arc<dyn ferb_browser::tools::Recordings>
             }),
+            parts: Some(p.downgrade()),
         });
         let owner = Arc::new(Tools {
             family: OWNER_BROWSER,
@@ -1633,6 +1652,7 @@ mod wiring_tests {
             home: "/invented-home".into(),
             area: Arc::new(OnceLock::new()),
             recordings: None,
+            parts: None,
         })
     }
 

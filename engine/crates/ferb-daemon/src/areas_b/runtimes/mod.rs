@@ -70,10 +70,34 @@ pub struct Build {
     pub limit_s: Option<f64>,
     /// Codex: the pinned binary `_build_codex` resolved.
     pub codex_binary: Option<PathBuf>,
-    /// Codex: "planner" when this turn resumes the cached planner thread (P20, RUN-401), else None.
+    /// Codex: "planner" when this turn resumes the cached planner thread (P20, RUN-401), "checker" when a check
+    /// resumes the checker's (`[runtimes] codex_checker_cache`), else None.
     pub cache_role: Option<String>,
     /// Codex: the cache's scope (the device id).
     pub cache_scope: String,
+    /// Codex: the daemon's side of a cached turn (`RuntimeDeps.cache_refusal`, `cache_skipped`, `cache_fallback`),
+    /// set with `cache_role`; the factory hands them to the adapter.
+    pub cache_hooks: Option<CacheHooks>,
+}
+
+/// Why a planner turn may not hold its stable context in the developer role; "" when it may.
+pub type CacheRefusal = Arc<dyn Fn(&Task) -> String + Send + Sync>;
+
+/// The daemon's hooks for one cached Codex turn (catalog.py RuntimeDeps): why a planner turn may not hold its stable
+/// context in the developer role (the planner only), and the journal lines for a skipped or fallen-back cache.
+#[derive(Clone)]
+pub struct CacheHooks {
+    pub refusal: Option<CacheRefusal>,
+    pub skipped: ferb_runtimes::codex::TaskNote,
+    pub fallback: ferb_runtimes::codex::TaskNote,
+}
+
+impl std::fmt::Debug for CacheHooks {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CacheHooks")
+            .field("refusal", &self.refusal.is_some())
+            .finish_non_exhaustive()
+    }
 }
 
 /// A built adapter, and what Python reads off it besides (`getattr(rt, "retried", [])`).
@@ -573,6 +597,7 @@ impl Runtimes {
             codex_binary: None,
             cache_role: None,
             cache_scope: self.device(),
+            cache_hooks: None,
         };
         match entry.sign_in {
             catalog::SignIn::Codex => {
@@ -586,9 +611,21 @@ impl Runtimes {
                 }
                 b.codex_binary = Some(self.deps.programs.codex_binary()?);
                 // P20 (RUN-401): on by default; `[runtimes] codex_planner_cache = false` turns it off
-                let cache = cfg.0.get("runtimes", "codex_planner_cache").ok().flatten();
-                if planner && cache != Some(Value::Bool(false)) {
+                let switch = |key: &str| {
+                    cfg.0.get("runtimes", key).ok().flatten() != Some(Value::Bool(false))
+                };
+                if planner && switch("codex_planner_cache") {
                     b.cache_role = Some("planner".into());
+                } else if mode == "worker"
+                    && role.split(':').next() == Some("checker")
+                    && switch("codex_checker_cache")
+                {
+                    // RUN-466: a check resumes the checker's fixed thread for its cache key, its whole context
+                    // in the user turn; `[runtimes] codex_checker_cache = false` turns it off
+                    b.cache_role = Some("checker".into());
+                }
+                if let Some(role) = b.cache_role.clone() {
+                    b.cache_hooks = Some(self.cache_hooks(&role));
                 }
             }
             catalog::SignIn::Claude => {
@@ -654,12 +691,42 @@ impl Runtimes {
         )
     }
 
-    /// `_codex_cache_fallback`: one journal line when a cached planner turn took today's path instead.
-    pub fn codex_cache_fallback(&self, request_id: &str, why: &str) -> Result<(), HandlerError> {
-        self.journal(
-            "runtime.cache_fallback",
-            json!({"runtime": "codex", "role": "planner", "request_id": request_id, "why": why}),
-        )
+    /// `_codex_cache_fallback`: one journal line when a cached turn took today's path instead: the planner's names its
+    /// request (its task id is the chat request's id), the checker's its task.
+    pub fn codex_cache_fallback(
+        &self,
+        role: &str,
+        task_id: &str,
+        why: &str,
+    ) -> Result<(), HandlerError> {
+        let data = if role == "planner" {
+            json!({"runtime": "codex", "role": "planner", "request_id": task_id, "why": why})
+        } else {
+            json!({"runtime": "codex", "role": role, "task_id": task_id, "why": why})
+        };
+        self.journal("runtime.cache_fallback", data)
+    }
+
+    /// The hooks a cached Codex turn of `role` gets (catalog.py `_build_codex`): the planner's developer-role
+    /// refusal, and the journal lines. A journal failure is not the turn's: the turn goes on.
+    pub fn cache_hooks(&self, role: &str) -> CacheHooks {
+        let refusal: Option<CacheRefusal> = (role == "planner").then(|| {
+            let r = self.clone();
+            Arc::new(move |task: &Task| r.codex_cache_refusal(task)) as _
+        });
+        let r = self.clone();
+        let skipped: ferb_runtimes::codex::TaskNote = Arc::new(move |id: &str, why: &str| {
+            let _ = r.codex_cache_skipped(id, why);
+        });
+        let (r, role) = (self.clone(), role.to_string());
+        let fallback: ferb_runtimes::codex::TaskNote = Arc::new(move |id: &str, why: &str| {
+            let _ = r.codex_cache_fallback(&role, id, why);
+        });
+        CacheHooks {
+            refusal,
+            skipped,
+            fallback,
+        }
     }
 
     // ---------- keys ----------

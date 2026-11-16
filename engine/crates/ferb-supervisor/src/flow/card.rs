@@ -290,13 +290,29 @@ impl Inner {
                         (text, note, verified)
                     }
                 };
-                let mut shown = ferb_orchestrator::py::strip(&text).to_string();
+                // ORCH-651: a row delivered with gaps says each one as not done, under its own state
+                let gaps: Vec<super::Gap> = match member {
+                    Some(m) => m.lock().gaps.clone(),
+                    None => output
+                        .get("gaps")
+                        .and_then(Value::as_array)
+                        .map(|a| a.iter().filter_map(super::Gap::of_json).collect())
+                        .unwrap_or_default(),
+                };
+                let mut shown =
+                    crate::lines::with_gap_lines(ferb_orchestrator::py::strip(&text), &gaps);
                 if !note.is_empty() && !verified {
                     shown.push_str(&format!("\n\n{UNCONFIRMED_LINE}"));
                 }
                 let row = self.said(&shown);
+                let state = if gaps.is_empty() {
+                    "done"
+                } else {
+                    ferb_orchestrator::parts::GAPPED
+                };
+                let verified = verified && gaps.is_empty();
                 self.with_card(&tree.id, &card, |c| {
-                    c.settle(part, "done", &row, "", verified, &task_id)
+                    c.settle(part, state, &row, "", verified, &task_id)
                 });
             } else if ["failed", "blocked", "needs_user"].contains(&status) {
                 let row = self.said(&self.couldnt_do(member, output));

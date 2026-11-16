@@ -96,7 +96,9 @@ public struct StepChecklist: Codable, Equatable {
     public mutating func end(_ snapshot: StepChecklist?) {
         if let snapshot { steps = snapshot.steps }
         let final = snapshot?.states ?? states
-        ended = final.mapValues(\.status).filter { ["done", "failed", "not_finished", "wont_run", "stopped"].contains($0.value) }
+        ended = final.mapValues(\.status).filter {
+            ["done", "done_with_gaps", "failed", "not_finished", "wont_run", "stopped"].contains($0.value)
+        }
         states = [:]
         finished = true
     }
@@ -112,6 +114,8 @@ public struct StepChecklist: Codable, Equatable {
 public struct ChecklistLine: Equatable, Identifiable {
     public enum Kind: String {
         case done, running, upcoming, waiting, needsYou, failed, wontRun, stopped, notFinished, loop
+        /// ORCH-651: delivered, with conditions not done.
+        case gaps
     }
 
     public let step: PlanStep
@@ -135,6 +139,7 @@ public struct ChecklistLine: Equatable, Identifiable {
         case .wontRun: return "won't run"
         case .stopped: return "stopped by you"
         case .notFinished: return "not finished"
+        case .gaps: return "delivered, with parts not done"
         }
     }
 
@@ -149,6 +154,7 @@ public struct ChecklistLine: Equatable, Identifiable {
         let status = live ? (state?.status ?? ended) : ended
         switch status {
         case "done": return line(.done)
+        case "done_with_gaps": return line(.gaps, "Parts not done")
         case "failed": return line(.failed, "Couldn't do")
         case "wont_run": return line(.wontRun, "Won't run: an earlier step couldn't be done")
         case "stopped": return line(.stopped, "Stopped by you")

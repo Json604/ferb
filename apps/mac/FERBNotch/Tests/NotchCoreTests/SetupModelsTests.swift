@@ -134,7 +134,7 @@ final class SetupModelsTests: XCTestCase {
         let rows = snapshot.browsers[0].profiles
         XCTAssertEqual(rows.map(\.stateText), ["Paired · connected", "Not connected: it refused the connection",
                                                "Too old (version 0.1.0): update FERB's extension in this profile",
-                                               "Paired · not connected (open this profile)"])
+                                               "Paired · not open now (FERB opens it when a task needs it)"])
         XCTAssertEqual(rows.map(\.needsAttention), [false, true, true, false])
         XCTAssertEqual(rows[0].version, "0.19.4")
     }
@@ -158,6 +158,18 @@ final class SetupModelsTests: XCTestCase {
         let paired = after.browsers[0].profiles[0]
         XCTAssertFalse(paired.offersPair || paired.needsAttention)
         XCTAssertEqual(paired.stateText, "Paired · connected")
+    }
+
+    /// HAND-564: a paired profile whose extension holds an older key is never "Paired": it needs pairing again, in the
+    /// attention colour, with Pair; once paired again it reads connected.
+    // decision: HAND-564, APP-920
+    func testAPairedProfileHoldingAnOlderKeyNeedsPairingAgain() throws {
+        let snapshot = try XCTUnwrap(BrowserSnapshot(reply: ["browsers": [["browser": "chrome", "profiles": [
+            ["folder": "Default", "state": "paired", "connected": false, "needs_pairing": true, "stale_key": true]]]]]))
+        let row = snapshot.browsers[0].profiles[0]
+        XCTAssertTrue(row.staleKey && row.offersPair && row.needsAttention)
+        XCTAssertFalse(row.stateText.hasPrefix("Paired"))
+        XCTAssertTrue(row.stateText.hasPrefix("Needs pairing again"))
     }
 
     // decision: APP-884

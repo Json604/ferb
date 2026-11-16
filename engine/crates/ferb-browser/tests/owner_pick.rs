@@ -1,14 +1,15 @@
-//! APP-777: a task that browses as the owner because FERB has no profile of its own opens tabs only in the
-//! profile the owner picked for FERB's web work. A profile the worker names that resolves elsewhere is refused
-//! before anything opens; a task the planner gave the owner's identity itself keeps naming any paired profile
-//! (HAND-2). Invented profiles; no browser, extension or store is reached.
+//! APP-777, HAND-580: a task kept to some of the owner's profiles (the pick, when it browses as the owner there;
+//! the profiles the owner's words named for it) opens tabs and takes the owner's tabs only there. A profile the
+//! worker names that resolves elsewhere is refused before anything opens, with the profiles it may use and how the
+//! owner adds one; a task kept to none keeps naming any paired profile (HAND-2). Invented profiles; no browser,
+//! extension or store is reached.
 
 mod common;
 
 use std::sync::Arc;
 
 use ferb_browser::bridge::{Hub, Ledger};
-use ferb_browser::driver::{Driver, Kind, Tasks};
+use ferb_browser::driver::{Driver, Kind, TaskProfiles, Tasks};
 use ferb_browser::pairing::{InstallRow, InstallStore, PairingKey, Pairings, StoreError};
 use ferb_browser::rules::{BrowserApps, BrowserInfo};
 use ferb_core::interfaces::{BoxFuture, Clock};
@@ -86,9 +87,10 @@ impl BrowserApps for Apps {
     }
 }
 
-/// The owner's driver: no name resolves to the owner's pick (HAND-2), "brave/Work" to another paired profile.
-/// Tasks of tree "picked" browse as the owner in their pick; tree "owners" is a task the planner gave the
-/// owner's identity.
+/// The owner's driver: no name resolves to the owner's pick (HAND-2), "brave/Work" to another paired profile,
+/// "iit" and "chrome/Profile 29" to the IIT profile. By tree: "picked" browses as the owner in their pick; "named"
+/// was given the IIT profile by the owner's words (no pick applies); "both" the IIT profile and Brave's; "plus" the
+/// pick and, added later, Brave's; "owners" is kept to none.
 fn router() -> Arc<Driver> {
     let random = Arc::new(Counter::new());
     let pairings = Arc::new(Pairings::new(
@@ -106,16 +108,40 @@ fn router() -> Arc<Driver> {
         Arc::new(|_| None),
     );
     let choose = Arc::new(|named: Option<&str>| match named {
-        None | Some("") | Some("chrome/Personal") => {
+        None | Some("") | Some("chrome/Personal") | Some("chrome/Profile 7") => {
             Ok(("chrome".to_string(), "Profile 7".to_string()))
         }
-        Some("brave/Work") => Ok(("brave".to_string(), "Default".to_string())),
+        Some("brave/Work") | Some("brave/Default") => {
+            Ok(("brave".to_string(), "Default".to_string()))
+        }
+        Some("iit") | Some("chrome/Profile 29") => {
+            Ok(("chrome".to_string(), "Profile 29".to_string()))
+        }
         Some(other) => Err(ferb_browser::Error::refused(format!(
             "no profile called '{other}'"
         ))),
     });
+    let p = |b: &str, f: &str| (b.to_string(), f.to_string());
     let tasks = Tasks {
-        browses_as_owner: Arc::new(|task: &str| task.split('.').next() == Some("picked")),
+        task_profiles: Arc::new(move |task: &str| match task.split('.').next() {
+            Some("picked") => Some(TaskProfiles {
+                pick: true,
+                named: vec![],
+            }),
+            Some("named") => Some(TaskProfiles {
+                pick: false,
+                named: vec![p("chrome", "Profile 29")],
+            }),
+            Some("both") => Some(TaskProfiles {
+                pick: false,
+                named: vec![p("chrome", "Profile 29"), p("brave", "Default")],
+            }),
+            Some("plus") => Some(TaskProfiles {
+                pick: true,
+                named: vec![p("brave", "Default")],
+            }),
+            _ => None,
+        }),
         ..Tasks::default()
     };
     Driver::new(
@@ -140,7 +166,32 @@ async fn open(d: &Driver, task: &str, profile: Option<&str>) -> String {
     }
 }
 
+async fn take(d: &Driver, task: &str, tab_ref: &str) -> String {
+    match d.attach(tab_ref, task).await {
+        Ok(tab) => format!("took {}", tab.tab_id),
+        Err(e) => e.message(),
+    }
+}
+
+const ASK: &str = "Nothing was opened. Use one of those (or leave profile out). If the task really needs \
+     {p}, ask the owner with owner.ask, naming {p} in the question, with the options Yes and No: their Yes, or \
+     their words naming that profile in chat, adds it for this task only. Don't drive the browser's window with the \
+     Mac tools instead: its pages are the browser tools' (they work with the window minimized)";
+
+fn refusal(p: &str, list: &str, why: &str) -> String {
+    format!(
+        "{p} isn't one of this task's browser profiles: it may browse only in {list}, {why}. {}",
+        ASK.replace("{p}", p)
+    )
+}
+
+/// Not paired in this test: a call that reaches the profile's bridge says so.
+fn reached(b: &str, f: &str) -> String {
+    format!("{b}/{f} isn't paired with FERB")
+}
+
 // decision: APP-777
+// decision: HAND-580
 #[tokio::test]
 async fn a_task_browsing_in_the_owners_pick_never_opens_in_another_profile() {
     let d = router();
@@ -148,9 +199,11 @@ async fn a_task_browsing_in_the_owners_pick_never_opens_in_another_profile() {
     let refused = open(&d, "picked.worker", Some("brave/Work")).await;
     assert_eq!(
         refused,
-        "brave/Default isn't the profile this task browses in: FERB has no browser profile of its own, and the \
-         owner picked chrome/Profile 7 for FERB's web work, so this task's tabs open there. Leave profile out (or \
-         name chrome/Profile 7); nothing was opened"
+        refusal(
+            "brave/Default",
+            "chrome/Profile 7 (Google Chrome “Profile 7”)",
+            "the profile the owner picked for FERB's web work (FERB has no browser profile of its own)"
+        )
     );
     // its checker and its plan steps are the same tree
     assert_eq!(
@@ -158,7 +211,7 @@ async fn a_task_browsing_in_the_owners_pick_never_opens_in_another_profile() {
         refused
     );
     // the pick, by its name or by no name, goes on to the pick's own bridge (none paired in this test)
-    let to_pick = "chrome/Profile 7 isn't paired with FERB";
+    let to_pick = reached("chrome", "Profile 7");
     assert_eq!(
         open(&d, "picked.worker", Some("chrome/Personal")).await,
         to_pick
@@ -170,18 +223,116 @@ async fn a_task_browsing_in_the_owners_pick_never_opens_in_another_profile() {
         open(&d, "picked.worker", Some("nowhere")).await,
         "no profile called 'nowhere'"
     );
+    // the owner's own tab in another profile is refused the same way (browser.use_tab, as browser.open)
+    assert_eq!(take(&d, "picked.worker", "brave:Default:12").await, refused);
+}
+
+/// The live case (task 0abecb83, 2026-11-16): the owner's words named their IIT profile; a saved pick elsewhere
+/// doesn't narrow the task. The named profile opens, by name or with none; the pick and any other profile are
+/// refused with the list.
+// decision: HAND-580
+#[tokio::test]
+async fn a_task_whose_words_named_a_profile_browses_there_whatever_the_pick() {
+    let d = router();
+    let iit = reached("chrome", "Profile 29");
+    assert_eq!(
+        open(&d, "named.worker", Some("chrome/Profile 29")).await,
+        iit
+    );
+    assert_eq!(open(&d, "named.worker", Some("iit")).await, iit);
+    assert_eq!(
+        open(&d, "named.worker", None).await,
+        iit,
+        "no name: the one named"
+    );
+    let list = "chrome/Profile 29 (Google Chrome “Profile 29”)";
+    let why = "the ones the owner's words named for it";
+    assert_eq!(
+        open(&d, "named.worker", Some("chrome/Personal")).await,
+        refusal("chrome/Profile 7", list, why),
+        "the general pick isn't this task's"
+    );
+    assert_eq!(
+        open(&d, "named.step.s.verify", Some("brave/Work")).await,
+        refusal("brave/Default", list, why)
+    );
+    // the owner's tab in the named profile is taken (none paired here: the bridge says so), elsewhere refused
+    assert_eq!(
+        take(&d, "named.worker", "chrome:Profile 29:5").await,
+        "that profile isn't one of the owner's paired profiles"
+    );
+    assert_eq!(
+        take(&d, "named.worker", "chrome:Profile 7:5").await,
+        refusal("chrome/Profile 7", list, why)
+    );
+}
+
+/// Two profiles named ("both"): either opens; with none named and no tab yet, the refusal asks which.
+// decision: HAND-580
+#[tokio::test]
+async fn a_task_given_two_profiles_uses_either_and_asks_which_when_none_is_named() {
+    let d = router();
+    assert_eq!(
+        open(&d, "both.worker", Some("iit")).await,
+        reached("chrome", "Profile 29")
+    );
+    assert_eq!(
+        open(&d, "both.worker", Some("brave/Work")).await,
+        reached("brave", "Default")
+    );
+    assert_eq!(
+        open(&d, "both.worker", None).await,
+        "this task may browse in chrome/Profile 29 (Google Chrome “Profile 29”), brave/Default (Brave “Default”), the \
+         profiles the owner's words named for it: name one with the profile argument (for example \
+         profile=chrome/Profile 29); nothing was opened"
+    );
+    assert_eq!(
+        open(&d, "both.worker", Some("chrome/Personal")).await,
+        refusal(
+            "chrome/Profile 7",
+            "chrome/Profile 29 (Google Chrome “Profile 29”), brave/Default (Brave “Default”)",
+            "the ones the owner's words named for it"
+        )
+    );
+}
+
+/// A pick task the owner later gave another profile ("use my brave too"): both open, the pick by default.
+// decision: HAND-580
+#[tokio::test]
+async fn a_profile_added_to_a_pick_task_opens_beside_the_pick() {
+    let d = router();
+    assert_eq!(
+        open(&d, "plus.worker", None).await,
+        reached("chrome", "Profile 7")
+    );
+    assert_eq!(
+        open(&d, "plus.worker", Some("brave/Work")).await,
+        reached("brave", "Default")
+    );
+    assert_eq!(
+        open(&d, "plus.worker", Some("iit")).await,
+        refusal(
+            "chrome/Profile 29",
+            "chrome/Profile 7 (Google Chrome “Profile 7”), brave/Default (Brave “Default”)",
+            "the owner's pick for FERB's web work and the ones the owner's words named for it"
+        )
+    );
 }
 
 // decision: HAND-2
 #[tokio::test]
-async fn a_task_the_planner_gave_the_owner_still_names_its_profile() {
+async fn a_task_kept_to_no_profile_still_names_its_profile() {
     let d = router();
     assert_eq!(
         open(&d, "owners.worker", Some("brave/Work")).await,
-        "brave/Default isn't paired with FERB"
+        reached("brave", "Default")
     );
     assert_eq!(
         open(&d, "owners.worker", None).await,
-        "chrome/Profile 7 isn't paired with FERB"
+        reached("chrome", "Profile 7")
+    );
+    assert_eq!(
+        take(&d, "owners.worker", "brave:Default:3").await,
+        "that profile isn't one of the owner's paired profiles"
     );
 }

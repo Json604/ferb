@@ -303,6 +303,10 @@ pub struct TaskSpec {
     pub keep_tabs_open: bool,
     pub parts: Vec<Part>,
     pub earlier_results: Vec<String>,
+    /// HAND-580 (not in Python): the owner's browser profiles their own words name for this task, as the planner
+    /// gives them ("browser/folder" or a name); code resolves each against the owner's profiles. Dumped only when
+    /// not empty, so every stored spec without one keeps Python's bytes.
+    pub profiles: Vec<String>,
 }
 
 /// schemas.py:412 `Until`.
@@ -530,6 +534,23 @@ pub struct WorkerReport {
     pub loop_action: Option<String>,
     pub probe: Option<Probe>,
     pub part_updates: Vec<Py>,
+    /// ORCH-652: the stated conditions the worker couldn't meet for a reason outside the work; [] (and absent from a
+    /// dump) otherwise. Not Python's.
+    pub gaps: Vec<ReportGap>,
+}
+
+/// ORCH-652: one stated success condition the worker couldn't meet: the condition's text as it was given, and why.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReportGap {
+    pub condition: String,
+    pub reason: String,
+}
+
+/// ORCH-652: one condition a check accepted as not done (`next` accept_with_gaps): its index and why.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CheckGap {
+    pub index: PyInt,
+    pub reason: String,
 }
 
 /// schemas.py:659 `QuestionOutcome`.
@@ -589,4 +610,6 @@ pub struct CheckerOutcome {
     pub question: String,
     pub reason: String,
     pub dropped_edits: Vec<String>,
+    /// ORCH-652: with `next` accept_with_gaps, each unmet condition and why; [] (and absent from a dump) otherwise.
+    pub gaps: Vec<CheckGap>,
 }

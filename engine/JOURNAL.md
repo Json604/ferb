@@ -2718,6 +2718,36 @@ HAND-549 test's fact gains `action`). Unverified: live; the ferbd conversion fro
 to the Mac's RunningApp has no test of its own; whether the owner caused the browser to come forward can't be told
 from the sampler's facts (only "someone switched since" is).
 
+**Follow-up (2026-11-16, HAND-570, live).** Task cdba416b (installed build, extension 0.19.11): browser.act clicked
+a Google sign-in (03:06:11.07-15.18); the sampler saw Brave Browser to Google Chrome at 15.17; the pop-up was
+minimized and told ("A pop-up window opened for a moment on ds.study.iitm.ac.in and took your keyboard focus; I
+minimized it."), but the owner's app was not put back: HAND-560's `came_forward` skipped everything when the result
+carried `window_shown`. Brave was not put back by FERB at 03:06:24: that time is only when the next sampled call
+(browser.navigate) took its before-sample (actions [], owner_input recent false, last_event_wall 03:06:19.82; the
+reads between, snapshot and wait, are not sampled). The owner says he switched back to Brave by hand ("i did it. it
+didn't"): FERB's put-back never ran in that call. Cause, from the code at that build: `came_forward` returned before
+anything when the result carried `window_shown` (the page's fact "explained" the front change), so the only path with
+a put-back wasn't taken; whether the bridge knew Chrome's pid, or what the owner's input was, never came into it (the
+front-app path has no owner-input check). Now: when a surfaced fact says a window of the task's (FERB's own or its pop-up) took the focus, `news()`
+asks the daemon at once (`Host::put_back_owner_app`): ferbd takes the sampler's front app before the call
+(`DisturbanceSentinel::front_before`) and, if the browser is the front app now and wasn't before, puts it back
+through `MacTools::owner_app_back` (the Mac's put-back, skipped if another app is in front). The fact keeps the two
+apart: `put_back` (window minimized, the extension's) and `app_put_back` / `previous` / `app_why`; the worker's line
+says "FERB put <app> back in front". The gateway's call end tries once more only while the browser is still in front
+(its result goes to the worker's fact; no second owner line). Lines: "A pop-up window opened for a moment on <site>
+and took your keyboard focus; I minimized it and put Brave Browser back." / "…; I minimized it." (nothing needed) /
+"…; I minimized it but couldn't put Brave Browser back: another app is in front now." / "My browser window came up
+for a moment and took your keyboard focus when <site> opened a new tab; I minimized it and put Brave Browser back." /
+"A pop-up window opened on <site> and took your keyboard focus; I couldn't minimize it, but I put Brave Browser
+back." Timing: the facts travel only on the tab's replies (HAND-537), so the earliest moment without an extension
+change is the reply that carries them (the act's, at 15.1 here: about 4 s after the click); the `popup` event
+arrives earlier but carries no focus fact and is handled in bridge.rs (being edited by another agent): not used.
+Evidence: ferb-gateway `span_notes.rs::the_live_popup_sequence_puts_the_owners_app_back_exactly_once` replays the
+sequence (a focused pop-up fact and the sampler's Brave-to-Chrome change in one browser.act, on one shared desk):
+Brave is re-activated exactly once, by the fact's path or, when that couldn't, at the call's end (the old early return
+leaves it at zero). Tests tagged HAND-570 in ferb-browser `background_first.rs`, ferb-daemon `b_window_shown.rs` and
+`b_disturbance.rs`, ferb-gateway `span_notes.rs`, ferb-mac-hands `element_actions.rs`. Unverified: live.
+
 ## 2026-11-15 · 83 · Settings → Stored data: every table viewable, a phrase found, a turn deleted so the planner no longer reads it
 
 **What.** The owner's request (STORE-422, his words kept): "where is this exact word written??? i wanna see the db
@@ -3103,3 +3133,641 @@ cache whose artifacts are newer than the sources ran a stale ferb-store build sc
 `30905328` then this tree into one folder): a build folder used before this change should drop its `.work/cargo`.
 `engine/gate.sh lint` and `portable` now also run when only `engine/runtime/` changes (`engine/**`). T-1115:
 the owner's answer on rule 13.
+
+## 2026-11-16 · 88 · The form sink ignores what FERB typed itself; one answer per site for forms and links; a site named in a card's box not built
+
+**What.** GATE-606 (owner, after the live GitHub task of 2026-11-15 23:06-23:10: "Send your details to github.com?"
+three times, then "Open github.com? The link includes Json604"). The coordinator had put three fixes to the owner:
+"a. Something FERB typed itself doesn't count as your private data when it reads it back. b. A Yes for a site covers
+both forms and links on that site, for that task. c. When you name a site in a card reply, it counts as you naming
+the site. It still isn't a Yes to the action." The owner: build all three.
+- a, GATE-607: `confirm::text_private_values_written` and `Written` (ferb-policy `confirm.rs`): in `private_hits` a
+  token, grouped value, phrase or pair counts only if a private record held it before the tree's first call whose
+  arguments hold it (`arg_holds`, GATE-590's spellings). Kept private anyway when an earlier private read could hold
+  it unseen: an image given to the model (output `evidence`, not `image_withheld`) from a call that isn't a
+  `*.snapshot`, or a `payload_outputs` no-content result (fs.list, browser.open/navigate...) whose text holds it
+  (`Gateway::blind_reads`). `Gateway::submit_sink` reruns the match with them only when the plain match found
+  something; `written_args` is `link_facts`' argument cache, split out. The link rule is unchanged.
+- b, GATE-608: `confirm::site_partner` pairs `["sink:new_destination", host]` with `["sink:destination", host]`
+  (exact host string); `authorize_held` takes the partner's answer, Yes or No, when a need has none under its own
+  key in the tree. Nothing new is recorded; every other key has no partner. Checked first: the form's Yes was
+  already one per host per task (the key holds the host only; the need is neither `always` nor `fresh`).
+- c: not built (see Open).
+
+**Why.** The live case: the repository name the worker composed, typed into github.com's form and shown back by the
+signed-in page, was the "private value"; the form's Yes didn't cover the link to the same host under its own key.
+
+**Evidence.** `ferb-gateway/tests/link_rule.rs`: 13 new cases (the live sequence replayed; typed-first, read-first,
+a site found outside, laundering through a private search box, a screenshot, a withheld image and a snapshot's
+picture, a folder listing; form Yes covers the same host's link, not another host or www.; a form No refuses the
+link and a link No the form, both unasked; the next task asks again). With both changes switched off 8 of them fail
+and the 5 "still asks" guards pass; with blind reads off, 2 fail. `ferb-policy/tests/site_answer.rs` (2: the pair;
+no other rule's key has a partner). ferb-gateway all 129 pass, ferb-policy all pass, ferb-supervisor all pass (it
+drives the real gateway); clippy -D warnings clean on both crates. The 39 earlier link_rule cases and the 35
+outside_destinations cases pass unchanged.
+
+**What remains of the live case.** With a and b: the form isn't asked; the link still is, once: "Open github.com?
+The link includes “json604”" (detail: "FERB treats “json604” as yours because it read it in your chats or FERB's
+memory. Opening this link shows it to github.com. Yes also lets FERB open github.com in later tasks."), because the
+account name came from FERB's own context, tied to no site, and the owner never named github.com (GATE-589 C). c is
+what would remove it.
+
+**Open.**
+- c is not built. The box's words reach the task by structure, with no planner call (`correct_from_question`,
+  `apply_steering(spec: None)`); the planner runs only in a chat turn (`turn.rs` intake/supervise), and resolving a
+  card reply's words to sites needs that turn or a new planner call and its prompt (another agent's files). A
+  code-only version (the asked host accepted when its main label appears as a word) was not built: it can't read
+  intent, so "don't send it to github" would name github.com and the action would go ahead without the question
+  (rule 4; GATE-510). "Got it." (`steering::acknowledgement`) is unchanged for the same reason.
+- The "Publish on github.com as GitHub Json604?" wording isn't wording-only: the no-recipient card
+  (`floor:new_recipient`) has no value saying the place is a web form on a named site; not changed.
+- a relies on the records: a context block given with an empty origin label is not recorded (`context_exposure`
+  skips it); not audited block by block. Images can't be read for the value, so any non-snapshot private image
+  before the typing keeps the old rule for every value.
+- No question corpus in the fixtures: the change's effect on recorded history is unmeasured (the archive replay of
+  entry 63 ran on the owner's Mac).
+
+## 2026-11-16 · 89 · Delivered, with gaps; no checker for a not-done attempt that did nothing; the checker's cached first call
+
+**What.** Three owner answers of 2026-11-16 on a design review of the live HCI step (tree 3a0cc55b).
+- ORCH-651 (owner: "im ok with a delivered, with gaps\" ending part"; the checker's Q&A of ORCH-650 stays, no cap on
+  its questions), ORCH-652 (mechanism), PRM-357 (owner, refines PRM-303 for a named gap). The worker report gains
+  `gaps` [{condition (its text), reason}] and the check `next` accept_with_gaps with `gaps` [{index, reason}]
+  (`ferb-context` schemas, `ferb-orchestrator` models/validate; a dump has `gaps` only when there are some). The
+  check's report block shows the worker's gaps (only when it named some). `attempt.rs` `gapped`: code takes a gapped
+  accept only when the worker reported done, at least one condition is met on this check's own evidence (not carried,
+  not "didn't apply"), every unmet one but a declined one has a reason, none is one a literal check proved false; else
+  it reads as the check's plain accept (`task.gaps_refused`). Findings go to the fix round as for an accept. The step
+  ends `done_with_gaps` (`finish_step`); its plan output and the final frame carry `gaps`; `final_` writes the answer
+  then `lines::gap_lines` ("Not done: <condition> — <reason>.", one per gap, code-written); `verified` false; the
+  unconfirmed note leaves gapped conditions out. Plans: `DONE`/`ENDED` include it (steps after it run); checklist
+  state `done_with_gaps`; a card row `GAPPED` (never counted done; the card ends `done_with_gaps` when every other row
+  is done or stopped); trace label "delivered, with parts not done"; `task_state` words.
+- ORCH-653: before a step whose dependencies include a gapped step, if its plan declares an outside effect (kind
+  converse or a conversation scope, or an answered condition whose check is sent/paid/submitted/trashed/deleted), one
+  question through `wait_for_owner` (Yes/No): "<step> finished with these parts not done: <condition> — <reason>. Go on
+  to <step>?". No: the step isn't started (`after_gaps`), the plan ends delivered with gaps (`after_gaps_only`), the
+  step told "Not done: <step> — not started: you said not to go on after the parts not done.". Unattended: needs_user.
+- ORCH-654 (owner: "yes for A and no for B"): a valid not_done report with no question, whose task's recorded calls
+  are all observations or FERB's context reads and no file changed (`not_done_without_acting`), skips the checker
+  (`verify.skipped`) and fails with the worker's reason (ORCH-568's reply). RUN-461's file-step check unchanged.
+- RUN-466 (owner: "ok lets do this to save on token money and time"), RUN-467: a Codex check resumes a fixed-id
+  template thread (role checker, `[runtimes] codex_checker_cache`, default on) with empty developer instructions and
+  its whole context in the user turn; the template holds only the system prompt and a turn context whose effort is
+  the turn's (null when none). Workers keep ephemeral threads. ferbd's factory now sets the cache hooks (refusal,
+  skipped, fallback), which it never did (every cached planner turn used the developer role unchecked; RUN-416).
+- ORCH-655: a check's previous-attempts block moves after the task's steady blocks, just before the code facts.
+- FERB.app: a gapped row (amber "Delivered, with parts not done", text not collapsed), checklist line, turn status
+  words, Tasks list words, opens the notch; the playground's summary row ends gapped.
+
+**Why.** Live 2026-11-15: a finished HCI report failed whole on one condition only the owner could meet (real
+participants, an instruction conflicting with the brief); checker first calls of 93k-137k tokens were never cached.
+
+**Prompt lines (prompt_changes.json, named in every replay).** worker.md, after `artifacts`: "- gaps: each stated
+success condition you couldn't meet for a reason outside the work (the owner's instructions conflict with a source, an
+input only the owner has is missing): the condition's text as given and the plain reason; [] otherwise. Do everything
+else in full (status done when it is); never fill a gap with made-up content shown as real." verifier.md, after
+accept_unconfirmed: "- accept_with_gaps: the worker reported done, at least one condition is met on fresh evidence, and
+each unmet one can't be met by more work (an input only the owner has, the owner's words conflicting with a source):
+`gaps`, each unmet condition's index and the plain reason; FERB shows the owner what was delivered and each gap as not
+done. A condition more work could meet is a retry. Invented evidence presented as real (made-up participants, data or
+quotes) is an unmet condition, named as such in `gaps`, and its sentences are `findings`." supervisor.md unchanged.
+
+**Named differences.** Schemas: `schemas::before_gaps` takes ORCH-652's change out of a built schema; the catalog
+parity test (64 worker schemas, 6 named, the checker's: 71 changed), the replays' schema naming and the runtimes check
+compare through it; pydantic's literal_error for `next` lists accept_with_gaps (122 cases, `gaps_named`); the
+runtimes check's scripted answers get `"gaps": []`. ORCH-654: Python's recordings ran the checker on every report, so
+their replays keep it (`Daemon::checks_unacted_not_done`, true in the test daemons and ferbd's stand-in script).
+ORCH-655: a recorded check's parts are compared in the new order (`named_diffs::attempts_last`).
+
+**Evidence.** ferb-supervisor `tests/gaps.rs` (7, scripted on recorded chat scenarios): gapped ending (row
+done_unverified, outcome done_with_gaps, answer "Said hello.\n\nNot done: Five real participants took part in the test —
+Only you can bring real participants; none were invented."), a reasonless gap refused, invented evidence named and its
+sentence fixed, a submit step asked first and a No stopping it, the skip and its question exception, the order.
+ferb-context parity (+`report_and_check_schemas_carry_gaps`), ferb-orchestrator models, ferb-daemon b_runtimes,
+ferb-runtimes `codex_cache` (4). Clippy -D warnings clean on the crates changed.
+
+**Addition: migration 0064 (the coordinator's call).** `0064_task_done_with_gaps.sql` rebuilds `tasks` as 0021 and
+0049 did (copy, task_context held aside and put back, row ids kept, `tasks_tree` and `tasks_status` made again) with
+done_with_gaps in its CHECK, so the row holds the state itself. Readers: the Tasks list (the row's status, FERB.app's
+"Delivered, with parts not done"), `ferb stats` ("with gaps", in the head only when there are some, so a store without
+one prints as before), `admin::status_label`, schedules (a gapped run is neither a success nor a failure, as unconfirmed),
+retention (ended: not running/planned/paused), learning (verified only), the trace label, the projector's checklist ends
+(mirrors StepChecklist). Tests: ferb-store `a_populated_store_at_0063_upgrades_to_take_done_with_gaps` (every status, a
+context row with its foreign keys: rows and row ids equal, indexes, foreign_key_check and integrity_check clean, the old
+CHECK refused the state and the new one takes it); the fresh-store test names 0064's tasks SQL (`tasks_with_gaps`); the
+0062 upgrade applies 63 and 64; "a newer FERB" names 64; ferbd `a_task_with_gaps_reads_with_gaps`. The chat entry's
+state stays `done` (open false) with `status: "done_with_gaps"` in its body, which FERB.app and phones read.
+
+**Unverified / open.** Nothing live: LIVE-957, LIVE-958, LIVE-959. A do step whose plan declares no effect isn't asked before it starts (T-1116, the owner's). A card
+task whose No leaves a row unfilled ends failed, not gapped. Each recorded call's header names the total count, so a
+second check shares no recorded calls with the first. Cache hits, a shared checker key's effect on parallel checks, a
+resumed thread's compaction: live only.
+
+## 2026-11-16 · 90 · Pairing that converges: a stale key never fails a pairing, its flood costs one row, extension 0.19.12 drops a dead key, the tour asks only real steps
+
+**What.** HAND-563 (owner, the live report's words), HAND-564..566, APP-920, LIVE-960.
+- Daemon (works with the store's 0.19.11): the hub keeps each refusal with its kind (`bridge.rs` `Refusal`: blocking,
+  stale key, token). `pair_one`'s early end reads only blocking ones (`Hub::blocking`); a `pair` accepted clears the
+  install's refusals; a wait whose token was used but whose profile never authenticated says `not_connected`
+  (`PAIR_NOT_CONNECTED`), not "wasn't answered". Pair all pairs again a paired, unconnected profile whose install
+  presented a stale key (`Cx::paired_stale`) instead of skipping it with an impossible step; `setup.browsers` marks it
+  `needs_pairing` + `stale_key`, the page line is `PAIR_STALE`. Per connection, the first stale-key hello of a reason is
+  journaled (HAND-530 facts) and answered with `stale_key` {nonce, seq, reason, accepted for replay}; repeats are
+  counted, answered at most every 30 s, and summed in one row when the connection authenticates or ends; its other
+  messages are dropped unread while it has only stale hellos. An unsigned hello from a known install is answered
+  `pairing_required` (still journaled, nothing changes).
+- Extension 0.19.12 (protocol 21, minimum 0.19.0): `staleKey` drops exactly the key that signed the refused hello (or
+  moves a replayed counter), `pendingPair` goes as soon as a link is up, `linkEnded` clears its own handshake close and
+  sets the backoff that every non-forced `ensurePort` respects, one hello in flight at a time.
+- FERB.app: no orb at Pair all's start; it flies only to a browser with an `off` row and goes home at the next pick.
+  `PairProgress.reconcile` counts a profile FERB reads connected after Pair all as paired; "need a step from you" only
+  for reasons with an owner step, "Try again" otherwise; Settings rows say "Needs pairing again" for a stale key and
+  "Paired · not open now (FERB opens it when a task needs it)" for a closed paired profile; Pair all shows whenever a row
+  offers Pair.
+
+**Why / cause (proven from the 02:53 install's journal, log and ext_installs).** FERB's data was wiped; Chrome
+Default's extension kept install ce58edbf with the previous install's key. Its connection (connection 1, daemon start)
+was answered `pairing_required` (no record). Pair all at 02:53:56 opened its wake page and pairing page; the `pair` was
+accepted at 02:54:04.2615 (its page took 5.5 s against the others' ~3 s, consistent with the extension's state lock
+being busy); 4 ms later a hello signed with the old key (seq 169,687, queued in the extension before it processed
+`paired`) was refused `bad_mac` and stored as the install's refusal (`note_refusal`); `answered_but_refused` read it via
+`hub.problem` and `pair_failed {"reason": "problem"}` came at 02:54:04.345. Then the extension swapped keys and its new
+hello was accepted (`hello()` clears the refusal): ext_installs shows last_seq 21,837 and version 0.19.10 for Default,
+so the profile worked and Settings rightly said Paired. The tour mapped the `problem` row to "The others need a step
+from you", and its orb flew at every Pair all (`IntroSetupBeats.browsers` launched it at the start to any browser
+window), then home. Any profile whose extension connected before its pairing finished and whose queue held an
+older-key hello can hit the same race; a fresh profile with no stored key can't (no MAC to refuse). Also found:
+`refused` of a `pair` with a used token (a late page, HAND-538's re-opens) was stored the same way and could fail a
+pairing too (now a token refusal, never blocking); a profile whose key is stale for good (a restored store) was
+skipped by Pair all with a step that said to pair it.
+
+**Not proven.** What produced 46,331 messages on connection 1 in about 40 s before the pairing, and the 21,837-message
+burst after. Before a welcome, background.js posts only hello and pair (`send`), so the 46k were hellos piled up behind
+its state lock or something not in this code. Found and fixed, each shown by a harness run against HEAD's background.js:
+200 hello requests post 200 hellos (now 1); a send while the link is down starts a native host at once, bypassing the
+1→60 s backoff (now waits); the handshake timeout's own `disconnect()` doesn't fire onDisconnect in Chrome, leaving a
+dead port. Which of these, if any, made the flood is inferred, not seen.
+
+**Scale.** No cap per browser on Pair all (HAND-564): both live failures had causes other than crowding, six of seven
+paired within 5 s twice, and a cap adds a wave's wait. 30 profiles: one plan, one window and page each, all paired.
+
+**Evidence.** ferb-browser: `stale_key.rs` (2: a 2,000-hello + 2,000-message older-key flood after a pairing gives one
+answer, one row, key reads only for hellos, then the new key's welcome and a summary row with 2,001 repeats; an unsigned
+hello from a known install), `extension_pairing.rs` (8), transcripts replay with one named difference
+(`without_stale_key`). ferb-daemon `b_browsers` +3 (the live race with three endings — it fails with Python's rule; Pair
+all re-pairs a stale profile and setup.browsers marks it; 30 profiles). Swift: PairProgressTests +2, SetupModelsTests +1,
+SetupModelTests +1, IntroControllerTests 1 rewritten + 1. `cargo test -p ferb-browser -p ferb-daemon`, ferbd native_host,
+browser_keepalive and diagnostics pass; clippy -D warnings clean on both crates.
+
+**Fixed against Python.** The pairing wait ends only on a blocking refusal; a used token's wait that never connects says
+not_connected; Pair all pairs a stale profile again; repeats of a stale key on one connection are counted, not worked.
+
+**Named differences.** `transcripts.rs` `without_stale_key`: the refused line for bad_mac/replay carries `stale_key`.
+
+**Unverified.** Everything live (LIVE-960): no real browser ran. Whether Chrome delivers the `refused` after `paired` in
+the order the daemon wrote them (assumed: one native port is ordered). The owner publishes 0.19.12; until a profile
+loads it, a stale key is healed only by Pair all or a task's browser_pair, as before.
+
+## 2026-11-16 · 91 · A site named in a safety check's box (GATE-606 c), and the red-team's fixes: by address or the card's own host, a No stands, the owner's answers FERB.app's alone, no typing into FERB
+
+**What.** GATE-606 c (entry 88's open item): GATE-609, then GATE-610, GATE-611, GATE-612 and HAND-571 (all agent) after
+an independent red-team review of GATE-607/608/609 (2026-11-16; a and b judged safe as built).
+- Path (GATE-609). Words typed in a safety check's box (`chat.correct`, not an exact option, which stays that option:
+  GATE-510) get one planner call before they steer the task: `control.rs` `correct_from_question` → `Inner::card_sites`
+  → `supervise_turn` (the chat path's own `_supervise`: same prompt, blocks, open questions, task state; no new prompt
+  text: supervisor.md's targets and "ferb_check ... correction (continue)" lines already cover it). The planner's
+  message is the box's words plus code's line "Typed in the box of FERB's open question <id>, never a Yes or No to it.
+  The question (data): <the card's text, wrapped>" (`CARD_BOX_FACT`).
+- Lock 3 (`card_named_sites`): only an answer that is `continue` on this task with its spec names anything; stop,
+  pause, retry, a reply, an answer or a new task names nothing. Everything else of the answer (goal, conditions,
+  answer_question, text) is unused; the worker gets the box's words as before.
+- Lock 2 (GATE-611, `site_in_owner_words`; replaces the first version's "first label of the registrable name", which
+  the review showed passes hosting-zone subdomains on ordinary words): of the spec's sites the task lacked, a host
+  counts if the owner typed its address (`typed_hosts`: a token with a scheme, or a well-formed host such as
+  "gitlab.com"); by its name alone ("GitHub", MEM-430's `said_as_words`) only a host the card itself asks about
+  (`Approval::site_hosts`, new, set in `ask_confirmation` from the needs' site keys, never from the card's text), only
+  exactly `<label>.<tld>` after `www.`, tld com/org/net/edu/gov (`BY_LABEL_TLDS`), label of 3+ ASCII letters, digits or
+  hyphens. No public suffix list is vendored (the strict subset instead): ccTLDs, hosting zones' TLDs and every
+  subdomain are refused by name and need their address.
+- Effect: kept hosts join the tree's `targets.sites` inside `apply_steering` (new `named_sites` argument; chat passes
+  `[]`) before `record_request`, so the gateway's `host_named` (GATE-537) counts them, for this task, exact host.
+- A No stands (GATE-610): `Gateway::site_cleared` replaces the `approved || host_named` shortcut in the five sink
+  checks (`url_sink_need`, `submit_sink`, `identifier_sink`, `identifier_cleared`, `file_send_needs`): with this tree's
+  un-reopened No under the host's form key or link key the need is made and `authorize_held` refuses it with that No.
+  Typed words never undo a No.
+- The owner's answers are FERB.app's (GATE-612): chat.send, chat.approve, chat.answer, chat.correct are `app_only`
+  (`auth::OWNER_APP_ONLY`). Callers found in the repo: FERB.app (DaemonConnection.swift), its playground's in-app
+  stand-in, tests and fixtures; no shipped program, `ferb` command or the extension. Test daemons and ferbd's stand-ins
+  answer the app check themselves; a checkout-built daemon accepts the notch's identifiers (app_peer Checkout mode).
+- No typing into FERB (HAND-571): `MacDriver::real` (the one input path posting session-wide; every other path posts to
+  the target's pid) also stops before each event when the system-wide focused element belongs to FERB
+  (`Apps::keyboard_focus_pid`, `AXFocusedUIElement`; `OWN_FOCUS`). Hunks: driver/mod.rs the `OWN_FOCUS` constant, the
+  `Apps::keyboard_focus_pid` default, two lines in `real`'s guard; native/apps.rs `NativeApps::keyboard_focus_pid`.
+- Replies (code-written): "Got it: github.com is a site you named for this task." / "Got it: a and b are sites you
+  named for this task."; a site read but not named: "Got it. To name a site for this task, type its address (like
+  example.com)." (with some named: "... for this task. To name another site, type its address (like example.com).");
+  a refused host is never echoed (the planner may be injected); no site read: "Got it." unchanged. A `task.card_sites`
+  journal row {task_id, approval_id, request_id, named, refused, why}.
+- `ferb_policy::destinations::site_host` (GATE-537's host form) shared by `host_named` and the supervisor. Seam
+  `Daemon::reads_card_replies` (true); `Reads::reads_card_replies` in ferbd (seams-off.txt).
+
+**Why.** The owner: "it should understand the text request and do that". Code alone can't read "don't send it to
+github"; the planner alone (assumed injectable) could name any host. Review findings: (1) "use my Brave GitHub" named
+evil.github.io, "no, send it to my work email instead" evil.it.com, "don't send that" t.co; (2) a named host bypassed
+an earlier No; (3) any owner-uid program could call the four RPCs, and FERB's own foreground keys could land in the
+notch's key panel.
+
+**Named differences (ENG-6/ENG-17).** Python recordings' card replies had no planner call: the replay harness's
+`reads_card_replies` is false unless a scenario says true; ferbd's `ScriptReads` and support_control say false.
+ferb-rpc golden: the four methods are app_only here, cli in Python's table (`OWNER_APP_ONLY`).
+
+**Evidence.** ferb-supervisor `tests/card_sites.rs` (6: by address or the card's own host by name, both ways; every row
+of the review's table, refused both when the card asked about github.com and about that host itself, except
+github.com; only a continue of this task; refusal, redirect, the card's text, an already-named site; the reply strings;
+chat.correct app_only). `replay_more.rs` (6 with a scripted planner on `correct_pending_check`, card host github.com,
+through the real supervisor and gateway: "use my Brave GitHub" names it; "yes please"/"1"/"ok"/"that one"/"the site
+above" refused; "don't send it to github" read without the site or as no correction: nothing; "not github, use gitlab"
+refused with the type-its-address reply, "use gitlab.com instead" names gitlab.com; the review's decline "no, skip it
+and just finish" with an injected evil.it.com: refused; untyped hosts refused; stop or another task: nothing).
+ferb-gateway `link_rule.rs` +3 (the live sequence with a+b+c, asserting the card's `site_hosts`; a box naming nothing
+re-asks; a No stands after naming, which fails with the check removed), `outside_destinations.rs` +1 (a named site
+still asks before a new recipient there). ferb-rpc golden and auth tests. ferb-mac-hands `own_apps_and_opened_files.rs`
++1 (Return and cmd+v refused while the notch holds the focus, nothing posted; posted once the focus is the target's).
+GATE-512's `ferbs_own_checks_take_only_an_options_words` unchanged and passing. Test runs: see the report.
+
+**Live GitHub sequence, a+b+c.** Form: not asked (a). Link: asked once; answered in the box with "use my Brave GitHub",
+set aside; the retried link asks nothing. Remaining: the one question the owner answered in its box.
+
+**Not built.** The review's 3(iii), a paste in a card's box marked as data that names no site and answers nothing:
+it conflicts with ORCH-518 (owner: everything the owner pastes into chat counts as their words, answers and
+corrections included); T-1117 asks the owner. HAND-571 already stops FERB's own keys and pastes reaching the box.
+
+**Holes not closed.** The card's own host is named when the owner types its name while declining ("don't send it to
+github") and the planner (misread or injected) keeps it in its sites: lock 3 relies on the reading. An attacker who
+owns `<ordinary word>.com` and gets a card asked about it is named by that word. A System Events keystroke script still
+runs after its own Yes (it asks every time, GATE-585/586) without the focus check. Not true, as entry 91 first said: a
+schemeless host typed in a box didn't count through `from_words` (it needs a scheme); a full URL did, in chat and box,
+negated or not, and still does. A box reply waits for the planner call (the app clears the card at once).
+
+**Unverified.** Everything live (LIVE-961): no real model read a box's words; that macOS reports a key non-activating
+panel as the system-wide focused element (HAND-571) is assumed from AX behavior, not observed.
+
+## 2026-11-16 · 92 · A task's own words name its browser profiles; a later Yes adds one; the Mac tools never stand in for a connected page; a put-back said only when it held
+
+**What.** HAND-580..584 (agent), HAND-585 (owner).
+- HAND-580: `TaskSpec.profiles` (planner field, Rust addition; its JSON-schema description,
+  `schemas::TASK_PROFILES_DESCRIPTION`, is the only instruction: no prompt line). `browse_as` reads it first: each
+  name resolved by the resolver's own steps (`browsers::resolve_named`; no hit or several: dropped,
+  `task.profiles_unresolved`); resolved ones go on the tree (`TreeState.profiles`, `task.browses_in`), the worker is the
+  owner, FERB's general browsing question isn't asked and the pick isn't applied. ferb-browser `Tasks::task_profiles`
+  (was `browses_as_owner`) gives the driver the tree's pick flag and named profiles; `Driver::task_choice` replaces
+  `picked_only` for browser.open, browser.use_tab (`attach`) and browser.pdf (`in_use_profile`): a named profile must
+  be allowed; with none named the pick, else the one named, else the newest tab's, else a refusal listing them. The
+  refusal (`outside_task`) lists the allowed profiles and says how the owner adds one (owner.ask, Yes/No) and not to
+  drive the window with the Mac tools. The worker gets a code fact after the task block (`task_profiles_fact`).
+  ORCH-645's `QUESTION_SETTLES` now says the answer covers tasks whose words name none.
+- HAND-581: additions while a restricted task runs, never removals, this task only: a correction's `profiles`
+  (`steered_extras`, control.rs, after `keep_tabs_open`: 5 lines), the owner's answer to the task's owner.ask naming a
+  profile (`browsers::named_in_words`), or Yes to its Yes/No question naming one. New gateway seam
+  `Observer::owner_answered` (gateway.rs `ask_owner`, after the answer, never for an orchestrator answer or a hidden
+  one; retry questions excluded) → `Watch` → `Inner::owner_answered_task` → `add_task_profiles`
+  (`task.profiles_added` {how: corrected, answered, answered_yes}). A tree kept to nothing isn't narrowed.
+- HAND-582/583: ferbd `MacTool::unavailable` (the gateway's step before any question) for mac.act, mac.click,
+  mac.pointer and mac.open: ferb-mac-hands `web_target` (driver `web_content`/`pointer_web_content`: the element,
+  focus or point is inside an AXWebArea with an http(s) address of a browser app; mac.open with an http(s) url for a
+  browser or the default one) → `Cx::page_route` (a connected owner profile of that browser with a tab at that
+  address, `tab_at`; for mac.open any connected profile) → `web_route_fact` {code use_browser_tools, profiles,
+  tab_ref, performed false, asked_owner false, detail}. No route: today's path.
+- HAND-584: `MacTools::put_back` reads the front app five times 0.1 s apart after the first 0.15 s, activates the
+  previous app once more if the raised one is back, and says put_back only if the last read sees the previous app;
+  else why (macOS didn't bring it back / <app> came back in front after FERB put it back / another app is in front).
+
+**Why.** Live 2026-11-16 04:17, task 0abecb83 (fresh install, seven paired profiles, nothing picked): "open my iit
+chrom and compelte my already open iit assingemnts. submti them too". `browse_as` ran ORCH-648's `names_profile` on
+the request words; "iit chrom" holds neither "ds.study.iitm.ac.in" nor its email as whole words, so FERB asked its
+general question (04:17:43), the owner picked chrome/Profile 15 as the general default, the tree became `as_owner`, and
+`picked_only` refused browser.open in chrome/Profile 29 (04:18:09) although the planner's goal named it. The worker
+then used mac.snapshot/mac.act on Chrome, met the minimized window, and the foreground question brought Chrome up.
+After the resume (04:28) mac.open opened the IIT pages in Chrome as a front window and the notice said Brave was put
+back; the owner saw it wasn't. The owner: "but what if the task later needs it and i give permission in text or chat,
+will it work??" and HAND-585's words.
+
+**Evidence.** ferb-browser `owner_pick.rs` (5: the pick task as before with the new refusal, the live case's named
+profile with a pick elsewhere, two named, a profile added beside the pick, a task kept to none; use_tab consistent).
+ferb-supervisor `task_profiles.rs` (8: no question and no pick for a named profile with or without a saved pick; two
+named, a "ferb" task made the owner's; an unresolvable name meets the one question once; no name uses the pick;
+answers: No adds nothing, Yes to a Yes/No question naming scaler adds it, words naming New_Personal add it, a non
+Yes/No option adds nothing, `browsing.chosen` never written; a pick task gains one, a free task isn't narrowed; a chat
+correction listing scaler adds it, how corrected). ferb-daemon `b_browsers` (+2: resolution and words; `tab_at`).
+ferb-mac-hands `element_actions` (+2: web targets named, toolbar/browser page/non-browser/mailto not; the verified
+put-back: ignored activation, one rebound recovered, repeated rebound refused). ferbd `tools_mac` (+1: the refusal
+fact's exact words). ferb-context `parity` (+1, and the recorded comparison takes out `profiles`).
+
+**Named differences (ENG-6/ENG-17).** The recorded answer schemas lack the task's `profiles`:
+`schemas::as_recorded` (= `before_gaps` then `before_profiles`) replaces `before_gaps` at its six comparison sites
+(parity.rs twice, b_runtimes.rs, support_control, replay harness, ferbd chat_replay); parity counts the schemas holding a
+task (`PROFILED`). `TaskSpec`'s dump carries `profiles` only when not empty, so every recorded spec keeps Python's bytes.
+The `picked_only` refusal's words (Rust-only, journal 59) are replaced by `outside_task`'s.
+
+**Fixed against Python.** resolver.py:48-60 / ext_bridge.py:3016 took any profile the worker named (kept fixed: now
+against the task's allowed set); supervisor.py:3004 never read the task's named profile.
+
+**Not built (owner's or open).**
+- The foreground card for a browser whose page FERB can't reach still reads "Let FERB use your screen in Google
+  Chrome for this task?" with no why: adding "FERB's extension isn't connected in this profile, so it needs the
+  window" is owner-facing wording (proposed, not changed).
+- Remembered preferences (a memory item naming a profile) are not the owner's words for a task: the schema says
+  "never from memory or an earlier task alone" (journal 68's open owner question, still open).
+- browser.tabs still lists every connected profile's tabs, allowed or not (journal 59's open owner question).
+- A schedule's run scope `profile` is shown, not applied to its runs' browser tools; a schedule with identity "ferb"
+  and a profile still asks the general question when made.
+- Additions made by an answer live on the tree only: a restart keeps the planned profiles (the spec) but not them.
+- Why the 04:18 browser.tabs for chrome/ds.study.iitm.ac.in returned [] while the window showed a FERB group named after
+  task a2a21bc2 (whose cleanup recorded its tabs closed) is not determined.
+
+**Unverified.** Everything live (LIVE-970): no real planner filled `profiles`; whether macOS's AX URL of a web area
+equals the extension's tab URL for every page (fragment and trailing slash aside) is assumed; whether the settle
+window catches Chrome's late raise on this Mac (macOS 27.2) is inferred, not measured; no alternative activation route
+(NSWorkspace.openApplication with activates, AXFrontmost, an Apple Event, FERB.app's yieldActivation) was built or
+tried; ferb-mac-hands `native.rs` `put_back_by_hand` (ignored) says how to watch the reads on a real Mac. The worker's
+profile fact has no test of its own.
+
+**The owner's answers (HAND-588, 2026-11-16), built.**
+- Q1 "yes, only from my own words" → HAND-587. `browse.rs` `owners_own` filters the planner's resolved profiles
+  against code's facts (`Daemon::profile_sources`, ferbd: `touched_in_words` on this message, `named_in_words` on the
+  owner's own remembered words — current owner_stated items' content and `typed_behind_memory` — and on the other
+  current items, the paired owner profiles; areas_a `remember::memory_texts`). Kept: what this message's words touch;
+  only when none is, a paired profile the owner's remembered words name. Dropped with why (`task.profiles_dropped`);
+  `task.profiles_remembered` journals a remembered one. This tightens HAND-580: a planned profile nothing ties to
+  the owner's words (this message or theirs remembered) is now dropped, so a description the words don't touch
+  ("my college chrome" for a profile named "IITM") falls to the pick or the question instead of being taken on the
+  planner's word. The live message touches the IIT profile through "iit". The schema description, before: "…Never
+  from memory or an earlier task alone. A correction…"; after: "…When this message names none, a profile the owner's
+  own earlier words name for this kind of work (a remembered item marked "your words") counts; never one FERB only
+  observed or inferred, or an earlier task's. A profile this message names replaces a remembered one. A correction…"
+  (the recorded comparison takes `profiles` out whole, so no new named difference). Corrections and answers
+  (HAND-581) are not filtered this way.
+- Q2 "yes it can see them" → browser.tabs unchanged.
+- Q3 "yes it should if it can" → HAND-586. `Tool::window_reason` (default None; ferbd `MacTool` and the wrapper),
+  set by the gateway's `needs` as the foreground need's `window` value (never for a script); ferb-mac-hands
+  `window_reason`: "page" when the input is in a page's content (`web_target`), "controls" for the rest of a browser
+  app. `wording.rs` `window_why` begins the card's detail: "FERB's extension can't reach this part of <app> (a profile
+  it isn't connected in), so FERB needs the window." / "(the browser's own controls)" / both halves for "browser".
+
+Tests: supervisor `task_profiles` +4 (remembered owner words used; observed-only and forgotten dropped to the
+question; this message's profile wins; unpaired remembered dropped), daemon `b_browsers` +1 (the live message touches
+the IIT profile; "write a greeting" and "ex" touch none), policy `raw_input` +1 (the three card details, none without
+`window`), mac-hands web-target test +2 assertions (page, controls).
+
+## 2026-11-16 · 93 · An action check proves "not done" only when it reads every route the task used; the planner reads any task's trace
+
+**What.**
+- ORCH-660 (agent, refines ORCH-576/609). `verify.rs` `unread_routes`. A sent, paid, submitted, trashed or deleted
+  check gives met:false only when the task's recorded calls used no route the check can't read. These count as such
+  routes:
+  - any call whose structural kind is mac_input, applescript or run_shell (`UNREAD_ROUTES`), errored calls included
+    (`cards::attempted`: finished calls, refused calls and FERB's own questions left out);
+  - one of the check's own action kinds aimed at another target, per kind: submitted, a submitting call to another host;
+    trashed or deleted, a folder holding the path;
+  - one of its own calls on its target that ended with an error.
+
+  Otherwise the verdict is met:null, path code. The evidence says "FERB's records can't settle it: they show <what's
+  missing> in this task, but <routes>", naming at most 5 routes, then "<n> more". Because the observation is no longer
+  met:false, `attempt.rs` `verify` doesn't let it override the checker. The checker reads it as FERB's code fact and
+  its own fresh verdict stands. The owner's No (`declined`) still comes first. With no such route, a claim is still
+  proved false, told as before (ORCH-609 unchanged). `downloaded` is unchanged: a file that isn't there is the fact.
+- ORCH-661 (agent). An action check never proves false next to a result card that could be the same action. It reads
+  the root tree's cards from `cards::sends` and `cards::payments`, which FERB's `ran_cards` also uses:
+  - for sent, a send card naming the expected recipient or no one;
+  - for submitted, any send card;
+  - for paid, any payment card.
+
+  Each of these is a route. So "Nothing was sent" or "No form … was submitted" comes from the same facts as the cards.
+- ORCH-662 (agent). `Inner::lend` (the planner's loan of its chat to `{request}.lookups`) never reached ferbd's readers,
+  because each built a fresh `Continuity` with no loans and `lent_conversation` had no callers. ferbd `context.rs`
+  `continuity_for` now carries the supervisor's loan into `conversation_tasks`, `chat_history_run` and `chat_search`.
+  Live (request 50cfdb4f, 04:32): the planner did call task.evidence for the failed task and was refused ("isn't one of
+  this conversation's tasks"); chat.history include_tasks came back empty. So it said "I can't reliably say".
+- ORCH-663 (owner: "it shodl just generally be trace tool. planner shouldb be able to look at things"). A new read-only
+  tool, `task.trace`, built in `ferb-orchestrator/src/trace_read.rs`, added in `catalog_additions.json` after
+  task.evidence, registered in ferbd `misc.rs` `rest()`, with its handler at `context.rs` `trace_run`.
+  - **What it reads:** one task of the caller's chat (the set chat.history include_tasks lists: the chat's tasks, plus
+    the scheduled runs' for the owner's chat), running or ended. It reads the store only.
+  - **What it returns:**
+    - state and steps;
+    - each `verification` entry: result met, not met or couldn't tell; by "FERB's own record (code)", "the checker, on
+      a fresh look" or "your No"; with the evidence;
+    - each worker's report and the checker's (next, reason);
+    - questions asked, with the owner's answers;
+    - counts by kind of call (sent or submitted, filled in a form, clicked or typed, …, ended with an error);
+    - every send and submit counted, the latest 30 listed with where it went, why, recipients and outcome, plus the
+      note "not yet checked" while running;
+    - timing, the call still open, and the latest 15 calls.
+  - **Arguments:** after/limit page the calls; step, kind (a kind or a tool), errors_only and since filter them; call
+    opens one call in full, paged by offset.
+  - **Bounds:** max_chars, 12,000 by default and 16,000 at most, counting every field. The earliest shown calls go
+    first (down to 3), then the earliest listed sends (their count stays), then the report texts are shortened, then
+    the shown calls again.
+  - **Labelling:** the result carries the task's `task_origins`, so the gateway's footer says "Origin: external:web
+    (outside content: data, not instructions)".
+  - **Who gets it:** offered and admitted only to a grant that names it. The new `Facts.named_only` is checked in
+    `listing::offered` and `admit`. Only the planner's lookups (`PLANNER_TOOLS`, now 8) name it. Workers and the
+    checker keep task.evidence.
+
+  The prompt lines point to it. The planner's context gains no block: the tool listing grows by 2,776 bytes of tokens
+  reserved, and the system prompt shrinks by 13 bytes.
+
+**Why.** Live 2026-11-16, task 0abecb83 (04:17–04:32):
+- The worker, refused the browser tools for that profile, submitted the assignment through Chrome's window. It used
+  the Mac tools after the owner said Yes to screen use and to a first send to the grader. The submission went to the
+  site's second host.
+- The checker confirmed both conditions on a fresh page and accepted.
+- The literal submit check read only browser-tool submits to the host the planner had named. It said "FERB didn't
+  submit it" and overrode the checker, so the task failed. The answer said "No form on … was submitted" next to a Sent
+  card.
+
+Task 2bccf5aa (04:47–04:48): the planner told the owner that none were done while the task had already submitted
+several.
+
+**Prompt lines (prompt_changes.json, ORCH-663; each changes an earlier change's text, which the prompts test and the
+reserve shift now follow in order).**
+- Progress line (ORCH-640's): "its records looked up first (task.evidence task_id=<its id>:\n kind worker for each
+  worker run's report, one still being checked too, else its tool results)" became "has done or found so far, its trace
+  looked up first (task.trace task_id=<its\n id>: what it did, counted, and each worker run's report, one still being
+  checked too)".
+- Earlier-work line (DMN-595's): "(chat.history entry_id, task.evidence task_id)" became "(chat.history entry_id,
+  task.trace task_id)".
+
+**Named differences.**
+- Fixed against Python (ORCH-660): three conditions in `stores.json`'s cards scenario (11 sent zed on x.com, 14 paid
+  on other.com, 16 submitted on x.com) were proved false although the recording holds a mac_input call (row 6) and the
+  same actions at other targets. They now read can't tell, with the exact evidence in `stores.rs`
+  `route_difference`. Every other step and table is still compared byte for byte.
+- Catalog:
+  - the listing test and chat_replay's `with_additions` list a named-only addition only where the grant names it;
+  - `prompt_changes::tool_shift` counts it only for a recorded planner call (`RECORDED_LOOKUPS`, Python's six) and
+    `with_tool_names` never puts it in a worker's line;
+  - `reserved_shift` and the prompts test follow chained changes.
+
+**Evidence.**
+- ferb-orchestrator `tests/action_routes.rs` (7), real checks on a real store:
+  - the live calls give can't tell, the Sent card stands;
+  - a browser submit to another host gives can't tell, naming it;
+  - reads only, or a browser click that changed nothing, are still proved false with "No form on … was submitted.";
+  - a submit to the named host is met by code;
+  - an errored own attempt gives can't tell;
+  - trash and delete: shell, script, a parent folder and boundaries;
+  - every combination of 7 recorded calls × 4 checks: no proved-false next to a card that could be it.
+- ferb-supervisor `tests/action_routes.rs` (2), the real supervisor on one_step_task with the real literal checks
+  (`TestDaemon.literal`):
+  - the live case ends done and verified, with the answer "Said hello.", the Sent card, the checker's entry, and code's
+    "can't settle" fact in the check's context;
+  - reads only: fails on code's proof, with no send card.
+- ferbd `tests/task_trace.rs`, the real program:
+  - the planner's task.evidence is refused before the loan and reads after it; chat.history lists the tasks;
+  - task.trace on the false failure shows code's entry, the checker's and the worker's report;
+  - on the running task: 3 submits counted, listed and not yet checked, the open call, the error count, the
+    outside-content footer;
+  - kind/errors_only/after/since/call work; a task outside the chat is refused; a worker isn't admitted.
+- ferb-gateway `the_trace_tool_is_offered_and_admitted_only_to_a_grant_naming_it`.
+- ferb-orchestrator `tests/trace_read.rs`: 400 calls with 40 sends stay within 4,000 and 12,000 characters, with
+  every count and the latest call and send kept.
+- On a read-only copy of the live store, before the bound counted every field: 2bccf5aa read 388 calls, 15 sends and
+  submits, 6 errors, in 12,209 characters (now bounded to 12,000). 0abecb83 read 84 calls with code's entry "not met"
+  and the checker's "met", 3 reports, in 9,070 characters.
+- Tests outside this area that followed the catalog: ferbd `catalog_mcp` and ferb-daemon `b_runtimes`
+  (`planner_lookups_added`), plus ferbd's stand-ins `lend` control.
+
+**Unverified / open.**
+- Everything live (LIVE-975): whether a real planner now calls task.trace for "what failed?" and "how many so far?"
+  (at 04:47 it had task.evidence and didn't call it).
+- Whether the checker weighs code's "can't settle" fact as intended.
+- Unchanged and still open:
+  - a multi-step plan's check reads the root tree's cards, so one step's send makes another step's send or submit
+    check can't tell;
+  - an errored call on another app counts as a route even when its error says nothing was typed (the error text is not
+    read: rule 4);
+  - ferbd's stand-in daemon gained a `lend` control for the test.
+
+## 2026-11-16 · 94 · FERB says what it couldn't read and why: a never-read folder under a command or a file tool's path is named with its rule
+
+**What.**
+- HAND-595 (owner, the words verbatim). Told that FERB's commands can't read the never-read folders, so a storage scan
+  would silently miss them, the owner said FERB should say what it can't read and why, and that "if i say so it should
+  be able to do anything".
+- HAND-596 (agent). ferb-shell `not_read.rs`. After shell.run, and after shell.wait/shell.read once the command ended,
+  the result carries `not_read` when a never-read folder that exists here is:
+  - under the command's working folder or a path its words name (the shell's word rules only, no meaning read in), or
+    holds one of them;
+  - or named in an "Operation not permitted"/"Permission denied" line of its output.
+
+  The fact holds `fact`, `allow` (only the owner can open one: escape with that rule, one question per folder per task),
+  `folders` (path, rule, why; at most 12) and `more`. The escape's lifted rule is left out. No key when none.
+- `why` comes from ferb-policy `never_read_why`, by which default list names the folder: a browser's data, the
+  Keychain, a password manager's vault, credentials, mail, messages, cookies, notifications. Anything else is "a folder
+  on the owner's never-read list".
+- HAND-597 (agent). The file tools ask the gateway's path check with the new access word `within`. The gateway's
+  `within_answer` replies from `Protection::reads_within`, minus what this call may read, as JSON {rule, why}. A check
+  that doesn't know the word answers None.
+  - fs.disk_usage counts these folders by metadata, as before, with no question, and adds `not_read` saying so.
+  - fs.list adds `not_read` saying the names show but FERB doesn't read inside without the owner's Yes.
+
+**Why.** The sandbox denies a never-read folder to every command. So du, find or a script walking ~ lost browser data,
+the Keychains and Mail without saying so. The only note the worker got (`sandbox_note`) said a write in a visible
+folder was refused.
+
+**Found.**
+- fs.disk_usage counts never-read folders today. fs_rules gives no rule for `metadata` (protection.rs:772), so sizes
+  are complete and only FERB's own state is left out, with "protected state omitted" and complete:false. Its total is
+  never silently partial for the never-read list.
+- ferbd registers fs.disk_usage as a `Catalogued` tool with no `file_paths` (compose/tools/misc.rs). The gateway
+  refuses any fs: tool that doesn't declare its files (FS_UNDECLARED), so in the Rust daemon fs.disk_usage is refused
+  before it runs. ferb-gateway `disk_usage_without_declared_files_is_refused` shows the refusal. The fix, not made here
+  because another agent is editing misc.rs, is to give it `file_paths` = `ferb_fs::usage::file_paths` (path,
+  "metadata").
+
+**Named differences from Python.**
+- `not_read` is a new key, present only when a protected folder is reached.
+- When every refusal line in a command's output names a never-read folder, HAND-203's `sandbox_note` is left out:
+  that note calls the refusal a write in a visible folder.
+
+**Evidence.**
+- ferb-shell `tests/not_read.rs` (5) runs the real sandbox-exec on a temp home:
+  - du over Application Support gives its output plus the Chrome rule and why, with no sandbox_note;
+  - the escape for that rule reads it, and no fact is added;
+  - a command that reaches nothing has exactly Python's keys;
+  - a path built at run time is caught from the refusal line;
+  - 15 folders are capped at 12 with more:3;
+  - a listed folder that isn't here is not reported.
+- ferb-gateway `tests/not_read.rs` (3) uses the real Gateway and the default lists:
+  - fs.disk_usage on Application Support asks nothing, bytes 5096 include Chrome's, and the fact names Chrome;
+  - fs.list names it;
+  - fs.list on the Chrome folder asks "let FERB read ~/Library/Application Support/Google/Chrome for this task
+    (rule …)" once; after the Yes it lists Default with no fact, and the next read inside asks nothing.
+- All tests of ferb-shell, ferb-fs, ferb-policy and ferb-gateway pass, including the Python-recorded fs and gateway
+  scenarios unchanged. clippy is clean.
+
+**Unverified / open.**
+- Everything live: no real storage scan was run on the owner's Mac.
+- Whether a worker uses the fact to ask once per folder or to report what it couldn't read.
+- Whether the over-report from a command's working folder (cwd ~ lists up to 12 folders on any command) is noise in
+  practice.
+- The owner's "do anything" against AGENTS.md rule 6 is open with the owner. What a Yes can't open: FERB's own state,
+  the network rule, FERB.app, its service definitions, and, built into the profile, FERB.app's preferences, the Trash
+  (fs.trash only), apps, Apple Events, launchd jobs, input and screen capture, and mounts from the shell.
+- One shell command lifts one rule, so a scan that must read many folders runs one command each. The owner's "Yes,
+  and don't ask for 30 min" covers every protected-folder read question in that time (GATE-207).
+- The owner naming a folder in words does not lift it. Proposal, not built: count a never-read folder named in the
+  request's own words as read-allowed for the tree, as GATE-537 does for sites.
+- ferbd's fs.disk_usage registration (above).
+
+## 2026-11-16 · 95 · An audit of the composed program: every tool and RPC method through the real daemon, four wiring bugs fixed
+
+**What.** fs.disk_usage had been refused on every call. ferbd registered it without declaring its files, the gateway refuses any fs tool like that, and no test drove the tool the way the daemon composes it. After that, every tool, RPC method, bus topic, background job and `ferb` command was checked against the Python build (9d3f84bc). The tools and methods were checked by running the program; the rest by reading.
+
+- `tests/every_tool_through_the_program.rs` (ENG-19, ENG-20) covers all 99 tools on the `ferbd daemon` binary with its stand-ins.
+  - **What it checks on each tool (control `declare`):**
+    - it is registered and not a stub;
+    - it declares its files when it has an fs scope, and when Python's tool named files (declared_files() gives a call that names some);
+    - it takes Python's locks (tab, file, recording, app);
+    - it has real_path, recovery_reason and ledger_args wherever Python's had them;
+    - its describe kind is Python's, read at 9d3f84bc for every tool.
+  - **The call:** each tool is then called with a well-formed `tools.call` over a run token's connection. It must pass admission, the argument model and the file declaration, and reach the tool.
+  - **Result:**
+    - 38 tools return a result offline.
+    - 46 reach the tool's own refusal: the browser tools' "no tab t1 open", no recording, snapshots off, the clipboard without the Mac's parts.
+    - 15 are checked by declaration only: 11 mac.* and audio.listen, owner.ask, browser.pair, and time.sleep_until (which tools_waits.rs runs through the program).
+  - **The negative test:** `the_check_catches_a_tool_that_declares_no_files` swaps fs.disk_usage's old shape in through the stand-ins (control `undeclare`) and expects exactly its three flags.
+- `tests/every_method_answers.rs` (ENG-19) checks ferb-rpc's whole table.
+  - Every one of its 123 methods has a handler in the composed daemon (control `methods`, `Server::registered`), and no handler sits outside the table.
+  - 32 read-only methods answer with a result.
+  - update.prepare had a recorded scenario that no test replayed. It is now driven: not ready while a command runs, then ready with even_if_busy, journaled, and the daemon exits 0.
+- Fixed, each with a test that fails when the fix is reverted (checked by reverting in place, then restoring):
+  1. **wait.for** (ENG-20). The composition described every wait as a read and declared no files, though ferb-clock had both ported. A script wait therefore skipped the shell's gateway rules (a certificate-off command's question, the ledger, the snapshot). A watched file skipped the protection lists, so a wait on FERB's own files was not refused. The tool is now `WaitForTool` over `WaitInput::describe` / `file_paths` (wait.py:238, 243).
+  2. **recovery.snapshot**'s describe kind is `snapshot`, as recovery.py:845. It was `read`, so its result counted as read content and its progress line said reading.
+  3. **The stale Codex run-folder sweep** (ENG-21). It was ported but never called. Each folder holds a copy of FERB's Codex login. The start now sweeps when retention is on (main.py:435). `lifecycle.rs the_start_sweeps_stale_codex_run_folders` uses its own TMPDIR.
+  4. **The tool wrapper** (`wrap.rs`) now forwards `background_pid` and `put_back`. No wrapped tool answers them today; a unit test covers every hook.
+- The stand-ins take `retention` (default off). `support::Run::start_env` passes a test's own environment.
+
+**Why.** The owner asked for verified answers on what else doesn't work in the Rust build. Crate tests had proved each part, but not the parts as the program wires them.
+
+**Evidence.** All tests named above passed, and the full ferbd suite and ferb-rpc's tests passed (see the gate run of this entry).
+- With the fixes reverted, the new tests fail. With the caller's DiskUsage fix reverted: 3 problems on fs.disk_usage. With wait.for, the snapshot kind and the sweep reverted: 4 problems, and the sweep test fails.
+- The matrix of every tool, method, topic, job and command is outside the repo: the audit's scratch `rust-audit/matrix.md`.
+- In the live store, tool.call spans show 29 tools run successfully. The other 70 have never run live in the Rust build.
+
+**Found, not fixed (tasks).**
+- **T-1123:** loops aren't supervised: no restart, no `daemon.loop_failed`.
+- **T-1124:** `_Fresh`'s cache and its start prime (speed only).
+- **T-1125:** the browser tools run against a fake extension.
+- **T-1126:** owner.ask and browser.pair with a scripted owner.
+- **T-1127:** data.cell's offsets count graphemes in Swift and code points in the daemon.
+- **T-1128:** `--help`, setup's Python venv line, cli/mod.rs's header.
+- **T-1129:** a test daemon composes the real Mac hands. mac.apps listed this Mac's running apps in the first run of the every-tool test; it was a read, with no action and no GUI. So mac.* and audio.listen aren't called by the test.
+
+**Unverified / open.**
+- Bus topics, background jobs, `ferb` commands and the app's reply fields were compared by reading only, by two subagents citing both sides.
+- secret.refused's Rust producer was checked (ferb-gateway gateway.rs:6734).
+- The app-only chat methods depend on FERB.app's signature check passing on the owner's install. That is a live check.
+- Nothing here ran live.

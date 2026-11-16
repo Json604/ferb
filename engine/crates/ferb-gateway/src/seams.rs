@@ -80,6 +80,16 @@ pub trait Observer: Send + Sync {
     fn correction_pending<'a>(&'a self, _grant: &'a RunGrant) -> BoxFuture<'a, bool> {
         Box::pin(async { false })
     }
+    /// HAND-581: the owner answered a question this task asked them (owner.ask; `question` and `options` as the task
+    /// gave them, `answer` as the task receives it). Never called for one the orchestrator answered from context.
+    fn owner_answered(
+        &self,
+        _grant: &RunGrant,
+        _question: &str,
+        _options: &[String],
+        _answer: &str,
+    ) {
+    }
     /// The delegated-conversation guard (`conversation_guard`): a refusal, else None.
     fn conversation_guard(
         &self,

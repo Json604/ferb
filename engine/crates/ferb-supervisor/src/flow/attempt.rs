@@ -21,7 +21,7 @@ use ferb_worker::{Attempt, OutcomeKind, RunOptions};
 use serde_json::{json, Map, Value};
 
 use super::tree::{status_of, WORKER};
-use super::{Failure, Flow, Inner, Tree};
+use super::{Failure, Flow, Gap, Inner, Tree};
 use crate::words::*;
 use crate::worker_context::{self, ContextReads, SourceBlocks, SourceCall, VerifierReads};
 
@@ -40,6 +40,20 @@ fn protected(text: impl Into<String>, reference: &str) -> ContextBlock {
         protected: true,
         ..ContextBlock::new(text, reference)
     }
+}
+
+/// HAND-580: the worker's fact for a task whose owner's words named browser profiles.
+pub fn task_profiles_fact(named: &[(String, String)]) -> String {
+    let list = named
+        .iter()
+        .map(|(b, f)| format!("{b}/{f}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "Browser profiles for this task (the owner's words named them): {list}. The browser tools work there, in the \
+         background, with the profile argument (one of these, or none when there is one); another profile needs the \
+         owner's Yes first."
+    )
 }
 
 fn outcome(task_id: &str, status: &str, summary: &str, artifacts: Vec<String>) -> Outcome {
@@ -63,6 +77,8 @@ pub struct Next {
     pub worker_type: Option<String>,
     pub findings: Vec<Finding>,
     pub told: String,
+    /// ORCH-652: with accept_with_gaps, the conditions accepted as not done.
+    pub gaps: Vec<Gap>,
 }
 
 impl Next {
@@ -281,11 +297,23 @@ impl Inner {
             memory,
             results,
         };
-        Ok(worker_context::worker_context(
-            &reads,
-            &mut Sources { sup: self, tree },
-            &|t| self.wrap(t),
-        ))
+        let mut blocks =
+            worker_context::worker_context(&reads, &mut Sources { sup: self, tree }, &|t| {
+                self.wrap(t)
+            });
+        // HAND-580: a code fact (no prompt line): the profiles the owner's words named for this task, after the task
+        let named = self
+            .task_profiles(&tree.id)
+            .map(|(_, n)| n)
+            .unwrap_or_default();
+        if !named.is_empty() {
+            let at = blocks
+                .iter()
+                .position(|b| b.reference == "task specification")
+                .map_or(blocks.len(), |i| i + 1);
+            blocks.insert(at, protected(task_profiles_fact(&named), "task.profiles"));
+        }
+        Ok(blocks)
     }
 
     /// supervisor.py:6838 `_worker_memory`.
@@ -332,6 +360,9 @@ impl Inner {
         st.watch_met = None;
         st.answer_settled = false;
         st.unchecked.clear();
+        st.worker_gaps.clear();
+        st.reported_not_done = false;
+        st.gaps.clear();
         st.conversation_action = None;
         st.loop_action = None;
         st.probe = None;
@@ -562,10 +593,11 @@ impl Inner {
                 );
             }
             tree.lock().reports.push(report);
-            let accepted = choice
-                .as_ref()
-                .is_some_and(|c| c.action == "accept" || c.action == "accept_unconfirmed")
-                && !self.stopped(tree);
+            let accepted = choice.as_ref().is_some_and(|c| {
+                c.action == "accept"
+                    || c.action == "accept_unconfirmed"
+                    || c.action == "accept_with_gaps"
+            }) && !self.stopped(tree);
             // a loop round's resources stay the loop's until the loop ends (L31): released once, by the loop step
             if accepted && !tree.lock().hold_resources {
                 let mine = self
@@ -593,6 +625,8 @@ impl Inner {
                 let mut st = tree.lock();
                 st.stands_unconfirmed =
                     choice.action == "accept_unconfirmed" || st.kept_contradicted;
+                // ORCH-652: done with gaps: what was delivered stands, and each gap is told as not done
+                st.gaps = choice.gaps.clone();
                 let answer = st.owner_answer.clone();
                 let done = outcome(&task.id, "done", &answer, out.artifacts.clone());
                 st.outcome = Some(done.clone());
@@ -752,6 +786,12 @@ impl Inner {
         let mut st = tree.lock();
         st.owner_answer = w.answer.clone();
         st.how = w.how.clone();
+        st.reported_not_done = w.status == "not_done";
+        st.worker_gaps = w
+            .gaps
+            .iter()
+            .map(|g| (g.condition.clone(), g.reason.clone()))
+            .collect();
         st.input_notes = w.input_notes.iter().map(Py::to_value).collect();
         st.conversation_proposals = w.conversation_proposals.iter().map(Py::to_value).collect();
         st.watch_met = w.watch_met;
@@ -834,6 +874,27 @@ impl Inner {
             } else {
                 "fail"
             });
+            next.reason = reason;
+            return Ok(next);
+        }
+        if self.not_done_without_acting(tree, out) {
+            // ORCH-654: the worker reported not done and its records show it neither acted nor changed a file: the
+            // checker isn't run and the step ends as reported, as a check confirming the failure would end it
+            let skipped = self.span_start(
+                "verify.skipped",
+                Some(&tree.worker.id),
+                Some(span),
+                None,
+                json!({"reason": NOT_DONE_UNCHECKED}),
+            );
+            self.span_finish(
+                &skipped,
+                Some(json!({"checker": "not run"})),
+                None,
+                None,
+                None,
+            );
+            let mut next = Next::of("fail");
             next.reason = reason;
             return Ok(next);
         }
@@ -965,6 +1026,31 @@ impl Inner {
         if action == "retry" && verified {
             action = "accept".into();
         }
+        if action == "accept_with_gaps" {
+            match self.gapped(tree, out, &outcomes, checked) {
+                Ok(gaps) => {
+                    tree.lock().unconfirmed.clear();
+                    let mut next = Next::of("accept_with_gaps");
+                    next.gaps = gaps;
+                    next.findings = checked
+                        .findings
+                        .iter()
+                        .filter(|f| !ferb_orchestrator::py::strip(&f.quote).is_empty())
+                        .cloned()
+                        .collect();
+                    return next;
+                }
+                Err(why) => {
+                    // ORCH-652: code's limits refused the gapped accept: it reads as the checker's plain accept
+                    self.journal(
+                        "task.gaps_refused",
+                        json!({"task_id": tree.worker.id, "why": why}),
+                        None,
+                    );
+                    action = "accept".into();
+                }
+            }
+        }
         if action == "accept" || action == "accept_unconfirmed" {
             let refuted: Vec<&ConditionResult> = outcomes
                 .iter()
@@ -1093,6 +1179,122 @@ impl Inner {
         next
     }
 
+    /// ORCH-652: the check's gapped accept within code's limits: the worker reported done; at least one condition is
+    /// met on this check's own evidence (not carried from an earlier attempt, not one that didn't apply); every
+    /// condition left unmet (but one the owner declined) is named in the check's gaps with a reason; none of them is
+    /// one code's literal check proved false (ORCH-609). The gaps in condition order, or why not.
+    fn gapped(
+        &self,
+        tree: &Arc<Tree>,
+        out: &Outcome,
+        outcomes: &[ConditionResult],
+        checked: &CheckerOutcome,
+    ) -> Result<Vec<Gap>, &'static str> {
+        if out.status != OutcomeStatus::Done {
+            return Err("the worker didn't report done");
+        }
+        let fresh = outcomes.iter().any(|r| {
+            r.met == Some(true)
+                && !r.evidence.starts_with(DIDNT_APPLY)
+                && !r.evidence.starts_with(CONFIRMED_EARLIER)
+        });
+        if !fresh {
+            return Err("no condition is met on this check's evidence");
+        }
+        let unmet: Vec<&ConditionResult> = outcomes
+            .iter()
+            .filter(|r| r.met != Some(true) && r.path != DECLINED)
+            .collect();
+        if unmet.is_empty() {
+            return Err("every condition is met");
+        }
+        if unmet
+            .iter()
+            .any(|r| r.met == Some(false) && r.path == "code")
+        {
+            return Err("code's literal check proved a condition false");
+        }
+        let mut gaps = Vec::new();
+        for r in unmet {
+            let reason = checked
+                .gaps
+                .iter()
+                .filter(|g| g.index.as_i64() == Some(r.index))
+                .map(|g| ferb_orchestrator::py::strip(&g.reason).to_string())
+                .find(|t| !t.is_empty());
+            let Some(reason) = reason else {
+                return Err("an unmet condition has no reason");
+            };
+            let condition = ferb_orchestrator::py::strip(&self.owner_text(tree, r))
+                .trim_end_matches('.')
+                .to_string();
+            gaps.push(Gap {
+                index: r.index,
+                condition,
+                reason,
+                evidence: r.evidence.clone(),
+            });
+        }
+        Ok(gaps)
+    }
+
+    /// ORCH-654: a valid not_done report, with no question for the owner, from an attempt whose records show no acting
+    /// call (every recorded call of this task, earlier attempts' included, is an observation or one of FERB's
+    /// context reads) and no file changed during the step.
+    fn not_done_without_acting(&self, tree: &Arc<Tree>, out: &Outcome) -> bool {
+        let (reported, question, since) = {
+            let st = tree.lock();
+            (
+                st.reported_not_done,
+                st.worker_question.clone(),
+                st.calls_since,
+            )
+        };
+        if !reported
+            || out.status == OutcomeStatus::Done
+            || !question.trim().is_empty()
+            || self.deps.daemon.checks_unacted_not_done()
+        {
+            return false;
+        }
+        let task_id = tree.worker_task().id;
+        let rows = {
+            let db = self.db();
+            ferb_orchestrator::sql::rows(
+                db.conn(),
+                "SELECT input_json FROM spans WHERE task_id = ? AND kind = 'tool.call' AND rowid > ?",
+                &[
+                    rusqlite::types::Value::Text(task_id.clone()),
+                    rusqlite::types::Value::Integer(since),
+                ],
+            )
+        };
+        let Ok(rows) = rows else {
+            return false;
+        };
+        let acted = rows.iter().any(|row| {
+            let call = row
+                .get("input_json")
+                .and_then(Value::as_str)
+                .and_then(|t| ferb_py::json::loads(t).ok())
+                .unwrap_or(Value::Null);
+            let tool = call
+                .get("tool")
+                .map(ferb_py::value::py_str)
+                .unwrap_or_default();
+            !ferb_orchestrator::evidence::CONTEXT_READS.contains(&tool.as_str())
+                && !self.deps.daemon.observes(&tool)
+        });
+        if acted {
+            return false;
+        }
+        match self.deps.daemon.changes(&task_id, &tree.id) {
+            None => true,
+            Some(Ok(found)) => found.is_empty(),
+            Some(Err(_)) => false,
+        }
+    }
+
     /// supervisor.py:7078 `verify`.
     async fn verify(
         &self,
@@ -1218,7 +1420,7 @@ impl Inner {
                 st.confirmed.remove(&r.index);
             } else if let Some(e) = earlier.filter(|_| r.met.is_none()) {
                 r = ConditionResult {
-                    evidence: format!("Confirmed in an earlier attempt: {}", e.evidence),
+                    evidence: format!("{CONFIRMED_EARLIER}{}", e.evidence),
                     ..e
                 };
             }
@@ -1277,6 +1479,7 @@ impl Inner {
                         .unwrap_or_default(),
                     reason: st.reason.clone(),
                     worker_question: st.worker_question.clone(),
+                    gaps: st.worker_gaps.clone(),
                     part_updates: st.part_updates.clone(),
                     worker_types: self.deps.daemon.worker_types(),
                     availability: self.deps.daemon.availability(),
@@ -1297,6 +1500,9 @@ impl Inner {
         reads.began = began.as_ref().map(|b| b.0.clone());
         let report = worker_context::verifier_report(&reads, &|t| self.wrap(t));
         let mut context = self.context(tree, false).await?;
+        // ORCH-655: what changes between checks of one step comes after what doesn't, so a later check's first call
+        // can reuse the earlier one's cached prefix: the previous attempts' block goes last among the task's blocks
+        worker_context::attempts_last(&mut context);
         context.push(self.code_facts(task, calls_since));
         // ORCH-650: the owner's answers to this step's questions, the check's own included
         context.extend(worker_context::step_answers_block(
@@ -1390,7 +1596,7 @@ impl Inner {
             .await?;
         let mut verdict = match checked {
             Checked::Unchecked(results) => return Ok((results, None)),
-            Checked::Verdict(v) => v,
+            Checked::Verdict(v) => *v,
         };
         tree.lock().checker_judged = verdict
             .results
@@ -1443,7 +1649,7 @@ impl Inner {
                     .await?
                 {
                     Checked::Unchecked(results) => return Ok((results, None)),
-                    Checked::Verdict(v) => verdict = v,
+                    Checked::Verdict(v) => verdict = *v,
                 }
                 tree.lock().checker_judged = verdict
                     .results
@@ -1656,7 +1862,7 @@ impl Inner {
                 ))
             }
             Attempt::Report(py) => match checker_outcome_validate(&py) {
-                Ok(v) => Ok(Checked::Verdict(v)),
+                Ok(v) => Ok(Checked::Verdict(Box::new(v))),
                 Err(e) => {
                     let class = e.raised().map(|r| r.exception).unwrap_or("ValidationError");
                     self.set_status(
@@ -2292,7 +2498,7 @@ impl Inner {
 
 /// What one run of the checker gave: its verdict, or each condition unchecked with why.
 enum Checked {
-    Verdict(CheckerOutcome),
+    Verdict(Box<CheckerOutcome>),
     Unchecked(Vec<ConditionResult>),
 }
 

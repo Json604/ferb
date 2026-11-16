@@ -320,12 +320,17 @@ fn a_new_tab_without_an_opener_goes_the_way_a_links_new_tab_goes() {
 
 // decision: HAND-537
 #[test]
-fn extension_0_19_11_keeps_protocol_21_and_the_minimum() {
+fn extension_0_19_11_and_later_keep_protocol_21_and_the_minimum() {
     let manifest: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(root().join("extension/manifest.json")).unwrap(),
     )
     .unwrap();
-    assert_eq!(manifest["version"], "0.19.11");
+    // 0.19.11 shipped this half; 0.19.12 (HAND-566) keeps it
+    let version = manifest["version"].as_str().unwrap();
+    assert!(
+        ferb_browser::protocol::version_ok(version, "0.19.11").unwrap(),
+        "{version}"
+    );
     let protocol = std::fs::read_to_string(root().join("extension/protocol.js")).unwrap();
     assert!(protocol.contains(&format!(
         "const FERB_PROTOCOL = {};",

@@ -592,3 +592,24 @@ rule = "Whatever error a cut run ends with, a run whose tree was stopped ends ca
 why = "A paused run read in the trace and the task's episode as \"The report from this attempt wasn't usable: runtime finished without an answer\": a failure that never happened."
 evidence = "Live 2026-11-15 23:02, step search of tree 3a0cc55b: the owner's pause ended the run as status failed, error \"ValueError: runtime finished without an answer\" (span 79c61135)."
 paths = ["rust/crates/ferb-worker/src/worker.rs::classify", "rust/crates/ferb-worker/src/ports.rs::WorkerHost", "rust/crates/ferb-supervisor/src/flow/host.rs"]
+
+[RUN-466]
+title = "The checker's first Codex call uses a fixed cache key, as the planner's does"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "ok lets do this to save on token money and time"
+words_source = "Owner 2026-11-16, asked whether to make the checker's first call cacheable (93k-137k tokens uncached live) with a fixed cache role like the planner's cached thread (RUN-401)"
+rule = "Extends RUN-401 to the checker: a Codex check resumes a fixed-id template thread (one cache key per Mac, role checker, model). The template holds only FERB's own instructions; the check's whole context stays in the user turn. [runtimes] codex_checker_cache = false turns it off."
+live = ["LIVE-959"]
+paths = ["engine/crates/ferb-runtimes/src/codex/stream.rs", "engine/crates/ferb-daemon/src/areas_b/runtimes/mod.rs"]
+
+[RUN-467]
+title = "A cached worker-mode thread never uses the developer role; the template's effort is the turn's"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For RUN-466. In worker mode a cached run always resumes with empty developer instructions (RUN-416's rule), so injection exposure is unchanged; its template's effort is the one the turn sends (null when none). Workers keep ephemeral threads. ferbd's runtime factory sets the daemon's cache hooks (refusal, skipped, fallback) on every Codex runtime, which it never did."
+why = "Checked on the pinned Codex 0.166.0 against a loopback server: the thread id is prompt_cache_key; a resumed worker thread sends the same request as an ephemeral one but for ids; the template's effort never reaches the request."
+live = ["LIVE-959"]
+paths = ["engine/crates/ferb-runtimes/src/codex/stream.rs", "engine/crates/ferb-runtimes/src/codex/mod.rs::write_template", "engine/crates/ferbd/src/compose/runtimes.rs"]

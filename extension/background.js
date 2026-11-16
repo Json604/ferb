@@ -33,6 +33,15 @@ const OUTBOX_MAX = 5000;
 let link = { nonce: null, seq: 0 };   // this connection's daemon-message signing state (its hello's nonce, last counter)
 let pairingPending = null;           // when this profile's pairing page handed over a token (a `paired` is taken only then)
 const PAIR_WAIT_MS = 300000;         // pairing.py TOKEN_TTL_S
+// HAND-566 (0.19.12): a pairing token handed over while the link to FERB is down waits here (the latest only) and goes
+// as soon as a link is up, paired or not; before, it waited in the outbox, which only a welcome flushes (HAND-538).
+let pendingPair = null;
+// HAND-566: the key that signed each recent hello, by its nonce, so a refusal naming a hello (`stale_key`) can be
+// matched to the key it refused; only that key is ever dropped.
+const helloKeys = new Map();
+const HELLO_KEYS_MAX = 16;
+let helloInFlight = false;            // HAND-566: one hello waiting to be posted at a time (no pile-up behind the lock)
+let nextConnectAt = 0;                // HAND-566: no reconnect before this (the backoff), unless a pairing needs one
 const downloads = new Map();         // transfer id -> a download held for the daemon (D35)
 let DOWNLOAD_IDLE_MS = 30000;        // a held download nobody takes goes back to the browser (FERB's profile: failed)
 let profileIdentity = "owner";       // from the daemon's welcome: in FERB's own profile every download is FERB's
@@ -263,7 +272,9 @@ function serially(fn) {
 // daemon, which attributes a message to a profile only after its hello, never drops them as replays or strays.
 function send(type, body) {
   return serially(async () => {
+    if (!port && type === "pair") { pendingPair = body; ensurePort(true); return; }
     if (!port || (gen === null && type !== "hello" && type !== "pair")) {
+      if (type === "hello") { ensurePort(); return; }        // a new link says its own hello
       outbox.push([type, body]);
       if (outbox.length > OUTBOX_MAX) outbox.shift();
       ensurePort();
@@ -280,6 +291,10 @@ async function post(type, body) {                   // inside the state lock onl
     await chrome.storage.local.set({ ferb: st });
     msg.seq = st.seq;
     msg.mac = await hmac(st.key, `${msg.install_id}|${msg.seq}|${msg.type}|${msg.body_json}`);
+  }
+  if (type === "hello" && body && typeof body.nonce === "string") {
+    helloKeys.set(body.nonce, st.key || null);
+    while (helloKeys.size > HELLO_KEYS_MAX) helloKeys.delete(helloKeys.keys().next().value);
   }
   port.postMessage(msg);
 }
@@ -399,12 +414,16 @@ function busy() {
 // Each hello carries a fresh nonce: the daemon signs this connection's messages over it (a recorded message can't
 // be replayed on another connection), and the tabs FERB holds in this browser session (`tabs`, liveRecords).
 async function announceHello() {
-  const st = await install(), s = await session();
-  link = { nonce: _hex(16), seq: 0 };
-  await send("hello", { version: chrome.runtime.getManifest().version, protocol: FERB_PROTOCOL,
-                        browser: navigator.brave ? "brave" : "chrome", paired: !!st.key,
-                        owned: await ownedTabs(), seen: s.order.slice(-200).map((id) => ({ id, status: s.seen[id] })),
-                        armed: armedTabs(), nonce: link.nonce, tabs: await liveRecords(), file_access: await fileAccess() });
+  if (helloInFlight) return;                               // HAND-566: the one waiting says it
+  helloInFlight = true;
+  try {
+    const st = await install(), s = await session();
+    link = { nonce: _hex(16), seq: 0 };
+    await send("hello", { version: chrome.runtime.getManifest().version, protocol: FERB_PROTOCOL,
+                          browser: navigator.brave ? "brave" : "chrome", paired: !!st.key,
+                          owned: await ownedTabs(), seen: s.order.slice(-200).map((id) => ({ id, status: s.seen[id] })),
+                          armed: armedTabs(), nonce: link.nonce, tabs: await liveRecords(), file_access: await fileAccess() });
+  } finally { helloInFlight = false; }
 }
 
 // Whether the owner allowed FERB access to file URLs (the switch on the browser's own extensions page; FERB never turns
@@ -415,8 +434,26 @@ async function fileAccess() {
   try { return (await chrome.extension.isAllowedFileSchemeAccess()) === true; } catch (_) { return false; }
 }
 
-async function ensurePort() {
+// HAND-566: a link that ended, by FERB or by this side: cleared once, and the next try waits the backoff (1, 2, 4… 60 s,
+// back to 1 s after a welcome). Chrome fires onDisconnect only for the other end's close, so a close of our own (the
+// handshake's timeout) calls this itself; before, that left a dead port that every later message was posted to.
+function linkEnded(opened, reason) {
+  if (port !== opened) return;      // a late disconnect must not clear a replacement connection
+  clearTimeout(handshakeTimer);
+  port = null; gen = null;
+  connectionStatus('disconnected', reason);
+  console.warn('FERB disconnected:', reason);
+  for (const [tabId, tab] of TABS) if (tab.gesture) cancelPointer(tabId, tab.gesture.id);
+  nextConnectAt = Date.now() + retryMs;
+  setTimeout(() => ensurePort(), retryMs);
+  retryMs = Math.min(retryMs * 2, 60000);
+}
+
+// `force`: a pairing token is waiting (the owner's click), or the browser just started this worker; anything else
+// (a message to send, a tab that loaded, the alarm) waits for the backoff's time (HAND-566).
+async function ensurePort(force = false) {
   if (port) return;
+  if (!force && Date.now() < nextConnectAt) return;
   try { port = chrome.runtime.connectNative(FERB_HOST); }
   catch (e) { port = null; await connectionStatus('disconnected', e.message || e); return; }
   const opened = port;
@@ -424,24 +461,64 @@ async function ensurePort() {
   gen = null;
   port.onMessage.addListener(onDaemon);
   port.onDisconnect.addListener(() => {
-    const reason = chrome.runtime.lastError?.message || closeReason || 'Native connection closed';
-    if (port !== opened) return;    // a late disconnect must not clear a replacement connection
-    clearTimeout(handshakeTimer);
-    port = null; gen = null;
-    connectionStatus('disconnected', reason);
-    console.warn('FERB disconnected:', reason);
-    for (const [tabId, tab] of TABS) if (tab.gesture) cancelPointer(tabId, tab.gesture.id);
-    setTimeout(ensurePort, retryMs);
-    retryMs = Math.min(retryMs * 2, 60000);
+    linkEnded(opened, chrome.runtime.lastError?.message || closeReason || 'Native connection closed');
   });
   handshakeTimer = setTimeout(() => {
     if (port === opened && gen === null) {
       closeReason = 'FERB did not answer the connection handshake within 15 seconds';
       opened.disconnect();
+      linkEnded(opened, closeReason);
     }
   }, 15000);
-  try { await announceHello(); }
-  catch (e) { await connectionStatus('disconnected', e.message || e); opened.disconnect(); }
+  try {
+    await announceHello();
+    if (pendingPair && port === opened) {                  // HAND-566: a token handed over while the link was down
+      const body = pendingPair;
+      pendingPair = null;
+      await send("pair", body);
+    }
+  }
+  catch (e) { opened.disconnect(); linkEnded(opened, String(e.message || e)); }
+}
+
+// HAND-566: FERB refused a hello as signed with a key that isn't its own for this install (`stale_key` names the hello:
+// its nonce and counter). When the key that signed that hello is still the one stored, it is an older FERB install's or
+// pairing's: it is dropped (the install id stays), nothing more is signed with it, and the extension says it isn't paired
+// and waits for the owner's Pair. A key that changed since (a pairing finished meanwhile) is kept, and so is the link.
+// Dropping a key gives nothing to anyone; a refusal can't make this side take or use a key.
+async function staleKey(m) {
+  const nonce = m.stale_key && typeof m.stale_key.nonce === "string" ? m.stale_key.nonce : null;
+  if (nonce === null || !helloKeys.has(nonce)) return false;
+  const signedWith = helloKeys.get(nonce);
+  if (m.stale_key.reason === "replay") {
+    // the key is FERB's and its counter fell behind the one FERB last took: move the counter past it and say hello again
+    const accepted = m.stale_key.accepted;
+    if (!Number.isSafeInteger(accepted) || accepted < 0 || accepted > Number.MAX_SAFE_INTEGER / 2) return false;
+    const moved = await serially(async () => {
+      const st = await install();
+      if (!st.key || st.key !== signedWith || st.seq > accepted) return false;
+      st.seq = accepted;
+      await chrome.storage.local.set({ ferb: st });
+      return true;
+    });
+    if (moved && port) await announceHello();
+    return moved;
+  }
+  const dropped = await serially(async () => {
+    const st = await install();
+    if (!st.key || st.key !== signedWith) return false;
+    st.key = null; st.seq = 0;
+    await chrome.storage.local.set({ ferb: st });
+    outbox.length = 0;                                     // signed or to be signed under that key: never valid here
+    helloKeys.clear();
+    return true;
+  });
+  if (!dropped) return true;                               // about a key already replaced: nothing to do
+  clearTimeout(handshakeTimer); gen = null; refused = null; requiredRelease = null;
+  await connectionStatus('pairing_required', 'Not paired with FERB yet: open FERB, then Settings → Browsers → Pair all');
+  const pairing = pairingPending !== null && Date.now() - pairingPending <= PAIR_WAIT_MS;
+  if (!pairing && port) await announceHello();            // said once, unsigned: FERB answers "not paired"
+  return true;
 }
 
 async function onDaemon(m) {
@@ -455,7 +532,7 @@ async function onDaemon(m) {
     return;
   }
   if (m.type === "pairing_required") {
-    clearTimeout(handshakeTimer); gen = null; requiredRelease = null;
+    clearTimeout(handshakeTimer); gen = null; requiredRelease = null; refused = null;
     await connectionStatus('pairing_required', 'Not paired with FERB yet: open FERB, then Settings → Browsers → Pair all');
     return;
   }
@@ -481,6 +558,7 @@ async function onDaemon(m) {
     return;
   }
   if (m.type === "refused") {
+    if (m.stale_key && await staleKey(m)) return;          // HAND-566: an older key, dropped (or already replaced)
     clearTimeout(handshakeTimer); gen = null; refused = m.reason || "refused";
     requiredRelease = Number.isInteger(m.required_protocol) && m.required_protocol > 0 &&
       typeof m.minimum_version === 'string' && /^\d+(?:\.\d+){0,3}$/.test(m.minimum_version)
@@ -502,9 +580,9 @@ chrome.runtime.onStartup.addListener(() => {
   mutateRecords(r => { r.tabs = {}; r.groups = {}; })
     .then(() => chrome.storage.local.set({ ferbKeptTabs: [] }))
     .catch(e => console.warn("FERB records:", String(e)))
-    .finally(() => ensurePort());
+    .finally(() => ensurePort(true));
 });
-chrome.runtime.onInstalled.addListener(() => ensurePort());
+chrome.runtime.onInstalled.addListener(() => ensurePort(true));
 chrome.alarms.create("ferb-reconnect", { periodInMinutes: 0.5 });
 chrome.alarms.onAlarm.addListener(async () => {
   await checkExtensionUpdate();

@@ -155,6 +155,7 @@ fn verifier(r: &Value) -> VerifierReads {
         artifacts: strs(&r["artifacts"]),
         reason: s(&r["reason"]),
         worker_question: s(&r["worker_question"]),
+        gaps: Vec::new(),
         part_updates: r["part_updates"].as_array().cloned().unwrap_or_default(),
         worker_types: strs(&r["worker_types"]),
         availability: s(&r["availability"]),

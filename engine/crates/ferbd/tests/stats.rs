@@ -90,3 +90,21 @@ fn every_case_prints_what_python_printed() {
     assert!(differ.is_empty(), "cases that differ: {differ:?}");
     assert!(cases.len() >= 20);
 }
+
+/// ORCH-651: a task delivered with gaps is told as such, never as done or "not confirmed".
+// decision: ORCH-651
+#[test]
+fn a_task_with_gaps_reads_with_gaps() {
+    assert_eq!(
+        ferbd::stats::status_label(&Sql::Text("done_with_gaps".into())),
+        "with gaps"
+    );
+    assert_eq!(
+        ferbd::stats::status_label(&Sql::Text("done_unverified".into())),
+        "not confirmed"
+    );
+    assert_eq!(
+        ferb_device::cli::admin::status_label("done_with_gaps"),
+        "with gaps"
+    );
+}

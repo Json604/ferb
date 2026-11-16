@@ -311,3 +311,31 @@ fn the_pure_helpers_match_python() {
     }
     println!("{n} pure cases, 0 differ");
 }
+
+/// HAND-570: the front app the sample before a tree's call in flight saw, for putting the owner's app back while the
+/// call runs; nothing once the call ended, or for another tree.
+// decision: HAND-570
+#[tokio::test]
+async fn the_front_app_before_a_call_in_flight_is_known_until_it_ends() {
+    let w: W = Arc::new(Mutex::new(World {
+        state: obj(&serde_json::json!({
+            "frontmost_app": {"pid": 77, "bundle_id": "com.example.Notes", "name": "Notes"}})),
+        now: ferb_core::when::parse("2026-10-09T16:35:55+00:00"),
+        ..World::default()
+    }));
+    let read = Arc::new(Probe {
+        w: w.clone(),
+        hooks: false,
+    });
+    let s = DisturbanceSentinel::new(Seams::new(read, Arc::new(|_: &str, _: &str, _: Value| {})));
+    s.start("tree-1").await;
+    assert_eq!(s.front_before("tree-1.2"), None, "no call in flight");
+    s.before_action("tree-1.2", "span-1", "browser.act", &Map::new(), true)
+        .await;
+    let want = serde_json::json!({"pid": 77, "bundle_id": "com.example.Notes", "name": "Notes"});
+    assert_eq!(s.front_before("tree-1"), Some(want.clone()));
+    assert_eq!(s.front_before("tree-1.3"), Some(want));
+    assert_eq!(s.front_before("tree-2"), None);
+    s.after_action("span-1").await;
+    assert_eq!(s.front_before("tree-1"), None);
+}

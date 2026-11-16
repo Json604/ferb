@@ -301,6 +301,21 @@ impl DisturbanceSentinel {
         }
     }
 
+    /// HAND-570: the front app as the sample right before this task tree's latest call in flight saw it
+    /// (`frontmost_app`: pid, bundle_id, name); None when no sampled call of the tree is in flight or it wasn't read.
+    pub fn front_before(&self, task: &str) -> Option<Value> {
+        let root = root_of(task);
+        self.st()
+            .actions
+            .iter()
+            .rev()
+            .find(|(_, a)| root_of(&a.task_id) == root)
+            .and_then(|(_, a)| a.before.as_ref())
+            .and_then(|b| b.get("frontmost_app"))
+            .filter(|f| f.is_object())
+            .cloned()
+    }
+
     /// The task roots observed now, in the order they started.
     pub fn active(&self) -> Vec<String> {
         self.st().active.iter().map(|(k, _)| k.clone()).collect()

@@ -37,6 +37,8 @@ struct FakeApps {
     front: Mutex<i32>,
     comes_forward: bool,
     calls: Mutex<Vec<String>>,
+    /// The process whose element has the keyboard focus (a key non-activating panel's), None: can't tell.
+    key_focus: Mutex<Option<i32>>,
 }
 
 impl FakeApps {
@@ -66,6 +68,7 @@ impl FakeApps {
             front: Mutex::new(front),
             comes_forward,
             calls: Mutex::new(vec![]),
+            key_focus: Mutex::new(None),
         }
     }
     fn calls(&self) -> Vec<String> {
@@ -104,6 +107,9 @@ impl Apps for FakeApps {
     fn frontmost(&self) -> Option<RunningApp> {
         let front = *self.front.lock().unwrap();
         self.running.iter().find(|a| a.pid == front).cloned()
+    }
+    fn keyboard_focus_pid(&self) -> Option<i32> {
+        *self.key_focus.lock().unwrap()
     }
     fn activate(&self, bundle_id: &str, pid: Option<i32>) -> bool {
         self.calls
@@ -526,6 +532,43 @@ async fn foreground_input_never_lands_while_the_notch_stays_in_front() {
         .await;
     assert!(matches!(r, Err(HandError::PointerInterrupted(_))), "{r:?}");
     assert!(m.posted.lock().unwrap().is_empty());
+}
+
+// HAND-571: the target is frontmost, but FERB's non-activating panel (a question's box) holds the keyboard focus:
+// nothing is posted, so no key or typed text can land in it; with the focus in the target the same input goes through.
+// decision: HAND-571
+#[tokio::test]
+async fn foreground_input_never_types_while_a_ferb_panel_holds_the_keyboard_focus() {
+    let m = mac(TEXTEDIT, true, vec![]);
+    *m.apps.key_focus.lock().unwrap() = Some(NOTCH);
+    // a Return that would send the box, a paste into it
+    for (kind, text) in [(K::Key, "return"), (K::Key, "cmd+v")] {
+        let r = m
+            .driver
+            .act("TextEdit", &foreground(kind, text), "w1", Some("t1"), None)
+            .await;
+        match r {
+            Err(HandError::PointerInterrupted(why)) => {
+                assert_eq!(why, ferb_mac_hands::driver::OWN_FOCUS)
+            }
+            other => panic!("{text}: {other:?}"),
+        }
+    }
+    assert!(m.posted.lock().unwrap().is_empty());
+    *m.apps.key_focus.lock().unwrap() = Some(TEXTEDIT);
+    let r = m
+        .driver
+        .act(
+            "TextEdit",
+            &foreground(K::Key, "return"),
+            "w1",
+            Some("t1"),
+            None,
+        )
+        .await
+        .unwrap();
+    assert!(r.ok, "{}", r.detail);
+    assert_eq!(*m.posted.lock().unwrap(), ["key return"]);
 }
 
 // ---------- HAND-241: a file that can run when opened ----------

@@ -294,6 +294,14 @@ impl ScriptReads {
 }
 
 impl Reads for ScriptReads {
+    // decision: ORCH-654 (the Python recordings ran their checker on every report)
+    fn checks_unacted_not_done(&self) -> bool {
+        true
+    }
+    // decision: GATE-609 (the Python recordings' card replies reached the task with no planner call)
+    fn reads_card_replies(&self) -> bool {
+        false
+    }
     fn memory_blocks<'a>(
         &'a self,
         message: &'a str,

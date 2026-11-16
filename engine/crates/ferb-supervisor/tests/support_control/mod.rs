@@ -362,8 +362,14 @@ pub struct Calls {
 
 type Sinks = Vec<(usize, Vec<String>, BusSink)>;
 
+/// A test's seeding of a checked task's recorded calls (`TestDaemon::literal`).
+pub type Seed = Arc<dyn Fn(&Db, &str) + Send + Sync>;
+
 pub struct TestDaemon {
     me: std::sync::Weak<TestDaemon>,
+    /// ORCH-654's named difference: a Python recording ran its checker on every report (true); a test turns it off
+    /// to run FERB's own skip.
+    pub checks_every_report: AtomicBool,
     /// The scenario's supervisor (its open questions as the planner reads them, `pending_questions`).
     sup: Mutex<Option<Supervisor>>,
     db: Arc<Mutex<Db>>,
@@ -410,8 +416,19 @@ pub struct TestDaemon {
     pub browsing_calls: Mutex<Vec<(bool, String)>>,
     /// The owner's profiles' names, emails and folders (`names_profile`).
     pub profile_names: Mutex<Vec<String>>,
+    /// HAND-580, HAND-581: the owner's profiles as (a name it resolves by, (browser, folder)) for `owner_profiles`
+    /// and `profiles_in_words`; and what each `task_profiles` step saw.
+    pub owner_profile_names: Mutex<Vec<(String, (String, String))>>,
+    pub seen_profiles: Mutex<Vec<Value>>,
+    /// HAND-587: `profile_sources` as a test sets it; None: every known profile counts as said in this message and
+    /// paired, nothing remembered.
+    pub profile_sources: Mutex<Option<ferb_supervisor::flow::ProfileSources>>,
     /// STORE-426: each forget of what FERB learned from a deleted turn (memory items, learned cards), as asked.
     pub forgot_learned: Mutex<Vec<(Vec<String>, Vec<String>)>>,
+    /// ORCH-660: a test's own literal checks: when set, the code checks, the declined check and the result cards are
+    /// the real ones (ferb-orchestrator's `Checks` and `cards`) on this world's store, after this seeds the checked
+    /// task's recorded calls (it is given the store and the task id; the recordings themselves have no literal check).
+    pub literal: Mutex<Option<Seed>>,
 }
 
 pub struct Gate {
@@ -621,6 +638,14 @@ impl TestDaemon {
 }
 
 impl Daemon for TestDaemon {
+    // decision: ORCH-654 (the Python recordings ran their checker on every report; see named_diffs.rs)
+    fn checks_unacted_not_done(&self) -> bool {
+        self.checks_every_report.load(Ordering::SeqCst)
+    }
+    // decision: GATE-609 (the Python recordings' card replies reached the task with no planner call)
+    fn reads_card_replies(&self) -> bool {
+        false
+    }
     fn forget_learned(
         &self,
         items: &[String],
@@ -891,7 +916,14 @@ impl Daemon for TestDaemon {
         Vec::new()
     }
     fn keep_tabs_open(&self, _task_id: &str) {}
-    fn code_checkable(&self, condition: &Condition, _task_id: &str) -> bool {
+    fn code_checkable(&self, condition: &Condition, task_id: &str) -> bool {
+        if let Some(seed) = self.literal.lock().unwrap().clone() {
+            let db = self.db.lock().unwrap();
+            seed(&db, task_id);
+            let host = LiteralHost { db: &db };
+            return ferb_orchestrator::verify::Checks { host: &host }
+                .code_checkable(condition, Some(task_id));
+        }
         if condition.check.kind != "none" {
             self.note("a literal check");
         }
@@ -899,14 +931,29 @@ impl Daemon for TestDaemon {
     }
     fn code_check<'a>(
         &'a self,
-        _i: i64,
-        _c: &'a Condition,
-        _t: &'a str,
+        i: i64,
+        c: &'a Condition,
+        t: &'a str,
     ) -> BoxFuture<'a, ConditionResult> {
-        Box::pin(async { unreachable!("no literal check in these scenarios") })
+        Box::pin(async move {
+            assert!(
+                self.literal.lock().unwrap().is_some(),
+                "no literal check in these scenarios"
+            );
+            let db = self.db.lock().unwrap();
+            let host = LiteralHost { db: &db };
+            ferb_orchestrator::verify::Checks { host: &host }
+                .run(i, c, t)
+                .unwrap()
+        })
     }
-    fn declined(&self, _i: i64, _c: &Condition, _t: &str) -> Option<ConditionResult> {
-        None
+    fn declined(&self, i: i64, c: &Condition, t: &str) -> Option<ConditionResult> {
+        self.literal.lock().unwrap().as_ref()?;
+        let db = self.db.lock().unwrap();
+        let host = LiteralHost { db: &db };
+        ferb_orchestrator::verify::Checks { host: &host }
+            .declined(i, c, t)
+            .unwrap()
     }
     fn sites_contacted(&self, _tree_id: &str) -> Vec<String> {
         Vec::new()
@@ -917,8 +964,14 @@ impl Daemon for TestDaemon {
     fn left_running(&self, _resources: &[Value]) -> Vec<String> {
         Vec::new()
     }
-    fn ran_cards(&self, _tree_id: &str) -> Vec<Value> {
-        Vec::new()
+    fn ran_cards(&self, tree_id: &str) -> Vec<Value> {
+        if self.literal.lock().unwrap().is_none() {
+            return Vec::new();
+        }
+        let db = self.db.lock().unwrap();
+        let mut out = ferb_orchestrator::cards::payments(&db, &TestPolicy, tree_id).unwrap();
+        out.extend(ferb_orchestrator::cards::sends(&db, tree_id).unwrap());
+        out
     }
     fn write_notes(&self, _path: &str, _text: &str) -> Result<(), String> {
         Ok(())
@@ -934,10 +987,12 @@ impl Daemon for TestDaemon {
         schema: &Value,
         effort: Option<&str>,
     ) -> Result<Arc<dyn ModelRuntime>, ferb_worker::Error> {
+        // ORCH-652's gaps, not Python's, are taken out first (the named change)
+        let python = ferb_context::schemas::as_recorded(schema); // and HAND-580's task profiles
         let name = self
             .schemas
             .iter()
-            .find(|(_, v)| *v == schema)
+            .find(|(_, v)| **v == python)
             .map(|(k, _)| k.clone())
             .unwrap_or_else(|| "(unknown schema)".into());
         let mut calls = self.calls.lock().unwrap();
@@ -1034,6 +1089,53 @@ impl Daemon for TestDaemon {
             .unwrap()
             .iter()
             .any(|n| ferb_memory::terms::contains_words(words, n))
+    }
+    fn owner_profiles(&self, named: &[String]) -> Vec<(String, String)> {
+        let known = self.owner_profile_names.lock().unwrap();
+        let mut out: Vec<(String, String)> = Vec::new();
+        for n in named {
+            let hits: Vec<&(String, String)> = known
+                .iter()
+                .filter(|(k, _)| k.eq_ignore_ascii_case(n))
+                .map(|(_, p)| p)
+                .collect();
+            if let [one] = hits.as_slice() {
+                if !out.contains(one) {
+                    out.push((*one).clone());
+                }
+            }
+        }
+        out
+    }
+    fn profile_sources(
+        &self,
+        _request_id: &str,
+        _words: &str,
+    ) -> ferb_supervisor::flow::ProfileSources {
+        if let Some(set) = self.profile_sources.lock().unwrap().clone() {
+            return set;
+        }
+        let mut all: Vec<(String, String)> = Vec::new();
+        for (_, p) in self.owner_profile_names.lock().unwrap().iter() {
+            if !all.contains(p) {
+                all.push(p.clone());
+            }
+        }
+        ferb_supervisor::flow::ProfileSources {
+            said: all.clone(),
+            paired: all,
+            ..Default::default()
+        }
+    }
+    fn profiles_in_words(&self, words: &str) -> Vec<(String, String)> {
+        let known = self.owner_profile_names.lock().unwrap();
+        let mut out: Vec<(String, String)> = Vec::new();
+        for (k, p) in known.iter() {
+            if ferb_memory::terms::contains_words(words, k) && !out.contains(p) {
+                out.push(p.clone());
+            }
+        }
+        out
     }
     fn approval(&self, id: &str) -> Option<ferb_gateway::questions::Approval> {
         let q = self.questions.lock().unwrap().clone();
@@ -1623,6 +1725,11 @@ pub fn world_with(name: &str, edit: impl FnOnce(&mut Vec<Value>)) -> World {
     }
     let daemon = Arc::new_cyclic(|me| TestDaemon {
         me: me.clone(),
+        checks_every_report: AtomicBool::new(
+            sc.get("check_every_report")
+                .and_then(Value::as_bool)
+                .unwrap_or(true),
+        ),
         db: db.clone(),
         ids: ids.clone(),
         root: root.clone(),
@@ -1666,7 +1773,11 @@ pub fn world_with(name: &str, edit: impl FnOnce(&mut Vec<Value>)) -> World {
         browsing: Mutex::default(),
         browsing_calls: Mutex::default(),
         profile_names: Mutex::default(),
+        owner_profile_names: Mutex::default(),
+        profile_sources: Mutex::default(),
+        seen_profiles: Mutex::default(),
         forgot_learned: Mutex::default(),
+        literal: Mutex::default(),
     });
     let clock = Arc::new(
         FakeClock::new(ferb_clock::py::parse("2026-01-01T09:00:00+00:00")).with_zone(Zone::utc()),
@@ -1778,6 +1889,38 @@ pub fn run_with(w: &mut World, name: &str, edit: impl FnOnce(&mut Vec<Value>)) -
                     }
                 }
                 "call" => call_step(w, st, &mut report).await,
+                // HAND-580, HAND-581: a test's look at the newest tree's browsing profiles, after the owner's answer
+                // to its own question when the step gives one
+                "task_profiles" => {
+                    let tree: String = w
+                        .db
+                        .lock()
+                        .unwrap()
+                        .conn()
+                        .query_row(
+                            "SELECT id FROM tasks WHERE id NOT LIKE '%.%' ORDER BY rowid DESC LIMIT 1",
+                            [],
+                            |r| r.get(0),
+                        )
+                        .unwrap_or_default();
+                    let a = &st["answer"];
+                    if a.is_object() {
+                        let options: Vec<String> = a["options"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .map(s)
+                            .collect();
+                        w.sup.inner().owner_answered_task(
+                            &format!("{tree}.worker"),
+                            &s(&a["question"]),
+                            &options,
+                            &s(&a["answer"]),
+                        );
+                    }
+                    let seen = w.sup.inner().task_profiles(&tree);
+                    w.daemon.seen_profiles.lock().unwrap().push(json!(seen));
+                }
                 "stream" => {
                     let sent: Value =
                         serde_json::from_str(st["lines"][0]["send"].as_str().unwrap()).unwrap();
@@ -2290,5 +2433,36 @@ fn compare_tables(w: &World, sc: &Value, report: &mut Report) {
                 .tables
                 .push(format!("{table}: written, not in the recording"));
         }
+    }
+}
+
+/// The literal checks' view of a world's store (ORCH-660 tests): paths aren't resolved (no path check runs here).
+struct LiteralHost<'a> {
+    db: &'a Db,
+}
+
+impl ferb_orchestrator::verify::CheckHost for LiteralHost<'_> {
+    fn resolve(
+        &self,
+        path: &str,
+        _must_exist: bool,
+    ) -> Result<String, ferb_orchestrator::verify::PathError> {
+        Ok(path.to_string())
+    }
+    fn urls_of(&self, _task_id: &str) -> Vec<String> {
+        Vec::new()
+    }
+    fn latest_acting_call(
+        &self,
+        _task_id: &str,
+        _tool: Option<&str>,
+    ) -> ferb_orchestrator::sql::Result<Option<Value>> {
+        Ok(None)
+    }
+    fn policy(&self) -> &dyn Policy {
+        &TestPolicy
+    }
+    fn db(&self) -> Option<&Db> {
+        Some(self.db)
     }
 }

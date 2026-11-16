@@ -6,20 +6,20 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 
 | Area | Title | Paths | Active decisions | Open tasks | Pending live checks |
 |---|---|---|---|---|---|
-| app | FERB.app (notch UI, intro, sounds) | `apps`, `demo` | 297 | 11 | 40 |
+| app | FERB.app (notch UI, intro, sounds) | `apps`, `demo` | 298 | 13 | 40 |
 | daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 88 | 10 | 7 |
-| engine | Rust engine (the rewrite) | `engine/*`, `engine/crates`, `engine/fixtures`, `engine/packaging` | 18 | 0 | 0 |
-| gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `engine/runtime/identity` | 114 | 9 | 60 |
-| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extension`, `extension-store` | 162 | 11 | 35 |
+| engine | Rust engine (the rewrite) | `engine/*`, `engine/crates`, `engine/fixtures`, `engine/packaging` | 21 | 6 | 0 |
+| gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `engine/runtime/identity` | 121 | 10 | 61 |
+| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extension`, `extension-store` | 180 | 14 | 38 |
 | memory | Memory and memory import | `engine/runtime/memory` | 60 | 4 | 0 |
-| orchestration | Orchestration | `ferb/orchestrator/*.py`, `engine/runtime/decide`, `ferb/clock` | 154 | 8 | 35 |
+| orchestration | Orchestration | `ferb/orchestrator/*.py`, `engine/runtime/decide`, `ferb/clock` | 163 | 9 | 38 |
 | perception | Perception | `ferb/sense` | 17 | 3 | 0 |
 | project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `HANDOFF.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `kb`, `tools`, `spikes` | 13 | 9 | 0 |
-| prompts | Prompts and abilities | `engine/runtime/orchestrator/prompts`, `engine/runtime/abilities` | 47 | 4 | 10 |
+| prompts | Prompts and abilities | `engine/runtime/orchestrator/prompts`, `engine/runtime/abilities` | 48 | 4 | 10 |
 | release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 25 | 3 | 4 |
-| runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 56 | 6 | 5 |
+| runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 58 | 6 | 6 |
 | storage | Storage | `engine/runtime/store` | 33 | 7 | 4 |
-| tests | Tests | `tests` | 11 | 16 | 0 |
+| tests | Tests | `tests` | 11 | 17 | 0 |
 | voice | Voice | `ferb/voice` | 3 | 0 | 0 |
 
 ## Waiting on the owner
@@ -38,6 +38,8 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 - T-1068 (tests): Approve the plan: which tasks, what quality measures, which surfaces.
 - T-1093 (hands): When FERB uploads files in your browser, should one upload have a size limit? Today it may be as large as a task's download budget (32 GB). A number like 2 GB, or no limit beyond that budget?
 - T-1115 (project): AGENTS.md rule 13 says "The Mac app (`ui/`, FERB.app) is the product" and "`ui/` is the owner's side". The app now lives in apps/mac (apps/ also holds the phone apps). May rule 13 say `apps/mac` and `apps/` there, with nothing else changed?
+- T-1116 (orchestration): Should FERB also ask the gaps question at the first send, submit, pay, post or delete call (by the action's kind) of any step that runs after a step delivered with gaps, even when its plan didn't declare it?
+- T-1117 (gateway): When you paste text into the box under one of FERB's questions, should it count as your own words like a paste in chat (today), or be treated as pasted data that can't name a site for the task and can't count as Yes or No?
 
 ## Terms
 

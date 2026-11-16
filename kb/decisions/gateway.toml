@@ -1358,3 +1358,74 @@ status = "active"
 rule = "Refines GATE-603. A browser.secret fill of an ID kept for any site is the owner's private data sent to the page's site: after outside content was read, on a site the owner neither named (GATE-537) nor approved, the form sink's question is asked (its key: once per site per task, its Yes carries to the submit; GATE-215, GATE-557, GATE-558), naming the ID by its saved name, never its value. The fill re-checks the exact frame's site. An app gets no any-site fallback; secrets.list names identifiers only for a web place."
 why = "'Filled on any site' answered re-typing the ID, not where the owner's data may go. A site's own entry fills only at its exact place, so it never needed the sink; an ID has no place, so a page could talk the model into filling it anywhere unasked. The sink has no app form."
 paths = ["rust/crates/ferb-gateway/src/gateway.rs::Gateway.identifier_sink", "rust/crates/ferb-gateway/src/gateway.rs::Gateway.identifier_cleared", "rust/crates/ferb-gateway/src/gateway/hidden.rs", "rust/crates/ferb-identity/src/owner_secrets.rs::entry_for", "rust/crates/ferb-policy/src/wording.rs", "rust/crates/ferb-gateway/src/hidden_words.rs"]
+
+[GATE-606]
+title = "Fewer repeat questions on a site: FERB's own typing, one answer per site, a site named in a card box"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "but i also said that it shodb undersatnd the text request and do that, didnt i? so this shodl be a fix. idk if a and b are good fixesand wont introdiuce other safety risk, give me aconfudent reply adn then do all fixes"
+words_source = "Owner 2026-11-16, answering the coordinator's a/b/c after the live GitHub task of 2026-11-15 (three form questions, then a link question); a/b/c are in engine/JOURNAL.md entry 88."
+rule = "a. A value FERB typed counts as the owner's private data for the form's question only if FERB read it privately before it first wrote it in the task; a page showing it back doesn't count. b. A Yes or No to the form's question for a host also answers the link's for that host in that task, and the other way round; money, account security and new recipients keep their questions. c. A site the owner names in a question card's box counts as named, as in chat (the planner resolving, checked against the owner's literal words); still never a Yes to the action."
+why = "Live 2026-11-15, the owner's own GitHub: the worker's own repository name, read back from the signed-in page, was asked about three times; box replies naming the site set the question aside and it asked again; the link asked once more under its own key."
+paths = ["engine/crates/ferb-gateway/src/gateway.rs::Gateway.submit_sink", "engine/crates/ferb-gateway/src/gateway.rs::Gateway.authorize_held", "engine/crates/ferb-policy/src/confirm.rs::site_partner"]
+
+[GATE-607]
+title = "A value FERB wrote before any private read of it isn't the owner's by a page showing it back"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For GATE-606 a; refines GATE-215/557 (form sink only). A typed value counts only if a private record held it before the tree's first call whose arguments hold it (GATE-590's spellings). Written at or before its first private record, it is FERB's own, unless an earlier private read could hold it unseen: an image given to the model (evidence kept, not withheld) from any call but a snapshot, or a no-content result (payload_outputs: a folder listing, an opened page) whose text holds it. All other matching is unchanged."
+why = "Live 2026-11-15: a repository name the worker composed, typed into github.com's form and read back from the signed-in page, was the 'private value' of three questions. GATE-590 already orders writing and reading for links."
+evidence = "A page can't make FERB write a private value first: the worker must already know it, and text reaches a worker only through records made before its calls. Typing it into a private page first launders nothing. Unaudited: context blocks with no origin label aren't recorded. Tests: link_rule.rs."
+paths = ["engine/crates/ferb-policy/src/confirm.rs::text_private_values_written", "engine/crates/ferb-policy/src/confirm.rs::Written", "engine/crates/ferb-gateway/src/gateway.rs::Gateway.submit_sink", "engine/crates/ferb-gateway/src/gateway.rs::Gateway.written_args", "engine/crates/ferb-gateway/src/gateway.rs::Gateway.blind_reads"]
+
+[GATE-608]
+title = "The form's and the link's question for one host are one answer per task"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For GATE-606 b; refines GATE-557, GATE-589. A need keyed [\"sink:new_destination\", host] (form, upload, saved ID, command's file) and one keyed [\"sink:destination\", host] (link) are partners (confirm::site_partner): with no answer under its own key in the task tree, a need takes its partner's, Yes or No (authorize_held). Same host string only, this tree only; no other rule's key has a partner; nothing new is recorded."
+why = "Live 2026-11-15: the owner's Yes to the form for github.com didn't cover the link to the new repository three minutes later: two keys for one site."
+evidence = "The form's Yes was already per host per task, not per value (its key is the host; neither always nor fresh), so a link adds no new exposure. A link's Yes already made its host known for good (GATE-205). Tests: link_rule.rs, ferb-policy tests/site_answer.rs."
+paths = ["engine/crates/ferb-policy/src/confirm.rs::site_partner", "engine/crates/ferb-policy/src/confirm.rs::sent_key", "engine/crates/ferb-gateway/src/gateway.rs::Gateway.authorize_held"]
+
+[GATE-609]
+title = "A site named in a safety check's box: the planner reads it; it counts only if the owner typed it"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For GATE-606 c; refines GATE-510, GATE-537. Words typed in a safety check's box (not an exact option) go to one planner call as a chat correction does, with code's fact naming the question. A site it returns that the task lacked counts as named only if its answer continues this task and the owner's words name it by GATE-611's lock. Kept sites join the task's targets: only the not-named sink questions stop, and never past a No (GATE-610). Nothing else is used; the card is set aside, never a Yes. Reply: \"Got it: <host> is a site you named for this task.\""
+why = "Owner 2026-11-16 (GATE-606 c): box words naming the site must be understood. Code alone can't read \"don't send it to github\"; the planner alone could name a site the owner never typed, or one only the card's page-derived text shows."
+evidence = "Only FERB.app's chat.correct text feeds the word lock (GATE-612). Open: a planner that keeps a site the owner declined while typing its name (the card's own host) names it. Tests: card_sites.rs, replay_more.rs, link_rule.rs."
+paths = ["engine/crates/ferb-supervisor/src/flow/control.rs::Inner.card_sites", "engine/crates/ferb-supervisor/src/flow/control.rs::card_named_sites", "engine/crates/ferb-supervisor/src/flow/control.rs::site_in_owner_words", "engine/crates/ferb-supervisor/src/flow/control.rs::sites_named_reply", "engine/crates/ferb-policy/src/destinations.rs::site_host"]
+
+[GATE-610]
+title = "A No to a site's form or link stands for the task even after the site is named"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "Refines GATE-537, GATE-608, GATE-609. The sink checks that pass a named or approved host unasked (link, form submit, saved ID fill, identifier cleared, file sends: Gateway::site_cleared) first look for this task tree's un-reopened No under the host's form key or link key; with one, the need is made and authorize_held refuses it with that No. Typed words, in chat or a card's box, never undo a No; only the owner's reopening does."
+why = "Red-team review 2026-11-16, finding 2: submit_sink, identifier_sink and file_send_needs returned on host_named before any need existed, so a host named after the owner's No ran unasked."
+evidence = "link_rule.rs a_no_stands_after_the_site_is_named fails with the check removed (the form submit runs unasked) and passes with it; the 54 other link_rule cases and 36 outside_destinations cases pass unchanged."
+paths = ["engine/crates/ferb-gateway/src/gateway.rs::Gateway.site_cleared"]
+
+[GATE-611]
+title = "A site from a card's box: any host by its typed address; by name only the card's own apex host"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "Refines GATE-609's word lock (site_in_owner_words). A host counts if the owner typed its address (typed_hosts: a token with a scheme, or a well-formed host). By its name alone only a host the card asks about (Approval::site_hosts, from its needs, never its text), exactly <label>.<tld> after www., tld com, org, net, edu or gov, label of 3+ letters, digits or hyphens, said as words. Otherwise the reply says \"To name a site for this task, type its address (like example.com).\", never echoing a refused host."
+why = "Red-team review 2026-11-16, finding 1: matching a registrable name's first label let ordinary words name hosting-zone subdomains (evil.it.com by \"it\", evil.github.io by \"GitHub\", t.co by \"don't\") that an injected planner could return."
+evidence = "No public suffix list is vendored; ccTLDs and hosting zones' TLDs are refused by name, so bbc.co.uk and x.com need their address. Every row of the review's table is a test (card_sites.rs), with the decline-in-words case end to end (replay_more.rs)."
+paths = ["engine/crates/ferb-supervisor/src/flow/control.rs::site_in_owner_words", "engine/crates/ferb-supervisor/src/flow/control.rs::typed_hosts", "engine/crates/ferb-supervisor/src/flow/control.rs::sites_named_reply", "engine/crates/ferb-gateway/src/questions.rs::Approval"]
+
+[GATE-612]
+title = "The owner's messages and answers are FERB.app's alone: chat.send, approve, answer, correct"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "chat.send, chat.approve, chat.answer and chat.correct are app_only (the signed FERB.app peer check, as data.* and secrets.*): another program running as the owner is refused them. auth::OWNER_APP_ONLY names them; Python's table had them for cli without the check (the named difference). Tests and stand-in daemons answer the app check themselves; a checkout's daemon accepts the notch's identifiers (app_peer Checkout mode)."
+why = "Red-team review 2026-11-16, finding 3: code planted to run later as the owner (a git hook, a launch agent) could answer FERB's questions or type in a card's box, and GATE-510 and GATE-609 trust those words as the owner's."
+evidence = "Callers found: FERB.app (DaemonConnection.swift), its playground's in-app stand-in, tests and fixtures; no shipped program, CLI or extension calls them. ferb-rpc golden names the four; ferbd's stand-ins answer the app check true."
+paths = ["engine/crates/ferb-rpc/src/auth.rs::OWNER_APP_ONLY"]

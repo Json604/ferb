@@ -205,7 +205,7 @@ enum IntroCopy {
                                     choices: [IntroChoice(Pick.pairAll, "Pair all"),
                                               IntroChoice(Pick.browsersLater, "Later")])
     static let lookingAtBrowsers = IntroLine(text: "Looking at your browsers…")
-    static let pairingOrb = IntroLine(text: "If your browser asks, turn FERB on here")
+    static let pairingOrb = IntroLine(text: "Turn FERB on here")
     static let paired = IntroLine(text: "Paired.")
     /// `line` with each installed Chrome-family browser FERB doesn't support yet named under it (HAND-415).
     static func noting(_ unsupported: [UnsupportedBrowser], on line: IntroLine) -> IntroLine {
@@ -235,14 +235,27 @@ enum IntroCopy {
         let profiles = browsers.count == 1 ? " \(browsers.first!) profiles" : ""
         var line = IntroLine(text: progress.rows.isEmpty ? "Not all of them paired."
                              : "\(paired) of \(progress.rows.count)\(profiles) paired.",
-                             detail: progress.rows.isEmpty ? message
-                                : progress.rows.contains(where: \.canAdd)
-                                    ? "The others need a step from you. Add opens FERB's store page in that profile."
-                                    : "The others need a step from you.",
+                             detail: progress.rows.isEmpty ? message : notPairedDetail(progress),
                              choices: [IntroChoice(Pick.pairAll, "Try again"), IntroChoice(Pick.next, "Continue")])
         line.checklist = pairChecklist(progress)
         line.checklistHint = "Point at a profile to see what it needs."
         return line
+    }
+
+    /// "A step from you" only when there is one (HAND-564): a pairing that didn't take is FERB's to try again.
+    static func notPairedDetail(_ progress: PairProgress) -> String {
+        let owner = progress.needOwner
+        let retry = progress.rows.filter { $0.state == .failed && !$0.needsOwner }
+        var parts: [String] = []
+        if !owner.isEmpty {
+            parts.append(owner.contains(where: \.canAdd)
+                ? "\(owner.count == 1 ? "One needs" : "\(owner.count) need") a step from you. Add opens FERB's store page in that profile."
+                : "\(owner.count == 1 ? "One needs" : "\(owner.count) need") a step from you.")
+        }
+        if !retry.isEmpty {
+            parts.append(retry.count == 1 ? "One didn't take: Try again pairs it." : "\(retry.count) didn't take: Try again pairs them.")
+        }
+        return parts.joined(separator: " ")
     }
 
     private static func pairChecklist(_ progress: PairProgress) -> [IntroChecklistItem] {
@@ -253,7 +266,7 @@ enum IntroCopy {
             switch row.state {
             case .pairing: status = "Pairing…"
             case .paired: status = "Paired"
-            case .failed: status = row.canAdd ? "Add" : "Didn't pair"
+            case .failed: status = row.canAdd ? "Add" : row.needsOwner ? skippedStatus(row.reason) : "Try again"
             case .skipped: status = row.canAdd ? "Add" : skippedStatus(row.reason)
             }
             return IntroChecklistItem(id: row.id, title: oneBrowser ? ProfileName(name: row.name).title : row.title,

@@ -231,7 +231,10 @@ fn compare(model: &str, case: &Py, got: &Result<Py, ValidationError>) -> Option<
         return None;
     }
     if let Some(Py::Str(packed)) = case.get("error") {
-        let want = unpack(packed);
+        let mut want = unpack(packed);
+        if model == "CheckerOutcome" {
+            want = gaps_named(&want);
+        }
         return match got {
             Ok(d) => Some(format!("expected an error, got {}", dumps(d, Dumps::UTF8))),
             Err(e) if e.raised().is_some() => {
@@ -353,4 +356,14 @@ fn sha256_known() {
         sha256_hex(b"abc"),
         "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
     );
+}
+
+/// ORCH-652, the one named difference from pydantic's recordings: a check's `next` may also be accept_with_gaps, so
+/// its literal_error lists it.
+// decision: ORCH-652
+fn gaps_named(text: &str) -> String {
+    text.replace(
+        "'accept_unconfirmed' or 'fail'",
+        "'accept_unconfirmed', 'accept_with_gaps' or 'fail'",
+    )
 }

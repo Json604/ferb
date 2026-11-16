@@ -134,3 +134,47 @@ fn the_supervisors_methods_answer() {
     let r = call(&run, "task.stop", json!({"task_ids": []}));
     assert_eq!(r["error"]["code"], -32004, "{r}");
 }
+
+/// main.py:435 `_sweep_stale_runs` (review M1): at start, a Codex run folder a crash left in the temporary folder (it
+/// holds a copy of FERB's Codex login) is removed and the count journaled; a fresh one stays. The Rust start had the
+/// sweep ported but never called it (audit of 2026-11-16). The test's own TMPDIR, so the real one is never touched.
+// decision: ENG-21
+#[test]
+fn the_start_sweeps_stale_codex_run_folders() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = root();
+    let tmpdir = tmp.path().join("tmpdir");
+    let stale = tmpdir.join("ferb-codex-run-old");
+    let fresh = tmpdir.join("ferb-codex-run-new");
+    for d in [&stale, &fresh] {
+        std::fs::create_dir_all(d).unwrap();
+        std::fs::write(d.join("auth.json"), "{}").unwrap();
+        std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    // two days old: past ferb-runtimes' STALE_RUN_S (24 h)
+    let old = std::process::Command::new("touch")
+        .args(["-t", "202001010000"])
+        .arg(&stale)
+        .arg(stale.join("auth.json"))
+        .status()
+        .unwrap();
+    assert!(old.success());
+    let mut run = Run::start_env(
+        tmp.path(),
+        "09",
+        json!({"retention": true}),
+        vec![("TMPDIR".into(), format!("{}/", tmpdir.display()))],
+    );
+    assert!(!stale.exists(), "the stale run folder was swept");
+    assert!(fresh.exists(), "a fresh one stays");
+    let db = rusqlite::Connection::open(run.home.join("ferb.db")).unwrap();
+    let swept: String = db
+        .query_row(
+            "SELECT data_json FROM journal WHERE kind = 'runtime.stale_runs_swept'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(swept, r#"{"count": 1}"#);
+    run.stop();
+}

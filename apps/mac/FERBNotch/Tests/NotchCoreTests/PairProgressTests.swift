@@ -37,4 +37,42 @@ final class PairProgressTests: XCTestCase {
         XCTAssertEqual(IntroLine.elapsed(since: start, now: start.addingTimeInterval(62)), "1:02")
         XCTAssertEqual(IntroLine(text: "Waiting").waiting(since: start).since, start)
     }
+
+    /// HAND-564 (live 2026-11-16): a pairing whose result landed failed while its profile then connected (its new key's
+    /// hello came 80 ms later) reads paired once FERB reads it connected; a row the owner has a step for keeps it.
+    // decision: HAND-564, APP-920
+    func testAProfileFERBReadsConnectedAfterItsResultIsPaired() {
+        var progress = PairProgress()
+        progress.apply(["type": "plan", "profiles": 3,
+                        "todo": [["browser": "chrome", "folder": "Default", "name": "Personal"],
+                                 ["browser": "chrome", "folder": "Profile 2", "name": "Spare"]],
+                        "skipped": [["browser": "brave", "folder": "Default", "name": "Work", "reason": "off",
+                                     "step": "turn FERB on in Brave"]]])
+        progress.apply(["type": "result", "browser": "chrome", "folder": "Default", "paired": false, "reason": "problem",
+                        "why": "extension pairing failed (bad_mac); pair this profile again"])
+        progress.apply(["type": "result", "browser": "chrome", "folder": "Profile 2", "paired": false,
+                        "reason": "no_answer", "why": "the page got no answer"])
+        XCTAssertEqual(progress.rows.first { $0.id == "chrome/Default" }?.reason, "problem")
+        XCTAssertTrue(progress.reconcile(connected: ["chrome/Default"]))
+        let row = progress.rows.first { $0.id == "chrome/Default" }
+        XCTAssertEqual(row?.state, .paired)
+        XCTAssertEqual(row?.why, "")
+        XCTAssertFalse(progress.reconcile(connected: ["chrome/Default"]))      // nothing more to change
+        // what's left: the off profile needs the owner; the unanswered one is FERB's to try again
+        XCTAssertEqual(progress.needOwner.map(\.id), ["brave/Default"])
+        XCTAssertFalse(progress.rows.first { $0.id == "chrome/Profile 2" }!.needsOwner)
+    }
+
+    /// HAND-564: only a reason that names the owner's own step needs the owner; a pairing that didn't take doesn't.
+    // decision: HAND-564, APP-920
+    func testOnlyAReasonWithAnOwnersStepNeedsTheOwner() {
+        for (reason, owner) in [("off", true), ("too_old", true), ("removed", true), ("problem", true),
+                                ("no_answer", false), ("not_connected", false), ("", false)] {
+            var progress = PairProgress()
+            progress.apply(["type": "plan", "profiles": 1, "todo": [["browser": "chrome", "folder": "Default"]]])
+            progress.apply(["type": "result", "browser": "chrome", "folder": "Default", "paired": false,
+                            "reason": reason, "why": "why"])
+            XCTAssertEqual(progress.rows[0].needsOwner, owner, reason)
+        }
+    }
 }

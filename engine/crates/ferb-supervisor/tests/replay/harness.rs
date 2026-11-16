@@ -257,6 +257,15 @@ pub struct Calls {
 
 pub struct TestDaemon {
     me: std::sync::Weak<TestDaemon>,
+    /// ORCH-654's named difference: a Python recording ran its checker on every report (true); an invented scenario
+    /// may say `"check_every_report": false` to run FERB's own skip.
+    checks_every_report: bool,
+    /// GATE-609's named difference: a Python recording's card replies had no planner call (false); a test that
+    /// scripts the planner's reading says `"reads_card_replies": true`.
+    reads_card_replies: bool,
+    /// GATE-611: the hosts a test says its card's site questions are about (`Approval::site_hosts`, which the
+    /// gateway sets from a site card's needs; the recorded card is a file's).
+    card_site_hosts: Vec<String>,
     db: Arc<Mutex<Db>>,
     ids: Arc<Ids>,
     root: String,
@@ -269,6 +278,8 @@ pub struct TestDaemon {
     contexts: Mutex<Vec<Value>>,
     availability: String,
     requests: Mutex<HashMap<String, Request>>,
+    /// Each request's sites as last recorded (kept after the request is forgotten).
+    sites: Mutex<BTreeMap<String, Vec<String>>>,
     grants: Mutex<HashMap<String, Grant>>,
     /// A planner call's lookups (its token names its tools), by its holder.
     only: Mutex<HashMap<String, Vec<String>>>,
@@ -657,6 +668,14 @@ impl TestDaemon {
 }
 
 impl Daemon for TestDaemon {
+    // decision: ORCH-654 (the Python recordings ran their checker on every report; see named_diffs.rs)
+    fn checks_unacted_not_done(&self) -> bool {
+        self.checks_every_report
+    }
+    // decision: GATE-609 (the Python recordings' card replies reached the task with no planner call)
+    fn reads_card_replies(&self) -> bool {
+        self.reads_card_replies
+    }
     fn tool_names(&self) -> Vec<String> {
         self.tools.iter().map(|t| t.name.clone()).collect()
     }
@@ -843,6 +862,10 @@ impl Daemon for TestDaemon {
             .lock()
             .unwrap()
             .insert(request.request_id.clone(), request.clone());
+        self.sites
+            .lock()
+            .unwrap()
+            .insert(request.request_id.clone(), request.targets[1].clone());
     }
     fn request(&self, request_id: &str) -> Request {
         self.requests
@@ -1228,7 +1251,10 @@ impl Daemon for TestDaemon {
         effort: Option<&str>,
     ) -> Result<Arc<dyn ModelRuntime>, ferb_worker::Error> {
         // the recorder names a schema only from ferb/context/schemas.py; the attention check's (supervisor.py:5509)
-        // is the catalog's ATTENTION_SCHEMA, which the recorder names by its hash
+        // is the catalog's ATTENTION_SCHEMA, which the recorder names by its hash. ORCH-652's gaps, not Python's, are
+        // taken out first (the named change)
+        let python = ferb_context::schemas::as_recorded(schema); // and HAND-580's task profiles
+        let schema = &python;
         let name = self
             .schemas
             .iter()
@@ -1438,7 +1464,11 @@ impl Daemon for TestDaemon {
     }
     fn approval(&self, id: &str) -> Option<ferb_gateway::questions::Approval> {
         use ferb_supervisor::flow::chat_rpc::ChatGateway;
-        ChatGw(self.gw(), self.stopped.clone()).approval(id)
+        let mut ap = ChatGw(self.gw(), self.stopped.clone()).approval(id)?;
+        if !self.card_site_hosts.is_empty() {
+            ap.site_hosts = self.card_site_hosts.clone();
+        }
+        Some(ap)
     }
     fn worker_limits(&self, _worker_type: &str) -> Option<ModelLimits> {
         // the scripted runtime's (a runtime made only to read its limits is never started, never recorded)
@@ -1821,6 +1851,11 @@ pub struct Report {
     pub skipped: Vec<String>,
     /// ORCH-650: the step-answer blocks the checks had (compared apart from Python's calls).
     pub step_answers: Vec<String>,
+    /// What the run stored and gave, for tests that change a recording's script: the journal (kind, data), the
+    /// model calls started (`n`, `task_id`, `parts`) and each recorded request's sites.
+    pub journal: Vec<(String, Value)>,
+    pub started: Vec<Value>,
+    pub sites: BTreeMap<String, Vec<String>>,
 }
 
 impl Report {
@@ -2041,6 +2076,15 @@ pub fn run_scenario(
     let question_ids = Arc::new(AtomicUsize::new(0));
     let daemon = Arc::new_cyclic(|me| TestDaemon {
         me: me.clone(),
+        checks_every_report: sc
+            .get("check_every_report")
+            .and_then(Value::as_bool)
+            .unwrap_or(true),
+        reads_card_replies: sc
+            .get("reads_card_replies")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        card_site_hosts: strs(&sc["card_site_hosts"]),
         db: db.clone(),
         ids: ids.clone(),
         root: root.clone(),
@@ -2053,6 +2097,7 @@ pub fn run_scenario(
         contexts: Mutex::new(of("context")),
         availability,
         requests: Mutex::default(),
+        sites: Mutex::default(),
         grants: Mutex::default(),
         only: Mutex::default(),
         tokens: AtomicUsize::new(0),
@@ -2871,6 +2916,23 @@ pub fn run_scenario(
             .calls
             .push(format!("{made} tool calls made, {bridged} recorded"));
     }
+    {
+        let db = db.lock().unwrap();
+        let mut st = db
+            .conn()
+            .prepare("SELECT kind, data_json FROM journal ORDER BY seq")
+            .unwrap();
+        report.journal = st
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+            .unwrap()
+            .map(|r| {
+                let (k, d) = r.unwrap();
+                (k, serde_json::from_str(&d).unwrap_or(Value::Null))
+            })
+            .collect();
+    }
+    report.started = daemon.calls.lock().unwrap().started.clone();
+    report.sites = daemon.sites.lock().unwrap().clone();
     if std::env::var("REPLAY_DEBUG").is_ok() {
         let db = db.lock().unwrap();
         let mut st = db

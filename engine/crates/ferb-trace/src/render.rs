@@ -13,6 +13,7 @@ fn status_label(status: &str) -> Option<&'static str> {
     Some(match status {
         "done" => "done",
         "done_unverified" => "done (not confirmed)",
+        "done_with_gaps" => "delivered, with parts not done", // ORCH-651
         "failed" => "failed ✗",
         "needs_user" => "waiting for you",
         "cancelled" => "stopped",

@@ -382,6 +382,34 @@ final class SetupModelTests: XCTestCase {
         XCTAssertNil(model.message)
     }
 
+    /// HAND-564 (live 2026-11-16): Pair all's result said Chrome Default failed ("problem": a hello its extension had
+    /// signed with an older key) while its new key's hello was accepted right after. What FERB reads once Pair all ends
+    /// wins: that profile reads connected, so it counts as paired and the message names nothing for it.
+    // decision: HAND-564, APP-920
+    func testPairAllCountsAProfileThatConnectedAfterItsResultAsPaired() async {
+        let rig = SetupRig()
+        let failed: [String: Any] = ["browser": "chrome", "folder": "Default", "name": "Personal", "label": "Google Chrome",
+                                     "paired": false, "reason": "problem", "why": "extension pairing failed (bad_mac)"]
+        rig.rpc.events["setup.browsers_pairing"] = [
+            ["type": "plan", "profiles": 1, "skipped": [[String: Any]](),
+             "todo": [["browser": "chrome", "folder": "Default", "name": "Personal", "label": "Google Chrome"]]],
+            ["type": "result"].merging(failed) { a, _ in a },
+            ["type": "done", "profiles": 1, "skipped": [[String: Any]](), "paired": 0, "results": [failed]]]
+        rig.rpc.replies["setup.browsers"] = ["store_url": NSNull(), "extension_dir": "/x", "browsers": [
+            ["browser": "chrome", "label": "Google Chrome", "profiles": [
+                ["folder": "Default", "name": "Personal", "state": "paired", "connected": true]]]]]
+        let model = rig.model()
+        await model.pairAll()
+        XCTAssertNil(model.message)
+        XCTAssertEqual(model.pairProgress?.rows.map(\.state), [.paired])
+        // not connected: the result stands
+        rig.rpc.replies["setup.browsers"] = ["store_url": NSNull(), "extension_dir": "/x", "browsers": [
+            ["browser": "chrome", "label": "Google Chrome", "profiles": [
+                ["folder": "Default", "name": "Personal", "state": "paired", "connected": false]]]]]
+        await model.pairAll()
+        XCTAssertEqual(model.message, "Google Chrome “Personal”: extension pairing failed (bad_mac).")
+    }
+
     // decision: DMN-508
     func testBrowsersSayWhatKeptFERBFromConnectingThem() async {
         let rig = SetupRig()

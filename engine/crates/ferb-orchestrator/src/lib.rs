@@ -56,6 +56,8 @@ pub mod stop;
 #[cfg(feature = "store")]
 pub mod test_runs;
 #[cfg(feature = "store")]
+pub mod trace_read;
+#[cfg(feature = "store")]
 pub mod tree;
 pub mod validate;
 #[cfg(feature = "store")]

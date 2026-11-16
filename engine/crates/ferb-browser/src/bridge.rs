@@ -225,6 +225,20 @@ struct ConnState {
     key: Option<PairingKey>,
     /// The last counter the daemon signed on this connection.
     dseq: i64,
+    /// HAND-565: the stale-key hellos seen on this connection, a row per reason.
+    stale: Vec<StaleSeen>,
+    /// HAND-565: messages dropped unread while this connection had only stale-key hellos.
+    skipped: u64,
+}
+
+/// HAND-565: one reason's stale-key hellos on a connection.
+struct StaleSeen {
+    reason: String,
+    why: String,
+    install_id: String,
+    count: u64,
+    /// When it was last answered (the pairings' monotonic clock).
+    answered_at: f64,
 }
 
 impl Conn {
@@ -258,6 +272,12 @@ impl Conn {
 
     fn bridge(&self) -> Option<Arc<Bridge>> {
         lock(&self.state).bridge.clone()
+    }
+
+    /// HAND-565: refused for a stale key and not authenticated since.
+    fn stale_only(&self) -> bool {
+        let s = lock(&self.state);
+        s.bridge.is_none() && !s.stale.is_empty()
     }
 }
 
@@ -950,8 +970,8 @@ impl Drop for CallGuard {
 
 struct HubState {
     bridges: Vec<((String, String), Arc<Bridge>)>,
-    /// install_id -> why (HAND-406).
-    refused: Vec<(String, String)>,
+    /// install_id -> why and what kind of refusal (HAND-406; the kind: HAND-564).
+    refused: Vec<(String, (String, Refusal))>,
     /// install_id -> browser: installed, connected, not paired.
     unpaired: Vec<(String, String)>,
     /// install_id -> the version its hello said (APP-892).
@@ -970,6 +990,34 @@ fn take<K: PartialEq, V>(v: &mut Vec<(K, V)>, k: &K) -> Option<V> {
     let at = v.iter().position(|(x, _)| x == k)?;
     Some(v.remove(at).1)
 }
+
+/// What a refusal kept for this run says about the install (HAND-564). Only a [`Refusal::Blocking`] one is about the
+/// copy that holds this FERB's key; the others can't end a pairing that is still converging.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Refusal {
+    /// After its MAC checked: too old or newer, no nonce, the wrong browser, a malformed message. The copy holding the
+    /// key can't be used until the owner's step.
+    Blocking,
+    /// `bad_mac` or `replay`: what was presented isn't signed with this FERB's current key for the install (a key from
+    /// an earlier FERB install or pairing, or a message signed before a new pairing's key reached the extension).
+    StaleKey,
+    /// A `pair` whose token was unknown or expired: about that token, never about the install's key.
+    Token,
+}
+
+impl Refusal {
+    fn of(reason: &str) -> Refusal {
+        match reason {
+            "bad_mac" | "replay" => Refusal::StaleKey,
+            "unknown_token" | "expired_token" => Refusal::Token,
+            _ => Refusal::Blocking,
+        }
+    }
+}
+
+/// HAND-565: a stale-key refusal on one connection is answered again at most this often; the ones between are
+/// counted (one journal row with the count when the connection authenticates or ends), never worked on again.
+pub const STALE_ANSWER_EVERY_S: f64 = 30.0;
 
 /// Why a connection ends where Python lets an exception end `Hub.serve`.
 #[derive(Debug)]
@@ -1101,6 +1149,11 @@ impl Hub {
 
     /// install_id -> why, for this run (HAND-406).
     pub fn refused(&self, install_id: &str) -> Option<String> {
+        self.refusal(install_id).map(|(why, _)| why)
+    }
+
+    /// The refusal kept for this install in this run, with its kind (HAND-564).
+    pub fn refusal(&self, install_id: &str) -> Option<(String, Refusal)> {
         lock(&self.state)
             .refused
             .iter()
@@ -1109,7 +1162,31 @@ impl Hub {
     }
 
     pub fn refusals(&self) -> Vec<(String, String)> {
-        lock(&self.state).refused.clone()
+        lock(&self.state)
+            .refused
+            .iter()
+            .map(|(k, (why, _))| (k.clone(), why.clone()))
+            .collect()
+    }
+
+    /// HAND-564: why the copy holding this FERB's key for the profile can't be used, when FERB was told after that
+    /// copy's MAC checked (too old or newer, no nonce, the wrong browser); a stale key or a token's refusal isn't one.
+    /// A pairing ends early only on this.
+    pub fn blocking(&self, binding: &Binding) -> Option<String> {
+        match self.refusal(&binding.install_id) {
+            Some((why, Refusal::Blocking)) => Some(why),
+            Some(_) => None,
+            None => self.version_problem(binding),
+        }
+    }
+
+    /// HAND-564: the profile's extension presented a key that isn't this FERB's current one for it in this run, and
+    /// nothing has authenticated since: it needs pairing again (Pair all does it on the owner's click).
+    pub fn stale_key(&self, binding: &Binding) -> bool {
+        matches!(
+            self.refusal(&binding.install_id),
+            Some((_, Refusal::StaleKey))
+        )
     }
 
     /// install_id -> browser of the unpaired copies connected now.
@@ -1152,14 +1229,26 @@ impl Hub {
             set(
                 &mut lock(&self.state).refused,
                 b.install_id.clone(),
-                why.to_string(),
+                (why.to_string(), Refusal::of(reason)),
             );
         }
+        self.journal_refusal(reason, why, binding.as_ref(), app, facts);
+    }
+
+    /// The journal half of [`Hub::note_refusal`]: the hook's row (HAND-406), nothing kept.
+    fn journal_refusal(
+        &self,
+        reason: &str,
+        why: &str,
+        binding: Option<&Binding>,
+        app: Option<&str>,
+        facts: Map<String, Value>,
+    ) {
         let mut out = Map::new();
         out.insert("reason".into(), reason.into());
         out.insert("why".into(), why.into());
         out.extend(facts);
-        if let Some(b) = &binding {
+        if let Some(b) = binding {
             out.insert(
                 "profile".into(),
                 format!("{}/{}", b.browser, b.folder).into(),
@@ -1246,6 +1335,11 @@ impl Hub {
         if let Some(why) = self.refused(&binding.install_id) {
             return Some(why);
         }
+        self.version_problem(binding)
+    }
+
+    /// The version this install last reported, when FERB needs a newer one.
+    fn version_problem(&self, binding: &Binding) -> Option<String> {
         let version = self
             .pairings
             .version(&binding.install_id)
@@ -1451,6 +1545,7 @@ impl Hub {
                 }
             }
         }
+        self.stale_summary(&conn);
         let (unpaired, bridge) = {
             let s = lock(&conn.state);
             (s.unpaired_install.clone(), s.bridge.clone())
@@ -1484,17 +1579,17 @@ impl Hub {
         conn: &Arc<Conn>,
         m: ExtMessage,
     ) -> std::result::Result<(), End> {
+        if !matches!(m.mtype, ExtType::Hello | ExtType::Pair) && conn.stale_only() {
+            // HAND-565: a connection refused for a stale key that never authenticated since: what it sends besides a
+            // hello or a pair is signed with that key too, so it is counted and dropped with no store read
+            lock(&conn.state).skipped += 1;
+            return Ok(());
+        }
         let v = self.pairings.handle(&m).map_err(|_| End)?;
         let app = conn.app.as_deref();
         if !v.accepted {
             if m.mtype == ExtType::Hello && (v.reason == "bad_mac" || v.reason == "replay") {
-                let why = format!(
-                    "extension pairing failed ({}); pair this profile again (browser_pair, or Settings → Browsers)",
-                    v.reason
-                );
-                let facts = self.refused_sender(conn, &m);
-                self.note_refusal(&v.reason, &why, Some(&m.install_id), app, facts);
-                Self::write(conn, &json!({"type": "refused", "reason": why})).await?;
+                return self.stale_hello(conn, &m, &v.reason).await;
             } else if matches!(m.mtype, ExtType::Hello | ExtType::Pair) {
                 // a pairing that didn't take (unknown or expired token)
                 let why = format!(
@@ -1512,6 +1607,8 @@ impl Hub {
                 let mut s = lock(&self.state);
                 take(&mut s.unpaired, &m.install_id);
                 take(&mut s.unpaired_version, &m.install_id);
+                // HAND-564: what was refused before was about the key this pairing replaced
+                take(&mut s.refused, &m.install_id);
             }
             conn.write_line(&reply.wire()).await.map_err(|_| End)?;
             if let Some(b) = &v.binding {
@@ -1577,6 +1674,103 @@ impl Hub {
         Ok(())
     }
 
+    /// HAND-565: a hello whose MAC or counter isn't this FERB's for a paired install (HAND-406's `bad_mac`, `replay`).
+    /// The first of each reason on a connection is journaled with its sender (HAND-530), kept for this run and
+    /// answered; the same again on that connection is only counted, and answered again at most every
+    /// [`STALE_ANSWER_EVERY_S`] (one journal row with the count when the connection authenticates or ends). A signed
+    /// hello's answer names the hello it refuses (`stale_key`: its nonce, counter and reason; for a replay the counter
+    /// FERB last took), so an extension that knows which key signed it can drop that key and only that one, or move a
+    /// counter that fell behind; an unsigned one (a copy that holds no key) is told it isn't paired. Nothing here
+    /// changes a pairing record or any key (HAND-222).
+    async fn stale_hello(
+        &self,
+        conn: &Arc<Conn>,
+        m: &ExtMessage,
+        reason: &str,
+    ) -> std::result::Result<(), End> {
+        let why = format!(
+            "extension pairing failed ({reason}); pair this profile again (browser_pair, or Settings → Browsers)"
+        );
+        let now = self.pairings.monotonic();
+        let (first, answer) = {
+            let mut c = lock(&conn.state);
+            match c.stale.iter_mut().find(|s| s.reason == reason) {
+                Some(seen) => {
+                    seen.count += 1;
+                    let due = now - seen.answered_at >= STALE_ANSWER_EVERY_S;
+                    if due {
+                        seen.answered_at = now;
+                    }
+                    (false, due)
+                }
+                None => {
+                    c.stale.push(StaleSeen {
+                        reason: reason.to_string(),
+                        why: why.clone(),
+                        install_id: m.install_id.clone(),
+                        count: 1,
+                        answered_at: now,
+                    });
+                    (true, true)
+                }
+            }
+        };
+        if first {
+            let facts = self.refused_sender(conn, m);
+            self.note_refusal(
+                reason,
+                &why,
+                Some(&m.install_id),
+                conn.app.as_deref(),
+                facts,
+            );
+        }
+        if !answer {
+            return Ok(());
+        }
+        let reply = match (&m.mac, m.seq) {
+            (Some(_), Some(seq)) => {
+                let nonce = m
+                    .body()
+                    .ok()
+                    .and_then(|b| b.get("nonce").and_then(Value::as_str).map(String::from))
+                    .unwrap_or_default();
+                let mut stale = json!({"nonce": ferb_py::value::prefix(&nonce, 64), "seq": seq,
+                                       "reason": reason});
+                if reason == "replay" {
+                    // the key is this FERB's, its counter is behind: the counter FERB last took (never a key)
+                    stale["accepted"] = json!(self.pairings.last_seq(&m.install_id).ok().flatten());
+                }
+                json!({"type": "refused", "reason": why, "stale_key": stale})
+            }
+            _ => json!({"type": "pairing_required"}),
+        };
+        Self::write(conn, &reply).await
+    }
+
+    /// HAND-565: the stale-key hellos a connection sent past the first of each reason, journaled once with their count
+    /// (never kept as a refusal: by now a newer hello may have authenticated), then forgotten.
+    fn stale_summary(&self, conn: &Conn) {
+        let (seen, skipped) = {
+            let mut c = lock(&conn.state);
+            (std::mem::take(&mut c.stale), std::mem::take(&mut c.skipped))
+        };
+        for s in seen.into_iter().filter(|s| s.count > 1) {
+            let mut facts = Map::new();
+            facts.insert("connection".into(), conn.id.into());
+            facts.insert("repeats_on_connection".into(), (s.count - 1).into());
+            facts.insert("dropped_on_connection".into(), skipped.into());
+            let binding = self.pairings.binding(&s.install_id).ok().flatten();
+            self.journal_refusal(
+                &s.reason,
+                &s.why,
+                binding.as_ref(),
+                conn.app.as_deref(),
+                facts,
+            );
+        }
+    }
+
     async fn hello(
         self: Arc<Self>,
         conn: &Arc<Conn>,
@@ -1632,6 +1826,7 @@ impl Hub {
             return Self::write(conn, &json!({"type": "refused", "reason": why})).await;
         }
         take(&mut lock(&self.state).refused, &m.install_id);
+        self.stale_summary(conn);
         let Some(br) = self
             .bridge(&binding.browser, &binding.folder)
             .map_err(|_| End)?

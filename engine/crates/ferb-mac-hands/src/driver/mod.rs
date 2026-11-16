@@ -30,6 +30,10 @@ use crate::profile::Profiles;
 // ---------- words ----------
 
 pub const OWN_APP: &str = "FERB never operates its own app; questions are answered by the owner";
+/// HAND-571: a FERB window or panel has the keyboard focus, so a key or typed text could land in it (a question's
+/// box, whose exact option words are that option): the input stops before that event.
+pub const OWN_FOCUS: &str =
+    "FERB's own window has the keyboard focus; input stopped so it can't type into FERB";
 pub const RUNS_OPENED: &str = "a file that can run when opened";
 pub const CANT_CONFIRM: &str =
     "FERB can't confirm what is under this point, so it didn't click: one of its own \
@@ -318,6 +322,11 @@ pub trait Apps: Send + Sync {
         vec![]
     }
     fn frontmost(&self) -> Option<RunningApp>;
+    /// HAND-571: the process whose element has the keyboard focus now (the system-wide focused element's), which
+    /// can be a non-activating panel's while another app is frontmost. None: can't tell.
+    fn keyboard_focus_pid(&self) -> Option<i32> {
+        None
+    }
     fn activate(&self, bundle_id: &str, pid: Option<i32>) -> bool;
     fn launch(&self, bundle_id: &str) -> bool {
         false
@@ -2512,6 +2521,10 @@ substituted or brought forward",
                             "foreground target changed; input stopped without restoring an app"
                                 .into(),
                         ));
+                    }
+                    // decision: HAND-571
+                    if d.apps.keyboard_focus_pid().is_some_and(|f| d.own_pid_is(f)) {
+                        return Err(HandError::PointerInterrupted(OWN_FOCUS.into()));
                     }
                     Ok(())
                 })

@@ -184,10 +184,13 @@ public struct BrowserProfileRow: Equatable, Identifiable {
     /// APP-892: paired, but the copy of FERB's extension that answers there now is a new one (added again: a new
     /// identity), connected and not paired: opening the profile won't connect it, pairing it again will.
     public let needsPairing: Bool
+    /// HAND-564: paired, but its extension presents a key from an earlier FERB install or pairing: not usable until
+    /// it is paired again (Pair all or its own Pair does it).
+    public let staleKey: Bool
 
     public init(browser: String, folder: String, name: String, email: String = "", state: ProfileSetupState,
                 ferbIdentity: Bool, connected: Bool, version: String = "", tooOld: Bool = false, problem: String = "",
-                needsPairing: Bool = false) {
+                needsPairing: Bool = false, staleKey: Bool = false) {
         self.browser = browser
         self.folder = folder
         self.name = name
@@ -199,15 +202,18 @@ public struct BrowserProfileRow: Equatable, Identifiable {
         self.tooOld = tooOld
         self.problem = problem
         self.needsPairing = needsPairing
+        self.staleKey = staleKey
     }
 
     /// The row's state as it stands now (APP-883): its problem first, then too old, then paired and whether its
     /// browser is connected right now, else the setup state.
+    /// "Paired" only when FERB can use it now (HAND-564): connected, or closed and woken when a task needs it.
     public var stateText: String {
         if !problem.isEmpty { return "Not connected: " + problem }
         if tooOld { return "Too old (version \(version)): update FERB's extension in this profile" }
+        if staleKey { return "Needs pairing again: its extension holds an older pairing (Pair fixes it)" }
         if needsPairing { return "Needs pairing again: FERB's extension here is a new copy" }
-        if state == .paired { return connected ? "Paired · connected" : "Paired · not connected (open this profile)" }
+        if state == .paired { return connected ? "Paired · connected" : "Paired · not open now (FERB opens it when a task needs it)" }
         return state.text
     }
 
@@ -265,7 +271,8 @@ public struct BrowserSnapshot: Equatable {
                                          email: p["email"] as? String ?? "", state: state, ferbIdentity: p["ferb_identity"] as? Bool ?? false,
                                          connected: p["connected"] as? Bool ?? false, version: p["version"] as? String ?? "",
                                          tooOld: p["too_old"] as? Bool ?? false, problem: p["problem"] as? String ?? "",
-                                         needsPairing: p["needs_pairing"] as? Bool ?? false)
+                                         needsPairing: p["needs_pairing"] as? Bool ?? false,
+                                         staleKey: p["stale_key"] as? Bool ?? false)
             }
             return BrowserRow(browser: name, label: browser["label"] as? String ?? name,
                               requested: browser["requested"] as? Bool ?? false,

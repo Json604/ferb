@@ -207,6 +207,23 @@ impl Inner {
                 ferb_sanitize::formats::hidden_note(&kinds, "message")
             )
         };
+        // GATE-609 (GATE-606 c): the planner reads the box's words, as it reads a chat correction, for the sites the
+        // owner named; code keeps only those the owner's own typed words hold. Never a Yes or No to the question.
+        let read = if self.deps.daemon.reads_card_replies() {
+            self.card_sites(
+                &ap,
+                &tree,
+                &session,
+                &request_id,
+                &marked.own_words,
+                &payload,
+                &entry,
+            )
+            .await
+        } else {
+            CardSites::default()
+        };
+        let named = read.named.clone();
         // no chat turn carries it (`_turns.get(request_id)` is None in Python): its words, payload and entry only
         let turn = Arc::new(Mutex::new(Turn {
             request_id: request_id.clone(),
@@ -216,6 +233,7 @@ impl Inner {
             entries: vec![entry],
             ..Turn::default()
         }));
+        let said = sites_named_reply(&read);
         let steered = self
             .apply_steering(
                 &tree,
@@ -224,7 +242,8 @@ impl Inner {
                 None,
                 &StandingSends::Unchanged,
                 &[],
-                "",
+                &said,
+                &named,
             )
             .await;
         let steered = match steered {
@@ -252,6 +271,66 @@ impl Inner {
             .map(|a| a.state.as_str().to_string())
             .unwrap_or_else(|| "gone".into());
         Ok(json!({"task_id": tree.id, "request_id": request_id, "text": text, "state": state}))
+    }
+
+    /// GATE-609 (GATE-606 c): one planner call reads the words the owner typed in a safety check's box, as it reads a
+    /// chat message that corrects a running task (the same `_supervise`, prompt and blocks: the open questions, the
+    /// task's state), with code's fact naming the question. Only the sites it returns are used, and only through
+    /// `card_named_sites`'s locks; its answer, goal, text and anything else are not (the words still reach the
+    /// worker as today's correction). Any failure names nothing.
+    #[allow(clippy::too_many_arguments)]
+    async fn card_sites(
+        &self,
+        ap: &ferb_gateway::questions::Approval,
+        tree: &Arc<Tree>,
+        session: &str,
+        request_id: &str,
+        own_words: &str,
+        payload: &str,
+        entry: &super::store::Entry,
+    ) -> CardSites {
+        let fact = format!(
+            "{payload}\n{}{}",
+            CARD_BOX_FACT.replace("{id}", &ap.id),
+            self.wrap(&self.redact_text(&ap.reason))
+        );
+        let environment = self.deps.daemon.environment(own_words).await;
+        let turn = Arc::new(Mutex::new(Turn {
+            request_id: request_id.to_string(),
+            session: session.to_string(),
+            words: own_words.to_string(),
+            own_words: own_words.to_string(),
+            typed: own_words.to_string(),
+            payload: fact,
+            entries: vec![entry.clone()],
+            message_origin: origin::split(Some(&entry.origin)),
+            environment,
+            ..Turn::default()
+        }));
+        let cancel = super::turn::Cancel::default();
+        let read = self.supervise_turn(&turn, None, &cancel).await;
+        let prior: Vec<String> = tree.spec().targets.sites.clone();
+        let sites = match &read {
+            Ok(out) => card_named_sites(
+                out,
+                &tree.id,
+                &|t: &str| self.tree_id_of(t).as_deref() == Some(tree.id.as_str()),
+                &prior,
+                own_words,
+                &ap.site_hosts,
+            ),
+            Err(e) => CardSites {
+                why: format!("planner: {}", e_text(e)),
+                ..CardSites::default()
+            },
+        };
+        self.journal(
+            "task.card_sites",
+            json!({"task_id": tree.id, "approval_id": ap.id, "request_id": request_id,
+                   "named": sites.named, "refused": sites.refused, "why": sites.why}),
+            None,
+        );
+        sites
     }
 
     /// supervisor.py:2240 `running_trees`.
@@ -648,6 +727,7 @@ impl Inner {
                         &control.standing_sends,
                         &control.supersedes,
                         &said,
+                        &[],
                     )
                     .await?
                 {
@@ -1075,10 +1155,16 @@ impl Inner {
         if keep_tabs {
             self.deps.daemon.keep_tabs_open(&tree.id);
         }
+        // HAND-581: profiles the owner's words name in this correction join the task's (this task only)
+        if !spec.profiles.is_empty() {
+            let found = self.deps.daemon.owner_profiles(&spec.profiles);
+            self.add_task_profiles(tree, &found, "corrected");
+        }
     }
 
     /// steering.py:221 `apply`: persist first, then steer every live member of the named tree. Ok(None): the tree no
-    /// longer takes corrections; Ok(Some(text)): the reply (JUST_ENDED when it found its task ending).
+    /// longer takes corrections; Ok(Some(text)): the reply (JUST_ENDED when it found its task ending). `named_sites`:
+    /// hosts a safety check's box named (GATE-609), added to the task's sites before its request is recorded.
     #[allow(clippy::too_many_arguments)] // steering.apply's own arguments
     async fn apply_steering(
         &self,
@@ -1089,6 +1175,7 @@ impl Inner {
         standing: &StandingSends,
         supersedes: &[String],
         said: &str,
+        named_sites: &[String],
     ) -> Flow<Option<(String, Option<ferb_orchestrator::steering::Restated>)>> {
         let mut state = tree.steering.lock().await;
         if !tree.lock().accepting_updates {
@@ -1139,6 +1226,22 @@ impl Inner {
             let mut st = tree.lock();
             if let Some(current) = st.spec.as_mut() {
                 ferb_orchestrator::steering::apply_spec(current, &corrected);
+            }
+        }
+        if !named_sites.is_empty() {
+            // decision: GATE-609
+            let mut st = tree.lock();
+            if let Some(current) = st.spec.as_mut() {
+                for site in named_sites {
+                    let known = current
+                        .targets
+                        .sites
+                        .iter()
+                        .any(|s| ferb_policy::destinations::site_host(s) == *site);
+                    if !known {
+                        current.targets.sites.push(site.clone());
+                    }
+                }
             }
         }
         // `tree.worker.goal = tree.spec.goal`, `tree.worker.success_conditions = [...]`: the next attempt's worker,
@@ -1498,5 +1601,164 @@ fn py_type(v: &Value) -> &'static str {
         Value::Array(_) => "list",
         Value::String(_) => "str",
         Value::Null => "NoneType",
+    }
+}
+
+/// The planner call's failure, by its class only (the journal keeps no problem text).
+fn e_text(e: &super::turn::Repairable) -> String {
+    match e {
+        super::turn::Repairable::Problems(_, class) => class.clone(),
+        super::turn::Repairable::Not(f) => f.class(),
+    }
+}
+
+/// What the planner's reading of a safety check's box named (GATE-609): the hosts kept, the hosts it returned that the
+/// owner's own words don't hold, and why nothing was kept when its answer wasn't a correction of this task.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CardSites {
+    pub named: Vec<String>,
+    pub refused: Vec<String>,
+    pub why: String,
+}
+
+/// GATE-609's locks on the planner's reading of the words typed in a safety check's box. Sites count only when the
+/// planner read the words as a correction that carries on this task (control `continue` on it, with the task's spec):
+/// a stop, pause, retry, plain reply, answer or new task names nothing, so a refusal ("don't send it to github") that
+/// the planner reads as one, or reads without the site, names nothing. Of the sites its spec holds that the task
+/// didn't already (`prior`), each is kept only when `own_words` (the owner's typed words, never the card's text) name
+/// it (`site_in_owner_words`, with `asked`: the hosts the card's own site questions are about, from its needs). Hosts
+/// in `site_host`'s form, in the planner's order.
+pub fn card_named_sites(
+    out: &SupervisorOutcome,
+    tree_id: &str,
+    in_tree: &dyn Fn(&str) -> bool,
+    prior: &[String],
+    own_words: &str,
+    asked: &[String],
+) -> CardSites {
+    let refuse = |why: &str| CardSites {
+        why: why.to_string(),
+        ..CardSites::default()
+    };
+    let Some(control) = out.control.as_ref() else {
+        return refuse("no correction of a task");
+    };
+    if control.action != "continue" {
+        return refuse(&format!("control {}", control.action));
+    }
+    if control.task_id != tree_id && !in_tree(&control.task_id) {
+        return refuse("another task");
+    }
+    let Some(task) = out.task.as_ref() else {
+        return refuse("no task spec");
+    };
+    let before: BTreeSet<String> = prior
+        .iter()
+        .map(|s| ferb_policy::destinations::site_host(s))
+        .collect();
+    let mut sites = CardSites::default();
+    for site in &task.targets.sites {
+        let host = ferb_policy::destinations::site_host(site);
+        if host.is_empty()
+            || before.contains(&host)
+            || sites.named.contains(&host)
+            || sites.refused.contains(&host)
+        {
+            continue;
+        }
+        if site_in_owner_words(own_words, &host, asked) {
+            sites.named.push(host);
+        } else {
+            sites.refused.push(host);
+        }
+    }
+    sites
+}
+
+/// GATE-611: the top-level domains whose two-label hosts may be named by their label alone: generic ones whose
+/// registries sell names directly under them. Every ccTLD is out (co.uk, com.au, it.com-style zones sell names one
+/// level down, and t.co, account.cx were the review's examples), as are hosting zones' own TLDs (github.io, web.app,
+/// pages.dev, run.app).
+const BY_LABEL_TLDS: &[&str] = &["com", "org", "net", "edu", "gov"];
+
+/// GATE-609/611's word lock: the owner's typed words name `host`.
+/// - Any host: only when they typed it whole, as an address (`destinations::from_words`: "gitlab.com",
+///   "https://www.github.com/new"), compared in `site_host`'s form.
+/// - By its name alone ("GitHub" for github.com, as words: MEM-430's `said_as_words`, case aside, no fuzzy matching):
+///   only a host the card itself asked about (`asked`, from its needs, never its text), only when it is exactly
+///   `<label>.<tld>` (after `www.`) with `tld` in `BY_LABEL_TLDS` and a label of at least three characters with a
+///   letter. Subdomains (evil.github.io, script.google.com, evil.it.com) and short words ("t", "it", "us", "no") never
+///   pass by name; GATE-537's match is the exact host, so naming github.com names no host under it.
+pub fn site_in_owner_words(own_words: &str, host: &str, asked: &[String]) -> bool {
+    let host = ferb_policy::destinations::site_host(host);
+    if host.is_empty() {
+        return false;
+    }
+    if typed_hosts(own_words).contains(&host) {
+        return true;
+    }
+    if !asked
+        .iter()
+        .any(|a| ferb_policy::destinations::site_host(a) == host)
+    {
+        return false;
+    }
+    let labels: Vec<&str> = host.split('.').collect();
+    let [label, tld] = labels.as_slice() else {
+        return false;
+    };
+    BY_LABEL_TLDS.contains(tld)
+        && label.chars().count() >= 3
+        && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+        && label.chars().any(|c| c.is_ascii_alphabetic())
+        && ferb_memory::terms::said_as_words(own_words, label)
+}
+
+/// GATE-611: the addresses the owner typed, in `site_host`'s form: each whitespace token (its surrounding punctuation
+/// aside) with a scheme ("https://www.github.com/new"), or without one when it reads as a host ("gitlab.com",
+/// "gist.github.com", "192.168.1.20"): labels of letters, digits and hyphens, the last a TLD of two or more letters or
+/// the whole an IPv4 address. "gitlab", "github com" and "user@github.com" are no address.
+pub fn typed_hosts(own_words: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for tok in ferb_policy::provenance::raw_tokens(own_words) {
+        let found = if tok.contains("://") {
+            ferb_policy::provenance::host_of(tok)
+        } else if tok.contains('.') && !tok.contains('@') {
+            ferb_policy::urls::parse(&format!("https://{tok}"))
+                .map(|u| u.host)
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
+        let host = ferb_policy::destinations::site_host(&found);
+        let labels: Vec<&str> = host.split('.').collect();
+        let wellformed = labels.len() >= 2
+            && labels
+                .iter()
+                .all(|l| !l.is_empty() && l.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'));
+        let last = labels.last().copied().unwrap_or("");
+        let tld = last.len() >= 2 && last.chars().all(|c| c.is_ascii_alphabetic());
+        let ipv4 = labels.len() == 4 && labels.iter().all(|l| l.parse::<u8>().is_ok());
+        if wellformed && (tld || ipv4) && !out.contains(&host) {
+            out.push(host);
+        }
+    }
+    out
+}
+
+/// GATE-609/611: FERB's reply to a box's words, from what was kept and refused ("" when the planner returned no new
+/// site: the acknowledgement's "Got it.").
+pub fn sites_named_reply(read: &CardSites) -> String {
+    let named = match read.named.as_slice() {
+        [] => String::new(),
+        [one] => CARD_SITE_NAMED.replace("{sites}", one),
+        [rest @ .., last] => {
+            CARD_SITES_NAMED.replace("{sites}", &format!("{} and {last}", rest.join(", ")))
+        }
+    };
+    match (named.is_empty(), read.refused.is_empty()) {
+        (_, true) => named,
+        (true, false) => CARD_SITE_TYPE_IT.to_string(),
+        (false, false) => format!("{named} {CARD_SITE_TYPE_ANOTHER}"),
     }
 }

@@ -95,6 +95,10 @@ fn with_additions(tools: &Value, sorted: bool) -> Value {
         return tools.clone();
     }
     for a in ferb_gateway::catalog::additions() {
+        // ORCH-663: one offered only by name (task.trace) is in the planner's lookups alone
+        if !sorted && a.row["facts"]["named_only"].as_bool().unwrap_or(false) {
+            continue;
+        }
         if let Some(i) = names.iter().position(|n| *n == a.after) {
             names.insert(i + 1, a.name.clone());
         }
@@ -1579,15 +1583,17 @@ fn run_scenario(
         };
         // the recorder names a schema only from ferb/context/schemas.py; the attention check's (supervisor.py:5509) is
         // the catalog's ATTENTION_SCHEMA, which the recorder names by its hash
+        // ORCH-652's gaps, not Python's, are taken out first (the named change)
+        let python = ferb_context::schemas::as_recorded(&made["schema"]); // and HAND-580's task profiles
         let schema_name = schemas
             .iter()
-            .find(|(k, v)| **v == made["schema"] && k.as_str() != "ATTENTION_SCHEMA")
+            .find(|(k, v)| **v == python && k.as_str() != "ATTENTION_SCHEMA")
             .map(|(k, _)| k.clone())
-            .or_else(|| schema_by_sha(&made["schema"]).filter(|n| n != "ATTENTION_SCHEMA"))
+            .or_else(|| schema_by_sha(&python).filter(|n| n != "ATTENTION_SCHEMA"))
             .unwrap_or_else(|| {
                 use sha2::Digest;
                 let sha = hex::encode(sha2::Sha256::digest(
-                    ferb_py::json::dumps(&made["schema"]).as_bytes(),
+                    ferb_py::json::dumps(&python).as_bytes(),
                 ));
                 format!("sha256:{sha}")
             });

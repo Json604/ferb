@@ -1751,3 +1751,188 @@ rule = "When the resolver alone can't choose (several owner profiles paired, non
 why = "The one-time page is local and loads nothing, so the profile only needs to be one the task already uses; the worker had no argument to give and retried the same call."
 evidence = "Live 2026-11-15 23:09-23:24, tree 3a0cc55b: browser.pdf html_path failed five times with \"select a profile from the task context; available: …\" while the task's tabs were in chrome/Profile 2 and brave/Default."
 paths = ["rust/crates/ferb-browser/src/driver.rs::in_use_profile", "rust/crates/ferb-browser/src/tools.rs", "rust/crates/ferb-browser/src/profiles.rs::NO_CHOICE"]
+
+[HAND-570]
+title = "The owner's app goes back as soon as a window of the task took the focus, not at a later call"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "Refines HAND-560. When a surfaced fact says a window of the task's (FERB's own or its pop-up) took the keyboard focus, the browser part asks the daemon while the tab's result is made: the app the sampler saw in front before the call goes back through the Mac's put-back if the browser is the front app now and wasn't before (skipped if another app is in front). The fact keeps the two apart: put_back is the window minimized, app_put_back / previous / app_why the owner's app. At the call's end the gateway tries once more only while the browser is still in front."
+why = "Live 2026-11-16 03:06 (task cdba416b): the pop-up was minimized and told, but HAND-560 skipped its put-back whenever the page's fact explained the window, so Chrome stayed the front app until something else changed it."
+evidence = "Spans: browser.act 03:06:11.07-15.18 with window_shown; disturbance.change at 15.17 Brave to Chrome; the next sample, 03:06:24.886 (browser.navigate's before), saw Chrome to Brave with no FERB call in flight; owner_input last_event_wall 03:06:19.82."
+paths = ["engine/crates/ferb-browser/src/tools.rs::put_back_owner_app", "engine/crates/ferb-mac-hands/src/tools.rs::owner_app_back", "engine/crates/ferb-daemon/src/areas_b/disturbance.rs::front_before", "engine/crates/ferb-daemon/src/areas_b/notify.rs::window_shown_line", "engine/crates/ferb-gateway/src/gateway.rs::came_forward"]
+
+[HAND-563]
+title = "Pairing converges by itself, for one profile or thirty"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "here one didn't pair and it stopped and told needs a step from me and then the orb flew down but it did nothing, but the profile it said paired. why is this not-paired error even happening??? can't it be fixed??? like something better or what??? cause people can have many browsers and profiles or some just one. so think about generally"
+words_source = "Owner 2026-11-16, a live report after a fresh install (the third in a row with a pairing failure): Pair all over seven profiles, Chrome Default reported not paired."
+rule = "Pairing is a state FERB reaches, not a page answered once: a profile is paired when its extension holds the key this FERB install issued and its live connection authenticates with it. Pair all and Pair keep working toward that within their wait, for one profile or many browsers and profiles, and report a profile failed only when it can't get there; a step is asked of the owner only when there is one. Whatever FERB shows as Paired can take commands now."
+paths = ["engine/crates/ferb-daemon/src/areas_b/browsers/mod.rs::pair_one", "engine/crates/ferb-browser/src/bridge.rs::Refusal", "extension/background.js::staleKey", "apps/mac/FERBNotch/Sources/FERBNotch/IntroSetupBeats.swift"]
+live = ["LIVE-960"]
+
+[HAND-564]
+title = "A stale key's refusal never fails a pairing; Pair all pairs it again; Paired means usable"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For HAND-563. Refusals are kept with a kind: blocking (after the MAC checked), stale key (bad_mac, replay) or token. A pairing's wait ends early only on a blocking one; a pair accepted clears the install's refusals; a used token whose profile never authenticated ends not_connected, not unanswered. Pair all pairs again a paired, unconnected profile that presented a stale key, and setup.browsers marks it needs_pairing and stale_key. Pair all runs every profile at once, no cap per browser. Fixed against Python."
+why = "Live 2026-11-16: a hello signed with the previous install's key was refused 4 ms after Chrome Default's pair was accepted and pair_one failed it, while its new key's hello was accepted next. No cap: neither live failure was crowding (this one the stale key, 11-15's an unanswered page)."
+evidence = "Journal rows 31-32 and ext_installs of the 2026-11-16 02:53 install; b_browsers a_stale_key_refusal_after_the_page_was_answered_never_fails_a_pairing_that_converges fails with Python's rule (reason problem) and passes with this."
+paths = ["engine/crates/ferb-browser/src/bridge.rs::Refusal", "engine/crates/ferb-browser/src/bridge.rs::blocking", "engine/crates/ferb-daemon/src/areas_b/browsers/mod.rs::answered_but_refused", "engine/crates/ferb-daemon/src/areas_b/browsers/mod.rs::paired_stale", "engine/crates/ferb-daemon/src/areas_b/browsers/mod.rs::PAIR_NOT_CONNECTED", "engine/crates/ferb-daemon/src/areas_b/browsers/mod.rs::PAIR_STALE"]
+live = ["LIVE-960"]
+
+[HAND-565]
+title = "A stale key's hellos cost one journal row per connection; the answer names the refused hello"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "Refines HAND-406, HAND-530. Per connection, the first stale-key hello of a reason is journaled and answered; repeats are counted, answered at most every 30 s and summed in one row when it authenticates or ends. Until it authenticates, its non-hello, non-pair messages are dropped unread. A signed hello's refusal adds stale_key {nonce, seq, reason; accepted for replay}; an unsigned one from a known install is answered pairing_required. The connection stays open; no key or record changes."
+why = "The 2026-11-16 connection presented 46,331 messages; 2026-11-14 saw bad_mac 1,119 and 242 times. Each refused hello cost four store reads and a refusal record, and every answer made extension 0.19.11 run its update check."
+paths = ["engine/crates/ferb-browser/src/bridge.rs::stale_hello", "engine/crates/ferb-browser/src/bridge.rs::stale_summary", "engine/crates/ferb-browser/src/bridge.rs::STALE_ANSWER_EVERY_S"]
+live = ["LIVE-960"]
+
+[HAND-566]
+title = "Extension 0.19.12 drops a key FERB refused as not its own, sends a pending pair at once, backs off"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "Optional fields only; protocol and minimum stay. A refusal's stale_key naming a hello signed with the key still stored drops that key (bad_mac; the install id stays, one unsigned hello unless its own pairing is pending) or moves the counter (replay); a key changed since is kept. A pair handed over with no link opens one and goes after its hello. A closed link waits the 1-60 s backoff; its own handshake close is cleared at once; one hello in flight. The owner publishes 0.19.12."
+why = "Live 2026-11-16 the extension kept presenting a dead key; a pair queued with the link down waited for a welcome an unpaired copy never gets (HAND-538); Chrome fires onDisconnect only for the other end, so a close of its own left a dead port."
+evidence = "tests/extension_pairing.rs: against HEAD's background.js the pending pair stays in the outbox, the timed-out port is never cleared, and 200 hello requests post 200 hellos; with 0.19.12 each passes."
+paths = ["extension/background.js::staleKey", "extension/background.js::linkEnded", "extension/background.js::ensurePort", "extension/manifest.json"]
+live = ["LIVE-960"]
+
+[HAND-580]
+title = "A task's own words name its browser profiles: it browses there, nothing asked, whatever the pick"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "Refines APP-777, ORCH-648 and journal 59's picked_only. The planner lists the profiles the owner's words name for a task in `profiles` (its schema description is the only instruction); code resolves each to one owner profile before the first worker (no hit or several: dropped). Those are the task's: browser.open, use_tab and pdf work only there, the worker is the owner, the general question isn't asked, the pick isn't applied. None resolved: the pick, else the one question. Another profile is refused, naming the allowed ones and how the owner adds one."
+why = "Live 2026-11-16 04:17: the owner named their IIT Chrome profile; FERB asked its general profile question first, imposed the answer (another profile), refused browser.open in the IIT profile, and the worker drove Chrome's window with the Mac tools."
+evidence = "Task 0abecb83: journal 85-89 (browsing.choose asked 04:17:43, chrome/Profile 15 chosen, task.browses_as_owner); tool.call 04:18:09 browser.open chrome/Profile 29 refused (picked_only); mac.act and the screen question from 04:18:27."
+paths = ["engine/crates/ferb-browser/src/driver.rs::task_choice", "engine/crates/ferb-browser/src/driver.rs::outside_task", "engine/crates/ferb-supervisor/src/flow/browse.rs::browse_as", "engine/crates/ferb-supervisor/src/flow/browse.rs::task_profiles", "engine/crates/ferb-context/src/schemas.rs::TASK_PROFILES_DESCRIPTION", "engine/crates/ferb-daemon/src/areas_b/browsers/mod.rs::resolve_named", "engine/crates/ferb-supervisor/src/flow/attempt.rs::task_profiles_fact"]
+live = ["LIVE-970"]
+
+[HAND-581]
+title = "A profile the owner allows later, in chat or in an answer, joins the running task only"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For HAND-580 and HAND-585. A running task kept to some profiles gains (never loses) one when: a correction lists it in the task's `profiles` (steered_extras, beside its folders and kept tabs, so a card's box words that reach the planner count too); the owner's answer to the task's own owner.ask names it (name, account or browser/folder, as whole words); or the owner answers Yes to its Yes/No question (options exactly Yes and No) whose text names it. Never an answer the orchestrator gave from context. This task only: the saved pick and other tasks are unchanged; journaled task.profiles_added."
+why = "The owner, 2026-11-16, on the worker being refused a profile they didn't name: \"but what if the task later needs it and i give permission in text or chat, will it work??\""
+paths = ["engine/crates/ferb-supervisor/src/flow/browse.rs::add_task_profiles", "engine/crates/ferb-supervisor/src/flow/browse.rs::owner_answered_task", "engine/crates/ferb-supervisor/src/flow/control.rs::steered_extras", "engine/crates/ferb-gateway/src/gateway.rs::ask_owner", "engine/crates/ferb-daemon/src/areas_b/browsers/mod.rs::named_in_words"]
+live = ["LIVE-970"]
+
+[HAND-582]
+title = "Mac input into a web page a connected profile holds is refused before any question"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "Refines HAND-432. mac.act, mac.click and mac.pointer whose element, focus or point is in a page's content (an AXWebArea with an http(s) address) of a browser app, where a connected owner profile of that browser has a tab at that address, are refused at the gateway's unavailable step, before any question: nothing done. The fact names the profile and tab_ref and points to browser.use_tab, or to asking the owner. Toolbars, dialogs, prompts, a browser's own pages (rule 5), pages no connected profile holds and other apps: as today."
+why = "Live 2026-11-16 04:18: refused the IIT profile, the worker typed into Chrome's page with mac.act, met a minimized window, and FERB asked to use the screen and brought Chrome forward, where the browser tools work in the background."
+evidence = "Task 0abecb83 tool.call rows from 04:18:16: mac.snapshot of Chrome, owner.ask foreground 04:18:27 (Yes), mac.act set_value/focus/key/type, mac.screenshot refused on the minimized window 04:18:47."
+paths = ["engine/crates/ferb-mac-hands/src/driver/terminal.rs::web_content", "engine/crates/ferb-mac-hands/src/tools.rs::web_target", "engine/crates/ferb-daemon/src/areas_b/browsers/mod.rs::page_route", "engine/crates/ferbd/src/compose/tools/mac.rs::web_route_fact"]
+live = ["LIVE-970"]
+
+[HAND-583]
+title = "mac.open of a web address goes to browser.open while a paired profile is connected"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "Refines HAND-240. mac.open with an http(s) url for a browser app, or with no app (the default browser), is refused before anything opens when a paired owner profile of that browser (of any browser, for the default) is connected: the fact says browser.open opens it in the background in a paired profile and how a profile is added for the task. With none connected HAND-240 stands (activates false). Inferred, not verified: activates false doesn't stop a browser raising the new window it makes for the address."
+why = "Live 2026-11-16 04:28 and 04:30 (task 0abecb83): after browser.open there was refused, mac.open of the IIT pages in Chrome opened a front window from minimized (Brave to Chrome, then Code to Chrome)."
+paths = ["engine/crates/ferb-mac-hands/src/tools.rs::web_target", "engine/crates/ferbd/src/compose/tools/mac.rs::web_route_fact"]
+live = ["LIVE-970"]
+
+[HAND-584]
+title = "A put-back is said only when the owner's app is still in front after a short settle"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "Refines HAND-549, HAND-560 and HAND-570. After activating the previous app FERB reads the front app five times 0.1 s apart (from 0.15 s); if the app that came forward is in front again it is activated away once more. put_back is true only if the last read sees the previous app; else false with why: macOS didn't bring it back, it came back in front after FERB put it back, or another app is in front now. The owner's line then reads \"I couldn't put <app> back: <why>.\""
+why = "Live 2026-11-16 04:28 (task 0abecb83): the notice said Brave Browser was put back after Chrome opened a window, and the owner saw Chrome stay in front. One read 0.15 s after the activation counted (inferred: before Chrome's window raised it again)."
+paths = ["engine/crates/ferb-mac-hands/src/tools.rs::put_back", "engine/crates/ferb-mac-hands/src/tools.rs::PUT_BACK_READS"]
+live = ["LIVE-970"]
+
+[HAND-585]
+title = "No edge case of profile choice takes a browser task out of the background"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "so it was just due to the firing of the ferb profile question at the wrong time, right??? make sure no such edge case misses, close them, unless users would think ferb doesn't work in bg."
+words_source = "Owner 2026-11-16, on the account of task 0abecb83: the general profile question asked before the task's named profile was read, that profile refused, the Mac tools used on Chrome's window."
+rule = "Every way profile resolution can push a browser task out of the background is closed: the general profile question is asked only when a task needs the web and nothing (its words, a saved pick, FERB's own profile) says where; its answer never narrows a task whose words named a profile; when the browser tools can reach a page, FERB uses them rather than the screen; and a profile the owner allows later in text or chat works for that task. A case is left open only where closing it would make FERB look like it doesn't work in the background."
+paths = ["engine/crates/ferb-supervisor/src/flow/browse.rs::browse_as", "engine/crates/ferb-browser/src/driver.rs::task_choice", "engine/crates/ferbd/src/compose/tools/mac.rs::web_route_fact"]
+live = ["LIVE-970"]
+
+[HAND-571]
+title = "Foreground input stops while a FERB window or panel has the keyboard focus"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "Refines HAND-238. Before each event of an explicit foreground input (MacDriver::real, the one path posting session-wide), besides the target being frontmost, the system-wide focused element's process must not be one of FERB's (Apps::keyboard_focus_pid, AXFocusedUIElement): otherwise the input stops (PointerInterrupted, OWN_FOCUS) with nothing more posted. Pre-activation is unchanged: FERB in front right after a Yes still activates the target."
+why = "Red-team review 2026-11-16, finding 3: the notch is a non-activating panel that can be key while another app is frontmost, so keys or a paste FERB posts could land in a question's box, whose exact option words are that option."
+evidence = "own_apps_and_opened_files.rs: Return and cmd+v refused with the panel holding the focus, nothing posted; posted with the focus in the target. Unverified live: that AX reports a key non-activating panel as the focused element. Pid-targeted input is unaffected."
+paths = ["engine/crates/ferb-mac-hands/src/driver/mod.rs::OWN_FOCUS", "engine/crates/ferb-mac-hands/src/native/apps.rs::NativeApps"]
+
+[HAND-595]
+title = "FERB says what it couldn't read and why; the owner's say-so opens what can be opened"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "ok, but ferb should be able to say this that it can't read this and why. anyways if i say so it should be able to do anything"
+words_source = "Owner 2026-11-16, told that FERB's commands can't read the never-read folders (browser data, Keychains, Mail, Messages, credentials), so a storage scan would silently miss them."
+rule = "Whenever a command or a file tool walks into or past a protected folder it can't read, its result tells the worker, as facts from code, which folders, why each is protected and how the owner can open one (the existing read question for the task), so FERB can tell the owner what it couldn't read and why. The owner's Yes opens every never-read and never-write folder, admin and certificate trust. What stays closed even then (FERB's own state, its network rule, FERB.app, its service definitions) is AGENTS.md rule 6; whether 'do anything' should reach those is open with the owner."
+paths = ["engine/crates/ferb-shell/src/tools.rs::not_read", "engine/crates/ferb-fs/src/usage.rs::fs_disk_usage"]
+
+[HAND-596]
+title = "A command's result names the never-read folders under what it could reach"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For HAND-595. A finished shell command's result carries not_read {fact, allow, folders [{path, rule, why}] at most 12, more} for each existing never-read folder under or holding its working folder or a path its words name (shell word rules only, no meaning read in), or named in a refusal line of its output; the escape's lifted rule left out; why from the default list naming it. No key when none (Python's bytes). When every refusal line names one, HAND-203's write-scope sandbox_note is left out."
+why = "The sandbox denies a never-read folder to every command, so du, find or a script walking ~ silently missed browser data, Keychains and Mail; the only note a worker got said a write in a visible folder was refused."
+paths = ["engine/crates/ferb-shell/src/tools.rs::not_read", "engine/crates/ferb-policy/src/protection.rs::never_read_why"]
+
+[HAND-597]
+title = "fs.disk_usage and fs.list name the never-read folders in or around their path"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For HAND-595. The file tools ask the gateway's path check with the access word 'within': the existing never-read folders that are the path, lie inside it or hold it, minus those this call may read, as {rule, why}. fs.disk_usage (metadata only) counts them as before and adds not_read saying they are counted by size, contents unread; fs.list adds not_read saying names show but nothing inside is read without the owner's Yes. Shape as HAND-596; no key when none."
+why = "A storage scan needs the sizes (fs.disk_usage gives them with no question) and the worker needs to know which folders it can't look inside."
+paths = ["engine/crates/ferb-fs/src/usage.rs::fs_disk_usage", "engine/crates/ferb-fs/src/files.rs::list_work", "engine/crates/ferb-gateway/src/gateway.rs::within_answer", "engine/crates/ferb-policy/src/protection.rs::reads_within"]
+
+[HAND-586]
+title = "The screen question for a browser says why FERB needs the window, when code knows"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For HAND-588's third answer. A foreground question for mac.act, mac.click, mac.pointer or mac.menu into a browser app gets `window` from the tool (Tool::window_reason): page (a web page's content no connected profile holds; a connected one's is refused first, HAND-582) or controls (the rest of the browser: toolbar, menus, dialogs, its own pages). The card's detail then begins \"FERB's extension can't reach this part of <app> (a profile it isn't connected in | the browser's own controls), so FERB needs the window.\" Otherwise as before; the key is unchanged."
+why = "The owner, 2026-11-16, asked whether the card should say why it needs the window: \"yes it should if it can\". In task 0abecb83 the card said only \"Let FERB use your screen in Google Chrome for this task?\"."
+paths = ["engine/crates/ferb-policy/src/wording.rs::window_why", "engine/crates/ferb-gateway/src/tool.rs::window_reason", "engine/crates/ferb-gateway/src/gateway.rs::needs", "engine/crates/ferb-mac-hands/src/tools.rs::window_reason"]
+live = ["LIVE-971"]
+
+[HAND-587]
+title = "A remembered profile counts only from the owner's own words, and this message's words win"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For HAND-588's first answer; refines HAND-580. Of the planner's resolved profiles code keeps those this message's words touch (touched_in_words: a whole name, account or browser/folder, or a word of 3+ letters beginning a word of the profile's name or account). Only when none of them is this message's, one named by the owner's own remembered words (current items of origin owner_stated and what was typed behind them) is kept if paired. Others are dropped (task.profiles_dropped with why); none kept: the pick, else the one question."
+why = "The owner, 2026-11-16, asked whether a remembered preference (\"use my scaler Chrome for scaler things\") should count as naming a profile: \"yes, only from my own words\". Observed and inferred items are FERB's, not the owner's words."
+paths = ["engine/crates/ferb-supervisor/src/flow/browse.rs::owners_own", "engine/crates/ferb-daemon/src/areas_b/browsers/mod.rs::touched_in_words", "engine/crates/ferb-daemon/src/areas_a/remember.rs::memory_texts", "engine/crates/ferb-context/src/schemas.rs::TASK_PROFILES_DESCRIPTION"]
+live = ["LIVE-971"]
+
+[HAND-588]
+title = "Remembered profiles from the owner's own words; other profiles' tabs visible; the card says why"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "yes, only from my own words / yes it can see them / yes it should if it can"
+words_source = "Owner 2026-11-16, answering three questions relayed by the coordinator after journal 92 (full questions: rule)."
+rule = "Q1 \"Should a remembered preference count as naming a profile (\"use my scaler Chrome for scaler things\")?\": yes, only from the owner's own words. Q2 \"Should a task see the list of tabs in profiles it isn't allowed to use?\": yes, it can see them. Q3 \"Should the screen question say why FERB needs the window?\": yes, when it can."
+paths = ["engine/crates/ferb-supervisor/src/flow/browse.rs::owners_own", "engine/crates/ferb-browser/src/owner.rs::open_tabs", "engine/crates/ferb-policy/src/wording.rs::window_why"]
+live = ["LIVE-971"]

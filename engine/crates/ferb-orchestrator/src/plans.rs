@@ -15,12 +15,14 @@ use crate::py::{repr_str, repr_strs, sorted_set, strip};
 
 /// plans.py:376 `SINGLE`: the one step of a single task's plan.
 pub const SINGLE: &str = "worker";
-/// plans.py:377 `DONE`: a step that finished (confirmed, or done but unconfirmed).
-pub const DONE: &[&str] = &["done", "done_unverified"];
+/// plans.py:377 `DONE`: a step that finished (confirmed, or done but unconfirmed), or delivered with gaps (ORCH-652,
+/// not Python's: the steps after it run, one with a declared outside effect only on the owner's Yes).
+pub const DONE: &[&str] = &["done", "done_unverified", "done_with_gaps"];
 /// plans.py:378 `ENDED`: never run again without the owner (reopen).
 pub const ENDED: &[&str] = &[
     "done",
     "done_unverified",
+    "done_with_gaps",
     "failed",
     "blocked",
     "cancelled",

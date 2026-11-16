@@ -610,3 +610,14 @@ status = "active"
 rule = "For PRM-355. about.read's answers section stays off the catalog's frozen section list. Each kind's question and Yes sentence come from confirm::card on example facts; each choice's lifetime from an exhaustive match. A guard test scans the policy and gateway sources for every floor:, sink: and escape: rule and fails when one maps to no kind. Chat words to a FERB check that aren't a choice get \"Nothing was applied: this check takes only one of its choices.\" before the choices."
 why = "Derived from the tables the gateway enforces, so a new kind, choice or lifetime fails a test instead of going stale. Still hand-written: the typed/cannot/standing lines and No's text."
 paths = ["rust/crates/ferb-gateway/src/answers.rs", "rust/crates/ferb-supervisor/src/flow/answer.rs"]
+
+[PRM-357]
+title = "A named gap is the one exception to \"in full\": the worker names it, never fills it"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "im ok with a delivered, with gaps\" ending part"
+words_source = "Owner 2026-11-16, approving the 'delivered, with gaps' ending, which replaces 'without caveats' for a condition the work can't meet; the prompt lines are agent-drafted"
+rule = "Refines PRM-303 for a named gap only: a stated condition the worker can't meet for a reason outside the work (a conflict between the owner's words and a source, an input only the owner has) goes in the report's gaps with its reason; everything else is done in full, and a gap is never filled with made-up content shown as real. The checker's accept_with_gaps (verifier.md) names invented evidence as an unmet condition."
+live = ["LIVE-957"]
+paths = ["engine/runtime/orchestrator/prompts/worker.md", "engine/runtime/orchestrator/prompts/verifier.md", "engine/fixtures/catalog/prompt_changes.json"]

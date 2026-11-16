@@ -1094,6 +1094,14 @@ impl Daemon {
             })
             .await
             .map_err(|e| e.to_string())?;
+        // main.py:435 `_sweep_stale_runs` (review M1): Codex run folders a crash left in the temporary folder, each
+        // holding a copy of FERB's Codex login, removed at start; a test daemon leaves the real temporary folder alone
+        // unless its stand-ins turn retention on. Ported but never called until the audit of 2026-11-16.
+        if self.opts.retention {
+            if let Err(e) = self.b.runtimes.sweep_stale_runs().await {
+                crate::log::line(&format!("the stale run folders weren't swept: {e:?}"));
+            }
+        }
         // DMN-520: Vision's text recognizer is loaded once at start, in the background, so the first image redaction
         // doesn't pay for it (on this Mac its first load took 50-100 s in Python and in Rust alike)
         if self.opts.mac {

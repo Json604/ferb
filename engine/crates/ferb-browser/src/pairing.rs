@@ -240,6 +240,11 @@ impl Pairings {
         token
     }
 
+    /// The pairings' monotonic clock (HAND-565: how often a stale key's refusal is answered).
+    pub fn monotonic(&self) -> f64 {
+        self.clock.monotonic()
+    }
+
     /// HAND-530: the last message counter FERB accepted for this install (never its key).
     pub fn last_seq(&self, install_id: &str) -> Result<Option<i64>, StoreError> {
         Ok(self.store.key_and_seq(install_id)?.map(|(_, seq)| seq))

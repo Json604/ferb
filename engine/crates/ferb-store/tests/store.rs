@@ -112,7 +112,25 @@ const STAGE_2_OBJECTS: [&str; 19] = [
     "sqlite_autoindex_chat_submissions_1",
 ];
 
-// decisions: ENG-3, ENG-4, ENG-11, STORE-409, STORE-417
+/// ORCH-651's named difference (migration 0064): Python's `tasks` table as 0064 rebuilds it, its CHECK naming
+/// done_with_gaps; any other object as recorded.
+fn tasks_with_gaps(object: &Value) -> Value {
+    if object["type"] != "table" || object["name"] != "tasks" {
+        return object.clone();
+    }
+    let sql = object["sql"].as_str().unwrap();
+    let from = "'done', 'done_unverified', 'failed',\n                                                 'cancelled', \
+                'needs_user', 'interrupted', 'skipped', 'unknown'))";
+    let to = "'done', 'done_unverified',\n                                                 'done_with_gaps', 'failed', \
+              'cancelled', 'needs_user', 'interrupted',\n                                                 'skipped', \
+              'unknown'))";
+    assert!(sql.contains(from), "Python's tasks table: {sql}");
+    let mut out = object.clone();
+    out["sql"] = json!(sql.replace(from, to));
+    out
+}
+
+// decisions: ENG-3, ENG-4, ENG-11, STORE-409, STORE-417, ORCH-651
 #[test]
 fn a_fresh_store_is_the_one_python_makes() {
     // Python's store, plus exactly the named stage-2 additions (migration 0063, ENG-11): the
@@ -124,14 +142,17 @@ fn a_fresh_store_is_the_one_python_makes() {
     let applied = db.migrate().unwrap();
     let rust = describe(&db);
     let stage_2 = chat_entries::SCHEMA_VERSION;
+    // 0064 (ORCH-651) rebuilds `tasks` with done_with_gaps in its CHECK: the one other named addition
+    let gaps = stage_2 + 1;
 
-    assert_eq!(applied.last(), Some(&stage_2));
-    assert_eq!(json!(applied[..applied.len() - 1]), python["applied"]);
-    assert_eq!(known_schema(), stage_2);
+    assert_eq!(applied[applied.len() - 2..], [stage_2, gaps]);
+    assert_eq!(json!(applied[..applied.len() - 2]), python["applied"]);
+    assert_eq!(known_schema(), gaps);
     assert_eq!(json!(stage_2 - 1), python["known_schema"]);
     let versions = rust["schema_version"].as_array().unwrap();
-    let (last, before) = versions.split_last().unwrap();
-    assert_eq!(last[0], json!(stage_2));
+    let (before, last) = versions.split_at(versions.len() - 2);
+    assert_eq!(last[0][0], json!(stage_2));
+    assert_eq!(last[1][0], json!(gaps));
     assert_eq!(
         json!(before),
         python["schema_version"],
@@ -146,7 +167,7 @@ fn a_fresh_store_is_the_one_python_makes() {
         .partition(|o| STAGE_2_OBJECTS.contains(&o["name"].as_str().unwrap()));
     let theirs = python["sqlite_master"].as_array().unwrap();
     for (a, b) in ours.iter().zip(theirs) {
-        assert_eq!(*a, b);
+        assert_eq!(*a, &tasks_with_gaps(b));
     }
     assert_eq!(ours.len(), theirs.len());
     assert!(ours.len() > 200, "the fixture holds the whole schema");
@@ -557,4 +578,102 @@ fn compaction_needs_room_and_makes_an_old_store_incremental() {
         .unwrap();
     assert!(db.vacuum_slice(8).unwrap() > 0);
     while db.vacuum_slice(ferb_store::VACUUM_SLICE_PAGES).unwrap() > 0 {}
+}
+
+/// ORCH-651, migration 0064: a populated store at 0063 upgrades with every task row (rowid, every column) and every
+/// task_context row kept, both indexes made again, the foreign keys intact; afterwards `tasks` takes done_with_gaps,
+/// which the old CHECK refused, and still refuses a status outside the list.
+// decision: ORCH-651
+#[test]
+fn a_populated_store_at_0063_upgrades_to_take_done_with_gaps() {
+    let tmp = TempDir::new().unwrap();
+    let db = Db::open(tmp.path().join("ferb.db")).unwrap();
+    let all = Migration::embedded();
+    let upto: Vec<Migration> = all
+        .iter()
+        .filter(|m| m.name.as_ref() < "0064")
+        .cloned()
+        .collect();
+    db.migrate_files(&upto).unwrap();
+    let c = db.conn();
+    let statuses = [
+        "planned",
+        "running",
+        "paused",
+        "done",
+        "done_unverified",
+        "failed",
+        "cancelled",
+        "needs_user",
+        "interrupted",
+        "skipped",
+        "unknown",
+    ];
+    for (n, status) in statuses.iter().enumerate() {
+        c.execute(
+            "INSERT INTO tasks (rowid, id, tree_id, parent_id, request_id, goal, identity, role, scopes_json, status, \
+             outcome_json, created_at, updated_at) VALUES (?, ?, 't0', NULL, 'r', 'a goal', 'owner', 'worker', '[]', ?, \
+             '{\"summary\": \"s\"}', '2026-01-01', '2026-01-02')",
+            rusqlite::params![100 + n as i64, format!("t{n}"), status],
+        )
+        .unwrap();
+    }
+    c.execute("INSERT INTO conversations(id) VALUES ('owner')", [])
+        .unwrap();
+    c.execute(
+        "INSERT INTO task_context (rowid, task_id, conversation_id, spec_json, owner_words, prior_task, request_payload) \
+         VALUES (7, 't1', 'owner', '{}', 'words', 't0', 'payload')",
+        [],
+    )
+    .unwrap();
+    let refused = c.execute(
+        "UPDATE tasks SET status = 'done_with_gaps' WHERE id = 't0'",
+        [],
+    );
+    assert!(refused.is_err(), "0049's CHECK refuses the new state");
+    let dump = |c: &rusqlite::Connection, sql: &str| -> Vec<String> {
+        let mut st = c.prepare(sql).unwrap();
+        let n = st.column_count();
+        st.query_map([], |r| {
+            Ok((0..n)
+                .map(|i| format!("{:?}", r.get::<_, Sql>(i).unwrap()))
+                .collect::<Vec<_>>()
+                .join("|"))
+        })
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+    };
+    let tasks_before = dump(c, "SELECT rowid, * FROM tasks ORDER BY rowid");
+    let context_before = dump(c, "SELECT rowid, * FROM task_context ORDER BY rowid");
+
+    assert_eq!(db.migrate().unwrap(), vec![64]);
+    let c = db.conn();
+    assert_eq!(
+        dump(c, "SELECT rowid, * FROM tasks ORDER BY rowid"),
+        tasks_before
+    );
+    assert_eq!(
+        dump(c, "SELECT rowid, * FROM task_context ORDER BY rowid"),
+        context_before
+    );
+    assert_eq!(
+        dump(c, "SELECT name FROM sqlite_master WHERE tbl_name = 'tasks' AND type = 'index' ORDER BY name"),
+        vec!["Text(\"sqlite_autoindex_tasks_1\")", "Text(\"tasks_status\")", "Text(\"tasks_tree\")"]
+    );
+    assert!(dump(c, "PRAGMA foreign_key_check").is_empty());
+    assert_eq!(dump(c, "PRAGMA integrity_check"), vec!["Text(\"ok\")"]);
+    assert!(dump(
+        c,
+        "SELECT name FROM sqlite_master WHERE name LIKE '%_hold' OR name = 'tasks_new'"
+    )
+    .is_empty());
+    c.execute(
+        "UPDATE tasks SET status = 'done_with_gaps' WHERE id = 't0'",
+        [],
+    )
+    .unwrap();
+    assert!(c
+        .execute("UPDATE tasks SET status = 'nearly' WHERE id = 't0'", [])
+        .is_err());
 }

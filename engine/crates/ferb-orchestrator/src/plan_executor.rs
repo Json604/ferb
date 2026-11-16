@@ -37,6 +37,7 @@ type StepJob<'a> =
 fn ended_as(status: &str) -> &'static str {
     match status {
         "done" | "done_unverified" => "done",
+        "done_with_gaps" => "done_with_gaps", // ORCH-652
         "cancelled" | "needs_user" => "not_finished",
         _ => "failed",
     }

@@ -267,6 +267,22 @@ pub fn sources(driver: &MacDriver, bundle_id: &str) -> Vec<(String, String)> {
 }
 
 /// tools.py:56.
+/// HAND-584: how long a put-back is watched before it counts: reads of the front app after the first 0.15 s, this
+/// far apart (about 0.55 s in all).
+pub const PUT_BACK_READS: usize = 5;
+pub const PUT_BACK_STEP_S: f64 = 0.1;
+
+/// HAND-582, HAND-583: a web page a Mac call would act on or open in a browser ([`MacTools::web_target`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WebTarget {
+    /// The browser's pair key ("chrome", "brave"…); "" for mac.open with no app (the default browser).
+    pub browser: String,
+    /// The page's address.
+    pub url: String,
+    /// mac.open (a new page), not input into an open one.
+    pub opens: bool,
+}
+
 pub fn whole_browser(name: &str) -> String {
     format!("a password for a web page is filled through the browser connection (browser.secret), which ties it to that site's address; FERB won't tie it to all of {name}")
 }
@@ -846,6 +862,80 @@ impl MacTools {
         .await
     }
 
+    /// HAND-582, HAND-583: the web page this call would act on or open in a browser, for the daemon's check that a
+    /// paired profile's browser tools can take it instead: mac.act, mac.click and mac.pointer into a page's content
+    /// (`web_content`: never the browser's own pages, toolbar, dialogs or prompts), and mac.open with an http(s)
+    /// address for a browser app or for the default browser (`browser` ""). Structural facts only.
+    pub async fn web_target(&self, tool: &str, args: &Value) -> Option<WebTarget> {
+        let d = self.driver.clone();
+        let (args, tool) = (args.clone(), tool.to_string());
+        match tool.as_str() {
+            "mac.open" => {
+                let url = s(&args, "url")
+                    .filter(|u| u.starts_with("http://") || u.starts_with("https://"))?;
+                let bundle = s(&args, "bundle_id").unwrap_or("");
+                if !bundle.is_empty() && !self.web_browser(bundle) {
+                    return None;
+                }
+                let browser = if bundle.is_empty() {
+                    String::new()
+                } else {
+                    crate::apps::pair_key(bundle)
+                };
+                Some(WebTarget {
+                    browser,
+                    url: url.to_string(),
+                    opens: true,
+                })
+            }
+            "mac.act" => off(move || {
+                d.web_content(s(&args, "app").unwrap_or(""), &action_of(&args))
+                    .ok()
+                    .flatten()
+            })
+            .await
+            .map(|(browser, url)| WebTarget {
+                browser,
+                url,
+                opens: false,
+            }),
+            "mac.click" | "mac.pointer" => off(move || {
+                d.pointer_web_content(
+                    s(&args, "app").unwrap_or(""),
+                    s(&args, "shot").unwrap_or(""),
+                    f(&args, "x").unwrap_or(0.0),
+                    f(&args, "y").unwrap_or(0.0),
+                )
+                .ok()
+                .flatten()
+            })
+            .await
+            .map(|(browser, url)| WebTarget {
+                browser,
+                url,
+                opens: false,
+            }),
+            _ => None,
+        }
+    }
+
+    /// HAND-586: why input into a browser app needs its window, for the owner's card: "page" when it acts in a web
+    /// page's content (one no connected profile holds: a connected one's is refused first, HAND-582), "controls" for
+    /// anything else of a browser app (its toolbar, menus, dialogs, its own pages). None for any other app.
+    pub async fn window_reason(&self, tool: &str, args: &Value) -> Option<String> {
+        if !matches!(tool, "mac.act" | "mac.click" | "mac.pointer" | "mac.menu") {
+            return None;
+        }
+        if !self.web_browser(&self.bundle(args)) {
+            return None;
+        }
+        Some(if self.web_target(tool, args).await.is_some() {
+            "page".into()
+        } else {
+            "controls".into()
+        })
+    }
+
     /// A browser's own page this input acts on (rule 5): the gateway asks about every such input.
     pub async fn browser_page(&self, tool: &str, args: &Value) -> Option<String> {
         let d = self.driver.clone();
@@ -1196,13 +1286,79 @@ impl MacTools {
         if let Err(why) = tried {
             return (false, Some(why.to_string()));
         }
+        // HAND-584: verified, never assumed. The previous app must still be the front app after a short settle
+        // (PUT_BACK_READS reads, PUT_BACK_STEP_S apart, after the first 0.15 s): an app that raises itself again a
+        // moment later (a browser's new window appearing after the put-back) is activated away once more, and the
+        // answer is what the last read saw.
         self.driver.time.sleep(0.15).await;
-        let (d, pid) = (self.driver.clone(), before.pid);
-        if off(move || d.apps.frontmost().is_some_and(|f| f.pid == pid)).await {
+        let mut again = false;
+        let mut seen_back = false;
+        let mut front = None;
+        for i in 0..PUT_BACK_READS {
+            if i > 0 {
+                self.driver.time.sleep(PUT_BACK_STEP_S).await;
+            }
+            let d = self.driver.clone();
+            front = off(move || d.apps.frontmost().map(|f| f.pid)).await;
+            seen_back |= front == Some(before.pid);
+            if front == Some(target.pid) && !again {
+                again = true;
+                let (d, b) = (self.driver.clone(), before.clone());
+                off(move || d.apps.activate(&b.bundle_id, Some(b.pid))).await;
+            }
+        }
+        if front == Some(before.pid) {
             (true, None)
+        } else if front == Some(target.pid) && seen_back {
+            (
+                false,
+                Some(format!(
+                    "{} came back in front after FERB put it back",
+                    shown_name(target)
+                )),
+            )
+        } else if front.is_some_and(|p| p != target.pid) {
+            (false, Some("another app is in front now".into()))
         } else {
             (false, Some("macOS didn't bring it back".into()))
         }
+    }
+
+    /// HAND-570: after a browser window of the task took the focus, `previous` (the disturbance sampler's look before
+    /// the call: {pid, bundle_id, name}) goes back in front through [`MacTools::put_back`] while the browser
+    /// (`browser_pid`) is the front app. The fact's fields (`app_put_back`, `previous`, a plain `app_why`), or None
+    /// when nothing needs putting back (the browser was in front before, or isn't in front now).
+    pub async fn owner_app_back(
+        &self,
+        previous: &Value,
+        browser_pid: i32,
+        task: &str,
+    ) -> Option<serde_json::Map<String, Value>> {
+        let pid = i32::try_from(previous.get("pid").and_then(Value::as_i64)?).ok()?;
+        if pid == browser_pid {
+            return None;
+        }
+        let text = |k: &str| {
+            previous
+                .get(k)
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string()
+        };
+        let before = crate::apps::RunningApp::new(&text("bundle_id"), &text("name"), pid, false);
+        let d = self.driver.clone();
+        let front = off(move || d.apps.frontmost()).await?;
+        if front.pid != browser_pid {
+            return None;
+        }
+        let (back, why) = self.put_back(&front, &before, task).await;
+        let mut out = serde_json::Map::new();
+        out.insert("app_put_back".into(), Value::Bool(back));
+        out.insert("previous".into(), Value::String(shown_name(&before)));
+        if let Some(w) = why {
+            out.insert("app_why".into(), Value::String(w));
+        }
+        Some(out)
     }
 
     async fn run_inner(&self, tool: &str, args: &Value, ctx: &ToolContext) -> Result<ToolResult> {

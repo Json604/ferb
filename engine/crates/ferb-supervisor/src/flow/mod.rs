@@ -125,6 +125,18 @@ pub trait Daemon: Send + Sync {
     fn all_scopes(&self) -> BTreeSet<String>;
     /// `observes(gateway.caps.get(tool))`: whether a tool only observes.
     fn observes(&self, tool: &str) -> bool;
+    /// ORCH-654: whether a not-done report from an attempt that neither acted nor changed a file still gets its
+    /// check. FERB skips that check (false); a replay of a Python recording, whose checker ran on every report, says
+    /// true (the named difference: those recordings keep their checks).
+    fn checks_unacted_not_done(&self) -> bool {
+        false
+    }
+    /// GATE-609: whether the words typed in a safety check's box are read by the planner for the sites they name
+    /// (true). A replay of a Python recording, whose card replies reached the task with no planner call, says false
+    /// (the named difference).
+    fn reads_card_replies(&self) -> bool {
+        true
+    }
     /// `getattr(gateway.caps.get(tool), "reads_content", False)`.
     fn reads_content(&self, tool: &str) -> bool;
     /// `gateway.tools_for(grant)`: the rows `{name, description, input_schema}`.
@@ -538,6 +550,25 @@ pub trait Daemon: Send + Sync {
     fn names_profile(&self, _words: &str) -> bool {
         false
     }
+    /// HAND-580: the owner's browser profiles the planner's `profiles` name, each resolved (its folder, name, account
+    /// or browser/folder) to one of the owner's own profiles FERB can see, as (browser, folder); a name that resolves
+    /// to none or to several is left out (the resolver's ambiguity is never code's to settle).
+    fn owner_profiles(&self, _named: &[String]) -> Vec<(String, String)> {
+        Vec::new()
+    }
+    /// HAND-581: the owner's profiles that the owner's own `words` (an answer to the task's question) name: a
+    /// profile's name or account email as whole words, or its browser/folder. A fact about values in the owner's
+    /// words, never their intent.
+    fn profiles_in_words(&self, _words: &str) -> Vec<(String, String)> {
+        Vec::new()
+    }
+    /// HAND-587: where a task's planned profiles can come from, as facts: the owner's profiles this request's words
+    /// touch, the ones the owner's own remembered words name (memory items of origin owner_stated, with what they
+    /// typed behind them), the ones only FERB's other memory names (observed, inferred, outside content), and the
+    /// ones paired now. Default: nothing known, so nothing planned is kept.
+    fn profile_sources(&self, _request_id: &str, _words: &str) -> ProfileSources {
+        ProfileSources::default()
+    }
 
     // --- a stated plan's standing scope (standing.rs) ---
     /// The memory port's `typed_behind_memory(request_id)` (areas/schedules.py `_typed_behind_memory`): what the
@@ -763,6 +794,20 @@ pub struct Start {
 
 /// One task tree or plan step as its attempt loop runs it (supervisor.py:892 `_Tree`): the fields the forward path
 /// reads and writes.
+/// HAND-587: [`Daemon::profile_sources`]'s facts, each as (browser, folder).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ProfileSources {
+    /// The profiles this request's words touch: a word of theirs (three letters or more) begins a word of the
+    /// profile's name or account, or a whole name, account or browser/folder.
+    pub said: Vec<(String, String)>,
+    /// The profiles the owner's own remembered words name.
+    pub owner_memory: Vec<(String, String)>,
+    /// The profiles only FERB's other memory names.
+    pub other_memory: Vec<(String, String)>,
+    /// The owner's profiles paired with FERB now.
+    pub paired: Vec<(String, String)>,
+}
+
 #[derive(Default, Clone)]
 pub struct TreeState {
     pub spec: Option<TaskSpec>,
@@ -850,6 +895,49 @@ pub struct TreeState {
     pub worker_conditions: Option<Vec<String>>,
     /// APP-777: the task browses as the owner (`tree.as_owner`): its worker's identity is the owner's.
     pub as_owner: bool,
+    /// HAND-580, HAND-581: the owner's profiles their own words named for this task (planned, said in a later
+    /// message, given in an answer to the task's question), as (browser, folder): the browser tools keep the task to
+    /// these (and the pick, when `as_owner`). Its worker's identity is the owner's.
+    pub profiles: Vec<(String, String)>,
+    /// ORCH-652: the latest report's gaps, as the worker named them (condition text, reason).
+    pub worker_gaps: Vec<(String, String)>,
+    /// ORCH-654: the latest report was a valid not_done report (not a runtime outcome or an unusable one).
+    pub reported_not_done: bool,
+    /// ORCH-652: the conditions the check accepted as not done (a step's), or every step's (the root's, when its plan
+    /// ended): what the owner sees as "Not done:" lines. Empty: no gap.
+    pub gaps: Vec<Gap>,
+}
+
+/// ORCH-652: one stated condition a check accepted as not done, with what code shows the owner.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Gap {
+    /// The condition's index among the step's checked conditions.
+    pub index: i64,
+    /// The condition in the owner's terms (its owner_text, else its text).
+    pub condition: String,
+    /// The check's plain reason.
+    pub reason: String,
+    /// The check's evidence for that condition.
+    pub evidence: String,
+}
+
+impl Gap {
+    /// The record kept in a step's output and the final frame: `{"index", "condition", "reason", "evidence"}`.
+    pub fn as_json(&self) -> Value {
+        serde_json::json!({"index": self.index, "condition": self.condition, "reason": self.reason,
+            "evidence": self.evidence})
+    }
+
+    pub fn of_json(v: &Value) -> Option<Gap> {
+        let text = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+        let condition = text("condition");
+        (!condition.is_empty()).then(|| Gap {
+            index: v.get("index").and_then(Value::as_i64).unwrap_or(-1),
+            condition,
+            reason: text("reason"),
+            evidence: text("evidence"),
+        })
+    }
 }
 
 /// A tree (or a plan step's member tree): its ids, its state and the corrections it shares with its root.
@@ -883,7 +971,7 @@ impl Tree {
         if let Some(conditions) = &st.worker_conditions {
             task.success_conditions = conditions.clone();
         }
-        if st.as_owner {
+        if st.as_owner || !st.profiles.is_empty() {
             task.identity = ferb_core::types::Identity::Owner;
         }
         task

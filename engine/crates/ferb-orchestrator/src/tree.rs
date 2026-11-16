@@ -44,6 +44,7 @@ pub const STATUSES: &[&str] = &[
     "paused",
     "done",
     "done_unverified",
+    "done_with_gaps", // ORCH-651, migration 0064
     "failed",
     "cancelled",
     "needs_user",

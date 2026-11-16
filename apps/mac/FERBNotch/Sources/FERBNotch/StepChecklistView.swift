@@ -130,6 +130,7 @@ struct ChecklistLineView: View {
         // ORCH-613: the owner's decision, in the neutral secondary a stopped task has, never the failure's red
         case .stopped: Image(systemName: "stop.circle").font(.system(size: 10)).foregroundStyle(Palette.secondary)
         case .notFinished: Image(systemName: "circle.dashed").font(.system(size: 10)).foregroundStyle(Palette.secondary)
+        case .gaps: Image(systemName: "circle.lefthalf.filled").font(.system(size: 10)).foregroundStyle(Palette.amber)
         }
     }
 
@@ -143,7 +144,7 @@ struct ChecklistLineView: View {
 
     private var wordsColor: AnyShapeStyle {
         switch line.kind {
-        case .needsYou: return AnyShapeStyle(Palette.amber)
+        case .needsYou, .gaps: return AnyShapeStyle(Palette.amber)
         case .failed, .wontRun: return AnyShapeStyle(Palette.redSoft)
         default: return AnyShapeStyle(Palette.secondary)
         }

@@ -378,6 +378,31 @@ impl Server {
         unary.insert(method.to_owned(), Arc::new(handler));
     }
 
+    /// The methods with a handler now: (unary, stream), each sorted (a test checks every method of `auth::METHODS`
+    /// has one in the composed daemon).
+    pub fn registered(&self) -> (Vec<String>, Vec<String>) {
+        fn names<V>(m: &HashMap<String, V>) -> Vec<String> {
+            let mut v: Vec<String> = m.keys().cloned().collect();
+            v.sort();
+            v
+        }
+        let unary = names(
+            &self
+                .inner
+                .unary
+                .read()
+                .unwrap_or_else(PoisonError::into_inner),
+        );
+        let streams = names(
+            &self
+                .inner
+                .streams
+                .read()
+                .unwrap_or_else(PoisonError::into_inner),
+        );
+        (unary, streams)
+    }
+
     /// Registers (or replaces) the handler of a stream method. A name registered both ways answers as unary
     /// (server.py:311, 338).
     pub fn register_stream(&self, method: &str, handler: impl Stream) {

@@ -258,6 +258,13 @@ impl Factory for RealFactory {
                 rt.redact = redact;
                 rt.cache_role = b.cache_role.clone();
                 rt.cache_scope = b.cache_scope.clone();
+                // RUN-416, fixed: the daemon's hooks for a cached turn (catalog.py:229-230 set them; this factory
+                // never did, so every cached planner turn put its stable parts in the developer role unchecked)
+                if let Some(h) = &b.cache_hooks {
+                    rt.cache_refusal = h.refusal.clone();
+                    rt.on_cache_skipped = Some(h.skipped.clone());
+                    rt.on_cache_fallback = Some(h.fallback.clone());
+                }
                 rt.effort = b.effort.clone();
                 Ok(Built {
                     adapter: Arc::new(rt),

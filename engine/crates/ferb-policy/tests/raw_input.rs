@@ -102,3 +102,48 @@ fn raw_input_to_an_app_that_raises_itself_asks_and_its_ax_actions_dont() {
         assert!(need(tool, a.clone()).is_none(), "{tool} {a}");
     }
 }
+
+/// HAND-586 (the owner, 2026-11-16, "yes it should if it can"): the screen question for a browser says why FERB
+/// needs the window when the tool knows which case it is (`window`: a page in a profile the extension isn't connected
+/// in, the browser's own controls, or a browser part not told apart); without it the card is as before.
+// decision: HAND-586
+#[test]
+fn the_screen_question_for_a_browser_says_why_it_needs_the_window() {
+    let apps = TwoApps;
+    let card = |window: Option<&str>| {
+        let mut need = confirm::foreground_need(
+            "mac.click",
+            &args(json!({"app": "Chat", "shot": "s", "x": 1, "y": 1})),
+            &apps,
+        )
+        .expect("a foreground question");
+        if let Some(w) = window {
+            need.values.set("window", w);
+        }
+        confirm::card(&[need], "", &apps).unwrap()
+    };
+    assert_eq!(
+        card(None).question,
+        "Let FERB use your screen in Chat for this task?"
+    );
+    assert_eq!(
+        card(None).detail,
+        "Chat will come to the front while FERB works in it. One Yes covers Chat until this task ends."
+    );
+    assert_eq!(
+        card(Some("page")).detail,
+        "FERB's extension can't reach this part of Chat (a profile it isn't connected in), so FERB needs the \
+         window. Chat will come to the front while FERB works in it. One Yes covers Chat until this task ends."
+    );
+    assert_eq!(
+        card(Some("controls")).detail,
+        "FERB's extension can't reach this part of Chat (the browser's own controls), so FERB needs the window. \
+         Chat will come to the front while FERB works in it. One Yes covers Chat until this task ends."
+    );
+    assert_eq!(
+        card(Some("browser")).detail,
+        "FERB's extension can't reach this part of Chat (a profile it isn't connected in, or the browser's own \
+         controls), so FERB needs the window. Chat will come to the front while FERB works in it. One Yes covers \
+         Chat until this task ends."
+    );
+}

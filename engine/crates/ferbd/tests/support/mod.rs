@@ -47,6 +47,8 @@ pub struct Run {
     pub user: PathBuf,
     pub child: Option<Child>,
     pub stand: PathBuf,
+    /// More of the program's environment (a test's own TMPDIR).
+    pub env: Vec<(String, String)>,
 }
 
 impl Run {
@@ -57,6 +59,11 @@ impl Run {
 
     /// Starts `ferbd daemon` and waits until it answers `ping` and its start is done.
     pub fn start(root: &Path, nn: &str, config: Value) -> Run {
+        Run::start_env(root, nn, config, Vec::new())
+    }
+
+    /// As `start`, with more of the program's environment.
+    pub fn start_env(root: &Path, nn: &str, config: Value, env: Vec<(String, String)>) -> Run {
         let (home, user) = Run::paths(root, nn);
         std::fs::create_dir_all(&home).unwrap();
         std::fs::create_dir_all(&user).unwrap();
@@ -72,6 +79,7 @@ impl Run {
             user,
             child: None,
             stand,
+            env,
         };
         run.spawn();
         run
@@ -86,6 +94,7 @@ impl Run {
             .env("HOME", &self.user)
             .env("PATH", "/usr/bin:/bin")
             .env("FERBD_STAND_INS", &self.stand)
+            .envs(self.env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())

@@ -171,7 +171,11 @@ pub fn fs_disk_usage(a: &Args, ctx: &ToolContext, env: &FsEnv) -> Out {
     let closed_ref = closed
         .as_ref()
         .map(|c| c as &dyn Fn(&str, &str) -> Option<String>);
-    let content = usage(&path, closed_ref, false).map_err(Raised::Os)?;
+    let mut content = usage(&path, closed_ref, false).map_err(Raised::Os)?;
+    // HAND-597: the never-read folders counted here by size only; absent when none, so Python's bytes
+    if let Some(f) = crate::protected::fact(ctx, &path, crate::protected::DISK_USAGE_FACT) {
+        content.insert("not_read".into(), f);
+    }
     Ok(ToolResult {
         content,
         read_sources: vec![("file".into(), path)],

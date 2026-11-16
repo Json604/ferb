@@ -194,7 +194,8 @@ pub struct CodexRuntime {
     pub on_abandoned: Option<TaskNote>,
     /// Codex's own error text passes through this before it is raised or reported.
     pub redact: Redact,
-    /// P20: the role whose turns resume FERB's template thread; None for an ephemeral thread.
+    /// P20: the role whose turns resume FERB's template thread ("planner", or "checker" for a worker-mode check);
+    /// None for an ephemeral thread. A worker-mode run resumes it with its whole context in the user turn.
     pub cache_role: Option<String>,
     pub cache_scope: String,
     #[allow(clippy::type_complexity)]
@@ -406,14 +407,17 @@ pub fn private_write(path: &Path, data: &[u8]) -> std::io::Result<()> {
     f.write_all(data)
 }
 
-/// codex_stream.py `write_template`: the two-line rollout a cached turn resumes, in the run's own CODEX_HOME.
+/// codex_stream.py `write_template`: the two-line rollout a cached turn resumes, in the run's own CODEX_HOME. Its
+/// `effort` is the one the turn sends (`sent_effort`), `null` when the turn sends none: Codex 0.166.0 takes the
+/// request's effort from the turn (or the model's default), never from this line (measured on its requests,
+/// 2026-11-16), so this only keeps the file truthful.
 pub fn write_template(
     codex_home: &Path,
     workdir: &Path,
     thread_id: &str,
     model: &str,
     system: &str,
-    effort: &str,
+    effort: Option<&str>,
 ) -> std::io::Result<PathBuf> {
     let folder = codex_home
         .join("sessions")

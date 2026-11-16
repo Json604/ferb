@@ -50,14 +50,20 @@ const stub = new Proxy(function () { return Promise.resolve(undefined); }, {
 
 function worker() {
   const c = clock();
-  const fake = { tabs: new Map(), windows: new Map(), updates: [], cdp: [], attached: new Set(), targets: {}, created: [] };
+  const fake = { tabs: new Map(), windows: new Map(), updates: [], cdp: [], attached: new Set(), targets: {}, created: [], ports: [] };
   const local = { ferb: { key: null } };
   const session = { s: { seen: {}, order: [], windowId: null } };
   const tabsOnCreated = event(), tabsOnUpdated = event(), tabsOnRemoved = event(), tabsOnActivated = event();
   const winFocus = event(), winRemoved = event(), dbgEvent = event(), dbgDetach = event(), onMessage = event();
   const missing = (what, id) => Promise.reject(new Error(`No ${what} with id: ${id}.`));
   const chrome = {
-    runtime: { id: "ferbtest", getManifest: () => ({ version: "test" }), onMessage, connectNative: () => ({ postMessage() {}, disconnect() {}, onMessage: event(), onDisconnect: event() }),
+    runtime: { id: "ferbtest", getManifest: () => ({ version: "test" }), onMessage, connectNative: () => {
+                 // each link the worker opens: what it posted, and its events (a scenario fires the daemon's lines)
+                 const p = { posted: [], closed: false, postMessage(m) { if (p.closed) throw new Error("Attempting to use a disconnected port object"); p.posted.push(m); },
+                             disconnect() { p.closed = true; }, onMessage: event(), onDisconnect: event() };
+                 fake.ports.push(p);
+                 return p;
+               },
                onStartup: event(), onInstalled: event(), onUpdateAvailable: event(), lastError: undefined, requestUpdateCheck: stub, reload: stub },
     storage: { local: { get: async () => structuredClone(local), set: async (x) => { Object.assign(local, structuredClone(x)); } },
                session: { get: async () => structuredClone(session), set: async (x) => { Object.assign(session, structuredClone(x)); } } },

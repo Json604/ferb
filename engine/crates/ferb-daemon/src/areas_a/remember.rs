@@ -493,3 +493,27 @@ pub fn typed_behind_memory(st: &State, request_id: &str) -> Vec<String> {
     }
     typed
 }
+
+/// HAND-587: the text of what FERB remembers now, split by whose words it is: (the owner's own: every current memory
+/// item of origin owner_stated, its content and what the owner typed behind it, [`typed_behind_memory`]; the rest:
+/// observed, inferred or from outside content). Items set aside, retired or forgotten are not current. The setup
+/// persona is left out of both (FERB built it from app names).
+pub fn memory_texts(st: &State, request_id: &str) -> (Vec<String>, Vec<String>) {
+    let persona = ferb_memory::terms::slug(ferb_device::persona::PERSONA_KEY, None);
+    let Ok(items) = st.memory.current_items() else {
+        return (Vec::new(), Vec::new());
+    };
+    let (mut owner, mut other) = (Vec::new(), Vec::new());
+    for it in items
+        .into_iter()
+        .filter(|it| it.key != persona && !it.set_aside)
+    {
+        if it.origin == "owner_stated" {
+            owner.push(it.content);
+        } else {
+            other.push(it.content);
+        }
+    }
+    owner.extend(typed_behind_memory(st, request_id));
+    (owner, other)
+}

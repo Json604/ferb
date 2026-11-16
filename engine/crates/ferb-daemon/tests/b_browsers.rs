@@ -179,6 +179,11 @@ struct FakeHub {
     /// When set, each `bridge` lookup moves this clock on by this many seconds: a pairing's wait looks its profile up
     /// once per round (and once per page it opens), so its time passes in known steps.
     tick: Mutex<Option<(Arc<b_support::FakeClock>, f64)>>,
+    /// HAND-564: what the hub refused for this run, as `Hub` keeps it: (install, why, a stale key's refusal).
+    refused: Mutex<Vec<(String, String, bool)>>,
+    /// HAND-564: (lookups left, browser, folder): that profile's hello with its new key comes after this many more
+    /// `bridge` lookups (it connects, and its install's refusal goes, as `Hub::hello` does).
+    later: Mutex<Option<(usize, String, String)>>,
 }
 
 /// Each profile's open tabs by address: the owner's, and what FERB's launches opened.
@@ -244,10 +249,56 @@ impl FakeHub {
     }
 }
 
+impl FakeHub {
+    fn refusal(&self, install: &str) -> Option<(String, bool)> {
+        self.refused
+            .lock()
+            .unwrap()
+            .iter()
+            .rev()
+            .find(|r| r.0 == install)
+            .map(|r| (r.1.clone(), r.2))
+    }
+
+    fn too_old(&self, binding: &Binding) -> Option<String> {
+        let version = self
+            .pairings()
+            .version(&binding.install_id)
+            .unwrap_or_default();
+        (!version.is_empty() && !browsers::steps::new_enough(&version))
+            .then(|| ferb_browser::rules::too_old(&version))
+    }
+}
+
 impl Extensions for FakeHub {
     fn bridge(&self, browser: &str, folder: &str) -> Option<BridgeView> {
         if let Some((clock, step)) = self.tick.lock().unwrap().as_ref() {
             *clock.mono.lock().unwrap() += step;
+        }
+        let due = {
+            let mut later = self.later.lock().unwrap();
+            match later.as_mut() {
+                Some((0, b, f)) => {
+                    let due = (b.clone(), f.clone());
+                    *later = None;
+                    Some(due)
+                }
+                Some((n, _, _)) => {
+                    *n -= 1;
+                    None
+                }
+                None => None,
+            }
+        };
+        if let Some((b, f)) = due {
+            let install = self
+                .pairings()
+                .for_profile(&b, &f)
+                .unwrap()
+                .unwrap()
+                .install_id;
+            self.refused.lock().unwrap().retain(|r| r.0 != install);
+            self.connect(&b, &f, "0.19.11");
         }
         self.bridges()
             .into_iter()
@@ -276,12 +327,20 @@ impl Extensions for FakeHub {
         out
     }
     fn problem(&self, binding: &Binding) -> Option<String> {
-        let version = self
-            .pairings()
-            .version(&binding.install_id)
-            .unwrap_or_default();
-        (!version.is_empty() && !browsers::steps::new_enough(&version))
-            .then(|| ferb_browser::rules::too_old(&version))
+        match self.refusal(&binding.install_id) {
+            Some((why, _)) => Some(why),
+            None => self.too_old(binding),
+        }
+    }
+    fn blocking_problem(&self, binding: &Binding) -> Option<String> {
+        match self.refusal(&binding.install_id) {
+            Some((why, false)) => Some(why),
+            Some((_, true)) => None,
+            None => self.too_old(binding),
+        }
+    }
+    fn stale_key(&self, binding: &Binding) -> bool {
+        self.refusal(&binding.install_id).is_some_and(|r| r.1)
     }
     fn call(
         &self,
@@ -470,6 +529,8 @@ fn world(setup: &Value, access: bool) -> World {
         calls: Mutex::new(vec![]),
         tabs: OpenTabs::default(),
         tick: Mutex::new(None),
+        refused: Mutex::new(vec![]),
+        later: Mutex::new(None),
     });
     for b in setup["bridges"].as_array().into_iter().flatten() {
         hub.connect(
@@ -1481,4 +1542,402 @@ fn the_owner_s_words_name_a_profile_by_its_name_email_or_folder() {
     assert!(!names_profile(&known, "put the top 3 in a google sheet"));
     assert!(!names_profile(&known, "my homework list"));
     assert!(!names_profile(&[], "make the sheet in my work profile"));
+}
+
+/// What happens after a pairing page was answered in
+/// [`a_stale_key_refusal_after_the_page_was_answered_never_fails_a_pairing_that_converges`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum AfterAnswer {
+    /// A hello signed with the extension's older key comes first (refused, `bad_mac`), then its new key's hello.
+    StaleThenNewKey,
+    /// Only the older key's refusal comes; the new key never connects within the wait.
+    StaleOnly,
+    /// The copy holding the new key is refused after its MAC checked (too old): that is this pairing's failure.
+    Blocking,
+}
+
+const STALE_WHY: &str =
+    "extension pairing failed (bad_mac); pair this profile again (browser_pair, or Settings → Browsers)";
+
+/// HAND-564 (live 2026-11-16, a fresh install over profiles whose extension kept the previous install's key): Chrome
+/// Default's pairing page was answered at 02:54:04.261; 4 ms later a hello the extension had signed with its older
+/// key was refused (`bad_mac`), and 80 ms later Pair all reported the profile failed, while its new key's hello was
+/// accepted right after (21,837 messages accepted since). A stale key's refusal never ends a pairing: only a refusal
+/// of the copy holding the new key does; a page answered whose new key never connects says so, never "unanswered".
+// decision: HAND-563, HAND-564
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_stale_key_refusal_after_the_page_was_answered_never_fails_a_pairing_that_converges() {
+    let file = fixture("daemon-b/browsers.json");
+    let sc = scenario(&file, "with_access");
+    for case in [
+        AfterAnswer::StaleThenNewKey,
+        AfterAnswer::StaleOnly,
+        AfterAnswer::Blocking,
+    ] {
+        let w = world(&sc["setup"], true);
+        // the wait's time moves 10 s per look at the profile
+        *w.hub.tick.lock().unwrap() = Some((w.home.clock.clone(), 10.0));
+        {
+            let (pairings, hub) = (w.deps.pairings.clone(), w.hub.clone());
+            *w.hook.lock().unwrap() = Some(Box::new(move |argv: &[String]| {
+                let url = argv.last().cloned().unwrap_or_default();
+                let Some((_, token)) = url.split_once("/pair.html#token=") else {
+                    return;
+                };
+                let m = ExtMessage {
+                    install_id: "inst-old".into(),
+                    mtype: ExtType::Pair,
+                    body_json: json!({"token": token}).to_string(),
+                    seq: None,
+                    mac: None,
+                };
+                let verdict = pairings.handle(&m).unwrap();
+                assert!(verdict.accepted, "{}", verdict.reason);
+                let mut refused = hub.refused.lock().unwrap();
+                match case {
+                    AfterAnswer::StaleThenNewKey => {
+                        refused.push(("inst-old".into(), STALE_WHY.into(), true));
+                        *hub.later.lock().unwrap() = Some((1, "chrome".into(), "Profile 1".into()));
+                    }
+                    AfterAnswer::StaleOnly => {
+                        refused.push(("inst-old".into(), STALE_WHY.into(), true));
+                    }
+                    AfterAnswer::Blocking => refused.push((
+                        "inst-old".into(),
+                        ferb_browser::rules::too_old("0.1.0"),
+                        false,
+                    )),
+                }
+            }));
+        }
+        let cx = Cx::new(&w.home.host, &w.deps);
+        let reply = cx.pair_for_task("chrome", "Profile 1").await.unwrap();
+        let rows: Vec<Value> = w
+            .home
+            .journal_rows()
+            .into_iter()
+            .filter(|r| r[0].as_str().unwrap().starts_with("browsers.pair"))
+            .collect();
+        let pages = w
+            .launched
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|a| a.to_string().contains("/pair.html"))
+            .count();
+        assert_eq!(
+            pages, 1,
+            "{case:?}: the page was answered; nothing opens it again"
+        );
+        match case {
+            AfterAnswer::StaleThenNewKey => {
+                assert_eq!(
+                    reply.get("paired"),
+                    Some(&json!(true)),
+                    "{case:?}: {reply:?}"
+                );
+                assert_eq!(
+                    rows,
+                    vec![
+                        json!(["browsers.paired", {"browser": "chrome", "folder": "Profile 1"}, "ferb"])
+                    ],
+                    "{case:?}"
+                );
+            }
+            AfterAnswer::StaleOnly => {
+                assert_eq!(reply.get("paired"), Some(&json!(false)), "{case:?}");
+                assert_eq!(
+                    reply.get("reason"),
+                    Some(&json!("not_connected")),
+                    "{case:?}: {reply:?}"
+                );
+                assert!(
+                    reply["why"]
+                        .as_str()
+                        .unwrap()
+                        .starts_with("Google Chrome took the pairing"),
+                    "{reply:?}"
+                );
+                assert_eq!(
+                    rows,
+                    vec![json!(["browsers.pair_failed",
+                        {"browser": "chrome", "folder": "Profile 1", "reason": "not_connected"}, "ferb"])],
+                    "{case:?}"
+                );
+            }
+            AfterAnswer::Blocking => {
+                assert_eq!(reply.get("paired"), Some(&json!(false)), "{case:?}");
+                assert_eq!(
+                    reply.get("reason"),
+                    Some(&json!("problem")),
+                    "{case:?}: {reply:?}"
+                );
+                assert_eq!(
+                    rows,
+                    vec![json!(["browsers.pair_failed",
+                        {"browser": "chrome", "folder": "Profile 1", "reason": "problem"}, "ferb"])],
+                    "{case:?}"
+                );
+            }
+        }
+    }
+}
+
+/// One JSON-RPC call through the daemon as FERB.app makes it; the reply's `result`.
+async fn rpc(w: &World, method: &str, params: Value) -> Value {
+    let d = start(w).await;
+    let mut c = d.connect().await;
+    c.send(r#"{"jsonrpc": "2.0", "id": 1, "method": "auth.hello", "params": {"role": "cli"}}"#)
+        .await;
+    c.recv().await.unwrap();
+    c.send(&json!({"jsonrpc": "2.0", "id": 2, "method": method, "params": params}).to_string())
+        .await;
+    let reply: Value = serde_json::from_str(&c.recv().await.unwrap()).unwrap();
+    reply["result"].clone()
+}
+
+/// HAND-564: a profile paired before whose extension presents a key that isn't this FERB's current one (an earlier
+/// install's: the owner's fresh install over profiles that kept FERB's extension) is never "paired" anywhere: its row
+/// needs pairing again (with no refusal jargon), the page says plainly what fixes it, and Pair all (the owner's
+/// click) pairs it again instead of skipping it with a step the owner can't take. A paired profile that is merely
+/// closed is left as it is.
+// decision: HAND-563, HAND-564
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn pair_all_pairs_again_a_profile_whose_extension_holds_an_older_key() {
+    let file = fixture("daemon-b/browsers.json");
+    let sc = scenario(&file, "with_access");
+    let mut setup = sc["setup"].clone();
+    setup["installs"].as_array_mut().unwrap().push(json!([
+        "inst-p1",
+        "chrome",
+        "Profile 1",
+        "owner",
+        "0.19.10"
+    ]));
+    let w = world(&setup, true);
+    w.hub
+        .refused
+        .lock()
+        .unwrap()
+        .push(("inst-p1".into(), STALE_WHY.into(), true));
+
+    let rows = rpc(&w, "setup.browsers", json!({})).await;
+    let chrome = rows["browsers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|b| b["browser"] == "chrome")
+        .unwrap()
+        .clone();
+    let row = |folder: &str| {
+        chrome["profiles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["folder"] == folder)
+            .unwrap()
+            .clone()
+    };
+    let p1 = row("Profile 1");
+    assert_eq!(p1["needs_pairing"], true, "{p1}");
+    assert_eq!(p1["stale_key"], true, "{p1}");
+    assert!(p1.get("problem").is_none(), "{p1}");
+    let page = rows["problem"].as_str().unwrap_or("");
+    assert!(page.contains(browsers::PAIR_STALE), "{page}");
+    assert!(!page.contains("bad_mac"), "{page}");
+
+    w.answer.store(true, Ordering::SeqCst);
+    let done = rpc(&w, "setup.browsers_pair_all", json!({"timeout_s": 5})).await;
+    let mine = |list: &str| {
+        done[list]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|r| r["folder"] == "Profile 1" && r["browser"] == "chrome")
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    assert!(mine("skipped").is_empty(), "{done}");
+    let result = mine("results");
+    assert_eq!(result.len(), 1, "{done}");
+    assert_eq!(result[0]["paired"], true, "{done}");
+    // Chrome Default (paired and connected) is left as it is
+    assert!(!done["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|r| r["folder"] == "Default" && r["browser"] == "chrome"));
+}
+
+/// HAND-564: Pair all over 30 profiles of one browser at once: one plan naming all 30, each profile's own window and
+/// pairing page once (no profile twice, none left out), its own token, and all 30 paired within the wait. The same
+/// path pairs one profile (the tests above).
+// decision: HAND-564, HAND-411, HAND-412
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn pair_all_pairs_thirty_profiles_each_once() {
+    let file = fixture("daemon-b/browsers.json");
+    let sc = scenario(&file, "with_access");
+    let mut setup = sc["setup"].clone();
+    let mut files = serde_json::Map::new();
+    let mut cache = serde_json::Map::new();
+    for n in 1..=30 {
+        let folder = format!("Profile {n}");
+        cache.insert(
+            folder.clone(),
+            json!({"name": format!("Person {n}"), "user_name": ""}),
+        );
+        files.insert(
+            format!("Google/Chrome/{folder}/Preferences"),
+            json!(
+                json!({"extensions": {"settings": {"plbfkifcmgkgnlfgikdeaaglgncdhkma":
+                {"location": 1, "path": "plbfkifcmgkgnlfgikdeaaglgncdhkma/0.19.11_0"}}}})
+                .to_string()
+            ),
+        );
+    }
+    files.insert(
+        "Google/Chrome/Local State".into(),
+        json!(json!({"profile": {"info_cache": cache}}).to_string()),
+    );
+    setup["files"] = Value::Object(files);
+    setup["installs"] = json!([]);
+    setup["bridges"] = json!([]);
+    setup["unpaired"] = json!([]);
+    let w = world(&setup, true);
+    w.answer.store(true, Ordering::SeqCst);
+    let done = rpc(&w, "setup.browsers_pair_all", json!({"timeout_s": 5})).await;
+    assert_eq!(done["profiles"], 30, "{done}");
+    assert_eq!(done["paired"], 30, "{done}");
+    assert!(done["skipped"].as_array().unwrap().is_empty(), "{done}");
+    let launched: Vec<Vec<String>> = w
+        .launched
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|a| serde_json::from_value(a.clone()).unwrap())
+        .collect();
+    assert_eq!(
+        launched.len(),
+        60,
+        "a window and a pairing page per profile"
+    );
+    let mut tokens = std::collections::BTreeSet::new();
+    for n in 1..=30 {
+        let mine: Vec<&Vec<String>> = launched
+            .iter()
+            .filter(|a| launched_profile(a) == format!("chrome/Profile {n}"))
+            .collect();
+        assert_eq!(mine.len(), 2, "Profile {n}: {mine:?}");
+        let (_, token) = mine[1].last().unwrap().split_once("#token=").unwrap();
+        tokens.insert(token.to_string());
+    }
+    assert_eq!(tokens.len(), 30, "one token per profile");
+}
+
+// HAND-580: the planner's named profiles resolve by the resolver's own steps (browser/folder, name, account); a name
+// with no hit or several is left out. HAND-581: the owner's words name a profile by its name, account or
+// browser/folder, as whole words.
+// decision: HAND-580, HAND-581
+#[test]
+fn named_profiles_resolve_and_the_owners_words_name_them() {
+    use ferb_browser::profiles::BrowserProfile;
+    use ferb_daemon::areas_b::browsers::{named_in_words, resolve_named};
+    let known = [
+        BrowserProfile::new(
+            "chrome",
+            "Profile 29",
+            "ds.study.iitm.ac.in",
+            "student@example.edu",
+        ),
+        BrowserProfile::new(
+            "chrome",
+            "Profile 15",
+            "New_Personal",
+            "someone@example.com",
+        ),
+        BrowserProfile::new("chrome", "Profile 2", "scaler", ""),
+        BrowserProfile::new("brave", "Default", "scaler", ""),
+    ];
+    let p = |b: &str, f: &str| (b.to_string(), f.to_string());
+    let names = |n: &[&str]| n.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    assert_eq!(
+        resolve_named(
+            &known,
+            &names(&["chrome/Profile 29", "New_Personal", "student@example.edu"])
+        ),
+        [p("chrome", "Profile 29"), p("chrome", "Profile 15")]
+    );
+    // "scaler" is two profiles' name: ambiguous, left out; nothing that matches, left out
+    assert!(resolve_named(&known, &names(&["scaler", "my iit chrome", ""])).is_empty());
+    assert_eq!(
+        resolve_named(&known, &names(&["chrome/scaler"])),
+        [p("chrome", "Profile 2")]
+    );
+    assert_eq!(
+        named_in_words(&known, "Should this task also use chrome/Profile 15?"),
+        [p("chrome", "Profile 15")]
+    );
+    assert_eq!(
+        named_in_words(&known, "yes, the one in new_personal"),
+        [p("chrome", "Profile 15")]
+    );
+    assert!(named_in_words(&known, "yes").is_empty());
+    assert!(named_in_words(&known, "chrome/Profile 150").is_empty());
+}
+
+// HAND-582: the tab a Mac call's page is, found in a profile's tab list by its address (fragment and trailing slash
+// aside); another address is no tab.
+// decision: HAND-582
+#[test]
+fn a_page_is_found_in_a_profiles_tabs_by_its_address() {
+    use ferb_daemon::areas_b::browsers::tab_at;
+    let list = json!({"tabs": [{"tab_id": 7, "url": "https://example.com/a/"},
+                               {"tab_id": 9, "url": "https://example.com/b"}]});
+    assert_eq!(
+        tab_at(&list, "https://example.com/a#part").as_deref(),
+        Some("7")
+    );
+    assert_eq!(tab_at(&list, "https://example.com/b").as_deref(), Some("9"));
+    assert_eq!(tab_at(&list, "https://example.com/c"), None);
+    assert_eq!(tab_at(&json!({}), "https://example.com/a"), None);
+}
+
+// HAND-587: the profiles a message's words touch, to tie the planner's choice to them: the live message (task
+// 0abecb83) touches the IIT profile through "iit"; words of two letters, and words that begin no word of a profile's
+// name or account, touch nothing.
+// decision: HAND-587
+#[test]
+fn a_messages_words_touch_the_profiles_they_describe() {
+    use ferb_browser::profiles::BrowserProfile;
+    use ferb_daemon::areas_b::browsers::touched_in_words;
+    let known = [
+        BrowserProfile::new(
+            "chrome",
+            "Profile 29",
+            "ds.study.iitm.ac.in",
+            "student@ds.study.iitm.ac.in",
+        ),
+        BrowserProfile::new(
+            "chrome",
+            "Profile 15",
+            "New_Personal",
+            "someone@example.com",
+        ),
+        BrowserProfile::new("chrome", "Profile 2", "scaler", ""),
+        BrowserProfile::new("chrome", "Default", "Kartikey", ""),
+    ];
+    let p = |b: &str, f: &str| (b.to_string(), f.to_string());
+    assert_eq!(
+        touched_in_words(
+            &known,
+            "open my iit chrom and compelte my already open iit assingemnts. submti them too"
+        ),
+        [p("chrome", "Profile 29")]
+    );
+    assert_eq!(
+        touched_in_words(&known, "use my personal one"),
+        [p("chrome", "Profile 15")]
+    );
+    assert!(touched_in_words(&known, "write a greeting").is_empty());
+    assert!(touched_in_words(&known, "do it in my ex profile").is_empty());
 }

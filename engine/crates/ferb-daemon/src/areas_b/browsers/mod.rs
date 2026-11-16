@@ -47,6 +47,15 @@ pub const ADDABLE: [&str; 3] = ["removed", "not_added", "requested"];
 pub const PAIR_UNANSWERED: &str = "FERB's pairing page got no answer there: {label} may have FERB turned off, \
 updating or waiting for you to accept new permissions in that profile. Open chrome://extensions in that profile, make \
 sure FERB is on and up to date, then try again";
+/// HAND-564: a pairing page that was answered (the profile has the new key's record) while no connection of that
+/// profile authenticated with the new key before the wait ended. Nothing for the owner to fix there: Try again.
+pub const PAIR_NOT_CONNECTED: &str =
+    "{label} took the pairing, but its FERB extension didn't connect with it \
+in time. Try again: FERB pairs it afresh";
+/// HAND-564: a paired profile whose extension holds a key from an earlier FERB install or pairing.
+pub const PAIR_STALE: &str =
+    "its FERB extension still holds an older pairing (from an earlier FERB install), so \
+FERB can't use it yet. Pair all pairs it again";
 /// HAND-538: seconds after the first pairing page opened at which a page whose one-time token is still unused (and
 /// nothing says the extension is off, gone or refused) is opened again for that token, exactly as the first was; only
 /// those inside the wait. A page that works is answered within a second (live 2026-11-15: 0.2 s; six of seven
@@ -91,6 +100,17 @@ pub trait Extensions: Send + Sync {
     fn unpaired_copies(&self) -> BTreeMap<String, String>;
     /// `hub.problem(binding)` (HAND-406).
     fn problem(&self, binding: &Binding) -> Option<String>;
+    /// HAND-564: why the copy holding this FERB's key for the profile can't be used, told after its MAC checked (too
+    /// old or newer, the wrong browser, no nonce); never a stale key's or a token's refusal. A pairing ends early
+    /// only on this.
+    fn blocking_problem(&self, binding: &Binding) -> Option<String> {
+        self.problem(binding)
+    }
+    /// HAND-564: the profile's extension presented a key that isn't this FERB's current one for it (an earlier
+    /// install's or pairing's), and nothing has authenticated since: it needs pairing again.
+    fn stale_key(&self, _binding: &Binding) -> bool {
+        false
+    }
     /// `br.call(op, args, timeout)` on that profile's bridge; `Err` is the bridge's error's words.
     fn call(
         &self,
@@ -134,6 +154,14 @@ impl Extensions for ferb_browser::bridge::Hub {
 
     fn problem(&self, binding: &Binding) -> Option<String> {
         ferb_browser::bridge::Hub::problem(self, binding)
+    }
+
+    fn blocking_problem(&self, binding: &Binding) -> Option<String> {
+        ferb_browser::bridge::Hub::blocking(self, binding)
+    }
+
+    fn stale_key(&self, binding: &Binding) -> bool {
+        ferb_browser::bridge::Hub::stale_key(self, binding)
     }
 
     fn call(
@@ -607,15 +635,20 @@ impl Cx {
             return Ok(vec![]);
         }
         let found = self.blocking(|c| c.profiles()).await;
-        Ok(why
-            .iter()
-            .map(|((b, f), text)| {
-                format!(
-                    "{}: {text}.",
-                    profiles::shown(&profiles::named(&found, b, f), None)
-                )
-            })
-            .collect())
+        let mut out = vec![];
+        for ((b, f), text) in &why {
+            // HAND-564: an older key is said plainly, with what fixes it
+            let text = if self.paired_stale(b, f)? {
+                PAIR_STALE
+            } else {
+                text.as_str()
+            };
+            out.push(format!(
+                "{}: {text}.",
+                profiles::shown(&profiles::named(&found, b, f), None)
+            ));
+        }
+        Ok(out)
     }
 
     /// `_owner_extension_connected`: a paired owner profile of this browser is connected.
@@ -792,6 +825,9 @@ impl Cx {
     }
 
     /// `_answered_but_refused` (HAND-412): the pairing page was answered and FERB then refused that profile's hello.
+    /// HAND-564 (fixed against Python, ENG-6): only a refusal of the copy that holds the new key counts (too old or
+    /// newer, the wrong browser, no nonce). A stale key's refusal is a message the extension signed before the new
+    /// key reached it, and a token's is about a page answered twice: neither ends a pairing that can still converge.
     fn answered_but_refused(
         &self,
         p: &BrowserProfile,
@@ -805,8 +841,27 @@ impl Cx {
             .pairings
             .for_profile(&p.browser, &p.folder)
             .map_err(store_err)?;
-        Ok(b.and_then(|b| self.deps.hub.problem(&b))
+        Ok(b.and_then(|b| self.deps.hub.blocking_problem(&b))
             .map(|why| ("problem".to_string(), why)))
+    }
+
+    /// HAND-564: the profile is paired, isn't connected, and its extension presented a key that isn't this FERB's
+    /// current one for it: Pair all pairs it again (the owner's click is the consent), and no surface calls it paired.
+    pub fn paired_stale(&self, browser: &str, folder: &str) -> Result<bool, HandlerError> {
+        let Some(b) = self
+            .deps
+            .pairings
+            .for_profile(browser, folder)
+            .map_err(store_err)?
+        else {
+            return Ok(false);
+        };
+        let connected = self
+            .deps
+            .hub
+            .bridge(browser, folder)
+            .is_some_and(|br| br.connected);
+        Ok(!connected && self.deps.hub.stale_key(&b))
     }
 
     /// `_exact_profile`: the discovered profile with exactly that browser and folder, or None when no folder is named.
@@ -949,6 +1004,20 @@ impl Cx {
             sleep_s(0.2).await;
         }
         self.deps.pairings.revoke(&token);
+        if self.deps.pairings.was_paired(&token) {
+            // HAND-564: the page was answered and the profile has the new key's record, but no connection
+            // authenticated with it in the wait: not "unanswered", and Try again pairs it afresh
+            self.host.journal(
+                "browsers.pair_failed",
+                json!({"browser": p.browser, "folder": p.folder, "reason": "not_connected"}),
+                None,
+            )?;
+            return Ok(merge(
+                base,
+                json!({"paired": false, "reason": "not_connected",
+                       "why": PAIR_NOT_CONNECTED.replace("{label}", &label_of(&p.browser))}),
+            ));
+        }
         let q = p.clone();
         let stands = self.blocking(move |c| c.extension_stands(&q)).await?;
         let mut failed = object(json!({"browser": p.browser, "folder": p.folder,
@@ -1139,6 +1208,60 @@ impl Cx {
 
     /// `_web_secrets` (L13): ask every connected profile of this browser for the mask state of its active tab of
     /// its window at these bounds; exactly one must own such a window.
+    /// HAND-582, HAND-583: where FERB's browser tools can take a web page a Mac call would act on (`opens` false: the
+    /// connected owner profile of `browser` with a tab at that address, and that tab) or open (`opens` true: the
+    /// connected owner profiles of `browser`, or of any browser for the default one, `browser` ""). None when no
+    /// paired profile of that browser is connected, or none has the page open (another profile, a private window):
+    /// then the Mac route is the only one. Facts only; the caller words the refusal.
+    pub async fn page_route(&self, browser: &str, url: &str, opens: bool) -> Option<PageRoute> {
+        let bridges: Vec<BridgeView> = self
+            .deps
+            .hub
+            .bridges()
+            .into_iter()
+            .filter(|b| {
+                b.connected
+                    && b.identity == Identity::Owner
+                    && (browser.is_empty() || b.browser == browser)
+            })
+            .collect();
+        if bridges.is_empty() {
+            return None;
+        }
+        let known = self.browsing_profiles().unwrap_or_default();
+        let label = |b: &BridgeView| {
+            let p = profiles::named(&known, &b.browser, &b.folder);
+            (
+                b.browser.clone(),
+                b.folder.clone(),
+                profiles::shown(&p, None),
+            )
+        };
+        if opens {
+            return Some(PageRoute {
+                profiles: bridges.iter().map(label).collect(),
+                tab_ref: None,
+            });
+        }
+        for b in &bridges {
+            let Ok(v) = self
+                .deps
+                .hub
+                .call(&b.browser, &b.folder, "list_tabs", json!({}), 4.0)
+                .await
+            else {
+                continue;
+            };
+            if let Some(id) = tab_at(&v, url) {
+                return Some(PageRoute {
+                    profiles: vec![label(b)],
+                    tab_ref: Some(format!("{}:{}:{id}", b.browser, b.folder)),
+                });
+            }
+        }
+        None
+    }
+
     pub async fn web_secrets(
         &self,
         browser: &str,
@@ -1534,6 +1657,115 @@ pub fn names_profile(known: &[BrowserProfile], words: &str) -> bool {
     })
 }
 
+/// HAND-582, HAND-583: the browser tools' route to a web page ([`Cx::page_route`]): the profiles as (browser, folder,
+/// the owner's name for it), and the owner's tab at that page when one was found.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PageRoute {
+    pub profiles: Vec<(String, String, String)>,
+    pub tab_ref: Option<String>,
+}
+
+/// HAND-582: the id of the tab in a `list_tabs` answer whose address is `url`, its fragment and a trailing slash
+/// aside (the address Accessibility reads for a page is the tab's).
+pub fn tab_at(list: &Value, url: &str) -> Option<String> {
+    let bare = |u: &str| {
+        u.split('#')
+            .next()
+            .unwrap_or(u)
+            .trim_end_matches('/')
+            .to_string()
+    };
+    let want = bare(url);
+    list.get("tabs")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .find(|t| {
+            t.get("url")
+                .and_then(Value::as_str)
+                .is_some_and(|u| bare(u) == want)
+        })
+        .map(|t| {
+            t.get("tab_id")
+                .map(ferb_py::value::py_str)
+                .unwrap_or_default()
+        })
+}
+
+/// HAND-580: the planner's `profiles` for a task, each resolved against `known` (the owner's profiles FERB may browse
+/// in for them) by the resolver's own steps (browser/folder, name, account, folder); a name with no hit or several
+/// is left out (ambiguity is never code's to settle). In order, each once.
+pub fn resolve_named(known: &[BrowserProfile], named: &[String]) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    for name in named.iter().filter(|n| !n.trim().is_empty()) {
+        let r = profiles::resolve(name, known, &[], None);
+        if r.kind != "one" {
+            continue;
+        }
+        let p = (
+            r.candidates[0].browser.clone(),
+            r.candidates[0].folder.clone(),
+        );
+        if !out.contains(&p) {
+            out.push(p);
+        }
+    }
+    out
+}
+
+/// HAND-587: the profiles of `known` that `words` touch: those [`named_in_words`] finds, and those with a word of
+/// their name or account (split at anything but letters and digits) that begins with a word of `words` three letters
+/// or longer ("iit" for "ds.study.iitm.ac.in", "personal" for "New_Personal"). A loose fact about values in the
+/// words, used only to tie a profile the planner chose to this message's words.
+pub fn touched_in_words(known: &[BrowserProfile], words: &str) -> Vec<(String, String)> {
+    let split = |t: &str| -> Vec<String> {
+        ferb_py::text::lower(t)
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|w| !w.is_empty())
+            .map(str::to_string)
+            .collect()
+    };
+    let said: Vec<String> = split(words)
+        .into_iter()
+        .filter(|w| w.chars().count() >= 3)
+        .collect();
+    let mut out = named_in_words(known, words);
+    for p in known {
+        let key = (p.browser.clone(), p.folder.clone());
+        if out.contains(&key) {
+            continue;
+        }
+        let theirs: Vec<String> = split(&p.display_name)
+            .into_iter()
+            .chain(split(&p.email))
+            .collect();
+        if theirs
+            .iter()
+            .any(|t| said.iter().any(|w| t.starts_with(w.as_str())))
+        {
+            out.push(key);
+        }
+    }
+    out
+}
+
+/// HAND-581: the profiles of `known` that the owner's `words` name: a profile's name or account email as whole words
+/// (as [`names_profile`]), or its browser/folder written out ("chrome/Profile 2"). A fact about values in the words.
+pub fn named_in_words(known: &[BrowserProfile], words: &str) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    for p in known {
+        let id = format!("{}/{}", p.browser, p.folder);
+        let hit = [&p.display_name, &p.email, &id]
+            .iter()
+            .any(|v| !v.trim().is_empty() && ferb_memory::terms::contains_words(words, v));
+        let key = (p.browser.clone(), p.folder.clone());
+        if hit && !out.contains(&key) {
+            out.push(key);
+        }
+    }
+    out
+}
+
 /// `_browsing_answered`: the owner's answer to the browsing question (`state`, `choice`): a profile is stored as
 /// `browsing.owner_profile` through the settings path, None stores none; either way FERB doesn't ask again unless
 /// that profile goes. A line for the owner ("" when nothing was stored).
@@ -1772,7 +2004,11 @@ async fn pair_all_events(cx: Cx, params: Params, sink: &mut Sink) -> Result<(), 
             owner += 1;
             labels.push((key.clone(), label.clone()));
             let mut why = steps::not_paired_step(st, &label, s.request.is_some(), &url, &ext_dir);
-            if why.is_none() && st.paired == Some(true) {
+            // HAND-564: a paired profile whose extension holds an older key is paired again, not skipped
+            if why.is_none()
+                && st.paired == Some(true)
+                && !cx.paired_stale(&st.browser, &st.folder)?
+            {
                 why = cx.paired_problem(&st.browser, &st.folder)?;
                 if why.is_none() {
                     continue;
@@ -1945,7 +2181,11 @@ async fn setup_browsers(cx: Cx) -> HandlerResult {
             if let Some(Value::Array(rows)) = browser.get_mut("profiles") {
                 for row in rows {
                     let f = row["folder"].as_str().unwrap_or("").to_string();
-                    if let Some((_, text)) = why.iter().find(|(k, _)| k.0 == b && k.1 == f) {
+                    if cx.paired_stale(&b, &f)? {
+                        // HAND-564: not "paired": its extension holds an older key; pairing again fixes it
+                        row["needs_pairing"] = json!(true);
+                        row["stale_key"] = json!(true);
+                    } else if let Some((_, text)) = why.iter().find(|(k, _)| k.0 == b && k.1 == f) {
                         row["problem"] = json!(text);
                     }
                 }

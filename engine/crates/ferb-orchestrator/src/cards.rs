@@ -118,6 +118,42 @@ pub fn calls(db: &Db, tree_id: &str) -> Result<Vec<Map<String, Value>>> {
     Ok(out)
 }
 
+/// A recorded call (as `calls` gives it) and its error, if it ended with one.
+pub type Attempt = (Map<String, Value>, Option<String>);
+
+/// ORCH-660: every tool call of the tree that finished, with or without an error (an error doesn't record that nothing
+/// happened), but a question FERB asked and a call the boundary refused: (the call as `calls` gives it, its error).
+pub fn attempted(db: &Db, tree_id: &str) -> Result<Vec<Attempt>> {
+    let (where_, args) = tree_args(tree_id);
+    let mut out = Vec::new();
+    for row in sql::rows(
+        db.conn(),
+        &format!(
+            "SELECT input_json, output_json, error FROM spans WHERE kind = 'tool.call' AND ended_at IS NOT NULL \
+             AND {where_} ORDER BY started_at, rowid"
+        ),
+        &args,
+    )? {
+        let raw = sql::col(&row, "input_json");
+        let mut data = obj(Some(&sql::loads(if raw.is_empty() { "{}" } else { &raw })?));
+        if truthy(data.get("boundary_refused")) || truthy(data.get("ferb_question")) {
+            continue;
+        }
+        let raw_out = sql::col(&row, "output_json");
+        let output = obj(Some(&sql::loads(if raw_out.is_empty() { "{}" } else { &raw_out })?));
+        let after = obj(output.get("after"));
+        let changed = output.get("observed_change") == Some(&Value::Bool(true))
+            || after.get("changed") == Some(&Value::Bool(true));
+        data.insert("observed_change".into(), Value::Bool(changed));
+        let error = row
+            .get("error")
+            .filter(|e| !e.is_null())
+            .map(crate::py::str_of);
+        out.push((data, error));
+    }
+    Ok(out)
+}
+
 /// rules.py:45 `declared_of`.
 pub fn declared_of(recorded: Option<&Value>) -> BTreeSet<String> {
     match recorded {

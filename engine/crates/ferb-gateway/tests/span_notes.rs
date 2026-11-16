@@ -297,6 +297,156 @@ fn task_with(
     put: Option<(bool, Option<String>)>,
     own_fact: bool,
 ) -> Run {
+    task_in(images, after_pid, explained, put, own_fact, None)
+}
+
+/// HAND-570: the Mac as both put-backs and the sampler see it: the front app, and every activation FERB made.
+#[derive(Default)]
+struct Desk {
+    front: i64,
+    activations: Vec<i64>,
+}
+
+const BRAVE_PID: i64 = 77;
+
+fn app(pid: i64) -> Value {
+    let name = if pid == CHROME_PID {
+        "Google Chrome"
+    } else {
+        "Brave Browser"
+    };
+    json!({"pid": pid, "bundle_id": "invented.bundle", "name": name})
+}
+
+/// The sampler over the shared desk: the front app right before and after each call.
+struct Sampled {
+    desk: Arc<Mutex<Desk>>,
+    before: Mutex<i64>,
+}
+
+impl Sentinel for Sampled {
+    fn call_started(&self, _task: &str, _span: &str, _name: &str) {}
+    fn before_action<'a>(
+        &'a self,
+        _task: &'a str,
+        _span: &'a str,
+        _name: &'a str,
+        _arguments: &'a Map<String, Value>,
+        _on_screen: bool,
+    ) -> BoxFuture<'a, Result<(), String>> {
+        *self.before.lock().unwrap() = self.desk.lock().unwrap().front;
+        Box::pin(async { Ok(()) })
+    }
+    fn call_ended(&self, _span: &str) {}
+    fn after_action<'a>(
+        &'a self,
+        _span: &'a str,
+    ) -> BoxFuture<'a, Result<Map<String, Value>, String>> {
+        let (before, after) = (
+            *self.before.lock().unwrap(),
+            self.desk.lock().unwrap().front,
+        );
+        let mut changed = Map::new();
+        if before != after {
+            changed.insert(
+                "frontmost_app".into(),
+                json!({"before": app(before), "after": app(after)}),
+            );
+        }
+        Box::pin(async move { Ok(changed) })
+    }
+}
+
+/// The live 2026-11-16 click: the sign-in pop-up brings Chrome (the tab's browser) to the front during the call, the
+/// extension minimizes it and reports `surfaced` (focused); the browser part's put-back runs as that fact arrives
+/// (`fact_path`: whether it can then), and the gateway's own at the call's end, both on the same desk.
+struct Popup {
+    desk: Arc<Mutex<Desk>>,
+    fact_path: bool,
+}
+
+/// The Mac's put-back as both paths use it: only while the browser is the front app.
+fn put_back_on(desk: &Mutex<Desk>, to: i64) -> (bool, Option<String>) {
+    let mut d = desk.lock().unwrap();
+    if d.front != CHROME_PID {
+        return (false, Some("another app is in front now".into()));
+    }
+    d.front = to;
+    d.activations.push(to);
+    (true, None)
+}
+
+impl Tool for Popup {
+    fn name(&self) -> &str {
+        "browser.act"
+    }
+    fn facts(&self) -> Facts {
+        Facts {
+            on_screen: true,
+            ..Facts::default()
+        }
+    }
+    fn describe(&self, _args: &Args) -> ActionSpec {
+        ActionSpec {
+            target: Target {
+                site: Some("app.example.edu".into()),
+                page: Some("https://app.example.edu/login".into()),
+                ..Target::default()
+            },
+            ..ActionSpec::new("click")
+        }
+    }
+    fn file_paths(&self, _args: &Args) -> Option<Vec<(String, String)>> {
+        Some(vec![])
+    }
+    fn background_pid(&self, _args: &Args) -> Option<i64> {
+        Some(CHROME_PID)
+    }
+    fn put_back<'a>(
+        &'a self,
+        _front: &'a Value,
+        previous: &'a Value,
+        _task: &'a str,
+    ) -> BoxFuture<'a, Option<(bool, Option<String>)>> {
+        let to = previous["pid"].as_i64().unwrap();
+        let out = put_back_on(&self.desk, to);
+        Box::pin(async move { Some(out) })
+    }
+    fn run<'a>(
+        &'a self,
+        _args: &'a Args,
+        _ctx: &'a ToolContext,
+    ) -> BoxFuture<'a, Result<ToolOutput, ToolError>> {
+        Box::pin(async move {
+            let before = self.desk.lock().unwrap().front;
+            self.desk.lock().unwrap().front = CHROME_PID; // the pop-up came up with the focus
+            let mut fact = json!({"cause": "popup_window", "window": "popup", "focused": true, "put_back": true});
+            if self.fact_path {
+                let (back, why) = put_back_on(&self.desk, before);
+                fact["app_put_back"] = json!(back);
+                fact["previous"] = json!("Brave Browser");
+                if let Some(w) = why {
+                    fact["app_why"] = json!(w);
+                }
+            }
+            let mut content = json!({"ok": true}).as_object().cloned().unwrap();
+            content.insert("window_shown".into(), json!([fact]));
+            Ok(ToolOutput::from(ToolResult {
+                content,
+                ..ToolResult::default()
+            }))
+        })
+    }
+}
+
+fn task_in(
+    images: Images,
+    after_pid: i64,
+    explained: bool,
+    put: Option<(bool, Option<String>)>,
+    own_fact: bool,
+    popup: Option<(Arc<Mutex<Desk>>, bool)>,
+) -> Run {
     let dir = tempfile::Builder::new().prefix("fsn").tempdir().unwrap();
     let home = dir.path().join("ferb");
     let user = dir.path().join("user");
@@ -333,6 +483,14 @@ fn task_with(
     .unwrap();
     let mut reg = Registry::new();
     for name in ["browser.act", "browser.screenshot"] {
+        if let (Some((desk, fact_path)), "browser.act") = (&popup, name) {
+            reg.add(Arc::new(Popup {
+                desk: desk.clone(),
+                fact_path: *fact_path,
+            }))
+            .unwrap();
+            continue;
+        }
         reg.add(Arc::new(Browser {
             name,
             explained,
@@ -341,6 +499,13 @@ fn task_with(
         }))
         .unwrap();
     }
+    let sentinel: Arc<dyn Sentinel> = match &popup {
+        Some((desk, _)) => Arc::new(Sampled {
+            desk: desk.clone(),
+            before: Mutex::new(0),
+        }),
+        None => Arc::new(FrontApp { after_pid }),
+    };
     let events: Arc<Mutex<Vec<(String, Value)>>> = Arc::default();
     let seen = events.clone();
     let deps = Deps {
@@ -381,7 +546,7 @@ fn task_with(
         proc_task: Box::new(|_p| None),
         route_question: Some(Arc::new(Router)),
         hooks: Arc::new(RealHooks::new(HookParts {
-            sentinel: Some(Arc::new(FrontApp { after_pid })),
+            sentinel: Some(sentinel),
             previews: None,
             evidence: None,
             changes: None,
@@ -642,4 +807,78 @@ async fn the_calls_own_browser_at_the_front_puts_the_owners_app_back_unless_some
         json!({"cause": "front_app", "app": "Google Chrome", "put_back": false, "previous": "Brave Browser",
                "why": "another app is in front now"})
     );
+}
+
+/// HAND-570: when the page's own fact already told the owner (its put-back ran when the fact arrived), the call's end
+/// tries once more only while the browser is still in front, and tells the worker; the owner's line isn't repeated.
+// decision: HAND-570
+#[tokio::test]
+async fn at_the_calls_end_the_owners_app_goes_back_once_more_without_a_second_line() {
+    let run = task_with(
+        Images { recovered: true },
+        CHROME_PID,
+        true,
+        Some((true, None)),
+        false,
+    );
+    let reply = run.call("browser.act").await;
+    assert_eq!(
+        reply["content"]["screen_changed_during_call"]["put_back"],
+        json!(true),
+        "{reply}"
+    );
+    assert!(run.shown().is_empty(), "told once, by the page's fact");
+}
+
+/// HAND-570, the live sequence of 2026-11-16 03:06: in one browser.act a sign-in pop-up took the focus (the
+/// extension's surfaced fact, focused) and the sampler saw Brave Browser give way to Google Chrome. Before, the page's
+/// fact "explained" the change, so the call-end put-back never ran and Chrome stayed in front until the owner switched
+/// back by hand. Now Brave is re-activated exactly once: when the fact arrives, or, when that couldn't, at the call's
+/// end.
+// decision: HAND-570
+#[tokio::test]
+async fn the_live_popup_sequence_puts_the_owners_app_back_exactly_once() {
+    for fact_path in [true, false] {
+        let desk = Arc::new(Mutex::new(Desk {
+            front: BRAVE_PID,
+            activations: vec![],
+        }));
+        let run = task_in(
+            Images { recovered: true },
+            0,
+            false,
+            None,
+            false,
+            Some((desk.clone(), fact_path)),
+        );
+        let reply = run.call("browser.act").await;
+        let d = desk.lock().unwrap();
+        assert_eq!(
+            d.activations,
+            vec![BRAVE_PID],
+            "once (fact path: {fact_path}): {reply}"
+        );
+        assert_eq!(d.front, BRAVE_PID);
+        drop(d);
+        let fact = &reply["content"]["window_shown"][0];
+        if fact_path {
+            // put back as the fact arrived: the line's fields are on the fact; the call's end found nothing to do
+            assert_eq!(fact["app_put_back"], json!(true), "{reply}");
+            assert!(
+                reply["content"].get("screen_changed_during_call").is_none(),
+                "{reply}"
+            );
+        } else {
+            // put back at the call's end: the worker's fact says so, and the owner isn't told twice
+            assert_eq!(
+                reply["content"]["screen_changed_during_call"]["put_back"],
+                json!(true),
+                "{reply}"
+            );
+        }
+        assert!(
+            run.shown().is_empty(),
+            "the page's fact is the owner's line, told by the browser part"
+        );
+    }
 }

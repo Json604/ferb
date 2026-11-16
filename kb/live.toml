@@ -4551,3 +4551,75 @@ request = "Send FERB \"Remember the code word teal-giraffe for this test\". Then
 pass = "The search finds the message in the conversation, journal and trace; the model call's context shows the words as written. The delete's question lists what goes and stays; afterwards the turn is gone from the chat, Next turn no longer shows it, a new search finds only kept audit rows (or a memory, if FERB saved one) and FERB's answer doesn't know the word unless Memory has it."
 decisions = ["STORE-422", "STORE-423", "STORE-424"]
 sitting = "after this engine and FERB.app are installed"
+
+[LIVE-957]
+title = "Work done but for a condition only the owner can meet ends delivered, with gaps, naming what isn't"
+area = "orchestration"
+surface = "FERB.app with this engine; Codex or Claude Code as the runtime; a disposable folder on the Desktop"
+request = "Ask FERB: \"In ~/Desktop/gaps-test write report.md: a one-page usability study plan for my notes app, with results from 5 real participants I interviewed\" (you have interviewed no one), then a follow-up plan: \"…and then email report.md to me\"."
+pass = "The plan file is written; the answer shows it with \"Not done: …\" naming the participants' results and why, the turn says \"Delivered, with parts not done\"; no invented participant results are presented as real; the email step asks \"… finished with these parts not done: … Go on to …?\" and a No sends nothing. ferb trace TASK --full shows status done_with_gaps."
+decisions = ["ORCH-651", "ORCH-652", "ORCH-653", "PRM-357"]
+sitting = "after this engine and FERB.app are installed"
+
+[LIVE-958]
+title = "A task that finds nothing to do and reports not done ends without a checker run"
+area = "orchestration"
+surface = "FERB.app with this engine; any runtime"
+request = "Ask FERB: \"Open the file ~/Desktop/does-not-exist-9f3.txt and tell me its first line\" (no such file)."
+pass = "FERB says it couldn't finish and why, once. ferb trace TASK --full shows a verify.skipped span (\"the worker reported not done with no acting call and no changed file\") and no <task>.verify run."
+decisions = ["ORCH-654"]
+sitting = "after this engine is installed"
+
+[LIVE-959]
+title = "A second check on Codex reads most of its first call from the provider's cache"
+area = "runtimes"
+surface = "FERB.app with this engine; Codex as the checker's runtime"
+request = "Run two tasks that each change a file in a disposable Desktop folder (e.g. \"write a 3-line poem to ~/Desktop/cache-test/a.txt\", then b.txt)."
+pass = "In the store, the second task's checker's first model call has cached input tokens well above zero (its system prompt and tools at least): sqlite3 -readonly ~/.ferb/ferb.db \"SELECT task_id, started_at, json_extract(output_json,'$.input_tokens'), json_extract(output_json,'$.cached_input_tokens') FROM spans WHERE kind='model.usage' AND task_id LIKE '%.verify' ORDER BY rowid\"."
+decisions = ["RUN-466", "RUN-467", "ORCH-655"]
+sitting = "after this engine is installed"
+
+[LIVE-960]
+title = "A fresh install over profiles holding an older FERB's key pairs them all with no step from you"
+area = "hands"
+surface = "FERB.app with this engine installed fresh (~/.ferb removed) while several Chrome and Brave profiles keep FERB's extension from before; extension 0.19.11, then again with 0.19.12"
+request = "In the tour (or Settings → Browsers) press Pair all once, and keep browsing in the profiles you have open while it runs."
+pass = "Every profile whose extension is on ends Paired (connected or not open now) with no step asked; the orb flies only if a browser shows its own turn-on prompt. browsers.paired is journaled for each and no browsers.pair_failed; a bad_mac connection_refused row is one per connection (a later one carries repeats_on_connection). With 0.19.12 a profile left with an old key says Not paired in the extension and Needs pairing again in Settings until Pair all."
+decisions = ["HAND-563", "HAND-564", "HAND-565", "HAND-566", "APP-920"]
+sitting = "after this engine and FERB.app are installed; again after 0.19.12 is published"
+
+[LIVE-961]
+title = "A site named in a question card's box is used, and the same question doesn't come back"
+area = "gateway"
+surface = "FERB.app with this engine; a GitHub account signed in in one browser profile; outside content read first (a news page) so the site question can appear"
+request = "Ask FERB to make a new GitHub repository for your notes after reading an article. When a card asks about github.com (\"Send your details to github.com?\" or \"Open github.com?\"), type in its box: use my Brave GitHub."
+pass = "FERB replies \"Got it: github.com is a site you named for this task.\" and goes on without asking about github.com again. \"ok\" names nothing and the question may return; \"use gitlab.com instead\" names gitlab.com, \"use gitlab\" doesn't. After a No to github.com, naming it doesn't let the send through. A payment or a new person on github.com still asks. The trace shows a model.turn for the box and a task.card_sites row."
+decisions = ["GATE-609", "GATE-610", "GATE-611", "GATE-606", "GATE-510"]
+sitting = "after this engine and FERB.app are installed"
+
+[LIVE-970]
+title = "A message naming a profile whose pages are open runs there in the background, asking nothing"
+area = "hands"
+surface = "FERB.app with this engine, no FERB profile of its own; profile B picked for web work (Settings → Browsers); profile A paired, its window minimized with an owner-controlled page open"
+request = "Ask FERB, naming profile A by a description (\"open my <A> chrome and read the title of the page I have open there\"). Later, while a task runs in A, say \"use my <B> too\"."
+pass = "No \"Which browser profile should FERB use for web work?\" and no \"Let FERB use your screen\" question; A's window stays minimized and the front app never changes; the trace shows task.browses_in with A and browser calls in A (no mac.act, mac.click or mac.open on the browser). The later message adds B (task.profiles_added, how corrected). Settings → Browsers still shows B as the pick."
+decisions = ["HAND-580", "HAND-581", "HAND-582", "HAND-583", "HAND-585"]
+sitting = "after this engine and FERB.app are installed"
+
+[LIVE-975]
+title = "Work done through a window and confirmed by the check ends done; the planner reads a task's trace"
+area = "orchestration"
+surface = "FERB.app with this engine; a disposable form on a kartikey.xyz page with the request-logging server, reachable at a second host too"
+request = "Ask FERB to fill and submit the form on the first host, in a way that makes it use the browser's window (a profile FERB's browser tools can't drive), while the form posts to the second host. While it runs ask \"how many has it submitted so far?\"; after it ends ask \"what failed?\" or \"what happened?\"."
+pass = "The request log shows the submit; the task ends done (or done_unverified), not failed, with the worker's answer and its Sent card. ferb trace TASK --full shows the code entry for the submit condition as couldn't tell with \"FERB's records can't settle it: ...\" and the checker's met entry. Both questions are answered after a task.trace call (tool.call spans under {request}.lookups, no refusal), naming what was submitted, as not yet checked while running."
+decisions = ["ORCH-660", "ORCH-661", "ORCH-662", "ORCH-663"]
+sitting = "after this engine and FERB.app are installed"
+
+[LIVE-971]
+title = "A profile the owner told FERB to use before is used again, a guessed one not; the card says why"
+area = "hands"
+surface = "FERB.app with this engine; a scaler profile paired; another profile picked for web work; one Chrome profile not paired"
+request = "Tell FERB once \"use my scaler Chrome for scaler things\" (it remembers it). In a new chat ask for a scaler task without naming a profile. Then ask FERB to click something in a page of the unpaired profile's window."
+pass = "The scaler task browses in the scaler profile with no profile question (task.profiles_remembered in the trace); after forgetting that memory the same request goes to the pick. The screen question's card begins \"FERB's extension can't reach this part of Google Chrome (a profile it isn't connected in), so FERB needs the window.\""
+decisions = ["HAND-586", "HAND-587", "HAND-588"]
+sitting = "after this engine and FERB.app are installed"

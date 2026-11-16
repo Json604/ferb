@@ -1516,6 +1516,26 @@ impl verify::CheckHost for Host {
     }
 }
 
+/// Fixed against Python (ORCH-660): an action check proved "not done" from the records of FERB's structured tools alone,
+/// though the task had also acted through a route they don't record (input through the Mac tools) or done the same
+/// action at another target. Live 2026-11-16 (task 0abecb83): an assignment submitted through Chrome's window was told
+/// as failed. These three conditions of the recording read "can't tell" with what was recorded; every other step and
+/// byte stays compared to Python's.
+// decision: ORCH-660
+fn route_difference(index: i64) -> Option<&'static str> {
+    Some(match index {
+        11 => "FERB's records can't settle it: they show no send to zed on x.com in this task, but input went into \
+               net.whatsapp through the Mac tools; a send went through x.com",
+        14 => "FERB's records can't settle it: they show no payment you said Yes to on other.com in this task, but input \
+               went into net.whatsapp through the Mac tools; a payment you said Yes to went through on shop.com",
+        16 => "FERB's records can't settle it: they show no form on x.com submitted in this task, but input went into \
+               net.whatsapp through the Mac tools; a form was submitted in net.whatsapp through the Mac tools; a send \
+               to Ana@X.com went through an unrecorded place; a send to Ben went through net.whatsapp; a send to x went \
+               through forms.example; 1 more",
+        _ => return None,
+    })
+}
+
 fn cards_case(w: &World, c: &mut Check, sc: &Value) {
     let home = format!("{}/user", w.root);
     std::fs::write(format!("{home}/exists.txt"), "x").unwrap();
@@ -1594,7 +1614,18 @@ fn cards_case(w: &World, c: &mut Check, sc: &Value) {
                     .next()
                     .and_then(|n| n.parse().ok())
                     .unwrap_or(0);
-                out(checks.run(index, &condition, "t1").map(|r| r.as_dict()))
+                let got = out(checks.run(index, &condition, "t1").map(|r| r.as_dict()));
+                if let Some(said) = route_difference(index) {
+                    // the one deliberate difference (ENG-6, ORCH-660): Python proved these false though the task had
+                    // input through the Mac tools (row 6) and the same action at another target; Rust can't tell
+                    let mut want = want(&st);
+                    want["met"] = Value::Null;
+                    want["evidence"] = json!(said);
+                    assert_eq!(fx(&got, &w.root), want, "condition {index}");
+                    c.count += 1;
+                    continue;
+                }
+                got
             }
             "not_done_said" => json!(verify::not_done_said(&cond(&a[0]))),
             "span" => {

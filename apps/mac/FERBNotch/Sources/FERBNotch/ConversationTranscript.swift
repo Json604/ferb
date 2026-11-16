@@ -673,8 +673,10 @@ private struct AnswerView: View {
         }
         if turn.responseNotice == nil && !["done", "working", "merged"].contains(turn.status) && turn.card == nil
             && !turn.preview {
-            Text(turn.status.replacingOccurrences(of: "_", with: " ").capitalized)
-                .font(.system(size: 10)).foregroundStyle(Palette.secondary)
+            // ORCH-651: a task delivered with gaps says so in words, beside the answer's "Not done:" lines
+            Text(turn.status == "done_with_gaps" ? "Delivered, with parts not done"
+                 : turn.status.replacingOccurrences(of: "_", with: " ").capitalized)
+                .font(.system(size: 10)).foregroundStyle(turn.status == "done_with_gaps" ? Palette.amber : Palette.secondary)
         }
         if turn.offersReport { ReportRow(turn: turn, model: model) }
         if turn.status == "failed", let offer = turn.runtimeSwitch { RuntimeSwitchRow(turn: turn, offer: offer, model: model) }

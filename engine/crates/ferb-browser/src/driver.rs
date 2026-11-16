@@ -97,9 +97,23 @@ pub struct Tasks {
     pub redact: Arc<dyn Fn(&str) -> String + Send + Sync>,
     /// `tools.check_url` (policy's URL parse, S4): `Err(why)` refuses a link's new tab.
     pub check_url: CheckUrl,
-    /// APP-777: the task's tree browses as the owner in the profile they picked for FERB's web work (the
-    /// supervisor's `tree.as_owner`): that pick is its only profile.
-    pub browses_as_owner: Arc<dyn Fn(&str) -> bool + Send + Sync>,
+    /// APP-777, HAND-580: the owner's profiles this task may browse in (the supervisor's tree: the pick when it
+    /// browses as the owner there, and the profiles the owner's words named for it). `None`: the task isn't kept to
+    /// any (FERB's own profile, or nothing picked and nothing named).
+    pub task_profiles: TaskProfilesFn,
+}
+
+/// [`Tasks::task_profiles`]: a task's id to the owner's profiles it is kept to.
+pub type TaskProfilesFn = Arc<dyn Fn(&str) -> Option<TaskProfiles> + Send + Sync>;
+
+/// HAND-580 (refining APP-777's `picked_only`): where one task may browse among the owner's profiles.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TaskProfiles {
+    /// The owner's pick for FERB's web work is one of them (the tree browses as the owner in the pick).
+    pub pick: bool,
+    /// The profiles the owner's own words named for this task, as (browser, folder): planned, said in a later
+    /// message, or given in an answer to the task's question.
+    pub named: Vec<(String, String)>,
 }
 
 impl Default for Tasks {
@@ -115,7 +129,7 @@ impl Default for Tasks {
             owner_input_near: Arc::new(|| None),
             redact: Arc::new(|t| t.to_string()),
             check_url: Arc::new(|_| Ok(())),
-            browses_as_owner: Arc::new(|_| false),
+            task_profiles: Arc::new(|_| None),
         }
     }
 }
@@ -480,21 +494,36 @@ fn alias_number(alias: &str) -> Option<u64> {
     alias.strip_prefix('t')?.parse().ok()
 }
 
-/// APP-777 (rule 3, where web work happens): a task that browses as the owner because FERB has no profile of
-/// its own works only in the profile the owner picked for that (`picked`: the resolver's choice with no name,
-/// HAND-2). A name that resolves to another of their profiles is refused, nothing opened. Fixed against Python:
-/// ext_bridge.py:3016 `Router.open_for` took any named owner profile there (live, 2026-11-14: a search ran in
-/// Brave right after the owner picked a Chrome profile).
-fn picked_only(picked: (String, String), named: (&str, &str)) -> Result<()> {
-    if (picked.0.as_str(), picked.1.as_str()) == named {
-        return Ok(());
-    }
-    Err(Error::refused(format!(
-        "{}/{} isn't the profile this task browses in: FERB has no browser profile of its own, and the owner picked \
-         {}/{} for FERB's web work, so this task's tabs open there. Leave profile out (or name {}/{}); nothing was \
-         opened",
-        named.0, named.1, picked.0, picked.1, picked.0, picked.1
-    )))
+/// HAND-580 (rule 3, where web work happens; refines APP-777's `picked_only`): a task kept to some of the owner's
+/// profiles (the pick, the ones their words named) is refused another, nothing opened. The refusal names the
+/// profiles it may use and how the owner adds one for this task. Fixed against Python: ext_bridge.py:3016
+/// `Router.open_for` took any named owner profile (live, 2026-11-14: a search ran in Brave right after the owner
+/// picked a Chrome profile).
+pub fn outside_task(
+    named: &str,
+    allowed: &[(String, String)],
+    picked: Option<&(String, String)>,
+    label: &dyn Fn(&str, &str) -> String,
+) -> Error {
+    let list = allowed
+        .iter()
+        .map(|(b, f)| format!("{b}/{f} ({})", label(b, f)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let why = match picked {
+        Some(p) if allowed.len() == 1 && allowed[0] == *p => {
+            "the profile the owner picked for FERB's web work (FERB has no browser profile of its own)"
+        }
+        Some(_) => "the owner's pick for FERB's web work and the ones the owner's words named for it",
+        None => "the ones the owner's words named for it",
+    };
+    Error::refused(format!(
+        "{named} isn't one of this task's browser profiles: it may browse only in {list}, {why}. Nothing was opened. \
+         Use one of those (or leave profile out). If the task really needs {named}, ask the owner with owner.ask, \
+         naming {named} in the question, with the options Yes and No: their Yes, or their words naming that profile \
+         in chat, adds it for this task only. Don't drive the browser's window with the Mac tools instead: its pages \
+         are the browser tools' (they work with the window minimized)"
+    ))
 }
 
 /// `_status`: a reply's `http_status`, only as a plain HTTP status number.
@@ -1937,6 +1966,13 @@ impl Driver {
         let Kind::Owner { choose, .. } = &self.kind else {
             return None;
         };
+        // HAND-580: a task kept to some profiles prints where its next tab would open
+        if (self.tasks.task_profiles)(owner).is_some() {
+            return self
+                .task_choice(choose, None, owner)
+                .ok()
+                .map(|(b, f)| format!("{b}/{f}"));
+        }
         if choose(None).is_ok() {
             return None;
         }
@@ -1952,6 +1988,88 @@ impl Driver {
             .map(|t| format!("{}/{}", t.tab.browser, t.tab.profile))
     }
 
+    /// HAND-580: the owner profile this task's call takes. Not kept to any: the resolver's choice (the profile named,
+    /// else the pick, HAND-2). Kept: a profile named must be one of the task's; with none named, the pick when it is
+    /// one, else the one profile the owner's words named, else the one of them the task already works in (its newest
+    /// tab, HAND-562), else a refusal naming them.
+    pub fn task_choice(
+        &self,
+        choose: &Choose,
+        profile: Option<&str>,
+        owner: &str,
+    ) -> Result<(String, String)> {
+        let named = profile.filter(|p| !p.is_empty());
+        let Some(scope) = (self.tasks.task_profiles)(owner) else {
+            return choose(named);
+        };
+        let picked = if scope.pick { choose(None).ok() } else { None };
+        let mut allowed: Vec<(String, String)> = picked.iter().cloned().collect();
+        for p in &scope.named {
+            if !allowed.contains(p) {
+                allowed.push(p.clone());
+            }
+        }
+        let known = self.known();
+        let label =
+            |b: &str, f: &str| crate::profiles::shown(&crate::profiles::named(&known, b, f), None);
+        if let Some(name) = named {
+            // a profile the task may use that isn't paired yet: the resolver's own words (pair it)
+            let got = choose(Some(name))?;
+            if allowed.contains(&got) {
+                return Ok(got);
+            }
+            return Err(outside_task(
+                &format!("{}/{}", got.0, got.1),
+                &allowed,
+                picked.as_ref(),
+                &label,
+            ));
+        }
+        if let Some(p) = picked {
+            return Ok(p);
+        }
+        if scope.pick {
+            // the pick can't be used now (not paired, or gone): the resolver says why
+            return choose(None);
+        }
+        if let [only] = scope.named.as_slice() {
+            return choose(Some(&format!("{}/{}", only.0, only.1)));
+        }
+        if let Some(p) = self.newest_tab_profile(owner, &scope.named) {
+            return Ok(p);
+        }
+        let list = scope
+            .named
+            .iter()
+            .map(|(b, f)| format!("{b}/{f} ({})", label(b, f)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        Err(Error::refused(format!(
+            "this task may browse in {list}, the profiles the owner's words named for it: name one with the profile \
+             argument (for example profile={}/{}); nothing was opened",
+            scope.named[0].0, scope.named[0].1
+        )))
+    }
+
+    /// HAND-562, HAND-580: of `among`, the owner profile of this task's newest open tab.
+    fn newest_tab_profile(
+        &self,
+        owner: &str,
+        among: &[(String, String)],
+    ) -> Option<(String, String)> {
+        self.st()
+            .tabs
+            .values()
+            .filter(|t| {
+                t.owner.as_deref() == Some(owner)
+                    && !t.closed
+                    && t.bridge.binding.identity == Identity::Owner
+                    && among.contains(&(t.tab.browser.clone(), t.tab.profile.clone()))
+            })
+            .max_by_key(|t| alias_number(&t.tab.tab_id).unwrap_or(0))
+            .map(|t| (t.tab.browser.clone(), t.tab.profile.clone()))
+    }
+
     /// `open_for`: the task's new tab in the profile this driver takes.
     pub async fn open_for(
         &self,
@@ -1963,10 +2081,7 @@ impl Driver {
     ) -> Result<TabRef> {
         let br = match &self.kind {
             Kind::Owner { choose, .. } => {
-                let (browser, folder) = choose(profile)?;
-                if profile.is_some_and(|p| !p.is_empty()) && (self.tasks.browses_as_owner)(owner) {
-                    picked_only(choose(None)?, (&browser, &folder))?;
-                }
+                let (browser, folder) = self.task_choice(choose, profile, owner)?;
                 let br = self.hub.bridge(&browser, &folder)?.ok_or_else(|| {
                     Error::refused(format!("{browser}/{folder} isn't paired with FERB"))
                 })?;
@@ -2019,6 +2134,12 @@ impl Driver {
         }
         let (folder, browser) = (parts[1], parts[2]);
         let cid = py_int_strict(parts[0]).ok_or_else(bad)?;
+        // HAND-580: one of the owner's tabs is taken only in a profile this task may use (as browser.open)
+        if let Kind::Owner { choose, .. } = &self.kind {
+            if (self.tasks.task_profiles)(owner).is_some() {
+                self.task_choice(choose, Some(&format!("{browser}/{folder}")), owner)?;
+            }
+        }
         let br = self
             .hub
             .bridge(browser, folder)?

@@ -75,6 +75,15 @@ pub fn normalize(kind: &str, value: &str) -> String {
     }
 }
 
+/// GATE-537's form of a site the planner resolved into a task's targets (`_host_named`): its host alone (no scheme,
+/// path or `www.`), normalized as a host. One form for the gateway's check and for what the supervisor records.
+pub fn site_host(site: &str) -> String {
+    let after = site.rsplit("://").next().unwrap_or(site);
+    let host = after.split('/').next().unwrap_or(after);
+    let n = normalize("host", host);
+    n.strip_prefix("www.").map(str::to_string).unwrap_or(n)
+}
+
 /// `KnownDestinations.from_words`: the destinations a text names by shape, in order. Names never come from text.
 pub fn from_words(words: &str) -> Vec<(String, String)> {
     let mut found: Vec<(String, String)> = Vec::new();

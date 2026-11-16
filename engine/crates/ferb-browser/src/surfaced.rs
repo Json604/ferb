@@ -83,8 +83,16 @@ pub fn told(f: &Map<String, Value>) -> String {
         (_, true) => "FERB minimized it again at once",
         _ => "FERB couldn't minimize it again",
     };
-    format!(
-        "{why}, and the browser brought {which} to the front{focus}; {after}. FERB doesn't switch the owner back to \
-         their app"
-    )
+    // HAND-570: whether FERB put the owner's app back (the daemon's answer, beside the extension's facts)
+    let text = |k: &str| f.get(k).and_then(Value::as_str).filter(|t| !t.is_empty());
+    let previous = text("previous").unwrap_or("the owner's app");
+    let back = match f.get("app_put_back").and_then(Value::as_bool) {
+        Some(true) => format!("FERB put {previous} back in front"),
+        Some(false) => format!(
+            "FERB couldn't put {previous} back in front ({})",
+            text("app_why").unwrap_or("unknown")
+        ),
+        None => "FERB doesn't switch the owner back to their app".to_string(),
+    };
+    format!("{why}, and the browser brought {which} to the front{focus}; {after}. {back}")
 }

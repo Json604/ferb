@@ -158,6 +158,45 @@ pub fn never_read_offered() -> Vec<&'static str> {
         .collect()
 }
 
+/// Why a never-read folder is protected, as a worker tells the owner: which of FERB's default lists names it (a
+/// structural fact about the path as shown, `~/…`), else the owner's own list. Never a judgment of a call.
+// decision: HAND-596
+pub fn never_read_why(shown: &str) -> &'static str {
+    const KEYCHAINS: &[&str] = &["~/Library/Keychains", "/Library/Keychains"];
+    const VAULTS: &[&str] = &[
+        "~/Library/Application Support/1Password",
+        "~/Library/Group Containers/2BUA8C4S2C.com.1password",
+        "~/Library/Application Support/Bitwarden",
+    ];
+    const CREDENTIALS: &[&str] = &[
+        "~/.ssh",
+        "~/.aws",
+        "~/.config/gh",
+        "~/.netrc",
+        "~/.npmrc",
+        "~/.docker",
+    ];
+    if BROWSER_STORES.contains(&shown) {
+        "a browser's data (saved passwords, cookies, history, sign-ins)"
+    } else if KEYCHAINS.contains(&shown) {
+        "the Keychain (saved passwords and keys)"
+    } else if VAULTS.contains(&shown) {
+        "a password manager's vault"
+    } else if CREDENTIALS.contains(&shown) || EXTRA_NEVER_READ.contains(&shown) {
+        "credentials (keys and sign-in tokens)"
+    } else if shown == "~/Library/Mail" {
+        "the owner's mail"
+    } else if shown == "~/Library/Messages" {
+        "the owner's messages"
+    } else if shown == "~/Library/Cookies" {
+        "cookies (sign-ins)"
+    } else if shown == "~/Library/Group Containers/group.com.apple.usernoted" {
+        "the contents of the owner's notifications"
+    } else {
+        "a folder on the owner's never-read list"
+    }
+}
+
 /// `BadProtection`: [protection] or FERB's workspace isn't as FERB can enforce it; FERB doesn't start.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BadProtection(pub String);
@@ -754,6 +793,22 @@ impl<'a> Protection<'a> {
     /// `fs_denied`: the first rule `fs_rules` names, or None.
     pub fn fs_denied(&self, p: &str, access: &str) -> Option<String> {
         self.fs_rules(p, access).into_iter().next()
+    }
+
+    /// The never-read rules a walk from `p` meets: each entry that is `p`, lies inside it or holds it, in the list's
+    /// order. A fact for a tool's result (what it could not read and why), never a refusal or a question.
+    // decision: HAND-597
+    pub fn reads_within(&self, p: &str) -> Vec<String> {
+        let forms = self.forms(p);
+        self.reads
+            .iter()
+            .filter(|e| {
+                forms
+                    .iter()
+                    .any(|f| Self::roots(e).any(|root| under(root, f) || under(f, root)))
+            })
+            .map(|e| e.id.clone())
+            .collect()
     }
 
     pub fn liftable(&self, rule_id: &str) -> bool {

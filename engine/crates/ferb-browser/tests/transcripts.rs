@@ -42,6 +42,21 @@ const SENDER_FACTS: [&str; 9] = [
     "paired_connection_extension",
 ];
 
+/// HAND-565 (a deliberate difference from Python, ENG-6): a signed hello refused for a stale key (`bad_mac`, `replay`)
+/// is answered with Python's line plus `stale_key` {nonce, seq}: which hello it refuses, so extension 0.19.12 can drop
+/// exactly the key that signed it. Python's line is the same without that member.
+fn without_stale_key(line: &str) -> String {
+    match serde_json::from_str::<Value>(line) {
+        Ok(Value::Object(mut m)) if m.get("type") == Some(&json!("refused")) => {
+            if m.remove("stale_key").is_none() {
+                return line.to_string();
+            }
+            ferb_py::json::dumps(&Value::Object(m))
+        }
+        _ => line.to_string(),
+    }
+}
+
 #[path = "ops/mod.rs"]
 mod ops;
 
@@ -746,7 +761,7 @@ async fn replay(f: &Value, scenario: &Value) -> usize {
                     .unwrap_or_else(|_| panic!("{at}: no daemon line, expected {v}"))
                     .unwrap()
                     .unwrap_or_else(|| panic!("{at}: connection closed, expected {v}"));
-                    assert_eq!(got, v.as_str().unwrap(), "{at}");
+                    assert_eq!(without_stale_key(&got), v.as_str().unwrap(), "{at}");
                     compared += 1;
                 }
                 "ret" => expected_rets.push(v.clone()),

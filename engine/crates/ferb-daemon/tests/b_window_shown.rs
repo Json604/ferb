@@ -124,6 +124,48 @@ fn each_fact_reads_as_one_plain_line_from_structure_alone() {
     assert!(!said.to_lowercase().contains("sign"), "{said}");
 }
 
+/// HAND-570: a window of the task's that took the focus: the window minimized and the owner's app put back are two
+/// facts, said together.
+// decision: HAND-570
+#[test]
+fn the_window_and_the_owners_app_are_told_apart() {
+    let line = |v: Value| notify::window_shown_line(&fact(v), "ds.example.edu").unwrap();
+    let popup = |extra: Value| {
+        let mut f =
+            json!({"cause": "popup_window", "window": "popup", "focused": true, "put_back": true});
+        f.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        line(f)
+    };
+    assert_eq!(
+        popup(json!({"app_put_back": true, "previous": "Brave Browser"})),
+        "A pop-up window opened for a moment on ds.example.edu and took your keyboard focus; I minimized it and put \
+         Brave Browser back."
+    );
+    assert_eq!(
+        popup(json!({})),
+        "A pop-up window opened for a moment on ds.example.edu and took your keyboard focus; I minimized it."
+    );
+    assert_eq!(
+        popup(json!({"app_put_back": false, "previous": "Brave Browser", "app_why": "another app is in front now"})),
+        "A pop-up window opened for a moment on ds.example.edu and took your keyboard focus; I minimized it but \
+         couldn't put Brave Browser back: another app is in front now."
+    );
+    assert_eq!(
+        line(json!({"cause": "new_tab", "window": "ferb", "focused": true, "put_back": true,
+                    "app_put_back": true, "previous": "Brave Browser"})),
+        "My browser window came up for a moment and took your keyboard focus when ds.example.edu opened a new tab; I \
+         minimized it and put Brave Browser back."
+    );
+    assert_eq!(
+        line(json!({"cause": "popup_window", "window": "popup", "focused": true, "put_back": false,
+                    "app_put_back": true, "previous": "Brave Browser"})),
+        "A pop-up window opened on ds.example.edu and took your keyboard focus; I couldn't minimize it, but I put \
+         Brave Browser back."
+    );
+}
+
 /// An app that came to the front during one of FERB's calls: the Mac's facts (HAND-549: what FERB did in it, whether it
 /// put the owner's app back) and a browser call's own browser (HAND-560), each read from its fields only.
 // decision: HAND-560

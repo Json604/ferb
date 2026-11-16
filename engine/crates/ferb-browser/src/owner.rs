@@ -55,7 +55,7 @@ pub struct Otp {
 }
 
 impl Driver {
-    fn known(&self) -> Vec<BrowserProfile> {
+    pub(crate) fn known(&self) -> Vec<BrowserProfile> {
         self.seams().profiles.map(|p| p.known()).unwrap_or_default()
     }
 

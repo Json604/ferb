@@ -12,6 +12,9 @@ use super::{CliError, Rpc};
 pub fn status_label(status: &str) -> String {
     if status == "done_unverified" {
         "not confirmed".into()
+    } else if status == "done_with_gaps" {
+        // ORCH-651: delivered, with conditions not done
+        "with gaps".into()
     } else {
         status.into()
     }

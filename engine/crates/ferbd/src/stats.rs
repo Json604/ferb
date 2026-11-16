@@ -117,9 +117,12 @@ fn run(db: &Path, out: &mut dyn Write, days: i64, now: &Now) -> Res<()> {
         let shares: Vec<String> = [
             ("done", "done"),
             ("not confirmed", "done_unverified"),
+            ("with gaps", "done_with_gaps"),
             ("failed", "failed"),
         ]
         .iter()
+        // ORCH-651: "with gaps" only when there are some, so a store without one reads as before
+        .filter(|(_, st)| *st != "done_with_gaps" || count(st) > 0)
         .map(|(label, st)| {
             let n = count(st);
             format!("{label} {n} ({}%)", (100 * n).div_euclid(total))
@@ -379,6 +382,7 @@ fn run(db: &Path, out: &mut dyn Write, days: i64, now: &Now) -> Res<()> {
 pub fn status_label(status: &Sql) -> String {
     match status {
         Sql::Text(t) if t == "done_unverified" => "not confirmed".to_owned(),
+        Sql::Text(t) if t == "done_with_gaps" => "with gaps".to_owned(), // ORCH-651
         other => sql_str(other),
     }
 }

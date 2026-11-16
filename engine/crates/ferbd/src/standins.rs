@@ -4,7 +4,9 @@
 //!
 //! `FERBD_STAND_INS` names a JSON file:
 //!
-//! - `native` (false): the Mac's own parts (TCC reads, the running-app list, watchers, presence) stay off.
+//! - `native` (false): the Mac's own parts (TCC reads, watchers, presence) stay off. The Mac hands' driver is the real
+//!   one all the same: mac.* and audio.listen read this Mac's running and installed apps (the audit of 2026-11-16), so a
+//!   test calls them only where they refuse before reading (T-1129).
 //! - `app_check` (true): every peer is FERB.app, or none is (`false`), as the recorder's `is_app`.
 //! - `user_home`, `browser_support`: folders in the test's temporary root.
 //! - `fake_clock` (true): ferb-clock's `FakeClock` at 2026-01-01T09:00:00Z, moved only through the control socket.
@@ -459,7 +461,8 @@ pub fn from_env(opts: &mut Options) -> Option<StandIns> {
     opts.native = flag("native", false);
     opts.mac = flag("mac", false);
     opts.keychain = Keychain::Refused;
-    opts.retention = false;
+    // `retention` (false): the retention pass and the start's sweep of stale run folders in the temporary folder
+    opts.retention = flag("retention", false);
     opts.memory_loops = flag("memory_loops", false);
     opts.resources = flag("resources", false);
     opts.preload_secrets = false;
@@ -578,6 +581,29 @@ pub async fn attach(d: &Arc<Daemon>, s: StandIns) {
 }
 
 fn d_keep(_job: &tokio::task::JoinHandle<()>) {}
+
+/// A tool as it would be composed with only a describe and a run: everything else the trait's defaults, so it names
+/// no files (control `undeclare`).
+struct Undeclared(Arc<dyn ferb_gateway::tool::Tool>);
+
+impl ferb_gateway::tool::Tool for Undeclared {
+    fn name(&self) -> &str {
+        self.0.name()
+    }
+    fn describe(&self, args: &ferb_gateway::tool::Args) -> ferb_core::types::ActionSpec {
+        self.0.describe(args)
+    }
+    fn run<'a>(
+        &'a self,
+        args: &'a ferb_gateway::tool::Args,
+        ctx: &'a ferb_core::types::ToolContext,
+    ) -> ferb_core::interfaces::BoxFuture<
+        'a,
+        Result<ferb_gateway::tool::ToolOutput, ferb_gateway::tool::ToolError>,
+    > {
+        self.0.run(args, ctx)
+    }
+}
 
 fn sql_value(a: &Value) -> rusqlite::types::Value {
     match a {
@@ -876,6 +902,15 @@ async fn control(d: &Arc<Daemon>, s: &StandIns, req: &Value) -> Result<Value, St
             );
             Ok(Value::Null)
         }
+        "lend" => {
+            // ORCH-662: a planner turn's loan of its chat to its lookups task (what `lookup_grant` does)
+            let sup = d.tools.supervisor().ok_or("no supervisor in this run")?;
+            sup.inner().lend(
+                req["task_id"].as_str().unwrap_or("req-1.lookups"),
+                req["conversation"].as_str().unwrap_or("owner"),
+            );
+            Ok(Value::Null)
+        }
         "record_request" => {
             // the owner's words and targets of a request (what the supervisor records when a task starts)
             d.gateway.record_request(ferb_policy::small::Request {
@@ -926,8 +961,50 @@ async fn control(d: &Arc<Daemon>, s: &StandIns, req: &Value) -> Result<Value, St
             let tools = crate::compose::rpc::tools_for(&d.gateway, &d.b_tools(), &grant);
             Ok(json!(tools))
         }
+        // the RPC methods with a handler in this daemon: [unary, stream] (the every-method test)
+        "methods" => Ok(json!(d.server.registered())),
         // the tools built as refusing "not available in this build" (the catalog test: none)
         "refusing" => Ok(json!(crate::compose::tools::refusing())),
+        // a composed tool replaced by one that declares no files (fs.disk_usage's shape before the 2026-11-16 fix): the
+        // every-tool test shows its check catches it
+        "undeclare" => {
+            let name = req["name"].as_str().unwrap_or("").to_string();
+            let mut reg = d.gateway.registry();
+            let inner = reg.get(&name).cloned().ok_or("no such tool")?;
+            reg.set(Arc::new(Undeclared(inner)));
+            Ok(Value::Null)
+        }
+        // what the gateway reads off one composed tool for these arguments before it runs it (the every-tool test):
+        // its describe, the files it declares, its locks and the other hooks that answer
+        "declare" => {
+            let name = req["name"].as_str().unwrap_or("").to_string();
+            let args: ferb_gateway::tool::Args =
+                req["args"].as_object().cloned().unwrap_or_default();
+            let tool = d.gateway.registry().get(&name).cloned();
+            let Some(tool) = tool else {
+                return Ok(json!({"registered": false}));
+            };
+            let spec = tool.describe(&args);
+            let facts = tool.facts();
+            let workspace = d.opts.home.join("workspace").to_string_lossy().into_owned();
+            Ok(json!({
+                "registered": true,
+                "refusing": crate::compose::tools::refusing().contains(&name),
+                "scopes": tool.scopes(),
+                "identities": tool.identities(),
+                "observation": facts.observation,
+                "on_screen": facts.on_screen,
+                "kind": spec.kind,
+                "target_path": spec.target.path,
+                "content": spec.content,
+                "file_paths": tool.file_paths(&args),
+                "locks": tool.locks(&args),
+                "real_path": tool.real_path(&args, &workspace).is_some(),
+                "recovery_reason": tool.recovery_reason(&args).is_some(),
+                "ledger_args": tool.ledger_args(&args, &args).is_some(),
+                "precheck": tool.precheck(&args),
+            }))
+        }
         // a chat scenario's (standins_chat.rs), then areas_c's and the services' controls (standins_c.rs)
         other => match crate::standins_chat::control(d, s.script.as_ref(), req, other) {
             Some(r) => r,

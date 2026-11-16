@@ -62,7 +62,7 @@ public struct CardRow: Codable, Equatable, Identifiable {
     public var id: String { part }
     public var isDone: Bool { state == "done" || state == "updated" }
     /// Filled, failed, stopped by the owner (ORCH-613) or updated: nothing more is coming for it in this run.
-    public var isSettled: Bool { isDone || state == "failed" || state == "stopped" }
+    public var isSettled: Bool { isDone || state == "failed" || state == "stopped" || state == "done_with_gaps" }
 
     public init?(_ value: [String: Any], taskID fallback: String) {
         guard let part = value["part"] as? String, !part.isEmpty else { return nil }

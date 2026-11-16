@@ -63,7 +63,12 @@ fn s(v: &Value) -> &str {
 }
 
 /// A schema by the name a fixture gives it, built by this crate.
+/// The schema as Python built it: ORCH-652's and HAND-580's named changes taken out (`schemas::as_recorded`).
 fn schema(name: &str) -> Value {
+    schemas::as_recorded(&schema_now(name))
+}
+
+fn schema_now(name: &str) -> Value {
     if let Some(flags) = name
         .strip_prefix("worker_schema(")
         .and_then(|r| r.strip_suffix(')'))
@@ -144,7 +149,7 @@ fn expect_judgement(case: &Value, got: Result<(), String>, what: &str) {
     }
 }
 
-// decision: RUN-408, RUN-447, RUN-447
+// decision: RUN-408, RUN-447, ORCH-652
 #[test]
 fn catalog_answer_schemas_are_built_byte_for_byte() {
     let fixture = catalog("answer_schemas.json");
@@ -170,8 +175,18 @@ fn catalog_answer_schemas_are_built_byte_for_byte() {
     assert_eq!(all.len(), 86);
     assert_eq!(fixture["schema_count"], json!(86));
     let mut workers = 0;
+    let mut changed = 0;
+    let mut with_profiles: Vec<String> = vec![];
     for (name, entry) in all {
-        let built = schema(name);
+        // ORCH-652: the worker report's and the check's `gaps` (and accept_with_gaps); HAND-580: a task's `profiles`
+        let now = schema_now(name);
+        let built = schemas::as_recorded(&now);
+        if schemas::before_gaps(&now) != now {
+            changed += 1;
+        }
+        if schemas::before_profiles(&now) != now {
+            with_profiles.push(name.clone());
+        }
         if let Some(core) = entry.get("core") {
             assert!(same_json(&built, core), "{name}: core schema differs");
         } else {
@@ -212,6 +227,13 @@ fn catalog_answer_schemas_are_built_byte_for_byte() {
         assert_eq!(shape::STATED_PREFIX, s(&entry["stated"]["prefix"]));
     }
     assert_eq!(workers, 64);
+    assert_eq!(
+        changed,
+        64 + 6 + 1,
+        "every worker report schema and the checker's, once each"
+    );
+    // HAND-580: the schemas that hold a task carry its `profiles`
+    assert_eq!(with_profiles, PROFILED, "the schemas holding a task");
     // every one of the 64 flag sets, by the same logic as Python's
     for bits in 0..64u8 {
         assert!(all.contains_key(&WorkerFlags::from_bits(bits).label()));
@@ -794,4 +816,67 @@ fn b64(text: &str) -> Vec<u8> {
         out.extend_from_slice(&bytes[1..chunk.len()]);
     }
     out
+}
+
+/// HAND-580: the recorded schemas that hold a task (and so its `profiles`).
+const PROFILED: &[&str] = &["SUPERVISOR_SCHEMA"];
+
+/// HAND-580: a task's schema has `profiles` last (the owner's browser profiles their words name), a list of strings
+/// with the description that is the planner's only instruction about it; required, as every field is.
+// decision: HAND-580
+#[test]
+fn a_task_schema_carries_the_profiles_the_owners_words_name() {
+    let t = schemas::task_schema();
+    let keys: Vec<&String> = t["properties"].as_object().unwrap().keys().collect();
+    assert_eq!(keys.last().unwrap().as_str(), "profiles");
+    assert!(t["required"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("profiles")));
+    assert_eq!(
+        t["properties"]["profiles"]["items"],
+        json!({"type": "string"})
+    );
+    assert_eq!(
+        t["properties"]["profiles"]["description"],
+        json!(schemas::TASK_PROFILES_DESCRIPTION)
+    );
+    assert_eq!(
+        schemas::before_profiles(&t)["properties"].get("profiles"),
+        None
+    );
+    assert!(!schemas::before_profiles(&t)["required"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("profiles")));
+}
+
+/// ORCH-652: every worker report schema has `gaps` (each a condition's text and why) after `how`, and the check's has
+/// accept_with_gaps and `gaps` (each an index and why) after `reason`; both required, as every field is.
+// decision: ORCH-652
+#[test]
+fn report_and_check_schemas_carry_gaps() {
+    for bits in 0..64u8 {
+        let w = schemas::worker_schema(WorkerFlags::from_bits(bits));
+        let keys: Vec<&String> = w["properties"].as_object().unwrap().keys().collect();
+        let at = keys.iter().position(|k| *k == "how").unwrap();
+        assert_eq!(keys[at + 1], "gaps");
+        assert!(w["required"].as_array().unwrap().contains(&json!("gaps")));
+        assert_eq!(
+            w["properties"]["gaps"]["items"]["required"],
+            json!(["condition", "reason"])
+        );
+        assert!(shape::for_anthropic(&w).is_ok(), "fits Anthropic's limits");
+        assert!(shape::for_gemini(&w).is_ok());
+    }
+    let c = schemas::checker_schema();
+    assert!(c["properties"]["next"]["enum"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("accept_with_gaps")));
+    assert_eq!(
+        c["properties"]["gaps"]["items"]["required"],
+        json!(["index", "reason"])
+    );
+    assert!(shape::for_anthropic(&c).is_ok());
 }

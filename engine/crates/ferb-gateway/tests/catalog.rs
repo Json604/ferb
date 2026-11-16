@@ -80,8 +80,10 @@ fn every_listing_is_python_s_byte_for_byte() {
         // decision: DMN-595: about.diagnostics follows about.read in every listing that holds it, unless the grant
         // names its tools without it
         let all_names: Vec<&str> = all.iter().map(|t| t["name"].as_str().unwrap()).collect();
+        // ORCH-663: one offered only by name (task.trace) is listed only where the grant names it
         for a in catalog::additions() {
-            let named = grant.tools.is_empty() || grant.tools.contains(&a.name);
+            let only_named = r.get(&a.name).unwrap().facts().named_only;
+            let named = (grant.tools.is_empty() && !only_named) || grant.tools.contains(&a.name);
             let want = all_names.contains(&a.after.as_str()) && named;
             match all_names.iter().position(|n| *n == a.name) {
                 Some(i) => {
@@ -165,7 +167,7 @@ fn the_rust_additions_are_listed_as_written() {
         a.iter()
             .map(|a| (a.decision.as_str(), a.name.as_str()))
             .collect::<Vec<_>>(),
-        [("DMN-595", "about.diagnostics")]
+        [("DMN-595", "about.diagnostics"), ("ORCH-663", "task.trace")]
     );
     for a in a {
         let tool = r.get(&a.name).unwrap();
@@ -190,9 +192,78 @@ fn the_rust_additions_are_listed_as_written() {
             "{}",
             a.name
         );
-        assert_eq!(f.origin.as_deref(), Some("ferb"));
-        assert!(tool.scopes().is_empty());
+        assert_eq!(
+            f.origin.as_deref(),
+            a.row["facts"]["origin"].as_str(),
+            "{}",
+            a.name
+        );
+        assert_eq!(
+            tool.scopes(),
+            a.row["scopes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap().to_string())
+                .collect(),
+            "{}",
+            a.name
+        );
     }
+}
+
+/// ORCH-663 (the owner, 2026-11-16): task.trace is the planner's: offered and admitted only to a grant that names it
+/// (the planner's lookups); a worker's grant (every scope, no tool named) and the check's (observe-only) get neither.
+// decision: ORCH-663
+#[test]
+fn the_trace_tool_is_offered_and_admitted_only_to_a_grant_naming_it() {
+    let r = registry();
+    let tool = r.get("task.trace").unwrap();
+    assert!(tool.facts().named_only && tool.facts().observation);
+    let grant = |tools: &[&str], observe_only: bool| RunGrant {
+        task_id: "t".into(),
+        worker_id: "w".into(),
+        scopes: ["task:read", "trail:read", "fs:read", "browser:read"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
+        identity: Identity::Owner,
+        expires_at: 1e9,
+        observe_only,
+        tools: tools.iter().map(|s| s.to_string()).collect(),
+        max_calls: 0,
+    };
+    let planner = grant(&ferb_orchestrator::lookups::PLANNER_TOOLS, true);
+    let worker = grant(&[], false);
+    let checker = grant(&[], true);
+    let names = |g: &RunGrant| -> Vec<String> {
+        tools_for(&r, g, &Live::default())
+            .iter()
+            .map(|t| t["name"].as_str().unwrap().to_string())
+            .collect()
+    };
+    assert!(names(&planner).contains(&"task.trace".to_string()));
+    for g in [&worker, &checker] {
+        let listed = names(g);
+        assert!(!listed.contains(&"task.trace".to_string()), "{listed:?}");
+        assert!(
+            listed.contains(&"task.evidence".to_string()),
+            "its equivalent stays"
+        );
+        assert!(
+            ferb_gateway::admit::admit(g, Some(tool.as_ref()), "task.trace", false, true, 0)
+                .is_err()
+        );
+    }
+    assert!(ferb_gateway::admit::admit(
+        &planner,
+        Some(tool.as_ref()),
+        "task.trace",
+        false,
+        true,
+        0
+    )
+    .is_ok());
 }
 
 #[test]

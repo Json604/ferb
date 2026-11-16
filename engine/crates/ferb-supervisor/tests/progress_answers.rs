@@ -28,7 +28,7 @@ fn chat_replies(w: &support_control::World) -> Vec<Value> {
     rows
 }
 
-// decision: ORCH-640
+// decision: ORCH-640, ORCH-663
 #[test]
 fn a_progress_question_mid_task_reaches_the_planner_with_the_tasks_records() {
     let name = "steer_running_task";
@@ -88,7 +88,8 @@ fn a_progress_question_mid_task_reaches_the_planner_with_the_tasks_records() {
     let system = started["system"].as_str().unwrap();
     assert!(
         system.contains(
-            "for what a running task has found so far, its records looked up first (task.evidence task_id=<its id>:"
+            // ORCH-663: the rule now points at the task's trace
+            "for what a running task has done or found so far, its trace looked up first (task.trace task_id=<its"
         ) && system.contains("say plainly that it isn't checked or final yet"),
         "the progress rule is in the planner's instructions"
     );

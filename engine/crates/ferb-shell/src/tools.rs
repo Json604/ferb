@@ -633,7 +633,9 @@ pub async fn shell_run(
         let (text, offset, total) = shells.tail(&h, TAIL).await?;
         let info = shells.info(&h)?;
         let network = shells.network(&h)?;
-        Ok::<_, ShellError>(run_result(&h.id, code, &text, offset, total, &info, network).0)
+        let mut r = run_result(&h.id, code, &text, offset, total, &info, network).0;
+        not_read(shells, &info, &text, &mut r);
+        Ok::<_, ShellError>(r)
     };
     match go.await {
         Ok(r) => Ok(r),
@@ -652,7 +654,30 @@ async fn output(
         shells.exit_told(h); // its end is in this result (ORCH-639)
     }
     let network = shells.network(h)?;
-    Ok(output_result(&h.id, &text, offset, total, &info, network).0)
+    let mut r = output_result(&h.id, &text, offset, total, &info, network).0;
+    if !info.running {
+        not_read(shells, &info, &text, &mut r);
+    }
+    Ok(r)
+}
+
+/// HAND-596: the never-read folders a command could not read, as a fact beside its output (no key when none: the
+/// result's bytes are then Python's). When every refusal in the output names a never-read folder, the folder-scope
+/// note about refused writes is left out: it would misstate a read refusal (a named difference from Python).
+fn not_read(shells: &ShellManager, info: &ProcInfo, output: &str, r: &mut ToolResult) {
+    let protection = shells.sandbox().protection.clone();
+    if let Some(f) = crate::not_read::fact(
+        &*protection,
+        &info.command,
+        std::path::Path::new(&info.cwd),
+        info.lifted.as_deref(),
+        output,
+    ) {
+        r.content.insert("not_read".into(), f);
+        if crate::not_read::refusals_all_protected(&*protection, output) {
+            r.content.shift_remove("sandbox_note");
+        }
+    }
 }
 
 pub async fn shell_wait(

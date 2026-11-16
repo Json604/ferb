@@ -543,7 +543,8 @@ pub async fn schedule_finished(
         .unwrap_or_else(|| "None".into());
     let ok_ = match status.as_str() {
         "done" => Some(true),
-        "done_unverified" | "cancelled" => None,
+        // ORCH-651: delivered with gaps is neither a success nor a failure, as unconfirmed isn't
+        "done_unverified" | "done_with_gaps" | "cancelled" => None,
         _ => Some(false),
     };
     schedules.ran(&sid, ok_).map_err(sched_err)?;

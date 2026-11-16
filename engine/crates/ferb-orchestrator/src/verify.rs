@@ -2,7 +2,7 @@
 //! latest acting call's read-back and the action checks of ORCH-576 yield literal predicates, never final outcome
 //! judgments; anything else goes to the checker.
 //!
-//! decision: ORCH-576, ORCH-609, ORCH-613, ORCH-624, ORCH-309
+//! decision: ORCH-576, ORCH-609, ORCH-613, ORCH-624, ORCH-309, ORCH-660, ORCH-661
 
 use std::io::Read;
 
@@ -25,6 +25,19 @@ pub const ACTION_CHECKS: &[&str] = &[
     "deleted",
     "downloaded",
 ];
+
+/// ORCH-660: how an action check's evidence starts when the task used a route it doesn't read.
+pub const CANT_SETTLE: &str = "FERB's records can't settle it";
+/// ORCH-660: the call kinds whose records don't say what the input did (W2's generic input outside FERB's own
+/// structured tools, and a shell command), each with how a route through it is told (`{}`: the call's app or site).
+pub const UNREAD_ROUTES: &[(&str, &str)] = &[
+    ("mac_input", "input went into {} through the Mac tools"),
+    ("applescript", "a script ran in {}"),
+    ("run_shell", "a shell command ran"),
+];
+
+/// ORCH-660: at most this many routes are named in one evidence line (a technical bound), then "<n> more".
+pub const MAX_ROUTES: usize = 5;
 
 /// verify.py:31 `ConditionResult`.
 #[derive(Debug, Clone, PartialEq)]
@@ -409,10 +422,23 @@ impl<'a> Checks<'a> {
             Some(s) => format!(" on {s}"),
             None => String::new(),
         };
-        let not_met = |evidence: String| -> Result<ConditionResult> {
-            Ok(self
-                .declined(i, c, task_id)?
-                .unwrap_or_else(|| result(Some(false), evidence)))
+        // ORCH-660: proved false only when every route by which it could have happened in this task is one this check
+        // reads; else code can't tell, its evidence names what was recorded, and the checker's own look decides
+        let not_met = |evidence: String, shown: String| -> Result<ConditionResult> {
+            if let Some(owner) = self.declined(i, c, task_id)? {
+                return Ok(owner);
+            }
+            let routes = self.unread_routes(c, task_id)?;
+            if routes.is_empty() {
+                return Ok(result(Some(false), evidence));
+            }
+            Ok(result(
+                None,
+                format!(
+                    "{CANT_SETTLE}: they show {shown} in this task, but {}",
+                    routes.join("; ")
+                ),
+            ))
         };
         let expected = k.expected.clone().unwrap_or_else(|| "None".into());
         match k.kind.as_str() {
@@ -421,18 +447,24 @@ impl<'a> Checks<'a> {
                 if cards::ran(db, task_id, &kinds)?.iter().any(&aims) {
                     return Ok(result(Some(true), format!("FERB sent it to {expected}")));
                 }
-                return not_met(format!(
-                    "FERB didn't send it; no send to {expected}{on} went through in this task"
-                ));
+                return not_met(
+                    format!(
+                        "FERB didn't send it; no send to {expected}{on} went through in this task"
+                    ),
+                    format!("no send to {expected}{on}"),
+                );
             }
             "paid" => {
                 let (_, aims) = self.aimed(c).expect("a payment aims");
                 if cards::paid(db, policy, task_id)?.iter().any(&aims) {
                     return Ok(result(Some(true), format!("FERB paid{on} after your Yes")));
                 }
-                return not_met(format!(
-                    "FERB didn't pay; no payment you said Yes to went through{on} in this task"
-                ));
+                return not_met(
+                    format!(
+                        "FERB didn't pay; no payment you said Yes to went through{on} in this task"
+                    ),
+                    format!("no payment you said Yes to{on}"),
+                );
             }
             "submitted" => {
                 let (kinds, aims) = self.aimed(c).expect("a submit aims");
@@ -447,10 +479,11 @@ impl<'a> Checks<'a> {
                         ));
                     }
                 }
-                return not_met(format!(
-                    "FERB didn't submit it; no form on {} went through in this task",
-                    k.site.as_deref().unwrap_or("None")
-                ));
+                let site = k.site.as_deref().unwrap_or("None");
+                return not_met(
+                    format!("FERB didn't submit it; no form on {site} went through in this task"),
+                    format!("no form on {site} submitted"),
+                );
             }
             _ => {}
         }
@@ -496,7 +529,152 @@ impl<'a> Checks<'a> {
         if done {
             return Ok(result(Some(true), format!("FERB {did}")));
         }
-        not_met(format!("FERB didn't do it; nothing in this task {did}"))
+        let shown = if k.kind == "trashed" {
+            format!("nothing moving {want} to the Trash")
+        } else {
+            format!("nothing deleting {want} permanently")
+        };
+        not_met(
+            format!("FERB didn't do it; nothing in this task {did}"),
+            shown,
+        )
+    }
+
+    /// ORCH-660: the routes this task used by which the action could have happened but which this check doesn't read,
+    /// each as a short fact (empty: the check reads every route used, and its "not done" is a proof). By the kind of
+    /// each recorded call, never its words: input into an app through the Mac tools, a script or a shell command (their
+    /// records don't say what the input did); the same action recorded at another target than the condition's (a form
+    /// submitted to another host, a payment on another site, a send whose recipients aren't recorded or include the
+    /// expected one elsewhere, a trash or deletion of a folder holding the path); one of the condition's own actions that
+    /// ended with an error; and, for the owner's result, a send or payment card of the request's tree that the action
+    /// could be (the answer never says "nothing was sent" beside a Sent card).
+    pub fn unread_routes(&self, c: &Condition, task_id: &str) -> Result<Vec<String>> {
+        let Some(db) = self.host.db() else {
+            return Ok(Vec::new());
+        };
+        let policy = self.host.policy();
+        let k = &c.check;
+        let mut out: Vec<String> = Vec::new();
+        let mut add = |t: String| {
+            if !out.contains(&t) {
+                out.push(t);
+            }
+        };
+        let place = |call: &Map<String, Value>| {
+            call.get("target")
+                .and_then(|t| t.get("site"))
+                .filter(|v| ferb_py::value::truthy(v))
+                .map(crate::py::str_of)
+        };
+        let Some((kinds, aims)) = self.aimed(c) else {
+            return Ok(Vec::new());
+        };
+        let want_path = match k.kind.as_str() {
+            "trashed" | "deleted" => self
+                .host
+                .resolve(k.path.as_deref().unwrap_or(""), false)
+                .ok(),
+            _ => None,
+        };
+        for (call, error) in cards::attempted(db, task_id)? {
+            let structural = cards::structural_kinds(&call);
+            for (kind, said) in UNREAD_ROUTES {
+                if structural.contains(*kind) {
+                    let at = place(&call).unwrap_or_else(|| "an app".into());
+                    add(said.replace("{}", &at));
+                }
+            }
+            if !cards::kinds(&call)
+                .iter()
+                .any(|x| kinds.contains(&x.as_str()))
+            {
+                continue;
+            }
+            let at = place(&call).unwrap_or_else(|| "an unrecorded place".into());
+            if aims(&call) {
+                if error.is_some() {
+                    add(format!(
+                        "an attempt at it on {at} ended with an error, which doesn't record whether it went through"
+                    ));
+                }
+                continue;
+            }
+            if error.is_some() {
+                continue;
+            }
+            match k.kind.as_str() {
+                "submitted" => {
+                    if cards::kinds(&call).contains("submit") && self.submits(&call)? {
+                        let mac = call
+                            .get("tool")
+                            .map(crate::py::str_of)
+                            .is_some_and(|t| t.starts_with("mac."));
+                        add(if mac {
+                            format!("a form was submitted in {at} through the Mac tools")
+                        } else {
+                            format!("a form was submitted to {at}")
+                        });
+                    }
+                }
+                "trashed" | "deleted" => {
+                    let target = cards::target_path(&call);
+                    if let Some(want) = &want_path {
+                        if !target.is_empty() && holds(&target, want) {
+                            let did = if k.kind == "trashed" {
+                                "was moved to the Trash"
+                            } else {
+                                "was deleted"
+                            };
+                            add(format!("{target}, which holds it, {did}"));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        // the owner's cards of the whole request: an action check never says "not done" beside a card that could be it
+        let root = tree_of(db, task_id);
+        let want = policy.account_key(k.expected.as_deref());
+        match k.kind.as_str() {
+            "sent" | "submitted" => {
+                for card in cards::sends(db, &root)? {
+                    let recipient = card.get("recipient").map(crate::py::str_of);
+                    let could = k.kind == "submitted"
+                        || recipient
+                            .as_deref()
+                            .is_none_or(|r| policy.account_key(Some(r)) == want);
+                    if !could {
+                        continue;
+                    }
+                    let at = card
+                        .get("site")
+                        .or_else(|| card.get("app"))
+                        .map(crate::py::str_of)
+                        .unwrap_or_else(|| "an unrecorded place".into());
+                    add(match recipient {
+                        Some(r) => format!("a send to {r} went through {at}"),
+                        None => format!("a send went through {at}"),
+                    });
+                }
+            }
+            "paid" => {
+                for card in cards::payments(db, policy, &root)? {
+                    let at = card
+                        .get("site")
+                        .map(crate::py::str_of)
+                        .unwrap_or_else(|| "an unrecorded site".into());
+                    add(format!("a payment you said Yes to went through on {at}"));
+                }
+            }
+            _ => {}
+        }
+        // a technical bound on the evidence line: the first few routes, then how many more
+        if out.len() > MAX_ROUTES {
+            let more = out.len() - MAX_ROUTES;
+            out.truncate(MAX_ROUTES);
+            out.push(format!("{more} more"));
+        }
+        Ok(out)
     }
 
     /// verify.py:185 `_submits` (ORCH-624).
@@ -633,6 +811,23 @@ impl<'a> Checks<'a> {
         }
         Ok(None)
     }
+}
+
+/// ORCH-660: whether the folder `outer` holds `inner` (resolved as `same` resolves).
+fn holds(outer: &str, inner: &str) -> bool {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let real = |p: &str| ferb_fs::pypath::realpath(&ferb_fs::pypath::expanduser(p, &home));
+    let (o, i) = (real(outer), real(inner));
+    i.len() > o.len() && i.starts_with(&o) && i[o.len()..].starts_with('/')
+}
+
+/// The request's root task of a task (its tree), the task itself when the store has no row for it.
+fn tree_of(db: &ferb_store::Db, task_id: &str) -> String {
+    db.conn()
+        .query_row("SELECT tree_id FROM tasks WHERE id = ?", [task_id], |r| {
+            r.get::<_, String>(0)
+        })
+        .unwrap_or_else(|_| task_id.to_string())
 }
 
 /// verify.py:241 `_same`: two paths naming the same place, as written or resolved.

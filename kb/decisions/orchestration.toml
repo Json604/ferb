@@ -1895,3 +1895,103 @@ rule = "A check (the verifier) reads, in its own block, every question FERB aske
 why = "The owner's answer went only into the worker's next instructions; the next check never saw it and asked again. Prompt text unchanged; the check still judges the work."
 evidence = "Live 2026-11-15 23:14-23:20, step hci of tree 3a0cc55b: the checker asked \"Which should the report follow…\" three times (journal 98-112), each answered by the owner, then failed the step."
 paths = ["rust/crates/ferb-supervisor/src/flow/attempt.rs::answered_in_step", "rust/crates/ferb-supervisor/src/flow/store.rs::step_answers", "rust/crates/ferb-supervisor/src/worker_context.rs::step_answers_block"]
+
+[ORCH-651]
+title = "A step whose work is finished but a condition can't be met ends delivered, with gaps, never done"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "i like the chcekdr get q and A, but not the atmost thing, i dont want it. im ok with a delivered, with gaps\" ending part"
+words_source = "Owner 2026-11-16, shown: C, a 'delivered, with gaps' ending with code-written 'Not done: …' lines and a Yes before a send/submit step after it; A, the checker's Q&A with at most one question per step"
+rule = "A step or task whose deliverable is finished but a stated condition can't be met for a reason outside the work ends done_with_gaps, never done: the owner sees what was delivered (answer, files) and one line per gap written by code, \"Not done: <the condition> — <the check's reason>\". A send/submit step after it starts only on the owner's Yes. No cap on a check's questions per step."
+why = "Live 2026-11-15, step hci of tree 3a0cc55b: the worker finished a working report, one condition couldn't be met (the instruction and the brief conflicted; real participants only the owner has), the checker asked the same question again and failed the step, hiding the finished work."
+live = ["LIVE-957"]
+paths = ["engine/crates/ferb-supervisor/src/flow/tree.rs", "engine/crates/ferb-supervisor/src/lines.rs", "engine/crates/ferb-supervisor/src/flow/card.rs", "engine/crates/ferb-orchestrator/src/parts.rs"]
+
+[ORCH-652]
+title = "Gaps are structured: the worker names them, the check accepts them within code's limits"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For ORCH-651. The report's gaps: [{condition (its text), reason}]; the check's next accept_with_gaps with gaps: [{index, reason}]. Code takes it only when the worker reported done, at least one condition is met on this check's own evidence, every unmet one (but a declined one) has a reason, and none is one a literal check proved false; else it reads as the check's plain accept. Findings go to the fix round as for an accept. Both schemas carry gaps (the named change)."
+why = "Judgment stays the model's (more doable work is a retry; invented evidence is an unmet condition); the limits are code's facts. tasks.status, results, plan steps, frames and entry bodies say done_with_gaps (migration 0064); verified is false, so learning never counts it a success."
+live = ["LIVE-957"]
+paths = ["engine/crates/ferb-supervisor/src/flow/attempt.rs::gapped", "engine/crates/ferb-orchestrator/src/validate.rs", "engine/crates/ferb-context/src/schemas.rs::before_gaps", "engine/crates/ferb-store/tests/store.rs"]
+
+[ORCH-653]
+title = "A step with a declared outside effect after a gapped step asks once before it starts"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For ORCH-651. Before a plan step whose dependencies include a done_with_gaps step starts, if its plan declares an outside effect (kind converse or a conversation scope, or a condition it answers with an action check: sent, paid, submitted, trashed, deleted), FERB asks one question through the owner-question path: \"<step> finished with these parts not done: <condition> — <reason>. Go on to <step>?\" (Yes/No). No: the step isn't started and the task ends delivered with gaps, the step told as not done. Other steps run, with the gaps in their handed results."
+why = "Rule 4: decided by declared structure, never by reading the goal's words. A step whose plan declares no effect is not asked before it starts (T-1116)."
+live = ["LIVE-957"]
+paths = ["engine/crates/ferb-supervisor/src/flow/tree.rs::after_gaps", "engine/crates/ferb-supervisor/src/flow/tree.rs::after_gaps_only", "engine/crates/ferb-supervisor/src/lines.rs::after_gaps_question"]
+
+[ORCH-654]
+title = "A not-done report that neither acted nor changed a file ends as reported, without the checker"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "yes for A and no for B"
+words_source = "Owner 2026-11-16, shown: A, skip the checker when a worker reports 'not done' with no actions and no files; B, a lighter check for file-only steps"
+rule = "Refines ORCH-562. When the worker's valid report is not_done with no question, and its task's recorded calls are all observations or FERB's context reads and no file changed during the step, the checker isn't run (a verify.skipped span says why) and the step fails with the worker's reason, as a check confirming it would. The file-step check (RUN-461) is unchanged."
+why = "A check of an attempt that did nothing outside costs a full checker run (93k-137k tokens live) to confirm a failure the records already show."
+live = ["LIVE-958"]
+paths = ["engine/crates/ferb-supervisor/src/flow/attempt.rs::not_done_without_acting"]
+
+[ORCH-655]
+title = "A check's previous-attempts block comes after the blocks that stay the same within a step"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For RUN-466. In a check's context the previous attempts' block moves from the middle of the task's blocks to their end (just before FERB's code facts); every block keeps its bytes, the others their order. The worker's report and its calls already come after them."
+why = "That block grows with every attempt, so before it a second check of a step shared its prefix only up to it. Each recorded call's header names the total count, so the calls themselves never share a prefix between checks."
+live = ["LIVE-959"]
+paths = ["engine/crates/ferb-supervisor/src/worker_context.rs::attempts_last", "engine/crates/ferb-supervisor/tests/common/named_diffs.rs::attempts_last"]
+
+[ORCH-660]
+title = "An action check proves \"not done\" only when it reads every route the task used to act"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "Refines ORCH-576 and ORCH-609. A sent, paid, submitted, trashed or deleted check proves its condition false only when no recorded call of the task acted through a route it doesn't read: Mac input, a script or a shell command (by kind); the same action at another target (a form to another host, a payment on another site, a send to no one or the expected one elsewhere, a trash of a folder holding the path); or its own action ending in an error. Else code can't tell, its evidence names what was recorded, and the checker's fresh look stands. With no such call a claim is still proved false."
+why = "The checks read only FERB's structured tools, so work done through an app's window or sent to the site's other host was told as not done over the checker's confirmation."
+evidence = "Task 0abecb83 (2026-11-16 04:17-04:32): the worker submitted an assignment through Chrome's window (mac.act, mac.click) to the site's other host; the checker confirmed it on a fresh page; code said met false and the task failed."
+live = ["LIVE-975"]
+paths = ["engine/crates/ferb-orchestrator/src/verify.rs::unread_routes", "engine/crates/ferb-orchestrator/src/cards.rs::attempted"]
+
+[ORCH-661]
+title = "A \"not done\" line never stands beside a result card that could be the same action"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For ORCH-660 and ORCH-609. An action check can't prove a send, submit or payment false while the request's result carries a card that could be it (cards.sends and cards.payments, the cards the owner sees): a send card naming the expected recipient or no one for sent, any send card for submitted, any payment card for paid. Such a card makes code's verdict can't tell, so the answer's \"Nothing was sent\" or \"No form ... was submitted\" comes from the same facts as the cards."
+why = "The owner read \"No form ... was submitted\" in the same reply as a Sent card for that submission."
+evidence = "Task 0abecb83 (2026-11-16 04:32): the failed answer and a \"Sent\" card for the course's grader in one result."
+live = ["LIVE-975"]
+paths = ["engine/crates/ferb-orchestrator/src/verify.rs::unread_routes"]
+
+[ORCH-662]
+title = "The planner's lookups read its own chat's tasks: the loan of the chat reaches the readers"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For ORCH-515. The chat a planner turn lends its lookups task ({request}.lookups) is read by every reader that decides which tasks a caller may read (task.evidence, task.trace, chat.history and its search), as Python's one shared Continuity did: the readers take the supervisor's loan for that task."
+why = "The readers built a Continuity of their own with no loans, so the planner's task.evidence refused every task of its chat and chat.history listed none."
+evidence = "Request 50cfdb4f (2026-11-16 04:32): the planner asked task.evidence for the failed task and was told it isn't one of this conversation's tasks; chat.history include_tasks returned no records."
+live = ["LIVE-975"]
+paths = ["engine/crates/ferbd/src/compose/tools/context.rs::continuity_for", "engine/crates/ferb-supervisor/src/flow/turn.rs::lend"]
+
+[ORCH-663]
+title = "The planner reads any task's trace through one general tool, task.trace"
+by = "owner"
+date = 2026-11-16
+status = "active"
+words = "it shodl just generally be trace tool. planner shouldb be able to look at things"
+words_source = "Owner 2026-11-16 (relayed), asked after the planner answered \"none confirmed done yet\" about a running task that had submitted several assignments"
+rule = "One read-only tool for the planner, task.trace: a task of its chat (the tasks chat.history include_tasks lists), running or ended, read from the store: state and steps, each check's entries (by code or the checker, with evidence), each run's report, questions and answers, counts by kind of call with every send and submit, timing and the latest calls; paged, filtered (step, kind, errors, since), one call in full; labelled with the task's origins. Offered only to a grant naming it (the planner's); the progress and earlier-work lines point to it."
+why = "The planner answered progress and failure questions from a one-line status without looking, and its only per-task reader returned raw records it couldn't reach."
+evidence = "Tasks 0abecb83 (04:32) and 2bccf5aa (04:47-04:48, 2026-11-16): \"I can't reliably say\" what failed; \"none are confirmed done yet\" while its trace held several recorded submits."
+live = ["LIVE-975"]
+paths = ["engine/crates/ferb-gateway/src/catalog_additions.json", "engine/crates/ferb-gateway/src/listing.rs::named", "engine/crates/ferbd/src/compose/tools/context.rs::trace_run", "engine/runtime/orchestrator/prompts/supervisor.md"]

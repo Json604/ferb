@@ -122,6 +122,9 @@ impl<A: Around> Tool for Wrapped<A> {
     fn browser_page<'a>(&'a self, args: &'a Args) -> BoxFuture<'a, Option<String>> {
         self.inner.browser_page(args)
     }
+    fn window_reason<'a>(&'a self, args: &'a Args) -> BoxFuture<'a, Option<String>> {
+        self.inner.window_reason(args)
+    }
     fn pay_picture<'a>(&'a self, args: &'a Args, owner: &'a str) -> BoxFuture<'a, Option<Vec<u8>>> {
         self.inner.pay_picture(args, owner)
     }
@@ -155,11 +158,96 @@ impl<A: Around> Tool for Wrapped<A> {
     ) -> BoxFuture<'a, Result<(Vec<u8>, String), Shot>> {
         self.inner.tab_picture(args, task)
     }
+    // the two the wrapper once left at the trait's defaults (audit of 2026-11-16): no wrapped tool answers them today
+    fn background_pid(&self, args: &Args) -> Option<i64> {
+        self.inner.background_pid(args)
+    }
+    fn put_back<'a>(
+        &'a self,
+        front: &'a Value,
+        previous: &'a Value,
+        task: &'a str,
+    ) -> BoxFuture<'a, Option<(bool, Option<String>)>> {
+        self.inner.put_back(front, previous, task)
+    }
     fn run<'a>(
         &'a self,
         args: &'a Args,
         ctx: &'a ToolContext,
     ) -> BoxFuture<'a, Result<ToolOutput, ToolError>> {
         self.around.run(&self.inner, args, ctx)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A tool whose every hook the gateway reads answers something other than the trait's default.
+    struct Answers;
+    impl Tool for Answers {
+        fn name(&self) -> &str {
+            "fs.read"
+        }
+        fn describe(&self, _args: &Args) -> ActionSpec {
+            ActionSpec::new("write_file")
+        }
+        fn precheck(&self, _args: &Args) -> Option<String> {
+            Some("pre".into())
+        }
+        fn locks(&self, _args: &Args) -> Vec<String> {
+            vec!["file:/x".into()]
+        }
+        fn file_paths(&self, _args: &Args) -> Option<Vec<(String, String)>> {
+            Some(vec![("/x".into(), "read".into())])
+        }
+        fn real_path(&self, _args: &Args, _workspace: &str) -> Option<RealPath> {
+            Some(Ok("/x".into()))
+        }
+        fn recovery_reason(&self, _args: &Args) -> Option<Option<String>> {
+            Some(Some("edit".into()))
+        }
+        fn ledger_args(&self, args: &Args, _hashed: &Args) -> Option<Args> {
+            Some(args.clone())
+        }
+        fn background_pid(&self, _args: &Args) -> Option<i64> {
+            Some(7)
+        }
+        fn put_back<'a>(
+            &'a self,
+            _front: &'a Value,
+            _previous: &'a Value,
+            _task: &'a str,
+        ) -> BoxFuture<'a, Option<(bool, Option<String>)>> {
+            Box::pin(async { Some((true, None)) })
+        }
+        fn run<'a>(
+            &'a self,
+            _args: &'a Args,
+            _ctx: &'a ToolContext,
+        ) -> BoxFuture<'a, Result<ToolOutput, ToolError>> {
+            Box::pin(async { Err(ToolError::refused("unused")) })
+        }
+    }
+
+    /// The wrapper answers every hook as the tool it wraps (the audit of 2026-11-16 found `background_pid` and
+    /// `put_back` left at the defaults).
+    // decision: ENG-20
+    #[tokio::test]
+    async fn a_wrapped_tool_answers_every_hook_as_its_inner_tool() {
+        let w = threaded(Arc::new(Answers));
+        let a = Args::new();
+        assert_eq!(w.describe(&a).kind, "write_file");
+        assert_eq!(w.precheck(&a).as_deref(), Some("pre"));
+        assert_eq!(w.locks(&a), vec!["file:/x".to_string()]);
+        assert!(w.file_paths(&a).is_some());
+        assert!(w.real_path(&a, "/ws").is_some());
+        assert!(w.recovery_reason(&a).is_some());
+        assert!(w.ledger_args(&a, &a).is_some());
+        assert_eq!(w.background_pid(&a), Some(7));
+        assert_eq!(
+            w.put_back(&Value::Null, &Value::Null, "t").await,
+            Some((true, None))
+        );
     }
 }

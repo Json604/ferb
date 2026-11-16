@@ -79,6 +79,8 @@ default Daemon::hold_poll_s | gateway.py:619's 0.2 s: Python's daemon passes no 
 default Reads::browsing | None means the supervisor seam's own answer (SupDaemon::browsing, the browser area's); only a recorder's stand-in replaces it.
 default Reads::captures_at_send | None means as this daemon's parts say (the Mac's parts on); only a recorder's stand-in replaces it.
 default Reads::front_capture | None means this daemon's own capture (compose/front.rs); only a recorder's stand-in replaces it.
+default Reads::checks_unacted_not_done | ORCH-654: FERB skips the check of a not-done attempt that did nothing (false); only the stand-ins' script of a Python recording, whose checker ran on every report, says true.
+default Reads::reads_card_replies | GATE-609: FERB reads the words typed in a safety check's box with the planner for the sites they name (true); only the stand-ins' script of a Python recording, whose card replies had no planner call, says false.
 default Reads::shutdown | The desktop observer's summaries are written by the daemon's shutdown itself (compose/mod.rs, the sentinel's shutdown), main.py:551.
 trait ferb-gateway/src/tool.rs Tool ferbd/src/compose/tools/mac.rs MacTool
 default Tool::facts | A tool's facts come from the frozen catalog (engine/fixtures/catalog/tools.json), as the models were given them.
@@ -92,6 +94,7 @@ default Tool::precheck | ferb/act/browser/tools.py and ferb/act/mac/tools.py def
 default Tool::recovery_reason | Only the file tools say why a write keeps a copy (ferb/act/fs); the browser and Mac tools don't.
 default Tool::unavailable | GATE-560's facts are the Mac tools' own (`unavailable` on MacTool); the browser tools define none (ferb/act/browser/tools.py).
 default Tool::browser_page | Only the Mac input tools name a browser's own page (ferb/act/mac/tools.py:554, 737, 880); the browser tools act inside the page through the extension.
+default Tool::window_reason | HAND-586: only the Mac input tools ask for the screen in a browser app and say why; the browser tools work in the page through the extension and never ask for the window.
 default Tool::pay_press | pay_press.py:26 reads a browser tab's amounts only; a Mac tool's press has no page to read (None, as Python's `read` answers for it).
 default Tool::tab_picture | call_hooks.py:194 takes a tab's picture for browser tools only; a Mac tool's picture is the app window's (AppWindows).
 default Tool::real_path | The Mac tools name no file the gateway resolves (ferb/act/mac/tools.py defines no real_path); their files go through `file_paths`.

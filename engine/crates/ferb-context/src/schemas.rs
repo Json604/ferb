@@ -42,7 +42,14 @@ pub const ACTION_CHECKS: [&str; 6] = [
     "downloaded",
 ];
 /// schemas.py:306 `NEXT`.
-pub const NEXT: [&str; 5] = ["accept", "retry", "ask", "accept_unconfirmed", "fail"];
+pub const NEXT: [&str; 6] = [
+    "accept",
+    "retry",
+    "ask",
+    "accept_unconfirmed",
+    "accept_with_gaps",
+    "fail",
+];
 /// schemas.py:309 `FINDING_KINDS` (ORCH-545).
 pub const FINDING_KINDS: [&str; 2] = ["contradicted", "unsupported"];
 
@@ -304,7 +311,29 @@ pub fn task_schema() -> Value {
         ("keep_tabs_open", json!({"type": "boolean"})),
         ("parts", array_of(part_schema())),
         ("earlier_results", strings(None)),
+        ("profiles", task_profiles_schema()),
     ])
+}
+
+/// HAND-580 (not in Python): the task's `profiles`, the owner's browser profiles their own words name for it. The
+/// field's description is the only instruction the planner gets about it (no prompt line): code resolves each entry
+/// against the owner's profiles and the browser tools then work only there for this task. HAND-587: a remembered
+/// profile counts only from the owner's own words, checked by code (browse.rs `owners_own`).
+pub const TASK_PROFILES_DESCRIPTION: &str = "The owner's browser profiles that the owner's own words name for this \
+     task (by name, account, browser or a description you resolve from the browser profiles you were given), each as \
+     browser/profile from that list (\"chrome/Profile 2\"). FERB's browser tools then work only in these for the \
+     task. [] when their words name none: the task then uses the profile the owner picked for FERB's web work. When \
+     this message names none, a profile the owner's own earlier words name for this kind of work (a remembered item \
+     marked \"your words\") counts; never one FERB only observed or inferred, or an earlier task's. A profile this \
+     message names replaces a remembered one. A correction naming another profile for a running task lists it here.";
+
+fn task_profiles_schema() -> Value {
+    let mut schema = strings(None);
+    schema
+        .as_object_mut()
+        .expect("an object")
+        .insert("description".into(), json!(TASK_PROFILES_DESCRIPTION));
+    schema
 }
 
 /// schemas.py:117 `UNTIL_SCHEMA` (L36 §6).
@@ -574,6 +603,7 @@ pub fn worker_schema(flags: WorkerFlags) -> Value {
         ("answer", string()),
         ("artifacts", strings(None)),
         ("how", string()),
+        ("gaps", report_gaps_schema()),
     ];
     let [inputs, proposals, conversation, watch, loop_, parts] = flags.on();
     if inputs {
@@ -615,6 +645,20 @@ pub fn worker_schema(flags: WorkerFlags) -> Value {
     obj(props)
 }
 
+/// ORCH-652 (not Python's): a worker report's `gaps`: each stated condition it couldn't meet (its text as given) and
+/// why. `schema_changes::now` adds it to a Python-recorded report schema.
+pub fn report_gaps_schema() -> Value {
+    array_of(obj(vec![("condition", string()), ("reason", string())]))
+}
+
+/// ORCH-652 (not Python's): a check's `gaps`: each unmet condition's index and why, with `next` accept_with_gaps.
+pub fn check_gaps_schema() -> Value {
+    array_of(obj(vec![
+        ("index", json!({"type": "integer"})),
+        ("reason", string()),
+    ]))
+}
+
 /// schemas.py:310 `FINDINGS_SCHEMA` (ORCH-545).
 pub fn findings_schema() -> Value {
     array_of(obj(vec![
@@ -644,6 +688,7 @@ pub fn checker_schema() -> Value {
         ("worker_type", nullable("string")),
         ("question", string()),
         ("reason", string()),
+        ("gaps", check_gaps_schema()),
     ])
 }
 
@@ -1179,4 +1224,72 @@ pub fn new_task(answer: &Value) -> Option<&Value> {
             _ => None,
         },
     }
+}
+
+/// The answer schemas as Python recorded them (engine/fixtures/catalog/answer_schemas.json): FERB's schema with its
+/// named changes taken out, ORCH-652's `gaps` ([`before_gaps`]) and HAND-580's task `profiles`
+/// ([`before_profiles`]). For the tests that compare FERB's schemas with the recorded ones.
+pub fn as_recorded(schema: &Value) -> Value {
+    before_profiles(&before_gaps(schema))
+}
+
+/// HAND-580's deliberate change (ENG-6): every task schema inside `schema` (an object whose properties hold `goal`,
+/// `keep_tabs_open` and `profiles`) without `profiles`, as Python built it; the rest unchanged.
+pub fn before_profiles(schema: &Value) -> Value {
+    match schema {
+        Value::Object(o) => {
+            let mut out = Map::new();
+            for (k, v) in o {
+                out.insert(k.clone(), before_profiles(v));
+            }
+            let is_task = out
+                .get("properties")
+                .and_then(Value::as_object)
+                .is_some_and(|p| {
+                    p.contains_key("goal")
+                        && p.contains_key("keep_tabs_open")
+                        && p.contains_key("profiles")
+                });
+            if is_task {
+                if let Some(Value::Object(p)) = out.get_mut("properties") {
+                    p.shift_remove("profiles");
+                }
+                if let Some(Value::Array(r)) = out.get_mut("required") {
+                    r.retain(|v| v != "profiles");
+                }
+            }
+            Value::Object(out)
+        }
+        Value::Array(a) => Value::Array(a.iter().map(before_profiles).collect()),
+        other => other.clone(),
+    }
+}
+
+/// ORCH-652's one deliberate change to the answer schemas Python recorded (ENG-6): a worker report's `gaps` and a
+/// check's `gaps` with `next` accept_with_gaps. A schema with that change taken out, as Python built it, for the
+/// tests that compare FERB's schemas with the recorded ones (engine/fixtures/catalog/answer_schemas.json); any other
+/// schema comes back as it is.
+pub fn before_gaps(schema: &Value) -> Value {
+    let Some(props) = schema.get("properties").and_then(Value::as_object) else {
+        return schema.clone();
+    };
+    let report = props.contains_key("how") && props.contains_key("status");
+    let check = props.contains_key("results") && props.contains_key("next");
+    if !(report || check) || !props.contains_key("gaps") {
+        return schema.clone();
+    }
+    let mut out = schema.clone();
+    let o = out.as_object_mut().expect("an object");
+    if let Some(Value::Object(p)) = o.get_mut("properties") {
+        p.shift_remove("gaps");
+        if check {
+            if let Some(Value::Array(e)) = p.get_mut("next").and_then(|n| n.get_mut("enum")) {
+                e.retain(|v| v != "accept_with_gaps");
+            }
+        }
+    }
+    if let Some(Value::Array(r)) = o.get_mut("required") {
+        r.retain(|v| v != "gaps");
+    }
+    out
 }

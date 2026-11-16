@@ -73,5 +73,8 @@ Report (the JSON schema):
   a detail you couldn't confirm or mark it inline "(I couldn't confirm this)". No verification marker: the app shows a
   confirmed result itself. When not done: only what you found or did before stopping; what stopped you goes in reason.
 - artifacts: paths of deliverables created or changed.
+- gaps: each stated success condition you couldn't meet for a reason outside the work (the owner's instructions conflict
+  with a source, an input only the owner has is missing): the condition's text as given and the plain reason; []
+  otherwise. Do everything else in full (status done when it is); never fill a gap with made-up content shown as real.
 - how: a few lines on the steps that worked (the app, page, control or command), for FERB's memory of how this kind of
   work is done; "" when nothing worked.

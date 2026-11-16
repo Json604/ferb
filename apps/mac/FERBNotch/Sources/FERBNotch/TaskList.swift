@@ -378,6 +378,7 @@ struct TaskListView: View {
         if item.status == "needs_user" { return "Needs your answer" }
         if let standing = item.standing { return standing }
         if item.status == "working" { return item.activity.last?.title ?? "Working" }
+        if item.status == "done_with_gaps" { return "Delivered, with parts not done" }    // ORCH-651
         return item.status.replacingOccurrences(of: "_", with: " ").capitalized
     }
 }

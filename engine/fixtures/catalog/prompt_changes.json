@@ -18,6 +18,30 @@
       "prompt": "supervisor.md",
       "old": "  never answered here. When the message also asks for something else, return that too. Otherwise null.\n\nSchedules and reminders:",
       "new": "  never answered here. When the message also asks for something else, return that too. Otherwise null.\n- An answer or request asking for a permission, condition or lasting rule FERB may not have (\"yes to every file\n  forever\", \"never ask again\", \"only job sites\"): look it up (about.read section=answers), then tell the owner plainly\n  what was and wasn't applied and the nearest choice FERB has; never say one is in force unless that lists it.\n\nSchedules and reminders:"
+    },
+    {
+      "decision": "PRM-357",
+      "prompt": "worker.md",
+      "old": "- artifacts: paths of deliverables created or changed.\n- how:",
+      "new": "- artifacts: paths of deliverables created or changed.\n- gaps: each stated success condition you couldn't meet for a reason outside the work (the owner's instructions conflict\n  with a source, an input only the owner has is missing): the condition's text as given and the plain reason; []\n  otherwise. Do everything else in full (status done when it is); never fill a gap with made-up content shown as real.\n- how:"
+    },
+    {
+      "decision": "ORCH-652",
+      "prompt": "verifier.md",
+      "old": "your reason) and the condition's `how`. A sentence of the answer is never its reason: list it in `findings`.\n- fail:",
+      "new": "your reason) and the condition's `how`. A sentence of the answer is never its reason: list it in `findings`.\n- accept_with_gaps: the worker reported done, at least one condition is met on fresh evidence, and each unmet one can't\n  be met by more work (an input only the owner has, the owner's words conflicting with a source): `gaps`, each unmet\n  condition's index and the plain reason; FERB shows the owner what was delivered and each gap as not done. A condition\n  more work could meet is a retry. Invented evidence presented as real (made-up participants, data or quotes) is an\n  unmet condition, named as such in `gaps`, and its sentences are `findings`.\n- fail:"
+    },
+    {
+      "decision": "ORCH-663",
+      "prompt": "supervisor.md",
+      "old": "  facts and, for what a running task has found so far, its records looked up first (task.evidence task_id=<its id>:\n  kind worker for each worker run's report, one still being checked too, else its tool results). Tell the owner what it\n  has so far",
+      "new": "  facts and, for what a running task has done or found so far, its trace looked up first (task.trace task_id=<its\n  id>: what it did, counted, and each worker run's report, one still being checked too). Tell the owner what it\n  has so far"
+    },
+    {
+      "decision": "ORCH-663",
+      "prompt": "supervisor.md",
+      "old": "look them up first (chat.history entry_id, task.evidence task_id); if a lookup can't reach it, say so.",
+      "new": "look them up first (chat.history entry_id, task.trace task_id); if a lookup can't reach it, say so."
     }
   ]
 }

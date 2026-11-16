@@ -145,15 +145,7 @@ pub fn first(p: &Parts) -> Vec<Arc<dyn Tool>> {
         fs(ferb_fs::files::FS_LIST),
         fs(ferb_fs::files::FS_READ),
         Arc::new(FsLook { env: fs_env(p) }) as Arc<dyn Tool>,
-        Arc::new(Catalogued {
-            name: "fs.disk_usage",
-            describe: Arc::new(|a: &Args| {
-                let mut s = ActionSpec::new("read");
-                s.target.path = a.get("path").and_then(Value::as_str).map(str::to_string);
-                s
-            }),
-            run: disk_usage,
-        }),
+        Arc::new(DiskUsage { run: disk_usage }),
         fs(ferb_fs::files::FS_WRITE),
         fs(ferb_fs::files::FS_EDIT),
         fs(ferb_fs::files::FS_TRASH),
@@ -195,7 +187,9 @@ pub fn recovery_snapshot(p: &Parts) -> Arc<dyn Tool> {
     let _ = p.set_snapshots(snapshots.clone());
     Arc::new(Catalogued {
         name: ferb_fs::recovery::SNAPSHOT_TOOL,
-        describe: Arc::new(|_a: &Args| ActionSpec::new("read")),
+        // recovery.py:845: `ActionSpec(Kind.SNAPSHOT, Target())` (reversible, no ledger row; its progress line says it
+        // saves a recovery point). The composition once described it as a read (audit of 2026-11-16).
+        describe: Arc::new(|_a: &Args| ActionSpec::new(ferb_policy::rules::Kind::SNAPSHOT)),
         run: Arc::new(move |a: &Args, ctx: &ToolContext| {
             let snapshots = snapshots.clone();
             let before = a
@@ -214,6 +208,34 @@ pub fn recovery_snapshot(p: &Parts) -> Arc<dyn Tool> {
             })
         }),
     })
+}
+
+/// fs.disk_usage: sizes from metadata only. It declares its path as a `metadata` read (ferb_fs::usage::file_paths),
+/// so the gateway runs the protection lists on it instead of refusing an fs tool that names no files (HAND-597).
+pub struct DiskUsage {
+    pub run: Run,
+}
+
+impl Tool for DiskUsage {
+    fn name(&self) -> &str {
+        "fs.disk_usage"
+    }
+    fn describe(&self, args: &Args) -> ActionSpec {
+        let mut s = ActionSpec::new("read");
+        s.target.path = args.get("path").and_then(Value::as_str).map(str::to_string);
+        s
+    }
+    fn file_paths(&self, args: &Args) -> Option<Vec<(String, String)>> {
+        let path = args.get("path").and_then(Value::as_str).unwrap_or("");
+        Some(vec![(path.to_string(), "metadata".to_string())])
+    }
+    fn run<'a>(
+        &'a self,
+        args: &'a Args,
+        ctx: &'a ToolContext,
+    ) -> ferb_core::interfaces::BoxFuture<'a, Result<ToolOutput, ToolError>> {
+        (self.run)(args, ctx)
+    }
 }
 
 /// fs.look (HAND-517): a picture or a PDF page on disk as an image, decoded by ImageIO / PDFKit (src/native.rs).
@@ -324,6 +346,8 @@ pub fn rest(p: &Parts) -> Vec<Arc<dyn Tool>> {
         ctx("trail.query"),
         ctx("trail.days"),
         ctx("task.evidence"),
+        // ORCH-663: a task's trace, the planner's alone (after task.evidence, as the catalog's addition says)
+        ctx("task.trace"),
         time(ferb_clock::tools::REMIND_AT),
         time(ferb_clock::tools::SET_TIMER),
         super::waits::sleep_until(p),

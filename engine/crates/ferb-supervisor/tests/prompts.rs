@@ -149,8 +149,9 @@ fn every_recorded_system_text() {
 }
 
 /// Each deliberate prompt change (engine/fixtures/catalog/prompt_changes.json) is in its prompt file now, its old text
-/// is gone from it, and it changes recorded texts: the recordings' other bytes are compared unchanged.
-// decision: ORCH-640
+/// is gone from it, and it changes recorded texts: the recordings' other bytes are compared unchanged. A change may
+/// change an earlier change's text again.
+// decision: ORCH-640, ORCH-663
 #[test]
 fn the_deliberate_prompt_changes_are_the_only_ones() {
     let dir = repo().join("engine/runtime/orchestrator/prompts");
@@ -173,19 +174,34 @@ fn the_deliberate_prompt_changes_are_the_only_ones() {
             .unwrap(),
     )
     .unwrap();
-    for (n, (decision, old, new)) in prompt_changes::changes().iter().enumerate() {
-        let prompt = s(&raw["changes"][n]["prompt"]);
+    let all = prompt_changes::changes();
+    let prompt_of = |n: usize| s(&raw["changes"][n]["prompt"]);
+    for (n, (decision, old, new)) in all.iter().enumerate() {
+        let prompt = prompt_of(n);
         let now = file(&prompt);
+        // a later change of the same prompt may change this one's text again (ORCH-663 on ORCH-640's line): its new
+        // text is in the file with those later changes applied, in order
+        let mut became = new.clone();
+        for (m, (_, o, w)) in all.iter().enumerate().skip(n + 1) {
+            if prompt_of(m) == prompt && became.contains(o.as_str()) {
+                became = became.replace(o.as_str(), w);
+            }
+        }
         assert!(
-            now.contains(new.as_str()),
+            now.contains(became.as_str()),
             "{decision}: the new text is in {prompt}"
         );
         assert!(
             !now.contains(old.as_str()),
             "{decision}: the old text is gone from {prompt}"
         );
+        // the old text is what the recording holds, or what an earlier change of the same prompt made
         assert!(
-            recorded.iter().any(|r| r.contains(old.as_str())),
+            recorded.iter().any(|r| r.contains(old.as_str()))
+                || all[..n]
+                    .iter()
+                    .enumerate()
+                    .any(|(m, (_, _, w))| prompt_of(m) == prompt && w.contains(old.as_str())),
             "{decision}: the old text is what the recording holds"
         );
     }

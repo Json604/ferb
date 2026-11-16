@@ -78,6 +78,9 @@ pub struct Approval {
     pub secret_labels: Vec<String>,
     pub site: String,
     pub picture: String,
+    /// GATE-609: the hosts this confirmation's site questions are about (the form's and the link's need keys,
+    /// `confirm::site_partner`'s two rules), from its needs, never from its text.
+    pub site_hosts: Vec<String>,
 }
 
 impl std::fmt::Debug for Approval {
@@ -128,6 +131,7 @@ impl Approval {
             secret_labels: Vec::new(),
             site: String::new(),
             picture: String::new(),
+            site_hosts: Vec::new(),
         }
     }
 

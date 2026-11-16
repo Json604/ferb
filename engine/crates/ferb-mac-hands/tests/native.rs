@@ -118,3 +118,30 @@ fn a_child_process_reads_an_image() {
     let cpu = native::vision::CpuVision.recognize(&native::vision::blank_png(160, 48));
     println!("Vision on the CPU in this process: {cpu:?}");
 }
+
+/// HAND-584, by hand only (it changes which app is in front): does macOS let this process put an app back in front,
+/// and does the front-app read see it? Open TextEdit and Finder windows, click into another app (the "owner's"),
+/// then run `cargo test -p ferb-mac-hands --test native put_back_by_hand -- --ignored --nocapture` from Terminal
+/// and switch to TextEdit within 3 s. The test activates the app that was in front 3 s in, then prints the front app
+/// at each of the put-back's reads. From FERB's daemon (a background agent) the result can differ from Terminal's:
+/// run the same steps through FERB on a disposable window to see what the daemon gets.
+#[test]
+#[ignore = "changes the front app on this Mac: run by hand"]
+fn put_back_by_hand() {
+    let apps = native::apps::NativeApps::new(Default::default());
+    let before = apps.frontmost().expect("a front app");
+    println!("in front at start: {} ({})", before.name, before.pid);
+    std::thread::sleep(std::time::Duration::from_secs(3));
+    let raised = apps.frontmost().expect("a front app");
+    println!("in front 3 s in: {} ({})", raised.name, raised.pid);
+    let accepted = apps.activate(&before.bundle_id, Some(before.pid));
+    println!("activate {} accepted: {accepted}", before.bundle_id);
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    for i in 0..ferb_mac_hands::tools::PUT_BACK_READS {
+        let f = apps.frontmost().map(|a| a.name).unwrap_or_default();
+        println!("read {i}: {f}");
+        std::thread::sleep(std::time::Duration::from_secs_f64(
+            ferb_mac_hands::tools::PUT_BACK_STEP_S,
+        ));
+    }
+}

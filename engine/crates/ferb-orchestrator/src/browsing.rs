@@ -14,9 +14,12 @@ pub const CHOSEN: &str =
 pub const NONE_CHOSEN: &str = "Done: FERB won't use any of your profiles for web work. Some tasks will be much slower and less reliable: without a browser, FERB fetches pages directly, and pages that need JavaScript, a sign-in or a bot check can't be read that way. You can pick a profile anytime in Settings → Browsers.";
 pub const NO_BROWSER_RUN: &str = "This run had no browser: you haven't picked which of your profiles FERB uses for web work, so it read pages without one (slower and less reliable). I'll ask you the next time a task needs it.";
 pub const GONE_RUN: &str = "This run had no browser: the profile FERB used for web work, {label}, isn't there any more, so it read pages without one (slower and less reliable). I'll ask you the next time a task needs it.";
-/// ORCH-645: what an open browsing question's answer settles, beside it in the planner's open questions.
-pub const QUESTION_SETTLES: &str = "the browser profile every web task uses, this message's tasks included; a plan \
-     never asks the owner which profile again while this is open, and FERB uses the answer by itself";
+/// ORCH-645: what an open browsing question's answer settles, beside it in the planner's open questions. HAND-580:
+/// never a task whose own words named a profile (its task's `profiles`).
+pub const QUESTION_SETTLES: &str = "the browser profile every web task uses when the owner's words name none for \
+     it, this message's tasks included (a task whose words name a profile lists it in the task's profiles and \
+     browses there); a plan never asks the owner which profile again while this is open, and FERB uses the answer \
+     by itself";
 /// ORCH-648: the planner's fact while the owner hasn't picked a profile for FERB's web work (was environment.py's "in
 /// a profile the owner names (none chosen for it)", which led plans to ask which profile as a step of their own).
 pub const NOT_PICKED_TAIL: &str = "in the profile the owner picks for it: none picked yet. The first time a task browses as the owner, FERB asks them once by itself which profile to use (a plan never asks it as a step) and uses that profile from then on, unless the owner's words name another one for a task.";

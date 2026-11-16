@@ -669,6 +669,8 @@ async fn a_call_held_open_on_one_connection_never_delays_another_connection_s_ca
     server.register_unary("chat.approve", |_: Session, _: Params| async {
         ok(json!({"state": "granted"}))
     });
+    // chat.approve is FERB.app's alone (GATE-612): every peer here is the app
+    server.set_is_app(|_| true);
     server.start().await.unwrap();
     let mut slow = Raw::cli(server.path()).await;
     slow.request("chat.status", json!({})).await;

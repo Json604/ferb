@@ -194,6 +194,9 @@ pub fn named_rows(
         paused_run(table, cols, a, b);
         if table == "spans" {
             if let Some(c) = cols.iter().position(|c| c == "input_json") {
+                if let Value::String(t) = &a[c] {
+                    a[c] = Value::String(attempts_last_text(t));
+                }
                 if let Some((x, y)) = span_inputs_without_answers(&a[c], &b[c]) {
                     a[c] = x;
                     b[c] = y;
@@ -204,9 +207,82 @@ pub fn named_rows(
     (python, rust)
 }
 
+/// ORCH-655 (not Python's order): a check's previous-attempts block comes last among the task's blocks, just before
+/// FERB's code facts. A recorded check's parts in that order; any other call's as recorded.
+// decision: ORCH-655
+pub fn attempts_last(parts: &Value) -> Value {
+    const ATTEMPTS: &str = "Previous attempts (data):\n";
+    const FACTS: &str = "FERB's code facts about how this work was done";
+    let Some(list) = parts.as_array() else {
+        return parts.clone();
+    };
+    let starts = |p: &Value, with: &str| p.as_str().is_some_and(|t| t.starts_with(with));
+    let (Some(at), Some(facts)) = (
+        list.iter().position(|p| starts(p, ATTEMPTS)),
+        list.iter().position(|p| starts(p, FACTS)),
+    ) else {
+        return parts.clone();
+    };
+    if at > facts {
+        return parts.clone();
+    }
+    let mut out = list.clone();
+    let block = out.remove(at);
+    out.insert(facts - 1, block);
+    Value::Array(out)
+}
+
+/// ORCH-655 in a recorded text that holds a check's context (a span's input, escaped once or more): the
+/// previous-attempts block moved to just before FERB's code facts; any other text as recorded.
+// decision: ORCH-655
+pub fn attempts_last_text(t: &str) -> String {
+    const FACTS: &str = "FERB's code facts about how this work was done";
+    let esc = |x: &str| {
+        let d = ferb_py::json::dumps(&Value::String(x.to_string()));
+        d[1..d.len() - 1].to_string()
+    };
+    let (mut head, mut sep) = (
+        "Previous attempts (data):\n".to_string(),
+        "\n\n".to_string(),
+    );
+    for _ in 0..3 {
+        if let (Some(at), Some(facts)) = (t.find(&head), t.find(FACTS)) {
+            if at > facts {
+                return t.to_string();
+            }
+            let Some(close) = t[at..].find("</untrusted-data id=").map(|c| at + c) else {
+                return t.to_string();
+            };
+            let Some(end) = t[close..].find('>').map(|e| close + e + 1) else {
+                return t.to_string();
+            };
+            let end = if t[end..].starts_with(&sep) {
+                end + sep.len()
+            } else {
+                end
+            };
+            let block = &t[at..end];
+            let rest = format!("{}{}", &t[..at], &t[end..]);
+            let to = rest.find(FACTS).expect("the facts follow");
+            return format!("{}{block}{}", &rest[..to], &rest[to..]);
+        }
+        head = esc(&head);
+        sep = esc(&sep);
+    }
+    t.to_string()
+}
+
 /// A recorded model call and the one made, compared without a check's step-answer block (ORCH-650), which is kept
-/// in `taken`; with one taken out, the budget line's estimate (which counted it) is not compared.
-pub fn named_call(expected: Value, mut actual: Value, taken: &mut Vec<String>) -> (Value, Value) {
+/// in `taken`; with one taken out, the budget line's estimate (which counted it) is not compared. A check's recorded
+/// parts are in ORCH-655's order first.
+pub fn named_call(
+    mut expected: Value,
+    mut actual: Value,
+    taken: &mut Vec<String>,
+) -> (Value, Value) {
+    if let Some(parts) = expected.get("parts").cloned() {
+        expected["parts"] = attempts_last(&parts);
+    }
     let before = taken.len();
     if let Some(parts) = actual.get("parts").cloned() {
         actual["parts"] = without_step_answers(&parts, taken);

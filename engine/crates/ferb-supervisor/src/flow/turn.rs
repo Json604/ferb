@@ -1957,8 +1957,8 @@ impl Inner {
         (token, holder)
     }
 
-    /// `continuity.lend` (kept beside the store: the gateway's lookups read it).
-    fn lend(&self, task_id: &str, conversation: &str) {
+    /// `continuity.lend` (kept beside the store: the gateway's lookups read it through `lent_conversation`, ORCH-662).
+    pub fn lend(&self, task_id: &str, conversation: &str) {
         self.live()
             .lent
             .insert(task_id.to_string(), conversation.to_string());

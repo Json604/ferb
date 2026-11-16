@@ -275,7 +275,7 @@ pub struct AnswerBody {
     pub from: String,
     pub text: String,
     pub display_text: Option<String>,
-    /// The task's end as FERB reports it: done, done_unverified, failed, cancelled, needs_user, …
+    /// The task's end as FERB reports it: done, done_unverified, done_with_gaps (ORCH-651), failed, cancelled, needs_user, …
     pub status: String,
     pub verified: bool,
     /// The files it produced (absolute paths).

@@ -63,6 +63,15 @@ pub trait Reads: Send + Sync {
     fn relevant_context(&self, words: &str) -> Activity;
     /// The desktop observer (`disturbance.context`, `start`, `_tree_finished`'s `finish`).
     fn disturbance_context(&self, tree_id: &str) -> String;
+    /// ORCH-654's named difference: a replay of a Python recording (the stand-ins' script) checks every report.
+    fn checks_unacted_not_done(&self) -> bool {
+        false
+    }
+    /// GATE-609's named difference: a replay of a Python recording (the stand-ins' script) reads no card reply with
+    /// the planner.
+    fn reads_card_replies(&self) -> bool {
+        true
+    }
     fn on_task_start<'a>(&'a self, tree_id: &'a str) -> BoxFuture<'a, ()>;
     fn on_task_finish<'a>(&'a self, tree_id: &'a str) -> BoxFuture<'a, ()>;
     /// (bundle id, name, pid) of the apps running now.
@@ -693,6 +702,12 @@ impl Daemon for SupDaemon {
             .iter()
             .flat_map(|t| t.scopes())
             .collect()
+    }
+    fn checks_unacted_not_done(&self) -> bool {
+        self.reads.checks_unacted_not_done()
+    }
+    fn reads_card_replies(&self) -> bool {
+        self.reads.reads_card_replies()
     }
     fn observes(&self, tool: &str) -> bool {
         self.gateway
@@ -1377,6 +1392,76 @@ impl Daemon for SupDaemon {
         };
         let known = cx.browsing_profiles().unwrap_or_default();
         ferb_daemon::areas_b::browsers::names_profile(&known, words)
+    }
+    /// HAND-580: the planner's named profiles, resolved against the owner's profiles FERB knows now.
+    fn owner_profiles(&self, named: &[String]) -> Vec<(String, String)> {
+        let Some(cx) = self.tools.browsers().and_then(|b| b.area()) else {
+            return Vec::new();
+        };
+        let known = cx.browsing_profiles().unwrap_or_default();
+        ferb_daemon::areas_b::browsers::resolve_named(&known, named)
+    }
+    /// HAND-587: the facts a task's planned profiles are checked against.
+    fn profile_sources(
+        &self,
+        request_id: &str,
+        words: &str,
+    ) -> ferb_supervisor::flow::ProfileSources {
+        use ferb_daemon::areas_b::browsers::{named_in_words, touched_in_words};
+        let Some(cx) = self.tools.browsers().and_then(|b| b.area()) else {
+            return Default::default();
+        };
+        let known = cx.browsing_profiles().unwrap_or_default();
+        let rid = request_id.to_string();
+        let (owner, other) = self
+            .a
+            .get()
+            .and_then(|a| {
+                a.call_blocking(move |st| async move {
+                    ferb_daemon::areas_a::remember::memory_texts(&st, &rid)
+                })
+                .ok()
+            })
+            .unwrap_or_default();
+        let named_by = |texts: &[String]| {
+            let mut out: Vec<(String, String)> = Vec::new();
+            for t in texts {
+                for p in named_in_words(&known, t) {
+                    if !out.contains(&p) {
+                        out.push(p);
+                    }
+                }
+            }
+            out
+        };
+        let owner_memory = named_by(&owner);
+        let other_memory = named_by(&other)
+            .into_iter()
+            .filter(|p| !owner_memory.contains(p))
+            .collect();
+        let paired = cx
+            .deps
+            .pairings
+            .all()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|b| b.identity == ferb_core::types::Identity::Owner)
+            .map(|b| (b.browser, b.folder))
+            .collect();
+        ferb_supervisor::flow::ProfileSources {
+            said: touched_in_words(&known, words),
+            owner_memory,
+            other_memory,
+            paired,
+        }
+    }
+    /// HAND-581: the owner's profiles the owner's own words name.
+    fn profiles_in_words(&self, words: &str) -> Vec<(String, String)> {
+        let Some(cx) = self.tools.browsers().and_then(|b| b.area()) else {
+            return Vec::new();
+        };
+        let known = cx.browsing_profiles().unwrap_or_default();
+        ferb_daemon::areas_b::browsers::named_in_words(&known, words)
     }
     /// areas/schedules.py `_typed_behind_memory`: what the owner typed behind each active owner-stated memory item.
     fn typed_behind_memory(&self, request_id: &str) -> Vec<String> {

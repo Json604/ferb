@@ -260,10 +260,32 @@ pub fn window_shown_line(fact: &Map<String, Value>, site: &str) -> Option<String
             "Your browser window came to the front{focus} when {page} {did}; I left it as it was."
         ));
     }
-    let after = if flag("put_back") {
-        "I minimized it"
-    } else {
-        "I couldn't minimize it"
+    // the window (the extension's `put_back`), then the owner's app (HAND-570: `app_put_back`, `previous`, `app_why`)
+    let text = |k: &str| {
+        fact.get(k)
+            .and_then(Value::as_str)
+            .filter(|t| !t.is_empty())
+    };
+    let previous = text("previous").unwrap_or("your app");
+    let after = match (
+        flag("put_back"),
+        fact.get("app_put_back").and_then(Value::as_bool),
+    ) {
+        (true, None) => "I minimized it".to_string(),
+        (false, None) => "I couldn't minimize it".to_string(),
+        (true, Some(true)) => format!("I minimized it and put {previous} back"),
+        (false, Some(true)) => format!("I couldn't minimize it, but I put {previous} back"),
+        (down, Some(false)) => {
+            let first = if down {
+                "I minimized it but"
+            } else {
+                "I couldn't minimize it and"
+            };
+            match text("app_why") {
+                Some(why) => format!("{first} couldn't put {previous} back: {why}"),
+                None => format!("{first} couldn't put {previous} back"),
+            }
+        }
     };
     let moment = if flag("put_back") {
         " for a moment"

@@ -272,6 +272,10 @@ struct CardRowView: View {
                 if let text = row.text { collapsible { NativeMessageText(text, secondary: true) } }
             case .done, .updated:
                 if let text = row.text { collapsible { MarkdownContent(text).equatable() } }
+            case .gaps:
+                // ORCH-651: what was delivered, then code's "Not done:" lines, never collapsed away
+                Text(display.words ?? "").font(.system(size: 11, weight: .semibold)).foregroundStyle(Palette.amber)
+                if let text = row.text { MarkdownContent(text).equatable() }
             case .needsYou, .paused:
                 if let text = row.text { MarkdownContent(text).equatable() }
                 else if let words = display.words, questions.isEmpty, row.question == nil {
@@ -311,7 +315,7 @@ struct CardRowView: View {
     static func stateName(_ kind: RowDisplay.Kind) -> String {
         [.waiting: "waiting", .starting: "starting", .running: "working", .checking: "checking the result",
          .retrying: "trying again", .needsYou: "asks you", .paused: "paused", .done: "done", .updated: "updated",
-         .failed: "couldn't do", .wontRun: "won't run", .stopped: "stopped by you", .notFinished: "not finished", .loop: "watching",
+         .failed: "couldn't do", .wontRun: "won't run", .stopped: "stopped by you", .notFinished: "not finished", .loop: "watching", .gaps: "delivered, with parts not done",
          .working: "working", .preview: "preview, nothing done", .previewRunning: "preview, nothing done"][kind]
             ?? kind.rawValue
     }

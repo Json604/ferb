@@ -90,7 +90,14 @@ const CARD_TYPES: [&str; 9] = [
     "schedules",
 ];
 /// A checklist step's ends kept once its task ended (StepChecklist.end).
-const ENDS: [&str; 5] = ["done", "failed", "not_finished", "wont_run", "stopped"];
+const ENDS: [&str; 6] = [
+    "done",
+    "done_with_gaps",
+    "failed",
+    "not_finished",
+    "wont_run",
+    "stopped",
+];
 /// The frames and bus topics FERB.app keeps as live state only.
 const LIVE_FRAMES: [&str; 11] = [
     "progress",

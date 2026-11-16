@@ -64,6 +64,8 @@ public struct RowDisplay: Equatable {
     public enum Kind: String {
         case waiting, starting, running, checking, retrying, needsYou, paused, done, updated, failed, wontRun
         case notFinished, loop, working, preview, previewRunning
+        /// ORCH-651: delivered, with conditions not done; its text ends with code's "Not done:" lines.
+        case gaps
         /// ORCH-613: the owner said no to the part's action on its own card: their decision, drawn as a stop is
         /// (neutral, never red), its text the worker's own words.
         case stopped
@@ -97,6 +99,7 @@ public struct RowDisplay: Equatable {
         if row.state == "paused" { return RowDisplay(kind: .paused) }
         if row.state == "updated" { return RowDisplay(kind: .updated) }
         if row.state == "done" { return RowDisplay(kind: .done) }
+        if row.state == "done_with_gaps" { return RowDisplay(kind: .gaps, words: "Delivered, with parts not done") }
         if row.state == "stopped" { return RowDisplay(kind: .stopped) }
         let step = row.step.flatMap { steps[$0] }
         if row.state == "failed" {
@@ -139,6 +142,7 @@ public struct RowDisplay: Equatable {
         case "needs_you": return RowDisplay(kind: .needsYou, words: "Needs you")
         case "not_finished": return RowDisplay(kind: .notFinished, words: "Not finished")
         case "wont_run": return RowDisplay(kind: .wontRun, words: "Won't run: an earlier step couldn't be done")
+        case "done_with_gaps": return RowDisplay(kind: .gaps, words: "Delivered, with parts not done")
         default:
             // checking; or done / failed a moment before the row posts its answer
             return RowDisplay(kind: .checking, words: "Checking the result", spinner: true)

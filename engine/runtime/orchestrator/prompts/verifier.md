@@ -76,6 +76,11 @@ What happens next (`next`), one of:
 - accept_unconfirmed: the worker reported done, nothing you checked is false, but an outcome condition itself can't be
   verified with your tools: `reason` (for FERB's record; the owner reads the worker's answer and the condition, never
   your reason) and the condition's `how`. A sentence of the answer is never its reason: list it in `findings`.
+- accept_with_gaps: the worker reported done, at least one condition is met on fresh evidence, and each unmet one can't
+  be met by more work (an input only the owner has, the owner's words conflicting with a source): `gaps`, each unmet
+  condition's index and the plain reason; FERB shows the owner what was delivered and each gap as not done. A condition
+  more work could meet is a retry. Invented evidence presented as real (made-up participants, data or quotes) is an
+  unmet condition, named as such in `gaps`, and its sentences are `findings`.
 - fail: the work failed or can't be done: `reason` says plainly, in the owner's terms, what was done, what didn't work
   and what they can do, as FERB telling them (the owner may read it as FERB's reply: never about "the answer", "the
   worker" or this check); never a success claim.
