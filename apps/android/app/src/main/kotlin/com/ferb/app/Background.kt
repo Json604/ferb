@@ -100,9 +100,14 @@ class AnswerReceiver : BroadcastReceiver() {
                     app.phone.state.first { it is PhoneState.Open }
                     app.phone.link.first { it?.phase == LinkPhase.ONLINE }
                 }
+                // the question as the chat holds it, else as the Mac's status gives it (a locked app reads no chat)
+                val status = app.api.lastStatus() ?: (app.api.status() as? Outcome.Ok)?.value
                 val view = (app.api.transcript() as? Outcome.Ok)?.value
-                val q = view?.questions?.firstOrNull { it.approvalId == id }?.let(Questions::parse)
+                val fromChat = view?.questions?.firstOrNull { it.approvalId == id && it.open }?.let(Questions::parse)
+                val q = Questions.merged(listOfNotNull(fromChat), status).firstOrNull { it.approvalId == id }
                 if (q == null || q.hidden) { app.notifier.answered(id, context.getString(R.string.question_gone), false); return@launch }
+                // a button is only on a routine question; one that needs the phone's proof is answered in the app
+                if (!q.routine) { app.notifier.answered(id, context.getString(R.string.n_needs_fingerprint_text), true); return@launch }
                 val input: AnswerInput = when {
                     choice >= 0 -> q.choices.getOrNull(choice)?.input ?: return@launch
                     typed.isNotEmpty() -> AnswerInput.Words(typed)

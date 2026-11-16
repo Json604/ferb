@@ -7,13 +7,60 @@ use zeroize::Zeroize;
 
 use crate::callbacks::{
     Clock, ClockAdapter, GuardedSpawner, Ids, IdsAdapter, Listener, ListenerAdapter, Signer,
-    SignerAdapter, Transport, TransportAdapter,
+    SignerAdapter, TransferAdapter, TransferListener, Transport, TransportAdapter,
 };
 use crate::error::{FerbError, guard, guard_or};
 use crate::link::{Link, LinkInner};
 use crate::records::{
-    Cancelled, Conv, ConversationInfo, LinkState, OlderState, OutboxItem, TranscriptView,
+    Attachment, Cancelled, Conv, ConversationInfo, Fetched, Folder, LinkState, MacInfo, OlderState,
+    OutboxItem, PhoneStatus, PreviewFrame, SettingValue, TaskPage, TranscriptView, Tree, Uploaded,
 };
+
+fn signer_of(s: Arc<dyn Signer>) -> Arc<dyn ferb_mobile::Signer> {
+    Arc::new(SignerAdapter(s))
+}
+
+/// Where a live preview's answers go (`Mobile.watch_live`), on the preview's own thread: post and return.
+#[uniffi::export(foreign)]
+pub trait PreviewSink: Send + Sync {
+    /// One answer: a new frame (`jpeg`), or the state and line over the last one.
+    fn frame(&self, frame: PreviewFrame);
+    /// The preview stopped by itself: `code` is the stable code of why (`needs_better_path` on the public relay,
+    /// `needs_unlock` after the lock, `closed`, `refused`), none when `stop` was called.
+    fn ended(&self, code: Option<String>, detail: Option<String>);
+}
+
+/// A task's live preview under way (`Mobile.watch_live`): frames in memory only, at the link's pace. `stop` ends it
+/// (idempotent); so does dropping it.
+#[derive(uniffi::Object)]
+pub struct LivePreview {
+    stop: Arc<std::sync::atomic::AtomicBool>,
+}
+
+#[uniffi::export]
+impl LivePreview {
+    /// Stops asking for frames (the one under way, if any, is not shown).
+    pub fn stop(&self) {
+        self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    pub fn is_stopped(&self) -> bool {
+        self.stop.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+impl Drop for LivePreview {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+/// The least time between two frame requests: the link's least time between two pictures on a direct path or the
+/// owner's relay (ferb-link `Limits::good_preview_every_ms`, 200 ms); asking sooner is refused there.
+pub const PREVIEW_LEAST_MS: u64 = 200;
+/// After a passing failure (the link dropped a moment, a capture failed), the wait before asking again (FERB.app's
+/// own: "A brief failure keeps the last frame", then a second).
+pub const PREVIEW_RETRY_MS: u64 = 1000;
 
 /// What the app tells the core at open.
 #[derive(Debug, Clone, uniffi::Record)]
@@ -325,9 +372,235 @@ impl Mobile {
             let proof = serde_json::json!({"payload": payload, "sig": sig}).to_string();
             t.call("link.unlock", "{}", Some(&proof))
                 .map_err(FerbError::from_link)?;
+            // the app is unlocked: the conversation is read again (PHN-125)
+            core.unlocked();
             // what waited for the unlock goes now; a failure of that is the sync's own, reported to the listener
             let _ = core.sync();
             Ok(())
+        })
+    }
+
+    /// The app locked (PHN-15): the Mac is told (its unlock window for this phone ends now) and the conversation's
+    /// watch stops until the next `unlock` (PHN-125); what waits still arrives as the Mac's status. Returns whether the
+    /// Mac was told (false offline: its window ends by itself after its idle time). Network: not on the UI thread.
+    pub fn lock(&self) -> Result<bool, FerbError> {
+        guard(|| Ok(self.core()?.lock()?))
+    }
+
+    /// The app unlocked without reaching the Mac (offline): the conversation is read again from the next sync, when
+    /// the Mac admits it. `unlock` does this itself.
+    pub fn unlocked(&self) -> Result<(), FerbError> {
+        guard(|| {
+            self.core()?.unlocked();
+            Ok(())
+        })
+    }
+
+    /// "Stop everything on the Mac" (`stop.engage`): FERB stops all it does until the stop is lifted on the Mac. Works
+    /// while locked (PHN-125); never queued. Network: not on the UI thread.
+    pub fn stop_everything(&self) -> Result<(), FerbError> {
+        guard(|| Ok(self.core()?.stop_everything()?))
+    }
+
+    /// What FERB has waiting now (`chat.status`, allowed while locked): each question's needs (routine, the
+    /// fingerprint, only on the Mac), what runs, what finished. Network: not on the UI thread.
+    pub fn status(&self) -> Result<PhoneStatus, FerbError> {
+        guard(|| Ok(self.core()?.status()?.conv()))
+    }
+
+    /// The last status the Mac pushed or `status` read (memory only; none until one arrives). Safe on the UI thread.
+    pub fn last_status(&self) -> Result<Option<PhoneStatus>, FerbError> {
+        guard(|| Ok(self.core()?.last_status()?.conv()))
+    }
+
+    /// Marks the conversation read up to the newest entry this phone holds. Network: not on the UI thread.
+    pub fn mark_read_latest(&self, conversation: String) -> Result<(), FerbError> {
+        guard(|| Ok(self.core()?.mark_read_latest(&conversation)?))
+    }
+
+    /// A message with files: this phone's finished uploads on the Mac (`upload`'s ids), kept in the outbox like any
+    /// message. Network when online: not on the UI thread.
+    pub fn send_with(
+        &self,
+        text: String,
+        attachments: Vec<Attachment>,
+    ) -> Result<OutboxItem, FerbError> {
+        guard(|| {
+            let files: Vec<ferb_mobile::store::Attachment> =
+                attachments.into_iter().map(Into::into).collect();
+            Ok(self.core()?.send_with(&text, &files)?.conv())
+        })
+    }
+
+    /// One folder of the Mac (`~` when none). A key place's folder needs `signer` (the fingerprint-only key, for this
+    /// very path): without one it is `NeedsUnlock` with link code `fresh_unlock_required`. Network.
+    pub fn files(
+        &self,
+        path: Option<String>,
+        signer: Option<Arc<dyn Signer>>,
+    ) -> Result<Folder, FerbError> {
+        guard(|| {
+            Ok(self
+                .core()?
+                .files(path.as_deref(), signer.map(signer_of))?
+                .conv())
+        })
+    }
+
+    /// Every file under a folder, to fetch it whole (direct or the owner's relay only). Network.
+    pub fn tree(&self, path: String, signer: Option<Arc<dyn Signer>>) -> Result<Tree, FerbError> {
+        guard(|| Ok(self.core()?.tree(&path, signer.map(signer_of))?.conv()))
+    }
+
+    /// Fetches one file into `save_to` (app-private storage) from `offset` (what a paused fetch saved: appended).
+    /// `id` names it for `cancel_transfer`. A key place's file needs `signer`. Direct or the owner's relay only.
+    /// Blocks until done: on a background thread.
+    pub fn fetch(
+        &self,
+        id: String,
+        path: String,
+        save_to: String,
+        offset: u64,
+        signer: Option<Arc<dyn Signer>>,
+        listener: Arc<dyn TransferListener>,
+    ) -> Result<Fetched, FerbError> {
+        guard(|| {
+            Ok(self
+                .core()?
+                .fetch(
+                    &id,
+                    &path,
+                    &save_to,
+                    offset,
+                    signer.map(signer_of),
+                    Arc::new(TransferAdapter(listener)),
+                )?
+                .conv())
+        })
+    }
+
+    /// Starts a folder sent from the phone: the id its files carry as `group`. Network.
+    pub fn put_group(&self, name: String) -> Result<String, FerbError> {
+        guard(|| Ok(self.core()?.put_group(&name)?))
+    }
+
+    /// Sends the file at `local_path` (app-private storage) to the Mac's upload folder as `name`; `resume` goes on
+    /// with an upload that stopped part way (its id). `id` names it for `cancel_transfer` (a pause: the Mac keeps what
+    /// arrived for a while). Direct or the owner's relay only. Blocks until done: on a background thread.
+    #[allow(clippy::too_many_arguments)]
+    pub fn upload(
+        &self,
+        id: String,
+        local_path: String,
+        name: String,
+        resume: Option<String>,
+        group: Option<String>,
+        rel: Option<String>,
+        listener: Arc<dyn TransferListener>,
+    ) -> Result<Uploaded, FerbError> {
+        guard(|| {
+            Ok(self
+                .core()?
+                .upload(
+                    &id,
+                    &local_path,
+                    &name,
+                    resume.as_deref(),
+                    group.as_deref(),
+                    rel.as_deref(),
+                    Arc::new(TransferAdapter(listener)),
+                )?
+                .conv())
+        })
+    }
+
+    /// Stops a transfer under way (its `fetch` or `upload` then fails with `Cancelled`).
+    pub fn cancel_transfer(&self, id: String) -> Result<(), FerbError> {
+        guard(|| Ok(self.core()?.cancel_transfer(&id)?))
+    }
+
+    /// One live preview answer (the frame in memory only, PHN-454). Refused on the public relay before anything is
+    /// asked (`NeedsBetterPath`). Network.
+    pub fn preview(&self, task_id: String, have: Option<i64>) -> Result<PreviewFrame, FerbError> {
+        guard(|| Ok(self.core()?.preview(&task_id, have)?.conv()))
+    }
+
+    /// A task's live preview: asks for frames on a thread of its own, at the link's pace (FERB.app's rule: at once
+    /// after a fresh frame, 200 ms while busy, else a second; never sooner than the link's 200 ms), each answer to
+    /// `sink`; it ends by itself on the public relay, after the lock, or when closed (`sink.ended`), and by `stop`.
+    /// Frames live in memory only (PHN-454). Safe on the UI thread (it only starts the thread).
+    pub fn watch_live(
+        &self,
+        task_id: String,
+        sink: Arc<dyn PreviewSink>,
+    ) -> Result<Arc<LivePreview>, FerbError> {
+        guard(|| {
+            let core = self.core()?;
+            let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let flag = stop.clone();
+            let weak = Arc::downgrade(&core);
+            drop(core);
+            std::thread::Builder::new()
+                .name("ferb-preview".into())
+                .spawn(move || {
+                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        live_loop(weak, task_id, sink, flag)
+                    }));
+                })
+                .map_err(|_| FerbError::internal())?;
+            Ok(Arc::new(LivePreview { stop }))
+        })
+    }
+
+    /// FERB's settings (`settings.get`; needs the unlock). Network.
+    pub fn settings(&self) -> Result<Vec<SettingValue>, FerbError> {
+        guard(|| Ok(self.core()?.settings()?.conv()))
+    }
+
+    /// Changes one of FERB's settings (`settings.set`): signed by `signer` (the fingerprint-only key where the phone
+    /// has one, PHN-133). Returns the value the Mac stored, as JSON text. Network and the prompt.
+    pub fn set_setting(
+        &self,
+        key: String,
+        value_json: String,
+        signer: Arc<dyn Signer>,
+    ) -> Result<String, FerbError> {
+        guard(|| {
+            Ok(self
+                .core()?
+                .set_setting(&key, &value_json, signer_of(signer))?)
+        })
+    }
+
+    /// The Mac's tasks, newest first (`tasks.list`; needs the unlock). Network.
+    pub fn tasks(&self, limit: u32, before: Option<String>) -> Result<TaskPage, FerbError> {
+        guard(|| Ok(self.core()?.tasks(limit, before.as_deref())?.conv()))
+    }
+
+    /// What the Mac says about itself and this phone (its name, this phone's pairing date), kept. Network.
+    pub fn mac_info(&self) -> Result<MacInfo, FerbError> {
+        guard(|| Ok(self.core()?.mac_info()?.conv()))
+    }
+
+    /// The last `mac_info` kept (no network).
+    pub fn cached_mac_info(&self) -> Result<Option<MacInfo>, FerbError> {
+        guard(|| Ok(self.core()?.cached_mac_info()?.conv()))
+    }
+
+    /// Registers keys made after pairing (the device key, the fingerprint-only key), signed by `signer` (the
+    /// fingerprint-only key where the Mac already holds one, else the lock key). Network and the prompt.
+    pub fn register_keys(
+        &self,
+        device_pub: Option<String>,
+        strong_pub: Option<String>,
+        signer: Arc<dyn Signer>,
+    ) -> Result<(), FerbError> {
+        guard(|| {
+            Ok(self.core()?.register_keys(
+                device_pub.as_deref(),
+                strong_pub.as_deref(),
+                signer_of(signer),
+            )?)
         })
     }
 
@@ -371,5 +644,75 @@ impl Mobile {
 impl Drop for Mobile {
     fn drop(&mut self) {
         self.shutdown();
+    }
+}
+
+/// The live preview's loop (`Mobile::watch_live`): one answer at a time, at the link's pace, until stopped, the core
+/// closes, or the path or the lock refuses it.
+fn live_loop(
+    core: std::sync::Weak<ferb_mobile::Mobile>,
+    task_id: String,
+    sink: Arc<dyn PreviewSink>,
+    stop: Arc<std::sync::atomic::AtomicBool>,
+) {
+    use std::sync::atomic::Ordering;
+    let stopped = || stop.load(Ordering::SeqCst);
+    let ended = |code: Option<String>, detail: Option<String>| {
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| sink.ended(code, detail)));
+    };
+    let mut have: Option<i64> = None;
+    loop {
+        if stopped() {
+            return ended(None, None);
+        }
+        let Some(c) = core.upgrade() else {
+            return ended(Some("closed".into()), None);
+        };
+        if c.is_locked() {
+            return ended(
+                Some("needs_unlock".into()),
+                Some("Unlock to watch live.".into()),
+            );
+        }
+        let answer = c.preview(&task_id, have);
+        drop(c);
+        let wait = match answer {
+            Ok(f) => {
+                let next = f.next_after_ms();
+                if f.jpeg.is_some() {
+                    have = f.seq;
+                } else if f.gone {
+                    have = None;
+                }
+                if stopped() {
+                    return ended(None, None);
+                }
+                let frame: PreviewFrame = f.conv();
+                let _ =
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| sink.frame(frame)));
+                next.max(PREVIEW_LEAST_MS)
+            }
+            Err(e) => {
+                let e = FerbError::from(e);
+                match e {
+                    FerbError::NeedsBetterPath { .. }
+                    | FerbError::NeedsUnlock { .. }
+                    | FerbError::Closed { .. } => {
+                        return ended(Some(e.code().to_string()), Some(e.detail().to_string()));
+                    }
+                    FerbError::Refused { .. } if e.link_code() != Some("preview_too_soon") => {
+                        return ended(Some(e.code().to_string()), Some(e.detail().to_string()));
+                    }
+                    _ => PREVIEW_RETRY_MS,
+                }
+            }
+        };
+        // wait in short steps, so a stop is heard at once
+        let mut left = wait;
+        while left > 0 && !stopped() {
+            let step = left.min(50);
+            std::thread::sleep(std::time::Duration::from_millis(step));
+            left -= step;
+        }
     }
 }

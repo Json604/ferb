@@ -4,8 +4,9 @@
 //!
 //! One pump thread polls the door and routes each event: a call's `result` or `error` to the caller waiting on it, a
 //! stream's `event`s to its watch sink (or, for `chat.send`, the first `ack` to the sender), and the link's own events
-//! (`state`, `bulk`, `relay_state`, `persist`, `prove`) to the app's callback, which passes the first three to
-//! `Mobile::link_event`.
+//! (`state`, `bulk`, `relay_state`, `persist`, `prove`, and the Mac's pushed `status` and `notice`) to the app's
+//! callback, which passes `state`, `bulk`, `relay_state` and `status` to `Mobile::link_event`. A transfer (`get`,
+//! `put`) hears its `progress` (and an upload its `accepted`) until its `result` or `error`.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -15,7 +16,7 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
-use crate::transport::{codes, LinkFailure, Transport, WatchHandle, WatchSink};
+use crate::transport::{codes, LinkFailure, TransferSink, Transport, WatchHandle, WatchSink};
 
 /// ferb-link's door: `command(json) -> {"ok":true}|{"error":{..}}` at once, `poll(wait_ms) -> event JSON or ""`.
 pub trait LinkDoor: Send + Sync {
@@ -29,12 +30,32 @@ pub trait LinkDoor: Send + Sync {
 pub const CALL_BACKSTOP: Duration = Duration::from_secs(60);
 /// How long one poll of the pump waits (the pump checks for its own close in between).
 pub const PUMP_POLL_MS: u64 = 500;
+/// How long a transfer may go without a word (no progress, no result) before its caller stops waiting: the link's
+/// own stall checks end a dead transfer first; the Mac may take a while to hash a very large file before its first
+/// byte (the bridge waits up to 30 minutes for that), so this backstop is as long.
+pub const TRANSFER_SILENCE: Duration = Duration::from_secs(1800);
+/// The link's own events (not a call's) the app hears.
+const LINK_EVENTS: [&str; 7] = [
+    "state",
+    "bulk",
+    "relay_state",
+    "persist",
+    "prove",
+    "status",
+    "notice",
+];
 
 enum Waiter {
     Call(mpsc::Sender<Result<Value, LinkFailure>>),
     /// `chat.send`: the first `ack` (or the refusal) goes to the sender; the rest of the stream is not read here.
     Send(Option<mpsc::Sender<Result<Value, LinkFailure>>>),
     Watch(Arc<dyn WatchSink>),
+    /// A file or picture under way: its progress to the sink, its outcome to the caller.
+    Transfer(
+        mpsc::Sender<Result<Value, LinkFailure>>,
+        Arc<dyn TransferSink>,
+        Arc<AtomicU64>,
+    ),
 }
 
 struct Inner {
@@ -98,7 +119,7 @@ impl DoorTransport {
             .collect();
         for w in waiters {
             match w {
-                Waiter::Call(tx) | Waiter::Send(Some(tx)) => {
+                Waiter::Call(tx) | Waiter::Send(Some(tx)) | Waiter::Transfer(tx, _, _) => {
                     let _ = tx.send(Err(closed()));
                 }
                 Waiter::Watch(sink) => sink.ended(Some(closed())),
@@ -123,14 +144,19 @@ impl DoorTransport {
         proof: Option<Value>,
         waiter: Waiter,
     ) -> Result<(), LinkFailure> {
-        if self.inner.closed.load(Ordering::SeqCst) {
-            return Err(closed());
-        }
-        self.inner.lock().insert(id.to_string(), waiter);
         let mut cmd = json!({"cmd": "call", "id": id, "method": method, "params": params});
         if let Some(p) = proof {
             cmd["proof"] = p;
         }
+        self.issue_command(id, cmd, waiter)
+    }
+
+    /// Hands any command with an id to the door (a call, a `get`, a `put`).
+    fn issue_command(&self, id: &str, cmd: Value, waiter: Waiter) -> Result<(), LinkFailure> {
+        if self.inner.closed.load(Ordering::SeqCst) {
+            return Err(closed());
+        }
+        self.inner.lock().insert(id.to_string(), waiter);
         let reply: Value =
             serde_json::from_str(&self.inner.door.command(&cmd.to_string())).unwrap_or(Value::Null);
         if let Some(e) = reply.get("error") {
@@ -176,7 +202,7 @@ impl Inner {
         let id = ev["id"].as_str().map(str::to_string);
         let ty = ev["type"].as_str().unwrap_or_default();
         let Some(id) = id.filter(|i| self.lock().contains_key(i)) else {
-            if matches!(ty, "state" | "bulk" | "relay_state" | "persist" | "prove") {
+            if LINK_EVENTS.contains(&ty) {
                 (self.on_event)(text.to_string());
             }
             return;
@@ -196,6 +222,25 @@ impl Inner {
                         }
                     }
                     _ => {}
+                }
+            }
+            "progress" | "accepted" => {
+                let waiters = self.lock();
+                if let Some(Waiter::Transfer(_, sink, last)) = waiters.get(&id) {
+                    let (sink, last) = (sink.clone(), last.clone());
+                    drop(waiters);
+                    last.store(now_s(), Ordering::SeqCst);
+                    if ty == "progress" {
+                        sink.progress(
+                            ev["done"].as_u64().unwrap_or(0),
+                            ev["of"].as_u64().unwrap_or(0),
+                        );
+                    } else {
+                        sink.accepted(
+                            ev["upload_id"].as_str().unwrap_or_default(),
+                            ev["offset"].as_u64().unwrap_or(0),
+                        );
+                    }
                 }
             }
             "result" | "error" => {
@@ -223,6 +268,9 @@ impl Inner {
                     }
                     Waiter::Send(None) => {}
                     Waiter::Watch(sink) => sink.ended(outcome.err()),
+                    Waiter::Transfer(tx, _, _) => {
+                        let _ = tx.send(outcome);
+                    }
                 }
             }
             _ => {}
@@ -282,5 +330,100 @@ impl Transport for DoorTransport {
             inner: self.inner.clone(),
             id,
         }))
+    }
+
+    fn get(
+        &self,
+        id: &str,
+        params_json: &str,
+        save_to: Option<&str>,
+        append: bool,
+        sink: Arc<dyn TransferSink>,
+    ) -> Result<String, LinkFailure> {
+        let params: Value = serde_json::from_str(params_json).unwrap_or(json!({}));
+        let mut cmd = json!({"cmd": "get", "id": id, "params": params});
+        if let Some(p) = save_to {
+            cmd["save_to"] = json!(p);
+            cmd["append"] = json!(append);
+        }
+        self.transfer(id, cmd, sink)
+    }
+
+    fn put(
+        &self,
+        id: &str,
+        path: &str,
+        opts_json: &str,
+        sink: Arc<dyn TransferSink>,
+    ) -> Result<String, LinkFailure> {
+        let mut cmd = json!({"cmd": "put", "id": id, "path": path});
+        if let Ok(Value::Object(opts)) = serde_json::from_str::<Value>(opts_json) {
+            for k in ["name", "resume", "group", "rel"] {
+                if let Some(v) = opts.get(k).filter(|v| !v.is_null()) {
+                    cmd[k] = v.clone();
+                }
+            }
+        }
+        self.transfer(id, cmd, sink)
+    }
+
+    /// Stops a transfer (or a call) under way: the door aborts it (no result follows for its id), so its caller is
+    /// answered here with `cancelled`.
+    fn cancel(&self, id: &str) {
+        let w = self.inner.lock().remove(id);
+        let _ = self
+            .inner
+            .door
+            .command(&json!({"cmd": "cancel", "target": id}).to_string());
+        let stopped = || LinkFailure::new(codes::CANCELLED, "Stopped on the phone.");
+        match w {
+            Some(Waiter::Call(tx))
+            | Some(Waiter::Send(Some(tx)))
+            | Some(Waiter::Transfer(tx, _, _)) => {
+                let _ = tx.send(Err(stopped()));
+            }
+            Some(Waiter::Watch(sink)) => sink.ended(None),
+            _ => {}
+        }
+    }
+}
+
+/// Seconds on a monotonic clock of this process (a transfer's last word).
+fn now_s() -> u64 {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    START
+        .get_or_init(std::time::Instant::now)
+        .elapsed()
+        .as_secs()
+}
+
+impl DoorTransport {
+    /// A transfer: its outcome, waited for as long as it keeps saying something (`TRANSFER_SILENCE`).
+    fn transfer(
+        &self,
+        id: &str,
+        cmd: Value,
+        sink: Arc<dyn TransferSink>,
+    ) -> Result<String, LinkFailure> {
+        let (tx, rx) = mpsc::channel();
+        let last = Arc::new(AtomicU64::new(now_s()));
+        self.issue_command(id, cmd, Waiter::Transfer(tx, sink, last.clone()))?;
+        loop {
+            match rx.recv_timeout(Duration::from_secs(5)) {
+                Ok(r) => return r.map(|v| v.to_string()),
+                Err(mpsc::RecvTimeoutError::Disconnected) => return Err(closed()),
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    if now_s().saturating_sub(last.load(Ordering::SeqCst))
+                        > TRANSFER_SILENCE.as_secs()
+                    {
+                        self.cancel(id);
+                        return Err(LinkFailure::new(
+                            codes::MAC_UNREACHABLE,
+                            "FERB's Mac stopped sending.",
+                        ));
+                    }
+                }
+            }
+        }
     }
 }

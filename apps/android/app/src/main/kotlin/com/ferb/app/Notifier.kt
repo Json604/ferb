@@ -9,8 +9,8 @@ import android.app.PendingIntent
 import android.app.RemoteInput
 import android.content.BroadcastReceiver
 import android.content.Context
-import android.content.IntentFilter
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import com.ferb.app.model.ChatModel
 import com.ferb.app.model.PhoneApi
@@ -18,23 +18,33 @@ import com.ferb.app.model.Question
 import com.ferb.app.model.Questions
 import com.ferb.app.model.WorkModel
 import com.ferb.core.Outcome
+import com.ferb.design.components.MarkKind
 import com.ferb.mobile.Change
 import com.ferb.mobile.Item
 import com.ferb.mobile.LinkPhase
+import com.ferb.mobile.PhoneStatus
 import com.ferb.mobile.TranscriptView
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /**
- * FERB's notifications (PHN-415, PHN-417, PHN-421, PHN-422): a question (answerable from its buttons), a task that
- * finished or couldn't, and a dropped link the owner must act on. They are posted from what the link brings while
- * the process runs (the app in front, or Stay connected's service); with the app swiped away and Stay connected off,
- * nothing arrives (closed-app push is stage 5). Nothing private beyond the decisions: on the lock screen the text
- * follows the phone's own setting (VISIBILITY_PRIVATE with a public version), FERB's own checks show no words there
- * at all while the owner's setting says so, a private answer's question is never worded, and no picture is ever put
- * in one. No polling: each read follows a change the core announced.
+ * FERB's notifications (PHN-415, PHN-417, PHN-421, PHN-422, PHN-125, PHN-126): a question, a task that finished or
+ * couldn't, and a dropped link the owner must act on. They come from two places, each read when the core announces a
+ * change (no polling): the Mac's status (`Change.Status`: what waits, each question's needs, what finished; it keeps
+ * coming while the app is locked) and, while unlocked, the transcript (the question's full words, its exact thing).
+ *
+ * What a question's notification carries follows the Mac's needs for it, never the app's judgement:
+ * - routine (the Mac takes the answer with no proof): its words and up to three answer buttons, or a typed answer;
+ * - needs the phone's proof: its words and no buttons, "Needs your fingerprint. Tap to answer it in FERB.";
+ * - only on the Mac (can_answer false): its words and that it is answered on the Mac;
+ * - a hidden input: never worded (PHN-422), "Open FERB to answer.";
+ * - words held back (a locked session that didn't prove the device key, PHN-126): "FERB has a question", wordless;
+ * - one of FERB's own checks while the phone is locked and the owner's setting is on: wordless, no buttons (PHN-422).
+ * Unknown needs (no status yet) are treated as needing the app: no buttons. Every notification is VISIBILITY_PRIVATE
+ * with a public version; no picture is ever put in one.
  */
 class Notifier(
     private val context: Context,
@@ -46,12 +56,10 @@ class Notifier(
     private val keyguard = context.getSystemService(KeyguardManager::class.java)
     private val gate = Mutex()
 
-    /** FERB's checks on show now: worded again when the phone is unlocked, wordless when it locks (PHN-422). */
-    private val checks = java.util.concurrent.ConcurrentHashMap<String, Question>()
-
-    /** Ids posted this process (questions open now); the persisted set says what was announced before. */
-    private val shown = HashSet<String>()
-    private var primed = false
+    /** Questions on show now (re-posted when the phone locks or unlocks: FERB's checks change their words then). */
+    private val posted = ConcurrentHashMap<String, Question>()
+    private var primedTranscript = false
+    private var primedStatus = false
 
     fun start(scope: CoroutineScope) {
         channels()
@@ -61,12 +69,20 @@ class Notifier(
         val screen = object : BroadcastReceiver() {
             override fun onReceive(c: Context, i: Intent) {
                 val locked = i.action == Intent.ACTION_SCREEN_OFF
-                for (q in checks.values) question(q, lockedNow = locked, quietly = true)
+                for (q in posted.values) if (q.ownCheck) question(q, lockedNow = locked, quietly = true)
             }
         }
         context.registerReceiver(screen, IntentFilter().apply { addAction(Intent.ACTION_SCREEN_OFF); addAction(Intent.ACTION_USER_PRESENT) },
             Context.RECEIVER_NOT_EXPORTED)
-        scope.launch { api.changes.collect { c -> if (c is Change.Transcript || c is Change.Live) scope.launch { look() } } }
+        scope.launch {
+            api.changes.collect { c ->
+                when (c) {
+                    is Change.Transcript, is Change.Live -> scope.launch { lookTranscript() }
+                    is Change.Status -> scope.launch { lookStatus() }
+                    else -> Unit
+                }
+            }
+        }
         scope.launch {
             var last: LinkPhase? = null
             api.link.collect { l ->
@@ -82,68 +98,118 @@ class Notifier(
     /** Should a notification show now: not while the owner is looking at the open app. */
     private val quiet: Boolean get() = session.front.value && !session.locked.value
 
-    private suspend fun look() = gate.withLock {
+    /** The Mac's status: questions with their needs, and what finished (held: wordless). Works while locked. */
+    private suspend fun lookStatus() = gate.withLock {
+        val status = api.lastStatus() ?: return@withLock
+        val announced = prefs.announced.toMutableSet()
+        val view = if (session.locked.value) null else (api.transcript() as? Outcome.Ok)?.value
+        val questions = Questions.merged(view?.let { Questions.open(it.questions) }.orEmpty().filter { q -> status.questions.any { it.approvalId == q.approvalId } }, status)
+        if (!primedStatus) {
+            primedStatus = true
+            announced += questions.map { "q:${it.approvalId}" } + status.results.map { "t:${it.taskId}" }
+            prefs.announced = announced
+            return@withLock
+        }
+        for (q in questions) {
+            val key = "q:${q.approvalId}"
+            if (key in announced) {
+                // known already: its words or needs may have changed (the app unlocked, a status arrived)
+                if (posted.containsKey(q.approvalId) && posted[q.approvalId] != q) question(q, quietly = true)
+                continue
+            }
+            announced += key
+            if (!quiet) question(q)
+        }
+        // what the Mac no longer has waiting goes from the shade
+        val open = status.questions.map { it.approvalId }.toSet()
+        for (id in posted.keys.toList()) if (id !in open) cancel(id)
+        for (r in status.results) {
+            val key = "t:${r.taskId}"
+            if (key in announced) continue
+            announced += key
+            if (quiet) continue
+            val failed = ChatModel.markOf(r.status) == MarkKind.FAILED
+            if (r.held) {
+                post(key, CH_DONE, context.getString(R.string.n_done_held), context.getString(R.string.n_held_text), open(null))
+            } else {
+                val title = context.getString(if (failed) R.string.n_task_failed else R.string.n_task_done)
+                val line = WorkModel.oneLine(r.name.ifEmpty { ChatModel.plain(r.answer) })
+                post(key, CH_DONE, title, line, open(null))
+            }
+        }
+        prefs.announced = announced
+    }
+
+    /** The transcript (unlocked): the questions' full words, with their needs from the last status. */
+    private suspend fun lookTranscript() = gate.withLock {
         val view = (api.transcript() as? Outcome.Ok)?.value ?: return@withLock
         val announced = prefs.announced.toMutableSet()
-        val open = Questions.open(view.questions)
+        val status = api.lastStatus()
+        val open = Questions.open(view.questions).let { Questions.merged(it, status) }.filter { q -> view.questions.any { it.approvalId == q.approvalId } }
         val terminal = finished(view)
-        if (!primed) {
+        if (!primedTranscript) {
             // what was already there when the app started is not news
-            primed = true
+            primedTranscript = true
             announced += open.map { "q:${it.approvalId}" } + terminal.map { "t:${it.first}" }
             prefs.announced = announced
             return@withLock
         }
         for (q in open) {
             val key = "q:${q.approvalId}"
-            if (key in announced) continue
+            if (key in announced) {
+                if (posted.containsKey(q.approvalId) && posted[q.approvalId] != q) question(q, quietly = true)
+                continue
+            }
             announced += key
             if (!quiet) question(q)
         }
         // a question answered elsewhere, or no longer waiting: its notification goes
         val still = open.map { it.approvalId }.toSet()
-        for (id in shown.toList()) if (id !in still) { nm.cancel(keyOf("q:$id")); shown.remove(id); checks.remove(id) }
-        for ((entry, words) in terminal) {
-            val key = "t:$entry"
+        for (id in posted.keys.toList()) if (id !in still) cancel(id)
+        for ((task, words) in terminal) {
+            val key = "t:$task"
             if (key in announced) continue
             announced += key
-            if (!quiet) post(key, CH_DONE, words.first, words.second, open(entry))
+            if (!quiet) post(key, CH_DONE, words.first, words.second, open(task))
         }
         prefs.announced = announced
     }
 
-    /** The turns that finished, failed or were stopped, with their title and first line. */
+    private fun cancel(approvalId: String) {
+        nm.cancel(keyOf("q:$approvalId"))
+        posted.remove(approvalId)
+    }
+
+    /** The turns that finished, failed or were stopped, by task id, with their title and first line. */
     private fun finished(view: TranscriptView): List<Pair<String, Pair<String, String>>> =
         view.items.mapNotNull { (it as? Item.Turn)?.turn }
             .filter { it.taskId != null && it.answer != null && it.status !in setOf("working", "needs_user", "merged") }
             .map { t ->
-                val failed = ChatModel.markOf(t.status) == com.ferb.design.components.MarkKind.FAILED
+                val failed = ChatModel.markOf(t.status) == MarkKind.FAILED
                 val title = context.getString(if (failed) R.string.n_task_failed else R.string.n_task_done)
                 val line = WorkModel.title(t).ifEmpty { WorkModel.oneLine(ChatModel.plain(t.answer!!.text)) }
-                t.entry to (title to line)
+                t.taskId!! to (title to line)
             }
 
-    /**
-     * A question: its words (not a private answer's), and its answers as buttons when it has at most three. One of
-     * FERB's own checks, while the owner keeps PHN-422's setting on, carries no words and no buttons while the phone
-     * is locked: the lock screen never shows what it is about.
-     */
+    /** A question's notification, worded and with buttons as its needs allow (the class comment). */
     fun question(q: Question, lockedNow: Boolean = keyguard.isKeyguardLocked, quietly: Boolean = false) {
         val id = q.approvalId
         val wordless = q.ownCheck && prefs.hideChecksOnLockScreen && lockedNow
-        val title = when {
-            q.hidden -> context.getString(R.string.n_private_title)
-            wordless -> context.getString(R.string.n_check_title)
-            else -> q.title ?: context.getString(R.string.n_question_title)
-        }
-        val text = when {
-            q.hidden -> context.getString(R.string.n_private_text)
-            wordless -> context.getString(R.string.n_check_text)
-            else -> q.reason.ifEmpty { title }
+        val asking = q.title ?: context.getString(R.string.n_question_title)
+        val (title, text) = when {
+            q.hidden -> context.getString(R.string.n_private_title) to context.getString(R.string.n_private_text)
+            q.held -> context.getString(R.string.n_question_title) to context.getString(R.string.n_held_text)
+            wordless -> context.getString(R.string.n_check_title) to context.getString(R.string.n_check_text)
+            q.onlyOnMac -> asking to listOfNotNull(q.reason.ifEmpty { null }, context.getString(R.string.n_on_mac)).joinToString("\n")
+            !q.routine -> asking to listOfNotNull(q.reason.ifEmpty { null }, context.getString(when {
+                q.needs == null -> R.string.n_needs_fingerprint_text
+                q.needs.fingerprint -> R.string.n_needs_fingerprint
+                else -> R.string.n_needs_unlock
+            })).joinToString("\n")
+            else -> asking to q.reason.ifEmpty { asking }
         }
         val b = builder(if (q.ownCheck) CH_CHECKS else CH_QUESTIONS, title, text, open(null, id)).setOnlyAlertOnce(quietly)
-        if (q.ownCheck) checks[id] = q
-        if (!q.hidden && !wordless) {
+        if (q.routine && !wordless && !q.held) {
             val choices = q.choices
             if (choices.isNotEmpty() && choices.size <= 3) {
                 // Yes first where there is one, as the phone's sheet reads left to right with Yes on the right
@@ -155,15 +221,14 @@ class Notifier(
                 b.addAction(Notification.Action.Builder(null, context.getString(R.string.n_answer), answerIntent(id, -1, true)).addRemoteInput(input).build())
             }
         }
-        shown.add(id)
+        posted[id] = q
         notify(keyOf("q:$id"), b.build())
     }
 
     /** After an answer from the notification: gone, or replaced by what stopped it (PHN-302). */
     fun answered(approvalId: String, problem: String?, needsApp: Boolean) {
         val key = keyOf("q:$approvalId")
-        checks.remove(approvalId)
-        if (problem == null) { nm.cancel(key); shown.remove(approvalId); return }
+        if (problem == null) { nm.cancel(key); posted.remove(approvalId); return }
         val title = context.getString(if (needsApp) R.string.n_needs_fingerprint_title else R.string.n_not_answered_title)
         notify(key, builder(CH_QUESTIONS, title, problem, open(null, approvalId)).build())
     }
@@ -232,5 +297,8 @@ class Notifier(
         const val CH_STAY = "stay_connected"
         const val KEY_LINK = "link"
         fun keyOf(key: String): Int = key.hashCode()
+
+        /** The questions a status brings, for a test or a receiver: each with its needs. */
+        fun questionsOf(status: PhoneStatus?): List<Question> = Questions.merged(emptyList(), status)
     }
 }

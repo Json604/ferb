@@ -86,17 +86,17 @@ fun noteText(n: Note): String = stringResource(n.res, n.words.orEmpty())
 
 /** The four tabs (Mobile.swift TopBar): chat (the home screen until a chat starts), tasks, files, the Mac. */
 @Composable
-fun Main(vm: FerbViewModel, ui: UiState, tab: PhoneTab, home: Boolean, insets: PhoneInsets, moment: SkyMoment) {
+fun Main(vm: FerbViewModel, ui: UiState, tab: PhoneTab, home: Boolean, insets: PhoneInsets, moment: SkyMoment, host: Host) {
     val waiting = if (ui.questions.isNotEmpty() && tab != PhoneTab.TASKS) PhoneTab.TASKS else null
     val draft by vm.draft.collectAsState()
     val onTab: (PhoneTab) -> Unit = vm::choose
     val onProfile = { vm.show(Sheet.Profile) }
     Box(Modifier.fillMaxSize()) {
         when (tab) {
-            PhoneTab.CHAT -> if (home) Home(vm, ui, draft, insets, moment, onTab, onProfile)
-            else Chat(vm, ui, draft, insets, waiting, onTab, onProfile)
+            PhoneTab.CHAT -> if (home) Home(vm, ui, draft, insets, moment, onTab, onProfile, host)
+            else Chat(vm, ui, draft, insets, waiting, onTab, onProfile, host)
             PhoneTab.TASKS -> Tasks(vm, ui, onTab, onProfile)
-            PhoneTab.FILES -> Files(vm, insets, waiting, onTab, onProfile)
+            PhoneTab.FILES -> Files(vm, ui, insets, waiting, onTab, onProfile, host)
             PhoneTab.MAC -> Mac(vm, ui, waiting, onTab, onProfile)
         }
         ui.note?.let { n ->
@@ -110,17 +110,40 @@ fun Main(vm: FerbViewModel, ui: UiState, tab: PhoneTab, home: Boolean, insets: P
     }
 }
 
-/** The composer every page shares: the owner's draft, send, and the two buttons not on the phone yet. */
+/**
+ * The composer every page shares: the owner's draft and send; + picks files that go to the Mac and ride with the
+ * next message (PHN-127), shown above it while they travel and once they arrived; the mic isn't on the phone yet.
+ */
 @Composable
-private fun Composer(vm: FerbViewModel, draft: String, placeholder: String, modifier: Modifier) {
-    PhoneComposer(
-        modifier, placeholder = placeholder, typed = draft, onValueChange = vm::typed, onSend = { vm.send() },
-        onAttach = { vm.show(Sheet.NotYet(Feature.SEND_FILES)) }, onMic = { vm.show(Sheet.NotYet(Feature.VOICE)) },
-    )
+private fun Composer(vm: FerbViewModel, draft: String, placeholder: String, modifier: Modifier, host: Host) {
+    val ready by vm.transfers.ready.collectAsState()
+    val moving by vm.transfers.list.collectAsState()
+    val ink = LocalSkyInk.current
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        val forChat = moving.filter { it.forChat }
+        if (forChat.isNotEmpty()) TransferCard(vm, forChat, host, Modifier)
+        if (ready.isNotEmpty()) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                for (a in ready.take(4)) {
+                    Row(Modifier.pressable({ vm.transfers.unattach(a.uploadId) }, label = stringResource(R.string.attach_remove, a.name)),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        FileIcon(a.name, 18.dp)
+                        PhoneText(a.name, 13.5f, FerbType.Medium, ink.low, Modifier.widthIn(max = 120.dp), maxLines = 1)
+                        FerbIcon(FerbIcons.close, 11f, ink.low)
+                    }
+                }
+                if (ready.size > 4) PhoneText("+${ready.size - 4}", 13.5f, FerbType.Medium, ink.low)
+            }
+        }
+        PhoneComposer(
+            Modifier, placeholder = placeholder, typed = draft, onValueChange = vm::typed, onSend = { vm.send() },
+            onAttach = { host.pickFiles(true) }, onMic = { vm.show(Sheet.NotYet(Feature.VOICE)) },
+        )
+    }
 }
 
 @Composable
-private fun Home(vm: FerbViewModel, ui: UiState, draft: String, insets: PhoneInsets, moment: SkyMoment, onTab: (PhoneTab) -> Unit, onProfile: () -> Unit) {
+private fun Home(vm: FerbViewModel, ui: UiState, draft: String, insets: PhoneInsets, moment: SkyMoment, onTab: (PhoneTab) -> Unit, onProfile: () -> Unit, host: Host) {
     val words = remember(moment.epochSeconds.toLong() / 60, ui.work, ui.link?.path) { vm.homeWords(moment) }
     val texts = words?.let { HomeTexts(it.greeting, it.subline, it.away, it.placeholder, it.chat) } ?: HomeTexts("Hello", "")
     val away = awayRows(ui)
@@ -130,7 +153,7 @@ private fun Home(vm: FerbViewModel, ui: UiState, draft: String, insets: PhoneIns
         onTab = onTab, onProfile = onProfile,
         onRow = { i -> away.getOrNull(i)?.let { open(vm, it) } },
         onMore = { vm.choose(PhoneTab.TASKS) },
-        composer = { m -> Composer(vm, draft, texts.placeholder, m) },
+        composer = { m -> Composer(vm, draft, texts.placeholder, m, host) },
     )
 }
 
@@ -143,7 +166,7 @@ private fun open(vm: FerbViewModel, item: WorkItem) {
 }
 
 @Composable
-private fun Chat(vm: FerbViewModel, ui: UiState, draft: String, insets: PhoneInsets, waiting: PhoneTab?, onTab: (PhoneTab) -> Unit, onProfile: () -> Unit) {
+private fun Chat(vm: FerbViewModel, ui: UiState, draft: String, insets: PhoneInsets, waiting: PhoneTab?, onTab: (PhoneTab) -> Unit, onProfile: () -> Unit, host: Host) {
     val list = rememberLazyListState()
     val rows = ui.rows
     // new rows: follow the chat down; reaching the top asks for the page before it
@@ -165,7 +188,7 @@ private fun Chat(vm: FerbViewModel, ui: UiState, draft: String, insets: PhoneIns
         ) {
             items(rows, key = { it.key }) { row -> ChatRowView(vm, ui, row) }
         }
-        Composer(vm, draft, stringResource(R.string.chat_placeholder), Modifier.padding(start = 16.dp, end = 16.dp, bottom = insets.bottom + 8.dp))
+        Composer(vm, draft, stringResource(R.string.chat_placeholder), Modifier.padding(start = 16.dp, end = 16.dp, bottom = insets.bottom + 8.dp), host)
     }
 }
 
@@ -195,7 +218,7 @@ private fun ChatRowView(vm: FerbViewModel, ui: UiState, row: ChatRow) {
         }
         is ChatRow.Task -> TaskCard(
             row.headline, stringResource(R.string.progress, row.done, row.total), row.parts,
-            onWatch = { watchLive(vm, ui) }, onStop = { vm.stop(row.taskId) },
+            onWatch = { vm.watchLive(row.taskId) }, onStop = { vm.stop(row.taskId) },
         )
         is ChatRow.Cards -> Card {
             row.cards.forEachIndexed { i, c ->
@@ -244,11 +267,6 @@ private fun OutboxRow(vm: FerbViewModel, row: ChatRow.Outbox) {
     }
 }
 
-/** Watch live (PHN-454): never on the shared relay; elsewhere it waits for the phone library's preview (FFI list). */
-private fun watchLive(vm: FerbViewModel, ui: UiState) {
-    if (ui.link?.path == LinkPath.PUBLIC_RELAY) vm.note(Note(R.string.not_on_shared_relay)) else vm.show(Sheet.NotYet(Feature.WATCH_LIVE))
-}
-
 @Composable
 private fun Tasks(vm: FerbViewModel, ui: UiState, onTab: (PhoneTab) -> Unit, onProfile: () -> Unit) {
     val w = ui.work
@@ -270,33 +288,6 @@ private fun Tasks(vm: FerbViewModel, ui: UiState, onTab: (PhoneTab) -> Unit, onP
 }
 
 @Composable
-private fun Files(vm: FerbViewModel, insets: PhoneInsets, waiting: PhoneTab?, onTab: (PhoneTab) -> Unit, onProfile: () -> Unit) {
-    // MobileScreens.swift PhoneFilesPage's frame; its places, recent files and transfers wait for the phone library's
-    // file calls (S11's FFI list), so the page says so instead of drawing anything invented
-    Column(Modifier.fillMaxSize()) {
-        TopBar(PhoneTab.FILES, waiting = waiting, onTab = onTab, onProfile = onProfile)
-        Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
-            Row(
-                Modifier.padding(top = 14.dp).fillMaxWidth().heightIn(min = 50.dp).background(Ink.black, CircleShape)
-                    .pressable({ vm.show(Sheet.NotYet(Feature.FILES)) }).padding(horizontal = 16.dp)
-                    .semantics(mergeDescendants = true) { contentDescription = "Search your Mac" },
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                FerbIcon(FerbIcons.search, 17f, Ink.onDark)
-                PhoneText("Search your Mac", 16.5f, color = Ink.onDark)
-            }
-            Card(Modifier.padding(top = 12.dp), padding = 18.dp) {
-                PhoneText(stringResource(R.string.files_not_yet), 15.5f, color = Ink.detail, modifier = Modifier.fillMaxWidth())
-            }
-            Spacer(Modifier.weight(1f))
-            Pill("Send files to your Mac", Modifier.padding(bottom = insets.bottom + 8.dp), PillKind.BLACK, FerbIcons.sendFile,
-                onClick = { vm.show(Sheet.NotYet(Feature.SEND_FILES)) })
-        }
-    }
-}
-
-@Composable
 private fun Mac(vm: FerbViewModel, ui: UiState, waiting: PhoneTab?, onTab: (PhoneTab) -> Unit, onProfile: () -> Unit) {
     val l = ui.link
     val online = l?.phase == LinkPhase.ONLINE
@@ -305,7 +296,8 @@ private fun Mac(vm: FerbViewModel, ui: UiState, waiting: PhoneTab?, onTab: (Phon
         l?.path == LinkPath.DIRECT -> LinkKind.DIRECT
         else -> LinkKind.RELAY
     }
-    val name = stringResource(R.string.mac_name)
+    // the Mac's own name once it told it (phone.list, kept by the library), else the lab's "Your Mac"
+    val name = ui.mac?.name ?: stringResource(R.string.mac_name)
     val status = when {
         online && l?.path == LinkPath.OWN_RELAY -> stringResource(R.string.mac_own_relay)
         online -> null // the lab's own words: "Connected directly", "Through the shared relay"
@@ -314,6 +306,7 @@ private fun Mac(vm: FerbViewModel, ui: UiState, waiting: PhoneTab?, onTab: (Phon
         else -> stringResource(R.string.mac_offline)
     }
     val note = when {
+        ui.status?.stopped == true -> stringResource(R.string.mac_stopped)
         l?.relay is RelayStatus.OwnFallback -> (l.relay as RelayStatus.OwnFallback).problem?.detail
             ?: stringResource(R.string.mac_own_fallback)
         l?.macOlder == true -> stringResource(R.string.mac_mac_older)
@@ -326,8 +319,8 @@ private fun Mac(vm: FerbViewModel, ui: UiState, waiting: PhoneTab?, onTab: (Phon
         waiting = waiting, onTab = onTab, onProfile = onProfile,
         onLink = { if (online && l?.path == LinkPath.PUBLIC_RELAY) vm.show(Sheet.Relay) },
         onOwnRelay = { vm.show(Sheet.OwnRelay) },
-        onSettings = { vm.show(Sheet.NotYet(Feature.SETTINGS)) },
-        onStopAll = { vm.show(Sheet.NotYet(Feature.STOP_ALL)) },
+        onSettings = { vm.openSettings() },
+        onStopAll = { vm.show(Sheet.StopAll) },
     )
 }
 

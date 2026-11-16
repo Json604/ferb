@@ -33,6 +33,8 @@ pub struct Parts {
     pub protection: Arc<SyncProtection>,
     /// The owner's home: the phone's uploads land in its `Downloads/FERB from phone` (T-1203's owner question).
     pub user_home: PathBuf,
+    /// The real Mac's own readings (its computer name, for a phone's `phone.list`); a stand-in daemon reads nothing.
+    pub native: bool,
 }
 
 /// The phone's file area judges paths by the gateway's own lists (`Protection::fs_rules`): one judge (PHN-114).
@@ -113,6 +115,11 @@ pub fn register(server: &Server, p: Parts) -> Phones {
         Limits::default(),
     );
     phones.register(server);
+    // T-1221: the Mac's name, for the phone's link picture and "Paired with" (asked behind the phone's unlock)
+    let native = p.native;
+    phones.set_mac_name(Arc::new(move || {
+        crate::compose::device::computer_name(native)
+    }));
     // stage 3 S3b (T-1203): files both ways, judged by the same lists as the model's file tools
     phones.register_files(
         server,

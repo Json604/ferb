@@ -180,7 +180,12 @@ pub(crate) struct Inner {
     link: Mutex<Option<Arc<dyn link::LinkControl>>>,
     /// The asks waiting for the helper's `link.answer` (S4).
     asks: Mutex<link::Asks>,
+    /// The Mac's computer name, for a phone's `phone.list` (T-1221), once `Phones::set_mac_name` put it in place.
+    mac_name: std::sync::OnceLock<MacName>,
 }
+
+/// The Mac's computer name now (ferbd reads the system's; empty when unknown).
+pub type MacName = Arc<dyn Fn() -> String + Send + Sync>;
 
 pub(crate) fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
@@ -236,12 +241,45 @@ impl Phones {
                 files: std::sync::OnceLock::new(),
                 link: Mutex::new(None),
                 asks: Mutex::new(link::Asks::default()),
+                mac_name: std::sync::OnceLock::new(),
             }),
         }
     }
 
     pub fn limits(&self) -> &Limits {
         &self.inner.limits
+    }
+
+    /// PHN-454: whether this phone session may receive a live preview's frame as captured (the second reader of an
+    /// `OwnerOnlyFrame`, APP-922): its phone is paired and not removed, its unlock window is open now (the gate admitted
+    /// the call by its class: `tasks.preview` is private), and the link named a direct path or the owner's relay as the
+    /// session's tier (never the public relay, nor a session whose tier is unknown). The answer is the only maker of
+    /// the [`PairedPhoneLink`] the frame's reader takes.
+    // decision: PHN-454
+    pub fn preview_link(
+        &self,
+        phone: &ferb_rpc::phone_gate::PhoneSession,
+    ) -> Result<ferb_mac_hands::point::PairedPhoneLink, Refusal> {
+        let inner = &self.inner;
+        inner.live(&phone.device)?;
+        if !matches!(phone.tier.as_deref(), Some("direct" | "own_relay")) {
+            return Err(refused(
+                phone_gate::FILE_NOT_ALLOWED,
+                "Watch live crosses only a direct connection or your own relay, not the shared relay.",
+            ));
+        }
+        if !lock(&inner.state).is_unlocked(phone, inner.mono(), &inner.limits) {
+            return Err(refused(
+                phone_gate::LOCKED,
+                "FERB on your Mac opens for this phone only after its fingerprint, face or PIN.",
+            ));
+        }
+        Ok(ferb_mac_hands::point::PairedPhoneLink::after_the_phone_gate_s_checks())
+    }
+
+    /// Where the Mac's name comes from (ferbd: the computer name), for a phone's `phone.list` (T-1221). Set once.
+    pub fn set_mac_name(&self, name: MacName) {
+        let _ = self.inner.mac_name.set(name);
     }
 
     /// The phone gate the server asks about phone sessions (`Server::set_phone_gate`).
@@ -341,19 +379,40 @@ impl Phones {
         })
     }
 
-    /// `phone.list`: the paired phones, the pairing waiting for the owner's Yes, the limit.
-    pub fn list(&self, _session: &Session) -> HandlerResult {
+    /// `phone.list`: the paired phones, the pairing waiting for the owner's Yes, the limit. Asked by a phone (a private
+    /// call, behind its unlock), the calling phone's own row says `this: true` and the Mac's name comes too (`mac`),
+    /// so the phone shows which Mac it is paired with and since when (T-1221).
+    pub fn list(&self, session: &Session) -> HandlerResult {
         self.sweep_unused();
         let phones = {
             let db = lock(&self.inner.seams.db);
             table::live(db.conn()).map_err(store_fault)?
         };
         let pairing = self.inner.pending_json();
+        let caller = session.phone.as_ref().map(|p| p.device.clone());
         let mut out = Params::new();
         out.insert(
             "phones".into(),
-            Value::Array(phones.iter().map(|p| self.phone_json(p)).collect()),
+            Value::Array(
+                phones
+                    .iter()
+                    .map(|p| {
+                        let mut row = self.phone_json(p);
+                        if caller.as_deref() == Some(p.endpoint.as_str()) {
+                            row["this"] = json!(true);
+                        }
+                        row
+                    })
+                    .collect(),
+            ),
         );
+        if caller.is_some() {
+            let name = self.inner.mac_name.get().map(|f| f()).unwrap_or_default();
+            out.insert(
+                "mac".into(),
+                json!({"name": (!name.is_empty()).then_some(name)}),
+            );
+        }
         out.insert("pairing".into(), pairing);
         out.insert("max".into(), json!(self.inner.limits.devices_max));
         out.insert(

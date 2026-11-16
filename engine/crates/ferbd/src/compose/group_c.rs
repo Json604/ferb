@@ -281,5 +281,6 @@ pub fn deps(p: Parts<'_>) -> Deps {
             })
         },
         tools: p.tools.clone(),
+        phones: Arc::new(std::sync::OnceLock::new()),
     }
 }

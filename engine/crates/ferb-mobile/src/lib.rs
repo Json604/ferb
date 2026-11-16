@@ -14,6 +14,8 @@ pub mod entries;
 pub mod entry;
 pub mod fold;
 pub mod live;
+pub mod remote;
+pub mod status;
 pub mod store;
 pub mod time;
 pub mod transport;

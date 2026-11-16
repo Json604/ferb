@@ -2,17 +2,28 @@ package com.ferb.app.model
 
 import com.ferb.core.FerbPhone
 import com.ferb.core.KeyHealth
+import com.ferb.core.KeyKind
 import com.ferb.core.Outcome
 import com.ferb.core.PhoneState
+import com.ferb.core.PublicKeys
 import com.ferb.mobile.AnswerInput
+import com.ferb.mobile.Attachment
 import com.ferb.mobile.Cancelled
 import com.ferb.mobile.Change
-import com.ferb.mobile.FerbException
+import com.ferb.mobile.Fetched
+import com.ferb.mobile.Folder
 import com.ferb.mobile.LinkStatus
+import com.ferb.mobile.MacInfo
 import com.ferb.mobile.OlderState
 import com.ferb.mobile.OutboxItem
+import com.ferb.mobile.PhoneStatus
+import com.ferb.mobile.PreviewSink
+import com.ferb.mobile.SettingValue
 import com.ferb.mobile.Signer
+import com.ferb.mobile.TaskPage
+import com.ferb.mobile.TransferListener
 import com.ferb.mobile.TranscriptView
+import com.ferb.mobile.Uploaded
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -36,28 +47,47 @@ interface PhoneApi {
     suspend fun unlock(signer: Signer): Outcome<Unit>
     suspend fun pair(code: String): Outcome<Unit>
     suspend fun forget(): Outcome<Unit>
+
+    /** PHN-15: the app locked: the Mac is told and the conversation waits for the next unlock. */
+    suspend fun lock(): Outcome<Boolean>
+
+    /** The app opened by the prompt alone (the Mac out of reach): the next sync reads the conversation again. */
+    suspend fun unlocked(): Outcome<Unit>
+
+    /** "Stop everything on the Mac" (`stop.engage`): no prompt, works locked, never queued. */
+    suspend fun stopEverything(): Outcome<Unit>
+
+    /** What FERB has waiting, read now (network), and the last one pushed or read (memory). */
+    suspend fun status(): Outcome<PhoneStatus>
+    fun lastStatus(): PhoneStatus?
+
+    suspend fun markReadLatest(conversation: String): Outcome<Unit>
+    suspend fun sendWith(text: String, attachments: List<Attachment>): Outcome<OutboxItem>
+
+    // files (PHN-113, PHN-115, PHN-127): the blocking ones run on IO and end with Cancelled when paused
+    suspend fun files(path: String?, signer: Signer?): Outcome<Folder>
+    suspend fun fetch(id: String, path: String, saveTo: String, offset: Long, signer: Signer?, listener: TransferListener): Outcome<Fetched>
+    suspend fun upload(id: String, localPath: String, name: String, resume: String?, listener: TransferListener): Outcome<Uploaded>
+    suspend fun cancelTransfer(id: String): Outcome<Unit>
+
+    /** A task's live preview (PHN-454): frames to [sink] in memory only; [Live.stop] ends it. */
+    suspend fun watchLive(taskId: String, sink: PreviewSink): Outcome<Live>
+
+    suspend fun settings(): Outcome<List<SettingValue>>
+    suspend fun setSetting(key: String, valueJson: String, signer: Signer): Outcome<String>
+    suspend fun tasks(limit: Int, before: String?): Outcome<TaskPage>
+    suspend fun macInfo(): Outcome<MacInfo>
+    suspend fun cachedMacInfo(): Outcome<MacInfo?>
+
+    /** Keys made after pairing the Mac doesn't hold (a fingerprint enrolled later), and registering them (PHN-133). */
+    suspend fun unregisteredKeys(): PublicKeys?
+    suspend fun registerKeys(signer: (KeyKind) -> Signer): Outcome<Boolean>
 }
 
-/** The library's own error code and the link's (ferb-link errors.rs), when there is one. */
-val FerbException.linkCode: String?
-    get() = when (this) {
-        is FerbException.Closed -> linkCode
-        is FerbException.BadKey -> linkCode
-        is FerbException.WrongKey -> linkCode
-        is FerbException.StoreNewer -> linkCode
-        is FerbException.Store -> linkCode
-        is FerbException.Offline -> linkCode
-        is FerbException.NeedsBetterPath -> linkCode
-        is FerbException.NeedsUnlock -> linkCode
-        is FerbException.Refused -> linkCode
-        is FerbException.NeedsSigner -> linkCode
-        is FerbException.NotSigned -> linkCode
-        is FerbException.NotFound -> linkCode
-        is FerbException.InFlight -> linkCode
-        is FerbException.BadReply -> linkCode
-        is FerbException.BadArgument -> linkCode
-        is FerbException.Internal -> linkCode
-    }
+/** A live preview under way. */
+fun interface Live {
+    fun stop()
+}
 
 val PhoneState.keys: KeyHealth? get() = (this as? PhoneState.Open)?.keys
 
@@ -81,4 +111,26 @@ class LibraryPhone(private val phone: FerbPhone) : PhoneApi {
     override suspend fun unlock(signer: Signer) = phone.unlock(signer)
     override suspend fun pair(code: String) = phone.pair(code)
     override suspend fun forget() = phone.forgetThisMac()
+    override suspend fun lock() = phone.lock()
+    override suspend fun unlocked() = phone.unlocked()
+    override suspend fun stopEverything() = phone.stopEverything()
+    override suspend fun status() = phone.call { it.status() }
+    override fun lastStatus(): PhoneStatus? = runCatching { phone.lastStatusNow() }.getOrNull()
+    override suspend fun markReadLatest(conversation: String) = phone.call { it.markReadLatest(conversation) }
+    override suspend fun sendWith(text: String, attachments: List<Attachment>) = phone.call { it.sendWith(text, attachments) }
+    override suspend fun files(path: String?, signer: Signer?) = phone.call { it.files(path, signer) }
+    override suspend fun fetch(id: String, path: String, saveTo: String, offset: Long, signer: Signer?, listener: TransferListener) =
+        phone.call { it.fetch(id, path, saveTo, offset.toULong(), signer, listener) }
+    override suspend fun upload(id: String, localPath: String, name: String, resume: String?, listener: TransferListener) =
+        phone.call { it.upload(id, localPath, name, resume, null, null, listener) }
+    override suspend fun cancelTransfer(id: String) = phone.call { it.cancelTransfer(id) }
+    override suspend fun watchLive(taskId: String, sink: PreviewSink): Outcome<Live> =
+        phone.call { m -> m.watchLive(taskId, sink).let { p -> Live { runCatching { p.stop() } } } }
+    override suspend fun settings() = phone.call { it.settings() }
+    override suspend fun setSetting(key: String, valueJson: String, signer: Signer) = phone.call { it.setSetting(key, valueJson, signer) }
+    override suspend fun tasks(limit: Int, before: String?) = phone.call { it.tasks(limit.toUInt(), before) }
+    override suspend fun macInfo() = phone.call { it.macInfo() }
+    override suspend fun cachedMacInfo() = phone.call { it.cachedMacInfo() }
+    override suspend fun unregisteredKeys() = phone.unregisteredKeys()
+    override suspend fun registerKeys(signer: (KeyKind) -> Signer) = phone.registerKeys(signer)
 }

@@ -939,7 +939,9 @@ impl Daemon {
         // below, take the place of the supervisor crate's own
         ferb_supervisor::flow::chat_rpc::register(&server, sup.rpc.clone());
 
-        // the records, permissions and health, logs.subscribe (areas_c)
+        // the records, permissions and health, logs.subscribe (areas_c); the phone area comes later (PHN-454's check)
+        let phone_slot: Arc<std::sync::OnceLock<ferb_daemon::phone::Phones>> =
+            Arc::new(std::sync::OnceLock::new());
         {
             let mut c = group_c::deps(group_c::Parts {
                 opts: &opts,
@@ -957,6 +959,7 @@ impl Daemon {
             if let Some(o) = &opts.overrides {
                 o.group_c(&mut c);
             }
+            c.phones = phone_slot.clone();
             crate::areas_c::register(&server, &c);
         }
 
@@ -1003,6 +1006,7 @@ impl Daemon {
                 events: events.clone(),
                 home: home.clone(),
                 real_peers: opts.app_check.is_none(),
+                native: opts.native,
                 // stage 3 S3b (T-1203): the phone's files, judged by the lists the gateway was given
                 protection: Arc::new(ferb_gateway::gateway::SyncProtection(
                     gateway::protection(
@@ -1016,6 +1020,7 @@ impl Daemon {
                 user_home: opts.user_home.clone(),
             },
         );
+        let _ = phone_slot.set(phones.clone());
 
         // DMN-510: serve before the slow part; every call but `ping` waits for the start to finish
         server.set_starting();

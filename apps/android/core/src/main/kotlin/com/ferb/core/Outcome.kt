@@ -31,8 +31,31 @@ val FerbException.code: String
         is FerbException.NotFound -> "not_found"
         is FerbException.InFlight -> "in_flight"
         is FerbException.BadReply -> "bad_reply"
+        is FerbException.Cancelled -> "cancelled"
         is FerbException.BadArgument -> "bad_argument"
         is FerbException.Internal -> "internal"
+    }
+
+/** The link's own code (ferb-link errors.rs), when the failure came from there. */
+val FerbException.linkCode: String?
+    get() = when (this) {
+        is FerbException.Closed -> linkCode
+        is FerbException.BadKey -> linkCode
+        is FerbException.WrongKey -> linkCode
+        is FerbException.StoreNewer -> linkCode
+        is FerbException.Store -> linkCode
+        is FerbException.Offline -> linkCode
+        is FerbException.NeedsBetterPath -> linkCode
+        is FerbException.NeedsUnlock -> linkCode
+        is FerbException.Refused -> linkCode
+        is FerbException.NeedsSigner -> linkCode
+        is FerbException.NotSigned -> linkCode
+        is FerbException.NotFound -> linkCode
+        is FerbException.InFlight -> linkCode
+        is FerbException.BadReply -> linkCode
+        is FerbException.Cancelled -> linkCode
+        is FerbException.BadArgument -> linkCode
+        is FerbException.Internal -> linkCode
     }
 
 /** The words the library gave. */
@@ -52,6 +75,7 @@ val FerbException.detail: String
         is FerbException.NotFound -> detail
         is FerbException.InFlight -> detail
         is FerbException.BadReply -> detail
+        is FerbException.Cancelled -> detail
         is FerbException.BadArgument -> detail
         is FerbException.Internal -> detail
     }

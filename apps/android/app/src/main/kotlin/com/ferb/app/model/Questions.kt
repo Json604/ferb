@@ -4,10 +4,14 @@ import com.ferb.core.KeyHealth
 import com.ferb.core.KeyKind
 import com.ferb.core.KeyState
 import com.ferb.core.Outcome
+import com.ferb.core.linkCode
 import com.ferb.mobile.AnswerInput
 import com.ferb.mobile.FerbException
+import com.ferb.mobile.PhoneStatus
 import com.ferb.mobile.QuestionItem
+import com.ferb.mobile.QuestionNeeds
 import com.ferb.mobile.Signer
+import com.ferb.mobile.StatusQuestion
 
 /**
  * One of FERB's questions as the phone shows it, read from the question entry's body (the gateway's own fields:
@@ -27,7 +31,20 @@ data class Question(
     val options: List<String>,
     val labels: List<String>,
     val hidden: Boolean,
+    /** What answering needs, as the Mac's status says (null: no status yet). */
+    val needs: QuestionNeeds? = null,
+    /** The words were held back (a locked phone, PHN-126): only that a question waits. */
+    val held: Boolean = false,
 ) {
+    /** PHN-417, PHN-470: answered from the notification's buttons with no prompt. Unknown needs are not routine. */
+    val routine: Boolean get() = needs?.let { it.canAnswer && !it.needsUnlock && !it.hidden } == true && !hidden
+
+    /** Only on the Mac (a hidden input on a phone that can't sign it, …): its words say why. */
+    val onlyOnMac: Boolean get() = needs?.canAnswer == false
+
+    /** The Yes needs the phone's signed proof: the fingerprint-only key when [QuestionNeeds.fingerprint]. */
+    val needsProof: Boolean get() = needs?.let { it.needsUnlock && it.canAnswer } == true
+
     /** A hidden input's kind is a code (the keypad) rather than a password or a secret (the system keyboard). */
     val isCode: Boolean get() = kind == "owner_login_code"
 
@@ -79,6 +96,24 @@ object Questions {
     /** The open questions of a transcript, oldest first. */
     fun open(items: List<QuestionItem>): List<Question> =
         items.filter { it.open && it.approvalId != null }.map(::parse)
+
+    /** A question as the Mac's status gives it (the app is locked, or the chat hasn't brought it yet). */
+    fun fromStatus(s: StatusQuestion): Question = Question(
+        approvalId = s.approvalId, taskId = s.taskId, title = null, reason = if (s.held) "" else s.reason, exact = null,
+        kind = if (s.needs.hidden) "owner_secret" else "owner_question", capability = s.capability,
+        options = if (s.held) emptyList() else s.options, labels = emptyList(), hidden = s.needs.hidden, needs = s.needs, held = s.held,
+    )
+
+    /**
+     * The transcript's open questions, each with its needs from [status], then the status's questions the transcript
+     * doesn't hold yet (each question once).
+     */
+    fun merged(transcript: List<Question>, status: PhoneStatus?): List<Question> {
+        val byId = status?.questions.orEmpty().associateBy { it.approvalId }
+        val known = transcript.map { q -> byId[q.approvalId]?.let { q.copy(needs = it.needs) } ?: q }
+        val ids = known.map { it.approvalId }.toSet()
+        return known + status?.questions.orEmpty().filter { it.approvalId !in ids }.map(::fromStatus)
+    }
 }
 
 /** How an answer went. */
@@ -104,11 +139,17 @@ class AnswerFlow(
     private val keys: () -> KeyHealth?,
     private val signer: (KeyKind) -> Signer,
 ) {
-    suspend fun answer(approvalId: String, input: AnswerInput, hidden: Boolean): Answered {
+    suspend fun answer(approvalId: String, input: AnswerInput, hidden: Boolean, upfront: KeyKind? = null): Answered {
         if (hidden) return done(api.answer(approvalId, input, signer(KeyKind.LOCK)))
         var unlockedOnce = false
         var signedOnce = false
+        // the Mac's status said this answer needs the phone's proof: asked for at once, not after a refusal
         var proof: Signer? = null
+        if (upfront != null) {
+            if (upfront == KeyKind.STRONG && keys()?.strong != KeyState.OK) return Answered.NeedsPairingAgain
+            proof = signer(upfront)
+            signedOnce = true
+        }
         while (true) {
             val r = api.answer(approvalId, input, proof)
             val err = (r as? Outcome.Failed)?.error ?: return Answered.Sent

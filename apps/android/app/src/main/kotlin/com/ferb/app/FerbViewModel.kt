@@ -10,41 +10,60 @@ import com.ferb.app.model.ChatModel
 import com.ferb.app.model.ChatRow
 import com.ferb.app.model.Corpus
 import com.ferb.app.model.HomeWords
+import com.ferb.app.model.LiveWatch
+import com.ferb.app.model.LocalFiles
+import com.ferb.app.model.MacSettings
 import com.ferb.app.model.Moment
+import com.ferb.app.model.Phase
 import com.ferb.app.model.PhoneApi
 import com.ferb.app.model.Question
 import com.ferb.app.model.Questions
+import com.ferb.app.model.SettingRow
+import com.ferb.app.model.Transfers
+import com.ferb.app.model.Unlocker
+import com.ferb.app.model.Why
 import com.ferb.app.model.Work
+import com.ferb.app.model.WorkItem
 import com.ferb.app.model.WorkModel
 import com.ferb.app.model.keys
-import com.ferb.app.model.linkCode
 import com.ferb.core.KeyHealth
 import com.ferb.core.KeyKind
-import com.ferb.core.detail
+import com.ferb.core.KeyState
 import com.ferb.core.Outcome
 import com.ferb.core.PhoneState
+import com.ferb.core.detail
+import com.ferb.core.linkCode
+import com.ferb.design.components.MarkKind
 import com.ferb.design.components.PhoneTab
 import com.ferb.design.sky.SkyMoment
 import com.ferb.design.sky.SkyPlace
 import com.ferb.mobile.AnswerInput
 import com.ferb.mobile.Change
 import com.ferb.mobile.FerbException
+import com.ferb.mobile.FileEntry
+import com.ferb.mobile.Folder
 import com.ferb.mobile.LinkPath
 import com.ferb.mobile.LinkPhase
 import com.ferb.mobile.LinkStatus
+import com.ferb.mobile.MacInfo
 import com.ferb.mobile.OlderState
+import com.ferb.mobile.PhoneStatus
 import com.ferb.mobile.Signer
+import com.ferb.mobile.TaskRow
 import com.ferb.mobile.TranscriptView
 import java.time.ZoneId
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /** What fills the screen: one at a time, nothing private before [MAIN] (PHN-8). */
@@ -64,13 +83,17 @@ sealed interface Sheet {
     data object OwnRelay : Sheet
     data object Notifications : Sheet
     data object Help : Sheet
+    data object StopAll : Sheet
+    data object Settings : Sheet
+    data class Days(val key: String) : Sheet
+    data class Live(val taskId: String) : Sheet
     data class NotYet(val what: Feature) : Sheet
 }
 
-/** What the phone library does not carry yet (S11's FFI list): the screen says so plainly and fakes nothing. */
-enum class Feature(@StringRes val words: Int) {
-    FILES(R.string.feature_files), SEND_FILES(R.string.feature_send_files), WATCH_LIVE(R.string.feature_watch_live),
-    STOP_ALL(R.string.feature_stop_all), SETTINGS(R.string.feature_settings), VOICE(R.string.feature_voice),
+/** What the phone can't do yet (nothing on the Mac's side carries it): the screen says so plainly and fakes nothing. */
+enum class Feature(@StringRes val words: Int, @StringRes val text: Int) {
+    SEARCH(R.string.feature_search, R.string.not_yet_search),
+    VOICE(R.string.feature_voice, R.string.not_yet_voice),
 }
 
 /** A short line for the owner, in the app's words (string resources) or the Mac's own. */
@@ -81,11 +104,19 @@ data class PhoneSettings(val stayConnected: Boolean, val blockScreenshots: Boole
 
 /** The prompts only the screen can show: the system's fingerprint prompt, with a key or without one. */
 interface Prompts {
-    fun signer(kind: KeyKind): Signer
+    fun signer(kind: KeyKind, why: Why = Why.OPEN): Signer
 
     /** The prompt alone (the app opens while the Mac can't be reached): true when the owner passed it. */
     suspend fun local(): Boolean
 }
+
+/** The Files tab: the places' counts and the folder open. */
+data class FilesUi(
+    val folder: Folder? = null,
+    val loading: String? = null,
+    val problem: Note? = null,
+    val counts: Map<String, Long> = emptyMap(),
+)
 
 data class UiState(
     val gate: Gate = Gate.STARTING,
@@ -97,19 +128,33 @@ data class UiState(
     val keys: KeyHealth? = null,
     val conversation: String? = null,
     val rows: List<ChatRow> = emptyList(),
+    /** What the chat holds (the Tasks tab falls back to it when the Mac's own list can't be read). */
+    val chatWork: Work = Work(emptyList(), emptyList(), emptyList()),
     val work: Work = Work(emptyList(), emptyList(), emptyList()),
     /** What finished or failed since the app was last open (the home screen's list and the corpus's counts). */
-    val away: List<com.ferb.app.model.WorkItem> = emptyList(),
+    val away: List<WorkItem> = emptyList(),
     val questions: List<Question> = emptyList(),
     val older: OlderState = OlderState.Unknown,
     val needsMacUnlock: Boolean = false,
     val busy: Set<String> = emptySet(),
     val note: Note? = null,
+    /** What FERB has waiting, as the Mac last said it (PHN-125): its questions' needs, Stop everything. */
+    val status: PhoneStatus? = null,
+    /** The Mac's own name and this phone's pairing date (kept by the library). */
+    val mac: MacInfo? = null,
+    /** The Mac's task list (`tasks.list`), or null when it couldn't be read (the chat's list is used then). */
+    val macTasks: List<TaskRow>? = null,
+    val files: FilesUi = FilesUi(),
+    /** FERB's settings as read from the Mac, or null before (or when they couldn't be read). */
+    val settings: List<SettingRow>? = null,
+    /** A fingerprint enrolled after pairing that the Mac doesn't know yet (PHN-133). */
+    val newKeys: Boolean = false,
 )
 
 /**
- * The app's state over [PhoneApi]'s flows: the gate, the chat, tasks and questions, and every action, each run off the
- * main thread by the library. A screen turned or rebuilt keeps it; a new process reads it from the phone's store.
+ * The app's state over [PhoneApi]'s flows: the gate, the chat, tasks and questions, files, Watch live and FERB's
+ * settings, and every action, each run off the main thread by the library. A screen turned or rebuilt keeps it; a new
+ * process reads it from the phone's store.
  */
 class FerbViewModel(
     private val api: PhoneApi,
@@ -118,6 +163,7 @@ class FerbViewModel(
     private val screenLock: () -> Boolean,
     private val corpus: Corpus?,
     private val saved: SavedStateHandle,
+    private val local: LocalFiles,
     private val now: () -> Long = System::currentTimeMillis,
 ) : ViewModel() {
     private val _ui = MutableStateFlow(UiState())
@@ -138,7 +184,27 @@ class FerbViewModel(
     private var refreshing: Job? = null
     private var dirty = false
 
+    private val unlocker = Unlocker(api, { api.state.value.keys }) { kind, why -> prompts?.signer(kind, why) }
+    val transfers = Transfers(viewModelScope, api, local, unlocker)
+    val live = LiveWatch(viewModelScope, api)
+
+    /** Key places' files the owner opened in another app: they go when he is back in FERB (PHN-11). */
+    private val openedKeyFiles = HashSet<String>()
+
+    private val _mustSecure = MutableStateFlow(false)
+
+    /**
+     * A screen that must stay out of screenshots whatever the owner's switch says: a private answer being typed
+     * (PHN-110) and Watch live (PHN-454). MainActivity adds FLAG_SECURE while it is true.
+     */
+    val mustSecure: StateFlow<Boolean> = _mustSecure.asStateFlow()
+
     init {
+        viewModelScope.launch {
+            combine(_sheet, _ui) { s, u ->
+                s is Sheet.Live || (s is Sheet.Asking && u.questions.firstOrNull { it.approvalId == s.approvalId }?.hidden == true)
+            }.collect { _mustSecure.value = it }
+        }
         viewModelScope.launch {
             combine(api.state, api.link, session.locked) { s, l, locked -> Triple(s, l, locked) }.collect { (s, l, locked) ->
                 _ui.update { gateOf(it.copy(link = l, keys = s.keys), s, l, locked) }
@@ -149,16 +215,52 @@ class FerbViewModel(
                 }
             }
         }
-        viewModelScope.launch { api.changes.collect { if (it !is Change.Closed) refresh() } }
+        viewModelScope.launch {
+            api.changes.collect { c ->
+                when (c) {
+                    is Change.Closed -> Unit
+                    is Change.Status -> apply(lastView)
+                    is Change.Mac -> readMac()
+                    else -> refresh()
+                }
+            }
+        }
         viewModelScope.launch {
             // the link came online while the app is open and unlocked: fetch what changed (one call, no timer)
             api.link.collect { l -> if (l?.phase == LinkPhase.ONLINE && l.paired && !session.locked.value) syncNow() }
         }
-        viewModelScope.launch { session.locked.collect { if (!it) { refresh(); saved["home"] = true } } }
         viewModelScope.launch {
-            // leaving the app: what finished so far has been seen (the next open lists only what is new)
-            session.front.collect { front -> if (!front) markSeen() }
+            // files cross the path again (PHN-444): what waited for it is tried once more, by itself
+            api.link.map { it?.bulkAllowed == true && it.phase == LinkPhase.ONLINE }.distinctUntilChanged().collect { if (it) transfers.bulkAllowed() }
         }
+        viewModelScope.launch {
+            session.locked.collect { locked ->
+                if (!locked) {
+                    refresh(); saved["home"] = true
+                } else {
+                    // PHN-15: nothing private stays open; the preview stops, the fetched files go
+                    live.stop()
+                    if (_sheet.value is Sheet.Live || _sheet.value is Sheet.Settings || _sheet.value is Sheet.Days) _sheet.value = null
+                    transfers.locked()
+                    _ui.update { it.copy(files = FilesUi(), settings = null, macTasks = null) }
+                }
+            }
+        }
+        viewModelScope.launch {
+            session.front.collect { front ->
+                if (!front) {
+                    // leaving the app: what finished so far has been seen; the preview stops (PHN-454)
+                    markSeen()
+                    if (live.showing) closeLive()
+                } else {
+                    transfers.dropKeyPlaceFiles(openedKeyFiles.toList())
+                    openedKeyFiles.clear()
+                    withContext(Dispatchers.IO) { local.dropOld(now()) }
+                    markRead()
+                }
+            }
+        }
+        readMac()
         refresh()
     }
 
@@ -231,27 +333,35 @@ class FerbViewModel(
                 val view = (api.transcript() as? Outcome.Ok)?.value
                 apply(view)
             } while (dirty)
+            markRead()
+            if (tab.value == PhoneTab.TASKS) loadTasks()
         }
     }
 
     private fun markSeen() {
-        val done = _ui.value.work.earlier.mapNotNull { it.entry }
+        val done = _ui.value.chatWork.earlier.mapNotNull { it.entry }
         if (done.isNotEmpty()) prefs.seen = prefs.seen + done
     }
 
+    private var lastView: TranscriptView? = null
+
+    /** The transcript and the Mac's last status (each question's needs, Stop everything, PHN-125) as the screens draw them. */
     private fun apply(view: TranscriptView?) {
-        val questions = view?.let { Questions.open(it.questions) }.orEmpty()
-        val work = WorkModel.of(view, "")
-        if (prefs.lastOpen == 0L && prefs.seen.isEmpty()) prefs.seen = work.earlier.mapNotNull { it.entry }.toSet()
+        lastView = view
+        val status = api.lastStatus()
+        val questions = Questions.merged(view?.let { Questions.open(it.questions) }.orEmpty(), status)
+        val chatWork = WorkModel.of(view, "")
+        if (prefs.lastOpen == 0L && prefs.seen.isEmpty()) prefs.seen = chatWork.earlier.mapNotNull { it.entry }.toSet()
         val seen = prefs.seen
-        val away = work.earlier.filter { it.entry !in seen }
+        val away = chatWork.earlier.filter { it.entry !in seen }
         _ui.update {
-            it.copy(conversation = view?.conversation, rows = ChatModel.rows(view), work = work, away = away,
-                questions = questions, older = view?.older ?: OlderState.Unknown,
+            it.copy(conversation = view?.conversation, rows = ChatModel.rows(view), chatWork = chatWork, away = away,
+                questions = questions, older = view?.older ?: OlderState.Unknown, status = status,
                 needsMacUnlock = it.needsMacUnlock || view?.outbox.orEmpty().any { o -> o.waitingFor == "unlock" })
         }
+        rebuildWork()
         // a question slides up over whatever is open, once (MobileScreens.swift QuestionSheet)
-        val fresh = questions.firstOrNull { it.approvalId !in presented }
+        val fresh = questions.firstOrNull { it.approvalId !in presented && !it.held }
         if (fresh != null && _ui.value.gate == Gate.MAIN && session.front.value && _sheet.value == null) {
             show(Sheet.Asking(fresh.approvalId))
         }
@@ -263,6 +373,49 @@ class FerbViewModel(
         }
     }
 
+    /** The Tasks tab: the Mac's own list where it answers, else the chat's (offline, or the Mac's window closed). */
+    private fun rebuildWork() {
+        val u = _ui.value
+        val waiting = waitingOf(u.questions, u.chatWork)
+        val work = u.macTasks?.let { WorkModel.fromMac(it, waiting, u.chatWork) } ?: u.chatWork.copy(waiting = waiting)
+        _ui.update { it.copy(work = work) }
+    }
+
+    private fun waitingOf(questions: List<Question>, chat: Work): List<WorkItem> {
+        val fromChat = chat.waiting.associateBy { it.approvalId }
+        return questions.map { q ->
+            fromChat[q.approvalId] ?: WorkItem(MarkKind.ASKING, q.title.orEmpty(), WorkModel.oneLine(q.reason), approvalId = q.approvalId, taskId = q.taskId)
+        }
+    }
+
+    private var tasksJob: Job? = null
+
+    /** Reads the Mac's task list (no prompt: while the Mac's window is closed the chat's list stays). */
+    fun loadTasks() {
+        if (tasksJob?.isActive == true) return
+        tasksJob = viewModelScope.launch {
+            if (session.locked.value || api.link.value?.phase != LinkPhase.ONLINE) return@launch
+            when (val r = api.tasks(TASKS_PAGE, null)) {
+                is Outcome.Ok -> _ui.update { it.copy(macTasks = r.value.tasks) }
+                is Outcome.Failed -> if (r.error is FerbException.NeedsUnlock) _ui.update { it.copy(needsMacUnlock = true) }
+            }
+            rebuildWork()
+        }
+    }
+
+    private fun readMac() {
+        viewModelScope.launch { (api.cachedMacInfo() as? Outcome.Ok)?.value?.let { m -> _ui.update { it.copy(mac = m) } } }
+    }
+
+    /** After the Mac's unlock: its name and this phone's pairing date, and whether a key waits to be registered. */
+    private fun afterMacUnlock() {
+        viewModelScope.launch {
+            (api.macInfo() as? Outcome.Ok)?.value?.let { m -> _ui.update { it.copy(mac = m) } }
+            val fresh = api.unregisteredKeys()
+            _ui.update { it.copy(newKeys = fresh?.strong != null) }
+        }
+    }
+
     private suspend fun syncNow() {
         when (val r = api.sync()) {
             is Outcome.Failed -> if (r.error is FerbException.NeedsUnlock) _ui.update { it.copy(needsMacUnlock = true) }
@@ -270,12 +423,21 @@ class FerbViewModel(
         }
     }
 
+    /** The chat on screen, the app open and unlocked: the Mac learns how far the owner has read (one mark, latest). */
+    private fun markRead() {
+        val conv = _ui.value.conversation ?: return
+        if (_ui.value.gate != Gate.MAIN || session.locked.value || !session.front.value) return
+        if (tab.value != PhoneTab.CHAT || home.value) return
+        viewModelScope.launch { api.markReadLatest(conv) }
+    }
+
     // ---- the app lock (PHN-8, PHN-13, PHN-125) ---------------------------------------------------------------------
 
     /**
      * One prompt opens the app and unlocks the Mac (PHN-13): with the Mac reachable the lock key signs the Mac's
-     * challenge inside the prompt; otherwise the prompt alone opens the app and the Mac is unlocked on the next
-     * action that needs it. A cold start waits a few seconds for the link so it stays one prompt.
+     * challenge inside the prompt; otherwise the prompt alone opens the app (the library is told: `unlocked`) and the
+     * Mac is unlocked on the next action that needs it. A cold start waits a few seconds for the link so it stays one
+     * prompt.
      */
     fun unlockApp() = busy("unlock") {
         val p = prompts ?: return@busy
@@ -283,13 +445,15 @@ class FerbViewModel(
             withTimeoutOrNull(COLD_START_WAIT_MS) { api.link.first { it?.phase == LinkPhase.ONLINE } }
         }
         val online = api.link.value?.let { it.paired && it.phase == LinkPhase.ONLINE } == true
-        if (online && api.state.value.keys?.lock == com.ferb.core.KeyState.OK) {
+        if (online && api.state.value.keys?.lock == KeyState.OK) {
             val signed = Recording(p.signer(KeyKind.LOCK))
             val r = api.unlock(signed)
             if (signed.signed) {
                 session.unlocked()
                 opened()
+                if (r is Outcome.Failed) api.unlocked()
                 _ui.update { it.copy(needsMacUnlock = r is Outcome.Failed) }
+                if (r is Outcome.Ok) afterMacUnlock()
                 return@busy
             }
             if (r is Outcome.Failed && r.error is FerbException.NotSigned) return@busy // cancelled
@@ -297,6 +461,7 @@ class FerbViewModel(
         if (p.local()) {
             session.unlocked()
             opened()
+            api.unlocked()
             if (api.link.value?.paired == true) _ui.update { it.copy(needsMacUnlock = true) }
         }
     }
@@ -305,7 +470,7 @@ class FerbViewModel(
     fun unlockMac() = busy("unlock-mac") {
         val p = prompts ?: return@busy
         when (val r = api.unlock(p.signer(KeyKind.LOCK))) {
-            is Outcome.Ok -> { _ui.update { it.copy(needsMacUnlock = false) }; refresh() }
+            is Outcome.Ok -> { _ui.update { it.copy(needsMacUnlock = false) }; refresh(); afterMacUnlock() }
             is Outcome.Failed -> if (r.error !is FerbException.NotSigned) failed(r.error)
         }
     }
@@ -321,6 +486,15 @@ class FerbViewModel(
         previousZone = prefs.lastZone
         prefs.lastOpen = now() / 1000
         prefs.lastZone = ZoneId.systemDefault().id
+    }
+
+    /** PHN-133: registers the fingerprint key made after pairing (one prompt), so hard Yeses can use it. */
+    fun registerKeys() = busy("keys") {
+        val p = prompts ?: return@busy
+        when (val r = api.registerKeys { kind -> p.signer(kind, Why.KEYS) }) {
+            is Outcome.Ok -> { _ui.update { it.copy(newKeys = false) }; if (r.value) note(Note(R.string.keys_registered)) }
+            is Outcome.Failed -> if (r.error !is FerbException.NotSigned) failed(r.error)
+        }
     }
 
     // ---- pairing (PHN-442, PHN-447) ---------------------------------------------------------------------------------
@@ -350,14 +524,19 @@ class FerbViewModel(
 
     fun typed(text: String) { saved["draft"] = text; if (text.isNotEmpty()) saved["home"] = false }
 
-    /** Sends through the outbox (PHN-401): with the Mac off it waits there, visible and cancellable. */
+    /** Sends through the outbox (PHN-401): with the Mac off it waits there, visible and cancellable. Files go with it. */
     fun send() = busy("send") {
         val text = draft.value.trim()
-        if (text.isEmpty()) return@busy
+        val files = transfers.ready.value
+        if (text.isEmpty() && files.isEmpty()) return@busy
         saved["draft"] = ""
         saved["home"] = false
-        when (val r = api.send(text)) {
-            is Outcome.Ok -> if (r.value.waitingFor == "unlock") _ui.update { it.copy(needsMacUnlock = true) }
+        val r = if (files.isEmpty()) api.send(text) else api.sendWith(text, files)
+        when (r) {
+            is Outcome.Ok -> {
+                if (files.isNotEmpty()) transfers.sent()
+                if (r.value.waitingFor == "unlock") _ui.update { it.copy(needsMacUnlock = true) }
+            }
             is Outcome.Failed -> { saved["draft"] = text; failed(r.error) }
         }
         refresh()
@@ -380,6 +559,15 @@ class FerbViewModel(
         }
     }
 
+    /** "Stop everything on the Mac" (DMN-1, PHN-125): after the owner's confirmation; no fingerprint, never queued. */
+    fun stopEverything() = busy("stop-all") {
+        _sheet.value = null
+        when (val r = api.stopEverything()) {
+            is Outcome.Ok -> { note(Note(R.string.stop_all_done)); api.status(); apply(lastView) }
+            is Outcome.Failed -> failed(r.error)
+        }
+    }
+
     fun loadOlder() = busy("older") {
         val conv = _ui.value.conversation ?: return@busy
         if (_ui.value.older !is OlderState.Available) return@busy
@@ -392,10 +580,22 @@ class FerbViewModel(
 
     // ---- questions (PHN-415, PHN-417, PHN-470) ----------------------------------------------------------------------
 
+    /**
+     * Sends an answer. Where the Mac's status says the answer needs the phone's proof, the fingerprint (on a phone
+     * without one, the lock key's prompt) is asked up front; a plain No and an empty answer never ask. A refusal still
+     * asks once, as before (AnswerFlow).
+     */
     fun answer(approvalId: String, input: AnswerInput, hidden: Boolean = false) = busy("answer:$approvalId") {
         val p = prompts ?: return@busy
-        val flow = AnswerFlow(api, { api.state.value.keys }, p::signer)
-        when (val r = flow.answer(approvalId, input, hidden)) {
+        val q = _ui.value.questions.firstOrNull { it.approvalId == approvalId }
+        val declines = (input is AnswerInput.Approve && !input.granted) || (input is AnswerInput.Words && input.text.isEmpty())
+        val upfront = if (q != null && q.needsProof && !declines && !hidden) {
+            if (q.needs?.fingerprint == true) KeyKind.STRONG else KeyKind.LOCK
+        } else {
+            null
+        }
+        val flow = AnswerFlow(api, { api.state.value.keys }) { kind -> p.signer(kind, Why.YES) }
+        when (val r = flow.answer(approvalId, input, hidden, upfront)) {
             Answered.Sent -> { if ((_sheet.value as? Sheet.Asking)?.approvalId == approvalId) _sheet.value = null; refresh() }
             Answered.NotSent -> Unit
             Answered.NeedsPairingAgain -> note(Note(R.string.answer_needs_pairing))
@@ -403,17 +603,162 @@ class FerbViewModel(
         }
     }
 
+    // ---- files (PHN-113, PHN-115, PHN-121, PHN-127) ----------------------------------------------------------------
+
+    /** The Files tab opened: the places' counts, read only when cheap (no prompt; left out when they can't be read). */
+    fun filesOpened() {
+        if (_ui.value.files.counts.isNotEmpty() || session.locked.value || api.link.value?.phase != LinkPhase.ONLINE) return
+        viewModelScope.launch {
+            val counts = HashMap<String, Long>()
+            for (place in PLACES) {
+                val r = api.files(place, null)
+                if (r is Outcome.Ok) counts[place] = r.value.total.toLong() else break
+            }
+            _ui.update { it.copy(files = it.files.copy(counts = counts)) }
+        }
+    }
+
+    /** Opens a folder of the Mac; a key place asks for the fingerprint for that very path first (PHN-121). */
+    fun openFolder(path: String, keyPlace: Boolean = false) = busy("folder") {
+        _ui.update { it.copy(files = it.files.copy(loading = path, problem = null)) }
+        val r = unlocker.withProof(keyPlace, Why.FILE) { signer -> api.files(path, signer) }
+        _ui.update {
+            when (r) {
+                is Outcome.Ok -> it.copy(files = it.files.copy(folder = r.value, loading = null))
+                is Outcome.Failed -> it.copy(files = it.files.copy(loading = null, problem = filesNote(r.error)))
+            }
+        }
+    }
+
+    /** Up one folder; from a place, back to the places. */
+    fun folderUp() {
+        val f = _ui.value.files.folder ?: return
+        val parent = f.parent
+        if (parent == null || f.path in PLACES || f.path == "~") _ui.update { it.copy(files = it.files.copy(folder = null, problem = null)) }
+        else openFolder(parent)
+    }
+
+    fun openEntry(e: FileEntry) {
+        if (e.dir) openFolder(e.path, e.locked) else transfers.fetch(e.path, e.name, e.size.toLong(), e.locked)
+    }
+
+    /** The owner opened or shared a fetched file in another app (his tap): a key place's copy goes when he is back. */
+    fun handedOut(key: String) {
+        if (transfers.list.value.firstOrNull { it.key == key }?.keyPlace == true) openedKeyFiles.add(key)
+    }
+
+    /** Files the owner picked in the system's picker (content Uris as text): copied here, then sent to the Mac. */
+    fun sendFiles(uris: List<String>, forChat: Boolean) = busy("stage") {
+        if (uris.isEmpty()) return@busy
+        val staged = withContext(Dispatchers.IO) { uris.mapNotNull(local::stage) }
+        if (staged.size < uris.size) note(Note(R.string.files_unreadable))
+        if (staged.isNotEmpty()) transfers.send(staged, forChat)
+    }
+
+    /** The files of a finished batch go to the composer, to send with a message. */
+    fun attachToChat(batch: String) {
+        transfers.attach(batch)
+        openChat()
+    }
+
+    /** Pauses a file, or the file under way in a batch. */
+    fun pause(key: String) {
+        val t = transfers.list.value.firstOrNull { it.key == key } ?: return
+        val running = if (t.batch != null) transfers.list.value.firstOrNull { it.batch == t.batch && it.phase == Phase.RUNNING } else t
+        running?.let { transfers.pause(it.key) }
+    }
+
+    private fun filesNote(e: FerbException): Note = when {
+        e is FerbException.NotSigned -> Note(R.string.files_not_opened)
+        else -> errorNote(e)
+    }
+
+    // ---- Watch live (PHN-454) ----------------------------------------------------------------------------------------
+
+    /** Watch live: never asked for on the public relay (its rule is said instead); elsewhere a full screen of its own. */
+    fun watchLive(taskId: String?) {
+        if (taskId == null) return
+        val l = api.link.value
+        if (l?.path == LinkPath.PUBLIC_RELAY || (l?.phase == LinkPhase.ONLINE && !l.bulkAllowed)) {
+            note(Note(R.string.not_on_shared_relay))
+            return
+        }
+        _sheet.value = Sheet.Live(taskId)
+        live.start(taskId)
+    }
+
+    /** The Mac's window closed under the preview: unlock (one prompt) and watch again. */
+    fun watchAgain() = busy("live") {
+        val s = _sheet.value as? Sheet.Live ?: return@busy
+        val p = prompts ?: return@busy
+        if (live.view.value?.needsUnlock == true) {
+            when (val r = api.unlock(p.signer(KeyKind.LOCK))) {
+                is Outcome.Ok -> _ui.update { it.copy(needsMacUnlock = false) }
+                is Outcome.Failed -> { if (r.error !is FerbException.NotSigned) failed(r.error); return@busy }
+            }
+        }
+        live.start(s.taskId)
+    }
+
+    fun closeLive() {
+        live.stop()
+        if (_sheet.value is Sheet.Live) _sheet.value = null
+    }
+
+    // ---- FERB's settings (PHN-404, PHN-112, PHN-133) ----------------------------------------------------------------
+
+    fun openSettings() = busy("settings") {
+        show(Sheet.Settings)
+        when (val r = unlocker.run { api.settings() }) {
+            is Outcome.Ok -> _ui.update { it.copy(settings = MacSettings.rows(r.value)) }
+            is Outcome.Failed -> {
+                if (r.error !is FerbException.NotSigned) failed(r.error)
+                if (_ui.value.settings == null && _sheet.value == Sheet.Settings) _sheet.value = null
+            }
+        }
+    }
+
+    /** One change, one prompt: the fingerprint-only key where the phone has one, else the lock key (PHN-133). */
+    fun setSetting(key: String, valueJson: String) = busy("setting:$key") {
+        val spec = MacSettings.spec(key) ?: return@busy
+        val kind = unlocker.freshKind() ?: run { note(Note(R.string.needs_pairing_again)); return@busy }
+        val p = prompts ?: return@busy
+        when (val r = unlocker.run { api.setSetting(key, valueJson, p.signer(kind, Why.SETTING)) }) {
+            is Outcome.Ok -> {
+                val row = MacSettings.row(spec, r.value)
+                _ui.update { u -> u.copy(settings = u.settings?.map { if (it.spec.key == key) row else it }) }
+                if (_sheet.value is Sheet.Days) _sheet.value = Sheet.Settings
+            }
+            is Outcome.Failed -> if (r.error !is FerbException.NotSigned) failed(r.error)
+        }
+    }
+
+    fun setSwitch(key: String, on: Boolean) = setSetting(key, if (on) "true" else "false")
+
+    fun setDays(key: String, text: String) {
+        val days = text.trim().toIntOrNull()
+        if (days == null || days < 1) { note(Note(R.string.set_days_invalid)); return }
+        setSetting(key, days.toString())
+    }
+
     // ---- navigation and sheets ------------------------------------------------------------------------------------
 
     fun choose(t: PhoneTab) {
         if (t == PhoneTab.CHAT && tab.value == PhoneTab.CHAT) saved["home"] = !home.value
         saved["tab"] = t
+        when (t) {
+            PhoneTab.TASKS -> loadTasks()
+            PhoneTab.FILES -> filesOpened()
+            PhoneTab.CHAT -> markRead()
+            else -> Unit
+        }
     }
 
-    fun openChat() { saved["tab"] = PhoneTab.CHAT; saved["home"] = false }
+    fun openChat() { saved["tab"] = PhoneTab.CHAT; saved["home"] = false; markRead() }
 
     fun show(s: Sheet?) {
         if (s is Sheet.Asking) { presented.add(s.approvalId); saved["presented"] = ArrayList(presented) }
+        if (_sheet.value is Sheet.Live && s !is Sheet.Live) live.stop()
         _sheet.value = s
     }
 
@@ -426,11 +771,16 @@ class FerbViewModel(
 
     fun hideChecks(on: Boolean) { prefs.hideChecksOnLockScreen = on; refreshProfile() }
 
-    /** Forget this Mac (PHN-408): the fetched chat, the Mac and the keys go; the pairing screen comes. */
+    /** Forget this Mac (PHN-408): the fetched chat, the Mac, the keys and the files here go; the pairing screen comes. */
     fun forget() = busy("forget") {
         _sheet.value = null
+        live.stop()
         when (val r = api.forget()) {
-            is Outcome.Ok -> { prefs.forgetPairing(); saved["tab"] = PhoneTab.CHAT; saved["home"] = true; presented.clear() }
+            is Outcome.Ok -> {
+                prefs.forgetPairing(); saved["tab"] = PhoneTab.CHAT; saved["home"] = true; presented.clear()
+                withContext(Dispatchers.IO) { transfers.clear() }
+                _ui.update { it.copy(mac = null, macTasks = null, files = FilesUi(), settings = null, status = null) }
+            }
             is Outcome.Failed -> failed(r.error)
         }
     }
@@ -442,8 +792,8 @@ class FerbViewModel(
         val link = when (u.link?.path) {
             LinkPath.DIRECT -> "direct"; LinkPath.OWN_RELAY -> "own"; LinkPath.PUBLIC_RELAY -> "shared"; else -> "offline"
         }
-        val m = Moment(sky, u.work.waiting.size, u.away.count { it.kind == com.ferb.design.components.MarkKind.DONE },
-            u.away.count { it.kind == com.ferb.design.components.MarkKind.FAILED }, u.work.running.size, link,
+        val m = Moment(sky, u.work.waiting.size, u.away.count { it.kind == MarkKind.DONE },
+            u.away.count { it.kind == MarkKind.FAILED }, u.work.running.size, link,
             firstRun = u.link?.paired != true, justPaired = prefs.justPaired, lastOpen = previousOpen, lastZone = previousZone)
         return c.texts(m)
     }
@@ -466,17 +816,27 @@ class FerbViewModel(
         override fun sign(payload: String): String? = inner.sign(payload)?.also { signed = true }
     }
 
+    override fun onCleared() {
+        live.stop()
+        super.onCleared()
+    }
+
     companion object {
         const val COLD_START_WAIT_MS = 6_000L
+        const val TASKS_PAGE = 30
+
+        /** The lab's three places (PhoneFilesPage), as the Mac's paths. */
+        val PLACES = listOf("~/Desktop", "~/Documents", "~/Downloads")
 
         /** The Mac no longer knows this phone: pair again. */
         val REMOVED_CODES = setOf("device_revoked", "not_paired", "unknown_phone")
 
-        fun errorNote(e: FerbException): Note = when (e) {
-            is FerbException.Offline -> Note(R.string.err_offline)
-            is FerbException.NeedsBetterPath -> Note(R.string.err_needs_better_path)
-            is FerbException.NeedsUnlock -> Note(R.string.err_needs_unlock)
-            is FerbException.Refused, is FerbException.NotFound -> Note(R.string.err_mac_said, e.detail)
+        fun errorNote(e: FerbException): Note = when {
+            e.linkCode == Unlocker.PAIR_AGAIN -> Note(R.string.needs_pairing_again)
+            e is FerbException.Offline -> Note(R.string.err_offline)
+            e is FerbException.NeedsBetterPath -> Note(R.string.err_needs_better_path)
+            e is FerbException.NeedsUnlock -> Note(R.string.err_needs_unlock)
+            e is FerbException.Refused || e is FerbException.NotFound -> Note(R.string.err_mac_said, e.detail)
             else -> Note(R.string.err_other, e.detail)
         }
 

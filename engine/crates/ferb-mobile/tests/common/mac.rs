@@ -8,7 +8,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use ferb_mobile::entry::ChatEntry;
-use ferb_mobile::transport::{LinkFailure, Transport, WatchHandle, WatchSink};
+use ferb_mobile::transport::{LinkFailure, TransferSink, Transport, WatchHandle, WatchSink};
 use serde_json::{json, Value};
 
 /// What the next `chat.send` does.
@@ -41,6 +41,23 @@ pub struct MacState {
     pub watches: usize,
     pub next_request: u64,
     pub next_pos: i64,
+    /// `chat.status` as the gate shapes it.
+    pub status: Value,
+    /// Folders by path (`link.files` replies) and files by path (their bytes) for `link.get`.
+    pub folders: HashMap<String, Value>,
+    pub blobs: HashMap<String, Vec<u8>>,
+    /// Paths that need their own fresh proof (key places): refused `fresh_unlock_required` without one.
+    pub key_places: Vec<String>,
+    /// A fetch stops after this many bytes (a pause) with `cancelled`.
+    pub pause_after: Option<usize>,
+    /// What arrived through `link.put` (name → bytes) and the next upload ids.
+    pub uploads: Vec<(String, Vec<u8>, Value)>,
+    /// The preview's answers, in order (`meta` and the frame's bytes).
+    pub frames: VecDeque<(Value, Vec<u8>)>,
+    pub settings: serde_json::Map<String, Value>,
+    pub mac_name: Option<String>,
+    /// Transfers by kind, with their params (get / put).
+    pub transfers: Vec<(String, Value)>,
 }
 
 #[derive(Clone)]
@@ -68,6 +85,16 @@ impl FakeMac {
             watches: 0,
             next_request: 1,
             next_pos: 1 << 33,
+            status: json!({"approvals": [], "running": [], "results": [], "stopped": false}),
+            folders: HashMap::new(),
+            blobs: HashMap::new(),
+            key_places: Vec::new(),
+            pause_after: None,
+            uploads: Vec::new(),
+            frames: VecDeque::new(),
+            settings: serde_json::Map::new(),
+            mac_name: None,
+            transfers: Vec::new(),
         })))
     }
 
@@ -244,6 +271,19 @@ impl MacState {
     }
 }
 
+impl FakeMac {
+    /// The bulk methods' public-relay refusal (PHN-444), as the link says it.
+    fn refuse_bulk(st: &MacState) -> Result<(), LinkFailure> {
+        if st.public_relay {
+            return Err(LinkFailure::new(
+                "needs_direct_or_own_relay",
+                "This needs a direct connection or your own relay.",
+            ));
+        }
+        Ok(())
+    }
+}
+
 struct FakeWatch(FakeMac);
 
 impl WatchHandle for FakeWatch {
@@ -276,6 +316,48 @@ impl Transport for FakeMac {
             "chat.entries.mark" => json!({"marks": {}}),
             "link.challenge" => json!({"challenge": "C-1"}),
             "task.stop" | "chat.approve" | "chat.answer" | "chat.correct" => json!({"ok": true}),
+            "stop.engage" => {
+                st.status["stopped"] = json!(true);
+                json!({"stopped": true})
+            }
+            "link.lock" => json!({"unlocked": false}),
+            "chat.status" => st.status.clone(),
+            "link.files" => {
+                let path = p["path"].as_str().unwrap_or("~").to_string();
+                if st.key_places.contains(&path) && proof_json.is_none() {
+                    return Err(LinkFailure::new(
+                        "fresh_unlock_required",
+                        "This place needs your fingerprint each time.",
+                    ));
+                }
+                st.folders
+                    .get(&path)
+                    .cloned()
+                    .ok_or_else(|| LinkFailure::new("not_found", "That isn't there any more."))?
+            }
+            "link.tree" => {
+                json!({"path": p["path"], "name": "Photos", "files": [{"rel": "a.jpg", "size": 3}, {"rel": "b/c.jpg", "size": 4}],
+                                   "bytes": 7, "skipped": 1, "cut": false})
+            }
+            "link.put_group" => {
+                json!({"group": "G-1", "saved": "/Users/o/Downloads/FERB from phone/Photos"})
+            }
+            "link.keys" => json!({"enrolled": true}),
+            "settings.get" => json!({"values": st.settings.clone()}),
+            "settings.set" => {
+                let key = p["key"].as_str().unwrap_or_default().to_string();
+                st.settings.insert(key.clone(), p["value"].clone());
+                json!({"key": key, "value": p["value"]})
+            }
+            "tasks.list" => json!({"tasks": [
+                {"task_id": "t2", "name": "Desks", "goal": "Compare desks", "status": "running", "created_at": "2026-01-02T10:00:00+00:00",
+                 "updated_at": null, "answer": "", "verdict": null, "steps": {"done": 1, "total": 3}},
+                {"task_id": "t1", "name": "Backup", "goal": "Back up", "status": "done", "created_at": "2026-01-01T10:00:00+00:00",
+                 "updated_at": "2026-01-01T11:00:00+00:00", "answer": "Copied.", "verdict": null}], "more": true}),
+            "phone.list" => json!({"phones": [
+                {"id": "other", "name": "Old phone", "paired_at": "2026-01-01T00:00:00+00:00"},
+                {"id": "me", "name": "Pixel", "paired_at": "2026-11-10T09:00:00+00:00", "this": true}],
+                "mac": {"name": st.mac_name}, "pairing": null, "max": 5}),
             other => {
                 return Err(LinkFailure::new(
                     "method_not_allowed",
@@ -344,6 +426,98 @@ impl Transport for FakeMac {
             SendOutcome::Fail(code) => Err(closed_failure(&code)),
             _ => unreachable!(),
         }
+    }
+
+    fn get(
+        &self,
+        _id: &str,
+        params_json: &str,
+        save_to: Option<&str>,
+        append: bool,
+        sink: Arc<dyn TransferSink>,
+    ) -> Result<String, LinkFailure> {
+        let p: Value = serde_json::from_str(params_json).unwrap();
+        let mut st = self.lock();
+        st.transfers.push(("get".into(), p.clone()));
+        if !st.online {
+            return Err(closed_failure("mac_unreachable"));
+        }
+        Self::refuse_bulk(&st)?;
+        if p["what"] == "preview" {
+            let (meta, bytes) = st
+                .frames
+                .pop_front()
+                .unwrap_or((json!({"state": "working", "busy": true}), Vec::new()));
+            use base64::Engine;
+            return Ok(
+                json!({"meta": meta, "size": bytes.len(), "received": bytes.len(),
+                             "data": base64::engine::general_purpose::STANDARD.encode(&bytes)})
+                .to_string(),
+            );
+        }
+        let path = p["path"].as_str().unwrap_or_default().to_string();
+        if st.key_places.contains(&path) && p.get("proof").is_none() {
+            return Err(LinkFailure::new(
+                "fresh_unlock_required",
+                "This file needs your fingerprint each time.",
+            ));
+        }
+        let data = st
+            .blobs
+            .get(&path)
+            .cloned()
+            .ok_or_else(|| LinkFailure::new("not_found", "That file isn't there any more."))?;
+        let offset = p["offset"].as_u64().unwrap_or(0) as usize;
+        let rest = &data[offset.min(data.len())..];
+        let (part, paused) = match st.pause_after {
+            Some(n) if n < rest.len() => (&rest[..n], true),
+            _ => (rest, false),
+        };
+        st.pause_after = None;
+        let to = save_to.expect("a file is saved");
+        let mut f = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .append(append)
+            .truncate(!append)
+            .open(to)
+            .unwrap();
+        std::io::Write::write_all(&mut f, part).unwrap();
+        for i in 1..=part.len() {
+            sink.progress((offset + i) as u64, data.len() as u64);
+        }
+        if paused {
+            return Err(LinkFailure::new("cancelled", "Stopped on the phone."));
+        }
+        Ok(json!({"meta": {"name": path.rsplit('/').next(), "offset": offset, "total": data.len()},
+                  "received": part.len(), "saved_to": to})
+        .to_string())
+    }
+
+    fn put(
+        &self,
+        _id: &str,
+        path: &str,
+        opts_json: &str,
+        sink: Arc<dyn TransferSink>,
+    ) -> Result<String, LinkFailure> {
+        let opts: Value = serde_json::from_str(opts_json).unwrap();
+        let mut st = self.lock();
+        st.transfers.push(("put".into(), opts.clone()));
+        Self::refuse_bulk(&st)?;
+        let bytes =
+            std::fs::read(path).map_err(|e| LinkFailure::new("not_found", e.to_string()))?;
+        let id = opts["resume"]
+            .as_str()
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("U-{}", st.uploads.len() + 1));
+        sink.accepted(&id, 0);
+        sink.progress(bytes.len() as u64, bytes.len() as u64);
+        let name = opts["name"].as_str().unwrap_or("file").to_string();
+        st.uploads.push((name.clone(), bytes.clone(), opts));
+        Ok(json!({"upload_id": id, "saved": format!("/Users/o/Downloads/FERB from phone/{id}-{name}"),
+                  "size": bytes.len(), "sha256": "x"})
+        .to_string())
     }
 
     fn watch(

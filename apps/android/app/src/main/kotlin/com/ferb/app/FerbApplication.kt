@@ -9,7 +9,10 @@ import android.os.Looper
 import android.os.SystemClock
 import com.ferb.app.model.AppLock
 import com.ferb.app.model.LibraryPhone
+import com.ferb.app.model.LocalFiles
 import com.ferb.app.model.PhoneApi
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.ferb.core.AndroidSignals
 import com.ferb.core.FerbPhone
 import java.lang.ref.WeakReference
@@ -37,6 +40,8 @@ class FerbApplication : Application() {
         private set
     lateinit var notifier: Notifier
         private set
+    lateinit var local: LocalFiles
+        private set
     val scope = MainScope()
 
     /** The activity on screen, for the system's fingerprint prompt (never kept beyond its life). */
@@ -51,9 +56,11 @@ class FerbApplication : Application() {
         signals = AndroidSignals(this, phone)
         signals.stayConnected = prefs.stayConnected && StayConnectedService.running
         notifier = Notifier(this, api, prefs, session)
+        local = LocalFiles.forPhone(this)
         scope.launch { phone.start() }
         signals.start()
         scope.launch { signals.foreground.collect { session.foreground(it) } }
+        tellMacOnLock(scope, session, api, local)
         notifier.start(scope)
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityResumed(a: Activity) { front = WeakReference(a) }
@@ -68,6 +75,22 @@ class FerbApplication : Application() {
 
     /** PHN-8: a phone without a screen lock cannot use the app. */
     fun screenLockSet(): Boolean = getSystemService(KeyguardManager::class.java).isDeviceSecure
+}
+
+/**
+ * PHN-15: when the app locks (five minutes away, or by hand) the Mac is told (`lock`: its unlock window for this phone
+ * ends and the conversation's watch stops until the next unlock, PHN-125) and the fetched files go. A cold start is
+ * locked already and tells nothing.
+ */
+fun tellMacOnLock(scope: kotlinx.coroutines.CoroutineScope, session: Session, api: PhoneApi, local: LocalFiles) = scope.launch {
+    var was = session.locked.value
+    session.locked.collect { locked ->
+        if (locked && !was) {
+            api.lock()
+            withContext(Dispatchers.IO) { local.wipeFetched() }
+        }
+        was = locked
+    }
 }
 
 /**

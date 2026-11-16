@@ -1901,3 +1901,120 @@ status = "active"
 rule = "Slice S11. :app composes :design's pages and pieces; :design gained only optional callbacks and overrides (tabs, rows, the link picture's words, a sheet's dismiss, the profile's extra rows, a note under the link) whose defaults draw as before. The app's chat, fed the lab's sample, is compared with :design's chat golden (under 0.1 % of pixels); app-only states have their own goldens."
 why = "PHN-416: no design of the app's own. A test that the app's composition equals the lab's golden catches a drift the :design goldens alone can't."
 evidence = "design :design:test 36 screen and 23 other goldens unchanged after the additions; app ScreenShotsTest the_chat_drawn_from_the_labs_sample_is_the_labs_chat and 14 app goldens."
+
+[PHN-510]
+title = "The app's lock tells the Mac and closes the conversation's watch until the next unlock"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-15, PHN-125 (T-1221). Mobile.lock sends link.lock (the Mac's window for this phone ends) and closes chat.entries.watch; while locked a sync reads only chat.status and answers needs_unlock. Mobile.unlock (after link.unlock) or unlocked (an offline prompt) reads the conversation again. Stop and Stop everything work locked."
+why = "The daemon admits a stream once and does not cut it when the window closes, so a watch started before the lock would keep carrying the conversation. Notifications while locked come from the Mac's pushed status (PHN-126)."
+evidence = "ferb-mobile tests/remote.rs locking_tells_the_mac_and_stops_the_conversation_until_the_unlock; ferb-mobile-ffi tests/remote.rs lock_stop_and_status_through_the_bindings, tests/link.rs files_the_preview_the_status_and_the_lock_through_the_real_link."
+
+[PHN-511]
+title = "A question's needs come from the Mac's status; a signed answer uses that status's own challenge"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-417, PHN-470. The bridge's pushed status event (chat.status as the gate shapes it) reaches the core and Change.Status; the core keeps it in memory only (PhoneStatus: each question's can_answer, needs_unlock, hidden, fingerprint, challenge; held words). An answer needing proof signs the status's phone.challenge for that question, read again when none is held."
+why = "The door dropped the pushed status, and the core signed a fresh link.challenge, which the gate's answer check refuses (only the question's own challenge counts): a signed answer from the app would always have failed on a real Mac."
+evidence = "ferb-mobile tests/remote.rs the_status_says_each_question_s_needs_and_its_challenge_signs_the_answer, src/status.rs a_locked_status_reads_with_its_needs_and_held_words; tests/door.rs transfers_hear_their_progress_and_a_cancel_and_the_status_reaches_the_app."
+
+[PHN-512]
+title = "The phone's live preview is the frame's second reader, under the phone gate's word"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-454, APP-922. OwnerOnlyFrame::for_paired_phone takes a PairedPhoneLink that only Phones::preview_link makes: the phone paired and not removed, its unlock window open, the session's tier direct or own_relay. tasks.preview joins the gate's shared-relay refusal. The phone pulls frames at FERB.app's pace and the link's 200 ms, in memory only."
+why = "A phone session reached tasks.preview through its class (private) and the handler read the frame with FERB.app's reader: no condition of PHN-454 was the daemon's own. A source scan now holds both readers and the grant's maker."
+evidence = "ferbd compose/previews.rs owner_only_frames_are_made_and_read_in_the_preview_path_only; ferb-daemon tests/phone_preview.rs (3); ferb-mobile tests/remote.rs preview tests; ferb-mobile-ffi tests/remote.rs the_live_preview_streams_at_the_link_s_pace_and_never_on_the_public_relay."
+
+[PHN-513]
+title = "Files, settings, tasks and the Mac's name reach the phone through the core, signed by class"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-113, PHN-121, PHN-127, PHN-404 (T-1221). The core's files, tree, fetch (into a file, resumed by offset), upload (resumed by id), put_group, cancel_transfer and send_with (uploads by id, kept in the outbox); a key place signs {challenge, method, params: {path}}; settings.set and link.keys sign the call; tasks.list; phone.list names the caller's row (this) and the Mac's name. Bulk is refused on the phone before asking off a bulk path."
+why = "Journal 115's list: the app had these screens with nothing behind them. The public relay's refusal on the phone saves a refused round trip on a rate-limited relay (PHN-410)."
+evidence = "ferb-mobile tests/remote.rs (11) and tests/store.rs (v3 attachments); ferb-mobile-ffi tests/remote.rs files_both_ways_through_the_bindings, tests/link.rs files_the_preview_the_status_and_the_lock_through_the_real_link; ferb-daemon tests/phone_preview.rs a_phone_s_list_names_its_own_row_and_the_mac."
+
+[PHN-514]
+title = "ferb-link builds no library of its own; the phone library sets Android's DNS context"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "ferb-link's crate types are lib only: its C and JNI exports (the lab's door) are gone, the Rust door functions its tests use stay. ferb-mobile-ffi exports one JNI function, com.ferb.core.NativeInit.init(context), which gives ndk_context the JavaVM and app context once so iroh's resolver reads the network's DNS servers."
+why = "Every phone build linked a 10 MB libferb_link.so nobody shipped (journal 114). The lab's JNI init went with it; without one the resolver falls back to public DNS servers, which a network may block."
+evidence = "ferb-link tests (ffi.rs, cancel.rs use the Rust door); cargo check of ferb-mobile-ffi for aarch64-linux-android; :core's NativeInit instrumented check (S11 app agent)."
+
+[PHN-515]
+title = "Fetched files live in the app's cache, gone on the app's lock, after a day and on Forget this Mac"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-113, PHN-115 (T-1221). A file fetched from the Mac is saved in cacheDir/files/fetched; it is deleted when the app locks, after 24 hours and on Forget this Mac. Copies of picked files waiting to go to the Mac sit in cacheDir/files/outgoing, deleted once sent. Only fetched files go through FERB's FileProvider."
+why = "No backup or device transfer carries the cache, and nothing of the Mac stays readable on a locked phone. If the system empties the cache, a fetch starts again from the file's length."
+evidence = "app FeaturesTest locking_tells_the_mac_once_and_the_fetched_files_go, forgetting_the_mac_removes_every_file_here; app OnPhoneTest a_picked_file_is_copied_here_and_a_fetched_file_is_handed_out_only_through_ferbs_provider."
+
+[PHN-516]
+title = "A key place's fetched file is removed as soon as the owner comes back to FERB"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-11, PHN-121. After Open with or Share, a file fetched from a key place is deleted at the owner's next return to the app (or at the lock, whichever is first)."
+why = "Android does not tell an app when another app's viewer closes; the return to FERB is the nearest signal that the owner is done with it."
+evidence = "app FeaturesTest a_key_place_asks_for_the_fingerprint_for_its_path_and_its_file_goes_when_the_owner_is_back."
+
+[PHN-517]
+title = "Files open only on the owner's tap, through the system's Open with or Share, never by themselves"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-113, PHN-115. A fetched file is handed to another app only when the owner taps Open or Share, through FERB's unexported FileProvider with a read grant for that one file; nothing opens by itself; uploads are picked with the system picker (no storage permission). No Save to Downloads: the lab's Files screen has none."
+why = "Nothing of the Mac leaves FERB without the owner's say, and the app asks for no storage permission."
+evidence = "app OnPhoneTest a_picked_file_is_copied_here_and_a_fetched_file_is_handed_out_only_through_ferbs_provider, the_manifest_asks_only_what_the_app_uses_and_keeps_out_of_backups; app FeaturesTest picked_files_are_copied_here_sent_and_ride_with_the_next_message."
+
+[PHN-518]
+title = "Watch live always blocks screenshots and stops when it leaves the screen"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-454, PHN-420. The Watch live screen sets FLAG_SECURE while it shows, whatever the Block screenshots switch says; the preview stops when the screen goes, the app goes to the background or locks; on the public relay it says the relay's rule and asks nothing. Frames are decoded in memory and never written or put in a notification."
+why = "PHN-454's condition for an unmasked picture on the phone: screenshots blank and nothing stored."
+evidence = "app OnPhoneTest watch_live_keeps_the_window_out_of_screenshots_even_with_the_switch_off; app FeaturesTest watch_live_never_asks_on_the_public_relay_and_stops_in_the_background."
+
+[PHN-519]
+title = "A notification has answer buttons only for a question the Mac says is routine"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-417, PHN-470, PHN-422, PHN-126. Buttons only when the Mac's status says can_answer, no needs_unlock and not hidden; never for a held or unknown question. Otherwise: 'Needs your fingerprint' (or unlock) and a tap opens FERB; a Mac-only one says to answer on the Mac; a hidden input is never worded."
+why = "The Mac decides what an answer needs; the app shows it, never judges it."
+evidence = "app OnPhoneTest a_question_is_posted_with_its_buttons_and_no_words_on_the_lock_screen_for_checks; app FeaturesTest the_macs_status_brings_questions_the_chat_does_not_hold_yet."
+
+[PHN-520]
+title = "The question sheet asks for the fingerprint before sending when the Mac's status says it is needed"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-417, PHN-133. The fingerprint-only key when the question's needs say fingerprint, else the lock key; a plain No never asks; a refusal still falls back to asking once."
+why = "One prompt instead of a refused try first."
+evidence = "app FeaturesTest a_question_that_needs_the_fingerprint_asks_for_it_up_front_and_a_plain_no_never."
+
+[PHN-521]
+title = "One path unlocks and signs for every call the app makes (Unlocker)"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-13, PHN-125. A call refused because the Mac's window closed unlocks once and is retried; a call that needs a proof (a setting, a key place) is signed by the fingerprint-only key, else the lock key; a gone fingerprint key says to pair again."
+why = "The owner's one-path rule: settings, files and answers take the same unlock and proof route."
+evidence = "app FeaturesTest settings_change_one_at_a_time_each_signed_after_the_fingerprint, a_key_place_asks_for_the_fingerprint_for_its_path_and_its_file_goes_when_the_owner_is_back."
+
+[PHN-522]
+title = "A fingerprint key made after pairing is offered in This phone and registered with the Mac"
+by = "agent"
+date = 2026-11-16
+status = "active"
+rule = "For PHN-133. The vault keeps keys.mac, the public keys the Mac holds; a fingerprint key it lacks is offered as a This phone row and registered (link.keys) under the lock key's prompt."
+why = "A phone paired before a fingerprint was enrolled could not register one (journal 114); this asks only when there is something to register."
+evidence = "core RemoteTest; app FeaturesTest a_fingerprint_added_after_pairing_is_offered_and_registered."

@@ -380,8 +380,12 @@ mod tests {
 
     /// APP-922: the unmasked frame path stays apart from the masked image path. An `OwnerOnlyFrame` is made only by
     /// the preview's own captures and its bytes are read only by the `tasks.preview` answer: no other source file in
-    /// the engine calls either, so no tool result, evidence, recording, trace, log or store can be handed one.
+    /// the engine calls either, so no tool result, evidence, recording, trace, log or store can be handed one. PHN-454:
+    /// the paired phone's reader (`for_paired_phone`) is read in the `tasks.preview` answer alone, and its grant
+    /// (`PairedPhoneLink`) is made by the phone gate alone (`Phones::preview_link`).
     // decision: APP-922
+    // decision: PHN-454
+    // decision: PHN-512
     #[test]
     fn owner_only_frames_are_made_and_read_in_the_preview_path_only() {
         let crates = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
@@ -399,8 +403,21 @@ mod tests {
             "ferbd/src/compose/tools/mac.rs",
             "ferbd/src/compose/tools/browser.rs",
         ];
+        // PHN-454: the phone's reader, and who may make its grant
+        // (this file names both only in this test's own search)
+        let allowed_phone_read = [
+            "ferb-mac-hands/src/point.rs",
+            "ferbd/src/areas_c/records.rs",
+            "ferbd/src/compose/previews.rs",
+        ];
+        let allowed_grant = [
+            "ferb-mac-hands/src/point.rs",
+            "ferb-daemon/src/phone/mod.rs",
+            "ferbd/src/compose/previews.rs",
+        ];
         let mut stack = vec![crates.clone()];
         let (mut makes, mut reads) = (vec![], vec![]);
+        let (mut phone_reads, mut grants) = (vec![], vec![]);
         while let Some(dir) = stack.pop() {
             for e in std::fs::read_dir(&dir).unwrap().flatten() {
                 let path = e.path();
@@ -427,6 +444,12 @@ mod tests {
                 if text.contains("OwnerOnlyFrame::captured(") {
                     makes.push(rel.clone());
                 }
+                if text.contains(".for_paired_phone(") {
+                    phone_reads.push(rel.clone());
+                }
+                if text.contains("PairedPhoneLink::after_the_phone_gate_s_checks(") {
+                    grants.push(rel.clone());
+                }
                 if text.contains(".for_owner_app()") {
                     reads.push(rel);
                 }
@@ -451,6 +474,23 @@ mod tests {
             "{makes:?}"
         );
         assert!(reads.iter().any(|r| r.ends_with("records.rs")), "{reads:?}");
+        for r in &phone_reads {
+            assert!(
+                allowed_phone_read.contains(&r.as_str()),
+                "a preview frame's bytes read for a phone in {r}"
+            );
+        }
+        for g in &grants {
+            assert!(
+                allowed_grant.contains(&g.as_str()),
+                "a phone's preview grant made in {g}"
+            );
+        }
+        assert!(
+            phone_reads.iter().any(|r| r.ends_with("records.rs"))
+                && grants.iter().any(|g| g.ends_with("phone/mod.rs")),
+            "{phone_reads:?} {grants:?}"
+        );
     }
 
     fn json_true() -> Value {

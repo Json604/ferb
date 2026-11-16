@@ -212,6 +212,8 @@ pub struct Deps {
     pub snapshots: Arc<dyn Fn() -> (bool, Value) + Send + Sync>,
     /// The tools' parts (the supervisor, once built: a delegated conversation's changes).
     pub tools: crate::compose::tools::Parts,
+    /// The phone area, once built (after this group): a phone's `tasks.preview` asks its gate (PHN-454).
+    pub phones: Arc<std::sync::OnceLock<ferb_daemon::phone::Phones>>,
 }
 
 /// Registers every method of this group.

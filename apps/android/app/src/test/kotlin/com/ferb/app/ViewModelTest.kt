@@ -4,6 +4,11 @@ import android.app.Application
 import android.os.Looper
 import androidx.lifecycle.SavedStateHandle
 import androidx.test.core.app.ApplicationProvider
+import com.ferb.app.model.LocalFiles
+import com.ferb.app.model.Picked
+import com.ferb.app.model.Why
+import java.io.File
+import java.nio.file.Files
 import com.ferb.core.KeyHealth
 import com.ferb.core.KeyKind
 import com.ferb.core.KeyState
@@ -44,6 +49,10 @@ class ViewModelTest {
     private val signers = ArrayList<FakeSigner>()
     private var localPrompt = true
     private var cancelPrompt = false
+    private val whys = ArrayList<Why>()
+    private val root: File = Files.createTempDirectory("ferb-app-files").toFile()
+    private val picked = HashMap<String, ByteArray>()
+    private val local = LocalFiles(root) { uri -> picked[uri]?.let { b -> Picked(uri.substringAfterLast('/'), b.size.toLong()) { b.inputStream() } } }
 
     @Before
     fun setUp() {
@@ -52,13 +61,16 @@ class ViewModelTest {
     }
 
     @After
-    fun tearDown() = Dispatchers.resetMain()
+    fun tearDown() {
+        Dispatchers.resetMain()
+        root.deleteRecursively()
+    }
 
     private fun vm(): FerbViewModel {
         val prefs = Prefs(ApplicationProvider.getApplicationContext())
-        return FerbViewModel(phone, session, prefs, { screenLock }, null, SavedStateHandle()).also {
+        return FerbViewModel(phone, session, prefs, { screenLock }, null, SavedStateHandle(), local).also {
             it.prompts = object : Prompts {
-                override fun signer(kind: KeyKind) = FakeSigner(kind, cancelPrompt).also(signers::add)
+                override fun signer(kind: KeyKind, why: Why) = FakeSigner(kind, cancelPrompt).also { s -> signers.add(s); whys.add(why) }
                 override suspend fun local() = localPrompt
             }
         }

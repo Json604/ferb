@@ -4,3 +4,5 @@
 -keep class com.sun.jna.** { *; }
 -keepclassmembers class * extends com.sun.jna.** { public *; }
 -keep class com.ferb.mobile.** { *; }
+# NativeInit's native method is found by its JNI name (Java_com_ferb_core_NativeInit_init): neither renamed nor removed.
+-keep class com.ferb.core.NativeInit { *; }

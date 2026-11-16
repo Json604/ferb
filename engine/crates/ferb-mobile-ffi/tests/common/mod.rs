@@ -15,8 +15,8 @@ use std::sync::{Arc, Mutex};
 use ferb_mobile::transport::{LinkFailure, Transport as _, WatchHandle};
 use ferb_mobile_ffi::records::Change;
 use ferb_mobile_ffi::{
-    Clock, FerbError, Ids, Listener, Mobile, MobileConfig, Signer, Transport, TransportError,
-    WatchSink,
+    Clock, FerbError, Ids, Listener, Mobile, MobileConfig, Signer, TransferProgress, Transport,
+    TransportError, WatchSink,
 };
 
 pub use shared::mac::FakeMac;
@@ -139,6 +139,49 @@ impl Transport for ForeignMac {
         if let Some(h) = self.watches.lock().unwrap().remove(&watch_id) {
             h.close();
         }
+    }
+    fn get(
+        &self,
+        id: String,
+        params_json: String,
+        save_to: Option<String>,
+        append: bool,
+        progress: Arc<TransferProgress>,
+    ) -> Result<String, TransportError> {
+        self.mac
+            .get(
+                &id,
+                &params_json,
+                save_to.as_deref(),
+                append,
+                Arc::new(Reports(progress)),
+            )
+            .map_err(te)
+    }
+    fn put(
+        &self,
+        id: String,
+        path: String,
+        opts_json: String,
+        progress: Arc<TransferProgress>,
+    ) -> Result<String, TransportError> {
+        self.mac
+            .put(&id, &path, &opts_json, Arc::new(Reports(progress)))
+            .map_err(te)
+    }
+    fn cancel(&self, id: String) {
+        self.mac.cancel(&id);
+    }
+}
+
+/// A foreign transport reporting a transfer through the exported `TransferProgress`, as a Kotlin fake would.
+struct Reports(Arc<TransferProgress>);
+impl ferb_mobile::transport::TransferSink for Reports {
+    fn progress(&self, done: u64, of: u64) {
+        self.0.progress(done, of);
+    }
+    fn accepted(&self, upload_id: &str, offset: u64) {
+        self.0.accepted(upload_id.to_string(), offset);
     }
 }
 

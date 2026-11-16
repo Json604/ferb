@@ -7,7 +7,7 @@ The Android app of stage 3 of the Rust rewrite (ENG-1; `engine/PLAN.md` "Stage 3
 | `:design` | S10 (T-1210) | The glass lab's phone design in Jetpack Compose (PHN-416, PHN-449): tokens, components, the twelve screens as stateless composables, and the live sky (PHN-450). No networking, no engine. |
 | `:gallery` | S10 | A debug-only app that shows every token, component and screen with invented data, at any place and time of day. Asks for no permission. |
 | `:core` | S9 (T-1209) | The phone library (`engine/crates/ferb-mobile-ffi`) built by cargo-ndk with its UniFFI Kotlin; the Vault (Keystore keys, the sealed store key and link state); `FerbPhone`, the one object the app uses; the Android signals. |
-| `:app` | S11 (T-1211) | The app itself (`com.ferb.phone`): the lock, pairing with the scanner, chat, tasks, the Mac, questions and notifications, Stay connected. What the phone library doesn't carry yet (files, Watch live, Stop everything, settings) says so on screen (journal 115). |
+| `:app` | S11 (T-1211, T-1221) | The app itself (`com.ferb.phone`): the lock (the Mac told when it locks), pairing with the scanner, chat (read marks, files with a message), tasks from the Mac, files both ways (places, folders, key places behind the fingerprint, pause and resume, Open with and Share on the owner's tap), Watch live (always out of screenshots), Stop everything, FERB's settings, the Mac's name, questions and notifications by what the Mac says each needs, Stay connected. What has no call on the Mac yet (search, recent files, speaking) says so on screen. |
 
 ## Build
 
@@ -23,7 +23,8 @@ the SDK and is not committed. From `apps/android`:
                                                 # lock, answers, words, and its screenshots (the chat against :design's)
 ./gradlew :app:recordRoborazziDebug             # rewrite the app's own goldens (app/src/test/screenshots)
 ./gradlew :app:connectedDebugAndroidTest        # on a running emulator or phone: manifest, lock gate, PIN prompt,
-                                                # notifications, Stay connected (sets and clears a PIN 1111 on it)
+                                                # notifications by needs, Watch live's FLAG_SECURE, files through the
+                                                # FileProvider, Stay connected (sets and clears a PIN 1111 on it)
 ./gradlew :app:assembleDebug                    # app/build/outputs/apk/debug/app-debug.apk (adb install -r it)
 ./gradlew --stop                                # stop the Gradle daemon when done
 ```

@@ -43,6 +43,7 @@ class Vault(
     private val storeKeyFile get() = File(dir, "store.key")
     private val linkFile get() = File(dir, "link.state")
     private val idFile get() = File(dir, "client.id")
+    private val registeredFile get() = File(dir, "keys.mac")
 
     init {
         dir.mkdirs()
@@ -94,12 +95,28 @@ class Vault(
     fun saveLinkState(state: ByteArray) = SealedFiles.write(linkFile, protector.seal(state, LINK))
 
     /**
+     * The public keys the paired Mac was given (the pairing hello's, then each one registered after it), or null when
+     * none were recorded (a phone paired before this record existed). Public halves only: nothing secret.
+     */
+    fun registeredKeys(): PublicKeys? {
+        if (!registeredFile.isFile) return null
+        val l = registeredFile.readLines()
+        fun at(i: Int) = l.getOrNull(i)?.takeIf { it.isNotEmpty() && it != "-" }
+        return PublicKeys(at(0), at(1), at(2))
+    }
+
+    fun saveRegisteredKeys(k: PublicKeys) {
+        SealedFiles.write(registeredFile, listOf(k.device, k.lock, k.strong).joinToString("\n") { it ?: "-" }.toByteArray())
+    }
+
+    /**
      * "Forget this Mac" (PHN-408): the store, its key and the three signing keys go (the next pairing registers new
      * ones, so whatever the forgotten Mac still holds of this phone verifies nothing new). The link state stays as
      * `Link.forget` rewrites it: the phone's link key without the Mac.
      */
     fun forget() {
         dropStore()
+        registeredFile.delete()
         keys.deleteAll()
     }
 
@@ -108,6 +125,7 @@ class Vault(
         dropStore()
         linkFile.delete()
         idFile.delete()
+        registeredFile.delete()
         keys.deleteAll()
         protector.destroy()
     }

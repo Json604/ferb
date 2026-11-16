@@ -730,8 +730,7 @@ title = "Stage 3 S11: apps/android :app: the screens, the app lock, notification
 area = "phone"
 kind = "build"
 status = "open"
-after = ["T-1221"]
-why = "Built (journal 115): lock, pairing and scanner, chat with outbox, questions, tasks, the Mac tab, notifications, Stay connected. Left: files, Watch live, Stop everything, settings, mark read and the Mac lock, which wait on T-1221; the owner's approval of strings.xml; LIVE-1100..1111, 1141..1144."
+why = "Built (journal 115, 116): everything of S11 but four: searching the Mac's files and recent files (no Mac method yet), speaking to FERB, fetching or sending a whole folder (the app uses neither tree nor put_group). Also the owner's approval of strings.xml and LIVE-1100..1111, 1141..1144."
 decisions = ["PHN-8", "PHN-11", "PHN-13", "PHN-15", "PHN-16", "PHN-132", "PHN-402", "PHN-403", "PHN-404", "PHN-415", "PHN-417", "PHN-420", "PHN-421", "PHN-422", "PHN-447", "PHN-115", "PHN-406", "PHN-500", "PHN-501", "PHN-502", "PHN-503", "PHN-504", "PHN-505", "PHN-506", "PHN-507", "PHN-508", "PHN-509"]
 
 [T-1212]
@@ -798,11 +797,3 @@ area = "release"
 kind = "bug"
 status = "open"
 why = "S4 (journal 113): SIGN_IDENTITY=- treats pieces already signed by FERB's team as vendor code and keeps their signature, so an ad-hoc test bundle needs them re-signed by hand. Developer ID and release builds are not affected."
-
-[T-1221]
-title = "ferb-mobile-ffi: the calls S11's app needs that the phone library doesn't expose yet"
-area = "phone"
-kind = "build"
-status = "open"
-why = "Journal 115 has the list and signatures: status (chat.status with the gate's phone part), lock (link.lock), stop_everything (stop.engage), a read mark without pos, files and uploads with progress, send with attachments, the preview stream, settings, tasks.list, the Mac's name."
-decisions = ["PHN-125", "PHN-15", "PHN-417", "PHN-454", "PHN-113", "PHN-404", "PHN-506"]

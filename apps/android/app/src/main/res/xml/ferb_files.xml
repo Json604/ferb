@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FERB's FileProvider: files fetched from the Mac only (cacheDir/files/fetched), handed to another app on the owner's
+     tap with read access to that one file. The copies waiting to be sent (files/outgoing) are never reachable. -->
+<paths>
+    <cache-path name="fetched" path="files/fetched/" />
+</paths>

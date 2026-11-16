@@ -339,8 +339,9 @@ PHN-452 the Claude row's words.
 | S7 | T-1207 | `ferb-mobile`: store, sync, outbox, fold, reducer | S1, S6 |
 | S8 | (T-1208, done: journal 112) | `ferb-mobile-ffi` (UniFFI); call cancellation in ferb-link left as T-1218 | S7 |
 | S9 | (T-1209, done: journal 114) | `apps/android` :core, Gradle, the Rust build through cargo-ndk, the Vault and keys | S8 |
-| S10 | T-1210 | `apps/android` :design: tokens, components, sky | - |
-| S11 | T-1211 | `apps/android` :app screens, the lock, notifications, Stay connected | S3b, S5, S9, S10 |
+| S10 | (T-1210, done: journal 101) | `apps/android` :design: tokens, components, sky | - |
+| S11 | T-1211 | `apps/android` :app screens, the lock, notifications, Stay connected (built in part: journal 115) | S3b, S5, S9, S10 |
+| - | (T-1221, done: journal 116) | ferb-mobile-ffi additions S11 needs: lock, stop everything, status, a read mark, files, preview, settings, tasks, the Mac's name | S8 |
 | - | T-1212 | Phone sign-ins (ChatGPT, API keys; Claude's row says why) | S7 |
 | - | T-1214 | The phone's device line and lookup (SENSE-421, SENSE-422 on the phone), its own Location permission; the Mac side is built (journal 104) | S3, S11 |
 

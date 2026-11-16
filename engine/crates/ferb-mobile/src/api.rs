@@ -22,8 +22,9 @@ use crate::entries::{Applied, EntrySet};
 use crate::entry::ChatEntry;
 use crate::fold::{Item, QuestionItem};
 use crate::live::{LiveState, LiveView};
-use crate::store::{Cursor, Older, OutboxRow, Store, StoreError};
-use crate::transport::{FailureKind, LinkFailure, Transport, WatchHandle, WatchSink};
+use crate::status::PhoneStatus;
+use crate::store::{Attachment, Cursor, Older, OutboxRow, Store, StoreError};
+use crate::transport::{codes, FailureKind, LinkFailure, Transport, WatchHandle, WatchSink};
 
 // ---- configuration and the app's seams ------------------------------------------------------------------------------
 
@@ -102,6 +103,10 @@ pub enum Change {
     Older {
         conversation: String,
     },
+    /// What FERB has waiting changed (the Mac's pushed `chat.status`, or one read): read `last_status` again.
+    Status,
+    /// What the Mac told about itself changed (its name, this phone's pairing date): read `mac_info` again.
+    Mac,
     /// "Forget this Mac" ran or the core closed: every call now answers `closed`.
     Closed,
 }
@@ -160,6 +165,8 @@ pub enum ErrorCode {
     InFlight,
     /// The Mac's reply could not be read.
     BadReply,
+    /// The phone itself stopped it (a transfer paused or cancelled): nothing failed.
+    Cancelled,
 }
 
 impl ErrorCode {
@@ -179,6 +186,7 @@ impl ErrorCode {
             ErrorCode::NotFound => "not_found",
             ErrorCode::InFlight => "in_flight",
             ErrorCode::BadReply => "bad_reply",
+            ErrorCode::Cancelled => "cancelled",
         }
     }
 }
@@ -192,23 +200,30 @@ pub struct MobileError {
 }
 
 impl MobileError {
-    fn new(code: ErrorCode, message: impl Into<String>) -> MobileError {
+    pub(crate) fn new(code: ErrorCode, message: impl Into<String>) -> MobileError {
         MobileError {
             code,
             message: message.into(),
             link_code: None,
         }
     }
-    fn closed() -> MobileError {
+    pub(crate) fn closed() -> MobileError {
         MobileError::new(
             ErrorCode::Closed,
             "This phone's copy of FERB's chat is closed.",
         )
     }
-    fn offline() -> MobileError {
+    pub(crate) fn offline() -> MobileError {
         MobileError::new(ErrorCode::Offline, "FERB's Mac can't be reached now.")
     }
-    fn from_link(f: LinkFailure) -> MobileError {
+    pub fn from_link(f: LinkFailure) -> MobileError {
+        if f.code == codes::CANCELLED {
+            return MobileError {
+                code: ErrorCode::Cancelled,
+                message: f.message,
+                link_code: Some(f.code),
+            };
+        }
         let code = match f.kind() {
             FailureKind::Transient => ErrorCode::Offline,
             FailureKind::NeedsUnlock => ErrorCode::NeedsUnlock,
@@ -274,6 +289,8 @@ pub struct LinkState {
     pub relay_note: Option<String>,
     /// The watch is running: changes and live frames arrive as they happen.
     pub watching: bool,
+    /// The app locked (`Mobile::lock`): the conversation is not read until the next unlock (`unlocked`).
+    pub locked: bool,
 }
 
 /// Whether older entries can be fetched.
@@ -300,6 +317,8 @@ pub const OLDER_NEEDS_BETTER_PATH: &str =
 pub struct OutboxItem {
     pub id: String,
     pub text: String,
+    /// Files that ride with it (this phone's uploads on the Mac).
+    pub attachments: Vec<Attachment>,
     pub created_at: String,
     /// waiting (for the link, or for the phone's unlock: `waiting_for`), sending, failed (`reason`).
     pub state: String,
@@ -373,53 +392,57 @@ impl Drop for Answer {
 
 // ---- the core ---------------------------------------------------------------------------------------------------------
 
-struct Conv {
-    set: EntrySet,
+pub(crate) struct Conv {
+    pub(crate) set: EntrySet,
     live: LiveState,
     older: OlderState,
 }
 
-struct State {
-    store: Option<Store>,
+pub(crate) struct State {
+    pub(crate) store: Option<Store>,
     convs: HashMap<String, Conv>,
     current: Option<String>,
-    link: LinkState,
+    pub(crate) link: LinkState,
     transport: Option<Arc<dyn Transport>>,
     watch: Option<(u64, String, Box<dyn WatchHandle>)>,
     generation: u64,
     /// Conversations whose older page waits for a path that carries it.
     older_waiting: HashSet<String>,
+    /// What FERB has waiting, as last pushed or read (memory only: question words are never stored).
+    pub(crate) status: Option<PhoneStatus>,
+    /// The app locked: the watch stays closed until the next unlock's sync (PHN-125).
+    pub(crate) locked: bool,
 }
 
-struct Shared {
-    state: Mutex<State>,
+pub(crate) struct Shared {
+    pub(crate) state: Mutex<State>,
     /// One sync at a time (reads, the watch's start).
     sync_lock: Mutex<()>,
     /// One outbox flush at a time, so messages go in order and once.
     outbox_lock: Mutex<()>,
-    config: Config,
-    env: Env,
+    pub(crate) config: Config,
+    pub(crate) env: Env,
     path: PathBuf,
 }
 
 /// The phone's core. Every method is blocking and bounded (store work, and at most the transport's own call deadline
 /// per network call); none holds a lock across a network call. `close` (or `forget_this_mac`) ends it.
 pub struct Mobile {
-    shared: Arc<Shared>,
+    pub(crate) shared: Arc<Shared>,
 }
 
-fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+pub(crate) fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|p| p.into_inner())
 }
 
-fn parse(reply: &str) -> MobileResult<Value> {
+pub(crate) fn parse(reply: &str) -> MobileResult<Value> {
     serde_json::from_str(reply)
         .map_err(|_| MobileError::new(ErrorCode::BadReply, "FERB's reply could not be read."))
 }
 
 /// A JSON object built with its keys in sorted order, so its text is the same whether serde_json keeps insertion
 /// order or sorts (the signed payloads; ferb-link writes them sorted).
-fn sorted(pairs: Vec<(&str, Value)>) -> Value {
+pub(crate) fn sorted(pairs: Vec<(&str, Value)>) -> Value {
     let mut pairs = pairs;
     pairs.sort_by(|a, b| a.0.cmp(b.0));
     let mut m = Map::new();
@@ -484,11 +507,14 @@ impl Mobile {
                         bulk_allowed: false,
                         relay_note: None,
                         watching: false,
+                        locked: false,
                     },
                     transport: None,
                     watch: None,
                     generation: 0,
                     older_waiting: HashSet::new(),
+                    status: None,
+                    locked: false,
                 }),
                 sync_lock: Mutex::new(()),
                 outbox_lock: Mutex::new(()),
@@ -590,13 +616,20 @@ impl Mobile {
 
     /// Writes a message: it goes to the outbox at once (visible, cancellable), and is sent now when the link is up.
     pub fn send(&self, text: &str) -> MobileResult<OutboxItem> {
+        self.send_with(text, &[])
+    }
+
+    /// A message with files: this phone's finished uploads on the Mac, by their ids (PHN-127); the Mac turns them
+    /// into the message's files (`input_paths`). Kept in the outbox like any message.
+    pub fn send_with(&self, text: &str, attachments: &[Attachment]) -> MobileResult<OutboxItem> {
         let item = {
             let st = self.shared.open_state()?;
             let store = st.store.as_ref().ok_or_else(MobileError::closed)?;
-            let row = store.outbox_add(
+            let row = store.outbox_add_with(
                 &self.shared.env.ids.new_id(),
                 text,
                 &self.shared.env.clock.now_iso(),
+                attachments,
             )?;
             outbox_item(&row)
         };
@@ -671,6 +704,19 @@ impl Mobile {
         Shared::load_older(&self.shared, conversation)
     }
 
+    /// Tells the Mac the owner has read everything this phone holds of the conversation: the read mark at the newest
+    /// entry held (`mark_read` with that position). Nothing held: nothing to say.
+    pub fn mark_read_latest(&self, conversation: &str) -> MobileResult<()> {
+        let pos = {
+            let mut st = self.shared.open_state()?;
+            st.conv(conversation)?.set.highest_pos()
+        };
+        match pos {
+            Some(p) => self.mark_read(conversation, p),
+            None => Ok(()),
+        }
+    }
+
     /// Tells the Mac how far the owner has read (`chat.entries.mark read_pos`), when it moved.
     pub fn mark_read(&self, conversation: &str, pos: i64) -> MobileResult<()> {
         let t = self.shared.transport_online()?;
@@ -693,7 +739,17 @@ impl Mobile {
     }
 
     pub fn link_state(&self) -> LinkState {
-        lock(&self.shared.state).link.clone()
+        let st = lock(&self.shared.state);
+        let mut l = st.link.clone();
+        l.locked = st.locked;
+        l
+    }
+
+    /// The app unlocked (its prompt was answered): the conversation is read again from the next sync. The Mac's own
+    /// unlock is `link.unlock` (the FFI's `unlock`), which calls this before its sync.
+    pub fn unlocked(&self) {
+        lock(&self.shared.state).locked = false;
+        self.shared.notify(Change::Link);
     }
 
     /// "Forget this Mac" (PHN-408): the watch stops, the link is unplugged, the store's files are deleted and every
@@ -767,6 +823,7 @@ fn outbox_item(row: &OutboxRow) -> OutboxItem {
         waiting_for,
         reason: row.reason.clone(),
         tried: row.attempts > 0,
+        attachments: row.attachments.clone(),
     }
 }
 
@@ -776,12 +833,22 @@ fn outbox_items(st: &State) -> MobileResult<Vec<OutboxItem>> {
 }
 
 impl State {
-    fn store(&mut self) -> MobileResult<&mut Store> {
+    /// A new watch generation: frames of the one before are ignored from now on.
+    pub(crate) fn generation_bump(&mut self) {
+        self.generation += 1;
+    }
+
+    /// The running watch's handle, taken out to close (outside the lock).
+    pub(crate) fn take_watch(&mut self) -> Option<Box<dyn WatchHandle>> {
+        self.watch.take().map(|(_, _, h)| h)
+    }
+
+    pub(crate) fn store(&mut self) -> MobileResult<&mut Store> {
         self.store.as_mut().ok_or_else(MobileError::closed)
     }
 
     /// The conversation's state, loaded from the store on first use.
-    fn conv(&mut self, id: &str) -> MobileResult<&mut Conv> {
+    pub(crate) fn conv(&mut self, id: &str) -> MobileResult<&mut Conv> {
         if !self.convs.contains_key(id) {
             let store = self.store.as_ref().ok_or_else(MobileError::closed)?;
             let set = EntrySet::from_entries(store.entries(id)?);
@@ -909,11 +976,11 @@ impl WatchSink for Sink {
 }
 
 impl Shared {
-    fn notify(&self, change: Change) {
+    pub(crate) fn notify(&self, change: Change) {
         self.env.listener.changed(change);
     }
 
-    fn open_state(&self) -> MobileResult<MutexGuard<'_, State>> {
+    pub(crate) fn open_state(&self) -> MobileResult<MutexGuard<'_, State>> {
         let st = lock(&self.state);
         if st.store.is_none() {
             return Err(MobileError::closed());
@@ -921,12 +988,12 @@ impl Shared {
         Ok(st)
     }
 
-    fn online(&self) -> bool {
+    pub(crate) fn online(&self) -> bool {
         let st = lock(&self.state);
         st.transport.is_some() && st.link.path != LinkPath::Offline
     }
 
-    fn transport(&self) -> MobileResult<Arc<dyn Transport>> {
+    pub(crate) fn transport(&self) -> MobileResult<Arc<dyn Transport>> {
         self.open_state()?
             .transport
             .clone()
@@ -934,7 +1001,7 @@ impl Shared {
     }
 
     /// The transport, when the link says it is online.
-    fn transport_online(&self) -> MobileResult<Arc<dyn Transport>> {
+    pub(crate) fn transport_online(&self) -> MobileResult<Arc<dyn Transport>> {
         let st = self.open_state()?;
         if st.link.path == LinkPath::Offline {
             return Err(MobileError::offline());
@@ -942,7 +1009,7 @@ impl Shared {
         st.transport.clone().ok_or_else(MobileError::offline)
     }
 
-    fn call(t: &Arc<dyn Transport>, method: &str, params: Value) -> MobileResult<Value> {
+    pub(crate) fn call(t: &Arc<dyn Transport>, method: &str, params: Value) -> MobileResult<Value> {
         let reply = t
             .call(method, &params.to_string(), None)
             .map_err(MobileError::from_link)?;
@@ -1010,6 +1077,17 @@ impl Shared {
                         Value::String(s) => Some(s.clone()),
                         other => Some(other.to_string()),
                     };
+                }
+                "status" => {
+                    // the Mac's pushed `chat.status` (the bridge's, when it changes): memory only
+                    let status = PhoneStatus::read(&ev["status"]);
+                    if st.status.as_ref() == Some(&status) {
+                        return;
+                    }
+                    st.status = Some(status);
+                    drop(st);
+                    this.notify(Change::Status);
+                    return;
                 }
                 _ => return,
             }
@@ -1299,6 +1377,14 @@ impl Shared {
     fn sync(this: &Arc<Shared>) -> MobileResult<()> {
         let _one = lock(&this.sync_lock);
         let t = this.transport()?;
+        if lock(&this.state).locked {
+            // the app is locked (PHN-125): only what waits (the Mac's status, allowed locked), never the conversation
+            let _ = Self::read_status(this, &t);
+            return Err(MobileError::new(
+                ErrorCode::NeedsUnlock,
+                "Unlock to see what's new on your Mac.",
+            ));
+        }
         // which conversation FERB writes in now, and its epoch: the smallest newest page
         let probe = Self::call(
             &t,
@@ -1438,7 +1524,14 @@ impl Shared {
                 return;
             }
             this.notify(Change::Outbox);
-            let params = json!({"text": row.text, "client_id": this.config.client_id, "submission_id": row.id});
+            let mut params = json!({"text": row.text, "client_id": this.config.client_id, "submission_id": row.id});
+            if !row.attachments.is_empty() {
+                params["attachments"] = json!(row
+                    .attachments
+                    .iter()
+                    .map(|a| a.upload_id.clone())
+                    .collect::<Vec<_>>());
+            }
             let result = t.send(&params.to_string());
             match result {
                 Ok(_ack) => {
@@ -1489,12 +1582,29 @@ impl Shared {
         Ok(())
     }
 
-    /// The challenge the question carries for the phone (`phone.challenge`), else a fresh one from the link.
+    /// The one-time challenge the Mac gave this session for the question (the gate's `phone.challenge` in
+    /// `chat.status`: the only one its answer check takes), read again when the last status had none; else one the
+    /// question's entry carries, else a fresh one from the link.
     fn challenge(
         this: &Arc<Shared>,
         t: &Arc<dyn Transport>,
         approval_id: &str,
     ) -> MobileResult<String> {
+        let held = |this: &Arc<Shared>| -> Option<String> {
+            lock(&this.state)
+                .status
+                .as_ref()
+                .and_then(|s| s.needs(approval_id))
+                .and_then(|n| n.challenge.clone())
+        };
+        if let Some(c) = held(this) {
+            return Ok(c);
+        }
+        if Self::read_status(this, t).is_ok() {
+            if let Some(c) = held(this) {
+                return Ok(c);
+            }
+        }
         let carried = {
             let st = this.open_state()?;
             st.convs.values().find_map(|c| {
@@ -1592,6 +1702,16 @@ impl Shared {
                     Answer::Hidden { secret } => sealed_payload(approval_id, &challenge, secret),
                     _ => answer_payload(approval_id, &challenge, method, &params),
                 };
+                // a challenge is one use: the next answer reads the Mac's next one
+                if let Some(s) = lock(&this.state).status.as_mut() {
+                    for q in s
+                        .questions
+                        .iter_mut()
+                        .filter(|q| q.approval_id == approval_id)
+                    {
+                        q.needs.challenge = None;
+                    }
+                }
                 match signer.sign(&payload) {
                     Some(sig) => Some(json!({"payload": payload, "sig": sig}).to_string()),
                     None => {

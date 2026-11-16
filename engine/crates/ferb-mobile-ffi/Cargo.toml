@@ -33,6 +33,12 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 zeroize = "1"
 
+# Android only: iroh's DNS resolver reads the network's DNS servers through `ndk_context` (n0-dns-resolver's
+# android.rs), which needs the process's JavaVM and application context once (`android.rs`, called by :core).
+[target.'cfg(target_os = "android")'.dependencies]
+jni = { version = "0.21", default-features = false }
+ndk-context = "0.1"
+
 [dev-dependencies]
 tempfile = "3"
 # tests/link.rs runs the real link against ferb-link's own test world (a local relay, the stand-in daemon, the Mac's

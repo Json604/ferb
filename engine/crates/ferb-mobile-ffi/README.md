@@ -41,6 +41,19 @@ m.outbox(): List<OutboxItem>; m.send(text: String): OutboxItem; m.flushOutbox();
 m.answer(approvalId: String, answer: AnswerInput, signer: Signer?): String   // the reply's JSON
 m.stop(taskIds: List<String>); m.loadOlder(conversation: String): OlderState; m.markRead(conversation: String, pos: Long)
 m.linkState(): LinkState; m.forgetThisMac(); m.shutdown(); m.isClosed(): Boolean; m.storePath(): String
+// T-1221 (journal 116)
+m.lock(): Boolean; m.unlocked(); m.stopEverything(); m.status(): PhoneStatus; m.lastStatus(): PhoneStatus?
+m.markReadLatest(conversation); m.sendWith(text, attachments: List<Attachment>): OutboxItem
+m.files(path: String?, signer: Signer?): Folder; m.tree(path, signer?): Tree; m.putGroup(name): String
+m.fetch(id, path, saveTo, offset: ULong, signer?, listener: TransferListener): Fetched
+m.upload(id, localPath, name, resume?, group?, rel?, listener): Uploaded; m.cancelTransfer(id)  // -> FerbException.Cancelled
+m.preview(taskId, have: Long?): PreviewFrame; m.watchLive(taskId, sink: PreviewSink): LivePreview  // .stop()
+m.settings(): List<SettingValue>; m.setSetting(key, valueJson, signer): String
+m.tasks(limit: UInt, before: String?): TaskPage; m.macInfo(): MacInfo; m.cachedMacInfo(): MacInfo?
+m.registerKeys(devicePub?, strongPub?, signer)
+interface TransferListener { fun progress(done: ULong, of: ULong); fun accepted(uploadId: String, offset: ULong) }
+interface PreviewSink { fun frame(frame: PreviewFrame); fun ended(code: String?, detail: String?) }
+// Android only: the one JNI export, com.ferb.core.NativeInit.init(context): ndk_context for iroh's DNS (PHN-514)
 // the link
 Link.start(config: LinkConfig, listener: LinkListener, deviceSigner: DeviceSigner?): Link
 l.endpointId(): String; l.pair(code: String); l.status(): LinkStatus; l.setActive(on: Boolean)

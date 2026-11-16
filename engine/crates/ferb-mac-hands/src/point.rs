@@ -57,8 +57,9 @@ pub type FrameFn =
 /// One live-preview frame as captured, unmasked, for the owner's own eyes in FERB.app only (APP-922). It lives in
 /// memory only and must never reach a model, a tool result, evidence, a recording, a trace, a log, the database or
 /// disk: it has no `Serialize`, no conversion into bytes or from a masked image's path, and `Debug` shows only its
-/// size. Its bytes are read in one place, the `tasks.preview` answer to FERB.app ([`OwnerOnlyFrame::for_owner_app`];
-/// a test checks no other caller exists).
+/// size. Its bytes are read in one place, the `tasks.preview` answer: to FERB.app ([`OwnerOnlyFrame::for_owner_app`])
+/// or to the owner's paired, unlocked phone over a direct path or his own relay ([`OwnerOnlyFrame::for_paired_phone`],
+/// PHN-454); a test checks no other caller exists.
 #[derive(Clone, PartialEq, Eq)]
 pub struct OwnerOnlyFrame(Vec<u8>);
 
@@ -70,6 +71,14 @@ impl OwnerOnlyFrame {
 
     /// The bytes, for the `tasks.preview` answer to FERB.app and nothing else.
     pub fn for_owner_app(&self) -> &[u8] {
+        &self.0
+    }
+
+    /// The bytes, for the `tasks.preview` answer to the owner's own paired phone, inside the link only (PHN-454,
+    /// owner: the phone's preview is unmasked too). The second and last reader: it takes a [`PairedPhoneLink`], which
+    /// only the daemon's phone gate makes, for a session it holds paired, unlocked now and on a direct path or the
+    /// owner's relay (never the public relay, PHN-444). A test checks no other caller or maker exists.
+    pub fn for_paired_phone(&self, _link: &PairedPhoneLink) -> &[u8] {
         &self.0
     }
 
@@ -85,6 +94,24 @@ impl OwnerOnlyFrame {
 impl std::fmt::Debug for OwnerOnlyFrame {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "<owner-only preview frame, {} bytes>", self.0.len())
+    }
+}
+
+/// The phone gate's word that one `tasks.preview` answer may carry its frame to a phone (PHN-454): the session's phone
+/// is paired (not removed), its unlock window is open now, and the link names a direct path or the owner's relay as
+/// the session's tier. Made only by ferb-daemon's phone gate (`Phones::preview_link`; a source-scan test holds that),
+/// for one answer; it holds no bytes and is never kept.
+#[derive(Debug)]
+pub struct PairedPhoneLink {
+    _made_by_the_phone_gate: (),
+}
+
+impl PairedPhoneLink {
+    /// The phone gate's own maker, after its checks (ferb-daemon `phone::Phones::preview_link` only).
+    pub fn after_the_phone_gate_s_checks() -> PairedPhoneLink {
+        PairedPhoneLink {
+            _made_by_the_phone_gate: (),
+        }
     }
 }
 

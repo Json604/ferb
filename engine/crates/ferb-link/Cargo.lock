@@ -1193,8 +1193,6 @@ dependencies = [
  "ferb-store",
  "iroh",
  "iroh-relay",
- "jni 0.21.1",
- "ndk-context",
  "p256",
  "qrcode",
  "rand 0.9.5",

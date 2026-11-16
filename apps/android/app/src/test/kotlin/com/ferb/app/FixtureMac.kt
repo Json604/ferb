@@ -102,6 +102,14 @@ class FixtureMac(private val c: FixtureConversation) : Transport {
 
     override fun closeWatch(watchId: ULong) {}
 
+    override fun get(id: String, paramsJson: String, saveTo: String?, append: Boolean, progress: com.ferb.mobile.TransferProgress): String =
+        throw TransportException.Failed("not_found", "The fixture Mac holds no files.", null, null)
+
+    override fun put(id: String, path: String, optsJson: String, progress: com.ferb.mobile.TransferProgress): String =
+        throw TransportException.Failed("not_found", "The fixture Mac takes no files.", null, null)
+
+    override fun cancel(id: String) {}
+
     companion object {
         /** A phone core (the real library on the host) synced from [mac]: its transcript of the conversation. */
         fun transcript(mac: FixtureMac, utcOffsetS: Int = 0, use: (Mobile) -> Unit = {}): TranscriptView {

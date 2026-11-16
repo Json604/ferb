@@ -68,6 +68,10 @@ pub mod codes {
     pub const UNLOCK_INVALID: &str = "unlock_invalid";
     pub const FRESH_UNLOCK: &str = "fresh_unlock_required";
     pub const QUESTION_NOT_WAITING: &str = "question_not_waiting";
+    /// The phone itself stopped a transfer (paused or cancelled by the owner): nothing failed.
+    pub const CANCELLED: &str = "cancelled";
+    /// The transport has no way to do this (a transport that carries calls only).
+    pub const UNSUPPORTED: &str = "unsupported";
 
     /// The link could not carry it, or FERB could not take it now: nothing is known to have been done, or the
     /// outcome is unknown. A message stays waiting and goes again (with the same submission id) when the link returns.
@@ -127,6 +131,13 @@ pub trait WatchSink: Send + Sync {
     fn ended(&self, failure: Option<LinkFailure>);
 }
 
+/// What a transfer under way says: bytes moved so far of the whole (`of`), and, for an upload, the Mac's go-ahead (the
+/// upload's id and where it goes on from) before the first byte. Called on the transport's own thread.
+pub trait TransferSink: Send + Sync {
+    fn progress(&self, done: u64, of: u64);
+    fn accepted(&self, _upload_id: &str, _offset: u64) {}
+}
+
 /// A running watch; `close` stops it (idempotent, bounded).
 pub trait WatchHandle: Send + Sync {
     fn close(&self);
@@ -153,4 +164,41 @@ pub trait Transport: Send + Sync {
         params_json: &str,
         sink: Arc<dyn WatchSink>,
     ) -> Result<Box<dyn WatchHandle>, LinkFailure>;
+
+    /// `link.get` (a file or a picture from the Mac, as acknowledged chunks; the public relay refuses it, PHN-444).
+    /// `id` names the transfer for `cancel`. `params_json` may carry `proof` (a key place's fresh proof). With
+    /// `save_to` the bytes go straight into that file (appended when `append`, to go on after a pause), else the
+    /// reply carries them as base64 `data`. The reply's JSON: the Mac's `meta`, `received`, `saved_to` or `data`.
+    fn get(
+        &self,
+        _id: &str,
+        _params_json: &str,
+        _save_to: Option<&str>,
+        _append: bool,
+        _sink: Arc<dyn TransferSink>,
+    ) -> Result<String, LinkFailure> {
+        Err(LinkFailure::new(
+            codes::UNSUPPORTED,
+            "This connection carries no files.",
+        ))
+    }
+
+    /// `link.put`: a file from the phone's storage at `path` to the Mac's upload folder; `opts_json` carries `name`,
+    /// and `resume` (an upload's id that stopped part way), `group` and `rel` (a file inside a folder being sent).
+    /// The reply's JSON: the Mac's `upload_id`, `saved`, `size`, `sha256`.
+    fn put(
+        &self,
+        _id: &str,
+        _path: &str,
+        _opts_json: &str,
+        _sink: Arc<dyn TransferSink>,
+    ) -> Result<String, LinkFailure> {
+        Err(LinkFailure::new(
+            codes::UNSUPPORTED,
+            "This connection carries no files.",
+        ))
+    }
+
+    /// Stops the transfer (or call) named `id`: its caller gets `cancelled`. What a fetch saved stays, to go on with.
+    fn cancel(&self, _id: &str) {}
 }

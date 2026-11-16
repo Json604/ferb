@@ -3,7 +3,7 @@
 //!
 //! One pump thread (the door's) reads every event of the client: a call's result goes to the caller waiting on it, a
 //! watch's frames to the core, and the link's own events here: `state`, `bulk` and `relay_state` to the attached
-//! cores (`Mobile::link_event`) and the app's `LinkListener`; `persist` (the link's state, with the phone's private
+//! cores (`Mobile::link_event`) and the app's `LinkListener`; the Mac's pushed `status` to the cores; `persist` (the link's state, with the phone's private
 //! link key) to the app to store; `prove` to the app's `DeviceSigner`.
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -323,6 +323,8 @@ impl LinkInner {
                 );
                 self.tell();
             }
+            // the Mac's pushed `chat.status` (the bridge's, when it changes): what waits, for the notifications
+            "status" => self.forward(text),
             "persist" => {
                 let state = ev["state"].clone();
                 lock(&self.seen).paired = paired_in(&state);

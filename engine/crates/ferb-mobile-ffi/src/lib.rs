@@ -14,16 +14,21 @@
 
 uniffi::setup_scaffolding!();
 
+#[cfg(target_os = "android")]
+mod android;
 pub mod callbacks;
 pub mod error;
 pub mod link;
 pub mod mobile;
 pub mod records;
 
-pub use callbacks::{Clock, DeviceSigner, Ids, Listener, Signer, Transport, WatchSink};
+pub use callbacks::{
+    Clock, DeviceSigner, Ids, Listener, Signer, TransferListener, TransferProgress, Transport,
+    WatchSink,
+};
 pub use error::{FerbError, TransportError};
 pub use link::{Link, LinkConfig, LinkListener, LinkPhase, LinkProblem, LinkStatus, RelayStatus};
-pub use mobile::{AnswerInput, Mobile, MobileConfig};
+pub use mobile::{AnswerInput, LivePreview, Mobile, MobileConfig, PreviewSink};
 
 /// This library's version (the engine's).
 #[uniffi::export]
@@ -80,6 +85,24 @@ mod tests {
         let e = <FerbError as Lift<crate::UniFfiTag>>::try_lift_from_rust_buffer(buf).unwrap();
         assert_eq!(e.code(), "internal");
         assert!(matches!(e, FerbError::Internal { .. }));
+    }
+
+    /// One library per phone (PHN-514): ferb-link builds no library of its own (its C and JNI door is gone), and this
+    /// one carries the Android DNS context's JNI init the lab's library had.
+    // decision: PHN-514
+    #[test]
+    fn the_phone_ships_one_library() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let link = std::fs::read_to_string(root.join("../ferb-link/Cargo.toml")).unwrap();
+        assert!(
+            !link.contains("\"cdylib\""),
+            "ferb-link builds a library again"
+        );
+        let door = std::fs::read_to_string(root.join("../ferb-link/src/ffi.rs")).unwrap();
+        assert!(!door.contains("extern \"C\"") && !door.contains("extern \"system\""));
+        let init = std::fs::read_to_string(root.join("src/android.rs")).unwrap();
+        assert!(init.contains("Java_com_ferb_core_NativeInit_init"));
+        assert!(init.contains("initialize_android_context"));
     }
 
     /// A panic past every guard of this crate is still caught by UniFFI's scaffolding (the bindings raise their

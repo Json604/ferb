@@ -47,8 +47,8 @@ pub fn register(server: &Server, d: &Deps) {
     unary(server, d, "reports.send", |d, _s, p| {
         Box::pin(reports_send(d, p))
     });
-    unary(server, d, "tasks.preview", |d, _s, p| {
-        Box::pin(tasks_preview(d, p))
+    unary(server, d, "tasks.preview", |d, s, p| {
+        Box::pin(tasks_preview(d, s, p))
     });
     unary(server, d, "questions.picture", |d, _s, p| {
         Box::pin(questions_picture(d, p))
@@ -534,7 +534,25 @@ async fn reports_send(d: Deps, p: Params) -> Result<Map<String, Value>, HandlerE
 /// `_task_preview` (rpc.py:208, FERB.app only): the live preview now (`hooks.previews.frame`): the task's state and
 /// line, the masked frame (base64, after the redacted rest) unless the app's `have` names it. Never waits for the
 /// worker; the request (and its capture, when nobody else waits for it) ends when the app's connection ends.
-async fn tasks_preview(d: Deps, p: Params) -> Result<Map<String, Value>, HandlerError> {
+async fn tasks_preview(d: Deps, s: Session, p: Params) -> Result<Map<String, Value>, HandlerError> {
+    // PHN-454: a phone's call (admitted by its gate as a private call) gets the frame only when the phone gate says
+    // this session is paired, unlocked now and on a direct path or the owner's relay; asked before anything is captured
+    let phone_link = match &s.phone {
+        None => None,
+        Some(phone) => {
+            let phones = d.phones.get().ok_or_else(|| {
+                HandlerError::coded(
+                    ferb_rpc::phone_gate::UNKNOWN_PHONE,
+                    "The phone area isn't running.",
+                )
+            })?;
+            Some(
+                phones
+                    .preview_link(phone)
+                    .map_err(|r| HandlerError::coded(r.code, r.message))?,
+            )
+        }
+    };
     let task_id = p
         .get("task_id")
         .filter(|v| ferb_py::value::truthy(v))
@@ -555,13 +573,18 @@ async fn tasks_preview(d: Deps, p: Params) -> Result<Map<String, Value>, Handler
         Value::Object(m) => m,
         _ => Map::new(),
     };
-    // APP-922: the frame as captured, to FERB.app only (tasks.preview is app_only); the one place its bytes are read
+    // APP-922: the frame as captured, to FERB.app (tasks.preview is app_only) or, PHN-454, to the owner's paired phone
+    // under its gate's word: the one place its bytes are read
     if let Some(image) = answer.image {
         use base64::Engine;
+        let bytes = match &phone_link {
+            Some(link) => image.for_paired_phone(link),
+            None => image.for_owner_app(),
+        };
         out.insert(
             "image".into(),
             base64::engine::general_purpose::STANDARD
-                .encode(image.for_owner_app())
+                .encode(bytes)
                 .into(),
         );
     }

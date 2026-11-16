@@ -72,6 +72,12 @@ interface Host {
     fun stayConnected(on: Boolean)
     fun blockScreenshots(on: Boolean)
     fun askNotifications()
+
+    /** The system's picker for files to send to the Mac ([forChat]: they go with the next message). */
+    fun pickFiles(forChat: Boolean)
+
+    /** The owner's tap on a fetched file: the system's Open with or Share sheet. */
+    fun handOut(key: String, file: java.io.File, name: String, share: Boolean)
 }
 
 /** The sheet over the page (Mobile.swift Sheet; MobileScreens.swift's sheets), or nothing. */
@@ -83,10 +89,24 @@ fun Sheets(vm: FerbViewModel, ui: UiState, sheet: Sheet?, insets: PhoneInsets, h
         is Sheet.Asking -> {
             val q = ui.questions.firstOrNull { it.approvalId == sheet.approvalId } ?: return
             val busy = "answer:${q.approvalId}" in ui.busy
-            if (q.hidden) PrivateAnswer(vm, q, insets, busy, close) else Asking(vm, q, insets, busy, close)
+            when {
+                q.onlyOnMac || q.held -> Plain(q.title ?: stringResource(R.string.question_default_title),
+                    listOfNotNull(q.reason.ifEmpty { null }, q.needs?.problem, stringResource(R.string.question_on_mac).takeIf { q.onlyOnMac })
+                        .joinToString("\n\n").ifEmpty { stringResource(R.string.n_held_text) }, insets, close)
+                q.hidden -> PrivateAnswer(vm, q, insets, busy, close)
+                else -> Asking(vm, q, insets, busy, close)
+            }
         }
         Sheet.Relay -> RelaySheet(labRelay, insets, onClose = close)
-        Sheet.Profile -> Profile(vm, insets, host, close)
+        Sheet.Profile -> Profile(vm, ui, insets, host, close)
+        Sheet.StopAll -> Plain(stringResource(R.string.stop_all_title), stringResource(R.string.stop_all_text), insets, close) {
+            Pill(stringResource(R.string.stop_all_yes), Modifier.padding(top = 18.dp), icon = FerbIcons.stop,
+                onClick = if ("stop-all" in ui.busy) null else ({ vm.stopEverything() }))
+            Pill(stringResource(R.string.cancel), Modifier.padding(top = 4.dp), PillKind.PLAIN, height = 44.dp, onClick = close)
+        }
+        Sheet.Settings -> SettingsSheet(vm, ui, insets, close)
+        is Sheet.Days -> DaysSheet(vm, ui, sheet.key, insets)
+        is Sheet.Live -> LiveScreen(vm, insets)
         Sheet.Forget -> Plain(stringResource(R.string.forget_title), stringResource(R.string.forget_text), insets, close) {
             Pill(stringResource(R.string.forget_yes), Modifier.padding(top = 18.dp), onClick = { vm.forget() })
             Pill(stringResource(R.string.cancel), Modifier.padding(top = 4.dp), PillKind.PLAIN, height = 44.dp, onClick = close)
@@ -104,14 +124,14 @@ fun Sheets(vm: FerbViewModel, ui: UiState, sheet: Sheet?, insets: PhoneInsets, h
                 Pill(stringResource(R.string.cancel), Modifier.padding(top = 4.dp), PillKind.PLAIN, height = 44.dp, onClick = close)
             }
         }
-        is Sheet.NotYet -> Plain(stringResource(sheet.what.words), stringResource(R.string.not_yet_text), insets, close)
+        is Sheet.NotYet -> Plain(stringResource(sheet.what.words), stringResource(sheet.what.text), insets, close)
         Sheet.Help -> Plain(stringResource(R.string.help_title), stringResource(R.string.help_text), insets, close)
     }
 }
 
 /** A sheet with a title, a close button, its words and what else it holds (the relay and profile sheets' frame). */
 @Composable
-private fun Plain(title: String, text: String, insets: PhoneInsets, onClose: () -> Unit, more: @Composable () -> Unit = {}) {
+internal fun Plain(title: String, text: String, insets: PhoneInsets, onClose: () -> Unit, more: @Composable () -> Unit = {}) {
     SheetFrame(title = title, bottomInset = insets.bottom, onDismiss = onClose) {
         SheetTitle(title, onClose)
         PhoneText(text, 15.5f, color = Ink.detail, lineSpacing = 2f, modifier = Modifier.padding(top = 6.dp))
@@ -131,8 +151,10 @@ private fun Asking(vm: FerbViewModel, q: Question, insets: PhoneInsets, busy: Bo
     val exact: @Composable () -> Unit = { q.exact?.let { ExactCommand(it) } }
     if (choices.size == 2) {
         val (no, yes) = choices[0] to choices[1]
+        // the lab's own line, said only where the Mac's status says the Yes needs the fingerprint-only key
+        val note = if (q.needsProof && q.needs?.fingerprint == true) stringResource(R.string.question_yes_fingerprint) else null
         QuestionSheet(
-            FerbIcons.help, title, q.reason, yes.label, insets, no = no.label, note = null, onDismiss = close,
+            FerbIcons.help, title, q.reason, yes.label, insets, no = no.label, note = note, onDismiss = close,
             onNo = if (busy) null else ({ vm.answer(q.approvalId, no.input) }),
             onYes = if (busy) null else ({ vm.answer(q.approvalId, yes.input) }),
             exact = exact,
@@ -275,11 +297,14 @@ private fun TypeCode(vm: FerbViewModel, insets: PhoneInsets, close: () -> Unit) 
 
 /** MobileScreens.swift ProfileSheet with this phone's switches (PHN-8, PHN-420, PHN-421, PHN-422) working. */
 @Composable
-private fun Profile(vm: FerbViewModel, insets: PhoneInsets, host: Host, close: () -> Unit) {
+private fun Profile(vm: FerbViewModel, ui: UiState, insets: PhoneInsets, host: Host, close: () -> Unit) {
     val s: PhoneSettings by vm.settings.collectAsState()
-    val since = if (s.pairedSince > 0) DateFormat.getDateInstance(DateFormat.LONG).format(Date(s.pairedSince)) else "—"
+    // the Mac's own date for this phone's pairing (phone.list), else the day this phone first saw it paired
+    val pairedAt = ui.mac?.pairedAt?.let { runCatching { java.time.OffsetDateTime.parse(it).toInstant().toEpochMilli() }.getOrNull() }
+        ?: s.pairedSince.takeIf { it > 0 }
+    val since = pairedAt?.let { DateFormat.getDateInstance(DateFormat.LONG).format(Date(it)) } ?: "—"
     ProfileSheet(
-        stringResource(R.string.profile_mac_name), since, insets,
+        ui.mac?.name ?: stringResource(R.string.profile_mac_name), since, insets,
         lockOn = true, // PHN-8: FERB always opens with the fingerprint or the screen lock; there is no off
         stayConnected = s.stayConnected,
         onClose = close,
@@ -292,6 +317,11 @@ private fun Profile(vm: FerbViewModel, insets: PhoneInsets, host: Host, close: (
             Divide()
             CardRow(stringResource(R.string.profile_lock_screen), stringResource(R.string.profile_lock_screen_detail), leading = { RowIcon(FerbIcons.bell) },
                 trailing = { PhoneSwitch(s.hideChecks, vm::hideChecks, stringResource(R.string.profile_lock_screen)) })
+            if (ui.newKeys) {
+                Divide()
+                CardRow(stringResource(R.string.keys_row), stringResource(R.string.keys_row_detail), leading = { RowIcon(FerbIcons.fingerprint) },
+                    onClick = if ("keys" in ui.busy) null else ({ vm.registerKeys() }), trailing = { com.ferb.design.components.Opens() })
+            }
         },
     )
 }

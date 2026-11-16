@@ -1,16 +1,19 @@
-//! The phone app's door into `client`: JSON text in and out, as plain C functions and as JNI functions for Android.
+//! The phone app's door into `client`: JSON text in and out. The phone library (`ferb-mobile-ffi`, one library per
+//! phone) drives `LinkClient` directly; the lab's C and JNI exports and this crate's own `cdylib` are gone (T-1221:
+//! nothing shipped or tested used them, and every phone build linked a 10 MB `libferb_link.so` for nothing). The
+//! Android DNS context the lab's JNI `init` set up is set by the phone library now (`ferb-mobile-ffi` `android`).
 //!
 //! **Clients.** `LinkClient` is one phone link with its own runtime, events and transfers; nothing about it is
-//! global, so a process may hold several (the iPhone app of stage 4, the UniFFI layer of slice S8, tests) and close
-//! each. The C and JNI functions name a client by a handle:
+//! global, so a process may hold several (the UniFFI layer of slice S8, tests) and close each. The functions below
+//! name a client by a handle:
 //!
 //!   client_start(config)          -> {"ok":true,"handle":N,"id":"<endpoint id>"} | {"error":{..}}
 //!   client_command(handle, json)  -> {"ok":true} at once; the outcome arrives as an event carrying the command's "id"
 //!   client_poll(handle, wait_ms)  -> the next event as JSON text, or "" when none arrived in time
 //!   client_close(handle)          -> {"ok":true}; the handle is gone (a later call says `link_closed`, never crashes)
 //!
-//! **The lab's three calls** (`start`, `command`, `poll`; Kotlin `local.ferb.link.Native.start/command/poll`) still
-//! work, on one client the process keeps for them, so the lab's Android app drives this build unchanged.
+//! **The lab's three calls** (`start`, `command`, `poll`) still work as Rust functions, on one client the process
+//! keeps for them (tests/ffi.rs).
 //!
 //! Every call is bounded (start `START_DEADLINE`, poll at most `POLL_WAIT_MAX`, close `CLOSE_DEADLINE`; a
 //! command only hands work to the client's runtime) and catches a panic at the boundary: the caller gets
@@ -421,7 +424,7 @@ impl Drop for LinkClient {
     }
 }
 
-// ---- handles: how the C and JNI doors name a client --------------------------------------------------------------
+// ---- handles: how the functions below name a client --------------------------------------------------------------
 //
 // A table from handle numbers to clients, so a handle used after its close is answered with `link_closed` instead of
 // reaching freed memory. It holds no client of its own: each one is started and closed by the app.
@@ -523,204 +526,6 @@ pub fn poll(wait_ms: u64) -> String {
             std::thread::sleep(Duration::from_millis(wait_ms).min(POLL_WAIT_MAX));
             String::new()
         }
-    }
-}
-
-// ---- C ABI (the iPhone app links these) ------------------------------------------------------------------------------
-
-fn c_out(s: String) -> *mut std::ffi::c_char {
-    std::ffi::CString::new(s.replace('\0', " "))
-        .unwrap_or_default()
-        .into_raw()
-}
-/// # Safety
-/// `p` is null or a NUL-terminated string that stays valid for the call.
-unsafe fn c_in<'a>(p: *const std::ffi::c_char) -> &'a str {
-    if p.is_null() {
-        ""
-    } else {
-        // SAFETY: the caller hands a valid NUL-terminated string (this function's contract).
-        unsafe { std::ffi::CStr::from_ptr(p) }
-            .to_str()
-            .unwrap_or("")
-    }
-}
-/// Starts a client; the reply carries its `handle`. Free the reply with `ferb_link_free`.
-///
-/// # Safety
-/// `config` is null or a valid NUL-terminated UTF-8 string.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn ferb_link_client_start(
-    config: *const std::ffi::c_char,
-) -> *mut std::ffi::c_char {
-    // SAFETY: forwarded from this function's own contract.
-    let config = unsafe { c_in(config) };
-    c_out(client_start(config))
-}
-/// # Safety
-/// `json` is null or a valid NUL-terminated UTF-8 string.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn ferb_link_client_command(
-    handle: u64,
-    json: *const std::ffi::c_char,
-) -> *mut std::ffi::c_char {
-    // SAFETY: forwarded from this function's own contract.
-    let json = unsafe { c_in(json) };
-    c_out(client_command(handle, json))
-}
-#[unsafe(no_mangle)]
-pub extern "C" fn ferb_link_client_poll(handle: u64, wait_ms: u64) -> *mut std::ffi::c_char {
-    c_out(client_poll(handle, wait_ms))
-}
-#[unsafe(no_mangle)]
-pub extern "C" fn ferb_link_client_close(handle: u64) -> *mut std::ffi::c_char {
-    c_out(client_close(handle))
-}
-/// The lab's `start` (one client per process).
-///
-/// # Safety
-/// `config` is null or a valid NUL-terminated UTF-8 string.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn ferb_link_start(config: *const std::ffi::c_char) -> *mut std::ffi::c_char {
-    // SAFETY: forwarded from this function's own contract.
-    let config = unsafe { c_in(config) };
-    c_out(start(config))
-}
-/// # Safety
-/// `json` is null or a valid NUL-terminated UTF-8 string.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn ferb_link_command(json: *const std::ffi::c_char) -> *mut std::ffi::c_char {
-    // SAFETY: forwarded from this function's own contract.
-    let json = unsafe { c_in(json) };
-    c_out(command(json))
-}
-#[unsafe(no_mangle)]
-pub extern "C" fn ferb_link_poll(wait_ms: u64) -> *mut std::ffi::c_char {
-    c_out(poll(wait_ms))
-}
-/// Frees a string this library returned.
-///
-/// # Safety
-/// `s` is null or a pointer returned by one of this library's functions, freed once.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn ferb_link_free(s: *mut std::ffi::c_char) {
-    if !s.is_null() {
-        // SAFETY: `s` came from `CString::into_raw` in `c_out` (this function's contract) and is freed once.
-        drop(unsafe { std::ffi::CString::from_raw(s) });
-    }
-}
-
-// ---- JNI (Android): class local.ferb.link.Native ---------------------------------------------------------------
-#[cfg(target_os = "android")]
-mod jni_glue {
-    use jni::{
-        JNIEnv,
-        objects::{JClass, JString},
-        sys::{jlong, jstring},
-    };
-    use std::panic::{AssertUnwindSafe, catch_unwind};
-    fn text(env: &mut JNIEnv, s: &JString) -> String {
-        env.get_string(s).map(|x| x.into()).unwrap_or_default()
-    }
-    fn out(env: &mut JNIEnv, s: String) -> jstring {
-        env.new_string(s)
-            .map(|x| x.into_raw())
-            .unwrap_or(std::ptr::null_mut())
-    }
-    /// A JNI call whose Rust side may panic: the panic stays on this side and the app gets an error reply.
-    fn door(mut env: JNIEnv, f: impl FnOnce(&mut JNIEnv) -> String) -> jstring {
-        let reply = catch_unwind(AssertUnwindSafe(|| f(&mut env)))
-            .unwrap_or_else(|_| super::err(super::internal("jni")));
-        out(&mut env, reply)
-    }
-    /// iroh's DNS resolver asks Android for the network's DNS servers through `ndk_context`, which needs the
-    /// process's JavaVM and application context once, before the first endpoint.
-    #[unsafe(no_mangle)]
-    pub extern "system" fn Java_local_ferb_link_Native_init(
-        env: JNIEnv,
-        _c: JClass,
-        context: jni::objects::JObject,
-    ) {
-        let _ = catch_unwind(AssertUnwindSafe(|| {
-            static INIT: std::sync::Once = std::sync::Once::new();
-            INIT.call_once(|| {
-                let (Ok(vm), Ok(global)) = (env.get_java_vm(), env.new_global_ref(&context)) else {
-                    return;
-                };
-                // SAFETY: the JavaVM pointer and a global reference to the application context stay valid for the
-                // life of the process (the global reference is leaked on purpose below).
-                unsafe {
-                    ndk_context::initialize_android_context(
-                        vm.get_java_vm_pointer() as *mut std::ffi::c_void,
-                        global.as_obj().as_raw() as *mut std::ffi::c_void,
-                    );
-                }
-                std::mem::forget(global); // ndk_context keeps the raw pointer for the life of the process
-            });
-        }));
-    }
-    #[unsafe(no_mangle)]
-    pub extern "system" fn Java_local_ferb_link_Native_start(
-        env: JNIEnv,
-        _c: JClass,
-        config: JString,
-    ) -> jstring {
-        door(env, |env| super::start(&text(env, &config)))
-    }
-    #[unsafe(no_mangle)]
-    pub extern "system" fn Java_local_ferb_link_Native_command(
-        env: JNIEnv,
-        _c: JClass,
-        json: JString,
-    ) -> jstring {
-        door(env, |env| super::command(&text(env, &json)))
-    }
-    #[unsafe(no_mangle)]
-    pub extern "system" fn Java_local_ferb_link_Native_poll(
-        env: JNIEnv,
-        _c: JClass,
-        wait_ms: jlong,
-    ) -> jstring {
-        door(env, |_| super::poll(wait_ms.max(0) as u64))
-    }
-    // the clients by handle
-    #[unsafe(no_mangle)]
-    pub extern "system" fn Java_local_ferb_link_Native_open(
-        env: JNIEnv,
-        _c: JClass,
-        config: JString,
-    ) -> jstring {
-        door(env, |env| super::client_start(&text(env, &config)))
-    }
-    #[unsafe(no_mangle)]
-    pub extern "system" fn Java_local_ferb_link_Native_send(
-        env: JNIEnv,
-        _c: JClass,
-        handle: jlong,
-        json: JString,
-    ) -> jstring {
-        door(env, |env| {
-            super::client_command(handle.max(0) as u64, &text(env, &json))
-        })
-    }
-    #[unsafe(no_mangle)]
-    pub extern "system" fn Java_local_ferb_link_Native_next(
-        env: JNIEnv,
-        _c: JClass,
-        handle: jlong,
-        wait_ms: jlong,
-    ) -> jstring {
-        door(env, |_| {
-            super::client_poll(handle.max(0) as u64, wait_ms.max(0) as u64)
-        })
-    }
-    #[unsafe(no_mangle)]
-    pub extern "system" fn Java_local_ferb_link_Native_close(
-        env: JNIEnv,
-        _c: JClass,
-        handle: jlong,
-    ) -> jstring {
-        door(env, |_| super::client_close(handle.max(0) as u64))
     }
 }
 

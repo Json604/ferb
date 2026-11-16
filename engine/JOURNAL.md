@@ -5017,3 +5017,251 @@ later would need it).
   not on every kind of change. Another agent was editing ferb-link meanwhile, so one "unchanged" run rebuilt.
 - kb check: the new decisions' Kotlin test tags count only once `apps/android` is tracked (the whole folder is
   untracked until the coordinator commits S10 and S9); until then kb lists PHN-495..498 (and S10's) as untested.
+
+## 2026-11-16 · 115 · Stage 3 slice S11: apps/android :app, the working app on :core and :design (in part: what the library carries)
+
+**What.** kb T-1211 (open: what is left waits on T-1221, new). Agent rulings PHN-500..509. A new module
+`apps/android/app` (`com.ferb.phone`, Kotlin `com.ferb.app`), one Compose activity over the live sky (the time
+zone's place; no location asked), edge to edge, the status bar's icons following the sky's ink.
+- **Shell (PHN-500).** `FerbApplication` owns `FerbPhone.create`/`start()`, `AndroidSignals`, the `Session` (the app
+  lock over the process) and the `Notifier`; `FerbViewModel` (SavedStateHandle: tab, home, draft, questions already
+  shown; never a private value) over a `PhoneApi` seam (`LibraryPhone` is the library; tests use a fake). Gates in
+  order: starting, failed, no screen lock, locked, pairing, the codes, removed or keys gone, main.
+- **Lock (PHN-505).** `AppLock` with an injected clock: locked at a cold start, after more than 5 minutes away (and a
+  timer then). The unlock is one prompt: online, the lock key signs `link.unlock`'s challenge inside it (a cold start
+  waits up to 6 s for the link); otherwise the prompt alone, and the Mac's unlock comes with the next thing that needs
+  it ("Unlock to see what's new on your Mac"). FLAG_SECURE by the switch (on by default), always while locked or a
+  private answer is open; recents blank on Android 13+ whatever the switch says. No screen lock: the lab's words and
+  Open settings.
+- **Pairing (PHN-447).** The lab's pair page; the scanner (CameraX 1.4.1 + zxing-cpp 2.3.0, QR only, inverted too; the
+  camera asked in context) as its own page; Type code; the codes page with the six digits; Cancel forgets the
+  half-made pairing. Link problems and refusals in plain words (expired, wrong code, the 5-phone limit, denied, busy,
+  unreachable). "Get the Mac app" opens ferb.kartikey.xyz; Help is a sheet.
+- **Chat.** `ChatModel` turns the core's transcript into rows the :design pieces draw: the owner's words (from any
+  device, drawn alike as the Mac does), files and the Mac's hidden/sealed note, FERB's first bubble, the card or
+  checklist as the lab's task card with live states (Watch live, Stop), the answer (Markdown marks that only style are
+  dropped; done_with_gaps' "Not done" lines are in it), result cards and files made, notices and reminders with
+  quotes, legacy rows, the live typing/streamed words/activity, open questions where their turn is, the outbox at the
+  end (waiting, waiting for the unlock, sending, failed with the Mac's reason; Cancel or Remove), and the top: earlier
+  messages (loaded when reached) or "available when connected directly or through your relay". Home is the lab's
+  page with words from the lab's corpus (PHN-507) and what finished since the last open.
+- **Questions (PHN-502, PHN-503).** The lab's question sheet for two answers (FERB.app's numbering: option 1 for Yes,
+  a plain No as `granted: false`), a pill per option for more, the owner's words for none; a private code on the lab's
+  keypad, a password in the keyboard's password mode. AnswerFlow: unproved first; signed once on `unlock_required`
+  (fingerprint key where OK, else the lock key; gone: pair again); unlocked once on `locked`.
+- **Tasks, Mac, profile.** Tasks from the same transcript (waiting, running, earlier). The Mac tab: the link picture
+  (direct, the shared relay with S10's relay sheet, "Through your own relay", "Can't be reached", retrying), the own
+  relay's fallback line (S8's sentence), version notes. This phone: the lab's sheet with Fingerprint to open (always
+  on, PHN-8), Stay connected, two added rows (Block screenshots, PHN-420; Hide checks on the lock screen, PHN-422),
+  Paired since, Forget this Mac with a confirmation (wipe, then the pair page).
+- **Notifications and Stay connected (PHN-501, PHN-504).** Channels questions, checks, finished, connection,
+  stay_connected. Posted from the core's own change events (no polling) while the process runs and the owner isn't
+  looking at the open app; on the first read after a start, what was already there is not news. Every notification
+  VISIBILITY_PRIVATE with a public version; a check is wordless and buttonless while the phone is locked and worded
+  again on unlock (Android ignored the app's channel lockscreenVisibility: NO_OVERRIDE came back on API 36). Buttons
+  for up to three answers, a typed answer for none; a private answer never worded. `AnswerReceiver` sends with no
+  prompt; a refusal re-posts "This one needs your fingerprint / Tap to answer it in FERB". Stay connected is a
+  remoteMessaging foreground service shown at once, back after an app update; POST_NOTIFICATIONS asked after the
+  app's own words, when the owner turns Stay connected on.
+- **What waits (PHN-506).** Files, sending files, Watch live, Stop everything, FERB's settings and the mic open one
+  plain sheet ("… isn't connected on the phone yet"); Watch live on the shared relay says the relay's rule instead.
+- **:design (PHN-509).** Only optional parameters whose defaults draw as before: callbacks on HomePage, TasksPage,
+  MacPage, PairPage, ProfileSheet, QuestionSheet, RelaySheet, Sheet (dismiss); LinkPicture's name and status; MacPage's
+  note; PhoneText's alignment. All 59 :design goldens unchanged.
+- **:core (PHN-508).** A race found on the emulator: on a first start the link's first persist and the store's key
+  made `ferb.key.wrap` at once, one replaced the other, and the link state did not seal ("the link state could not be
+  kept: KeyGone", 2 of 2 starts): a restart could have lost the pairing. `KeystoreProtector` now makes, reads and
+  deletes the key under one lock; a new instrumented test fails without it (Unreadable) and passes with it.
+
+**Reassessed from the labs (PHN-411).** Kept with their reasons: remoteMessaging for Stay connected (no daily cap,
+no extra permission, fits FERB's messages between the owner's devices); VISIBILITY_PRIVATE with a public version;
+answers from a broadcast receiver; no deep link opens pairing. Changed: the lab's zxing-android-embedded scanner →
+CameraX + zxing-cpp (PHN-447); polling chat.status every few seconds → the core's change events; the lab's boot
+receiver and battery-optimization request → none (the brief's permission list; after a reboot Stay connected returns
+when FERB is opened); "Unlock to see it" for every notification on the lock screen → the phone's own setting, checks
+wordless (PHN-422 superseded PHN-10's narrower reading); a private answer in a system text field for codes → the
+lab's keypad.
+
+**The phone library's additions S11 needs (T-1221; no engine file touched here).**
+1. `Mobile.lock()`: `link.lock` (the bridge maps it to `phone.lock`), so the app tells the Mac when it locks (PHN-15).
+2. `Mobile.stopEverything()`: `stop.engage {}` (DMN-1; allowed while locked, PHN-125). Patch, ferb-mobile `api.rs`
+   beside `stop`: `pub fn stop_everything(&self) -> MobileResult<()> { let t = self.shared.transport_online()?;
+   t.call("stop.engage", "{}", None).map_err(MobileError::from_link)?; Ok(()) }` and the same shape for `lock` with
+   `"link.lock"`; ferb-mobile-ffi `mobile.rs`: `pub fn stop_everything(&self) -> Result<(), FerbError> {
+   guard(|| Ok(self.core()?.stop_everything()?)) }` and `lock` alike.
+3. `Mobile.status() -> PhoneStatus`: `chat.status` as the phone gate shapes it (each approval's `phone {can_answer,
+   needs_unlock, hidden, fingerprint}`; the held words for a locked session), or the same `phone` part on
+   `QuestionItem`: so the notification offers buttons only for routine questions (PHN-417) and words arrive while the
+   app is locked (PHN-125, PHN-126) without a refused try.
+4. A read mark without a position: `TranscriptView.lastPos` (or `markReadLatest(conversation)`): `markRead` takes a
+   `pos` no record carries.
+5. Files (PHN-113, PHN-115): `files(path)`, `tree(path)`, `read(path, sink, proof: Signer?)` streaming with progress,
+   pause and resume, `putGroup/putBegin/putChunk/putEnd` with progress, and `send(text, attachments)` by upload id.
+6. `preview(taskId, sink)`: the `tasks.preview` stream, frames in memory only, refused on the shared relay (PHN-454).
+7. `settings()` and `setSetting(key, value, signer)` (`settings.get`, the sensitive class signed by the fingerprint key).
+8. `tasks()`: `tasks.list`, for tasks no message here started.
+9. `LinkStatus.macName` (and the phone's own `pairedAt` from the Mac): the link picture says "Your Mac" and This phone
+   "Since" the day this phone first saw the pairing.
+
+**Evidence.**
+- JVM (`./gradlew --offline :app:testDebugUnitTest`): 43. `ChatModelTest` 5: every conversation of `scenarios.json`,
+  `engine_chat.json` and `engine_more.json` synced by the real library (host build through JNA) from a fixture Mac
+  (pages, changes, the watch) and drawn: every owner text and every answer reaches a row, every open question has
+  its row, keys unique, the Tasks model reads each; gaps, legacy and another client's turn by name. `AnswerFlowTest`
+  7, `QuestionTest` 2, `AppLockTest` 2, `WordsTest` 3, `ViewModelTest` 9 (gates, one prompt, a cancelled prompt,
+  the outbox, a question shown once and gone when answered elsewhere, Stop with no prompt, pairing problems, removed
+  and keys gone, error words). `ScreenShotsTest` 15: the app's chat drawn from the lab's sample against :design's
+  `chat-noon.png` (under 0.1 % of pixels differ), and 14 app goldens (outbox offline, question, private code and
+  password, profile, tasks, the Mac on the shared relay and with the own relay down, files not yet, forget, no screen
+  lock, a wrong code, the scanner asking for the camera, chat at 150 % text).
+- Emulator (Medium_Phone_API_36.0, arm64): `:app:connectedDebugAndroidTest` 5 of 5: the merged manifest (exactly
+  INTERNET, ACCESS_NETWORK_STATE, USE_BIOMETRIC, POST_NOTIFICATIONS, FOREGROUND_SERVICE,
+  FOREGROUND_SERVICE_REMOTE_MESSAGING, CAMERA; no backup; the service remoteMessaging and not exported; FERB's
+  receivers not exported, androidx's profile installer behind DUMP), the no-screen-lock gate with FLAG_SECURE, a PIN
+  set by the test then the real system prompt answered with it and the pair page and type-code sheet after, the
+  three notifications, Stay connected's service and line. `:core:connectedDebugAndroidTest` 7 of 7 (with the race
+  test). By hand: a minified build (a temporary build type signed with the debug key, removed after; R8 with :core's
+  keep rules) loaded JNA and the library, started the link, locked, took the PIN, kept its state through a turn of the
+  screen; a wrong typed code said "That code didn't work…"; the scanner opened the camera with zxing-cpp loaded.
+- `:design:test` 80 (the goldens unchanged), `:core:testDebugUnitTest` 14. Built offline after the first download.
+  Downloaded once: CameraX 1.4.1 (camera-core, camera2, lifecycle, view and their AndroidX needs), zxing-cpp android
+  2.3.0, kotlinx-coroutines-test 1.9.0, UiAutomator 2.3.0, lifecycle-service 2.8.3.
+- Sizes: debug APK 77 MB (55 MB of unshrunk dex: material-icons-extended); minified 21.9 MB (libferb_mobile_ffi.so
+  16.3 MB, zxing-cpp 1.6 MB, dex 3.2 MB). zxing-cpp's library is 16 kB-aligned.
+
+**Not done / unverified.**
+- Nothing ran against a real Mac: no pairing, chat, answer or Stop over the link from this app; the link's own
+  events (online, problems, retry) were seen only as "not paired". The owner's Motorola refused adb again (needs
+  pairing from Developer options); nothing was installed on it.
+- No fingerprint signed (the emulator has none): the strong key's prompt, a hard Yes and a private answer's prompt
+  ran only in tests with software signers. The lock-screen wording ran only as posted notifications, not looked at on
+  a locked screen; the relock after five minutes ran only on the injected clock.
+- Whether the watch keeps bringing questions after the Mac's 5-minute window closes while the app is locked is not
+  known; without T-1221's `status` the notification's words may stop then. The Mac is never told to lock (T-1221).
+- Words: every new or changed string is in `app/src/main/res/values/strings.xml` for the owner's approval; the lab's
+  copy stays in :design and the corpus. The corpus's rules on weather and the owner's habits never speak (PHN-507).
+- Release signing not run (no key made: the brief); R8 was checked through a temporary build type only.
+- THIRD_PARTY_NOTICES.md (owner-governed) needs CameraX and zxing-cpp (README lists them).
+
+## 2026-11-16 · 116 · T-1221: what the phone app needed from the library, end to end; the preview's second reader; the lock
+
+**What.** kb T-1221 and the rest of T-1211 (see "Records" below for what was deleted). Agent rulings PHN-510..514
+(and the app's, PHN-515 and on). Built from the Rust core through the FFI and Kotlin `:core` to `:app`.
+- **ferb-mobile** (`src/remote.rs`, `src/status.rs`, new): `lock` (link.lock and the watch closed; while locked a sync
+  reads only the status and says `needs_unlock`; `unlocked` and the FFI's `unlock` open it again, PHN-510),
+  `stop_everything` (stop.engage), `status`/`last_status` (chat.status as the gate shapes it, also pushed by the bridge:
+  each question's `can_answer`, `needs_unlock`, `hidden`, `fingerprint`, `challenge`, held words; memory only),
+  `mark_read_latest`, `send_with` (uploads by id, through the outbox: store schema v3 `outbox.attachments`), `files`,
+  `tree`, `fetch` (into a file, resumed by offset), `upload` (resumed by id), `put_group`, `cancel_transfer`
+  (`Cancelled`, a new code), `preview` (one answer, the frame in memory only), `settings`/`set_setting` (signed),
+  `tasks`, `mac_info`/`cached_mac_info` (kept in the store's meta), `register_keys` (link.keys signed). The
+  `Transport` trait gained `get`, `put` and `cancel` (defaults refuse: `unsupported`); `door` routes `progress`,
+  `accepted` and a transfer's outcome, forwards the Mac's pushed `status` and `notice`, and answers a cancelled
+  transfer at once (the link sends nothing for an aborted command). Files, folders and the preview are refused on the
+  phone before anything is asked when the path carries no bulk (PHN-444).
+- **Found and fixed (PHN-511):** the door dropped the bridge's pushed `status`, and `answer` signed a fresh
+  `link.challenge`, which the gate's `check_answer` refuses (it takes only the challenge it gave this session for that
+  question, in `chat.status`'s `phone` part): every signed answer from the app would have been refused by a real Mac
+  with "the question was asked again since". The core now signs the status's challenge (read again when none is held).
+- **ferb-mobile-ffi:** the same calls (README "The API as Kotlin sees it"), records mirroring the core's (`PhoneStatus`,
+  `QuestionNeeds`, `Folder`, `FileEntry`, `Tree`, `Fetched`, `Uploaded`, `PreviewFrame`, `SettingValue`, `TaskPage`,
+  `MacInfo`, `Attachment`), `FerbError::Cancelled`, `Change.Status`/`Change.Mac`, `LinkState.locked`; callbacks
+  `TransferListener`, `PreviewSink`, and `TransferProgress` for an app-supplied transport's transfers;
+  `watch_live` (`LivePreview`, `stop`): a thread asking at FERB.app's pace (at once after a fresh frame, 200 ms busy,
+  else 1 s) and never sooner than the link's 200 ms, ending by itself on the public relay, after the lock or on close.
+  The one JNI export `com.ferb.core.NativeInit.init(context)` (PHN-514, Android only) sets `ndk_context` for iroh's
+  DNS resolver, which the lab's own JNI library used to do.
+- **ferb-link:** no `cdylib`, no C or JNI exports (PHN-514; the Rust door functions its tests use stay; the
+  `jni`/`ndk-context` dependencies moved to ferb-mobile-ffi). README's iOS check now names ferb-mobile-ffi's dylib.
+- **The Mac (PHN-512, PHN-513):** `OwnerOnlyFrame::for_paired_phone(&PairedPhoneLink)`, the frame's second reader;
+  `PairedPhoneLink` is made only by `Phones::preview_link` (paired and not removed, unlock window open now, tier
+  `direct` or `own_relay`); `tasks.preview` in ferbd's records area uses it for a phone session (else FERB.app's
+  reader), and `tasks.preview` joined the gate's shared-relay refusal. The scan test (`previews.rs`) holds both readers
+  and the grant's maker to their files. `phone.list` asked by a phone marks its own row `this: true` and adds
+  `mac: {name}` (the computer name, `Phones::set_mac_name` from ferbd's `compose/phone.rs`; empty in a stand-in).
+  areas_c `Deps.phones` (a slot filled after the phone area is built).
+
+**What a locked phone receives** (read from code: ferb-daemon `phone/gate.rs` `status_for`, `admit_inner`; ferb-link
+`bridge.rs` `push_loop`, `forward_stream`). The bridge pushes chat.status (peek) to every session whenever it changes
+(checked every 1.5 s): unlocked, everything; locked (the app's `link.lock`, or 5 idle minutes on the Mac), each
+question with its needs and, for a session that proved the device key, its words (never a hidden input's, held as
+"FERB needs a private answer"), results and running tasks with their words; for any other session only kinds and
+`held`. Private calls (chat pages, files, preview, settings, tasks) are refused `locked`; Stop, task.stop and answers
+carrying their own proof (or routine answers from a device-key session) go. A stream admitted while unlocked is not cut
+by the Mac when the window closes: the phone closes its own watch at the app's lock (PHN-510). A routine answer from a
+notification needs no window for a device-key session (PHN-470); the app shows buttons only for routine questions.
+
+**The preview's safety argument.** (1) Who: `tasks.preview` is private, so the gate admits a phone's call only inside
+its unlock window (PHN-125); `preview_link` checks again that the phone is live and its window open (a lock or the
+idle end refuses: tests `phone_preview`). (2) Where: refused on the public relay three times over: the phone before
+asking (`transport_bulk`), the bridge before calling the daemon (`bulk_get` → `bulk_path`), the daemon's gate
+(`shared_relay_refusal`) and `preview_link` (only `direct`/`own_relay`; an unknown tier is refused). (3) Which bytes:
+only `records.rs` may read a frame for a phone, only with the gate's grant, and only the phone area makes a grant
+(source scan). (4) After: the frame crosses the link end-to-end encrypted as bulk chunks; on the phone it lives in
+memory (`PreviewFrame.jpeg`, never in the store, a listener's change or a log: tests check the store file and the
+changes); the app's screen keeps FLAG_SECURE and stops at leave/background/lock (app side, below). Bandwidth
+(inferred, not measured): frames are JPEGs of at most 1568 px on the long side at quality 0.8 (`shots::MAX_EDGE`,
+`JPEG_QUALITY`), typically 150–400 KB; at most one request per 200 ms (5 a second, and a capture takes time), so up to
+about 0.75–2 MB/s through the owner's relay while Watch live is open, nothing when it is closed.
+
+**Evidence (Rust).**
+- ferb-mobile (48): lib 8 (status.rs 1 new); door 2 (transfers, a cancel, the pushed status); golden 1; incremental 3; live 4; outbox 6;
+  remote 11 (new: the lock, the status and its challenge, the read mark, a message with files across a restart, a
+  folder and a key place's proof, a fetch paused and resumed, an upload resumed, the public relay refusing before
+  asking, preview frames in memory, settings signed, tasks, the Mac's name kept, late keys); store 4 (v3); sync 9.
+- ferb-mobile-ffi: lib 3 (with `the_phone_ships_one_library`); ffi 8; remote 4 (new, through the bindings); link 2
+  (new: `files_the_preview_the_status_and_the_lock_through_the_real_link`, the real link and the Mac's bridge on
+  127.0.0.1 with the lab's stand-in daemon: the pushed status, a question's needs, a 200 KB file fetched equal, an
+  upload riding with a message as the Mac's path, preview frames of a running task, the lock refusing a private read,
+  the unlock). It uses the owner's-relay path (a second local relay): a direct path on 127.0.0.1 came up in one of two
+  runs within 30 s, so a direct-only version was flaky.
+- ferb-daemon tests/phone_preview.rs 3 (the real gate on a real ferb-rpc server: direct and own relay unlocked get the
+  frame; locked, the public relay, an unknown tier, after `phone.lock`, after the idle end and a removed phone don't;
+  `phone.list`'s `this` and `mac`), tests/phone.rs 17; ferbd lib previews 7 (the scan with the new lists), phone_wired,
+  every_method_answers, seams_wired; clippy `-D warnings` on ferb-daemon, ferbd, ferb-mac-hands and the three phone
+  crates (ferb-link with `devrelay`); Android check of ferb-mobile-ffi with the NDK.
+
+**The app (`apps/android`, by an Opus agent on this brief; rulings PHN-515..522).** `:core`: `FerbPhone` wrappers for
+every new call (`Outcome.Cancelled`), `NativeInit` (R8-kept, called once before the first link, never on the JVM),
+the vault's `keys.mac` (the public keys the Mac holds); a fake Mac for every new call (`sharedTest/Fakes.kt`).
+`:app`: the lock calls `lock()` and removes fetched files (a cold start, already locked, tells the Mac nothing); an
+offline prompt or a Mac that refused the signed unlock calls `unlocked()`; Stop everything after a plain
+confirmation, no prompt, and the Mac page says when FERB is stopped; notifications from `Change.Status` and the
+transcript, worded and buttoned by each question's needs (PHN-519: buttons only for routine; a held one wordless; a
+hidden one never worded; a Mac-only one says so), finished tasks while locked from the status; the question sheet asks
+for the fingerprint first when the needs say so (PHN-520); `markReadLatest` while the chat shows and the app is
+unlocked; the Files tab after the lab's page (places with counts, folders, key places asking for that path, fetch with
+progress, pause and resume, Open with / Share only on a tap through FERB's FileProvider, the system picker → staged
+copies → upload → attached to a message; the public relay's words and one retry when files cross again; PHN-515..517);
+Watch live full screen, FLAG_SECURE whatever the switch, stopped on leave, background and lock (PHN-518); FERB's
+settings (Record window titles and the day counts changeable, one prompt each; the two lists read-only with a line
+that they change on the Mac; the owner profile not shown); Tasks from `tasks()` with "Waiting for you" from the open
+questions, the chat's list offline; the Mac's name and pairing date; "Use your fingerprint for checks" in This phone
+when the Mac lacks the fingerprint key (PHN-522). One path unlocks and signs for every call (PHN-521). The emulator
+test found one bug in the app's notifications (a held question got the typed-answer action), fixed. Strings: every new
+one in `strings.xml` for the owner's approval; removed `prompt_private_title`, `prompt_private_subtitle`,
+`profile_not_paired`, `close`, `not_yet_text`, `files_not_yet` and the six `feature_*` that named what is built now.
+
+**Evidence (app).** `./gradlew --offline :design:test :core:testDebugUnitTest :app:testDebugUnitTest :app:assembleDebug`:
+design 80 (goldens unchanged), core 24, app 63 (FeaturesTest 15 new); the 13 earlier app goldens byte-identical, 6 new
+(files places and folder, settings, stop, stopped; `files-not-yet` removed). Emulator (Medium_Phone_API_36.0):
+`:core:connectedDebugAndroidTest` 8 of 8 (NativeInit), `:app:connectedDebugAndroidTest` 7 of 7 (a picked file copied
+and a fetched file handed out only through the provider; Watch live secure with the switch off; a routine question
+with buttons, a check without). The Motorola was not connected (`adb devices` empty): nothing installed.
+
+**Records.** T-1221 deleted; T-1211 kept for what is left (search and recent files need a Mac method; speaking;
+whole-folder fetch and send; the owner's approval of the strings; the live checks). PHN-510..522. PLAN's T-1221 row
+done; STATUS S7, S8, S11. Found while running the gate: ferb-link's test folders (`tests/common/mod.rs` `tmp`) took
+a random 16-bit name with `create_dir_all`, so a world could reuse a folder an earlier run left (362 were there) and
+refuse its sealed `link.json` as changed; now a fresh 32-bit name made with `create_dir`.
+
+**Not done / unverified.** Nothing ran against a real Mac or a phone: the real bridge's pushed status, the link's
+get/put/preview with a real daemon in one process (the daemon's gate and the bridge were each tested, the gate on a
+real ferb-rpc server, the bridge with the lab's stand-in), a real JPEG frame and its bandwidth, a fingerprint prompt,
+`registerKeys` against a real Mac, Open/Share into a real viewer (the intent is built and read back), a real picker (a
+`file://` Uri stood in), the status-driven notification path end to end on the emulator (questions posted directly).
+Upload staging copies a picked file whole before sending (a very large video doubles its space for a while). A lock
+on one session ends that session's window; another session of the same phone (a start-over) keeps its own until idle.
+"Jev decisions" is FERB.app's own title for `retention.decision_days` and Jev is paused: the words are the owner's.
+The kb check passes only once the new test files are tracked (kb reads `git ls-files`; checked with a temporary
+index: ok). THIRD_PARTY_NOTICES needs nothing new from this entry.

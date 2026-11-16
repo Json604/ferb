@@ -17,10 +17,11 @@ What changed from the lab:
   2024 kept (the code relies on its drop order around Mutex guards). The Mac side (`bridge`, `admin`, `daemon`,
   `store`, `secrets`, `peer`, the `ferb-link` program) builds only on macOS; the rest is the phone side. iroh 1.4.1
   is patched by `engine/patches/apply.sh` (`engine/patches/README.md`). `anyhow` only with the `devrelay` feature.
-- **The app's door (`ffi`).** `LinkClient` objects with explicit start and close, named by handles at the C and
-  JNI boundary (`ferb_link_client_*`, Kotlin `Native.open/send/next/close`); several per process; every boundary
-  call catches a panic (`link_internal_error`) and is bounded (`START_DEADLINE`, `POLL_WAIT_MAX`, `CLOSE_DEADLINE`).
-  The lab's three calls (`start`, `command`, `poll`) still drive one client per process.
+- **The app's door (`ffi`).** `LinkClient` objects with explicit start and close, driven by the phone library
+  (`ferb-mobile-ffi`) and named by handles in the Rust functions `client_*`; several per process; every boundary call
+  catches a panic (`link_internal_error`) and is bounded (`START_DEADLINE`, `POLL_WAIT_MAX`, `CLOSE_DEADLINE`). The
+  lab's three calls (`start`, `command`, `poll`) still drive one client per process. No C or JNI exports and no
+  `cdylib` since T-1221 (the phone ships one library, ferb-mobile-ffi's).
 - **The public relays carry text, questions and Stop only (PHN-444).** On the public relays the Mac refuses, before
   anything is read or begun: pictures (`link.get` previews, `tasks.preview`, `questions.picture`, `seen.image`),
   files both ways (`link.get`, `link.put`, `link.tree`, `link.put_group`), older chat pages (`chat.entries.page`
@@ -62,7 +63,7 @@ unavailable. `tools/ios_api_check.py` checks a built iOS library against the SDK
 required-reason APIs it uses (for the app's PrivacyInfo.xcprivacy):
 
 ```sh
-cargo build --manifest-path engine/crates/ferb-link/Cargo.toml --locked --target aarch64-apple-ios --lib
+IPHONEOS_DEPLOYMENT_TARGET=13.0 cargo build --manifest-path engine/crates/ferb-mobile-ffi/Cargo.toml --locked --target aarch64-apple-ios --lib
 python3 -I engine/crates/ferb-link/tools/ios_api_check.py \
-  "${CARGO_TARGET_DIR:-engine/crates/ferb-link/target}/aarch64-apple-ios/debug/libferb_link.dylib" --min-ios 13.0
+  "${CARGO_TARGET_DIR:-engine/crates/ferb-mobile-ffi/target}/aarch64-apple-ios/debug/libferb_mobile_ffi.dylib" --min-ios 13.0
 ```

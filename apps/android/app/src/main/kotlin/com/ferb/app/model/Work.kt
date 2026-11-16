@@ -2,6 +2,7 @@ package com.ferb.app.model
 
 import com.ferb.design.components.MarkKind
 import com.ferb.mobile.Item
+import com.ferb.mobile.TaskRow
 import com.ferb.mobile.TranscriptView
 import com.ferb.mobile.TurnItem
 
@@ -51,6 +52,32 @@ object WorkModel {
         }
         return Work(waiting, running, earlier)
     }
+
+    /**
+     * The Tasks tab from the Mac's own list (`tasks.list`: every task, not only the ones this chat started): what waits
+     * for the owner is [waiting] (the open questions); a task runs while its status is not a finished one; [chat]
+     * gives the chat entry of a task this conversation holds, so a tap opens it there.
+     */
+    fun fromMac(rows: List<TaskRow>, waiting: List<WorkItem>, chat: Work): Work {
+        val entries = (chat.running + chat.earlier).filter { it.taskId != null }.associate { it.taskId to it.entry }
+        val running = ArrayList<WorkItem>()
+        val earlier = ArrayList<WorkItem>()
+        for (r in rows) {
+            val title = oneLine(r.name.ifEmpty { r.goal })
+            val progress = r.stepsTotal?.takeIf { it > 0u }?.let { (r.stepsDone ?: 0u).toInt() to it.toInt() }
+            val mark = ChatModel.markOf(r.status)
+            val finished = r.status in FINISHED || mark == MarkKind.DONE || mark == MarkKind.FAILED
+            if (!finished) {
+                val kind = if (mark == MarkKind.ASKING) MarkKind.ASKING else MarkKind.RUNNING
+                running.add(WorkItem(kind, title, oneLine(r.goal.takeIf { it != title }.orEmpty()), progress, entries[r.taskId], taskId = r.taskId))
+            } else {
+                earlier.add(WorkItem(mark, title, oneLine(ChatModel.plain(r.answer)), null, entries[r.taskId], taskId = r.taskId))
+            }
+        }
+        return Work(waiting, running, earlier)
+    }
+
+    private val FINISHED = setOf("done", "failed", "stopped", "cancelled", "interrupted", "done_with_gaps", "done_unverified", "merged")
 
     private fun progress(t: TurnItem): Pair<Int, Int>? =
         t.card?.let { it.done.toInt() to it.total.toInt() } ?: t.checklist?.let { it.ended.size to it.steps.size }

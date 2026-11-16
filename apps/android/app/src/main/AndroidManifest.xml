@@ -55,6 +55,16 @@
             </intent-filter>
         </receiver>
 
+        <!-- files fetched from the Mac, handed to the app the owner picks (Open with, Share); not exported: each
+             handout grants read access to its one file -->
+        <provider
+            android:name=".FerbFiles"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/ferb_files" />
+        </provider>
+
         <!-- ProcessLifecycleOwner starts itself through the startup provider -->
     </application>
 </manifest>

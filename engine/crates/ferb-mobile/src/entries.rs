@@ -67,6 +67,11 @@ impl EntrySet {
         self.by_id.values().map(|e| e.pos).min()
     }
 
+    /// The highest `pos` held: the newest entry this phone has of the conversation.
+    pub fn highest_pos(&self) -> Option<i64> {
+        self.by_id.values().map(|e| e.pos).max()
+    }
+
     /// The highest `seq` held.
     pub fn highest_seq(&self) -> Option<i64> {
         self.by_id.values().map(|e| e.seq).max()

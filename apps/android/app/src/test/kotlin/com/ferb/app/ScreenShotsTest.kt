@@ -13,6 +13,17 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.lifecycle.SavedStateHandle
 import androidx.test.core.app.ApplicationProvider
 import com.ferb.app.model.CardLine
+import com.ferb.app.model.LiveView
+import com.ferb.app.model.LocalFiles
+import com.ferb.app.model.MacSettings
+import com.ferb.app.model.Phase
+import com.ferb.app.model.Transfer
+import com.ferb.app.model.Way
+import com.ferb.mobile.FileEntry
+import com.ferb.mobile.Folder
+import com.ferb.mobile.MacInfo
+import com.ferb.mobile.PhoneStatus
+import com.ferb.mobile.SettingValue
 import com.ferb.app.model.ChatRow
 import com.ferb.app.model.Question
 import com.ferb.app.model.Work
@@ -61,12 +72,16 @@ class ScreenShotsTest {
     @get:Rule val compose = createComposeRule()
 
     private val vm by lazy {
-        FerbViewModel(FakePhone(), Session { 0L }, Prefs(ApplicationProvider.getApplicationContext()), { true }, null, SavedStateHandle())
+        FerbViewModel(phone, Session { 0L }, Prefs(ApplicationProvider.getApplicationContext()), { true }, null, SavedStateHandle(),
+            LocalFiles(java.nio.file.Files.createTempDirectory("ferb-shots").toFile()) { null })
     }
+    private val phone = FakePhone()
     private val host = object : Host {
         override fun stayConnected(on: Boolean) {}
         override fun blockScreenshots(on: Boolean) {}
         override fun askNotifications() {}
+        override fun pickFiles(forChat: Boolean) {}
+        override fun handOut(key: String, file: File, name: String, share: Boolean) {}
     }
 
     private val labRows = listOf(
@@ -90,7 +105,7 @@ class ScreenShotsTest {
             PhoneScreen(moment, insets = PhoneInsets.Lab, glide = false, sheet = {
                 Sheets(vm, ui, sheet, PhoneInsets.Lab, host)
                 LabAndroidChrome()
-            }) { Main(vm, ui, tab, home = false, PhoneInsets.Lab, moment) }
+            }) { Main(vm, ui, tab, home = false, PhoneInsets.Lab, moment, host) }
         }
     }
 
@@ -125,8 +140,8 @@ class ScreenShotsTest {
             ChatRow.Cards("c", listOf(CardLine("Archive", "Downloads", file = true))),
             ChatRow.Line("d", "The backup drive is almost full."),
             ChatRow.Asking("q:ap-1", "ap-1", "Run this in Terminal?"),
-            ChatRow.Outbox("o:1", OutboxItem("1", "And empty the trash", "2026-01-02T10:00:00+00:00", "waiting", "link", null, false)),
-            ChatRow.Outbox("o:2", OutboxItem("2", "Rename the scans", "2026-01-02T10:00:00+00:00", "failed", null, "FERB on your Mac turned this down", false)),
+            ChatRow.Outbox("o:1", OutboxItem("1", "And empty the trash", "2026-01-02T10:00:00+00:00", "waiting", "link", null, false, emptyList())),
+            ChatRow.Outbox("o:2", OutboxItem("2", "Rename the scans", "2026-01-02T10:00:00+00:00", "failed", null, "FERB on your Mac turned this down", false, emptyList())),
         )
         compose.setContent { Frame(labMoment(12.5), base.copy(rows = rows, link = FakePhone.status(LinkPhase.WAITING))) }
         shoot("chat-offline-outbox.png")
@@ -190,11 +205,84 @@ class ScreenShotsTest {
         shoot("mac-own-fallback.png")
     }
 
-    // decision: PHN-506
+    // decision: PHN-113, PHN-115, PHN-127
     @Test
-    fun files_say_plainly_they_are_not_on_the_phone_yet() {
-        compose.setContent { Frame(labMoment(12.5), base, tab = PhoneTab.FILES, sheet = Sheet.NotYet(Feature.FILES)) }
-        shoot("files-not-yet.png")
+    fun files_places_with_counts_and_photos_on_their_way() {
+        vm.transfers.setForTest(listOf(
+            Transfer("b1.0", Way.SEND, "IMG_2041.jpg", "/x/a", done = 2_400_000, total = 2_400_000, phase = Phase.DONE, batch = "b1"),
+            Transfer("b1.1", Way.SEND, "IMG_2042.jpg", "/x/b", done = 800_000, total = 2_600_000, phase = Phase.RUNNING, batch = "b1"),
+        ))
+        val ui = base.copy(files = FilesUi(counts = mapOf("~/Desktop" to 38L, "~/Documents" to 112L, "~/Downloads" to 9L)))
+        compose.setContent { Frame(labMoment(12.5), ui, tab = PhoneTab.FILES) }
+        shoot("files-places.png")
+    }
+
+    // decision: PHN-113, PHN-121, PHN-11
+    @Test
+    fun a_folder_with_a_key_place_and_a_fetched_file() {
+        vm.transfers.setForTest(listOf(
+            Transfer("f1", Way.FETCH, "Lease agreement.pdf", "/x/c", "~/Documents/Lease agreement.pdf", 1_100_000, 1_100_000, Phase.DONE),
+        ))
+        val folder = Folder("~/Documents", "~", false, listOf(
+            FileEntry("Taxes", "~/Documents/Taxes", true, false, 0u, 0, false),
+            FileEntry("Keys", "~/Documents/Keys", true, false, 0u, 0, true),
+            FileEntry("Lease agreement.pdf", "~/Documents/Lease agreement.pdf", false, false, 1_100_000u, 1_767_348_000, false),
+            FileEntry("Thesis draft v7.docx", "~/Documents/Thesis draft v7.docx", false, false, 2_400_000u, 1_767_348_000, false),
+        ), 4u, false)
+        compose.setContent { Frame(labMoment(12.5), base.copy(files = FilesUi(folder = folder)), tab = PhoneTab.FILES) }
+        shoot("files-folder.png")
+    }
+
+    // decision: PHN-454
+    @Test
+    fun watch_live_shows_the_frame_and_the_line() {
+        val bitmap = android.graphics.Bitmap.createBitmap(320, 200, android.graphics.Bitmap.Config.ARGB_8888).apply {
+            val c = android.graphics.Canvas(this)
+            c.drawColor(android.graphics.Color.rgb(236, 239, 243))
+            val p = android.graphics.Paint().apply { color = android.graphics.Color.rgb(40, 90, 200) }
+            c.drawRect(20f, 20f, 300f, 60f, p)
+            p.color = android.graphics.Color.rgb(180, 180, 190)
+            for (i in 0 until 4) c.drawRect(20f, 80f + i * 28, 240f - i * 30, 96f + i * 28, p)
+        }
+        val view = LiveView("t-1", bitmap, "working", "Comparing price and delivery")
+        compose.setContent {
+            Box(Modifier.size(Phone.frameWidth, Phone.frameHeight).testTag(PHONE)) {
+                PhoneScreen(labMoment(12.5), insets = PhoneInsets.Lab, glide = false, sheet = {
+                    com.ferb.app.ui.LivePage(view, PhoneInsets.Lab, {}, {}, null)
+                    LabAndroidChrome()
+                }) { Main(vm, base.copy(rows = labRows), PhoneTab.CHAT, home = false, PhoneInsets.Lab, labMoment(12.5), host) }
+            }
+        }
+        shoot("watch-live.png")
+    }
+
+    // decision: PHN-404, PHN-133
+    @Test
+    fun ferbs_settings_from_the_phone() {
+        val values = listOf(
+            SettingValue("sense.window_titles", "true"), SettingValue("privacy.exclude_apps", """["Password manager","Banking"]"""),
+            SettingValue("privacy.exclude_domains", "[]"), SettingValue("sense.trail_retention_days", "7"), SettingValue("retention.trace_days", "30"),
+            SettingValue("retention.decision_days", "30"), SettingValue("retention.evidence_days", "7"), SettingValue("retention.recovery_days", "7"),
+            SettingValue("retention.resource_days", "30"), SettingValue("retention.operational_days", "90"),
+        )
+        compose.setContent { Frame(labMoment(12.5), base.copy(settings = MacSettings.rows(values)), tab = PhoneTab.MAC, sheet = Sheet.Settings) }
+        shoot("settings.png")
+    }
+
+    // decision: PHN-125, PHN-302
+    @Test
+    fun the_mac_by_its_name_says_it_stopped() {
+        val stopped = PhoneStatus(false, true, true, emptyList(), emptyList(), emptyList())
+        val ui = base.copy(status = stopped, mac = MacInfo("Studio Mac", "2026-11-10T09:00:00+05:30", "Pixel"))
+        compose.setContent { Frame(labMoment(22.5), ui, tab = PhoneTab.MAC) }
+        shoot("mac-stopped.png")
+    }
+
+    // decision: PHN-125
+    @Test
+    fun stop_everything_asks_first() {
+        compose.setContent { Frame(labMoment(22.5), base, tab = PhoneTab.MAC, sheet = Sheet.StopAll) }
+        shoot("stop-all.png")
     }
 
     // decision: PHN-408
@@ -251,7 +339,7 @@ class ScreenShotsTest {
     @Config(qualifiers = "w412dp-h1000dp-port-mdpi", fontScale = 1.5f)
     @Test
     fun chat_at_150_percent_text() {
-        compose.setContent { Frame(labMoment(12.5), base.copy(rows = labRows.take(2) + ChatRow.Outbox("o:1", OutboxItem("1", "And empty the trash", "t", "waiting", "unlock", null, false)))) }
+        compose.setContent { Frame(labMoment(12.5), base.copy(rows = labRows.take(2) + ChatRow.Outbox("o:1", OutboxItem("1", "And empty the trash", "t", "waiting", "unlock", null, false, emptyList())))) }
         shoot("large-text/chat.png")
     }
 

@@ -21,8 +21,10 @@
     <string name="prompt_unlock_subtitle">Opens FERB and your Mac\'s chat</string>
     <string name="prompt_yes_title">Confirm with your fingerprint</string>
     <string name="prompt_yes_subtitle">FERB goes ahead on your Mac</string>
-    <string name="prompt_private_title">Send your private answer</string>
-    <string name="prompt_private_subtitle">It goes straight to your Mac</string>
+    <string name="prompt_file_subtitle">Opens this from your Mac</string>
+    <string name="prompt_setting_subtitle">Changes FERB\'s setting on your Mac</string>
+    <string name="prompt_keys_title">Use your fingerprint with FERB</string>
+    <string name="prompt_keys_subtitle">Your Mac can then ask for it before FERB goes ahead</string>
     <string name="prompt_cancel">Cancel</string>
 
     <!-- pairing (PHN-442, PHN-447) -->
@@ -83,15 +85,91 @@
     <string name="answer_needs_pairing">This answer needs your fingerprint, and this phone\'s fingerprint key changed. Answer on your Mac, or pair this phone again.</string>
 
     <!-- what isn't on the phone yet -->
-    <string name="not_yet_text">This isn\'t connected on the phone yet. It comes in an update of FERB. Until then, use it on your Mac.</string>
-    <string name="feature_files">Files on your Mac</string>
-    <string name="feature_send_files">Sending files to your Mac</string>
-    <string name="feature_watch_live">Watch live</string>
-    <string name="feature_stop_all">Stop everything on the Mac</string>
-    <string name="feature_settings">FERB\'s settings</string>
+    <string name="feature_search">Searching your Mac</string>
+    <string name="not_yet_search">Searching your Mac from the phone comes in an update of FERB. Until then, open a place below and look through its folders.</string>
     <string name="feature_voice">Speaking to FERB</string>
-    <string name="files_not_yet">Browsing and sending files comes in an update of FERB.</string>
+    <string name="not_yet_voice">Speaking to FERB from the phone comes in an update of FERB. Until then, type your message here.</string>
     <string name="not_on_shared_relay">Not on the shared relay. This waits until your phone reaches your Mac directly or through your own relay.</string>
+    <string name="needs_pairing_again">This needs your fingerprint, and this phone\'s fingerprint key changed. Pair this phone again to do it here.</string>
+
+    <!-- Stop everything (DMN-1, PHN-125) -->
+    <string name="stop_all_title">Stop everything on your Mac?</string>
+    <string name="stop_all_text">FERB stops what it is doing on your Mac and starts nothing new until you lift the stop in FERB on your Mac.</string>
+    <string name="stop_all_yes">Stop everything</string>
+    <string name="stop_all_done">FERB stopped. Lift the stop in FERB on your Mac when you want it to go on.</string>
+    <string name="mac_stopped">FERB is stopped. Lift the stop in FERB on your Mac.</string>
+
+    <!-- files (PHN-113, PHN-115, PHN-121, PHN-127) -->
+    <string name="place_desktop">Desktop</string>
+    <string name="place_documents">Documents</string>
+    <string name="place_downloads">Downloads</string>
+    <string name="files_places">Places</string>
+    <string name="files_recent">Recent</string>
+    <string name="files_recent_not_yet">Recent files from your Mac come in an update of FERB.</string>
+    <string name="files_needs_better_path">Getting and sending files is available when connected directly or through your relay.</string>
+    <string name="files_empty">This folder is empty.</string>
+    <string name="files_cut">Showing the first %1$d of %2$d.</string>
+    <string name="files_key_place">Asks for your fingerprint each time</string>
+    <string name="files_back">Back</string>
+    <string name="files_opening">Opening…</string>
+    <string name="files_not_opened">Not opened: the fingerprint was cancelled.</string>
+    <string name="files_unreadable">Some of the files you picked couldn\'t be read, so they weren\'t sent.</string>
+    <string name="file_detail">%1$s, %2$s</string>
+    <string name="tr_getting">Getting %1$s</string>
+    <string name="tr_sending_one">Sending %1$s to your Mac</string>
+    <string name="tr_sending_files">Sending %1$d files to your Mac</string>
+    <string name="tr_sending_photos">Sending %1$d photos to your Mac</string>
+    <string name="tr_paused">Paused</string>
+    <string name="tr_pause">Pause</string>
+    <string name="tr_resume">Go on</string>
+    <string name="tr_cancel">Cancel</string>
+    <string name="tr_open">Open</string>
+    <string name="tr_share">Share</string>
+    <string name="tr_on_phone">On this phone until FERB locks</string>
+    <string name="tr_key_place">Removed as soon as you come back to FERB</string>
+    <string name="tr_sent_one">%1$s is on your Mac</string>
+    <string name="tr_sent_files">%1$d files are on your Mac</string>
+    <string name="tr_add_message">Add a message</string>
+    <string name="tr_done">Done</string>
+    <string name="open_with">Open with</string>
+    <string name="share_with">Share</string>
+    <string name="attach_remove">Remove %1$s</string>
+
+    <!-- Watch live (PHN-454) -->
+    <string name="live_title">Watch live</string>
+    <string name="live_waiting">Waiting for the first picture…</string>
+    <string name="live_needs_unlock">Unlock to watch live.</string>
+    <string name="live_ended">The preview stopped.</string>
+    <string name="live_again">Watch again</string>
+    <string name="live_close">Close</string>
+    <string name="live_stop">Stop</string>
+
+    <!-- FERB's settings (PHN-404; FERB.app's own titles) -->
+    <string name="settings_title">FERB\'s settings</string>
+    <string name="settings_loading">Reading FERB\'s settings…</string>
+    <string name="settings_how_long">How long FERB keeps records</string>
+    <string name="settings_note">Each change asks for your fingerprint. The lists of apps and sites are changed in FERB on your Mac.</string>
+    <string name="set_window_titles">Record window titles</string>
+    <string name="set_exclude_apps">Apps FERB ignores</string>
+    <string name="set_exclude_domains">Sites FERB ignores</string>
+    <string name="set_trail_days">Activity trail</string>
+    <string name="set_trace_days">Task traces</string>
+    <string name="set_decision_days">Jev decisions</string>
+    <string name="set_evidence_days">Screenshots and evidence</string>
+    <string name="set_recovery_days">Recovery copies</string>
+    <string name="set_resource_days">Resource log</string>
+    <string name="set_operational_days">Operational records</string>
+    <string name="set_days_value">%1$d days</string>
+    <string name="set_none">None</string>
+    <string name="set_days_text">How many days FERB keeps these. Saving asks for your fingerprint.</string>
+    <string name="set_days_hint">Days</string>
+    <string name="set_days_save">Save</string>
+    <string name="set_days_invalid">Type a number of days, 1 or more.</string>
+
+    <!-- a fingerprint added after pairing (PHN-133) -->
+    <string name="keys_row">Use your fingerprint for checks</string>
+    <string name="keys_row_detail">Your Mac doesn\'t know this fingerprint yet</string>
+    <string name="keys_registered">Done. Your Mac can now ask for your fingerprint.</string>
 
     <!-- tasks -->
     <string name="tasks_waiting">Waiting for you</string>
@@ -119,12 +197,10 @@
     <string name="profile_screenshots_detail">Blank in screenshots and recent apps</string>
     <string name="profile_lock_screen">Hide checks on the lock screen</string>
     <string name="profile_lock_screen_detail">Money, deleting, accounts</string>
-    <string name="profile_not_paired">Not paired yet</string>
     <string name="forget_title">Forget this Mac?</string>
     <string name="forget_text">This phone stops using FERB on your Mac. The chat kept here is deleted. Your Mac keeps everything; to use it here again, pair this phone again.</string>
     <string name="forget_yes">Forget this Mac</string>
     <string name="cancel">Cancel</string>
-    <string name="close">Close</string>
 
     <!-- notifications (PHN-415, PHN-417, PHN-421, PHN-422) -->
     <string name="notify_title">Get FERB\'s questions here</string>
@@ -155,6 +231,14 @@
     <string name="n_task_failed">Couldn\'t finish</string>
     <string name="n_answer">Answer</string>
     <string name="n_answer_hint">Your answer</string>
+    <string name="n_held_text">Open FERB to see it.</string>
+    <string name="n_needs_fingerprint">Needs your fingerprint. Tap to answer it in FERB.</string>
+    <string name="n_needs_unlock">Needs you to unlock. Tap to answer it in FERB.</string>
+    <string name="n_on_mac">Answer this one in FERB on your Mac.</string>
+    <string name="n_done_held">FERB finished something</string>
+    <!-- the lab's own line (QuestionSheet), shown only where the Mac says the Yes takes the fingerprint-only key -->
+    <string name="question_yes_fingerprint">Yes asks for your fingerprint.</string>
+    <string name="question_on_mac">This one can be answered only in FERB on your Mac.</string>
     <string name="n_needs_fingerprint_title">This one needs your fingerprint</string>
     <string name="n_needs_fingerprint_text">Tap to answer it in FERB.</string>
     <string name="n_not_answered_title">Not answered</string>

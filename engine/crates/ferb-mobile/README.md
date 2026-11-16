@@ -40,7 +40,24 @@ m.mark_read(conversation, pos)?;
 m.link_state();                          // LinkState { path: Offline|Direct|OwnRelay|PublicRelay, bulk_allowed, relay_note, watching }
 m.forget_this_mac()?;                    // deletes the store's files; every call then answers `closed`
 m.close();
+// T-1221 (journal 116; `remote`, `status`)
+m.lock()?; m.unlocked();                 // the app's lock: link.lock and the watch closed until the unlock (PHN-510)
+m.stop_everything()?;                    // stop.engage, works locked
+m.status()?; m.last_status()?;           // chat.status as the gate shapes it; also pushed by the bridge (`status` event)
+m.mark_read_latest(conversation)?;       // the read mark at the newest entry held
+m.send_with(text, &attachments)?;        // a message with this phone's uploads, by id, through the outbox
+m.files(path, signer)?; m.tree(path, signer)?;                     // a key place signs its path (PHN-121)
+m.fetch(id, path, save_to, offset, signer, sink)?; m.upload(id, local, name, resume, group, rel, sink)?;
+m.put_group(name)?; m.cancel_transfer(id)?;                        // a cancel is `Cancelled` to the waiting call
+m.preview(task_id, have)?;               // one live-preview answer, the frame in memory only (PHN-454)
+m.settings()?; m.set_setting(key, value_json, signer)?;            // settings.set signed (PHN-404)
+m.tasks(limit, before)?; m.mac_info()?; m.cached_mac_info()?; m.register_keys(device, strong, signer)?;
 ```
+
+Files, folders and the preview are refused before anything is asked when the link's path carries no bulk
+(`NeedsBetterPath`, PHN-444). The `Transport` trait has `get`, `put` and `cancel` with defaults that refuse
+(`unsupported`), so a transport that carries calls only still works; `door` routes their `progress`, `accepted` and
+outcome. The store is at schema v3 (an outbox row's `attachments`).
 
 The app's seams (`Env`): `Clock::now_iso`, `Ids::new_id` (a message's submission id: a random UUID), `Spawner::spawn`
 (`ThreadSpawner` spawns a thread), `Listener::changed(Change)` (`Transcript`, `Live`, `Conversations`, `Outbox`,

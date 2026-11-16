@@ -46,6 +46,15 @@ class OnPhoneTest {
     private class FixedClock : Clock { override fun nowIso() = "2026-01-02T10:00:00+00:00" }
     private class Counted : Ids { val n = AtomicInteger(0); override fun newId() = "sub-${n.incrementAndGet()}" }
 
+    /** The library's one JNI function takes the app's context (for iroh's DNS resolver on Android) without a crash. */
+    @Test
+    fun native_init_hands_the_library_the_apps_context() {
+        NativeInit.init(context.applicationContext) // the exported symbol itself: a missing one throws here
+        NativeInit.once(context.applicationContext)
+        NativeInit.once(context.applicationContext) // once per process; a second call is a no-op
+        assertEquals(libraryVersion(), libraryVersion())
+    }
+
     /** The p_align of each PT_LOAD segment of an ELF64 little-endian file. */
     private fun loadAlignments(elf: ByteArray): List<Long> {
         val b = ByteBuffer.wrap(elf).order(ByteOrder.LITTLE_ENDIAN)

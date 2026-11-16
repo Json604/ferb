@@ -24,7 +24,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -81,16 +83,23 @@ fun FerbRoot(vm: FerbViewModel, activity: MainActivity) {
     SideEffect { activity.lightBars(light) }
     val stay = rememberStayConnected(activity, vm)
     val askNotifications = rememberNotificationAsk(activity, vm)
+    // the system's picker: no storage permission, only the files the owner picks (PHN-115)
+    var pickForChat by remember { mutableStateOf(false) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        vm.sendFiles(uris.map { it.toString() }, pickForChat)
+    }
     val host = remember(activity) {
         object : Host {
             override fun stayConnected(on: Boolean) = stay(on)
             override fun blockScreenshots(on: Boolean) = activity.setBlockScreenshots(on)
             override fun askNotifications() = askNotifications()
+            override fun pickFiles(forChat: Boolean) {
+                pickForChat = forChat
+                runCatching { picker.launch(arrayOf("*/*")) }
+            }
+            override fun handOut(key: String, file: java.io.File, name: String, share: Boolean) = activity.handOut(key, file, name, share)
         }
     }
-
-    val secretOpen = (sheet as? Sheet.Asking)?.let { s -> ui.questions.firstOrNull { it.approvalId == s.approvalId }?.hidden } == true
-    LaunchedEffect(secretOpen) { activity.secureScreen.value = secretOpen }
 
     PhoneScreen(
         moment,
@@ -107,7 +116,7 @@ fun FerbRoot(vm: FerbViewModel, activity: MainActivity) {
             else Pair(vm, ui.pairing, ui.pairReason, ui.pairError?.let { noteText(it) }, insets)
             Gate.CODES -> CodesPage(ui.link?.pairingCode.orEmpty(), insets, onCancel = { vm.cancelPairing() })
             Gate.REMOVED -> Removed(vm, ui.pairReason, insets)
-            Gate.MAIN -> Main(vm, ui, tab, home, insets, moment)
+            Gate.MAIN -> Main(vm, ui, tab, home, insets, moment, host)
         }
     }
 }

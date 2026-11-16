@@ -556,6 +556,232 @@ mirror! {
         waiting_for: Option<String>,
         reason: Option<String>,
         tried: bool,
+        attachments: Vec<Attachment>,
+    }
+}
+
+mirror! {
+    /// One of this phone's finished uploads on the Mac, sent with a message by its id (PHN-127).
+    Attachment from ferb_mobile::store::Attachment {
+        upload_id: String,
+        name: String,
+    }
+}
+
+impl From<Attachment> for ferb_mobile::store::Attachment {
+    fn from(a: Attachment) -> Self {
+        let Attachment { upload_id, name } = a;
+        ferb_mobile::store::Attachment { upload_id, name }
+    }
+}
+
+// ---- what FERB has waiting (`chat.status` as the phone gate shapes it) ---------------------------------------
+
+mirror! {
+    /// What answering one question needs from the phone: `can_answer` false: only on the Mac (`problem` says why);
+    /// `needs_unlock` false (and not `hidden`): routine, answered from the notification with no prompt (PHN-417);
+    /// else signed by the phone's key over `challenge`, the fingerprint-only key where `fingerprint`.
+    QuestionNeeds from ferb_mobile::status::QuestionNeeds {
+        can_answer: bool,
+        needs_unlock: bool,
+        hidden: bool,
+        fingerprint: bool,
+        challenge: Option<String>,
+        problem: Option<String>,
+    }
+}
+
+mirror! {
+    /// One open question; while `held` (a locked phone) its words are only which kind of question it is.
+    StatusQuestion from ferb_mobile::status::StatusQuestion {
+        approval_id: String,
+        kind: String,
+        capability: Option<String>,
+        task_id: Option<String>,
+        reason: String,
+        options: Vec<String>,
+        held: bool,
+        needs: QuestionNeeds,
+    }
+}
+
+mirror! {
+    /// A task that runs now.
+    StatusTask from ferb_mobile::status::StatusTask {
+        task_id: String,
+        name: String,
+        goal: String,
+        started_at: Option<String>,
+        held: bool,
+    }
+}
+
+mirror! {
+    /// A task that finished since the Mac last showed it.
+    StatusResult from ferb_mobile::status::StatusResult {
+        task_id: String,
+        request_id: Option<String>,
+        at: Option<String>,
+        status: String,
+        name: String,
+        answer: String,
+        held: bool,
+    }
+}
+
+mirror! {
+    /// What FERB has waiting, as this phone may see it now (PHN-125, PHN-126): `locked` (no unlock window on the Mac),
+    /// `words` (given: unlocked, or a locked phone that proved its device key), `stopped` (Stop everything is on).
+    PhoneStatus from ferb_mobile::status::PhoneStatus {
+        locked: bool,
+        words: bool,
+        stopped: bool,
+        questions: Vec<StatusQuestion>,
+        running: Vec<StatusTask>,
+        results: Vec<StatusResult>,
+    }
+}
+
+// ---- files, the preview, settings, tasks, the Mac ------------------------------------------------------------
+
+mirror! {
+    /// One entry of a folder on the Mac. `locked`: a key place: each access needs a fresh fingerprint (PHN-121).
+    FileEntry from ferb_mobile::remote::FileEntry {
+        name: String,
+        path: String,
+        dir: bool,
+        link: bool,
+        size: u64,
+        modified: i64,
+        locked: bool,
+    }
+}
+
+mirror! {
+    /// One folder's listing (`total` entries, of which the first are here when `cut`).
+    Folder from ferb_mobile::remote::Folder {
+        path: String,
+        parent: Option<String>,
+        locked: bool,
+        entries: Vec<FileEntry>,
+        total: u64,
+        cut: bool,
+    }
+}
+
+mirror! {
+    TreeFile from ferb_mobile::remote::TreeFile {
+        rel: String,
+        size: u64,
+    }
+}
+
+mirror! {
+    /// Every file under a folder, to fetch it whole; `skipped` files (key places, FERB's own data) ask by themselves.
+    Tree from ferb_mobile::remote::Tree {
+        path: String,
+        name: String,
+        files: Vec<TreeFile>,
+        bytes: u64,
+        skipped: u64,
+        cut: bool,
+    }
+}
+
+mirror! {
+    /// A file fetched into `saved_to` (or the part so far: `received` of `total` after its offset).
+    Fetched from ferb_mobile::remote::Fetched {
+        name: String,
+        saved_to: String,
+        received: u64,
+        total: u64,
+    }
+}
+
+mirror! {
+    /// A file sent to the Mac: `upload_id` rides with a message (`send_with`).
+    Uploaded from ferb_mobile::remote::Uploaded {
+        upload_id: String,
+        saved: String,
+        size: u64,
+    }
+}
+
+mirror! {
+    /// One of FERB's settings: its key and value as JSON text.
+    SettingValue from ferb_mobile::remote::SettingValue {
+        key: String,
+        value_json: String,
+    }
+}
+
+mirror! {
+    /// One of the Mac's tasks.
+    TaskRow from ferb_mobile::remote::TaskRow {
+        task_id: String,
+        name: String,
+        goal: String,
+        status: String,
+        created_at: Option<String>,
+        updated_at: Option<String>,
+        answer: String,
+        steps_done: Option<u32>,
+        steps_total: Option<u32>,
+    }
+}
+
+mirror! {
+    TaskPage from ferb_mobile::remote::TaskPage {
+        tasks: Vec<TaskRow>,
+        more: bool,
+    }
+}
+
+mirror! {
+    /// What the Mac says about itself and this phone: its name, this phone's pairing date (ISO 8601) and name there.
+    MacInfo from ferb_mobile::remote::MacInfo {
+        name: Option<String>,
+        paired_at: Option<String>,
+        phone_name: Option<String>,
+    }
+}
+
+/// One live preview answer: the frame (JPEG, in memory only, PHN-454) when the Mac sent a new one, its number, the
+/// state and line FERB.app shows over it, and whether the last frame goes (`gone`).
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct PreviewFrame {
+    pub jpeg: Option<Vec<u8>>,
+    pub seq: Option<i64>,
+    pub state: String,
+    pub line: Option<String>,
+    pub fresh: bool,
+    pub busy: bool,
+    pub gone: bool,
+    pub empty_text: Option<String>,
+}
+
+impl Conv<PreviewFrame> for ferb_mobile::remote::PreviewFrame {
+    fn conv(self) -> PreviewFrame {
+        let ferb_mobile::remote::PreviewFrame {
+            jpeg,
+            seq,
+            state,
+            line,
+            fresh,
+            busy,
+            gone,
+            empty_text,
+        } = self;
+        PreviewFrame {
+            jpeg,
+            seq,
+            state,
+            line,
+            fresh,
+            busy,
+            gone,
+            empty_text,
+        }
     }
 }
 
@@ -679,6 +905,8 @@ pub struct LinkState {
     pub bulk_allowed: bool,
     pub relay_note: Option<String>,
     pub watching: bool,
+    /// The app locked (`Mobile.lock`): the conversation is not read until the next `unlock`.
+    pub locked: bool,
 }
 
 impl Conv<LinkState> for ferb_mobile::LinkState {
@@ -688,12 +916,14 @@ impl Conv<LinkState> for ferb_mobile::LinkState {
             bulk_allowed,
             relay_note,
             watching,
+            locked,
         } = self;
         LinkState {
             path: path.conv(),
             bulk_allowed,
             relay_note,
             watching,
+            locked,
         }
     }
 }
@@ -717,6 +947,10 @@ pub enum Change {
     Older {
         conversation: String,
     },
+    /// What FERB has waiting changed: read `last_status` again.
+    Status,
+    /// What the Mac told about itself changed: read `cached_mac_info` again.
+    Mac,
     /// "Forget this Mac" ran or the core closed: every call now answers `closed`.
     Closed,
 }
@@ -730,6 +964,8 @@ impl Conv<Change> for ferb_mobile::Change {
             ferb_mobile::Change::Outbox => Change::Outbox,
             ferb_mobile::Change::Link => Change::Link,
             ferb_mobile::Change::Older { conversation } => Change::Older { conversation },
+            ferb_mobile::Change::Status => Change::Status,
+            ferb_mobile::Change::Mac => Change::Mac,
             ferb_mobile::Change::Closed => Change::Closed,
         }
     }

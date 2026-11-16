@@ -100,10 +100,18 @@ impl Relay {
 }
 
 pub fn tmp(name: &str) -> PathBuf {
-    let d = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
-        .join(format!("{name}{:04x}", rand::random::<u16>()));
-    std::fs::create_dir_all(&d).unwrap();
-    d
+    // a fresh folder every time: a name an earlier run left behind is never reused (a world's sealed state from
+    // another run would be refused as changed: found by T-1221's gate run)
+    let base = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
+    std::fs::create_dir_all(&base).unwrap();
+    loop {
+        let d = base.join(format!("{name}{:08x}", rand::random::<u32>()));
+        match std::fs::create_dir(&d) {
+            Ok(()) => return d,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => panic!("{e}"),
+        }
+    }
 }
 
 /// What the test phone remembers from its events.

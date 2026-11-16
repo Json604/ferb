@@ -17,6 +17,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.ferb.app.model.Corpus
+import com.ferb.app.model.Why
 import com.ferb.app.ui.FerbRoot
 import com.ferb.core.KeyKind
 import com.ferb.core.PromptText
@@ -35,19 +36,18 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 class MainActivity : ComponentActivity() {
     private val app get() = application as FerbApplication
 
-    private val vm: FerbViewModel by viewModels {
+    val vm: FerbViewModel by viewModels {
         viewModelFactory {
             initializer {
                 val a = this@MainActivity.application as FerbApplication
                 val corpus = runCatching { a.assets.open("corpus.json").bufferedReader().use { Corpus(it.readText()) } }.getOrNull()
-                FerbViewModel(a.api, a.session, a.prefs, a::screenLockSet, corpus, createSavedStateHandle())
+                FerbViewModel(a.api, a.session, a.prefs, a::screenLockSet, corpus, createSavedStateHandle(), a.local)
             }
         }
     }
 
-    /** The owner's screenshot switch (PHN-420), and a screen that must stay secure whatever it says (PHN-110, PHN-454). */
+    /** The owner's screenshot switch (PHN-420); the view model's mustSecure overrides it (PHN-110, PHN-454). */
     val blockScreenshots = MutableStateFlow(true)
-    val secureScreen = MutableStateFlow(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -57,7 +57,7 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= 33) setRecentsScreenshotEnabled(false)
         secure(true)
         lifecycleScope.launch {
-            combine(blockScreenshots, secureScreen, app.session.locked) { block, must, locked -> block || must || locked }.collect(::secure)
+            combine(blockScreenshots, vm.mustSecure, app.session.locked) { block, must, locked -> block || must || locked }.collect(::secure)
         }
         vm.prompts = ActivityPrompts()
         handle(intent)
@@ -101,6 +101,16 @@ class MainActivity : ComponentActivity() {
         c.setSystemBarsAppearance(if (light) bits else 0, bits)
     }
 
+    /**
+     * The owner tapped Open or Share on a fetched file: the system's chooser, with read access to that one file for
+     * the app he picks. A key place's copy goes when he is back in FERB (PHN-11). FERB never opens a file by itself.
+     */
+    fun handOut(key: String, file: java.io.File, name: String, share: Boolean) {
+        if (!file.isFile) return
+        val i = if (share) Handout.share(this, file, name) else Handout.open(this, file, name)
+        runCatching { startActivity(i) }.onSuccess { vm.handedOut(key) }
+    }
+
     fun setBlockScreenshots(on: Boolean) {
         app.prefs.blockScreenshots = on
         blockScreenshots.value = on
@@ -108,12 +118,20 @@ class MainActivity : ComponentActivity() {
 
     /** The system's prompts, in the app's words. */
     private inner class ActivityPrompts : Prompts {
-        override fun signer(kind: KeyKind): Signer {
-            val text = when (kind) {
-                KeyKind.STRONG -> PromptText(getString(R.string.prompt_yes_title), getString(R.string.prompt_yes_subtitle), cancel = getString(R.string.prompt_cancel))
-                else -> PromptText(getString(R.string.prompt_unlock_title), getString(R.string.prompt_unlock_subtitle), cancel = getString(R.string.prompt_cancel))
+        override fun signer(kind: KeyKind, why: Why): Signer {
+            val title = when {
+                why == Why.KEYS -> R.string.prompt_keys_title
+                kind == KeyKind.STRONG -> R.string.prompt_yes_title
+                else -> R.string.prompt_unlock_title
             }
-            return app.phone.signer(this@MainActivity, kind, text)
+            val subtitle = when (why) {
+                Why.OPEN -> R.string.prompt_unlock_subtitle
+                Why.YES -> R.string.prompt_yes_subtitle
+                Why.FILE -> R.string.prompt_file_subtitle
+                Why.SETTING -> R.string.prompt_setting_subtitle
+                Why.KEYS -> R.string.prompt_keys_subtitle
+            }
+            return app.phone.signer(this@MainActivity, kind, PromptText(getString(title), getString(subtitle), cancel = getString(R.string.prompt_cancel)))
         }
 
         override suspend fun local(): Boolean = suspendCancellableCoroutine { done ->

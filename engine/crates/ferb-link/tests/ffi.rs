@@ -27,7 +27,7 @@ fn parse(s: &str) -> Value {
     serde_json::from_str(s).unwrap_or(Value::Null)
 }
 
-// decision: PHN-446, PHN-460
+// decision: PHN-446, PHN-460, PHN-514
 #[test]
 fn clients_have_handles_and_close_and_several_live_in_one_process() {
     let (_rt, _server, url) = relay();
@@ -83,7 +83,7 @@ fn clients_have_handles_and_close_and_several_live_in_one_process() {
     );
 }
 
-// decision: PHN-446, PHN-460
+// decision: PHN-446, PHN-460, PHN-514
 #[test]
 fn every_call_is_bounded_and_a_panic_stays_inside() {
     let (_rt, _server, url) = relay();
@@ -137,7 +137,7 @@ fn every_call_is_bounded_and_a_panic_stays_inside() {
     ffi::client_close(h);
 }
 
-// decision: PHN-446, PHN-460
+// decision: PHN-446, PHN-460, PHN-514
 #[test]
 fn the_labs_three_calls_still_drive_one_client() {
     let (_rt, _server, url) = relay();

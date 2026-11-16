@@ -217,7 +217,7 @@ impl State {
         None
     }
 
-    fn is_unlocked(&mut self, phone: &PhoneSession, now: f64, limits: &Limits) -> bool {
+    pub(crate) fn is_unlocked(&mut self, phone: &PhoneSession, now: f64, limits: &Limits) -> bool {
         self.open_window(phone, now, limits).is_some()
     }
 

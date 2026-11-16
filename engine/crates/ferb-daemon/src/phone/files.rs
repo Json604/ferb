@@ -638,11 +638,13 @@ fn area(inner: &Inner) -> Result<&Area, Refusal> {
 /// the daemon refuses them too, on the tier the helper names for the call (S4), so a helper that failed to would not
 /// send a file over the shared relay. A listing (`phone.files`) is the helper's to judge by its size.
 pub(crate) fn shared_relay_refusal(phone: &PhoneSession, method: &str) -> Option<Refusal> {
-    const BULK: [&str; 4] = [
+    // (and the live preview's frames, PHN-454: never on the public relay)
+    const BULK: [&str; 5] = [
         "phone.read",
         "phone.tree",
         "phone.put_begin",
         "phone.put_group",
+        "tasks.preview",
     ];
     (BULK.contains(&method) && phone.tier.as_deref() == Some("shared_relay")).then(|| {
         refused(

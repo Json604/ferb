@@ -66,6 +66,66 @@ pub trait Transport: Send + Sync {
     fn watch(&self, params_json: String, sink: Arc<WatchSink>) -> Result<u64, TransportError>;
     /// Stops a watch (idempotent, bounded).
     fn close_watch(&self, watch_id: u64);
+    /// `link.get` (a file or a picture): the reply's JSON (`meta`, `received`, and `saved_to` or base64 `data`).
+    /// `id` names it for `cancel`; progress goes to `progress`. With `save_to` the bytes go into that file (appended when
+    /// `append`).
+    fn get(
+        &self,
+        id: String,
+        params_json: String,
+        save_to: Option<String>,
+        append: bool,
+        progress: Arc<TransferProgress>,
+    ) -> Result<String, TransportError>;
+    /// `link.put`: the file at `path` to the Mac; `opts_json` carries `name`, `resume`, `group`, `rel`. The reply's JSON
+    /// (`upload_id`, `saved`, `size`, `sha256`); the go-ahead and progress go to `progress`.
+    fn put(
+        &self,
+        id: String,
+        path: String,
+        opts_json: String,
+        progress: Arc<TransferProgress>,
+    ) -> Result<String, TransportError>;
+    /// Stops the transfer `id`: its call then fails with code `cancelled`.
+    fn cancel(&self, id: String);
+}
+
+/// Where an app-supplied transport reports a transfer's progress.
+#[derive(uniffi::Object)]
+pub struct TransferProgress {
+    inner: Arc<dyn ferb_mobile::transport::TransferSink>,
+}
+
+#[uniffi::export]
+impl TransferProgress {
+    pub fn progress(&self, done: u64, of: u64) {
+        let _ = catch_unwind(AssertUnwindSafe(|| self.inner.progress(done, of)));
+    }
+    pub fn accepted(&self, upload_id: String, offset: u64) {
+        let _ = catch_unwind(AssertUnwindSafe(|| self.inner.accepted(&upload_id, offset)));
+    }
+}
+
+/// What the app hears of one of its transfers (a file fetched or sent): bytes so far of the whole, and for an upload
+/// the Mac's go-ahead (its upload id, where it goes on from) before the first byte. On the link's threads: post and
+/// return.
+#[uniffi::export(foreign)]
+pub trait TransferListener: Send + Sync {
+    fn progress(&self, done: u64, of: u64);
+    fn accepted(&self, upload_id: String, offset: u64);
+}
+
+pub(crate) struct TransferAdapter(pub Arc<dyn TransferListener>);
+
+impl ferb_mobile::transport::TransferSink for TransferAdapter {
+    fn progress(&self, done: u64, of: u64) {
+        let _ = catch_unwind(AssertUnwindSafe(|| self.0.progress(done, of)));
+    }
+    fn accepted(&self, upload_id: &str, offset: u64) {
+        let _ = catch_unwind(AssertUnwindSafe(|| {
+            self.0.accepted(upload_id.to_string(), offset)
+        }));
+    }
 }
 
 /// Where an app-supplied transport delivers a watch's frames.
@@ -198,6 +258,54 @@ impl ferb_mobile::Transport for TransportAdapter {
             transport: self.0.clone(),
             id,
         }))
+    }
+
+    fn get(
+        &self,
+        id: &str,
+        params_json: &str,
+        save_to: Option<&str>,
+        append: bool,
+        sink: Arc<dyn ferb_mobile::transport::TransferSink>,
+    ) -> Result<String, LinkFailure> {
+        let progress = Arc::new(TransferProgress { inner: sink });
+        catch_unwind(AssertUnwindSafe(|| {
+            self.0
+                .get(
+                    id.to_string(),
+                    params_json.to_string(),
+                    save_to.map(str::to_string),
+                    append,
+                    progress,
+                )
+                .map_err(LinkFailure::from)
+        }))
+        .unwrap_or_else(|_| Err(thrown()))
+    }
+
+    fn put(
+        &self,
+        id: &str,
+        path: &str,
+        opts_json: &str,
+        sink: Arc<dyn ferb_mobile::transport::TransferSink>,
+    ) -> Result<String, LinkFailure> {
+        let progress = Arc::new(TransferProgress { inner: sink });
+        catch_unwind(AssertUnwindSafe(|| {
+            self.0
+                .put(
+                    id.to_string(),
+                    path.to_string(),
+                    opts_json.to_string(),
+                    progress,
+                )
+                .map_err(LinkFailure::from)
+        }))
+        .unwrap_or_else(|_| Err(thrown()))
+    }
+
+    fn cancel(&self, id: &str) {
+        let _ = catch_unwind(AssertUnwindSafe(|| self.0.cancel(id.to_string())));
     }
 }
 

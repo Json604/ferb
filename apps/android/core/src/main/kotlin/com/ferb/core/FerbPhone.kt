@@ -91,6 +91,8 @@ class FerbPhone(
     private val main: CoroutineDispatcher = Dispatchers.Main,
     private val io: CoroutineDispatcher = Dispatchers.IO,
     private val utcOffsetS: () -> Int = { TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 1000 },
+    /** Android only ([create]): hands the app's context to the library before the link starts ([NativeInit]). */
+    private val nativeInit: () -> Unit = {},
 ) : Closeable {
     private val scope = CoroutineScope(SupervisorJob() + main)
     private val serial = Mutex()
@@ -146,6 +148,7 @@ class FerbPhone(
             if (mobile != null) return@withLock _state.value
             _state.value = PhoneState.Starting
             try {
+                nativeInit()
                 bringUp()
                 _state.value = PhoneState.Open(vault.keys.health(), wiped)
             } catch (e: FerbException) {
@@ -179,6 +182,8 @@ class FerbPhone(
                 if (fresh != pubs) restartLink(fresh)
                 val u = uplink ?: throw FerbException.Closed("FERB is not open.", null)
                 u.pair(code)
+                // the keys this pairing's hello carries: what the Mac will hold (registerKeys adds any made later)
+                vault.saveRegisteredKeys(fresh)
                 wiped = null
                 publishOpen()
                 Outcome.Ok(Unit)
@@ -193,6 +198,64 @@ class FerbPhone(
      * face or PIN, per the LOCK key) made with [signer]; the Mac's window is its own (five idle minutes).
      */
     suspend fun unlock(signer: Signer): Outcome<Unit> = call { it.unlock(signer) }.also { publishOpen() }
+
+    /**
+     * PHN-15: the app locked. The Mac is told (its unlock window for this phone ends now) and the conversation's watch
+     * stops until the next [unlock] or [unlocked]; what waits still arrives as the Mac's status. Ok(false): offline (the
+     * Mac's window ends by itself after its idle time).
+     */
+    suspend fun lock(): Outcome<Boolean> = call { it.lock() }
+
+    /** The app opened by the prompt alone (offline): the conversation is read again once the Mac admits it. */
+    suspend fun unlocked(): Outcome<Unit> = call { it.unlocked() }
+
+    /** "Stop everything on the Mac" (`stop.engage`): works while locked (PHN-125), never queued, no prompt. */
+    suspend fun stopEverything(): Outcome<Unit> = call { it.stopEverything() }
+
+    /**
+     * Keys this phone holds that the Mac was never given: a fingerprint enrolled after a pairing made without one
+     * makes the fingerprint-only key at the next start (or now: the missing keys the phone can hold are made here).
+     * Null when there is nothing to register. Only keys the Mac lacks: a strong key Android destroyed is replaced only
+     * by pairing again (PHN-133), so it never shows here.
+     */
+    suspend fun unregisteredKeys(): PublicKeys? = withContext(io) {
+        serial.withLock {
+            if (mobile == null || vault.registeredKeys() == null) return@withLock null
+            val now = runCatching { vault.keys.ensure() }.getOrNull() ?: return@withLock null
+            val mac = vault.registeredKeys() ?: return@withLock null
+            val device = now.device?.takeIf { mac.device == null }
+            val strong = now.strong?.takeIf { mac.strong == null }
+            if (device == null && strong == null) null else PublicKeys(device, null, strong)
+        }
+    }
+
+    /**
+     * Registers [unregisteredKeys] with the Mac (`link.keys`), signed by the fingerprint-only key where the Mac
+     * already holds one, else the lock key: [signer] makes the prompt for the kind asked. Ok(false): nothing to do.
+     */
+    suspend fun registerKeys(signer: (KeyKind) -> Signer): Outcome<Boolean> {
+        val fresh = unregisteredKeys() ?: return Outcome.Ok(false)
+        val mac = withContext(io) { vault.registeredKeys() } ?: return Outcome.Ok(false)
+        val kind = if (mac.strong != null && vault.keys.health().strong == KeyState.OK) KeyKind.STRONG else KeyKind.LOCK
+        val r = call { it.registerKeys(fresh.device, fresh.strong, signer(kind)) }
+        if (r is Outcome.Ok) {
+            withContext(io) { vault.saveRegisteredKeys(PublicKeys(mac.device ?: fresh.device, mac.lock, mac.strong ?: fresh.strong)) }
+            publishOpen()
+        }
+        return when (r) {
+            is Outcome.Ok -> Outcome.Ok(true)
+            is Outcome.Failed -> r
+        }
+    }
+
+    /** The last status the Mac pushed or a read kept (memory only; safe on the main thread), or null. */
+    fun lastStatusNow(): com.ferb.mobile.PhoneStatus? = try {
+        mobile?.lastStatus()
+    } catch (e: FerbException) {
+        null
+    } catch (e: IllegalStateException) {
+        null
+    }
 
     /** A prompt signer whose key loss updates [state]. */
     fun signer(context: Context, kind: KeyKind, text: PromptText): PromptSigner =
@@ -287,6 +350,8 @@ class FerbPhone(
         state?.fill(0)
         uplink = u
         pubs = keys
+        // a phone paired before the record of what the Mac holds existed: what it holds now is what it was given
+        if (state != null && vault.registeredKeys() == null) runCatching { vault.saveRegisteredKeys(keys) }
         val m = openStore()
         mobile = m
         u.attach(m)
@@ -339,6 +404,7 @@ class FerbPhone(
     companion object {
         /** The phone's object: its vault, the real link, its names. Then [start]. */
         fun create(context: Context): FerbPhone =
-            FerbPhone(Vault.forPhone(context.applicationContext), LinkUplinks(), PhoneIdentity.of(context))
+            FerbPhone(Vault.forPhone(context.applicationContext), LinkUplinks(), PhoneIdentity.of(context),
+                nativeInit = { NativeInit.once(context.applicationContext) })
     }
 }

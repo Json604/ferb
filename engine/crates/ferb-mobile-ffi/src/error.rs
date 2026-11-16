@@ -81,6 +81,11 @@ pub enum FerbError {
         detail: String,
         link_code: Option<String>,
     },
+    /// The phone itself stopped it (a transfer paused or cancelled): nothing failed.
+    Cancelled {
+        detail: String,
+        link_code: Option<String>,
+    },
     /// Something the app handed over can't be used (the link's saved state is not what the link wrote).
     BadArgument {
         detail: String,
@@ -111,6 +116,7 @@ impl FerbError {
             FerbError::NotFound { .. } => ErrorCode::NotFound.as_str(),
             FerbError::InFlight { .. } => ErrorCode::InFlight.as_str(),
             FerbError::BadReply { .. } => ErrorCode::BadReply.as_str(),
+            FerbError::Cancelled { .. } => ErrorCode::Cancelled.as_str(),
             FerbError::BadArgument { .. } => "bad_argument",
             FerbError::Internal { .. } => "internal",
         }
@@ -142,6 +148,7 @@ impl FerbError {
             | FerbError::NotFound { detail, link_code }
             | FerbError::InFlight { detail, link_code }
             | FerbError::BadReply { detail, link_code }
+            | FerbError::Cancelled { detail, link_code }
             | FerbError::BadArgument { detail, link_code }
             | FerbError::Internal { detail, link_code } => (detail, link_code.as_deref()),
         }
@@ -179,6 +186,9 @@ impl FerbError {
     /// A failure the link reported, by what its code means (ferb-mobile `transport::codes::kind`).
     pub(crate) fn from_link(f: LinkFailure) -> FerbError {
         let (detail, link_code) = (f.message.clone(), Some(f.code.clone()));
+        if f.code == ferb_mobile::transport::codes::CANCELLED {
+            return FerbError::Cancelled { detail, link_code };
+        }
         match f.kind() {
             FailureKind::Transient => FerbError::Offline { detail, link_code },
             FailureKind::NeedsUnlock => FerbError::NeedsUnlock { detail, link_code },
@@ -210,6 +220,7 @@ impl From<MobileError> for FerbError {
             ErrorCode::NotFound => FerbError::NotFound { detail, link_code },
             ErrorCode::InFlight => FerbError::InFlight { detail, link_code },
             ErrorCode::BadReply => FerbError::BadReply { detail, link_code },
+            ErrorCode::Cancelled => FerbError::Cancelled { detail, link_code },
         }
     }
 }

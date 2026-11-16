@@ -107,7 +107,7 @@ fn a_version_1_store_is_upgraded_with_its_rows() {
         .unwrap();
     }
     let s = Store::open(&path, KEY.to_vec()).unwrap();
-    assert_eq!(s.version().unwrap(), 2);
+    assert_eq!(s.version().unwrap(), VERSION);
     assert_eq!(
         s.cursor("C1").unwrap(),
         Some(Cursor {
@@ -118,6 +118,8 @@ fn a_version_1_store_is_upgraded_with_its_rows() {
     assert_eq!(s.older("C1").unwrap(), Older::Complete);
     assert_eq!(s.entries("C1").unwrap()[0].body["text"], "kept");
     assert_eq!(s.outbox().unwrap()[0].text, "waiting words");
+    // v3: a message's attachments, none for the older one
+    assert!(s.outbox().unwrap()[0].attachments.is_empty());
     s.add_pending_get("C1", "x1").unwrap();
     assert_eq!(s.pending_gets("C1").unwrap(), ["x1"]);
     s.set_read_mark("C1", 5).unwrap();
