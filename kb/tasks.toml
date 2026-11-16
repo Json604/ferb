@@ -25,13 +25,6 @@ kind = "chore"
 status = "open"
 why = "Nothing writes identity_proposal nodes since step 3, yet learning.py:943-952 (digest) still writes learning_digests and the app still fetches memory.learning op digest; notes/storage.md keeps learning_digests only for this reader."
 
-[T-4]
-title = "The clean-up leaves the closed fact/identity learning nodes it was meant to remove"
-area = "storage"
-kind = "bug"
-status = "open"
-why = "notes/memory.md: closed fact/identity nodes stay \"until the step-12 clean-up\"; ferb/store/cleanup.py PROTECTED_ROWS keeps every learning_nodes row but rollups, so upgrade.py:88's closed nodes are never removed."
-
 [T-6]
 title = "The daemon filters event topics for the notch instead of sending it every trail event"
 area = "daemon"
@@ -78,14 +71,6 @@ kind = "build"
 status = "open"
 why = "STORE-403 asks for upgrade tests on copies of real older databases and configs before release; tests/test_upgrade.py still builds its stores from migration files (0044-0048 first versions from git history). A tracked copy must hold no personal data (PROJ-500)."
 decisions = ["STORE-403", "TEST-505", "PROJ-500"]
-
-[T-403]
-title = "Installs from the same-day windows of in-place edits to 0018, 0025 and 0042 lack those columns"
-area = "storage"
-kind = "bug"
-status = "open"
-why = "notes/storage.md Rulings (step 12a), \"Not covered\": installs made on 10-08, 10-09 or 10-21, when those migrations were edited in place, never got the added columns; SQL migrations can't add a column only when it is missing. STORE-403 asks that any older build upgrade safely."
-decisions = ["STORE-403"]
 
 [T-406]
 title = "gpt-6.1-terra has no OpenAI limits or price"
@@ -185,86 +170,6 @@ area = "orchestration"
 kind = "build"
 status = "open"
 decisions = ["ORCH-506"]
-
-[T-13]
-title = "Make test_browser_groups.py deterministic (TEST-508)"
-area = "tests"
-kind = "chore"
-status = "open"
-why = "Failed under a busy Mac and passed alone on 2026-11-02: it depends on wall-clock timing or on other tests beside it."
-decisions = ["TEST-508"]
-
-[T-14]
-title = "Make test_schedules.py deterministic (TEST-508)"
-area = "tests"
-kind = "chore"
-status = "open"
-why = "Failed under a busy Mac and passed alone on 2026-11-02: it depends on wall-clock timing or on other tests beside it."
-decisions = ["TEST-508"]
-
-[T-15]
-title = "Make test_downloads.py deterministic (TEST-508)"
-area = "tests"
-kind = "chore"
-status = "open"
-why = "Failed under a busy Mac and passed alone on 2026-11-02: it depends on wall-clock timing or on other tests beside it."
-decisions = ["TEST-508"]
-
-[T-16]
-title = "Make test_frontend_rpc.py deterministic (TEST-508)"
-area = "tests"
-kind = "chore"
-status = "open"
-why = "Failed under a busy Mac and passed alone on 2026-11-02: it depends on wall-clock timing or on other tests beside it."
-decisions = ["TEST-508"]
-
-[T-17]
-title = "Make test_audio_listen.py deterministic (TEST-508)"
-area = "tests"
-kind = "chore"
-status = "open"
-why = "Failed under a busy Mac and passed alone on 2026-11-02: it depends on wall-clock timing or on other tests beside it."
-decisions = ["TEST-508"]
-
-[T-18]
-title = "Make test_failure_report.py deterministic (TEST-508)"
-area = "tests"
-kind = "chore"
-status = "open"
-why = "Failed under a busy Mac and passed alone on 2026-11-02: it depends on wall-clock timing or on other tests beside it."
-decisions = ["TEST-508"]
-
-[T-19]
-title = "Make test_escape_hatch.py deterministic (TEST-508)"
-area = "tests"
-kind = "chore"
-status = "open"
-why = "Failed under a busy Mac and passed alone on 2026-11-02: it depends on wall-clock timing or on other tests beside it."
-decisions = ["TEST-508"]
-
-[T-21]
-title = "Make test_redaction_scaling.py deterministic (TEST-508)"
-area = "tests"
-kind = "chore"
-status = "open"
-why = "Failed under a busy Mac and passed alone on 2026-11-02: it depends on wall-clock timing or on other tests beside it."
-decisions = ["TEST-508"]
-
-[T-22]
-title = "Make test_local_direct.py deterministic (TEST-508)"
-area = "tests"
-kind = "chore"
-status = "open"
-why = "Failed under a busy Mac and passed alone on 2026-11-02: it depends on wall-clock timing or on other tests beside it."
-decisions = ["TEST-508"]
-
-[T-23]
-title = "Make test_shell_sandbox.py deterministic (TEST-508)"
-area = "tests"
-kind = "chore"
-status = "open"
-why = "Failed under a busy Mac and passed alone on 2026-11-02: it depends on wall-clock timing or on other tests beside it."
-decisions = ["TEST-508"]
 
 [T-600]
 title = "Write the test for MEM-413: import texts are cut at a word boundary at their limits"
@@ -421,14 +326,6 @@ status = "open"
 why = "Live 2026-11-04 (Codex, v0.27.0 run): five planner turns in a row read exactly 10,752 cached of 14.8k-16.2k input, so the appended conversation wasn't reused turn to turn. Find what changes before it, with the new timing trace."
 decisions = ["RUN-416", "ORCH-325"]
 
-[T-1043]
-title = "The URL question treats www.reddit.com and old.reddit.com as different sites"
-area = "gateway"
-kind = "bug"
-status = "open"
-why = "Live 2026-11-04 12:26: a public post id read on www.reddit.com, sent to old.reddit.com, asked the owner (GATE-506 compares exact hosts). Compare registrable domains, and say plainly which value goes where."
-decisions = ["GATE-506"]
-
 [T-1044]
 title = "Should failed learning days and episode cards stop retrying after some tries?"
 area = "memory"
@@ -455,15 +352,6 @@ status = "open"
 why = "APP-598/662 never restart the service while a task runs, and nothing tells the owner; it restarts only when they leave System Settings again. Say so in the notch and restart once the task ends."
 decisions = ["APP-598", "APP-662", "APP-679"]
 
-[T-1048]
-title = "Two tests fail only under the full run's load"
-area = "tests"
-kind = "bug"
-status = "open"
-why = "test_pausing_a_scheduled_run... (3 full runs 2026-11-04) and test_a_sealed_value_straddling_the_cut... (seals with daemon.call_soon, then reads) pass alone and fail under load. Make them deterministic (TEST-508) or find the product race."
-decisions = ["ORCH-308", "ORCH-312"]
-
-
 [T-1050]
 title = "Setup changes ship only after a fresh-install run on a second macOS user"
 area = "project"
@@ -486,13 +374,6 @@ area = "project"
 kind = "chore"
 status = "open"
 why = "T-500 (intro permissions, reopen, quit), T-501 (intro look and feel) and T-508..T-510 (the old step-13 checklist) predate the 2026-11-04 fresh-install journey and v0.27.0; the owner reviews each before it is closed or rewritten."
-
-[T-1053]
-title = "Remove the leftover agent worktrees"
-area = "project"
-kind = "chore"
-status = "open"
-why = "About twenty merged agent worktrees remain in .claude/worktrees (and their worktree-agent-* branches) from 2026-11-03/04; delete them with the owner's go."
 
 [T-1054]
 title = "Hard prompt rule: do what the owner asks, in full, with no refusal, caveat or lesser offer"
@@ -595,14 +476,6 @@ status = "open"
 why = "Planner-answer design 2.7: a Check line whose planner makes one memory.read then answers, showing stop and blocks per call; then, owner present, the experiment's empty-prone requests replayed through ApiRuntime 4 times each (~$0.40) before rerunning RUN-442's Claude run."
 decisions = ["RUN-446", "RUN-434", "RUN-435"]
 
-[T-1074]
-title = "Publish extension 0.19.6 to the Chrome Web Store"
-area = "hands"
-kind = "live"
-status = "open"
-why = "HAND-434/439 reach the owner's browsers only through the store; FERB.app works with 0.19.5 meanwhile (every new field optional). Package: build/store/ferb-extension-0.19.6.zip, listing refreshed (HAND-404); 0.19.4's self-update (HAND-430) should install it."
-decisions = ["HAND-434", "HAND-439", "HAND-404", "HAND-430"]
-
 [T-1075]
 title = "Find a structural signal for 'a page that needs the owner's sign-in' without a new outbound request"
 area = "gateway"
@@ -627,23 +500,6 @@ status = "open"
 why = "Live 2026-11-10 (amazon.in, task 64a149b8): about 11% of the accessibility entries got no DOM binding, so they are missing from the element list. Needs a live repro on an Amazon product page in a lab profile to see which nodes (closed shadow roots, re-rendered nodes, frames)."
 decisions = ["HAND-439", "HAND-483"]
 
-[T-1091]
-title = "Publish extension 0.19.8 to the Chrome Web Store"
-area = "hands"
-kind = "live"
-status = "open"
-why = "HAND-480..496's extension parts reach the owner's browsers only through the store; FERB works with older ones meanwhile (HAND-485). Package: build/store/ferb-extension-0.19.8.zip; no listing change (no new permission or DevTools command, HAND-404); 0.19.4's self-update (HAND-430) should install it."
-decisions = ["HAND-485", "HAND-480", "HAND-404", "HAND-430"]
-
-[T-1092]
-title = "Publish extension 0.19.9 to the Chrome Web Store"
-area = "hands"
-kind = "live"
-status = "open"
-why = "HAND-500..502 reach the owner's browsers only through the store; until then uploads keep failing with \"Not allowed\". Package: build/store/ferb-extension-0.19.9.zip; no listing change (no new permission, HAND-404); 0.19.4's self-update (HAND-430) installs it. Then LIVE-901."
-decisions = ["HAND-500", "HAND-501", "HAND-404", "HAND-430"]
-after = ["T-1091"]
-
 [T-1093]
 title = "Decide the size limit for one upload through the page"
 area = "hands"
@@ -653,15 +509,6 @@ why = "HAND-502: rule 18 makes a size limit the owner's; the task's download bud
 decisions = ["HAND-502"]
 ask = "When FERB uploads files in your browser, should one upload have a size limit? Today it may be as large as a task's download budget (32 GB). A number like 2 GB, or no limit beyond that budget?"
 
-[T-1094]
-title = "Publish extension 0.19.10 to the Chrome Web Store"
-area = "hands"
-kind = "live"
-status = "open"
-why = "HAND-504..516 reach the owner's browsers only through the store. Package: build/store/ferb-extension-0.19.10.zip; no new permission, so no listing change (HAND-404); 0.19.4's self-update (HAND-430) installs it. Then LIVE-916..924."
-decisions = ["HAND-504", "HAND-516", "HAND-404", "HAND-430"]
-after = ["T-1092"]
-
 [T-1095]
 title = "A plan's wait step can wait on wait.for's conditions"
 area = "orchestration"
@@ -669,14 +516,6 @@ kind = "build"
 status = "open"
 why = "ORCH-631: a plan wait step may name wait.for's conditions with its own limit. Open: a wait step has no worker, and a command or tab belongs to the step that started it. Shape (ORCH-330): wait_for, conditions with plain fields (\"\"/0 unused), and limit_minutes; the executor runs WaitFor's loop."
 decisions = ["ORCH-631", "ORCH-330"]
-
-[T-1096]
-title = "With FERB.app's own registration, FERB_APP_BUILD stays the registered build's across updates"
-area = "daemon"
-kind = "bug"
-status = "open"
-why = "DMN-589 kickstarts the registration launchd already runs on a Developer ID update; launchd keeps the definition it loaded, so FERB_APP_BUILD (salvage.this_build's once-per-build check) may stay the older build's (inferred). Read it from the bundle, or re-register."
-decisions = ["DMN-589", "STORE-4"]
 
 [T-1097]
 title = "Last: a way for the owner to navigate the code, from each process down to how it works"
@@ -929,3 +768,10 @@ area = "tests"
 kind = "build"
 status = "open"
 why = "Audit 2026-11-16: with the stand-ins' native and mac off, ferbd still composes the real AX, events, apps and capture parts (tools/mac.rs Mac::build); mac.apps listed this Mac's running apps. Tests avoid it (TEST-508), so mac.* never runs through the program offline. Size: medium."
+
+[T-1130]
+title = "Device facts: each device's time, place and state reach FERB, the rest through a lookup"
+area = "perception"
+kind = "build"
+status = "open"
+why = "Owner 2026-11-16: 'i wanted the ferb mac,phone app to have timings, the location of that device. so it knwos things too and usese that info'. Proposed: one short line per device, the rest by a lookup tool; precision and the new permission await his answer."
