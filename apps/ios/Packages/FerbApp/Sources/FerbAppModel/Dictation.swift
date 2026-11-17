@@ -156,6 +156,10 @@ public enum VoiceEvent: Equatable, Sendable {
     case heard(task: Int, RecognizedSpeech)
     /// `noSpeech`: it heard nothing (a pause); `languageMissing`: no on-device speech for the language.
     case failed(task: Int, noSpeech: Bool, languageMissing: Bool = false, code: Int = 0)
+    /// The recogniser takes the sound now (kb PHN-643): until then the owner sees "Getting ready…".
+    case ready(task: Int)
+    /// How loud the microphone hears him now, 0...1 (kb PHN-643): drawn as the ring around the microphone.
+    case level(task: Int, Float)
 }
 
 /// The phone's recogniser (AppleSpeech in FerbAppUI; a fake in tests), on the main actor. Nothing is recorded: the
@@ -193,17 +197,27 @@ public final class Dictation {
     private var over = false
     private var cancelGrace: (() -> Void)?
     private var lastFailure: (languageMissing: Bool, code: Int)?
+    /// The last failure was "no speech heard" (for its words, kb PHN-643).
+    public private(set) var lastNoSpeech = false
+
+    private let ready: () -> Void
+    private let level: (Float) -> Void
 
     public var text: String { capture.text }
     public var running: Bool { !over }
+    /// The owner let go and the last words are on their way (at most `grace`).
+    public var finishing: Bool { capture.finishing }
 
     public init(input: VoiceInput, kind: SpeechKind, words: @escaping (String) -> Void, ended: @escaping (End) -> Void,
-                later: @escaping (TimeInterval, @escaping @MainActor () -> Void) -> (() -> Void)) {
+                later: @escaping (TimeInterval, @escaping @MainActor () -> Void) -> (() -> Void),
+                ready: @escaping () -> Void = {}, level: @escaping (Float) -> Void = { _ in }) {
         self.input = input
         self.kind = kind
         self.words = words
         self.ended = ended
         self.later = later
+        self.ready = ready
+        self.level = level
     }
 
     public func start() { startTask() }
@@ -224,7 +238,14 @@ public final class Dictation {
             words(capture.text)
         case .failed(let task, let noSpeech, let languageMissing, let code):
             lastFailure = (languageMissing, code)
+            lastNoSpeech = noSpeech
             step = capture.fail(task: task, noSpeech: noSpeech)
+        case .ready(let task):
+            if task == capture.task { ready() }
+            return
+        case .level(let task, let l):
+            if task == capture.task { level(l) }
+            return
         }
         switch step {
         case .keepListening: break

@@ -70,7 +70,7 @@ final class PlaygroundAppReview: PlayHost {
         coordinator.onOpenSettings = { [weak self] in self?.show(.settings) }
         coordinator.model.onOpenMemory = { [weak self] source in self?.window.showMemory(importedFrom: source) }
         coordinator.model.onOpenPhone = { [weak self] in self?.window.show(.settings, tab: .phone) }
-        coordinator.onInstallUpdate = { [weak updates] in updates?.checkNow() }
+        coordinator.onInstallUpdate = { [weak updates] in updates?.install() }
     }
 
     func prepare() throws {
@@ -157,6 +157,7 @@ private final class PlaygroundLoginItem: LoginItemService {
 private final class PlaygroundUpdater: UpdaterDriving {
     var automaticallyDownloadsUpdates = true
     var onCheck: (() -> Void)?
-    func checkForUpdates() { onCheck?() }
+    func checkQuietly() -> QuietCheck { onCheck?(); return .started }
+    func installOffered() { onCheck?() }
 }
 #endif

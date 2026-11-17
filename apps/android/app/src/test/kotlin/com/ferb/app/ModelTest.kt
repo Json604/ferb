@@ -42,6 +42,38 @@ class AppLockTest {
         assertTrue("away longer than five minutes", lock.locked)
     }
 
+    // decision: PHN-615, PHN-616
+    @Test
+    fun one_prompt_is_due_per_arrival_in_front_while_locked() {
+        assertFalse("a new process not yet in front", lock.promptDue)
+        lock.cameToFront()
+        assertTrue(lock.takePrompt())
+        assertFalse("taken once", lock.takePrompt())
+        lock.cameToFront() // told again while in front (a system sheet closed)
+        assertFalse(lock.takePrompt())
+        lock.promptAgain() // the taken prompt could not be shown
+        assertTrue(lock.takePrompt())
+        lock.unlocked()
+        lock.lock() // the owner's own lock from inside
+        assertFalse("his own lock waits for his tap", lock.takePrompt())
+        lock.wentToBackground()
+        lock.promptAgain()
+        assertFalse("nothing is due while away", lock.promptDue)
+        lock.cameToFront()
+        assertTrue("locked and back: due again", lock.takePrompt())
+        lock.unlocked()
+        lock.wentToBackground()
+        t += 60_000
+        lock.cameToFront()
+        assertFalse("open again inside five minutes: nothing due", lock.promptDue)
+        lock.wentToBackground()
+        t += AppLock.LOCK_AFTER_MS + 1
+        assertTrue(lock.backgroundTimer())
+        assertFalse("locked in the background: nothing shows while away", lock.promptDue)
+        lock.cameToFront()
+        assertTrue(lock.takePrompt())
+    }
+
     // decision: PHN-15, PHN-505
     @Test
     fun the_background_timer_locks_only_when_the_time_has_passed_and_the_app_is_still_away() {

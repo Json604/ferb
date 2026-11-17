@@ -39,6 +39,22 @@ public enum UpdatePlan {
         "FERB \(version) installs when this finishes: " + work.joined(separator: "; ")
     }
 
+    /// Settings' line after the owner's Check for Updates… couldn't reach FERB's release list (APP-946): plain and
+    /// calm; the reason stays in the small last-result line beneath it.
+    public static let checkFailedLine = "FERB couldn't check for updates just now. It will try again later."
+    /// Settings' line, and one chat message, when an update the owner chose to install didn't install (APP-947).
+    public static let installFailedLine = "FERB couldn't install the update just now. It will try again later."
+    public static let checkingLine = "Checking for updates…"
+
+    /// Sparkle's reason, as the small last-result line keeps it: the underlying error when Sparkle wrapped one (its own
+    /// "An error occurred while downloading the update. Please try again later." says less than the 404 inside).
+    public static func reason(_ error: NSError) -> String {
+        if let inner = error.userInfo[NSUnderlyingErrorKey] as? NSError, !inner.localizedDescription.isEmpty {
+            return inner.localizedDescription
+        }
+        return error.localizedDescription
+    }
+
     /// Whether Sparkle's abort is a failure the owner should see: not "no update found" (SUNoUpdateError, reported as
     /// an abort too) nor an install the owner cancelled (SUInstallationCancelledError).
     public static func abortIsFailure(domain: String, code: Int) -> Bool {

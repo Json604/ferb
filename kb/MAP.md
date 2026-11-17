@@ -6,7 +6,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 
 | Area | Title | Paths | Active decisions | Open tasks | Pending live checks |
 |---|---|---|---|---|---|
-| app | FERB.app (notch UI, intro, sounds) | `apps/mac`, `apps/AGENTS.md`, `apps/docs`, `apps/output`, `apps/.gitignore`, `demo` | 315 | 14 | 40 |
+| app | FERB.app (notch UI, intro, sounds) | `apps/mac`, `apps/AGENTS.md`, `apps/docs`, `apps/output`, `apps/.gitignore`, `demo` | 320 | 14 | 41 |
 | daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 92 | 9 | 7 |
 | engine | Rust engine (the rewrite) | `engine/*`, `engine/crates`, `engine/fixtures`, `engine/packaging` | 23 | 4 | 0 |
 | gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `engine/runtime/identity` | 128 | 10 | 61 |
@@ -14,7 +14,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | memory | Memory and memory import | `engine/runtime/memory` | 60 | 4 | 0 |
 | orchestration | Orchestration | `ferb/orchestrator/*.py`, `engine/runtime/decide`, `ferb/clock` | 167 | 11 | 40 |
 | perception | Perception | `ferb/sense` | 21 | 4 | 1 |
-| phone | Phone role, link and phone apps | `apps/android`, `apps/ios`, `engine/patches` | 249 | 13 | 18 |
+| phone | Phone role, link and phone apps | `apps/android`, `apps/ios`, `engine/patches` | 263 | 13 | 18 |
 | project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `HANDOFF.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `kb`, `tools`, `spikes` | 14 | 8 | 0 |
 | prompts | Prompts and abilities | `engine/runtime/orchestrator/prompts`, `engine/runtime/abilities` | 50 | 4 | 10 |
 | release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 25 | 5 | 4 |

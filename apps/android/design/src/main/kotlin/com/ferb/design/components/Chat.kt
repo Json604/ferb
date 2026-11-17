@@ -22,6 +22,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -30,7 +33,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
@@ -144,6 +146,9 @@ fun TaskCard(
     }
 }
 
+/** The microphone's state as the composer draws it (kb PHN-643). */
+enum class MicState { IDLE, READYING, LISTENING, FINISHING }
+
 /**
  * Mobile.swift PhoneComposer: a black capsule with + and the send arrow. With [onValueChange] it is a working text
  * field; without it shows [typed] with the lab's caret, or the placeholder.
@@ -151,6 +156,11 @@ fun TaskCard(
  * Hold to speak (kb PHN-603): with [onMicDown] the microphone works while it is held: [onMicDown] when the finger goes
  * down, [onMicUp] when it lifts or the touch is taken away; [onMic] is then unused. While [listening] the microphone
  * sits in a white circle (the send button's) and an empty box reads [listeningText]. The defaults draw as before.
+ *
+ * What the owner sees of the microphone (kb PHN-643): a lighter circle the moment the finger goes down (before FERB
+ * answers), [mic] while FERB gets ready, listens and finishes, and while it listens a ring around the circle that
+ * grows with [micLevel] (0..1, how loud the phone hears him). A finger that slides off the button keeps the
+ * microphone until it lifts.
  */
 @Composable
 fun PhoneComposer(
@@ -166,6 +176,8 @@ fun PhoneComposer(
     listening: Boolean = false,
     listeningText: String = placeholder,
     micLabel: String = "Speak",
+    mic: MicState = if (listening) MicState.LISTENING else MicState.IDLE,
+    micLevel: Float = 0f,
 ) {
     Row(
         modifier.fillMaxWidth().heightIn(min = Phone.composerHeight).background(Ink.black, CircleShape).padding(horizontal = 8.dp, vertical = 8.dp),
@@ -199,20 +211,41 @@ fun PhoneComposer(
         } else {
             val down by rememberUpdatedState(onMicDown)
             val up by rememberUpdatedState(onMicUp)
+            var pressed by remember { mutableStateOf(false) }
+            val shown = if (mic == MicState.IDLE && pressed) MicState.READYING else mic
+            val level by animateFloatAsState(if (shown == MicState.LISTENING) micLevel.coerceIn(0f, 1f) else 0f, tween(90), label = "mic level")
+            val grow by animateFloatAsState(if (shown == MicState.IDLE) 1f else 1.12f, tween(120), label = "mic press")
             Box(
-                // the white circle is drawn behind the icon, so the composer's layout is the lab's whether or not it listens
-                Modifier.drawBehind { if (listening) drawCircle(Ink.white, radius = Phone.composerButton.toPx() / 2) }
+                // the circle and its ring are drawn behind the icon, so the composer's layout is the lab's in every state
+                Modifier.drawBehind {
+                    val r = Phone.composerButton.toPx() / 2
+                    when (shown) {
+                        MicState.IDLE -> Unit
+                        MicState.READYING -> drawCircle(Ink.white.copy(alpha = 0.55f), radius = r * grow)
+                        MicState.LISTENING -> {
+                            drawCircle(Ink.white.copy(alpha = 0.22f + 0.2f * level), radius = r * (grow + 0.08f + 0.25f * level))
+                            drawCircle(Ink.white, radius = r * grow)
+                        }
+                        MicState.FINISHING -> drawCircle(Ink.white.copy(alpha = 0.8f), radius = r)
+                    }
+                }
                     .semantics { contentDescription = micLabel }
                     .pointerInput(Unit) {
                         awaitEachGesture {
                             awaitFirstDown(requireUnconsumed = false)
+                            pressed = true
                             down()
-                            waitForUpOrCancellation()
+                            // held until the finger lifts, wherever it slides; a gesture the system takes ends it too
+                            do {
+                                val event = awaitPointerEvent()
+                                event.changes.forEach { it.consume() }
+                            } while (event.changes.any { it.pressed })
+                            pressed = false
                             up?.invoke()
                         }
                     },
                 contentAlignment = Alignment.Center,
-            ) { FerbIcon(FerbIcons.mic, 19f, if (listening) Ink.black else Ink.white) }
+            ) { FerbIcon(FerbIcons.mic, 19f, if (shown == MicState.IDLE) Ink.white else Ink.black) }
         }
         Box(
             Modifier.pressable(onSend, label = "Send").semantics { contentDescription = "Send" }

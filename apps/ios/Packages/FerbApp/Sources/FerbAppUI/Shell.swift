@@ -68,13 +68,17 @@ public final class AppShell: ObservableObject {
             session.foreground(true)
             signals.scene(active: true)
             model.transfers.resumeAfterBackground()
+            model.setWindowReady(true)  // the unlock prompt by itself may show now (PHN-615)
         case .background:
+            model.setWindowReady(false)
             session.foreground(false)
             signals.scene(active: false)
             Self.save(model.saved)
             beginBackground()
         default:
-            break   // .inactive: the app switcher or a system sheet over FERB; the privacy cover shows (PHN-565)
+            // .inactive: the app switcher, a system sheet or Face ID's own sheet over FERB; the privacy cover shows
+            // (PHN-565) and no prompt starts by itself (PHN-615)
+            model.setWindowReady(false)
         }
     }
 
@@ -159,14 +163,26 @@ public final class AppShell: ObservableObject {
 }
 
 #if DEBUG && targetEnvironment(simulator)
-/// The UI tests' stand-in for the system prompt (Debug, simulator only): the owner "passed" it at once. Signing still
-/// goes through the phone's keys (software ones on the simulator).
+/// The UI tests' stand-in for the system prompt (Debug, simulator only): the owner "passed" it at once, or, for the
+/// first `-FERBUITestCancelPrompts N` prompts, cancelled it. Signing still goes through the phone's keys (software
+/// ones on the simulator).
 @MainActor
 final class UITestPrompts: Prompts {
     private let phone: FerbPhone
+    private var cancels = UserDefaults.standard.integer(forKey: "FERBUITestCancelPrompts")
     init(_ phone: FerbPhone) { self.phone = phone }
-    func signer(_ kind: KeyKind, why: Why) -> Signer? { phone.signer(kind, reason: why.reason) }
-    func local() async -> Bool { true }
+    func signer(_ kind: KeyKind, why: Why) -> Signer? {
+        if cancels > 0 { cancels -= 1; return Cancelled() }
+        return phone.signer(kind, reason: why.reason)
+    }
+    func local() async -> Bool {
+        if cancels > 0 { cancels -= 1; return false }
+        return true
+    }
+
+    private final class Cancelled: Signer, @unchecked Sendable {
+        func sign(payload: String) -> String? { nil }
+    }
 }
 #endif
 

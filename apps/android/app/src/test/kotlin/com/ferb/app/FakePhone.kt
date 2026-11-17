@@ -93,7 +93,9 @@ class FakePhone : PhoneApi {
     val located = ArrayList<Triple<String, LocationFix?, String?>>()
 
     override suspend fun transcript(): Outcome<TranscriptView?> = Outcome.Ok(view?.copy(outbox = outbox.toList()))
-    override suspend fun sync(): Outcome<Unit> { calls += "sync"; return Outcome.Ok(Unit) }
+    /** What each sync says, in turn (then Ok). */
+    val syncScript = ArrayDeque<Outcome<Unit>>()
+    override suspend fun sync(): Outcome<Unit> { calls += "sync"; return syncScript.removeFirstOrNull() ?: Outcome.Ok(Unit) }
     override suspend fun send(text: String): Outcome<OutboxItem> {
         calls += "send:$text"
         val item = OutboxItem("o${outbox.size + 1}", text, "2026-01-02T10:00:00+00:00", "waiting", sendWaitingFor ?: "link", null, false, emptyList())
@@ -119,10 +121,15 @@ class FakePhone : PhoneApi {
     }
     override suspend fun stop(taskIds: List<String>): Outcome<Unit> { calls += "stop:${taskIds.joinToString()}"; return stopResult }
     override suspend fun loadOlder(conversation: String): Outcome<OlderState> { calls += "older"; return Outcome.Ok(OlderState.Complete) }
+    /** Holds the Mac's challenge (before the prompt) or its answer (after it) until the test lets it go (PHN-641). */
+    var challengeGate: CompletableDeferred<Unit>? = null
+    var answerGate: CompletableDeferred<Unit>? = null
     override suspend fun unlock(signer: Signer): Outcome<Unit> {
         calls += "unlock"
+        challengeGate?.await()
         val r = unlockResult
         if (r is Outcome.Ok && signer.sign("challenge") == null) return Outcome.Failed(FerbException.NotSigned("Nothing was sent.", null))
+        answerGate?.await()
         return r
     }
     override suspend fun pair(code: String): Outcome<Unit> { calls += "pair:$code"; return Outcome.Ok(Unit) }

@@ -19,6 +19,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.semantics.Role
+import com.ferb.design.sheetPanelMotion
+import com.ferb.design.sheetScrimMotion
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.paneTitle
@@ -50,11 +54,24 @@ fun Sheet(
     onDismiss: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    // Shown by a sheet switch (MotionHosts.kt), the dim fades and the panel comes up from below and goes back down; a
+    // dismissible one follows a drag down. Going, the dim lets touches through to the page and the panel takes none.
+    val presence = com.ferb.design.LocalMotionPresence.current
+    val leaving = presence?.leaving == true
     Box(modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
         // the dimmed page: a tap there closes a sheet that can be closed (the app passes [onDismiss])
-        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)).pressable(onDismiss, label = "Close"))
+        Box(
+            Modifier.fillMaxSize()
+                .then(if (presence != null) Modifier.sheetScrimMotion(presence) else Modifier)
+                .background(Color.Black.copy(alpha = com.ferb.design.Motion.SCRIM_ALPHA))
+                .then(
+                    if (onDismiss == null || leaving) Modifier
+                    else Modifier.clickable(interactionSource = null, indication = null, onClickLabel = "Close", role = Role.Button, onClick = onDismiss),
+                ),
+        )
         Column(
-            Modifier.padding(start = Phone.sheetInset, end = Phone.sheetInset, bottom = Phone.sheetInset + lift)
+            Modifier.then(if (presence != null) Modifier.sheetPanelMotion(presence, onDismiss) else Modifier)
+                .padding(start = Phone.sheetInset, end = Phone.sheetInset, bottom = Phone.sheetInset + lift)
                 .fillMaxWidth()
                 .background(Ink.white, RoundedCornerShape(if (lift > 0.dp) Phone.sheetCornerLifted else Phone.sheetCorner))
                 .semantics { paneTitle = title }
@@ -137,8 +154,11 @@ fun SecretCodeBoxes(filled: Int, modifier: Modifier = Modifier, length: Int = 6)
 fun SecretKeypad(modifier: Modifier = Modifier, bottomInset: Dp = Phone.gestureArea, onKey: ((String) -> Unit)? = null) {
     val keys = listOf("1" to "", "2" to "ABC", "3" to "DEF", "4" to "GHI", "5" to "JKL", "6" to "MNO",
         "7" to "PQRS", "8" to "TUV", "9" to "WXYZ", "" to "", "0" to "", "⌫" to "")
+    // under a sheet switch it comes up and goes down with its sheet (MotionHosts.kt)
+    val presence = com.ferb.design.LocalMotionPresence.current
     Column(
-        modifier.fillMaxWidth().background(LabColors.keypad).padding(start = 6.dp, end = 6.dp, top = 8.dp, bottom = bottomInset + 10.dp),
+        modifier.then(if (presence != null) Modifier.sheetPanelMotion(presence, null) else Modifier)
+            .fillMaxWidth().background(LabColors.keypad).padding(start = 6.dp, end = 6.dp, top = 8.dp, bottom = bottomInset + 10.dp),
         verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
         for (row in keys.chunked(3)) {

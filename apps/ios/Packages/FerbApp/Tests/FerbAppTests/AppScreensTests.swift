@@ -52,6 +52,45 @@ final class AppScreensTests: XCTestCase {
         shot(PairView(model: vm, insets: .lab), app: "pair-wrong-code-noon")
     }
 
+    /// The scanner with the camera on, at dawn, noon and night (kb PHN-618): the camera's picture is a stand-in larger
+    /// than the frame and pushed up and to the right, as Android's phone drew it before; nothing of it may show outside
+    /// the frame's well, the corner marks sit over it, and the hint and the card below stay clear.
+    // decision: PHN-617, PHN-618, PHN-619, PHN-447, PHN-564
+    func testTheScannerKeepsTheCameraInsideItsFrame() {
+        let maroon = (r: UInt8(0x7A), g: UInt8(0x2E), b: UInt8(0x4A))
+        for (name, hour) in [("dawn", 6.1), ("noon", 12.5), ("night", 22.5)] {
+            let page = ScanPageLayout(access: .allowed, insets: .lab, onAllow: {}, onTypeCode: {}, onCancel: {}) {
+                ZStack {
+                    Color(red: Double(maroon.r) / 255, green: Double(maroon.g) / 255, blue: Double(maroon.b) / 255)
+                    Color.white.frame(width: 150, height: 110)
+                }
+                .frame(width: 420, height: 560)
+                .offset(x: 60, y: -60)
+            }
+            let view = PhoneScreen(moment: .lab(hour), glide: false) { page }
+                .frame(width: PhoneInsets.labSize.width, height: PhoneInsets.labSize.height)
+                .stillMotion()
+            let px = AppSnapshot.pixels(AppSnapshot.render(view, size: PhoneInsets.labSize).cgImage!)
+            var minX = Int.max, maxX = -1, minY = Int.max, maxY = -1, count = 0
+            for y in 0..<px.height {
+                for x in 0..<px.width {
+                    let i = (y * px.width + x) * 4
+                    guard px.bytes[i] == maroon.r, px.bytes[i + 1] == maroon.g, px.bytes[i + 2] == maroon.b else { continue }
+                    count += 1
+                    minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
+                }
+            }
+            // the well: 40 page margin + 16 card padding each side of 402 points, a square 290 wide
+            XCTAssertGreaterThan(count, 30_000, "\(name): the picture shows in the well")
+            XCTAssertGreaterThanOrEqual(minX, 56, name)
+            XCTAssertLessThanOrEqual(maxX, 346, name)
+            XCTAssertLessThanOrEqual(maxY - minY + 1, 290, "\(name): no taller than the well")
+            AppSnapshot.assert(view, size: PhoneInsets.labSize, path: "app/scanner-live-\(name).png")
+        }
+        shot(ScanPageLayout(access: .none, insets: .lab, onAllow: {}, onTypeCode: {}, onCancel: {}) { EmptyView() }, app: "scanner-no-camera-noon")
+        shot(ScanPageLayout(access: .notAsked, insets: .lab, onAllow: {}, onTypeCode: {}, onCancel: {}) { EmptyView() }, app: "scanner-camera-noon")
+    }
+
     // decision: PHN-416, PHN-8
     func testTheLockIsTheLabsUnlockPage() {
         same(UnlockPage(insets: .lab, bio: "Face ID", symbol: "faceid"), asDesign: "unlock-noon")

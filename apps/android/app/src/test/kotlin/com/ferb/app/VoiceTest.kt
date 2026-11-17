@@ -3,7 +3,9 @@ package com.ferb.app
 import android.app.Application
 import androidx.lifecycle.SavedStateHandle
 import androidx.test.core.app.ApplicationProvider
+import android.speech.SpeechRecognizer
 import com.ferb.app.model.LocalFiles
+import com.ferb.design.components.MicState
 import com.ferb.app.model.RecognizedSpeech
 import com.ferb.app.model.SpeechKind
 import com.ferb.app.model.VoiceEvent
@@ -38,8 +40,10 @@ class FakeVoice(var offers: SpeechKind = SpeechKind.ON_DEVICE) : VoiceInput {
     override fun finishAudio() { finished++ }
     override fun stop() { stopped++; events = null }
     fun heard(text: String, final: Boolean = false) = events!!(VoiceEvent.Heard(tasks.last().second, RecognizedSpeech(text, isFinal = final)))
-    fun failed(noSpeech: Boolean = false, languageMissing: Boolean = false) =
-        events!!(VoiceEvent.Failed(tasks.last().second, noSpeech, languageMissing))
+    fun failed(noSpeech: Boolean = false, languageMissing: Boolean = false, code: Int = 0) =
+        events!!(VoiceEvent.Failed(tasks.last().second, noSpeech, languageMissing, code))
+    fun ready() = events!!(VoiceEvent.Ready(tasks.last().second))
+    fun level(l: Float) = events!!(VoiceEvent.Level(tasks.last().second, l))
 }
 
 /** Speaking to FERB from the phone (kb PHN-603..PHN-605): told first, asked in context, held, never sent by itself. */
@@ -153,6 +157,72 @@ class VoiceTest {
         assertFalse(vm.listening.value)
         assertEquals("Hi", vm.draft.value)
         assertEquals(Note(R.string.voice_failed), vm.ui.value.note)
+    }
+
+    // decision: PHN-642, PHN-643
+    @Test
+    fun the_microphone_shows_getting_ready_listening_with_its_level_then_finishing() {
+        prefs.voiceTold = setOf(SpeechKind.ON_DEVICE.name); mic = true
+        val vm = vm()
+        vm.voicePress()
+        assertEquals("until the recogniser is ready", MicState.READYING, vm.mic.value)
+        voice.level(0.8f)
+        assertEquals("no level before it listens", 0f, vm.micLevel.value)
+        voice.ready()
+        assertEquals(MicState.LISTENING, vm.mic.value)
+        voice.level(0.6f)
+        assertEquals(0.6f, vm.micLevel.value)
+        voice.heard("water the plants")
+        t += 2_000
+        vm.voiceRelease()
+        assertEquals(MicState.FINISHING, vm.mic.value)
+        voice.heard("water the plants.", final = true)
+        assertEquals(MicState.IDLE, vm.mic.value)
+        assertEquals(0f, vm.micLevel.value)
+    }
+
+    // decision: PHN-642, PHN-643
+    @Test
+    fun a_press_while_the_last_words_are_coming_keeps_them_and_listens_again() {
+        prefs.voiceTold = setOf(SpeechKind.ON_DEVICE.name); mic = true
+        val vm = vm()
+        vm.voicePress()
+        voice.ready()
+        voice.heard("Buy milk")
+        t += 2_000
+        vm.voiceRelease()
+        assertEquals(MicState.FINISHING, vm.mic.value)
+        vm.voicePress() // never a silent no-op
+        assertEquals("a new recognition", 2, voice.tasks.size)
+        assertEquals(MicState.READYING, vm.mic.value)
+        assertEquals("Buy milk", vm.draft.value)
+    }
+
+    // decision: PHN-642, PHN-643
+    @Test
+    fun each_recogniser_failure_is_said_in_plain_words() {
+        prefs.voiceTold = setOf(SpeechKind.ON_DEVICE.name); mic = true
+        val vm = vm()
+        vm.voicePress()
+        voice.ready()
+        voice.failed(noSpeech = true)                                    // a pause while held: a new task listens on
+        assertEquals(2, voice.tasks.size)
+        t += 2_000
+        vm.voiceRelease()
+        voice.heard("", final = true)                                    // let go, and nothing was heard
+        assertEquals(Note(R.string.voice_no_speech), vm.ui.value.note)
+        for ((code, words) in listOf(
+            SpeechRecognizer.ERROR_NO_MATCH to R.string.voice_no_speech,
+            SpeechRecognizer.ERROR_NETWORK to R.string.voice_network,
+            SpeechRecognizer.ERROR_AUDIO to R.string.voice_mic_busy,
+            SpeechRecognizer.ERROR_RECOGNIZER_BUSY to R.string.voice_busy,
+            SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS to R.string.voice_denied,
+        )) {
+            vm.voicePress()
+            voice.failed(code = code)
+            assertEquals("code $code", Note(words), vm.ui.value.note)
+            assertEquals(MicState.IDLE, vm.mic.value)
+        }
     }
 
     // decision: PHN-604

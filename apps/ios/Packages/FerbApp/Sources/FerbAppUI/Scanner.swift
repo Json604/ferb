@@ -35,6 +35,9 @@ public final class ScannerController: UIViewController, AVCaptureMetadataOutputO
     public override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
+        // the picture fills the view and is cut at its edges (kb PHN-618): a preview layer drawn aspect-fill spills
+        // past its own bounds otherwise; the frame's rounded well clips the view in turn
+        view.clipsToBounds = true
         guard let camera = QRScanner.camera, let input = try? AVCaptureDeviceInput(device: camera),
               session.canAddInput(input) else { return }
         session.addInput(input)
@@ -45,6 +48,7 @@ public final class ScannerController: UIViewController, AVCaptureMetadataOutputO
         output.metadataObjectTypes = [.qr]
         let preview = AVCaptureVideoPreviewLayer(session: session)
         preview.videoGravity = .resizeAspectFill
+        preview.masksToBounds = true
         preview.frame = view.bounds
         view.layer.addSublayer(preview)
         if (try? camera.lockForConfiguration()) != nil {

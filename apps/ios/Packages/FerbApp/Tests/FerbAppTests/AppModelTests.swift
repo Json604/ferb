@@ -52,6 +52,217 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(session.locked)
     }
 
+    /// The app leaves for `seconds` and comes back: inactive, background, then active again.
+    private func away(_ vm: AppModel, _ seconds: Double) async {
+        vm.setWindowReady(false)
+        session.foreground(false)
+        rig.clock.t += seconds
+        session.foreground(true)
+        vm.setWindowReady(true)
+        await settle()
+    }
+
+    // decision: PHN-615, PHN-616, PHN-8
+    func testThePromptAppearsByItselfOnceWhenTheAppOpens() async {
+        let vm = rig.model()
+        vm.setWindowReady(true)
+        await settle()
+        XCTAssertEqual(rig.prompts.shown, 0, "nothing before the app is in front")
+        vm.setWindowReady(false)
+        session.foreground(true)
+        await settle()
+        XCTAssertEqual(rig.prompts.shown, 0, "nothing while the scene isn't active")
+        vm.setWindowReady(true)
+        await eventually("open") { !session.locked }
+        XCTAssertEqual(rig.prompts.shown, 1)
+        vm.setWindowReady(false) // Face ID's sheet: inactive, then active
+        session.foreground(true)
+        vm.setWindowReady(true)
+        await settle()
+        XCTAssertEqual(rig.prompts.shown, 1, "the prompt's own sheet closing asks nothing more")
+    }
+
+    // decision: PHN-615, PHN-15
+    func testBackAfterTheRelockItAsksOnceAndAShortAbsenceAsksNothing() async {
+        let vm = rig.model()
+        session.foreground(true)
+        vm.setWindowReady(true)
+        await eventually("open") { !session.locked }
+        await away(vm, 120)
+        XCTAssertFalse(session.locked, "inside five minutes the app stays open")
+        XCTAssertEqual(rig.prompts.shown, 1)
+        await away(vm, AppLock.lockAfter + 1)
+        await eventually("open again") { !session.locked }
+        XCTAssertEqual(rig.prompts.shown, 2, "one prompt on the return after the relock")
+    }
+
+    // decision: PHN-615, PHN-616
+    func testACancelledPromptWaitsForTheButtonOrAReturn() async {
+        rig.prompts.cancel = true
+        rig.prompts.localResult = false
+        let vm = rig.model()
+        session.foreground(true)
+        vm.setWindowReady(true)
+        await eventually("asked") { rig.prompts.shown == 1 }
+        await settle()
+        XCTAssertTrue(session.locked)
+        XCTAssertEqual(vm.ui.gate, .locked, "the lock page stays")
+        vm.setWindowReady(false)
+        session.foreground(true)
+        vm.setWindowReady(true)
+        await settle()
+        XCTAssertEqual(rig.prompts.shown, 1, "no loop after a cancel")
+        await vm.unlockApp().value
+        XCTAssertEqual(rig.prompts.shown, 2, "the button asks again")
+        vm.setWindowReady(false)
+        vm.setWindowReady(true)
+        await settle()
+        XCTAssertEqual(rig.prompts.shown, 2)
+        await away(vm, 10)
+        await eventually("asked on return") { rig.prompts.shown == 3 }
+    }
+
+    // decision: PHN-616
+    func testTheOwnersOwnLockWaitsForHisTap() async {
+        let vm = rig.model()
+        session.foreground(true)
+        session.unlocked()
+        vm.setWindowReady(true)
+        await settle()
+        session.lockNow()
+        await eventually("locked") { vm.ui.gate == .locked }
+        vm.setWindowReady(false)
+        vm.setWindowReady(true)
+        await settle()
+        XCTAssertEqual(rig.prompts.shown, 0)
+    }
+
+    // decision: PHN-615, PHN-616
+    func testATurnOfThePhoneNeverAsksTwice() async {
+        rig.prompts.cancel = true
+        rig.prompts.localResult = false
+        let vm = rig.model()
+        session.foreground(true)
+        vm.setWindowReady(true)
+        await eventually("asked") { rig.prompts.shown == 1 }
+        vm.setWindowReady(false)
+        vm.setWindowReady(true)
+        vm.setWindowReady(true)
+        await settle()
+        XCTAssertEqual(rig.prompts.shown, 1)
+    }
+
+    // decision: PHN-615, PHN-13
+    func testAColdStartWaitingForTheLinkAsksOnceAndOnlyOnTheOwnersScreen() async {
+        phone.link = FakePhone.status(.connecting)
+        let vm = rig.model()
+        session.foreground(true)
+        vm.setWindowReady(true)
+        await settle()
+        XCTAssertEqual(rig.prompts.shown, 0, "waiting for the link (one prompt for the app and the Mac)")
+        vm.setWindowReady(false) // a system alert over FERB while the link was awaited
+        phone.link = FakePhone.status()
+        await settle()
+        await settle()
+        XCTAssertEqual(rig.prompts.shown, 0)
+        XCTAssertTrue(session.locked)
+        vm.setWindowReady(true)
+        await eventually("open") { !session.locked }
+        XCTAssertEqual(rig.prompts.shown, 1)
+    }
+
+    private var locked: Outcome<Void> { .failed(.NeedsUnlock(detail: "locked", linkCode: "locked")) }
+
+    // decision: PHN-640, PHN-641, PHN-13
+    func testTheAppOpensWhenThePromptPassesNotWhenTheSlowMacAnswers() async {
+        phone.answerHeld = true
+        let vm = rig.model()
+        vm.unlockApp()
+        await eventually("open at once after Face ID") { !session.locked }
+        XCTAssertEqual(rig.prompts.shown, 1)
+        XCTAssertEqual(vm.ui.macLine, .opening)
+        await eventually("the lock button is free again") { !vm.ui.busy.contains("unlock") }
+        await eventually("a slow Mac is said, calmly") { vm.ui.macLine == .slow }
+        phone.answerHeld = false
+        await eventually("the line clears by itself") { vm.ui.macLine == nil }
+        XCTAssertFalse(vm.ui.needsMacUnlock)
+        XCTAssertEqual(rig.prompts.shown, 1, "nothing asked twice")
+    }
+
+    // decision: PHN-640, PHN-641
+    func testAMacThatCantBeReachedNeverHoldsThePromptOrTheApp() async {
+        phone.link = FakePhone.status(.connecting)
+        let vm = rig.model()
+        vm.unlockApp()
+        await settle()
+        XCTAssertEqual(rig.prompts.shown, 0, "waiting briefly for the link")
+        await eventually("open by the prompt alone") { !session.locked }
+        XCTAssertEqual(rig.prompts.localAsked, 1)
+        XCTAssertTrue(rig.prompts.signers.isEmpty, "no challenge prompt")
+        XCTAssertFalse(vm.ui.needsMacUnlock, "no control to tap: the line says the Mac can't be reached")
+    }
+
+    // decision: PHN-640, PHN-641
+    func testASlowChallengeGivesThePromptAloneAndNeverALateSecondPrompt() async {
+        phone.challengeHeld = true
+        let vm = rig.model()
+        vm.unlockApp()
+        await eventually("open by the prompt alone") { !session.locked }
+        XCTAssertEqual(rig.prompts.localAsked, 1)
+        phone.challengeHeld = false // the challenge comes after all: no prompt appears out of nowhere
+        await settle()
+        XCTAssertEqual(rig.prompts.signers.reduce(0) { $0 + $1.asked }, 0)
+    }
+
+    // decision: PHN-640, PHN-641
+    func testASecondTapWhileWaitingShowsThePromptAtOnce() async {
+        phone.link = FakePhone.status(.connecting)
+        let vm = rig.model()
+        vm.unlockApp()
+        await settle()
+        XCTAssertEqual(rig.prompts.shown, 0)
+        vm.unlockApp()
+        await eventually("the second tap is never a silent no-op", timeout: 0.25) { !session.locked }
+        XCTAssertEqual(rig.prompts.shown, 1)
+    }
+
+    // decision: PHN-640, PHN-641, PHN-225
+    func testAReconnectWhileOpenNeitherLocksNorAsks() async {
+        let vm = rig.model()
+        await vm.unlockApp().value
+        await eventually("open") { !session.locked && vm.ui.macLine == nil }
+        phone.syncScript = [locked]
+        phone.link = FakePhone.status(.connecting)
+        await settle()
+        phone.link = FakePhone.status()
+        await settle()
+        await settle()
+        XCTAssertFalse(session.locked)
+        XCTAssertEqual(rig.prompts.shown, 1, "nothing asked again")
+        XCTAssertFalse(vm.ui.needsMacUnlock)
+    }
+
+    // decision: PHN-640, PHN-641, PHN-13
+    func testTheMacLockedAfterTheOpenIsUnlockedOnceByItselfThenWaitsForATap() async {
+        let vm = rig.model()
+        vm.setWindowReady(true)
+        await vm.unlockApp().value
+        await eventually("open") { !session.locked && vm.ui.macLine == nil }
+        phone.syncScript = [locked, locked, locked]
+        phone.link = FakePhone.status(.connecting)
+        await settle()
+        phone.link = FakePhone.status()
+        await eventually("one automatic unlock") { rig.prompts.shown == 2 }
+        await eventually("its answer") { vm.ui.macLine == nil }
+        XCTAssertFalse(vm.ui.needsMacUnlock)
+        phone.syncScript = [locked, locked, locked]
+        phone.link = FakePhone.status(.connecting)
+        await settle()
+        phone.link = FakePhone.status()
+        await eventually("then the line he can tap") { vm.ui.needsMacUnlock }
+        XCTAssertEqual(rig.prompts.shown, 2, "never a loop")
+    }
+
     // decision: PHN-401, PHN-476
     func testAMessageWithTheMacOffWaitsInTheOutboxAndCanBeCancelled() async {
         session.unlocked()
@@ -65,9 +276,10 @@ final class AppModelTests: XCTestCase {
         await vm.cancelOutbox(item.id).value
         XCTAssertFalse(vm.ui.rows.contains { if case .outbox = $0 { return true } else { return false } })
         phone.sendWaitingFor = "unlock"
+        phone.syncScript = Array(repeating: .failed(.NeedsUnlock(detail: "locked", linkCode: "locked")), count: 3)
         vm.typed("And the balcony")
         await vm.send().value
-        XCTAssertTrue(vm.ui.needsMacUnlock, "a message waiting for the unlock says so")
+        await eventually("a message waiting for the unlock says so") { vm.ui.needsMacUnlock }
     }
 
     // decision: PHN-415, PHN-302

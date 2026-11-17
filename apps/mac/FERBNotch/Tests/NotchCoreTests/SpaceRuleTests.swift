@@ -322,5 +322,132 @@ final class SpaceRuleTests: XCTestCase {
             XCTAssertTrue(line.hasPrefix("AppWindowPresentation.swift:"),
                           "only the Space rule activates FERB or runs a modal window: \(line)")
         }
+        // APP-946: a plain Check for Updates… is Sparkle's probing check; Sparkle's own window (and the standard
+        // driver's modal alerts that come with a user-initiated check) opens only for the owner's Install
+        XCTAssertFalse(SourcePresenters.lines.contains { $0.contains("controller") && $0.contains("checkForUpdates(") },
+                       "no source calls controller.checkForUpdates( for a plain check")
+        let sparkleWindows = SourcePresenters.lines.filter { $0.contains("checkForUpdates(") }
+        XCTAssertEqual(sparkleWindows.count, 1, "\(sparkleWindows)")
+        for line in sparkleWindows {
+            XCTAssertTrue(line.hasPrefix("SparkleUpdater.swift:") && line.contains("opening(\"the update window\""),
+                          "Sparkle's window opens only through the rule, for the owner's Install: \(line)")
+        }
     }
+
+    // MARK: - A window that blocks FERB.app (APP-948, APP-949)
+
+    /// What the rule left on a modal alert AppKit ran by itself, read while it runs.
+    private struct Raised {
+        var level: NSWindow.Level
+        var behavior: NSWindow.CollectionBehavior
+        var here: Bool
+        var events: [String]
+        var quitEnabled: Bool
+        var otherEnabled: Bool
+    }
+
+    /// Runs a real NSAlert with plain AppKit (`runModal`, never through AppWindowPresentation), with FERB's Settings
+    /// window at `settingsLevel`; reads the rule's work at 0.3 s, then the owner changes Space, then at 0.8 s it ends.
+    private func runPlainAlert(settingsLevel: NSWindow.Level) -> (Raised?, afterSwitch: [String]) {
+        let app = NSApplication.shared
+        let wasProhibited = app.activationPolicy() == .prohibited
+        if wasProhibited { app.setActivationPolicy(.accessory) }
+        defer { if wasProhibited { app.setActivationPolicy(.prohibited) } }
+        let settings = window(FERBAppWindow.self, level: settingsLevel)
+        appear(settings, on: [here])
+        let menu = NSMenu()
+        let quit = NSMenuItem(title: "Quit FERB", action: nil, keyEquivalent: "")
+        ModalSafeQuit.shared.take(quit)
+        let target = PlainMenuTarget()
+        let other = NSMenuItem(title: "Open FERB", action: #selector(PlainMenuTarget.open(_:)), keyEquivalent: "")
+        other.target = target
+        menu.addItem(quit)
+        menu.addItem(other)
+        var raised: Raised?
+        var afterSwitch: [String] = []
+        let look = Timer(timeInterval: 0.3, repeats: false) { [unowned self] _ in
+            MainActor.assumeIsolated {
+                guard let modal = NSApp.modalWindow else { return }
+                menu.update()
+                raised = Raised(level: modal.level, behavior: modal.collectionBehavior, here: self.isHere(modal),
+                                events: self.events, quitEnabled: quit.isEnabled, otherEnabled: other.isEnabled)
+                self.events = []
+                self.spaces[ObjectIdentifier(modal)] = [self.leftOpen]  // the owner went to another Space
+            }
+        }
+        let end = Timer(timeInterval: 0.8, repeats: false) { [unowned self] _ in
+            MainActor.assumeIsolated {
+                afterSwitch = self.events
+                if let modal = NSApp.modalWindow { XCTAssertTrue(self.isHere(modal), "it followed the owner") }
+                NSApp.stopModal(withCode: .cancel)
+            }
+        }
+        let safety = Timer(timeInterval: 5, repeats: false) { _ in NSApp.abortModal() }
+        for timer in [look, end, safety] { RunLoop.main.add(timer, forMode: .modalPanel) }
+        let alert = NSAlert()
+        alert.messageText = "A framework's alert"
+        _ = alert.runModal()                                  // plain AppKit, as Sparkle's standard driver ran it
+        safety.invalidate()
+        return (raised, afterSwitch)
+    }
+
+    /// Owner, 2026-11-17: Sparkle's error alert ran modally where he couldn't see it; FERB took no clicks and every
+    /// item of its menu was greyed out, Quit included. Whoever runs a modal window, it comes to the owner's Space
+    /// (allowed over a full-screen app), above FERB's own windows, ordered in and made key; FERB becomes the active app
+    /// for it because the owner had just pressed in FERB and FERB is in the Dock; it follows a Space change; Quit stays.
+    // decision: APP-945, APP-948, APP-949
+    func testAModalAlertRunByPlainAppKitIsRaisedWhereTheOwnerIs() throws {
+        XCTAssertTrue(AppWindowPresentation.watchesBlocking)
+        policy = .regular                                     // Settings is open: FERB is in the Dock
+        AppWindowPresentation.pressed()                       // the owner's press on Check for Updates…
+        let (raised, afterSwitch) = runPlainAlert(settingsLevel: NSWindow.Level(rawValue: 20))
+        let seen = try XCTUnwrap(raised, "the alert ran modally")
+        XCTAssertGreaterThan(seen.level.rawValue, 20, "above FERB's own windows")
+        XCTAssertGreaterThanOrEqual(seen.level.rawValue, NSWindow.Level.modalPanel.rawValue)
+        XCTAssertLessThan(seen.level.rawValue, NSWindow.Level.popUpMenu.rawValue, "menus still show above it")
+        XCTAssertTrue(seen.behavior.isSuperset(of: [.moveToActiveSpace, .fullScreenAuxiliary]))
+        XCTAssertFalse(seen.behavior.contains(.canJoinAllSpaces), "one Space at a time (APP-804)")
+        XCTAssertTrue(seen.here, "on the owner's Space")
+        XCTAssertTrue(seen.events.contains("move"), "macOS put it elsewhere; the rule brought it here")
+        XCTAssertEqual(seen.events.filter { $0 == "activate" }.count, 1, "the owner just asked: FERB comes forward")
+        XCTAssertTrue(seen.events.contains("key"))
+        XCTAssertTrue(seen.quitEnabled, "Quit works while a modal window runs")
+        XCTAssertFalse(seen.otherEnabled, "AppKit greys the rest, as it did for the owner")
+        XCTAssertTrue(afterSwitch.contains("move"), "a Space change while it is open brings it along")
+        XCTAssertFalse(afterSwitch.contains("activate"), "only its first look may activate FERB")
+    }
+
+    /// The same alert with no press of the owner's just before it (a framework's own timing): it still comes here,
+    /// above FERB's windows, and is made key within FERB, but FERB doesn't become the active app (APP-797, rule 10).
+    // decision: APP-948, APP-797
+    func testAModalAlertNobodyAskedForShowsWithoutActivatingFERB() throws {
+        clock += AppWindowPresentation.askedLength + 60
+        policy = .regular
+        let (raised, _) = runPlainAlert(settingsLevel: .normal)
+        let seen = try XCTUnwrap(raised)
+        XCTAssertTrue(seen.here)
+        XCTAssertGreaterThanOrEqual(seen.level.rawValue, NSWindow.Level.modalPanel.rawValue)
+        XCTAssertFalse(seen.events.contains("activate"))
+        XCTAssertTrue(seen.events.contains("key"))
+    }
+
+    /// The pieces: a modal window's level and a window off every display.
+    // decision: APP-948
+    func testABlockingWindowsLevelAndPlace() {
+        let P = AppWindowPresentation.self
+        XCTAssertEqual(P.blockingLevel(current: .normal, others: []), .modalPanel)
+        XCTAssertEqual(P.blockingLevel(current: .modalPanel, others: [.normal, .floating]), .modalPanel)
+        XCTAssertEqual(P.blockingLevel(current: .modalPanel, others: [NSWindow.Level(rawValue: 30)]).rawValue, 31)
+        XCTAssertEqual(P.blockingLevel(current: .modalPanel, others: [NSWindow.Level(rawValue: 200)]).rawValue,
+                       NSWindow.Level.popUpMenu.rawValue - 1)
+        let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
+        XCTAssertNil(P.onScreen(CGRect(x: 100, y: 100, width: 260, height: 140), screens: [screen], main: screen))
+        XCTAssertEqual(P.onScreen(CGRect(x: 5000, y: 100, width: 260, height: 140), screens: [screen], main: screen),
+                       CGRect(x: 590, y: 380, width: 260, height: 140))
+    }
+}
+
+/// A menu item's target that, like most of FERB's, doesn't work while a modal window runs.
+private final class PlainMenuTarget: NSObject {
+    @objc func open(_ sender: Any?) {}
 }

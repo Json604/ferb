@@ -161,7 +161,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unlock to see what's new on your Mac"
+            "value": "Your Mac's chat is locked. Tap here to unlock it."
           }
         }
       }
@@ -860,6 +860,17 @@
         }
       }
     },
+    "mac_opening": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reaching your Mac…"
+          }
+        }
+      }
+    },
     "mac_own_fallback": {
       "extractionState": "manual",
       "localizations": {
@@ -933,6 +944,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Each change asks for %@"
+          }
+        }
+      }
+    },
+    "mac_slow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Mac is slow to answer. This updates by itself when it does."
           }
         }
       }
@@ -2049,6 +2071,17 @@
         }
       }
     },
+    "scan_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Point your phone at the code on your Mac."
+          }
+        }
+      }
+    },
     "scan_no_camera": {
       "extractionState": "manual",
       "localizations": {
@@ -2067,6 +2100,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Scan the code"
+          }
+        }
+      }
+    },
+    "scan_type_code": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Type code"
           }
         }
       }
@@ -2909,6 +2953,17 @@
         }
       }
     },
+    "voice_busy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The phone's speech recognition is busy. Try again in a moment."
+          }
+        }
+      }
+    },
     "voice_continue": {
       "extractionState": "manual",
       "localizations": {
@@ -2942,6 +2997,28 @@
         }
       }
     },
+    "voice_finishing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Getting your last words…"
+          }
+        }
+      }
+    },
+    "voice_getting_ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Getting ready…"
+          }
+        }
+      }
+    },
     "voice_hold": {
       "extractionState": "manual",
       "localizations": {
@@ -2953,6 +3030,17 @@
         }
       }
     },
+    "voice_language": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This iPhone has no speech for your language on the phone itself yet. Add it in Settings under General, Keyboard, Dictation Languages, then try again."
+          }
+        }
+      }
+    },
     "voice_listening": {
       "extractionState": "manual",
       "localizations": {
@@ -2960,6 +3048,39 @@
           "stringUnit": {
             "state": "translated",
             "value": "Listening…"
+          }
+        }
+      }
+    },
+    "voice_mic_busy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another app is using the microphone. Close it and try again."
+          }
+        }
+      }
+    },
+    "voice_network": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The phone's speech service can't be reached right now. Try again in a moment, or type your message."
+          }
+        }
+      }
+    },
+    "voice_no_speech": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FERB didn't hear anything. Hold the microphone, wait for Listening…, then speak."
           }
         }
       }

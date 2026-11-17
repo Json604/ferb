@@ -21,8 +21,25 @@ final class AppleSpeech: VoiceInput {
     final class Feed: @unchecked Sendable {
         private let lock = NSLock()
         private var request: SFSpeechAudioBufferRecognitionRequest?
+        private var heard: (@Sendable (Float) -> Void)?
+        private var lastLevel = Date.distantPast
         func set(_ r: SFSpeechAudioBufferRecognitionRequest?) { lock.lock(); request = r; lock.unlock() }
-        func receive(_ buffer: AVAudioPCMBuffer) { lock.lock(); let r = request; lock.unlock(); r?.append(buffer) }
+        /// How loud each buffer is (kb PHN-643), at most about 15 times a second; never the sound itself.
+        func onLevel(_ f: (@Sendable (Float) -> Void)?) { lock.lock(); heard = f; lock.unlock() }
+        func receive(_ buffer: AVAudioPCMBuffer) {
+            lock.lock()
+            let r = request, f = heard
+            let due = Date().timeIntervalSince(lastLevel) > 0.065
+            if due { lastLevel = Date() }
+            lock.unlock()
+            r?.append(buffer)
+            if due, let f, let samples = buffer.floatChannelData?[0], buffer.frameLength > 0 {
+                var sum: Float = 0
+                for i in 0..<Int(buffer.frameLength) { sum += samples[i] * samples[i] }
+                let db = 10 * log10(max(sum / Float(buffer.frameLength), 1e-10))
+                f(min(max((db + 50) / 40, 0), 1))   // about -50 dB (quiet room) to -10 dB (speech close by)
+            }
+        }
     }
 
     /// Both of iOS's questions were answered yes: the microphone and speech recognition.
@@ -78,7 +95,10 @@ final class AppleSpeech: VoiceInput {
                 if heard?.isFinal != true, let ns { events(.failed(task: task, noSpeech: noSpeech, languageMissing: false, code: ns.code)) }
             }
         }
+        feed.onLevel { l in Task { @MainActor in events(.level(task: task, l)) } }
         if !running { startMicrophone(task: task, events: events) }
+        // the sound goes to this task's request from now: FERB may say "Listening…" (kb PHN-643)
+        if running { events(.ready(task: task)) }
     }
 
     private func startMicrophone(task: Int, events: @escaping @MainActor (VoiceEvent) -> Void) {
@@ -94,7 +114,8 @@ final class AppleSpeech: VoiceInput {
             running = true
         } catch {
             stop()
-            events(.failed(task: task, noSpeech: false, languageMissing: false, code: (error as NSError).code))
+            // the microphone couldn't start: another app holds it, or a call is on
+            events(.failed(task: task, noSpeech: false, languageMissing: false, code: AppModel.micStartFailed))
         }
     }
 
@@ -107,6 +128,7 @@ final class AppleSpeech: VoiceInput {
     func stop() {
         stopMicrophone()
         feed.set(nil)
+        feed.onLevel(nil)
         request?.endAudio()
         request = nil
         recognition?.cancel()

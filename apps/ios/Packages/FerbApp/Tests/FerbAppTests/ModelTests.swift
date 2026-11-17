@@ -21,6 +21,39 @@ final class AppLockTests: XCTestCase {
         XCTAssertTrue(lock.locked, "away longer than five minutes")
     }
 
+    // decision: PHN-615, PHN-616
+    func testOnePromptIsDuePerArrivalInFrontWhileLocked() {
+        var t = 0.0
+        let lock = AppLock { t }
+        XCTAssertFalse(lock.promptDue, "a new process not yet in front")
+        lock.cameToFront()
+        XCTAssertTrue(lock.takePrompt())
+        XCTAssertFalse(lock.takePrompt(), "taken once")
+        lock.cameToFront()
+        XCTAssertFalse(lock.takePrompt(), "told again while in front")
+        lock.promptAgain()
+        XCTAssertTrue(lock.takePrompt())
+        lock.unlocked()
+        lock.lock()
+        XCTAssertFalse(lock.takePrompt(), "his own lock waits for his tap")
+        lock.wentToBackground()
+        lock.promptAgain()
+        XCTAssertFalse(lock.promptDue, "nothing is due while away")
+        lock.cameToFront()
+        XCTAssertTrue(lock.takePrompt(), "locked and back: due again")
+        lock.unlocked()
+        lock.wentToBackground()
+        t += 60
+        lock.cameToFront()
+        XCTAssertFalse(lock.promptDue, "open again inside five minutes")
+        lock.wentToBackground()
+        t += AppLock.lockAfter + 1
+        XCTAssertTrue(lock.backgroundTimer())
+        XCTAssertFalse(lock.promptDue, "locked in the background: nothing shows while away")
+        lock.cameToFront()
+        XCTAssertTrue(lock.takePrompt())
+    }
+
     // decision: PHN-15, PHN-505
     func testTheBackgroundTimerLocksOnlyWhenTheTimeHasPassedAndTheAppIsStillAway() {
         var t = 0.0

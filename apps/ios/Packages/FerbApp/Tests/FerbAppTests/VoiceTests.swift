@@ -1,5 +1,6 @@
 import FerbAppModel
 import FerbCore
+import FerbDesign
 import FerbMobile
 import XCTest
 
@@ -17,9 +18,11 @@ final class FakeVoice: VoiceInput {
     func finishAudio() { finished += 1 }
     func stop() { stopped += 1; events = nil }
     func heard(_ text: String, final: Bool = false) { events?(.heard(task: tasks.last!.1, RecognizedSpeech(text, isFinal: final))) }
-    func failed(noSpeech: Bool = false, languageMissing: Bool = false) {
-        events?(.failed(task: tasks.last!.1, noSpeech: noSpeech, languageMissing: languageMissing))
+    func failed(noSpeech: Bool = false, languageMissing: Bool = false, code: Int = 0) {
+        events?(.failed(task: tasks.last!.1, noSpeech: noSpeech, languageMissing: languageMissing, code: code))
     }
+    func ready() { events?(.ready(task: tasks.last!.1)) }
+    func level(_ l: Float) { events?(.level(task: tasks.last!.1, l)) }
 }
 
 /// FERB.app's dictation model on the phone: every sequence of Android's shared table
@@ -158,6 +161,63 @@ final class VoiceTests: XCTestCase {
         XCTAssertFalse(vm.listening)
         XCTAssertEqual(vm.draft, "Hi")
         XCTAssertEqual(vm.ui.note, Note("voice_failed"))
+    }
+
+    // decision: PHN-642, PHN-643
+    func testTheMicrophoneShowsGettingReadyListeningWithItsLevelThenFinishing() async {
+        rig.prefs.voiceTold = [SpeechKind.onDevice.rawValue]; mic = true
+        let vm = await model()
+        vm.voicePress()
+        XCTAssertEqual(vm.mic, .readying, "until the recogniser takes the sound")
+        voice.level(0.8)
+        XCTAssertEqual(vm.micLevel, 0, "no level before it listens")
+        voice.ready()
+        XCTAssertEqual(vm.mic, .listening)
+        voice.level(0.6)
+        XCTAssertEqual(vm.micLevel, 0.6)
+        voice.heard("water the plants")
+        rig.clock.t += 2
+        vm.voiceRelease()
+        XCTAssertEqual(vm.mic, .finishing)
+        voice.heard("water the plants.", final: true)
+        XCTAssertEqual(vm.mic, .idle)
+        XCTAssertEqual(vm.micLevel, 0)
+    }
+
+    // decision: PHN-642, PHN-643
+    func testAPressWhileTheLastWordsAreComingKeepsThemAndListensAgain() async {
+        rig.prefs.voiceTold = [SpeechKind.onDevice.rawValue]; mic = true
+        let vm = await model()
+        vm.voicePress()
+        voice.ready()
+        voice.heard("Buy milk")
+        rig.clock.t += 2
+        vm.voiceRelease()
+        XCTAssertEqual(vm.mic, .finishing)
+        vm.voicePress()
+        XCTAssertEqual(voice.tasks.count, 2, "a new recognition, never a silent no-op")
+        XCTAssertEqual(vm.mic, .readying)
+        XCTAssertEqual(vm.draft, "Buy milk")
+    }
+
+    // decision: PHN-642, PHN-643
+    func testEachRecogniserFailureIsSaidInPlainWords() async {
+        rig.prefs.voiceTold = [SpeechKind.onDevice.rawValue]; mic = true
+        let vm = await model()
+        vm.voicePress()
+        voice.ready()
+        voice.failed(noSpeech: true)                  // a pause while held: a new task listens on
+        XCTAssertEqual(voice.tasks.count, 2)
+        rig.clock.t += 2
+        vm.voiceRelease()
+        voice.heard("", final: true)                  // let go, and nothing was heard
+        XCTAssertEqual(vm.ui.note, Note("voice_no_speech"))
+        for (code, words) in [(-1, "voice_network"), (AppModel.micStartFailed, "voice_mic_busy"), (1101, "voice_network"), (42, "voice_failed")] {
+            vm.voicePress()
+            voice.failed(code: code)
+            XCTAssertEqual(vm.ui.note, Note(words), "code \(code)")
+            XCTAssertEqual(vm.mic, .idle)
+        }
     }
 
     // decision: PHN-604

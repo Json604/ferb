@@ -1,12 +1,21 @@
 import AppKit
 import NotchCore
 
+/// How a quiet check began: Sparkle's probing check started, an update session already running answers instead, or
+/// there is no updater to ask.
+enum QuietCheck: Equatable {
+    case started, alreadyRunning, unavailable
+}
+
 /// What drives Sparkle (SparkleUpdater), so the coordinator is testable without it.
 @MainActor
 protocol UpdaterDriving: AnyObject {
     var automaticallyDownloadsUpdates: Bool { get set }
-    /// Sparkle's own window: the owner checks now, or installs an update FERB offered.
-    func checkForUpdates()
+    /// Check for Updates…: no window and no alert; the answer comes back as found / notFound / aborted, then
+    /// checkFinished (APP-946).
+    func checkQuietly() -> QuietCheck
+    /// Sparkle's update window for the update FERB offered: the owner's Install.
+    func installOffered()
 }
 
 /// FERB's automatic updates (L34 Phase G). Sparkle finds, downloads and verifies an update; this decides when it may
@@ -16,6 +25,10 @@ protocol UpdaterDriving: AnyObject {
 final class UpdateCoordinator: ObservableObject {
     enum Status: Equatable {
         case quiet
+        /// The owner's Check for Updates… is running (the button says so and waits).
+        case checking
+        /// It couldn't reach FERB's release list; the reason is in the last result beneath.
+        case checkFailed
         case upToDate
         case available(String)
         /// The switch to the Developer ID (APP-903): never installed in the background, whatever the switch says.
@@ -27,12 +40,14 @@ final class UpdateCoordinator: ObservableObject {
         var line: String? {
             switch self {
             case .quiet: return nil
+            case .checking: return UpdatePlan.checkingLine
+            case .checkFailed: return UpdatePlan.checkFailedLine
             case .upToDate: return "FERB is up to date."
             case .available(let version): return "Update available: FERB \(version)"
             case .asking(let version): return UpdatePlan.askLine(version: version)
             case .waiting(let version, let work): return UpdatePlan.waitingLine(version: version, work: work)
             case .installing(let version): return "Installing FERB \(version)…"
-            case .failed(let message): return "The update didn't install: \(message)"
+            case .failed: return UpdatePlan.installFailedLine        // the reason is in the last result beneath
             }
         }
     }
@@ -52,6 +67,9 @@ final class UpdateCoordinator: ObservableObject {
     /// Between asks while a task runs, and how long the daemon gets to close its socket.
     var retryInterval: Duration = .seconds(60)
     var exitWait: Duration = .seconds(60)
+    /// An update the owner chose to install didn't install (APP-947): FERB says so once in the chat, since Sparkle's
+    /// window it was watching closes without an alert.
+    var onInstallFailed: @MainActor (_ line: String) -> Void = { _ in }
     /// The owner's answer when they quit while a task runs and an update waits: true is Quit and Install.
     var confirmQuit: @MainActor (_ version: String, _ work: [String]) -> Bool = { version, work in
         UpdateCoordinator.askBeforeQuitting(version: version, work: work)
@@ -62,6 +80,8 @@ final class UpdateCoordinator: ObservableObject {
     /// FERB's daemon stopped for this update (or wasn't running).
     private(set) var prepared = false
     private var installTask: Task<Void, Never>?
+    /// The owner pressed Install (Sparkle's window is theirs) and nothing has installed or failed yet.
+    private(set) var ownerInstalling = false
 
     init(rpc: DaemonRPCTransport, driver: UpdaterDriving? = nil, defaults: UserDefaults? = nil) {
         self.rpc = rpc
@@ -90,10 +110,12 @@ final class UpdateCoordinator: ObservableObject {
     /// `asksFirst`: Sparkle's major upgrade (the appcast's minimumAutoupdateVersion, REL-423): the switch to the
     /// Developer ID, after which macOS asks for every permission again, so FERB asks before it even with automatic
     /// updates on (APP-903); Sparkle never installs a major upgrade in the background either.
+    /// The owner's own check always offers what it found, even with automatic updates on (APP-946).
     func found(version: String, asksFirst: Bool = false) {
         record("Found FERB \(version).", failed: false)
         guard pendingInstall == nil, !prepared else { return }
-        status = asksFirst ? .asking(version) : automatic ? .quiet : .available(version)
+        let asked = status == .checking
+        status = asksFirst ? .asking(version) : automatic && !asked ? .quiet : .available(version)
     }
 
     /// The version FERB offers for the owner's click (the menu's entry, Settings' button), and whether it asks first.
@@ -105,19 +127,65 @@ final class UpdateCoordinator: ObservableObject {
         }
     }
 
+    /// Settings' one update button: Install (Update Now for the signer switch) for an offer, a disabled "Checking…"
+    /// while the owner's check runs, otherwise Check for Updates….
+    enum Button: Equatable {
+        case install(title: String)
+        case checking
+        case check
+
+        var title: String {
+            switch self {
+            case .install(let title): return title
+            case .checking: return "Checking…"
+            case .check: return "Check for Updates…"
+            }
+        }
+    }
+
+    var button: Button {
+        if let offer { return .install(title: offer.asks ? "Update Now" : "Install") }
+        return status == .checking ? .checking : .check
+    }
+
     func notFound() {
         record("FERB was up to date.", failed: false)
         guard pendingInstall == nil, !prepared else { return }
         status = .upToDate
     }
 
-    /// Settings or the menu: Install for an offered update, or Check for Updates…: Sparkle's own window.
-    func checkNow() { driver?.checkForUpdates() }
+    /// Settings → Check for Updates…: a quiet check whose answer is Settings' line (APP-946). Nothing while one runs or
+    /// while an update is already on its way in.
+    func check() {
+        guard status != .checking, pendingInstall == nil, !prepared else { return }
+        guard let driver else { status = .checkFailed; return }
+        status = .checking
+        switch driver.checkQuietly() {
+        case .started, .alreadyRunning: break           // the answer comes through found / notFound / aborted
+        case .unavailable:
+            record("Failed: FERB's updater didn't start.", failed: true)
+            status = .checkFailed
+        }
+    }
+
+    /// Settings' Install or Update Now, or the menu's entry, for the offered update: Sparkle's window (APP-906).
+    func install() {
+        guard offer != nil, let driver else { return }
+        ownerInstalling = true
+        driver.installOffered()
+    }
+
+    /// The end of every Sparkle update session: a check that gave no other answer stops saying "Checking".
+    func checkFinished() {
+        if status == .checking { status = .quiet }
+        if pendingInstall == nil, !prepared { ownerInstalling = false }
+    }
 
     /// Sparkle is ready to install `version`; `install` replaces FERB.app and relaunches it.
     @discardableResult
     func readyToInstall(version: String, install: @escaping () -> Void) -> Task<Void, Never> {
         record("FERB \(version) downloaded and verified.", failed: false)
+        ownerInstalling = false
         pendingVersion = version
         pendingInstall = install
         installTask?.cancel()
@@ -176,11 +244,18 @@ final class UpdateCoordinator: ObservableObject {
     /// Sparkle gave up: an unreachable feed, a failed download, a refused signature or certificate, a failed install.
     /// Always recorded, a scheduled background check's included (APP-658); the status line changes only for an
     /// install FERB had armed or stopped for.
+    /// The owner's own check that failed says so plainly (APP-946); an install the owner chose says so in the chat too.
     func aborted(_ message: String) {
         record("Failed: \(message)", failed: true)
         let stoppedFERB = prepared
         if stoppedFERB { restartDaemon() }               // stopped for nothing: start it again now
-        if stoppedFERB || pendingInstall != nil { status = .failed(message) }
+        if stoppedFERB || pendingInstall != nil || ownerInstalling {
+            status = .failed(message)
+        } else if status == .checking {
+            status = .checkFailed
+        }
+        if ownerInstalling { onInstallFailed(UpdatePlan.installFailedLine) }
+        ownerInstalling = false
         prepared = false
         pendingInstall = nil
         installTask?.cancel()

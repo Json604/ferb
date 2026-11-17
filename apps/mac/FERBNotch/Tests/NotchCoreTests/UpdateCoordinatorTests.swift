@@ -5,8 +5,12 @@ import XCTest
 @MainActor
 private final class FakeUpdater: UpdaterDriving {
     var automaticallyDownloadsUpdates = true
+    /// Sparkle's probing check (no window, no alert) and Sparkle's update window (the owner's Install).
+    var quietChecks = 0
     var checks = 0
-    func checkForUpdates() { checks += 1 }
+    var answer: QuietCheck = .started
+    func checkQuietly() -> QuietCheck { quietChecks += 1; return answer }
+    func installOffered() { checks += 1 }
 }
 
 /// L34 Phase G: an update installs only when FERB's daemon says nothing runs that a restart would cut, and FERB has
@@ -152,7 +156,7 @@ final class UpdateCoordinatorTests: XCTestCase {
         updates.found(version: "0.28.0")
         XCTAssertEqual(updates.status, .available("0.28.0"))
         XCTAssertEqual(updates.status.line, "Update available: FERB 0.28.0")
-        updates.checkNow()
+        updates.install()
         XCTAssertEqual(driver.checks, 1)
         updates.automatic = true
         updates.found(version: "0.28.1")
@@ -202,5 +206,107 @@ final class UpdateCoordinatorTests: XCTestCase {
         let menu = StatusMenu.entries(state: .ready, paused: false, stopped: false, appName: "FERB", canSetUp: true,
                                       hasWindow: true, updateOffer: "0.28.0", updateAsks: true)
         XCTAssertTrue(menu.contains { if case .item(_, .installUpdate, _) = $0 { return true }; return false })
+    }
+
+    /// Owner, 2026-11-17, after Check for Updates… left Sparkle's alert hidden and FERB unable to take a click: "what
+    /// if this happens on real user devices??? … fix it". The button runs a quiet check whose answer is Settings' line;
+    /// a failed check is said plainly and never reaches Sparkle's window or alert.
+    // decision: APP-945, APP-946, APP-947
+    func testCheckForUpdatesIsQuietAndAnswersOnSettingsLine() {
+        let (updates, driver) = make(ScriptedRPC())
+        XCTAssertEqual(updates.button, .check)
+        XCTAssertEqual(updates.button.title, "Check for Updates…")
+
+        updates.check()                                                   // the feed answers 404
+        XCTAssertEqual(updates.status, .checking)
+        XCTAssertEqual(updates.status.line, "Checking for updates…")
+        XCTAssertEqual(updates.button, .checking)
+        XCTAssertEqual(updates.button.title, "Checking…")
+        updates.check()                                                   // a second press while it runs
+        XCTAssertEqual(driver.quietChecks, 1)
+        updates.aborted("A network error occurred while downloading https://example.org/appcast.xml. not found (404)")
+        updates.checkFinished()
+        XCTAssertEqual(updates.status, .checkFailed)
+        XCTAssertEqual(updates.status.line, "FERB couldn't check for updates just now. It will try again later.")
+        XCTAssertEqual(updates.lastResult?.failed, true)
+        XCTAssertTrue(updates.lastResult?.text.contains("not found (404)") == true, "the reason stays, small")
+        XCTAssertEqual(updates.button, .check)
+        XCTAssertEqual(driver.checks, 0, "a check never opens Sparkle's window or its alert")
+
+        updates.check()
+        updates.notFound()
+        updates.checkFinished()
+        XCTAssertEqual(updates.status, .upToDate)
+        XCTAssertEqual(updates.status.line, "FERB is up to date.")
+
+        updates.automatic = true
+        updates.check()
+        updates.found(version: "0.28.0")                                 // the owner asked: offered even when automatic
+        updates.checkFinished()
+        XCTAssertEqual(updates.status, .available("0.28.0"))
+        XCTAssertEqual(updates.status.line, "Update available: FERB 0.28.0")
+        XCTAssertEqual(updates.button, .install(title: "Install"))
+        XCTAssertEqual(driver.quietChecks, 3)
+        XCTAssertEqual(driver.checks, 0)
+        for line in [UpdatePlan.checkingLine, UpdatePlan.checkFailedLine, UpdatePlan.installFailedLine] {
+            XCTAssertFalse(line.contains("AI"))
+            XCTAssertFalse(line.localizedCaseInsensitiveContains("error"))
+        }
+    }
+
+    /// A scheduled check already running answers the press; a check with no other answer stops saying "Checking"
+    /// when Sparkle's session ends; an updater that never started is a plain failure, not a wait.
+    // decision: APP-946
+    func testACheckAlwaysEndsWithAnAnswer() {
+        let (updates, driver) = make(ScriptedRPC())
+        driver.answer = .alreadyRunning
+        updates.check()
+        XCTAssertEqual(updates.status, .checking)
+        updates.checkFinished()
+        XCTAssertEqual(updates.status, .quiet)
+        driver.answer = .unavailable
+        updates.check()
+        XCTAssertEqual(updates.status, .checkFailed)
+        XCTAssertEqual(updates.lastResult?.failed, true)
+        let none = UpdateCoordinator(rpc: ScriptedRPC())
+        none.check()
+        XCTAssertEqual(none.status, .checkFailed)
+    }
+
+    /// The owner's Install opens Sparkle's window; a download or signature that fails there closes it without an alert
+    /// and FERB says so on Settings' line and once in the chat. A background failure stays in the last result only.
+    // decision: APP-947
+    func testAFailedInstallTheOwnerChoseIsSaidInFERBsOwnWords() {
+        let (updates, driver) = make(ScriptedRPC())
+        var said: [String] = []
+        updates.onInstallFailed = { said.append($0) }
+        updates.aborted("The update feed couldn't be reached.")           // a scheduled check
+        XCTAssertEqual(updates.status, .quiet)
+        XCTAssertTrue(said.isEmpty)
+        updates.automatic = false
+        updates.found(version: "0.28.0")
+        updates.install()
+        XCTAssertEqual(driver.checks, 1)
+        XCTAssertTrue(updates.ownerInstalling)
+        updates.aborted("The update is improperly signed and could not be validated.")
+        updates.checkFinished()
+        XCTAssertEqual(updates.status.line, "FERB couldn't install the update just now. It will try again later.")
+        XCTAssertEqual(said, [UpdatePlan.installFailedLine])
+        XCTAssertFalse(updates.ownerInstalling)
+        updates.install()                                                 // nothing offered now: nothing opens
+        XCTAssertEqual(driver.checks, 1)
+    }
+
+    /// Sparkle wraps the real reason (a 404) in its own "An error occurred while downloading the update"; FERB keeps
+    /// the inner one.
+    // decision: APP-946
+    func testTheReasonKeptIsSparklesInnerOne() {
+        let inner = NSError(domain: "SUSparkleErrorDomain", code: 2001,
+                            userInfo: [NSLocalizedDescriptionKey: "A network error occurred. not found (404)"])
+        let outer = NSError(domain: "SUSparkleErrorDomain", code: 2001,
+                            userInfo: [NSLocalizedDescriptionKey: "An error occurred while downloading the update.",
+                                       NSUnderlyingErrorKey: inner])
+        XCTAssertEqual(UpdatePlan.reason(outer), "A network error occurred. not found (404)")
+        XCTAssertEqual(UpdatePlan.reason(inner), "A network error occurred. not found (404)")
     }
 }

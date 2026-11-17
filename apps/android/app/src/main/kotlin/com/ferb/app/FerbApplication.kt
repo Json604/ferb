@@ -113,8 +113,17 @@ class Session(now: () -> Long) {
     val locked: StateFlow<Boolean> = _locked.asStateFlow()
     private val _front = MutableStateFlow(false)
     val front: StateFlow<Boolean> = _front.asStateFlow()
+    private val _promptDue = MutableStateFlow(false)
+
+    /** The unlock prompt should appear by itself (PHN-615): the app arrived in front locked. */
+    val promptDue: StateFlow<Boolean> = _promptDue.asStateFlow()
     private val handler = Handler(Looper.getMainLooper())
-    private val timer = Runnable { if (lock.backgroundTimer()) _locked.value = true }
+    private val timer = Runnable { if (lock.backgroundTimer()) publish() }
+
+    private fun publish() {
+        _locked.value = lock.locked
+        _promptDue.value = lock.promptDue
+    }
 
     fun foreground(on: Boolean) {
         _front.value = on
@@ -125,16 +134,26 @@ class Session(now: () -> Long) {
             lock.wentToBackground()
             handler.postDelayed(timer, AppLock.LOCK_AFTER_MS + 1_000)
         }
-        _locked.value = lock.locked
+        publish()
     }
 
     fun unlocked() {
         lock.unlocked()
-        _locked.value = false
+        publish()
     }
 
+    /** The owner's own lock from inside the app: the lock page waits for his tap (no prompt by itself, PHN-616). */
     fun lockNow() {
         lock.lock()
-        _locked.value = true
+        publish()
+    }
+
+    /** Takes the due prompt (once per arrival). */
+    fun takePrompt(): Boolean = lock.takePrompt().also { publish() }
+
+    /** The taken prompt wasn't shown (the screen went elsewhere first): due again. */
+    fun promptAgain() {
+        lock.promptAgain()
+        publish()
     }
 }

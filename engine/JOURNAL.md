@@ -5985,3 +5985,274 @@ done (ORCH-668 never compares a name with an address). Both ended failed with th
 
 **Unverified.** Everything live: no task has run on this tree. Whether a worker now names a wrong profile; whether a
 profile with no open window starts in the background (`Wake`).
+
+## 2026-11-17 · 125 · Check for Updates… froze FERB.app: a quiet check, no Sparkle alert, and any blocking window raised where the owner is
+
+**What happened (live, 2026-11-17 21:14, installed build).** The owner pressed Settings → General → Check for
+Updates… over full-screen VS Code. FERB's log: 21:14:31.544 "FERB opens the update window", 21:14:32.028 Sparkle
+"Encountered download feed error … appcast-arm64.xml. not found (404)", then nothing from the Space rule about the
+alert. Sparkle's standard driver ran its error alert with `runModal`; the owner couldn't see it, FERB took no clicks,
+every item of the status menu was greyed out, Quit included, and FERB was killed (a `sample` showed the main thread in
+`-[NSAlert runModal]` under Sparkle). What a plain NSAlert is on this macOS (tried in a scratch program): an
+`_NSAlertPanel`, titled, level 8, `collectionBehavior` 0 (no fullScreenAuxiliary), `hidesOnDeactivate` false, not key
+while its app isn't active. Why exactly it was out of sight I inferred, not verified: most likely it had no
+fullScreenAuxiliary and the window server kept it off the full-screen Space while counting it there (the Space rule
+moves only what it reads as elsewhere, and logged no move).
+
+**What.**
+- APP-945 (owner, "agreee to both. fix IT"), APP-946: Check for Updates… is `SPUUpdater.checkForUpdateInformation`
+  (Sparkle 2.10.0's probing check: no user driver, `SPUProbingUpdateDriver`). UpdateCoordinator: `check()` → status
+  `.checking` ("Checking for updates…", the button a disabled "Checking…" with a spinner) → found (offered as Install
+  even with automatic updates on), not found ("FERB is up to date.") or aborted ("FERB couldn't check for updates just
+  now. It will try again later."); `didFinishUpdateCycleForUpdateCheck` (`checkFinished`) ends a check that gave no
+  other answer. The kept reason is Sparkle's inner error (`UpdatePlan.reason`: the 404, not "An error occurred while
+  downloading the update"), grey and small in the last-result line (it was red).
+- APP-947: `SparkleUpdater` builds `SPUUpdater` itself (no `SPUStandardUpdaterController`, whose start-up failure is a
+  modal alert) with `FERBUserDriver`, which forwards every call to `SPUStandardUserDriver` except its three alerts
+  (`showUpdaterError`, `showUpdateNotFoundWithError`, `showUpdateInstalledAndRelaunched(false)`): those close Sparkle's
+  windows and acknowledge. Sparkle's private calls to its standard driver (gentle-reminder timing) are forwarded by
+  `forwardingTarget`. Sparkle's windows open only for the owner's Install (`installOffered`, through the Space rule);
+  an Install that fails says "FERB couldn't install the update just now. It will try again later." on Settings' line
+  and once in the chat.
+- APP-948: the Space rule raises any window that blocks FERB.app. A CFRunLoopObserver (before waiting) and a 0.25 s
+  timer, both only in NSModalPanelRunLoopMode, look at `NSApp.modalWindow`; `willBeginSheetNotification` and the
+  workspace's Space change cover sheets. The window gets moveToActiveSpace + fullScreenAuxiliary, comes to the Space
+  showing (`bringHere`), a modal one goes to max(its level, modalPanel, FERB's highest ordinary window + 1) under the
+  menus' level, an off-screen one is centred, it is ordered in and made key. FERB activates on the first look only if
+  the owner pressed in a FERB window or used a FERB menu in the last 30 s and APP-797's Dock rule allows; otherwise it
+  shows in front and focus waits for a click. Installed at launch (`AppWindowPresentation.start()` in Application).
+  No swizzling: every AppKit modal loop runs in that mode, so a framework's alert is seen like FERB's own.
+- APP-949: the status menu's Quit targets `ModalSafeQuit` (`worksWhenModal` true). Tried in a scratch program: AppKit
+  disables every menu item whose target doesn't work when modal (that was the greyed menu) and keeps this one;
+  `NSApp.terminate` from inside `runModal` ends the app (applicationWillTerminate ran).
+- The presenter scan matches `checkForUpdates(`; the Space rule's guard test says no source calls
+  `controller.checkForUpdates(` and the one Sparkle window call is the rule's `opening("the update window"…`.
+- kb: APP-945..949, LIVE-1149.
+
+**Every place Sparkle's standard UI can show something in FERB's flows.**
+- Error alert (feed unreachable, failed download, bad signature, failed install; user-initiated checks and any
+  session that showed an update): FERBUserDriver, FERB's line (+ chat for the owner's Install).
+- "You're up to date" alert (user-initiated check): FERBUserDriver; the quiet check never reaches it.
+- "Update Installed" alert (installed without a relaunch): FERBUserDriver.
+- "Unable to Check For Updates" (controller's start failure): gone with the controller; the reason is the last result.
+- The update window with its release notes (non-modal; release notes are inside it), the checking window, the
+  download/extract window and "Install and Relaunch": Sparkle's own, only after the owner's Install; brought to the
+  Space showing for 10 s by `opening`, and APP-948 covers any of them run modally (none is, in 2.10.0's sources).
+- The permission prompt (non-modal window): never asked, SUEnableAutomaticChecks is in the build's Info.plist and
+  FERB sets automaticallyChecksForUpdates before start.
+
+**Evidence.** FERBNotch: UpdateCoordinatorTests 17 (4 new), SpaceRuleTests 10 (3 new: a real NSAlert run with plain
+`runModal`, read while it runs), UpdatePlanTests, UpdateWiringTests pass; full suite 850 tests, 16 skipped, 0 failures (before the one-line launch hook; the focused suites were rerun after it, 39 pass).
+
+**Unverified.** Everything live (LIVE-1149): that the alert of a real framework shows over a full-screen app with
+these behaviors, that the SkyLight move follows a Space change during a modal run, that the workspace's Space-change
+note arrives during one, that FERBUserDriver's forwarding keeps Sparkle's install and relaunch working end to end (no
+update has gone through it), and the 30 s window for activation. The modal test waits on real time (about 0.8 s of
+AppKit's modal loop), against TEST-508's rule, because a modal run can't be driven by an injected clock.
+
+## 2026-11-17 · 126 · The phone apps on the owner's first day with them: the prompt by itself, the scanner's camera inside its frame, the unlock that hung, hold to talk you can see
+
+**What.** The owner installed the Android debug app on his moto g85 5G (Android 15) and paired it. Four reports, each
+fixed in both phone apps (one look, one behaviour). kb PHN-615..619 and PHN-640..643 (the motion agent holds
+PHN-620..624). No engine file changed; nothing was installed on his phone by this agent (adb never saw it).
+
+- **The prompt by itself (owner PHN-615; PHN-616).** `AppLock` (Android model/AppLock.kt, iPhone AppLock.swift) makes
+  one prompt due each time the app arrives in front locked (a new process, or back from the background, relocked or
+  still locked): `takePrompt` once, `promptAgain` when the screen went elsewhere first; leaving clears it; the owner's
+  own `lockNow` makes none. Android shows it only while the activity is resumed and its window focused
+  (MainActivity onResume/onPause/onWindowFocusChanged → `windowReady`), iPhone while the scene is active (Shell.scene);
+  never while another unlock runs. A cancel leaves the lock page and its button; the prompt comes again only from the
+  button or the next return. A turn of the screen asks nothing (the view model and the session survive it). Seen on the
+  emulator: BiometricPrompt's PIN screen keeps the activity RESUMED (dumpsys), so no false "return" after a cancel.
+- **The scanner (owner PHN-617; PHN-618, PHN-619).** Cause: `Scanner.kt` built CameraX's `PreviewView` with its default
+  implementation mode, which picks a SurfaceView: its own window layer, which Compose's clips and placement don't
+  reach, drawn at the fill-centre size of the 3:4 camera stream (taller than the square well) over the card, the hint and
+  the sky. Reproduced on the emulator's virtual-scene camera (before-3-scanner.png). Now `ImplementationMode.COMPATIBLE`
+  (a TextureView, drawn inside the app's frame), FILL_CENTER, a black background, `clipToBounds`, and `QrFrame` clips its
+  well to the rounded square for any picture (design Pairing.kt); white corner marks on a dark edge over a live picture
+  (`live`). iPhone: the picture is laid over the well (`overlay`, never sizing it) and clipped; the preview layer
+  `masksToBounds`, the view `clipsToBounds` (an aspect-fill layer spills past its bounds otherwise). The iPhone page
+  had a close button and no card while the camera was on: both phones now draw Android's page (ScannerPage /
+  ScanPageLayout): the frame or why the camera is needed, and the lab's white card with Scan the code, Allow the camera,
+  Type code and Cancel. The card stays the lab's white card with black text and #666 detail (5.7:1), as the lab's pair
+  page (PHN-416): the "light panel with pale text" in the owner's photo is the camera's exposure of a white card; the
+  emulator screenshots in light and dark system modes show black and #666 on white. Other platform views checked: the
+  scanner is the only AndroidView/PreviewView in the app (Watch live draws frames as an Image); iPhone's other
+  representables are system sheets (Quick Look, share) presented full screen.
+- **The unlock that hung (owner PHN-640; PHN-641).** Cause (FerbViewModel.unlockApp before this change, and AppModel's
+  twin): with the Mac online the app opened only when `api.unlock` returned, and the library's unlock
+  (ferb-mobile-ffi mobile.rs `unlock`) is the Mac's challenge, the prompt, `link.unlock` and then a whole `sync()`; on his
+  link (moving between direct and the shared relay, dropping every few minutes) that is many seconds after the finger.
+  A cold start also waited up to 6 s for the link before the prompt, a second tap during either was dropped silently by
+  `busy("unlock")`, and a `locked` reply right after a reconnect (before the phone proves itself on the new connection,
+  `phone.present`) set `needsMacUnlock`, the tappable "Unlock to see what's new on your Mac" line. Now a `PromptGate`
+  signer tells the app when the library asks for the signature and whether it passed: the app opens then, and the
+  Mac's answer (and its sync) arrives in the background under one calm line ("Reaching your Mac…", after 6 s "Your Mac
+  is slow to answer…") that clears by itself. The prompt waits on the network 2 s at most (the link, then the challenge);
+  past that, or on a second tap, the prompt alone opens the app and a challenge that comes later is refused by the gate
+  (no prompt out of nowhere). A `locked` reply is read again twice, 1.5 s apart, before anything asks; still locked:
+  one automatic Mac unlock (one prompt: the lock key is per use, so no prompt-free path exists), never a loop, then the
+  line to tap. A real refusal (the Mac didn't take the proof, keys gone) is said with its fix. Logcat tag `ferb-app`
+  (iPhone: log category ferb-app): lock shown, unlock started, prompt shown and its result with ms, local unlock done,
+  Mac unlock answered or failed with its code and ms; never a secret, path or text.
+- **Hold to talk (owner PHN-642; PHN-643).** The composer's microphone (design Chat.kt PhoneComposer, FerbDesign
+  Mobile.swift) has states: a lighter circle the moment the finger goes down, Getting ready… until the recogniser takes
+  the sound (Android onReadyForSpeech; iPhone once the audio engine runs), Listening… with a ring that grows with the
+  level (Android onRmsChanged; iPhone the buffers' RMS, about 15 a second), Getting your last words… after letting go;
+  the state in words above the box and a haptic tick at start and stop. A finger sliding off keeps the microphone until
+  it lifts (Android: an own pointer loop instead of waitForUpOrCancellation). A press while the last words are coming
+  keeps them and listens again (it was a silent no-op). Android: RECOGNIZER_BUSY/CLIENT before ready retry once after
+  300 ms; transient exclusive audio focus pauses music. Every failure has words: nothing heard (also when he held and
+  let go with no words), the speech service unreachable, the microphone busy, recognition busy, no permission, no
+  on-device speech for the language (how to add it; the iPhone's words name Dictation Languages). Logged: start, ready
+  ms, partial count, end, error code; never the words.
+
+**New strings** (Android strings.xml; the iPhone catalog from it, voice_language reworded for iPhone in strings.py):
+scan_hint "Point your phone at the code on your Mac." and scan_type_code "Type code" (both the design's words, now app
+strings); mac_opening "Reaching your Mac…"; mac_slow "Your Mac is slow to answer. This updates by itself when it does.";
+chat_unlock_mac changed to "Your Mac's chat is locked. Tap here to unlock it."; voice_getting_ready "Getting ready…";
+voice_finishing "Getting your last words…"; voice_no_speech "FERB didn't hear anything. Hold the microphone, wait for
+Listening…, then speak."; voice_network "The phone's speech service can't be reached right now. Try again in a moment,
+or type your message."; voice_mic_busy "Another app is using the microphone. Close it and try again."; voice_busy "The
+phone's speech recognition is busy. Try again in a moment."; voice_language (Android) "This phone has no speech for your
+language on the phone itself yet. To keep it on the phone, add your language's offline speech in Android's settings,
+then try again." / (iPhone) "This iPhone has no speech for your language on the phone itself yet. Add it in Settings
+under General, Keyboard, Dictation Languages, then try again."
+
+**Evidence.** Android `./gradlew --offline :design:test :core:testDebugUnitTest :app:testDebugUnitTest`: design 89,
+core 29, app 125, none failed (new: AppLockTest 1, ViewModelTest 13 for the prompt by itself and the Mac's unlock,
+ScreenShotsTest 4 with goldens scanner-live-dawn/noon/night, whose stand-in picture larger than the frame and pushed up
+and right leaves no pixel outside the well and fails without the clip, and composer-mic; VoiceTest 3).
+`:app:connectedDebugAndroidTest` on Medium_Phone_API_36.0 with the virtual-scene camera: 8 of 8 (OnPhoneTest's lock
+test now: the prompt by itself on open, a cancel leaves the page, no prompt after a turn of the screen, the button
+asks, the PIN opens pairing, the owner's own lock waits; SpeechOnPhoneTest: Ready and a level arrive, then code 13 (no
+on-device language pack on the emulator), and a second press right after gets ready or a code). Emulator screenshots
+taken with `adb emu screenrecord screenshot` (the host's capture; FLAG_SECURE blanks only the guest's own
+screenshots): scratchpad scanner/before-3-scanner.png and after-3-scanner.png. iPhone `apps/ios/tools/build.sh test`:
+FERBUITests 6 (the prompt by itself on launch; a cancelled one waits for the button through a turn of the phone; the
+scanner without a camera), FerbAppTests 104 (AppLockTests, AppModelTests 12 new, VoiceTests 3 new, AppScreensTests
+with goldens app/scanner-live-dawn/noon/night, scanner-camera-noon, scanner-no-camera-noon), FerbCoreTests 14 (1
+skipped as before), FerbMobileTests 4, FerbDesignTests 40. `kb check` ok.
+
+**Unverified.**
+- Nothing ran on the owner's phone or against a real Mac: the unlock's timings, the reconnect recheck (1.5 s twice is
+  a guess at how long `phone.present` takes on his network), the automatic Mac unlock's prompt, and the lines were
+  tested only on fakes. The cold start still asks twice when the link isn't up within 2 s (the opening prompt alone,
+  then the Mac's own once it answers): the lock key needs a prompt per signature.
+- The camera's picture inside the frame was seen on the emulator's virtual scene only; his Motorola's camera stream and
+  its TextureView cost are not checked. No code was scanned through the new preview (the analysis path is unchanged).
+- Hold to talk with a real voice: the emulator has no audio input here and no on-device language pack, so Listening…
+  with a moving ring, partial words, haptics and audio focus were seen only in tests and the composer golden.
+- The iPhone scanner page was checked by snapshots and the UI test without a camera; a real iPhone camera never ran.
+
+## 2026-11-17 · 127 · The phone apps move as PairIt does: one motion system for tabs, sheets, screens, presses and lists
+
+**What.** The owner, after trying the Android app: "theres no animation is navbar swithcihg, modalsnopening/closgin etcect.
+look at pairit repo and you'll know hwat im saying, i want it like that" (owner decision PHN-620). Agent rulings PHN-621..624.
+Both apps, one behaviour (PHN-416). By an Opus agent on the coordinator's brief, beside the agent of entry 126.
+- **PairIt, read** (`~/Desktop/bluetooth_switch`, read only). Android: the tab indicator moves 650 ms along
+  1 - e^(-7.5t)(cos 10t + 0.75 sin 10t), linear clock, clamped and narrowed at most 14 % past the bar's ends
+  (MainActivity.java:177-187); a press scales to 0.95 at ACTION_DOWN over 220 ms and back over 550 ms on that same curve,
+  never consuming the touch (GlassUI.java:33-56); every duration is scaled by ANIMATOR_DURATION_SCALE and 0 when animators
+  are off (GlassUI.java:27-31); a bottom panel rises 24 dp and fades in over 220 ms on (.22, 1, .36, 1) over a 0.55 dim
+  (MainActivity.java:563-567, 905-907); a notice comes up 6 dp over 180 ms on (.23, 1, .32, 1) and fades out in 120 ms
+  (MainActivity.java:55-59, 435-442); switches and the output selector 180 ms on (.22, 1, .36, 1) (PlainSwitch.java:28-30,
+  RelayOutputSelector.java:27-29). Tab content swaps instantly. iPhone: `RelayMotion` (apple/RelayStyle.swift:9-38):
+  presses 0.97 and 0.88 opacity, (.23, 1, .32, 1) 0.10 s down and 0.16 s up, no scale under Reduce Motion (:40-58);
+  the tab pill on spring(response 0.65, damping 0.85) inside a capsule clip (ReceiverView.swift:303-323); sheets are the
+  system's with detents and a drag indicator (:463); navigation under Reduce Motion is a 0.12 s linear fade (:32-37).
+  The glass lab already specifies motion the apps had only partly: tokens.json `motion` (press 0.97 on a 0.2 s spring;
+  panels on a 0.30-0.45 s spring, bounce 0.08-0.16, interruptible), DESIGN.md "Motion" ("no fade-and-slide on every
+  element"), Stage.swift's screen spring 0.4/0.1. Only the press and the switch were in the apps.
+- **The table** (PHN-621): `apps/android/design/src/test/resources/motion/motion.json`, read by Android's
+  MotionTableTest and FerbDesign's MotionTests; Motion.kt and FerbMotion must equal it. PairIt's Android curve is exactly a
+  damping-0.6 spring's step, so the tab spring is response 0.326726 s, the presses 0.110584 s and 0.276460 s (tested to
+  2e-5 against PairIt's formula at 101 points); the sheet is the lab's 0.30 s spring, bounce 0.08; enter 220 ms (.22, 1,
+  .36, 1) 24 pt; exit 120 ms linear; items 180 ms (.23, 1, .32, 1) 6 pt; reduced 120 ms linear; press 0.97 and 85 % (the
+  lab's and PairIt iPhone's; PairIt Android sinks to 0.95); dim 0.5; a sheet closes past 25 % or 900 pt/s.
+- **The system** (`:design` Motion.kt, MotionHosts.kt, TopBar.kt, Sheets.kt, Basics.kt; FerbDesign Motion.swift,
+  Lab/Mobile.swift). `MotionSwitch` shows one thing at a time: the gate's pages (Root), the tabs (Main), a folder
+  (Files), the sheet over the page (Root). What comes in rises (or slides 24 pt from its tab's side) and fades in; what
+  goes fades out, is drawn as it was (Android `heldWhileLeaving`; SwiftUI keeps it) and takes no touch, so the new page
+  and the page under a closing sheet take taps at once. `instant` keys (Locked, Starting) replace everything in the same
+  frame: nothing of the app shows for a frame after it locks (PHN-8); the page after the lock rises in. `TabBarHost`: the
+  bar is drawn once over the pages (each page's TopBar keeps its room and draws nothing), its white pill on the tab
+  spring, an overshoot cut by the bar's round ends (PairIt iPhone's way: one behaviour that both toolkits draw in place;
+  PairIt Android narrows it instead), names and colours on the enter curve. Sheets: the panel rises by its own height
+  over a fading dim on the sheet spring, interruptible, a dismissible one follows a drag down; the code keypad moves with
+  its sheet; Watch live rises and fades (`presenceFade`). Presses sink at touch-down (Android observes the down itself:
+  Compose's own press waits out a tap timeout inside scrolling lists; a scroll that takes the touch lets it rise). Chat
+  rows fade in where they land and the others glide (`motionItem`); a transfer's card in Files rises in (`motionAppear`).
+- **Reduce motion.** Android: with animations off or removed (scale 0, or animators disabled) every switch is instant and
+  presses only dim; Compose follows the duration scale for the rest. iPhone: under Reduce Motion nothing moves, changes are
+  0.12 s fades, presses only dim.
+- **Performance.** Only alpha and translation in graphics layers (Compose) and opacity/offset (SwiftUI): no layout per
+  frame except the tab bar's four cells while the chosen name grows (220 ms), no recomposition per frame in the hosts
+  (values read while drawing), never a blur. The phone screens have no glass panel (PHN-416: white sheets and cards); the
+  sky and the season layer stay still behind a change, and the dim is plain black, as PairIt's dialogs (blur off,
+  MainActivity.java:903). Emulator (Medium Phone API 36, SwiftShader/GL): tab switching measured 44 ms median, 85 ms 90th
+  per frame, the same as plain scrolling of the gallery's index (44/77 ms): the emulator's cost, not the motion's; the
+  motion page idle renders 0 frames. The home screen's season layer (a blur per leaf, journal 101) was the only heavy
+  part seen (105 ms median while it runs on the emulator).
+- **Gallery.** Both galleries gained "Motion: Tabs and sheets": the lab's pages under the app's hosts (the iPhone one
+  plays a tour with `-FERBMotionTour YES`, the simulator having no taps). `TabBarHost` takes optional fallback tab and
+  profile callbacks for pages that give none (the lab's FilesPage).
+- **iPhone, found while recording.** SwiftUI ran neither the custom transitions nor transitions on a key changed without
+  an animated transaction: pages now change their key in one `withAnimation` with their direction (built-in offset and
+  opacity transitions), and a sheet's presence is state animated on the sheet spring (`SheetPresenter`), kept until the
+  spring has it down (`withAnimation(…completionCriteria: .removed)`). The bar's capsule clip is drawn a point outside the
+  bar so its own edge is untouched (15 pixels differ by 1/255 from the golden at rest).
+
+**Evidence.** Android (`./gradlew --offline :design:test :core:testDebugUnitTest :app:testDebugUnitTest`): design 89
+(new MotionTableTest 2, MotionSwitchTest 7: a new page rises and takes a tap mid-way while the old one takes none; the
+lock replaces everything in the same frame; animator scale 0 is instant; a going sheet keeps its words; a sheet comes
+up, a short drag springs back, a long one closes it and the page under it takes a tap on its way down; one tab bar that
+follows the chosen tab; a press sunk 48 ms after touch-down inside a scrolling list), app 125 (new MotionShotsTest 2: a
+question come up through the sheet host and Tasks reached from the chat rest on the existing goldens), every golden
+unchanged; core 29. iPhone (`xcodebuild test`, scheme FERB, on a simulator of my own, the flags of build.sh test):
+FerbDesign 45 (new MotionTests 3: the table, PairIt's curves, nothing moves under Reduce Motion; MotionRestTests 2: the
+tab host over TasksPage and a sheet through the switch rest on the tasks and question goldens), FerbApp 104, FerbCore 14
+(1 skipped), FerbMobile 4, FERBUITests 6; make_project.py and strings.py --check pass. Recordings: the scratchpad's motion/android-tabs-and-sheets.mp4 (emulator-5560, the gallery,
+skiagl; ~13 fps captured by screenrecord on the emulator) and motion/iphone-tabs-and-sheets.mp4 (simulator, ~90 fps);
+frames looked at: the pill sliding Tasks→Files with Files fading in from the right (Android 3.22-3.48 s), the question
+sheet rising over the dim and going down (Android 8.6-8.7 s, 10.6-10.9 s; iPhone 9.43-9.67 s), Chat→Tasks crossfading
+under the moving pill (iPhone 3.95-4.25 s). The emulator and the gallery were uninstalled and stopped after.
+
+**Not done here.** The composer's transfer card and attachment chips (Main.kt's and Tabs.swift's Composer) are not
+animated: the composer was the other agent's work in progress. iPhone presses inside scroll views keep SwiftUI's own
+short delay (UIScrollView's); Android's now sink at once. The kb counts PHN-621..624's tests once MotionTableTest.kt,
+MotionSwitchTest.kt, MotionShotsTest.kt and MotionTests.swift are tracked; kb/MAP.md needs `kb gen`.
+
+**Unverified.** Everything on a real phone: 60/120 Hz smoothness on the owner's moto g85 (the emulator renders slowly for
+any app), the feel of the springs under a finger, drag-to-dismiss by hand (tested by injected swipes on Android only),
+TalkBack and VoiceOver over the persistent bar, the lock's instant replacement on a real device (tested in Robolectric;
+on iPhone by construction, not by a test). iPhone Reduce Motion was not switched on in a recording.
+
+## 2026-11-17 · 128 · The first installed run of the phone link: the keys made on the first start, and the six digits the bus masked
+
+**What.** Build 202611171534 was the owner's first installed build with the phone link (fresh install, 21:13).
+- ferbd `compose/link.rs` `HelperKeys::load`: asks the pinned helper whether the item is there (`present`: no value read,
+  no prompt) before reading it; not there is `None`, and `keys` then makes the two keys and stores them. Live: the
+  helper answers a lookup of an item that isn't there with a failure, so `keys` ended with "the Keychain didn't show
+  this item to FERB" before making anything, on every start (`daemon.loop_failed` "phone link", 19 times; Settings →
+  Phone said "The phone link didn't start"). The tests used `MemoryKeys`, which answers `None`. New test with a
+  stand-in launcher that fails such a lookup as the helper does.
+- FERB.app `PhoneSettingsModel.receive` (NotchCore/PhoneModel.swift): on `phone.pair_requested` the six digits come
+  from FERB.app's own `phone.list` (its `pairing.code`), never from the event; `PairRequest.withoutMaskedCode` shows no
+  code rather than a mask; `apply` replaces a waiting request whose digits differ. `PhoneWords.notchAsks` carries no
+  code. Live 21:45: every bus event is redacted once for all its consumers (`Events::publish`), and the redactor
+  masks a value under a `code` label as a one-time code, so the page and the notch's line read "[redacted]". The
+  event still carries `code` (masked); nothing reads it.
+
+**Evidence.** ferbd lib `compose::link` 3 passed (the new one fails without the fix: the lookup's failure ends `keys`).
+FERBNotch `PhoneSettingsTests` 18 passed (new: a masked event with the list's digits; no list yet shows no code, the
+next list fills it). Live, build 202611171553 then 202611171618 (the same commit plus these): "phone link: started
+(sandboxed)", "serving phones as …", the Keychain item `ferb`/`phone-link` present; 21:45:42 "a phone proved the
+pairing code; FERB asks the owner", 21:46:05 "a phone was paired", then `phone.files`, `phone.recent` and
+`chat.entries.*` ok in `phone_audit`.
+
+**Seen live and not fixed here.** The phone's path moves between direct and the shared relay about once a minute on
+the owner's network, with three drops in six minutes (iroh #4424's shape); each redial answered in about 0.1 s. The
+update feed (GitHub releases of the now private repo) answers 404: where updates live is the owner's to decide.
+
+**Unverified.** A second pairing on the build with the digits' fix (the owner's phone was already paired).

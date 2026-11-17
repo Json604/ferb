@@ -87,15 +87,25 @@ public extension View {
 
 // MARK: Touch (not from the lab: it draws no touch; DESIGN.md "Motion": a press sinks to 0.97)
 
-/// A press that sinks to 0.97 and 85 % on the press spring (Theme.swift FerbButton's numbers).
+/// A press that sinks to 0.97 and 85 % (Theme.swift FerbButton's numbers) on PairIt's springs: quick at touch-down,
+/// settling at release (FerbMotion.pressDown, .pressUp; kb PHN-624). Under Reduce Motion it only dims.
 public struct PressStyle: ButtonStyle {
     public init() {}
     public func makeBody(configuration: Configuration) -> some View {
-        configuration.label
+        PressLook(label: configuration.label, pressed: configuration.isPressed)
+    }
+}
+
+private struct PressLook<Label: View>: View {
+    let label: Label
+    let pressed: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduce
+    var body: some View {
+        label
             .contentShape(Rectangle())
-            .scaleEffect(configuration.isPressed ? 0.97 : 1)
-            .opacity(configuration.isPressed ? 0.85 : 1)
-            .animation(.spring(duration: 0.2, bounce: 0.15), value: configuration.isPressed)
+            .scaleEffect(pressed && !reduce ? FerbMotion.pressScale : 1)
+            .opacity(pressed ? FerbMotion.pressAlpha : 1)
+            .animation((pressed ? FerbMotion.pressDown : FerbMotion.pressUp).animation, value: pressed)
     }
 }
 
@@ -137,7 +147,22 @@ public struct TopBar: View {
         self.onProfile = onProfile
     }
 
+    @Environment(\.tabBarHosted) private var hosted
+    @Environment(\.accessibilityReduceMotion) private var reduce
+    @Namespace private var pill
+
     public var body: some View {
+        if hosted {
+            // inside a TabBarHost: keep the room, draw nothing, take no touch (the host draws the one bar)
+            bar(onTab: nil, onProfile: nil).hidden().accessibilityHidden(true)
+        } else {
+            bar(onTab: onTab, onProfile: onProfile)
+        }
+    }
+
+    /// The bar: the white pill slides between tabs on PairIt's tab spring (overshoot cut by the bar's round ends, as
+    /// PairIt's iPhone bar); the tabs' widths, names and colours follow on the enter curve (kb PHN-622).
+    private func bar(onTab: ((PhoneTab) -> Void)?, onProfile: (() -> Void)?) -> some View {
         HStack {
             HStack(spacing: 2) {
                 ForEach(PhoneTab.allCases, id: \.self) { tab in
@@ -151,7 +176,8 @@ public struct TopBar: View {
                     .padding(.horizontal, on ? 15 : 12)
                     .frame(minWidth: 46)
                     .frame(height: 42)
-                    .background { if on { Capsule().fill(Ink.white) } }
+                    .animation(reduce ? FerbMotion.reduced.animation : FerbMotion.enter.animation, value: on)
+                    .background { if on { Capsule().fill(Ink.white).matchedGeometryEffect(id: "pill", in: pill) } }
                     .overlay(alignment: .topTrailing) {
                         if waiting == tab, !on {
                             Circle().fill(Ink.amber).frame(width: 8, height: 8)
@@ -166,6 +192,9 @@ public struct TopBar: View {
             }
             .padding(4)
             .background(Ink.black, in: Capsule())
+            // an overshooting pill is cut at the bar's round ends; a point outside them, so the bar's own edge is untouched
+            .clipShape(Capsule().inset(by: -1))
+            .animation(reduce ? nil : FerbMotion.tab.animation, value: chosen)
             Spacer()
             Image(systemName: "person.fill")
                 .font(.system(size: 17))
@@ -358,6 +387,9 @@ public struct Pill: View {
     }
 }
 
+/// The microphone's state as the composer draws it (kb PHN-643; Android's MicState).
+public enum MicState: Sendable { case idle, readying, listening, finishing }
+
 public struct PhoneComposer: View {
     var placeholder = "Ask FERB"
     /// What the owner has typed so far, shown with its caret; nil shows the placeholder.
@@ -376,12 +408,15 @@ public struct PhoneComposer: View {
     var listening = false
     var listeningText: String?
     var micLabel = "Speak"
+    /// Not from the lab (kb PHN-643): getting ready, listening (with a ring that grows with `micLevel`, 0...1), finishing.
+    var micState: MicState = .idle
+    var micLevel: Float = 0
     @GestureState private var held = false
 
     public init(placeholder: String = "Ask FERB", typed: String? = nil, text: Binding<String>? = nil,
                 onSend: (() -> Void)? = nil, onAttach: (() -> Void)? = nil, onMic: (() -> Void)? = nil,
                 onMicDown: (() -> Void)? = nil, onMicUp: (() -> Void)? = nil, listening: Bool = false,
-                listeningText: String? = nil, micLabel: String = "Speak") {
+                listeningText: String? = nil, micLabel: String = "Speak", micState: MicState? = nil, micLevel: Float = 0) {
         self.placeholder = placeholder
         self.typed = typed
         self.text = text
@@ -393,13 +428,33 @@ public struct PhoneComposer: View {
         self.listening = listening
         self.listeningText = listeningText
         self.micLabel = micLabel
+        self.micState = micState ?? (listening ? .listening : .idle)
+        self.micLevel = micLevel
     }
 
     @ViewBuilder private var mic: some View {
         if let onMicDown {
-            Image(systemName: "mic").font(.system(size: 19)).foregroundStyle(listening ? .black : .white)
-                // the white circle sits behind the icon, so the composer's layout is the lab's whether or not it listens
-                .background { if listening { Circle().fill(Ink.white).frame(width: 40, height: 40) } }
+            // a lighter circle the moment the finger goes down (before FERB answers), then the state FERB says
+            let shown: MicState = micState == .idle && held ? .readying : micState
+            let level = shown == .listening ? CGFloat(min(max(micLevel, 0), 1)) : 0
+            let grow: CGFloat = shown == .idle ? 1 : 1.12
+            Image(systemName: "mic").font(.system(size: 19)).foregroundStyle(shown == .idle ? .white : .black)
+                // the circle and its ring sit behind the icon, so the composer's layout is the lab's in every state
+                .background {
+                    ZStack {
+                        switch shown {
+                        case .idle: EmptyView()
+                        case .readying: Circle().fill(Ink.white.opacity(0.55)).frame(width: 40 * grow, height: 40 * grow)
+                        case .listening:
+                            Circle().fill(Ink.white.opacity(0.22 + 0.2 * level)).frame(width: 40 * (grow + 0.08 + 0.25 * level),
+                                                                                       height: 40 * (grow + 0.08 + 0.25 * level))
+                            Circle().fill(Ink.white).frame(width: 40 * grow, height: 40 * grow)
+                        case .finishing: Circle().fill(Ink.white.opacity(0.8)).frame(width: 40, height: 40)
+                        }
+                    }
+                    .animation(.easeOut(duration: 0.09), value: level)
+                    .animation(.easeOut(duration: 0.12), value: shown)
+                }
                 .contentShape(Rectangle())
                 .gesture(DragGesture(minimumDistance: 0)
                     .updating($held) { _, state, _ in state = true })
@@ -474,9 +529,21 @@ public struct Sheet<Content: View>: View {
         self.content = content()
     }
 
+    // Shown by a sheet switch (Motion.swift), the dim fades and the panel comes up from below by its own height and goes
+    // back down; a dismissible one follows a drag down and closes past a quarter of its height or on a fling, else
+    // springs back (kb PHN-623). Under Reduce Motion it only fades. At rest (or with no switch) it is drawn as before.
+    @Environment(\.motionPresence) private var presence
+    @Environment(\.accessibilityReduceMotion) private var reduce
+    @State private var drag: CGFloat = 0
+    @State private var panelHeight: CGFloat = 1
+
     public var body: some View {
+        let p = presence?.value ?? 1
+        let still = presence == nil || reduce
+        let pulled = drag
         ZStack(alignment: .bottom) {
-            Color.black.opacity(0.5)
+            Color.black.opacity(FerbMotion.scrim)
+                .opacity(min(1, max(0, p)))
                 .contentShape(Rectangle())
                 .onTapGesture { onDismiss?() }
                 .accessibilityHidden(onDismiss == nil)
@@ -491,8 +558,26 @@ public struct Sheet<Content: View>: View {
             .background(Ink.white, in: RoundedRectangle(cornerRadius: lift > 0 ? 32 : 44, style: .continuous))
             .padding(.horizontal, 8)
             .padding(.bottom, 8 + lift)
+            .opacity(still ? min(1, max(0, p)) : 1)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { panelHeight = max(1, $0) }
+            .visualEffect { view, proxy in
+                view.offset(y: still ? 0 : (1 - p) * proxy.size.height + pulled)
+            }
+            .gesture(dismissDrag, including: onDismiss == nil || presence == nil ? .subviews : .all)
             .accessibilityAddTraits(.isModal)
         }
+    }
+
+    private var dismissDrag: some Gesture {
+        DragGesture(minimumDistance: 8)
+            .onChanged { v in drag = max(0, v.translation.height) }
+            .onEnded { v in
+                if drag > panelHeight * FerbMotion.dismissFraction || v.velocity.height > FerbMotion.dismissVelocity {
+                    onDismiss?()
+                } else {
+                    withAnimation(FerbMotion.sheet.animation) { drag = 0 }
+                }
+            }
     }
 }
 

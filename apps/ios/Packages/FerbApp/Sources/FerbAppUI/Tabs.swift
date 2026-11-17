@@ -18,16 +18,22 @@ struct MainView: View {
     var body: some View {
         let waiting: PhoneTab? = (!model.ui.questions.isEmpty && model.tab != .tasks) ? .tasks : nil
         ZStack(alignment: .top) {
-            switch model.tab {
-            case .chat:
-                if model.home { HomeView(model: model, insets: insets, moment: moment, picking: picking) }
-                else { ChatView(model: model, insets: insets, waiting: waiting, picking: picking) }
-            case .tasks:
-                TasksView(model: model)
-            case .files:
-                FilesView(model: model, insets: insets, waiting: waiting, picking: picking)
-            case .mac:
-                MacView(model: model, waiting: waiting)
+            // one tab bar whose pill slides; the page under it comes in from the side of its tab (kb PHN-622)
+            TabBarHost(chosen: model.tab, waiting: barWaiting(waiting), onTab: { model.choose($0) }, onProfile: { model.show(.profile) }) {
+                MotionSwitch(TabKey(tab: model.tab, home: model.home), kind: .tab,
+                             direction: { a, b in (PhoneTab.allCases.firstIndex(of: b.tab) ?? 0) - (PhoneTab.allCases.firstIndex(of: a.tab) ?? 0) }) { k in
+                    switch k.tab {
+                    case .chat:
+                        if k.home { HomeView(model: model, insets: insets, moment: moment, picking: picking) }
+                        else { ChatView(model: model, insets: insets, waiting: waiting, picking: picking) }
+                    case .tasks:
+                        TasksView(model: model)
+                    case .files:
+                        FilesView(model: model, insets: insets, waiting: waiting, picking: picking)
+                    case .mac:
+                        MacView(model: model, waiting: waiting)
+                    }
+                }
             }
             if let n = model.ui.note {
                 NoteBanner(text: n.text) { model.note(nil) }
@@ -39,6 +45,24 @@ struct MainView: View {
             }
         }
         .ferbPickers(picking, model: model)
+    }
+}
+
+/// The page the tab host shows: the tab, and for the chat whether it is still the home screen.
+private struct TabKey: Hashable {
+    let tab: PhoneTab
+    let home: Bool
+}
+
+extension MainView {
+    /// The amber dot as each page's own bar gives it (the home screen's comes from what happened while away; Tasks
+    /// never has one).
+    fileprivate func barWaiting(_ waiting: PhoneTab?) -> PhoneTab? {
+        switch model.tab {
+        case .chat where model.home: awayRows(model.ui).contains { $0.kind == .asking } ? .tasks : nil
+        case .tasks: nil
+        default: waiting
+        }
     }
 }
 
@@ -162,6 +186,11 @@ struct Composer: View {
                 Text(L.s("attach_place", t.readyPlace ?? model.ui.mac?.uploadFolder?.shown ?? L.s("tr_place_default"))).type(13, .medium, ink.low)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 6)
             }
+            // PHN-643: what the microphone is doing, in words above the box
+            if let micText {
+                Text(micText).type(13.5, .medium, ink.low).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 6)
+                    .accessibilityAddTraits(.updatesFrequently)
+            }
             // hold to speak (PHN-603): the words land in the box while held and stay there; never sent by themselves
             PhoneComposer(placeholder: placeholder, text: Binding(get: { model.draft }, set: { model.typed($0) }),
                           onSend: { model.send() }, onAttach: { picking.ask(forChat: true) },
@@ -171,7 +200,23 @@ struct Composer: View {
                               }
                           },
                           onMicUp: { model.voiceRelease() }, listening: model.listening,
-                          listeningText: L.s("voice_listening"), micLabel: L.s("voice_speak"))
+                          listeningText: micText ?? L.s("voice_listening"), micLabel: L.s("voice_speak"),
+                          micState: model.mic, micLevel: model.micLevel)
+        }
+        // a tick when FERB starts and stops hearing him
+        .sensoryFeedback(trigger: model.mic) { old, new in
+            if new == .listening && old != .listening { return .start }
+            if old == .listening && new != .listening { return .stop }
+            return nil
+        }
+    }
+
+    private var micText: String? {
+        switch model.mic {
+        case .readying: L.s("voice_getting_ready")
+        case .listening: L.s("voice_listening")
+        case .finishing: L.s("voice_finishing")
+        case .idle: nil
         }
     }
 }
@@ -229,8 +274,10 @@ struct ChatView: View {
                         ForEach(model.ui.rows) { row in
                             ChatRowView(model: model, row: row).id(row.key)
                                 .onAppear { if case .older(_, .available) = row { model.loadOlder() } }
+                                .transition(.motionItem)  // a row that arrives rises in (kb PHN-624)
                         }
                     }
+                    .animation(FerbMotion.item.animation, value: model.ui.rows.map(\.key))
                     .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 12)
                 }
                 .scrollDismissesKeyboard(.interactively)
@@ -243,9 +290,13 @@ struct ChatView: View {
         }
     }
 
-    /// The line under the tabs: the Mac can't be reached, or its unlock is needed (a tap gives it).
+    /// The line under the tabs: the Mac can't be reached, its unlock is on its way or slow (PHN-641), or it is needed
+    /// after the owner cancelled its prompt (a tap gives it).
     private var statusLine: (String, Bool)? {
         if model.ui.link?.phase != .online { return (L.s("chat_offline"), false) }
+        // PHN-641: the Mac's side after the app opened: words only, it clears by itself
+        if model.ui.macLine == .opening { return (L.s("mac_opening"), false) }
+        if model.ui.macLine == .slow { return (L.s("mac_slow"), false) }
         if model.ui.needsMacUnlock { return (L.s("chat_unlock_mac"), true) }
         // FERB may use the Mac's screen until the owner is back (PHN-611; "Ask me again" is on the Mac tab)
         if model.ui.status?.screenUse?.active == true { return (L.s("screen_use_active"), false) }

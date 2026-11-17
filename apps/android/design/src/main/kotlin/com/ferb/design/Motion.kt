@@ -60,6 +60,47 @@ object Motion {
 
     fun <T> skyGlide(): FiniteAnimationSpec<T> = tween(SKY_GLIDE_MS, easing = EaseInOut)
     fun <T> seasonFade(): FiniteAnimationSpec<T> = tween(SEASON_FADE_MS, easing = EaseInOut)
+
+    // ---- PairIt's motion (owner, kb PHN-620; the system: PHN-621..624). One table for both phones:
+    // src/test/resources/motion/motion.json (MotionTableTest; FerbDesign's Motion.swift reads the same). Every screen
+    // moves through MotionHosts.kt, never with numbers of its own.
+
+    /** The tab indicator: PairIt's 650 ms curve 1 - e^(-7.5t)(cos 10t + 0.75 sin 10t), which is this spring's step. */
+    val tab = LabSpring(0.326726, 0.4)
+
+    /** A press at touch-down and its release: PairIt's same curve over 220 ms and 550 ms (GlassUI.pressFeedback). */
+    val pressDown = LabSpring(0.110584, 0.4)
+    val pressUp = LabSpring(0.276460, 0.4)
+
+    /** A sheet comes up from below and goes back down (the lab's panel: 0.30 s, bounce 0.08, interruptible). */
+    val sheet = LabSpring(0.30, 0.08)
+
+    /** What comes in: PairIt's panel, 24 dp and a fade over 220 ms on (.22, 1, .36, 1). */
+    const val ENTER_MS = 220
+    const val ENTER_SHIFT_DP = 24f
+    val EnterEasing = CubicBezierEasing(0.22f, 1f, 0.36f, 1f)
+
+    /** What goes: a 120 ms linear fade (PairIt's notice leaving; its iPhone's reduced motion). */
+    const val EXIT_MS = 120
+
+    /** A list item arriving: up 6 dp and in over 180 ms on (.23, 1, .32, 1) (PairIt's notice). */
+    const val ITEM_MS = 180
+    const val ITEM_SHIFT_DP = 6f
+    val ItemEasing = CubicBezierEasing(0.23f, 1f, 0.32f, 1f)
+
+    /** With the system's motion reduced nothing moves; a change is at most this linear fade (Android: instant). */
+    const val REDUCED_MS = 120
+
+    /** The dimmed page under a sheet (Mobile.swift Sheet). */
+    const val SCRIM_ALPHA = 0.5f
+
+    /** A dismissible sheet let go past this share of its height, or flung down this fast (dp/s), closes. */
+    const val DISMISS_FRACTION = 0.25f
+    const val DISMISS_VELOCITY_DP = 900f
+
+    fun <T> enter(): FiniteAnimationSpec<T> = tween(ENTER_MS, easing = EnterEasing)
+    fun <T> exit(): FiniteAnimationSpec<T> = tween(EXIT_MS, easing = androidx.compose.animation.core.LinearEasing)
+    fun <T> item(): FiniteAnimationSpec<T> = tween(ITEM_MS, easing = ItemEasing)
 }
 
 /**

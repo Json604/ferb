@@ -52,7 +52,18 @@ pub trait LinkKeys: Send + Sync {
 pub struct HelperKeys(pub ferb_identity::Helper);
 
 impl LinkKeys for HelperKeys {
+    /// The helper answers a lookup of an item that isn't there with a failure, so the first start asks whether the
+    /// item is there before reading it (no value read, no prompt): not there is `None`, and the keys are then made.
+    /// Live, 2026-11-17, build 202611171534: the first pairing never started the link ("the Keychain didn't show
+    /// this item to FERB"), because the lookup's failure ended every start before the keys were made.
     fn load(&self) -> Result<Option<ferb_identity::Secret>, String> {
+        if !self
+            .0
+            .present(ferb_identity::Service::Ferb, ACCOUNT)
+            .map_err(|e| e.to_string())?
+        {
+            return Ok(None);
+        }
         self.0
             .lookup(ferb_identity::Service::Ferb, ACCOUNT)
             .map_err(|e| e.to_string())
@@ -381,6 +392,74 @@ mod tests {
         let item: Map<String, Value> =
             serde_json::from_str(store.0.lock().unwrap().as_deref().unwrap()).unwrap();
         assert_eq!(item, first);
+    }
+
+    /// A stand-in for the pinned secrets helper: one item kept in memory. As the real helper, a lookup of an item
+    /// that isn't there fails with nothing said.
+    struct OneItem(
+        std::sync::Mutex<Option<String>>,
+        std::sync::atomic::AtomicUsize,
+    );
+
+    impl ferb_identity::Launcher for OneItem {
+        fn verified(&self, home: &Path) -> ferb_identity::Result<PathBuf> {
+            Ok(home.join("bin/ferb-secrets"))
+        }
+        fn run(
+            &self,
+            _: &Path,
+            body: &[u8],
+        ) -> std::io::Result<(bool, zeroize::Zeroizing<Vec<u8>>)> {
+            let asked: Value = serde_json::from_slice(body).unwrap();
+            assert_eq!(asked["service"], "ferb");
+            assert_eq!(asked["account"], ACCOUNT);
+            let mut item = self.0.lock().unwrap();
+            let (failed, said) = match asked["operation"].as_str().unwrap() {
+                "present" => (false, json!({"present": item.is_some()})),
+                "lookup" => {
+                    self.1.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    match item.as_ref() {
+                        Some(v) => (false, json!({"value": v})),
+                        None => (true, Value::Null),
+                    }
+                }
+                "store" => {
+                    *item = Some(asked["value"].as_str().unwrap().to_owned());
+                    (false, json!({"ok": true}))
+                }
+                other => panic!("the link asked the helper for {other}"),
+            };
+            let out = if said.is_null() {
+                Vec::new()
+            } else {
+                said.to_string().into_bytes()
+            };
+            Ok((failed, zeroize::Zeroizing::new(out)))
+        }
+    }
+
+    /// The live failure of 2026-11-17: on a Mac whose Keychain has no link item yet, the first start makes the keys
+    /// and saves them (it never reads an item that isn't there, which the helper answers with a failure); the next
+    /// start reads the same keys back.
+    // decision: PHN-487
+    #[test]
+    fn the_first_start_makes_the_keys_when_the_keychain_has_no_item_yet() {
+        let keychain = Arc::new(OneItem(
+            std::sync::Mutex::new(None),
+            std::sync::atomic::AtomicUsize::new(0),
+        ));
+        let store = HelperKeys(ferb_identity::Helper::new("/nowhere", keychain.clone()));
+        let first = keys(&store).expect("the first start");
+        assert_eq!(first.len(), 2);
+        assert_eq!(
+            keychain.1.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "an item that isn't there was read"
+        );
+        let saved: Map<String, Value> =
+            serde_json::from_str(keychain.0.lock().unwrap().as_deref().unwrap()).unwrap();
+        assert_eq!(saved, first);
+        assert_eq!(keys(&store).expect("the next start"), first);
     }
 
     /// The profile closes the owner's home and FERB's data but the helper's own folder and the socket.

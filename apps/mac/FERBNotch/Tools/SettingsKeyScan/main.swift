@@ -37,7 +37,7 @@ let rows = found.keys.sorted().map { "        \(literal($0)): \(literal(found[$0
 // paths doesn't list. The debug-only playground isn't in FERB.app and isn't listed.
 let presenterPatterns = [
     #"class \w+: (NSWindow|NSPanel)\b"#, #"(NSWindow|NSPanel|FERBAppWindow)\(contentRect"#, #"NSAlert\(\)"#,
-    #"NSOpenPanel\(\)"#, #"NSSavePanel\(\)"#, #"QLPreviewPanel\.shared\(\)"#, #"checkForUpdates\(nil\)"#,
+    #"NSOpenPanel\(\)"#, #"NSSavePanel\(\)"#, #"QLPreviewPanel\.shared\(\)"#, #"checkForUpdates\("#,
     #"statusItem\(withLength"#, #"\.popUp\(positioning"#, #"func menu\(for event"#, #"\.contextMenu"#,
     #"\bPicker\("#, #"\bMenu\("#, #"\.popover\("#, #"\.alert\("#, #"\.sheet\("#,
 ]

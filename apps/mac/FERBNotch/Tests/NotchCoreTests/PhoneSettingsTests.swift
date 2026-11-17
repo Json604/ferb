@@ -78,6 +78,31 @@ final class PhoneSettingsTests: XCTestCase {
         XCTAssertEqual(page.phones.map(\.name), ["Pixel 8"])
     }
 
+    /// Live, 2026-11-17: the bus masks the six digits like a one-time code, and the page showed "[redacted]". The
+    /// digits come from FERB.app's own phone.list; a masked code is never shown as the code.
+    // decision: PHN-419
+    func testTheSixDigitsComeFromTheListNeverFromTheMaskedEvent() async throws {
+        var masked = asking
+        masked["code"] = "[redacted]"
+        let page = model()
+        await showCode(page)
+        daemon.replies["phone.list"] = list([], pairing: asking)
+        await page.receive(topic: "phone.pair_requested", data: masked)
+        guard case .asking(let request, _) = page.pairing else { return XCTFail("not asking: \(page.pairing)") }
+        XCTAssertEqual(request.code, "482 913")
+
+        // the list couldn't say (yet): no code is shown rather than the mask, and the next list fills it in
+        let late = model()
+        await showCode(late)
+        await late.receive(topic: "phone.pair_requested", data: masked)
+        guard case .asking(let waiting, _) = late.pairing else { return XCTFail("not asking: \(late.pairing)") }
+        XCTAssertEqual(waiting.code, "")
+        daemon.replies["phone.list"] = list([], pairing: asking)
+        await late.tick(); await late.tick()
+        guard case .asking(let filled, _) = late.pairing else { return XCTFail("not asking: \(late.pairing)") }
+        XCTAssertEqual(filled.code, "482 913")
+    }
+
     // decision: PHN-419
     func testNoAndAnUnansweredRequestLeaveThePhoneUnpaired() async throws {
         let page = model()
@@ -299,7 +324,8 @@ final class PhoneSettingsTests: XCTestCase {
         model.receiveBusEvent(["topic": "phone.pair_requested", "data": asking, "at": "2026-11-16T09:00:00+05:30"])
         await fulfillment(of: [posted], timeout: 1)
         let notice = try XCTUnwrap(model.conversation.notices.last)
-        XCTAssertEqual(notice.text, PhoneWords.notchAsks("Pixel 8", code: "482 913"))
+        XCTAssertEqual(notice.text, PhoneWords.notchAsks("Pixel 8"))
+        XCTAssertFalse(notice.text.contains("482"), "the notch's line carries no code")
         XCTAssertEqual(notice.cards?.first?.page, "phone")
         XCTAssertTrue(model.announcedAttentionIDs.contains("phone-pair:r1"))
         model.receiveBusEvent(["topic": "phone.pair_requested", "data": asking])     // once per request

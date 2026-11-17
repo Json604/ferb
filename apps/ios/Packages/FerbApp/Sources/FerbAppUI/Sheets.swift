@@ -12,8 +12,19 @@ struct SheetsView: View {
     let insets: PhoneInsets
 
     var body: some View {
+        // one sheet at a time, up from below and back down; a going one keeps what it last showed (kb PHN-623)
+        MotionSwitch((model.sheet == .scan ? nil : model.sheet).map(SheetKey.init), kind: .sheet) { k in sheet(k.sheet) }
+    }
+
+    /// The sheet as the switch's key (AppSheet is Equatable only).
+    private struct SheetKey: Hashable {
+        let sheet: AppSheet
+        func hash(into h: inout Hasher) { h.combine(String(describing: sheet)) }
+    }
+
+    @ViewBuilder private func sheet(_ shown: AppSheet) -> some View {
         let close = { model.show(nil) }
-        switch model.sheet {
+        switch Optional(shown) {
         case nil, .scan:
             EmptyView()   // the scanner is a page of its own (Root's ScanPage)
         case .asking(let id):
@@ -375,6 +386,8 @@ struct LiveView: View {
                         .padding(.horizontal, 16).padding(.bottom, insets.bottom + 62)
                 }
             }
+            // opened over the page, it rises and fades in, and fades out (kb PHN-623)
+            .presenceFade()
         }
     }
 }

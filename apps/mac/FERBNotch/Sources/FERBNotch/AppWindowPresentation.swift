@@ -20,6 +20,11 @@ import os
 /// never the status item's. Whatever opened it, a FERB window or menu
 /// the window server has only on other Spaces when it opens is moved to the Space showing (`bringHere`); one in FERB's
 /// overlay space or on every Space (the notch, the sticky window) is already here and is never touched.
+///
+/// A window that blocks FERB.app (APP-948, owner 2026-11-17 after Sparkle's alert hid behind a full-screen app and
+/// FERB took no clicks): whatever runs it, FERB's code or a framework, an app-modal window or a sheet is kept on the
+/// Space showing, above FERB's own windows, on screen and key (`raiseBlocking`), and Quit stays in FERB's menu
+/// (`ModalSafeQuit`).
 @MainActor
 enum AppWindowPresentation {
     // MARK: - The window server and FERB's app state (tests stand in their own and never put a window on screen)
@@ -44,6 +49,13 @@ enum AppWindowPresentation {
     /// AppKit's own modal runs, behind `runModal` (tests stand in their own).
     static var runAlert: (NSAlert) -> NSApplication.ModalResponse = { $0.runModal() }
     static var runPanel: (NSSavePanel) -> NSApplication.ModalResponse = { $0.runModal() }
+    /// The window AppKit runs modally now, whoever started it (tests stand in their own).
+    static var modalWindow: () -> NSWindow? = { NSApp.modalWindow }
+    /// FERB's windows on screen with a sheet attached (a sheet blocks its window).
+    static var sheetParents: () -> [NSWindow] = { NSApp.windows.filter { $0.isVisible && $0.attachedSheet != nil } }
+    /// The displays' usable frames, and the one with the menu bar's focus.
+    static var screens: () -> [CGRect] = { NSScreen.screens.map(\.visibleFrame) }
+    static var mainScreen: () -> CGRect? = { (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame }
 
     /// The sticky window's frame while window mode shows it (PanelCoordinator sets it): a window brought on screen
     /// opens beside it rather than over or under it, where the screen has room (APP-774).
@@ -157,6 +169,7 @@ enum AppWindowPresentation {
     /// The status item's menu is about to open (its delegate's menuWillOpen): its window is kept on the Space showing.
     static func menuOpening() {
         start()
+        ownerAsked()
         beginMoment(seen: nil, until: now().addingTimeInterval(momentLength))
     }
 
@@ -204,9 +217,11 @@ enum AppWindowPresentation {
             MainActor.assumeIsolated { if event.window != nil { pressed() } }
             return event
         }
+        startBlockingWatch()
     }
 
     static func menuBegan(_ menu: ObjectIdentifier) {
+        ownerAsked()
         openMenus.insert(menu)
         beginMoment(seen: nil, until: watchUntil ?? now())
     }
@@ -218,6 +233,7 @@ enum AppWindowPresentation {
 
     /// A press in one of FERB's windows.
     static func pressed() {
+        ownerAsked()
         beginMoment(seen: nil, until: now().addingTimeInterval(momentLength))
     }
 
@@ -255,6 +271,130 @@ enum AppWindowPresentation {
         seen = []
         timer?.invalidate()
         timer = nil
+    }
+
+    // MARK: - A window that blocks FERB.app (APP-948)
+
+    /// How long after the owner's own press in a FERB window or use of a FERB menu a blocking window that opens counts
+    /// as one they asked for, which FERB may become the active app for (APP-797's Dock rule still applies).
+    nonisolated static let askedLength: TimeInterval = 30
+    /// How often the rule looks again while a modal window runs (it runs only in AppKit's modal-panel mode).
+    nonisolated static let modalLookInterval: TimeInterval = 0.25
+    private static var askedAt: Date?
+    /// The modal window the rule has raised (its first look activates, later looks only keep it here).
+    private static var raisedModal: ObjectIdentifier?
+    private static var modalObserver: CFRunLoopObserver?
+    private static var modalTimer: Timer?
+    private static var blockingObservers: [NSObjectProtocol] = []
+
+    /// The owner pressed in a FERB window or used one of FERB's menus.
+    static func ownerAsked() { askedAt = now() }
+
+    static var ownerJustAsked: Bool { askedAt.map { now().timeIntervalSince($0) <= askedLength } ?? false }
+
+    /// Whether the rule's modal watch is installed (tests read it).
+    static var watchesBlocking: Bool { modalObserver != nil }
+
+    /// Installed once with the rule's other observers. A modal window runs AppKit's run loop in the modal-panel mode
+    /// only, so a run-loop observer there (each time the loop is about to wait) and a timer there (a Space change wakes
+    /// nothing in FERB) look at it at once and every `modalLookInterval` while it runs, and cost nothing otherwise. A
+    /// sheet begins with a notification; a Space change is the workspace's.
+    private static func startBlockingWatch() {
+        guard modalObserver == nil else { return }
+        let mode = CFRunLoopMode(RunLoop.Mode.modalPanel.rawValue as CFString)
+        let turn = CFRunLoopActivity.beforeWaiting.rawValue
+        let observer = CFRunLoopObserverCreateWithHandler(nil, turn, true, 0) { _, _ in
+            MainActor.assumeIsolated { lookAtBlocking(onlyNew: true) }
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, mode)
+        modalObserver = observer
+        let timer = Timer(timeInterval: modalLookInterval, repeats: true) { _ in
+            MainActor.assumeIsolated { lookAtBlocking() }
+        }
+        RunLoop.main.add(timer, forMode: .modalPanel)
+        modalTimer = timer
+        blockingObservers.append(NotificationCenter.default.addObserver(
+            forName: NSWindow.willBeginSheetNotification, object: nil, queue: nil) { note in
+            guard let parent = note.object as? NSWindow else { return }
+            // the sheet is attached once AppKit has begun it
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { raiseBlocking(parent, first: true, "a sheet's window") }
+            }
+        })
+        blockingObservers.append(NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: nil) { _ in
+            MainActor.assumeIsolated { spaceChangedUnderBlocking() }
+        })
+    }
+
+    /// One look: the modal window running now, if any, is raised (its first look in full). `onlyNew`: the run loop's
+    /// look, at every turn, acts only on a modal window it hasn't raised yet; the timer's keeps it here.
+    static func lookAtBlocking(onlyNew: Bool = false) {
+        guard let modal = modalWindow() else { raisedModal = nil; return }
+        let first = raisedModal != ObjectIdentifier(modal)
+        guard first || !onlyNew else { return }
+        raisedModal = ObjectIdentifier(modal)
+        raiseBlocking(modal, first: first, "a modal window")
+    }
+
+    /// The owner changed Space: a modal window and every FERB window with a sheet come along.
+    static func spaceChangedUnderBlocking() {
+        lookAtBlocking()
+        for parent in sheetParents() where parent !== modalWindow() {
+            raiseBlocking(parent, first: false, "a sheet's window")
+        }
+    }
+
+    /// The rule for a blocking window (a modal window, or the window a sheet blocks): it may be on a full-screen app's
+    /// Space and goes to the Space showing (APP-804's behaviors, one Space at a time); a modal window sits above FERB's
+    /// own windows (set on its first look); it is put on a display if it is off every one; it is ordered in and made
+    /// key. On its first look FERB becomes the active app only if the owner just asked (`ownerJustAsked`) and FERB may
+    /// activate without a Space switch (`mayActivate`, APP-797); otherwise it shows in front and keyboard focus waits
+    /// for the owner's click.
+    static func raiseBlocking(_ window: NSWindow, first: Bool, _ what: String) {
+        let wanted: NSWindow.CollectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
+        if !window.collectionBehavior.contains(.canJoinAllSpaces), !window.collectionBehavior.isSuperset(of: wanted) {
+            window.collectionBehavior.insert(wanted)
+        }
+        let isModal = window === modalWindow()
+        if isModal, first {
+            let others = visibleWindows().filter { other in
+                other !== window && !(window.childWindows ?? []).contains(other) && other.level < .popUpMenu
+                    && !spacesOf(other).isEmpty                  // FERB's overlay windows are above every Space anyway
+            }
+            let level = blockingLevel(current: window.level, others: others.map { $0.level })
+            if level != window.level { window.level = level }
+        }
+        if let placed = onScreen(window.frame, screens: screens(), main: mainScreen()) {
+            window.setFrame(placed, display: false)
+        }
+        let elsewhere = isElsewhere(window)
+        if first || elsewhere || !isShowing(window) { orderIn(window) }
+        bringHere(window, what)
+        var activates = false
+        if first, !isActive(), ownerJustAsked, mayActivate(inDockBefore: policy() == .regular) {
+            activate()
+            activates = true
+        }
+        if first || (isActive() && !window.isKeyWindow) { makeKey(window) }
+        if first {
+            log.notice("FERB is blocked by \(what, privacy: .public) \(window.windowNumber, privacy: .public): on the Space showing, level \(window.level.rawValue, privacy: .public), owner asked \(ownerJustAsked, privacy: .public), activates \(activates, privacy: .public)")
+        }
+    }
+
+    /// A modal window's level: at least AppKit's modal-panel level and above every FERB window under the menus' level.
+    static func blockingLevel(current: NSWindow.Level, others: [NSWindow.Level]) -> NSWindow.Level {
+        var wanted = max(current.rawValue, NSWindow.Level.modalPanel.rawValue)
+        if let top = others.map(\.rawValue).max() { wanted = max(wanted, top + 1) }
+        return NSWindow.Level(rawValue: min(wanted, NSWindow.Level.popUpMenu.rawValue - 1))
+    }
+
+    /// Where a blocking window goes when it is off every display: centred on the display with the menu bar's focus.
+    /// nil when some display shows it.
+    static func onScreen(_ frame: CGRect, screens: [CGRect], main: CGRect?) -> CGRect? {
+        guard !screens.contains(where: { $0.intersects(frame) }), let main else { return nil }
+        let width = min(frame.width, main.width), height = min(frame.height, main.height)
+        return CGRect(x: main.midX - width / 2, y: main.midY - height / 2, width: width, height: height)
     }
 
     /// A frame for `frame` beside `chat` (left or right, whichever side has more room) inside `visible`, as wide and
@@ -342,8 +482,8 @@ extension AppWindowPresentation {
         // Quick Look and the update window
         .init(name: "Quick Look of an artifact", mechanism: .opening, file: "PanelCoordinator.swift",
               code: "QLPreviewPanel.shared()"),
-        .init(name: "Sparkle's update window (Install Update…)", mechanism: .opening, file: "SparkleUpdater.swift",
-              code: "checkForUpdates(nil)"),
+        .init(name: "Sparkle's update window (the owner's Install for an offered update)", mechanism: .opening,
+              file: "SparkleUpdater.swift", code: "updater.checkForUpdates()"),
         // Menus
         .init(name: "The menu bar icon's menu", mechanism: .menu, file: "PanelCoordinator.swift",
               code: "statusItem(withLength"),
@@ -390,4 +530,23 @@ extension AppWindowPresentation {
               code: ".alert("),
     ]
     // What counts as a presenter in the sources is listed by the build's scan (Tools/SettingsKeyScan, SourcePresenters).
+}
+
+/// The menu bar icon's Quit, kept enabled while a modal window runs (APP-949). AppKit enables a menu item during a
+/// modal session only when its target works when modal, so the owner's menu was all greyed out under Sparkle's
+/// alert; this target does, and quitting from inside a modal run works (AppKit ends the app; the delegate's
+/// applicationShouldTerminate still decides, an update waiting included).
+@MainActor
+final class ModalSafeQuit: NSObject {
+    static let shared = ModalSafeQuit()
+
+    @objc var worksWhenModal: Bool { true }
+
+    @objc func quit(_ sender: Any?) { NSApp.terminate(sender) }
+
+    /// Makes `item` FERB's Quit.
+    func take(_ item: NSMenuItem) {
+        item.target = self
+        item.action = #selector(quit(_:))
+    }
 }

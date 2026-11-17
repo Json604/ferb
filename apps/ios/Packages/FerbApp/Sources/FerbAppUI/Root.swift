@@ -66,13 +66,24 @@ struct RootView: View {
                                     SheetsView(model: model, shell: shell, insets: insets)
                                 }
                             }, page: {
-                                page(gate, insets: insets, moment: moment)
+                                // the gate's pages change with a rise and a fade; the lock and the start replace
+                                // everything at once (PHN-8), and the page after the lock comes in (kb PHN-623)
+                                MotionSwitch(Screen(gate: gate, scan: gate == .pair && model.sheet == .scan && !model.ui.pairing),
+                                             instant: { $0.gate == .locked || $0.gate == .starting }) { s in
+                                    page(s.gate, insets: insets, moment: moment)
+                                }
                             })
                     .preferredColorScheme(moment.ink.topIsDark ? .light : .dark)
             }
         }
         .ferbPrivacy(hideWhenCaptured: model.settings.blockScreenshots, mustHide: model.mustSecure)
         .task(id: model.ui.gate) { await askNotificationsOnce() }
+    }
+
+    /// Which page shows: the gate's, and the scanner as a page of the pairing gate of its own (MotionSwitch's key).
+    private struct Screen: Hashable {
+        let gate: Gate
+        let scan: Bool
     }
 
     @ViewBuilder private func page(_ gate: Gate, insets: PhoneInsets, moment: SkyMoment) -> some View {
@@ -149,47 +160,60 @@ struct PairView: View {
     }
 }
 
-/// The scanner as a page of its own (Android's Scanner): the camera in the QR frame, asked for in context after the
-/// app's own words; without a camera (the simulator) or with it refused, the typed code.
+/// The scanner as a page of its own (Android's Scanner and ScannerPage, one look, kb PHN-619): the camera in the QR
+/// frame (its picture clipped to the frame's well, kb PHN-618), or why the camera is needed, and under it the lab's
+/// white card with the title, Allow the camera while it isn't asked, Type code and Cancel. Without a camera (the
+/// simulator) or with it refused, the typed code.
 struct ScanPage: View {
     @Bindable var model: AppModel
     let insets: PhoneInsets
     @State private var access = CameraAccess.now
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Spacer()
-                CloseButton { model.show(nil) }
-            }
-            .padding(.horizontal, 16).padding(.top, 8)
-            Spacer()
-            switch access {
-            case .allowed:
-                QrFrame(hint: L.s("scan_title")) {
-                    QRScanner { code in model.pair(code) }
-                }
-            default:
-                Card(padding: 20) {
-                    VStack(alignment: .leading, spacing: 14) {
-                        Text(L.s("scan_title")).type(24, .semibold)
-                        Text(L.s(access == .none ? "scan_no_camera" : access == .denied ? "scan_denied" : "scan_camera_why"))
-                            .type(15.5, .regular, Ink.detail).fixedSize(horizontal: false, vertical: true)
-                        if access == .notAsked {
-                            Pill(title: L.s("scan_allow"), kind: .black, symbol: "camera") {
-                                Task { _ = await CameraAccess.ask(); access = CameraAccess.now }
-                            }
-                        }
-                        Pill(title: L.s("type_code_title"), kind: access == .notAsked ? .grey : .black, symbol: "keyboard") {
-                            model.show(.typeCode)
-                        }
-                    }
-                }
-                .padding(.horizontal, 16)
-            }
-            Spacer()
+        ScanPageLayout(access: access, insets: insets,
+                       onAllow: { Task { _ = await CameraAccess.ask(); access = CameraAccess.now } },
+                       onTypeCode: { model.show(.typeCode) },
+                       onCancel: { model.show(nil) }) {
+            QRScanner { code in model.pair(code) }
         }
-        .padding(.bottom, insets.bottom + 8)
+    }
+}
+
+/// ScanPage as it is drawn (stateless, for the snapshots).
+struct ScanPageLayout<Preview: View>: View {
+    let access: CameraAccess
+    let insets: PhoneInsets
+    let onAllow: () -> Void
+    let onTypeCode: () -> Void
+    let onCancel: () -> Void
+    @ViewBuilder let preview: () -> Preview
+    @Environment(\.skyInk) private var ink
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Spacer()
+            if access == .allowed {
+                QrFrame(hint: L.s("scan_hint"), live: true, preview: preview)
+                    .padding(.horizontal, 40)
+            } else {
+                Text(L.s(access == .none ? "scan_no_camera" : access == .denied ? "scan_denied" : "scan_camera_why"))
+                    .type(16, .medium, ink.top).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 32)
+            }
+            Spacer()
+            Card(padding: 20) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(L.s("scan_title")).type(24, .semibold)
+                    if access == .notAsked {
+                        Pill(title: L.s("scan_allow"), kind: .black, symbol: "qrcode.viewfinder", onClick: onAllow)
+                    }
+                    HStack { PairAction(symbol: "keyboard", title: L.s("scan_type_code"), onClick: onTypeCode) }
+                    Pill(title: L.s("cancel"), kind: .plain, height: 44, onClick: onCancel)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, insets.bottom + 8)
+        }
     }
 }
 

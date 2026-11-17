@@ -73,6 +73,7 @@ private sealed interface Page {
     data object Index : Page
     data class Screen(val screen: LabScreen) : Page
     data class Showcase(val name: String) : Page
+    data object Motion : Page
 }
 
 /** The places the lab offers, and the phone's own time zone's place (PHN-420's fallback). */
@@ -122,6 +123,11 @@ private fun Gallery() {
             val bars = WindowInsets.systemBars.asPaddingValues()
             val insets = PhoneInsets(bars.calculateTopPadding(), WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding())
             LabScreenView(p.screen, moment, labHomeTexts(moment), insets, chrome = false, glide = !playing)
+        }
+        Page.Motion -> {
+            SystemBars(moment.ink)
+            val bars = WindowInsets.systemBars.asPaddingValues()
+            MotionDemo(moment, PhoneInsets(bars.calculateTopPadding(), WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()))
         }
         is Page.Showcase -> {
             SystemBars(SkyInk.WHITE)
@@ -190,6 +196,8 @@ private fun Index(
                 CardRow(s.title, s.note, onClick = { onOpen(Page.Screen(s)) }, trailing = { Opens() })
             }
         }
+        PhoneText("Motion", 15f, FerbType.Semibold, Ink.white, Modifier.padding(top = 10.dp))
+        Card { CardRow("Tabs and sheets", "The app's motion (kb PHN-620..624) over the lab's pages: tap the tabs, the rows, the Mac", onClick = { onOpen(Page.Motion) }, trailing = { Opens() }) }
         PhoneText("Tokens and components", 15f, FerbType.Semibold, Ink.white, Modifier.padding(top = 10.dp))
         Card {
             SHOWCASES.forEachIndexed { i, (name, _) ->

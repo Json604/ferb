@@ -14,6 +14,7 @@ import com.ferb.app.model.VoiceEvent
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -53,6 +54,23 @@ class SpeechOnPhoneTest {
             val after = events.size
             Thread.sleep(1_000)
             assertEquals("nothing comes after stop", after, events.size)
+            // PHN-643: the microphone said when it was ready (or why not), and how loud it heard
+            val ready = events.count { it is VoiceEvent.Ready }
+            val levels = events.count { it is VoiceEvent.Level }
+            Log.i("FERBTest", "ready=$ready levels=$levels failures=${events.filterIsInstance<VoiceEvent.Failed>().map { it.code }}")
+            assertTrue("ready or a failure with its code, never silence", ready > 0 || events.any { it is VoiceEvent.Failed })
+        }
+        // PHN-643: a press right after the last one (the recogniser may still be busy) gets ready or a code, never nothing
+        run {
+            val events = ArrayList<VoiceEvent>()
+            val settled = CountDownLatch(1)
+            instrumentation.runOnMainSync {
+                speech.startTask(kind, 1) { e -> events += e; if (e is VoiceEvent.Ready || e is VoiceEvent.Failed) settled.countDown() }
+            }
+            val answered = settled.await(8, TimeUnit.SECONDS)
+            Log.i("FERBTest", "second press: answered=$answered events=${events.filter { it !is VoiceEvent.Level }}")
+            instrumentation.runOnMainSync { speech.stop() }
+            assertTrue("the second press gets ready or a code", answered)
         }
     }
 }

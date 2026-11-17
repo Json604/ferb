@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import com.ferb.app.FerbViewModel
 import com.ferb.app.R
 import com.ferb.app.Sheet
+import com.ferb.design.presenceFade
 import com.ferb.app.model.LiveView
 import com.ferb.design.FerbIcons
 import com.ferb.design.FerbType
@@ -55,7 +56,8 @@ fun LiveScreen(vm: FerbViewModel, insets: PhoneInsets) {
 /** The page itself (drawn from a [LiveView]; the screenshots hold it). */
 @Composable
 fun LivePage(v: LiveView, insets: PhoneInsets, onClose: () -> Unit, onStop: () -> Unit, onAgain: (() -> Unit)?) {
-    Column(Modifier.fillMaxSize().background(Color.Black).padding(top = insets.top + 8.dp, bottom = insets.bottom + 8.dp)) {
+    // opened over the page, it rises and fades in, and fades out (kb PHN-623)
+    Column(Modifier.presenceFade().fillMaxSize().background(Color.Black).padding(top = insets.top + 8.dp, bottom = insets.bottom + 8.dp)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             PhoneText(stringResource(R.string.live_title), 22f, FerbType.Semibold, Ink.white, Modifier.weight(1f).semantics { heading() })
             CloseButton(onClose)

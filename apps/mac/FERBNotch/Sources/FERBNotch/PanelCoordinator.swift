@@ -2027,6 +2027,9 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
                 let item = NSMenuItem(title: title, action: #selector(menuAction(_:)), keyEquivalent: key)
                 item.target = self
                 item.representedObject = action.rawValue
+                // Quit stays enabled while a modal window runs (AppKit greys every item whose target doesn't work
+                // when modal): the owner can always quit (APP-949)
+                if action == .quit { ModalSafeQuit.shared.take(item) }
                 menu.addItem(item)
             }
         }

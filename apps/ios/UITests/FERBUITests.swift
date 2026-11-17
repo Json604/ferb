@@ -32,20 +32,31 @@ final class FERBUITests: XCTestCase {
         XCTAssertTrue(shielded.isHittable)
     }
 
-    // decision: PHN-8, PHN-505
-    func testLaunchIsLockedThenOnePromptOpensThePairingPage() throws {
+    /// Opening FERB asks by itself: the stand-in prompt passes at once and the pairing page shows, nothing tapped.
+    // decision: PHN-8, PHN-505, PHN-615
+    func testLaunchAsksByItselfAndOpensThePairingPage() throws {
         let app = launch()
-        XCTAssertTrue(app.staticTexts["FERB is locked"].waitForExistence(timeout: 30), "nothing of FERB's before the lock")
-        XCTAssertFalse(app.staticTexts["Use FERB from your phone"].exists)
-        app.buttons["unlock"].tap()
         XCTAssertTrue(app.staticTexts["Use FERB from your phone"].waitForExistence(timeout: 30), "a fresh install pairs first")
+    }
+
+    /// A cancelled prompt leaves the lock page with its button and does not come back by itself; the button asks.
+    // decision: PHN-8, PHN-505, PHN-615, PHN-616
+    func testACancelledPromptWaitsForTheButton() throws {
+        let app = launch(["-FERBUITestCancelPrompts", "1"])
+        XCTAssertTrue(app.staticTexts["FERB is locked"].waitForExistence(timeout: 30), "nothing of FERB's before the lock")
+        XCTAssertTrue(app.buttons["unlock"].waitForExistence(timeout: 10))
+        // a second prompt by itself would pass at once and open the pairing page
+        XCTAssertFalse(app.staticTexts["Use FERB from your phone"].waitForExistence(timeout: 4), "no prompt again after a cancel")
+        XCUIDevice.shared.orientation = .landscapeLeft
+        XCUIDevice.shared.orientation = .portrait
+        XCTAssertFalse(app.staticTexts["Use FERB from your phone"].waitForExistence(timeout: 3), "none after a turn of the phone")
+        app.buttons["unlock"].tap()
+        XCTAssertTrue(app.staticTexts["Use FERB from your phone"].waitForExistence(timeout: 30))
     }
 
     // decision: PHN-442, PHN-564
     func testATypedCodeTheMacNeverMadeIsRefusedInPlainWords() throws {
         let app = launch()
-        XCTAssertTrue(app.buttons["unlock"].waitForExistence(timeout: 30))
-        app.buttons["unlock"].tap()
         let typeCode = app.buttons["Type code"]
         XCTAssertTrue(typeCode.waitForExistence(timeout: 30))
         typeCode.tap()
@@ -58,11 +69,9 @@ final class FERBUITests: XCTestCase {
     }
 
     /// The scanner on a phone without a camera (the simulator) says so and offers the typed code.
-    // decision: PHN-564
+    // decision: PHN-564, PHN-619
     func testTheScannerWithoutACameraOffersTheTypedCode() throws {
         let app = launch()
-        XCTAssertTrue(app.buttons["unlock"].waitForExistence(timeout: 30))
-        app.buttons["unlock"].tap()
         let scan = app.buttons["Scan the code"]
         XCTAssertTrue(scan.waitForExistence(timeout: 30))
         scan.tap()
@@ -73,8 +82,6 @@ final class FERBUITests: XCTestCase {
     // decision: PHN-15, PHN-597
     func testComingBackSoonStaysOpen() throws {
         let app = launch()
-        XCTAssertTrue(app.buttons["unlock"].waitForExistence(timeout: 30))
-        app.buttons["unlock"].tap()
         XCTAssertTrue(app.staticTexts["Use FERB from your phone"].waitForExistence(timeout: 30))
         XCUIDevice.shared.press(.home)
         app.activate()

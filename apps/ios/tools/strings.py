@@ -61,6 +61,7 @@ IOS = {
     "voice_text_service": "Hold the microphone while you speak, and let go when you're done. Your words appear in the message box, so you can check them before you send. This iPhone turns speech into words with Apple's speech recognition, which may send the sound of your voice to Apple to do it. FERB records and keeps nothing, and your voice never goes to your Mac.",
     "voice_ask_next": "iOS asks next whether FERB may use the microphone and speech recognition.",
     "voice_denied": "The microphone or speech recognition is off for FERB, so it can't hear you. You can turn them on in Settings.",
+    "voice_language": "This iPhone has no speech for your language on the phone itself yet. Add it in Settings under General, Keyboard, Dictation Languages, then try again.",
 }
 
 # Plurals (Android <plurals>): the same, with %2$@ where Android says "your fingerprint" (L.plural fills it).

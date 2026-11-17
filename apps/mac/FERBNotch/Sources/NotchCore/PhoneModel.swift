@@ -66,6 +66,16 @@ public struct PairRequest: Equatable {
         name = (value["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? PhoneWords.unnamedPhone
         code = value["code"] as? String ?? ""
     }
+
+    private init(requestID: String?, phone: String, name: String, code: String) {
+        self.requestID = requestID; self.phone = phone; self.name = name; self.code = code
+    }
+
+    /// Six digits as "123 456", or nothing: a code the bus masked is never shown as if it were the code.
+    var withoutMaskedCode: PairRequest {
+        let digits = code.filter(\.isNumber)
+        return digits.count == 6 ? self : PairRequest(requestID: requestID, phone: phone, name: name, code: "")
+    }
 }
 
 /// `phone.list`.
@@ -526,7 +536,8 @@ public final class PhoneSettingsModel: ObservableObject {
         case .asking(let waiting, _):
             // the daemon no longer holds it (the phone left, another took its place, its time ran out)
             if list.pairing == nil { pairing = .ended(PhoneWords.requestEnded) }
-            else if let request = list.pairing, request.requestID != waiting.requestID {
+            else if let request = list.pairing, request.requestID != waiting.requestID || request.code != waiting.code {
+                // another request, or the same one whose digits the app didn't have yet
                 pairing = .asking(request, until: current.addingTimeInterval(list.pairingSecondsLeft ?? Self.answerWindow))
             }
         }
@@ -606,7 +617,15 @@ public final class PhoneSettingsModel: ObservableObject {
         case "phone.pair_requested":
             guard let request = PairRequest(data) else { return }
             clock = now()
-            pairing = .asking(request, until: clock.addingTimeInterval(Self.answerWindow))
+            // The bus masks the six digits like any one-time code (every event is redacted once for all its
+            // consumers), so the event only says a phone is waiting: the digits come from FERB.app's own phone.list.
+            // Live, 2026-11-17: the page and the notch showed "[redacted]" where the code belongs.
+            if let list = try? await service.list(), let asked = list.pairing {
+                apply(list)
+                pairing = .asking(asked, until: clock.addingTimeInterval(list.pairingSecondsLeft ?? Self.answerWindow))
+            } else {
+                pairing = .asking(request.withoutMaskedCode, until: clock.addingTimeInterval(Self.answerWindow))
+            }
         case "phone.removed", "phone.unused":
             await loadPhones()
             await loadActivity()
@@ -796,8 +815,9 @@ public enum PhoneWords {
     public static let starting = "Making a code…"
 
     // the notch
-    public static func notchAsks(_ name: String, code: String) -> String {
-        "“\(name)” wants to pair with FERB. Check that it shows \(code), then answer in Settings → Phone."
+    /// The notch's line carries no code: a chat notice is kept and masked like any text; the digits are on the page.
+    public static func notchAsks(_ name: String) -> String {
+        "“\(name)” wants to pair with FERB. Compare its code and answer in Settings → Phone."
     }
     public static let openPhoneSettings = "Open Settings → Phone"
 

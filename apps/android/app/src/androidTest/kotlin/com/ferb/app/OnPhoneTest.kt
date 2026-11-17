@@ -83,21 +83,42 @@ class OnPhoneTest {
         }
     }
 
-    // decision: PHN-8, PHN-13, PHN-447, PHN-505
+    // decision: PHN-8, PHN-13, PHN-447, PHN-505, PHN-615, PHN-616
     @Test
     fun with_a_screen_lock_it_opens_on_the_prompt_and_shows_pairing() {
         shell("locksettings set-pin 1111")
+        val app = context.applicationContext as FerbApplication
+        // a fresh arrival: the process away from the screen (no activity of an earlier test left), and locked
+        val end = System.currentTimeMillis() + 5_000
+        while (System.currentTimeMillis() < end && app.session.front.value) Thread.sleep(100)
+        instrumentation.runOnMainSync { app.session.lockNow() }
         ActivityScenario.launch(MainActivity::class.java).use {
-            val unlock = device.wait(Until.findObject(By.text("Unlock with fingerprint")), 15_000)
-            assertNotNull("the lock screen", unlock)
+            // the system's own prompt by itself on open (the PIN: the emulator has no fingerprint), nothing tapped
+            assertNotNull("the prompt by itself on open", device.wait(Until.findObject(By.text("Unlock FERB")), 15_000))
             assertTrue("nothing private before the unlock", device.findObject(By.text("Use FERB from your phone")) == null)
-            unlock.click()
-            // the system's own prompt: the PIN (the emulator has no fingerprint)
-            device.wait(Until.hasObject(By.pkg("com.android.systemui")), 5_000)
+            device.pressBack() // cancelled
+            assertNotNull("the lock page stays with its button", device.wait(Until.findObject(By.text("Unlock with fingerprint")), 5_000))
+            assertFalse("no prompt again after a cancel", device.wait(Until.hasObject(By.text("Unlock FERB")), 3_000))
+            device.setOrientationLandscape()
+            Thread.sleep(1_500)
+            device.setOrientationNatural()
+            assertFalse("no prompt after a turn of the screen", device.wait(Until.hasObject(By.text("Unlock FERB")), 3_000))
+            device.wait(Until.findObject(By.text("Unlock with fingerprint")), 5_000).click()
+            assertNotNull("the button asks", device.wait(Until.findObject(By.text("Unlock FERB")), 5_000))
             Thread.sleep(1_000)
             shell("input text 1111")
             shell("input keyevent 66")
             assertNotNull("pairing after the unlock", device.wait(Until.findObject(By.text("Use FERB from your phone")), 15_000))
+            // the owner's own lock from inside: the page waits for his tap
+            instrumentation.runOnMainSync { app.session.lockNow() }
+            assertNotNull("his own lock", device.wait(Until.findObject(By.text("Unlock with fingerprint")), 5_000))
+            assertFalse("no prompt by itself after his own lock", device.wait(Until.hasObject(By.text("Unlock FERB")), 3_000))
+            device.findObject(By.text("Unlock with fingerprint")).click()
+            assertNotNull(device.wait(Until.findObject(By.text("Unlock FERB")), 5_000))
+            Thread.sleep(1_000)
+            shell("input text 1111")
+            shell("input keyevent 66")
+            assertNotNull(device.wait(Until.findObject(By.text("Use FERB from your phone")), 15_000))
             device.findObject(By.text("Type code")).click()
             assertNotNull("the type-code sheet", device.wait(Until.findObject(By.text("Type the code")), 5_000))
             device.pressBack()

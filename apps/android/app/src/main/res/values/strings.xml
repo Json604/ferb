@@ -48,6 +48,8 @@
     <string name="scan_camera_why">FERB uses the camera only to read the code on your Mac. Nothing is recorded.</string>
     <string name="scan_allow">Allow the camera</string>
     <string name="scan_denied">The camera is off for FERB. You can type the code instead.</string>
+    <string name="scan_hint">Point your phone at the code on your Mac.</string>
+    <string name="scan_type_code">Type code</string>
     <string name="help_title">Pairing with your Mac</string>
     <string name="help_text">FERB needs to be open on your Mac. In FERB, open Settings, then Phone, and choose Pair a phone. Scan the code it shows, or type it here. Both screens then show the same six digits: say yes on your Mac only if they match.</string>
     <string name="mac_app_url">https://ferb.kartikey.xyz</string>
@@ -58,7 +60,9 @@
     <!-- chat -->
     <string name="chat_placeholder">Add to this</string>
     <string name="chat_offline">Your Mac can\'t be reached. What you send waits here until it\'s back.</string>
-    <string name="chat_unlock_mac">Unlock to see what\'s new on your Mac</string>
+    <string name="chat_unlock_mac">Your Mac\'s chat is locked. Tap here to unlock it.</string>
+    <string name="mac_opening">Reaching your Mac…</string>
+    <string name="mac_slow">Your Mac is slow to answer. This updates by itself when it does.</string>
     <string name="outbox_waiting">Waiting for your Mac</string>
     <string name="outbox_waiting_unlock">Waiting for you to unlock</string>
     <string name="outbox_sending">Sending…</string>
@@ -97,6 +101,13 @@
     <string name="voice_speak">Hold to speak</string>
     <string name="voice_denied">The microphone is off for FERB, so it can\'t hear you. You can turn it on in Android\'s settings.</string>
     <string name="voice_unavailable">This phone has no speech recognition FERB can use. Type your message instead.</string>
+    <string name="voice_getting_ready">Getting ready…</string>
+    <string name="voice_finishing">Getting your last words…</string>
+    <string name="voice_no_speech">FERB didn\'t hear anything. Hold the microphone, wait for Listening…, then speak.</string>
+    <string name="voice_network">The phone\'s speech service can\'t be reached right now. Try again in a moment, or type your message.</string>
+    <string name="voice_mic_busy">Another app is using the microphone. Close it and try again.</string>
+    <string name="voice_busy">The phone\'s speech recognition is busy. Try again in a moment.</string>
+    <string name="voice_language">This phone has no speech for your language on the phone itself yet. To keep it on the phone, add your language\'s offline speech in Android\'s settings, then try again.</string>
     <string name="voice_failed">FERB didn\'t catch that. Hold the microphone and try again, or type your message.</string>
     <string name="not_on_shared_relay">Not on the shared relay. This waits until your phone reaches your Mac directly or through your own relay.</string>
     <string name="needs_pairing_again">This needs your fingerprint, and this phone\'s fingerprint key changed. Pair this phone again to do it here.</string>

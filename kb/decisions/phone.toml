@@ -2679,3 +2679,145 @@ words_source = "Owner 2026-11-17. On the question riding in the push, encrypted 
 rule = "Changes PHN-421's push part (stage 5, not built). Android gets push as iPhone does; Stay connected stays as an extra. The Mac encrypts the question for the paired phone; the sender, Apple and Google carry only that ciphertext; the phone decrypts and shows it with its answers (PHN-415, PHN-417, PHN-422 unchanged; a hidden answer's content never travels). If it can't decrypt in time it shows a plain line. Answers go over the link, never the sender. The sender runs on the owner's server for now, its address a setting."
 why = "Phone makers stop background apps; iPhone's silent wake-ups are throttled, so wake-then-fetch is unreliable there."
 untestable = "Stage 5 is not built; its tests come with it (T-1247)."
+
+# ---- 2026-11-17: the owner's first look at the Android app on his phone (the lock's prompt, the scanner)
+
+[PHN-615]
+title = "The phone apps show the fingerprint or Face ID prompt by themselves when they open locked"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "why did the ferb app didnt open the fingerprint modal automatically on app open??? i thik it shoudl, cuase thats what iv eexpoericend in otehr apps too. BUt the button remains there"
+words_source = "Owner 2026-11-17, after installing the Android debug app on his moto g85 5G (Android 15)."
+rule = "When the app opens locked, and when it comes back locked (after the 5-minute relock, PHN-15), the phone's own prompt (fingerprint, face or PIN; Face ID, Touch ID or passcode) appears by itself, as in other apps. The lock page and its button stay for when he cancels it or it fails."
+why = "The owner's expectation from other apps: opening the app is the request to unlock it; one tap fewer each time."
+untestable = "The owner's ask; PHN-616 holds the mechanism and its tests."
+
+[PHN-616]
+title = "The prompt by itself: once per arrival, on the owner's screen, never after a cancel or his own lock"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For PHN-615, PHN-505. AppLock: arriving in front locked makes one prompt due, taken once; leaving clears it; the owner's own lock makes none. Shown only while Android's activity is resumed and focused (iOS: scene active), never during another unlock; a cancel leaves the page until the button or a return; a turn of the screen asks nothing."
+why = "A prompt from onCreate or a hidden window is dropped by the system; one that came back after each cancel would trap him; his own lock means he is putting the phone down."
+evidence = "Android AppLockTest one_prompt_is_due..., ViewModelTest 7 (open, relock, cancel, own lock, rotation, cold start, screen elsewhere), OnPhoneTest on the emulator; iPhone AppLockTests, AppModelTests 6, FERBUITests 2."
+
+[PHN-617]
+title = "The pairing scanner draws the camera inside its frame, as designed"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "wtf is this desgin man?? … FIX THIS"
+words_source = "Owner 2026-11-17, with a photo of the Android scanner on his phone: the camera's picture outside its rounded frame, over its edges and the hint (as the coordinating agent relayed it)."
+rule = "The scanner page looks as the app's design draws it on every phone: the camera's picture exactly inside the frame's rounded well, the corner marks over it, the hint readable, the card below in the app's style; the same on iPhone."
+why = "The page that starts pairing is the first thing the app asks of him."
+untestable = "The owner's ask; PHN-618 and PHN-619 hold the mechanism and its tests."
+
+[PHN-618]
+title = "The scanner's camera is a TextureView clipped to the frame's well; on iPhone a clipped overlay"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For PHN-617, PHN-447, PHN-564. Cause: CameraX's PreviewView chose a SurfaceView, a layer of its own that Compose cannot clip, drawn at its 3:4 fill size over the card. Now PreviewView COMPATIBLE (TextureView), FILL_CENTER, the well clipped; iPhone: the picture overlays the well (never sizes it), clipped, its layer masked."
+why = "A TextureView draws inside the app's own frame, so clips and placement apply; QrFrame clips whatever picture it is given, so no other page repeats the mistake. With a picture under them the corner marks are white on a dark edge."
+evidence = "Android ScreenShotsTest the_scanner_keeps_the_camera_inside_its_frame_at_dawn/noon/night (no stand-in pixel outside the well; goldens scanner-live-*); iPhone AppScreensTests testTheScannerKeepsTheCameraInsideItsFrame; emulator camera before/after."
+
+[PHN-619]
+title = "One scanner page on both phones; its card stays the lab's white card"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For PHN-617, PHN-416. Both phones: the frame (or why the camera is needed) and under it the lab's white Card with 'Scan the code', Allow the camera while not asked, Type code and Cancel; the hint and 'Type code' are app strings. The card stays white with black text and #666 detail (5.7:1), as the lab's pair page: not a dark sheet."
+why = "PHN-416: the phones look as the lab draws them; the lab's cards are white. The iPhone had a close button and no card while the camera was on; Android's layout was kept for both."
+evidence = "Android goldens scanner-live-dawn/noon/night and scanner-camera; iPhone goldens scanner-live-*, scanner-camera-noon, scanner-no-camera-noon; FERBUITests testTheScannerWithoutACameraOffersTheTypedCode."
+
+# ---- 2026-11-17: the owner on his phone again: the unlock that hung, and hold to talk (ids after the motion agent's 620..624)
+
+[PHN-640]
+title = "After the fingerprint the app opens at once; nothing stuck, no second unlock control"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "the unloklc button is not working now, it did i pressed my finger hten stuck. debuggin is open see all. alos i saw some wierd line on tpop about unlcok to see thatb was clicblae. the phone jsut opend after so much tie. FIX FIX FIX, all is bad UX"
+words_source = "Owner 2026-11-17 on his moto g85 5G, paired with his Mac, the link moving between direct and the shared relay (as the coordinating agent relayed it)."
+rule = "The fingerprint opens the app at once; the Mac's side never holds it. The lock button always answers. After a passed fingerprint he is not asked again by a second control unless something real needs it, said plainly."
+why = "A lock that hangs after the fingerprint reads as a broken app."
+untestable = "The owner's ask; PHN-641 holds the mechanism and its tests."
+
+[PHN-641]
+title = "The app opens when the prompt passes; the Mac's unlock answers in the background, bounded and logged"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For PHN-640, PHN-13. Cause: the app opened only when the library's unlock returned (challenge, prompt, link.unlock, then a whole sync). Now: open when the signature is made; a calm line while the Mac answers. The prompt waits on the network 2 s at most (PHN-505's 6 s), a second tap prompts at once."
+why = "A `locked` reply right after a reconnect is read twice, 1.5 s apart, before anything asks; then one automatic Mac unlock (its one prompt), never a loop, then the line to tap. Logcat tag and log category ferb-app: states and ms only."
+evidence = "Android ViewModelTest (slow Mac, unreachable, slow challenge, second tap, reconnect, locked after open), OnPhoneTest on the emulator; iPhone AppModelTests (the same six). Unverified on his phone and with a real Mac."
+
+[PHN-642]
+title = "Hold to talk must feel reliable and show that it hears him"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "push to talk is realllly reallly bad UX, misfires, dowsent wrok etcect. maybe it does but no UI feedback indiaction around icons or so"
+words_source = "Owner 2026-11-17 on his moto g85 5G (as the coordinating agent relayed it)."
+rule = "Holding the microphone shows at once that it is pressed, when FERB is listening and that it hears him, and says plainly when it couldn't hear; no misfires."
+why = "Without feedback he can't tell a working microphone from a broken one."
+untestable = "The owner's ask; PHN-643 holds the mechanism and its tests."
+
+[PHN-643]
+title = "The microphone shows getting ready, listening with its level, finishing; every failure in words"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For PHN-642, PHN-603. A lighter circle on touch-down; Getting ready… until the recogniser takes the sound; Listening… with a ring by its level; a tick at start and stop. A finger sliding off keeps it; a press while finishing keeps those words and listens again; busy or client errors retry once quietly; music pauses."
+why = "Each failure is said: nothing heard, the speech service unreachable, the microphone busy, recognition busy, no on-device speech for the language (how to add it). Log tag ferb-app: start, ready ms, partial count, end, error code; never the words."
+evidence = "Android VoiceTest 3 new, SpeechOnPhoneTest on the emulator (ready, level, code 13 = no language pack); iPhone VoiceTests 3 new. Not heard by a real recogniser with a voice: the owner's phone."
+
+# ---- 2026-11-17: the phone apps move as PairIt does (the owner's first look at the Android app on his phone)
+
+[PHN-620]
+title = "The phone apps move as PairIt does: tabs, sheets and modals opening and closing animate"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "theres no animation is navbar swithcihg, modalsnopening/closgin etcect. look at pairit repo and you'll know hwat im saying, i want it like that"
+words_source = "Owner 2026-11-17, after trying the Android debug app on his moto g85 5G (as the coordinating agent relayed it). PairIt is his app at ~/Desktop/bluetooth_switch."
+rule = "Switching tabs, opening and closing sheets and modals, and moving between screens animate with PairIt's motion, the same on Android and iPhone (PHN-416)."
+why = "Without motion a change of tab or a sheet appearing reads as a jump; PairIt's motion is the feel he wants."
+untestable = "The owner's ask; PHN-621..624 hold the mechanism and its tests."
+
+[PHN-621]
+title = "One motion table for both phones, with PairIt's numbers (the lab's where PairIt has none)"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For PHN-620. motion.json (apps/android/design/src/test/resources/motion) is the one table; Motion.kt and FerbDesign's FerbMotion must equal it. Tab spring = PairIt's 650 ms indicator curve (response 0.3267 s, damping 0.6); presses its 220/550 ms; sheet the lab's panel spring (0.30 s, bounce 0.08); enter 220 ms (.22,1,.36,1) 24 pt; exit 120 ms linear; items 180 ms 6 pt."
+why = "PairIt's Android curve 1 - e^(-7.5t)(cos 10t + 0.75 sin 10t) is exactly a damping-0.6 spring's step, so both toolkits play it natively. A screen never carries numbers of its own."
+evidence = "Android MotionTableTest 2 (every token equals the table; the springs reproduce PairIt's curves to 2e-5); iPhone MotionTests (the same table, the same curve check)."
+
+[PHN-622]
+title = "One tab bar stays while pages change: its pill slides on the tab spring, pages come from their side"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For PHN-620. TabBarHost draws the bar once over the pages; each page's own TopBar keeps its room and draws nothing. The white pill moves on the tab spring, its overshoot cut by the bar's round ends (PairIt's iPhone); names and colours follow on the enter curve. The new page slides 24 pt from its tab's side and fades in; the old fades out."
+why = "With the bar inside each page it would fade and slide with the page; one bar is what PairIt has. PairIt's Android narrows the overshooting pill instead: clipping is the behaviour both toolkits draw in place."
+evidence = "Android MotionSwitchTest (one bar, follows the chosen tab), MotionShotsTest (tasks reached from the chat rest on the tasks golden), all 34 app goldens unchanged; iPhone MotionTests."
+
+[PHN-623]
+title = "Sheets rise over a fading dim and drag down to close; screens rise in; the lock is instant"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For PHN-620, PHN-8. MotionSwitch shows one thing at a time (gate pages, tabs, a folder, the sheet). A sheet's panel rises by its own height on the sheet spring, interruptible; a dismissible one closes when let go past a quarter or flung over 900 pt/s, else springs back. The lock and the start replace everything in the same frame; the page after the lock rises in."
+why = "A going sheet keeps what it showed (an answered question slides away as it was) and takes no touch; the page under it takes taps at once. Nothing of the app may show for a frame once it locked (PHN-8)."
+evidence = "Android MotionSwitchTest 5 (rises and takes touches at once, old takes none; lock in one frame; going sheet keeps its words; drag closes, short drag springs back, page takes a tap); MotionShotsTest question golden; iPhone MotionTests."
+
+[PHN-624]
+title = "A press sinks at touch-down; list rows rise in; reduced motion moves nothing; no blur animates"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For PHN-620. A press sinks to 0.97 and 85 % the moment a finger lands, even in a scrolling list (Android observes the touch; Compose waits a tap timeout), and rises when a scroll takes it. Chat rows fade in where they land, transfer cards rise 6 pt. Android with animations off or removed: instant; iPhone Reduce Motion: 0.12 s fades, nothing moves."
+why = "PairIt's feedback is at touch-down. Motion is only opacity and offsets in layers, never layout per frame or an animated blur (the sky and season layer stay still behind a change; the dim is plain black, as PairIt's dialogs)."
+evidence = "Android MotionSwitchTest (sunk 48 ms after touch-down inside a scroll; animator scale 0: instant); iPhone MotionTests (reduce motion). Smoothness on a moto g85 is the owner's to see."

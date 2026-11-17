@@ -1,5 +1,10 @@
 package com.ferb.app.ui
 
+import android.view.HapticFeedbackConstants
+import androidx.compose.ui.platform.LocalView
+import com.ferb.design.components.MicState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -48,6 +53,10 @@ import com.ferb.design.FerbIcons
 import com.ferb.design.FerbType
 import com.ferb.design.Ink
 import com.ferb.design.Phone
+import com.ferb.design.MotionKind
+import com.ferb.design.MotionSwitch
+import com.ferb.design.components.TabBarHost
+import com.ferb.design.motionItem
 import com.ferb.design.components.Card
 import com.ferb.design.components.CardRow
 import com.ferb.design.components.Divide
@@ -94,12 +103,17 @@ fun Main(vm: FerbViewModel, ui: UiState, tab: PhoneTab, home: Boolean, insets: P
     val onTab: (PhoneTab) -> Unit = vm::choose
     val onProfile = { vm.show(Sheet.Profile) }
     Box(Modifier.fillMaxSize()) {
-        when (tab) {
-            PhoneTab.CHAT -> if (home) Home(vm, ui, draft, insets, moment, onTab, onProfile, host)
-            else Chat(vm, ui, draft, insets, waiting, onTab, onProfile, host)
-            PhoneTab.TASKS -> Tasks(vm, ui, onTab, onProfile)
-            PhoneTab.FILES -> Files(vm, ui, insets, waiting, onTab, onProfile, host)
-            PhoneTab.MAC -> Mac(vm, ui, waiting, onTab, onProfile)
+        // one tab bar whose pill slides; the page under it comes in from the side of its tab (kb PHN-622)
+        TabBarHost(Modifier.fillMaxSize()) {
+            MotionSwitch(tab to home, Modifier.fillMaxSize(), MotionKind.TAB, direction = { a, b -> b.first.ordinal.compareTo(a.first.ordinal) }) { (t, h) ->
+                when (t) {
+                    PhoneTab.CHAT -> if (h) Home(vm, ui, draft, insets, moment, onTab, onProfile, host)
+                    else Chat(vm, ui, draft, insets, waiting, onTab, onProfile, host)
+                    PhoneTab.TASKS -> Tasks(vm, ui, onTab, onProfile)
+                    PhoneTab.FILES -> Files(vm, ui, insets, waiting, onTab, onProfile, host)
+                    PhoneTab.MAC -> Mac(vm, ui, waiting, onTab, onProfile)
+                }
+            }
         }
         ui.note?.let { n ->
             // a short line over the page; it goes by itself after a few seconds (and on a tap)
@@ -143,13 +157,33 @@ private fun Composer(vm: FerbViewModel, draft: String, placeholder: String, modi
                 Modifier.padding(horizontal = 6.dp))
         }
         val listening by vm.listening.collectAsState()
+        val mic by vm.mic.collectAsState()
+        val level by vm.micLevel.collectAsState()
+        // PHN-643: what the microphone is doing, in words above the box, and a tick when it starts and stops hearing
+        val view = LocalView.current
+        var was by remember { mutableStateOf(MicState.IDLE) }
+        LaunchedEffect(mic) {
+            if (mic == MicState.LISTENING && was != MicState.LISTENING) view.performHapticFeedback(HapticFeedbackConstants.GESTURE_START)
+            if (was == MicState.LISTENING && mic != MicState.LISTENING) view.performHapticFeedback(HapticFeedbackConstants.GESTURE_END)
+            was = mic
+        }
+        val micText = when (mic) {
+            MicState.READYING -> stringResource(R.string.voice_getting_ready)
+            MicState.LISTENING -> stringResource(R.string.voice_listening)
+            MicState.FINISHING -> stringResource(R.string.voice_finishing)
+            MicState.IDLE -> null
+        }
+        if (micText != null) {
+            PhoneText(micText, 13.5f, FerbType.Medium, ink.low, Modifier.padding(horizontal = 6.dp).semantics { liveRegion = LiveRegionMode.Polite })
+        }
         PhoneComposer(
             Modifier, placeholder = placeholder, typed = draft, onValueChange = vm::typed, onSend = { vm.send() },
             onAttach = { host.pickFiles(true) },
             // hold to speak (PHN-603): the words land in the box while held and stay there; never sent by themselves
             onMicDown = { if (vm.voicePress() == VoicePress.ASK_MICROPHONE) host.allowMicrophone(null) },
             onMicUp = { vm.voiceRelease() },
-            listening = listening, listeningText = stringResource(R.string.voice_listening), micLabel = stringResource(R.string.voice_speak),
+            listening = listening, listeningText = micText ?: stringResource(R.string.voice_listening), micLabel = stringResource(R.string.voice_speak),
+            mic = mic, micLevel = level,
         )
     }
 }
@@ -198,18 +232,23 @@ private fun Chat(vm: FerbViewModel, ui: UiState, draft: String, insets: PhoneIns
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            items(rows, key = { it.key }) { row -> ChatRowView(vm, ui, row, host) }
+            // a row that arrives fades in where it lands, the others glide (kb PHN-624)
+            items(rows, key = { it.key }) { row -> Box(motionItem()) { ChatRowView(vm, ui, row, host) } }
         }
         Composer(vm, draft, stringResource(R.string.chat_placeholder), Modifier.padding(start = 16.dp, end = 16.dp, bottom = insets.bottom + 8.dp), host)
     }
 }
 
 /**
- * The line under the tabs: the Mac can't be reached, or its unlock is needed (a tap gives it), or FERB may use the
+ * The line under the tabs: the Mac can't be reached, its unlock is on its way or slow (PHN-641), or it is needed after
+ * the owner cancelled its prompt (a tap gives it), or FERB may use the
  * Mac's screen until the owner is back (PHN-611; "Ask me again" is on the Mac tab).
  */
 private fun statusLine(ui: UiState): Pair<Int, Boolean>? = when {
     ui.link?.phase != LinkPhase.ONLINE -> R.string.chat_offline to false
+    // PHN-641: the Mac's side after the app opened: words only, it clears by itself
+    ui.macLine == com.ferb.app.MacLine.OPENING -> R.string.mac_opening to false
+    ui.macLine == com.ferb.app.MacLine.SLOW -> R.string.mac_slow to false
     ui.needsMacUnlock -> R.string.chat_unlock_mac to true
     ui.status?.screenUse?.active == true -> R.string.screen_use_active to false
     else -> null

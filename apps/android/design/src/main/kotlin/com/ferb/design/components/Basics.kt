@@ -43,6 +43,13 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.positionChanged
+import androidx.compose.ui.input.pointer.isOutOfBounds
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
@@ -71,16 +78,42 @@ import com.ferb.design.sky.SkyInk
 val LocalSkyInk = androidx.compose.runtime.staticCompositionLocalOf { SkyInk.WHITE }
 
 /**
- * A press that sinks (DESIGN.md: "Touch-down sinks"): scale 0.97 and 85 % on the press spring. Small targets keep
- * their drawn size; Compose widens their touch area to the 48 dp minimum by itself.
+ * A press that sinks (DESIGN.md: "Touch-down sinks"): scale 0.97 and 85 % the moment a finger lands, even inside a
+ * scrolling list (PairIt's GlassUI.pressFeedback; Compose's own press waits out a tap timeout there), on PairIt's
+ * springs (Motion.pressDown, Motion.pressUp); a scroll that takes the touch lets it rise again. Nothing is consumed:
+ * the click, scrolling and TalkBack are Compose's. With motion reduced it only dims. Small targets keep their drawn
+ * size; Compose widens their touch area to the 48 dp minimum by itself.
  */
 @Composable
 fun Modifier.pressable(onClick: (() -> Unit)?, role: Role = Role.Button, label: String? = null): Modifier {
     if (onClick == null) return this
     val source = remember { MutableInteractionSource() }
-    val pressed by source.collectIsPressedAsState()
-    val scale by animateFloatAsState(if (pressed) Motion.PRESS_SCALE else 1f, Motion.press.spec(), label = "press")
+    val pressedByCompose by source.collectIsPressedAsState()
+    var touched by remember { androidx.compose.runtime.mutableStateOf(false) }
+    val pressed = pressedByCompose || touched
+    val reduced = com.ferb.design.rememberReducedMotion()
+    val scale by animateFloatAsState(
+        if (pressed && !reduced) Motion.PRESS_SCALE else 1f,
+        if (pressed) Motion.pressDown.spec() else Motion.pressUp.spec(),
+        label = "press",
+    )
     return this
+        .pointerInput(Unit) {
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                touched = true
+                try {
+                    // until it lifts, leaves, or a scroll takes it (a move consumed by the Final pass)
+                    while (true) {
+                        val c = awaitPointerEvent(PointerEventPass.Final).changes.firstOrNull { it.id == down.id } ?: break
+                        if (!c.pressed || c.isOutOfBounds(size, extendedTouchPadding)) break
+                        if (c.positionChanged() && c.isConsumed) break
+                    }
+                } finally {
+                    touched = false
+                }
+            }
+        }
         .graphicsLayer { scaleX = scale; scaleY = scale; alpha = if (pressed) Motion.PRESS_ALPHA else 1f }
         .clickable(interactionSource = source, indication = null, role = role, onClickLabel = label, onClick = onClick)
 }

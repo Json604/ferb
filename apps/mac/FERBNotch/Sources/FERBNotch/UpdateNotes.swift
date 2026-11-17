@@ -54,14 +54,19 @@ struct UpdatesSection: View {
     var body: some View {
         Toggle("Install updates automatically", isOn: $updates.automatic)
         if let line = updates.status.line { Text(line).textSelection(.enabled) }
+        // Sparkle's reason, small and quiet: the line above says it plainly (APP-946)
         if let last = updates.lastResult {
             Text("Last update check, \(last.at.formatted(date: .abbreviated, time: .shortened)): \(last.text)")
-                .font(.caption).foregroundStyle(last.failed ? .red : .secondary).textSelection(.enabled)
+                .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
         }
-        if let offer = updates.offer {
-            Button(offer.asks ? "Update Now" : "Install") { updates.checkNow() }
-        } else {
-            Button("Check for Updates…") { updates.checkNow() }
+        switch updates.button {
+        case .install(let title): Button(title) { updates.install() }
+        case .checking:
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Button(updates.button.title) {}.disabled(true)
+            }
+        case .check: Button(updates.button.title) { updates.check() }
         }
         Text("FERB asks only GitHub's public release list; nothing about you is sent. An update installs when no task " +
              "is running, then FERB's background service restarts.")

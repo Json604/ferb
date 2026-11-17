@@ -140,6 +140,8 @@ public struct UiState: Equatable {
     public var questions: [Question] = []
     public var older: OlderState = .unknown
     public var needsMacUnlock = false
+    /// The Mac's side while the app is already open (PHN-641): its unlock under way, or slow to answer.
+    public var macLine: MacLine? = nil
     public var busy: Set<String> = []
     public var note: Note? = nil
     /// What FERB has waiting, as the Mac last said it (PHN-125): its questions' needs, Stop everything.
@@ -167,13 +169,33 @@ public struct SavedState: Codable, Equatable, Sendable {
     public init() {}
 }
 
+/// The calm line about the Mac's side once the app is open (PHN-641); never a control.
+public enum MacLine: Sendable { case opening, slow }
+
+/// How long the unlock waits on the Mac (PHN-641; Android's PROMPT_WAIT_MS, MAC_SLOW_MS, RECHECK_MS, RECHECKS).
+public struct UnlockTiming: Sendable {
+    /// The longest the opening prompt waits on the network (the link, then the Mac's challenge).
+    public var promptWait: Double = 2
+    /// No answer from the Mac's unlock in this long: the line says the Mac is slow (the app is open already).
+    public var macSlow: Double = 6
+    /// A `locked` refusal is read again `rechecks` times, this far apart, before anything is asked.
+    public var recheck: Double = 1.5
+    public var rechecks = 2
+    public init(promptWait: Double = 2, macSlow: Double = 6, recheck: Double = 1.5, rechecks: Int = 2) {
+        self.promptWait = promptWait
+        self.macSlow = macSlow
+        self.recheck = recheck
+        self.rechecks = rechecks
+    }
+}
+
 /// The app's state over [PhoneApi]: the gate, the chat, tasks and questions, files, Watch live and FERB's settings,
 /// and every action (Android's FerbViewModel, feature for feature). The shell makes one per scene and tells it the
 /// scene's phase through [Session.foreground]; a relaunch reads it from the phone's store and [saved].
 @MainActor
 @Observable
 public final class AppModel {
-    public static let coldStartWait: Double = 6
+    @ObservationIgnored private let timing: UnlockTiming
     public static let tasksPage = 30
     /// How many recent files the Files tab asks for.
     public static let recentFilesCount = 20
@@ -214,6 +236,13 @@ public final class AppModel {
     @ObservationIgnored private var pressedAt = Date.distantPast
     /// The owner holds the microphone and FERB is listening (PHN-603).
     public private(set) var listening = false
+    /// What the microphone shows (kb PHN-643): getting ready, listening, finishing, or nothing.
+    public private(set) var mic: MicState = .idle
+    /// How loud the phone hears him while it listens, 0...1.
+    public private(set) var micLevel: Float = 0
+    @ObservationIgnored private var partials = 0
+    @ObservationIgnored private var released = false
+    @ObservationIgnored private var voiceStarted = Date.distantPast
     @ObservationIgnored private let box = PromptBox()
     @ObservationIgnored private let unlocker: Unlocker
     @ObservationIgnored private var follows: [AnyObject] = []
@@ -230,6 +259,15 @@ public final class AppModel {
     /// The open before this one (the corpus's awayHours, lastOpen, firstToday, newPlace).
     @ObservationIgnored private var previousOpen: Double?
     @ObservationIgnored private var previousZone: String?
+
+    /// The scene is active (no app switcher, system alert or Face ID sheet over it): the prompt by itself is shown only
+    /// then (PHN-615). Set by the shell from the scene's phase.
+    private var windowReady = false
+
+    /// The shell: the scene became active (true) or inactive or background (false).
+    public func setWindowReady(_ ready: Bool) {
+        windowReady = ready
+    }
 
     /// The prompts the screen shows (set by the shell once its window exists).
     public var prompts: Prompts? {
@@ -261,7 +299,8 @@ public final class AppModel {
                 screenLock: @escaping () -> Bool = { Biometry.screenLockSet }, corpus: Corpus? = .bundled,
                 saved: SavedState = SavedState(), now: @escaping () -> Date = Date.init, locator: Locator? = nil,
                 coarse: @escaping () -> Coarse? = { nil }, locationAnswered: @escaping () -> Void = {},
-                voice: VoiceInput? = nil, micAllowed: @escaping () -> Bool = { false }) {
+                voice: VoiceInput? = nil, micAllowed: @escaping () -> Bool = { false }, timing: UnlockTiming = UnlockTiming()) {
+        self.timing = timing
         self.api = api
         self.session = session
         self.prefs = prefs
@@ -345,6 +384,11 @@ public final class AppModel {
                 }
             } else {
                 // PHN-15: nothing private stays open; the preview stops, the fetched files go
+                AppLog.i("lock shown")
+                macTask?.cancel()
+                macPending = false
+                ui.macLine = nil
+                ui.needsMacUnlock = false
                 stopListening()
                 live.stop()
                 switch sheet {
@@ -356,6 +400,13 @@ public final class AppModel {
                 ui.settings = nil
                 ui.macTasks = nil
             }
+        })
+        // PHN-615: the lock page that came with opening or returning asks by itself, once, while the scene is active
+        follows.append(Follow({ [weak self] () -> Bool? in
+            guard let self else { return nil }
+            return windowReady && session.promptDue && ui.gate == .locked
+        }) { [weak self] (due: Bool) in
+            if due { self?.autoUnlock() }
         })
         follows.append(Follow({ [weak self] () -> Bool? in guard let self else { return nil }; return session.front }) { [weak self] (front: Bool) in
             guard let self else { return }
@@ -494,7 +545,6 @@ public final class AppModel {
         ui.questions = questions
         ui.older = view?.older ?? .unknown
         ui.status = status
-        ui.needsMacUnlock = ui.needsMacUnlock || (view?.outbox.contains { $0.waitingFor == "unlock" } ?? false)
         rebuildWork()
         // a question slides up over whatever is open, once (MobileScreens.swift QuestionSheet)
         if let fresh = questions.first(where: { !presented.contains($0.approvalId) && !$0.held }),
@@ -539,7 +589,7 @@ public final class AppModel {
             if session.locked || api.link?.phase != .online { return }
             switch await api.tasks(limit: Self.tasksPage, before: nil) {
             case .ok(let page): ui.macTasks = page.tasks
-            case .failed(let e): if case .NeedsUnlock = e { ui.needsMacUnlock = true }
+            case .failed(let e): if case .NeedsUnlock = e { macLocked() }
             }
             rebuildWork()
         }
@@ -558,8 +608,10 @@ public final class AppModel {
 
     private func syncNow() async {
         switch await api.sync() {
-        case .failed(let e): if case .NeedsUnlock = e { ui.needsMacUnlock = true }
-        case .ok: ui.needsMacUnlock = false
+        case .failed(let e): if case .NeedsUnlock = e { macLocked() }
+        case .ok:
+            macPending = false
+            ui.needsMacUnlock = false
         }
     }
 
@@ -573,55 +625,205 @@ public final class AppModel {
 
     // ---- the app lock (PHN-8, PHN-13, PHN-125) ---------------------------------------------------------------------
 
-    /// One prompt opens the app and unlocks the Mac (PHN-13): with the Mac reachable the lock key signs the Mac's
-    /// challenge inside the prompt; otherwise the prompt alone opens the app (the library is told: `unlocked`) and
-    /// the Mac is unlocked on the next action that needs it. A cold start waits a few seconds for the link so it
-    /// stays one prompt.
+    /// One prompt opens the app and unlocks the Mac (PHN-13, PHN-641; Android's unlockApp). With the Mac reachable the
+    /// lock key signs the Mac's challenge inside the prompt; the app opens the moment the prompt passes, and the Mac's
+    /// answer (and the sync the library makes after it) arrives in the background under a calm line. The prompt never
+    /// waits on the network longer than `timing.promptWait`: past that, or on a second tap, the prompt alone opens the
+    /// app and the Mac is unlocked once it answers (`macLocked`).
     @discardableResult
-    public func unlockApp() -> Task<Void, Never> {
-        busy("unlock") { [self] in
+    public func unlockApp(auto: Bool = false) -> Task<Void, Never> {
+        if ui.busy.contains("unlock") {
+            // a tap while the first try still waits for the Mac: the prompt now, never a silent no-op
+            hurried = true
+            AppLog.i("unlock tap while waiting: prompt now")
+            return unlockTask ?? Task {}
+        }
+        let task = busy("unlock") { [self] in
             guard let p = prompts else { return }
+            _ = session.takePrompt() // the owner's tap takes the due prompt too: after its cancel nothing asks by itself
+            hurried = false
+            let started = Date()
+            AppLog.i("unlock started auto=\(auto)")
             if api.link?.paired == true && api.link?.phase != .online {
-                _ = await waitFor(Self.coldStartWait) { api.link?.phase == .online }
+                _ = await waitFor(timing.promptWait) { hurried || api.link?.phase == .online }
             }
+            // the screen went elsewhere while the link was awaited: the prompt waits for the owner's return
+            if auto && !windowReady { session.promptAgain(); AppLog.i("unlock: screen elsewhere, prompt later"); return }
             let online = api.link.map { $0.paired && $0.phase == .online } ?? false
-            if online && api.state.keys?.lock == .ok, let inner = p.signer(.lock, why: .open) {
-                let signed = Recording(inner)
-                let r = await api.unlock(signed)
-                if signed.signed {
-                    session.unlocked()
-                    opened()
-                    if r.error != nil { _ = await api.unlocked() }
-                    ui.needsMacUnlock = r.error != nil
-                    if r.error == nil { await afterMacUnlock() }
+            if online && api.state.keys?.lock == .ok && !hurried, let inner = p.signer(.lock, why: .open) {
+                let gate = PromptGate(inner)
+                let call = Task { await api.unlock(gate) }
+                var callDone = false
+                Task { _ = await call.value; callDone = true }
+                let left = max(0, timing.promptWait - Date().timeIntervalSince(started))
+                _ = await waitFor(left) { gate.asked || callDone || hurried }
+                if gate.giveUp() {
+                    AppLog.i("unlock: the Mac's challenge didn't come in \(ms(since: started)) ms; the prompt alone")
+                } else {
+                    AppLog.i("prompt shown (with the Mac's challenge) after \(ms(since: started)) ms")
+                    let shown = Date()
+                    while gate.passed == nil { try? await Task.sleep(nanoseconds: 20_000_000) }
+                    let passed = gate.passed == true
+                    AppLog.i("prompt result \(passed ? "passed" : "cancelled") after \(ms(since: shown)) ms")
+                    if !passed { return }
+                    openApp()
+                    AppLog.i("local unlock done")
+                    macAnswer(call, asked: Date())
                     return
                 }
-                if case .failed(let e) = r, case .NotSigned = e { return } // cancelled
             }
-            if await p.local() {
-                session.unlocked()
-                opened()
+            AppLog.i("prompt shown (alone)")
+            let shown = Date()
+            let passed = await p.local()
+            AppLog.i("prompt result \(passed ? "passed" : "cancelled") after \(ms(since: shown)) ms")
+            if passed {
+                openApp()
                 _ = await api.unlocked()
-                if api.link?.paired == true { ui.needsMacUnlock = true }
+                AppLog.i("local unlock done")
+                if api.link?.paired == true {
+                    AppLog.i("the Mac's unlock waits for the Mac")
+                    Task { [self] in
+                        while ui.busy.contains("unlock") { try? await Task.sleep(nanoseconds: 20_000_000) }
+                        macLocked()
+                    }
+                }
             }
+        }
+        unlockTask = task
+        return task
+    }
+
+    @ObservationIgnored private var hurried = false
+    @ObservationIgnored private var unlockTask: Task<Void, Never>?
+    @ObservationIgnored private var macTask: Task<Void, Never>?
+    /// The Mac couldn't be unlocked yet (offline, or its answer was lost): it is, once the link is up again.
+    @ObservationIgnored private var macPending = false
+    /// Automatic Mac unlocks since the app opened: one, never a loop (PHN-641).
+    @ObservationIgnored private var macTries = 0
+
+    private func ms(since d: Date) -> Int { Int(Date().timeIntervalSince(d) * 1000) }
+
+    /// The app is open: the lock's state, the open's facts (PHN-13).
+    private func openApp() {
+        session.unlocked()
+        opened()
+        macTries = 0
+    }
+
+    /// The Mac's unlock that the opening prompt signed, answered in the background under a calm line (PHN-641).
+    private func macAnswer(_ call: Task<Outcome<Void>, Never>, asked: Date) {
+        macTask?.cancel()
+        ui.macLine = .opening
+        ui.needsMacUnlock = false
+        macTask = Task { [self] in
+            let slow = Task { [self] in
+                try? await Task.sleep(nanoseconds: UInt64(timing.macSlow * 1e9))
+                if !Task.isCancelled && ui.macLine == .opening {
+                    ui.macLine = .slow
+                    AppLog.i("mac unlock slow: no answer in \(Int(timing.macSlow * 1000)) ms")
+                }
+            }
+            let r = await call.value
+            slow.cancel()
+            await macAnswered(r, asked: asked)
         }
     }
 
-    /// The Mac's unlock alone (its window closed while the app stayed open).
-    @discardableResult
-    public func unlockMac() -> Task<Void, Never> {
-        busy("unlock-mac") { [self] in
-            guard let p = prompts, let s = p.signer(.lock, why: .open) else { return }
-            switch await api.unlock(s) {
-            case .ok:
+    private func macAnswered(_ r: Outcome<Void>, asked: Date) async {
+        switch r {
+        case .ok:
+            AppLog.i("mac unlock answered ok in \(ms(since: asked)) ms")
+            ui.macLine = nil
+            ui.needsMacUnlock = false
+            refresh()
+            await afterMacUnlock()
+        case .failed(let e):
+            AppLog.i("mac unlock failed \(e.linkCode ?? AppLog.kind(e)) in \(ms(since: asked)) ms")
+            _ = await api.unlocked()
+            ui.macLine = nil
+            switch e {
+            case .NotSigned: break
+            case .NeedsUnlock where Unlocker.proofCodes.contains(e.linkCode ?? ""): failed(e)
+            case .NeedsSigner: failed(e)
+            default: macPending = true // can't be reached now: unlocked once it answers, by itself
+            }
+            if macPending && api.link?.phase == .online { macLocked() }
+        }
+    }
+
+    /// The Mac said its window is closed (a private call came back `locked`), or the app opened without it. First the
+    /// same read again (`timing.rechecks` times): right after a reconnect the phone proves itself on the new
+    /// connection and the window is open again. Still locked: one automatic unlock with the lock key (its one prompt)
+    /// while the owner is here; after that, or if he cancels, the line he can tap.
+    private func macLocked() {
+        if let t = macTask, !t.isCancelled, macRunning { return }
+        if ui.busy.contains("unlock-mac") || ui.busy.contains("unlock") { return }
+        if session.locked || api.link?.paired != true { return }
+        macRunning = true
+        macTask = Task { [self] in
+            defer { macRunning = false }
+            if api.link?.phase != .online { macPending = true; return }
+            var open = false
+            for _ in 0..<timing.rechecks {
+                try? await Task.sleep(nanoseconds: UInt64(timing.recheck * 1e9))
+                if session.locked { return }
+                if api.link?.phase != .online { macPending = true; return }
+                if case .ok = await api.sync() { open = true; break }
+            }
+            if open {
+                AppLog.i("mac locked: open again after the recheck")
+                macPending = false
                 ui.needsMacUnlock = false
                 refresh()
-                await afterMacUnlock()
-            case .failed(let e):
-                if case .NotSigned = e { return }
-                failed(e)
+                return
             }
+            if macTries >= 1 || !windowReady || prompts == nil {
+                AppLog.i("mac locked: the owner's tap (tries=\(macTries))")
+                ui.needsMacUnlock = true
+                return
+            }
+            macTries += 1
+            macPending = false
+            AppLog.i("mac locked: one automatic unlock")
+            await unlockMacNow()
         }
+    }
+
+    @ObservationIgnored private var macRunning = false
+
+    /// The due prompt (PHN-615), taken once; none while another unlock is already asking.
+    private func autoUnlock() {
+        guard prompts != nil else { return }
+        let took = session.takePrompt()
+        if !took || ui.busy.contains("unlock") { return }
+        unlockApp(auto: true)
+    }
+
+    /// The Mac's unlock alone (its window closed while the app stayed open): one prompt, the owner's tap.
+    @discardableResult
+    public func unlockMac() -> Task<Void, Never> {
+        busy("unlock-mac") { [self] in await unlockMacNow() }
+    }
+
+    private func unlockMacNow() async {
+        guard let p = prompts, let inner = p.signer(.lock, why: .open) else { return }
+        let asked = Date()
+        ui.macLine = .opening
+        ui.needsMacUnlock = false
+        let call = Task { await api.unlock(PromptGate(inner)) }
+        let slow = Task { [self] in
+            try? await Task.sleep(nanoseconds: UInt64(timing.macSlow * 1e9))
+            if !Task.isCancelled && ui.macLine == .opening { ui.macLine = .slow }
+        }
+        let r = await call.value
+        slow.cancel()
+        if case .failed(let e) = r, case .NotSigned = e {
+            AppLog.i("mac unlock prompt cancelled")
+            ui.macLine = nil
+            ui.needsMacUnlock = true
+            return
+        }
+        await macAnswered(r, asked: asked)
     }
 
     private func opened() {
@@ -705,17 +907,25 @@ public final class AppModel {
     /// Mac; the words are never sent by themselves.
     @discardableResult
     public func voicePress() -> VoicePress {
+        // a new press while the last words are still on their way: those words are kept now and a new one starts
+        if let d = dictation, d.finishing { AppLog.i("voice: pressed while finishing; kept and started again"); d.cancel() }
         if dictation != nil || ui.gate != .main || session.locked { return .done }
         guard let input = voice, input.kind() != .none else { note(Note("voice_unavailable")); return .done }
         let kind = input.kind()
         if !prefs.voiceTold.contains(kind.rawValue) { show(.voice(kind)); return .done }
         if !micAllowed() { return .askMicrophone }
         pressedAt = now()
+        voiceStarted = Date()
+        partials = 0
+        released = false
         spokenOnto = draft
         listening = true
+        mic = .readying
+        AppLog.i("voice start kind=\(kind.rawValue)")
         home = false
         let d = Dictation(input: input, kind: kind, words: { [weak self] said in
             guard let self else { return }
+            self.partials += 1
             self.draft = Self.joinSpoken(self.spokenOnto, said)
         }, ended: { [weak self] end in self?.voiceEnded(end) }, later: { seconds, block in
             let task = Task { @MainActor in
@@ -723,6 +933,13 @@ public final class AppModel {
                 if !Task.isCancelled { block() }
             }
             return { task.cancel() }
+        }, ready: { [weak self] in
+            guard let self, self.mic == .readying else { return }
+            self.mic = .listening
+            AppLog.i("voice ready after \(self.ms(since: self.voiceStarted)) ms")
+        }, level: { [weak self] l in
+            guard let self, self.mic == .listening else { return }
+            self.micLevel = l
         })
         dictation = d
         d.start()
@@ -737,6 +954,9 @@ public final class AppModel {
             note(Note("voice_hold"))
             return
         }
+        mic = .finishing
+        micLevel = 0
+        released = true
         d.finish()
     }
 
@@ -750,21 +970,43 @@ public final class AppModel {
     public func microphoneAnswered(_ granted: Bool) { note(Note(granted ? "voice_ready" : "voice_denied")) }
 
     private func voiceEnded(_ end: Dictation.End) {
+        let noSpeech = dictation?.lastNoSpeech ?? false
         dictation = nil
         listening = false
+        mic = .idle
+        micLevel = 0
         switch end {
         case .words(let text):
+            AppLog.i("voice end partials=\(partials) after \(ms(since: voiceStarted)) ms")
             draft = Self.joinSpoken(spokenOnto, text)
-        case .failed(let languageMissing, _):
+            // held, and nothing was heard: said, never nothing (kb PHN-643)
+            if text.trimmingCharacters(in: .whitespaces).isEmpty && released { note(Note("voice_no_speech")) }
+        case .failed(let languageMissing, let code):
+            AppLog.i("voice error code=\(code) languageMissing=\(languageMissing) after \(ms(since: voiceStarted)) ms")
             draft = spokenOnto
             // no on-device speech for this language: Apple's service next time, after its words
             if languageMissing, let next = voice?.kind(), next == .service, !prefs.voiceTold.contains(next.rawValue) {
                 show(.voice(next))
             } else {
-                note(Note("voice_failed"))
+                note(Note(Self.voiceFailure(languageMissing: languageMissing, noSpeech: noSpeech, code: code)))
             }
         }
     }
+
+    /// Each way the recogniser can fail, in plain words (kb PHN-643; Android's voiceFailure); never nothing.
+    static func voiceFailure(languageMissing: Bool, noSpeech: Bool, code: Int) -> String {
+        if languageMissing { return "voice_language" }
+        if noSpeech { return "voice_no_speech" }
+        switch code {
+        case -1: return "voice_network"        // Apple's recogniser not available now
+        case AppModel.micStartFailed: return "voice_mic_busy"
+        case 1101, 1107, 203, -1009, -1001: return "voice_network"   // the speech service unreachable or timed out
+        default: return "voice_failed"
+        }
+    }
+
+    /// AppleSpeech's code when the microphone couldn't start (another app holds it).
+    public static let micStartFailed = -3
 
     /// Leaving the app or the lock: the microphone stops at once, and what was said stays in the box.
     private func stopListening() { dictation?.cancel() }
@@ -782,7 +1024,7 @@ public final class AppModel {
             switch r {
             case .ok(let item):
                 if !files.isEmpty { transfers.sent() }
-                if item.waitingFor == "unlock" { ui.needsMacUnlock = true }
+                if item.waitingFor == "unlock" { macLocked() }
             case .failed(let e):
                 draft = text
                 failed(e)
@@ -849,7 +1091,7 @@ public final class AppModel {
     public func loadOlder() -> Task<Void, Never> {
         busy("older") { [self] in
             guard let conv = ui.conversation, ui.older == .available else { return }
-            if case .failed(let e) = await api.loadOlder(conversation: conv), case .NeedsUnlock = e { ui.needsMacUnlock = true }
+            if case .failed(let e) = await api.loadOlder(conversation: conv), case .NeedsUnlock = e { macLocked() }
             await refresh()?.value
         }
     }
@@ -1394,17 +1636,32 @@ private final class PromptBox {
     var prompts: Prompts?
 }
 
-/// Records whether the prompt signed: the app opens on the owner's Face ID even if the Mac then says no.
-private final class Recording: Signer, @unchecked Sendable {
+/// The opening prompt inside the Mac's unlock (PHN-641; Android's PromptGate): says when the library asks for the
+/// signature (the Mac's challenge came: the prompt shows) and whether the owner passed it, so the app opens then and
+/// not after the Mac's answer. Given up before it was asked (the challenge was slow), it signs nothing and shows no
+/// prompt.
+private final class PromptGate: Signer, @unchecked Sendable {
     private let inner: Signer
     private let lock = NSLock()
-    private var _signed = false
+    private var state = 0 // 0 waiting, 1 asked, 2 given up
+    private var _passed: Bool?
     init(_ inner: Signer) { self.inner = inner }
-    var signed: Bool { lock.lock(); defer { lock.unlock() }; return _signed }
+    var asked: Bool { lock.lock(); defer { lock.unlock() }; return state == 1 }
+    var passed: Bool? { lock.lock(); defer { lock.unlock() }; return _passed }
     func sign(payload: String) -> String? {
+        lock.lock()
+        if state == 2 { lock.unlock(); return nil }
+        state = 1
+        lock.unlock()
         let s = inner.sign(payload: payload)
-        if s != nil { lock.lock(); _signed = true; lock.unlock() }
+        lock.lock(); _passed = s != nil; lock.unlock()
         return s
+    }
+    /// True when the prompt had not been asked and now never will be.
+    func giveUp() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        if state == 0 { state = 2; _passed = false; return true }
+        return false
     }
 }
 

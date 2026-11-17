@@ -7,21 +7,27 @@ import SwiftUI
 // Their words are parameters: the app's strings live in the app, not here.
 
 /// The QR scanner's frame (Android's QrFrame): a white card of 28 corners, an Ink.fill well of 24 corners holding the
-/// camera's picture, black corner marks, and a hint under it.
+/// camera's picture, corner marks, and a hint under it. The well clips the picture to its own rounded square, so a
+/// picture of any size or aspect stays inside (kb PHN-618). With `live` (a camera picture under them) the corner
+/// marks are white on a soft dark edge, readable on a dark room and on the Mac's white screen alike.
 public struct QrFrame<Preview: View>: View {
     let hint: String
+    let live: Bool
     let preview: Preview
 
-    public init(hint: String, @ViewBuilder preview: () -> Preview) {
+    public init(hint: String, live: Bool = false, @ViewBuilder preview: () -> Preview) {
         self.hint = hint
+        self.live = live
         self.preview = preview()
     }
 
     public var body: some View {
         Card(padding: 16) {
             ZStack {
+                // the picture is laid over the well, never sizes it: a picture of its own size can't push the page
                 RoundedRectangle(cornerRadius: 24, style: .continuous).fill(Ink.fill)
-                preview.clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                    .overlay { preview.frame(maxWidth: .infinity, maxHeight: .infinity) }
+                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
                 Canvas { g, size in
                     let len = min(size.width, size.height) * 0.18
                     let r: CGFloat = 10
@@ -31,7 +37,12 @@ public struct QrFrame<Preview: View>: View {
                         p.addLine(to: CGPoint(x: x, y: y + dy * r))
                         p.addQuadCurve(to: CGPoint(x: x + dx * r, y: y), control: CGPoint(x: x, y: y))
                         p.addLine(to: CGPoint(x: x + dx * len, y: y))
-                        g.stroke(p, with: .color(Ink.black), style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round))
+                        if live {
+                            g.stroke(p, with: .color(.black.opacity(0.35)), style: StrokeStyle(lineWidth: 7, lineCap: .round, lineJoin: .round))
+                            g.stroke(p, with: .color(Ink.white), style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round))
+                        } else {
+                            g.stroke(p, with: .color(Ink.black), style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round))
+                        }
                     }
                     corner(0, 0, 1, 1)
                     corner(size.width, 0, -1, 1)
@@ -42,7 +53,8 @@ public struct QrFrame<Preview: View>: View {
                 .accessibilityHidden(true)
             }
             .aspectRatio(1, contentMode: .fit)
-            Text(hint).type(14, .regular, Ink.detail).frame(maxWidth: .infinity, alignment: .leading)
+            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            Text(hint).type(14, .regular, Ink.detail).multilineTextAlignment(.center).frame(maxWidth: .infinity)
                 .padding(.horizontal, 4).padding(.top, 12)
         }
     }

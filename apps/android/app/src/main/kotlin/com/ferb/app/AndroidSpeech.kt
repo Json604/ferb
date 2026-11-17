@@ -2,6 +2,9 @@ package com.ferb.app
 
 import android.content.Context
 import android.content.Intent
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.speech.RecognitionListener
@@ -22,6 +25,13 @@ import com.ferb.app.model.VoiceInput
  */
 class AndroidSpeech(private val context: Context) : VoiceInput {
     private var recognizer: SpeechRecognizer? = null
+    private val audio = context.getSystemService(AudioManager::class.java)
+
+    /** Music or a video pauses while FERB listens (kb PHN-643), and plays on after. */
+    private val focus = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
+        .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANT).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
+        .setOnAudioFocusChangeListener { }
+        .build()
 
     /** The phone said on-device speech has no pack for this language: the service is used from now on. */
     var onDeviceMissing = false
@@ -32,8 +42,12 @@ class AndroidSpeech(private val context: Context) : VoiceInput {
         else -> SpeechKind.NONE
     }
 
-    override fun startTask(kind: SpeechKind, task: Int, events: (VoiceEvent) -> Unit) {
+    override fun startTask(kind: SpeechKind, task: Int, events: (VoiceEvent) -> Unit) = startTask(kind, task, events, retried = false)
+
+    private fun startTask(kind: SpeechKind, task: Int, events: (VoiceEvent) -> Unit, retried: Boolean) {
         release()
+        runCatching { audio?.requestAudioFocus(focus) }
+        var ready = false
         val r = if (kind == SpeechKind.ON_DEVICE && Build.VERSION.SDK_INT >= 31) SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
         else SpeechRecognizer.createSpeechRecognizer(context)
         recognizer = r
@@ -43,14 +57,22 @@ class AndroidSpeech(private val context: Context) : VoiceInput {
                 events(heard(results, true) ?: VoiceEvent.Heard(task, RecognizedSpeech("", isFinal = true)))
             }
             override fun onError(error: Int) {
+                // the recogniser still busy with the last task, or its client not yet let go: one quiet new try
+                // (kb PHN-643), never a failure the owner sees for that alone
+                if (!ready && !retried && (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY || error == SpeechRecognizer.ERROR_CLIENT)) {
+                    com.ferb.app.AppLog.i("voice error $error before ready: one new try")
+                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ if (recognizer === r) startTask(kind, task, events, retried = true) }, RETRY_MS)
+                    return
+                }
                 val missing = error == SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED || error == SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE
                 if (missing && kind == SpeechKind.ON_DEVICE) onDeviceMissing = true
                 events(VoiceEvent.Failed(task, noSpeech = error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT,
                     languageMissing = missing && kind == SpeechKind.ON_DEVICE, code = error))
             }
-            override fun onReadyForSpeech(params: Bundle?) = Unit
+            override fun onReadyForSpeech(params: Bundle?) { ready = true; events(VoiceEvent.Ready(task)) }
             override fun onBeginningOfSpeech() = Unit
-            override fun onRmsChanged(rmsdB: Float) = Unit
+            // rmsdB runs about -2 (quiet) to 10 (loud speech)
+            override fun onRmsChanged(rmsdB: Float) = events(VoiceEvent.Level(task, ((rmsdB + 2f) / 12f).coerceIn(0f, 1f)))
             override fun onBufferReceived(buffer: ByteArray?) = Unit
             override fun onEndOfSpeech() = Unit
             override fun onEvent(eventType: Int, params: Bundle?) = Unit
@@ -71,10 +93,18 @@ class AndroidSpeech(private val context: Context) : VoiceInput {
 
     override fun finishAudio() { recognizer?.stopListening() }
 
-    override fun stop() = release()
+
+    override fun stop() {
+        release()
+        runCatching { audio?.abandonAudioFocusRequest(focus) }
+    }
 
     private fun release() {
         recognizer?.let { runCatching { it.cancel() }; runCatching { it.destroy() } }
         recognizer = null
+    }
+
+    private companion object {
+        const val RETRY_MS = 300L
     }
 }

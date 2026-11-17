@@ -378,7 +378,7 @@ extension NotchModel {
         guard topic == "phone.pair_requested", let request = data["request_id"] as? String ?? data["phone"] as? String else { return }
         let name = (data["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? PhoneWords.unnamedPhone
         let card = ResultCard(["type": "page", "page": "phone", "line": PhoneWords.openPhoneSettings])
-        if conversation.addNotice(id: "phone-pair-" + request, text: PhoneWords.notchAsks(name, code: data["code"] as? String ?? ""),
+        if conversation.addNotice(id: "phone-pair-" + request, text: PhoneWords.notchAsks(name),
                                   tag: "FERB", cards: card.map { [$0] }) {
             saveConversation()
             onBackgroundChange?(true)

@@ -172,6 +172,12 @@ sealed interface VoiceEvent {
      * is in use elsewhere.
      */
     data class Failed(override val task: Int, val noSpeech: Boolean, val languageMissing: Boolean = false, val code: Int = 0) : VoiceEvent
+
+    /** The recogniser is ready for speech (kb PHN-643): until then the owner sees "Getting ready…". */
+    data class Ready(override val task: Int) : VoiceEvent
+
+    /** How loud the microphone hears him now, 0..1 (kb PHN-643): drawn as the ring around the microphone. */
+    data class Level(override val task: Int, val level: Float) : VoiceEvent
 }
 
 /**
@@ -206,6 +212,10 @@ class Dictation(
     /** Runs a block after a delay (a coroutine on the main thread; tests run it by hand); returns its cancel. */
     private val later: (Long, () -> Unit) -> () -> Unit,
     private val graceMs: Long = GRACE_MS,
+    /** The recogniser became ready for speech (each task; kb PHN-643). */
+    private val ready: () -> Unit = {},
+    /** How loud the microphone hears him, 0..1. */
+    private val level: (Float) -> Unit = {},
 ) {
     sealed interface End {
         data class Words(val text: String) : End
@@ -220,6 +230,9 @@ class Dictation(
     val text: String get() = capture.text
     val running: Boolean get() = !over
 
+    /** The owner let go and the last words are on their way (at most [graceMs]). */
+    val finishing: Boolean get() = capture.finishing
+
     fun start() = startTask()
 
     private fun startTask() {
@@ -231,6 +244,8 @@ class Dictation(
         val step = when (e) {
             is VoiceEvent.Heard -> capture.receive(e.speech, e.task).also { words(capture.text) }
             is VoiceEvent.Failed -> capture.fail(e.task, e.noSpeech).also { lastFailure = e }
+            is VoiceEvent.Ready -> { if (e.task == capture.task) ready(); return }
+            is VoiceEvent.Level -> { if (e.task == capture.task) level(e.level); return }
         }
         when (step) {
             DictationCapture.Step.KeepListening -> Unit

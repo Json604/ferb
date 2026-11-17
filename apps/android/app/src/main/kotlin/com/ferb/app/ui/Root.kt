@@ -48,6 +48,9 @@ import com.ferb.app.Sheet
 import com.ferb.app.StayConnectedService
 import com.ferb.design.FerbType
 import com.ferb.design.Ink
+import com.ferb.design.MotionKind
+import com.ferb.design.MotionSwitch
+import com.ferb.design.heldWhileLeaving
 import com.ferb.design.components.Card
 import com.ferb.design.components.FerbMark
 import com.ferb.design.components.LocalSkyInk
@@ -124,21 +127,36 @@ fun FerbRoot(vm: FerbViewModel, activity: MainActivity) {
         moment,
         insets = insets,
         season = ui.gate == Gate.MAIN && tab == PhoneTab.CHAT && home,
-        sheet = { if (ui.gate == Gate.MAIN || ui.gate == Gate.PAIR) Sheets(vm, ui, sheet, insets, host) },
+        // one sheet at a time, up from below and back down; a going one shows what it showed (kb PHN-623). Gone at
+        // once with its gate (the lock: PHN-8).
+        sheet = {
+            if (ui.gate == Gate.MAIN || ui.gate == Gate.PAIR) {
+                MotionSwitch(sheet.takeIf { it != Sheet.Scan }, Modifier.fillMaxSize(), MotionKind.SHEET) { s ->
+                    Sheets(vm, heldWhileLeaving(ui), s, insets, host)
+                }
+            }
+        },
     ) {
-        when (ui.gate) {
-            Gate.STARTING -> Unit
-            Gate.FAILED -> Failed(insets)
-            Gate.NO_SCREEN_LOCK -> NoScreenLock(insets)
-            Gate.LOCKED -> UnlockPage(insets, onUnlock = { vm.unlockApp() })
-            Gate.PAIR -> if (sheet == Sheet.Scan && !ui.pairing) Scanner(vm, insets) { vm.show(null) }
-            else Pair(vm, ui.pairing, ui.pairReason, ui.pairError?.let { noteText(it) }, insets)
-            Gate.CODES -> CodesPage(ui.link?.pairingCode.orEmpty(), insets, onCancel = { vm.cancelPairing() })
-            Gate.REMOVED -> Removed(vm, ui.pairReason, insets)
-            Gate.MAIN -> Main(vm, ui, tab, home, insets, moment, host)
+        // the gate's pages change with a rise and a fade; the lock (and the start) replace everything at once (PHN-8)
+        val screen: Any = if (ui.gate == Gate.PAIR && sheet == Sheet.Scan && !ui.pairing) ScanScreen else ui.gate
+        MotionSwitch(screen, Modifier.fillMaxSize(), instant = { it == Gate.LOCKED || it == Gate.STARTING }) { s ->
+            when (s) {
+                Gate.STARTING -> Unit
+                Gate.FAILED -> Failed(insets)
+                Gate.NO_SCREEN_LOCK -> NoScreenLock(insets)
+                Gate.LOCKED -> UnlockPage(insets, onUnlock = { vm.unlockApp() })
+                ScanScreen -> Scanner(vm, insets) { vm.show(null) }
+                Gate.PAIR -> Pair(vm, ui.pairing, ui.pairReason, ui.pairError?.let { noteText(it) }, insets)
+                Gate.CODES -> CodesPage(ui.link?.pairingCode.orEmpty(), insets, onCancel = { vm.cancelPairing() })
+                Gate.REMOVED -> Removed(vm, ui.pairReason, insets)
+                Gate.MAIN -> Main(vm, ui, tab, home, insets, moment, host)
+            }
         }
     }
 }
+
+/** The scanner's page, a screen of the pairing gate of its own (MotionSwitch's key). */
+private object ScanScreen
 
 @Composable
 internal fun Pair(vm: FerbViewModel, pairing: Boolean, reason: PairReason?, error: String?, insets: PhoneInsets) {

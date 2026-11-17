@@ -1,6 +1,17 @@
 package com.ferb.app
 
 import android.graphics.Bitmap
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.unit.dp
+import org.junit.Assert.assertEquals
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
@@ -452,6 +463,85 @@ class ScreenShotsTest {
             }
         }
         shoot("scanner-camera.png")
+    }
+
+    /**
+     * The scanner with the camera on, at dawn, noon and night (kb PHN-618). The camera's picture is a stand-in larger
+     * than the frame and pushed up and to the right, as the phone drew it before: nothing of it may show outside the
+     * frame's rounded well, the corner marks sit over it, and the hint and the card below stay clear.
+     */
+    // decision: PHN-617, PHN-618, PHN-619, PHN-447
+    @Test
+    fun the_scanner_keeps_the_camera_inside_its_frame_at_dawn() = scannerLive("dawn", 6.1)
+
+    // decision: PHN-617, PHN-618, PHN-619, PHN-447
+    @Test
+    fun the_scanner_keeps_the_camera_inside_its_frame_at_noon() = scannerLive("noon", 12.5)
+
+    // decision: PHN-617, PHN-618, PHN-619, PHN-447
+    @Test
+    fun the_scanner_keeps_the_camera_inside_its_frame_at_night() = scannerLive("night", 22.5)
+
+    private fun scannerLive(name: String, hour: Double) {
+        val maroon = Color(0xFF7A2E4A)
+        val moment = labMoment(hour)
+        compose.setContent {
+            Box(Modifier.size(Phone.frameWidth, Phone.frameHeight).testTag(PHONE)) {
+                PhoneScreen(moment, insets = PhoneInsets.Lab, glide = false, sheet = { LabAndroidChrome() }) {
+                    com.ferb.app.ui.ScannerPage(PhoneInsets.Lab, com.ferb.app.ui.CameraAccess.ALLOWED, {}, {}, {}) {
+                        // a camera picture of its own size and place: a dark room and the Mac's white screen
+                        Box(Modifier.wrapContentSize(unbounded = true).offset(60.dp, (-60).dp).requiredSize(420.dp, 560.dp).background(maroon)) {
+                            Box(Modifier.align(Alignment.Center).size(150.dp, 110.dp).background(Color.White))
+                        }
+                    }
+                }
+            }
+        }
+        compose.mainClock.autoAdvance = false
+        compose.mainClock.advanceTimeByFrame()
+        val well = compose.onNodeWithContentDescription("Camera view for the pairing code").fetchSemanticsNode().boundsInRoot
+        val check = File("build/scanner-check/$name.png")
+        compose.onNodeWithTag(PHONE).captureRoboImage(check.path, roborazziOptions = RoborazziOptions(taskType = com.github.takahirom.roborazzi.RoborazziTaskType.Record))
+        val image = BitmapFactory.decodeFile(check.path)
+        var inside = 0
+        var outside = 0
+        for (y in 0 until image.height) for (x in 0 until image.width) {
+            if (image.getPixel(x, y) != maroon.toArgb()) continue
+            if (x >= well.left && x < well.right && y >= well.top && y < well.bottom) inside++ else outside++
+        }
+        assertTrue("$name: the picture shows in the well ($inside)", inside > 10_000)
+        assertEquals("$name: nothing of the picture outside the well", 0, outside)
+        compose.onNodeWithTag(PHONE).captureRoboImage("src/test/screenshots/scanner-live-$name.png", roborazziOptions = options)
+    }
+
+    /** The microphone's states as the composer draws them (kb PHN-643): pressed or getting ready, listening loud, finishing. */
+    // decision: PHN-642, PHN-643
+    @Test
+    fun the_microphone_shows_what_it_is_doing() {
+        val moment = labMoment(22.5)
+        compose.setContent {
+            Box(Modifier.size(Phone.frameWidth, 440.dp).testTag(PHONE)) {
+                PhoneScreen(moment, insets = PhoneInsets.Lab, glide = false) {
+                    androidx.compose.foundation.layout.Column(
+                        Modifier.padding(16.dp),
+                        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(28.dp),
+                    ) {
+                        for ((state, level) in listOf(
+                            com.ferb.design.components.MicState.READYING to 0f,
+                            com.ferb.design.components.MicState.LISTENING to 0.2f,
+                            com.ferb.design.components.MicState.LISTENING to 0.9f,
+                            com.ferb.design.components.MicState.FINISHING to 0f,
+                        )) {
+                            com.ferb.design.components.PhoneComposer(
+                                Modifier, placeholder = "Ask FERB", typed = "", onValueChange = {}, onMicDown = {}, onMicUp = {},
+                                listening = true, listeningText = state.name, mic = state, micLevel = level,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        shoot("composer-mic.png")
     }
 
     // accessibility: the chat and its outbox at 150 % text

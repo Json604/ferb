@@ -117,7 +117,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 actions.updates = updates
             }
             self.updates = updates
-            coordinator.onInstallUpdate = { [updates] in updates.checkNow() }
+            coordinator.onInstallUpdate = { [updates] in updates.install() }
+            // APP-947: Sparkle's window the owner was watching closes without an alert; FERB says it in the chat
+            updates.onInstallFailed = { [weak model = coordinator.model] line in
+                model?.noteFromSetup(id: "update-failed-\(Int(Date().timeIntervalSince1970))", text: line)
+            }
             updateOffer = updates.$status.sink { [weak coordinator] status in
                 guard let coordinator else { return }
                 switch status {
@@ -158,7 +162,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         appSetup.notch = coordinator?.model
         appSetup.introControls = coordinator?.introControls
         coordinator?.start()
-        appSetup.startAtLaunch()                 // packaged FERB.app only: the intro or a quiet update
+        AppWindowPresentation.start()            // from launch: a window that blocks FERB is never hidden (APP-948)
+        appSetup.startAtLaunch()                // packaged FERB.app only: the intro or a quiet update
     }
 
     @objc func quitKey(_ sender: Any?) {

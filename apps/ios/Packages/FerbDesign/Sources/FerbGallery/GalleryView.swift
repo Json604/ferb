@@ -8,12 +8,12 @@ import SwiftUI
 
 /// The whole gallery. A screen fills the phone; a swipe from the left edge goes back to the index.
 public struct GalleryView: View {
-    private enum Page: Hashable { case index, screen(LabScreen), showcase(String) }
+    private enum Page: Hashable { case index, screen(LabScreen), showcase(String), motion }
 
     /// The places the lab offers, and the phone's own time zone's place.
     private let places: [(String, SkyPlace)] = [("This time zone", SkyPlace.fromZone())] + SkyPlace.all.map { ($0.name, $0) }
 
-    @State private var page = Page.index
+    @State private var page = UserDefaults.standard.bool(forKey: "FERBMotionTour") ? Page.motion : Page.index
     @State private var placeIndex = 1
     /// Local hour at the place; nil follows the real clock.
     @State private var hour: Double?
@@ -52,6 +52,12 @@ public struct GalleryView: View {
             GeometryReader { geo in
                 LabScreenView(screen: screen, moment: moment,
                               insets: PhoneInsets(top: geo.safeAreaInsets.top, bottom: geo.safeAreaInsets.bottom), glide: !playing)
+            }
+            .overlay(alignment: .leading) { backEdge }
+            .preferredColorScheme(moment.ink.topIsDark ? .light : .dark)
+        case .motion:
+            GeometryReader { geo in
+                MotionDemo(moment: moment, insets: PhoneInsets(top: geo.safeAreaInsets.top, bottom: geo.safeAreaInsets.bottom))
             }
             .overlay(alignment: .leading) { backEdge }
             .preferredColorScheme(moment.ink.topIsDark ? .light : .dark)
@@ -98,6 +104,11 @@ public struct GalleryView: View {
                         if i > 0 { Divide() }
                         CardRow(title: s.title, detail: s.note, onClick: { page = .screen(s) }) { EmptyView() } trailing: { Opens() }
                     }
+                }
+                Text("Motion").type(15, .semibold, Ink.white).padding(.top, 10)
+                Card {
+                    CardRow(title: "Tabs and sheets", detail: "The app's motion (kb PHN-620..624) over the lab's pages: tap the tabs, the rows, the Mac",
+                            onClick: { page = .motion }) { EmptyView() } trailing: { Opens() }
                 }
                 Text("Tokens and components").type(15, .semibold, Ink.white).padding(.top, 10)
                 Card {

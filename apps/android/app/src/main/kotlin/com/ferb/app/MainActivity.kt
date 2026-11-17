@@ -78,6 +78,23 @@ class MainActivity : ComponentActivity() {
         vm.recheck()
     }
 
+    // PHN-615: the unlock prompt by itself only from a resumed activity holding the window's focus. From onCreate the
+    // system drops it; while a dialog, the shade or another prompt has the focus it would stack on top of them.
+    override fun onResume() {
+        super.onResume()
+        vm.windowReady(hasWindowFocus())
+    }
+
+    override fun onPause() {
+        vm.windowReady(false)
+        super.onPause()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        vm.windowReady(hasFocus && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED))
+    }
+
     override fun onDestroy() {
         if (vm.prompts is ActivityPrompts) vm.prompts = null
         super.onDestroy()

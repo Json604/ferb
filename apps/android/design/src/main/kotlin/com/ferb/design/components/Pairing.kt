@@ -18,6 +18,7 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
@@ -150,13 +151,21 @@ fun PairAction(icon: ImageVector, title: String, modifier: Modifier = Modifier, 
 /**
  * The QR scanner's frame. NOT drawn by the glass lab (its Pair page only has "Scan the code"); built from the lab's
  * own pieces (a white card of 28 corners, an Ink.fill well of 24 corners, black corner marks in the Mark's 2.5 line)
- * until the lab draws one. [preview] is where the camera's picture goes (S11; no camera here).
+ * until the lab draws one. [preview] is where the camera's picture goes: the well clips it to its own rounded square,
+ * so a picture of any size or aspect stays inside (kb PHN-618). With [live] (a camera picture under them) the corner
+ * marks are white on a soft dark edge, readable on a dark room and on the Mac's white screen alike.
  */
 @Composable
-fun QrFrame(modifier: Modifier = Modifier, hint: String = "Point your phone at the code on your Mac.", preview: @Composable () -> Unit = {}) {
+fun QrFrame(
+    modifier: Modifier = Modifier,
+    hint: String = "Point your phone at the code on your Mac.",
+    live: Boolean = false,
+    preview: @Composable () -> Unit = {},
+) {
     Card(modifier, padding = 16.dp) {
+        val well = RoundedCornerShape(Phone.codeCorner)
         Box(
-            Modifier.fillMaxWidth().aspectRatio(1f).background(Ink.fill, RoundedCornerShape(Phone.codeCorner))
+            Modifier.fillMaxWidth().aspectRatio(1f).clip(well).background(Ink.fill, well)
                 .semantics { contentDescription = "Camera view for the pairing code" },
             contentAlignment = Alignment.Center,
         ) {
@@ -173,7 +182,12 @@ fun QrFrame(modifier: Modifier = Modifier, hint: String = "Point your phone at t
                         quadraticTo(x, y, x + dx * r, y)
                         lineTo(x + dx * len, y)
                     }
-                    drawPath(p, Ink.black, style = stroke)
+                    if (live) {
+                        drawPath(p, Color.Black.copy(alpha = 0.35f), style = Stroke(w + 3.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
+                        drawPath(p, Ink.white, style = stroke)
+                    } else {
+                        drawPath(p, Ink.black, style = stroke)
+                    }
                 }
                 corner(0f, 0f, 1f, 1f)
                 corner(size.width, 0f, -1f, 1f)

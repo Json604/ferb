@@ -24,6 +24,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -50,6 +51,11 @@ import com.ferb.design.FerbIcon
 import com.ferb.design.FerbIcons
 import com.ferb.design.FerbType
 import com.ferb.design.Ink
+import com.ferb.design.AppearAfterFirst
+import com.ferb.design.MotionKind
+import com.ferb.design.MotionSwitch
+import com.ferb.design.heldWhileLeaving
+import com.ferb.design.motionAppear
 import com.ferb.design.components.Card
 import com.ferb.design.components.CardRow
 import com.ferb.design.components.Divide
@@ -93,15 +99,31 @@ fun Files(vm: FerbViewModel, ui: UiState, insets: PhoneInsets, waiting: PhoneTab
         TopBar(PhoneTab.FILES, waiting = waiting, onTab = onTab, onProfile = onProfile)
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
             SearchField(vm, ui)
-            for (group in groups(transfers)) TransferCard(vm, group, host, batch = group.first().batch?.let { batches[it] })
+            // a transfer's card that arrives rises in (kb PHN-624)
+            AppearAfterFirst {
+                for (group in groups(transfers)) key(group.first().batch ?: group.first().key) {
+                    TransferCard(vm, group, host, Modifier.padding(top = 12.dp).motionAppear(), batch = group.first().batch?.let { batches[it] })
+                }
+            }
             if (ui.link?.phase == LinkPhase.ONLINE && ui.link.bulkAllowed == false) {
                 PhoneText(stringResource(R.string.files_needs_better_path), 14f, FerbType.Medium, ink.low, Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 12.dp))
             }
             ui.files.problem?.let { PhoneText(noteText(it), 14f, FerbType.Medium, ink.low, Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 12.dp)) }
-            when {
-                search != null -> Found(vm, ui)
-                folder == null -> Places(vm, ui)
-                else -> FolderView(vm, ui)
+            // a folder opened comes in from the right, going up from the left; the one going shows what it showed (PHN-623)
+            val view = when {
+                search != null -> FilesView("search", 0)
+                folder == null -> FilesView("places", 0)
+                else -> FilesView(folder.path, 1 + folder.path.count { it == '/' })
+            }
+            MotionSwitch(view, Modifier.fillMaxWidth(), MotionKind.TAB, direction = { a, b -> b.depth.compareTo(a.depth) }) { v ->
+                val held = heldWhileLeaving(ui)
+                Column {
+                    when (v.id) {
+                        "search" -> Found(vm, held)
+                        "places" -> Places(vm, held)
+                        else -> FolderView(vm, held)
+                    }
+                }
             }
         }
         Row(Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = insets.bottom + 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -110,6 +132,9 @@ fun Files(vm: FerbViewModel, ui: UiState, insets: PhoneInsets, waiting: PhoneTab
         }
     }
 }
+
+/** What the Files page shows under its search field: the places, a folder (by its depth) or a search's answer. */
+private data class FilesView(val id: String, val depth: Int)
 
 /** The lab's black search pill, now a field: the Mac's names, inside the folder open (or the whole home folder). */
 @Composable

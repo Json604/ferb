@@ -7,6 +7,17 @@ import SwiftUI
 /// the places and recent files, and sending files to the Mac; a place opens as a folder of the lab's rows. A key
 /// place's entry shows its lock and asks for Face ID for that very path (PHN-121). A fetched file opens only on the
 /// owner's tap: QuickLook, or the share sheet (PHN-517).
+/// What the Files page shows under its search field: the places, a folder (by its depth) or a search's answer.
+private struct FilesKey: Hashable {
+    let id: String
+    let depth: Int
+    init(_ f: FilesUi) {
+        if f.search != nil { id = "search"; depth = 0 }
+        else if let folder = f.folder { id = folder.path; depth = 1 + folder.path.filter { $0 == "/" }.count }
+        else { id = "places"; depth = 0 }
+    }
+}
+
 struct FilesView: View {
     @Bindable var model: AppModel
     let insets: PhoneInsets
@@ -29,11 +40,18 @@ struct FilesView: View {
                                           open: { t in preview = URL(fileURLWithPath: t.local); model.handedOut(t.key) },
                                           share: { urls, key in share = ShareItem(urls: urls); if let key { model.handedOut(key) } })
                             .padding(.top, 12)
+                            .transition(.motionItem)  // a transfer's card that arrives rises in (kb PHN-624)
                     }
                     if model.ui.link?.phase == .online, model.ui.link?.bulkAllowed == false { line(L.s("files_needs_better_path")) }
                     if let p = files.problem { line(p.text) }
-                    if files.search != nil { found(files) } else if files.folder == nil { places(files) } else { folder(files) }
+                    // a folder opened comes in from the right, going up from the left (kb PHN-623)
+                    MotionSwitch(FilesKey(files), kind: .tab, direction: { a, b in b.depth - a.depth }) { _ in
+                        VStack(spacing: 0) {
+                            if files.search != nil { found(files) } else if files.folder == nil { places(files) } else { folder(files) }
+                        }
+                    }
                 }
+                .animation(FerbMotion.item.animation, value: groups(model.transfers.list).map { $0.first?.key })
                 .padding(.horizontal, 16).padding(.bottom, 12)
             }
             HStack(spacing: 8) {

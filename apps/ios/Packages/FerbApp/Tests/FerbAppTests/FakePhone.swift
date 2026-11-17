@@ -74,7 +74,12 @@ final class FakePhone: PhoneApi {
         v.outbox = outbox
         return .ok(v)
     }
-    func sync() async -> Outcome<Void> { calls.append("sync"); return .ok(()) }
+    /// What each sync says, in turn (then ok).
+    var syncScript: [Outcome<Void>] = []
+    func sync() async -> Outcome<Void> {
+        calls.append("sync")
+        return syncScript.isEmpty ? .ok(()) : syncScript.removeFirst()
+    }
     func send(_ text: String) async -> Outcome<OutboxItem> {
         calls.append("send:\(text)")
         let item = OutboxItem(id: "o\(outbox.count + 1)", text: text, createdAt: "2026-01-02T10:00:00+00:00", state: "waiting",
@@ -101,9 +106,14 @@ final class FakePhone: PhoneApi {
     }
     func stop(taskIds: [String]) async -> Outcome<Void> { calls.append("stop:\(taskIds.joined(separator: ","))"); return stopResult }
     func loadOlder(conversation: String) async -> Outcome<OlderState> { calls.append("older"); return .ok(.complete) }
+    /// Hold the Mac's challenge (before the prompt) or its answer (after it) until the test opens them (PHN-641).
+    var challengeHeld = false
+    var answerHeld = false
     func unlock(_ signer: Signer) async -> Outcome<Void> {
         calls.append("unlock")
+        while challengeHeld { try? await Task.sleep(nanoseconds: 5_000_000) }
         if case .ok = unlockResult, signer.sign(payload: "challenge") == nil { return .failed(.NotSigned(detail: "Nothing was sent.", linkCode: nil)) }
+        while answerHeld { try? await Task.sleep(nanoseconds: 5_000_000) }
         return unlockResult
     }
     func pair(_ code: String) async -> Outcome<Void> { calls.append("pair:\(code)"); return .ok(()) }
@@ -261,13 +271,19 @@ final class FakePrompts: Prompts {
     var whys: [Why] = []
     var cancel = false
     var localResult = true
+    private(set) var localAsked = 0
+    /// Every prompt the owner saw: a signing prompt asked to sign, or the prompt alone.
+    var shown: Int { signers.reduce(0) { $0 + $1.asked } + localAsked }
     func signer(_ kind: KeyKind, why: Why) -> Signer? {
         let s = FakeSigner(kind, cancel: cancel)
         signers.append(s)
         whys.append(why)
         return s
     }
-    func local() async -> Bool { localResult }
+    func local() async -> Bool {
+        localAsked += 1
+        return localResult
+    }
 }
 
 /// A clock the test moves (monotonic seconds).
@@ -287,6 +303,8 @@ final class Rig {
     let suite = "ferb-app-test-\(UUID().uuidString)"
     let prefs: Prefs
     var screenLock = true
+    /// Short waits, so a test sees the bounds without real seconds (Android's tests move a test clock instead).
+    var timing = UnlockTiming(promptWait: 0.3, macSlow: 0.4, recheck: 0.02, rechecks: 2)
 
     init() {
         let c = clock
@@ -298,7 +316,7 @@ final class Rig {
 
     func model(corpus: Corpus? = nil, locator: Locator? = nil) -> AppModel {
         let m = AppModel(api: phone, session: session, prefs: prefs, local: local, screenLock: { [weak self] in self?.screenLock ?? true },
-                         corpus: corpus, locator: locator)
+                         corpus: corpus, locator: locator, timing: timing)
         m.prompts = prompts
         return m
     }

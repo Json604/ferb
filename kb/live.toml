@@ -4830,3 +4830,12 @@ request = "Ask FERB to attach report.pdf from your Desktop (attached in the chat
 pass = "As asked: no question; the log shows the Desktop bytes; done. Downloads copy, or a picker that fills the page's file field: before the submit FERB asks \"The file attached on <site> isn't report.pdf from your Mac. Send it anyway?\"; No sends nothing (the log is empty) and the answer says why; Yes sends once. A picker with no file field: told after as delivered with gaps, never done."
 decisions = ["ORCH-667", "ORCH-668", "ORCH-669", "ORCH-672", "ORCH-673", "ORCH-676"]
 sitting = "after this engine and FERB.app are installed"
+
+[LIVE-1149]
+title = "Check for Updates, feed unreachable, over a full-screen app: no alert, a plain line, FERB answers"
+area = "app"
+surface = "FERB.app with this build (installed by the owner); a full-screen app (e.g. VS Code) in front; the update feed unreachable (Wi-Fi off, or the feed answering 404)"
+request = "From the full-screen app open Settings → General and press Check for Updates…; then click around FERB (Settings, the notch, the menu bar icon's menu); then once with the network on."
+pass = "The button shows Checking… then the line 'FERB couldn't check for updates just now. It will try again later.' with the reason small and grey beneath; no alert or Sparkle window anywhere; FERB keeps taking clicks and Quit works in the menu. With the network on: 'FERB is up to date.' or 'Update available: FERB <v>' with Install."
+decisions = ["APP-945", "APP-946", "APP-947", "APP-948", "APP-949"]
+sitting = "after this change is installed"

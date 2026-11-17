@@ -1,0 +1,67 @@
+{
+  "about": "How FERB's phone apps move, one table for Android (:design MotionTableTest) and iPhone (FerbDesign MotionTests); each side's code (Motion.kt, Motion.swift) must equal it. The owner wants PairIt's motion (kb PHN-620): the numbers are PairIt's (~/Desktop/bluetooth_switch), the lab's where PairIt has none. A spring is its response (seconds for one undamped swing, 2 pi / omega; SwiftUI's spring(response:dampingFraction:), Compose's stiffness (2 pi / response)^2) and its damping ratio.",
+  "springs": {
+    "tab": {
+      "response": 0.326726,
+      "damping": 0.6,
+      "from": "PairIt Android MainActivity.java:185-186, the tab indicator: 650 ms of 1 - e^(-7.5 t)(cos 10 t + 0.75 sin 10 t), the exact step of this spring"
+    },
+    "press_down": {
+      "response": 0.110584,
+      "damping": 0.6,
+      "from": "PairIt Android GlassUI.java:33-35 and 45-46: the same curve over 220 ms at touch-down"
+    },
+    "press_up": {
+      "response": 0.276460,
+      "damping": 0.6,
+      "from": "PairIt Android GlassUI.java:45-46: the same curve over 550 ms at release"
+    },
+    "sheet": {
+      "response": 0.30,
+      "damping": 0.92,
+      "from": "the glass lab tokens.json motion.panel (spring 0.30 s, bounce 0.08, interruptible); PairIt's iPhone sheets are the system's (ReceiverView.swift:463)"
+    }
+  },
+  "curves": {
+    "enter": {
+      "ms": 220,
+      "bezier": [0.22, 1, 0.36, 1],
+      "shift": 24,
+      "from": "PairIt Android MainActivity.java:567 (a panel rises 24 dp and fades in over 220 ms) and PlainSwitch.java:29-30, RelayOutputSelector.java:29 (the same curve)"
+    },
+    "exit": {
+      "ms": 120,
+      "bezier": [0, 0, 1, 1],
+      "from": "PairIt Android MainActivity.java:58 (the notice fades out over 120 ms); PairIt iPhone RelayStyle.swift:35 (.linear(duration: 0.12))"
+    },
+    "item": {
+      "ms": 180,
+      "bezier": [0.23, 1, 0.32, 1],
+      "shift": 6,
+      "from": "PairIt Android MainActivity.java:439-441 (a notice arrives: up 6 dp and in over 180 ms); PairIt iPhone RelayStyle.swift:29 (the same curve)"
+    },
+    "reduced": {
+      "ms": 120,
+      "bezier": [0, 0, 1, 1],
+      "from": "PairIt iPhone RelayStyle.swift:35: under Reduce Motion a change is a 0.12 s linear fade and nothing moves; Android with animations off: instant (GlassUI.java:27-31, MainActivity.java:184)"
+    }
+  },
+  "press": {
+    "scale": 0.97,
+    "alpha": 0.85,
+    "from": "the glass lab tokens.json motion.press and Theme.swift:270-271 (PairIt iPhone RelayStyle.swift:53 sinks to 0.97 too; PairIt Android to 0.95)"
+  },
+  "tab_overshoot": {
+    "clip": "bar",
+    "from": "PairIt iPhone ReceiverView.swift:310 and 322: the pill's spring may overshoot the bar's end; the bar's round ends cut it (PairIt Android narrows it instead, MainActivity.java:186: one behaviour on both phones, the one SwiftUI and Compose both draw in place)"
+  },
+  "scrim": {
+    "alpha": 0.5,
+    "from": "the glass lab Mobile.swift Sheet (black at 0.5)"
+  },
+  "dismiss": {
+    "fraction": 0.25,
+    "velocity": 900,
+    "from": "not from PairIt (its sheets are the system's): a sheet let go past a quarter of its height, or flung down faster than 900 points a second, closes; otherwise it springs back"
+  }
+}
