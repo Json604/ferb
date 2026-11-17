@@ -42,6 +42,17 @@ use tokio::sync::{Semaphore, broadcast, mpsc};
 
 pub use crate::{MIN_VERSION, VERSION};
 
+/// PHN-590 (owner 2026-11-17, "ok do it"): the shared relays are kept open for paired phones that haven't connected since
+/// the relay setting changed at most this many days after the change (the number awaits the owner's confirmation).
+/// A phone that comes back later can't find the Mac until the owner turns his relay off for a moment or pairs it again.
+pub const BEACON_MAX_DAYS: u64 = 30;
+
+/// PHN-220, PHN-591: the second endpoint is open while a paired phone hasn't been seen on the own relay, and never past
+/// `closes_at` (unix seconds).
+pub fn beacon_open(phones_waiting: usize, closes_at: Option<u64>, now: u64) -> bool {
+    phones_waiting > 0 && closes_at.is_none_or(|at| now < at)
+}
+
 pub struct BridgeConfig {
     pub state_dir: PathBuf,
     pub daemon_socket: PathBuf,
@@ -589,7 +600,12 @@ impl Bridge {
             "home_relays": net::home_relays(&self.ep()).iter().map(|u| u.to_string()).collect::<Vec<_>>(),
             // with an own relay set: the phones not yet seen with this relay setting, for which the Mac also stays
             // findable on the shared relays (kb NET-20)
-            "relay_handover": {"phones_waiting": self.phones_without_the_relay(), "on_shared_relays": i.policy.beacon().is_some()},
+            // (PHN-591: `closes_at`, unix seconds, when the shared relays stop being kept open for them; `closed`: past it
+            // with phones still waiting, which can't find the Mac until the owner reconnects or re-pairs them)
+            "relay_handover": {"phones_waiting": self.phones_without_the_relay(), "on_shared_relays": i.policy.beacon().is_some(),
+                               "closes_at": self.beacon_closes_at(),
+                               "closed": self.phones_without_the_relay() > 0
+                                   && self.beacon_closes_at().is_some_and(|at| crate::store::now() >= at)},
             "devices": devices,
             "pairing": pairing,
             // (kb PHN-444: the public relays carry control only; `paused_s`: since the relay's slow-down notice)
@@ -817,6 +833,15 @@ impl Bridge {
 
     // ---- accepting phones ------------------------------------------------------------------------------------------
 
+    /// PHN-591: when the shared relays' second endpoint closes even if a phone never came back: `BEACON_MAX_DAYS`
+    /// after the relay setting last changed (unix seconds); None without an own relay.
+    fn beacon_closes_at(&self) -> Option<u64> {
+        self.inner.policy.own()?;
+        self.inner
+            .store
+            .relay_set_at()
+            .map(|at| at + BEACON_MAX_DAYS * 86_400)
+    }
     /// Paired phones not yet seen with the Mac's current own-relay setting (0 with no own relay).
     fn phones_without_the_relay(&self) -> usize {
         match self.inner.policy.own() {
@@ -836,14 +861,16 @@ impl Bridge {
     /// phone the Mac stays findable where that phone last knew it, on the shared relays, through a second
     /// endpoint; the phone's next connection there is told the setting (the welcome carries it) and moves. When
     /// every paired phone was seen on the own relay the second endpoint is closed: nothing of an own-relay
-    /// user is on the shared relays then (kb NET-20).
+    /// user is on the shared relays then (kb NET-20); and at the latest `BEACON_MAX_DAYS` after the relay setting
+    /// changed, even if a phone never came back (PHN-590, PHN-591).
     async fn beacon_loop(self) {
         while !self.is_closed() {
-            let _ = self
-                .inner
-                .policy
-                .set_beacon(self.phones_without_the_relay() > 0)
-                .await;
+            let open = beacon_open(
+                self.phones_without_the_relay(),
+                self.beacon_closes_at(),
+                crate::store::now(),
+            );
+            let _ = self.inner.policy.set_beacon(open).await;
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
         let _ = self.inner.policy.set_beacon(false).await;
@@ -1701,7 +1728,13 @@ impl Session {
             },
             "link.files" => {
                 let path = req.params.get("path").cloned().unwrap_or(json!("~"));
-                self.daemon("phone.files", json!({"path": path}), req.proof.take())
+                let mut ask = json!({"path": path});
+                // decision: PHN-589 ("load more": the Mac's marker for the next page, which the Mac checks is this
+                // phone's, folder's and query's; a key place's proof stays over the path alone)
+                if let Some(after) = req.params.get("after").filter(|a| !a.is_null()) {
+                    ask["after"] = after.clone();
+                }
+                self.daemon("phone.files", ask, req.proof.take())
                     .await
                     .and_then(|mut v| {
                         // decision: PHN-444 (a listing the public relay would have to cut is refused there, never cut)

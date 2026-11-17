@@ -9,6 +9,8 @@
      ACCESS_FINE_LOCATION  one exact fix when the Mac asks for it for a task the owner said yes to (GATE-613); asked
        only then, on the phone's own sheet. No background location is ever asked: in the background Android gives FERB
        little or no location.
+     RECORD_AUDIO  speaking to FERB (PHN-603, PHN-604): only while the owner holds the microphone in the message box,
+       through Android's speech recogniser; nothing is recorded. Asked at the first use, after FERB's own words.
      No boot permission: after a restart of the phone Stay connected comes back when FERB is opened. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
@@ -19,6 +21,15 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+
+    <!-- Android 11+ shows an app only the speech services it declares it looks for (SpeechRecognizer, PHN-604) -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+    </queries>
     <uses-feature android:name="android.hardware.location" android:required="false" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
 

@@ -100,7 +100,7 @@ fn a_task_as_the_owner_that_browses_asks_the_one_browsing_question_without_a_pic
     assert!(browses_as_owner(&w), "the task browses in the pick");
 }
 
-// With a pick the task browses there (the browser tools then refuse another profile, `picked_only`).
+// With a pick the task browses there by default (HAND-644: a call may still name another of the owner's profiles).
 // decision: ORCH-648
 #[test]
 fn a_task_as_the_owner_that_browses_uses_the_pick() {

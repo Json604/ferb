@@ -235,6 +235,7 @@ fn compare(model: &str, case: &Py, got: &Result<Py, ValidationError>) -> Option<
         if model == "CheckerOutcome" {
             want = gaps_named(&want);
         }
+        want = uploaded_named(&want);
         return match got {
             Ok(d) => Some(format!("expected an error, got {}", dumps(d, Dumps::UTF8))),
             Err(e) if e.raised().is_some() => {
@@ -358,12 +359,22 @@ fn sha256_known() {
     );
 }
 
-/// ORCH-652, the one named difference from pydantic's recordings: a check's `next` may also be accept_with_gaps, so
-/// its literal_error lists it.
-// decision: ORCH-652
+/// ORCH-675 (ORCH-652's gaps), a named difference from pydantic's recordings: a check's `next` may also be
+/// accept_with_gaps, so its literal_error lists it.
+// decision: ORCH-675
 fn gaps_named(text: &str) -> String {
     text.replace(
         "'accept_unconfirmed' or 'fail'",
         "'accept_unconfirmed', 'accept_with_gaps' or 'fail'",
+    )
+}
+
+/// ORCH-667, a named difference from pydantic's recordings: a condition's check kind may also be `uploaded`, so its
+/// literal_error lists it.
+// decision: ORCH-667
+fn uploaded_named(text: &str) -> String {
+    text.replace(
+        "'trashed', 'deleted' or 'downloaded'",
+        "'trashed', 'deleted', 'downloaded' or 'uploaded'",
     )
 }

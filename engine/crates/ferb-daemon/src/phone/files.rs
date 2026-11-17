@@ -27,8 +27,14 @@
 //! behind the unlock window and refused before their first byte when they would leave less than
 //! [`FileLimits::upload_free_floor`] free; written as a hidden part file `0600` under a random id, marked as downloaded
 //! (`com.apple.quarantine`, so a file that runs when opened asks first: rule 5), and given their name at the end without
-//! overwriting anything; one that stops part way is kept [`FileLimits::upload_partial_keep_s`] for the same phone to go
-//! on with; a removed phone's are deleted at once. A message's attachments are this phone's finished uploads, by id.
+//! overwriting anything; one that stops part way is kept [`FileLimits::upload_partial_keep_s`] ([`UPLOAD_PARTIAL_KEEP_S`],
+//! 7 days) for the same phone to go on with; a removed phone's are deleted at once. A message's attachments are this
+//! phone's finished uploads, by id.
+//!
+//! **Where they land** (owner, 2026-11-17: "just mention thta its in there and also be changeable in Settings"):
+//! `~/Downloads/FERB from phone` unless the owner chose another folder in Settings → Phone (`phone.upload_folder`, the
+//! Mac's alone): it must exist, be a folder, and be none of FERB's own data, its protected places or a key place. Every
+//! finished upload's reply and `phone.list` say the place plainly ([`shown_place`]: "Downloads › FERB from phone").
 //!
 //! **The heavy-fetch notice** (PHN-128, PHN-138): more than [`FileLimits::fetch_notice_files`] files or
 //! [`FileLimits::fetch_notice_bytes`] within [`FileLimits::fetch_notice_window_s`] is said once per burst: a bus event
@@ -120,6 +126,14 @@ pub type TaskFile = dyn Fn(&str, u64) -> Option<PathBuf> + Send + Sync;
 pub type MadeFiles = dyn Fn(usize) -> Vec<super::find::Made> + Send + Sync;
 type Hook = dyn Fn(&str, &str) + Send + Sync;
 
+/// PHN-582 (owner 2026-11-17, "why ont more?? what does it cost us?"): a paused or interrupted upload's part file is
+/// kept 7 days for the same phone to go on with (the coordinator's number, awaiting the owner's confirmation; the only
+/// cost is the part file's disk space, and the 1 GB free-space floor is unchanged).
+pub const UPLOAD_PARTIAL_KEEP_S: f64 = 7.0 * 86_400.0;
+
+/// Writes the owner's choice of upload folder to FERB's settings (`None`: back to the default).
+pub type SaveInbox = dyn Fn(Option<&str>) -> Result<(), String> + Send + Sync;
+
 /// What the file area takes from the daemon.
 pub struct FileSeams {
     pub judge: Arc<dyn Judge>,
@@ -162,7 +176,8 @@ pub struct FileLimits {
     /// An upload that would leave less than this free on the Mac is refused before its first byte (PHN-127, PHN-139:
     /// "refuse when the Mac has under 1 GB free"; the lab's 1 GiB).
     pub upload_free_floor: u64,
-    /// An upload that stopped part way is kept this long for the same phone to go on with (PHN-139: one hour).
+    /// An upload that stopped part way is kept this long for the same phone to go on with ([`UPLOAD_PARTIAL_KEEP_S`]:
+    /// 7 days since 2026-11-17; PHN-139 had one hour).
     pub upload_partial_keep_s: f64,
     /// The heavy-fetch notice: more than this many files ... (PHN-138: 40)
     pub fetch_notice_files: u64,
@@ -186,7 +201,7 @@ impl Default for FileLimits {
     fn default() -> Self {
         FileLimits {
             upload_free_floor: 1 << 30,
-            upload_partial_keep_s: 3600.0,
+            upload_partial_keep_s: UPLOAD_PARTIAL_KEEP_S,
             fetch_notice_files: 40,
             fetch_notice_bytes: 1 << 30,
             fetch_notice_window_s: 600.0,
@@ -240,6 +255,11 @@ pub(crate) struct Area {
     /// The added key places in every form a path to them can take (as written, resolved now, without the Data volume).
     places: Vec<Vec<String>>,
     state: std::sync::Mutex<State>,
+    /// Where uploads land now (the owner may change it in Settings → Phone), and how a change is kept.
+    inbox: std::sync::Mutex<PathBuf>,
+    place: std::sync::OnceLock<(PathBuf, Arc<SaveInbox>)>,
+    /// PHN-589: the key a page's "load more" marker is signed with (random per daemon: a restart's markers start over).
+    page_key: std::sync::OnceLock<String>,
 }
 
 impl Area {
@@ -252,12 +272,120 @@ impl Area {
             .filter_map(|e| expand(&e, &home))
             .map(|p| forms(&p))
             .collect();
+        let inbox = std::sync::Mutex::new(seams.inbox.clone());
         Area {
             seams,
             limits,
             places,
             state: std::sync::Mutex::new(State::default()),
+            inbox,
+            place: std::sync::OnceLock::new(),
+            page_key: std::sync::OnceLock::new(),
         }
+    }
+
+    /// PHN-589: the "load more" marker after `at` results of one listing or search: opaque to the phone, signed with
+    /// this daemon's key over the phone, the call, the folder (its real path) and the query, so it works only for the
+    /// same phone asking the same thing.
+    pub(super) fn page_marker(
+        &self,
+        device: &str,
+        what: &str,
+        path: &str,
+        query: &str,
+        at: usize,
+    ) -> String {
+        format!("{at}.{}", self.page_tag(device, what, path, query, at))
+    }
+
+    fn page_tag(&self, device: &str, what: &str, path: &str, query: &str, at: usize) -> String {
+        let key = self.page_key.get().map(String::as_str).unwrap_or("");
+        let mut h = Sha256::new();
+        for part in [key, device, what, path, query, &at.to_string()] {
+            h.update(part.as_bytes());
+            h.update([0u8]);
+        }
+        proof::b64u(&h.finalize()[..12])
+    }
+
+    /// Where a page starts: 0 without a marker; the marker's count when it was made for this phone, call, folder and
+    /// query, else a refusal that names nothing.
+    pub(super) fn page_from(
+        &self,
+        device: &str,
+        what: &str,
+        path: &str,
+        query: &str,
+        marker: Option<&Value>,
+    ) -> Result<usize, Refusal> {
+        let Some(m) = marker.filter(|v| !v.is_null()) else {
+            return Ok(0);
+        };
+        let wrong = || bad("That \"load more\" belongs to another list. Open the folder again.");
+        let (at, tag) = m
+            .as_str()
+            .and_then(|t| t.split_once('.'))
+            .ok_or_else(wrong)?;
+        let at: usize = at.parse().map_err(|_| wrong())?;
+        if tag != self.page_tag(device, what, path, query, at) {
+            return Err(wrong());
+        }
+        Ok(at)
+    }
+
+    /// Where uploads land now.
+    pub(super) fn inbox_path(&self) -> PathBuf {
+        lock(&self.inbox).clone()
+    }
+
+    /// The default upload folder (`~/Downloads/FERB from phone`, or the start's folder when none was given).
+    fn default_inbox(&self) -> PathBuf {
+        self.place
+            .get()
+            .map_or_else(|| self.seams.inbox.clone(), |(d, _)| d.clone())
+    }
+
+    /// `phone.list`'s and `phone.upload_folder`'s `upload_folder`: the path, said plainly, and whether it is the default.
+    pub(super) fn upload_folder_json(&self) -> Value {
+        let path = self.inbox_path();
+        let text = path.to_string_lossy().into_owned();
+        json!({"path": text, "shown": shown_place(&text, &self.seams.judge.home()),
+               "default": path == self.default_inbox()})
+    }
+
+    /// The owner's choice of folder, judged: it exists, is a folder, and is none of FERB's own data, its protected
+    /// places or a key place, by the name given and by the one it really has. Its real path, or why not.
+    // decision: PHN-580
+    fn chosen_folder(&self, given: &str) -> Result<PathBuf, Refusal> {
+        let home = self.seams.judge.home();
+        let Some(path) = expand(given.trim(), &home) else {
+            return Err(bad("Choose a folder on this Mac."));
+        };
+        let meta = std::fs::metadata(&path)
+            .map_err(|_| bad("That folder isn't there any more. Choose another one."))?;
+        if !meta.is_dir() {
+            return Err(bad("That's a file. Choose a folder."));
+        }
+        let real = std::fs::canonicalize(&path)
+            .map_err(|_| bad("That folder isn't there any more. Choose another one."))?;
+        let real_text = real.to_string_lossy().into_owned();
+        for p in [path.as_str(), real_text.as_str()] {
+            let rules = self.seams.judge.rules(p, ferb_policy::protection::WRITE);
+            if rules.iter().any(|r| NEVER_LIFTED.contains(&r.as_str())) {
+                return Err(refused(
+                    phone_gate::FILE_NOT_ALLOWED,
+                    "That folder holds FERB's own data, so files from your phone can't go there. Choose another one.",
+                ));
+            }
+            if !rules.is_empty() || self.added_place(&forms(p)) {
+                return Err(refused(
+                    phone_gate::FILE_NOT_ALLOWED,
+                    "That folder is one FERB keeps private, so files from your phone can't go there. Choose another \
+                     one.",
+                ));
+            }
+        }
+        Ok(real)
     }
 
     fn hook(&self, stage: &str, path: &str) {
@@ -397,6 +525,28 @@ pub(super) fn expand(path: &str, home: &str) -> Option<String> {
         path.to_owned()
     };
     p.starts_with('/').then_some(p)
+}
+
+/// A folder as the owner reads it: under the home folder its folders from there ("Downloads › FERB from phone"),
+/// elsewhere every folder of its path ("Volumes › Backup › Phone").
+// decision: PHN-580
+pub fn shown_place(path: &str, home: &str) -> String {
+    let parts = |p: &str| -> Vec<String> {
+        p.split('/')
+            .filter(|x| !x.is_empty())
+            .map(str::to_owned)
+            .collect()
+    };
+    let (all, at_home) = (parts(path), parts(home));
+    let rest: Vec<String> = if !at_home.is_empty() && all.starts_with(&at_home) {
+        if all.len() == at_home.len() {
+            return at_home.last().cloned().unwrap_or_default();
+        }
+        all[at_home.len()..].to_vec()
+    } else {
+        all
+    };
+    rest.join(" \u{203a} ")
 }
 
 /// The lab's `human`.
@@ -859,36 +1009,42 @@ fn files(inner: &Inner, session: &Session, params: &Params) -> HandlerResult {
                 format!("That folder could not be read ({e})."),
             )
         })?;
-        let (limit, mut total) = (a.limits.list_max, 0usize);
-        let mut entries: Vec<(bool, String, Value)> = Vec::new();
-        for raw in names {
-            total += 1;
-            if entries.len() >= limit {
-                continue;
-            }
-            let Ok(st) = stat_at(o.file.as_raw_fd(), &raw) else {
-                continue;
-            };
-            let name = String::from_utf8_lossy(&raw).into_owned();
-            let (is_dir, is_file, is_link) = (
-                kind(&st) == libc::S_IFDIR,
-                kind(&st) == libc::S_IFREG,
-                kind(&st) == libc::S_IFLNK,
-            );
+        // decision: PHN-589 — a page of `list_max` in a stable order (folders first, then names), with a marker for
+        // the next one; every page is opened and judged like the first
+        let from = a.page_from(
+            &phone.device,
+            "phone.files",
+            &o.real,
+            "",
+            params.get("after"),
+        )?;
+        let limit = a.limits.list_max;
+        let mut all: Vec<(bool, String, String, libc::stat)> = names
+            .into_iter()
+            .filter_map(|raw| {
+                let st = stat_at(o.file.as_raw_fd(), &raw).ok()?;
+                let name = String::from_utf8_lossy(&raw).into_owned();
+                Some((kind(&st) != libc::S_IFDIR, name.to_lowercase(), name, st))
+            })
+            .collect();
+        all.sort_by(|x, y| (x.0, &x.1, &x.2).cmp(&(y.0, &y.1, &y.2)));
+        let total = all.len();
+        let mut entries: Vec<Value> = Vec::new();
+        for (not_dir, _, name, st) in all.into_iter().skip(from).take(limit) {
+            let is_dir = !not_dir;
+            let (is_file, is_link) = (kind(&st) == libc::S_IFREG, kind(&st) == libc::S_IFLNK);
             let child = ppath::div(&o.real, &name);
             let (_, key) = a.closed_or_key(&child);
             #[allow(clippy::unnecessary_cast)]
             let locked = key || (is_file && st.st_nlink as u64 > 1);
             #[allow(clippy::unnecessary_cast)]
             let size = if is_file { st.st_size as u64 } else { 0 };
-            entries.push((
-                is_dir,
-                name.clone(),
+            entries.push(
                 json!({"name": name, "locked": locked, "dir": is_dir, "link": is_link, "size": size,
-                       "modified": st.st_mtime}),
-            ));
+                                "modified": st.st_mtime}),
+            );
         }
-        entries.sort_by_key(|x| (!x.0, x.1.to_lowercase()));
+        let more = from + entries.len() < total;
         let parent = ppath::parent(&o.real);
         let mut out = Params::new();
         out.insert("path".into(), json!(o.real));
@@ -901,12 +1057,20 @@ fn files(inner: &Inner, session: &Session, params: &Params) -> HandlerResult {
             },
         );
         out.insert("high_value".into(), json!(o.high));
-        out.insert(
-            "entries".into(),
-            Value::Array(entries.into_iter().map(|e| e.2).collect()),
-        );
+        let next = more.then(|| {
+            a.page_marker(
+                &phone.device,
+                "phone.files",
+                &o.real,
+                "",
+                from + entries.len(),
+            )
+        });
+        out.insert("entries".into(), Value::Array(entries));
         out.insert("total".into(), json!(total));
-        out.insert("cut".into(), json!(total > limit));
+        out.insert("from".into(), json!(from));
+        out.insert("cut".into(), json!(more));
+        out.insert("next".into(), json!(next));
         Ok(out)
     })();
     match &out {
@@ -1411,7 +1575,7 @@ fn note_fetch(inner: &Inner, a: &Area, device: &str, size: u64) {
 
 /// The inbox, made when missing and opened; refused when it lies in a place FERB's own tools may not write.
 fn inbox(a: &Area) -> Result<(Arc<OwnedFd>, String), Refusal> {
-    let path = &a.seams.inbox;
+    let path = &a.inbox_path();
     let fail = |e: io::Error| {
         refused(
             wire::FAILED,
@@ -1467,7 +1631,7 @@ fn sweep(inner: &Inner, a: &Area, st: &mut State) {
     if !st.swept {
         st.swept = true;
         let wall = inner.seams.clock.now().timestamp();
-        let mut stack = vec![a.seams.inbox.clone()];
+        let mut stack = vec![a.inbox_path()];
         while let Some(dir) = stack.pop() {
             let Ok(rd) = std::fs::read_dir(&dir) else {
                 continue;
@@ -1542,6 +1706,10 @@ fn put_group(inner: &Inner, session: &Session, params: &Params) -> HandlerResult
         );
         let mut out = Params::new();
         out.insert("group".into(), json!(gid));
+        out.insert(
+            "saved_in".into(),
+            json!(shown_place(&real, &a.seams.judge.home())),
+        );
         out.insert("saved".into(), json!(real));
         Ok(out)
     })();
@@ -1904,6 +2072,8 @@ fn put_end(inner: &Inner, session: &Session, params: &Params) -> HandlerResult {
     }
     up.saved = Some(path.clone());
     let size = up.size;
+    // decision: PHN-580 — the phone says where it landed: "Saved in Downloads › FERB from phone on your Mac"
+    let saved_in = shown_place(&up.dir_real, &a.seams.judge.home());
     drop(st);
     inner.audit(
         &phone.device,
@@ -1915,6 +2085,7 @@ fn put_end(inner: &Inner, session: &Session, params: &Params) -> HandlerResult {
     let mut out = Params::new();
     out.insert("upload_id".into(), json!(id));
     out.insert("saved".into(), json!(path));
+    out.insert("saved_in".into(), json!(saved_in));
     out.insert("size".into(), json!(size));
     out.insert("sha256".into(), json!(digest));
     Ok(out)
@@ -2001,7 +2172,9 @@ impl Phones {
     /// Puts the file area in place and registers its seven methods on `server` (stage 3 S3b), and the recent files and
     /// the name search (T-1211, `find`).
     pub fn register_files(&self, server: &Server, seams: FileSeams, limits: FileLimits) {
-        let _ = self.inner.files.set(Area::new(seams, limits));
+        let area = Area::new(seams, limits);
+        let _ = area.page_key.set(self.inner.nonce());
+        let _ = self.inner.files.set(area);
         super::find::register(self, server);
         let unary: [(&str, Unary); 6] = [
             ("phone.files", files),
@@ -2022,6 +2195,60 @@ impl Phones {
         server.register_stream("phone.read", move |s: Session, p: Params| {
             Box::new(read(me.inner.clone(), &s, &p)) as Box<dyn EventStream>
         });
+        let me = self.clone();
+        server.register_unary("phone.upload_folder", move |_s: Session, p: Params| {
+            let out = me.upload_folder(&p);
+            async move { out }
+        });
+    }
+
+    /// Where a phone's uploads land by default, and how the owner's choice is kept (ferbd: config.toml's `[phone]
+    /// upload_folder`). Without it the folder can't be changed.
+    pub fn set_upload_place(&self, default: PathBuf, save: Arc<SaveInbox>) {
+        if let Some(a) = self.inner.files.get() {
+            let _ = a.place.set((default, save));
+        }
+    }
+
+    /// `phone.upload_folder {path}` or `{reset: true}` (FERB.app's Settings → Phone; never a phone's, owner 2026-11-17):
+    /// the folder a phone's files land in from now on, judged first ([`Area::chosen_folder`]); with neither, what it is.
+    /// Uploads under way finish where they started.
+    // decision: PHN-580
+    pub fn upload_folder(&self, params: &Params) -> HandlerResult {
+        let inner = &self.inner;
+        let a = area(inner).map_err(coded)?;
+        let reset = params.get("reset") == Some(&json!(true));
+        let given = params.get("path").and_then(Value::as_str);
+        if reset || given.is_some() {
+            let Some((default, save)) = a.place.get() else {
+                return Err(coded(refused(
+                    wire::FAILED,
+                    "The folder for files from your phone can't be changed here.",
+                )));
+            };
+            let (path, kept) = if reset {
+                (default.clone(), None)
+            } else {
+                let real = a.chosen_folder(given.unwrap_or("")).map_err(coded)?;
+                let text = real.to_string_lossy().into_owned();
+                (real, Some(text))
+            };
+            save(kept.as_deref()).map_err(|e| {
+                coded(refused(
+                    wire::FAILED,
+                    format!("FERB couldn't keep that choice ({e})."),
+                ))
+            })?;
+            *lock(&a.inbox) = path.clone();
+            lock(&a.state).swept = false;
+            (inner.seams.journal)(
+                "phone.upload_folder",
+                json!({"path": path.to_string_lossy(), "default": reset}),
+            );
+        }
+        let mut out = Params::new();
+        out.insert("upload_folder".into(), a.upload_folder_json());
+        Ok(out)
     }
 }
 

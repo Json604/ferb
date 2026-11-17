@@ -367,15 +367,50 @@ public struct PhoneComposer: View {
     var onSend: (() -> Void)?
     var onAttach: (() -> Void)?
     var onMic: (() -> Void)?
+    /// Not from the lab, hold to speak (kb PHN-603; Android's onMicDown/onMicUp): with `onMicDown` the microphone works
+    /// while it is held, `onMicUp` when the finger lifts or the touch is taken away; `onMic` is then unused. While
+    /// `listening` the microphone sits in a white circle (the send button's) and an empty box reads `listeningText`.
+    /// The defaults draw as before.
+    var onMicDown: (() -> Void)?
+    var onMicUp: (() -> Void)?
+    var listening = false
+    var listeningText: String?
+    var micLabel = "Speak"
+    @GestureState private var held = false
 
     public init(placeholder: String = "Ask FERB", typed: String? = nil, text: Binding<String>? = nil,
-                onSend: (() -> Void)? = nil, onAttach: (() -> Void)? = nil, onMic: (() -> Void)? = nil) {
+                onSend: (() -> Void)? = nil, onAttach: (() -> Void)? = nil, onMic: (() -> Void)? = nil,
+                onMicDown: (() -> Void)? = nil, onMicUp: (() -> Void)? = nil, listening: Bool = false,
+                listeningText: String? = nil, micLabel: String = "Speak") {
         self.placeholder = placeholder
         self.typed = typed
         self.text = text
         self.onSend = onSend
         self.onAttach = onAttach
         self.onMic = onMic
+        self.onMicDown = onMicDown
+        self.onMicUp = onMicUp
+        self.listening = listening
+        self.listeningText = listeningText
+        self.micLabel = micLabel
+    }
+
+    @ViewBuilder private var mic: some View {
+        if let onMicDown {
+            Image(systemName: "mic").font(.system(size: 19)).foregroundStyle(listening ? .black : .white)
+                // the white circle sits behind the icon, so the composer's layout is the lab's whether or not it listens
+                .background { if listening { Circle().fill(Ink.white).frame(width: 40, height: 40) } }
+                .contentShape(Rectangle())
+                .gesture(DragGesture(minimumDistance: 0)
+                    .updating($held) { _, state, _ in state = true })
+                .onChange(of: held) { _, now in if now { onMicDown() } else { onMicUp?() } }
+                .accessibilityElement()
+                .accessibilityLabel(Text(micLabel))
+                .accessibilityAddTraits(.isButton)
+        } else {
+            Image(systemName: "mic").font(.system(size: 19)).foregroundStyle(.white)
+                .pressable(onMic, label: micLabel)
+        }
     }
 
     public var body: some View {
@@ -385,7 +420,9 @@ public struct PhoneComposer: View {
                 .pressable(onAttach, label: "Attach")
             if let text {
                 ZStack(alignment: .leading) {
-                    if text.wrappedValue.isEmpty { Text(placeholder).type(16.5, .regular, Ink.onDark).lineLimit(1) }
+                    if text.wrappedValue.isEmpty {
+                        Text(listening ? listeningText ?? placeholder : placeholder).type(16.5, .regular, Ink.onDark).lineLimit(1)
+                    }
                     TextField("", text: text, axis: .vertical).lineLimit(1...4).type(16.5, .regular, .white).tint(Ink.onDark)
                         .accessibilityLabel(Text(placeholder))
                 }
@@ -395,8 +432,7 @@ public struct PhoneComposer: View {
                 Text(placeholder).type(16.5, .regular, Ink.onDark)
             }
             Spacer()
-            Image(systemName: "mic").font(.system(size: 19)).foregroundStyle(.white)
-                .pressable(onMic, label: "Speak")
+            mic
             Image(systemName: "arrow.up").font(.system(size: 17, weight: .semibold)).foregroundStyle(.black)
                 .frame(width: 40, height: 40).background(Ink.white, in: Circle())
                 .pressable(onSend, label: "Send")

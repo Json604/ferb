@@ -91,7 +91,48 @@ class FilesMoreTest {
             }
         }
 
-    private val taxes = Folder("~/Documents/Taxes", "~/Documents", false, listOf(FileEntry("notes.txt", "~/Documents/Taxes/notes.txt", false, false, 10u, 0, false)), 1u, false)
+    private val taxes = Folder("~/Documents/Taxes", "~/Documents", false, listOf(FileEntry("notes.txt", "~/Documents/Taxes/notes.txt", false, false, 10u, 0, false)), 1u, false, 0u, null)
+
+    /** "Load more" (PHN-609): a page at a time, added in place, while the Mac's page carries a marker; none, none shown. */
+    // decision: PHN-609, PHN-606
+    @Test
+    fun load_more_adds_the_next_page_of_a_folder_and_of_a_search_in_place() {
+        fun entry(n: Int) = FileEntry("f$n.txt", "~/Big/f$n.txt", false, false, 1u, 0, false)
+        val first = Folder("~/Big", "~", false, (1..3).map(::entry), 7u, true, 0u, "p2")
+        val second = Folder("~/Big", "~", false, (4..6).map(::entry), 7u, true, 3u, "p3")
+        val last = Folder("~/Big", "~", false, listOf(entry(7)), 7u, false, 6u, null)
+        phone.folders[first.path] = first
+        phone.morePages += second; phone.morePages += last
+        val vm = vm()
+        vm.openFolder("~/Big")
+        until("opened") { vm.ui.value.files.folder != null }
+        assertEquals("p2", vm.ui.value.files.folder!!.next)
+        vm.folderMore()
+        until("page two") { vm.ui.value.files.folder!!.entries.size == 6 }
+        assertTrue("files-more:~/Big:p2:false" in phone.calls)
+        vm.folderMore()
+        until("page three") { vm.ui.value.files.folder!!.entries.size == 7 }
+        assertEquals((1..7).map { "f$it.txt" }, vm.ui.value.files.folder!!.entries.map { it.name })
+        assertEquals("no more after the last page", null, vm.ui.value.files.folder!!.next)
+        vm.folderMore()
+        idle()
+        assertEquals(2, phone.calls.count { it.startsWith("files-more") })
+        // a search: the next page of matches under the first; the 100,000-name bound still says so on the last page
+        fun hit(n: Int) = FoundFile("tax$n.pdf", "~/Big/tax$n.pdf", false, 1u, 0, "", null, null, null)
+        val p1 = FoundFiles("~/Big", "tax", listOf(hit(1), hit(2)), 50_000u, 0u, true, false, 0u, "s2")
+        val p2 = FoundFiles("~/Big", "tax", listOf(hit(3)), 100_000u, 0u, false, true, 2u, null)
+        phone.found = Outcome.Ok(p1)
+        phone.moreFound += p2
+        vm.search("tax")
+        until("found") { vm.ui.value.files.search?.found != null }
+        assertEquals("s2", vm.ui.value.files.search!!.found!!.next)
+        vm.searchMore()
+        until("more found") { vm.ui.value.files.search!!.found!!.files.size == 3 }
+        val s = vm.ui.value.files.search!!
+        assertEquals(null, s.found!!.next)
+        assertTrue(s.found!!.incomplete)
+        assertTrue("search-more:tax:s2" in phone.calls)
+    }
 
     // decision: PHN-13, PHN-115, PHN-11
     // decision: PHN-533
@@ -126,7 +167,7 @@ class FilesMoreTest {
         assertTrue(vm.transfers.list.value.isEmpty())
         assertFalse(files[0].exists())
         // a key place's folder is not fetched whole (each of its files asks by itself)
-        phone.folders["~/Documents/Keys"] = Folder("~/Documents/Keys", "~/Documents", true, emptyList(), 0u, false)
+        phone.folders["~/Documents/Keys"] = Folder("~/Documents/Keys", "~/Documents", true, emptyList(), 0u, false, 0u, null)
         vm.openFolder("~/Documents/Keys", keyPlace = true)
         vm.fetchFolder()
         assertFalse(phone.calls.any { it.startsWith("tree:~/Documents/Keys") })
@@ -167,7 +208,7 @@ class FilesMoreTest {
         phone.recent = Outcome.Ok(RecentFiles(listOf(
             FoundFile("Report.pdf", "~/Downloads/Report.pdf", false, 10u, 0, "made", "2026-01-02T10:00:00+00:00", "t1", "Write the report"),
         ), 2u))
-        phone.folders["~/Documents"] = Folder("~/Documents", "~", false, emptyList(), 0u, false)
+        phone.folders["~/Documents"] = Folder("~/Documents", "~", false, emptyList(), 0u, false, 0u, null)
         phone.folders[taxes.path] = taxes
         val vm = vm()
         vm.choose(PhoneTab.FILES)
@@ -179,7 +220,7 @@ class FilesMoreTest {
         phone.found = Outcome.Ok(FoundFiles("~/Documents", "tax", listOf(
             FoundFile("Taxes", taxes.path, true, 0u, 0, "", null, null, null),
             FoundFile("tax.pdf", "~/Documents/tax.pdf", false, 10u, 0, "", null, null, null),
-        ), 4000u, 1u, false, true))
+        ), 4000u, 1u, false, true, 0u, null))
         vm.search("  tax ")
         assertTrue("search:tax:~/Documents" in phone.calls)
         val s = vm.ui.value.files.search!!

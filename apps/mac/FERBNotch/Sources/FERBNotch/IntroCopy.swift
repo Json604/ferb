@@ -39,8 +39,8 @@ enum IntroCopy {
 
     // MARK: 2. Sign in
 
-    static let signIn = IntroLine(text: "First, connect me to an AI service.",
-                                  detail: "Sign in with ChatGPT or Claude. Your passwords, codes and card numbers never go to the AI: I keep them on this Mac and fill them in myself.",
+    static let signIn = IntroLine(text: "First, connect me to the service I think with.",
+                                  detail: "Sign in with ChatGPT or Claude. Your passwords, codes and card numbers never go to the service I think with: I keep them on this Mac and fill them in myself.",
                                   choices: [IntroChoice(Pick.codex, "ChatGPT"), IntroChoice(Pick.claude, "Claude"),
                                             IntroChoice(Pick.otherWays, "Other ways to connect")])
     static func signInFailed(_ why: String?) -> IntroLine {

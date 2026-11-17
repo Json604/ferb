@@ -24,6 +24,7 @@ struct SheetsView: View {
                     Plain(title: q.title ?? L.s("question_default_title"),
                           text: parts.isEmpty ? L.s("n_held_text") : parts.joined(separator: "\n\n"), insets: insets, close: close)
                 } else if q.hidden {
+                    // its value never shows (dots, or iOS's SecureField); hidden while captured (Privacy.swift)
                     PrivateAnswer(model: model, q: q, insets: insets, busy: busy, close: close)
                 } else {
                     Asking(model: model, q: q, insets: insets, busy: busy, close: close)
@@ -71,8 +72,17 @@ struct SheetsView: View {
                 .padding(.top, 18)
                 Pill(title: L.s("cancel"), kind: .plain, height: 44) { shell.prefs.notificationsExplained = true; close() }.padding(.top, 4)
             }
-        case .notYet(let f):
-            Plain(title: L.s(f.wordsKey), text: L.s(f.textKey), insets: insets, close: close)
+        case .voice(let kind):
+            let text = L.s(kind == .onDevice ? "voice_text_device" : "voice_text_service")
+            Plain(title: L.s("voice_title"), text: AppleSpeech.allowed ? text : text + "\n\n" + L.s("voice_ask_next"), insets: insets, close: close) {
+                Pill(title: L.s("voice_continue"), kind: .black, symbol: "mic") {
+                    model.voiceTold(kind)
+                    if AppleSpeech.allowed { model.microphoneAnswered(true) }
+                    else { Task { model.microphoneAnswered(await AppleSpeech.ask()) } }
+                }
+                .padding(.top, 18)
+                Pill(title: L.s("cancel"), kind: .plain, height: 44, onClick: close).padding(.top, 4)
+            }
         case .location(let id):
             let busy = model.ui.busy.contains("location")
             Plain(title: L.s("exact_title"), text: L.s(busy ? "exact_reading" : "exact_text"), insets: insets, close: { model.declineLocation(id) }) {
@@ -139,12 +149,16 @@ struct Asking: View {
     var body: some View {
         let title = q.title ?? L.s("question_default_title")
         let choices = q.choices
-        if choices.count == 2 {
+        if choices.count == 2 || q.yesNo {
             let no = choices[0], yes = choices[1]
             let note = q.needsProof && q.needs?.fingerprint == true ? L.bio("question_yes_fingerprint") : nil
             QuestionSheet(symbol: "questionmark.circle", title: title, reason: q.reason, yes: yes.label, no: no.label, note: note,
                           insets: insets, onNo: busy ? nil : { model.answer(q.approvalId, no.input) },
-                          onYes: busy ? nil : { model.answer(q.approvalId, yes.input) }, onDismiss: close) {
+                          onYes: busy ? nil : { model.answer(q.approvalId, yes.input) }, onDismiss: close,
+                          more: choices.dropFirst(2).map { c in (c.label, busy ? nil : { model.answer(q.approvalId, c.input) }) }
+                              // the Mac offers "until I'm back at my Mac" on its screen-use question (PHN-610, PHN-611)
+                              + (q.untilBack ? [(L.s("until_back_yes"), busy ? nil : { model.answer(q.approvalId, .untilBack) })] : []),
+                          moreNote: q.untilBack ? L.s("until_back_note") : nil) {
                 if let e = q.exact { ExactCommand(e) }
             }
         } else {
@@ -308,7 +322,9 @@ struct Profile: View {
                      onClose: close, onForget: { model.show(.forget) },
                      more: AnyView(VStack(spacing: 0) {
                          Divide()
-                         CardRow(title: L.s("profile_screenshots"), detail: L.s("profile_screenshots_detail")) { RowIcon(symbol: "eye") } trailing: {
+                         CardRow(title: L.s("profile_screenshots"),
+                                 // says honestly whether this iOS keeps Watch live and private answers out of screenshots (PHN-597)
+                                 detail: L.s(ScreenshotShield.available ? "profile_screenshots_detail_shield" : "profile_screenshots_detail_no_shield")) { RowIcon(symbol: "eye") } trailing: {
                              PhoneSwitch(on: s.blockScreenshots, onChange: { model.blockScreenshots($0) }, label: L.s("profile_screenshots"))
                          }
                          Divide()
@@ -351,7 +367,9 @@ struct LiveView: View {
             ZStack(alignment: .bottom) {
                 LivePage(title: L.s("live_title"), frame: image, placeholder: placeholder, line: line,
                          closeTitle: L.s("live_close"), stopTitle: L.s("live_stop"), insets: insets,
-                         onClose: { model.closeLive() }, onStop: { model.stop(v.taskId) })
+                         onClose: { model.closeLive() }, onStop: { model.stop(v.taskId) },
+                         // the picture of the Mac out of screenshots where this iOS allows it (PHN-597)
+                         shieldFrame: { AnyView($0.screenshotShielded()) })
                 if v.ended != nil {
                     Pill(title: L.s("live_again"), kind: .grey, symbol: "eye", height: 46) { model.watchAgain() }
                         .padding(.horizontal, 16).padding(.bottom, insets.bottom + 62)

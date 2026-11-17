@@ -219,7 +219,9 @@ pub fn hidden_notice(kinds: &[String], sealed: &[(String, String)]) -> Option<St
         .collect();
     let mut lines: Vec<String> = Vec::new();
     if kinds.iter().any(|k| k == SAVED_SECRET) {
-        lines.push("That's one of your saved secrets. I hid it from the AI.".into());
+        lines.push(
+            "That's one of your saved secrets. I hid it from the service I think with.".into(),
+        );
     }
     if !sealed.is_empty() {
         let them = if sealed.len() == 1 { "it" } else { "them" };
@@ -235,14 +237,14 @@ pub fn hidden_notice(kinds: &[String], sealed: &[(String, String)]) -> Option<St
         };
         let kinds_of: Vec<String> = sealed.iter().map(|(k, _)| k.clone()).collect();
         lines.push(format!(
-            "That looked like {}. I hid {them} from the AI and kept {them} sealed as {named_list}, so I can fill {them} in on any site without asking you again.",
+            "That looked like {}. I hid {them} from the service I think with and kept {them} sealed as {named_list}, so I can fill {them} in on any site without asking you again.",
             named(&kinds_of)
         ));
     }
     if !formats.is_empty() {
         let them = if formats.len() == 1 { "it" } else { "them" };
         lines.push(format!(
-            "That looked like {}. I hid {them} from the AI and didn't save {them}. Best not to paste keys and passwords into chats.",
+            "That looked like {}. I hid {them} from the service I think with and didn't save {them}. Best not to paste keys and passwords into chats.",
             named(&formats)
         ));
     }

@@ -60,13 +60,22 @@ public struct Question: Equatable, Sendable {
         public let yes: Bool
     }
 
+    /// The Mac offers "until I'm back at my Mac" on this question (PHN-610, PHN-611: the screen-use question, its
+    /// `QuestionNeeds.untilBack`): a further Yes, answered with `AnswerInput.untilBack`, under the two buttons.
+    public var untilBack: Bool { needs?.untilBack == true && yesNo }
+
+    /// The gateway's Yes and No come first: the lab's two-button sheet, with any further option under them (PHN-607).
+    public var yesNo: Bool { !hidden && options.count >= 2 && options[0] == "Yes" && options[1] == "No" }
+
     /// The answers as buttons, in the order the Mac draws them; empty: the owner types the answer.
     public var choices: [Choice] {
         if hidden || options.isEmpty { return [] }
-        if options == ["Yes", "No"] {
-            // the gateway's yes/no: No is a plain No (it needs nothing, PHN-470); Yes is option 1, as FERB.app sends it
+        if yesNo {
+            // the gateway's yes/no: No is a plain No (it needs nothing, PHN-470); Yes is option 1, as FERB.app sends it.
+            // Any option the Mac adds after them (PHN-607) is its own number, as FERB.app's numbering has it.
             return [Choice(label: label(1), input: .approve(granted: false, choice: nil), yes: false),
                     Choice(label: label(0), input: .approve(granted: true, choice: 1), yes: true)]
+                + (2..<options.count).map { Choice(label: label($0), input: .approve(granted: true, choice: Int64($0 + 1)), yes: false) }
         }
         return options.indices.map { Choice(label: label($0), input: .approve(granted: true, choice: Int64($0 + 1)), yes: $0 == 0) }
     }

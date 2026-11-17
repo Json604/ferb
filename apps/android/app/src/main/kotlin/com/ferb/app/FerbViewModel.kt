@@ -10,6 +10,9 @@ import com.ferb.app.model.ChatModel
 import com.ferb.app.model.ChatRow
 import com.ferb.app.model.Coarse
 import com.ferb.app.model.Corpus
+import com.ferb.app.model.Dictation
+import com.ferb.app.model.SpeechKind
+import com.ferb.app.model.VoiceInput
 import com.ferb.app.model.HomeWords
 import com.ferb.app.model.LiveWatch
 import com.ferb.app.model.LocalFiles
@@ -92,7 +95,9 @@ sealed interface Sheet {
     data object Settings : Sheet
     data class Days(val key: String) : Sheet
     data class Live(val taskId: String) : Sheet
-    data class NotYet(val what: Feature) : Sheet
+
+    /** The words before the owner's first use of speaking to FERB, for this phone's kind of recognition (PHN-604). */
+    data class Voice(val kind: SpeechKind) : Sheet
 
     /** The Mac asks for this phone's exact location once, for a task (GATE-613); the owner says yes or no here. */
     data class Location(val requestId: String) : Sheet
@@ -101,10 +106,8 @@ sealed interface Sheet {
     data object City : Sheet
 }
 
-/** What the phone can't do yet (nothing on the Mac's side carries it): the screen says so plainly and fakes nothing. */
-enum class Feature(@StringRes val words: Int, @StringRes val text: Int) {
-    VOICE(R.string.feature_voice, R.string.not_yet_voice),
-}
+/** What pressing the microphone needs from the screen: nothing more, or Android's microphone question. */
+enum class VoicePress { DONE, ASK_MICROPHONE }
 
 /** A short line for the owner, in the app's words (string resources) or the Mac's own. */
 data class Note(@StringRes val res: Int, val words: String? = null)
@@ -196,6 +199,10 @@ class FerbViewModel(
     private val say: (Int) -> String = { "" },
     /** The location request was answered here: its notification goes. */
     private val locationAnswered: () -> Unit = {},
+    /** The phone's speech recogniser (PHN-603); null where there is none (most tests). */
+    private val voice: VoiceInput? = null,
+    /** Android allowed FERB the microphone. */
+    private val micAllowed: () -> Boolean = { false },
 ) : ViewModel() {
     private val _ui = MutableStateFlow(UiState())
     val ui: StateFlow<UiState> = _ui.asStateFlow()
@@ -273,6 +280,7 @@ class FerbViewModel(
                     (api.locationWanted() as? Outcome.Ok)?.value?.let { pendingLocation = it; showPending() }
                 } else {
                     // PHN-15: nothing private stays open; the preview stops, the fetched files go
+                    stopListening()
                     live.stop()
                     if (_sheet.value is Sheet.Live || _sheet.value is Sheet.Settings || _sheet.value is Sheet.Days || _sheet.value is Sheet.Location) _sheet.value = null
                     transfers.locked()
@@ -285,6 +293,7 @@ class FerbViewModel(
                 if (!front) {
                     // leaving the app: what finished so far has been seen; the preview stops (PHN-454)
                     markSeen()
+                    stopListening()
                     if (live.showing) closeLive()
                 } else {
                     transfers.dropKeyPlaceFiles(openedKeyFiles.toList())
@@ -571,7 +580,83 @@ class FerbViewModel(
 
     // ---- chat -----------------------------------------------------------------------------------------------------
 
-    fun typed(text: String) { saved["draft"] = text; if (text.isNotEmpty()) saved["home"] = false }
+    fun typed(text: String) {
+        dictation?.cancel()
+        saved["draft"] = text
+        if (text.isNotEmpty()) saved["home"] = false
+    }
+
+    // ---- speaking to FERB (kb PHN-603..PHN-605) ---------------------------------------------------------------------
+
+    private var dictation: Dictation? = null
+    private var spokenOnto = ""
+    private var pressedAt = 0L
+    private val _listening = MutableStateFlow(false)
+
+    /** The owner holds the microphone and FERB is listening. */
+    val listening: StateFlow<Boolean> = _listening.asStateFlow()
+
+    /**
+     * The owner pressed the microphone. Before the first use of this phone's kind of recognition FERB says what happens
+     * to his voice (Sheet.Voice), then Android asks for the microphone; with both, FERB listens while he holds, and
+     * the words go into the message box after what is there. Nothing is recorded, stored or sent to the Mac; the words
+     * are never sent by themselves.
+     */
+    fun voicePress(): VoicePress {
+        if (dictation != null || _ui.value.gate != Gate.MAIN || session.locked.value) return VoicePress.DONE
+        val input = voice
+        val kind = input?.kind() ?: SpeechKind.NONE
+        if (input == null || kind == SpeechKind.NONE) { note(Note(R.string.voice_unavailable)); return VoicePress.DONE }
+        if (kind.name !in prefs.voiceTold) { show(Sheet.Voice(kind)); return VoicePress.DONE }
+        if (!micAllowed()) return VoicePress.ASK_MICROPHONE
+        pressedAt = now()
+        spokenOnto = draft.value
+        _listening.value = true
+        val d = Dictation(input, kind, words = { said -> saved["draft"] = joinSpoken(spokenOnto, said) }, ended = ::voiceEnded,
+            later = { ms, block -> val job = viewModelScope.launch { kotlinx.coroutines.delay(ms); block() }; { job.cancel() } })
+        dictation = d
+        saved["home"] = false
+        d.start()
+        return VoicePress.DONE
+    }
+
+    /** The owner let go: the last words come, then they stay in the message box. A quick tap says to hold instead. */
+    fun voiceRelease() {
+        val d = dictation ?: return
+        if (now() - pressedAt < TAP_MS && d.text.isEmpty()) {
+            d.cancel()
+            note(Note(R.string.voice_hold))
+            return
+        }
+        d.finish()
+    }
+
+    /** The owner read the words on Sheet.Voice and goes on: Android's microphone question next, if it isn't answered. */
+    fun voiceTold(kind: SpeechKind) {
+        prefs.voiceTold = prefs.voiceTold + kind.name
+        if (_sheet.value is Sheet.Voice) _sheet.value = null
+    }
+
+    /** Android's answer to the microphone question. */
+    fun microphoneAnswered(granted: Boolean) = note(Note(if (granted) R.string.voice_ready else R.string.voice_denied))
+
+    private fun voiceEnded(end: Dictation.End) {
+        dictation = null
+        _listening.value = false
+        when (end) {
+            is Dictation.End.Words -> saved["draft"] = joinSpoken(spokenOnto, end.text)
+            is Dictation.End.Failed -> {
+                saved["draft"] = spokenOnto
+                // the phone has no on-device speech for this language: its own service next time, after its words
+                val next = voice?.kind()
+                if (end.languageMissing && next == SpeechKind.SERVICE && next.name !in prefs.voiceTold) show(Sheet.Voice(next))
+                else note(Note(R.string.voice_failed))
+            }
+        }
+    }
+
+    /** Leaving the app or the lock: the microphone stops at once, and what was said stays in the box. */
+    private fun stopListening() { dictation?.cancel() }
 
     /** Sends through the outbox (PHN-401): with the Mac off it waits there, visible and cancellable. Files go with it. */
     fun send() = busy("send") {
@@ -617,6 +702,20 @@ class FerbViewModel(
         }
     }
 
+    /**
+     * "Ask me again" (PHN-611): FERB stops using the Mac's screen without asking; the line goes when the Mac's status
+     * says so. When it ends on the Mac (the owner came back, the Mac slept) the status says so too; no notification.
+     */
+    fun endScreenUse() = busy("screen-use") {
+        when (val r = api.endScreenUse()) {
+            is Outcome.Ok -> {
+                _ui.update { u -> u.copy(status = u.status?.copy(screenUse = r.value.screenUse)) }
+                note(Note(R.string.screen_use_ended))
+            }
+            is Outcome.Failed -> failed(r.error)
+        }
+    }
+
     fun loadOlder() = busy("older") {
         val conv = _ui.value.conversation ?: return@busy
         if (_ui.value.older !is OlderState.Available) return@busy
@@ -638,7 +737,8 @@ class FerbViewModel(
         val p = prompts ?: return@busy
         val q = _ui.value.questions.firstOrNull { it.approvalId == approvalId }
         val declines = (input is AnswerInput.Approve && !input.granted) || (input is AnswerInput.Words && input.text.isEmpty())
-        val upfront = if (q != null && q.needsProof && !declines) {
+        // "until I'm back" needs the app's unlock (the locked path below unlocks and tries once more), never a fingerprint
+        val upfront = if (q != null && q.needsProof && !declines && input !is AnswerInput.UntilBack) {
             if (q.needs?.fingerprint == true) KeyKind.STRONG else KeyKind.LOCK
         } else {
             null
@@ -735,6 +835,23 @@ class FerbViewModel(
         }
     }
 
+    /** The next page of matches, added under the ones shown (PHN-609: 500 a page, as many pages as the owner asks for). */
+    fun searchMore() {
+        val s = _ui.value.files.search ?: return
+        val next = s.found?.next ?: return
+        busy("more") {
+            val r = unlocker.run { api.searchFiles(s.query, s.path, next) }
+            _ui.update { u ->
+                val now = u.files.search?.takeIf { it.query == s.query && it.path == s.path && it.found?.next == next } ?: return@update u
+                val had = now.found ?: return@update u
+                u.copy(files = u.files.copy(search = when (r) {
+                    is Outcome.Ok -> now.copy(found = r.value.copy(files = had.files + r.value.files))
+                    is Outcome.Failed -> now.copy(problem = errorNote(r.error))
+                }))
+            }
+        }
+    }
+
     fun closeSearch() = _ui.update { it.copy(files = it.files.copy(search = null)) }
 
     /** A found or recent file: a folder opens in the browser (the search closes), a file is fetched as from a folder. */
@@ -778,6 +895,25 @@ class FerbViewModel(
             when (r) {
                 is Outcome.Ok -> it.copy(files = it.files.copy(folder = r.value, loading = null))
                 is Outcome.Failed -> it.copy(files = it.files.copy(loading = null, problem = filesNote(r.error)))
+            }
+        }
+    }
+
+    /**
+     * The open folder's next page, added under the entries shown (PHN-609: 500 a page, as many pages as the owner
+     * asks for); a key place's folder asks for the fingerprint for its path again, as opening it did (PHN-121).
+     */
+    fun folderMore() {
+        val f = _ui.value.files.folder ?: return
+        val next = f.next ?: return
+        busy("more") {
+            val r = unlocker.withProof(f.locked, Why.FILE) { signer -> api.files(f.path, signer, next) }
+            _ui.update {
+                val now = it.files.folder?.takeIf { cur -> cur.path == f.path && cur.next == next } ?: return@update it
+                when (r) {
+                    is Outcome.Ok -> it.copy(files = it.files.copy(folder = r.value.copy(entries = now.entries + r.value.entries)))
+                    is Outcome.Failed -> it.copy(files = it.files.copy(problem = filesNote(r.error)))
+                }
             }
         }
     }
@@ -1014,12 +1150,23 @@ class FerbViewModel(
     }
 
     override fun onCleared() {
+        dictation?.cancel()
         live.stop()
         super.onCleared()
     }
 
     companion object {
         const val COLD_START_WAIT_MS = 6_000L
+
+        /** A press shorter than this that heard nothing is a tap: FERB says to hold the microphone instead. */
+        const val TAP_MS = 350L
+
+        /** What was in the message box, then the spoken words (one space between). */
+        fun joinSpoken(before: String, said: String): String = when {
+            said.isBlank() -> before
+            before.isBlank() -> said
+            else -> before.trimEnd() + " " + said
+        }
         const val TASKS_PAGE = 30
 
         /** How many recent files the Files tab asks for. */

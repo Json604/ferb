@@ -56,6 +56,10 @@ fun QuestionSheet(
     onYes: (() -> Unit)? = {},
     note: String? = "Yes asks for your fingerprint.",
     onDismiss: (() -> Unit)? = null,
+    /** More answers the Mac offers beyond Yes and No (kb PHN-607), each a grey pill under them; none by default. */
+    more: List<Pair<String, (() -> Unit)?>> = emptyList(),
+    /** One short line under the further answers (what "until I'm back at my Mac" means, PHN-611); none by default. */
+    moreNote: String? = null,
     exact: @Composable () -> Unit,
 ) {
     Sheet(title = title, bottomInset = insets.bottom, onDismiss = onDismiss) {
@@ -74,6 +78,8 @@ fun QuestionSheet(
             Pill(no, kind = PillKind.GREY, fill = false, onClick = onNo)
             Pill(yes, Modifier.weight(1f), PillKind.BLACK, onClick = onYes)
         }
+        for ((label, onClick) in more) Pill(label, Modifier.padding(top = 10.dp), PillKind.GREY, onClick = onClick)
+        if (moreNote != null) PhoneText(moreNote, 14f, color = Ink.detail, modifier = Modifier.fillMaxWidth().padding(top = 8.dp, start = 4.dp, end = 4.dp))
     }
 }
 

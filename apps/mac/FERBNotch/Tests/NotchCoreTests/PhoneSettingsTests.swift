@@ -306,6 +306,87 @@ final class PhoneSettingsTests: XCTestCase {
         XCTAssertEqual(model.conversation.notices.filter { $0.id == "phone-pair-r1" }.count, 1)
     }
 
+    // decision: PHN-580
+    // decision: PHN-581
+    // decision: APP-944
+    func testThePageSaysWhereFilesFromThePhoneLandAndChangesItThroughTheDaemon() async throws {
+        var listed = list([phone("ep1", "Pixel 8")])
+        listed["upload_folder"] = ["path": "/Users/o/Downloads/FERB from phone", "shown": "Downloads › FERB from phone",
+                                   "default": true]
+        daemon.replies["phone.list"] = listed
+        daemon.replies["phone.upload_folder"] = ["upload_folder": ["path": "/Users/o/Inbox", "shown": "Inbox", "default": false]]
+        let page = model()
+        await page.load()
+        XCTAssertEqual(page.uploadFolder?.shown, "Downloads › FERB from phone")
+        XCTAssertEqual(PhoneWords.filesLandIn("Downloads › FERB from phone"),
+                       "Files you send from your phone are saved in Downloads › FERB from phone on this Mac.")
+        await page.chooseUploadFolder("/Users/o/Inbox")
+        XCTAssertEqual(page.uploadFolder, UploadFolder(["path": "/Users/o/Inbox", "shown": "Inbox", "default": false]))
+        await page.resetUploadFolder()
+        let sent = daemon.calls.filter { $0.0 == "phone.upload_folder" }.map { $0.1 }
+        XCTAssertEqual(sent.first?["path"] as? String, "/Users/o/Inbox")
+        XCTAssertEqual(sent.last?["reset"] as? Bool, true)
+        XCTAssertTrue(link.methods().allSatisfy { $0 != "phone.upload_folder" }, "the daemon's, never the helper's")
+    }
+
+    // decision: GATE-615
+    func testUntilImBackShowsWhileItRunsAndAskAgainEndsIt() async throws {
+        daemon.replies["phone.list"] = list([])
+        daemon.replies["screen_use.status"] = ["active": true, "phone_name": "Pixel 8", "since": "2026-11-17T10:00:00+05:30",
+                                               "can_offer": true]
+        let page = model()
+        await page.load()
+        XCTAssertEqual(page.screenUse?.active, true)
+        XCTAssertEqual(page.screenUse?.phoneName, "Pixel 8")
+        daemon.replies["screen_use.status"] = ["active": false, "can_offer": true]
+        await page.endScreenUse()
+        XCTAssertEqual(page.screenUse?.active, false)
+        XCTAssertTrue(daemon.calls.contains { $0.0 == "screen_use.end" })
+        for line in [PhoneWords.screenUntilBack("Pixel 8"), PhoneWords.screenUntilBackEnds,
+                     PhoneWords.phonesToCome(1, until: nil), PhoneWords.phonesLeftBehind(2)] {
+            XCTAssertFalse(line.contains("AI"), line)
+        }
+    }
+
+    // decision: GATE-618
+    // decision: PHN-593
+    func testAreYouBackTurnsIntoTheWelcomeInPlaceAndASilentHoldLeavesNothing() {
+        let welcome = "Welcome back. FERB will ask before it uses your screen again: a task that needs it waits for your Yes."
+        let checking: [String: Any] = ["state": "checking", "title": "Are you back?", "since": "S", "hold": 1,
+                                       "line": "FERB stopped using your screen for a moment. If you're here, just move the pointer or press a key."]
+        var chat = ConversationArchive()
+        XCTAssertTrue(ScreenBackLine.apply(checking, to: &chat))
+        XCTAssertEqual(chat.notices.count, 1)
+        XCTAssertTrue(chat.notices[0].text.hasPrefix("Are you back? FERB stopped using your screen"))
+        // input during the hold: the same line now welcomes him (no second line, no vanishing)
+        XCTAssertTrue(ScreenBackLine.apply(["state": "ended", "why": "owner_input", "since": "S", "hold": 1,
+                                            "during_hold": true, "line": welcome], to: &chat))
+        XCTAssertEqual(chat.notices.map(\.text), [welcome])
+        // a clear return with no question: the daemon's own notice says it, this adds nothing
+        var clear = ConversationArchive()
+        XCTAssertFalse(ScreenBackLine.apply(["state": "ended", "why": "owner_input", "since": "S", "hold": 0,
+                                             "during_hold": false, "line": welcome], to: &clear))
+        XCTAssertTrue(clear.notices.isEmpty)
+        // a hold that passes in silence: the line goes and nothing follows
+        var quiet = ConversationArchive()
+        XCTAssertTrue(ScreenBackLine.apply(checking, to: &quiet))
+        XCTAssertTrue(ScreenBackLine.apply(["state": "resumed", "since": "S", "hold": 1], to: &quiet))
+        XCTAssertTrue(quiet.notices.isEmpty)
+        for line in [welcome, checking["line"] as! String] { XCTAssertFalse(line.contains("AI"), line) }
+    }
+
+    // decision: PHN-591
+    func testPhonesStillToComeAfterARelayChangeAreSaidAndWhenTheyAreLeftBehind() {
+        let waiting = LinkStatus(["relay": ["state": "own"], "relay_handover": ["phones_waiting": 1, "on_shared_relays": true,
+                                                                                 "closes_at": 1_800_000_000, "closed": false]])
+        XCTAssertEqual(waiting.handover?.phonesWaiting, 1)
+        XCTAssertEqual(waiting.handover?.closesAt, Date(timeIntervalSince1970: 1_800_000_000))
+        XCTAssertEqual(waiting.handover?.closed, false)
+        let behind = LinkStatus(["relay": ["state": "own"], "relay_handover": ["phones_waiting": 1, "closed": true]])
+        XCTAssertEqual(behind.handover?.closed, true)
+        XCTAssertNil(LinkStatus(["relay": ["state": "shared"]]).handover)
+    }
+
 #if FERB_PLAYGROUND
     // decision: APP-619
     func testThePlaygroundAnswersThePhonePageWithInventedPhones() async throws {

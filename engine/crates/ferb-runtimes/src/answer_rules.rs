@@ -23,6 +23,6 @@ pub fn is_empty(calls: usize, final_text: Option<&str>) -> bool {
 /// answer_rules.ToolLoop's words: the run reached WRONG_CALLS_CAP wrong calls and FERB stopped it.
 pub fn tool_loop_message(runtime: &str, count: u32) -> String {
     format!(
-        "the AI service ({runtime}) kept calling tools it wasn't given, or lookups after its limit ({count} such calls), so FERB stopped this call"
+        "the service FERB thinks with ({runtime}) kept calling tools it wasn't given, or lookups after its limit ({count} such calls), so FERB stopped this call"
     )
 }

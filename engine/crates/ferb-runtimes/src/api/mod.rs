@@ -82,7 +82,7 @@ pub fn http_cause(status: u16) -> &'static str {
         400 => "it refused the request FERB sent",
         401 | 403 => "it didn't accept FERB's API key",
         402 => "the account's usage limit is reached",
-        404 => "it doesn't offer the model FERB asked for to this API key: pick another model or service in Settings → AI",
+        404 => "it doesn't offer the model FERB asked for to this API key: pick another model or service in Settings → Thinking",
         408 => "it timed out",
         413 => "the request was too large for it",
         429 => "the account's usage or rate limit is reached",
@@ -479,7 +479,7 @@ pub async fn start(
     let key = (rt.key)(rt.name().to_string()).await;
     let Some(key) = key.filter(|k| !k.expose().is_empty()) else {
         return Err(RuntimeError::unsupported(format!(
-            "FERB has no {} API key: add one in Settings → AI",
+            "FERB has no {} API key: add one in Settings → Thinking",
             rt.name()
         )));
     };

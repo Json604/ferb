@@ -33,7 +33,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import com.ferb.app.Feature
+import com.ferb.app.VoicePress
 import com.ferb.app.FerbViewModel
 import com.ferb.app.Note
 import com.ferb.app.R
@@ -114,7 +114,8 @@ fun Main(vm: FerbViewModel, ui: UiState, tab: PhoneTab, home: Boolean, insets: P
 
 /**
  * The composer every page shares: the owner's draft and send; + picks files that go to the Mac and ride with the
- * next message (PHN-127), shown above it while they travel and once they arrived; the mic isn't on the phone yet.
+ * next message (PHN-127), shown above it while they travel and once they arrived; the microphone, held, puts the
+ * owner's spoken words in the box (PHN-603).
  */
 @Composable
 private fun Composer(vm: FerbViewModel, draft: String, placeholder: String, modifier: Modifier, host: Host) {
@@ -136,10 +137,19 @@ private fun Composer(vm: FerbViewModel, draft: String, placeholder: String, modi
                 }
                 if (ready.size > 4) PhoneText("+${ready.size - 4}", 13.5f, FerbType.Medium, ink.low)
             }
+            // where they already are on the Mac (PHN-608): the message only points FERB at them
+            val place by vm.transfers.readyPlace.collectAsState()
+            PhoneText(stringResource(R.string.attach_place, place ?: vm.ui.value.mac?.uploadFolder?.shown ?: stringResource(R.string.tr_place_default)), 13f, FerbType.Medium, ink.low,
+                Modifier.padding(horizontal = 6.dp))
         }
+        val listening by vm.listening.collectAsState()
         PhoneComposer(
             Modifier, placeholder = placeholder, typed = draft, onValueChange = vm::typed, onSend = { vm.send() },
-            onAttach = { host.pickFiles(true) }, onMic = { vm.show(Sheet.NotYet(Feature.VOICE)) },
+            onAttach = { host.pickFiles(true) },
+            // hold to speak (PHN-603): the words land in the box while held and stay there; never sent by themselves
+            onMicDown = { if (vm.voicePress() == VoicePress.ASK_MICROPHONE) host.allowMicrophone(null) },
+            onMicUp = { vm.voiceRelease() },
+            listening = listening, listeningText = stringResource(R.string.voice_listening), micLabel = stringResource(R.string.voice_speak),
         )
     }
 }
@@ -194,10 +204,14 @@ private fun Chat(vm: FerbViewModel, ui: UiState, draft: String, insets: PhoneIns
     }
 }
 
-/** The line under the tabs: the Mac can't be reached, or its unlock is needed (a tap gives it). */
+/**
+ * The line under the tabs: the Mac can't be reached, or its unlock is needed (a tap gives it), or FERB may use the
+ * Mac's screen until the owner is back (PHN-611; "Ask me again" is on the Mac tab).
+ */
 private fun statusLine(ui: UiState): Pair<Int, Boolean>? = when {
     ui.link?.phase != LinkPhase.ONLINE -> R.string.chat_offline to false
     ui.needsMacUnlock -> R.string.chat_unlock_mac to true
+    ui.status?.screenUse?.active == true -> R.string.screen_use_active to false
     else -> null
 }
 
@@ -349,7 +363,19 @@ private fun Mac(vm: FerbViewModel, ui: UiState, waiting: PhoneTab?, onTab: (Phon
         onOwnRelay = { vm.show(Sheet.OwnRelay) },
         onSettings = { vm.openSettings() },
         onStopAll = { vm.show(Sheet.StopAll) },
+        notice = if (ui.status?.screenUse?.active == true) ({ ScreenUseCard(vm, ui) }) else null,
     )
+}
+
+/** FERB may use the Mac's screen until the owner is back (PHN-611): the line and "Ask me again". */
+@Composable
+private fun ScreenUseCard(vm: FerbViewModel, ui: UiState) {
+    Card(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp), padding = 16.dp) {
+        PhoneText(stringResource(R.string.screen_use_active), 15.5f, FerbType.Medium, Ink.black,
+            Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite })
+        Pill(stringResource(R.string.screen_use_end), Modifier.padding(top = 12.dp), PillKind.GREY, height = 44.dp,
+            onClick = if ("screen-use" in ui.busy) null else ({ vm.endScreenUse() }))
+    }
 }
 
 /** A relay's address as the row shows it: its host. */

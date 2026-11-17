@@ -18,6 +18,9 @@
 
 // the order rules every conversation's entries keep (shared with ferbd's chat_replay)
 mod support_entries;
+// APP-926's named difference in the recordings (owner-facing words that spoke of AI), as the replays apply it
+#[path = "common/named_diffs.rs"]
+mod named_diffs;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
@@ -50,7 +53,7 @@ const GOLDEN: &str = "chat-entries/scenarios.json";
 
 fn read(path: &str) -> Value {
     let text = std::fs::read_to_string(fixtures().join(path)).unwrap();
-    serde_json::from_str(&text).unwrap()
+    named_diffs::app_926(serde_json::from_str(&text).unwrap())
 }
 
 /// A recorded line: its text, or the body it names (`{"sha256"}`).

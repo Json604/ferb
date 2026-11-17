@@ -23,6 +23,17 @@
         }
       }
     },
+    "attach_place": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On your Mac in %1$@"
+          }
+        }
+      }
+    },
     "attach_remove": {
       "extractionState": "manual",
       "localizations": {
@@ -353,17 +364,6 @@
         }
       }
     },
-    "feature_voice": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Speaking to FERB"
-          }
-        }
-      }
-    },
     "file_detail": {
       "extractionState": "manual",
       "localizations": {
@@ -448,6 +448,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "Asks for %@ each time"
+          }
+        }
+      }
+    },
+    "files_load_more": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Load more"
+          }
+        }
+      }
+    },
+    "files_loading_more": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading more…"
           }
         }
       }
@@ -1179,6 +1201,17 @@
         }
       }
     },
+    "n_until_back_open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open FERB to allow this until you're back at your Mac."
+          }
+        }
+      }
+    },
     "needs_pairing_again": {
       "extractionState": "manual",
       "localizations": {
@@ -1230,17 +1263,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Not on the shared relay. This waits until your phone reaches your Mac directly or through your own relay."
-          }
-        }
-      }
-    },
-    "not_yet_voice": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Speaking to FERB from the phone comes in an update of FERB. Until then, type your message here."
           }
         }
       }
@@ -1718,6 +1740,28 @@
         }
       }
     },
+    "profile_screenshots_detail_no_shield": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blank while the screen is recorded or mirrored. Screenshots can still show FERB on this iPhone."
+          }
+        }
+      }
+    },
+    "profile_screenshots_detail_shield": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blank while the screen is recorded or mirrored. Watch live's picture of your Mac stays out of screenshots."
+          }
+        }
+      }
+    },
     "progress": {
       "extractionState": "manual",
       "localizations": {
@@ -2027,6 +2071,39 @@
         }
       }
     },
+    "screen_use_active": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FERB may use your Mac's screen until you're back"
+          }
+        }
+      }
+    },
+    "screen_use_end": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask me again"
+          }
+        }
+      }
+    },
+    "screen_use_ended": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FERB will ask again before it uses your Mac's screen."
+          }
+        }
+      }
+    },
     "search_close": {
       "extractionState": "manual",
       "localizations": {
@@ -2200,17 +2277,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "%1$lld days"
-          }
-        }
-      }
-    },
-    "set_decision_days": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Jev decisions"
           }
         }
       }
@@ -2633,6 +2699,28 @@
         }
       }
     },
+    "tr_place": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved in %1$@"
+          }
+        }
+      }
+    },
+    "tr_place_default": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downloads › FERB from phone"
+          }
+        }
+      }
+    },
     "tr_resume": {
       "extractionState": "manual",
       "localizations": {
@@ -2784,6 +2872,160 @@
           "stringUnit": {
             "state": "translated",
             "value": "Type the code"
+          }
+        }
+      }
+    },
+    "until_back_note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FERB may then use your Mac's screen without asking again until you use your Mac or send a message from it. Payments, deleting, new recipients and the like still ask."
+          }
+        }
+      }
+    },
+    "until_back_yes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yes, until I'm back at my Mac"
+          }
+        }
+      }
+    },
+    "voice_ask_next": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS asks next whether FERB may use the microphone and speech recognition."
+          }
+        }
+      }
+    },
+    "voice_continue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue"
+          }
+        }
+      }
+    },
+    "voice_denied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The microphone or speech recognition is off for FERB, so it can't hear you. You can turn them on in Settings."
+          }
+        }
+      }
+    },
+    "voice_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FERB didn't catch that. Hold the microphone and try again, or type your message."
+          }
+        }
+      }
+    },
+    "voice_hold": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold the microphone while you speak, then let go."
+          }
+        }
+      }
+    },
+    "voice_listening": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listening…"
+          }
+        }
+      }
+    },
+    "voice_ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ready. Hold the microphone while you speak."
+          }
+        }
+      }
+    },
+    "voice_speak": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold to speak"
+          }
+        }
+      }
+    },
+    "voice_text_device": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold the microphone while you speak, and let go when you're done. Your words appear in the message box, so you can check them before you send. They're turned into words on this phone: nothing is recorded or kept, and your voice never goes to your Mac."
+          }
+        }
+      }
+    },
+    "voice_text_service": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold the microphone while you speak, and let go when you're done. Your words appear in the message box, so you can check them before you send. This iPhone turns speech into words with Apple's speech recognition, which may send the sound of your voice to Apple to do it. FERB records and keeps nothing, and your voice never goes to your Mac."
+          }
+        }
+      }
+    },
+    "voice_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speak to FERB"
+          }
+        }
+      }
+    },
+    "voice_unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This phone has no speech recognition FERB can use. Type your message instead."
           }
         }
       }

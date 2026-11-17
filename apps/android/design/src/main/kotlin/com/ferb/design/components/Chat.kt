@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.withFrameMillis
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableLongStateOf
@@ -25,6 +26,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
@@ -141,6 +147,10 @@ fun TaskCard(
 /**
  * Mobile.swift PhoneComposer: a black capsule with + and the send arrow. With [onValueChange] it is a working text
  * field; without it shows [typed] with the lab's caret, or the placeholder.
+ *
+ * Hold to speak (kb PHN-603): with [onMicDown] the microphone works while it is held: [onMicDown] when the finger goes
+ * down, [onMicUp] when it lifts or the touch is taken away; [onMic] is then unused. While [listening] the microphone
+ * sits in a white circle (the send button's) and an empty box reads [listeningText]. The defaults draw as before.
  */
 @Composable
 fun PhoneComposer(
@@ -151,6 +161,11 @@ fun PhoneComposer(
     onSend: (() -> Unit)? = {},
     onAttach: (() -> Unit)? = {},
     onMic: (() -> Unit)? = {},
+    onMicDown: (() -> Unit)? = null,
+    onMicUp: (() -> Unit)? = null,
+    listening: Boolean = false,
+    listeningText: String = placeholder,
+    micLabel: String = "Speak",
 ) {
     Row(
         modifier.fillMaxWidth().heightIn(min = Phone.composerHeight).background(Ink.black, CircleShape).padding(horizontal = 8.dp, vertical = 8.dp),
@@ -169,7 +184,7 @@ fun PhoneComposer(
                     typed.orEmpty(), onValueChange, Modifier.fillMaxWidth().semantics { contentDescription = placeholder },
                     textStyle = style, cursorBrush = SolidColor(Ink.onDark), maxLines = 4,
                 )
-                if (typed.isNullOrEmpty()) PhoneText(placeholder, 16.5f, color = Ink.onDark, maxLines = 1)
+                if (typed.isNullOrEmpty()) PhoneText(if (listening) listeningText else placeholder, 16.5f, color = Ink.onDark, maxLines = 1)
             } else if (!typed.isNullOrEmpty()) {
                 // The lab shows the end of what was typed, with a caret.
                 PhoneText("$typed|", 16.5f, color = Ink.white, maxLines = 1, overflow = TextOverflow.Clip)
@@ -177,8 +192,27 @@ fun PhoneComposer(
                 PhoneText(placeholder, 16.5f, color = Ink.onDark, maxLines = 1)
             }
         }
-        Box(Modifier.pressable(onMic, label = "Speak").semantics { contentDescription = "Speak" }, contentAlignment = Alignment.Center) {
-            FerbIcon(FerbIcons.mic, 19f, Ink.white)
+        if (onMicDown == null) {
+            Box(Modifier.pressable(onMic, label = micLabel).semantics { contentDescription = micLabel }, contentAlignment = Alignment.Center) {
+                FerbIcon(FerbIcons.mic, 19f, Ink.white)
+            }
+        } else {
+            val down by rememberUpdatedState(onMicDown)
+            val up by rememberUpdatedState(onMicUp)
+            Box(
+                // the white circle is drawn behind the icon, so the composer's layout is the lab's whether or not it listens
+                Modifier.drawBehind { if (listening) drawCircle(Ink.white, radius = Phone.composerButton.toPx() / 2) }
+                    .semantics { contentDescription = micLabel }
+                    .pointerInput(Unit) {
+                        awaitEachGesture {
+                            awaitFirstDown(requireUnconsumed = false)
+                            down()
+                            waitForUpOrCancellation()
+                            up?.invoke()
+                        }
+                    },
+                contentAlignment = Alignment.Center,
+            ) { FerbIcon(FerbIcons.mic, 19f, if (listening) Ink.black else Ink.white) }
         }
         Box(
             Modifier.pressable(onSend, label = "Send").semantics { contentDescription = "Send" }

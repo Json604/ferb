@@ -6,17 +6,17 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 
 | Area | Title | Paths | Active decisions | Open tasks | Pending live checks |
 |---|---|---|---|---|---|
-| app | FERB.app (notch UI, intro, sounds) | `apps/mac`, `apps/AGENTS.md`, `apps/docs`, `apps/output`, `apps/.gitignore`, `demo` | 305 | 11 | 40 |
-| daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 92 | 8 | 7 |
+| app | FERB.app (notch UI, intro, sounds) | `apps/mac`, `apps/AGENTS.md`, `apps/docs`, `apps/output`, `apps/.gitignore`, `demo` | 315 | 14 | 40 |
+| daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 92 | 9 | 7 |
 | engine | Rust engine (the rewrite) | `engine/*`, `engine/crates`, `engine/fixtures`, `engine/packaging` | 23 | 4 | 0 |
-| gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `engine/runtime/identity` | 123 | 9 | 61 |
-| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extension`, `extension-store` | 191 | 9 | 40 |
+| gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `engine/runtime/identity` | 128 | 10 | 61 |
+| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extension`, `extension-store` | 192 | 9 | 40 |
 | memory | Memory and memory import | `engine/runtime/memory` | 60 | 4 | 0 |
-| orchestration | Orchestration | `ferb/orchestrator/*.py`, `engine/runtime/decide`, `ferb/clock` | 163 | 9 | 38 |
-| perception | Perception | `ferb/sense` | 21 | 3 | 1 |
-| phone | Phone role, link and phone apps | `apps/android`, `apps/ios`, `engine/patches` | 217 | 13 | 18 |
-| project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `HANDOFF.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `kb`, `tools`, `spikes` | 13 | 8 | 0 |
-| prompts | Prompts and abilities | `engine/runtime/orchestrator/prompts`, `engine/runtime/abilities` | 48 | 4 | 10 |
+| orchestration | Orchestration | `ferb/orchestrator/*.py`, `engine/runtime/decide`, `ferb/clock` | 167 | 11 | 40 |
+| perception | Perception | `ferb/sense` | 21 | 4 | 1 |
+| phone | Phone role, link and phone apps | `apps/android`, `apps/ios`, `engine/patches` | 249 | 13 | 18 |
+| project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `HANDOFF.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `kb`, `tools`, `spikes` | 14 | 8 | 0 |
+| prompts | Prompts and abilities | `engine/runtime/orchestrator/prompts`, `engine/runtime/abilities` | 50 | 4 | 10 |
 | release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 25 | 5 | 4 |
 | runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 58 | 6 | 6 |
 | storage | Storage | `engine/runtime/store` | 33 | 5 | 4 |
@@ -41,14 +41,16 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 - T-1115 (project): AGENTS.md rule 13 says "The Mac app (`ui/`, FERB.app) is the product" and "`ui/` is the owner's side". The app now lives in apps/mac (apps/ also holds the phone apps). May rule 13 say `apps/mac` and `apps/` there, with nothing else changed?
 - T-1116 (orchestration): Should FERB also ask the gaps question at the first send, submit, pay, post or delete call (by the action's kind) of any step that runs after a step delivered with gaps, even when its plan didn't declare it?
 - T-1117 (gateway): When you paste text into the box under one of FERB's questions, should it count as your own words like a paste in chat (today), or be treated as pasted data that can't name a site for the task and can't count as Yes or No?
-- T-1215 (phone): From the phone's notification, FERB's routine questions (the ones your 'don't ask for 30 minutes' covers on the Mac) are answered without the fingerprint. One of them is 'let FERB use your screen in an app'. Should that one need the fingerprint from the phone, as you listed screen use, or stay routine like on the Mac?
-- T-1216 (phone): When you send a file or a folder from the phone to the Mac, it lands in Downloads, in a folder named 'FERB from phone', marked as downloaded. Is that the place you want, or another folder (and should it be changeable in Settings → Phone)?
-- T-1217 (phone): From the phone: browsing a folder shows at most 500 of its entries, fetching a whole folder takes at most 2,000 files, and a name search looks at up to 100,000 names and shows at most 500 matches (each says when it stopped). Keep these limits, change them, or have none?
-- T-1222 (phone): With Stay connected on and FERB's app locked on the phone, the phone still tells your Mac its time zone, city (if you let it share it) and battery when they change, so FERB stays right about where and when you are. Nothing of FERB's goes to the locked phone. OK, or should it wait until you unlock the app?
-- T-1240 (phone): On iPhone an app can't stop screenshots. FERB covers itself in the app switcher, and hides while the screen is being recorded or mirrored (always for Watch live and private answers; for everything else with your 'Hide in screen recordings' switch, on by default). A screenshot taken while FERB is open shows what is on screen. Is that acceptable, or should Watch live not exist on iPhone?
-- T-1241 (phone): On iPhone, FERB's questions reach you while FERB is open and for a short while after you leave it; once iOS closes it, they wait on your Mac and show the moment you open FERB (until the closed-app notifications of stage 5). Where Android shows 'Stay connected', the iPhone shows 'While FERB is closed — Questions show when you open FERB'. OK as worded?
-- T-1242 (phone): For the iPhone app: keep the id com.ferb.phone (the Android app's), require iOS 17 or later (iPhone XS and newer), and which Apple developer team (the Mac's 8N7RNGH974?) signs it?
-- T-1245 (phone): The iPhone app uses the Android app's words, except where iPhone's differ; `python3 -I apps/ios/tools/strings.py --diff` lists every one (about 30). Are they right?
+- T-1242 (phone): Which Apple developer team signs the iPhone app (the Mac's 8N7RNGH974?)
+- T-1250 (app): A paste longer than 2,000 characters or 30 lines, whichever comes first, shows in the message box as a "Pasted text" chip you can click to read or remove. Keep that limit, or should it be different?
+- T-1252 (phone): A file you were sending from your phone that got interrupted now waits 7 days on your Mac so it can carry on where it stopped (it only takes disk space). Is 7 days right?
+- T-1253 (phone): After you change your relay, FERB keeps the old way to your Mac open for 30 days for phones that haven't connected since. A phone that comes back later needs your relay switched off for a moment, or pairing again. Is 30 days right?
+- T-1256 (orchestration): When FERB did something on a site and the site's own page confirms it, but FERB has no record of its own that proves it (like the Goibibo refund), should the answer add a short line such as “I checked this on Goibibo's page afterwards.”? Today there is no line; how it was checked is in the task's details.
+- T-1257 (orchestration): When FERB did the work on something other than what you named (another file with the same name, another address), it now ends like “Delivered, with gaps”, with a line such as “Not done: report.pdf from your Desktop is attached — report.pdf wasn't uploaded from your Mac, so the file the site has came from somewhere else, even if its name is the same.” Keep that ending, or end it as not done?
+- T-1260 (gateway): When FERB asks 'Are you back?' and nobody answers in 10 seconds, it carries on and doesn't ask that again for 10 minutes (a clear return still stops it at once). Is 10 minutes right?
+- T-1262 (phone): When you're ready, I draft each short issue and you post it under your GitHub account. Start with the one-line request for a release of the already-merged fix?
+- T-1263 (app): Under a task's own reason on a question card FERB still writes "(written by the AI)". Change it to "(not one of FERB's checks)", or your own words?
+- T-1264 (phone): On a phone that can't turn speech into words on the phone itself, should FERB use the phone's own speech service (Google's or Apple's, which may get the sound of your voice; FERB says so first), or offer no speaking there, like the Mac?
 
 ## Terms
 

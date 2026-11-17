@@ -66,8 +66,9 @@ pub fn start(d: &Arc<Daemon>) {
         let a = d.a.clone();
         let purges = purges(&d.opts, &d.tools, &d.redactor);
         let j = d.journal.clone();
+        let phones = d.phones.clone();
         d.spawn_loop("retention", move |failures| {
-            let (a, purges, j) = (a.clone(), purges.clone(), j.clone());
+            let (a, purges, j, phones) = (a.clone(), purges.clone(), j.clone(), phones.clone());
             async move {
                 let first = if failures == 0 { 60 } else { 3600 };
                 tokio::time::sleep(Duration::from_secs(first)).await;
@@ -78,6 +79,9 @@ pub fn start(d: &Arc<Daemon>) {
                             areas_a::retention::purge_pass(&st, p.as_ref()).await
                         })
                         .await;
+                    // decision: PHN-585 — a paired phone unused for 30 days is warned about once (a notice in chat
+                    // through `phone.unused`), here as well as when Settings → Phone is opened
+                    phones.sweep_unused();
                     match r {
                         Ok(Ok(_)) => {}
                         Ok(Err(e)) => j.note("retention.failed", json!({"error": e})),
@@ -88,6 +92,24 @@ pub fn start(d: &Arc<Daemon>) {
             }
         });
     }
+
+    // GATE-615: the phone's "until I'm back at my Mac" ends as soon as the owner is back (input, a Mac out of use, FERB
+    // unable to tell), told once in chat; checked every UNTIL_BACK_CHECK_MS while the Mac's parts are on (a question in
+    // between checks for itself before it is answered)
+    if d.tools.owner().is_some() {
+        let gw = d.gateway.clone();
+        d.spawn_loop("screen_until_back", move |_| {
+            let gw = gw.clone();
+            async move {
+                loop {
+                    tokio::time::sleep(Duration::from_millis(UNTIL_BACK_CHECK_MS)).await;
+                    let _ = gw.until_back();
+                }
+            }
+        });
+    }
+    // GATE-615: one that ran when FERB stopped ended with the stop: said once, at this start
+    restarted_until_back(d);
 
     // the resource log: a sample every SAMPLE_SECONDS (the owner's "every 5 minutes"); shutdown writes the last
     if crate::basics::lock(&d.resource_log).is_some() {
@@ -121,6 +143,47 @@ pub fn start(d: &Arc<Daemon>) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
+/// GATE-615, GATE-618: how often a running "until I'm back at my Mac" is checked for the owner's return and a hold's
+/// end (milliseconds): a quarter of a second, so a 10-second hold ends on time.
+pub const UNTIL_BACK_CHECK_MS: u64 = 250;
+
+/// GATE-615: the journal's last "until I'm back" row says one was running when FERB stopped: it ended then (it lives in
+/// memory only); journaled and told once.
+fn restarted_until_back(d: &Arc<Daemon>) {
+    use ferb_gateway::screen_use::{Ended, JOURNAL_KIND};
+    let last = d.journal.recent_values(JOURNAL_KIND, "state", 1);
+    if last.first() != Some(&json!("started")) {
+        return;
+    }
+    let why = Ended::Restarted;
+    d.journal
+        .note(JOURNAL_KIND, json!({"state": "ended", "why": why.as_str()}));
+    let Some(line) = why.line() else {
+        return;
+    };
+    let ident = format!(
+        "screen-until-back-restarted-{}",
+        ferb_core::when::isoformat(&d.journal.clock.now())
+    );
+    let n = d.b.notifier.clone();
+    d.spawn_background("screen until back restarted", async move {
+        let _ = n
+            .tell_owner(
+                &ident,
+                &[],
+                line,
+                ferb_sanitize::origin::FERB,
+                "alert",
+                "",
+                &[],
+                &Value::Null,
+                None,
+            )
+            .await;
+        Ok(())
+    });
+}
+
 // the retention pass's other stores
 // ---------------------------------------------------------------------------------------------------------------
 

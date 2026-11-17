@@ -32,14 +32,15 @@ pub fn day_words() -> Vec<String> {
 pub const STEP_KINDS: [&str; 4] = ["do", "wait", "ask", "converse"];
 /// ferb/memory/items.py:48 `KINDS`.
 pub const MEMORY_KINDS: [&str; 5] = ["fact", "preference", "person", "project", "env"];
-/// schemas.py:20 `ACTION_CHECKS` (ORCH-576).
-pub const ACTION_CHECKS: [&str; 6] = [
+/// schemas.py:20 `ACTION_CHECKS` (ORCH-576), and ORCH-667's `uploaded` (the named change, `before_uploaded`).
+pub const ACTION_CHECKS: [&str; 7] = [
     "sent",
     "paid",
     "submitted",
     "trashed",
     "deleted",
     "downloaded",
+    "uploaded",
 ];
 /// schemas.py:306 `NEXT`.
 pub const NEXT: [&str; 6] = [
@@ -321,8 +322,8 @@ pub fn task_schema() -> Value {
 /// profile counts only from the owner's own words, checked by code (browse.rs `owners_own`).
 pub const TASK_PROFILES_DESCRIPTION: &str = "The owner's browser profiles that the owner's own words name for this \
      task (by name, account, browser or a description you resolve from the browser profiles you were given), each as \
-     browser/profile from that list (\"chrome/Profile 2\"). FERB's browser tools then work only in these for the \
-     task. [] when their words name none: the task then uses the profile the owner picked for FERB's web work. When \
+     browser/profile from that list (\"chrome/Profile 2\"). The task's browser calls that name no profile then go \
+     there. [] when their words name none: the task then uses the profile the owner picked for FERB's web work. When \
      this message names none, a profile the owner's own earlier words name for this kind of work (a remembered item \
      marked \"your words\") counts; never one FERB only observed or inferred, or an earlier task's. A profile this \
      message names replaces a remembered one. A correction naming another profile for a running task lists it here.";
@@ -1230,7 +1231,28 @@ pub fn new_task(answer: &Value) -> Option<&Value> {
 /// named changes taken out, ORCH-652's `gaps` ([`before_gaps`]) and HAND-580's task `profiles`
 /// ([`before_profiles`]). For the tests that compare FERB's schemas with the recorded ones.
 pub fn as_recorded(schema: &Value) -> Value {
-    before_profiles(&before_gaps(schema))
+    before_uploaded(&before_profiles(&before_gaps(schema)))
+}
+
+/// ORCH-667's deliberate change (ENG-6): the check kind `uploaded` taken out of every check-kind enum in `schema`, as
+/// Python built it; the rest unchanged.
+pub fn before_uploaded(schema: &Value) -> Value {
+    match schema {
+        Value::Object(o) => {
+            let mut out = Map::new();
+            for (k, v) in o {
+                out.insert(k.clone(), before_uploaded(v));
+            }
+            if let Some(Value::Array(e)) = out.get_mut("enum") {
+                if e.iter().any(|v| v == "file_exists") {
+                    e.retain(|v| v != "uploaded");
+                }
+            }
+            Value::Object(out)
+        }
+        Value::Array(a) => Value::Array(a.iter().map(before_uploaded).collect()),
+        other => other.clone(),
+    }
 }
 
 /// HAND-580's deliberate change (ENG-6): every task schema inside `schema` (an object whose properties hold `goal`,

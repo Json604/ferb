@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use common::{FakeMac, ForeignMac, Heard, Signs, config, online, open};
 use ferb_mobile_ffi::records::{Attachment, Change, PreviewFrame};
-use ferb_mobile_ffi::{FerbError, Mobile, PreviewSink, TransferListener};
+use ferb_mobile_ffi::{AnswerInput, FerbError, Mobile, PreviewSink, TransferListener};
 use serde_json::{Value, json};
 
 fn connected(mac: &FakeMac, dir: &std::path::Path, tier: &str) -> (Arc<Mobile>, Arc<Heard>) {
@@ -121,7 +121,7 @@ fn files_both_ways_through_the_bindings() {
     mac.lock().pause_after = Some(2);
     let dir = tempfile::tempdir().unwrap();
     let (m, _) = connected(&mac, dir.path(), "direct");
-    let folder = m.files(Some("~/Documents".into()), None).unwrap();
+    let folder = m.files(Some("~/Documents".into()), None, None).unwrap();
     assert_eq!(folder.entries[0].path, "/Users/o/Documents/Lease.pdf");
     let save = dir.path().join("Lease.pdf").to_string_lossy().into_owned();
     let moves = Arc::new(Moves::default());
@@ -269,14 +269,114 @@ fn settings_tasks_the_mac_and_late_keys_through_the_bindings() {
     assert!(closed(m.stop_everything()));
     assert!(closed(m.status().map(|_| ())));
     assert!(closed(m.last_status().map(|_| ())));
-    assert!(closed(m.files(None, None).map(|_| ())));
+    assert!(closed(m.files(None, None, None).map(|_| ())));
     assert!(closed(m.settings().map(|_| ())));
     assert!(closed(m.tasks(1, None).map(|_| ())));
     assert!(closed(m.mac_info().map(|_| ())));
+    assert!(closed(m.screen_use().map(|_| ())));
+    assert!(closed(m.end_screen_use().map(|_| ())));
+    assert!(closed(m.begin_group("x".into()).map(|_| ())));
     assert!(closed(m.cancel_transfer("x".into())));
     assert!(closed(m.mark_read_latest("C1".into())));
     assert!(closed(
         m.watch_live("t".into(), Arc::new(Watched::default()))
             .map(|_| ())
     ));
+}
+
+/// The owner's 2026-11-17 decisions as the app reads and answers them: "until I'm back at my Mac" offered on a question
+/// and answered with no proof (locked → `NeedsUnlock`, the app unlocks and answers again), FERB's use of the screen
+/// read and ended with the app locked; "load more" for a folder and a search; where an upload and a folder landed
+/// and the Mac's upload folder.
+// decision: GATE-615
+// decision: PHN-580
+// decision: PHN-581
+// decision: PHN-589
+#[test]
+fn until_back_load_more_and_where_uploads_land_through_the_bindings() {
+    let mac = FakeMac::new("C1");
+    mac.lock().status = json!({"approvals": [
+        {"approval_id": "s1", "kind": "approve", "reason": "Let FERB use your screen?", "options": ["Yes", "No"],
+         "phone": {"can_answer": true, "needs_unlock": false, "until_back": true}}],
+        "running": [], "results": [], "stopped": false, "screen_use": {"active": false, "can_offer": true}});
+    mac.lock().folders.insert(
+        "~".into(),
+        json!({"path": "/Users/o", "parent": "/Users", "high_value": false, "entries": [
+            {"name": "a", "dir": true, "link": false, "size": 0, "modified": 1, "locked": false},
+            {"name": "b", "dir": true, "link": false, "size": 0, "modified": 1, "locked": false}]}),
+    );
+    mac.lock().page_size = Some(1);
+    let dir = tempfile::tempdir().unwrap();
+    let (m, _) = connected(&mac, dir.path(), "direct");
+    let st = m.status().unwrap();
+    assert!(st.questions[0].needs.until_back);
+    assert_eq!(st.screen_use.as_ref().map(|u| u.can_offer), Some(true));
+    mac.lock().window_closed = true;
+    let locked = m
+        .answer("s1".into(), AnswerInput::UntilBack, None)
+        .unwrap_err();
+    assert!(
+        matches!(locked, FerbError::NeedsUnlock { .. }),
+        "{locked:?}"
+    );
+    mac.lock().window_closed = false;
+    m.answer(
+        "s1".into(),
+        AnswerInput::UntilBack,
+        Some(Arc::new(Signs::default())),
+    )
+    .unwrap();
+    let call = mac.lock().calls.last().cloned().unwrap();
+    assert_eq!(
+        (call.0.as_str(), call.1, call.2),
+        (
+            "chat.approve",
+            json!({"approval_id": "s1", "granted": true, "until_back": true}),
+            None
+        )
+    );
+    assert!(m.lock().unwrap());
+    let now = m.screen_use().unwrap();
+    assert!(now.active && now.phone_name.as_deref() == Some("Pixel"));
+    let end = m.end_screen_use().unwrap();
+    assert!(end.ended && !end.screen_use.active && end.by == "EP-phone");
+    m.unlocked().unwrap();
+    // load more
+    let one = m.files(None, None, None).unwrap();
+    assert_eq!(
+        (one.entries.len(), one.from, one.cut, one.total),
+        (1, 0, true, 2)
+    );
+    let two = m.files(None, None, one.next.clone()).unwrap();
+    assert_eq!(
+        (two.entries[0].name.as_str(), two.from, two.next),
+        ("b", 1, None)
+    );
+    mac.lock().found = vec![
+        json!({"name": "x1", "path": "/Users/o/x1", "dir": false, "size": 1, "modified": 1}),
+        json!({"name": "x2", "path": "/Users/o/x2", "dir": false, "size": 1, "modified": 1}),
+    ];
+    let s1 = m.search_files("x".into(), None, None).unwrap();
+    let s2 = m.search_files("x".into(), None, s1.next.clone()).unwrap();
+    assert_eq!((s1.cut, s2.from, s2.cut), (true, 1, false));
+    // where files land
+    let local = dir.path().join("photo.jpg");
+    std::fs::write(&local, b"jpg").unwrap();
+    let up = m
+        .upload(
+            "u1".into(),
+            local.to_string_lossy().into_owned(),
+            "photo.jpg".into(),
+            None,
+            None,
+            None,
+            Arc::new(Moves::default()),
+        )
+        .unwrap();
+    assert_eq!(up.saved_in.as_deref(), Some("Downloads › FERB from phone"));
+    let g = m.begin_group("Photos".into()).unwrap();
+    assert_eq!((g.group.as_str(), g.saved_in.is_some()), ("G-1", true));
+    let info = m.mac_info().unwrap();
+    let folder = info.upload_folder.unwrap();
+    assert!(folder.is_default && folder.shown == "Downloads › FERB from phone");
 }

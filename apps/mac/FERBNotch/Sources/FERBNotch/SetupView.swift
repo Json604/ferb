@@ -48,7 +48,7 @@ struct AIStepView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
-            StepHeader(title: "A mind for your Mac.", lines: ["Connect the AI service you already use."])
+            StepHeader(title: "A mind for your Mac.", lines: ["Connect the service FERB thinks with."])
             if model.daemonSilent { NotAnsweringLine() }
             VStack(alignment: .leading, spacing: 22) { cards }
                 .opacity(model.daemonSilent ? 0.45 : 1)           // APP-884: what it shows may be out of date

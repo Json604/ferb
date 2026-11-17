@@ -53,7 +53,7 @@ final class NotchEdgeRowView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         setAccessibilityElement(false)
-        registerForDraggedTypes([.fileURL])
+        registerForDraggedTypes(FileDropSession.dragTypes)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
@@ -144,7 +144,7 @@ final class FerbIndicatorControl: NSView {
         setAccessibilityRole(.button)
         setAccessibilityLabel("Open FERB")
         setAccessibilityHelp("Drag FERB to another edge of the screen")
-        registerForDraggedTypes([.fileURL])
+        registerForDraggedTypes(FileDropSession.dragTypes)
     }
 
     // Files and folders dragged onto the handle or pill (owner, 2026-11-05, D17/D18): FileDropSession decides, springs

@@ -15,7 +15,7 @@ use ferb_orchestrator::validate::{
     checker_outcome_validate, dump_checker_outcome, dump_finding, dump_fix_outcome, dump_plan,
     dump_recheck_outcome, fix_outcome_validate, recheck_outcome_validate, worker_report_validate,
 };
-use ferb_orchestrator::verify::{ConditionResult, ACTION_CHECKS, DECLINED, UNCHECKED};
+use ferb_orchestrator::verify::{ConditionResult, ACTION_CHECKS, DECLINED, DIFFERENT, UNCHECKED};
 use ferb_sanitize::origin;
 use ferb_worker::{Attempt, OutcomeKind, RunOptions};
 use serde_json::{json, Map, Value};
@@ -51,8 +51,7 @@ pub fn task_profiles_fact(named: &[(String, String)]) -> String {
         .join(", ");
     format!(
         "Browser profiles for this task (the owner's words named them): {list}. The browser tools work there, in the \
-         background, with the profile argument (one of these, or none when there is one); another profile needs the \
-         owner's Yes first."
+         background, with the profile argument (one of these, or none when there is one)."
     )
 }
 
@@ -318,6 +317,28 @@ impl Inner {
                 .position(|b| b.reference == "task specification")
                 .map_or(blocks.len(), |i| i + 1);
             blocks.insert(at, protected(task_profiles_fact(&named), "task.profiles"));
+        }
+        // ORCH-669: a file on the Mac the conditions name for upload, as a code fact before the work (the stop before a
+        // send with another file is the worker's; code tells it after when it went on)
+        let named_files: Vec<String> = spec
+            .success_conditions
+            .iter()
+            .filter(|c| c.check.kind == "uploaded")
+            .filter_map(|c| c.check.path.clone())
+            .filter(|p| !p.is_empty())
+            .collect();
+        if !named_files.is_empty() {
+            let at = blocks
+                .iter()
+                .position(|b| b.reference == "task specification")
+                .map_or(blocks.len(), |i| i + 1);
+            blocks.insert(
+                at,
+                protected(
+                    crate::endings::upload_fact(&named_files),
+                    "task.named_files",
+                ),
+            );
         }
         Ok(blocks)
     }
@@ -1032,6 +1053,16 @@ impl Inner {
         if action == "retry" && verified {
             action = "accept".into();
         }
+        // ORCH-668: FERB acted on something other than what a condition names: the step ends its own way (D3) instead
+        // of going on or trying again by itself, unless code proved another condition false
+        if out.status == OutcomeStatus::Done
+            && outcomes.iter().any(|r| r.verdict == DIFFERENT)
+            && !outcomes.iter().any(ConditionResult::proved_false)
+            && ["accept", "accept_unconfirmed", "accept_with_gaps", "retry"]
+                .contains(&action.as_str())
+        {
+            return self.different_ending(tree, out, &outcomes, checked);
+        }
         if action == "accept_with_gaps" {
             match self.gapped(tree, out, &outcomes, checked) {
                 Ok(gaps) => {
@@ -1058,10 +1089,9 @@ impl Inner {
             }
         }
         if action == "accept" || action == "accept_unconfirmed" {
-            let refuted: Vec<&ConditionResult> = outcomes
-                .iter()
-                .filter(|r| r.met == Some(false) && r.path == "code")
-                .collect();
+            // ORCH-664: only code's own facts (the Mac's state, nothing done) prove a condition false
+            let refuted: Vec<&ConditionResult> =
+                outcomes.iter().filter(|r| r.proved_false()).collect();
             let unknown: Vec<&ConditionResult> = outcomes
                 .iter()
                 .filter(|r| r.met != Some(true) && r.path != DECLINED)
@@ -1185,10 +1215,76 @@ impl Inner {
         next
     }
 
+    /// ORCH-668 (D3's default, `endings::DIFFERENT_ENDS_DELIVERED`): a step whose work FERB did on something other
+    /// than what a condition names. Each such condition is a gap whose reason is code's sentence of what was done
+    /// instead; a condition the check accepted as a gap keeps its reason; any other unmet one is unconfirmed. Off: the
+    /// step fails with those sentences.
+    fn different_ending(
+        &self,
+        tree: &Arc<Tree>,
+        out: &Outcome,
+        outcomes: &[ConditionResult],
+        checked: &CheckerOutcome,
+    ) -> Next {
+        let conditions = tree.spec().success_conditions;
+        let mut gaps = Vec::new();
+        let mut unconfirmed = Vec::new();
+        for r in outcomes
+            .iter()
+            .filter(|r| r.met != Some(true) && r.path != DECLINED)
+        {
+            let condition = ferb_orchestrator::py::strip(&self.owner_text(tree, r))
+                .trim_end_matches('.')
+                .to_string();
+            let reason = if r.verdict == DIFFERENT {
+                conditions
+                    .get(r.index as usize)
+                    .map(|c| crate::endings::different_reason(c, r))
+            } else {
+                checked
+                    .gaps
+                    .iter()
+                    .filter(|g| g.index.as_i64() == Some(r.index))
+                    .map(|g| ferb_orchestrator::py::strip(&g.reason).to_string())
+                    .find(|t| !t.is_empty())
+            };
+            match reason {
+                Some(reason) => gaps.push(Gap {
+                    index: r.index,
+                    condition,
+                    reason,
+                    evidence: r.evidence.clone(),
+                }),
+                None => unconfirmed.push(condition),
+            }
+        }
+        if !crate::endings::DIFFERENT_ENDS_DELIVERED {
+            let mut next = Next::of("fail");
+            next.reason = gaps
+                .iter()
+                .map(|g| format!("{}.", g.reason))
+                .collect::<Vec<_>>()
+                .join(" ");
+            return next;
+        }
+        tree.lock().unconfirmed = unconfirmed.join("; ");
+        let mut next = Next::of("accept_with_gaps");
+        next.gaps = gaps;
+        if out.status == OutcomeStatus::Done {
+            next.findings = checked
+                .findings
+                .iter()
+                .filter(|f| !ferb_orchestrator::py::strip(&f.quote).is_empty())
+                .cloned()
+                .collect();
+        }
+        next
+    }
+
     /// ORCH-652: the check's gapped accept within code's limits: the worker reported done; at least one condition is
     /// met on this check's own evidence (not carried from an earlier attempt, not one that didn't apply); every
     /// condition left unmet (but one the owner declined) is named in the check's gaps with a reason; none of them is
-    /// one code's literal check proved false (ORCH-609). The gaps in condition order, or why not.
+    /// one code's facts proved false (ORCH-664). The gaps in condition order, or why not.
     fn gapped(
         &self,
         tree: &Arc<Tree>,
@@ -1214,11 +1310,8 @@ impl Inner {
         if unmet.is_empty() {
             return Err("every condition is met");
         }
-        if unmet
-            .iter()
-            .any(|r| r.met == Some(false) && r.path == "code")
-        {
-            return Err("code's literal check proved a condition false");
+        if unmet.iter().any(|r| r.proved_false()) {
+            return Err("code's facts proved a condition false");
         }
         let mut gaps = Vec::new();
         for r in unmet {
@@ -1341,16 +1434,6 @@ impl Inner {
                     .collect()
             })
             .unwrap_or_default();
-        let judged_set = tree.lock().checker_judged.clone();
-        let unconfirmed: BTreeSet<i64> = if verdict.is_some() {
-            results
-                .iter()
-                .filter(|r| r.met.is_none() && !judged_set.contains(&r.index))
-                .map(|r| r.index)
-                .collect()
-        } else {
-            BTreeSet::new()
-        };
         let judged_kind = |i: i64| {
             judged
                 .iter()
@@ -1358,28 +1441,47 @@ impl Inner {
                 .map(|(_, c)| c.check.kind.clone())
                 .unwrap_or_default()
         };
-        let refuted: Vec<&ConditionResult> = observations
-            .iter()
-            .filter(|r| {
-                r.met == Some(false)
-                    && !idle.contains(&r.index)
-                    && !unconfirmed.contains(&r.index)
-                    && ACTION_CHECKS.contains(&judged_kind(r.index).as_str())
-            })
-            .collect();
-        let mut merged: Vec<ConditionResult> = results
-            .into_iter()
-            .map(|r| {
-                refuted
-                    .iter()
-                    .find(|x| x.index == r.index)
-                    .map(|x| (*x).clone())
-                    .unwrap_or(r)
-            })
-            .collect();
+        // ORCH-664, ORCH-665: each action condition settled from code's fact and the checker's result in one order;
+        // a disagreement between them is journaled (ORCH-673)
+        let acted = if observations.is_empty() {
+            None
+        } else {
+            self.step_acted(tree, &task)
+        };
+        let unknown = if observations.is_empty() {
+            Vec::new()
+        } else {
+            let db = self.db();
+            ferb_orchestrator::verify::unknown_outcomes(&db, &task.id).unwrap_or_default()
+        };
+        let mut merged: Vec<ConditionResult> = Vec::new();
+        for r in results {
+            let kind = judged_kind(r.index);
+            if !ACTION_CHECKS.contains(&kind.as_str()) {
+                merged.push(r);
+                continue;
+            }
+            let step = ferb_orchestrator::verdicts::Step {
+                kind: kind.clone(),
+                applies: !idle.contains(&r.index),
+                acted,
+                unknown: unknown.clone(),
+            };
+            let code = observations.iter().find(|o| o.index == r.index);
+            let settled = ferb_orchestrator::verdicts::settle(&step, code, &r);
+            if let Some(Value::Object(mut d)) = settled.disagreement {
+                d.insert("task_id".into(), json!(task.id));
+                self.journal("task.verdict_disagreement", Value::Object(d), None);
+            }
+            merged.push(settled.result);
+        }
+        // ORCH-613: the owner's No on the action's own card beats every other source
         for r in merged.iter_mut() {
-            if r.met == Some(false) && r.path != DECLINED {
+            if r.met != Some(true) && r.path != DECLINED {
                 if let Some((_, c)) = judged.iter().find(|(n, _)| *n as i64 == r.index) {
+                    if !ACTION_CHECKS.contains(&c.check.kind.as_str()) {
+                        continue;
+                    }
                     if let Some(owner) = self.deps.daemon.declined(r.index, c, &task.id) {
                         *r = owner;
                     }
@@ -1387,6 +1489,53 @@ impl Inner {
             }
         }
         Ok((merged, verdict))
+    }
+
+    /// ORCH-666: whether the step acted: an acting call of its worker (not an observation, not one of FERB's context
+    /// reads, not refused at the boundary, not one its tool says it didn't perform) since the step (or loop round)
+    /// began, or a file changed during it. None when the store can't be read.
+    fn step_acted(&self, tree: &Arc<Tree>, task: &Task) -> Option<bool> {
+        let since = tree.lock().calls_since;
+        let rows = {
+            let db = self.db();
+            ferb_orchestrator::sql::rows(
+                db.conn(),
+                "SELECT input_json, output_json FROM spans WHERE task_id = ? AND kind = 'tool.call' AND rowid > ?",
+                &[
+                    rusqlite::types::Value::Text(task.id.clone()),
+                    rusqlite::types::Value::Integer(since),
+                ],
+            )
+            .ok()?
+        };
+        let acted = rows.iter().any(|row| {
+            let load = |k: &str| {
+                row.get(k)
+                    .and_then(Value::as_str)
+                    .and_then(|t| ferb_py::json::loads(t).ok())
+                    .unwrap_or(Value::Null)
+            };
+            let call = load("input_json");
+            let refused = ["boundary_refused", "ferb_question"]
+                .iter()
+                .any(|k| call.get(*k).is_some_and(ferb_py::value::truthy));
+            let tool = call
+                .get("tool")
+                .map(ferb_py::value::py_str)
+                .unwrap_or_default();
+            !refused
+                && load("output_json").get("performed") != Some(&Value::Bool(false))
+                && !ferb_orchestrator::evidence::CONTEXT_READS.contains(&tool.as_str())
+                && !self.deps.daemon.observes(&tool)
+        });
+        if acted {
+            return Some(true);
+        }
+        match self.deps.daemon.changes(&task.id, &tree.id) {
+            None => Some(false),
+            Some(Ok(found)) => Some(!found.is_empty()),
+            Some(Err(_)) => None,
+        }
     }
 
     /// `verify` for another flow (a loop's end check, `_judged`).
@@ -1651,7 +1800,7 @@ impl Inner {
                 let mut plain2 = plain.clone();
                 plain2.push(why);
                 match self
-                    .check(tree, &vtask, judged, span, ctx2, plain2, effort)
+                    .check(tree, &vtask, judged, span, ctx2, plain2, effort.clone())
                     .await?
                 {
                     Checked::Unchecked(results) => return Ok((results, None)),
@@ -1695,6 +1844,83 @@ impl Inner {
                                 );
                                 r.how = Some(NO_LOOK_HOW.replace("{files}", &shown));
                             }
+                        }
+                    }
+                }
+            }
+        }
+        // ORCH-671: no look, no pass, for pages and apps too: a met on an outward condition stands only with a look of
+        // the check's own at the tab, app or site of the step's last action; once refused with the reason, then
+        // can't tell, never false
+        if let Some(at) = self.last_action_at(tree, task) {
+            let outward = |i: i64| {
+                judged
+                    .iter()
+                    .find(|(n, _)| *n as i64 == i)
+                    .is_some_and(|(_, c)| c.layer == "outcome" || c.layer == "external")
+            };
+            let needs = |v: &CheckerOutcome| {
+                v.results.iter().any(|r| {
+                    r.met == Some(true) && r.applies && r.index.as_i64().is_some_and(outward)
+                })
+            };
+            if needs(&verdict) && !self.looked_at(&vtask.id, cursor, &at) {
+                let refused = self.span_start(
+                    "verify.refused",
+                    Some(&vtask.id),
+                    Some(span),
+                    None,
+                    json!({"no_look": at.said}),
+                );
+                self.span_finish(
+                    &refused,
+                    Some(json!({"rerun": "once, with the reason"})),
+                    None,
+                    None,
+                    None,
+                );
+                let why = protected(
+                    crate::endings::refused_look(&at.said),
+                    "FERB refused this check's pass",
+                );
+                let mut ctx2 = ctx.clone();
+                ctx2.push(why.clone());
+                let mut plain2 = plain.clone();
+                plain2.push(why);
+                match self
+                    .check(tree, &vtask, judged, span, ctx2, plain2, effort.clone())
+                    .await?
+                {
+                    Checked::Unchecked(results) => return Ok((results, None)),
+                    Checked::Verdict(v) => verdict = *v,
+                }
+                tree.lock().checker_judged = verdict
+                    .results
+                    .iter()
+                    .filter(|r| r.met.is_some())
+                    .filter_map(|r| r.index.as_i64())
+                    .collect();
+                if needs(&verdict) && !self.looked_at(&vtask.id, cursor, &at) {
+                    let again = self.span_start(
+                        "verify.refused",
+                        Some(&vtask.id),
+                        Some(span),
+                        None,
+                        json!({"no_look": at.said}),
+                    );
+                    self.span_finish(
+                        &again,
+                        Some(json!({"result": "met=null: a pass without a look is never a pass"})),
+                        None,
+                        None,
+                        None,
+                    );
+                    for r in verdict.results.iter_mut() {
+                        if r.met == Some(true) && r.applies && r.index.as_i64().is_some_and(outward)
+                        {
+                            r.met = None;
+                            r.evidence =
+                                format!("{} {}", crate::endings::no_look_at(&at.said), r.evidence);
                         }
                     }
                 }
@@ -1744,6 +1970,95 @@ impl Inner {
             })
             .collect();
         Ok((self.carry(tree, results), Some(verdict)))
+    }
+
+    /// ORCH-671: where the step's last acting call on a page or an app acted (its tab, its site or app), when the rule
+    /// applies; None when the step made none (a step that only changed files has the file rule).
+    fn last_action_at(&self, tree: &Arc<Tree>, task: &Task) -> Option<ActedAt> {
+        if !self.deps.daemon.fresh_look_rule() {
+            return None;
+        }
+        let since = tree.lock().calls_since;
+        let rows = {
+            let db = self.db();
+            ferb_orchestrator::sql::rows(
+                db.conn(),
+                "SELECT input_json, output_json FROM spans WHERE task_id = ? AND kind = 'tool.call' AND rowid > ? \
+                 ORDER BY rowid",
+                &[
+                    rusqlite::types::Value::Text(task.id.clone()),
+                    rusqlite::types::Value::Integer(since),
+                ],
+            )
+            .ok()?
+        };
+        let mut last = None;
+        for row in rows {
+            let load = |k: &str| {
+                row.get(k)
+                    .and_then(Value::as_str)
+                    .and_then(|t| ferb_py::json::loads(t).ok())
+                    .unwrap_or(Value::Null)
+            };
+            let call = load("input_json");
+            if ["boundary_refused", "ferb_question"]
+                .iter()
+                .any(|k| call.get(*k).is_some_and(ferb_py::value::truthy))
+                || load("output_json").get("performed") == Some(&Value::Bool(false))
+            {
+                continue;
+            }
+            let tool = call
+                .get("tool")
+                .map(ferb_py::value::py_str)
+                .unwrap_or_default();
+            if ferb_orchestrator::evidence::CONTEXT_READS.contains(&tool.as_str())
+                || self.deps.daemon.observes(&tool)
+            {
+                continue;
+            }
+            let at = ActedAt::of(&call);
+            if at.tab.is_none() && at.site.is_none() {
+                continue;
+            }
+            last = Some(at);
+        }
+        last
+    }
+
+    /// ORCH-671: whether this check made an observation of its own (no error, not a context read) at the place since
+    /// `cursor`: the same tab, else the same site or app.
+    fn looked_at(&self, check_id: &str, cursor: i64, at: &ActedAt) -> bool {
+        let rows = {
+            let db = self.db();
+            ferb_orchestrator::sql::rows(
+                db.conn(),
+                "SELECT input_json FROM spans WHERE task_id = ? AND kind = 'tool.call' AND rowid > ? AND error IS NULL",
+                &[
+                    rusqlite::types::Value::Text(check_id.into()),
+                    rusqlite::types::Value::Integer(cursor),
+                ],
+            )
+            .unwrap_or_default()
+        };
+        rows.iter().any(|row| {
+            let call = row
+                .get("input_json")
+                .and_then(Value::as_str)
+                .and_then(|t| ferb_py::json::loads(t).ok())
+                .unwrap_or(Value::Null);
+            let tool = call
+                .get("tool")
+                .map(ferb_py::value::py_str)
+                .unwrap_or_default();
+            if ferb_orchestrator::evidence::CONTEXT_READS.contains(&tool.as_str()) {
+                return false;
+            }
+            let seen = ActedAt::of(&call);
+            (at.tab.is_some() && seen.tab == at.tab)
+                || (at.site.is_some()
+                    && seen.site.as_deref().map(site_key) == at.site.as_deref().map(site_key))
+        })
     }
 
     /// supervisor.py:7234 `_code_facts`.
@@ -2502,6 +2817,38 @@ impl Inner {
     }
 }
 
+/// ORCH-671: where an acting call acted, as its record says: the browser tab alias, the site (or, for the Mac tools,
+/// the app); `said` names it for the check and the record.
+struct ActedAt {
+    tab: Option<String>,
+    site: Option<String>,
+    said: String,
+}
+
+impl ActedAt {
+    fn of(call: &Value) -> ActedAt {
+        let text = |v: Option<&Value>| {
+            v.filter(|v| ferb_py::value::truthy(v))
+                .map(ferb_py::value::py_str)
+        };
+        let tab = text(call.get("args").and_then(|a| a.get("tab")));
+        let site = text(call.get("target").and_then(|t| t.get("site")));
+        let said = match (&tab, &site) {
+            (Some(t), Some(s)) => format!("tab {t} on {s}"),
+            (Some(t), None) => format!("tab {t}"),
+            (None, Some(s)) => s.clone(),
+            (None, None) => String::new(),
+        };
+        ActedAt { tab, site, said }
+    }
+}
+
+/// A site or app as compared for a look: lowercased, without a leading "www.".
+fn site_key(s: &str) -> String {
+    let l = s.trim().to_lowercase();
+    l.strip_prefix("www.").map(str::to_string).unwrap_or(l)
+}
+
 /// What one run of the checker gave: its verdict, or each condition unchecked with why.
 enum Checked {
     Verdict(Box<CheckerOutcome>),
@@ -2542,14 +2889,18 @@ pub fn saved_results(v: Option<&Value>, planned: i64) -> Flow<Vec<ConditionResul
                 .map(ferb_py::value::py_str)
                 .unwrap_or_else(|| d.to_string())
         };
-        out.push(ConditionResult {
-            index,
-            text: text("condition", ""),
-            met: r.get("met").and_then(Value::as_bool),
-            path: text("path", "verifier"),
-            evidence: text("evidence", ""),
-            how: text("how", ""),
-        });
+        out.push(
+            ConditionResult {
+                index,
+                text: text("condition", ""),
+                met: r.get("met").and_then(Value::as_bool),
+                path: text("path", "verifier"),
+                evidence: text("evidence", ""),
+                how: text("how", ""),
+                ..ConditionResult::default()
+            }
+            .with_stored(&r),
+        );
     }
     Ok(out)
 }

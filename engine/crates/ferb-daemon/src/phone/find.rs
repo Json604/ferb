@@ -242,6 +242,16 @@ fn search(inner: &Inner, session: &Session, params: &Params) -> Result<Params, R
     let skip_library = !under(&o.real, &library);
     let root = OwnedFd::from(o.file);
     let (most, names_max) = (a.limits.list_max, a.limits.search_names_max);
+    // decision: PHN-589 — "load more": a page of `list_max` matches after the marker's count, the same walk in the same
+    // order each time (its 100 000-name bound per page), the marker bound to this phone, folder and query
+    let from = a.page_from(
+        &phone.device,
+        "phone.search",
+        &o.real,
+        &want,
+        params.get("after"),
+    )?;
+    let mut matched = 0usize;
     let (mut files, mut looked, mut skipped, mut cut, mut incomplete) =
         (Vec::new(), 0u64, 0u64, false, false);
     let mut queue: VecDeque<(Vec<Vec<u8>>, String)> =
@@ -280,15 +290,19 @@ fn search(inner: &Inner, session: &Session, params: &Params) -> Result<Params, R
                 continue; // links, pipes, devices: not followed, not listed
             }
             if fold(&name).contains(&want) {
-                if files.len() >= most {
+                matched += 1;
+                if matched <= from {
+                    // given on an earlier page
+                } else if files.len() >= most {
                     cut = true;
                     break 'walk;
+                } else {
+                    #[allow(clippy::unnecessary_cast)]
+                    files.push(json!({
+                        "name": name, "path": child, "dir": is_dir,
+                        "size": if is_dir { 0 } else { st.st_size as u64 }, "modified": st.st_mtime,
+                    }));
                 }
-                #[allow(clippy::unnecessary_cast)]
-                files.push(json!({
-                    "name": name, "path": child, "dir": is_dir,
-                    "size": if is_dir { 0 } else { st.st_size as u64 }, "modified": st.st_mtime,
-                }));
             }
             if is_dir && !bundle(&name) && !(skip_library && child == library) {
                 let mut next = parts.clone();
@@ -297,6 +311,7 @@ fn search(inner: &Inner, session: &Session, params: &Params) -> Result<Params, R
             }
         }
     }
+    let given = files.len();
     let mut out = Params::new();
     out.insert("path".into(), json!(o.real));
     out.insert("query".into(), json!(query));
@@ -305,6 +320,17 @@ fn search(inner: &Inner, session: &Session, params: &Params) -> Result<Params, R
     out.insert("skipped".into(), json!(skipped));
     out.insert("cut".into(), json!(cut));
     out.insert("incomplete".into(), json!(incomplete));
+    out.insert("from".into(), json!(from));
+    out.insert(
+        "next".into(),
+        json!(cut.then(|| a.page_marker(
+            &phone.device,
+            "phone.search",
+            &o.real,
+            &want,
+            from + given
+        ))),
+    );
     Ok(out)
 }
 

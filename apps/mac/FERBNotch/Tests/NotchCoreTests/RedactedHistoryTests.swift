@@ -65,7 +65,7 @@ final class RedactedHistoryTests: XCTestCase {
                                 "hidden": ["GitHub token", "Stripe key"]], localID: id)
         let turn = model.conversation.turns[0]
         XCTAssertEqual(turn.request, redacted)
-        XCTAssertEqual(turn.hiddenNotice, "That looked like a GitHub token and a Stripe key. I hid them from the AI "
+        XCTAssertEqual(turn.hiddenNotice, "That looked like a GitHub token and a Stripe key. I hid them from the service I think with "
                        + "and didn't save them. Best not to paste keys and passwords into chats.")
         let restarted = NotchModel(rpc: QuietRPC(), preferences: model.preferences)
         XCTAssertEqual(restarted.conversation.turns[0].hiddenNotice, turn.hiddenNotice)
@@ -94,9 +94,9 @@ final class RedactedHistoryTests: XCTestCase {
                                localID: id)
         let turn = model.conversation.turns[0]
         XCTAssertEqual(turn.sealed, [SealedIdentifier(kind: "PAN", name: "PAN")])
-        XCTAssertEqual(turn.hiddenNotice, "That looked like a PAN. I hid it from the AI and kept it sealed as “PAN”, "
+        XCTAssertEqual(turn.hiddenNotice, "That looked like a PAN. I hid it from the service I think with and kept it sealed as “PAN”, "
                        + "so I can fill it in on any site without asking you again. That looked like a GitHub token. "
-                       + "I hid it from the AI and didn't save it. Best not to paste keys and passwords into chats.")
+                       + "I hid it from the service I think with and didn't save it. Best not to paste keys and passwords into chats.")
         model.showIdentifier("PAN", turnID: id)
         for _ in 0..<200 where model.conversation.turns[0].sealed?.first?.shown != true { await Task.yield() }
         XCTAssertEqual(model.conversation.turns[0].sealed?.first?.shown, true)

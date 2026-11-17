@@ -167,12 +167,12 @@ fn recent_files_search_and_a_task_s_file() {
     );
     assert_eq!(r.skipped, 2);
     assert_eq!(mac.calls_of("phone.recent")[0]["limit"], 20);
-    let f = m.search_files(" invoice ", None).unwrap();
+    let f = m.search_files(" invoice ", None, None).unwrap();
     assert_eq!(f.query, "invoice");
     assert!(f.files[0].dir && f.incomplete && f.skipped == 4);
     assert_eq!(mac.calls_of("phone.search")[0]["path"], "~");
     assert_eq!(
-        m.search_files("  ", None).unwrap_err().code,
+        m.search_files("  ", None, None).unwrap_err().code,
         ErrorCode::Refused
     );
     assert_eq!(mac.calls_of("phone.search").len(), 1);

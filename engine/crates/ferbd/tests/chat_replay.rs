@@ -1969,12 +1969,15 @@ impl More {
     fn new() -> More {
         // ORCH-642 (a named difference, as ferb-supervisor's replay_more): event_wait's invented topic, which the port
         // refuses at admission, replays as one FERB publishes
-        let more: Value = serde_json::from_str(
-            &serde_json::to_string(&fixture("supervisor/more_scenarios.json"))
-                .unwrap()
-                .replace("browser.download_finished", "timer.fired"),
-        )
-        .unwrap();
+        // and APP-926's (named_diffs::app_926): owner-facing words that spoke of AI
+        let more: Value = named_diffs::app_926(
+            serde_json::from_str(
+                &serde_json::to_string(&fixture("supervisor/more_scenarios.json"))
+                    .unwrap()
+                    .replace("browser.download_finished", "timer.fired"),
+            )
+            .unwrap(),
+        );
         let chat = fixture("daemon/chat_scenarios.json");
         let (_folder, run_root) = RunRoot::new(recorded_root_len(&chat));
         let answers = fixture("catalog/answer_schemas.json");

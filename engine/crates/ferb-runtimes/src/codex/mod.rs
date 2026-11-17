@@ -565,10 +565,10 @@ pub fn model_not_found(rt: Option<&CodexRuntime>) -> String {
         _ => "",
     };
     match cause {
-        "plan" => format!("Your ChatGPT plan doesn't include {model} right now: renew the plan, or pick another service in Settings → AI"),
+        "plan" => format!("Your ChatGPT plan doesn't include {model} right now: renew the plan, or pick another service in Settings → Thinking"),
         "codex" => format!("Codex {CODEX_VERSION} can't run {model}: it needs a newer Codex, which comes with a FERB update"),
         _ => format!(
-            "ChatGPT didn't run {} for FERB's ChatGPT account: try again, or pick another service in Settings → AI",
+            "ChatGPT didn't run {} for FERB's ChatGPT account: try again, or pick another service in Settings → Thinking",
             if model.is_empty() { "this model" } else { &model }
         ),
     }

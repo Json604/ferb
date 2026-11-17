@@ -257,6 +257,8 @@ fun MacPage(
     onOwnRelay: (() -> Unit)? = null,
     onSettings: (() -> Unit)? = null,
     onStopAll: (() -> Unit)? = null,
+    /** Not from the lab: a card above the rows (FERB may use the Mac's screen until the owner is back, PHN-611). */
+    notice: (@Composable () -> Unit)? = null,
 ) {
     val ink = LocalSkyInk.current
     Column(Modifier.fillMaxSize()) {
@@ -268,6 +270,7 @@ fun MacPage(
                 align = androidx.compose.ui.text.style.TextAlign.Center)
         }
         Spacer(Modifier.weight(1f))
+        notice?.invoke()
         Card(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 40.dp)) {
             CardRow("Your own relay", ownRelay ?: "Not set", onClick = onOwnRelay, leading = { RowIcon(FerbIcons.server) }, trailing = { Opens() })
             Divide()

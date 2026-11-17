@@ -8,12 +8,13 @@ import os
 /// up"; D17, D18). Every drop target (the docked handle and its edge row, the edge pill and its resting line, the open
 /// chat and its composer) reports here, so one path decides, opens and attaches:
 ///
-/// - a drag that isn't files and folders only (text, links, promised files) or comes while FERB can't take files (the
-///   tour, dictation) gets no operation, so the system slides it back;
+/// - a drag that isn't files, folders, promised files and pictures only (text, links: FileDrop, APP-930) or comes while
+///   FERB can't take files (the tour, dictation) gets no operation, so the system slides it back;
 /// - held over the handle or pill for `springDelay`, the chat opens as a press opens it, whatever the hover setting;
 ///   the pill un-rests at once;
-/// - a drop attaches every file at once (`NotchModel.dropFiles`): the files wait in the composer until the owner sends
-///   them, with or without words; nothing is sent;
+/// - a drop attaches every file at once (`NotchModel.drop`): the files wait in the composer until the owner sends
+///   them, with or without words; nothing is sent. A picture with no file is written as a PNG and a promised file is
+///   received into FERB's own folder (ReceivedFiles, APP-936), shown as arriving until it is there;
 /// - a chat the spring opened with nothing dropped folds once the drag has left every target for `leaveGrace` (the
 ///   sticky window, which the pointer must travel to, folds only when the drag ends with nothing dropped);
 /// - FERB reads the pointer itself during a file drag (`pointer`): over the closed handle or pill it counts as the drag
@@ -48,8 +49,8 @@ final class FileDropSession {
     /// The spring-opened chat folds when the drag leaves every target (false: only when the drag ends; the sticky
     /// window, which the pointer must travel to from the pill).
     var foldsWhenLeft: () -> Bool = { true }
-    /// Attach dropped files (NotchModel.dropFiles); false when nothing was taken.
-    var onDrop: ([URL]) -> Bool = { _ in false }
+    /// Attach what was dropped (NotchModel.drop); false when nothing was taken.
+    var onDrop: (DroppedItems) -> Bool = { _ in false }
     /// How the spring delay and the leave grace pass (tests end them at once).
     var wait: @MainActor (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
 
@@ -74,17 +75,56 @@ final class FileDropSession {
         (pasteboard.pasteboardItems ?? []).map { $0.types.map(\.rawValue) }
     }
 
-    /// The dragged files and folders, or nil when the drag is anything else (D18).
-    static func files(on pasteboard: NSPasteboard) -> [URL]? {
-        guard FileDrop.accepts(itemTypes(pasteboard), promises: promiseTypes) else { return nil }
-        let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]
-        guard let urls, !urls.isEmpty else { return nil }
-        return urls
+    /// The types every drop target registers for: file URLs, the promise types and the pictures FERB reads.
+    static var dragTypes: [NSPasteboard.PasteboardType] {
+        let raw = [FileDrop.fileURLType] + ClipboardContent.imageTypes + FileDrop.promiseTypes.sorted()
+            + NSFilePromiseReceiver.readableDraggedTypes
+        var seen = Set<String>()
+        return raw.filter { seen.insert($0).inserted }.map { NSPasteboard.PasteboardType($0) }
     }
 
-    /// The operation a drag over FERB gets: copy for files and folders FERB can take now, none otherwise.
+    /// The drag is one FERB takes when it can: files, promised files and pictures only (APP-930, APP-931).
+    static func takes(_ pasteboard: NSPasteboard) -> Bool {
+        FileDrop.accepts(itemTypes(pasteboard), promises: promiseTypes)
+    }
+
+    /// What a drag carries, read at the drop (a promise must be read then), or nil when the drag is anything else.
+    static func items(on pasteboard: NSPasteboard) -> DroppedItems? {
+        guard takes(pasteboard) else { return nil }
+        var dropped = DroppedItems()
+        var promised = 0
+        for item in pasteboard.pasteboardItems ?? [] {
+            let types = item.types.map(\.rawValue)
+            switch FileDrop.carried(types, promises: promiseTypes) {
+            case .file:
+                if let text = item.string(forType: .fileURL), let url = URL(string: text), url.isFileURL {
+                    dropped.files.append(url.standardizedFileURL)
+                } else {
+                    dropped.unreadable += 1
+                }
+            case .image:
+                if let png = ComposerPaste.png(types: types, data: { item.data(forType: NSPasteboard.PasteboardType($0)) }) {
+                    dropped.images.append(png)
+                } else {
+                    dropped.unreadable += 1
+                }
+            case .promise:
+                promised += 1
+            case nil:
+                return nil
+            }
+        }
+        if promised > 0 {
+            let receivers = pasteboard.readObjects(forClasses: [NSFilePromiseReceiver.self]) as? [NSFilePromiseReceiver] ?? []
+            dropped.promises = receivers.map(SystemPromise.init)
+            dropped.unreadable += max(0, promised - receivers.count)
+        }
+        return dropped
+    }
+
+    /// The operation a drag over FERB gets: copy for what FERB can take now, none otherwise.
     func operation(_ pasteboard: NSPasteboard) -> NSDragOperation {
-        accepts() && FileDrop.accepts(Self.itemTypes(pasteboard), promises: Self.promiseTypes) ? .copy : []
+        accepts() && Self.takes(pasteboard) ? .copy : []
     }
 
     // MARK: Targets
@@ -140,13 +180,16 @@ final class FileDropSession {
         }
     }
 
-    /// A drop on any target: every file at once.
+    /// A drop on any target: everything at once.
     func drop(_ pasteboard: NSPasteboard) -> Bool {
-        let urls = accepts() ? Self.files(on: pasteboard) : nil
-        Self.log.notice("Drop: \(urls?.count ?? 0, privacy: .public) files taken")
+        let items = accepts() ? Self.items(on: pasteboard) : nil
+        Self.log.notice("""
+            Drop: \(items?.files.count ?? 0, privacy: .public) files, \(items?.promises.count ?? 0, privacy: .public) \
+            promised, \(items?.images.count ?? 0, privacy: .public) pictures, \(items?.unreadable ?? 0, privacy: .public) unreadable
+            """)
         reset()
-        guard let urls else { return false }
-        return onDrop(urls)
+        guard let items else { return false }
+        return onDrop(items)
     }
 
     /// The mouse button came up: every target counts as left, and a chat the spring opened with nothing dropped folds.
@@ -175,6 +218,9 @@ final class FileDropSession {
 /// The open chat as a drop target (SwiftUI): the same session as the handle. SwiftUI's DropInfo doesn't carry the
 /// pasteboard, so the drag pasteboard (`NSPasteboard.Name.drag`, what AppKit's NSDraggingInfo reads too) is read.
 struct ChatFileDrop: DropDelegate {
+    /// What the chat's SwiftUI drop takes to its delegate: every item, so a promise or a picture reaches validateDrop,
+    /// which reads the drag pasteboard and refuses text and links (FileDropSession.operation).
+    static let types: [UTType] = [.fileURL, .image, .item]
     let session: FileDropSession
     var pasteboard: () -> NSPasteboard = { NSPasteboard(name: .drag) }
 
@@ -185,4 +231,45 @@ struct ChatFileDrop: DropDelegate {
     }
     func dropExited(info: DropInfo) { session.exited(.chat) }
     func performDrop(info: DropInfo) -> Bool { session.drop(pasteboard()) }
+}
+
+/// What one drop carries (FileDropSession.items): files on disk, pictures as PNG data, promised files still to come, and
+/// how many items couldn't be read at all (said in the chat, never lost silently).
+struct DroppedItems {
+    var files: [URL] = []
+    var images: [Data] = []
+    var promises: [PromisedFile] = []
+    var unreadable = 0
+    var isEmpty: Bool { files.isEmpty && images.isEmpty && promises.isEmpty && unreadable == 0 }
+}
+
+/// A file its source writes when asked (APP-936): AppKit's NSFilePromiseReceiver, or a test's stand-in.
+@MainActor
+protocol PromisedFile: AnyObject {
+    /// The name the source gave, when it gave one (shown while the file arrives).
+    var name: String? { get }
+    /// Asks the source to write the file into `folder`; `arrived` runs on the main actor once per file written, or with
+    /// the error that stopped it.
+    func receive(into folder: URL, arrived: @escaping @MainActor (Result<URL, Error>) -> Void)
+}
+
+/// A promise read from a drag pasteboard.
+@MainActor
+final class SystemPromise: PromisedFile {
+    /// The queue the sources' writes are awaited on, off the main thread.
+    private static let queue: OperationQueue = {
+        let queue = OperationQueue()
+        queue.name = "FERB promised files"
+        queue.qualityOfService = .userInitiated
+        return queue
+    }()
+    let receiver: NSFilePromiseReceiver
+    init(_ receiver: NSFilePromiseReceiver) { self.receiver = receiver }
+    var name: String? { receiver.fileNames.first }
+    func receive(into folder: URL, arrived: @escaping @MainActor (Result<URL, Error>) -> Void) {
+        receiver.receivePromisedFiles(atDestination: folder, options: [:], operationQueue: Self.queue) { url, error in
+            let result: Result<URL, Error> = error.map { .failure($0) } ?? .success(url)
+            Task { @MainActor in arrived(result) }
+        }
+    }
 }

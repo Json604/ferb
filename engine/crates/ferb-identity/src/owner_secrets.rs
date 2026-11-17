@@ -900,7 +900,7 @@ impl OwnerSecrets {
             if !identifier {
                 return refused(
                     "nothing is saved as a personal identifier under that name; only a saved identifier can be \
-                     shown to the AI",
+                     read by FERB",
                 );
             }
             let record = object_mut(object_mut(data, "records"), ANY_SITE);

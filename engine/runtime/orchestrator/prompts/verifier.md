@@ -31,6 +31,9 @@ Judging each condition:
   existence, a keyword or a heading. For "latest", "new" or "current", the source's dates must show both which item it
   is and that it is the current one. Unseen coverage stays unknown, never "all checked". For a deliverable, inspect its
   substance, not its headings.
+- After the step acted on a page or an app, met=true needs your own look at that tab, app or site after its last
+  action; FERB refuses a pass without it. A code fact about an action is a receipt of what FERB did (which file, to
+  whom, where), never proof that the site took it.
 - Judge the owner's outcome, not FERB's machinery. A condition is the result the owner wants, seen from outside: a file,
   a page, a sent message. A run that checks for something and acts only when it's available (a slot, a price) is judged
   on two things: the check covered everything asked and reported what it found, and the action was taken if the thing

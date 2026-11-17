@@ -6,14 +6,19 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class LabWordsTest {
-    /** MobileScreens.swift SkyNow.sunLine: "\(left / 60) h \(left % 60) min" from an hour, "\(left) min" below it. */
+    /**
+     * A time left: "45 min" below an hour, "5 h" for whole hours (the owner's "5h", not the lab's "5 h 0 min"), "5 h
+     * 20 min" otherwise. The table is shared with the iPhone's WordsTests, so the two phones can't drift.
+     */
+    // decision: PHN-595
     @Test
-    fun timeLeftIsWrittenAsTheLabWritesIt() {
-        assertEquals("0 min", labMinutesLeft(0))
-        assertEquals("45 min", labMinutesLeft(45))
-        assertEquals("1 h 0 min", labMinutesLeft(60))
-        assertEquals("5 h 0 min", labMinutesLeft(300))
-        assertEquals("2 h 12 min", labMinutesLeft(132))
+    fun timeLeftDropsZeroMinutesAsTheOwnerChose() {
+        val cases = (MiniJson.resource("words/time-left.json") as Map<*, *>)["cases"] as List<*>
+        check(cases.size >= 6)
+        for (c in cases) {
+            val (minutes, words) = c as List<*>
+            assertEquals("$minutes", words, labMinutesLeft((minutes as Number).toInt()))
+        }
     }
 
     /** The shared relay carries text, questions and Stop only; the sheet must not promise anything else there. */

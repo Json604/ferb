@@ -74,6 +74,7 @@ pub const CRITICAL: &[&str] = &[
     "phone.unused",
     "phone.removed",
     "phone.heavy_fetch", // stage 3 S3b: a phone took unusually much (PHN-128): a notice, never a cap
+    "screen.until_back", // GATE-615: the phone's "until I'm back at my Mac" started or ended (Settings → Phone, a notice)
 ];
 
 /// bus.py:36-44. May be dropped, oldest first.

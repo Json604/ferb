@@ -88,11 +88,23 @@ struct FilesView: View {
                         }
                     }
                 }
-                if f.cut { line(L.s("search_cut", f.files.count)) }
+                // more pages (PHN-609): "Load more" while the Mac says there are; the plain line only when it doesn't page
+                if f.next != nil { loadMore { model.searchMore() } } else if f.cut { line(L.s("search_cut", f.files.count)) }
                 if f.incomplete { line(L.s("search_incomplete", Int(f.looked))) }
                 if f.skipped > 0 { line(L.plural("search_skipped", Int(f.skipped))) }
             }
         }
+    }
+
+    /// "Load more" (PHN-609): the next page of 500 from the Mac, added in place under what is shown.
+    private func loadMore(_ action: @escaping () -> Void) -> some View {
+        let busy = model.ui.busy.contains("more")
+        return Card {
+            CardRow(title: L.s(busy ? "files_loading_more" : "files_load_more"), detail: nil, onClick: busy ? nil : action) {
+                RowIcon(symbol: "arrow.down.circle")
+            }
+        }
+        .padding(.top, 12)
     }
 
     @ViewBuilder private func places(_ files: FilesUi) -> some View {
@@ -150,6 +162,7 @@ struct FilesView: View {
                 }
                 .padding(.top, 4)
                 if f.cut { line(L.s("files_cut", f.entries.count, Int(f.total))) }
+                if f.next != nil { loadMore { model.folderMore() } }
                 // a key place's folder isn't fetched whole: each of its files asks for Face ID by itself (PHN-121)
                 if !f.locked, f.entries.contains(where: { !$0.locked }) {
                     let busy = model.ui.busy.contains("tree")
@@ -258,6 +271,10 @@ struct TransferGroupCard: View {
             }
             if let p = group.compactMap(\.problem).first { lines.append(p.text) }
             else if first.way == .fetch, done { lines.append(L.s(first.keyPlace && folder == nil ? "tr_key_place" : "tr_on_phone")) }
+            else if first.way == .send, done {
+                // where it is on the Mac (PHN-608): the Mac's words when the library carries them, else the default place
+                lines.append(L.s("tr_place", group.compactMap(\.macPlace).first ?? model.ui.mac?.uploadFolder?.shown ?? L.s("tr_place_default")))
+            }
             return lines
         }()
         TransferCard(title: title, fraction: done ? 1 : fraction, value: done ? "" : (paused ? L.s("tr_paused") : nil),

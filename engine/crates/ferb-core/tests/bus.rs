@@ -57,14 +57,16 @@ fn the_topic_lists_are_pythons() {
     // Python's critical topics, and the ones added after it: FERB.app reads this Mac's exact location once the owner
     // said Yes (decision: SENSE-422); the phone link's pairing, unused warning and removal for Settings → Phone and the
     // notch (decision: PHN-419, journal 106)
-    // and a phone that took unusually much (decision: PHN-128, T-1203)
-    const ADDED: [&str; 6] = [
+    // and a phone that took unusually much (decision: PHN-128, T-1203); the phone's "until I'm back at my Mac"
+    // (decision: GATE-615)
+    const ADDED: [&str; 7] = [
         "device.location_wanted",
         "phone.pair_requested",
         "phone.pair_ended",
         "phone.unused",
         "phone.removed",
         "phone.heavy_fetch",
+        "screen.until_back",
     ];
     let python: Vec<&str> = CRITICAL
         .iter()

@@ -81,6 +81,9 @@ pub struct Approval {
     /// GATE-609: the hosts this confirmation's site questions are about (the form's and the link's need keys,
     /// `confirm::site_partner`'s two rules), from its needs, never from its text.
     pub site_hosts: Vec<String>,
+    /// GATE-615: the screen-use question alone (every need the foreground rule): a phone may answer it "until I'm back
+    /// at my Mac". Set from its needs, never from its text.
+    pub screen_use: bool,
 }
 
 impl std::fmt::Debug for Approval {
@@ -132,6 +135,7 @@ impl Approval {
             site: String::new(),
             picture: String::new(),
             site_hosts: Vec::new(),
+            screen_use: false,
         }
     }
 

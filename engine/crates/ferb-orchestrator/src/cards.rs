@@ -1,7 +1,8 @@
 //! ferb/orchestrator/cards.py: typed cards built from records FERB itself keeps (ORCH-329), never from classifying
-//! text, and the action-check readers of a tree's recorded calls (ORCH-576, ORCH-613, ORCH-629).
+//! text, and the readers of a tree's recorded calls and receipts the action checks use (ORCH-664, ORCH-666, ORCH-613,
+//! ORCH-629).
 //!
-//! decision: ORCH-321, ORCH-329, ORCH-576, ORCH-613, ORCH-624, ORCH-629
+//! decision: ORCH-321, ORCH-329, ORCH-664, ORCH-666, ORCH-613, ORCH-629
 
 use std::collections::BTreeSet;
 
@@ -522,4 +523,151 @@ pub fn target_path(call: &Map<String, Value>) -> String {
         Some(v) if ferb_py::value::truthy(v) => crate::py::str_of(v),
         _ => String::new(),
     }
+}
+
+/// ORCH-666: one finished tool call of a step as recorded, with what its tool wrote when it acted (its output: a
+/// receipt). Calls the boundary refused and FERB's own questions are left out, as `attempted` leaves them.
+#[derive(Debug, Clone)]
+pub struct Recorded {
+    pub task_id: String,
+    pub rowid: i64,
+    pub input: Map<String, Value>,
+    pub output: Map<String, Value>,
+    pub error: Option<String>,
+}
+
+/// The kinds of call that can carry a file's bytes from the Mac other than FERB's upload: input through the Mac tools,
+/// a script, a shell command.
+pub const BYTE_ROUTES: &[&str] = &["mac_input", "applescript", "run_shell"];
+
+impl Recorded {
+    pub fn tool(&self) -> String {
+        own_str(self.input.get("tool"))
+    }
+
+    pub fn target(&self) -> Map<String, Value> {
+        obj(self.input.get("target"))
+    }
+
+    /// The site (or, for the Mac tools, the app) the call was aimed at.
+    pub fn site(&self) -> Option<String> {
+        self.target()
+            .get("site")
+            .filter(|v| ferb_py::value::truthy(v))
+            .map(crate::py::str_of)
+    }
+
+    /// The browser tab alias it acted in.
+    pub fn tab(&self) -> Option<String> {
+        obj(self.input.get("args"))
+            .get("tab")
+            .filter(|v| ferb_py::value::truthy(v))
+            .map(crate::py::str_of)
+    }
+
+    /// Its own kind and the structural facts' kinds, never the worker's declaration.
+    pub fn structural(&self) -> BTreeSet<String> {
+        structural_kinds(&self.input)
+    }
+
+    /// False when the tool's own result says it didn't act (`performed: false`).
+    pub fn performed(&self) -> bool {
+        self.output.get("performed") != Some(&Value::Bool(false))
+    }
+
+    /// Recorded as more than a read (its kind isn't `read`) and not one of FERB's context reads.
+    pub fn acting(&self) -> bool {
+        let kind = own_kind(&self.input);
+        !kind.is_empty()
+            && kind != "read"
+            && !crate::evidence::CONTEXT_READS.contains(&self.tool().as_str())
+            && self.performed()
+    }
+
+    /// A form submit was seen: predicted before the act (the call's facts or kind) or reported by the page during it.
+    pub fn submit_seen(&self) -> bool {
+        let said = |m: &Map<String, Value>| {
+            obj(m.get("facts")).get("submits_form") == Some(&Value::Bool(true))
+        };
+        self.structural().contains("submit") || said(&self.input) || said(&self.output)
+    }
+
+    /// FERB's upload tool's receipt: each file's (path, SHA-256) as read when it was handed to the page.
+    pub fn uploaded_files(&self) -> Option<Vec<(String, String)>> {
+        if self.output.get("source").and_then(Value::as_str) != Some("local") {
+            return None;
+        }
+        let files = self.output.get("files")?.as_array()?;
+        Some(
+            files
+                .iter()
+                .map(|f| (own_str(f.get("path")), own_str(f.get("sha256"))))
+                .filter(|(p, _)| !p.is_empty())
+                .collect(),
+        )
+    }
+
+    /// A call by which a file's bytes could have left the Mac without FERB's upload tool.
+    pub fn carries_bytes(&self) -> bool {
+        let kinds = self.structural();
+        BYTE_ROUTES.iter().any(|k| kinds.contains(*k)) || self.tool().starts_with("shell.")
+    }
+}
+
+fn own_str(v: Option<&Value>) -> String {
+    match v {
+        Some(v) if ferb_py::value::truthy(v) => crate::py::str_of(v),
+        _ => String::new(),
+    }
+}
+
+/// ORCH-666: the finished tool calls of a task's tree, in order, with their outputs.
+pub fn recorded(db: &Db, tree_id: &str) -> Result<Vec<Recorded>> {
+    let (where_, args) = tree_args(tree_id);
+    let mut out = Vec::new();
+    for row in sql::rows(
+        db.conn(),
+        &format!(
+            "SELECT rowid AS n, task_id, input_json, output_json, error FROM spans WHERE kind = 'tool.call' \
+             AND ended_at IS NOT NULL AND {where_} ORDER BY started_at, rowid"
+        ),
+        &args,
+    )? {
+        let raw = sql::col(&row, "input_json");
+        let input = obj(Some(&sql::loads(if raw.is_empty() { "{}" } else { &raw })?));
+        if truthy(input.get("boundary_refused")) || truthy(input.get("ferb_question")) {
+            continue;
+        }
+        let raw_out = sql::col(&row, "output_json");
+        let output = obj(Some(&sql::loads(if raw_out.is_empty() { "{}" } else { &raw_out })?));
+        out.push(Recorded {
+            task_id: sql::col(&row, "task_id"),
+            rowid: row.get("n").and_then(Value::as_i64).unwrap_or(0),
+            input,
+            output,
+            error: row
+                .get("error")
+                .filter(|e| !e.is_null())
+                .map(crate::py::str_of),
+        });
+    }
+    Ok(out)
+}
+
+/// ORCH-666: a task tree's taken downloads: (where the file was put, its SHA-256 when recorded).
+pub fn taken_downloads(db: &Db, tree_id: &str) -> Result<Vec<(String, Option<String>)>> {
+    let (where_, args) = tree_args(tree_id);
+    Ok(sql::rows(
+        db.conn(),
+        &format!("SELECT path, sha256 FROM downloads WHERE state = 'taken' AND path IS NOT NULL AND {where_} ORDER BY at, rowid"),
+        &args,
+    )?
+    .iter()
+    .map(|r| {
+        (
+            crate::py::str_of(&r["path"]),
+            r.get("sha256").and_then(Value::as_str).map(String::from),
+        )
+    })
+    .collect())
 }

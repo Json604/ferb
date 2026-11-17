@@ -13,8 +13,9 @@ use crate::error::{FerbError, guard, guard_or};
 use crate::link::{Link, LinkInner};
 use crate::records::{
     Attachment, Cancelled, Conv, ConversationInfo, DeviceReport, Fetched, Folder, FoundFiles,
-    LinkState, LocationFix, MacInfo, OlderState, OutboxItem, PhoneStatus, PreviewFrame,
-    RecentFiles, SettingValue, TaskPage, TranscriptView, Tree, Uploaded,
+    GroupStarted, LinkState, LocationFix, MacInfo, OlderState, OutboxItem, PhoneStatus,
+    PreviewFrame, RecentFiles, ScreenUse, ScreenUseEnd, SettingValue, TaskPage, TranscriptView,
+    Tree, Uploaded,
 };
 
 fn signer_of(s: Arc<dyn Signer>) -> Arc<dyn ferb_mobile::Signer> {
@@ -86,6 +87,10 @@ pub struct MobileConfig {
 pub enum AnswerInput {
     /// A choice (`chat.approve`).
     Approve { granted: bool, choice: Option<i64> },
+    /// The screen-use question's Yes "until I'm back at my Mac" (GATE-615): also covers later screen-use questions
+    /// until the owner is back at the Mac. Offer it only where the question's `needs.until_back`. Needs the unlock
+    /// window (`NeedsUnlock` when closed: unlock, then answer again); never signed (a signer passed is not used).
+    UntilBack,
     /// Free words (`chat.answer`; empty declines).
     Words { text: String },
     /// The owner's words for a safety check's task (`chat.correct`).
@@ -192,6 +197,7 @@ impl std::fmt::Debug for AnswerInput {
             AnswerInput::Approve { granted, choice } => {
                 write!(f, "Approve {{ granted: {granted}, choice: {choice:?} }}")
             }
+            AnswerInput::UntilBack => f.write_str("UntilBack"),
             AnswerInput::Words { .. } => f.write_str("Words { .. }"),
             AnswerInput::Correct { .. } => f.write_str("Correct { .. }"),
             AnswerInput::Hidden { .. } => f.write_str("Hidden { <hidden> }"),
@@ -208,6 +214,7 @@ impl AnswerInput {
                 granted: *granted,
                 choice: *choice,
             },
+            AnswerInput::UntilBack => ferb_mobile::Answer::UntilBack,
             AnswerInput::Words { text } => ferb_mobile::Answer::Words {
                 text: std::mem::take(text),
             },
@@ -523,6 +530,18 @@ impl Mobile {
         guard(|| Ok(self.core()?.last_status()?.conv()))
     }
 
+    /// Whether FERB uses the Mac's screen on a phone's "until I'm back at my Mac" now (`screen_use.status`, GATE-615;
+    /// allowed while locked, no unlock); also kept in `last_status`. Network: not on the UI thread.
+    pub fn screen_use(&self) -> Result<ScreenUse, FerbError> {
+        guard(|| Ok(self.core()?.screen_use()?.conv()))
+    }
+
+    /// Ends FERB's use of the screen "until I'm back" now (`screen_use.end`; allowed while locked, no unlock; never
+    /// queued). Network: not on the UI thread.
+    pub fn end_screen_use(&self) -> Result<ScreenUseEnd, FerbError> {
+        guard(|| Ok(self.core()?.end_screen_use()?.conv()))
+    }
+
     /// Marks the conversation read up to the newest entry this phone holds. Network: not on the UI thread.
     pub fn mark_read_latest(&self, conversation: String) -> Result<(), FerbError> {
         guard(|| Ok(self.core()?.mark_read_latest(&conversation)?))
@@ -542,17 +561,20 @@ impl Mobile {
         })
     }
 
-    /// One folder of the Mac (`~` when none). A key place's folder needs `signer` (the fingerprint-only key, for this
-    /// very path): without one it is `NeedsUnlock` with link code `fresh_unlock_required`. Network.
+    /// One page of a folder of the Mac (`~` when none); `after`: the last page's `next` ("load more", PHN-589; a
+    /// marker of another folder is `Refused`). A key place's folder needs `signer` (the fingerprint-only key, for this
+    /// very path, whichever page): without one it is `NeedsUnlock` with link code `fresh_unlock_required`. Network.
+    #[uniffi::method(default(after = None))]
     pub fn files(
         &self,
         path: Option<String>,
         signer: Option<Arc<dyn Signer>>,
+        after: Option<String>,
     ) -> Result<Folder, FerbError> {
         guard(|| {
             Ok(self
                 .core()?
-                .files(path.as_deref(), signer.map(signer_of))?
+                .files(path.as_deref(), signer.map(signer_of), after.as_deref())?
                 .conv())
         })
     }
@@ -592,6 +614,12 @@ impl Mobile {
     /// Starts a folder sent from the phone: the id its files carry as `group`. Network.
     pub fn put_group(&self, name: String) -> Result<String, FerbError> {
         guard(|| Ok(self.core()?.put_group(&name)?))
+    }
+
+    /// Starts a folder sent from the phone: the id its files carry as `group`, and the folder it lands in, said
+    /// plainly (`saved_in`, PHN-581). Network.
+    pub fn begin_group(&self, name: String) -> Result<GroupStarted, FerbError> {
+        guard(|| Ok(self.core()?.begin_group(&name)?.conv()))
     }
 
     /// Sends the file at `local_path` (app-private storage) to the Mac's upload folder as `name`; `resume` goes on
@@ -655,13 +683,21 @@ impl Mobile {
     }
 
     /// Finds files and folders whose names hold `query` under `path` on the Mac (`~` when none); never by contents;
-    /// key places are left out and counted (needs the unlock). Network.
+    /// key places are left out and counted (needs the unlock). A page at a time: `after` is the last page's `next`
+    /// ("load more", PHN-589; a marker of another folder or query is `Refused`). Network.
+    #[uniffi::method(default(after = None))]
     pub fn search_files(
         &self,
         query: String,
         path: Option<String>,
+        after: Option<String>,
     ) -> Result<FoundFiles, FerbError> {
-        guard(|| Ok(self.core()?.search_files(&query, path.as_deref())?.conv()))
+        guard(|| {
+            Ok(self
+                .core()?
+                .search_files(&query, path.as_deref(), after.as_deref())?
+                .conv())
+        })
     }
 
     // ---- the phone's own record (T-1214) ----------------------------------------------------------------------

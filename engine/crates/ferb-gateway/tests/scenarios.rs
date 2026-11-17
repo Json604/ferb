@@ -1793,7 +1793,7 @@ fn fixture() -> Value {
         "/../../fixtures/gateway/scenarios.json"
     ))
     .unwrap();
-    serde_json::from_str(&text).unwrap()
+    support::app_926(serde_json::from_str(&text).unwrap())
 }
 
 /// The one named difference in the hidden input's card (GATE-603, GATE-605): a value saved for a web page is kept for

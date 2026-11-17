@@ -425,7 +425,8 @@ paths = ["ferb/orchestrator/supervisor.py::LAST_CALL_NOTE", "ferb/orchestrator/s
 title = "supervisor.md lists the action check kinds"
 by = "agent"
 date = 2026-11-09
-status = "active"
+status = "superseded"
+superseded_by = "PRM-358"
 rule = "For ORCH-561. supervisor.md's check list adds sent {expected: the recipient, site optional}, paid {site optional}, submitted {site}, trashed / deleted / downloaded {path}, beside the existing kinds; nothing else in the line changes."
 untestable = "Prompt text: TEST-500 keeps no wording tests; tests/test_claims_records.py guards the code side."
 paths = ["ferb/orchestrator/prompts/supervisor.md"]
@@ -621,3 +622,33 @@ words_source = "Owner 2026-11-16, approving the 'delivered, with gaps' ending, w
 rule = "Refines PRM-303 for a named gap only: a stated condition the worker can't meet for a reason outside the work (a conflict between the owner's words and a source, an input only the owner has) goes in the report's gaps with its reason; everything else is done in full, and a gap is never filled with made-up content shown as real. The checker's accept_with_gaps (verifier.md) names invented evidence as an unmet condition."
 live = ["LIVE-957"]
 paths = ["engine/runtime/orchestrator/prompts/worker.md", "engine/runtime/orchestrator/prompts/verifier.md", "engine/fixtures/catalog/prompt_changes.json"]
+
+[PRM-358]
+title = "supervisor.md: check kind uploaded {path}; a named Mac file's upload is a step of its own"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For ORCH-667 and ORCH-669. supervisor.md's check list adds uploaded beside trashed / deleted / downloaded {path}, and one sentence: when the owner names a file on the Mac for a site, its upload is a step of its own with check uploaded {that path}, before any step that sends or submits it. Named in engine/fixtures/catalog/prompt_changes.json."
+why = "Without a check naming the file code has nothing to compare; with the upload in its own step a wrong file can be caught before the send."
+supersedes = ["PRM-339"]
+paths = ["engine/runtime/orchestrator/prompts/supervisor.md"]
+untestable = "Prompt text: TEST-500 keeps no wording tests; the named change in engine/fixtures/catalog/prompt_changes.json is checked by ferb-context's parity test, the planner's behaviour only live (LIVE-1148)."
+
+[PRM-359]
+title = "verifier.md: after acting, met needs the check's own look; a code fact is a receipt"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For ORCH-671 and ORCH-666. verifier.md's judging list adds one item: after the step acted on a page or an app, met=true needs the check's own look at that tab, app or site after its last action (FERB refuses a pass without it); a code fact about an action is a receipt of what FERB did (which file, to whom, where), never proof that the site took it. Named in engine/fixtures/catalog/prompt_changes.json."
+why = "The checker should know the rule code enforces and what code's facts are worth before it judges, rather than learn it from a refusal."
+paths = ["engine/runtime/orchestrator/prompts/verifier.md"]
+untestable = "Prompt text: TEST-500 keeps no wording tests; the named change is checked by ferb-context's parity test; the rule it states is enforced by code (ORCH-671, tested)."
+
+[PRM-360]
+title = "Code's model-facing lines for the new checks: a refused look, a named file, the facts"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For ORCH-671, ORCH-669, ORCH-666. Code writes, as protected context: the refused pass's reason (endings::refused_look: the place of the last action, look at it now, met only for what is seen); the named file to upload (endings::upload_fact: only FERB's upload carries it, a picker's file is another, stop and ask before sending another); and each action check's basis given to the check as an observation (verify.rs: receipts, the Mac's state, nothing done)."
+why = "Text that reaches a model changes only as a prompts decision says; these are code-written, not runtime Markdown."
+paths = ["engine/crates/ferb-supervisor/src/endings.rs", "engine/crates/ferb-orchestrator/src/verify.rs::action"]

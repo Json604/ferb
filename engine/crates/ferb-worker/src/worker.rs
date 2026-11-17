@@ -782,7 +782,7 @@ impl Worker {
                             retry_stall_problem(runtime, message, self.config.stall_s, &route)
                         }
                         None => format!(
-                            "This attempt stopped responding: the AI runtime showed no sign of life for {stall} s, so FERB stopped it."
+                            "This attempt stopped responding: the service FERB thinks with showed no sign of life for {stall} s, so FERB stopped it."
                         ),
                     };
                     let evidence = format!(
@@ -879,7 +879,7 @@ impl Worker {
                         let twice = if attempt == 2 { " twice" } else { "" };
                         return Err(Error::Service(ServiceError::new(
                             format!(
-                                "the AI service ({}) showed no sign of life for {stall} s{twice}",
+                                "the service FERB thinks with ({}) showed no sign of life for {stall} s{twice}",
                                 rt.name()
                             ),
                             &rt.name(),

@@ -576,7 +576,8 @@ extension NotchModel {
         switch event["topic"] as? String {
         case "runtimes.changed":                         // APP-882: Settings → AI follows a change made anywhere
             NotificationCenter.default.post(name: .ferbRuntimesChanged, object: nil)
-        case "phone.pair_requested", "phone.unused", "phone.removed":   // T-1205: Settings → Phone, and the notch for a pairing
+        // T-1205: Settings → Phone, and the notch for a pairing; GATE-615: "until I'm back at my Mac" started or ended
+        case "phone.pair_requested", "phone.unused", "phone.removed", "screen.until_back":
             receivePhoneEvent(topic: event["topic"] as? String ?? "", data: data)
         case "device.location_wanted":                   // GATE-613: the owner said Yes; one precise fix, read now
             if let id = data["request_id"] as? String, let device = deviceLocation {

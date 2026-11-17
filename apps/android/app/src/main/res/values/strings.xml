@@ -85,8 +85,19 @@
     <string name="answer_needs_pairing">This answer needs your fingerprint, and this phone\'s fingerprint key changed. Answer on your Mac, or pair this phone again.</string>
 
     <!-- what isn't on the phone yet -->
-    <string name="feature_voice">Speaking to FERB</string>
-    <string name="not_yet_voice">Speaking to FERB from the phone comes in an update of FERB. Until then, type your message here.</string>
+    <!-- Speaking to FERB (kb PHN-603..605): hold the microphone; the words land in the message box, never sent by themselves -->
+    <string name="voice_title">Speak to FERB</string>
+    <string name="voice_text_device">Hold the microphone while you speak, and let go when you\'re done. Your words appear in the message box, so you can check them before you send. They\'re turned into words on this phone: nothing is recorded or kept, and your voice never goes to your Mac.</string>
+    <string name="voice_text_service">Hold the microphone while you speak, and let go when you\'re done. Your words appear in the message box, so you can check them before you send. This phone turns speech into words with its own speech service (on most Android phones, Google\'s), which may send the sound of your voice to that service to do it. FERB records and keeps nothing, and your voice never goes to your Mac.</string>
+    <string name="voice_ask_next">Android asks next whether FERB may use the microphone.</string>
+    <string name="voice_continue">Continue</string>
+    <string name="voice_ready">Ready. Hold the microphone while you speak.</string>
+    <string name="voice_hold">Hold the microphone while you speak, then let go.</string>
+    <string name="voice_listening">Listening…</string>
+    <string name="voice_speak">Hold to speak</string>
+    <string name="voice_denied">The microphone is off for FERB, so it can\'t hear you. You can turn it on in Android\'s settings.</string>
+    <string name="voice_unavailable">This phone has no speech recognition FERB can use. Type your message instead.</string>
+    <string name="voice_failed">FERB didn\'t catch that. Hold the microphone and try again, or type your message.</string>
     <string name="not_on_shared_relay">Not on the shared relay. This waits until your phone reaches your Mac directly or through your own relay.</string>
     <string name="needs_pairing_again">This needs your fingerprint, and this phone\'s fingerprint key changed. Pair this phone again to do it here.</string>
 
@@ -147,6 +158,16 @@
     <string name="files_needs_better_path">Getting and sending files is available when connected directly or through your relay.</string>
     <string name="files_empty">This folder is empty.</string>
     <string name="files_cut">Showing the first %1$d of %2$d.</string>
+    <!-- "Load more" for a folder listing and a search (kb PHN-609): the next page from the Mac, in place -->
+    <!-- "until I'm back at my Mac" (kb PHN-610, PHN-611): the screen-use question's further Yes, and while it holds -->
+    <string name="until_back_yes">Yes, until I\'m back at my Mac</string>
+    <string name="until_back_note">FERB may then use your Mac\'s screen without asking again until you use your Mac or send a message from it. Payments, deleting, new recipients and the like still ask.</string>
+    <string name="screen_use_active">FERB may use your Mac\'s screen until you\'re back</string>
+    <string name="screen_use_end">Ask me again</string>
+    <string name="screen_use_ended">FERB will ask again before it uses your Mac\'s screen.</string>
+    <string name="n_until_back_open">Open FERB to allow this until you\'re back at your Mac.</string>
+    <string name="files_load_more">Load more</string>
+    <string name="files_loading_more">Loading more…</string>
     <string name="files_key_place">Asks for your fingerprint each time</string>
     <string name="files_back">Back</string>
     <string name="files_opening">Opening…</string>
@@ -167,6 +188,10 @@
     <string name="tr_key_place">Removed as soon as you come back to FERB</string>
     <string name="tr_sent_one">%1$s is on your Mac</string>
     <string name="tr_sent_files">%1$d files are on your Mac</string>
+    <!-- where a file or folder sent from the phone is on the Mac (kb PHN-608); the place in the Mac's words, else the default -->
+    <string name="tr_place">Saved in %1$s</string>
+    <string name="attach_place">On your Mac in %1$s</string>
+    <string name="tr_place_default">Downloads › FERB from phone</string>
     <string name="tr_add_message">Add a message</string>
     <string name="tr_done">Done</string>
     <string name="open_with">Open with</string>
@@ -192,7 +217,6 @@
     <string name="set_exclude_domains">Sites FERB ignores</string>
     <string name="set_trail_days">Activity trail</string>
     <string name="set_trace_days">Task traces</string>
-    <string name="set_decision_days">Jev decisions</string>
     <string name="set_evidence_days">Screenshots and evidence</string>
     <string name="set_recovery_days">Recovery copies</string>
     <string name="set_resource_days">Resource log</string>

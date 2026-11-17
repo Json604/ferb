@@ -269,7 +269,7 @@ final class PlaygroundWorkspace {
     }
 
     private func about() -> [String: Any] {
-        ["version": ["ferb": "Playground"], "models": ["planner": "Sample AI", "worker": "Sample AI"],
+        ["version": ["ferb": "Playground"], "models": ["planner": "Sample model", "worker": "Sample model"],
          "account": ["email": "ferb@studio.example", "browser": "Sample browser", "profile": "FERB", "paired": true],
          "permissions": PlaygroundState.permissions.map { ["id": $0, "status": "granted"] },
          "records": [["records": "Sample records", "kept": "This preview session", "where": state.home.path]],

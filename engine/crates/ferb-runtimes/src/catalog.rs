@@ -213,12 +213,12 @@ pub fn effort_problem(name: &str, effort: &str) -> String {
 /// catalog.py `sign_in_fix`.
 pub fn sign_in_fix(name: &str) -> String {
     match name {
-        "codex" => "sign in to ChatGPT again in Settings → AI".into(),
-        "claude" => "sign in to Claude again in Settings → AI".into(),
+        "codex" => "sign in to ChatGPT again in Settings → Thinking".into(),
+        "claude" => "sign in to Claude again in Settings → Thinking".into(),
         other => {
             let l = label(other);
             format!(
-                "replace your {} key in Settings → AI",
+                "replace your {} key in Settings → Thinking",
                 l.strip_prefix("the ").unwrap_or(l)
             )
         }
@@ -246,7 +246,8 @@ pub fn signed_in(rt: &Runtime, home: &Path, facts: &dyn SignInFacts) -> (bool, S
             } else {
                 (
                     false,
-                    "Codex isn't signed in for FERB: sign in to ChatGPT in Settings → AI".into(),
+                    "Codex isn't signed in for FERB: sign in to ChatGPT in Settings → Thinking"
+                        .into(),
                 )
             }
         }
@@ -256,7 +257,8 @@ pub fn signed_in(rt: &Runtime, home: &Path, facts: &dyn SignInFacts) -> (bool, S
             } else {
                 (
                     false,
-                    "Claude isn't signed in for FERB: sign in to Claude in Settings → AI".into(),
+                    "Claude isn't signed in for FERB: sign in to Claude in Settings → Thinking"
+                        .into(),
                 )
             }
         }
@@ -266,7 +268,10 @@ pub fn signed_in(rt: &Runtime, home: &Path, facts: &dyn SignInFacts) -> (bool, S
             } else {
                 (
                     false,
-                    format!("FERB has no {} API key: add one in Settings → AI", rt.name),
+                    format!(
+                        "FERB has no {} API key: add one in Settings → Thinking",
+                        rt.name
+                    ),
                 )
             }
         }

@@ -154,7 +154,9 @@ struct ChatBodyView: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: 24) }
             VStack(spacing: 0) {
-                if !model.session.attachments.isEmpty { attachedContext }
+                if !model.session.attachments.isEmpty || !model.heldPastes.isEmpty || !model.receivingFiles.isEmpty {
+                    attachedContext
+                }
                 HStack(alignment: .bottom, spacing: 3) {
                     Button(action: model.chooseFiles) {
                         Image(systemName: "paperclip").frame(width: 24, height: 30)
@@ -197,14 +199,20 @@ struct ChatBodyView: View {
     }
 
     private var attachedContext: some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: 8) {
-                ForEach(model.session.attachments, id: \.self) { url in
-                    ComposerAttachmentCard(url: url, model: model)
-                }
-            }.padding(8)
+        VStack(spacing: 0) {
+            if let shown = model.shownHeldPaste { ShownPasteView(paste: shown, model: model) }
+            ScrollView(.horizontal) {
+                HStack(spacing: 8) {
+                    ForEach(model.session.attachments, id: \.self) { url in
+                        ComposerAttachmentCard(url: url, model: model)
+                    }
+                    ForEach(model.receivingFiles) { file in ReceivingFileCard(file: file, model: model) }
+                    ForEach(model.heldPastes) { paste in HeldPasteCard(paste: paste, model: model) }
+                }.padding(8)
+            }
+            .scrollIndicators(.hidden)
+            .frame(height: 100)
         }
-        .scrollIndicators(.hidden)
         .frame(height: model.attachmentStripHeight)
     }
 

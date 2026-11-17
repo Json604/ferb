@@ -181,6 +181,8 @@ pub const METHODS: &[Method] = &[
     m("phone.session_end", &[], false),
     m("phone.tree", &[], false),
     m("phone.unlock", &[], false),
+    // PHN-581: where a phone's files land, chosen in FERB.app's Settings → Phone (PHONE_ADDITIONS, FERB.app's own)
+    m("phone.upload_folder", &[Role::Cli], true),
     m("ping", &[Role::Cli, Role::McpShim], false),
     // HAND-625: the owner's project folders in Settings, FERB.app's own. Not Python's: PROJECT_ADDITIONS.
     m("projects.list", &[Role::Cli], true),
@@ -208,6 +210,10 @@ pub const METHODS: &[Method] = &[
     m("runtimes.use", &[Role::Cli], false),
     m("schedules.change", &[Role::Cli], false),
     m("schedules.list", &[Role::Cli], false),
+    // GATE-615: the phone's "until I'm back at my Mac": its state and its end (SCREEN_USE_ADDITIONS, FERB.app's own;
+    // a phone reaches them by their class)
+    m("screen_use.end", &[Role::Cli], true),
+    m("screen_use.status", &[Role::Cli], true),
     m("secrets.delete", &[Role::Cli], true),
     // GATE-602: the owner's "don't mask this" for a saved identifier, FERB.app's own. Not Python's:
     // IDENTIFIER_ADDITIONS names them.
@@ -296,13 +302,19 @@ pub const DEVICE_ADDITIONS: [&str; 1] = ["device.report"];
 /// Stage 3 (T-1202): FERB.app's Settings → Phone: the paired phones, their removal and renaming, the owner's Yes to a
 /// pairing, the audit. FERB.app's own (`app_only`); from a phone only `phone.list` (private) and `phone.remove`
 /// (sensitive: a second phone removes a lost one with its fingerprint, PHN-419), by their classes.
-pub const PHONE_ADDITIONS: [&str; 5] = [
+pub const PHONE_ADDITIONS: [&str; 6] = [
     "phone.audit",
     "phone.list",
     "phone.pair_decide",
     "phone.remove",
     "phone.rename",
+    "phone.upload_folder",
 ];
+
+/// GATE-615: the phone's "until I'm back at my Mac" (a Yes to screen use that lasts until the owner is back): what is in
+/// force and its end. FERB.app's own (`app_only`); from a phone by their classes (plain, allowed while locked: ending it
+/// only takes something away).
+pub const SCREEN_USE_ADDITIONS: [&str; 2] = ["screen_use.end", "screen_use.status"];
 
 /// Stage 3 (T-1202): a phone session's own calls: a challenge, the unlock and lock, the device key's proof, keys
 /// registered late, the session's end. No local role may call them; on a phone session the phone gate answers each,

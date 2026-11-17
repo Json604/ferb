@@ -1448,3 +1448,54 @@ rule = "For SENSE-420, GATE-613. device.facts {exact_location, device: a phone} 
 why = "The owner: the exact spot only when a task needs it, asked at that moment. 60 s, not the Mac's 30 s: the phone may need the owner's tap and Android's own location question first."
 evidence = "ferbd compose::device test a_phone_s_exact_location_is_asked_per_phone_and_only_when_it_can_answer; ferb-daemon tests/phone_device.rs; ferb-link tests/real_daemon.rs."
 paths = ["engine/crates/ferbd/src/compose/device.rs::exact_phone", "engine/crates/ferb-daemon/src/phone/device.rs::want_fix"]
+
+# ---- 2026-11-17: the owner's answers on screen use from the phone and the 30-minute answer (journal 120)
+
+[GATE-615]
+title = "Until I'm back at my Mac: a phone's Yes covers screen-use questions until the owner is back"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For PHN-586. Offered only on the screen-use question (all needs floor:foreground, none a script) while FERB can tell: Input Monitoring's tap and the presence watcher run, the Mac in use. It answers such questions Yes for any task and ends at the first unmarked keyboard or pointer event after it, a message from FERB.app, the Mac locked, asleep or switched away, FERB unable to tell, the owner's end, the phone removed or a restart. Journaled; each end said once in chat. Nothing else is covered."
+why = "Every event FERB posts carries its mark (events.rs) and the tap never counts a marked one, so input is told apart for certain; a System Events script's input is not marked, so scripts still ask."
+evidence = "ferb-gateway tests/until_back.rs, screen_use.rs tests; ferb-sense tests/manager.rs ferb_s_marked_input...; ferbd consumers tests."
+
+[GATE-616]
+title = "The 30-minute 'don't ask' keeps covering protected-folder reads"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "no, the 30min dont ask shoudl be there"
+words_source = "Owner 2026-11-17, asked whether the 30-minute answer (GATE-207) should keep covering a protected folder's read lift."
+rule = "As built: the routine class includes a protected folder's read lift (confirm.rs routine: escape: rules with lift read), so the 30-minute answer covers it; its change lift and the rest of GATE-207 stand."
+why = "The owner kept it."
+evidence = "ferb-gateway screen_use.rs test a_protected_folder_s_read_stays_routine; ferb-policy tests/parity.rs routine cases."
+
+[GATE-617]
+title = "FERB's behaviour without Input Monitoring stays as built"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "keeo the behavious"
+words_source = "Owner 2026-11-17, on what FERB does when Input Monitoring is off or its tap is down (SENSE-406), as the coordinator relayed it."
+rule = "As built (SENSE-406): without the owner-input tap FERB counts the owner as using the Mac, so it makes no foreground input in front of him, and 'until I'm back at my Mac' is not offered (GATE-615)."
+why = "The owner kept the behaviour."
+untestable = "As built; held by SENSE-406's tests and ferb-gateway tests/until_back.rs (not offered while FERB can't tell)."
+
+[GATE-618]
+title = "Until I'm back: clear and unclear input, the 10-second hold, the welcome in place"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For PHN-593, GATE-615. The tap classes each unmarked event as it arrives: unclear within UNCLEAR_WINDOW_S (0.5 s) of FERB's last post (its poster's record, a marked event seen), else clear. Clear ends it. Unclear holds HOLD_S (10 s): on-screen calls wait in the gate; the one posting finishes, its echo (window) excluded; any later input ends it. FERB.app shows 'Are you back?' quietly, turned into the welcome in place; a silent hold removes it. Its Yeses cover nothing after."
+why = "Never ends at FERB's own echo, never goes on past the owner; not a phone question, never under a standing answer."
+evidence = "ferb-gateway tests/until_back.rs (5), screen_use.rs (5); ferb-sense manager (2); ferbd owner_lines (2); FERBNotch testAreYouBack..."
+
+[GATE-619]
+title = "After a silent 'Are you back?', unclear input isn't asked about for 10 minutes; clear input ends it"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For PHN-593. A hold that runs out with no input resumes screen use and sets a quiet time of QUIET_S (10 minutes; the number awaits the owner, T-1260): unclear events in it are journaled (ignored) and let pass; a clear event, the Mac locking or sleeping, a Mac message and the rest still end 'until I'm back' at once."
+why = "The owner: if it can't tell, FERB would keep asking at its own presses; not asking for a while stops that."
+evidence = "ferb-gateway screen_use.rs a_silent_hold_resumes..., tests/until_back.rs a_silent_hold_resumes_quietly..."

@@ -165,7 +165,7 @@ impl fmt::Display for RuntimeError {
             }
             RuntimeError::Account { reason, code } => {
                 let recovery = if reason == "auth_required" {
-                    "Codex isn't signed in to a ChatGPT subscription for FERB: sign in to ChatGPT in Settings → AI."
+                    "Codex isn't signed in to a ChatGPT subscription for FERB: sign in to ChatGPT in Settings → Thinking."
                 } else {
                     "Codex could not check the account. Try again shortly."
                 };

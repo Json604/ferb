@@ -158,10 +158,20 @@ struct Composer: View {
                     Spacer(minLength: 0)
                 }
                 .padding(.horizontal, 6)
+                // where they already are on the Mac (PHN-608): the message only points FERB at them
+                Text(L.s("attach_place", t.readyPlace ?? model.ui.mac?.uploadFolder?.shown ?? L.s("tr_place_default"))).type(13, .medium, ink.low)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 6)
             }
+            // hold to speak (PHN-603): the words land in the box while held and stay there; never sent by themselves
             PhoneComposer(placeholder: placeholder, text: Binding(get: { model.draft }, set: { model.typed($0) }),
                           onSend: { model.send() }, onAttach: { picking.ask(forChat: true) },
-                          onMic: { model.show(.notYet(.voice)) })
+                          onMicDown: {
+                              if model.voicePress() == .askMicrophone {
+                                  Task { model.microphoneAnswered(await AppleSpeech.ask()) }
+                              }
+                          },
+                          onMicUp: { model.voiceRelease() }, listening: model.listening,
+                          listeningText: L.s("voice_listening"), micLabel: L.s("voice_speak"))
         }
     }
 }
@@ -237,6 +247,8 @@ struct ChatView: View {
     private var statusLine: (String, Bool)? {
         if model.ui.link?.phase != .online { return (L.s("chat_offline"), false) }
         if model.ui.needsMacUnlock { return (L.s("chat_unlock_mac"), true) }
+        // FERB may use the Mac's screen until the owner is back (PHN-611; "Ask me again" is on the Mac tab)
+        if model.ui.status?.screenUse?.active == true { return (L.s("screen_use_active"), false) }
         return nil
     }
 }
@@ -421,7 +433,24 @@ struct MacView: View {
                 onTab: { model.choose($0) }, onProfile: { model.show(.profile) },
                 onLink: { if online, l?.path == .publicRelay { model.show(.relay) } },
                 onOwnRelay: { model.show(.ownRelay) }, onSettings: { model.openSettings() },
-                onStopAll: { model.show(.stopAll) })
+                onStopAll: { model.show(.stopAll) },
+                notice: model.ui.status?.screenUse?.active == true ? AnyView(ScreenUseCard(model: model)) : nil)
+    }
+}
+
+/// FERB may use the Mac's screen until the owner is back (PHN-611): the line and "Ask me again".
+struct ScreenUseCard: View {
+    @Bindable var model: AppModel
+    var body: some View {
+        Card(padding: 16) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(L.s("screen_use_active")).type(15.5, .medium, Ink.black).frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityAddTraits(.updatesFrequently)
+                Pill(title: L.s("screen_use_end"), kind: .grey, height: 44,
+                     onClick: model.ui.busy.contains("screen-use") ? nil : { model.endScreenUse() })
+            }
+        }
+        .padding(.horizontal, 16).padding(.bottom, 12)
     }
 }
 

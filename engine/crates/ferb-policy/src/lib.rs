@@ -24,6 +24,7 @@ pub mod carried;
 pub mod confirm;
 pub mod destinations;
 pub mod idna;
+pub mod named;
 pub mod norm;
 pub mod payments;
 pub mod ppath;

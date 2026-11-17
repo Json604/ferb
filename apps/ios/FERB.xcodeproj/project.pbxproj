@@ -83,6 +83,8 @@
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "FERB opens with Face ID, and asks for it again before your Mac goes ahead with something you approve.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "FERB connects straight to your Mac when both are on the same network, so files and Watch live work at full speed.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "FERB uses your city to get local time and place right. It asks before using your exact location.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "FERB listens only while you hold the microphone in the message box, to turn what you say into words there. Nothing is recorded.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "FERB turns what you say into words in the message box, on this iPhone where it can. Nothing is kept, and your voice never goes to your Mac.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
@@ -152,6 +154,8 @@
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "FERB opens with Face ID, and asks for it again before your Mac goes ahead with something you approve.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "FERB connects straight to your Mac when both are on the same network, so files and Watch live work at full speed.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "FERB uses your city to get local time and place right. It asks before using your exact location.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "FERB listens only while you hold the microphone in the message box, to turn what you say into words there. Nothing is recorded.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "FERB turns what you say into words in the message box, on this iPhone where it can. Nothing is kept, and your voice never goes to your Mac.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;

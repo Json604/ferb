@@ -111,6 +111,15 @@ final class FakePhone: PhoneApi {
     func lock() async -> Outcome<Bool> { calls.append("lock"); return .ok(true) }
     func unlocked() async -> Outcome<Void> { calls.append("unlocked"); return .ok(()) }
     func stopEverything() async -> Outcome<Void> { calls.append("stop-everything"); return .ok(()) }
+    /// "Until I'm back" (PHN-611): what the Mac says about screen use, and what "Ask me again" gets.
+    var screenUseNow = ScreenUse(active: false, since: nil, phone: nil, phoneName: nil, canOffer: true)
+    func screenUse() async -> Outcome<ScreenUse> { calls.append("screen-use"); return .ok(screenUseNow) }
+    func endScreenUse() async -> Outcome<ScreenUseEnd> {
+        calls.append("end-screen-use")
+        let was = screenUseNow.active
+        screenUseNow = ScreenUse(active: false, since: nil, phone: nil, phoneName: nil, canOffer: screenUseNow.canOffer)
+        return .ok(ScreenUseEnd(ended: was, by: "phone-1", screenUse: screenUseNow))
+    }
     func status() async -> Outcome<PhoneStatus> {
         calls.append("status")
         return status.map { .ok($0) } ?? .failed(.Offline(detail: "no", linkCode: nil))
@@ -124,7 +133,11 @@ final class FakePhone: PhoneApi {
         outbox.append(item)
         return .ok(item)
     }
-    func files(path: String?, signer: Signer?) async -> Outcome<Folder> {
+    func files(path: String?, signer: Signer?, after: String?) async -> Outcome<Folder> {
+        if let after {
+            calls.append("files-more:\(path ?? "-"):\(after):\(signer != nil)")
+            return morePages.isEmpty ? .failed(.NotFound(detail: "No more.", linkCode: nil)) : .ok(morePages.removeFirst())
+        }
         calls.append("files:\(path ?? "-"):\(signer != nil)")
         if let s = signer?.sign(payload: "files:\(path ?? "")") { signed.append(s) }
         return folders[path ?? "~"].map { .ok($0) } ?? .failed(.NotFound(detail: "No such folder.", linkCode: nil))
@@ -152,7 +165,7 @@ final class FakePhone: PhoneApi {
         let size = ((try? FileManager.default.attributesOfItem(atPath: localPath)[.size]) as? NSNumber)?.uint64Value ?? 0
         listener.accepted(uploadId: resume ?? "up-\(name)", offset: 0)
         listener.progress(done: size, of: size)
-        return .ok(Uploaded(uploadId: resume ?? "up-\(name)", saved: "~/Downloads/FERB/\(name)", size: size))
+        return .ok(Uploaded(uploadId: resume ?? "up-\(name)", saved: "~/Downloads/FERB/\(name)", size: size, savedIn: nil))
     }
     func cancelTransfer(id: String) async -> Outcome<Void> {
         cancelled.append(id)
@@ -165,9 +178,18 @@ final class FakePhone: PhoneApi {
         .failed(.NotFound(detail: "No such file.", linkCode: nil))
     }
     func recentFiles(limit: Int) async -> Outcome<RecentFiles> { calls.append("recent"); return .ok(RecentFiles(files: [], skipped: 0)) }
-    func searchFiles(query: String, path: String?) async -> Outcome<FoundFiles> {
-        .ok(FoundFiles(path: path ?? "~", query: query, files: [], looked: 0, skipped: 0, cut: false, incomplete: false))
+    var found: FoundFiles?
+    func searchFiles(query: String, path: String?, after: String?) async -> Outcome<FoundFiles> {
+        if let after {
+            calls.append("search-more:\(query):\(after)")
+            return moreFound.isEmpty ? .failed(.NotFound(detail: "No more.", linkCode: nil)) : .ok(moreFound.removeFirst())
+        }
+        return .ok(found ?? FoundFiles(path: path ?? "~", query: query, files: [], looked: 0, skipped: 0, cut: false, incomplete: false,
+                                       from: 0, next: nil))
     }
+    /// Paging (PHN-606): the pages "Load more" gets in turn (each asked with the page before's `next`).
+    var morePages: [Folder] = []
+    var moreFound: [FoundFiles] = []
     func reportDevice(_ report: DeviceReport) async -> Outcome<Bool> { reports.append(report); return .ok(true) }
     func locationWanted() async -> Outcome<String?> { .ok(location) }
     func answerLocation(requestId: String, fix: LocationFix?, whyNot: String?) async -> Outcome<Void> {
@@ -302,7 +324,7 @@ func settle() async { try? await Task.sleep(nanoseconds: 100_000_000) }
 
 func needs(unlock: Bool, fingerprint: Bool = false, can: Bool = true, hidden: Bool = false) -> QuestionNeeds {
     QuestionNeeds(canAnswer: can, needsUnlock: unlock, hidden: hidden, fingerprint: fingerprint, challenge: "ch-1",
-                  problem: can ? nil : "Answer it on your Mac.")
+                  problem: can ? nil : "Answer it on your Mac.", untilBack: false)
 }
 
 func asked(_ id: String, _ n: QuestionNeeds, held: Bool = false, capability: String? = "ferb.confirm") -> StatusQuestion {
@@ -311,7 +333,7 @@ func asked(_ id: String, _ n: QuestionNeeds, held: Bool = false, capability: Str
 }
 
 func phoneStatus(_ q: StatusQuestion..., results: [StatusResult] = [], stopped: Bool = false) -> PhoneStatus {
-    PhoneStatus(locked: false, words: true, stopped: stopped, questions: q, running: [], results: results)
+    PhoneStatus(locked: false, words: true, stopped: stopped, questions: q, running: [], results: results, screenUse: nil)
 }
 
 func emptyView() -> TranscriptView {

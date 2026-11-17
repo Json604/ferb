@@ -236,6 +236,10 @@ fn fixes(request: &str, python: &str) -> Option<String> {
         let doc = line.get_mut("result")?.as_object_mut()?;
         doc.contains_key("permissions").then_some(())?;
         about::add_reasons(doc, "");
+        // decision: APP-941: Jev's days are no setting any more, so the settings FERB lists leave them out
+        if let Some(Value::Array(settings)) = doc.get_mut("settings") {
+            settings.retain(|r| r["key"] != "retention.decision_days");
+        }
         return Some(ferb_py::json::dumps(&line));
     }
     if !python.contains("-32603") {

@@ -64,7 +64,7 @@ enum PlaygroundSamples {
     ] }
     static var settings: [String: Any] { [
         "sense.window_titles": true, "privacy.exclude_apps": ["Password manager"], "privacy.exclude_domains": ["bank.example"],
-        "sense.trail_retention_days": 7, "retention.trace_days": 30, "retention.decision_days": 30,
+        "sense.trail_retention_days": 7, "retention.trace_days": 30,
         "retention.evidence_days": 7, "retention.recovery_days": 7, "retention.resource_days": 30,
         "retention.operational_days": 90
     ] }

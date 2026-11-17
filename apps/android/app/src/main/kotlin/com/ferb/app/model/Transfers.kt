@@ -51,6 +51,8 @@ data class Transfer(
     val forChat: Boolean = false,
     val rel: String? = null,
     val task: TaskFile? = null,
+    /** A file sent: where it is on the Mac in the Mac's words, when the library says (UploadPlace); null: the default place. */
+    val macPlace: String? = null,
 ) {
     val fraction: Float get() = if (total > 0) (done.toFloat() / total).coerceIn(0f, 1f) else 0f
 }
@@ -90,6 +92,10 @@ class Transfers(
 
     private val _batches = MutableStateFlow<Map<String, Batch>>(emptyMap())
     val batches: StateFlow<Map<String, Batch>> = _batches.asStateFlow()
+
+    /** Where the composer's files are on the Mac, in the Mac's words when the library says (PHN-608); null: the default. */
+    private val _readyPlace = MutableStateFlow<String?>(null)
+    val readyPlace: StateFlow<String?> = _readyPlace.asStateFlow()
 
     /** Uploads that arrived for the composer (PHN-127: a message's attachments are this phone's finished uploads). */
     private val _ready = MutableStateFlow<List<Attachment>>(emptyList())
@@ -263,7 +269,8 @@ class Transfers(
         attempts.remove(key)
         return when (r) {
             is Outcome.Ok -> {
-                update(key) { it.copy(phase = Phase.DONE, done = r.value.size.toLong(), total = r.value.size.toLong(), uploadId = r.value.uploadId) }
+                update(key) { it.copy(phase = Phase.DONE, done = r.value.size.toLong(), total = r.value.size.toLong(), uploadId = r.value.uploadId,
+                    macPlace = UploadPlace.shown(r.value)) }
                 sources.remove(key)
                 withContext(Dispatchers.IO) { local.remove(cur.local) }
                 true
@@ -278,6 +285,7 @@ class Transfers(
         val all = _list.value.filter { it.batch == batch && it.phase == Phase.DONE && it.uploadId != null }
         val add = if (b?.folder != null && b.group != null) listOf(Attachment(b.group, b.folder)) else all.map { Attachment(it.uploadId!!, it.name) }
         _ready.update { r -> r + add.filter { a -> r.none { it.uploadId == a.uploadId } } }
+        all.firstNotNullOfOrNull { it.macPlace }?.let { _readyPlace.value = it }
         _list.update { l -> l.filterNot { it.batch == batch } }
         _batches.update { it - batch }
         local.removeBatch(batch)

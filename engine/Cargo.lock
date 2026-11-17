@@ -766,6 +766,7 @@ dependencies = [
  "regex",
  "rusqlite",
  "serde_json",
+ "sha2",
  "tempfile",
  "tokio",
  "unicode-normalization",

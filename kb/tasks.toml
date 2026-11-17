@@ -722,7 +722,7 @@ title = "Stage 3 S11: apps/android :app: the screens, the app lock, notification
 area = "phone"
 kind = "build"
 status = "open"
-why = "Built (journal 115, 116, 117): all of S11 but speaking to FERB from the phone (not built: the Mac's dictation is on-device; phone speech is the owner's product decision; the app says so plainly). Left: the owner's approval of strings.xml and LIVE-1100..1111, 1141..1146."
+why = "Built (journal 115-117, 121): speaking to FERB too (PHN-603..605). The strings listed on 2026-11-16 are approved (PHN-602); the ones added on 2026-11-17 (journal 121) wait for him. Left: LIVE-1100..1111, 1141..1146."
 decisions = ["PHN-8", "PHN-11", "PHN-13", "PHN-15", "PHN-16", "PHN-132", "PHN-402", "PHN-403", "PHN-404", "PHN-415", "PHN-417", "PHN-420", "PHN-421", "PHN-422", "PHN-447", "PHN-115", "PHN-406", "PHN-500", "PHN-501", "PHN-502", "PHN-503", "PHN-504", "PHN-505", "PHN-506", "PHN-507", "PHN-508", "PHN-509"]
 
 [T-1212]
@@ -740,42 +740,6 @@ kind = "build"
 status = "open"
 why = "DMN-599 left the per-call spawns in ferbd/spawns.txt: the global stop's jobs, the approval, window and secret.refused notices, task paused/resumed. Python journaled their failures; here an Err is dropped and a panic only reaches daemon.unhandled. Also _macos_events (mainloop.rs) is unsupervised."
 
-[T-1222]
-title = "May a phone whose FERB app is locked still tell the Mac its time zone, city and battery?"
-area = "phone"
-kind = "question"
-status = "open"
-why = "PHN-125 lists what a locked connection may do (status, Stop, self-proving answers). PHN-523 also takes the phone's own record then, from a connection that proved the device key: nothing of FERB's goes back, but it is a call PHN-125's list doesn't name."
-decisions = ["PHN-125", "PHN-523"]
-ask = "With Stay connected on and FERB's app locked on the phone, the phone still tells your Mac its time zone, city (if you let it share it) and battery when they change, so FERB stays right about where and when you are. Nothing of FERB's goes to the locked phone. OK, or should it wait until you unlock the app?"
-
-[T-1215]
-title = "Does a Yes to FERB using the Mac's screen, given from the phone, need the fingerprint?"
-area = "phone"
-kind = "question"
-status = "open"
-why = "GATE-207's routine class (the 30-minute answer) includes the foreground question; PHN-417 lists screen use among the fingerprint ones. S3 answers routine questions with no proof (PHN-470); telling screen use apart needs the gateway to say a question's needs."
-decisions = ["PHN-417", "PHN-470", "GATE-207"]
-ask = "From the phone's notification, FERB's routine questions (the ones your 'don't ask for 30 minutes' covers on the Mac) are answered without the fingerprint. One of them is 'let FERB use your screen in an app'. Should that one need the fingerprint from the phone, as you listed screen use, or stay routine like on the Mac?"
-
-[T-1216]
-title = "Where do files sent from the phone land on the Mac?"
-area = "phone"
-kind = "question"
-status = "open"
-why = "S3b (PHN-484) lands them in ~/Downloads/FERB from phone, each file as <id>-<name> and each folder as one folder there; the lab used its own state folder, which in FERB is FERB's state and would keep a message's attachments from FERB's tools."
-decisions = ["PHN-127", "PHN-484"]
-ask = "When you send a file or a folder from the phone to the Mac, it lands in Downloads, in a folder named 'FERB from phone', marked as downloaded. Is that the place you want, or another folder (and should it be changeable in Settings → Phone)?"
-
-[T-1217]
-title = "How many entries may one folder listing and one whole-folder fetch from the phone hold?"
-area = "phone"
-kind = "question"
-status = "open"
-why = "S3b keeps the lab's list_max 500 and tree_max 2000; T-1211's name search (PHN-527) adds search_names_max 100 000 names looked at, and shows at most list_max results. All provisional in ferb-daemon phone::files FileLimits; no owner decision sets them (rule 18)."
-decisions = ["PHN-113", "PHN-482", "PHN-527"]
-ask = "From the phone: browsing a folder shows at most 500 of its entries, fetching a whole folder takes at most 2,000 files, and a name search looks at up to 100,000 names and shows at most 500 matches (each says when it stopped). Keep these limits, change them, or have none?"
-
 [T-1219]
 title = "Three tests fail only when the Mac is busy: a replay's row order and two window tests"
 area = "tests"
@@ -790,32 +754,14 @@ kind = "bug"
 status = "open"
 why = "S4 (journal 113): SIGN_IDENTITY=- treats pieces already signed by FERB's team as vendor code and keeps their signature, so an ad-hoc test bundle needs them re-signed by hand. Developer ID and release builds are not affected."
 
-[T-1240]
-title = "iPhone can't blank screenshots: is the switcher cover plus hiding during recording enough?"
-area = "phone"
-kind = "question"
-status = "open"
-why = "PHN-420 and PHN-454 assumed screenshots come out blank, as Android's FLAG_SECURE makes them. iOS gives apps no such switch: FERB covers itself in the app switcher always and hides while the screen is recorded or mirrored (PHN-565); a screenshot of an open FERB shows what is on screen."
-decisions = ["PHN-420", "PHN-454", "PHN-565"]
-ask = "On iPhone an app can't stop screenshots. FERB covers itself in the app switcher, and hides while the screen is being recorded or mirrored (always for Watch live and private answers; for everything else with your 'Hide in screen recordings' switch, on by default). A screenshot taken while FERB is open shows what is on screen. Is that acceptable, or should Watch live not exist on iPhone?"
-
-[T-1241]
-title = "iPhone has no Stay connected: are 'While FERB is closed: Questions show when you open FERB' right?"
-area = "phone"
-kind = "question"
-status = "open"
-why = "PHN-421's Stay connected is an Android foreground service; iOS has none (PHN-566). Open: everything; just left: until iOS suspends FERB (usually under 30 s); closed: nothing until it opens or stage 5's push. This phone shows that line instead, with a sheet."
-decisions = ["PHN-421", "PHN-566"]
-ask = "On iPhone, FERB's questions reach you while FERB is open and for a short while after you leave it; once iOS closes it, they wait on your Mac and show the moment you open FERB (until the closed-app notifications of stage 5). Where Android shows 'Stay connected', the iPhone shows 'While FERB is closed — Questions show when you open FERB'. OK as worded?"
-
 [T-1242]
-title = "The iPhone app's bundle id (com.ferb.phone), minimum iOS (17) and the Apple team to sign with"
+title = "The Apple team to sign the iPhone app with"
 area = "phone"
 kind = "question"
 status = "open"
-why = "Stage 4 runs on the simulator signed ad hoc. A phone needs the owner's Apple developer team and a provisioning profile; the id is BUNDLE_ID in apps/ios/tools/make_project.py (PHN-562); iOS 17 covers every iPhone iOS 18 does (PHN-560)."
-decisions = ["PHN-560", "PHN-562"]
-ask = "For the iPhone app: keep the id com.ferb.phone (the Android app's), require iOS 17 or later (iPhone XS and newer), and which Apple developer team (the Mac's 8N7RNGH974?) signs it?"
+why = "Stage 4 runs on the simulator signed ad hoc. The id com.ferb.phone and iOS 17 are the owner's (PHN-601); a phone needs his Apple developer team and a provisioning profile (Xcode's Signing for a device build)."
+decisions = ["PHN-560", "PHN-562", "PHN-601"]
+ask = "Which Apple developer team signs the iPhone app (the Mac's 8N7RNGH974?)"
 
 [T-1243]
 title = "Stage 4 on a real iPhone: Secure Enclave keys, Face ID, the camera, notifications, suspension"
@@ -825,15 +771,6 @@ status = "open"
 why = "Everything ran on the simulator only: software keys (no Secure Enclave), no Face ID prompt answered, no camera, no Data Protection, notifications not shown, no suspension. apps/ios/README.md 'On an iPhone' lists the checks; then LIVE-1100..1111 with the iPhone. Needs T-1242."
 decisions = ["PHN-561", "PHN-564", "PHN-565", "PHN-566", "PHN-572", "PHN-573", "PHN-574"]
 after = ["T-1242"]
-
-[T-1245]
-title = "The owner reads the iPhone's words that differ from Android's (strings.py --diff)"
-area = "phone"
-kind = "question"
-status = "open"
-why = "PHN-567: the catalog is Android's strings verbatim except where iOS's words differ (Face ID, passcode, Settings, no Stay connected) and a few iOS-only ones; the owner approves words."
-decisions = ["PHN-567"]
-ask = "The iPhone app uses the Android app's words, except where iPhone's differ; `python3 -I apps/ios/tools/strings.py --diff` lists every one (about 30). Are they right?"
 
 [T-1246]
 title = "make_logo.py writes the iPhone's full-bleed app icon from the logo"
@@ -851,3 +788,132 @@ status = "open"
 why = "PHN-421's push for a closed app; on iPhone it needs the owner's APNs key in the small sender he runs, the aps-environment entitlement and a provisioning profile; the push carries no words and the app fetches them (a Notification Service Extension can't reach the Mac without the link)."
 decisions = ["PHN-421", "PHN-566"]
 after = ["T-1242"]
+
+[T-1250]
+title = "Confirm the long-paste limit: 2,000 characters or 30 lines"
+area = "app"
+kind = "question"
+status = "open"
+why = "APP-934: a paste over the limit is held as a chip. The default is the coordinator's proposal in one constant (LongPaste.limit in NotchCore/PastedRequest.swift); limits that change FERB's behavior are the owner's (AGENTS.md rule 18)."
+decisions = ["APP-934", "APP-935"]
+ask = "A paste longer than 2,000 characters or 30 lines, whichever comes first, shows in the message box as a \"Pasted text\" chip you can click to read or remove. Keep that limit, or should it be different?"
+
+[T-1252]
+title = "Confirm 7 days for keeping a paused upload from the phone"
+area = "phone"
+kind = "question"
+status = "open"
+why = "PHN-582: the owner asked why only an hour; the coordinator's number is 7 days (UPLOAD_PARTIAL_KEEP_S in ferb-daemon phone/files.rs). Limits that change FERB's behaviour are the owner's (rule 18)."
+decisions = ["PHN-582", "PHN-583"]
+ask = "A file you were sending from your phone that got interrupted now waits 7 days on your Mac so it can carry on where it stopped (it only takes disk space). Is 7 days right?"
+
+[T-1253]
+title = "Confirm 30 days for keeping the shared relays open for a phone after a relay change"
+area = "phone"
+kind = "question"
+status = "open"
+why = "PHN-590: the coordinator's number is 30 days (BEACON_MAX_DAYS in ferb-link bridge.rs). After it, a phone that hasn't connected since the relay changed can't find the Mac until the owner switches the relay off for a moment or pairs it again (PHN-591)."
+decisions = ["PHN-590", "PHN-591"]
+ask = "After you change your relay, FERB keeps the old way to your Mac open for 30 days for phones that haven't connected since. A phone that comes back later needs your relay switched off for a moment, or pairing again. Is 30 days right?"
+
+[T-1254]
+title = "Remove the Jev code; data capture stays (journal 120 lists what is Jev's and what is shared)"
+area = "perception"
+kind = "chore"
+status = "open"
+why = "APP-940. Jev-only: decide.rs, areas_b/jev.rs, ferb-sense batches.rs, jev.* RPCs, the doctor line, ferb stats' counts, attention.md. Shared, to rewire: sense.status's perception block, the notification_told receipt, retention and cleanup rows. Supersede SENSE-2, SENSE-3, SENSE-402."
+decisions = ["APP-940", "APP-941", "SENSE-2", "SENSE-3"]
+
+[T-1255]
+title = "Supersede PHN-417, PHN-139, PHN-127 once the phone apps' tests cite PHN-586, PHN-582, PHN-583"
+area = "phone"
+kind = "chore"
+status = "open"
+why = "PHN-586 narrows PHN-417 (screen use is routine from the phone), PHN-582 changes PHN-139's keep and PHN-583 refines PHN-127. Superseding them now would refuse the citations in apps/android and apps/ios, which another agent is editing."
+decisions = ["PHN-586", "PHN-582", "PHN-583", "PHN-417", "PHN-139", "PHN-127"]
+
+[T-1256]
+title = "D2: should a done answer confirmed only on the site's page say how it was checked?"
+area = "orchestration"
+kind = "question"
+status = "open"
+why = "ORCH-672: built as the agent's default (no line in chat; the basis is kept in the task's details and ferb trace). One switch, endings::HOW_CHECKED_IN_CHAT, turns on the line."
+decisions = ["ORCH-672", "ORCH-664"]
+ask = "When FERB did something on a site and the site's own page confirms it, but FERB has no record of its own that proves it (like the Goibibo refund), should the answer add a short line such as “I checked this on Goibibo's page afterwards.”? Today there is no line; how it was checked is in the task's details."
+
+[T-1257]
+title = "D3: how should work FERB did on a different file or person than you named end?"
+area = "orchestration"
+kind = "question"
+status = "open"
+why = "ORCH-668: built as the agent's default (its own ending, delivered with gaps, with code's line saying what was done instead; never done, never a bare failure). One switch, endings::DIFFERENT_ENDS_DELIVERED, ends it as not done instead."
+decisions = ["ORCH-668", "ORCH-669", "ORCH-676"]
+ask = "When FERB did the work on something other than what you named (another file with the same name, another address), it now ends like “Delivered, with gaps”, with a line such as “Not done: report.pdf from your Desktop is attached — report.pdf wasn't uploaded from your Mac, so the file the site has came from somewhere else, even if its name is the same.” Keep that ending, or end it as not done?"
+
+[T-1259]
+title = "FERB.app: a result's reported answer one tap away, and the verdict sources in a task's details"
+area = "app"
+kind = "build"
+status = "open"
+why = "ORCH-672: a done answer code's facts disproved is kept as the final frame's `reported` field (not in the reply, ORCH-605); each condition's verdict, by and basis are in the result. The app shows neither yet."
+decisions = ["ORCH-672", "ORCH-665"]
+
+[T-1260]
+title = "Confirm 10 minutes of not asking 'Are you back?' again after one goes unanswered"
+area = "gateway"
+kind = "question"
+status = "open"
+why = "GATE-619: after a 10-second 'Are you back?' passes with no input (FERB's own echo), unclear input isn't asked about for QUIET_S (ferb-gateway screen_use.rs, the coordinator's 10 minutes); limits are the owner's (rule 18)."
+decisions = ["PHN-593", "GATE-619"]
+ask = "When FERB asks 'Are you back?' and nobody answers in 10 seconds, it carries on and doesn't ask that again for 10 minutes (a clear return still stops it at once). Is 10 minutes right?"
+
+[T-1261]
+title = "Harden the report relay: daily total, single-use tickets, version-shaped labels, token check"
+area = "daemon"
+kind = "build"
+status = "open"
+why = "Review 2026-11-17 of relay/worker.mjs: no daily total (the private repo can be filled), a ticket can file twice across Worker copies, any app_version becomes a label, nothing says when the token stops working. Owner: \"the issue working is ok for now\". The total's number is his."
+decisions = ["DMN-8"]
+
+[T-1262]
+title = "Offer the three iroh fixes upstream (the owner opens each discussion)"
+area = "phone"
+kind = "question"
+status = "open"
+why = "PHN-612. n0's rules need a human to open the issue. Order proposed: a netwatch release with the merged fix; the hotfix a maintainer invited (#4589); the DNS fix after a real iPhone ran it. Owner 2026-11-17: \"im not sure about 3rd point\", \"counter adn then i'll raise it\"."
+decisions = ["PHN-612", "PHN-222", "PHN-478"]
+ask = "When you're ready, I draft each short issue and you post it under your GitHub account. Start with the one-line request for a release of the already-merged fix?"
+
+[T-1263]
+title = "The label \"(written by the AI)\" under a task's own reason on question cards"
+area = "app"
+kind = "question"
+status = "open"
+why = "APP-942 took \"AI\" out of owner-facing text; FROM_AI stays because the planner's prompt quotes it, so the words change in both places at once."
+decisions = ["APP-942"]
+ask = "Under a task's own reason on a question card FERB still writes \"(written by the AI)\". Change it to \"(not one of FERB's checks)\", or your own words?"
+
+[T-1264]
+title = "Speaking to FERB on a phone that can't turn speech into words on the phone itself"
+area = "phone"
+kind = "question"
+status = "open"
+why = "PHN-604: where the phone has no on-device recognition, the apps use the phone's speech service (Google's on most Android phones, Apple's on iPhone), which may send the sound of the voice to it, after FERB's own explanation. The Mac's dictation is on-device only (APP-591)."
+decisions = ["PHN-603", "PHN-604"]
+ask = "On a phone that can't turn speech into words on the phone itself, should FERB use the phone's own speech service (Google's or Apple's, which may get the sound of your voice; FERB says so first), or offer no speaking there, like the Mac?"
+
+[T-1265]
+title = "Live: a file sent from the phone on mobile data over a direct path (segmentation offload)"
+area = "phone"
+kind = "live"
+status = "open"
+why = "Review 2026-11-17 of the lab's code: segmentation offload is left on as the lab ran; iroh #4647 (open) reports the direct path dying under upload on Android mobile data with it on. FERB has the switch (ferb-link net.rs) and no app turns it off. .local/live-checks.md P11."
+decisions = ["PHN-612"]
+
+[T-1266]
+title = "A test of the address-discovery patch across a public-address change"
+area = "phone"
+kind = "build"
+status = "open"
+why = "Review 2026-11-17 found PHN-222's patch correct but untested across a network change: a UDP forwarder before the relay's QUIC port switches its outgoing port after the first report; the reported public port must change within about 60 s with one discovery connection kept."
+decisions = ["PHN-222"]

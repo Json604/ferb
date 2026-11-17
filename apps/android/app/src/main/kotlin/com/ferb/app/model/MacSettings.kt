@@ -17,7 +17,8 @@ data class SettingRow(val spec: SettingSpec, val on: Boolean = false, val days: 
  * FERB's settings on the phone (PHN-404, PHN-112): what FERB.app's Privacy page shows, in its order. The switch and
  * the day counts change from here, each change signed after one fingerprint (PHN-133); the two lists are shown and
  * changed in FERB on the Mac (their editor is the Mac's). browsing.owner_profile is not shown: it names a browser
- * profile only the Mac can pick.
+ * profile only the Mac can pick. Jev's decisions (retention.decision_days) are never shown, even when an older Mac still
+ * sends them: the owner removed Jev, now and in future (kb PHN-596).
  */
 object MacSettings {
     val SPECS = listOf(
@@ -26,7 +27,6 @@ object MacSettings {
         SettingSpec("privacy.exclude_domains", R.string.set_exclude_domains, SettingKind.LIST),
         SettingSpec("sense.trail_retention_days", R.string.set_trail_days, SettingKind.DAYS),
         SettingSpec("retention.trace_days", R.string.set_trace_days, SettingKind.DAYS),
-        SettingSpec("retention.decision_days", R.string.set_decision_days, SettingKind.DAYS),
         SettingSpec("retention.evidence_days", R.string.set_evidence_days, SettingKind.DAYS),
         SettingSpec("retention.recovery_days", R.string.set_recovery_days, SettingKind.DAYS),
         SettingSpec("retention.resource_days", R.string.set_resource_days, SettingKind.DAYS),

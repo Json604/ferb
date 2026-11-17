@@ -55,6 +55,14 @@ class Prefs(context: Context) {
         get() = p.getBoolean("notify_explained", false)
         set(v) = p.edit().putBoolean("notify_explained", v).apply()
 
+    /**
+     * Speaking to FERB (kb PHN-604): the kinds of speech recognition (SpeechKind names) the owner was told about before
+     * his first use of each: on the phone itself, or the phone's own speech service.
+     */
+    var voiceTold: Set<String>
+        get() = p.getStringSet("voice_told", emptySet()) ?: emptySet()
+        set(v) = p.edit().putStringSet("voice_told", v).apply()
+
     /** Answers, results and questions already announced (entry or question ids only: never their words). */
     var announced: Set<String>
         get() = p.getStringSet("announced", emptySet()) ?: emptySet()

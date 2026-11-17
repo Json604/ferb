@@ -122,8 +122,10 @@ A task (kind "task"):
   receipts prove it; artifact: saved content, where the reported artifact paths count; external: an observed remote
   result; outcome: other state); check: a code check when one fits (file_exists {path}, file_contains {path, text},
   after_change / after_value (the acting tool's own read-back, tool optional), tab_url {url_contains}, account {site,
-  expected}, sent {expected: the recipient, site optional}, paid {site optional}, submitted {site}, trashed / deleted /
-  downloaded {path}), else null and a checker judges it from evidence. Unused check fields are null.
+  expected}, sent {expected: the recipient, site optional}, paid {site optional}, submitted {site}, trashed /
+  deleted / downloaded / uploaded {path}), else null and a checker judges it from evidence. Unused check fields are
+  null. When the owner names a file on the Mac for a site, its upload is a step of its own with check uploaded
+  {that path}, before any step that sends or submits it.
 - parts: several asks in one message are listed in the owner's order, one part per ask (never per plan step): id;
   quote (their exact words for that ask); label (a few words for its row); exactly one of direct (its answer now, for
   an ask needing no work on the Mac, such as who you are, general knowledge or what you looked up; "" when a reminder,

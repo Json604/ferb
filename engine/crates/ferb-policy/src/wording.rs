@@ -979,6 +979,11 @@ fn card_of(n: &Need, alongside: &[&str]) -> Option<Card> {
         return None;
     }
     match rule {
+        // ORCH-676: what is about to be sent isn't the file the owner named
+        crate::named::NOT_NAMED => {
+            let (question, detail, exact, yes, no) = crate::named::card(v);
+            Some(c(question, detail, exact, yes, no))
+        }
         // HAND-624: the publish question (the first one for a folder also makes it a project)
         crate::projects::PUBLISH_RULE => {
             let exact = format!("{}\nbranch {}", v.opt("url"), v.opt("branch"));
@@ -988,7 +993,7 @@ fn card_of(n: &Need, alongside: &[&str]) -> Option<Card> {
                     format!(
                         "FERB's commands can then read and change files there and publish its git repository when \
                          you ask. Your saved logins and keys stay closed to them. Yes also publishes it now: branch {} \
-                         to {}, with your git login (no AI sees it). FERB never forces a push, and asks again if the \
+                         to {}, with your git login (it never reaches the service FERB thinks with). FERB never forces a push, and asks again if the \
                          address changes.",
                         v.opt("branch"),
                         v.opt("url")
@@ -1001,7 +1006,7 @@ fn card_of(n: &Need, alongside: &[&str]) -> Option<Card> {
                 c(
                     format!("Publish {} to {}?", v.opt("folder"), v.opt("dest")),
                     format!(
-                        "Branch {} goes to {} with your git login (no AI sees it). FERB never forces a push, and asks \
+                        "Branch {} goes to {} with your git login (it never reaches the service FERB thinks with). FERB never forces a push, and asks \
                          again if the address changes.",
                         v.opt("branch"),
                         v.opt("url")

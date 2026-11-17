@@ -11,7 +11,7 @@ enum SettingsTab: Hashable, CaseIterable, Identifiable {
         switch self {
         case .general: return "General"
         case .notch: return "Notch & Shortcuts"
-        case .ai: return "AI"
+        case .ai: return "Thinking"
         case .permissions: return "Permissions"
         case .browsers: return "Browsers"
         case .notifications: return "Sounds & Notifications"
@@ -29,7 +29,7 @@ enum SettingsTab: Hashable, CaseIterable, Identifiable {
         case .general: return "Launch, updates and a fresh introduction."
         case .notch: return "How FERB opens, listens and stays out of your way."
         case .notifications: return "Choose what gets your attention and how it sounds."
-        case .ai: return "Choose the AI service FERB thinks with."
+        case .ai: return "Choose the service FERB thinks with."
         case .browsers: return "Connect the browsers and accounts FERB can use."
         case .permissions: return "The access FERB needs to work on your Mac."
         case .privacy: return "What FERB can notice, and what stays private."
@@ -505,7 +505,9 @@ struct PrivacySettingsPage: View {
                        isOn: Binding(get: { store.recordingPaused }, set: { on in Task { await store.pauseRecording(on) } }))
                 KnownToggle(title: "Record window titles", isOn: store.toggle("sense.window_titles"),
                             known: store.settingsKnown && store.settings.has("sense.window_titles"))
-                LabeledContent("Recording now", value: store.watchers.isEmpty ? "nothing" : store.watchers.joined(separator: ", "))
+                // APP-941: Jev is gone (owner, 2026-11-17); its idle batcher's name is never shown
+                let watchers = store.watchers.filter { $0 != "jev_batches" }
+                LabeledContent("Recording now", value: watchers.isEmpty ? "nothing" : watchers.joined(separator: ", "))
             }
             WindowSettingsSection(title: "Apps FERB ignores") {
                 StringListEditor(key: "privacy.exclude_apps", placeholder: "Bundle id or app name, e.g. com.1password.1password",
@@ -519,7 +521,6 @@ struct PrivacySettingsPage: View {
                 if !store.settingsKnown { UnknownLine() }
                 DaysField(title: "Activity trail", key: "sense.trail_retention_days", store: store)
                 DaysField(title: "Task traces", key: "retention.trace_days", store: store)
-                DaysField(title: "Jev decisions", key: "retention.decision_days", store: store)
                 DaysField(title: "Screenshots and evidence", key: "retention.evidence_days", store: store)
                 DaysField(title: "Recovery copies", key: "retention.recovery_days", store: store)
                 DaysField(title: "Resource log", key: "retention.resource_days", store: store)
@@ -727,7 +728,7 @@ struct DataSettingsPage: View {
                         }
                         Spacer()
                         if row.isIdentifier {
-                            Button(row.shown ? "Hide from the AI" : "Let the AI see") {
+                            Button(row.shown ? "Keep sealed" : "Let FERB read it") {
                                 Task { await store.setShown(row, !row.shown) }
                             }
                         }

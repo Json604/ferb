@@ -44,7 +44,7 @@ m.linkState(): LinkState; m.forgetThisMac(); m.shutdown(); m.isClosed(): Boolean
 // T-1221 (journal 116)
 m.lock(): Boolean; m.unlocked(); m.stopEverything(); m.status(): PhoneStatus; m.lastStatus(): PhoneStatus?
 m.markReadLatest(conversation); m.sendWith(text, attachments: List<Attachment>): OutboxItem
-m.files(path: String?, signer: Signer?): Folder; m.tree(path, signer?): Tree; m.putGroup(name): String
+m.files(path: String?, signer: Signer?, after: String? = null): Folder; m.tree(path, signer?): Tree; m.putGroup(name): String
 m.fetch(id, path, saveTo, offset: ULong, signer?, listener: TransferListener): Fetched
 m.upload(id, localPath, name, resume?, group?, rel?, listener): Uploaded; m.cancelTransfer(id)  // -> FerbException.Cancelled
 m.preview(taskId, have: Long?): PreviewFrame; m.watchLive(taskId, sink: PreviewSink): LivePreview  // .stop()
@@ -54,10 +54,15 @@ m.registerKeys(devicePub?, strongPub?, signer)
 // T-1214, T-1211 (journal 117)
 m.reportDevice(report: DeviceReport): Boolean            // the phone's own record; again on each connection
 m.locationWanted(): String?; m.answerLocation(requestId, fix: LocationFix?, whyNot: String?)  // Change.LocationWanted
-m.recentFiles(limit: UInt): RecentFiles; m.searchFiles(query, path: String?): FoundFiles
+m.recentFiles(limit: UInt): RecentFiles; m.searchFiles(query, path: String?, after: String? = null): FoundFiles
 m.fetchTaskFile(id, taskId, index: ULong, saveTo, listener): Fetched
 SecretInput()  // .push(unit: UShort) per UTF-16 unit, .len(), .isEmpty(), .clear()
 m.answerHidden(approvalId, secret: SecretInput, signer: Signer): String   // the input is emptied whatever happens
+// the owner's 2026-11-17 decisions (GATE-615, PHN-580/581, PHN-588/589)
+m.answer(approvalId, AnswerInput.UntilBack, null)   // only where QuestionNeeds.untilBack; NeedsUnlock -> unlock, again
+m.screenUse(): ScreenUse; m.endScreenUse(): ScreenUseEnd   // allowed locked; also kept in PhoneStatus.screenUse
+m.beginGroup(name): GroupStarted   // {group, savedIn}; Uploaded.savedIn; MacInfo.uploadFolder: UploadFolder?
+// load more: Folder/FoundFiles {from: ULong, next: String?, cut}: pass `next` back as `after` while it is non-null
 interface TransferListener { fun progress(done: ULong, of: ULong); fun accepted(uploadId: String, offset: ULong) }
 interface PreviewSink { fun frame(frame: PreviewFrame); fun ended(code: String?, detail: String?) }
 // Android only: the one JNI export, com.ferb.core.NativeInit.init(context): ndk_context for iroh's DNS (PHN-514)
@@ -86,9 +91,10 @@ card's `type`, `PlanStep.repeats` its `loop`, `NoticeItem.reference` its `ref`, 
 that the golden flattens into the turn). `QuestionItem.bodyJson` is the one JSON text: a question's body has no fixed
 shape. Each conversion destructures the core's type completely, so a field added there fails the build here.
 `Change` (with `LocationWanted(requestId)`), `OlderState`, `RelayStatus` sealed; `DeviceReport`, `DevicePlace`,
-`LocationFix`, `FoundFile`, `RecentFiles`, `FoundFiles` records; `LinkPath`, `LinkPhase` enums; `AnswerInput` sealed (`Approve(granted,
-choice)`, `Words(text)`, `Correct(text)`, `Hidden(secret)`: kept for older apps; `answerHidden` with a `SecretInput` is the
-one whose secret crosses no buffer).
+`LocationFix`, `FoundFile`, `RecentFiles`, `FoundFiles`, `ScreenUse`, `ScreenUseEnd`, `GroupStarted`, `UploadFolder`
+records; `LinkPath`, `LinkPhase` enums; `AnswerInput` sealed (`Approve(granted, choice)`, `UntilBack` (GATE-615: the
+screen-use question's Yes "until I'm back at my Mac", never signed), `Words(text)`, `Correct(text)`, `Hidden(secret)`:
+kept for older apps; `answerHidden` with a `SecretInput` is the one whose secret crosses no buffer).
 
 Errors: every call throws `FerbException`, sealed, one subclass per stable code, each with `detail` (the words) and
 `linkCode` (the link's own code, ferb-link `errors.rs`): `Closed`, `BadKey`, `WrongKey`, `StoreNewer`, `Store`,

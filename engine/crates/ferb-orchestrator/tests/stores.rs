@@ -2,7 +2,7 @@
 //! seeds a migrated store with the rows Python's setup wrote, runs the same steps through the Rust port, and compares
 //! every step's return (or the error it raised) and every row of the tables the steps wrote.
 //!
-//! decision: ENG-3, ORCH-322, ORCH-323, ORCH-319, ORCH-332, ORCH-505, ORCH-576, ORCH-613, ORCH-629
+//! decision: ENG-3, ORCH-322, ORCH-323, ORCH-319, ORCH-332, ORCH-505, ORCH-664, ORCH-613, ORCH-629
 
 #![cfg(feature = "store")]
 
@@ -1516,22 +1516,71 @@ impl verify::CheckHost for Host {
     }
 }
 
-/// Fixed against Python (ORCH-660): an action check proved "not done" from the records of FERB's structured tools alone,
-/// though the task had also acted through a route they don't record (input through the Mac tools) or done the same
-/// action at another target. Live 2026-11-16 (task 0abecb83): an assignment submitted through Chrome's window was told
-/// as failed. These three conditions of the recording read "can't tell" with what was recorded; every other step and
-/// byte stays compared to Python's.
-// decision: ORCH-660
-fn route_difference(index: i64) -> Option<&'static str> {
+/// The deliberate difference of 2026-11-17 (ORCH-664, ORCH-666; the owner's D1): an action check no longer gives a
+/// verdict from finding (or not finding) a record of one kind of call; it gives only what code can see itself: the Mac's
+/// state now (`mac`) or a receipt a tool wrote (`receipt`), and otherwise leaves the condition to the checker. Python's
+/// results for the recording's action conditions (9-21) are replaced by these, each with what its evidence must say;
+/// the owner's No (18) is applied by the supervisor after the checker (ORCH-613), so the fact of the path stands here.
+/// Every other step and byte stays compared to Python's.
+// decision: ORCH-664, ORCH-666
+fn action_difference(
+    index: i64,
+) -> Option<(Option<bool>, &'static str, &'static str, &'static str)> {
     Some(match index {
-        11 => "FERB's records can't settle it: they show no send to zed on x.com in this task, but input went into \
-               net.whatsapp through the Mac tools; a send went through x.com",
-        14 => "FERB's records can't settle it: they show no payment you said Yes to on other.com in this task, but input \
-               went into net.whatsapp through the Mac tools; a payment you said Yes to went through on shop.com",
-        16 => "FERB's records can't settle it: they show no form on x.com submitted in this task, but input went into \
-               net.whatsapp through the Mac tools; a form was submitted in net.whatsapp through the Mac tools; a send \
-               to Ana@X.com went through an unrecorded place; a send to Ben went through net.whatsapp; a send to x went \
-               through forms.example; 1 more",
+        9 => (
+            None,
+            "cant_tell",
+            "receipt",
+            "FERB's own send to ana@x.com is recorded",
+        ),
+        // the send to Ben was the worker's declaration on Mac input, never a receipt (Python counted it)
+        10 => (
+            None,
+            "cant_tell",
+            "receipt",
+            "no send of FERB's own to @ben on NET.whatsapp is recorded",
+        ),
+        11 => (
+            None,
+            "cant_tell",
+            "receipt",
+            "no send of FERB's own to zed on x.com is recorded",
+        ),
+        12 => (None, "cant_tell", "receipt", "FERB pressed pay on shop.com"),
+        13 => (None, "cant_tell", "receipt", "FERB pressed pay"),
+        14 => (
+            None,
+            "cant_tell",
+            "receipt",
+            "no payment of FERB's own after your Yes is recorded on other.com",
+        ),
+        15 => (
+            None,
+            "cant_tell",
+            "receipt",
+            "the page reported a form submitted",
+        ),
+        16 => (None, "cant_tell", "receipt", "on x.com"),
+        17 => (
+            None,
+            "cant_tell",
+            "mac",
+            "is gone from its folder, but FERB didn't find it in the Trash",
+        ),
+        18 => (
+            None,
+            "cant_tell",
+            "mac",
+            "isn't there, and FERB's records don't show it there before",
+        ),
+        19 => (None, "cant_tell", "mac", "isn't there"),
+        20 => (
+            None,
+            "cant_tell",
+            "mac",
+            "it isn't one of the files FERB downloaded in this task",
+        ),
+        21 => (None, "cant_tell", "mac", "isn't there"),
         _ => return None,
     })
 }
@@ -1615,19 +1664,29 @@ fn cards_case(w: &World, c: &mut Check, sc: &Value) {
                     .and_then(|n| n.parse().ok())
                     .unwrap_or(0);
                 let got = out(checks.run(index, &condition, "t1").map(|r| r.as_dict()));
-                if let Some(said) = route_difference(index) {
-                    // the one deliberate difference (ENG-6, ORCH-660): Python proved these false though the task had
-                    // input through the Mac tools (row 6) and the same action at another target; Rust can't tell
-                    let mut want = want(&st);
-                    want["met"] = Value::Null;
-                    want["evidence"] = json!(said);
-                    assert_eq!(fx(&got, &w.root), want, "condition {index}");
+                if let Some((met, verdict, by, said)) = action_difference(index) {
+                    // the deliberate difference (ORCH-664): code's facts, not Python's verdict from a call record
+                    let g = fx(&got, &w.root);
+                    let shown = g.to_string();
+                    assert_eq!(g["met"], json!(met), "condition {index}: {shown}");
+                    assert_eq!(g["verdict"], verdict, "condition {index}: {shown}");
+                    assert_eq!(g["by"], by, "condition {index}: {shown}");
+                    assert_eq!(g["path"], "code", "condition {index}: {shown}");
+                    assert!(
+                        g["evidence"].as_str().unwrap().contains(said),
+                        "condition {index}: {shown}"
+                    );
                     c.count += 1;
                     continue;
                 }
                 got
             }
-            "not_done_said" => json!(verify::not_done_said(&cond(&a[0]))),
+            // ORCH-672 (the deliberate difference): Python's one-line "not done" sentence per check kind is gone; code
+            // says what its facts showed (ferb-supervisor's endings), so these recorded sentences aren't compared
+            "not_done_said" => {
+                c.count += 1;
+                continue;
+            }
             "span" => {
                 let spans = w.spans();
                 let mut sp = spans

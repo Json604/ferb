@@ -676,6 +676,20 @@ impl Driver {
             None
         };
         let commerce = |k: &str| t.commerce.get(k).and_then(Value::as_str).map(String::from);
+        // ORCH-669: the files the page's file fields held at the last read ("N file(s)", content.js `describe`)
+        let file_fields: Vec<i64> = t
+            .elements
+            .values()
+            .filter(|(_, _, _, e)| e.input_type.as_deref() == Some("file"))
+            .map(|(_, _, _, e)| {
+                e.value
+                    .as_deref()
+                    .and_then(|v| v.split_whitespace().next())
+                    .and_then(|n| n.parse::<i64>().ok())
+                    .unwrap_or(0)
+            })
+            .collect();
+        let page_files = (!file_fields.is_empty()).then(|| file_fields.iter().sum());
         Some(ActionFacts {
             submits_form: submits.then_some(true),
             form_action_host: sub.filter(|_| submits).and_then(|s| s.action_host.clone()),
@@ -690,6 +704,7 @@ impl Driver {
             page_url: Some(t.url.clone()).filter(|u| !u.is_empty()),
             frame_host: here.filter(|h| Some(h) != page.as_ref()),
             tab_chain: Some(self.tab_chain(tab_id)),
+            page_files,
             ..ActionFacts::default()
         })
     }

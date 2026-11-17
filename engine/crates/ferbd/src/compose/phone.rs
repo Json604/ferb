@@ -36,6 +36,21 @@ pub struct Parts {
     pub user_home: PathBuf,
     /// The real Mac's own readings (its computer name, for a phone's `phone.list`); a stand-in daemon reads nothing.
     pub native: bool,
+    /// FERB's settings: the owner's choice of upload folder (`[phone] upload_folder`, PHN-581).
+    pub config: Arc<ferb_core::config::Config>,
+}
+
+/// PHN-581: where a phone's uploads land by default.
+pub fn default_inbox(user_home: &std::path::Path) -> PathBuf {
+    user_home.join("Downloads").join("FERB from phone")
+}
+
+/// The owner's choice in config.toml (`[phone] upload_folder`), else the default.
+fn chosen_inbox(config: &ferb_core::config::Config, user_home: &std::path::Path) -> PathBuf {
+    match config.get("phone", "upload_folder") {
+        Ok(Some(Value::String(p))) if p.starts_with('/') => PathBuf::from(p),
+        _ => default_inbox(user_home),
+    }
 }
 
 /// The phone's file area judges paths by the gateway's own lists (`Protection::fs_rules`): one judge (PHN-114).
@@ -69,6 +84,31 @@ impl Questions for GatewayQuestions {
                 .iter()
                 .any(|o| o == ferb_gateway::words::ALLOW_WINDOW),
         })
+    }
+
+    // decision: GATE-615
+    fn until_back_offered(&self, approval_id: &str) -> bool {
+        self.0.until_back_offered(approval_id)
+    }
+
+    fn grant_until_back(&self, approval_id: &str, phone: &str, name: &str) -> Result<(), String> {
+        self.0
+            .grant_until_back(approval_id, phone, name)
+            .map(|_| ())
+    }
+
+    fn end_until_back(&self, why: &str, phone: Option<&str>) {
+        let Some(why) = ferb_gateway::screen_use::Ended::parse(why) else {
+            return;
+        };
+        let running = self.0.until_back();
+        if running.is_some_and(|g| phone.is_none_or(|p| g.phone == p)) {
+            self.0.end_until_back(why);
+        }
+    }
+
+    fn screen_use_status(&self) -> Value {
+        Value::Object(self.0.screen_use_status())
     }
 
     fn ask_check(&self, reason: &str, exact: &str, task_id: &str) -> String {
@@ -205,7 +245,7 @@ pub fn register(server: &Server, p: Parts) -> Phones {
         server,
         FileSeams {
             judge: Arc::new(Lists(p.protection.clone())),
-            inbox: p.user_home.join("Downloads").join("FERB from phone"),
+            inbox: chosen_inbox(&p.config, &p.user_home),
             free_bytes: FileSeams::system_free_bytes(),
             added_places: Vec::new(),
             // T-1211: a finished task's files (its outcome's `artifacts`), for result cards and recent files
@@ -215,10 +255,49 @@ pub fn register(server: &Server, p: Parts) -> Phones {
         },
         FileLimits::default(),
     );
+    // PHN-581: the owner's choice of folder is kept in config.toml's `[phone] upload_folder`
+    let config = p.config.clone();
+    phones.set_upload_place(
+        default_inbox(&p.user_home),
+        Arc::new(move |path: Option<&str>| {
+            let done = match path {
+                Some(path) => config.set("phone", "upload_folder", &Value::String(path.into())),
+                None => config.remove("phone", &["upload_folder"]),
+            };
+            done.map_err(|e| e.to_string())
+        }),
+    );
+    register_screen_use(server, p.gateway.clone());
     if p.real_peers {
         server.set_is_link(ferb_platform_macos::rpc::link_system(&p.home).into_check());
     }
     phones
+}
+
+/// GATE-615: `screen_use.status` (what is in force, whether it can be offered) and `screen_use.end` (the owner turns
+/// it off, from FERB.app or a phone; journaled with who).
+fn register_screen_use(server: &Server, gateway: Arc<Gateway>) {
+    let gw = gateway.clone();
+    server.register_unary("screen_use.status", move |_s, _p: Map<String, Value>| {
+        let out = gw.screen_use_status();
+        async move { Ok(out) }
+    });
+    server.register_unary(
+        "screen_use.end",
+        move |s: ferb_rpc::Session, _p: Map<String, Value>| {
+            let by = s
+                .phone
+                .as_ref()
+                .map_or_else(|| "mac".to_owned(), |p| p.device.clone());
+            let ended = gateway
+                .end_until_back(ferb_gateway::screen_use::Ended::TurnedOff)
+                .is_some();
+            let mut out = gateway.screen_use_status();
+            out.insert("ended".into(), Value::Bool(ended));
+            out.insert("by".into(), Value::String(by));
+            async move { Ok(out) }
+        },
+    );
 }
 
 #[cfg(test)]

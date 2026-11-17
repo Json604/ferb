@@ -38,6 +38,8 @@ public struct FileTransfer: Equatable, Identifiable, Sendable {
     public var forChat: Bool = false
     public var rel: String? = nil
     public var task: TaskFile? = nil
+    /// A file sent: where it is on the Mac in the Mac's words, when the library says (UploadPlace); nil: the default place.
+    public var macPlace: String? = nil
 
     public init(key: String, way: Way, name: String, local: String, macPath: String? = nil, done: Int64 = 0, total: Int64 = 0,
                 phase: Phase = .running, keyPlace: Bool = false, uploadId: String? = nil, problem: Note? = nil, batch: String? = nil,
@@ -106,6 +108,8 @@ public final class Transfers {
     public private(set) var batches: [String: TransferBatch] = [:]
     /// Uploads that arrived for the composer (PHN-127: a message's attachments are this phone's finished uploads).
     public private(set) var ready: [Attachment] = []
+    /// Where the composer's files are on the Mac, in the Mac's words when the library says (PHN-608); nil: the default.
+    public private(set) var readyPlace: String?
 
     @ObservationIgnored private let api: PhoneApi
     @ObservationIgnored private let local: LocalFiles
@@ -320,7 +324,7 @@ public final class Transfers {
         attempts[key] = nil
         switch r {
         case .ok(let u):
-            update(key) { $0.phase = .done; $0.done = Int64(u.size); $0.total = Int64(u.size); $0.uploadId = u.uploadId }
+            update(key) { $0.phase = .done; $0.done = Int64(u.size); $0.total = Int64(u.size); $0.uploadId = u.uploadId; $0.macPlace = UploadPlace.shown(u) }
             sources[key] = nil
             local.remove(cur.local)
             return true
@@ -338,6 +342,7 @@ public final class Transfers {
         if let folder = b?.folder, let group = b?.group { add = [Attachment(uploadId: group, name: folder)] }
         else { add = all.map { Attachment(uploadId: $0.uploadId!, name: $0.name) } }
         for a in add where !ready.contains(where: { $0.uploadId == a.uploadId }) { ready.append(a) }
+        if let place = all.compactMap(\.macPlace).first { readyPlace = place }
         list.removeAll { $0.batch == batch }
         batches[batch] = nil
         closeFolder(batch)

@@ -72,7 +72,7 @@ pub const ANSWERED: &str = "Got your answer.";
 pub const MAX_RESTARTS: usize = 1;
 /// `{minutes}` is written as Python's `{:g}`.
 pub const SILENT: &str =
-    "I stopped because nothing came back from the AI service for {minutes:g} minutes. Send it \
+    "I stopped because nothing came back from the service I think with for {minutes:g} minutes. Send it \
 again and I'll try once more.";
 pub const STOP_SETTLING: &str =
     "I've asked it to stop; it's still finishing what it was doing, so I haven't started anything else.";
@@ -189,7 +189,7 @@ pub const TASK_ASK: &str = "plan.ask";
 pub const RESTORED_WAITS: [&str; 2] = ["check_in", "runtime_switch"];
 pub const RUNTIME_ASK: &str = "runtime.switch";
 pub const RUNTIME_SWITCH_DETAIL: &str =
-    "This task stopped there. Pick another AI to finish it; each uses its own account and billing.";
+    "This task stopped there. Pick another service to finish it; each uses its own account and billing.";
 pub const CONTINUE: &str = "Continue";
 pub const STOP: &str = "Stop";
 pub const RESUME: &str = "Resume";

@@ -20,6 +20,8 @@ import com.ferb.mobile.MacInfo
 import com.ferb.mobile.OlderState
 import com.ferb.mobile.OutboxItem
 import com.ferb.mobile.PhoneStatus
+import com.ferb.mobile.ScreenUse
+import com.ferb.mobile.ScreenUseEnd
 import com.ferb.mobile.PreviewSink
 import com.ferb.mobile.RecentFiles
 import com.ferb.mobile.SecretInput
@@ -71,13 +73,21 @@ interface PhoneApi {
 
     /** What FERB has waiting, read now (network), and the last one pushed or read (memory). */
     suspend fun status(): Outcome<PhoneStatus>
+
+    /**
+     * "Until I'm back at my Mac" (PHN-610, PHN-611): whether FERB may use the Mac's screen without asking now, and the
+     * owner's "Ask me again" from the phone (both plain, allowed while locked).
+     */
+    suspend fun screenUse(): Outcome<ScreenUse>
+    suspend fun endScreenUse(): Outcome<ScreenUseEnd>
     fun lastStatus(): PhoneStatus?
 
     suspend fun markReadLatest(conversation: String): Outcome<Unit>
     suspend fun sendWith(text: String, attachments: List<Attachment>): Outcome<OutboxItem>
 
     // files (PHN-113, PHN-115, PHN-127): the blocking ones run on IO and end with Cancelled when paused
-    suspend fun files(path: String?, signer: Signer?): Outcome<Folder>
+    /** A folder's listing, a page at a time (PHN-606): [after] is the page before's `next` ("Load more"). */
+    suspend fun files(path: String?, signer: Signer?, after: String? = null): Outcome<Folder>
     suspend fun fetch(id: String, path: String, saveTo: String, offset: Long, signer: Signer?, listener: TransferListener): Outcome<Fetched>
     suspend fun upload(id: String, localPath: String, name: String, resume: String?, group: String?, rel: String?, listener: TransferListener): Outcome<Uploaded>
     suspend fun cancelTransfer(id: String): Outcome<Unit>
@@ -93,7 +103,8 @@ interface PhoneApi {
 
     /** The Mac's recent files for this phone and a search of names (both need the Mac's unlock). */
     suspend fun recentFiles(limit: Int): Outcome<RecentFiles>
-    suspend fun searchFiles(query: String, path: String?): Outcome<FoundFiles>
+    suspend fun searchFiles(query: String, path: String?, after: String? = null): Outcome<FoundFiles>
+
 
     /** The phone's own facts (T-1214, SENSE-420): sent when changed and on each new connection; memory only. */
     suspend fun reportDevice(report: DeviceReport): Outcome<Boolean>
@@ -148,10 +159,12 @@ class LibraryPhone(private val phone: FerbPhone) : PhoneApi {
     override suspend fun unlocked() = phone.unlocked()
     override suspend fun stopEverything() = phone.stopEverything()
     override suspend fun status() = phone.call { it.status() }
+    override suspend fun screenUse() = phone.call { it.screenUse() }
+    override suspend fun endScreenUse() = phone.call { it.endScreenUse() }
     override fun lastStatus(): PhoneStatus? = runCatching { phone.lastStatusNow() }.getOrNull()
     override suspend fun markReadLatest(conversation: String) = phone.call { it.markReadLatest(conversation) }
     override suspend fun sendWith(text: String, attachments: List<Attachment>) = phone.call { it.sendWith(text, attachments) }
-    override suspend fun files(path: String?, signer: Signer?) = phone.call { it.files(path, signer) }
+    override suspend fun files(path: String?, signer: Signer?, after: String?) = phone.call { it.files(path, signer, after) }
     override suspend fun fetch(id: String, path: String, saveTo: String, offset: Long, signer: Signer?, listener: TransferListener) =
         phone.call { it.fetch(id, path, saveTo, offset.toULong(), signer, listener) }
     override suspend fun upload(id: String, localPath: String, name: String, resume: String?, group: String?, rel: String?, listener: TransferListener) =
@@ -162,7 +175,7 @@ class LibraryPhone(private val phone: FerbPhone) : PhoneApi {
     override suspend fun fetchTaskFile(id: String, taskId: String, index: Long, saveTo: String, listener: TransferListener) =
         phone.call { it.fetchTaskFile(id, taskId, index.toULong(), saveTo, listener) }
     override suspend fun recentFiles(limit: Int) = phone.call { it.recentFiles(limit.toUInt()) }
-    override suspend fun searchFiles(query: String, path: String?) = phone.call { it.searchFiles(query, path) }
+    override suspend fun searchFiles(query: String, path: String?, after: String?) = phone.call { it.searchFiles(query, path, after) }
     override suspend fun reportDevice(report: DeviceReport) = phone.call { it.reportDevice(report) }
     override suspend fun locationWanted() = phone.call { it.locationWanted() }
     override suspend fun answerLocation(requestId: String, fix: LocationFix?, whyNot: String?) = phone.call { it.answerLocation(requestId, fix, whyNot) }

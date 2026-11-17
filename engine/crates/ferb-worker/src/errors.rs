@@ -135,7 +135,7 @@ impl AnswerMissing {
         AnswerMissing {
             kind: MissingKind::ToolLoop { count },
             message: format!(
-                "the AI service ({runtime}) kept calling tools it wasn't given, or lookups after its limit ({count} such calls), so FERB stopped this call"
+                "the service FERB thinks with ({runtime}) kept calling tools it wasn't given, or lookups after its limit ({count} such calls), so FERB stopped this call"
             ),
             runtime: runtime.to_string(),
         }
@@ -475,10 +475,10 @@ pub fn label(name: &str) -> String {
 pub fn service_problem(message: &str, runtime: &str, network: bool, route: Route<'_>) -> String {
     if network && route() == Some(false) {
         return format!(
-            "This Mac seems to be offline (it has no network route), so I couldn't reach the AI service I use ({runtime}). Ask again once it's back online."
+            "This Mac seems to be offline (it has no network route), so I couldn't reach the service I think with ({runtime}). Ask again once it's back online."
         );
     }
-    format!("The AI service I use ({runtime}) reported an error: {message}")
+    format!("The service I think with ({runtime}) reported an error: {message}")
 }
 
 /// worker.py:101 `problem_of`.
@@ -492,7 +492,7 @@ pub fn retry_stall_problem(runtime: &str, message: &str, stall_s: f64, route: Ro
         return service_problem(message, runtime, true, &|| Some(false));
     }
     format!(
-        "The AI service I use ({runtime}) only kept retrying for {} s, so I stopped this attempt. Its last word: {}.",
+        "The service I think with ({runtime}) only kept retrying for {} s, so I stopped this attempt. Its last word: {}.",
         ferb_clock::py::fmt_g(stall_s),
         message.trim_end_matches('.')
     )
@@ -514,15 +514,15 @@ pub fn connection_lost(runtime: &str, message: &str, task: bool, route: Route<'_
     } else {
         "it's retrying, and I'll answer when it's back"
     };
-    format!("Lost the connection to the AI service I use ({runtime}); {goes_on}.{said}")
+    format!("Lost the connection to the service I think with ({runtime}); {goes_on}.{said}")
 }
 
 /// worker.py:152 `too_large_problem`: a call FERB didn't send, over the runtime's per-input character cap (L28).
 pub fn too_large_problem(chars: u64, max_chars: u64, runtime: &str) -> String {
     let service = if runtime.is_empty() {
-        "the AI service I use".to_string()
+        "the service I think with".to_string()
     } else {
-        format!("the AI service I use ({runtime})")
+        format!("the service I think with ({runtime})")
     };
     format!(
         "I didn't send this to {service}: its context is {} characters, over that service's limit of {} characters for one input.",
@@ -589,9 +589,9 @@ pub fn reason(e: &Error, redact: Option<RedactText<'_>>, route: Route<'_>) -> St
     }
     if let Error::Violation(v) = e {
         let who = if v.runtime.is_empty() {
-            "the AI runtime".to_string()
+            "the service FERB thinks with".to_string()
         } else {
-            format!("the AI runtime ({})", v.runtime)
+            format!("the service FERB thinks with ({})", v.runtime)
         };
         return ended(&format!(
             "{who} broke one of FERB's rules: {}",
@@ -622,13 +622,13 @@ pub fn reason(e: &Error, redact: Option<RedactText<'_>>, route: Route<'_>) -> St
             None => v.to_string(),
         };
         return format!(
-            "the AI's answer didn't fit the form FERB requires ({}).",
+            "the answer that came back didn't fit the form FERB requires ({}).",
             w(&what)
         );
     }
     if let Error::Invalid(message) = e {
         return format!(
-            "the AI's answer didn't fit the form FERB requires ({}).",
+            "the answer that came back didn't fit the form FERB requires ({}).",
             w(message)
         );
     }

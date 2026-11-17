@@ -2377,7 +2377,8 @@ live = ["LIVE-791"]
 title = "Dropping files or folders on FERB opens the chat with them in the composer"
 by = "owner"
 date = 2026-11-05
-status = "active"
+status = "superseded"
+superseded_by = "APP-930"
 words = "When doing drag n drop file/folder, FERB chat should open up / ok, BUT why this: \"While a task runs: the files wait in the message box for your next message.\" ??? we do allow message at any time, you know that right??? chekc the code / yeah jsut kee in chat until i send them manully or attach a message in text and send"
 words_source = "Owner, 2026-11-05 (0.27.1 item 7, three messages), approving the plan's D17 and D18"
 rule = "Dragging files or folders onto the closed notch, the edge pill (its resting line too) or the open chat opens the chat, even with hover off (D17); a chat a drop opened stays open like a press-opened one (APP-705, APP-707). The files join the composer and stay until the owner sends them, alone or with typed words; the drop sends nothing, task running or not (APP-577). Only files and folders: selected text, web links and promised files (Mail, Photos) are refused for now, and so is a drop during the tour (D18)."
@@ -2389,7 +2390,8 @@ live = ["LIVE-792"]
 title = "One drop session behind every drop target"
 by = "agent"
 date = 2026-11-05
-status = "active"
+status = "superseded"
+superseded_by = "APP-931"
 rule = "Implements APP-737. The handle and the edge row register for file URLs as AppKit drag destinations, reached through their alpha-0.01 fills (APP-706, APP-710, APP-730), once out of the overlay space (APP-742), the chat uses a SwiftUI DropDelegate; the composer hands a file drag to the same FileDropSession instead of inserting path text. A drag is taken only when every pasteboard item carries public.file-url and none a file-promise type (FileDrop), and only while NotchModel.acceptsDroppedFiles (not dictating, no tour: onIntroAction unset); otherwise no operation and the system slides it back."
 why = "One shared path for every target. SwiftUI's DropInfo carries no pasteboard, so the chat reads NSPasteboard(name: .drag), the pasteboard AppKit's NSDraggingInfo reads."
 paths = ["ui/mac/FERBNotch/Sources/FERBNotch/NotchFileDrop.swift", "ui/mac/FERBNotch/Sources/NotchCore/FileDrop.swift", "ui/mac/FERBNotch/Sources/FERBNotch/FerbIndicator.swift", "ui/mac/FERBNotch/Sources/FERBNotch/ChatInput.swift", "ui/mac/FERBNotch/Sources/FERBNotch/NotchView.swift"]
@@ -3852,3 +3854,126 @@ status = "active"
 rule = "For APP-926, SENSE-420. The About document (about.get, about.read; its permissions section too) carries permission_reasons after permissions: for each setup permission and Automation, its name, status, who holds it, what FERB uses it for, what it doesn't do, what stays on the Mac and what is shared, how to turn it off and what stops then (about.rs PERMISSION_REASONS). Statuses: the daemon's grants; Location as FERB.app reported it; the others 'set in FERB.app'."
 why = "Owner 2026-11-16: if someone asks FERB why, does it have explanations? A model paraphrases the table, so each line is a fact of the code; a test checks its ids against FERB.app's setup list and keeps AI and server words out."
 paths = ["engine/crates/ferb-daemon/src/areas_b/about.rs::PERMISSION_REASONS", "engine/crates/ferb-daemon/src/areas_b/about.rs::add_reasons", "engine/crates/ferbd/src/compose/tools/context.rs::about_read"]
+
+[APP-932]
+title = "Command-V in FERB's chat attaches copied files, and a copied picture as a PNG"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "when i copy some or many files by selecting adn then cmd+c then cmd+v of thsoe fiels shoudlb paste in ferb chat"
+words_source = "Owner 2026-11-17, relayed by the coordinator; the owner approved the plan: \"i agrew with the paste fixes/featires in notch and window. make them\""
+rule = "In the notch chat and the sticky chat window, Command-V in the chat box with files copied (one or many, Finder) attaches them as a drop does; a copied picture with no file (a copied screenshot, a browser's Copy Image) attaches as a PNG. Files win over the names copied beside them, which are not typed. Text pastes as before."
+why = "Copying files and pasting them is how the owner moves files between apps; FERB's chat only took them by drag or the file picker."
+paths = ["apps/mac/FERBNotch/Sources/FERBNotch/ChatInput.swift::ChatTextView.paste", "apps/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift::NotchModel.pasteImage"]
+
+[APP-933]
+title = "A paste is files, a picture or text by the clipboard's types; pictures go to a FERB temp folder"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For APP-932. ClipboardContent.of: every item a file URL is files (NotchModel.dropFiles); an image type with no RTF, RTFD or web archive is a picture, written as a PNG by ReceivedFiles (APP-936), then dropFiles; else text, with the bracketed-paste clean-up as before. In the tour or during dictation the text pastes instead."
+why = "One way in for files, whether dropped or pasted. Rich text beats a picture of itself: spreadsheet and document cells carry one beside their text."
+paths = ["apps/mac/FERBNotch/Sources/NotchCore/ComposerIntake.swift::ClipboardContent", "apps/mac/FERBNotch/Sources/NotchCore/ComposerIntake.swift::ReceivedFiles", "apps/mac/FERBNotch/Sources/FERBNotch/ComposerPaste.swift::ComposerPaste", "apps/mac/FERBNotch/Sources/FERBNotch/Application.swift"]
+
+[APP-934]
+title = "A long paste is held in the composer as a chip: click to see it, a cross to take it out"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "if im pasting text adn if it longer than a certain limit, ot is hoein like this in the box with click to see and cross to cancel"
+words_source = "Owner 2026-11-17, relayed by the coordinator with the approval \"i agrew with the paste fixes/featires in notch and window. make them\"; the limit is the owner's to confirm"
+rule = "In both chat surfaces, text pasted past a limit (LongPaste.limit: 2,000 characters or 30 lines, whichever comes first, until the owner confirms it) is held as a \"Pasted text\" chip with its size; clicking shows the whole text, the cross removes it. On send its full text goes with the message where it was pasted. Several chips are allowed."
+why = "A long paste floods the box and hides what the owner typed around it."
+paths = ["apps/mac/FERBNotch/Sources/NotchCore/PastedRequest.swift::LongPaste", "apps/mac/FERBNotch/Sources/FERBNotch/ComposerPaste.swift::HeldPasteCard"]
+
+[APP-935]
+title = "A held paste keeps its place through edits and goes out marked as a paste"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For APP-934. PasteProvenance.held keeps each chip's text and UTF-16 place; reported or inferred edits move it (text put at its place goes after it). expanded() puts every chip back at its place as a paste, so PastedRequest brackets it like any paste (ORCH-518) and no local notch command runs (APP-596). canSend counts chips."
+why = "One shared path for both chat surfaces (ChatBodyView, ChatInput): the sent text is exactly the text pasted inline would have made, with the same provenance, and the bubble shows the whole message."
+paths = ["apps/mac/FERBNotch/Sources/NotchCore/PastedRequest.swift::PasteProvenance.expanded", "apps/mac/FERBNotch/Sources/NotchCore/PastedRequest.swift::HeldPaste", "apps/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift::NotchModel.holdPaste", "apps/mac/FERBNotch/Sources/FERBNotch/ChatBody.swift"]
+
+[APP-930]
+title = "A screenshot thumbnail, promised file or dragged picture dropped on FERB joins the chat like a file"
+by = "owner"
+date = 2026-11-17
+status = "active"
+supersedes = ["APP-737"]
+words = "one issue to fix accross every mac type: file drag n drop worked, BUT when i took screenshot and dragged that startight up, it didnt work, it did open ferb nothc but didint pasted in notchchat / the ss fix needs to be done in this mode too / i agrew with the paste fixes/featires in notch and window. make them"
+words_source = "Owner 2026-11-17, three messages relayed by the coordinator: the screenshot drag, the sticky window, and his go after being told promised files were refused on purpose"
+rule = "Files, folders, promised files (the screenshot thumbnail, Mail, Photos) and pictures with no file dragged onto the closed notch, the pill (its resting line too), the open chat or the sticky window open the chat, even with hover off (D17), and it stays open like a press-opened one (APP-705, APP-707). They wait in the composer until the owner sends them, alone or with typed words; the drop sends nothing, task running or not (APP-577). Text and web links are refused as drops, as is any drop during the tour or dictation."
+why = "The screenshot thumbnail's drag is a promised file, which APP-737 refused for now: FERB opened but attached nothing, on every Mac and in the sticky window."
+paths = ["apps/mac/FERBNotch/Sources/NotchCore/FileDrop.swift", "apps/mac/FERBNotch/Sources/FERBNotch/NotchFileDrop.swift", "apps/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift::NotchModel.drop", "apps/mac/FERBNotch/Sources/FERBNotch/ChatWindow.swift", "apps/mac/FERBNotch/Sources/FERBNotch/NotchView.swift"]
+live = ["LIVE-792"]
+
+[APP-931]
+title = "One drop session behind every target, for files, promised files and pictures"
+by = "agent"
+date = 2026-11-17
+status = "active"
+supersedes = ["APP-738"]
+rule = "For APP-930; refines APP-742. The handle, edge row and field register FileDropSession.dragTypes; both chats' SwiftUI drop takes every item to ChatFileDrop. FileDrop.carried per item: a file URL without a promise is a file; a promise (winning over a file URL) is promised; an image is a picture; a link without an image, or text, refuses the whole drag. A drag counts as a file drag for APP-742 by the same test."
+why = "One shared path for the notch, the pill, the sticky window and the field. SwiftUI's DropInfo carries no pasteboard, so the chats read NSPasteboard(name: .drag), as AppKit's NSDraggingInfo does; a promise must be read there at the drop."
+paths = ["apps/mac/FERBNotch/Sources/NotchCore/FileDrop.swift::FileDrop.carried", "apps/mac/FERBNotch/Sources/FERBNotch/NotchFileDrop.swift::FileDropSession.items", "apps/mac/FERBNotch/Sources/FERBNotch/ChatInput.swift", "apps/mac/FERBNotch/Sources/FERBNotch/FerbIndicator.swift", "apps/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift::PanelCoordinator.noticeDragPasteboard"]
+
+[APP-936]
+title = "Received files wait in an owner-only temp folder; promised ones show as arriving; a week's keep"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For APP-930, APP-932. ReceivedFiles: one 0700 folder per arrival in TMPDIR/FERB attachments. A picture is written as a PNG; a promise is asked into its folder and shows as Arriving until written, a failure says so, the cross drops it, Send waits. Removed unsent: deleted. Sent: kept; each start removes folders older than 7 days."
+why = "The daemon gets paths (input_paths) and reads them while its task runs, across an app restart too. Its fs rules refuse reads only of FERB's state and never-read entries (protection.rs:766-777) and its shell sandbox allows reads but for those (sandbox.rs:320-355): the temp folder is neither."
+paths = ["apps/mac/FERBNotch/Sources/NotchCore/ComposerIntake.swift::ReceivedFiles", "apps/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift::NotchModel.receive", "apps/mac/FERBNotch/Sources/FERBNotch/ComposerPaste.swift::ReceivingFileCard", "apps/mac/FERBNotch/Sources/FERBNotch/Application.swift"]
+
+# ---- 2026-11-17: Jev removed from the owner's view; FERB's own words (journal 120)
+
+[APP-940]
+title = "Jev is removed, now and in future; FERB's data capture stays"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "remove, no jev now or in future, BTU the data capturing stays cause i might introduce other proactiveness practices"
+words_source = "Owner 2026-11-17, on Settings' 'Jev decisions' row and the Jev code (the phone apps' half is PHN-596)."
+rule = "No Jev setting, name or service in FERB, now or later; nothing calls a paid Jev service. What FERB records of the Mac (the trail, notifications, accessibility, typed and copied text, activity, day summaries, notices) stays. The Jev code is removed later in its own change (T-1254), capture untouched."
+why = "The owner may add other ways for FERB to be proactive on the same capture."
+evidence = "FERBNotch AppScreensTests testTheAppGuideNamesWhereEverySettingLives; ferb-daemon tests/a_replay.rs settings without Jev's days."
+
+[APP-941]
+title = "Jev's days leave FERB.app's Settings and the settings phones read; the Jev code waits for T-1254"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For APP-940. settings() leaves out [retention] decision_days, so settings.get (FERB.app and phones) doesn't list it and settings.set refuses it; the retention pass keeps its default for the old table. FERB.app drops its Privacy row and guide anchor and never shows the idle jev_batches watcher's name. JevOff never reads a key; JevClient is built only in tests."
+why = "The owner-facing part now, the engine code in its own change with its evidence (journal 120)."
+evidence = "ferb-daemon tests/a_replay.rs settings_import_timeline_persona (the named difference); FERBNotch AppScreensTests."
+
+[APP-942]
+title = "The older 'AI service' wording becomes plain and about FERB"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "ya change it"
+words_source = "Owner 2026-11-17, shown the older strings 'Connect the AI service you already use.', 'First, connect me to an AI service.' and 'Choose the AI service FERB thinks with.' against APP-926."
+rule = "Every owner-facing string that still speaks of AI or an AI service says what FERB does instead (APP-926); model-facing text and code names are unchanged."
+why = "APP-926 applied to the strings written before it."
+untestable = "Wording; APP-943 holds the sweep and the owner reads the strings (journal 120 lists each)."
+
+[APP-943]
+title = "Settings → AI is Settings → Thinking; the sweep of owner-facing 'AI' words"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For APP-942, APP-926. The tab titled 'AI' is 'Thinking' (its pages and every 'Settings → AI' reference follow); setup, the intro, Settings, question cards, saved-ID controls and the daemon's owner-facing lines say FERB or the service FERB thinks with. Journal 120 lists every string before and after."
+why = "'Thinking' says what the tab chooses (the service FERB thinks with) without the word AI."
+untestable = "Wording; each changed string is listed in journal 120 for the owner."
+
+[APP-944]
+title = "Settings → Phone: where phone files land, the screen-use line, phones still to come"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For PHN-580, GATE-615, PHN-590. Files from your phone: the place (shown), Choose… (a folder picker) and Use Downloads when changed. While 'until I'm back' runs: one line naming the phone, what ends it, and Ask me again (screen_use.end). Under Use my own relay: how many phones are still to come and until when, or, past the bound, how to bring one back."
+why = "The owner sees each where he changes it."
+evidence = "FERBNotch PhoneSettingsTests testThePageSaysWhereFilesFromThePhoneLand..., testUntilImBackShows..., testPhonesStillToCome..."

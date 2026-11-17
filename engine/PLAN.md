@@ -412,6 +412,7 @@ also worth fixing in the Python build on `main`, since that build is installed t
 
 | Where | What | State (journal entry) |
 |---|---|---|
+| `ferb/orchestrator/verify.py` `Checks._action` (ORCH-561/576) | An action check proved "not done" from not finding a record of one kind of call, though a click, a key or an app's window can do the action; in 8 of 15 such verdicts the checker had looked and was right | replaced by code's facts (ORCH-664..675, journal 122) |
 | `ferb/sanitize/redact.py:395` | A key body under a non-text key between BEGIN and END items is left | fixed in Rust (16); Python patch ready |
 | `ferb/native_host/main.py:53-57` | A parse error leaves the relay alive and deaf | fixed in Rust (6) |
 | `ferb/native_host/main.py:61` | The rewrite inflates a 1 MiB non-ASCII frame past the daemon's limit | fixed in Rust (6) |

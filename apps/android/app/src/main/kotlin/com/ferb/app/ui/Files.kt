@@ -141,6 +141,16 @@ private fun SearchField(vm: FerbViewModel, ui: UiState) {
     }
 }
 
+/** "Load more" (PHN-609): the next page of 500 from the Mac, added in place under what is shown. */
+@Composable
+private fun LoadMore(vm: FerbViewModel, ui: UiState, onClick: () -> Unit) {
+    val loading = "more" in ui.busy
+    Card(Modifier.padding(top = 12.dp)) {
+        CardRow(stringResource(if (loading) R.string.files_loading_more else R.string.files_load_more), null,
+            onClick = if (loading) null else onClick, leading = { RowIcon(FerbIcons.download) })
+    }
+}
+
 /** A search's answer: what matched (folders open here, files are fetched), and what the Mac says it left out. */
 @Composable
 private fun Found(vm: FerbViewModel, ui: UiState) {
@@ -162,7 +172,9 @@ private fun Found(vm: FerbViewModel, ui: UiState) {
                         leading = { if (e.dir) RowIcon(FerbIcons.folder) else FileIcon(e.name, 26.dp) }, trailing = { Opens() })
                 }
             }
-            if (f.cut) line(stringResource(R.string.search_cut, f.files.size))
+            // more pages (PHN-609): "Load more" while the Mac says there are; the plain line only when it doesn't page
+            if (f.next != null) LoadMore(vm, ui) { vm.searchMore() }
+            else if (f.cut) line(stringResource(R.string.search_cut, f.files.size))
             if (f.incomplete) line(stringResource(R.string.search_incomplete, f.looked.toInt()))
             if (f.skipped > 0u) line(pluralStringResource(R.plurals.search_skipped, f.skipped.toInt(), f.skipped.toInt()))
         }
@@ -233,6 +245,7 @@ private fun FolderView(vm: FerbViewModel, ui: UiState) {
         }
     }
     if (f.cut) PhoneText(stringResource(R.string.files_cut, f.entries.size, f.total.toInt()), 14f, FerbType.Medium, ink.low, Modifier.padding(start = 8.dp, top = 10.dp))
+    if (f.next != null) LoadMore(vm, ui) { vm.folderMore() }
     // a key place's folder isn't fetched whole: each of its files asks for the fingerprint by itself (PHN-121)
     if (!f.locked && f.entries.any { !it.locked }) {
         Card(Modifier.padding(top = 12.dp)) {
@@ -339,6 +352,8 @@ fun TransferCard(vm: FerbViewModel, group: List<Transfer>, host: Host, modifier:
         when {
             problem != null -> lines += noteText(problem)
             folder != null && first.way == Way.FETCH && done -> lines += stringResource(R.string.tr_on_phone)
+            first.way == Way.SEND && done -> lines += stringResource(R.string.tr_place,
+                group.firstNotNullOfOrNull { it.macPlace } ?: vm.ui.value.mac?.uploadFolder?.shown ?: stringResource(R.string.tr_place_default))
             first.way == Way.FETCH && done -> lines += stringResource(if (first.keyPlace) R.string.tr_key_place else R.string.tr_on_phone)
         }
         for (line in lines) PhoneText(line, 14f, color = Ink.detail, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))

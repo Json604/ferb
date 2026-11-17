@@ -808,3 +808,53 @@ async fn the_tier_follows_the_path_and_a_wrapped_relay_link_still_parses() {
         .await
     );
 }
+
+/// "Load more" (kb PHN-589): `link.files` carries the Mac's marker for a folder's next page on to the daemon (beside
+/// the path, which a key place's proof covers alone), and a marker of another folder comes back as the Mac's bad
+/// request.
+// decision: PHN-589
+#[tokio::test(flavor = "multi_thread")]
+async fn a_folder_s_next_page_goes_by_the_mac_s_marker() {
+    let (_relay, w, p) = world().await;
+    w.standin.configure(&json!({"list_max": 2}));
+    let dir = w.dir.join("paged");
+    std::fs::create_dir_all(&dir).unwrap();
+    for n in ["a.txt", "b.txt", "c.txt"] {
+        std::fs::write(dir.join(n), b"x").unwrap();
+    }
+    let first = p.call("link.files", json!({"path": dir})).await.unwrap();
+    assert_eq!(first["entries"].as_array().unwrap().len(), 2, "{first}");
+    assert_eq!(
+        (
+            first["from"].clone(),
+            first["cut"].clone(),
+            first["total"].clone()
+        ),
+        (json!(0), json!(true), json!(3))
+    );
+    let next = first["next"].clone();
+    assert!(next.is_string(), "{first}");
+    let last = p
+        .call("link.files", json!({"path": dir, "after": next}))
+        .await
+        .unwrap();
+    assert_eq!(last["entries"][0]["name"], "c.txt", "{last}");
+    assert_eq!(
+        (
+            last["from"].clone(),
+            last["cut"].clone(),
+            last["next"].clone()
+        ),
+        (json!(2), json!(false), Value::Null)
+    );
+    assert_eq!(
+        common::code(
+            p.call(
+                "link.files",
+                json!({"path": w.dir.join("standin-files"), "after": next})
+            )
+            .await
+        ),
+        errors::BAD_REQUEST
+    );
+}

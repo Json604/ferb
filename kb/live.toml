@@ -3232,9 +3232,9 @@ waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and 
 title = "Files and folders dropped on the notch, the pill or the chat open FERB and wait in the composer"
 area = "app"
 surface = "FERB.app with this build; Finder with your own disposable files and a folder; Mail with a message that has an attachment"
-request = "Hover off, FERB closed: drag a file onto the notch, hold a moment, drop. Drop several files straight on it, then a folder. Hover on: repeat once. Drag a file over the notch until the chat opens, then away, and let go elsewhere. Drop into the open chat and onto its message box, and once while a task runs. On the top-edge pill and its resting line too. Then a Mail attachment and selected text."
-pass = "Each drop opens the chat with the files under the focused message box; nothing is sent until you send, with or without words (files alone arrive as yours). The chat stays open when the pointer leaves; a repeat file isn't added twice; a folder stays a folder. The drag that left with nothing dropped closes what it opened. The Mail attachment and the text slide back."
-decisions = ["APP-737", "APP-738", "APP-739", "APP-742"]
+request = "Hover off, FERB closed: drag a file onto the notch, hold a moment, drop. Drop several files straight on it, then a folder. Hover on: repeat once. Drag a file over the notch until the chat opens, then away, and let go elsewhere. Drop into the open chat and onto its message box, and once while a task runs. On the top-edge pill and its resting line too. Then a screenshot's floating thumbnail, a Mail attachment, a web page's image, selected text, a link; a thumbnail onto the sticky window."
+pass = "Each drop opens the chat with the files under the focused message box; nothing is sent until you send, with or without words (files alone arrive as yours). The chat stays open when the pointer leaves; a repeat file isn't added twice; a folder stays a folder. The drag that left with nothing dropped closes what it opened. The screenshot, the Mail attachment and the web image join the message box (briefly shown as arriving); the text and the link slide back."
+decisions = ["APP-930", "APP-931", "APP-936", "APP-739", "APP-742"]
 sitting = "after this change is installed"
 waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
@@ -3714,7 +3714,7 @@ area = "app"
 surface = "FERB.app with this build, on a Mac with a notch and on one without (a friend's M1); Finder with a disposable file"
 request = "Settings: hover off, Where FERB opens: Notch, FERB closed. Drag a file onto the closed notch (on the Mac without a notch: the top-centre pill, waiting until it is the thin line), hold a moment, drop on the chat that opens. Then Where FERB opens: Window: once with the window closed (drag onto the pill, hold, then carry the file to the window that opens and drop it there) and once with the window already open (drop straight on it). Once more, hold over the pill and let go elsewhere."
 pass = "Each held drag opens the chat or the window with hover off, and the file waits in the message box until you send. The window opened by the drag stays while you carry the file to it. A drag let go elsewhere closes what it opened."
-decisions = ["APP-820", "APP-821", "APP-737", "APP-739", "APP-742"]
+decisions = ["APP-820", "APP-821", "APP-930", "APP-739", "APP-742"]
 sitting = "after this change is installed"
 
 [LIVE-847]
@@ -4082,7 +4082,7 @@ area = "orchestration"
 surface = "FERB.app with this build; the visa-slot schedule (or any scheduled check of a site that can block or rate-limit it)"
 request = "Let the schedule run (or run it now) when the site shows a block, a page-view limit or a rate-limit message; and once when it shows the calendar normally."
 pass = "The blocked run's post is the worker's own words (what it saw and that nothing was booked), then at most the one line \"I couldn't confirm part of this.\"; no \"What the check confirmed:\", no \"Couldn't confirm: <condition>\", no checker sentence about \"the answer\", no stray tag, nothing ending mid-word in \"…\"; done-unconfirmed, not failed, unless the worker reported not done (then \"I couldn't finish this task.\" and one text). Asked what it couldn't confirm, FERB names it."
-decisions = ["ORCH-600", "ORCH-602", "ORCH-603", "ORCH-604", "ORCH-605", "ORCH-606", "ORCH-607", "ORCH-608", "ORCH-609", "ORCH-610", "ORCH-611", "PRM-349"]
+decisions = ["ORCH-600", "ORCH-603", "ORCH-604", "ORCH-605", "ORCH-606", "ORCH-607", "ORCH-608", "ORCH-611", "ORCH-665", "ORCH-672", "ORCH-674", "PRM-349"]
 sitting = "after this change is installed"
 
 [LIVE-898]
@@ -4611,8 +4611,8 @@ title = "Work done through a window and confirmed by the check ends done; the pl
 area = "orchestration"
 surface = "FERB.app with this engine; a disposable form on a kartikey.xyz page with the request-logging server, reachable at a second host too"
 request = "Ask FERB to fill and submit the form on the first host, in a way that makes it use the browser's window (a profile FERB's browser tools can't drive), while the form posts to the second host. While it runs ask \"how many has it submitted so far?\"; after it ends ask \"what failed?\" or \"what happened?\"."
-pass = "The request log shows the submit; the task ends done (or done_unverified), not failed, with the worker's answer and its Sent card. ferb trace TASK --full shows the code entry for the submit condition as couldn't tell with \"FERB's records can't settle it: ...\" and the checker's met entry. Both questions are answered after a task.trace call (tool.call spans under {request}.lookups, no refusal), naming what was submitted, as not yet checked while running."
-decisions = ["ORCH-660", "ORCH-661", "ORCH-662", "ORCH-663"]
+pass = "The request log shows the submit; the task ends done (or done_unverified), not failed, with the worker's answer and its Sent card. ferb trace TASK --full shows the submit condition met by the checker (its own look at Chrome after the last action) with code's receipt beside it, no \"not done\" from a missing record. Both questions are answered after a task.trace call (spans under {request}.lookups, no refusal), naming what was submitted, as not yet checked while running."
+decisions = ["ORCH-664", "ORCH-665", "ORCH-666", "ORCH-671", "ORCH-662", "ORCH-663"]
 sitting = "after this engine and FERB.app are installed"
 
 [LIVE-971]
@@ -4812,3 +4812,21 @@ request = "From Files fetch the disposable folder whole and share it; send a fol
 pass = "The folder arrives with per-folder progress and any key file is left out and counted; the sent folder lands in Downloads/FERB from phone; Recent lists the task's file and what was just fetched and sent, nothing from a key place; the search finds the PDF and says so when it stops early; the result file opens. The Mac's phone audit names each path, never a content."
 decisions = ["PHN-113", "PHN-526", "PHN-527", "PHN-528"]
 sitting = "after T-1211"
+
+[LIVE-1147]
+title = "A site's script button confirmed on its page ends done, with FERB's answer shown"
+area = "orchestration"
+surface = "FERB.app with this engine; a disposable kartikey.xyz page whose Claim button runs a script (no form) and shows a confirmation, with the request-logging server"
+request = "Ask FERB to claim on that page; once with the page answering, once with it showing \"Processing\" only, once with the page made unreadable after the click."
+pass = "Answering: done, the worker's answer, no line about forms; ferb trace TASK --full shows the condition met by the checker with code's receipt beside it and the check's own snapshot of the tab after the last click. Processing: done-unconfirmed with \"I couldn't confirm part of this.\", never failed. Unreadable: the same, and FERB didn't press Claim again."
+decisions = ["ORCH-664", "ORCH-665", "ORCH-666", "ORCH-671", "ORCH-672"]
+sitting = "after this engine and FERB.app are installed"
+
+[LIVE-1148]
+title = "A same-named file from a site's picker instead of the named Mac file is caught, never done"
+area = "orchestration"
+surface = "FERB.app with this engine; a disposable form with a file field on a kartikey.xyz page, request-logging server; report.pdf on the Desktop and a different report.pdf in the picker's cloud drive"
+request = "Ask FERB to attach report.pdf from your Desktop (attached in the chat, or its path typed) to the form and submit it; once as asked, once nudging it to use the site's picker, once to upload the Downloads copy."
+pass = "As asked: no question; the log shows the Desktop bytes; done. Downloads copy, or a picker that fills the page's file field: before the submit FERB asks \"The file attached on <site> isn't report.pdf from your Mac. Send it anyway?\"; No sends nothing (the log is empty) and the answer says why; Yes sends once. A picker with no file field: told after as delivered with gaps, never done."
+decisions = ["ORCH-667", "ORCH-668", "ORCH-669", "ORCH-672", "ORCH-673", "ORCH-676"]
+sitting = "after this engine and FERB.app are installed"

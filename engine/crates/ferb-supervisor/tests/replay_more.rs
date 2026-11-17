@@ -25,8 +25,11 @@ fn more() -> &'static Value {
         // ORCH-642 (a named difference): make_more.py's event wait waits on an invented topic nothing publishes,
         // which the port refuses at admission; the scenario replays with a topic FERB does publish, everywhere it
         // appears (the plan, the step's state, the stored plan and event, the event the test delivers)
-        serde_json::from_str(&text.replace("browser.download_finished", EVENT_WAIT_TOPIC))
-            .expect("fixture JSON")
+        // and APP-926's (named_diffs::app_926): owner-facing words that spoke of AI
+        named_diffs::app_926(
+            serde_json::from_str(&text.replace("browser.download_finished", EVENT_WAIT_TOPIC))
+                .expect("fixture JSON"),
+        )
     })
 }
 

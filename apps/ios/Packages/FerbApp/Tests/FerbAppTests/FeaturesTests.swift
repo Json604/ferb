@@ -49,7 +49,7 @@ final class FeaturesTests: XCTestCase {
         // online: the Mac's unlock, then its name
         session.lockNow()
         phone.link = FakePhone.status()
-        phone.mac = MacInfo(name: "Studio Mac", pairedAt: "2026-11-10T09:00:00+05:30", phoneName: "iPhone")
+        phone.mac = MacInfo(name: "Studio Mac", pairedAt: "2026-11-10T09:00:00+05:30", phoneName: "iPhone", uploadFolder: nil)
         await vm.unlockApp().value
         await eventually("the Mac's name") { vm.ui.mac?.name == "Studio Mac" }
     }
@@ -129,11 +129,11 @@ final class FeaturesTests: XCTestCase {
         session.foreground(true)
         phone.folders["~/Documents"] = Folder(path: "~/Documents", parent: "~", locked: false,
                                               entries: [FileEntry(name: "Keys", path: "~/Documents/Keys", dir: true, link: false, size: 0, modified: 0, locked: true)],
-                                              total: 1, cut: false)
+                                              total: 1, cut: false, from: 0, next: nil)
         phone.folders["~/Documents/Keys"] = Folder(path: "~/Documents/Keys", parent: "~/Documents", locked: true,
                                                    entries: [FileEntry(name: "id_ed25519", path: "~/Documents/Keys/id_ed25519", dir: false, link: false,
                                                                        size: 10, modified: 0, locked: true)],
-                                                   total: 1, cut: false)
+                                                   total: 1, cut: false, from: 0, next: nil)
         let vm = rig.model()
         await vm.openFolder("~/Documents").value
         XCTAssertTrue(prompts.signers.isEmpty, "an ordinary folder asks nothing")
@@ -343,7 +343,7 @@ final class FeaturesTests: XCTestCase {
     func testAFaceIdKeyAddedAfterPairingIsOfferedAndRegistered() async {
         session.unlocked()
         phone.newKeys = PublicKeys(device: nil, lock: nil, strong: "STRONG-PUB")
-        phone.mac = MacInfo(name: "Studio Mac", pairedAt: nil, phoneName: nil)
+        phone.mac = MacInfo(name: "Studio Mac", pairedAt: nil, phoneName: nil, uploadFolder: nil)
         let vm = rig.model()
         await vm.unlockMac().value
         XCTAssertTrue(vm.ui.newKeys)

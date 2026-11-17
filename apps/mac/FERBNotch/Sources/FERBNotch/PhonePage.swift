@@ -19,8 +19,12 @@ struct PhoneSettingsPage: View {
                 Label(problem, systemImage: "exclamationmark.circle").foregroundStyle(.red).textSelection(.enabled)
             }
             if let note = model.note { Text(note).foregroundStyle(.secondary).textSelection(.enabled) }
+            if let screen = model.screenUse, screen.active { untilBack(screen) }
             WindowSettingsSection(title: "Pair a phone") { pairing }
             WindowSettingsSection(title: "Paired phones") { phoneList }
+            if let folder = model.uploadFolder {
+                WindowSettingsSection(title: PhoneWords.filesTitle) { files(folder) }
+            }
             WindowSettingsSection(title: "Recent activity") { activity }
             WindowSettingsSection(title: "Use my own relay") { relay }
             WindowSettingsSection(title: PhoneWords.howToTitle) { howTo }
@@ -44,6 +48,50 @@ struct PhoneSettingsPage: View {
         } message: { _ in
             Text(PhoneWords.removeMessage)
         }
+    }
+
+    // MARK: "Until I'm back at my Mac" (GATE-615)
+
+    @ViewBuilder private func untilBack(_ screen: ScreenUse) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Label(PhoneWords.screenUntilBack(screen.phoneName), systemImage: "display")
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 12)
+                Button(PhoneWords.askAgain) { Task { await model.endScreenUse() } }
+            }
+            Text(PhoneWords.screenUntilBackEnds).font(.system(size: 12)).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    // MARK: Files from your phone (PHN-580, PHN-581)
+
+    @ViewBuilder private func files(_ folder: UploadFolder) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(PhoneWords.filesLandIn(folder.shown)).fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+                .help(folder.path)
+            Spacer(minLength: 12)
+            Button(PhoneWords.chooseFolder) { chooseFolder(from: folder) }
+            if !folder.isDefault {
+                Button(PhoneWords.useDefaultFolder) { Task { await model.resetUploadFolder() } }
+            }
+        }
+    }
+
+    private func chooseFolder(from folder: UploadFolder) {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = PhoneWords.chooseFolderPrompt
+        panel.message = PhoneWords.chooseFolderMessage
+        panel.directoryURL = URL(fileURLWithPath: folder.path)
+        guard AppWindowPresentation.runModal(panel) == .OK, let url = panel.url else { return }
+        Task { await model.chooseUploadFolder(url.path) }
     }
 
     // MARK: Pair a phone
@@ -189,6 +237,12 @@ struct PhoneSettingsPage: View {
     @ViewBuilder private var relay: some View {
         if let link = model.link {
             Text(link.line).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+            if let handover = link.handover, handover.phonesWaiting > 0 {
+                Text(handover.closed ? PhoneWords.phonesLeftBehind(handover.phonesWaiting)
+                                     : PhoneWords.phonesToCome(handover.phonesWaiting, until: handover.closesAt))
+                    .font(.system(size: 12)).foregroundStyle(handover.closed ? .orange : .secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if let address = link.ownRelay {
                 HStack(spacing: 12) {
                     Text(PhoneWords.savedRelay(address)).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
@@ -315,6 +369,12 @@ extension NotchModel {
     /// where the Yes is given. Nothing here answers it.
     func receivePhoneEvent(topic: String, data: [String: Any]) {
         NotificationCenter.default.post(name: .ferbPhoneEvent, object: nil, userInfo: ["topic": topic, "data": data])
+        // GATE-618: the quiet "Are you back?" line, turned into the welcome in place; no sound, no notch opening
+        if topic == "screen.until_back", ScreenBackLine.apply(data, to: &conversation) {
+            saveConversation()
+            onBackgroundChange?(true)
+            return
+        }
         guard topic == "phone.pair_requested", let request = data["request_id"] as? String ?? data["phone"] as? String else { return }
         let name = (data["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? PhoneWords.unnamedPhone
         let card = ResultCard(["type": "page", "page": "phone", "line": PhoneWords.openPhoneSettings])

@@ -42,7 +42,8 @@ class MainActivity : ComponentActivity() {
                 val a = this@MainActivity.application as FerbApplication
                 val corpus = runCatching { a.assets.open("corpus.json").bufferedReader().use { Corpus(it.readText()) } }.getOrNull()
                 FerbViewModel(a.api, a.session, a.prefs, a::screenLockSet, corpus, createSavedStateHandle(), a.local,
-                    locator = AndroidLocator(a), coarse = a.sensors.coarse, say = a::getString, locationAnswered = a.notifier::locationAnswered)
+                    locator = AndroidLocator(a), coarse = a.sensors.coarse, say = a::getString, locationAnswered = a.notifier::locationAnswered,
+                    voice = AndroidSpeech(a), micAllowed = { a.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED })
             }
         }
     }

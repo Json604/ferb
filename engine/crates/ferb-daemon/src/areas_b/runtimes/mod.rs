@@ -604,7 +604,7 @@ impl Runtimes {
                 if ferb_runtimes::codex::codex_home(&self.host.home).is_none() {
                     return Err(RuntimeError::SignedOut {
                         message:
-                            "Codex isn't signed in for FERB: sign in to ChatGPT in Settings → AI"
+                            "Codex isn't signed in for FERB: sign in to ChatGPT in Settings → Thinking"
                                 .into(),
                         runtime: "codex".into(),
                     });
@@ -633,7 +633,7 @@ impl Runtimes {
                     // never the owner's own ~/.claude login and billing
                     return Err(RuntimeError::SignedOut {
                         message:
-                            "Claude isn't signed in for FERB: sign in to Claude in Settings → AI"
+                            "Claude isn't signed in for FERB: sign in to Claude in Settings → Thinking"
                                 .into(),
                         runtime: "claude".into(),
                     });
@@ -824,7 +824,7 @@ impl Runtimes {
         let p = P(params);
         if p.get("runtime") != Some(&Value::String("claude".into())) {
             return Err(refusal(
-                "Only Claude signs in here; ChatGPT signs in with Settings → AI → Sign in with ChatGPT",
+                "Only Claude signs in here; ChatGPT signs in with Settings → Thinking → Sign in with ChatGPT",
             ));
         }
         let sign_in = &self.deps.state.sign_in;
@@ -1082,7 +1082,7 @@ impl Runtimes {
     pub async fn models(&self, params: &Map<String, Value>) -> HandlerResult {
         let name = P(params).text("runtime", "");
         let Some(entry) = catalog::entry(&name) else {
-            return Err(refusal(format!("unknown AI service {}", repr_str(&name))));
+            return Err(refusal(format!("unknown service {}", repr_str(&name))));
         };
         let cfg = self.cfg();
         let mut roles = Map::new();
@@ -1157,7 +1157,7 @@ impl Runtimes {
         let model = ferb_py::value::squeeze(&p.text_or_empty("model"));
         let role = p.get("role").filter(|r| !r.is_null());
         let Some(entry) = catalog::entry(&name) else {
-            return Err(refusal(format!("unknown AI service {}", repr_str(&name))));
+            return Err(refusal(format!("unknown service {}", repr_str(&name))));
         };
         let role: Option<String> = match role {
             None => None,
@@ -1337,7 +1337,7 @@ impl Runtimes {
         let name = p.text("runtime", "");
         let model = ferb_py::value::strip(&p.text_or_empty("model")).to_string();
         if catalog::entry(&name).is_none() {
-            return Err(refusal(format!("unknown AI service {}", repr_str(&name))));
+            return Err(refusal(format!("unknown service {}", repr_str(&name))));
         }
         self.forget_available(&name);
         let (ping, echo) = (

@@ -480,3 +480,63 @@ async fn keys_under_secure_input_or_in_a_secure_field_are_never_extracted() {
     task.await.unwrap().unwrap();
     assert_eq!(*emitted.lock().unwrap(), vec![json!("ok")]);
 }
+
+/// GATE-615: "until I'm back at my Mac" ends at the owner's own input. Every event FERB posts carries FERB's mark
+/// (ferb-mac-hands native/events.rs) and is never the owner's; any event without it is, with its time.
+// decision: GATE-615
+#[test]
+fn ferb_s_marked_input_is_never_the_owner_s_and_any_other_is() {
+    let wall = Arc::new(Mutex::new(100.0f64));
+    let w = wall.clone();
+    let oi = OwnerInput::new(|| 0.0, move || *w.lock().unwrap(), || true, Box::new(NoTap));
+    assert!(oi.start_tap());
+    let sink = ferb_sense::watchers::owner_input::sink(oi.clone());
+    for _ in 0..50 {
+        sink.event(true, None); // FERB's own clicks, keys and scrolls
+    }
+    assert_eq!(oi.last_owner_wall(), None);
+    *wall.lock().unwrap() = 130.0;
+    sink.event(false, None); // the owner moves the pointer
+    assert_eq!(oi.last_owner_wall(), Some(130.0));
+    *wall.lock().unwrap() = 140.0;
+    sink.event(true, None);
+    assert_eq!(oi.last_owner_wall(), Some(130.0));
+    assert_eq!(
+        ferb_sense::watchers::owner_input::FERB_EVENT_MARK,
+        0x4645_5242,
+        "the mark FERB's poster sets (ferb-mac-hands native/events.rs FERB_EVENT_MARK)"
+    );
+}
+
+/// GATE-618: an unmarked event within the window after FERB's own last post (the poster's record or a marked event the
+/// tap saw) is unclear; one past it, or with no post at all, is clear. Classed as it arrives.
+// decision: GATE-618
+#[test]
+fn an_unmarked_event_just_after_ferb_s_own_post_is_unclear() {
+    let wall = Arc::new(Mutex::new(100.0f64));
+    let posted = Arc::new(Mutex::new(None::<f64>));
+    let (w, p) = (wall.clone(), posted.clone());
+    let oi = OwnerInput::new(|| 0.0, move || *w.lock().unwrap(), || true, Box::new(NoTap));
+    oi.set_ferb_posted(Arc::new(move || *p.lock().unwrap()), 0.5);
+    let sink = ferb_sense::watchers::owner_input::sink(oi.clone());
+    sink.event(false, None);
+    assert_eq!(
+        (oi.clear_wall(), oi.unclear_wall()),
+        (Some(100.0), None),
+        "no post: clear"
+    );
+    *posted.lock().unwrap() = Some(110.0);
+    *wall.lock().unwrap() = 110.3;
+    sink.event(false, None);
+    assert_eq!(oi.unclear_wall(), Some(110.3), "0.3 s after FERB's post");
+    *wall.lock().unwrap() = 111.0;
+    sink.event(false, None);
+    assert_eq!(oi.clear_wall(), Some(111.0), "past the window");
+    // a marked event the tap sees counts as FERB's post too
+    *wall.lock().unwrap() = 120.0;
+    sink.event(true, None);
+    *wall.lock().unwrap() = 120.2;
+    sink.event(false, None);
+    assert_eq!(oi.unclear_wall(), Some(120.2));
+    assert_eq!(oi.ferb_posted_wall(), Some(120.0));
+}

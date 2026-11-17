@@ -96,6 +96,7 @@ fun FerbRoot(vm: FerbViewModel, activity: MainActivity) {
     }
     val city = rememberCity(activity, vm)
     val exact = rememberExact(activity, vm)
+    val microphone = rememberMicrophone(activity, vm)
     val host = remember(activity) {
         object : Host {
             override fun stayConnected(on: Boolean) = stay(on)
@@ -113,6 +114,9 @@ fun FerbRoot(vm: FerbViewModel, activity: MainActivity) {
             override fun shareMany(files: List<java.io.File>) = activity.shareMany(files)
             override fun shareCity(on: Boolean) = city(on)
             override fun shareExact(requestId: String) = exact(requestId)
+            override fun microphoneAllowed() =
+                activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+            override fun allowMicrophone(kind: com.ferb.app.model.SpeechKind?) = microphone(kind)
         }
     }
 
@@ -277,6 +281,24 @@ fun rememberExact(activity: MainActivity, vm: FerbViewModel): (String) -> Unit {
         } else {
             asking = id
             ask.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+        }
+    }
+}
+
+/**
+ * Speaking to FERB (PHN-604): the owner read FERB's words for this phone's kind of recognition ([kind]; null when he
+ * had already); Android's microphone question follows only if it isn't answered. Listening starts at his next hold,
+ * never by itself after the question.
+ */
+@Composable
+fun rememberMicrophone(activity: MainActivity, vm: FerbViewModel): (com.ferb.app.model.SpeechKind?) -> Unit {
+    val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> vm.microphoneAnswered(granted) }
+    return { kind ->
+        kind?.let(vm::voiceTold)
+        if (activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            if (kind != null) vm.microphoneAnswered(true)
+        } else {
+            ask.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
 }

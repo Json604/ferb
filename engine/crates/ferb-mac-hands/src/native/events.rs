@@ -172,6 +172,8 @@ impl Events for NativeEvents {
         objc2::rc::autoreleasepool(|_| {
             let ev =
                 build(event).ok_or_else(|| HandError::Other("couldn't create the event".into()))?;
+            // GATE-618: when FERB posts, for telling an event macOS derives from it from the owner's
+            crate::input::note_posted();
             CGEvent::set_integer_value_field(
                 Some(&ev),
                 CGEventField::EventSourceUserData,

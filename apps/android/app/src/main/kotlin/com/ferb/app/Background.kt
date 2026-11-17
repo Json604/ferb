@@ -109,6 +109,7 @@ class AnswerReceiver : BroadcastReceiver() {
                 // a button is only on a routine question; one that needs the phone's proof is answered in the app
                 if (!q.routine) { app.notifier.answered(id, context.getString(R.string.n_needs_fingerprint_text), true); return@launch }
                 val input: AnswerInput = when {
+                    choice == UNTIL_BACK -> if (q.untilBack) AnswerInput.UntilBack else return@launch
                     choice >= 0 -> q.choices.getOrNull(choice)?.input ?: return@launch
                     typed.isNotEmpty() -> AnswerInput.Words(typed)
                     else -> return@launch
@@ -117,7 +118,9 @@ class AnswerReceiver : BroadcastReceiver() {
                     is Outcome.Ok -> app.notifier.answered(id, null, false)
                     is Outcome.Failed -> {
                         val e = r.error
-                        if (e is FerbException.NeedsUnlock) app.notifier.answered(id, context.getString(R.string.n_needs_fingerprint_text), true)
+                        // "until I'm back" needs the app opened (its unlock), not a fingerprint: said so
+                        if (e is FerbException.NeedsUnlock && input is AnswerInput.UntilBack) app.notifier.answered(id, context.getString(R.string.n_until_back_open), false)
+                        else if (e is FerbException.NeedsUnlock) app.notifier.answered(id, context.getString(R.string.n_needs_fingerprint_text), true)
                         else app.notifier.answered(id, FerbViewModel.errorNote(e).let { n -> context.getString(n.res, n.words.orEmpty()) }, false)
                     }
                 }
@@ -132,5 +135,8 @@ class AnswerReceiver : BroadcastReceiver() {
         const val ID = "approval_id"
         const val CHOICE = "choice"
         const val TEXT = "answer"
+
+        /** The notification's "Yes, until I'm back at my Mac" (not an index into the question's choices). */
+        const val UNTIL_BACK = -2
     }
 }

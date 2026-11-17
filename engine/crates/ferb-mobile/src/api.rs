@@ -365,6 +365,11 @@ pub struct TranscriptView {
 pub enum Answer {
     /// A choice (`chat.approve {granted, choice?}`).
     Approve { granted: bool, choice: Option<i64> },
+    /// The screen-use question's Yes "until I'm back at my Mac" (GATE-615: `chat.approve {granted: true,
+    /// until_back: true}`): it also covers later screen-use questions until the owner is back at the Mac. Offered only
+    /// where the question's needs say `until_back`; it needs the app's unlock window (`NeedsUnlock` when it is closed:
+    /// unlock, then answer again) and never a signed proof (a signer passed with it is not used).
+    UntilBack,
     /// Free words (`chat.answer {text}`; empty declines).
     Words { text: String },
     /// The owner's words for a safety check's task (`chat.correct`, GATE-510).
@@ -380,6 +385,7 @@ impl std::fmt::Debug for Answer {
             Answer::Approve { granted, choice } => {
                 write!(f, "Approve {{ granted: {granted}, choice: {choice:?} }}")
             }
+            Answer::UntilBack => f.write_str("UntilBack"),
             Answer::Words { .. } => f.write_str("Words { .. }"),
             Answer::Correct { .. } => f.write_str("Correct { .. }"),
             Answer::Hidden { .. } => f.write_str("Hidden { <hidden> }"),
@@ -1677,6 +1683,14 @@ impl Shared {
                 }
                 ("chat.approve", sorted(p))
             }
+            Answer::UntilBack => (
+                "chat.approve",
+                sorted(vec![
+                    ("approval_id", json!(approval_id)),
+                    ("granted", json!(true)),
+                    ("until_back", json!(true)),
+                ]),
+            ),
             Answer::Words { text } => (
                 "chat.answer",
                 sorted(vec![
@@ -1707,7 +1721,8 @@ impl Shared {
                     "A hidden answer needs the phone's key.",
                 ));
             }
-            (_, None) => None,
+            // the Mac takes it on the unlock window alone: no proof is made (GATE-615)
+            (Answer::UntilBack, _) | (_, None) => None,
             (a, Some(signer)) => {
                 let challenge = match Self::challenge(this, &t, approval_id) {
                     Ok(c) => c,

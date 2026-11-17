@@ -135,10 +135,12 @@ public struct LivePage: View {
     var insets: PhoneInsets
     var onClose: (() -> Void)?
     var onStop: (() -> Void)?
+    /// The app's screenshot shield around the frame (kb PHN-597); nil draws it plainly (the default).
+    var shieldFrame: ((AnyView) -> AnyView)?
 
     public init(title: String = "Watch live", frame: Image? = nil, placeholder: String? = nil, line: String? = nil,
                 closeTitle: String, stopTitle: String = "Stop", insets: PhoneInsets = .lab,
-                onClose: (() -> Void)? = nil, onStop: (() -> Void)? = nil) {
+                onClose: (() -> Void)? = nil, onStop: (() -> Void)? = nil, shieldFrame: ((AnyView) -> AnyView)? = nil) {
         self.title = title
         self.frame = frame
         self.placeholder = placeholder
@@ -148,6 +150,7 @@ public struct LivePage: View {
         self.insets = insets
         self.onClose = onClose
         self.onStop = onStop
+        self.shieldFrame = shieldFrame
     }
 
     public var body: some View {
@@ -160,7 +163,8 @@ public struct LivePage: View {
             .padding(.horizontal, 16)
             ZStack {
                 if let frame {
-                    frame.resizable().interpolation(.high).aspectRatio(contentMode: .fit)
+                    let picture = frame.resizable().interpolation(.high).aspectRatio(contentMode: .fit)
+                    if let shieldFrame { shieldFrame(AnyView(picture)) } else { picture }
                 } else if let placeholder {
                     Text(placeholder).type(16, .regular, Ink.onDark).multilineTextAlignment(.center).padding(.horizontal, 16)
                 } else {

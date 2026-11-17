@@ -78,6 +78,7 @@ pub const NOT_WAITED: &[&str] = &[
     "phone.unused",
     "phone.removed",
     "phone.heavy_fetch",
+    "screen.until_back",
     "tool.called",
     "tool.finished",
     "trail.event",

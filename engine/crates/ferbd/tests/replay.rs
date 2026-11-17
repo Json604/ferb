@@ -4,6 +4,9 @@
 //! `FERBD_STAND_INS`. Each answer line must come back byte for byte, or as the named fix (ENG-6) says.
 
 mod support;
+// the named differences APP-926 (owner-facing words) and APP-941 (Jev's days), as ferb-daemon's a_replay and b_small
+#[path = "../../ferb-supervisor/tests/common/named_diffs.rs"]
+mod named_diffs;
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -72,6 +75,32 @@ const GROUP_A: [&str; 26] = [
     "chat.history.days",
 ];
 
+// decision: APP-926, APP-941
+/// A recorded answer with the two named differences applied: the owner-facing words that spoke of AI
+/// (`named_diffs::APP_926`), and Jev's days, which FERB no longer lists as a setting (in `settings.get`'s values and in
+/// the settings `about.get` shows). Nothing else of a recording changes.
+fn as_named(line: String) -> String {
+    let line = named_diffs::APP_926
+        .iter()
+        .fold(line, |s, (python, rust)| s.replace(python, rust));
+    if !line.contains("retention.decision_days") {
+        return line;
+    }
+    let Ok(mut v) = serde_json::from_str::<Value>(&line) else {
+        return line;
+    };
+    let Some(result) = v.get_mut("result").and_then(Value::as_object_mut) else {
+        return line;
+    };
+    if let Some(values) = result.get_mut("values").and_then(Value::as_object_mut) {
+        values.shift_remove("retention.decision_days");
+    }
+    if let Some(Value::Array(settings)) = result.get_mut("settings") {
+        settings.retain(|r| r["key"] != "retention.decision_days");
+    }
+    ferb_py::json::dumps(&v)
+}
+
 fn ours(method: &str) -> bool {
     method == "auth.hello"
         || method == "settings.get"
@@ -137,6 +166,7 @@ fn replay_a_with(
                     .iter()
                     .filter_map(|l| l.get("recv"))
                     .map(line_text)
+                    .map(as_named)
                 {
                     let got = fx(&c.recv().expect("an answer"), root);
                     match id.and_then(|i| fixed.get(&i)) {
@@ -459,7 +489,7 @@ fn group_b_small_areas_through_the_binary() {
                 c.send(&request);
                 for l in &lines[1..] {
                     if let Some(r) = l.get("recv") {
-                        let want = line_text(r);
+                        let want = as_named(line_text(r));
                         let (want, is_fix) = match b_fix(&request, &want) {
                             Some(f) => (f, true),
                             None => (want, false),
@@ -605,7 +635,7 @@ fn replay_b(
                 c.send(&request);
                 for l in &lines[1..] {
                     if let Some(r) = l.get("recv") {
-                        check(c, &method, line_text(r));
+                        check(c, &method, as_named(line_text(r)));
                     }
                 }
             }
@@ -627,7 +657,7 @@ fn replay_b(
                 };
                 for l in st["lines"].as_array().unwrap() {
                     if let Some(r) = l.get("recv") {
-                        check(c, &method, line_text(r));
+                        check(c, &method, as_named(line_text(r)));
                     }
                 }
             }

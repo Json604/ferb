@@ -63,7 +63,10 @@ impl ConnectionNotice {
 
     pub fn back(&self, host: &dyn WorkerHost) -> Result<(), Error> {
         if self.lost.swap(false, Ordering::SeqCst) {
-            let text = format!("Reconnected to the AI service I use ({}).", self.runtime);
+            let text = format!(
+                "Reconnected to the service I think with ({}).",
+                self.runtime
+            );
             self.say(host, "back", &text)?;
         }
         Ok(())

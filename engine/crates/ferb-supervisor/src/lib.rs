@@ -21,6 +21,8 @@
 
 pub mod chat_line;
 #[cfg(feature = "store")]
+pub mod endings;
+#[cfg(feature = "store")]
 pub mod flow;
 pub mod history;
 pub mod intake;

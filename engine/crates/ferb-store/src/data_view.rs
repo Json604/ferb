@@ -101,7 +101,7 @@ pub const GROUPS: [(&str, &str, &[&str]); 6] = [
             "loop_state",
         ],
     ),
-    ("model_input", "What the AI was given", &["spans"]),
+    ("model_input", "What FERB sent for thinking", &["spans"]),
     (
         "memory",
         "Memory",

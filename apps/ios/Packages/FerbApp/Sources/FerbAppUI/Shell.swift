@@ -36,7 +36,8 @@ public final class AppShell: ObservableObject {
         let sensors = Sensors(prefs: prefs)
         self.sensors = sensors
         model = AppModel(api: api, session: session, prefs: prefs, local: local, saved: Self.loadSaved(),
-                         locator: sensors, coarse: { sensors.places.coarse }, locationAnswered: {})
+                         locator: sensors, coarse: { sensors.places.coarse }, locationAnswered: {},
+                         voice: AppleSpeech(), micAllowed: { AppleSpeech.allowed })
         model.prompts = Self.prompts(phone)
         let poster = self.poster
         notifier = Notifier(api: api, prefs: prefs, session: session,

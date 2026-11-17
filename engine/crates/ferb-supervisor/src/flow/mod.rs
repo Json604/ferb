@@ -131,6 +131,12 @@ pub trait Daemon: Send + Sync {
     fn checks_unacted_not_done(&self) -> bool {
         false
     }
+    /// ORCH-671: whether a checker's met on an outward condition of a step that acted on a page or an app needs a look
+    /// of its own at that tab, app or site after the step's last action (true). A replay of a Python recording, whose
+    /// scripted checkers judged without that rule, says false (the named difference).
+    fn fresh_look_rule(&self) -> bool {
+        true
+    }
     /// GATE-609: whether the words typed in a safety check's box are read by the planner for the sites they name
     /// (true). A replay of a Python recording, whose card replies reached the task with no planner call, says false
     /// (the named difference).

@@ -1487,17 +1487,40 @@ async fn unary(
                 .replace('~', &std::env::var("HOME").unwrap_or_default());
             let real = r(s.open_path(dev, sid, &path).map(|p| json!(p)))?;
             let real = PathBuf::from(real.as_str().unwrap());
+            // pages of list_max by name, the next one asked by the Mac's marker (as the daemon's, kb PHN-589: bound
+            // to its folder; another folder's is a bad request)
+            let key = format!("files|{}|", real.display());
+            let from = match p["after"].as_str() {
+                None => 0,
+                Some(m) => match m.strip_prefix(&key).and_then(|n| n.parse::<usize>().ok()) {
+                    Some(n) => n,
+                    None => {
+                        return Err(Some(refused(
+                            "bad_request",
+                            "That page marker is not this folder's.",
+                        )));
+                    }
+                },
+            };
+            let mut all: Vec<_> = std::fs::read_dir(&real)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .collect();
+            all.sort_by_key(|e| e.file_name());
+            let total = all.len();
             let mut entries = vec![];
-            let mut total = 0;
-            for e in std::fs::read_dir(&real).into_iter().flatten().flatten() {
-                total += 1;
-                if entries.len() as u64 >= s.config.list_max {
-                    continue;
-                }
+            for e in all.iter().skip(from).take(s.config.list_max as usize) {
                 let m = e.metadata().ok();
                 entries.push(json!({"name": e.file_name().to_string_lossy(), "dir": m.as_ref().is_some_and(|m| m.is_dir()), "size": m.as_ref().map(|m| m.len()).unwrap_or(0)}));
             }
-            json!({"path": real, "entries": entries, "total": total, "cut": total > s.config.list_max})
+            let more = from + entries.len() < total;
+            let next = if more {
+                json!(format!("{key}{}", from + entries.len()))
+            } else {
+                Value::Null
+            };
+            json!({"path": real, "entries": entries, "total": total, "from": from, "cut": more, "next": next})
         }
         "phone.tree" => {
             let real = r(s

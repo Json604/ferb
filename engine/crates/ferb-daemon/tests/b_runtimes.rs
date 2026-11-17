@@ -774,7 +774,7 @@ async fn keys() {
     eprintln!("keys: {same} lines");
 }
 
-// decision: DMN-595, ORCH-641, RUN-466, ORCH-652
+// decision: DMN-595, ORCH-641, RUN-466, ORCH-675
 #[tokio::test(flavor = "multi_thread")]
 async fn checks() {
     let (same, named, lookups) = play("checks").await;
@@ -918,7 +918,7 @@ async fn codex_cache_roles_and_their_journal_lines() {
 
 /// ORCH-652's named difference: a report or check recorded against Python's schema, answered as a model given today's
 /// (whose `gaps` is required) answers it: with `"gaps": []`.
-// decision: ORCH-652
+// decision: ORCH-675
 fn gaps_answered(data: &mut Map<String, Value>) {
     for v in data.values_mut() {
         let Some(text) = v.as_str() else { continue };

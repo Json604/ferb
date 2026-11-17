@@ -149,7 +149,7 @@ fn expect_judgement(case: &Value, got: Result<(), String>, what: &str) {
     }
 }
 
-// decision: RUN-408, RUN-447, ORCH-652
+// decision: RUN-408, RUN-447, ORCH-675
 #[test]
 fn catalog_answer_schemas_are_built_byte_for_byte() {
     let fixture = catalog("answer_schemas.json");
@@ -853,7 +853,7 @@ fn a_task_schema_carries_the_profiles_the_owners_words_name() {
 
 /// ORCH-652: every worker report schema has `gaps` (each a condition's text and why) after `how`, and the check's has
 /// accept_with_gaps and `gaps` (each an index and why) after `reason`; both required, as every field is.
-// decision: ORCH-652
+// decision: ORCH-675
 #[test]
 fn report_and_check_schemas_carry_gaps() {
     for bits in 0..64u8 {

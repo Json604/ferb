@@ -32,10 +32,10 @@ struct ApprovalView: View {
                 }
             }
             if approval.fromTask {                   // D33, GATE-225: a task's question, tagged by structure
-                Text("asked by the AI").font(.system(size: 10, weight: .medium)).foregroundStyle(Palette.secondary)
+                Text("from the task").font(.system(size: 10, weight: .medium)).foregroundStyle(Palette.secondary)
                     .padding(.horizontal, 6).padding(.vertical, 1.5)
                     .background(.white.opacity(0.07), in: Capsule())
-                    .accessibilityLabel("Question asked by the AI")
+                    .accessibilityLabel("Question from the task")
             }
             if approval.plainText {                  // FERB's own question: verbatim, never Markdown (D31)
                 // GATE-513 (refining GATE-225): one question in plain words, why FERB asks under it, and the exact
@@ -59,7 +59,7 @@ struct ApprovalView: View {
             }
             if let why = approval.why {                // the task's reason, its own words, smaller (2026-10-27)
                 // chat text draws through FERB's own text view (APP-788); GATE-566: marked as the AI's words
-                NativeMessageText((approval.capability == "ferb.retry" ? "AI's note: " : "AI's reason: ") + why,
+                NativeMessageText((approval.capability == "ferb.retry" ? "The task's note: " : "The task's reason: ") + why,
                                   size: 11, secondary: true)
             }
             if !approval.evidence.isEmpty {

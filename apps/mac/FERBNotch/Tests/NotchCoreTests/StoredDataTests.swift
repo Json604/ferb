@@ -8,7 +8,7 @@ import XCTest
 @MainActor
 final class StoredDataTests: XCTestCase {
     private let tablesReply: [String: Any] = [
-        "groups": [["id": "conversation", "title": "Conversation"], ["id": "model_input", "title": "What the AI was given"],
+        "groups": [["id": "conversation", "title": "Conversation"], ["id": "model_input", "title": "What FERB sent for thinking"],
                    ["id": "other", "title": "Everything else"]],
         "tables": [
             ["name": "chat_history", "group": "conversation", "rows": 3, "columns": ["id", "body_json"], "internal": false,
@@ -21,7 +21,7 @@ final class StoredDataTests: XCTestCase {
     // decision: STORE-423
     func testTheTablesAreGroupedForAPersonWithInternalOnesHidden() throws {
         let tables = try XCTUnwrap(StoredTables(tablesReply))
-        XCTAssertEqual(tables.groups.map(\.title), ["Conversation", "What the AI was given", "Everything else"])
+        XCTAssertEqual(tables.groups.map(\.title), ["Conversation", "What FERB sent for thinking", "Everything else"])
         XCTAssertEqual(tables.tables(in: "conversation", internal: false).map(\.name), ["chat_history"])
         XCTAssertEqual(tables.tables(in: "other", internal: false).map(\.name), [])
         XCTAssertEqual(tables.tables(in: "other", internal: true).map(\.name), ["chat_fts_data"])

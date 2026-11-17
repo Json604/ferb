@@ -78,7 +78,7 @@ fn the_record_the_fix_and_finding_files_through_the_bindings() {
     )
     .unwrap();
     assert_eq!(m.recent_files(10).unwrap().files.len(), 2);
-    assert!(m.search_files("inv".into(), None).unwrap().incomplete);
+    assert!(m.search_files("inv".into(), None, None).unwrap().incomplete);
     m.shutdown();
     assert!(matches!(
         m.report_device(report()),

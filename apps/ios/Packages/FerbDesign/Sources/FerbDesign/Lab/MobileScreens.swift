@@ -408,12 +408,15 @@ public struct MacPage: View {
     var onOwnRelay: (() -> Void)?
     var onSettings: (() -> Void)?
     var onStopAll: (() -> Void)?
+    /// Not from the lab: a card above the rows (FERB may use the Mac's screen until the owner is back, PHN-611).
+    var notice: AnyView?
 
     public init(link: LinkKind = .direct, macName: String = "MacBook Pro", ownRelay: String? = "relay.example.net",
                 ownRelayUnset: String = "Not set", settingsDetail: String = "Each change asks for your fingerprint",
                 status: String? = nil, note: String? = nil, name: String? = nil, waiting: PhoneTab? = .tasks,
                 onTab: ((PhoneTab) -> Void)? = nil, onProfile: (() -> Void)? = nil, onLink: (() -> Void)? = nil,
-                onOwnRelay: (() -> Void)? = nil, onSettings: (() -> Void)? = nil, onStopAll: (() -> Void)? = nil) {
+                onOwnRelay: (() -> Void)? = nil, onSettings: (() -> Void)? = nil, onStopAll: (() -> Void)? = nil,
+                notice: AnyView? = nil) {
         self.link = link
         self.macName = macName
         self.ownRelay = ownRelay
@@ -429,6 +432,7 @@ public struct MacPage: View {
         self.onOwnRelay = onOwnRelay
         self.onSettings = onSettings
         self.onStopAll = onStopAll
+        self.notice = notice
     }
 
     public var body: some View {
@@ -442,6 +446,7 @@ public struct MacPage: View {
                     .frame(maxWidth: .infinity).padding(.horizontal, 32).padding(.top, 14)
             }
             Spacer()
+            if let notice { notice }
             Card {
                 CardRow(title: "Your own relay", detail: ownRelay ?? ownRelayUnset, onClick: onOwnRelay) { RowIcon(symbol: "server.rack") } trailing: { Opens() }
                 Divide()
@@ -583,11 +588,16 @@ public struct QuestionSheet<Exact: View>: View {
     var onNo: (() -> Void)?
     var onYes: (() -> Void)?
     var onDismiss: (() -> Void)?
+    /// Not from the lab: more answers the Mac offers beyond Yes and No (kb PHN-607), each a grey pill under them.
+    var more: [(String, (() -> Void)?)]
+    /// Not from the lab: one short line under the further answers (what "until I'm back at my Mac" means, PHN-611).
+    var moreNote: String?
     var exact: Exact
 
     public init(symbol: String, title: String, reason: String, yes: String, no: String = "No", count: String? = nil,
                 note: String? = "Yes asks for Face ID.", insets: PhoneInsets = .lab, onNo: (() -> Void)? = nil,
-                onYes: (() -> Void)? = nil, onDismiss: (() -> Void)? = nil, @ViewBuilder exact: () -> Exact) {
+                onYes: (() -> Void)? = nil, onDismiss: (() -> Void)? = nil, more: [(String, (() -> Void)?)] = [],
+                moreNote: String? = nil, @ViewBuilder exact: () -> Exact) {
         self.symbol = symbol
         self.title = title
         self.reason = reason
@@ -599,6 +609,8 @@ public struct QuestionSheet<Exact: View>: View {
         self.onNo = onNo
         self.onYes = onYes
         self.onDismiss = onDismiss
+        self.more = more
+        self.moreNote = moreNote
         self.exact = exact()
     }
 
@@ -624,6 +636,13 @@ public struct QuestionSheet<Exact: View>: View {
                 Pill(title: yes, kind: .black, onClick: onYes).frame(maxWidth: .infinity).layoutPriority(1)
             }
             .padding(.top, 18)
+            ForEach(Array(more.enumerated()), id: \.offset) { _, option in
+                Pill(title: option.0, kind: .grey, onClick: option.1).padding(.top, 10)
+            }
+            if let moreNote {
+                Text(moreNote).type(14, .regular, Ink.detail).fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8).padding(.horizontal, 4)
+            }
         }
     }
 }

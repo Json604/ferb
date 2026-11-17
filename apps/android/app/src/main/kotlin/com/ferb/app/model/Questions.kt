@@ -56,9 +56,11 @@ data class Question(
     val choices: List<Choice>
         get() {
             if (hidden || options.isEmpty()) return emptyList()
-            if (options == listOf("Yes", "No")) {
-                // the gateway's yes/no: No is a plain No (it needs nothing, PHN-470); Yes is option 1, as FERB.app sends it
-                return listOf(Choice(label(1), AnswerInput.Approve(false, null), yes = false), Choice(label(0), AnswerInput.Approve(true, 1L), yes = true))
+            if (options.size >= 2 && options[0] == "Yes" && options[1] == "No") {
+                // the gateway's yes/no: No is a plain No (it needs nothing, PHN-470); Yes is option 1, as FERB.app sends it.
+                // Any option the Mac adds after them (PHN-607) is its own number, as FERB.app's numbering has it.
+                return listOf(Choice(label(1), AnswerInput.Approve(false, null), yes = false), Choice(label(0), AnswerInput.Approve(true, 1L), yes = true)) +
+                    (2 until options.size).map { Choice(label(it), AnswerInput.Approve(true, (it + 1).toLong()), yes = false) }
             }
             return options.indices.map { Choice(label(it), AnswerInput.Approve(true, (it + 1).toLong()), yes = it == 0) }
         }
@@ -66,6 +68,15 @@ data class Question(
     private fun label(i: Int): String = labels.getOrNull(i)?.trim()?.takeIf { it.isNotEmpty() } ?: options[i]
 
     data class Choice(val label: String, val input: AnswerInput, val yes: Boolean)
+
+    /**
+     * The Mac offers "until I'm back at my Mac" on this question (PHN-610, PHN-611: the screen-use question, its
+     * `QuestionNeeds.until_back`): a further Yes, answered with [AnswerInput.UntilBack], under the two buttons.
+     */
+    val untilBack: Boolean get() = needs?.untilBack == true && yesNo
+
+    /** The gateway's Yes and No come first: the lab's two-button sheet, with any further option under them. */
+    val yesNo: Boolean get() = !hidden && options.size >= 2 && options[0] == "Yes" && options[1] == "No"
 
     companion object {
         /** ferb-link role.rs OWN_CHECKS (the gateway's): FERB's own consequential checks. */

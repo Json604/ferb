@@ -189,10 +189,15 @@ pub struct FoundFiles {
     pub looked: u64,
     /// Key places and FERB's own data not looked into.
     pub skipped: u64,
-    /// More matched than the Mac sends at once.
+    /// More matches remain after this page (true exactly when `next` is given).
     pub cut: bool,
     /// The search stopped before it looked at every name (it looks at a bounded number): a narrower folder finds more.
     pub incomplete: bool,
+    /// The index of this page's first match among all the matches (0 for the first page).
+    pub from: u64,
+    /// "Load more" (PHN-589): the marker that asks for the next page (`search_files`' `after`), valid only for this
+    /// phone, folder and query; none on the last page.
+    pub next: Option<String>,
 }
 
 fn text(v: &Value) -> String {
@@ -323,8 +328,14 @@ impl Mobile {
     }
 
     /// Finds files and folders whose names hold `query` under `path` on the Mac (`~` when none), never by their
-    /// contents (`phone.search`; needs the unlock).
-    pub fn search_files(&self, query: &str, path: Option<&str>) -> MobileResult<FoundFiles> {
+    /// contents (`phone.search`; needs the unlock), a page at a time: `after` is the last page's `next` ("load more",
+    /// PHN-589; a marker of another folder, query or phone is refused).
+    pub fn search_files(
+        &self,
+        query: &str,
+        path: Option<&str>,
+        after: Option<&str>,
+    ) -> MobileResult<FoundFiles> {
         let query = query.trim();
         if query.is_empty() {
             return Err(MobileError::new(
@@ -333,11 +344,11 @@ impl Mobile {
             ));
         }
         let t = self.shared.transport_online()?;
-        let v = Shared::call(
-            &t,
-            "phone.search",
-            json!({"query": query, "path": path.unwrap_or("~")}),
-        )?;
+        let mut params = json!({"query": query, "path": path.unwrap_or("~")});
+        if let Some(a) = after {
+            params["after"] = json!(a);
+        }
+        let v = Shared::call(&t, "phone.search", params)?;
         Ok(FoundFiles {
             path: text(&v["path"]),
             query: text(&v["query"]),
@@ -346,6 +357,8 @@ impl Mobile {
             skipped: v["skipped"].as_u64().unwrap_or(0),
             cut: v["cut"].as_bool().unwrap_or(false),
             incomplete: v["incomplete"].as_bool().unwrap_or(false),
+            from: v["from"].as_u64().unwrap_or(0),
+            next: opt(&v["next"]),
         })
     }
 

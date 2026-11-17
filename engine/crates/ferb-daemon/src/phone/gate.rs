@@ -46,6 +46,9 @@ pub(crate) struct State {
     prompts: HashMap<String, ScreenPrompt>,
     /// When each phone's last use was written (written at most once a minute).
     seen_written: HashMap<String, f64>,
+    /// GATE-615: a session's "until I'm back at my Mac" given with the answer under way (by its question's id), taken
+    /// back when that answer fails.
+    until_back: HashMap<(String, String), String>,
 }
 
 fn invalid(why: &str, done: &str) -> Refusal {
@@ -386,6 +389,9 @@ impl State {
                         .clone();
                     json!({"can_answer": true, "needs_unlock": true, "hidden": f.hidden, "challenge": c,
                            "fingerprint": !f.hidden && strong})
+                } else if inner.questions().until_back_offered(&id) {
+                    // decision: GATE-615 — the screen-use question may be answered "until I'm back at my Mac"
+                    json!({"can_answer": true, "needs_unlock": false, "until_back": true})
                 } else {
                     json!({"can_answer": true, "needs_unlock": false})
                 };
@@ -637,7 +643,10 @@ pub struct Gate(pub(crate) Arc<Inner>);
 
 impl Gate {
     fn audited(row_class: Class, method: &str) -> bool {
-        matches!(row_class, Class::Private | Class::Sensitive) || ANSWERS.contains(&method)
+        // decision: GATE-615 — a phone ending "until I'm back at my Mac" is audited too
+        matches!(row_class, Class::Private | Class::Sensitive)
+            || ANSWERS.contains(&method)
+            || method == "screen_use.end"
     }
 
     fn admit_inner(
@@ -672,6 +681,33 @@ impl Gate {
         }
         let now = inner.mono();
         let mut st = lock(&inner.state);
+        // decision: GATE-615 — "until I'm back at my Mac" goes only with a Yes to the screen-use question, from this
+        // paired phone with its unlock window open (no fingerprint: the owner, 2026-11-17)
+        let mut until_back: Option<String> = None;
+        if method == "chat.approve" && params.contains_key("until_back") {
+            let wanted = params.remove("until_back") == Some(json!(true));
+            if wanted {
+                if params.get("granted") != Some(&json!(true)) {
+                    return Err(refused(
+                        phone_gate::BAD_REQUEST,
+                        "\"Until I'm back at my Mac\" goes with a Yes.",
+                    ));
+                }
+                st.require_unlocked(phone, now, &inner.limits)?;
+                let id = params
+                    .get("approval_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_owned();
+                if !inner.questions().until_back_offered(&id) {
+                    return Err(refused(
+                        phone_gate::BAD_REQUEST,
+                        "This question can't be answered \"until I'm back at my Mac\" now. Answer Yes or No.",
+                    ));
+                }
+                until_back = Some(id);
+            }
+        }
         match row.class {
             Class::Plain | Class::Private => {
                 let free = match row.locked {
@@ -710,6 +746,16 @@ impl Gate {
                     format!("{method} cannot be done from a phone ({})", row.why),
                 ))
             }
+        }
+        drop(st);
+        if let Some(id) = until_back {
+            inner
+                .questions()
+                .grant_until_back(&id, &phone.device, &dev.name)
+                .map_err(|why| refused(phone_gate::BAD_REQUEST, why))?;
+            lock(&inner.state)
+                .until_back
+                .insert((phone.device.clone(), phone.session.clone()), id);
         }
         // a message's attachments are this phone's own finished uploads, by id, as the paths chat.send takes (PHN-127)
         if method == "chat.send" {
@@ -819,12 +865,25 @@ impl PhoneGate for Gate {
         let inner = &self.0;
         let class = classes::phone_method(method).map_or(Class::Never, |r| r.class);
         let mut result = result;
+        // decision: GATE-615 — the "until I'm back" given with an answer that was not taken is taken back, unsaid
+        if method == "chat.approve" {
+            let given = lock(&inner.state)
+                .until_back
+                .remove(&(phone.device.clone(), phone.session.clone()));
+            if given.is_some() && result.is_err() {
+                inner
+                    .questions()
+                    .end_until_back(super::UNTIL_BACK_ANSWER_FAILED, Some(&phone.device));
+            }
+        }
         if let Ok(out) = &mut result {
             if method == "chat.status" {
                 if let Ok(dev) = inner.live(&phone.device) {
                     let mut st = lock(&inner.state);
                     *out = st.status_for(inner, &dev, phone, std::mem::take(out));
                 }
+                // decision: GATE-615 — the phone shows "FERB may use your Mac's screen until you're back", with its end
+                out.insert("screen_use".into(), inner.questions().screen_use_status());
             }
             if classes::phone_method(method).is_some_and(|r| r.on_mac_screen) {
                 self.prompt_opened(method, out);

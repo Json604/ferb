@@ -10,12 +10,8 @@ public enum Gate: Sendable { case starting, failed, noScreenLock, locked, pair, 
 /// Why the pairing screen shows again (or nil on a first run).
 public enum PairReason: Sendable { case wiped, removed, keys }
 
-/// What the phone can't do yet (nothing on the Mac's side carries it): the screen says so plainly and fakes nothing.
-public enum Feature: Sendable {
-    case voice
-    public var wordsKey: String { "feature_voice" }
-    public var textKey: String { "not_yet_voice" }
-}
+/// What pressing the microphone needs from the screen: nothing more, or iOS's microphone and speech questions.
+public enum VoicePress: Sendable { case done, askMicrophone }
 
 /// What slides up over the page. Only ids are kept (nothing saved holds question words, and never a private value).
 public enum AppSheet: Equatable, Sendable {
@@ -23,7 +19,8 @@ public enum AppSheet: Equatable, Sendable {
     case relay, profile, forget, typeCode, scan, ownRelay, notifications, help, stopAll, settings
     case days(key: String)
     case live(taskId: String)
-    case notYet(Feature)
+    /// The words before the owner's first use of speaking to FERB, for this phone's kind of recognition (PHN-604).
+    case voice(SpeechKind)
     /// The Mac asks for this phone's exact location once, for a task (GATE-613); the owner says yes or no here.
     case location(requestId: String)
     /// The words before iOS's own question, when the owner turns on sharing the city (SENSE-420).
@@ -210,6 +207,13 @@ public final class AppModel {
     @ObservationIgnored private let locator: Locator?
     @ObservationIgnored private let coarse: () -> Coarse?
     @ObservationIgnored private let locationAnswered: () -> Void
+    @ObservationIgnored private let voice: VoiceInput?
+    @ObservationIgnored private let micAllowed: () -> Bool
+    @ObservationIgnored private var dictation: Dictation?
+    @ObservationIgnored private var spokenOnto = ""
+    @ObservationIgnored private var pressedAt = Date.distantPast
+    /// The owner holds the microphone and FERB is listening (PHN-603).
+    public private(set) var listening = false
     @ObservationIgnored private let box = PromptBox()
     @ObservationIgnored private let unlocker: Unlocker
     @ObservationIgnored private var follows: [AnyObject] = []
@@ -256,7 +260,8 @@ public final class AppModel {
     public init(api: PhoneApi, session: Session, prefs: Prefs, local: LocalFiles,
                 screenLock: @escaping () -> Bool = { Biometry.screenLockSet }, corpus: Corpus? = .bundled,
                 saved: SavedState = SavedState(), now: @escaping () -> Date = Date.init, locator: Locator? = nil,
-                coarse: @escaping () -> Coarse? = { nil }, locationAnswered: @escaping () -> Void = {}) {
+                coarse: @escaping () -> Coarse? = { nil }, locationAnswered: @escaping () -> Void = {},
+                voice: VoiceInput? = nil, micAllowed: @escaping () -> Bool = { false }) {
         self.api = api
         self.session = session
         self.prefs = prefs
@@ -267,6 +272,8 @@ public final class AppModel {
         self.locator = locator
         self.coarse = coarse
         self.locationAnswered = locationAnswered
+        self.voice = voice
+        self.micAllowed = micAllowed
         tab = Self.tab(named: saved.tab)
         home = saved.home
         draft = saved.draft
@@ -338,6 +345,7 @@ public final class AppModel {
                 }
             } else {
                 // PHN-15: nothing private stays open; the preview stops, the fetched files go
+                stopListening()
                 live.stop()
                 switch sheet {
                 case .live, .settings, .days, .location: sheet = nil
@@ -354,6 +362,7 @@ public final class AppModel {
             if !front {
                 // leaving the app: what finished so far has been seen; the preview stops (PHN-454)
                 markSeen()
+                stopListening()
                 if live.showing { closeLive() }
             } else {
                 transfers.dropKeyPlaceFiles(openedKeyFiles)
@@ -673,9 +682,92 @@ public final class AppModel {
     // ---- chat -----------------------------------------------------------------------------------------------------
 
     public func typed(_ text: String) {
+        dictation?.cancel()
         draft = text
         if !text.isEmpty { home = false }
     }
+
+    // ---- speaking to FERB (kb PHN-603..PHN-605) ---------------------------------------------------------------------
+
+    /// A press shorter than this that heard nothing is a tap: FERB says to hold the microphone instead.
+    public static let tapTime: TimeInterval = 0.35
+
+    /// What was in the message box, then the spoken words (one space between).
+    public static func joinSpoken(_ before: String, _ said: String) -> String {
+        if said.trimmingCharacters(in: .whitespaces).isEmpty { return before }
+        if before.trimmingCharacters(in: .whitespaces).isEmpty { return said }
+        return String(before.reversed().drop(while: { $0.isWhitespace }).reversed()) + " " + said
+    }
+
+    /// The owner pressed the microphone. Before the first use of this phone's kind of recognition FERB says what happens
+    /// to his voice (`.voice`), then iOS asks for the microphone and speech recognition; with both, FERB listens while
+    /// he holds, and the words go into the message box after what is there. Nothing is recorded, stored or sent to the
+    /// Mac; the words are never sent by themselves.
+    @discardableResult
+    public func voicePress() -> VoicePress {
+        if dictation != nil || ui.gate != .main || session.locked { return .done }
+        guard let input = voice, input.kind() != .none else { note(Note("voice_unavailable")); return .done }
+        let kind = input.kind()
+        if !prefs.voiceTold.contains(kind.rawValue) { show(.voice(kind)); return .done }
+        if !micAllowed() { return .askMicrophone }
+        pressedAt = now()
+        spokenOnto = draft
+        listening = true
+        home = false
+        let d = Dictation(input: input, kind: kind, words: { [weak self] said in
+            guard let self else { return }
+            self.draft = Self.joinSpoken(self.spokenOnto, said)
+        }, ended: { [weak self] end in self?.voiceEnded(end) }, later: { seconds, block in
+            let task = Task { @MainActor in
+                try? await Task.sleep(for: .seconds(seconds))
+                if !Task.isCancelled { block() }
+            }
+            return { task.cancel() }
+        })
+        dictation = d
+        d.start()
+        return .done
+    }
+
+    /// The owner let go: the last words come, then they stay in the message box. A quick tap says to hold instead.
+    public func voiceRelease() {
+        guard let d = dictation else { return }
+        if now().timeIntervalSince(pressedAt) < Self.tapTime && d.text.isEmpty {
+            d.cancel()
+            note(Note("voice_hold"))
+            return
+        }
+        d.finish()
+    }
+
+    /// The owner read the words on `.voice` and goes on: iOS's questions next, if they aren't answered.
+    public func voiceTold(_ kind: SpeechKind) {
+        prefs.voiceTold.insert(kind.rawValue)
+        if case .voice = sheet { sheet = nil }
+    }
+
+    /// iOS's answer to the microphone and speech questions.
+    public func microphoneAnswered(_ granted: Bool) { note(Note(granted ? "voice_ready" : "voice_denied")) }
+
+    private func voiceEnded(_ end: Dictation.End) {
+        dictation = nil
+        listening = false
+        switch end {
+        case .words(let text):
+            draft = Self.joinSpoken(spokenOnto, text)
+        case .failed(let languageMissing, _):
+            draft = spokenOnto
+            // no on-device speech for this language: Apple's service next time, after its words
+            if languageMissing, let next = voice?.kind(), next == .service, !prefs.voiceTold.contains(next.rawValue) {
+                show(.voice(next))
+            } else {
+                note(Note("voice_failed"))
+            }
+        }
+    }
+
+    /// Leaving the app or the lock: the microphone stops at once, and what was said stays in the box.
+    private func stopListening() { dictation?.cancel() }
 
     /// Sends through the outbox (PHN-401): with the Mac off it waits there, visible and cancellable. Files go with it.
     @discardableResult
@@ -722,6 +814,21 @@ public final class AppModel {
         }
     }
 
+    /// "Ask me again" (PHN-611): FERB stops using the Mac's screen without asking; the line goes. When it ends on the
+    /// Mac (the owner came back, the Mac slept) the status says so too; no notification.
+    @discardableResult
+    public func endScreenUse() -> Task<Void, Never> {
+        busy("screen-use") { [self] in
+            switch await api.endScreenUse() {
+            case .ok(let end):
+                ui.status?.screenUse = end.screenUse
+                note(Note("screen_use_ended"))
+            case .failed(let e):
+                failed(e)
+            }
+        }
+    }
+
     /// "Stop everything on the Mac" (DMN-1, PHN-125): after the owner's confirmation; no prompt, never queued.
     @discardableResult
     public func stopEverything() -> Task<Void, Never> {
@@ -764,7 +871,10 @@ public final class AppModel {
             default: declines = false
             }
             var upfront: KeyKind?
-            if let q, q.needsProof, !declines { upfront = q.needs?.fingerprint == true ? .strong : .lock }
+            // "until I'm back" needs the app's unlock (the locked path unlocks and tries once more), never Face ID
+            let untilBack: Bool
+            if case .untilBack = input { untilBack = true } else { untilBack = false }
+            if let q, q.needsProof, !declines, !untilBack { upfront = q.needs?.fingerprint == true ? .strong : .lock }
             let flow = AnswerFlow(api: api, keys: { [api] in api.state.keys }, signer: { kind in p.signer(kind, why: .yes) })
             answered(approvalId, await flow.answer(approvalId, input, upfront: upfront))
         }
@@ -856,6 +966,23 @@ public final class AppModel {
         }
     }
 
+    /// The next page of matches, added under the ones shown (PHN-609: 500 a page, as many pages as the owner asks for).
+    @discardableResult
+    public func searchMore() -> Task<Void, Never>? {
+        guard let s = ui.files.search, let next = s.found?.next else { return nil }
+        return busy("more") { [self] in
+            let r = await unlocker.run { await api.searchFiles(query: s.query, path: s.path, after: next) }
+            guard var now = ui.files.search, now.query == s.query, now.path == s.path, now.found?.next == next, let had = now.found else { return }
+            switch r {
+            case .ok(var page):
+                page.files = had.files + page.files
+                now.found = page
+            case .failed(let e): now.problem = Self.errorNote(e)
+            }
+            ui.files.search = now
+        }
+    }
+
     public func closeSearch() { ui.files.search = nil }
 
     /// A found or recent file: a folder opens in the browser (the search closes), a file is fetched as from a folder.
@@ -914,6 +1041,23 @@ public final class AppModel {
             ui.files.loading = nil
             switch r {
             case .ok(let f): ui.files.folder = f
+            case .failed(let e): ui.files.problem = filesNote(e)
+            }
+        }
+    }
+
+    /// The open folder's next page, added under the entries shown (PHN-609: 500 a page, as many pages as the owner
+    /// asks for); a key place's folder asks for Face ID / Touch ID for its path again, as opening it did (PHN-121).
+    @discardableResult
+    public func folderMore() -> Task<Void, Never>? {
+        guard let f = ui.files.folder, let next = f.next else { return nil }
+        return busy("more") { [self] in
+            let r = await unlocker.withProof(f.locked, .file) { signer in await api.files(path: f.path, signer: signer, after: next) }
+            guard let now = ui.files.folder, now.path == f.path, now.next == next else { return }
+            switch r {
+            case .ok(var page):
+                page.entries = now.entries + page.entries
+                ui.files.folder = page
             case .failed(let e): ui.files.problem = filesNote(e)
             }
         }

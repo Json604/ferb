@@ -14,10 +14,13 @@ use std::sync::{Arc, Mutex};
 
 use base64::Engine;
 use ferb_core::interfaces::Clock;
-use ferb_daemon::phone::files::{FileLimits, FileSeams, Judge, PHONE_KEY_PLACES};
+use ferb_daemon::phone::files::{
+    FileLimits, FileSeams, Judge, PHONE_KEY_PLACES, UPLOAD_PARTIAL_KEEP_S,
+};
 use ferb_policy::ppath::PosixFiles;
 use ferb_policy::protection::{self, Lists, Protection};
 use ferb_rpc::phone_gate as code;
+use ferb_rpc::wire;
 use p256::ecdsa::SigningKey;
 use phone_support::*;
 use serde_json::{json, Value};
@@ -1419,12 +1422,13 @@ async fn the_disk_keeps_its_floor() {
         .is_ok());
 }
 
-/// A paused upload is kept one hour (PHN-139), then goes; the part files a daemon before this one left are swept by
-/// their age; a session's end pauses what it had under way.
-// decision: PHN-139
+/// A paused upload is kept 7 days (PHN-582: the owner asked why not longer; the number awaits his word), then goes;
+/// the part files a daemon before this one left are swept by their age; a session's end pauses what it had under way.
+// decision: PHN-582
+// decision: PHN-583
 // decision: PHN-484
 #[tokio::test]
-async fn a_paused_upload_is_kept_one_hour_then_goes() {
+async fn a_paused_upload_is_kept_seven_days_then_goes() {
     let f = plain_fx().await;
     std::fs::create_dir_all(&f.inbox).unwrap();
     let old = f.inbox.join(".left-by-another.ferb-part");
@@ -1437,7 +1441,7 @@ async fn a_paused_upload_is_kept_one_hour_then_goes() {
         .write(true)
         .open(&old)
         .unwrap()
-        .set_modified(when(wall - 7200))
+        .set_modified(when(wall - 8 * 86_400))
         .unwrap();
     std::fs::File::options()
         .write(true)
@@ -1457,7 +1461,7 @@ async fn a_paused_upload_is_kept_one_hour_then_goes() {
     // the link went: the session's end pauses it
     c.ok("phone.session_end", json!({})).await;
     let mut c = f.open("s2").await;
-    f.w.clock.advance(3599.0);
+    f.w.clock.advance(UPLOAD_PARTIAL_KEEP_S - 1.0);
     c.unlock(&f.keys).await;
     let resumed = c
         .call(
@@ -1470,7 +1474,7 @@ async fn a_paused_upload_is_kept_one_hour_then_goes() {
     assert_eq!(resumed["offset"], 3);
     c.ok("phone.put_end", json!({"upload_id": id, "abort": true}))
         .await;
-    f.w.clock.advance(3601.0);
+    f.w.clock.advance(UPLOAD_PARTIAL_KEEP_S + 1.0);
     c.unlock(&f.keys).await;
     upload(&mut c, json!({"name": "q"}), b"q").await.unwrap();
     assert_eq!(
@@ -1792,4 +1796,174 @@ async fn a_name_search_never_looks_inside_key_places_and_says_when_it_stops() {
         .call("phone.search", json!({"query": "  "}), None)
         .await
         .is_err());
+}
+
+/// PHN-580, PHN-581 (owner 2026-11-17: "just mention thta its in there and also be changeable in Settings"): every
+/// upload's reply and `phone.list` say plainly where files land; the Mac changes the folder (`phone.upload_folder`), a
+/// phone never; FERB's own data, a protected or key place, a file or a missing folder is refused; Reset goes back.
+// decision: PHN-580
+// decision: PHN-581
+#[tokio::test]
+async fn where_files_from_the_phone_land_is_said_and_changed_only_on_the_mac() {
+    let f = plain_fx().await;
+    let kept: Arc<Mutex<Vec<Option<String>>>> = Arc::new(Mutex::new(Vec::new()));
+    let k = kept.clone();
+    f.w.phones.set_upload_place(
+        f.inbox.clone(),
+        Arc::new(move |p: Option<&str>| {
+            k.lock().unwrap().push(p.map(str::to_owned));
+            Ok(())
+        }),
+    );
+    let mut c = f.open("s1").await;
+    let up = upload(&mut c, json!({"name": "a.txt"}), b"A")
+        .await
+        .unwrap();
+    assert_eq!(up["saved_in"], "Downloads \u{203a} FERB from phone");
+    let listed = c.ok("phone.list", json!({})).await;
+    assert_eq!(
+        listed["upload_folder"]["shown"],
+        "Downloads \u{203a} FERB from phone"
+    );
+    assert_eq!(listed["upload_folder"]["default"], true);
+    // a phone may read it, never change it
+    assert_eq!(
+        c.call("phone.upload_folder", json!({"path": "~/Documents"}), None)
+            .await
+            .unwrap_err()
+            .0,
+        wire::UNAUTHORIZED
+    );
+    // the Mac's choice is judged first
+    std::fs::create_dir_all(f.home.join("Inbox")).unwrap();
+    std::fs::write(f.home.join("a-file"), b"x").unwrap();
+    let choose = |path: &str| {
+        let mut p = serde_json::Map::new();
+        p.insert("path".into(), json!(path));
+        f.w.phones.upload_folder(&p)
+    };
+    for bad in ["~/.ferb", "~/.ssh", "~/a-file", "~/not-there", "relative/x"] {
+        assert!(choose(bad).is_err(), "{bad}");
+    }
+    assert!(kept.lock().unwrap().is_empty());
+    let chosen = choose("~/Inbox").unwrap();
+    assert_eq!(chosen["upload_folder"]["shown"], "Inbox");
+    assert_eq!(chosen["upload_folder"]["default"], false);
+    let up = upload(&mut c, json!({"name": "b.txt"}), b"B")
+        .await
+        .unwrap();
+    assert_eq!(up["saved_in"], "Inbox");
+    assert!(PathBuf::from(up["saved"].as_str().unwrap())
+        .starts_with(std::fs::canonicalize(f.home.join("Inbox")).unwrap()));
+    // Reset goes back to Downloads › FERB from phone
+    let mut p = serde_json::Map::new();
+    p.insert("reset".into(), json!(true));
+    let back = f.w.phones.upload_folder(&p).unwrap();
+    assert_eq!(back["upload_folder"]["default"], true);
+    assert_eq!(kept.lock().unwrap().len(), 2);
+    assert_eq!(kept.lock().unwrap()[1], None);
+}
+
+/// PHN-609, PHN-588, PHN-589 (owner 2026-11-17: "yes ofc load more. lets them see how much they want but in a controlled fetch
+/// limit ofc"): a listing and a search come a page of `list_max` at a time in a stable order, each with a marker for
+/// the next; the marker works only for the same phone, folder and query; the last page has none.
+// decision: PHN-588
+// decision: PHN-589
+// decision: PHN-609
+#[tokio::test]
+async fn a_listing_and_a_search_load_more_a_page_at_a_time() {
+    let limits = FileLimits {
+        list_max: 2,
+        ..FileLimits::default()
+    };
+    let f = fx(true, None, Vec::new(), limits).await;
+    let dir = f.home.join("pages");
+    std::fs::create_dir_all(dir.join("b-folder")).unwrap();
+    for n in ["c.txt", "A.txt", "d-note.txt", "e-note.txt", "f-note.txt"] {
+        std::fs::write(dir.join(n), b"x").unwrap();
+    }
+    let mut c = f.open("s1").await;
+    let path = f.s("pages");
+    let mut names = Vec::new();
+    let mut after = Value::Null;
+    let mut pages = 0;
+    loop {
+        let r = c
+            .ok("phone.files", json!({"path": path, "after": after}))
+            .await;
+        pages += 1;
+        assert_eq!(r["total"], 6);
+        for e in r["entries"].as_array().unwrap() {
+            names.push(e["name"].as_str().unwrap().to_owned());
+        }
+        if r["next"].is_null() {
+            assert_eq!(r["cut"], false);
+            break;
+        }
+        assert_eq!(r["cut"], true);
+        after = r["next"].clone();
+    }
+    assert_eq!(pages, 3);
+    assert_eq!(
+        names,
+        [
+            "b-folder",
+            "A.txt",
+            "c.txt",
+            "d-note.txt",
+            "e-note.txt",
+            "f-note.txt"
+        ],
+        "folders first, then names, each once"
+    );
+    // a marker is good only for the folder it came from, and for this phone
+    let first = c.ok("phone.files", json!({"path": path})).await;
+    let marker = first["next"].clone();
+    assert_eq!(
+        c.call(
+            "phone.files",
+            json!({"path": f.s("docs"), "after": marker}),
+            None
+        )
+        .await
+        .unwrap_err()
+        .0,
+        code::BAD_REQUEST
+    );
+    assert_eq!(
+        c.call(
+            "phone.files",
+            json!({"path": path, "after": "1.forged"}),
+            None
+        )
+        .await
+        .unwrap_err()
+        .0,
+        code::BAD_REQUEST
+    );
+    // a search pages the same way, bound to its query
+    let s1 = c
+        .ok("phone.search", json!({"query": "note", "path": path}))
+        .await;
+    assert_eq!(s1["files"].as_array().unwrap().len(), 2);
+    let s2 = c
+        .ok(
+            "phone.search",
+            json!({"query": "note", "path": path, "after": s1["next"]}),
+        )
+        .await;
+    assert!(s1["next"].is_string() && s2["next"].is_null(), "{s1} {s2}");
+    assert_eq!(s2["files"][0]["name"], "f-note.txt");
+    assert_eq!(s2["files"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        c.call(
+            "phone.search",
+            json!({"query": "txt", "path": path, "after": s1["next"]}),
+            None
+        )
+        .await
+        .unwrap_err()
+        .0,
+        code::BAD_REQUEST
+    );
 }

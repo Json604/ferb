@@ -40,6 +40,10 @@ struct ChatInput: NSViewRepresentable {
             guard let model, let view else { return }
             model.pasteProvenance.paste(text, over: selection, in: view.string)
         }
+        // Files and pictures on the clipboard attach as a drop does; a long text is held as a chip (APP-933, APP-935).
+        view.pasteFiles = { [weak model] urls in model?.dropFiles(urls) ?? false }
+        view.pasteImage = { [weak model] png in model?.pasteImage(png) ?? false }
+        view.holdPaste = { [weak model] text, location in model?.holdPaste(text, at: location) }
         view.setAccessibilityLabel("Your message")
     }
 
@@ -149,12 +153,35 @@ final class ChatTextView: NSTextView {
         }
         return super.performKeyEquivalent(with: event)
     }
+    /// Files copied in Finder: attached as dropped files (false: FERB can't take files now, and the text pastes).
+    var pasteFiles: (([URL]) -> Bool)?
+    /// A copied picture with no file, as PNG data: attached as a file FERB writes (false: as `pasteFiles`).
+    var pasteImage: ((Data) -> Bool)?
+    /// A long text (LongPaste) held as a chip at this place of the field instead of filling it.
+    var holdPaste: ((String, Int) -> Void)?
     override func paste(_ sender: Any?) {
+        guard isEditable else { return }
+        // Files win over the names Finder puts beside them; a picture with no file is attached (APP-933).
+        switch ComposerPaste.content(pasteboard) {
+        case .files:
+            let urls = ComposerPaste.files(pasteboard)
+            if !urls.isEmpty, pasteFiles?(urls) == true { return }
+        case .image:
+            if let png = ComposerPaste.png(pasteboard), pasteImage?(png) == true { return }
+        case .text, .nothing:
+            break
+        }
         // Bracketed-paste markers copied out of a terminal never enter the draft (APP-713): clean-up only.
-        guard isEditable, let copied = pasteboard.string(forType: .string) else { return }
+        guard let copied = pasteboard.string(forType: .string) else { return }
         let text = PasteMarkers.removed(from: copied)
         guard !text.isEmpty else { return }
         let selection = selectedRange()
+        if LongPaste.isLong(text), let holdPaste {
+            // As a paste in the field would, it replaces the selection; the removal is the owner's own edit.
+            if selection.length > 0 { insertText("", replacementRange: selection) }
+            holdPaste(text, selection.location)
+            return
+        }
         didPaste?(text, selection)
         isPasting = true
         defer { isPasting = false }
@@ -164,7 +191,13 @@ final class ChatTextView: NSTextView {
     // dragged text still goes into the field as AppKit inserts it.
     weak var drops: FileDropSession?
     private func fileDrag(_ sender: NSDraggingInfo) -> FileDropSession? {
-        sender.draggingPasteboard.types?.contains(.fileURL) == true ? drops : nil
+        FileDropSession.takes(sender.draggingPasteboard) ? drops : nil
+    }
+    /// A promised file or a picture dragged over the field reaches it too (APP-931); text still inserts.
+    override var acceptableDragTypes: [NSPasteboard.PasteboardType] {
+        var types = super.acceptableDragTypes
+        for type in FileDropSession.dragTypes where !types.contains(type) { types.append(type) }
+        return types
     }
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
         if let drops = fileDrag(sender) { return drops.entered(.composer, sender.draggingPasteboard) }

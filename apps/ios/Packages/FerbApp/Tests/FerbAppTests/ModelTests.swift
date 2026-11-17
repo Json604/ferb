@@ -76,6 +76,17 @@ final class QuestionTests: XCTestCase {
         XCTAssertTrue(q([]).choices.isEmpty)
         XCTAssertTrue(q(["Yes", "No"], kind: "owner_login_code").choices.isEmpty, "a private answer has no buttons")
     }
+
+    /// An option the Mac adds after Yes and No (its own number) is offered under them; No stays a plain No.
+    // decision: PHN-607
+    func testAnExtraOptionAfterYesAndNoKeepsTheSheetAndItsOwnNumber() {
+        let question = q(["Yes", "No", "Until I'm back"], labels: ["Allow", "Don't", "Until I'm back at my Mac"])
+        XCTAssertTrue(question.yesNo)
+        XCTAssertEqual(question.choices.map(\.label), ["Don't", "Allow", "Until I'm back at my Mac"])
+        XCTAssertEqual(question.choices.map(\.input), [.approve(granted: false, choice: nil), .approve(granted: true, choice: 1),
+                                                       .approve(granted: true, choice: 3)])
+        XCTAssertFalse(q(["Use Codex", "Use Claude", "Stop"]).yesNo)
+    }
 }
 
 @MainActor
@@ -205,5 +216,20 @@ final class WordsTests: XCTestCase {
         XCTAssertTrue(Corpus.holds("awayHours", ">=168", 200.0))
         XCTAssertTrue(Corpus.holds("phase", ["dawn", "sunrise"], "dawn"))
         XCTAssertNil(rig.model(corpus: nil).homeWords(sky(10)), "no corpus: no words")
+    }
+}
+
+final class MacSettingsTests: XCTestCase {
+    /// Jev is gone for good: an older Mac that still sends its day count gets no row, and no word of the app names it.
+    // decision: PHN-596
+    func testJevIsNeverShownEvenWhenAnOlderMacSendsIt() throws {
+        let rows = MacSettings.rows([SettingValue(key: "retention.trace_days", valueJson: "14"),
+                                     SettingValue(key: "retention.decision_days", valueJson: "30")])
+        XCTAssertEqual(rows.map(\.spec.key), ["retention.trace_days"])
+        XCTAssertNil(MacSettings.spec("retention.decision_days"))
+        let catalog = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/FerbAppModel/Resources/Localizable.xcstrings")
+        let words = try String(contentsOf: catalog, encoding: .utf8)
+        XCTAssertNil(words.range(of: "jev", options: .caseInsensitive), "the catalog names Jev")
     }
 }

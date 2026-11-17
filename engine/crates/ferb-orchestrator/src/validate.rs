@@ -35,6 +35,7 @@ const CHECK_KINDS: &[&str] = &[
     "trashed",
     "deleted",
     "downloaded",
+    "uploaded",
 ];
 
 fn req(name: &'static str, t: T) -> Field {

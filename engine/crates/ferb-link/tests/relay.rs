@@ -1264,7 +1264,10 @@ async fn a_change_of_the_relay_never_strands_a_phone() {
     let w = World::start(Shared::Custom(vec![shared.spec()]), None, true).await;
     w.limits_set(&json!({"redial_steps_s": [1, 1, 2], "dial_deadline_s": 3}))
         .unwrap();
-    let waiting = || w.bridge.status()["relay_handover"].clone();
+    let waiting = || {
+        let h = w.bridge.status()["relay_handover"].clone();
+        json!({"phones_waiting": h["phones_waiting"], "on_shared_relays": h["on_shared_relays"]})
+    };
     let p = w.paired_phone("phone").await;
     assert_eq!(p.tier(), "shared_relay");
     assert_eq!(

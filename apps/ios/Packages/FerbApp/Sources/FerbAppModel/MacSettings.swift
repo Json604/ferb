@@ -37,7 +37,8 @@ public struct MacSettingRow: Equatable, Sendable {
 /// FERB's settings on the phone (PHN-404, PHN-112): what FERB.app's Privacy page shows, in its order. The switch and
 /// the day counts change from here, each change signed after one Face ID / Touch ID (PHN-133); the two lists are shown
 /// and changed in FERB on the Mac (their editor is the Mac's). browsing.owner_profile is not shown: it names a browser
-/// profile only the Mac can pick. (Android: model/MacSettings.kt.)
+/// profile only the Mac can pick. Jev's decisions (retention.decision_days) are never shown, even when an older Mac still
+/// sends them: the owner removed Jev, now and in future (kb PHN-596). (Android: model/MacSettings.kt.)
 public enum MacSettings {
     public static let specs: [SettingSpec] = [
         SettingSpec(key: "sense.window_titles", titleKey: "set_window_titles", kind: .toggle),
@@ -45,7 +46,6 @@ public enum MacSettings {
         SettingSpec(key: "privacy.exclude_domains", titleKey: "set_exclude_domains", kind: .list),
         SettingSpec(key: "sense.trail_retention_days", titleKey: "set_trail_days", kind: .days),
         SettingSpec(key: "retention.trace_days", titleKey: "set_trace_days", kind: .days),
-        SettingSpec(key: "retention.decision_days", titleKey: "set_decision_days", kind: .days),
         SettingSpec(key: "retention.evidence_days", titleKey: "set_evidence_days", kind: .days),
         SettingSpec(key: "retention.recovery_days", titleKey: "set_recovery_days", kind: .days),
         SettingSpec(key: "retention.resource_days", titleKey: "set_resource_days", kind: .days),

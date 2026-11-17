@@ -74,6 +74,7 @@ fn every_method_of_the_engine_has_exactly_one_phone_class() {
 // decision: PHN-111
 // decision: PHN-117
 // decision: PHN-466
+// decision: PHN-581
 #[test]
 fn the_phone_reaches_everything_but_the_never_rows() {
     let never = names(|row| row.class == Class::Never);
@@ -102,6 +103,7 @@ fn the_phone_reaches_everything_but_the_never_rows() {
             "phone.relay_set",
             "phone.relay_test",
             "phone.rename",
+            "phone.upload_folder",
             "setup.uninstall_browser_files",
             "tools.call",
             "tools.list",
@@ -172,6 +174,7 @@ fn the_six_on_the_mac_s_screen_are_sensitive_and_marked() {
 
 /// A connection the Mac has not seen unlocked reaches only status, Stop and answers that prove themselves.
 // decision: PHN-125
+// decision: GATE-615
 #[test]
 fn a_locked_phone_reaches_only_status_stop_and_self_proving_answers() {
     let mut allowed_locked = set(&["chat.status", "ping", "stop.engage", "task.stop"]);
@@ -182,6 +185,8 @@ fn a_locked_phone_reaches_only_status_stop_and_self_proving_answers() {
     // and the phone's own device record, which gives the phone nothing of FERB's; the daemon takes it while locked only
     // from a connection that proved the phone's device key (T-1214, PHN-126)
     allowed_locked.extend(["phone.device_report"]);
+    // and "until I'm back at my Mac": what is in force and its end, which only takes something away (GATE-615)
+    allowed_locked.extend(["screen_use.end", "screen_use.status"]);
     assert_eq!(names(|row| row.locked == Locked::Allowed), allowed_locked);
     assert_eq!(
         names(|row| row.locked == Locked::Answer),

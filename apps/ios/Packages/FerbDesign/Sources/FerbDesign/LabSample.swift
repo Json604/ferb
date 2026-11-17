@@ -139,8 +139,13 @@ public enum LabSample {
                                                   ("Golden hour", 16.6), ("Sunset", 17.4), ("Dusk", 17.9), ("Night", 22.5)]
 }
 
-/// MobileScreens.swift SkyNow.sunLine's time left, exactly as the lab writes it: "45 min", "5 h 0 min", "2 h 12 min".
-public func labMinutesLeft(_ left: Int) -> String { left >= 60 ? "\(left / 60) h \(left % 60) min" : "\(left) min" }
+/// MobileScreens.swift SkyNow.sunLine's time left: "45 min", "2 h 12 min", and whole hours without the zero minutes
+/// ("5 h", where the lab wrote "5 h 0 min"): the owner's choice, kb PHN-595. The design's spacing is kept. Android's
+/// twin is :design's labMinutesLeft; both are held to apps/android/design/src/test/resources/words/time-left.json.
+public func labMinutesLeft(_ left: Int) -> String {
+    if left < 60 { return "\(left) min" }
+    return left % 60 == 0 ? "\(left / 60) h" : "\(left / 60) h \(left % 60) min"
+}
 
 public extension HomeTexts {
     /// SkyNow.greeting and sunLine: the lab's stand-in words for the home screen (the app's own come from the corpus:

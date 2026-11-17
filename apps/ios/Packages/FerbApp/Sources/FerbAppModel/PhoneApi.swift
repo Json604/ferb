@@ -34,12 +34,16 @@ public protocol PhoneApi: AnyObject {
     func stopEverything() async -> Outcome<Void>
     /// What FERB has waiting, read now (network), and the last one pushed or read (memory).
     func status() async -> Outcome<PhoneStatus>
+    /// "Until I'm back at my Mac" (PHN-610, PHN-611): whether FERB may use the Mac's screen without asking now, and the
+    /// owner's "Ask me again" from the phone (both plain, allowed while locked).
+    func screenUse() async -> Outcome<ScreenUse>
+    func endScreenUse() async -> Outcome<ScreenUseEnd>
     func lastStatus() -> PhoneStatus?
     func markReadLatest(conversation: String) async -> Outcome<Void>
     func sendWith(_ text: String, attachments: [Attachment]) async -> Outcome<OutboxItem>
 
     // files (PHN-113, PHN-115, PHN-127): a paused transfer ends with `Cancelled`
-    func files(path: String?, signer: Signer?) async -> Outcome<Folder>
+    func files(path: String?, signer: Signer?, after: String?) async -> Outcome<Folder>
     func fetch(id: String, path: String, saveTo: String, offset: UInt64, signer: Signer?, listener: TransferListener) async -> Outcome<Fetched>
     func upload(id: String, localPath: String, name: String, resume: String?, group: String?, rel: String?,
                 listener: TransferListener) async -> Outcome<Uploaded>
@@ -52,7 +56,7 @@ public protocol PhoneApi: AnyObject {
     func fetchTaskFile(id: String, taskId: String, index: UInt64, saveTo: String, listener: TransferListener) async -> Outcome<Fetched>
     /// The Mac's recent files for this phone and a search of names (both need the Mac's unlock).
     func recentFiles(limit: Int) async -> Outcome<RecentFiles>
-    func searchFiles(query: String, path: String?) async -> Outcome<FoundFiles>
+    func searchFiles(query: String, path: String?, after: String?) async -> Outcome<FoundFiles>
 
     /// The phone's own facts (T-1214, SENSE-420): sent when changed and on each new connection; memory only.
     func reportDevice(_ report: DeviceReport) async -> Outcome<Bool>
@@ -73,6 +77,12 @@ public protocol PhoneApi: AnyObject {
     /// (PHN-133).
     func unregisteredKeys() async -> PublicKeys?
     func registerKeys(_ signer: @escaping @Sendable (KeyKind) -> Signer) async -> Outcome<Bool>
+}
+
+/// Listings and searches a page at a time (kb PHN-606): `after` is the page before's `next` ("Load more").
+public extension PhoneApi {
+    func files(path: String?, signer: Signer?) async -> Outcome<Folder> { await files(path: path, signer: signer, after: nil) }
+    func searchFiles(query: String, path: String?) async -> Outcome<FoundFiles> { await searchFiles(query: query, path: path, after: nil) }
 }
 
 /// A live preview under way.
@@ -120,12 +130,14 @@ public final class LibraryPhone: PhoneApi {
     public func unlocked() async -> Outcome<Void> { await phone.unlocked() }
     public func stopEverything() async -> Outcome<Void> { await phone.stopEverything() }
     public func status() async -> Outcome<PhoneStatus> { await phone.call { try $0.status() } }
+    public func screenUse() async -> Outcome<ScreenUse> { await phone.call { try $0.screenUse() } }
+    public func endScreenUse() async -> Outcome<ScreenUseEnd> { await phone.call { try $0.endScreenUse() } }
     public func lastStatus() -> PhoneStatus? { phone.lastStatusNow() }
     public func markReadLatest(conversation: String) async -> Outcome<Void> { await phone.call { try $0.markReadLatest(conversation: conversation) } }
     public func sendWith(_ text: String, attachments: [Attachment]) async -> Outcome<OutboxItem> {
         await phone.call { try $0.sendWith(text: text, attachments: attachments) }
     }
-    public func files(path: String?, signer: Signer?) async -> Outcome<Folder> { await phone.call { try $0.files(path: path, signer: signer) } }
+    public func files(path: String?, signer: Signer?, after: String?) async -> Outcome<Folder> { await phone.call { try $0.files(path: path, signer: signer, after: after) } }
     public func fetch(id: String, path: String, saveTo: String, offset: UInt64, signer: Signer?, listener: TransferListener) async -> Outcome<Fetched> {
         await phone.call { try $0.fetch(id: id, path: path, saveTo: saveTo, offset: offset, signer: signer, listener: listener) }
     }
@@ -140,7 +152,7 @@ public final class LibraryPhone: PhoneApi {
         await phone.call { try $0.fetchTaskFile(id: id, taskId: taskId, index: index, saveTo: saveTo, listener: listener) }
     }
     public func recentFiles(limit: Int) async -> Outcome<RecentFiles> { await phone.call { try $0.recentFiles(limit: UInt32(limit)) } }
-    public func searchFiles(query: String, path: String?) async -> Outcome<FoundFiles> { await phone.call { try $0.searchFiles(query: query, path: path) } }
+    public func searchFiles(query: String, path: String?, after: String?) async -> Outcome<FoundFiles> { await phone.call { try $0.searchFiles(query: query, path: path, after: after) } }
     public func reportDevice(_ report: DeviceReport) async -> Outcome<Bool> { await phone.call { try $0.reportDevice(report: report) } }
     public func locationWanted() async -> Outcome<String?> { await phone.call { try $0.locationWanted() } }
     public func answerLocation(requestId: String, fix: LocationFix?, whyNot: String?) async -> Outcome<Void> {

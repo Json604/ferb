@@ -27,9 +27,10 @@ final class AppScreensTests: XCTestCase {
     }
 
     // decision: APP-728
+    // decision: APP-941
     func testTheAppGuideNamesWhereEverySettingLives() {
         let keys = ["privacy.exclude_apps", "privacy.exclude_domains", "sense.window_titles", "sense.trail_retention_days",
-                    "retention.trace_days", "retention.decision_days", "retention.evidence_days", "retention.recovery_days",
+                    "retention.trace_days", "retention.evidence_days", "retention.recovery_days",
                     "retention.resource_days", "retention.operational_days", "browsing.owner_profile"]
         XCTAssertEqual(Set(AppGuide.places.keys), Set(keys))
         let payload = AppGuide.payload(scratchDefaults())
@@ -112,7 +113,7 @@ final class AppScreensTests: XCTestCase {
                                  "shown": true])
         XCTAssertEqual(id?.isIdentifier, true)
         XCTAssertEqual(id?.shown, true)
-        XCTAssertEqual(id?.kindLabel, "ID, any site, the AI can see it")
+        XCTAssertEqual(id?.kindLabel, "ID, any site, FERB can read it")
         XCTAssertEqual(SavedSecretRow(["place": "https://a.example", "name": "pw", "kind": "secret"])?.isIdentifier, false)
     }
 

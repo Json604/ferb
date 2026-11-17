@@ -1,8 +1,7 @@
-//! APP-777, HAND-580: a task kept to some of the owner's profiles (the pick, when it browses as the owner there;
-//! the profiles the owner's words named for it) opens tabs and takes the owner's tabs only there. A profile the
-//! worker names that resolves elsewhere is refused before anything opens, with the profiles it may use and how the
-//! owner adds one; a task kept to none keeps naming any paired profile (HAND-2). Invented profiles; no browser,
-//! extension or store is reached.
+//! APP-777, HAND-580, HAND-644: a task's default profile is the owner's pick (when it browses as the owner there) or
+//! the profiles the owner's words named for it; a call that names any other of the owner's profiles goes there too
+//! (HAND-644, owner 2026-11-17: the pick is a default, never a fence). Invented profiles; no browser, extension or
+//! store is reached.
 
 mod common;
 
@@ -173,44 +172,25 @@ async fn take(d: &Driver, task: &str, tab_ref: &str) -> String {
     }
 }
 
-const ASK: &str = "Nothing was opened. Use one of those (or leave profile out). If the task really needs \
-     {p}, ask the owner with owner.ask, naming {p} in the question, with the options Yes and No: their Yes, or \
-     their words naming that profile in chat, adds it for this task only. Don't drive the browser's window with the \
-     Mac tools instead: its pages are the browser tools' (they work with the window minimized)";
-
-fn refusal(p: &str, list: &str, why: &str) -> String {
-    format!(
-        "{p} isn't one of this task's browser profiles: it may browse only in {list}, {why}. {}",
-        ASK.replace("{p}", p)
-    )
-}
-
 /// Not paired in this test: a call that reaches the profile's bridge says so.
 fn reached(b: &str, f: &str) -> String {
     format!("{b}/{f} isn't paired with FERB")
 }
 
 // decision: APP-777
-// decision: HAND-580
+// decision: HAND-644
 #[tokio::test]
-async fn a_task_browsing_in_the_owners_pick_never_opens_in_another_profile() {
+async fn a_task_browsing_in_the_owners_pick_opens_another_profile_when_a_call_names_it() {
     let d = router();
-    // Fixed against Python (ext_bridge.py:3016 Router.open_for took the named profile): refused, nothing opened.
-    let refused = open(&d, "picked.worker", Some("brave/Work")).await;
-    assert_eq!(
-        refused,
-        refusal(
-            "brave/Default",
-            "chrome/Profile 7 (Google Chrome “Profile 7”)",
-            "the profile the owner picked for FERB's web work (FERB has no browser profile of its own)"
-        )
-    );
+    // HAND-644: the pick is the default, not a fence: a named profile goes to its own bridge (none paired here)
+    let other = reached("brave", "Default");
+    assert_eq!(open(&d, "picked.worker", Some("brave/Work")).await, other);
     // its checker and its plan steps are the same tree
     assert_eq!(
         open(&d, "picked.step.search.verify", Some("brave/Work")).await,
-        refused
+        other
     );
-    // the pick, by its name or by no name, goes on to the pick's own bridge (none paired in this test)
+    // the pick, by its name or by no name, goes on to the pick's own bridge
     let to_pick = reached("chrome", "Profile 7");
     assert_eq!(
         open(&d, "picked.worker", Some("chrome/Personal")).await,
@@ -223,14 +203,18 @@ async fn a_task_browsing_in_the_owners_pick_never_opens_in_another_profile() {
         open(&d, "picked.worker", Some("nowhere")).await,
         "no profile called 'nowhere'"
     );
-    // the owner's own tab in another profile is refused the same way (browser.use_tab, as browser.open)
-    assert_eq!(take(&d, "picked.worker", "brave:Default:12").await, refused);
+    // the owner's own tab in another profile is reached the same way (browser.use_tab, as browser.open)
+    assert_eq!(
+        take(&d, "picked.worker", "brave:Default:12").await,
+        "that profile isn't one of the owner's paired profiles"
+    );
 }
 
 /// The live case (task 0abecb83, 2026-11-16): the owner's words named their IIT profile; a saved pick elsewhere
-/// doesn't narrow the task. The named profile opens, by name or with none; the pick and any other profile are
-/// refused with the list.
+/// doesn't narrow the task. The named profile opens, by name or with none; the pick and any other profile open
+/// when a call names them (HAND-644).
 // decision: HAND-580
+// decision: HAND-644
 #[tokio::test]
 async fn a_task_whose_words_named_a_profile_browses_there_whatever_the_pick() {
     let d = router();
@@ -245,29 +229,29 @@ async fn a_task_whose_words_named_a_profile_browses_there_whatever_the_pick() {
         iit,
         "no name: the one named"
     );
-    let list = "chrome/Profile 29 (Google Chrome “Profile 29”)";
-    let why = "the ones the owner's words named for it";
+    // HAND-644: another of the owner's profiles a call names is taken too
     assert_eq!(
         open(&d, "named.worker", Some("chrome/Personal")).await,
-        refusal("chrome/Profile 7", list, why),
-        "the general pick isn't this task's"
+        reached("chrome", "Profile 7")
     );
     assert_eq!(
         open(&d, "named.step.s.verify", Some("brave/Work")).await,
-        refusal("brave/Default", list, why)
+        reached("brave", "Default")
     );
-    // the owner's tab in the named profile is taken (none paired here: the bridge says so), elsewhere refused
+    // the owner's tab is taken wherever it is (none paired here: the bridge says so)
+    let unpaired = "that profile isn't one of the owner's paired profiles";
     assert_eq!(
         take(&d, "named.worker", "chrome:Profile 29:5").await,
-        "that profile isn't one of the owner's paired profiles"
+        unpaired
     );
     assert_eq!(
         take(&d, "named.worker", "chrome:Profile 7:5").await,
-        refusal("chrome/Profile 7", list, why)
+        unpaired
     );
 }
 
-/// Two profiles named ("both"): either opens; with none named and no tab yet, the refusal asks which.
+/// Two profiles named ("both"): either opens, and so does a third a call names; with none named and no tab yet, the
+/// call is asked to name one.
 // decision: HAND-580
 #[tokio::test]
 async fn a_task_given_two_profiles_uses_either_and_asks_which_when_none_is_named() {
@@ -288,11 +272,7 @@ async fn a_task_given_two_profiles_uses_either_and_asks_which_when_none_is_named
     );
     assert_eq!(
         open(&d, "both.worker", Some("chrome/Personal")).await,
-        refusal(
-            "chrome/Profile 7",
-            "chrome/Profile 29 (Google Chrome “Profile 29”), brave/Default (Brave “Default”)",
-            "the ones the owner's words named for it"
-        )
+        reached("chrome", "Profile 7")
     );
 }
 
@@ -311,11 +291,7 @@ async fn a_profile_added_to_a_pick_task_opens_beside_the_pick() {
     );
     assert_eq!(
         open(&d, "plus.worker", Some("iit")).await,
-        refusal(
-            "chrome/Profile 29",
-            "chrome/Profile 7 (Google Chrome “Profile 7”), brave/Default (Brave “Default”)",
-            "the owner's pick for FERB's web work and the ones the owner's words named for it"
-        )
+        reached("chrome", "Profile 29")
     );
 }
 

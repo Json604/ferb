@@ -243,6 +243,8 @@ pub struct Daemon {
     pub repeats: ferb_daemon::shared::Repeats,
     /// Set by SIGTERM, SIGINT or `update.prepare` (`_stop`).
     pub quit: Arc<tokio::sync::Notify>,
+    /// The phone area (PHN-585: the hourly pass gives the 30-day unused warning).
+    pub phones: ferb_daemon::phone::Phones,
     loops: Mutex<Vec<JoinHandle<()>>>,
     _lock: std::fs::File,
 }
@@ -1018,9 +1020,16 @@ impl Daemon {
                     .map_err(|e| StartError::Failed(format!("FERB's protection lists: {e}")))?,
                 )),
                 user_home: opts.user_home.clone(),
+                config: config.clone(),
             },
         );
         let _ = phone_slot.set(phones.clone());
+        // GATE-615: what the gateway sees of the owner at the Mac, for the phone's "until I'm back at my Mac" (the Mac's
+        // parts off: never offered)
+        if tool_parts.owner().is_some() {
+            presence::OwnerAtMac::wire(&tool_parts);
+            gw.set_at_mac(Arc::new(presence::OwnerAtMac(tool_parts.clone())));
+        }
         // T-1214: the paired phones' own records in the facts line and device.facts
         tool_parts.device().set_phones(phones.clone());
 
@@ -1073,6 +1082,7 @@ impl Daemon {
             resource_log: Mutex::new(resource_log),
             repeats,
             quit,
+            phones: phones.clone(),
             loops: Mutex::new(Vec::new()),
             _lock: lock_file,
         });

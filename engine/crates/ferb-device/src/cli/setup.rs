@@ -1905,7 +1905,7 @@ fn doctor_report(
                 get_str(&day, "attempts"),
                 get_str(&day, "error")
             ),
-            "FERB tries that day again every hour; sign in to its AI service if it says signed out",
+            "FERB tries that day again every hour; sign in again in Settings → Thinking if it says signed out",
         ));
     }
     for card in learning

@@ -96,11 +96,37 @@ pub struct QuestionFacts {
     pub routine: bool,
 }
 
+/// GATE-615: how a "until I'm back at my Mac" ended, as [`Questions::end_until_back`] takes it (the gateway's
+/// `screen_use::Ended`).
+pub const UNTIL_BACK_PHONE_REMOVED: &str = "phone_removed";
+pub const UNTIL_BACK_TURNED_OFF: &str = "turned_off";
+pub const UNTIL_BACK_ANSWER_FAILED: &str = "answer_failed";
+
 /// The questions FERB asks, as the phone area reads and asks them.
 pub trait Questions: Send + Sync {
     fn facts(&self, approval_id: &str) -> Option<QuestionFacts>;
     /// Asks one of FERB's own checks (its Yes needs the phone's proof) and returns its id.
     fn ask_check(&self, reason: &str, exact: &str, task_id: &str) -> String;
+    /// GATE-615: whether a phone may answer this question "until I'm back at my Mac" now (the screen-use question
+    /// alone, while FERB can tell when the owner is back). None by default.
+    fn until_back_offered(&self, _approval_id: &str) -> bool {
+        false
+    }
+    /// Gives it with the phone's Yes (the gate checked the phone: paired, unlocked); `Err(why)` when it can't be.
+    fn grant_until_back(
+        &self,
+        _approval_id: &str,
+        _phone: &str,
+        _phone_name: &str,
+    ) -> Result<(), String> {
+        Err("FERB can't tell now when you're back at your Mac, so this needs a plain Yes.".into())
+    }
+    /// Ends it with why (`UNTIL_BACK_*`); `phone`: only when that phone gave it.
+    fn end_until_back(&self, _why: &str, _phone: Option<&str>) {}
+    /// What a phone shows of it: `{active, since?, phone?, phone_name?, can_offer}`.
+    fn screen_use_status(&self) -> Value {
+        json!({"active": false, "can_offer": false})
+    }
 }
 
 /// A prompt left open on the Mac's screen.
@@ -365,6 +391,7 @@ impl Phones {
                 ev.insert("phone".into(), json!(p.endpoint));
                 ev.insert("name".into(), json!(p.name));
                 ev.insert("last_seen".into(), json!(p.last_seen));
+                ev.insert("days".into(), json!(inner.limits.device_unused_days));
                 (inner.seams.publish)("phone.unused", ev);
                 warned.push(p.endpoint);
             }
@@ -420,6 +447,10 @@ impl Phones {
             );
         }
         out.insert("pairing".into(), pairing);
+        // decision: PHN-580 — where a phone's files land, said plainly (a phone reads it; only the Mac changes it)
+        if let Some(a) = self.inner.files.get() {
+            out.insert("upload_folder".into(), a.upload_folder_json());
+        }
         out.insert("max".into(), json!(self.inner.limits.devices_max));
         out.insert(
             "unused_days".into(),
@@ -478,6 +509,10 @@ impl Phones {
         lock(&inner.state).forget_device(&id);
         files::forget_device(inner, &id);
         inner.forget_device_record(&id);
+        // decision: GATE-615 — the phone that gave "until I'm back at my Mac" is gone: it ends now
+        inner
+            .questions()
+            .end_until_back(UNTIL_BACK_PHONE_REMOVED, Some(&id));
         let _ = inner
             .events
             .send(json!({"event": "device_removed", "id": id}));

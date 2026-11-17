@@ -136,3 +136,14 @@ rule = "For PROJ-510. extensions/store (the Chrome Web Store listing and its art
 why = "The extension folder is copied into FERB.app and zipped for the store as it is; a listing inside it would ship."
 paths = ["extension-store", "apps/AGENTS.md"]
 untestable = "A folder placement: git shows it; the bundle comparison in journal 87 shows extension/ ships unchanged."
+
+[PROJ-513]
+title = "FERB is closed source until it has a substantial number of users"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "btw ive closed source ferb until i get a substantial amoutn of users and then opensource it - nobody is going to steal, but why keep it in open."
+words_source = "Owner 2026-11-17, when asked whether people who build FERB from source use his push sender or their own keys."
+rule = "FERB's source stays closed until it has a substantial number of users, then it is opened. Nothing is designed around outside source-builders for now, and new text doesn't call FERB open source."
+why = "The owner's choice about timing."
+untestable = "A publishing choice."

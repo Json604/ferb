@@ -626,7 +626,7 @@ pub fn need(facts: &PayFacts, values: &Values, approved: Option<&Approval>) -> N
 /// `otp_card` (GATE-513, GATE-566): (question, why line, exact part) for a code asked on a payment's page.
 pub fn otp_card(site: &str, a: &Approval) -> (String, String, String) {
     let said = "Your bank sent a one-time code to approve this payment. Type it only if it's the payment you approved. \
-                FERB enters it on this page once; FERB's AI never sees it.";
+                FERB enters it on this page once; it never reaches the service FERB thinks with.";
     if let Some(bank_amount) = nonempty(&a.bank_amount) {
         let m = nonempty(&a.bank_merchant);
         let paid = format!(

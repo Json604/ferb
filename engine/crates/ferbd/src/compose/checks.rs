@@ -1,5 +1,6 @@
 //! The literal checks of a task's success conditions (verify.py `Checks(self._urls_of, self.spans)`, compose.py:134):
-//! a file exists or holds a text, a tab's URL, the task's last acting call read back, an action its own records show.
+//! a file exists or holds a text, a tab's URL, the task's last acting call read back, and an action's facts (ORCH-666:
+//! the Mac's state now and the receipts its tools wrote).
 //! Code judges them; any other condition goes to the checker (V6). ferb-orchestrator's `Checks` over this daemon's
 //! parts: paths resolved as the file tools resolve them (FERB's workspace, the owner's home), the browser drivers'
 //! URLs of the task's tabs, the spans on a connection of its own.
@@ -76,6 +77,16 @@ impl CheckHost for Host {
     }
     fn db(&self) -> Option<&ferb_store::Db> {
         Some(&self.db)
+    }
+    /// ORCH-666: the owner's Trash, where a trashed item is looked for by name.
+    fn trash_dir(&self) -> Option<String> {
+        Some(
+            self.parts
+                .user_home()
+                .join(".Trash")
+                .to_string_lossy()
+                .into_owned(),
+        )
     }
 }
 

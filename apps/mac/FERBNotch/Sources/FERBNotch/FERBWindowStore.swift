@@ -292,7 +292,7 @@ final class FERBWindowStore: ObservableObject {
     /// GATE-602: let the AI see a saved ID, or hide it again (owner GATE-601: it lasts until changed here).
     func setShown(_ row: SavedSecretRow, _ shown: Bool) async {
         guard await ask(shown ? "secrets.unmask" : "secrets.mask", ["name": row.name]) != nil else { return }
-        note = shown ? "The AI can see “\(row.name)” now." : "“\(row.name)” is hidden from the AI again."
+        note = shown ? "FERB can read “\(row.name)” now." : "“\(row.name)” is sealed again: FERB fills it in without reading it."
         await loadSecrets()
     }
 

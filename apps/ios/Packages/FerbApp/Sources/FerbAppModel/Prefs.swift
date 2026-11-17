@@ -59,6 +59,13 @@ public final class Prefs: @unchecked Sendable {
         set { d.set(newValue, forKey: "notify_explained") }
     }
 
+    /// Speaking to FERB (kb PHN-604): the kinds of speech recognition (SpeechKind raw values) the owner was told about
+    /// before his first use of each: on the phone itself, or Apple's speech service.
+    public var voiceTold: Set<String> {
+        get { Set(d.stringArray(forKey: "voice_told") ?? []) }
+        set { d.set(Array(newValue).sorted(), forKey: "voice_told") }
+    }
+
     /// Answers, results and questions already announced (entry or question ids only: never their words).
     public var announced: Set<String> {
         get { Set(d.stringArray(forKey: "announced") ?? []) }

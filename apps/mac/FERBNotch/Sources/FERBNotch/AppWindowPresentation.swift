@@ -337,6 +337,8 @@ extension AppWindowPresentation {
         .init(name: "The chat's file picker (notch and sticky window)", mechanism: .opening, file: "NotchModel.swift",
               code: "NSOpenPanel()"),
         .init(name: "Memory → Import from… file", mechanism: .opening, file: "WindowPages.swift", code: "NSOpenPanel()"),
+        .init(name: "Settings → Phone → Files from your phone → Choose…", mechanism: .opening, file: "PhonePage.swift",
+              code: "NSOpenPanel()"),
         // Quick Look and the update window
         .init(name: "Quick Look of an artifact", mechanism: .opening, file: "PanelCoordinator.swift",
               code: "QLPreviewPanel.shared()"),
@@ -350,7 +352,7 @@ extension AppWindowPresentation {
         .init(name: "A message's context menu", mechanism: .menu, file: "ArtifactPreview.swift", code: "func menu(for event"),
         .init(name: "A file card's context menu", mechanism: .menu, file: "ArtifactPreview.swift", code: ".contextMenu"),
         .init(name: "Settings' pickers", mechanism: .menu, file: "SettingsPages.swift", code: "Picker("),
-        .init(name: "Settings → AI and setup pickers", mechanism: .menu, file: "SetupView.swift", code: "Picker("),
+        .init(name: "Settings → Thinking and setup pickers", mechanism: .menu, file: "SetupView.swift", code: "Picker("),
         .init(name: "Memory → Import from…", mechanism: .menu, file: "WindowPages.swift", code: "Menu("),
         // On every Space by construction
         .init(name: "The notch", mechanism: .everySpace, file: "PanelCoordinator.swift", code: "class NotchPanel: NSPanel"),

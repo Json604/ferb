@@ -80,7 +80,7 @@ public enum AppGuide {
         HowTo(title: "Import memory from ChatGPT, Claude, Gemini, Claude Code or Codex",
               steps: "FERB window → Memory → Import from other assistants"),
         HowTo(title: "Change schedules and reminders", steps: "FERB window → Schedules & Reminders"),
-        HowTo(title: "Choose the AI FERB uses", steps: "Settings → AI"),
+        HowTo(title: "Choose the service FERB thinks with", steps: "Settings → Thinking"),
         HowTo(title: "Grant or check permissions", steps: "Settings → Permissions"),
         HowTo(title: "Connect a browser profile", steps: "Settings → Browsers → Add to… / Pair"),
         HowTo(title: "Give FERB its own Google account", steps: "Settings → Browsers → FERB's own account"),
@@ -107,7 +107,6 @@ public enum AppGuide {
         "sense.window_titles": "Settings → Privacy → Record window titles",
         "sense.trail_retention_days": "Settings → Privacy → How long FERB keeps records → Activity trail",
         "retention.trace_days": "Settings → Privacy → How long FERB keeps records → Task traces",
-        "retention.decision_days": "Settings → Privacy → How long FERB keeps records → Jev decisions",
         "retention.evidence_days": "Settings → Privacy → How long FERB keeps records → Screenshots and evidence",
         "retention.recovery_days": "Settings → Privacy → How long FERB keeps records → Recovery copies",
         "retention.resource_days": "Settings → Privacy → How long FERB keeps records → Resource log",
@@ -271,7 +270,7 @@ public struct SavedSecretRow: Identifiable, Equatable {
         case "card_number": return "card number"
         case "card_csc": return "card security code"
         case "card_expiry": return "card expiry"
-        case "identifier": return shown ? "ID, any site, the AI can see it" : "ID, any site"
+        case "identifier": return shown ? "ID, any site, FERB can read it" : "ID, any site"
         default: return "secret"
         }
     }

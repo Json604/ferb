@@ -588,6 +588,31 @@ mirror! {
         fingerprint: bool,
         challenge: Option<String>,
         problem: Option<String>,
+        /// The screen-use question may be answered here "until I'm back at my Mac" (GATE-615): offer that button only
+        /// when true, answered with `AnswerInput::UntilBack`.
+        until_back: bool,
+    }
+}
+
+mirror! {
+    /// FERB using the Mac's screen on a phone's "until I'm back at my Mac" (GATE-615): `active` since `since`, said by
+    /// the phone `phone` (its endpoint id) named `phone_name` on the Mac; `can_offer`: the Mac offers it on a phone now.
+    ScreenUse from ferb_mobile::status::ScreenUse {
+        active: bool,
+        since: Option<String>,
+        phone: Option<String>,
+        phone_name: Option<String>,
+        can_offer: bool,
+    }
+}
+
+mirror! {
+    /// What `Mobile.end_screen_use` did: `ended` (one was in force), `by` ("mac" or a phone's endpoint id), and what
+    /// is in force after it.
+    ScreenUseEnd from ferb_mobile::remote::ScreenUseEnd {
+        ended: bool,
+        by: String,
+        screen_use: ScreenUse,
     }
 }
 
@@ -639,6 +664,8 @@ mirror! {
         questions: Vec<StatusQuestion>,
         running: Vec<StatusTask>,
         results: Vec<StatusResult>,
+        /// FERB using the screen "until I'm back" (none from a Mac that doesn't say).
+        screen_use: Option<ScreenUse>,
     }
 }
 
@@ -658,7 +685,8 @@ mirror! {
 }
 
 mirror! {
-    /// One folder's listing (`total` entries, of which the first are here when `cut`).
+    /// One page of a folder's listing (`total` entries; this page starts at index `from`). `cut`: more remain, and
+    /// `next` is the marker `Mobile.files` takes as `after` for the next page ("load more", PHN-589).
     Folder from ferb_mobile::remote::Folder {
         path: String,
         parent: Option<String>,
@@ -666,6 +694,8 @@ mirror! {
         entries: Vec<FileEntry>,
         total: u64,
         cut: bool,
+        from: u64,
+        next: Option<String>,
     }
 }
 
@@ -699,11 +729,31 @@ mirror! {
 }
 
 mirror! {
-    /// A file sent to the Mac: `upload_id` rides with a message (`send_with`).
+    /// A file sent to the Mac: `upload_id` rides with a message (`send_with`); `saved_in` the folder it landed in,
+    /// said plainly ("Downloads › FERB from phone", PHN-581).
     Uploaded from ferb_mobile::remote::Uploaded {
         upload_id: String,
         saved: String,
         size: u64,
+        saved_in: Option<String>,
+    }
+}
+
+mirror! {
+    /// A folder sent from the phone, begun (`Mobile.begin_group`): `group` its files carry, `saved_in` where it lands.
+    GroupStarted from ferb_mobile::remote::GroupStarted {
+        group: String,
+        saved_in: Option<String>,
+    }
+}
+
+mirror! {
+    /// Where files sent from the phone land on the Mac (PHN-580): `path`, `shown` (said plainly), `is_default` (FERB's
+    /// own folder). Changed only in FERB.app on the Mac.
+    UploadFolder from ferb_mobile::remote::UploadFolder {
+        path: String,
+        shown: String,
+        is_default: bool,
     }
 }
 
@@ -743,6 +793,7 @@ mirror! {
         name: Option<String>,
         paired_at: Option<String>,
         phone_name: Option<String>,
+        upload_folder: Option<UploadFolder>,
     }
 }
 
@@ -1096,8 +1147,9 @@ mirror! {
 }
 
 mirror! {
-    /// A search of names under `path`: `looked` names looked at, `skipped` key places not looked into, `cut` more
-    /// matched than sent, `incomplete` the search stopped before it looked at every name.
+    /// One page of a search of names under `path`: `looked` names looked at, `skipped` key places not looked into,
+    /// `incomplete` the search stopped before it looked at every name; this page starts at match `from`, and `cut`:
+    /// more remain, `next` the marker `Mobile.search_files` takes as `after` ("load more", PHN-589).
     FoundFiles from ferb_mobile::FoundFiles {
         path: String,
         query: String,
@@ -1106,5 +1158,7 @@ mirror! {
         skipped: u64,
         cut: bool,
         incomplete: bool,
+        from: u64,
+        next: Option<String>,
     }
 }

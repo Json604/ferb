@@ -15,6 +15,23 @@ final class FERBUITests: XCTestCase {
         return app
     }
 
+    /// The screenshot shield on this iOS: the secure canvas is found and the shielded half is drawn where it belongs
+    /// beside a plain half, taking touches through (kb PHN-597). Whether a screenshot is blank needs an iPhone (the live
+    /// check): the simulator does not honour the mark.
+    // decision: PHN-597
+    func testTheShieldIsFoundAndDrawnInPlace() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-FERBUITestShield", "YES"]
+        app.launch()
+        let plain = app.staticTexts["shield-plain"], shielded = app.otherElements["shield-shielded"]
+        XCTAssertTrue(plain.waitForExistence(timeout: 30))
+        XCTAssertTrue(shielded.waitForExistence(timeout: 10))
+        XCTAssertEqual(shielded.label, "shielded", "this iOS builds the secure canvas")
+        XCTAssertEqual(shielded.frame.minY, plain.frame.maxY, accuracy: 1)
+        XCTAssertEqual(shielded.frame.height, plain.frame.height, accuracy: 1)
+        XCTAssertTrue(shielded.isHittable)
+    }
+
     // decision: PHN-8, PHN-505
     func testLaunchIsLockedThenOnePromptOpensThePairingPage() throws {
         let app = launch()
@@ -53,7 +70,7 @@ final class FERBUITests: XCTestCase {
     }
 
     /// Leaving FERB for the Home Screen and coming back within five minutes doesn't lock it (PHN-15).
-    // decision: PHN-15, PHN-565
+    // decision: PHN-15, PHN-597
     func testComingBackSoonStaysOpen() throws {
         let app = launch()
         XCTAssertTrue(app.buttons["unlock"].waitForExistence(timeout: 30))

@@ -3167,11 +3167,13 @@ impl Inner {
         let conditions = st.spec.as_ref().expect("a spec").success_conditions.clone();
         let check_told = st.check_told.clone();
         drop(st);
-        // supervisor.py:6671 `_told_not_done` (ORCH-609)
+        // ORCH-672: what code's own facts showed wasn't done (or was done on something else), one sentence each
         let mut told: Vec<String> = Vec::new();
         for r in outcomes {
-            if r.met == Some(false) && r.path == "code" && (r.index as usize) < conditions.len() {
-                let t = ferb_orchestrator::verify::not_done_said(&conditions[r.index as usize]);
+            if (r.proved_false() || r.verdict == ferb_orchestrator::verify::DIFFERENT)
+                && (r.index as usize) < conditions.len()
+            {
+                let t = crate::endings::not_done_line(&conditions[r.index as usize], r);
                 if !t.is_empty() && !told.contains(&t) {
                     told.push(t);
                 }
@@ -3210,6 +3212,7 @@ impl Inner {
         let mut verified = false;
         let stop = tree.lock().stop.clone();
         let (status, mut summary, mut answer);
+        let mut worker_reported = String::new();
         if stop == STOPPED_BY_YOU {
             status = self.stop_status(tree);
             summary = STOPPED_BY_YOU.to_string();
@@ -3247,12 +3250,23 @@ impl Inner {
                 own
             };
             answer = summary.clone();
-        } else if out.status == OutcomeStatus::Done
-            && !outcomes
-                .iter()
-                .any(|r| r.met == Some(false) && r.path == "code")
-        {
+        } else if out.status == OutcomeStatus::Done && !outcomes.iter().any(|r| r.proved_false()) {
             let (text, n, v) = self.checked_answer(&src, &out);
+            // ORCH-672 F: an outcome that holds although FERB did nothing in its step that could have done it
+            let already = outcomes.iter().any(|r| {
+                r.met == Some(true)
+                    && r.code.as_ref().is_some_and(|c| {
+                        c.by == ferb_orchestrator::verify::BY_RECORD
+                            && c.verdict == ferb_orchestrator::verify::NOT_MET
+                    })
+            });
+            let text = if already {
+                format!("{}\n\n{}", text.trim_end(), crate::endings::ALREADY_DONE)
+                    .trim_start()
+                    .to_string()
+            } else {
+                text
+            };
             note = n;
             verified = v;
             // ORCH-651: delivered with gaps: the answer, then code's "Not done:" line for each gap
@@ -3311,6 +3325,20 @@ impl Inner {
             ))
             .to_string();
             let (lead, own) = self.told_failure(&src, &outcomes, &why);
+            // ORCH-672: the worker's done answer that code's facts disproved stays out of the reply (ORCH-605) but is
+            // kept with the result, labelled, for the owner to open
+            if own.is_empty() && outcomes.iter().any(|r| r.proved_false()) {
+                let reported = src
+                    .lock()
+                    .reports
+                    .last()
+                    .filter(|r| r.get("status").and_then(Value::as_str) == Some("done"))
+                    .and_then(|r| r.get("answer"))
+                    .map(ferb_py::value::py_str)
+                    .map(|a| ferb_orchestrator::py::strip(&a).to_string())
+                    .unwrap_or_default();
+                worker_reported = reported;
+            }
             answer = ferb_orchestrator::py::strip(&format!(
                 "{not_finished} {}",
                 crate::lines::sentence(&lead)
@@ -3328,7 +3356,39 @@ impl Inner {
         }
         answer = ferb_policy::confirm::from_task_lines(&answer);
         let sites = self.deps.daemon.sites_contacted(&tree.id);
-        let lines = self.code_lines(tree, &sites);
+        let mut lines = self.code_lines(tree, &sites);
+        // ORCH-676: the owner said not to send a file that wasn't the one they named: code's line says so
+        let not_sent: Vec<String> = {
+            let db = self.db();
+            ferb_orchestrator::sql::rows(
+                db.conn(),
+                "SELECT key FROM confirmations WHERE tree_id = ? AND rule = ? AND granted = 0 ORDER BY at, rowid",
+                &[
+                    rusqlite::types::Value::Text(tree.id.clone()),
+                    rusqlite::types::Value::Text(ferb_policy::named::NOT_NAMED.into()),
+                ],
+            )
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|r| r.get("key").and_then(Value::as_str))
+            .filter_map(ferb_policy::named::declined_line)
+            .collect()
+        };
+        for l in not_sent {
+            if !lines.contains(&l) {
+                lines.insert(0, l);
+            }
+        }
+        // ORCH-672 H: an action whose outcome FERB couldn't tell (the ledger's unknown), when the work didn't end done
+        if status != "done" {
+            let unknown = {
+                let db = self.db();
+                ferb_orchestrator::verify::unknown_outcomes(&db, &tree.id).unwrap_or_default()
+            };
+            if !unknown.is_empty() {
+                lines.insert(0, crate::endings::unknown_line(&unknown));
+            }
+        }
         if !lines.is_empty() {
             answer = format!("{answer}\n\n{}", lines.join("\n"));
         }
@@ -3374,6 +3434,13 @@ impl Inner {
         }
         if !lines.is_empty() {
             final_.insert("lines".into(), json!(lines));
+        }
+        if !worker_reported.is_empty() {
+            // ORCH-672: what the worker had reported, which code's facts showed doesn't hold
+            final_.insert(
+                "reported".into(),
+                json!(ferb_policy::confirm::from_task_lines(&worker_reported)),
+            );
         }
         if status == "done_with_gaps" {
             let gaps = self.tree_gaps(tree, &src);

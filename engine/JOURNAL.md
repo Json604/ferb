@@ -5463,3 +5463,525 @@ the repository; the iOS tests read the engine's fixtures, Android's lab numbers 
 simulator runtime (re-record on another). `notifications` are asked once, after FERB's words, when the phone is first
 paired (no switch to hang it on). The strings that differ from Android are for the owner (T-1245). THIRD_PARTY_NOTICES:
 nothing new beyond Android's list (UniFFI, SQLCipher in the library); no Swift dependency.
+
+## 2026-11-17 · 119 · FERB.app's chat box: screenshot thumbnails, promised files and pictures dropped; Command-V of copied files and pictures; long pastes held as chips
+
+**What.** The owner's attaching reports (2026-11-17, relayed; his go: "i agrew with the paste fixes/featires in notch
+and window. make them"). Both chat surfaces share ChatBodyView, ChatInput and one FileDropSession, so each change is in
+that one path for the notch, the pill, the sticky window and the field, with or without a hardware notch.
+- **Drops (APP-930 owner, superseding APP-737; APP-931 superseding APP-738; APP-936).** The screenshot thumbnail's drag
+  is a promised file, which APP-737 refused "for now": FERB opened and attached nothing. `FileDrop.carried` now reads
+  each item: a file URL without a promise is a file; a promise (winning over a file URL beside it, the thumbnail's own)
+  is promised; an image type is a picture; a link without an image, or text, refuses the whole drag as before. The
+  handle and edge row register `FileDropSession.dragTypes`, both chats' SwiftUI drop takes every item to ChatFileDrop
+  (whose validateDrop reads the drag pasteboard), the field adds the types to `acceptableDragTypes`, and the
+  coordinator's overlay-space hold-out (APP-742) starts for any drag `FileDropSession.takes`. At the drop
+  `FileDropSession.items` reads files, PNG data and `NSFilePromiseReceiver`s; `NotchModel.drop` attaches files and
+  written pictures at once and asks each promise into a folder of its own. While a promise arrives the composer shows an
+  "Arriving…" card (its cross drops it, and deletes the file if it still comes); Send waits with a plain line; a failure
+  or an item that couldn't be read is said in a plain line, never dropped silently.
+- **Command-V (APP-932 owner, APP-933).** `ClipboardContent.of` on the items' types: all file URLs are files
+  (`dropFiles`, Finder's names not typed); an image type with no RTF, RTFD or web archive is a picture, written as a
+  PNG and attached; else text with the bracketed-paste clean-up as before. In the tour or dictation the text pastes.
+- **Where received files live (APP-936).** The daemon is sent paths (`input_paths`), never copies, and reads them
+  while the task runs. `ReceivedFiles`: one 0700 folder per arrival in `$TMPDIR/FERB attachments`. Removed before
+  sending: deleted. Sent: kept; each packaged FERB.app start removes only folders older than `ReceivedFiles.keptFor`
+  (7 days), so a task still running across a restart keeps its file. The worker can read there:
+  `Protection::fs_rules` refuses a read only of FERB's state or a never-read entry
+  (engine/crates/ferb-policy/src/protection.rs:766-777, the list at :17-104 and :141-149, no temporary folder), and the
+  shell sandbox is `(allow default)` with read denials only for FERB's home, the uploads and the never-read list
+  (engine/crates/ferb-shell/src/sandbox.rs:320-355); the service's TMPDIR is the account's own temporary folder, the
+  app's too (engine/crates/ferbd/src/host.rs:266-314); Codex runs read-only (ferb-runtimes/src/codex/mod.rs:374).
+- **Long pastes as chips (APP-934 owner, APP-935; T-1250 asks the owner to confirm the limit).** `LongPaste.limit` =
+  (2,000 characters, 30 lines). A longer paste replaces any selection and is held in `PasteProvenance.held` at its
+  UTF-16 place; reported or inferred edits move it (text put at its own place goes after it). A "Pasted text · N lines"
+  card sits beside the file cards; clicking shows the whole text, the cross removes it. `startWork` sends
+  `PasteProvenance.expanded`: each chip back at its place as a paste, so PastedRequest brackets it like any paste
+  (ORCH-518: pasted words count as the owner's; the composer marks them) and a typed notch command beside a chip is
+  sent, not run (APP-596). A chip alone can be sent.
+
+**Evidence.** ComposerPasteTests (11) and ReceivedDropTests (6), real ChatTextView, NotchModel and FileDropSession,
+private pasteboards, temporary folders, fixed clock: clipboard and drag type decisions; Command-V files and pictures; a
+stand-in promise arriving, Send waiting, then sent with its path; a failed or unreadable promise said; the cross on an
+arriving file; a file and a page's picture dropped together; AppKit's NSFilePromiseReceiver read off a pasteboard
+holding an NSFilePromiseProvider; the 7-day sweep; chips. FileDropTests (8, citations moved to APP-930/931),
+PastedRequestTests, QuestionsAndNoticesTests, ChatFlowTests and FileCardTests pass.
+
+**Unverified.** Nothing ran in FERB.app: no real screenshot thumbnail, Mail or Photos drag, web image, Finder copy,
+copied screenshot or spreadsheet paste (the types are Apple's documented ones, not read off those apps here); whether
+the thumbnail's source writes into FERB's folder when the receiver is read from the drag pasteboard in a SwiftUI drop;
+whether a worker reads a received file in a real task; the cards' look in the notch and the sticky window. Dragging the
+thumbnail in moves the screenshot into FERB's folder (as dropping it into Mail does), so after 7 days it is gone.
+LIVE-792 now asks for the thumbnail, Mail and a web image (its v0.27.1 waiver predates this).
+
+## 2026-11-17 · 120 · The owner's answers of 2026-11-17: where phone files land, paused uploads, the 30-day notice, "until I'm back at my Mac", load more, the relay bound, Jev out of sight, FERB's own words
+
+**What.** The owner's answers to the open phone questions (relayed by the coordinator), each in the shared path:
+- **Where files from the phone land (PHN-580 owner, PHN-581; T-1216 closed).** `phone.upload_folder {path} | {reset}`
+  (`ferb-daemon` phone/files.rs:2217, FERB.app's only: class never on a phone, `ferb-rpc` classes.rs) keeps `[phone]
+  upload_folder` in config.toml through a seam ferbd fills (compose/phone.rs); the folder is judged first
+  (`Area::chosen_folder`, files.rs:359: exists, is a folder, none of FERB's data, a protected or a key place, by the
+  name given and the real path). `phone.list` carries `upload_folder {path, shown, default}`; `phone.put_end` and
+  `phone.put_group` carry `saved_in`, said by `shown_place` (files.rs:533: "Downloads › FERB from phone"). Settings →
+  Phone shows "Files you send from your phone are saved in … on this Mac." with Choose… (NSOpenPanel) and Use
+  Downloads.
+- **Paused uploads (PHN-582 owner, PHN-583).** `UPLOAD_PARTIAL_KEEP_S` = 7 days (files.rs:132), the coordinator's
+  number awaiting the owner (T-1252); a removed phone's parts still go at once; the 1 GiB floor unchanged. A daemon
+  restart forgets an upload's id (memory), so its part file then waits only for the age sweep.
+- **The 30-day unused phone (PHN-584 owner, PHN-585).** The hourly retention loop (ferbd compose/loops.rs) now calls
+  `Phones::sweep_unused` (phone/mod.rs:373) as `phone.list` did; its one `phone.unused` event (now with `days`) makes
+  ferbd post a notice through the notices path (`Notifier::tell_owner`, compose/consumers.rs `owner_line`, ident
+  `phone-unused-<phone>-<last_seen>`): "Your phone “<name>” hasn't been used with FERB for 30 days. It stays paired;
+  if you don't use it any more, you can remove it in Settings → Phone." **What counts as used:** any link session the
+  phone opens (`PhoneGate::open`, gate.rs:819-823) and any call it makes that reaches the gate's checks
+  (`admit_inner`, gate.rs:660, refused calls included), each writing `last_seen` at most once a minute (gate.rs:775-789,
+  `ferb_store::phones::seen`, phones.rs:167, which also clears `warned_at`). So a phone with Stay connected that
+  reconnects in the background counts as used even if the owner never opens the app; a lost phone that still connects
+  is "used" too. Not repeated until it is used again and goes unused another 30 days.
+- **"Until I'm back at my Mac" (PHN-586 owner, PHN-587, GATE-615; T-1215 closed).** Screen use from the phone needs no
+  fingerprint (narrowing PHN-417; T-1255 supersedes it formally once the phone apps' citations move). The gateway's
+  `screen_use.rs` holds the state and its ends; `Gateway::ask_confirmation` answers a question Yes without asking
+  while one is in force when every need is `floor:foreground` and none is a script (gateway.rs:4511), the same
+  bookkeeping as GATE-207's window. The phone gate offers `until_back: true` in that question's phone part, takes
+  `chat.approve {granted: true, until_back: true}` only on this phone's unlock window (no proof), grants before the Yes
+  goes on and takes it back unsaid if that answer fails. **It ends at the first of:** an unmarked keyboard or pointer
+  event after it was given (Input Monitoring's tap, `OwnerInput::last_owner_wall`); a `chat.send` from a non-phone
+  session (FERB.app, ferb-supervisor chat_rpc.rs → `ChatGateway::owner_wrote_on_the_mac`); the Mac asleep, displays
+  asleep, screen locked or session switched away (`MacPresence::away`); the tap or the presence watcher not running
+  (can't tell); `screen_use.end` from FERB.app or a phone (plain, allowed locked, audited); the phone that gave it
+  removed; the daemon restarting (memory only; the next start reads the journal's last `screen.until_back` row and says
+  so once). The phone locking does not end it. A 2 s supervised loop (`screen_until_back`, only with the Mac's parts
+  on) and every screen question check the ends; each end is journaled, published on `screen.until_back` and told once
+  in chat. Offered only while FERB can tell and the Mac is in use. **How FERB's own input is told from the owner's:**
+  every CGEvent FERB posts (HID, to a process, to a window through SkyLight) gets `EventSourceUserData` = FERB's mark
+  (ferb-mac-hands native/events.rs:175-178, and field 42 on the SkyLight route), the tap reads that field
+  (ferb-sense mac/streams.rs:217) and never counts a marked event as the owner's (watchers/owner_input.rs:74). AX
+  actions and the browser's debugger input make no system input event at all. The one path that posts unmarked input
+  is a script (`mac.applescript`'s System Events keystrokes and clicks; also a script a shell command might run):
+  scripts are therefore not covered (they still ask). FERB.app shows a line while it runs (Settings → Phone, with Ask
+  me again); the phone reads `chat.status`'s `screen_use` or `screen_use.status`.
+- **"Are you back?" (PHN-593 owner, GATE-618, GATE-619; the owner's design for what macOS itself might make from
+  FERB's posts).** The tap now classes each unmarked event as it arrives (ferb-sense watchers/owner_input.rs
+  `owner_event`): **unclear** when it comes within `UNCLEAR_WINDOW_S` = 0.5 s of FERB's own last post (the later of the
+  native poster's record, `ferb_mac_hands::input::note_posted`/`last_posted`, set in native/events.rs before every
+  post, and the last marked event the tap saw), else **clear**. Why 0.5 s: macOS derives its own events (a
+  mouse-moved, a modifier change) in the same dispatch as the posted one, within milliseconds, but a busy WindowServer
+  hands a listen-only tap its callbacks tens to a few hundred milliseconds late (it disables a tap that stalls about a
+  second); half a second covers that lag, and a returning owner's own movement goes on well past it. A clear event
+  ends the grant at once, as before. An unclear one starts a hold (`screen_use::step`, `HOLD_S` = 10 s): every
+  on-screen call waits in the gate before it runs (`Gateway::wait_screen_hold` at the top of `needs`, so nothing new
+  is posted); a call already posting finishes its one action (it can't be stopped half way, and its echo is excluded:
+  only input later than max(the hold's start, FERB's last post + the window) counts). Any input in the hold ends the
+  grant (OwnerInput). A hold that runs out in silence resumes screen use and sets `QUIET_S` = 600 s (the coordinator's
+  10 minutes, awaiting the owner: T-1260) in which unclear events are journaled as ignored and let pass; clear events
+  still end it. The ferbd loop now looks every 250 ms (`UNTIL_BACK_CHECK_MS`) so the hold ends on time. Journal rows
+  (kind `screen.until_back`): `held` (unclear_at, until), `resumed` (quiet_until), `ignored` (unclear_at), `ended`
+  (why). The question is not an approval: it is a `screen.until_back` event (state `checking`, title "Are you back?",
+  its line) that FERB.app draws as one quiet line in the chat (NotchCore `ScreenBackLine`: no sound, the notch isn't
+  opened, nothing reaches the phone, whose status stays active), so no phone can answer it and no standing answer
+  covers it; any key or pointer movement is the answer (there is no separate "I'm back" button: clicking it would itself
+  be the input). When he is back during a hold, the same line turns into the welcome in place and the daemon posts no
+  second line while FERB.app is connected (consumers `owner_line`); a clear return with no question gets the daemon's
+  welcome notice; a silent hold's line is removed with nothing further. The welcome says what really happens to a task
+  using the screen: its next screen action asks him ("a task that needs it waits for your Yes"), because every Yes
+  "until I'm back" gave (the phone's own included, `back_rows`) covers nothing once it has ended; an action already
+  posting finishes.
+- **Load more (PHN-609 the app agent's owner record, PHN-588 owner on the numbers, PHN-589; T-1217 closed).**
+  `phone.files {path, after?}` sorts the whole folder (folders first, then names; each entry stat'ed, only the page
+  judged) and returns `list_max` entries with `from`, `next`, `cut`; `phone.search {…, after?}` reruns its bounded walk
+  and skips the matches already given. `next` is `<count>.<tag>`, the tag a SHA-256 over a per-daemon key, the phone,
+  the call, the folder's real path and the query (files.rs:290-335); any other is bad request. 2,000 for a whole
+  folder and 100,000 names per search unchanged.
+- **The shared relays' second endpoint (PHN-590 owner, PHN-591).** `link.json` keeps `relay_set_at` (absent in older
+  files, so their seal still matches; set at the first read with a relay); the beacon is open while a phone waits and
+  for at most `BEACON_MAX_DAYS` (30, awaiting the owner: T-1253) after the relay setting changed; `relay_handover`
+  adds `closes_at` and `closed`. What happens to a phone that comes back later: it dials the Mac where it last knew it
+  (the shared relays), where the Mac no longer is, and finds nothing; Settings → Phone says so with the way back that
+  works (stop using the relay, open FERB on that phone, set the relay again; or pair it again).
+- **Jev (APP-940 owner, APP-941).** `[retention] decision_days` leaves `settings()` (settings.get for FERB.app and
+  phones; settings.set refuses it), FERB.app's Privacy row and guide anchor go, and the idle `jev_batches` watcher's
+  name is not shown under Recording now. Nothing calls Jev: `JevClient::new` is called only in ferb-orchestrator's
+  tests; ferbd's `JevOff` never reads the key (compose/areas.rs:454-465). Not removed: the engine code (T-1254).
+- **FERB's own words (APP-942 owner, APP-943).** See the list below.
+- **Confirmed as built (no code):** GATE-616 (the 30-minute answer keeps covering a protected folder's read lift:
+  confirm.rs:269-272), GATE-617 (behaviour without Input Monitoring, SENSE-406), PHN-588, PHN-592 (a removed phone
+  pairs again as new; 12 h memory). The outbox (PHN-599), a locked phone's facts (PHN-600) and com.ferb.phone / iOS 17
+  (PHN-601) were recorded by the phone apps' agent.
+
+**Why.** The owner's answers; each in the path every caller uses (the gateway for screen questions, the phone gate for
+every phone call, the notices path for owner lines, `settings()` for both apps).
+
+**Evidence.** ferb-gateway: tests/until_back.rs (5: the Yes covers another app's screen question and ends at a clear
+return, welcomed; not offered while FERB can't tell, Ask me again; the read lift stays routine; an unclear event holds,
+a click waits and posts nothing, input in the hold ends it and the waiting click asks him; a silent hold resumes
+quietly, the quiet time lets an unclear event pass, a clear one ends it), screen_use unit tests (5). ferb-sense
+manager: the marked-input test and the clear/unclear classing. ferbd owner_lines (2: the welcome once, nothing for a
+hold or a silent hold). FERBNotch testAreYouBackTurnsIntoTheWelcomeInPlaceAndASilentHoldLeavesNothing. ferb-daemon: tests/phone.rs (18, the new gate test included), phone_files.rs (28: the folder, 7 days,
+load more), a_replay.rs settings (13 same, 3 named), lib (22). ferb-rpc (65, classes.json regenerated with
+UPDATE_GOLDEN=1: screen_use.status and .end plain and allowed locked, phone.upload_folder never). ferb-sense manager
+(the marked-input test). ferbd: lib 79, every_method_answers, phone_wired, owner_lines. ferb-link beacon (1).
+FERBNotch PhoneSettingsTests and AppScreensTests (33). Fixed against Python: none; one named difference: settings.get
+without `retention.decision_days` (a_replay.rs).
+
+**Open.** Nothing ran on a real Mac, phone or relay. Unverified live: whether macOS makes unmarked events from FERB's
+marked posts at all and how late a busy tap sees them (0.5 s is reasoned, not measured: the journal's `held`,
+`resumed` and `ignored` rows let the live check count them); a pid-routed post updates the poster's record but not the
+tap's; a script that a shell command runs still posts unmarked input and is classed by time like the rest; the presence watcher's lock and sleep timing; the left-behind phone's way back through a relay
+switch-off; the notice wording in the notch. The numbers 7 days and 30 days await the owner (T-1252, T-1253). The Jev
+inventory for T-1254 (what is Jev's, what is shared with capture, file by file) is below.
+
+**FERB's own words (APP-943), before → after.** FERB.app: setup "Connect the AI service you already use." → "Connect
+the service FERB thinks with."; intro "First, connect me to an AI service." → "First, connect me to the service I think
+with." and "…never go to the AI: I keep them…" → "…never go to the service I think with: I keep them…"; the Settings
+tab "AI" → "Thinking" and "Choose the AI service FERB thinks with." → "Choose the service FERB thinks with."; saved IDs
+"Hide from the AI" / "Let the AI see" → "Keep sealed" / "Let FERB read it", "The AI can see “X” now." → "FERB can read
+“X” now.", "“X” is hidden from the AI again." → "“X” is sealed again: FERB fills it in without reading it.", "Let the AI
+see “X”" → "Let FERB read “X”", its help "…from the AI until…" → "…from the service it thinks with, until…"; question
+cards "asked by the AI" → "from the task" (GATE-225's own name), "AI's reason: " / "AI's note: " → "The task's reason: "
+/ "The task's note: "; the guide "Choose the AI FERB uses" / "Settings → AI" → "Choose the service FERB thinks with" /
+"Settings → Thinking"; "ID, any site, the AI can see it" → "ID, any site, FERB can read it"; history "I hid it/them from
+the AI…" → "…from the service I think with…"; Stored data "What the AI was given" → "What FERB sent for thinking". The
+daemon: every "Settings → AI" → "Settings → Thinking" (ferb-runtimes catalog, claude, api, codex, error; ferb-daemon
+runtimes); "unknown AI service X" → "unknown service X"; "the AI service (R) kept calling tools…" → "the service FERB
+thinks with (R) kept…"; "the AI service I use" → "the service I think with"; "the AI runtime" → "the service FERB thinks
+with"; "the AI's answer didn't fit the form FERB requires" → "the answer that came back didn't fit…"; "Reconnected to the
+AI service I use (R)." → "Reconnected to the service I think with (R)."; hidden input "FERB's AI never sees it." → "it
+never reaches the service FERB thinks with." (also payments.rs, wording.rs "(no AI sees it)"); "…can be shown to the AI"
+→ "…can be read by FERB"; doctor "sign in to its AI service if it says signed out" → "sign in again in Settings →
+Thinking if it says signed out"; "nothing came back from the AI service for N minutes" → "…from the service I think
+with…"; "Pick another AI to finish it" → "Pick another service to finish it"; "No other AI service is signed in for FERB
+(Settings → AI)." → "No other service is signed in for FERB (Settings → Thinking)."; "Switch AI?" → "Switch service?".
+The phone library's chat text (ferb-mobile fold/text.rs) follows the Mac's. Python recordings are not rewritten: one
+named difference, `app_926` (table `APP_926`, `// decision: APP-926`), maps each old phrase in the fixture loaders of
+ferb-runtimes, ferb-worker, ferb-policy, ferb-gateway, ferb-daemon (a_support, b_support), ferb-supervisor
+(common/named_diffs.rs) and ferbd chat_replay; the three app goldens (chat-entries scenarios.json, engine_more.json,
+transcripts.json) were regenerated with UPDATE_GOLDEN=1 and differ only by the new phrases. **Left:** "(written by the
+AI) " (`FROM_AI`, GATE-581): the planner's prompt quotes it (prompt_static.json), so it needs a prompts-area decision
+(proposed "(not one of FERB's checks) "); the developer report's "AI runtime and model"; text only a model reads;
+comments; agent rulings APP-826 and STORE-423 still name the old words.
+
+**New owner-facing strings.** Chat notices: "Your phone “<name>” hasn't been used with FERB for 30 days. It stays
+paired; if you don't use it any more, you can remove it in Settings → Phone."; "Welcome back. FERB will ask before it
+uses your screen again: a task that needs it waits for your Yes."; the quiet line while it holds: "Are you back? FERB
+stopped using your screen for a moment. If you're here, just move the pointer or press a key."; "You sent a message from your Mac, so FERB will ask again before it uses your Mac's
+screen."; "Your Mac locked or went to sleep, so FERB will ask again before it uses your Mac's screen."; "FERB can't tell
+any more when you're back at your Mac, so it will ask again before it uses your Mac's screen."; "Done. FERB will ask
+again before it uses your Mac's screen."; "The phone that allowed it was removed, so FERB will ask again before it uses
+your Mac's screen."; "FERB restarted, so it will ask again before it uses your Mac's screen." Refusals to the phone:
+"\"Until I'm back at my Mac\" goes with a Yes."; "This question can't be answered \"until I'm back at my Mac\" now.
+Answer Yes or No."; "FERB can't tell now when you're back at your Mac, so this needs a plain Yes."; "That \"load more\"
+belongs to another list. Open the folder again."; the folder choice: "Choose a folder on this Mac.", "That folder isn't
+there any more. Choose another one.", "That's a file. Choose a folder.", "That folder holds FERB's own data, so files
+from your phone can't go there. Choose another one.", "That folder is one FERB keeps private, so files from your phone
+can't go there. Choose another one.", "The folder for files from your phone can't be changed here.", "FERB couldn't
+keep that choice (…)". Settings → Phone: "Files from your phone"; "Files you send from your phone are saved in <place>
+on this Mac."; "Choose…"; "Use Downloads"; "Use This Folder"; "Choose where files you send from your phone are
+saved."; "FERB may use your Mac's screen without asking until you're back, as you allowed from “<phone>”."; "It ends as
+soon as you use the keyboard or pointer here, send a message from this Mac, or your Mac locks or sleeps."; "Ask me
+again"; "1 phone hasn't / N phones haven't connected since you changed the relay. FERB keeps the way to this Mac open for
+them until <date>; they switch to your relay the next time they connect."; "… connected since you changed the relay and
+can't find this Mac now. To bring one back, choose Stop using my relay, open FERB on that phone, then set your relay
+again. Or remove it and pair it again."
+
+**Jev, file by file (for T-1254; read-only inventory, nothing removed).** Jev-only, removable: ferb-orchestrator
+decide.rs (JEV_URL api.typesafe.ai, JevClient, ShadowDecider; built only in tests/stores.rs:1836,1846) and lib.rs:24;
+ferb-daemon areas_b/jev.rs and mod.rs:21,38,53,76-77; ferb-sense batches.rs (the Jev trait, EventBatcher, the
+attention publish; its pending_count only feeds sense.status's unsent_events), notifications.rs context() (:40-67) and
+measurements() (:117-121), trail.rs's no-op tag hook (:103-104,151,243); ferbd compose/areas.rs JevOff (:454-465,
+719-722), loops.rs's batcher and JevBatches watcher (:611-669, 756, 779-797), consumers.rs:96-98, tools/mac.rs:1650,
+seams-off.txt rows, resources.rs's decisions counts (:29,34-35,545-566), stats.rs's "Jev asked" lines (frozen in
+fixtures/stats/stats.json); ferb-rpc jev.* (auth.rs:120-122, classes.rs:246-248; rpc/table.json, phone/classes.json,
+daemon transcripts); ferb-device setup.rs doctor check (:24-25,1964-1999; fixtures/device/cli.json);
+ferb-supervisor flow/attention.rs and runtime orchestrator/prompts/attention.md, decide/prompts/*.md. Shared, to keep
+or rewire: perception.rs (notification dedup perception_seen/perception_floor, banners, the 7-day text purge,
+expire_derived are capture; only status() :307-335 reads Jev's tables); notify.rs:42,447-465 and areas.rs:427-439
+write notification_told for a notice that cites a notification (notices code; its only reader is Jev's context(), so
+the write can go); ferb-orchestrator attention.rs is the owner-notices store (attention_notices) and stays;
+ferb-store retention.rs:120 (cascade of perception_receipts) and :210-217 (the "Jev's decisions" rule About shows,
+frozen in fixtures/store/tables.json) and cleanup.rs EMPTIED (the removal tool: keep until the tables are dropped by a
+new migration; migrations are checksummed). Tables Jev made: decisions, perception_batches, perception_receipts,
+perception_labels, notification_told, trail_changes, trail.relevance; perception_seen and perception_floor are
+capture. **Answer to the owner:** yes, Jev can be removed without touching data capture; the shared pieces above are
+rewired, not removed. Decisions to supersede then: SENSE-2, SENSE-3, SENSE-6, SENSE-402, the term "Jev", LIVE-536;
+LIVE-593 and LIVE-594 need a ruling. Still owner-facing now (frozen by Python fixtures, left for T-1254): About's
+"what FERB keeps" row "Jev's decisions (Jev is switched off)" and the clean-up preview's "Jev is switched off" labels,
+`ferb stats`, the doctor's jev line.
+
+## 2026-11-17 · 121 · The phone apps on the owner's answers: "5 h", Jev gone, Watch live out of iPhone screenshots, speaking by holding the microphone, where a sent file landed, Load more, an extra answer under Yes and No
+
+**What.** Both apps (`apps/android`, `apps/ios`), the same behaviour and words on each (PHN-416). Owner decisions
+PHN-595, 596, 598..603, 609 (his words verbatim); agent rulings PHN-597 (supersedes PHN-565), 604, 605 (supersedes
+PHN-506), 606, 607, 608. Tasks: T-1222, T-1240, T-1241, T-1245 answered and deleted; T-1242 narrowed to the Apple team;
+T-1211's why updated. By an Opus agent on the coordinator's brief; the Mac side (journal 120) landed the library's
+fields while this ran, and the apps read them.
+- **"5 h" (PHN-595).** `labMinutesLeft` (:design `preview/LabScreens.kt`, FerbDesign `LabSample.swift`): whole hours drop
+  "0 min" ("5 h", "5 h 20 min", "45 min"); Android's unused `Moment.minutes` now calls it. One table both phones run:
+  `apps/android/design/src/test/resources/words/time-left.json`. The large-text home golden (it said "5 h 0 min") was
+  re-recorded; no other golden changed.
+- **Jev (PHN-596).** `retention.decision_days` left the settings' specs on both (`MacSettings.kt`, `MacSettings.swift`);
+  an older Mac that still sends it gets no row; `set_decision_days` and every "Jev" word are gone (a test reads the
+  strings and the catalog). The settings golden lost the row.
+- **iPhone screenshots (PHN-597, PHN-598).** Research (an Opus subagent read the source of five libraries and Apple's
+  forums): a `UITextField` with `isSecureTextEntry` draws in an internal canvas view (`_UITextLayoutCanvasView` on iOS 15
+  to 26) whose layer UIKit marks (`disableUpdateMask`) so the render server leaves it out of screenshots, recordings
+  and mirroring. FerbAppUI `ScreenshotShield.swift` takes that canvas out of a field that never enters the window and
+  hosts SwiftUI in it (the "move the canvas" pattern; not the window-layer variant, which crashed apps on iOS 26). Only
+  public calls; the class name is matched as a string; the private layer key is read only by a test. No canvas: a plain
+  view and `ScreenshotShield.available` false, so This phone says "Screenshots can still show FERB on this iPhone".
+  Found on the simulator: SwiftUI hosted inside (with or without the canvas) is not in the accessibility tree the UI
+  tests read (a UIKit label is), so only Watch live's frame, a picture nothing reads or taps, goes inside (LivePage's
+  new optional `shieldFrame`); the buttons and words stay outside. A private answer never shows its value (dots for a
+  code; SwiftUI's SecureField, which Apple documents as hidden in screenshots), so it is not shielded. The capture cover
+  now reads iOS 17's `isSceneCaptured` (`UIScreen.isCaptured` is deprecated in the iOS 27 SDK). The rest of the app is
+  not shielded: no whole-app equivalent of Android's switch on iPhone.
+- **Speaking (PHN-603..605).** FERB.app's `DictationCapture` and `DictationTranscript` (APP-673, APP-675) ported to Kotlin
+  (`model/Dictation.kt`) and Swift (`FerbAppModel/Dictation.swift`), one table of sequences both run
+  (`apps/android/app/src/test/resources/dictation-cases.json`), and a `Dictation` controller over a `VoiceInput` seam:
+  hold the microphone (:design `PhoneComposer` and FerbDesign's gained optional `onMicDown`, `onMicUp`, `listening`; the
+  defaults draw as before; the white circle is drawn behind so the layout doesn't move), the words appear in the box
+  after the draft, a task the recogniser ends mid-hold is replaced, letting go waits up to 2 s for the last answer, a
+  tap under 350 ms says to hold, leaving the app or the lock stops it keeping the words, typing stops it. Never sent.
+  Android `AndroidSpeech`: `createOnDeviceSpeechRecognizer` where `isOnDeviceRecognitionAvailable` (Android 12+), else
+  `createSpeechRecognizer` with `EXTRA_PREFER_OFFLINE`; RECORD_AUDIO and a `<queries>` for RecognitionService.
+  iPhone `AppleSpeech`: AVAudioEngine and `SFSpeechAudioBufferRecognitionRequest` with `requiresOnDeviceRecognition`
+  where `supportsOnDeviceRecognition`, else Apple's service; NSMicrophoneUsageDescription and
+  NSSpeechRecognitionUsageDescription (make_project.py). Before the first use of each kind FERB's sheet says where the
+  voice goes, then the system asks; a phone told "on this phone" whose on-device recogniser lacks the language
+  (Android error 13; iOS `supportsOnDeviceRecognition` false) gets the service's words before the service is used.
+- **Where a sent file landed (PHN-608).** A sent file's card: "Saved in <place>"; the message's files: "On your Mac in
+  <place>"; the place is `Uploaded.saved_in`, else `MacInfo.upload_folder.shown`, else "Downloads › FERB from phone".
+- **Load more (PHN-609, PHN-606).** `files(path, signer, after)` and `search_files(query, path, after)` with the shown
+  page's `next`; the page goes under what is shown; a key place's page asks for the fingerprint again; the search's
+  bound line stays; a "Load more" row (and "Loading more…").
+- **An extra answer (PHN-607).** Options that start Yes, No keep the lab's two buttons; each further option is a grey pill
+  under them with its own number (before, a third option made No "option 2"). The library's `QuestionNeeds.until_back` and
+  `AnswerInput::UntilBack` (journal 120) are not wired: the brief held "until I'm back at my Mac" for later.
+
+**Evidence.** Android (`./gradlew --offline :design:test :core:testDebugUnitTest :app:testDebugUnitTest`): design 80,
+core 29, app 95 (new: DictationTest 1, VoiceTest 7, MacSettingsTest 1, UploadPlaceTest 1, QuestionTest 1, FilesMoreTest
+1, ScreenShotsTest 5: question-extra, voice-on-device, voice-service, files-sent, files-load-more); goldens changed:
+settings (the Jev row), large-text home. Emulator Medium_Phone_API_36.0, `:app:connectedDebugAndroidTest` 8 of 8 (new
+SpeechOnPhoneTest; the manifest's list now has RECORD_AUDIO): the emulator lists com.google.android.as and
+com.google.android.tts as speech services; FERB picks ON_DEVICE; a task started with the microphone allowed answered
+ERROR_LANGUAGE_UNAVAILABLE (13), the path that leads to the service's words. iPhone (`apps/ios/tools/build.sh test`, the
+library rebuilt with journal 120's fields): FerbMobile 4, FerbCore 14 (1 skipped), FerbDesign 40, FerbApp 81 (new:
+DictationTests 1, VoiceTests 8, MacSettingsTests 1, QuestionTests 1, ScreenshotShieldTests 2, FilesPagingTests 1), UI 5
+(new: the shield drawn in place). ScreenshotShieldTests: on the iOS 18.6 simulator the canvas is found, the content sits
+inside it, the field never enters the window, and the canvas layer's mark is non-zero after attaching. `xcrun simctl io
+booted screenshot` of `-FERBUITestShield YES` shows the shielded half: the simulator ignores the mark, as the libraries
+say. strings.py and make_project.py `--check` pass.
+
+**Unverified.** No real phone: a blank screenshot of Watch live on an iPhone; how iOS 26 and 27 devices treat the mark;
+VoiceOver on the shielded picture; real speech on either phone (the emulator has no voice and no language pack; the
+simulator ran no recognition); whether Google's service honours `EXTRA_PREFER_OFFLINE`; TalkBack's and VoiceOver's
+double-tap-and-hold on the microphone; a real Mac's `saved_in`, `upload_folder` and pages. The kb check counts
+PHN-605's tests only once DictationTest.kt, VoiceTest.kt and VoiceTests.swift are tracked. Words: the strings added
+today wait for the owner (strings.xml, `strings.py --diff`).
+
+## 2026-11-17 · 122 · Code says only what it saw: action checks give facts and receipts, the checker's fresh look decides the rest, "different" for another file or person
+
+**What.** The redesign of the result checks reviewed in `.local/code-checks/plan.md` (local, not tracked), on the
+owner's answers of 2026-11-17 (relayed): D1 yes (ORCH-664, superseding ORCH-576's checks), D4 and D5 "yes to both"
+(ORCH-669, ORCH-670); D2 and D3 built as the agent's defaults awaiting the owner (T-1256, T-1257).
+- **Facts, not a veto (ORCH-664, ORCH-666).** `verify.rs` `Checks::action` replaces the six record-finding checks and
+  ORCH-660's `unread_routes`: sent, paid and submitted give only receipts (the recipients FERB's send tools resolved,
+  never the worker's declaration; a pay pressed after a Yes; FERB's actions on the site, their read-backs and a page's
+  own submit event, read from the output's facts too); trashed, deleted and downloaded read the Mac now (still there;
+  gone and in the Trash by FERB's `trashed_to` or by name in `CheckHost::trash_dir`, which ferbd gives as the owner's
+  `~/.Trash`; a file with a taken download's SHA-256, so a moved or renamed download is found; the file absent with no download and no
+  route that could fetch one is not met); `uploaded {path}` is
+  new (ORCH-667). `cards::recorded` reads each call with its output (the receipt). Nothing is "not met" because a call
+  of one kind is missing. `verify::unknown_outcomes` reads the ledger's unknown, unretried rows.
+- **One order (ORCH-665, `verdicts::settle`, pure).** The Mac's state beats the checker both ways; "nothing done" (the
+  step's worker made no acting call and changed no file, `attempt.rs` `step_acted`, and no ledger outcome is unknown)
+  makes the action not done unless the checker sees the outcome, which then holds as already done (ORCH-309); for
+  an upload, no file that left the Mac plus a file on the page is *different*; a receipt showing another target is
+  different; else the checker, with code's fact kept beside its verdict. The owner's No (ORCH-613) is applied after,
+  to any result not met. `ConditionResult` gains verdict, by, basis, asked, acted_on and code (written only when set:
+  a plain result keeps its bytes); `saved_results` reads them back. ORCH-602's "only what the checker judged" filter is
+  gone. `trace_read` names the source (the Mac's state, a receipt, nothing done, your No, the checker), "done
+  differently", asked/acted_on and what code said.
+- **Different (ORCH-668).** Strict equality of same-kind values only (`address_kind`: email, phone digits with a
+  prefix allowed, handle; paths and SHA-256; trash against delete); a name is never compared. A different condition
+  (worker reported done) ends the step by `different_ending` instead of an accept or a retry: D3's default
+  (`endings::DIFFERENT_ENDS_DELIVERED`) is delivered with gaps, the gap's reason written by code.
+- **Before the send (ORCH-669).** The worker's and the check's context get a protected code fact for each condition
+  naming a Mac file to upload (`endings::upload_fact`: only FERB's upload carries it; a site picker's file is another;
+  stop and ask before sending another). supervisor.md asks the planner for the upload as its own step (PRM-358);
+  `uploaded` joins ACTION_CHECKS, so ORCH-653's question comes before a later action step after a step that ended
+  different.
+- **The stop before the send (ORCH-676, the owner's D4).** `ferb-policy/src/named.rs`: `named_files` (the files the
+  owner attached in the chat, read back from the request's code-written attachment line `ATTACHED_MARK`, and each
+  `~/…` or `/…` path the owner's words write that is a file: the owner's fact, never the planner's), `file_check`
+  (FERB's uploads carried only other files; the page's field holds other bytes than FERB gave it; or a file field
+  holds a file while no upload of the named bytes and no Mac input, script or shell command ran), `need` (rule
+  `floor:not_named`, keyed by site, named path and finding, never routine) and `card`. `gateway.rs` `not_named`, in
+  `floor_needs` (the shared path every call's confirmations go through), runs it at a call the gateway classes as a
+  send or submit (its kind, declared or fact kinds) or whose page reports a form submit, on a page; the upload
+  receipts and routes are read from the task's spans. `ActionFacts.page_files` (ferb-core; written only when known)
+  is filled by `ferb-browser` `act_facts` from the last snapshot's file inputs ("N file(s)"). `answers.rs` lists the
+  question kind (`Question::NotNamed`). After a No, `tree.rs` `final_` adds `named::declined_line` from the recorded
+  key. Recipients: `floor:new_recipient` already asks before a send to anyone the owner didn't name, so it is this
+  check for people and nothing here repeats it. Seen: FERB's own upload of another file or the field's other bytes
+  (any page); a page that keeps the chosen file in an `<input type=file>`. Not seen, nothing asked: a file named only
+  by its name; a site's own picker or drop zone that keeps no file in a file field (many empty the field once they
+  take it); a field FERB hasn't read since it was filled; Mac input that could have carried a file; an app's own
+  sheet.
+- **No look, no pass for pages and apps (ORCH-671).** `verifier` finds the step's last acting call with a tab, site or
+  app (`last_action_at`); a met on an outcome or external condition stands only if the check made an observation call
+  of its own at that tab, else that site or app (`looked_at`); else one refusal with the reason
+  (`endings::refused_look`, a `verify.refused` span with `no_look`), a rerun, then can't tell with
+  `endings::no_look_at`'s evidence. `Daemon::fresh_look_rule` (default true) can turn it off for a Python replay.
+- **What the owner reads (ORCH-672, ORCH-674, ORCH-675).** `told_failure` takes code's line from the fact
+  (`endings::not_done_line`); a done answer that code's facts disproved is kept as the final frame's `reported`, out of
+  the reply (ORCH-605); an outcome that held with nothing done adds `endings::ALREADY_DONE`; a ledger unknown outcome,
+  when the work didn't end done, puts `endings::unknown_line` first among code's lines; D2's line
+  (`endings::checked_line`) is off (`HOW_CHECKED_IN_CHAT`). `next`, `gapped` and `final_` test
+  `ConditionResult::proved_false` (the Mac's state or nothing done) instead of `path == "code"`.
+- **Journal row (ORCH-673).** `task.verdict_disagreement` with code's and the checker's sides whenever they differ.
+- **Model-facing (PRM-358, PRM-359, PRM-360).** supervisor.md's check list adds `uploaded` and the own-step sentence;
+  verifier.md adds the fresh-look and receipt item; the code-written refused look, named file and fact sentences.
+  The planner's schema enum adds `uploaded` (`schemas::before_uploaded` takes it out for the recorded comparisons).
+
+**Every owner-facing sentence (new).** As a gap's reason after "Not done: <condition> — " (and in ORCH-653's question):
+"<name> wasn't uploaded from your Mac, so the file the site has came from somewhere else, even if its name is the
+same"; "the page's file field holds different bytes than <name>"; "I uploaded <names> instead of <name>"; "it went to
+<acted>, not to <asked>"; "<name> was deleted for good instead of moved to the Trash"; "<name> was moved to the Trash
+instead of deleted for good; it's still in the Trash"; "I moved <names> to the Trash instead; <name> is still there";
+"I deleted <names> instead; <name> is still there"; "I acted on <acted> instead". After "I couldn't finish this task.":
+"I didn't do this: I only looked at <site> and didn't press, type or send anything there."; "I didn't do this: I only
+looked, and didn't press, type or send anything."; "I didn't upload <name> from your Mac."; "<name> is still in its
+folder; it wasn't moved to the Trash."; "<name> is still on your Mac; it wasn't deleted."; a different reason,
+capitalised, when it ends a failure. Under an answer: "This was already done, so I didn't need to do anything."; "I'm
+not sure whether my last step on <site> went through: I couldn't tell how it ended. I haven't tried it again, so
+nothing can happen twice." Off (D2): "I checked this on <site>'s page afterwards." Before a send or submit (ORCH-676): "The file attached on
+<site> isn't <name> from your Mac. Send it anyway?", with "Send it anyway" / "Don't send" and one of "FERB attached
+<other> there, not <name>. Nothing is sent unless you say so.", "The page's file field holds different bytes than <name>
+on your Mac. Nothing is sent unless you say so.", "It wasn't uploaded from your Mac by FERB, so it came from somewhere
+else and may only have the same name. Nothing is sent unless you say so."; its line among others: "the file attached on
+<site> isn't <name> from your Mac"; after a No, under the answer: "I didn't send it: the file attached on <site> wasn't
+<name> from your Mac." A download that never came: "<name> didn't download: nothing was downloaded in this task, and it
+isn't on your Mac." Unchanged: "I couldn't confirm part
+of this." (ORCH-607), "Not done, as you asked." (ORCH-613), the opener (ORCH-605).
+
+**Differences from the Python-recorded behaviour (all named).** (1) `engine/fixtures/orchestrator/stores.json`, the
+cards scenario: action conditions 9-21 read code's facts (`action_difference` in tests/stores.rs lists each; 9-16
+receipts with no verdict, 17-21 the Mac's state; 18's owner No is applied by the supervisor, not by `Checks::run`), and
+the 27 recorded `not_done_said` sentences are not compared (the function is gone). (2) pydantic's literal_error for a
+check kind lists `uploaded` (`uploaded_named`, tests/models.rs). (3) The answer schemas carry `uploaded` in the check
+kind enum (`schemas::as_recorded` → `before_uploaded`). (4) Two prompt changes in
+`engine/fixtures/catalog/prompt_changes.json` (PRM-358 in two pieces, PRM-359). (5) None of the recorded scenarios reaches ORCH-671 (no recorded step acts on a page before a met), so the
+replays run with it on; `Daemon::fresh_look_rule` is there to turn it off for one that would. ORCH-660's own differences (journal 93) are replaced by (1).
+
+**Evidence.** ferb-orchestrator: tests/action_routes.rs (8: the window route, the Goibibo clicks, a property over every
+combination of 7 recorded calls × 6 checks that code alone never proves a send, payment or submit and says different
+only for same-kind addresses, recipients, the upload table incl. D5, trash and delete on the Mac, downloads by bytes,
+the ledger), tests/verdicts.rs (4: the order as a 14-row table, already-done and different keep their facts, unknown and
+didn't-apply, the stored form round trip). ferb-gateway tests/not_named.rs (4, through the real gateway: another file
+uploaded is asked and a No presses nothing, the No carrying across a retry; other bytes asked and a Yes pressing once and
+carrying; a field filled from elsewhere asked; no question for the right bytes, the named path edited since (ORCH-670),
+no readable field, a Mac input, or no named file). ferb-supervisor tests/action_routes.rs (13, through the real
+supervisor on the recorded one_step_task; besides the list below: the attached files read back from the request, a No
+to the wrong file ending with code's line, a download that never came failing over the check's met): the window case done; the Goibibo case done with the worker's answer; no fresh look →
+refused once → can't tell; a look after the refusal → done; the Drive case → delivered with gaps, the line, a
+disagreement row, the worker given the fact; nothing done + the check sees it → already done; nothing done + can't tell
+→ failed with code's line and `reported`; a file still there → failed over the check's met; the owner's No →
+cancelled; a ledger unknown → done_unverified with the H line. `cargo test -p ferb-orchestrator -p ferb-supervisor`
+(every binary: ferb-orchestrator 26 tests in 9 binaries; ferb-supervisor's replay 2, replay_more 39,
+control_scenarios 14, gaps 7, prompts 5, chat_entries 20 and the rest) and ferb-context's parity (11) pass; clippy -D warnings on the three crates is
+clean. ferbd's chat_replay (10 passed, 2 ignored as before) passes; clippy -D warnings on ferbd's library is clean.
+
+**Each hard check fails its test when removed (mutation, 2026-11-17).** Each row's check was disabled alone, its
+test run, the file restored byte for byte (hashes compared):
+| Row | Mutation | Test | Failed |
+|---|---|---|---|
+| another file uploaded → different | verify.rs `uploaded`, `if false && !uploads.is_empty()` | ferb-orchestrator action_routes `an_upload_is_judged_by_the_bytes_that_left_the_mac` | yes |
+| another recipient where code sees it | verify.rs `sent`, `if false && !others.is_empty()` | ferb-orchestrator action_routes `recipients_compare_only_as_the_same_kind_of_address` | yes |
+| done claimed, nothing done → not done | verdicts.rs `settle`, `none_done = false && …` | ferb-supervisor action_routes `a_claim_with_no_acting_call_is_told_from_the_record` | yes |
+| no file left the Mac → not done / different | verify.rs `uploaded`, its record fact made can't tell | ferb-supervisor action_routes `a_same_named_file_from_the_site_s_picker_is_different_never_done` | yes |
+| still there / not in the Trash / never downloaded over the check's met | verdicts.rs `settle`, the Mac-state row off | ferb-supervisor action_routes `…_whatever_the_check_said` (2 tests) | yes |
+| the owner's No | attempt.rs `verify`, `declined(...).filter(\|_\| false)` | ferb-supervisor action_routes `the_owner_s_no_still_wins` | yes |
+| a met without a fresh look → can't tell | attempt.rs `verifier`, `if false && needs(...)` (both) | ferb-supervisor action_routes `a_pass_without_a_fresh_look_is_cant_tell_not_false` | yes |
+| an unknown outcome is said | tree.rs `final_`, the H line off | ferb-supervisor action_routes `an_unknown_outcome_is_told_and_never_tried_again` | yes |
+| … and never retried | ledger.rs `check_repeat`, the unknown refusal off | ferb-orchestrator stores `stores_match_python` (the recorded ledger refusal) | yes |
+| the stop before the send | gateway.rs `floor_needs`, `not_named(...)?.filter(\|_\| false)` | ferb-gateway not_named (3 asking tests) | yes |
+
+**Replayed, read-only, the eight historical false failures** (records copied out of `~/.ferb/ferb.db` and the
+2026-11-13 archive with `mode=ro`, into a temporary store; a scratch program outside the repo ran `Checks::run`,
+ORCH-671's look test and `settle`; "acting" approximated as a recorded kind other than read, since the gateway's
+registry isn't there): 004959 (sent, Discord) can't tell (the check never looked at discord.com after the last
+action: live it is refused once and re-run) → done_unverified, not failed; c0804387 and beeb93f5 (submitted, visa
+"if available") met by the checker's look → done; 6812fdb5 (paid, Amazon COD) can't tell (no look at tab t18) →
+done_unverified; aa3cb86a and f68317e9 (submitted, hack2skill) met → done; 0abecb83 (submitted through Chrome's
+window) met → done; d05e8354 (Goibibo) met → done with the answer. None ends failed.
+
+**Unverified (live only).** Whether a real checker takes its fresh look when asked (and how often the refusal costs a
+second check); the planner's own upload step (PRM-358) and the worker stopping before a send with another file
+(ORCH-669) are model behaviour; a real Drive picker (whether a page's field even shows a picked cloud file to the
+check); the H line on a real unknown payment; the Trash lookup on an external volume (`.Trashes` isn't read: can't
+tell, never false). FERB.app's "What I reported" and verdict labels (T-1259) are not built. kb paths to the two new files resolve once they are added to git.
+
+## 2026-11-17 · 123 · The phone apps: "Yes, until I'm back at my Mac" on the screen-use question, and the line while it holds
+
+**What.** Both apps, on the library's `QuestionNeeds.until_back`, `AnswerInput::UntilBack`, `PhoneStatus.screen_use`,
+`Mobile.screen_use()` and `Mobile.end_screen_use()` (journal 120, GATE-615). Owner decision PHN-610 (his words, the
+phone apps' copy of PHN-586); agent ruling PHN-611; PHN-607's rule names it. By an Opus agent on the coordinator's brief.
+- **The answer.** `Question.untilBack` (`model/Questions.kt`, `Questions.swift`): the Mac offers it and the options are
+  the gateway's Yes/No. The sheet's further-answers row gets "Yes, until I'm back at my Mac" with one line under it
+  (`QuestionSheet`'s new optional `moreNote`); the notification gets it as a third action (Android's `AnswerReceiver
+  .UNTIL_BACK`, iOS's `NotificationButton.untilBack`, both -2). The answer skips the up-front fingerprint and goes through
+  AnswerFlow: `locked` unlocks with the lock key and is sent once more. A refusal shows the Mac's words and the question
+  stays open; from a notification, a refusal for the unlock says "Open FERB to allow this until you're back at your Mac."
+- **While it holds.** `PhoneStatus.screen_use.active`: the Mac tab shows a card (`MacPage`'s new optional `notice`) with
+  "FERB may use your Mac's screen until you're back" and "Ask me again" (`end_screen_use`); the chat's line under the tabs
+  says the same. When it ends on the Mac the pushed status clears it; nothing is posted.
+
+**Evidence.** Android: app 102 (UntilBackTest 5: offered only when the Mac offers it and only on Yes/No, chosen while
+locked unlocks and is sent once more with no signature, a refusal keeps the question, the line and "Ask me again", the
+notification's third action; ScreenShotsTest 2 new goldens: question-until-back, mac-screen-use), design 80, core 29;
+`:app:assembleDebug`, `:gallery:assembleDebug`. iPhone (`apps/ios/tools/build.sh` and `build.sh test`): FerbApp 87
+(UntilBackTests 5, AppScreensTests 1 with goldens app/question-until-back-noon and app/mac-screen-use-noon), FerbDesign
+40, FerbCore 14 (1 skipped), FerbMobile 4, UI 5.
+
+**Found.** An earlier command of this agent quoted `next` in backticks inside double quotes: zsh ran the Next.js CLI on
+the PATH (`/opt/homebrew/bin/next`, v15.5.4) in `apps/android`, which wrote `apps/android/.next/` at 18:49 and left a dev
+server listening on port 3000. The server was stopped (its background task); the folder is left for the coordinator.
+
+**Unverified.** No real Mac or phone: a grant, its end by the Mac, the notification's third action on a locked phone
+(Android's emulator test was not rerun after this change; the action is held by a Robolectric test).
+
+## 2026-11-17 · 124 · The pick is a default, never a fence (owner); the combined tree's leftovers
+
+**What.**
+- HAND-644 (owner: "yes remove hte refusal completly, i dont want it. bad choice."). ferb-browser `Driver::task_choice`:
+  a call that names any of the owner's profiles is the resolver's choice, whatever the pick and whatever the task's
+  words named; `outside_task` and its refusal are gone. With none named the order is unchanged (the pick, the one
+  named, the newest tab's, else "name one"). Model-facing words follow: `task_profiles_fact` no longer says another
+  profile needs the owner's Yes, and `TASK_PROFILES_DESCRIPTION` says a call that names no profile goes to the listed
+  ones (was "work only in these"). HAND-582/583 (the Mac tools never stand in for a connected page) stay.
+- Why: live 2026-11-17, tasks 3e8b33e9 (20:20) and b5659ca9 (20:29) on the installed build 202611152048: browser.open
+  in chrome/Profile 2 (the owner's Scaler profile, named in the goal) was refused for the pick (Profile 15); at 20:20
+  the worker then used mac.open and Chrome came forward. The installed build predates HAND-580; the owner chose the
+  removal over HAND-580's way through. Known cost: the 2026-11-14 case the refusal answered (a search ran in Brave
+  right after the owner picked a Chrome profile) is no longer refused.
+- ferbd `tests/replay.rs` names APP-926 and APP-941 (`as_named`): the three through-the-binary replays compared the
+  recordings' "Settings → AI" words and Jev's days, as ferb-daemon's a_replay and b_small already did.
+- ferbd `seams-off.txt`: `default Daemon::fresh_look_rule` named with its reason (ORCH-671).
+- FERB.app: Settings → Phone's folder picker runs through `AppWindowPresentation.runModal` and is a path of the Space
+  rule (APP-796's guard test failed on the direct `runModal`).
+- kb: PHN-612 (iroh stays), PHN-613 (free shared relays for now), PHN-614 (push on Android too, the question
+  encrypted inside the push, the sender on the owner's server; changes PHN-421's push part, not built), PROJ-513
+  (closed source for now); tasks T-1261..T-1266.
+
+**Evidence.** ferb-browser `owner_pick` 5 passed (rewritten: a named other profile reaches its bridge); ferb-browser,
+ferb-context, ferb-supervisor `task_profiles` pass; ferbd `replay` 9 passed, `seams_wired` 3 passed; `gate.sh fmt`,
+`lint`, `portable` pass; `gate.sh test` passed every binary up to ferbd's seams_wired, and the eight after it were run
+by name (all pass). FERBNotch: 843 tests, the two SpaceRule failures fixed (SpaceRuleTests 7, PhoneSettingsTests 17).
+
+**Also found, read-only, on the owner's store (not fixed here beyond the entries above).** Task d05e8354 (Goibibo): the
+claim went through and `submitted` said not done (journal 122 replaces that check). Task b5659ca9: the mail was sent
+with the owner's Yes; `sent` compared the planner's "studentalert" with "Student Alert <studentalert@…>" and said not
+done (ORCH-668 never compares a name with an address). Both ended failed with the worker's answer hidden.
+
+**Unverified.** Everything live: no task has run on this tree. Whether a worker now names a wrong profile; whether a
+profile with no open window starts in the background (`Wake`).

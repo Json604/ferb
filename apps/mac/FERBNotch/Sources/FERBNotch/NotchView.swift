@@ -77,7 +77,7 @@ struct NotchView: View {
         .foregroundStyle(Palette.ink)
         .preferredColorScheme(.dark)
         .ignoresSafeArea()
-        .onDrop(of: [UTType.fileURL], delegate: ChatFileDrop(session: model.drops))
+        .onDrop(of: ChatFileDrop.types, delegate: ChatFileDrop(session: model.drops))
         .onExitCommand { if !model.closeEnlargedPicture() { model.collapse(keyboard: true) } }   // APP-889
         .accessibilityElement(children: .contain)
         .accessibilityLabel("FERB notch")

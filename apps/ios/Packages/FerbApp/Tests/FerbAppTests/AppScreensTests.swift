@@ -80,7 +80,34 @@ final class AppScreensTests: XCTestCase {
         shot(MacView(model: vm, waiting: nil), app: "mac-offline-noon")
     }
 
-    // ---- the privacy cover (PHN-565) ---------------------------------------------------------------------------
+    /// "Until I'm back at my Mac" (PHN-611): the screen-use question with the third choice and its line, and the Mac
+    /// tab's line with "Ask me again" while it holds (Android's question-until-back and mac-screen-use).
+    // decision: PHN-611
+    func testUntilImBackOnTheQuestionAndTheMacTab() async {
+        let q = Question(approvalId: "ap-4", taskId: "t-1", title: "Use your screen for this?",
+                         reason: "FERB needs to click in Keynote, which works only in front.", exact: nil, kind: "owner_question",
+                         capability: "screen.foreground", options: ["Yes", "No"], labels: ["Use the screen", "Not now"], hidden: false,
+                         needs: QuestionNeeds(canAnswer: true, needsUnlock: false, hidden: false, fingerprint: false, challenge: "ch-1",
+                                              problem: nil, untilBack: true))
+        let vm = rig.model()
+        AppSnapshot.assert(PhoneScreen(moment: .lab(12.5), glide: false,
+                                       sheet: { Asking(model: vm, q: q, insets: .lab, busy: false, close: {}) },
+                                       page: { HomePage(insets: .lab) })
+            .frame(width: PhoneInsets.labSize.width, height: PhoneInsets.labSize.height).stillMotion(),
+                           size: PhoneInsets.labSize, path: "app/question-until-back-noon.png")
+        rig.phone.link = FakePhone.status(.online, paired: true, path: .direct)
+        rig.phone.status = PhoneStatus(locked: false, words: true, stopped: false, questions: [], running: [], results: [],
+                                       screenUse: ScreenUse(active: true, since: "2026-11-17T10:00:00+05:30", phone: "phone-1",
+                                                            phoneName: "iPhone", canOffer: true))
+        rig.phone.view = emptyView()
+        rig.session.unlocked()
+        await eventually("main") { vm.ui.gate == .main }
+        await vm.refresh()?.value
+        await eventually("screen use") { vm.ui.status?.screenUse?.active == true }
+        shot(MacView(model: vm, waiting: nil), app: "mac-screen-use-noon")
+    }
+
+    // ---- the privacy cover (PHN-597) ---------------------------------------------------------------------------
 
     private func centre<V: View>(_ v: V) -> (r: UInt8, g: UInt8, b: UInt8) {
         let image = AppSnapshot.render(v.frame(width: 200, height: 400), size: CGSize(width: 200, height: 400)).cgImage!
@@ -92,7 +119,7 @@ final class AppScreensTests: XCTestCase {
     private var white: some View { Color.white }
 
     /// The app switcher and Control Center never see FERB: whenever the scene isn't active, the cover shows.
-    // decision: PHN-565, PHN-15
+    // decision: PHN-597, PHN-15
     func testTheCoverShowsWheneverTheSceneIsNotActive() {
         let active = centre(white.ferbPrivacy(hideWhenCaptured: false, mustHide: false, capturedForTest: false).environment(\.scenePhase, .active))
         XCTAssertEqual(active.r, 255, "active: the app shows")
@@ -104,7 +131,7 @@ final class AppScreensTests: XCTestCase {
 
     /// While the screen is recorded or mirrored: hidden by the owner's switch, and always for Watch live and a
     /// private answer (mustHide); never otherwise.
-    // decision: PHN-565, PHN-454, PHN-110
+    // decision: PHN-597, PHN-454, PHN-110
     func testACapturedScreenHidesFERBByTheSwitchAndAlwaysForWhatMustStayPrivate() {
         func shown(switchOn: Bool, must: Bool, captured: Bool) -> Bool {
             centre(white.ferbPrivacy(hideWhenCaptured: switchOn, mustHide: must, capturedForTest: captured).environment(\.scenePhase, .active)).r == 255

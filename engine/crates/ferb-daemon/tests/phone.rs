@@ -1031,3 +1031,108 @@ async fn an_unused_phone_is_warned_about_never_removed() {
     assert_eq!(listed["phones"][0]["unused_warning"], false);
     assert_eq!(listed["phones"].as_array().unwrap().len(), 1);
 }
+
+/// GATE-615 (owner 2026-11-17: no fingerprint for screen use from the phone; a button "don't ask to use screen until I
+/// sent the next message on mac or return to mac"): "until I'm back at my Mac" is offered only on the screen-use
+/// question, goes only with a Yes, only from this paired phone with its unlock window open (no fingerprint), and is
+/// given with the name in FERB's list; the phone reads it in `chat.status`; the phone locking does not end it; an answer
+/// that is not taken takes it back unsaid; removing the phone ends it.
+// decision: GATE-615
+// decision: PHN-586
+// decision: PHN-587
+#[tokio::test]
+async fn until_i_m_back_goes_only_with_a_yes_to_the_screen_question_from_an_unlocked_phone() {
+    let w = world(None).await;
+    let (k1, k2) = (Keys::new(1), Keys::new(2));
+    pair(&w, P1, &k1, true, true).await;
+    pair(&w, P2, &k2, true, false).await;
+    let routine = QuestionFacts {
+        pending: true,
+        hidden: false,
+        own_check: true,
+        routine: true,
+    };
+    for id in ["screen", "fail-screen", "other"] {
+        ask(&w, id, routine.clone());
+    }
+    w.questions.screen.lock().unwrap().insert("screen".into());
+    w.questions
+        .screen
+        .lock()
+        .unwrap()
+        .insert("fail-screen".into());
+    let mut c = Conn::phone(&w, P1, "s").await;
+    // the paired phone, present but locked: a plain Yes from the notification, never "until I'm back"
+    assert_eq!(c.present(&k1).await["present"], true);
+    let back = |id: &str, granted: bool| json!({"approval_id": id, "granted": granted, "until_back": true});
+    assert_eq!(
+        c.call("chat.approve", back("screen", true), None)
+            .await
+            .unwrap_err()
+            .0,
+        code::LOCKED
+    );
+    c.unlock(&k1).await;
+    // offered on the screen question alone, in what the phone reads
+    let status = c.ok("chat.status", json!({})).await;
+    let part = |id: &str| {
+        status["approvals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|a| a["approval_id"] == id)
+            .unwrap()["phone"]
+            .clone()
+    };
+    assert_eq!(part("screen")["until_back"], true);
+    assert_eq!(part("other").get("until_back"), None);
+    assert_eq!(status["screen_use"]["active"], false);
+    // only with a Yes, only on the screen question
+    for (id, granted) in [("screen", false), ("other", true)] {
+        assert_eq!(
+            c.call("chat.approve", back(id, granted), None)
+                .await
+                .unwrap_err()
+                .0,
+            code::BAD_REQUEST,
+            "{id}"
+        );
+    }
+    assert!(w.questions.until_back.lock().unwrap().is_none());
+    // an answer that is not taken takes it back, unsaid
+    c.call("chat.approve", back("fail-screen", true), None)
+        .await
+        .unwrap_err();
+    assert!(w.questions.until_back.lock().unwrap().is_none());
+    assert_eq!(
+        w.questions.ended.lock().unwrap().clone(),
+        vec![("answer_failed".to_owned(), Some(P1.to_owned()))]
+    );
+    // the Yes goes on to FERB without the extra field
+    c.ok("chat.approve", back("screen", true)).await;
+    assert_eq!(
+        w.questions.until_back.lock().unwrap().clone(),
+        Some(("screen".into(), P1.into(), format!("Phone {P1}")))
+    );
+    let sent = w.calls.lock().unwrap().last().unwrap().1.clone();
+    assert_eq!(sent, json!({"approval_id": "screen", "granted": true}));
+    assert_eq!(
+        c.ok("chat.status", json!({})).await["screen_use"]["active"],
+        true
+    );
+    // the phone locking does not end it (the owner is away from the Mac, phone in pocket)
+    c.ok("phone.lock", json!({})).await;
+    assert!(w.questions.until_back.lock().unwrap().is_some());
+    // removing the phone that gave it ends it
+    let mut other = Conn::phone(&w, P2, "t").await;
+    other.unlock(&k2).await;
+    other
+        .signed_call(&k2.strong, "phone.remove", json!({"id": P1}))
+        .await
+        .unwrap();
+    assert!(w.questions.until_back.lock().unwrap().is_none());
+    assert_eq!(
+        w.questions.ended.lock().unwrap().last().cloned(),
+        Some(("phone_removed".to_owned(), Some(P1.to_owned())))
+    );
+}

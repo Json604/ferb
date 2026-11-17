@@ -48,7 +48,7 @@ class OnPhoneTest {
         shell("locksettings clear --old 1111")
     }
 
-    // decision: PHN-448, PHN-501, PHN-447, PHN-421, PHN-500, SENSE-420, GATE-613
+    // decision: PHN-448, PHN-501, PHN-447, PHN-421, PHN-500, SENSE-420, GATE-613, PHN-604
     @Test
     fun the_manifest_asks_only_what_the_app_uses_and_keeps_out_of_backups() {
         assertEquals("com.ferb.phone", context.packageName)
@@ -60,6 +60,7 @@ class OnPhoneTest {
                 "android.permission.POST_NOTIFICATIONS", "android.permission.FOREGROUND_SERVICE",
                 "android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING", "android.permission.CAMERA",
                 "android.permission.ACCESS_COARSE_LOCATION", "android.permission.ACCESS_FINE_LOCATION",
+                "android.permission.RECORD_AUDIO",
             ),
             info.requestedPermissions!!.toSet(),
         )
@@ -111,11 +112,11 @@ class OnPhoneTest {
         val app = context as FerbApplication
         val nm = context.getSystemService(NotificationManager::class.java)
         nm.cancelAll()
-        val routineNeeds = QuestionNeeds(true, false, false, false, null, null)
-        val fingerprintNeeds = QuestionNeeds(true, true, false, true, "ch-1", null)
+        val routineNeeds = QuestionNeeds(true, false, false, false, null, null, false)
+        val fingerprintNeeds = QuestionNeeds(true, true, false, true, "ch-1", null, false)
         val routine = Question("ap-test-1", null, "Which size?", "Which size of desk should FERB pick?", null, "owner_question", "owner.ask", listOf("Small", "Large"), emptyList(), false, routineNeeds)
         val check = Question("ap-test-2", null, "Pay $48.20?", "Pay the electricity bill now.", null, "owner_question", "ferb.confirm", listOf("Yes", "No"), listOf("Pay", "Don't"), false, routineNeeds)
-        val private = Question("ap-test-3", null, null, "The 6-digit code Northfield Energy sent you.", null, "owner_login_code", null, emptyList(), emptyList(), true, QuestionNeeds(true, true, true, false, "ch-3", null))
+        val private = Question("ap-test-3", null, null, "The 6-digit code Northfield Energy sent you.", null, "owner_login_code", null, emptyList(), emptyList(), true, QuestionNeeds(true, true, true, false, "ch-3", null, false))
         val fingerprint = Question("ap-test-4", null, "Delete 12 files?", "Empty the Trash on your Mac.", null, "owner_question", "ferb.confirm", listOf("Yes", "No"), emptyList(), false, fingerprintNeeds)
         val held = Question("ap-test-5", null, null, "", null, "owner_question", null, emptyList(), emptyList(), false, routineNeeds, held = true)
         app.notifier.question(routine, lockedNow = false)

@@ -42,6 +42,10 @@ struct Saved {
     relay_marks: std::collections::BTreeMap<String, String>,
     #[serde(default)]
     own_relay: Option<RelaySpec>,
+    /// PHN-591: when the relay setting last changed (unix seconds): the shared relays' second endpoint closes at most
+    /// `BEACON_MAX_DAYS` after it. Absent in an older file (its bytes, and so its seal, unchanged).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    relay_set_at: Option<u64>,
     #[serde(default)]
     limits: Limits,
     /// (day number, bytes relayed through the shared relay that day)
@@ -321,7 +325,19 @@ impl Store {
             None => self.secrets.delete(crate::secrets::RELAY_TOKEN)?,
         }
         s.own_relay = r;
+        s.relay_set_at = Some(now());
         self.save(&s)
+    }
+
+    /// PHN-591: when the relay setting last changed; an own relay set by an older build without the time gets it
+    /// now (the bound starts at this upgrade).
+    pub fn relay_set_at(&self) -> Option<u64> {
+        let mut s = self.saved.lock().unwrap();
+        if s.own_relay.is_some() && s.relay_set_at.is_none() {
+            s.relay_set_at = Some(now());
+            let _ = self.save(&s);
+        }
+        s.relay_set_at
     }
 
     /// The own-relay setting this phone is known to have. True when that was news.

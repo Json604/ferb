@@ -365,6 +365,10 @@ type Sinks = Vec<(usize, Vec<String>, BusSink)>;
 /// A test's seeding of a checked task's recorded calls (`TestDaemon::literal`).
 pub type Seed = Arc<dyn Fn(&Db, &str) + Send + Sync>;
 
+/// ORCH-671: a test's calls of a check's own, recorded as the check's runtime starts (the store and which check run
+/// of the scenario this is, from 0).
+pub type Look = Arc<dyn Fn(&Db, usize) + Send + Sync>;
+
 pub struct TestDaemon {
     me: std::sync::Weak<TestDaemon>,
     /// ORCH-654's named difference: a Python recording ran its checker on every report (true); a test turns it off
@@ -429,6 +433,9 @@ pub struct TestDaemon {
     /// the real ones (ferb-orchestrator's `Checks` and `cards`) on this world's store, after this seeds the checked
     /// task's recorded calls (it is given the store and the task id; the recordings themselves have no literal check).
     pub literal: Mutex<Option<Seed>>,
+    /// ORCH-671: a test's own observation calls of each check (none: the scripted checks look at nothing).
+    pub look: Mutex<Option<Look>>,
+    looks: AtomicUsize,
 }
 
 pub struct Gate {
@@ -995,6 +1002,12 @@ impl Daemon for TestDaemon {
             .find(|(_, v)| **v == python)
             .map(|(k, _)| k.clone())
             .unwrap_or_else(|| "(unknown schema)".into());
+        if role.starts_with("checker") {
+            if let Some(look) = self.look.lock().unwrap().clone() {
+                let k = self.looks.fetch_add(1, Ordering::SeqCst);
+                look(&self.db.lock().unwrap(), k);
+            }
+        }
         let mut calls = self.calls.lock().unwrap();
         let n = calls.made.len();
         calls.made.push(
@@ -1778,6 +1791,8 @@ pub fn world_with(name: &str, edit: impl FnOnce(&mut Vec<Value>)) -> World {
         seen_profiles: Mutex::default(),
         forgot_learned: Mutex::default(),
         literal: Mutex::default(),
+        look: Mutex::default(),
+        looks: AtomicUsize::new(0),
     });
     let clock = Arc::new(
         FakeClock::new(ferb_clock::py::parse("2026-01-01T09:00:00+00:00")).with_zone(Zone::utc()),
@@ -2464,5 +2479,8 @@ impl ferb_orchestrator::verify::CheckHost for LiteralHost<'_> {
     }
     fn db(&self) -> Option<&Db> {
         Some(self.db)
+    }
+    fn trash_dir(&self) -> Option<String> {
+        None
     }
 }

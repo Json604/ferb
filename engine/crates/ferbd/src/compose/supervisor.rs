@@ -1878,6 +1878,12 @@ impl ferb_supervisor::flow::chat_rpc::ChatGateway for ChatGw {
     fn pending(&self) -> Vec<Approval> {
         self.0.gateway.pending()
     }
+    // decision: GATE-615
+    fn owner_wrote_on_the_mac(&self) {
+        self.0
+            .gateway
+            .end_until_back(ferb_gateway::screen_use::Ended::MacMessage);
+    }
     fn approval(&self, id: &str) -> Option<Approval> {
         self.0.approval(id)
     }

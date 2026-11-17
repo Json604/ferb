@@ -72,7 +72,7 @@ final class SetupModelsTests: XCTestCase {
             "runtimes": [["name": "codex", "usable": true, "effort": "high"],
                          ["name": "claude", "usable": true, "refused": ["account": "signed_out",
                                                                          "at": "2026-11-10T14:02:03.123456+00:00",
-                                                                         "fix": "sign in to Claude again in Settings → AI"]]]]))
+                                                                         "fix": "sign in to Claude again in Settings → Thinking"]]]]))
         XCTAssertNil(ai.current)
         XCTAssertEqual(ai.runtimesInUse, ["claude", "codex"])
         XCTAssertEqual(ai.rolesText("codex"), "Worker · Checker")
@@ -83,7 +83,7 @@ final class SetupModelsTests: XCTestCase {
         XCTAssertTrue(ai.runs("claude", role: "orchestrator") && !ai.runs("claude", role: "worker"))
         let refused = try XCTUnwrap(ai.row("claude")?.refused)
         XCTAssertEqual(refused.text(timeZone: TimeZone(identifier: "UTC")!).hasPrefix("Last call refused: signed out at "), true)
-        XCTAssertTrue(refused.text().hasSuffix("Sign in to Claude again in Settings → AI."))
+        XCTAssertTrue(refused.text().hasSuffix("Sign in to Claude again in Settings → Thinking."))
         XCTAssertNil(ai.row("codex")?.refused)
     }
 

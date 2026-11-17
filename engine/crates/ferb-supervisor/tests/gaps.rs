@@ -105,7 +105,7 @@ fn one_step_with_a_gap(calls: &mut [Value], reason: &str) {
 /// ORCH-651/652: the worker reports a gap, the check accepts with it: the task ends done_with_gaps (its tasks row
 /// too), its answer is the worker's then code's "Not done:" line, never verified; the
 /// check read the worker's gaps in its report.
-// decision: ORCH-651, ORCH-652
+// decision: ORCH-651, ORCH-675
 #[test]
 fn a_gap_the_worker_names_and_the_check_accepts_ends_delivered_with_gaps() {
     let name = "one_step_task";
@@ -147,7 +147,7 @@ fn a_gap_the_worker_names_and_the_check_accepts_ends_delivered_with_gaps() {
 
 /// ORCH-652: a gapped accept outside code's limits (an unmet condition with no reason) reads as the check's plain
 /// accept: the work stands unconfirmed, never "with gaps", and the refusal is journaled.
-// decision: ORCH-652
+// decision: ORCH-675
 #[test]
 fn a_gap_without_a_reason_is_refused_and_reads_as_a_plain_accept() {
     let name = "one_step_task";
@@ -164,7 +164,7 @@ fn a_gap_without_a_reason_is_refused_and_reads_as_a_plain_accept() {
 /// ORCH-652, PRM-357: a check that finds the deliverable's evidence invented names it as an unmet condition (a gap
 /// saying so) and its sentences as findings: the answer's sentence is fixed by the worker's fix turn, and the owner
 /// reads "Not done:" with the check's reason, never the invented claim as done.
-// decision: ORCH-652, PRM-357
+// decision: ORCH-675, PRM-357
 #[test]
 fn invented_evidence_is_named_as_not_done_never_accepted_silently() {
     let name = "checker_findings_fix";

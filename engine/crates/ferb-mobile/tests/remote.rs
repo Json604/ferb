@@ -220,18 +220,18 @@ fn a_folder_lists_and_a_key_place_takes_its_own_proof() {
     mac.lock().key_places.push("/Users/o/.ssh".into());
     let phone = Phone::new();
     let m = connected(&phone, &mac, "direct");
-    let home = m.files(None, None).unwrap();
+    let home = m.files(None, None, None).unwrap();
     assert_eq!(home.path, "/Users/o");
     assert_eq!(home.entries[1].path, "/Users/o/.ssh");
     assert!(home.entries[1].locked);
-    let e = m.files(Some("/Users/o/.ssh"), None).unwrap_err();
+    let e = m.files(Some("/Users/o/.ssh"), None, None).unwrap_err();
     assert_eq!(
         (e.code, e.link_code.as_deref()),
         (ErrorCode::NeedsUnlock, Some(FRESH_UNLOCK_REQUIRED))
     );
     let signer = Arc::new(Recorded::default());
     let ssh = m
-        .files(Some("/Users/o/.ssh"), Some(signer.clone()))
+        .files(Some("/Users/o/.ssh"), Some(signer.clone()), None)
         .unwrap();
     assert!(ssh.locked);
     let signed: Value = serde_json::from_str(&signer.0.lock().unwrap()[0]).unwrap();
@@ -509,4 +509,183 @@ fn the_mac_s_tasks_name_and_late_keys() {
         json!({"challenge": "C-1", "method": "link.keys", "params": {"strong_pub": "STRONG-PUB"}})
     );
     assert!(again.register_keys(None, None, signer).is_err());
+}
+
+/// "Until I'm back at my Mac" (GATE-615): offered per question in the status; the answer is `chat.approve {granted,
+/// until_back}` with no proof (a signer passed is not used), refused `locked` when the unlock window is closed (the
+/// app unlocks and answers again) and refused for a question it wasn't offered on. FERB's use of the screen is read
+/// and ended with no unlock, and kept in the last status.
+// decision: GATE-615
+#[test]
+fn until_back_answers_the_screen_question_and_screen_use_is_read_and_ended() {
+    let mac = FakeMac::new("C1");
+    mac.lock().status = json!({"approvals": [
+        {"approval_id": "s1", "kind": "approve", "reason": "Let FERB use your screen?", "options": ["Yes", "No"],
+         "phone": {"can_answer": true, "needs_unlock": false, "until_back": true}},
+        {"approval_id": "q2", "kind": "approve", "reason": "Open it?", "options": ["Yes", "No"],
+         "phone": {"can_answer": true, "needs_unlock": false}}],
+        "running": [], "results": [], "stopped": false,
+        "screen_use": {"active": false, "can_offer": true}});
+    let phone = Phone::new();
+    let m = connected(&phone, &mac, "direct");
+    let st = m.status().unwrap();
+    assert!(st.questions[0].needs.until_back && !st.questions[1].needs.until_back);
+    assert_eq!(
+        st.screen_use.as_ref().map(|u| (u.active, u.can_offer)),
+        Some((false, true))
+    );
+    // the window closed: refused as locked, nothing given
+    mac.lock().window_closed = true;
+    let e = m.answer("s1", Answer::UntilBack, None).unwrap_err();
+    assert_eq!(
+        (e.code, e.link_code.as_deref()),
+        (ErrorCode::NeedsUnlock, Some("locked"))
+    );
+    // a question it wasn't offered on: the Mac's bad request
+    mac.lock().window_closed = false;
+    let e = m.answer("q2", Answer::UntilBack, None).unwrap_err();
+    assert_eq!(
+        (e.code, e.link_code.as_deref()),
+        (ErrorCode::Refused, Some("bad_request"))
+    );
+    // answered: exactly these params, and no proof even with a signer
+    let signer = Arc::new(Recorded::default());
+    m.answer("s1", Answer::UntilBack, Some(signer.clone()))
+        .unwrap();
+    assert!(signer.0.lock().unwrap().is_empty());
+    let call = mac.lock().calls.last().cloned().unwrap();
+    assert_eq!(call.0, "chat.approve");
+    assert_eq!(
+        call.1,
+        json!({"approval_id": "s1", "granted": true, "until_back": true})
+    );
+    assert!(call.2.is_none());
+    assert_eq!(mac.calls_of("link.challenge").len(), 0);
+    // what is in force, read and ended with the phone locked (no unlock needed)
+    assert!(m.lock().unwrap());
+    phone.heard.0.lock().unwrap().clear();
+    let now = m.screen_use().unwrap();
+    assert!(now.active);
+    assert_eq!(now.phone_name.as_deref(), Some("Pixel"));
+    assert_eq!(now.since.as_deref(), Some("2026-11-17T10:00:00+05:30"));
+    assert!(phone.heard.0.lock().unwrap().contains(&Change::Status));
+    assert_eq!(m.last_status().unwrap().unwrap().screen_use, Some(now));
+    let end = m.end_screen_use().unwrap();
+    assert!(end.ended && !end.screen_use.active);
+    assert_eq!(end.by, "EP-phone");
+    assert!(!m.last_status().unwrap().unwrap().screen_use.unwrap().active);
+    assert!(!m.end_screen_use().unwrap().ended, "nothing left to end");
+    assert_eq!(mac.calls_of("screen_use.end").len(), 2);
+}
+
+/// "Load more" (PHN-589): a folder and a search come a page at a time; `next` goes back as `after` (beside a key
+/// place's proof, which stays over the path alone) until the last page, and a marker of another folder is refused.
+// decision: PHN-588
+// decision: PHN-589
+#[test]
+fn listings_and_searches_load_more_by_their_marker() {
+    let mac = FakeMac::new("C1");
+    let entries: Vec<Value> = ["a", "b", "c"]
+        .iter()
+        .map(|n| json!({"name": n, "dir": false, "link": false, "size": 1, "modified": 1, "locked": false}))
+        .collect();
+    mac.lock().folders.insert(
+        "/Users/o/.ssh".into(),
+        json!({"path": "/Users/o/.ssh", "parent": "/Users/o", "high_value": true, "entries": entries}),
+    );
+    mac.lock().folders.insert(
+        "~".into(),
+        json!({"path": "/Users/o", "parent": "/Users", "high_value": false, "entries": []}),
+    );
+    mac.lock().key_places.push("/Users/o/.ssh".into());
+    mac.lock().page_size = Some(2);
+    let phone = Phone::new();
+    let m = connected(&phone, &mac, "direct");
+    let signer = Arc::new(Recorded::default());
+    let first = m
+        .files(Some("/Users/o/.ssh"), Some(signer.clone()), None)
+        .unwrap();
+    assert_eq!(
+        (first.entries.len(), first.total, first.from, first.cut),
+        (2, 3, 0, true)
+    );
+    let marker = first.next.clone().unwrap();
+    let last = m
+        .files(Some("/Users/o/.ssh"), Some(signer.clone()), Some(&marker))
+        .unwrap();
+    assert_eq!(last.entries[0].name, "c");
+    assert_eq!(
+        (last.from, last.cut, last.next.as_deref()),
+        (2, false, None)
+    );
+    let sent = mac.calls_of("link.files");
+    assert_eq!(sent[1], json!({"path": "/Users/o/.ssh", "after": marker}));
+    for signed in signer.0.lock().unwrap().iter() {
+        let signed: Value = serde_json::from_str(signed).unwrap();
+        assert_eq!(
+            signed["params"],
+            json!({"path": "/Users/o/.ssh"}),
+            "the proof is over the path alone"
+        );
+    }
+    // another folder's marker: the Mac's bad request
+    let e = m.files(None, None, Some(&marker)).unwrap_err();
+    assert_eq!(
+        (e.code, e.link_code.as_deref()),
+        (ErrorCode::Refused, Some("bad_request"))
+    );
+    // a search, the same way
+    mac.lock().found = (0..3)
+        .map(|i| json!({"name": format!("inv{i}.pdf"), "path": format!("/Users/o/inv{i}.pdf"), "dir": false,
+                        "size": 1, "modified": 1}))
+        .collect();
+    let one = m.search_files("inv", None, None).unwrap();
+    assert_eq!((one.files.len(), one.from, one.cut), (2, 0, true));
+    let two = m.search_files("inv", None, one.next.as_deref()).unwrap();
+    assert_eq!(
+        (two.files.len(), two.from, two.cut, two.next),
+        (1, 2, false, None)
+    );
+    assert_eq!(
+        mac.calls_of("phone.search")[1]["after"],
+        json!(one.next.unwrap())
+    );
+    let e = m.search_files("other", None, Some(&marker)).unwrap_err();
+    assert_eq!(e.code, ErrorCode::Refused);
+}
+
+/// Where files from the phone land (PHN-580, PHN-581): an upload and a folder say the folder plainly, and the Mac's
+/// upload folder comes with what it says about itself (kept for offline).
+// decision: PHN-580
+// decision: PHN-581
+#[test]
+fn uploads_say_where_they_landed_and_the_mac_names_its_upload_folder() {
+    let mac = FakeMac::new("C1");
+    let phone = Phone::new();
+    let m = connected(&phone, &mac, "direct");
+    let local = phone.dir.path().join("photo.jpg");
+    std::fs::write(&local, b"jpg").unwrap();
+    let up = m
+        .upload(
+            "u1",
+            local.to_str().unwrap(),
+            "photo.jpg",
+            None,
+            None,
+            None,
+            Arc::new(Moves::default()),
+        )
+        .unwrap();
+    assert_eq!(up.saved_in.as_deref(), Some("Downloads › FERB from phone"));
+    let g = m.begin_group("Photos").unwrap();
+    assert_eq!(g.group, "G-1");
+    assert_eq!(
+        g.saved_in.as_deref(),
+        Some("Downloads › FERB from phone › Photos")
+    );
+    let info = m.mac_info().unwrap();
+    let folder = info.upload_folder.clone().unwrap();
+    assert_eq!(folder.shown, "Downloads › FERB from phone");
+    assert!(folder.is_default && folder.path.ends_with("FERB from phone"));
+    assert_eq!(m.cached_mac_info().unwrap(), Some(info));
 }

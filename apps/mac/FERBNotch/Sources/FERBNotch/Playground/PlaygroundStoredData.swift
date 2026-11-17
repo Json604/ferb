@@ -9,7 +9,7 @@ final class PlaygroundStoredData {
 
     private static let groups: [[String: Any]] = [
         ["id": "conversation", "title": "Conversation"], ["id": "tasks", "title": "Tasks and results"],
-        ["id": "model_input", "title": "What the AI was given"], ["id": "memory", "title": "Memory"],
+        ["id": "model_input", "title": "What FERB sent for thinking"], ["id": "memory", "title": "Memory"],
         ["id": "activity", "title": "Activity log"], ["id": "safety", "title": "Safety records"],
         ["id": "other", "title": "Everything else"]]
 

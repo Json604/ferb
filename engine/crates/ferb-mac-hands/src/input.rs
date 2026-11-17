@@ -47,6 +47,24 @@ impl std::fmt::Debug for Step {
     }
 }
 
+/// GATE-618: when FERB last posted a keyboard or pointer event itself (microseconds since the epoch; 0: never), so
+/// "until I'm back at my Mac" can tell an unmarked event macOS may have derived from it (`last_posted`).
+static LAST_POSTED_US: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+
+/// Notes that FERB is posting an event now (the native poster calls it before each post).
+pub fn note_posted() {
+    let us = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_micros() as i64);
+    LAST_POSTED_US.store(us, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// When FERB last posted an event (POSIX seconds), if it ever did in this process.
+pub fn last_posted() -> Option<f64> {
+    let us = LAST_POSTED_US.load(std::sync::atomic::Ordering::SeqCst);
+    (us > 0).then(|| us as f64 / 1e6)
+}
+
 /// The events FERB posts, each marked with FERB's mark (`native::events`).
 pub trait Events: Send + Sync {
     fn post(&self, event: &Event, route: &Route) -> Result<()>;

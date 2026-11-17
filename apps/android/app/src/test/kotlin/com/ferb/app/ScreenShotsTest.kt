@@ -19,6 +19,7 @@ import com.ferb.app.model.MacSettings
 import com.ferb.app.model.Phase
 import com.ferb.app.model.Transfer
 import com.ferb.app.model.Way
+import com.ferb.app.model.Batch
 import com.ferb.mobile.FileEntry
 import com.ferb.mobile.Folder
 import com.ferb.mobile.MacInfo
@@ -154,6 +155,31 @@ class ScreenShotsTest {
         shoot("question.png")
     }
 
+    /** A screen-use question with an option the Mac adds (kb PHN-607): Yes and No as the lab draws them, the extra under. */
+    // decision: PHN-607
+    @Test
+    fun a_question_with_an_extra_option_from_the_mac() {
+        val q = Question("ap-3", "t-1", "Use your screen for this?", "FERB needs to click in Keynote, which works only in front.", null,
+            "owner_question", "screen.foreground", listOf("Yes", "No", "Until I'm back"), listOf("Use the screen", "Not now", "Until I'm back at my Mac"), false)
+        compose.setContent { Frame(labMoment(12.5), base.copy(rows = labRows, questions = listOf(q)), sheet = Sheet.Asking("ap-3")) }
+        shoot("question-extra.png")
+    }
+
+    /** What FERB says before the first use of speaking to it, on a phone that recognises speech itself or by its service. */
+    // decision: PHN-604
+    @Test
+    fun speaking_is_explained_before_androids_question() {
+        compose.setContent { Frame(labMoment(12.5), base.copy(rows = labRows), sheet = Sheet.Voice(com.ferb.app.model.SpeechKind.ON_DEVICE)) }
+        shoot("voice-on-device.png")
+    }
+
+    // decision: PHN-604
+    @Test
+    fun speaking_through_the_phones_service_says_where_the_voice_may_go() {
+        compose.setContent { Frame(labMoment(12.5), base.copy(rows = labRows), sheet = Sheet.Voice(com.ferb.app.model.SpeechKind.SERVICE)) }
+        shoot("voice-service.png")
+    }
+
     // decision: PHN-110, PHN-502
     @Test
     fun a_private_code_takes_the_labs_keypad() {
@@ -228,8 +254,8 @@ class ScreenShotsTest {
         val found = com.ferb.mobile.FoundFiles("~/Documents", "lease", listOf(
             com.ferb.mobile.FoundFile("Leases", "~/Documents/Leases", true, 0u, 0, "", null, null, null),
             com.ferb.mobile.FoundFile("Lease agreement.pdf", "~/Documents/Leases/Lease agreement.pdf", false, 1_100_000u, 1_767_348_000, "", null, null, null),
-        ), 5000u, 2u, true, true)
-        val folder = Folder("~/Documents", "~", false, emptyList(), 0u, false)
+        ), 5000u, 2u, true, true, 0u, null)
+        val folder = Folder("~/Documents", "~", false, emptyList(), 0u, false, 0u, null)
         val ui = base.copy(files = FilesUi(folder = folder, search = SearchUi("lease", "~/Documents", loading = false, found = found)))
         compose.setContent { Frame(labMoment(12.5), ui, tab = PhoneTab.FILES) }
         shoot("files-search.png")
@@ -247,7 +273,7 @@ class ScreenShotsTest {
         val folder = Folder("~/Documents/Taxes", "~/Documents", false, listOf(
             FileEntry("2025", "~/Documents/Taxes/2025", true, false, 0u, 0, false),
             FileEntry("receipts.zip", "~/Documents/Taxes/receipts.zip", false, false, 6_000_000u, 1_767_348_000, false),
-        ), 2u, false)
+        ), 2u, false, 0u, null)
         compose.setContent { Frame(labMoment(12.5), base.copy(files = FilesUi(folder = folder)), tab = PhoneTab.FILES) }
         shoot("files-folder-whole.png")
     }
@@ -268,6 +294,26 @@ class ScreenShotsTest {
         shoot("share-city.png")
     }
 
+    /** A long folder (PHN-609): "Load more" under the first page while the Mac says there is more. */
+    // decision: PHN-609
+    @Test
+    fun a_long_folder_offers_load_more() {
+        val folder = Folder("~/Downloads", "~", false, (1..4).map { FileEntry("Scan $it.pdf", "~/Downloads/Scan $it.pdf", false, false, 300_000u, 1_767_348_000, false) }, 1_240u, true, 0u, "p2")
+        compose.setContent { Frame(labMoment(12.5), base.copy(files = FilesUi(folder = folder)), tab = PhoneTab.FILES) }
+        shoot("files-load-more.png")
+    }
+
+    /** A file sent from the phone says where it is on the Mac: the Mac's words when the library carries them, else the default. */
+    // decision: PHN-608
+    @Test
+    fun a_file_sent_says_where_it_is_on_the_mac() {
+        vm.transfers.setForTest(listOf(
+            Transfer("b1.0", Way.SEND, "Boarding pass.pdf", "/x/o", null, 240_000, 240_000, Phase.DONE, uploadId = "u-1", batch = "b1"),
+        ), listOf(Batch("b1", Way.SEND)))
+        compose.setContent { Frame(labMoment(12.5), base, tab = PhoneTab.FILES) }
+        shoot("files-sent.png")
+    }
+
     // decision: PHN-113, PHN-121, PHN-11
     @Test
     fun a_folder_with_a_key_place_and_a_fetched_file() {
@@ -279,7 +325,7 @@ class ScreenShotsTest {
             FileEntry("Keys", "~/Documents/Keys", true, false, 0u, 0, true),
             FileEntry("Lease agreement.pdf", "~/Documents/Lease agreement.pdf", false, false, 1_100_000u, 1_767_348_000, false),
             FileEntry("Thesis draft v7.docx", "~/Documents/Thesis draft v7.docx", false, false, 2_400_000u, 1_767_348_000, false),
-        ), 4u, false)
+        ), 4u, false, 0u, null)
         compose.setContent { Frame(labMoment(12.5), base.copy(files = FilesUi(folder = folder)), tab = PhoneTab.FILES) }
         shoot("files-folder.png")
     }
@@ -323,10 +369,32 @@ class ScreenShotsTest {
     // decision: PHN-125, PHN-302
     @Test
     fun the_mac_by_its_name_says_it_stopped() {
-        val stopped = PhoneStatus(false, true, true, emptyList(), emptyList(), emptyList())
-        val ui = base.copy(status = stopped, mac = MacInfo("Studio Mac", "2026-11-10T09:00:00+05:30", "Pixel"))
+        val stopped = PhoneStatus(false, true, true, emptyList(), emptyList(), emptyList(), null)
+        val ui = base.copy(status = stopped, mac = MacInfo("Studio Mac", "2026-11-10T09:00:00+05:30", "Pixel", null))
         compose.setContent { Frame(labMoment(22.5), ui, tab = PhoneTab.MAC) }
         shoot("mac-stopped.png")
+    }
+
+    /** FERB may use the Mac's screen until the owner is back (PHN-611): the line and "Ask me again" on the Mac tab. */
+    // decision: PHN-611
+    @Test
+    fun the_mac_says_ferb_may_use_its_screen_until_he_is_back() {
+        val use = com.ferb.mobile.ScreenUse(true, "2026-11-17T10:00:00+05:30", "phone-1", "Pixel", true)
+        val ui = base.copy(status = PhoneStatus(false, true, false, emptyList(), emptyList(), emptyList(), use),
+            mac = MacInfo("Studio Mac", "2026-11-10T09:00:00+05:30", "Pixel", null))
+        compose.setContent { Frame(labMoment(12.5), ui, tab = PhoneTab.MAC) }
+        shoot("mac-screen-use.png")
+    }
+
+    /** The screen-use question when the Mac offers "until I'm back at my Mac" (PHN-610, PHN-611): the third choice and its line. */
+    // decision: PHN-611
+    @Test
+    fun the_screen_use_question_offers_until_i_am_back() {
+        val q = Question("ap-4", "t-1", "Use your screen for this?", "FERB needs to click in Keynote, which works only in front.", null,
+            "owner_question", "screen.foreground", listOf("Yes", "No"), listOf("Use the screen", "Not now"), false,
+            com.ferb.mobile.QuestionNeeds(true, false, false, false, "ch-1", null, true))
+        compose.setContent { Frame(labMoment(12.5), base.copy(rows = labRows, questions = listOf(q)), sheet = Sheet.Asking("ap-4")) }
+        shoot("question-until-back.png")
     }
 
     // decision: PHN-125

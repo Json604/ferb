@@ -75,6 +75,18 @@ class QuestionTest {
         assertTrue(q(emptyList()).choices.isEmpty())
         assertTrue("a private answer has no buttons", q(listOf("Yes", "No"), kind = "owner_login_code").choices.isEmpty())
     }
+
+    /** An option the Mac adds after Yes and No (its own number) is offered under them; No stays a plain No. */
+    // decision: PHN-607
+    @Test
+    fun an_extra_option_after_yes_and_no_keeps_the_sheet_and_its_own_number() {
+        val q = q(listOf("Yes", "No", "Until I'm back"), listOf("Allow", "Don't", "Until I'm back at my Mac"))
+        assertTrue(q.yesNo)
+        val c = q.choices
+        assertEquals(listOf("Don't", "Allow", "Until I'm back at my Mac"), c.map { it.label })
+        assertEquals(listOf(AnswerInput.Approve(false, null), AnswerInput.Approve(true, 1L), AnswerInput.Approve(true, 3L)), c.map { it.input })
+        assertFalse(q(listOf("Use Codex", "Use Claude", "Stop")).yesNo)
+    }
 }
 
 class AnswerFlowTest {
@@ -192,5 +204,33 @@ class WordsTest {
         assertTrue(Corpus.holds("phase", listOf("dawn", "sunrise"), "dawn"))
         assertNull(Corpus(File("src/main/assets/corpus.json").readText()).line("nothing", moment(10.0)))
         assertNotNull(corpus.texts(moment(2.0)).greeting)
+    }
+}
+
+class MacSettingsTest {
+    /** Jev is gone for good: an older Mac that still sends its day count gets no row, and no word of the app names it. */
+    // decision: PHN-596
+    @Test
+    fun jev_is_never_shown_even_when_an_older_mac_sends_it() {
+        val rows = com.ferb.app.model.MacSettings.rows(listOf(
+            com.ferb.mobile.SettingValue("retention.trace_days", "14"),
+            com.ferb.mobile.SettingValue("retention.decision_days", "30"),
+        ))
+        assertEquals(listOf("retention.trace_days"), rows.map { it.spec.key })
+        assertNull(com.ferb.app.model.MacSettings.spec("retention.decision_days"))
+        val words = File("src/main/res/values/strings.xml").readText()
+        assertFalse("strings.xml names Jev", Regex("jev", RegexOption.IGNORE_CASE).containsMatchIn(words))
+    }
+}
+
+class UploadPlaceTest {
+    /** The Mac's words for where a sent file landed; nothing said, the screen's default place. Never the full path. */
+    // decision: PHN-608
+    @Test
+    fun the_place_is_the_macs_words_or_nothing() {
+        assertEquals("Documents › From my phone",
+            com.ferb.app.model.UploadPlace.shown(com.ferb.mobile.Uploaded("u-1", "/Users/someone/Documents/From my phone/u-1-a.pdf", 3u, "Documents › From my phone")))
+        assertNull(com.ferb.app.model.UploadPlace.shown(com.ferb.mobile.Uploaded("u-1", "/Users/someone/Downloads/FERB from phone/u-1-a.pdf", 3u, null)))
+        assertNull(com.ferb.app.model.UploadPlace.shown(com.ferb.mobile.Uploaded("u-1", "/x", 3u, " ")))
     }
 }

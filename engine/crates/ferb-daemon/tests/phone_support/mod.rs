@@ -56,6 +56,12 @@ impl Clock for FakeClock {
 pub struct StubQuestions {
     pub facts: Mutex<HashMap<String, QuestionFacts>>,
     pub asked: Mutex<Vec<(String, String)>>,
+    /// GATE-615: the questions that are the screen-use question alone (offered "until I'm back").
+    pub screen: Mutex<std::collections::HashSet<String>>,
+    /// The "until I'm back" in force: (question, phone, phone's name).
+    pub until_back: Mutex<Option<(String, String, String)>>,
+    /// Each end asked: (why, the phone it was for).
+    pub ended: Mutex<Vec<(String, Option<String>)>>,
 }
 
 impl Questions for StubQuestions {
@@ -78,6 +84,32 @@ impl Questions for StubQuestions {
             },
         );
         id
+    }
+    fn until_back_offered(&self, id: &str) -> bool {
+        self.screen.lock().unwrap().contains(id)
+            && self
+                .facts
+                .lock()
+                .unwrap()
+                .get(id)
+                .is_some_and(|f| f.pending)
+    }
+    fn grant_until_back(&self, id: &str, phone: &str, name: &str) -> Result<(), String> {
+        *self.until_back.lock().unwrap() = Some((id.into(), phone.into(), name.into()));
+        Ok(())
+    }
+    fn end_until_back(&self, why: &str, phone: Option<&str>) {
+        let mut g = self.until_back.lock().unwrap();
+        if phone.is_none_or(|p| g.as_ref().is_some_and(|(_, gp, _)| gp == p)) && g.is_some() {
+            *g = None;
+            self.ended
+                .lock()
+                .unwrap()
+                .push((why.into(), phone.map(str::to_owned)));
+        }
+    }
+    fn screen_use_status(&self) -> Value {
+        json!({"active": self.until_back.lock().unwrap().is_some(), "can_offer": true})
     }
 }
 
@@ -287,6 +319,12 @@ fn stub(name: &str, p: &Params, q: &StubQuestions) -> HandlerResult {
                 .and_then(Value::as_str)
                 .unwrap_or("")
                 .to_owned();
+            if id.starts_with("fail") {
+                return Err(ferb_rpc::server::HandlerError::fault(
+                    "KeyError",
+                    "the answer was not taken",
+                ));
+            }
             let granted = if name == "chat.approve" {
                 p.get("granted") == Some(&json!(true))
             } else {

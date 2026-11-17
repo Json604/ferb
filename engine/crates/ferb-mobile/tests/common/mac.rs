@@ -60,6 +60,14 @@ pub struct MacState {
     pub device_locked: bool,
     /// Transfers by kind, with their params (get / put).
     pub transfers: Vec<(String, Value)>,
+    /// Folder listings and searches answer pages of this many (PHN-589), each with its `from`, `next` and `cut`.
+    pub page_size: Option<usize>,
+    /// `phone.search`'s matches when set (paged by `page_size`); else one fixed answer.
+    pub found: Vec<Value>,
+    /// The phone's unlock window is closed: what needs it (an "until I'm back" Yes) is refused `locked`.
+    pub window_closed: bool,
+    /// `screen_use.status` (GATE-615).
+    pub screen_use: Value,
 }
 
 #[derive(Clone)]
@@ -98,6 +106,10 @@ impl FakeMac {
             mac_name: None,
             device_locked: false,
             transfers: Vec::new(),
+            page_size: None,
+            found: Vec::new(),
+            window_closed: false,
+            screen_use: json!({"active": false, "can_offer": true}),
         })))
     }
 
@@ -174,6 +186,42 @@ impl FakeMac {
 }
 
 impl MacState {
+    /// One page of `all` after the marker (`<what>|<key>|<n>`, as the Mac's own markers: valid only for its folder
+    /// and query), with `from`, `next` and `cut` (PHN-589).
+    fn paged(
+        &self,
+        what: &str,
+        key: &str,
+        all: &[Value],
+        after: &Value,
+    ) -> Result<(Vec<Value>, Value), LinkFailure> {
+        let from = match after.as_str() {
+            None => 0,
+            Some(m) => {
+                let mut parts = m.rsplitn(2, '|');
+                let n = parts.next().and_then(|n| n.parse::<usize>().ok());
+                match (n, parts.next()) {
+                    (Some(n), Some(k)) if k == format!("{what}|{key}") => n,
+                    _ => {
+                        return Err(LinkFailure::new(
+                            "bad_request",
+                            "That page marker is not this folder's.",
+                        ))
+                    }
+                }
+            }
+        };
+        let size = self.page_size.unwrap_or(usize::MAX);
+        let page: Vec<Value> = all.iter().skip(from).take(size).cloned().collect();
+        let more = from + page.len() < all.len();
+        let next = if more {
+            json!(format!("{what}|{key}|{}", from + page.len()))
+        } else {
+            Value::Null
+        };
+        Ok((page, json!({"from": from, "cut": more, "next": next})))
+    }
+
     fn wire(&self, e: &ChatEntry) -> Value {
         let mut v = e.to_json();
         if let (Some(n), Some(text)) = (self.cut_over, e.body.get("text").and_then(Value::as_str)) {
@@ -318,7 +366,40 @@ impl Transport for FakeMac {
             "chat.entries.get" => st.get(&p)?,
             "chat.entries.mark" => json!({"marks": {}}),
             "link.challenge" => json!({"challenge": "C-1"}),
+            "chat.approve" if p.get("until_back").is_some() => {
+                // GATE-615: a Yes "until I'm back", only where offered, only on the unlock window
+                let offered = st.status["approvals"].as_array().is_some_and(|a| {
+                    a.iter().any(|q| {
+                        q["approval_id"] == p["approval_id"]
+                            && q["phone"]["until_back"] == json!(true)
+                    })
+                });
+                if p["granted"] != json!(true) || p["until_back"] != json!(true) || !offered {
+                    return Err(LinkFailure::new(
+                        "bad_request",
+                        "That question can't be answered so.",
+                    ));
+                }
+                if st.window_closed {
+                    return Err(LinkFailure::new(
+                        "locked",
+                        "Unlock FERB on your phone first.",
+                    ));
+                }
+                st.screen_use = json!({"active": true, "since": "2026-11-17T10:00:00+05:30", "phone": "EP-phone",
+                                       "phone_name": "Pixel", "can_offer": true});
+                json!({"ok": true})
+            }
             "task.stop" | "chat.approve" | "chat.answer" | "chat.correct" => json!({"ok": true}),
+            "screen_use.status" => st.screen_use.clone(),
+            "screen_use.end" => {
+                let ended = st.screen_use["active"] == json!(true);
+                st.screen_use = json!({"active": false, "can_offer": true});
+                let mut out = st.screen_use.clone();
+                out["ended"] = json!(ended);
+                out["by"] = json!("EP-phone");
+                out
+            }
             "stop.engage" => {
                 st.status["stopped"] = json!(true);
                 json!({"stopped": true})
@@ -333,17 +414,28 @@ impl Transport for FakeMac {
                         "This place needs your fingerprint each time.",
                     ));
                 }
-                st.folders
-                    .get(&path)
-                    .cloned()
-                    .ok_or_else(|| LinkFailure::new("not_found", "That isn't there any more."))?
+                let mut folder =
+                    st.folders.get(&path).cloned().ok_or_else(|| {
+                        LinkFailure::new("not_found", "That isn't there any more.")
+                    })?;
+                if st.page_size.is_some() || p.get("after").is_some() {
+                    let all = folder["entries"].as_array().cloned().unwrap_or_default();
+                    let (page, more) = st.paged("files", &path, &all, &p["after"])?;
+                    folder["total"] = json!(all.len());
+                    folder["entries"] = json!(page);
+                    for k in ["from", "cut", "next"] {
+                        folder[k] = more[k].clone();
+                    }
+                }
+                folder
             }
             "link.tree" => {
                 json!({"path": p["path"], "name": "Photos", "files": [{"rel": "a.jpg", "size": 3}, {"rel": "b/c.jpg", "size": 4}],
                                    "bytes": 7, "skipped": 1, "cut": false})
             }
             "link.put_group" => {
-                json!({"group": "G-1", "saved": "/Users/o/Downloads/FERB from phone/Photos"})
+                json!({"group": "G-1", "saved": "/Users/o/Downloads/FERB from phone/Photos",
+                       "saved_in": "Downloads › FERB from phone › Photos"})
             }
             "link.keys" => json!({"enrolled": true}),
             "settings.get" => json!({"values": st.settings.clone()}),
@@ -374,13 +466,25 @@ impl Transport for FakeMac {
                 {"name": "photo.jpg", "path": "/Users/o/Downloads/FERB from phone/photo.jpg", "dir": false, "size": 9,
                  "modified": 2, "source": "sent", "at": "2026-11-16T08:00:00+05:30", "task_id": null, "task_name": null}],
                 "skipped": 2}),
+            "phone.search" if !st.found.is_empty() => {
+                let key = format!(
+                    "{}|{}",
+                    p["path"].as_str().unwrap_or("~"),
+                    p["query"].as_str().unwrap_or("")
+                );
+                let (page, more) = st.paged("search", &key, &st.found, &p["after"])?;
+                json!({"path": "/Users/o", "query": p["query"], "files": page, "looked": 10, "skipped": 0,
+                       "incomplete": false, "from": more["from"], "cut": more["cut"], "next": more["next"]})
+            }
             "phone.search" => json!({"path": "/Users/o", "query": p["query"], "files": [
                 {"name": "Invoices", "path": "/Users/o/Documents/Invoices", "dir": true, "size": 0, "modified": 3}],
                 "looked": 1200, "skipped": 4, "cut": false, "incomplete": true}),
             "phone.list" => json!({"phones": [
                 {"id": "other", "name": "Old phone", "paired_at": "2026-01-01T00:00:00+00:00"},
                 {"id": "me", "name": "Pixel", "paired_at": "2026-11-10T09:00:00+00:00", "this": true}],
-                "mac": {"name": st.mac_name}, "pairing": null, "max": 5}),
+                "mac": {"name": st.mac_name}, "pairing": null, "max": 5,
+                "upload_folder": {"path": "/Users/o/Downloads/FERB from phone", "shown": "Downloads › FERB from phone",
+                                  "default": true}}),
             other => {
                 return Err(LinkFailure::new(
                     "method_not_allowed",
@@ -547,7 +651,7 @@ impl Transport for FakeMac {
         let name = opts["name"].as_str().unwrap_or("file").to_string();
         st.uploads.push((name.clone(), bytes.clone(), opts));
         Ok(json!({"upload_id": id, "saved": format!("/Users/o/Downloads/FERB from phone/{id}-{name}"),
-                  "size": bytes.len(), "sha256": "x"})
+                  "saved_in": "Downloads › FERB from phone", "size": bytes.len(), "sha256": "x"})
         .to_string())
     }
 

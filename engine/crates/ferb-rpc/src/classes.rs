@@ -160,6 +160,18 @@ pub const PHONE_METHODS: &[PhoneMethod] = &[
     plain("ping", LOCKED_REASON).locked(Locked::Allowed),
     plain("chat.status", LOCKED_REASON).locked(Locked::Allowed),
     plain("stop.engage", LOCKED_REASON).locked(Locked::Allowed),
+    // decision: GATE-615 — "FERB may use your Mac's screen until you're back" and its end: ending takes something away,
+    // like Stop, so a locked phone may do it
+    plain(
+        "screen_use.status",
+        "whether FERB may use the Mac's screen until the owner is back, so the phone shows it with a way to end it",
+    )
+    .locked(Locked::Allowed),
+    plain(
+        "screen_use.end",
+        "ends \"until I'm back at my Mac\": it only takes something away, like Stop (GATE-615)",
+    )
+    .locked(Locked::Allowed),
     plain("task.stop", LOCKED_REASON).locked(Locked::Allowed),
     // ---- the owner's words and answers: the phone is his surface (PHN-111); which answer needs the fingerprint is
     //      the question's, decided by the daemon (PHN-415, PHN-417, PHN-403)
@@ -366,6 +378,11 @@ pub const PHONE_METHODS: &[PhoneMethod] = &[
     sensitive(
         "phone.remove",
         "removes a paired phone: a second phone removes a lost one with its fingerprint (PHN-419)",
+    ),
+    // decision: PHN-581
+    never(
+        "phone.upload_folder",
+        "chooses where files from a phone land on the Mac, which is chosen at the Mac (owner, 2026-11-17)",
     ),
     never(
         "phone.rename",

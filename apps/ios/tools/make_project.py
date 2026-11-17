@@ -33,6 +33,8 @@ USAGE = {
     "NSCameraUsageDescription": "FERB uses the camera only to read the code on your Mac. Nothing is recorded.",
     "NSFaceIDUsageDescription": "FERB opens with Face ID, and asks for it again before your Mac goes ahead with something you approve.",
     "NSLocationWhenInUseUsageDescription": "FERB uses your city to get local time and place right. It asks before using your exact location.",
+    "NSMicrophoneUsageDescription": "FERB listens only while you hold the microphone in the message box, to turn what you say into words there. Nothing is recorded.",
+    "NSSpeechRecognitionUsageDescription": "FERB turns what you say into words in the message box, on this iPhone where it can. Nothing is kept, and your voice never goes to your Mac.",
     "NSLocalNetworkUsageDescription": "FERB connects straight to your Mac when both are on the same network, so files and Watch live work at full speed.",
 }
 

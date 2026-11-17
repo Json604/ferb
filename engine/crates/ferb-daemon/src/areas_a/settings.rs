@@ -184,7 +184,10 @@ fn profile(value: &Value) -> Result<Value, BadSetting> {
     Ok(json!(text))
 }
 
-/// `SETTINGS`, in Python's order.
+/// Jev's decisions' days (`[retention] decision_days`): no longer listed (APP-940, APP-941).
+pub const JEV_DAYS: (&str, &str) = ("retention", "decision_days");
+
+/// `SETTINGS`, in Python's order, without Jev's (APP-941).
 pub fn settings() -> Vec<Setting> {
     let mut out = vec![
         Setting {
@@ -207,6 +210,11 @@ pub fn settings() -> Vec<Setting> {
         },
     ];
     for r in RULES.iter() {
+        // decision: APP-941 — Jev is gone for good (owner, 2026-11-17): its records' days are no setting the owner sees
+        // or a phone changes; the retention pass keeps its default
+        if r.setting == Some(JEV_DAYS) {
+            continue;
+        }
         if let (Some((section, key)), Some(default)) = (r.setting, r.default) {
             out.push(Setting {
                 section,

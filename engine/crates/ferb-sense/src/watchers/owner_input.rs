@@ -43,7 +43,15 @@ pub trait TapBackend: Send + Sync {
 struct Times {
     last_owner: Option<f64>,
     last_owner_wall: Option<f64>,
+    /// GATE-618: the last unmarked event more than the window after FERB's own last post (clear), the last inside it
+    /// (unclear), and the last marked event this tap saw.
+    last_clear_wall: Option<f64>,
+    last_unclear_wall: Option<f64>,
+    last_marked_wall: Option<f64>,
 }
+
+/// FERB's own last post (POSIX seconds) as its poster records it, beside the marked events the tap sees.
+pub type FerbPosted = Arc<dyn Fn() -> Option<f64> + Send + Sync>;
 
 /// owner_input.py:25.
 pub struct OwnerInput {
@@ -55,6 +63,8 @@ pub struct OwnerInput {
     running: AtomicBool,
     on_text: Mutex<Option<OnText>>,
     backend: Box<dyn TapBackend>,
+    /// GATE-618: FERB's poster's own record and the window an unmarked event is unclear in (none: every one is clear).
+    ferb_posted: Mutex<Option<(FerbPosted, f64)>>,
 }
 
 struct Sink(Arc<OwnerInput>);
@@ -71,7 +81,9 @@ impl TapSink for Sink {
             // capture must never disturb input delivery
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| hook(key, marked)));
         }
-        if !marked {
+        if marked {
+            self.0.marked_event();
+        } else {
             self.0.owner_event();
         }
     }
@@ -102,21 +114,91 @@ impl OwnerInput {
             times: Mutex::new(Times {
                 last_owner: None,
                 last_owner_wall: None,
+                last_clear_wall: None,
+                last_unclear_wall: None,
+                last_marked_wall: None,
             }),
             running: AtomicBool::new(false),
             on_text: Mutex::new(None),
             backend,
+            ferb_posted: Mutex::new(None),
         })
     }
 
-    /// owner_input.py:42.
+    /// GATE-618: FERB's poster's own record of its last post, and the window after it in which an unmarked event is
+    /// unclear (it may be macOS's echo of FERB's post).
+    pub fn set_ferb_posted(&self, posted: FerbPosted, window_s: f64) {
+        *self
+            .ferb_posted
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some((posted, window_s));
+    }
+
+    /// owner_input.py:42; GATE-618: classed clear or unclear by FERB's own last post at this moment.
     pub fn owner_event(&self) {
+        let wall = (self.wall)();
+        let window = self
+            .ferb_posted
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .map(|(_, w)| *w);
+        let posted = self.ferb_posted_wall();
         let mut t = self
             .times
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         t.last_owner = Some((self.now)());
-        t.last_owner_wall = Some((self.wall)());
+        t.last_owner_wall = Some(wall);
+        let unclear = matches!((posted, window), (Some(p), Some(w)) if wall >= p && wall - p <= w);
+        if unclear {
+            t.last_unclear_wall = Some(wall);
+        } else {
+            t.last_clear_wall = Some(wall);
+        }
+    }
+
+    /// A marked event (FERB's own) went by: when FERB last posted, as the tap saw it.
+    pub fn marked_event(&self) {
+        let wall = (self.wall)();
+        self.times
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .last_marked_wall = Some(wall);
+    }
+
+    /// FERB's own last post: the later of the poster's record and the last marked event the tap saw.
+    pub fn ferb_posted_wall(&self) -> Option<f64> {
+        let external = self
+            .ferb_posted
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .and_then(|(f, _)| f());
+        let seen = self
+            .times
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .last_marked_wall;
+        match (external, seen) {
+            (Some(a), Some(b)) => Some(a.max(b)),
+            (a, b) => a.or(b),
+        }
+    }
+
+    /// GATE-618: the last clear and the last unclear unmarked event.
+    pub fn clear_wall(&self) -> Option<f64> {
+        self.times
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .last_clear_wall
+    }
+
+    pub fn unclear_wall(&self) -> Option<f64> {
+        self.times
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .last_unclear_wall
     }
 
     /// owner_input.py:46: the owner touched input within the quiet period: GUI work must wait.

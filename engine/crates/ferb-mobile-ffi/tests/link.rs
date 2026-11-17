@@ -494,7 +494,7 @@ fn files_the_preview_the_status_and_the_lock_through_the_real_link() {
     assert!(wait(5, || frames.1.lock().unwrap().is_some()));
     // the lock: told to the Mac; a private read is refused there until the unlock
     assert!(m.lock().unwrap());
-    let refused = m.files(None, None).unwrap_err();
+    let refused = m.files(None, None, None).unwrap_err();
     assert!(
         matches!(refused, FerbError::NeedsUnlock { .. }),
         "{refused:?}"
@@ -502,7 +502,7 @@ fn files_the_preview_the_status_and_the_lock_through_the_real_link() {
     m.stop(vec![task]).unwrap();
     m.unlock(strong.clone()).unwrap();
     assert!(
-        m.files(Some(w.dir.to_string_lossy().into_owned()), None)
+        m.files(Some(w.dir.to_string_lossy().into_owned()), None, None)
             .is_ok()
     );
     link.shutdown();

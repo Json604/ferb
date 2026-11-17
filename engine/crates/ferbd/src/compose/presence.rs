@@ -87,3 +87,46 @@ impl ferb_clock::timers::Presence for TimerPresence {
         Some(utc.with_timezone(&chrono::Local).fixed_offset())
     }
 }
+
+/// GATE-615, GATE-618: what the gateway sees of the owner at the Mac for "until I'm back at my Mac": the owner-input
+/// tap and the Mac's presence. Every event FERB posts carries FERB's mark (ferb-mac-hands native/events.rs) and is never
+/// the owner's (ferb-sense watchers/owner_input.rs); an unmarked one is clear, or unclear when it comes within
+/// `screen_use::UNCLEAR_WINDOW_S` of FERB's own last post (the poster's record, `ferb_mac_hands::input::last_posted`,
+/// and the marked events the tap saw), classed as it arrives. Read at each use: the parts are built after the gateway.
+pub struct OwnerAtMac(pub super::tools::Parts);
+
+impl OwnerAtMac {
+    /// Hands the tap FERB's poster's record and the window (once, when the gateway is given this).
+    pub fn wire(parts: &super::tools::Parts) {
+        if let Some(o) = parts.owner() {
+            o.input.set_ferb_posted(
+                Arc::new(ferb_mac_hands::input::last_posted),
+                ferb_gateway::screen_use::UNCLEAR_WINDOW_S,
+            );
+        }
+    }
+}
+
+impl ferb_gateway::screen_use::AtTheMac for OwnerAtMac {
+    fn can_tell(&self) -> bool {
+        self.0
+            .owner()
+            .is_some_and(|o| o.input.is_running() && o.presence.running())
+    }
+
+    fn clear_input_at(&self) -> Option<f64> {
+        self.0.owner()?.input.clear_wall()
+    }
+
+    fn unclear_input_at(&self) -> Option<f64> {
+        self.0.owner()?.input.unclear_wall()
+    }
+
+    fn ferb_posted_at(&self) -> Option<f64> {
+        self.0.owner()?.input.ferb_posted_wall()
+    }
+
+    fn away(&self) -> bool {
+        self.0.owner().is_some_and(|o| o.presence.away())
+    }
+}

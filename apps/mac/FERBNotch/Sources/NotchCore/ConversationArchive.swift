@@ -316,19 +316,19 @@ extension ConversationTurn {
         let kept = sealed ?? []
         let formats = kinds.filter { kind in kind != Self.savedSecret && !kept.contains { $0.kind == kind } }
         var lines: [String] = []
-        if kinds.contains(Self.savedSecret) { lines.append("That's one of your saved secrets. I hid it from the AI.") }
+        if kinds.contains(Self.savedSecret) { lines.append("That's one of your saved secrets. I hid it from the service I think with.") }
         if !kept.isEmpty {
             // GATE-604: kept sealed for any site, so FERB never asks for it again
             let them = kept.count == 1 ? "it" : "them"
             let names = kept.map { "“\($0.name)”" }
             let named = names.count > 1 ? names.dropLast().joined(separator: ", ") + " and " + names[names.count - 1]
                 : names[0]
-            lines.append("That looked like \(Self.named(kept.map(\.kind))). I hid \(them) from the AI and kept \(them) "
+            lines.append("That looked like \(Self.named(kept.map(\.kind))). I hid \(them) from the service I think with and kept \(them) "
                          + "sealed as \(named), so I can fill \(them) in on any site without asking you again.")
         }
         if !formats.isEmpty {
             let them = formats.count == 1 ? "it" : "them"
-            lines.append("That looked like \(Self.named(formats)). I hid \(them) from the AI and didn't save \(them). "
+            lines.append("That looked like \(Self.named(formats)). I hid \(them) from the service I think with and didn't save \(them). "
                          + "Best not to paste keys and passwords into chats.")
         }
         return lines.isEmpty ? nil : lines.joined(separator: " ")
@@ -762,6 +762,24 @@ public struct ConversationArchive: Codable, Equatable {
         notices.append(ConversationNotice(id: id, entryID: UUID(), createdAt: date, noticedAt: noticedAt, text: text,
                                           quotes: quotes, tag: tag, afterTurnID: turns.last?.id, proposals: proposals,
                                           cards: cards))
+        return true
+    }
+
+    /// GATE-618: a notice FERB.app wrote itself changes its words in place (the "Are you back?" line becomes the
+    /// welcome). False when there is no such notice.
+    public mutating func rewordNotice(id: String, text: String) -> Bool {
+        guard let index = notices.firstIndex(where: { $0.id == id }), !text.isEmpty else { return false }
+        let n = notices[index]
+        notices[index] = ConversationNotice(id: n.id, entryID: n.entryID, createdAt: n.createdAt, noticedAt: n.noticedAt,
+                                            text: text, quotes: n.quotes, tag: n.tag, afterTurnID: n.afterTurnID,
+                                            proposals: n.proposals, cards: n.cards)
+        return true
+    }
+
+    /// GATE-618: a notice FERB.app wrote itself goes (a hold that passed in silence). False when there is none.
+    public mutating func removeNotice(id: String) -> Bool {
+        guard let index = notices.firstIndex(where: { $0.id == id }) else { return false }
+        notices.remove(at: index)
         return true
     }
 

@@ -257,6 +257,19 @@ final class NotchModel: ObservableObject {
     /// Which parts of the composer draft were pasted: marked when sent (the daemon counts them as the owner's words,
     /// ORCH-518) and never run as a local notch command (APP-596).
     var pasteProvenance = PasteProvenance()
+    /// The long pastes held as chips in the composer (APP-935), in the order they were pasted.
+    var heldPastes: [HeldPaste] { pasteProvenance.held }
+    /// The chip whose whole text the composer shows (clicked), if any.
+    @Published var shownPaste: UUID?
+    /// Pictures pasted or dropped with no file behind them and promised files, received where the background service
+    /// can read them (APP-933, APP-936).
+    var receivedFiles = ReceivedFiles()
+    /// Promised files still on their way into the composer, shown as arriving (APP-936).
+    @Published private(set) var receivingFiles: [ReceivingFile] = []
+    /// Arrivals the owner took out before they came: what comes is deleted.
+    private var cancelledReceives = Set<UUID>()
+    /// The time a pasted picture is named after (tests fix it).
+    var now: () -> Date = Date.init
     var knownCompletedTasks = Set<String>()
     /// An unreadable archive couldn't be set aside, so nothing may be saved over it.
     var archiveBlocked = false
@@ -328,7 +341,7 @@ final class NotchModel: ObservableObject {
         announcedAttentionIDs = Set(preferences.stringArray(forKey: "FERBAnnouncedAttentionIDs") ?? [])
         drops.accepts = { [weak self] in self?.acceptsDroppedFiles ?? false }
         drops.isOpen = { [weak self] in self?.bodyVisible ?? false }
-        drops.onDrop = { [weak self] urls in self?.dropFiles(urls) ?? false }
+        drops.onDrop = { [weak self] items in self?.drop(items) ?? false }
         drops.onTargeted = { [weak self] targeted in self?.isDropTarget = targeted }
         acknowledgement.changed = { [weak self] text in
             guard let self else { return }
@@ -495,8 +508,13 @@ final class NotchModel: ObservableObject {
         return height
     }
     private var composerMeasure: (draft: String, width: CGFloat, height: CGFloat)?
-    /// One horizontal card strip, independent of the number of attachments.
-    var attachmentStripHeight: CGFloat { session.attachments.isEmpty ? 0 : 100 }
+    /// One horizontal card strip, independent of the number of attachments and held pastes, and the shown paste's text.
+    var attachmentStripHeight: CGFloat {
+        (session.attachments.isEmpty && heldPastes.isEmpty && receivingFiles.isEmpty ? 0 : 100)
+            + (shownHeldPaste == nil ? 0 : Self.shownPasteHeight)
+    }
+    static let shownPasteHeight: CGFloat = 190
+    var shownHeldPaste: HeldPaste? { shownPaste.flatMap { id in heldPastes.first { $0.id == id } } }
     var conversationChromeHeight: CGFloat {
         composerHeight + 58 + (showsWorkRow ? 22 : 0) + ((showingHistory || !viewingToday) ? 36 : 0)
             + (promptError == nil ? 0 : 48) + attachmentStripHeight + (introLine.map { introContentHeight($0, width: bodyWidth - 50, inset: IntroNarrationView.chatInset) + 9 } ?? 0)
@@ -532,7 +550,7 @@ final class NotchModel: ObservableObject {
     /// The notch can handle this one explicit local preference command without sending it to the daemon.
     /// Pasted text is never interpreted as a command.
     func handleLocalNotchCommand(_ text: String) -> Bool {
-        guard pasteProvenance.pastes.isEmpty, !pasteProvenance.isUnclear else { return false }
+        guard pasteProvenance.pastes.isEmpty, pasteProvenance.held.isEmpty, !pasteProvenance.isUnclear else { return false }
         let normalized = text.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).joined(separator: " ")
         let prefixes = ["", "ferb ", "please ", "can you ", "could you ", "ferb can you ",
                         "ferb could you ", "please ferb "]
@@ -848,10 +866,17 @@ final class NotchModel: ObservableObject {
             return
         }
         guard canSend else { return }
+        if !receivingFiles.isEmpty {                    // a dropped file still arriving would miss the message
+            promptError = Self.stillReceiving
+            onBackgroundChange?(true)
+            return
+        }
         if handleLocalNotchCommand(session.draft) { return }
-        let outgoing = PastedRequest(text: session.draft, provenance: pasteProvenance).markedText
+        // Held pastes go back in at their places, marked as pastes like any other (APP-935)
+        let whole = pasteProvenance.expanded(session.draft)
+        let outgoing = PastedRequest(text: whole.text, provenance: whole.provenance).markedText
         // The bubble shows the words without leaked paste markers until the ack brings the daemon's text (APP-713)
-        begin(request: PasteMarkers.removed(from: session.draft), outgoing: outgoing, sources: session.attachments,
+        begin(request: PasteMarkers.removed(from: whole.text), outgoing: outgoing, sources: session.attachments,
               keepComposer: false)
     }
 
@@ -937,7 +962,9 @@ final class NotchModel: ObservableObject {
             session.attach(held.sources)
         } else {
             pasteProvenance = PasteProvenance()
+            shownPaste = nil
         }
+        receivedFiles.sent(sources)            // a pasted picture sent stays for its task (APP-933)
         workSessions[id] = session
         saveConversation()
         completionTask?.cancel()
@@ -1013,6 +1040,49 @@ final class NotchModel: ObservableObject {
     /// them manully or attach a message in text and send").
     var canSend: Bool {
         !session.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !session.attachments.isEmpty
+            || !heldPastes.isEmpty
+    }
+
+    /// A picture pasted with no file behind it (a screenshot copied to the clipboard, a browser's Copy Image): written
+    /// as a PNG FERB owns, then attached exactly as a dropped file (APP-933). False when FERB can't take files now or
+    /// the file couldn't be written.
+    @discardableResult
+    func pasteImage(_ png: Data) -> Bool {
+        guard acceptsDroppedFiles else { return false }
+        let url: URL
+        do {
+            url = try receivedFiles.save(png, named: ComposerPaste.imageName(at: now()))
+        } catch {
+            promptError = "FERB couldn't attach the pasted picture. Try saving it as a file and attaching that."
+            onBackgroundChange?(true)
+            return true                                 // the clipboard held a picture: no text goes in instead
+        }
+        guard dropFiles([url]) else { receivedFiles.discard(url); return false }
+        return true
+    }
+
+    /// A long paste held as a chip at `location` of the draft (APP-935): the field keeps only what the owner types.
+    func holdPaste(_ text: String, at location: Int) {
+        guard canCompose else { return }
+        objectWillChange.send()
+        pasteProvenance.hold(text, at: location, in: session.draft)
+        session.edit()
+        onInteraction?()
+        onBackgroundChange?(true)
+    }
+
+    /// The chip's cross: its text is not sent.
+    func removeHeldPaste(_ id: UUID) {
+        objectWillChange.send()
+        pasteProvenance.removeHeld(id)
+        if shownPaste == id { shownPaste = nil }
+        onBackgroundChange?(true)
+    }
+
+    /// Clicking a chip shows its whole text in the composer; clicking it again (or Done) hides it.
+    func toggleShownPaste(_ id: UUID) {
+        shownPaste = shownPaste == id ? nil : id
+        onBackgroundChange?(true)
     }
 
     /// Files and folders dropped on FERB (D17): all of them join the composer at once (deduplicated, folders kept) and
@@ -1023,6 +1093,32 @@ final class NotchModel: ObservableObject {
     func dropFiles(_ urls: [URL]) -> Bool {
         let files = urls.filter(\.isFileURL)
         guard acceptsDroppedFiles, !files.isEmpty else { return false }
+        openForDrop(attaching: files)
+        return true
+    }
+
+    /// Everything one drop carries (APP-930, APP-936): files attach at once; a picture with no file is written as a PNG
+    /// FERB owns and attached; each promised file shows as arriving and is attached when its source has written it. An
+    /// item that can't be read or received is said in a plain line, never dropped silently. The chat opens as for files.
+    @discardableResult
+    func drop(_ items: DroppedItems) -> Bool {
+        guard acceptsDroppedFiles, !items.isEmpty else { return false }
+        var files = items.files.filter(\.isFileURL)
+        var failed = items.unreadable > 0
+        for png in items.images {
+            if let url = try? receivedFiles.save(png, named: ComposerPaste.imageName(at: now())) {
+                files.append(url)
+            } else {
+                failed = true
+            }
+        }
+        for promise in items.promises { receive(promise) }
+        openForDrop(attaching: files)
+        if failed { promptError = Self.receiveFailed }
+        return true
+    }
+
+    private func openForDrop(attaching files: [URL]) {
         onInteraction?()                  // the press path: stops a yield, un-rests the pill, makes the open panel key
         acknowledgement.dismiss()
         if !viewingToday {                // the composer is today's
@@ -1038,7 +1134,47 @@ final class NotchModel: ObservableObject {
         showingTasks = false
         openedByPress = true
         onPresentationChange?(true)
-        return true
+    }
+
+    static let receiveFailed = "FERB couldn't get a file you dropped. Try saving it first, then drop the saved file."
+    static let stillReceiving = "FERB is still getting a file you dropped. Send again in a moment."
+
+    /// A promised file asked of its source into a folder of its own; it shows as arriving until it is written.
+    private func receive(_ promise: PromisedFile) {
+        let arriving = ReceivingFile(id: UUID(), name: promise.name)
+        let folder: URL
+        do { folder = try receivedFiles.newFolder() } catch {
+            promptError = Self.receiveFailed
+            return
+        }
+        receivingFiles.append(arriving)
+        promise.receive(into: folder) { [weak self] result in
+            guard let self else { return }
+            let cancelled = self.cancelledReceives.contains(arriving.id)
+            self.receivingFiles.removeAll { $0.id == arriving.id }
+            switch result {
+            case .success(let url):
+                self.receivedFiles.adopt(url)
+                if cancelled {
+                    self.receivedFiles.discard(url)
+                } else {
+                    self.session.attach([url])
+                    self.session.edit()
+                }
+            case .failure:
+                self.receivedFiles.removeIfEmpty(folder)
+                if !cancelled { self.promptError = Self.receiveFailed }
+            }
+            self.onBackgroundChange?(true)
+        }
+    }
+
+    /// The arriving card's cross: the file is not attached, and deleted if it still comes.
+    func cancelReceiving(_ id: UUID) {
+        guard receivingFiles.contains(where: { $0.id == id }) else { return }
+        cancelledReceives.insert(id)
+        receivingFiles.removeAll { $0.id == id }
+        onBackgroundChange?(true)
     }
 
     func toggleSources() {
@@ -1109,6 +1245,7 @@ final class NotchModel: ObservableObject {
 
     func removeAttachment(_ url: URL) {
         session.removeAttachment(url)
+        receivedFiles.discard(url)              // a pasted picture never sent is deleted (APP-933)
         onPresentationChange?(true)
     }
 
@@ -1281,4 +1418,11 @@ final class NotchModel: ObservableObject {
         }
     }
 
+}
+
+/// A promised file on its way into the composer (APP-936).
+struct ReceivingFile: Identifiable, Equatable {
+    let id: UUID
+    /// The source's name for it, when it gave one.
+    let name: String?
 }

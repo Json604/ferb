@@ -1,0 +1,71 @@
+{
+  "about": "Speaking to FERB from the phone keeps every word said until the owner lets go (kb PHN-603; FERB.app's APP-673 and APP-675, whose DictationTests these sequences come from). Both phones run them: Android's DictationTest and the iPhone's DictationTests. Steps: begin (a new recognition task; tasks are numbered from 0), heard (an answer of a task: text, final, ended = the recognizer marked the utterance's end, start and end in seconds), fail (a task ended with an error; noSpeech), leave (the current task stops being fed), finish (the owner let go). 'step' is what the capture says next: keep, restart (a new task on the same microphone), failed, or finished:<text>. 'text' checks everything said so far.",
+  "cases": [
+    {"name": "words finalized before a pause are kept when the recognizer starts over", "steps": [
+      {"begin": 0},
+      {"heard": "Find my", "task": 0, "step": "keep"},
+      {"heard": "Find my notes", "task": 0, "ended": true, "step": "keep"},
+      {"heard": "about", "task": 0},
+      {"heard": "about the launch", "task": 0},
+      {"text": "Find my notes about the launch"}
+    ]},
+    {"name": "a recognizer that repeats earlier words is not doubled", "steps": [
+      {"begin": 0},
+      {"heard": "Find my notes.", "task": 0, "ended": true},
+      {"heard": "Find my notes, about the launch", "task": 0},
+      {"text": "Find my notes. about the launch"}
+    ]},
+    {"name": "an answer that drops the live words without marking the pause keeps them", "steps": [
+      {"begin": 0},
+      {"heard": "please book a table for four", "task": 0, "start": 0.2, "end": 2.1},
+      {"heard": "tonight", "task": 0, "start": 4.0, "end": 4.5},
+      {"heard": "tonight at", "task": 0, "start": 4.0, "end": 4.8},
+      {"text": "please book a table for four tonight at"}
+    ]},
+    {"name": "a revision of the same words replaces them", "steps": [
+      {"begin": 0},
+      {"heard": "I scream", "task": 0, "start": 0.1, "end": 0.9},
+      {"heard": "Ice cream", "task": 0, "start": 0.1, "end": 0.9},
+      {"text": "Ice cream"}
+    ]},
+    {"name": "the recognizer ending mid-hold restarts and keeps everything", "steps": [
+      {"begin": 0},
+      {"heard": "Send the report", "task": 0},
+      {"heard": "Send the report.", "task": 0, "final": true, "step": "restart"},
+      {"begin": 1},
+      {"fail": 1, "noSpeech": true, "step": "restart"},
+      {"begin": 2},
+      {"heard": "to Sam", "task": 2},
+      {"fail": 2, "noSpeech": false, "step": "restart"},
+      {"begin": 3},
+      {"heard": "by Friday", "task": 3},
+      {"finish": true, "step": "keep"},
+      {"heard": "by Friday.", "task": 3, "final": true, "step": "finished:Send the report. to Sam by Friday."}
+    ]},
+    {"name": "a fresh task that fails at once stops with what was said", "steps": [
+      {"begin": 0},
+      {"heard": "Open my calendar", "task": 0, "final": true, "step": "restart"},
+      {"begin": 1},
+      {"fail": 1, "noSpeech": false, "step": "finished:Open my calendar"}
+    ]},
+    {"name": "a fresh task that fails at once with nothing said fails", "steps": [
+      {"begin": 0},
+      {"fail": 0, "noSpeech": false, "step": "failed"}
+    ]},
+    {"name": "an old task's late words stay and never end the dictation", "steps": [
+      {"begin": 0},
+      {"heard": "Remind me", "task": 0},
+      {"leave": true},
+      {"begin": 1},
+      {"heard": "at noon", "task": 1},
+      {"heard": "Remind me tomorrow", "task": 0, "final": true, "step": "keep"},
+      {"text": "Remind me tomorrow at noon"}
+    ]},
+    {"name": "letting go between tasks finishes at once with what was said", "steps": [
+      {"begin": 0},
+      {"heard": "Call Mum", "task": 0, "final": true, "step": "restart"},
+      {"leave": true},
+      {"finish": true, "step": "finished:Call Mum"}
+    ]}
+  ]
+}

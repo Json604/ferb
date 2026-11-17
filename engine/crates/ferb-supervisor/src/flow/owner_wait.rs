@@ -860,8 +860,9 @@ impl Inner {
             st.stop_reason = summary.to_string();
             st.stop_by_code = true;
             if choices.is_empty() {
-                st.stop_reason =
-                    format!("{summary} No other AI service is signed in for FERB (Settings → AI).");
+                st.stop_reason = format!(
+                    "{summary} No other service is signed in for FERB (Settings → Thinking)."
+                );
                 return Switched::Fail;
             }
         }
@@ -875,9 +876,12 @@ impl Inner {
             .collect();
         options.push(STOP.into());
         let down_said = if problem == "usage_limit" {
-            format!("{} hit its usage limit. Switch AI?", label(runtime))
+            format!("{} hit its usage limit. Switch service?", label(runtime))
         } else {
-            format!("{} isn't signed in for FERB. Switch AI?", label(runtime))
+            format!(
+                "{} isn't signed in for FERB. Switch service?",
+                label(runtime)
+            )
         };
         let names: Vec<String> = choices.iter().map(|n| label(n)).collect();
         let option_refs: Vec<&str> = options.iter().map(String::as_str).collect();

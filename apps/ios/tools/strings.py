@@ -56,6 +56,11 @@ IOS = {
     "city_text": "FERB on your Mac then knows which city you're in, for things like local times and places nearby. Only the city goes to your Mac, never the exact spot. To name the city, Apple's own location service looks it up. iOS asks next; you can turn this off here any time.",
     "city_denied": "iOS didn't allow location for FERB, so FERB goes by the time zone.",
     "loc_why_denied": "Location wasn't allowed for FERB on the phone.",
+    # speaking to FERB (kb PHN-604): Apple's speech recognition where the iPhone can't recognise the language itself;
+    # iOS asks for the microphone and for speech recognition, two questions
+    "voice_text_service": "Hold the microphone while you speak, and let go when you're done. Your words appear in the message box, so you can check them before you send. This iPhone turns speech into words with Apple's speech recognition, which may send the sound of your voice to Apple to do it. FERB records and keeps nothing, and your voice never goes to your Mac.",
+    "voice_ask_next": "iOS asks next whether FERB may use the microphone and speech recognition.",
+    "voice_denied": "The microphone or speech recognition is off for FERB, so it can't hear you. You can turn them on in Settings.",
 }
 
 # Plurals (Android <plurals>): the same, with %2$@ where Android says "your fingerprint" (L.plural fills it).
@@ -87,6 +92,9 @@ NEW = {
     "background_text": "On iPhone, FERB's questions and news reach you while FERB is open and for a short while after you leave it. Once iOS closes it, they wait on your Mac and show the moment you open FERB again. Your Mac never stops for this: what it is doing goes on.",
     "scan_no_camera": "This iPhone has no camera FERB can use here. Type the code instead.",
     "recording_cover": "FERB is hidden while the screen is recorded or mirrored.",
+    # This phone's screenshot row says whether this iOS keeps Watch live's picture out of screenshots (PHN-597)
+    "profile_screenshots_detail_shield": "Blank while the screen is recorded or mirrored. Watch live's picture of your Mac stays out of screenshots.",
+    "profile_screenshots_detail_no_shield": "Blank while the screen is recorded or mirrored. Screenshots can still show FERB on this iPhone.",
     # the lab's Mac page and This phone rows name the fingerprint (Android) or Face ID (the lab's iPhone): the phone's own
     "mac_settings_detail": "Each change asks for %@",
     "profile_lock": "%@ to open",

@@ -126,8 +126,16 @@ val labRelay = RelayCopy(
     fullSpeed = "For everything at full speed: the same Wi-Fi as your Mac, or your own relay.",
 )
 
-/** MobileScreens.swift SkyNow.sunLine's time left, exactly as the lab writes it: "45 min", "5 h 0 min", "2 h 12 min". */
-fun labMinutesLeft(left: Int): String = if (left >= 60) "${left / 60} h ${left % 60} min" else "$left min"
+/**
+ * MobileScreens.swift SkyNow.sunLine's time left: "45 min", "2 h 12 min", and whole hours without the zero minutes
+ * ("5 h", where the lab wrote "5 h 0 min"): the owner's choice, kb PHN-595. The design's spacing is kept. The iPhone's
+ * twin is FerbDesign's labMinutesLeft; both are held to test resources words/time-left.json.
+ */
+fun labMinutesLeft(left: Int): String = when {
+    left < 60 -> "$left min"
+    left % 60 == 0 -> "${left / 60} h"
+    else -> "${left / 60} h ${left % 60} min"
+}
 
 val labTasks = listOf(
     WorkGroup("Waiting for you", listOf(WorkRow(MarkKind.ASKING, "Renew the domain", "Asks before paying $12.99"))),

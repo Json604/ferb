@@ -1,9 +1,9 @@
 {
   "counts": {
-    "plain": 50,
+    "plain": 52,
     "private": 38,
     "sensitive": 48,
-    "never": 25
+    "never": 26
   },
   "methods": {
     "about.get": {
@@ -909,6 +909,15 @@
       "owner_to_confirm": false,
       "why": "the phone session's own call: the daemon's phone gate answers it and checks the proof it carries (PHN-124)"
     },
+    "phone.upload_folder": {
+      "class": "never",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "chooses where files from a phone land on the Mac, which is chosen at the Mac (owner, 2026-11-17)"
+    },
     "ping": {
       "class": "plain",
       "locked": "allowed",
@@ -1142,6 +1151,24 @@
       "refused_params": [],
       "owner_to_confirm": false,
       "why": "the schedules"
+    },
+    "screen_use.end": {
+      "class": "plain",
+      "locked": "allowed",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "ends \"until I'm back at my Mac\": it only takes something away, like Stop (GATE-615)"
+    },
+    "screen_use.status": {
+      "class": "plain",
+      "locked": "allowed",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "whether FERB may use the Mac's screen until the owner is back, so the phone shows it with a way to end it"
     },
     "secrets.delete": {
       "class": "sensitive",

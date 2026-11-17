@@ -292,6 +292,11 @@ pub struct ActionFacts {
     pub writes: Vec<String>,
     /// The page's own label for the control (display only: GATE-557, GATE-559; it never decides anything).
     pub control_label: Option<String>,
+    /// ORCH-669: how many files the page's file fields held at FERB's last read of the page; None when that read
+    /// showed no file field (a site's own picker or drop zone isn't one). Written only when known, so a record
+    /// without it keeps Python's bytes (the named difference).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_files: Option<i64>,
 }
 
 impl ActionFacts {

@@ -404,12 +404,12 @@ private struct RequestView: View {
                     HStack {
                         Spacer(minLength: 28)
                         if kept.shown {
-                            Text("The AI can see “\(kept.name)” now.")
+                            Text("FERB can read “\(kept.name)” now.")
                                 .font(.system(size: 10)).foregroundStyle(Palette.secondary)
                         } else if let show {
-                            Button("Let the AI see “\(kept.name)”") { show(kept.name) }
+                            Button("Let FERB read “\(kept.name)”") { show(kept.name) }
                                 .buttonStyle(.link).font(.system(size: 10))
-                                .help("FERB stops hiding this value from the AI until you change it in Settings → Data.")
+                                .help("FERB stops hiding this value from the service it thinks with, until you change it in Settings → Data.")
                         }
                     }
                     .frame(maxWidth: ChatSide.width - 28, alignment: .trailing)

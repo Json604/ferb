@@ -2136,7 +2136,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         let board = dragPasteboard()
         guard board.changeCount != dragPasteboardCount else { return }
         dragPasteboardCount = board.changeCount
-        guard board.types?.contains(.fileURL) == true else { return }
+        guard FileDropSession.takes(board) else { return }     // files, promised files, pictures (APP-931)
         beginFileDrag()
     }
 

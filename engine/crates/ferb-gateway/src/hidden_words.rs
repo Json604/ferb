@@ -18,7 +18,7 @@ pub const ACCOUNT_SHOWN: usize = 64;
 
 pub const ADMIN_DETAIL: &str =
     "macOS needs it to run the one command you just allowed as administrator. It goes only \
-                                to that command and isn't saved; FERB's AI never sees it.";
+                                to that command and isn't saved; it never reaches the service FERB thinks with.";
 pub const ADMIN_SUMMARY: &str = "Your Mac password, for the admin command";
 pub const ADMIN_TITLE: &str = "Private — only the command gets this";
 pub const ADMIN_QUESTION: &str =
@@ -271,8 +271,8 @@ pub fn secret_detail(
             format!(", as “{name}”")
         };
         return format!(
-            "{what}FERB fills it in and saves it in your Mac's Keychain, for {place} only{}{named}. FERB's AI never \
-             sees it.",
+            "{what}FERB fills it in and saves it in your Mac's Keychain, for {place} only{}{named}. It never \
+             reaches the service FERB thinks with.",
             any_site_id(target)
         );
     }
@@ -281,7 +281,7 @@ pub fn secret_detail(
     } else {
         "that page"
     };
-    format!("{what}FERB types it into {into} once and doesn't keep it. FERB's AI never sees it.")
+    format!("{what}FERB types it into {into} once and doesn't keep it. It never reaches the service FERB thinks with.")
 }
 
 /// GATE-603, GATE-605: a value typed for a web page that is an ID number by its own layout and check digit is kept for
@@ -318,7 +318,7 @@ pub fn login_code_detail(field: Option<&str>, count: usize) -> String {
     };
     format!(
         "{what}Type the code the site sent you (by email or text). FERB enters it on that page once and doesn't \
-         keep it; FERB's AI never sees it.{nth}"
+         keep it; it never reaches the service FERB thinks with.{nth}"
     )
 }
 

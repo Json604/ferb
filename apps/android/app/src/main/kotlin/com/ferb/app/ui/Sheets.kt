@@ -65,6 +65,7 @@ import com.ferb.design.screens.PhoneInsets
 import com.ferb.design.screens.ProfileSheet
 import com.ferb.design.screens.QuestionSheet
 import com.ferb.design.screens.RelaySheet
+import com.ferb.app.model.SpeechKind
 import com.ferb.mobile.AnswerInput
 import java.text.DateFormat
 import java.util.Date
@@ -92,6 +93,12 @@ interface Host {
 
     /** The owner said yes to the Mac's request for the exact location: Android's question if needed, then the fix. */
     fun shareExact(requestId: String) {}
+
+    /** Android allowed FERB the microphone (speaking to FERB, PHN-604). */
+    fun microphoneAllowed(): Boolean = false
+
+    /** The owner read FERB's words about speaking ([kind]; null: he had already) and goes on: Android's question if needed. */
+    fun allowMicrophone(kind: com.ferb.app.model.SpeechKind?) {}
 }
 
 /** The sheet over the page (Mobile.swift Sheet; MobileScreens.swift's sheets), or nothing. */
@@ -138,7 +145,14 @@ fun Sheets(vm: FerbViewModel, ui: UiState, sheet: Sheet?, insets: PhoneInsets, h
                 Pill(stringResource(R.string.cancel), Modifier.padding(top = 4.dp), PillKind.PLAIN, height = 44.dp, onClick = close)
             }
         }
-        is Sheet.NotYet -> Plain(stringResource(sheet.what.words), stringResource(sheet.what.text), insets, close)
+        is Sheet.Voice -> {
+            val text = stringResource(if (sheet.kind == SpeechKind.ON_DEVICE) R.string.voice_text_device else R.string.voice_text_service)
+            val ask = if (host.microphoneAllowed()) "" else "\n\n" + stringResource(R.string.voice_ask_next)
+            Plain(stringResource(R.string.voice_title), text + ask, insets, close) {
+                Pill(stringResource(R.string.voice_continue), Modifier.padding(top = 18.dp), icon = FerbIcons.mic, onClick = { host.allowMicrophone(sheet.kind) })
+                Pill(stringResource(R.string.cancel), Modifier.padding(top = 4.dp), PillKind.PLAIN, height = 44.dp, onClick = close)
+            }
+        }
         is Sheet.Location -> {
             val busy = "location" in ui.busy
             Plain(stringResource(R.string.exact_title), stringResource(if (busy) R.string.exact_reading else R.string.exact_text), insets,
@@ -176,7 +190,7 @@ private fun Asking(vm: FerbViewModel, q: Question, insets: PhoneInsets, busy: Bo
     val title = q.title ?: stringResource(R.string.question_default_title)
     val choices = q.choices
     val exact: @Composable () -> Unit = { q.exact?.let { ExactCommand(it) } }
-    if (choices.size == 2) {
+    if (choices.size == 2 || q.yesNo) {
         val (no, yes) = choices[0] to choices[1]
         // the lab's own line, said only where the Mac's status says the Yes needs the fingerprint-only key
         val note = if (q.needsProof && q.needs?.fingerprint == true) stringResource(R.string.question_yes_fingerprint) else null
@@ -184,6 +198,11 @@ private fun Asking(vm: FerbViewModel, q: Question, insets: PhoneInsets, busy: Bo
             FerbIcons.help, title, q.reason, yes.label, insets, no = no.label, note = note, onDismiss = close,
             onNo = if (busy) null else ({ vm.answer(q.approvalId, no.input) }),
             onYes = if (busy) null else ({ vm.answer(q.approvalId, yes.input) }),
+            more = choices.drop(2).map { c -> c.label to (if (busy) null else ({ vm.answer(q.approvalId, c.input); Unit })) } +
+                // the Mac offers "until I'm back at my Mac" on its screen-use question (PHN-610, PHN-611)
+                (if (q.untilBack) listOf(stringResource(R.string.until_back_yes) to (if (busy) null else ({ vm.answer(q.approvalId, AnswerInput.UntilBack); Unit })))
+                else emptyList()),
+            moreNote = if (q.untilBack) stringResource(R.string.until_back_note) else null,
             exact = exact,
         )
         return

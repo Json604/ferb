@@ -55,15 +55,21 @@ screenshots are re-recorded with `TEST_RUNNER_FERB_RECORD_SNAPSHOTS=1` (its READ
   No DNS context is needed on iOS: n0-dns-resolver reads the nameservers through libresolv (PHN-478), so there is no
   `NativeInit` twin.
 - **The scanner** (PHN-564): AVFoundation's QR reader, as PHN-447 named.
-- **Screenshots** (PHN-565): iOS can't blank screenshots as Android's FLAG_SECURE does. FERB covers itself in the app
-  switcher always, and hides while the screen is recorded or mirrored (always for Watch live and a private answer, by
-  the owner's switch for the rest); a screenshot shows what is on screen. The owner's question: kb T-1240.
+- **Screenshots** (PHN-597, the owner's PHN-598): iOS has no public FLAG_SECURE. Watch live's picture of the Mac is
+  drawn inside a secure text field's canvas (FerbAppUI `ScreenshotShield`, the banking apps' technique: public calls,
+  undocumented behaviour), which iOS leaves out of screenshots; where an iOS doesn't build that canvas the picture is
+  drawn plainly and This phone says screenshots can show FERB. A private answer never shows its value. FERB covers
+  itself in the app switcher always and hides while the screen is recorded or mirrored (`isSceneCaptured`). The
+  simulator doesn't honour the secure layer: a blank screenshot is checked on an iPhone. `-FERBUITestShield YES` (Debug,
+  simulator) shows a plain and a shielded half for that check.
+- **Speaking** (PHN-603..605): hold the microphone; Apple's recogniser with `requiresOnDeviceRecognition` where the
+  iPhone supports the language, else Apple's service after FERB's words; the words land in the message box.
 - **Background** (PHN-566): no Stay connected; see below (the words are the owner's question, kb T-1241).
 - **Tests**: FerbMobile 4 (the library on the simulator, the real link started), FerbCore 14 (keys, vault, FerbPhone;
-  one skipped: an unhosted test bundle has no Keychain), FerbDesign 39 (tokens, sky, words, 45 goldens), FerbApp 67
+  one skipped: an unhosted test bundle has no Keychain), FerbDesign 40 (tokens, sky, words, 45 goldens), FerbApp 81
   (every fixture chat through the real library, the app model, notifications' plan, the app's screens against the
-  design's goldens, the privacy cover, the catalog), UI 4 (launch, the lock, pairing page, a wrong typed code through
-  the real link, no camera, coming back).
+  design's goldens, the privacy cover, the catalog, speaking, load more, the screenshot shield), UI 5 (launch, the
+  lock, pairing page, a wrong typed code through the real link, no camera, coming back, the shield drawn in place).
 - **Words** (PHN-567): one catalog (`FerbAppModel/Resources/Localizable.xcstrings`), written by `tools/strings.py` from
   Android's `strings.xml` under the same names; `python3 -I apps/ios/tools/strings.py --diff` lists every string that
   differs and why.
@@ -89,7 +95,11 @@ The This phone sheet says so where Android shows Stay connected.
    - Chat, a question answered (a routine one from its notification while FERB is in the background; a check with
      Face ID), Stop, Stop everything.
    - Files: open a folder, fetch a file, Open (QuickLook) and Share; a key place asks Face ID each time; send a photo.
-   - Watch live: hidden while recording the screen (Control Center → Screen Recording).
+   - Watch live: hidden while recording the screen (Control Center → Screen Recording); a screenshot (side button +
+     volume up) taken while Watch live shows the Mac comes out with the picture blank and the buttons drawn; This
+     phone's screenshot row says "Watch live's picture of your Mac stays out of screenshots".
+   - Speaking: hold the microphone in the message box; FERB's words first, then iOS's two questions; the words land in
+     the box, nothing is sent until Send; with Settings → Accessibility → VoiceOver on, double-tap and hold works.
    - This phone → Forget this Mac: the chat goes, pairing starts over.
    - Settings → Face ID → add an appearance: the strong key reads as changed (checks need pairing again); turn the
      passcode off: FERB asks to pair again.

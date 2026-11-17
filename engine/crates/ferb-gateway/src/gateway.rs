@@ -394,6 +394,10 @@ struct Inner {
     lookup_answers: HashMap<(String, String, String), Reply>,
     last_act: HashMap<String, (String, Option<Map<String, Value>>)>,
     allow_until: Option<DateTime>,
+    /// GATE-615: the owner's "until I'm back at my Mac", given from a phone (screen use only).
+    until_back: Option<crate::screen_use::UntilBack>,
+    /// GATE-618: the confirmations "until I'm back" answered: they cover a later call only while one is in force.
+    back_rows: HashSet<String>,
     terminal_arms: HashMap<String, String>,
     amount_asked: HashMap<String, HashSet<(String, Option<String>)>>,
     outside: HashMap<String, OutsideTexts>,
@@ -671,6 +675,10 @@ pub struct Gateway {
     answers: Notify,
     observer: Mutex<Arc<dyn Observer>>,
     locks: crate::locks::ResourceLocks,
+    /// GATE-615: what FERB sees of the owner at the Mac (none: "until I'm back" is never offered).
+    at_mac: Mutex<Option<Arc<dyn crate::screen_use::AtTheMac>>>,
+    /// GATE-618: a hold resumed or the grant ended (the calls waiting on a hold look again).
+    hold_changed: Notify,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -697,6 +705,8 @@ impl Gateway {
             answers: Notify::new(),
             observer: Mutex::new(Arc::new(NoObserver)),
             locks: crate::locks::ResourceLocks::new(),
+            at_mac: Mutex::new(None),
+            hold_changed: Notify::new(),
         }
     }
 
@@ -844,6 +854,171 @@ impl Gateway {
     /// The owner's "don't ask for 30 min", if it runs now.
     pub fn allow_until(&self) -> Option<DateTime> {
         lock(&self.inner).allow_until
+    }
+
+    // ---------- GATE-615: "until I'm back at my Mac" (screen_use.rs) ----------
+
+    /// What FERB sees of the owner at the Mac, given once by the daemon.
+    pub fn set_at_mac(&self, at: Arc<dyn crate::screen_use::AtTheMac>) {
+        *lock(&self.at_mac) = Some(at);
+    }
+
+    fn at_mac(&self) -> Option<Arc<dyn crate::screen_use::AtTheMac>> {
+        lock(&self.at_mac).clone()
+    }
+
+    /// Whether a phone may answer this question "until I'm back at my Mac" now: it waits, it is the screen-use question
+    /// alone, and FERB can tell when the owner is back at a Mac in use.
+    pub fn until_back_offered(&self, approval_id: &str) -> bool {
+        let at = self.at_mac();
+        crate::screen_use::offered(at.as_deref())
+            && self
+                .approval(approval_id)
+                .is_some_and(|a| a.state == State::Pending && a.screen_use)
+    }
+
+    /// The phone's "until I'm back" with its Yes to `approval_id` (checked by the phone gate: a paired phone, unlocked).
+    /// Refused unless [`Gateway::until_back_offered`]; a second one replaces the first.
+    pub fn grant_until_back(
+        &self,
+        approval_id: &str,
+        phone: &str,
+        phone_name: &str,
+    ) -> Result<crate::screen_use::UntilBack, String> {
+        if !self.until_back_offered(approval_id) {
+            return Err(
+                "FERB can't tell now when you're back at your Mac, so this needs a plain Yes."
+                    .into(),
+            );
+        }
+        let g = crate::screen_use::UntilBack::new(self.now(), phone, phone_name, approval_id);
+        lock(&self.inner).until_back = Some(g.clone());
+        (self.d.journal_problem)(
+            crate::screen_use::JOURNAL_KIND,
+            obj(json!({"state": "started", "phone": phone, "approval_id": approval_id})),
+        );
+        let mut ev = obj(g.status());
+        ev.insert("state".into(), json!("started"));
+        self.publish(crate::screen_use::TOPIC, ev);
+        Ok(g)
+    }
+
+    /// The "until I'm back" in force now, after one look at the owner (`screen_use::step`): ended first when the owner
+    /// is back, the Mac is out of use or FERB can't tell; an unclear event starts a hold (GATE-618), a silent hold
+    /// resumes (GATE-619). Each change is journaled; a hold and its end are published for FERB.app's quiet line.
+    pub fn until_back(&self) -> Option<crate::screen_use::UntilBack> {
+        use crate::screen_use::{Step, CHECK_LINE, CHECK_TITLE, JOURNAL_KIND, TOPIC};
+        let at = self.at_mac();
+        let now = self.now().timestamp_micros() as f64 / 1e6;
+        let (step, g) = {
+            let mut i = lock(&self.inner);
+            let g = i.until_back.as_mut()?;
+            let step = crate::screen_use::step(g, now, at.as_deref());
+            (step, g.clone())
+        };
+        match step {
+            Step::Keep => Some(g),
+            Step::Ended(why) => {
+                self.end_until_back(why);
+                None
+            }
+            Step::Held { at, until, first } => {
+                (self.d.journal_problem)(
+                    JOURNAL_KIND,
+                    obj(
+                        json!({"state": "held", "phone": g.phone, "unclear_at": at, "until": until}),
+                    ),
+                );
+                self.publish(
+                    TOPIC,
+                    obj(json!({"active": true, "state": "checking", "title": CHECK_TITLE, "line": CHECK_LINE,
+                               "seconds": crate::screen_use::HOLD_S, "first": first, "hold": g.holds,
+                               "since": when::isoformat(&g.since)})),
+                );
+                Some(g)
+            }
+            Step::Resumed { quiet_until } => {
+                (self.d.journal_problem)(
+                    JOURNAL_KIND,
+                    obj(json!({"state": "resumed", "phone": g.phone, "quiet_until": quiet_until})),
+                );
+                self.publish(
+                    TOPIC,
+                    obj(json!({"active": true, "state": "resumed", "hold": g.holds,
+                               "since": when::isoformat(&g.since)})),
+                );
+                self.hold_changed.notify_waiters();
+                Some(g)
+            }
+            Step::Ignored { at } => {
+                (self.d.journal_problem)(
+                    JOURNAL_KIND,
+                    obj(json!({"state": "ignored", "phone": g.phone, "unclear_at": at})),
+                );
+                Some(g)
+            }
+        }
+    }
+
+    /// GATE-618: FERB posts no screen input while a hold lasts: a call that would (an on-screen tool) waits here until
+    /// the hold resumes or the grant ends. A call already posting finishes; its own echo is not the owner's.
+    async fn wait_screen_hold(&self, cancel: &Cancel) -> Result<(), CallError> {
+        loop {
+            let n = self.hold_changed.notified();
+            tokio::pin!(n);
+            n.as_mut().enable();
+            let held = self.until_back().is_some_and(|g| g.hold.is_some());
+            if !held {
+                return Ok(());
+            }
+            cancel
+                .guard(async {
+                    tokio::select! {
+                        () = n => {}
+                        () = tokio::time::sleep(std::time::Duration::from_millis(250)) => {}
+                    }
+                })
+                .await?;
+        }
+    }
+
+    /// Ends the "until I'm back" in force (if any), journaled and published with why; the end it ended.
+    pub fn end_until_back(
+        &self,
+        why: crate::screen_use::Ended,
+    ) -> Option<crate::screen_use::UntilBack> {
+        let g = lock(&self.inner).until_back.take()?;
+        self.hold_changed.notify_waiters();
+        (self.d.journal_problem)(
+            crate::screen_use::JOURNAL_KIND,
+            obj(json!({"state": "ended", "phone": g.phone, "why": why.as_str()})),
+        );
+        // GATE-618: `during_hold`: FERB.app turns its "Are you back?" line into this one in place
+        let mut ev = obj(
+            json!({"active": false, "state": "ended", "why": why.as_str(), "phone": g.phone,
+                                "phone_name": g.phone_name, "since": when::isoformat(&g.since),
+                                "during_hold": g.hold.is_some(), "hold": g.holds}),
+        );
+        if let Some(line) = why.line() {
+            ev.insert("line".into(), json!(line));
+        }
+        self.publish(crate::screen_use::TOPIC, ev);
+        Some(g)
+    }
+
+    /// `screen_use.status`: the "until I'm back" in force (`active`, since, the phone) or `{"active": false}`, and
+    /// whether FERB can offer it now.
+    pub fn screen_use_status(&self) -> Map<String, Value> {
+        let mut out = match self.until_back() {
+            Some(g) => obj(g.status()),
+            None => obj(json!({"active": false})),
+        };
+        let at = self.at_mac();
+        out.insert(
+            "can_offer".into(),
+            json!(crate::screen_use::offered(at.as_deref())),
+        );
+        out
     }
 
     /// GATE-593: the task answer's lines naming every site that received a file under the owner's "Send to every site
@@ -2031,6 +2206,10 @@ fn sources_json(s: &ArgSources) -> Value {
 
 impl Gateway {
     async fn needs(&self, c: &mut Call) -> R<Result<Vec<Need>, Reply>> {
+        // decision: GATE-618 — no screen input from FERB while "until I'm back" holds to ask whether the owner is back
+        if c.tool.facts().on_screen {
+            self.wait_screen_hold(&c.cancel).await?;
+        }
         let mut needs: Vec<Need> = self.lift_needs(c);
         if let Some(url) = self.url_sink_need(c)? {
             needs.push(url);
@@ -3452,6 +3631,12 @@ impl Gateway {
                         .is_some_and(|p| !p.is_empty() && self.made_here(&root, p)))
             });
         }
+        // decision: ORCH-676 — before a send or submit on a page, the file going out isn't the one the owner named
+        if let Some(n) = self.not_named(c, &root)? {
+            if !needs.iter().any(|m| m.key == n.key) {
+                needs.push(n);
+            }
+        }
         if let Some(f) = c.facts().cloned() {
             if let Some(amount) = f.page_amount.filter(|a| !a.is_empty()) {
                 for n in needs.iter_mut() {
@@ -3532,6 +3717,133 @@ impl Gateway {
             Ok(real) => made(root, &real),
             Err(_) => false,
         }
+    }
+
+    /// ORCH-676: at a send or a submit on a page (by the action's kind as the gateway classes it, or the page's own
+    /// form submit), the question when what code sees going out isn't the file the owner named in the request
+    /// (attached, or written as a path): FERB's uploads in the task carried only other files, the page's field holds
+    /// other bytes than FERB gave it, or a file field holds a file no upload or file-carrying route of the task could
+    /// have put there. None when the request names no file, the call isn't on a page, or code can't see the file.
+    fn not_named(&self, c: &Call, root: &str) -> R<Option<Need>> {
+        let submits = c.facts().is_some_and(|f| f.submits_form == Some(true));
+        if !submits
+            && !c
+                .kinds()
+                .iter()
+                .any(|k| confirm::SEND_CLASS.contains(&k.as_str()))
+        {
+            return Ok(None);
+        }
+        let Some(page) = c.spec.target.page.clone().filter(|p| !p.is_empty()) else {
+            return Ok(None);
+        };
+        let request = self.request(&c.rec.request_id);
+        let home = self.d.roots.home.clone();
+        let named = ferb_policy::named::named_files(&request.words, &request.payload, &home);
+        if named.is_empty() {
+            return Ok(None);
+        }
+        let named: Vec<(String, Option<String>)> = named
+            .into_iter()
+            .map(|p| {
+                let sha = std::fs::read(&p).ok().map(|b| {
+                    use sha2::Digest;
+                    hex::encode(sha2::Sha256::digest(&b))
+                });
+                (p, sha)
+            })
+            .collect();
+        let (w, params) = tree_where(root);
+        let rows: Vec<(String, Option<String>)> = {
+            let db = lock(&self.d.db);
+            let mut st = db.conn().prepare(&format!(
+                "SELECT input_json, output_json FROM spans WHERE kind = 'tool.call' AND ended_at IS NOT NULL AND {w} \
+                 ORDER BY started_at, rowid"
+            ))?;
+            let rows = st
+                .query_map(rusqlite::params_from_iter(params.iter()), |r| {
+                    Ok((
+                        r.get::<_, Option<String>>(0)?.unwrap_or_default(),
+                        r.get(1)?,
+                    ))
+                })?
+                .collect::<Result<_, _>>()?;
+            rows
+        };
+        let mut uploads = Vec::new();
+        let mut byte_routes = false;
+        for (input, output) in rows {
+            let input: Value = serde_json::from_str(&input).unwrap_or(Value::Null);
+            if ["boundary_refused", "ferb_question"]
+                .iter()
+                .any(|k| input.get(*k).is_some_and(ferb_py::value::truthy))
+            {
+                continue;
+            }
+            let output: Value =
+                serde_json::from_str(output.as_deref().unwrap_or("{}")).unwrap_or(Value::Null);
+            let mut kinds: Vec<String> = vec![ferb_py::value::py_str(&input["kind"])];
+            kinds.extend(
+                input["fact_kinds"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(ferb_py::value::py_str),
+            );
+            if kinds
+                .iter()
+                .any(|k| ["mac_input", "applescript", "run_shell"].contains(&k.as_str()))
+                || ferb_py::value::py_str(&input["tool"]).starts_with("shell.")
+            {
+                byte_routes = true;
+            }
+            if output.get("source").and_then(Value::as_str) == Some("local") {
+                let files: Vec<(String, String)> = output["files"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|f| {
+                        (
+                            f.get("path")
+                                .and_then(Value::as_str)
+                                .unwrap_or("")
+                                .to_string(),
+                            f.get("sha256")
+                                .and_then(Value::as_str)
+                                .unwrap_or("")
+                                .to_string(),
+                        )
+                    })
+                    .filter(|(p, _)| !p.is_empty())
+                    .collect();
+                uploads.push(ferb_policy::named::Upload {
+                    files,
+                    bytes_match: output.get("bytes_match").and_then(Value::as_bool),
+                });
+            }
+        }
+        let (workspace, home2) = (self.d.roots.workspace.clone(), home.clone());
+        let real = move |p: &str| {
+            ferb_fs::files::real_path(p, &workspace, &home2).unwrap_or_else(|_| p.to_string())
+        };
+        let same = |a: &str, b: &str| real(a) == real(b);
+        let Some(seen) = ferb_policy::named::file_check(
+            &named,
+            &uploads,
+            c.facts().and_then(|f| f.page_files),
+            byte_routes,
+            &same,
+        ) else {
+            return Ok(None);
+        };
+        let site = c
+            .spec
+            .target
+            .site
+            .clone()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| host_of(Some(&page)));
+        Ok(Some(ferb_policy::named::need(&seen, &named[0].0, &site)))
     }
 
     /// `_card_entry(root, chain)` (ORCH-321): the saved card entry that filled a card field in this tab chain.
@@ -4157,6 +4469,15 @@ impl Gateway {
                 continue;
             }
             let row = row.expect("checked");
+            // decision: GATE-618 — a Yes "until I'm back" gave covers nothing once it has ended
+            let back_row = {
+                let i = lock(&self.inner);
+                i.until_back.is_none() && i.back_rows.contains(&row.id)
+            };
+            if back_row {
+                ask.push(need.clone());
+                continue;
+            }
             if row.used && need.always {
                 if approved.is_none() {
                     approved = Some(self.approved_retry_rows(&c.grant, &c.ident)?);
@@ -4402,6 +4723,36 @@ impl Gateway {
                 ..Answer::default()
             });
         }
+        // decision: GATE-615 — the phone's "until I'm back at my Mac" answers the screen-use question alone
+        let screen_only = crate::screen_use::screen_only(needs);
+        if let Some(back) = screen_only.then(|| self.until_back()).flatten() {
+            let mut ids = Vec::new();
+            for n in needs {
+                ids.push(
+                    self.confirmations(|s| {
+                        s.record(&root, &n.rule, &n.key, true, Some(&q_span.id))
+                    })?,
+                );
+            }
+            self.known_from(needs, rec, &q_span.id)?;
+            lock(&self.inner).back_rows.extend(ids.iter().cloned());
+            let given = obj(json!({"answer": YES, "confirmed": ids,
+                                   "until_back": {"since": when::isoformat(&back.since), "phone": back.phone}}));
+            self.finish_call(
+                &mut q_span,
+                OWNER_ASK,
+                &given,
+                false,
+                Some(&given),
+                None,
+                Some(&ask_origins(&given)),
+            )?;
+            return Ok(Answer {
+                granted: true,
+                ids,
+                ..Answer::default()
+            });
+        }
         let window = lock(&self.inner).allow_until;
         if routine && window.is_some_and(|until| self.now() < until) {
             let mut ids = Vec::new();
@@ -4450,6 +4801,8 @@ impl Gateway {
             let terminal = needs.iter().any(|n| n.rule == confirm::TERMINAL_INPUT);
             let mut ap = self.approval(&ap_id).expect("just asked");
             ap.corrects = true;
+            // decision: GATE-615
+            ap.screen_use = screen_only;
             // decision: GATE-609
             ap.site_hosts = needs
                 .iter()
@@ -4587,6 +4940,16 @@ impl Gateway {
             ids.push(
                 self.confirmations(|s| s.record(&root, &n.rule, &n.key, yes, Some(&q_span.id)))?,
             );
+        }
+        // decision: GATE-618 — the phone's Yes that gave "until I'm back" lasts only as long as it does
+        if yes {
+            let mut i = lock(&self.inner);
+            if i.until_back
+                .as_ref()
+                .is_some_and(|g| g.approval_id == ap_id)
+            {
+                i.back_rows.extend(ids.iter().cloned());
+            }
         }
         if yes {
             self.known_from(needs, rec, &q_span.id)?;

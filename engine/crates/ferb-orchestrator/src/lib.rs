@@ -61,6 +61,8 @@ pub mod trace_read;
 pub mod tree;
 pub mod validate;
 #[cfg(feature = "store")]
+pub mod verdicts;
+#[cfg(feature = "store")]
 pub mod verify;
 pub mod waits;
 

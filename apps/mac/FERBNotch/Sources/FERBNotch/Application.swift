@@ -40,6 +40,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if AppBundle.isApp {          // APP-601: the owner approved this copy; its nested code shouldn't be stopped later
             let bundle = Bundle.main.bundleURL
             Task.detached(priority: .utility) { OwnQuarantine.clear(bundle: bundle) }
+            // APP-936: what earlier runs received for the composer goes once it is a week old (a task still running
+            // across this restart keeps its file); run before anything can paste or drop one now
+            ReceivedFiles().sweep()
         }
         clicks.poster = poster
         if AppBundle.isApp { UNUserNotificationCenter.current().delegate = clicks }    // before launching finishes

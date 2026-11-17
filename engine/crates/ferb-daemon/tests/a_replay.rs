@@ -137,6 +137,22 @@ async fn replay(name: &str, d: &Daemon, only: &[&str]) -> (usize, usize) {
                             d.ids.bump(); // the id Python's internal-error row took
                             named += 1;
                         }
+                        None if method == "settings.get"
+                            && want.contains("retention.decision_days") =>
+                        {
+                            // the one named difference (APP-941): Jev's days are no longer a setting
+                            let mut python: Value = serde_json::from_str(want).unwrap();
+                            python["result"]["values"]
+                                .as_object_mut()
+                                .unwrap()
+                                .shift_remove("retention.decision_days");
+                            assert_eq!(
+                                got,
+                                ferb_py::json::dumps(&python),
+                                "{name}: {method} (id {id:?})"
+                            );
+                            named += 1;
+                        }
                         None => {
                             assert_eq!(got, want, "{name}: {method} (id {id:?})");
                             same += 1;
@@ -317,6 +333,7 @@ async fn schedules_scenario() {
     d.close().await;
 }
 
+// decision: APP-941
 #[tokio::test(flavor = "multi_thread")]
 async fn settings_import_timeline_persona() {
     let tmp = tempfile::tempdir().unwrap();
@@ -375,7 +392,8 @@ async fn settings_import_timeline_persona() {
     }
     d.sql(seed).await;
     let (same, named) = replay("settings_setup_about", &d, &[]).await;
-    assert_eq!((same, named), (15, 1));
+    // named: Python's internal error, and the two settings.get without Jev's days (APP-941)
+    assert_eq!((same, named), (13, 3));
     d.close().await;
 }
 

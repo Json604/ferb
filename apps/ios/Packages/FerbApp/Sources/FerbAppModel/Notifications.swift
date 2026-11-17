@@ -38,6 +38,9 @@ public enum NotificationTap: Equatable, Sendable {
 /// One answer button. `choice` is the index in [Question.choices]; nil: a typed answer (the shell shows a text field
 /// with `placeholder`).
 public struct NotificationButton: Equatable, Sendable {
+    /// The "Yes, until I'm back at my Mac" button's `choice` (not an index into the question's choices, PHN-611).
+    public static let untilBack = -2
+
     public let label: String
     public let choice: Int?
     public let placeholder: String?
@@ -225,6 +228,10 @@ public final class NotificationPlanner {
                 // Yes first where there is one, as the phone's sheet reads left to right with Yes on the right
                 let order = choices.indices.sorted { a, b in choices[a].yes && !choices[b].yes }
                 buttons = order.map { NotificationButton(label: choices[$0].label, choice: $0, placeholder: nil) }
+                // "until I'm back at my Mac" when the Mac offers it (PHN-611); iOS shows up to four actions
+                if q.untilBack {
+                    buttons.append(NotificationButton(label: L.s("until_back_yes"), choice: NotificationButton.untilBack, placeholder: nil))
+                }
             } else if q.options.isEmpty {
                 buttons = [NotificationButton(label: L.s("n_answer"), choice: nil, placeholder: L.s("n_answer_hint"))]
             }
@@ -386,7 +393,8 @@ public final class Notifier {
             } else {
                 let input: AnswerInput?
                 let words = typed?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                if let choice { input = choice >= 0 && choice < q.choices.count ? q.choices[choice].input : nil }
+                if let choice, choice == NotificationButton.untilBack { input = q.untilBack ? .untilBack : nil }
+                else if let choice { input = choice >= 0 && choice < q.choices.count ? q.choices[choice].input : nil }
                 else if !words.isEmpty { input = .words(text: words) }
                 else { input = nil }
                 if let input {
@@ -394,7 +402,10 @@ public final class Notifier {
                     case .ok:
                         result = planner.answered(approvalId, problem: nil, needsApp: false)
                     case .failed(let e):
-                        if case .NeedsUnlock = e {
+                        if case .NeedsUnlock = e, case .untilBack = input {
+                            // "until I'm back" needs FERB opened (its unlock), not Face ID: said so
+                            result = planner.answered(approvalId, problem: L.s("n_until_back_open"), needsApp: false)
+                        } else if case .NeedsUnlock = e {
                             result = planner.answered(approvalId, problem: L.s("n_needs_fingerprint_text"), needsApp: true)
                         } else {
                             result = planner.answered(approvalId, problem: AppModel.errorNote(e).text, needsApp: false)

@@ -168,6 +168,38 @@ pub fn wire(
             }),
         );
     }
+    // PHN-585: a paired phone unused for 30 days, told once as a quiet notice in chat (and again only after it is used
+    // and goes unused another 30 days: the warning is cleared by its use); GATE-615: the phone's "until I'm back at my
+    // Mac" ended, told once with why
+    {
+        let n = notifier.clone();
+        events.events.on(
+            Some(&["phone.unused", ferb_gateway::screen_use::TOPIC]),
+            Arc::new(move |topic: &str, data: Map<String, Value>| {
+                let Some((ident, text)) = owner_line(topic, &data, n.posters.connected()) else {
+                    return;
+                };
+                let n = n.clone();
+                if let Ok(rt) = tokio::runtime::Handle::try_current() {
+                    rt.spawn(async move {
+                        let _ = n
+                            .tell_owner(
+                                &ident,
+                                &[],
+                                &text,
+                                ferb_sanitize::origin::FERB,
+                                "alert",
+                                "",
+                                &[],
+                                &Value::Null,
+                                None,
+                            )
+                            .await;
+                    });
+                }
+            }),
+        );
+    }
     // compose.py:239 (GATE-562): a page asked again for a value FERB filled sealed
     {
         let n = notifier;
@@ -185,4 +217,44 @@ pub fn wire(
     }
     // compose.py:244 (ORCH-312)
     super::desktop_seams::on_task_events(desktop, events);
+}
+
+/// The owner's one line for a phone left unused (PHN-585) or the end of "until I'm back at my Mac" (GATE-615): (the
+/// notice's ident, posted once, and its words), from the event's facts; none for anything else. GATE-618: an end during
+/// a hold, with FERB.app connected (`app_shows`), is said by FERB.app turning its "Are you back?" line into this one in
+/// place, so no second line is posted; a hold, and one that passed in silence, say nothing here.
+pub fn owner_line(
+    topic: &str,
+    data: &Map<String, Value>,
+    app_shows: bool,
+) -> Option<(String, String)> {
+    let s = |k: &str| data.get(k).and_then(Value::as_str).unwrap_or("");
+    match topic {
+        "phone.unused" => {
+            let days = data.get("days").and_then(Value::as_i64).unwrap_or(30);
+            let name = if s("name").is_empty() {
+                "Phone"
+            } else {
+                s("name")
+            };
+            Some((
+                format!("phone-unused-{}-{}", s("phone"), s("last_seen")),
+                format!(
+                    "Your phone \u{201c}{name}\u{201d} hasn't been used with FERB for {days} days. It stays paired; if you \
+                     don't use it any more, you can remove it in Settings \u{2192} Phone."
+                ),
+            ))
+        }
+        ferb_gateway::screen_use::TOPIC
+            if s("state") == "ended"
+                && !s("line").is_empty()
+                && !(app_shows && data.get("during_hold") == Some(&Value::Bool(true))) =>
+        {
+            Some((
+                format!("screen-until-back-{}-{}", s("since"), s("why")),
+                s("line").to_owned(),
+            ))
+        }
+        _ => None,
+    }
 }

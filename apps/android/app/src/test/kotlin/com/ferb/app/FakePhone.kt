@@ -130,6 +130,15 @@ class FakePhone : PhoneApi {
     override suspend fun lock(): Outcome<Boolean> { calls += "lock"; return Outcome.Ok(true) }
     override suspend fun unlocked(): Outcome<Unit> { calls += "unlocked"; return Outcome.Ok(Unit) }
     override suspend fun stopEverything(): Outcome<Unit> { calls += "stop-everything"; return Outcome.Ok(Unit) }
+    /** "Until I'm back" (PHN-611): what the Mac says about screen use, and what "Ask me again" gets. */
+    var screenUse = com.ferb.mobile.ScreenUse(false, null, null, null, true)
+    override suspend fun screenUse(): Outcome<com.ferb.mobile.ScreenUse> { calls += "screen-use"; return Outcome.Ok(screenUse) }
+    override suspend fun endScreenUse(): Outcome<com.ferb.mobile.ScreenUseEnd> {
+        calls += "end-screen-use"
+        val was = screenUse.active
+        screenUse = screenUse.copy(active = false, since = null, phone = null, phoneName = null)
+        return Outcome.Ok(com.ferb.mobile.ScreenUseEnd(was, "phone-1", screenUse))
+    }
     override suspend fun status(): Outcome<PhoneStatus> { calls += "status"; return status?.let { Outcome.Ok(it) } ?: Outcome.Failed(FerbException.Offline("no", null)) }
     override fun lastStatus(): PhoneStatus? = status
     override suspend fun markReadLatest(conversation: String): Outcome<Unit> { calls += "mark:$conversation"; return Outcome.Ok(Unit) }
@@ -139,7 +148,11 @@ class FakePhone : PhoneApi {
         outbox += item
         return Outcome.Ok(item)
     }
-    override suspend fun files(path: String?, signer: Signer?): Outcome<Folder> {
+    override suspend fun files(path: String?, signer: Signer?, after: String?): Outcome<Folder> {
+        if (after != null) {
+            calls += "files-more:$path:$after:${signer != null}"
+            return morePages.removeFirstOrNull()?.let { Outcome.Ok(it) } ?: Outcome.Failed(FerbException.NotFound("No more.", null))
+        }
         calls += "files:$path:${signer != null}"
         signer?.sign("files:$path")?.let(signed::add)
         filesScript.removeFirstOrNull()?.let { return it }
@@ -169,7 +182,7 @@ class FakePhone : PhoneApi {
         val size = File(localPath).length()
         listener.accepted(resume ?: "up-$name", 0u)
         listener.progress(size.toULong(), size.toULong())
-        return Outcome.Ok(Uploaded(resume ?: "up-$name", "~/Downloads/FERB/$name", size.toULong()))
+        return Outcome.Ok(Uploaded(resume ?: "up-$name", "~/Downloads/FERB/$name", size.toULong(), null))
     }
     override suspend fun cancelTransfer(id: String): Outcome<Unit> { cancelled += id; fetchGate?.complete(Unit); return Outcome.Ok(Unit) }
     override suspend fun tree(path: String, signer: Signer?): Outcome<Tree> {
@@ -185,10 +198,18 @@ class FakePhone : PhoneApi {
         return Outcome.Ok(Fetched("f", saveTo, bytes.size.toULong(), bytes.size.toULong()))
     }
     override suspend fun recentFiles(limit: Int): Outcome<RecentFiles> { calls += "recent:$limit"; return recent }
-    override suspend fun searchFiles(query: String, path: String?): Outcome<FoundFiles> {
+    override suspend fun searchFiles(query: String, path: String?, after: String?): Outcome<FoundFiles> {
+        if (after != null) {
+            calls += "search-more:$query:$after"
+            return moreFound.removeFirstOrNull()?.let { Outcome.Ok(it) } ?: Outcome.Failed(FerbException.NotFound("No more.", null))
+        }
         calls += "search:$query:${path ?: "~"}"
-        return found ?: Outcome.Ok(FoundFiles(path ?: "~", query, emptyList(), 0u, 0u, false, false))
+        return found ?: Outcome.Ok(FoundFiles(path ?: "~", query, emptyList(), 0u, 0u, false, false, 0u, null))
     }
+    /** Paging (PHN-606): the pages "Load more" gets in turn (each asked with the page before's `next`). */
+    val morePages = ArrayDeque<Folder>()
+    val moreFound = ArrayDeque<FoundFiles>()
+
     override suspend fun reportDevice(report: DeviceReport): Outcome<Boolean> { reports += report; return Outcome.Ok(true) }
     override suspend fun locationWanted(): Outcome<String?> = Outcome.Ok(wanted)
     override suspend fun answerLocation(requestId: String, fix: LocationFix?, whyNot: String?): Outcome<Unit> {

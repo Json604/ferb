@@ -128,10 +128,12 @@ pub enum Question {
     BrowserPage,
     Pair,
     TlsOff,
+    /// ORCH-676: the file about to be sent isn't the one the owner named.
+    NotNamed,
 }
 
 impl Question {
-    pub const ALL: [Question; 24] = [
+    pub const ALL: [Question; 25] = [
         Question::PrivateUrl,
         Question::FileSend,
         Question::FormSend,
@@ -156,6 +158,7 @@ impl Question {
         Question::BrowserPage,
         Question::Pair,
         Question::TlsOff,
+        Question::NotNamed,
     ];
 
     /// The rule that asks it and example facts (placeholders in angle brackets), as the card is built from.
@@ -268,6 +271,20 @@ impl Question {
                 &[("browser", "<browser>"), ("name", "<profile>")],
             ),
             Question::TlsOff => (confirm::TLS_OFF, &[("command", "<command>")]),
+            Question::NotNamed => (
+                ferb_policy::named::NOT_NAMED,
+                &[
+                    ("thing", "file"),
+                    ("name", "<file>"),
+                    ("path", "<path>"),
+                    ("site", "<site>"),
+                    ("case", "elsewhere"),
+                    (
+                        "text",
+                        "the file attached on <site> isn't <file> from your Mac",
+                    ),
+                ],
+            ),
         };
         let mut v = Values::new();
         for (k, val) in values {

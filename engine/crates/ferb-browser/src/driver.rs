@@ -106,7 +106,7 @@ pub struct Tasks {
 /// [`Tasks::task_profiles`]: a task's id to the owner's profiles it is kept to.
 pub type TaskProfilesFn = Arc<dyn Fn(&str) -> Option<TaskProfiles> + Send + Sync>;
 
-/// HAND-580 (refining APP-777's `picked_only`): where one task may browse among the owner's profiles.
+/// HAND-580, HAND-644: the owner's profiles a task's calls go to when they name none (a default, never a fence).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct TaskProfiles {
     /// The owner's pick for FERB's web work is one of them (the tree browses as the owner in the pick).
@@ -492,38 +492,6 @@ pub(crate) struct State {
 
 fn alias_number(alias: &str) -> Option<u64> {
     alias.strip_prefix('t')?.parse().ok()
-}
-
-/// HAND-580 (rule 3, where web work happens; refines APP-777's `picked_only`): a task kept to some of the owner's
-/// profiles (the pick, the ones their words named) is refused another, nothing opened. The refusal names the
-/// profiles it may use and how the owner adds one for this task. Fixed against Python: ext_bridge.py:3016
-/// `Router.open_for` took any named owner profile (live, 2026-11-14: a search ran in Brave right after the owner
-/// picked a Chrome profile).
-pub fn outside_task(
-    named: &str,
-    allowed: &[(String, String)],
-    picked: Option<&(String, String)>,
-    label: &dyn Fn(&str, &str) -> String,
-) -> Error {
-    let list = allowed
-        .iter()
-        .map(|(b, f)| format!("{b}/{f} ({})", label(b, f)))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let why = match picked {
-        Some(p) if allowed.len() == 1 && allowed[0] == *p => {
-            "the profile the owner picked for FERB's web work (FERB has no browser profile of its own)"
-        }
-        Some(_) => "the owner's pick for FERB's web work and the ones the owner's words named for it",
-        None => "the ones the owner's words named for it",
-    };
-    Error::refused(format!(
-        "{named} isn't one of this task's browser profiles: it may browse only in {list}, {why}. Nothing was opened. \
-         Use one of those (or leave profile out). If the task really needs {named}, ask the owner with owner.ask, \
-         naming {named} in the question, with the options Yes and No: their Yes, or their words naming that profile \
-         in chat, adds it for this task only. Don't drive the browser's window with the Mac tools instead: its pages \
-         are the browser tools' (they work with the window minimized)"
-    ))
 }
 
 /// `_status`: a reply's `http_status`, only as a plain HTTP status number.
@@ -1988,10 +1956,10 @@ impl Driver {
             .map(|t| format!("{}/{}", t.tab.browser, t.tab.profile))
     }
 
-    /// HAND-580: the owner profile this task's call takes. Not kept to any: the resolver's choice (the profile named,
-    /// else the pick, HAND-2). Kept: a profile named must be one of the task's; with none named, the pick when it is
-    /// one, else the one profile the owner's words named, else the one of them the task already works in (its newest
-    /// tab, HAND-562), else a refusal naming them.
+    /// HAND-580, HAND-644: the owner profile this task's call takes. A profile the call names: the resolver's choice,
+    /// whichever of the owner's it is (HAND-644: the pick is a default, never a fence). None named: the pick when the
+    /// task has it, else the one profile the owner's words named, else the one of them the task already works in (its
+    /// newest tab, HAND-562), else it is asked to name one of them.
     pub fn task_choice(
         &self,
         choose: &Choose,
@@ -2003,27 +1971,13 @@ impl Driver {
             return choose(named);
         };
         let picked = if scope.pick { choose(None).ok() } else { None };
-        let mut allowed: Vec<(String, String)> = picked.iter().cloned().collect();
-        for p in &scope.named {
-            if !allowed.contains(p) {
-                allowed.push(p.clone());
-            }
-        }
         let known = self.known();
         let label =
             |b: &str, f: &str| crate::profiles::shown(&crate::profiles::named(&known, b, f), None);
         if let Some(name) = named {
-            // a profile the task may use that isn't paired yet: the resolver's own words (pair it)
-            let got = choose(Some(name))?;
-            if allowed.contains(&got) {
-                return Ok(got);
-            }
-            return Err(outside_task(
-                &format!("{}/{}", got.0, got.1),
-                &allowed,
-                picked.as_ref(),
-                &label,
-            ));
+            // HAND-644 (owner, 2026-11-17): any of the owner's profiles a call names is taken; the pick and the
+            // profiles the owner's words named are where a call that names none goes, never a fence
+            return choose(Some(name));
         }
         if let Some(p) = picked {
             return Ok(p);

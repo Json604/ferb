@@ -1813,7 +1813,7 @@ status = "active"
 rule = "Refines APP-777, ORCH-648 and journal 59's picked_only. The planner lists the profiles the owner's words name for a task in `profiles` (its schema description is the only instruction); code resolves each to one owner profile before the first worker (no hit or several: dropped). Those are the task's: browser.open, use_tab and pdf work only there, the worker is the owner, the general question isn't asked, the pick isn't applied. None resolved: the pick, else the one question. Another profile is refused, naming the allowed ones and how the owner adds one."
 why = "Live 2026-11-16 04:17: the owner named their IIT Chrome profile; FERB asked its general profile question first, imposed the answer (another profile), refused browser.open in the IIT profile, and the worker drove Chrome's window with the Mac tools."
 evidence = "Task 0abecb83: journal 85-89 (browsing.choose asked 04:17:43, chrome/Profile 15 chosen, task.browses_as_owner); tool.call 04:18:09 browser.open chrome/Profile 29 refused (picked_only); mac.act and the screen question from 04:18:27."
-paths = ["engine/crates/ferb-browser/src/driver.rs::task_choice", "engine/crates/ferb-browser/src/driver.rs::outside_task", "engine/crates/ferb-supervisor/src/flow/browse.rs::browse_as", "engine/crates/ferb-supervisor/src/flow/browse.rs::task_profiles", "engine/crates/ferb-context/src/schemas.rs::TASK_PROFILES_DESCRIPTION", "engine/crates/ferb-daemon/src/areas_b/browsers/mod.rs::resolve_named", "engine/crates/ferb-supervisor/src/flow/attempt.rs::task_profiles_fact"]
+paths = ["engine/crates/ferb-browser/src/driver.rs::task_choice", "engine/crates/ferb-supervisor/src/flow/browse.rs::browse_as", "engine/crates/ferb-supervisor/src/flow/browse.rs::task_profiles", "engine/crates/ferb-context/src/schemas.rs::TASK_PROFILES_DESCRIPTION", "engine/crates/ferb-daemon/src/areas_b/browsers/mod.rs::resolve_named", "engine/crates/ferb-supervisor/src/flow/attempt.rs::task_profiles_fact"]
 live = ["LIVE-970"]
 
 [HAND-581]
@@ -2073,3 +2073,14 @@ rule = "For HAND-640. With gh_login, FERB reads gh's saved login itself (Keychai
 why = "Homebrew's gh is unsigned and sits in /opt/homebrew/bin, which FERB's commands can write: running it with the login would run whatever a command put there. Reading gh's stored login with Apple's own tools needs no program a command can replace."
 paths = ["engine/crates/ferb-shell/src/publish.rs::gh_login", "engine/crates/ferb-gateway/src/gateway.rs::publish_needs"]
 live = ["LIVE-1140"]
+
+[HAND-644]
+title = "The owner's pick for FERB's web work is a default, never a fence: no profile is refused"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "yes remove hte refusal completly, i dont want it. bad choice."
+words_source = "Owner 2026-11-17, after two Scaler tasks were refused their own profile (20:20, 20:29) and one brought Chrome forward; he was offered the refusal's removal with the saved pick kept as the default."
+rule = "Changes HAND-580 and ORCH-648's picked_only. A browser call that names any of the owner's profiles is taken there, whatever the pick and whatever the task's words named. The pick, then the profiles the owner's words named, are only where a call that names none goes. The saved pick (APP-777) stays, so FERB doesn't ask again."
+why = "The refusal sent the worker to the Mac tools, which bring the browser forward; the owner: \"the original one was good\"."
+paths = ["engine/crates/ferb-browser/src/driver.rs::task_choice"]

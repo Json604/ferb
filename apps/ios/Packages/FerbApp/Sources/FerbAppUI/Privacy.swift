@@ -3,28 +3,29 @@ import FerbDesign
 import SwiftUI
 import UIKit
 
-/// What iOS lets an app do about screenshots (kb PHN-565). Android's FLAG_SECURE blanks the app in screenshots,
-/// screen recordings and the recent-apps list; iOS has no such switch for an app. What FERB does instead:
+/// What FERB does about screenshots on iPhone (kb PHN-565, PHN-597, PHN-598). Android's FLAG_SECURE blanks the app in
+/// screenshots, screen recordings and the recent-apps list; iOS has no such public switch. What FERB does instead:
 /// - the app switcher: whenever the scene is not active (the switcher, Control Center, a call, the background), a
 ///   cover hides everything, always (Android: recents blank on 13+ whatever the switch says);
-/// - recording and mirroring: while the screen is captured (`UIScreen.isCaptured`: a recording, AirPlay, QuickTime),
-///   the content is hidden when the owner's switch is on, and always for Watch live and a private answer (PHN-454,
-///   PHN-110);
-/// - a screenshot iOS takes at once; the app learns of it only after (`userDidTakeScreenshotNotification`) and can't
-///   blank it. That is the platform's limit, for the owner to rule on.
-/// The "hide it in a secure text field's layer" trick is not used: it relies on undocumented behaviour.
+/// - recording and mirroring: while the scene is captured (iOS 17's `isSceneCaptured`: a recording, AirPlay, QuickTime,
+///   a remote control; not iPhone Mirroring, which iOS doesn't report) the content is hidden when the owner's switch is
+///   on, and always for Watch live and a private answer (PHN-454, PHN-110);
+/// - screenshots: Watch live's picture of the Mac is drawn inside a secure text field's canvas (ScreenshotShield.swift),
+///   which iOS leaves out of screenshots; where this iOS doesn't build that canvas, a screenshot shows it, and This
+///   phone says so. A private answer never shows its value (dots, or iOS's SecureField). The rest of the app shows in
+///   a screenshot (PHN-597).
 struct PrivacyCover: ViewModifier {
     @Environment(\.scenePhase) private var phase
+    @Environment(\.isSceneCaptured) private var sceneCaptured
     /// The owner's switch: hide while the screen is captured.
     let hideWhenCaptured: Bool
     /// Watch live or a private answer on screen: hidden while captured whatever the switch says.
     let mustHide: Bool
     /// Tests: the capture state as given, not as the screen says.
     var capturedForTest: Bool? = nil
-    @State private var captured = Capture.now
 
     func body(content: Content) -> some View {
-        let recording = (capturedForTest ?? captured) && (hideWhenCaptured || mustHide)
+        let recording = (capturedForTest ?? sceneCaptured) && (hideWhenCaptured || mustHide)
         content
             .overlay {
                 if phase != .active || recording {
@@ -33,10 +34,6 @@ struct PrivacyCover: ViewModifier {
                         .accessibilityIdentifier("privacy-cover")
                 }
             }
-            .onReceive(NotificationCenter.default.publisher(for: UIScreen.capturedDidChangeNotification)) { _ in
-                captured = Capture.now
-            }
-            .onAppear { captured = Capture.now }
     }
 
     private struct Cover: View {
@@ -53,13 +50,6 @@ struct PrivacyCover: ViewModifier {
                 }
             }
         }
-    }
-}
-
-enum Capture {
-    /// Whether any of the app's screens is being recorded or mirrored now.
-    @MainActor static var now: Bool {
-        UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.screen.isCaptured }.contains(true)
     }
 }
 

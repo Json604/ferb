@@ -269,7 +269,19 @@ pub fn trace(db: &ferb_store::Db, root: &str, args: &TraceArgs) -> Result<Option
         }
         if let Some(Value::Array(v)) = outcome.get("verification") {
             for r in v {
+                // ORCH-665: who gave the verdict, when the result names it
+                let named = match s(r, "by").as_str() {
+                    "mac" => Some("the Mac's own state, read by code"),
+                    "receipt" => Some("a receipt FERB's tool wrote when it acted (code)"),
+                    "record" => {
+                        Some("FERB's records: nothing was done that could have done it (code)")
+                    }
+                    "owner" => Some("your No"),
+                    "checker" => Some("the checker, on a fresh look"),
+                    _ => None,
+                };
                 let by = match s(r, "path").as_str() {
+                    _ if named.is_some() => named.unwrap_or_default(),
                     "code" => "FERB's own record (code)",
                     "verifier" => "the checker, on a fresh look",
                     "owner" => "your No",
@@ -282,6 +294,7 @@ pub fn trace(db: &ferb_store::Db, root: &str, args: &TraceArgs) -> Result<Option
                     }
                 };
                 let met = match r.get("met") {
+                    _ if s(r, "verdict") == "different" => "done differently",
                     Some(Value::Bool(true)) => "met",
                     Some(Value::Bool(false)) => "not met",
                     _ => "couldn't tell",
@@ -298,6 +311,20 @@ pub fn trace(db: &ferb_store::Db, root: &str, args: &TraceArgs) -> Result<Option
                     "evidence".into(),
                     json!(cut(&s(r, "evidence"), REPORT_CHARS)),
                 );
+                for k in ["asked", "acted_on"] {
+                    if !s(r, k).is_empty() {
+                        e.insert(k.into(), json!(cut(&s(r, k), 400)));
+                    }
+                }
+                if let Some(code) = r.get("code").filter(|c| c.is_object()) {
+                    e.insert(
+                        "code_said".into(),
+                        json!(cut(
+                            &format!("{}: {}", s(code, "verdict"), s(code, "basis")),
+                            REPORT_CHARS
+                        )),
+                    );
+                }
                 checks.push(Value::Object(e));
             }
         }

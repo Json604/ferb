@@ -24,7 +24,7 @@ use serde_json::{json, Value};
 use crate::api::{
     lock, parse, sorted, Change, ErrorCode, Mobile, MobileError, MobileResult, Shared, Signer,
 };
-use crate::status::PhoneStatus;
+use crate::status::{PhoneStatus, ScreenUse};
 use crate::transport::{codes, TransferSink, Transport};
 
 /// What a phone sees of one entry of a folder on the Mac (`phone.files`).
@@ -55,7 +55,13 @@ pub struct Folder {
     pub entries: Vec<FileEntry>,
     /// How many entries it has (more than `entries` when `cut`).
     pub total: u64,
+    /// More entries remain after this page (true exactly when `next` is given).
     pub cut: bool,
+    /// The index of this page's first entry in the folder's whole listing (0 for the first page).
+    pub from: u64,
+    /// "Load more" (PHN-589): the marker that asks for the next page (`files`' `after`), valid only for this phone
+    /// and this folder; none on the last page.
+    pub next: Option<String>,
 }
 
 /// One file of a folder fetched whole (`phone.tree`).
@@ -98,6 +104,41 @@ pub struct Uploaded {
     /// Where the Mac put it.
     pub saved: String,
     pub size: u64,
+    /// The folder it landed in, said plainly for the owner ("Downloads › FERB from phone", PHN-581); none from a Mac
+    /// that doesn't say.
+    pub saved_in: Option<String>,
+}
+
+/// A folder sent from the phone, begun on the Mac (`link.put_group`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct GroupStarted {
+    /// The id its files carry as `group`.
+    pub group: String,
+    /// The folder it lands in, said plainly (PHN-581).
+    pub saved_in: Option<String>,
+}
+
+/// Where files sent from the phone land on the Mac (`phone.list`'s `upload_folder`, PHN-580): chosen in FERB.app's
+/// Settings → Phone, never from a phone.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
+pub struct UploadFolder {
+    /// Its whole path on the Mac.
+    pub path: String,
+    /// The path said plainly ("Downloads › FERB from phone").
+    pub shown: String,
+    /// It is FERB's own default folder (the owner chose none). (`is_default`: Swift keeps `default` for itself.)
+    pub is_default: bool,
+}
+
+/// What `screen_use.end` did (GATE-615).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ScreenUseEnd {
+    /// A "until I'm back" was in force and is ended now (false: there was none).
+    pub ended: bool,
+    /// Who ended it: "mac", or the phone's endpoint id.
+    pub by: String,
+    /// What is in force after it.
+    pub screen_use: ScreenUse,
 }
 
 /// One live preview answer (`tasks.preview` through `link.get what: preview`).
@@ -176,6 +217,10 @@ pub struct MacInfo {
     pub paired_at: Option<String>,
     /// This phone's name on the Mac.
     pub phone_name: Option<String>,
+    /// Where files sent from the phone land (PHN-580); none from a Mac that doesn't say (and in what an older app
+    /// kept).
+    #[serde(default)]
+    pub upload_folder: Option<UploadFolder>,
 }
 
 /// The link's own "cancelled" from a transfer the phone stopped.
@@ -221,6 +266,23 @@ impl Shared {
             this.notify(Change::Status);
         }
         Ok(status)
+    }
+
+    /// FERB's use of the screen as just read: kept in the last status (when there is one), told when it changed.
+    fn note_screen_use(&self, now: &ScreenUse) {
+        let changed = {
+            let mut st = lock(&self.state);
+            match st.status.as_mut() {
+                Some(s) if s.screen_use.as_ref() != Some(now) => {
+                    s.screen_use = Some(now.clone());
+                    true
+                }
+                _ => false,
+            }
+        };
+        if changed {
+            self.notify(Change::Status);
+        }
     }
 
     /// The transport, when the link is up and its path carries files and pictures (PHN-444): else refused here, before
@@ -311,6 +373,8 @@ fn read_folder(v: &Value) -> Folder {
         locked: v["high_value"].as_bool().unwrap_or(false),
         total: v["total"].as_u64().unwrap_or(entries.len() as u64),
         cut: v["cut"].as_bool().unwrap_or(false),
+        from: v["from"].as_u64().unwrap_or(0),
+        next: opt(&v["next"]),
         entries,
         path,
     }
@@ -360,7 +424,8 @@ impl Mobile {
     // ---- what FERB has waiting ----------------------------------------------------------------------------------
 
     /// Reads what FERB has waiting now (`chat.status`, allowed while locked): each question with what its answer
-    /// needs (routine, the fingerprint, only on the Mac), what runs, what finished. Also kept as `last_status`.
+    /// needs (routine, the fingerprint, only on the Mac, "until I'm back"), what runs, what finished, FERB's use of the
+    /// screen. Also kept as `last_status`.
     pub fn status(&self) -> MobileResult<PhoneStatus> {
         let t = self.shared.transport_online()?;
         Shared::read_status(&self.shared, &t)
@@ -371,19 +436,58 @@ impl Mobile {
         Ok(self.shared.open_state()?.status.clone())
     }
 
+    // ---- FERB using the screen "until I'm back" (GATE-615) ------------------------------------------------------
+
+    /// Whether FERB uses the Mac's screen on a phone's "until I'm back at my Mac" now, since when and whose, and
+    /// whether the Mac offers it (`screen_use.status`; allowed while locked, no unlock). Also kept in `last_status`.
+    pub fn screen_use(&self) -> MobileResult<ScreenUse> {
+        let t = self.shared.transport_online()?;
+        let v = Shared::call(&t, "screen_use.status", json!({}))?;
+        let now = ScreenUse::read(&v);
+        self.shared.note_screen_use(&now);
+        Ok(now)
+    }
+
+    /// Ends FERB's use of the screen "until I'm back" now (`screen_use.end`; allowed while locked, no unlock; never
+    /// queued): later screen-use questions are asked again.
+    pub fn end_screen_use(&self) -> MobileResult<ScreenUseEnd> {
+        let t = self.shared.transport_online()?;
+        let v = Shared::call(&t, "screen_use.end", json!({}))?;
+        let now = ScreenUse::read(&v);
+        self.shared.note_screen_use(&now);
+        Ok(ScreenUseEnd {
+            ended: v["ended"].as_bool().unwrap_or(false),
+            by: text(&v["by"]),
+            screen_use: now,
+        })
+    }
+
     // ---- files (PHN-113, PHN-115) -----------------------------------------------------------------------------------
 
-    /// One folder's entries (`link.files`; `~` when no path). A key place's own folder needs `signer` (the fingerprint
-    /// for this very path, PHN-121): without one the Mac answers `NeedsUnlock` with link code `fresh_unlock_required`.
+    /// One folder's entries (`link.files`; `~` when no path), a page at a time: `after` is the last page's `next`
+    /// ("load more", PHN-589; a marker of another folder or phone is refused). A key place's own folder needs `signer`
+    /// (the fingerprint for this very path, PHN-121): without one the Mac answers `NeedsUnlock` with link code
+    /// `fresh_unlock_required`. The proof is over the path alone, whichever page.
     pub fn files(
         &self,
         path: Option<&str>,
         signer: Option<Arc<dyn Signer>>,
+        after: Option<&str>,
     ) -> MobileResult<Folder> {
         let t = self.shared.transport_online()?;
-        let params = json!({"path": path.unwrap_or("~")});
-        let v = Shared::call_signed(&t, "link.files", params, signer.as_ref())?;
-        Ok(read_folder(&v))
+        let mut params = json!({"path": path.unwrap_or("~")});
+        // the Mac checks a key place's proof over `{path}` (its `fresh`), so the marker rides beside it, unsigned
+        let proof = match signer.as_ref() {
+            Some(s) => Some(Shared::proof(&t, "link.files", &params, s)?.to_string()),
+            None => None,
+        };
+        if let Some(a) = after {
+            params["after"] = json!(a);
+        }
+        let reply = t
+            .call("link.files", &params.to_string(), proof.as_deref())
+            .map_err(MobileError::from_link)?;
+        Ok(read_folder(&parse(&reply)?))
     }
 
     /// Every file under a folder, to fetch it whole (`link.tree`; direct or the owner's relay only).
@@ -473,12 +577,20 @@ impl Mobile {
 
     /// Starts a folder sent from the phone (`link.put_group`): the id its files carry as `group`.
     pub fn put_group(&self, name: &str) -> MobileResult<String> {
+        Ok(self.begin_group(name)?.group)
+    }
+
+    /// Starts a folder sent from the phone (`link.put_group`): its group id and the folder it lands in (PHN-581).
+    pub fn begin_group(&self, name: &str) -> MobileResult<GroupStarted> {
         let t = self.shared.transport_bulk("Sending a folder")?;
         let v = Shared::call_signed(&t, "link.put_group", json!({"name": name}), None)?;
-        v["group"]
-            .as_str()
-            .map(str::to_string)
-            .ok_or_else(bad_reply)
+        Ok(GroupStarted {
+            group: v["group"]
+                .as_str()
+                .map(str::to_string)
+                .ok_or_else(bad_reply)?,
+            saved_in: opt(&v["saved_in"]),
+        })
     }
 
     /// Sends a file from the phone's storage (`local_path`, read piece by piece) to the Mac's upload folder
@@ -510,6 +622,7 @@ impl Mobile {
                 .ok_or_else(bad_reply)?,
             saved: text(&v["saved"]),
             size: v["size"].as_u64().unwrap_or(0),
+            saved_in: opt(&v["saved_in"]),
         })
     }
 
@@ -639,7 +752,7 @@ impl Mobile {
     // ---- the Mac and this phone -----------------------------------------------------------------------------------
 
     /// What the Mac says about itself and this phone (`phone.list`, needs the unlock: the Mac's name, this phone's
-    /// pairing date and name), kept in the store so it shows offline too.
+    /// pairing date and name, where files sent from the phone land), kept in the store so it shows offline too.
     pub fn mac_info(&self) -> MobileResult<MacInfo> {
         let t = self.shared.transport_online()?;
         let v = Shared::call(&t, "phone.list", json!({}))?;
@@ -652,6 +765,11 @@ impl Mobile {
             name: opt(&v["mac"]["name"]),
             paired_at: opt(&me["paired_at"]),
             phone_name: opt(&me["name"]),
+            upload_folder: v["upload_folder"].is_object().then(|| UploadFolder {
+                path: text(&v["upload_folder"]["path"]),
+                shown: text(&v["upload_folder"]["shown"]),
+                is_default: v["upload_folder"]["default"].as_bool().unwrap_or(false),
+            }),
         };
         let changed = {
             let st = self.shared.open_state()?;
@@ -705,3 +823,19 @@ impl Mobile {
 
 /// The codes this module's callers act on (re-exported for the apps' tests).
 pub const FRESH_UNLOCK_REQUIRED: &str = codes::FRESH_UNLOCK;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// What an older app kept of the Mac (before the upload folder) still reads.
+    // decision: PHN-580
+    #[test]
+    fn mac_info_kept_by_an_older_app_still_reads() {
+        let old: MacInfo =
+            serde_json::from_str(r#"{"name":"MacBook","paired_at":null,"phone_name":"Pixel"}"#)
+                .unwrap();
+        assert_eq!(old.upload_folder, None);
+        assert_eq!(old.name.as_deref(), Some("MacBook"));
+    }
+}

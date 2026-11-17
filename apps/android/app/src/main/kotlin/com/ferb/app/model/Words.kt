@@ -168,7 +168,7 @@ class Moment(
     }
 
     companion object {
-        /** MobileScreens.swift sunLine's time left: "45 min", "5 h 0 min". */
-        fun minutes(left: Int): String = if (left >= 60) "${left / 60} h ${left % 60} min" else "$left min"
+        /** A time left in the design's words ("45 min", "5 h", "5 h 20 min"; kb PHN-595): :design's one formatter. */
+        fun minutes(left: Int): String = com.ferb.design.preview.labMinutesLeft(left)
     }
 }

@@ -99,12 +99,12 @@ class FeaturesTest {
         }
 
     private fun needs(unlock: Boolean, fingerprint: Boolean = false, can: Boolean = true, hidden: Boolean = false) =
-        QuestionNeeds(can, unlock, hidden, fingerprint, "ch-1", if (can) null else "Answer it on your Mac.")
+        QuestionNeeds(can, unlock, hidden, fingerprint, "ch-1", if (can) null else "Answer it on your Mac.", false)
 
     private fun asked(id: String, n: QuestionNeeds, held: Boolean = false) =
         StatusQuestion(id, "approve", "ferb.confirm", "t-1", if (held) "FERB has a question" else "Pay $5?", if (held) emptyList() else listOf("Yes", "No"), held, n)
 
-    private fun status(vararg q: StatusQuestion, stopped: Boolean = false) = PhoneStatus(false, true, stopped, q.toList(), emptyList(), emptyList())
+    private fun status(vararg q: StatusQuestion, stopped: Boolean = false) = PhoneStatus(false, true, stopped, q.toList(), emptyList(), emptyList(), null)
 
     private fun empty() = TranscriptView("c1", emptyList(), emptyList(), emptyList(), emptyList(), OlderState.Complete)
 
@@ -138,7 +138,7 @@ class FeaturesTest {
         // online: the Mac's unlock, then its name
         session.lockNow()
         phone.link.value = FakePhone.status()
-        phone.mac = MacInfo("Studio Mac", "2026-11-10T09:00:00+05:30", "Pixel")
+        phone.mac = MacInfo("Studio Mac", "2026-11-10T09:00:00+05:30", "Pixel", null)
         vm.unlockApp()
         idle()
         assertEquals("Studio Mac", vm.ui.value.mac?.name)
@@ -222,8 +222,8 @@ class FeaturesTest {
     fun a_key_place_asks_for_the_fingerprint_for_its_path_and_its_file_goes_when_the_owner_is_back() {
         session.unlocked()
         session.foreground(true)
-        phone.folders["~/Documents"] = Folder("~/Documents", "~", false, listOf(FileEntry("Keys", "~/Documents/Keys", true, false, 0u, 0, true)), 1u, false)
-        phone.folders["~/Documents/Keys"] = Folder("~/Documents/Keys", "~/Documents", true, listOf(FileEntry("id_ed25519", "~/Documents/Keys/id_ed25519", false, false, 10u, 0, true)), 1u, false)
+        phone.folders["~/Documents"] = Folder("~/Documents", "~", false, listOf(FileEntry("Keys", "~/Documents/Keys", true, false, 0u, 0, true)), 1u, false, 0u, null)
+        phone.folders["~/Documents/Keys"] = Folder("~/Documents/Keys", "~/Documents", true, listOf(FileEntry("id_ed25519", "~/Documents/Keys/id_ed25519", false, false, 10u, 0, true)), 1u, false, 0u, null)
         val vm = vm()
         vm.openFolder("~/Documents")
         assertTrue("an ordinary folder asks nothing", signers.isEmpty())
@@ -403,7 +403,7 @@ class FeaturesTest {
     fun a_fingerprint_added_after_pairing_is_offered_and_registered() {
         session.unlocked()
         phone.newKeys = PublicKeys(null, null, "STRONG-PUB")
-        phone.mac = MacInfo("Studio Mac", null, null)
+        phone.mac = MacInfo("Studio Mac", null, null, null)
         val vm = vm()
         vm.unlockMac()
         idle()

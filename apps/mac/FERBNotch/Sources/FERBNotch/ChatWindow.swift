@@ -506,7 +506,7 @@ struct ChatWindowView: View {
         .environment(\.selectableTextGeneration, model.textRenderGeneration)
         .foregroundStyle(Palette.ink)
         .preferredColorScheme(.dark)
-        .onDrop(of: [UTType.fileURL], delegate: ChatFileDrop(session: model.drops))
+        .onDrop(of: ChatFileDrop.types, delegate: ChatFileDrop(session: model.drops))
         .onExitCommand { if !model.closeEnlargedPicture() { controls.close() } }   // APP-889
         .accessibilityElement(children: .contain)
         .accessibilityLabel("FERB window")

@@ -14,10 +14,41 @@ public struct FerbRoot: View {
     public init(app: AppShell) { self.app = app }
 
     public var body: some View {
+        #if DEBUG && targetEnvironment(simulator)
+        if UserDefaults.standard.bool(forKey: "FERBUITestShield") { ShieldCheckPage() } else { root }
+        #else
+        root
+        #endif
+    }
+
+    private var root: some View {
         RootView(model: app.model, shell: app)
             .onChange(of: phase, initial: true) { _, p in app.scene(p) }
     }
 }
+
+#if DEBUG && targetEnvironment(simulator)
+/// A Debug simulator started with `-FERBUITestShield YES` shows only this: a plain half and a shielded half, for
+/// checking by `xcrun simctl io booted screenshot` (and the simulator's own Trigger Screenshot) what the screenshot
+/// shield does here (kb PHN-597). Never in a Release build or on a phone.
+struct ShieldCheckPage: View {
+    var body: some View {
+        VStack(spacing: 0) {
+            Text("PLAIN: always in screenshots").font(.title2.bold()).foregroundStyle(.black)
+                .frame(maxWidth: .infinity, maxHeight: .infinity).background(Color.yellow)
+                .accessibilityIdentifier("shield-plain")
+            Text(ScreenshotShield.available ? "SHIELDED: should be blank in a screenshot" : "NO SHIELD ON THIS iOS")
+                .font(.title2.bold()).foregroundStyle(.white)
+                .frame(maxWidth: .infinity, maxHeight: .infinity).background(Color.red)
+                .screenshotShielded()
+                .accessibilityElement()
+                .accessibilityLabel(Text(ScreenshotShield.available ? "shielded" : "no shield"))
+                .accessibilityIdentifier("shield-shielded")
+        }
+        .ignoresSafeArea()
+    }
+}
+#endif
 
 struct RootView: View {
     @Bindable var model: AppModel

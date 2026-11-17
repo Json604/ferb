@@ -69,13 +69,23 @@ final class WordsTests: XCTestCase {
         XCTAssertEqual(moment(12).dayNumber, 739_934)
     }
 
-    /// SkyNow.sunLine's time left, as the lab writes it; the relay sheet promises only what the shared relay carries.
+    /// A time left: "45 min" below an hour, "5 h" for whole hours (the owner's "5h", not the lab's "5 h 0 min"), "5 h
+    /// 20 min" otherwise; the table is Android's (LabWordsTest), so the two phones can't drift.
+    // decision: PHN-595
+    func testTimeLeftDropsZeroMinutesAsTheOwnerChose() throws {
+        let url = LabNumbersTests.repo.appendingPathComponent("apps/android/design/src/test/resources/words/time-left.json")
+        let table = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        let cases = try XCTUnwrap(table["cases"] as? [[Any]])
+        XCTAssertGreaterThanOrEqual(cases.count, 6)
+        for c in cases {
+            let minutes = try XCTUnwrap(c[0] as? Int), words = try XCTUnwrap(c[1] as? String)
+            XCTAssertEqual(labMinutesLeft(minutes), words, "\(minutes)")
+        }
+    }
+
+    /// The relay sheet promises only what the shared relay carries.
     // decision: PHN-410, PHN-444
     func testTheLabsWordsAndTheRelaySheet() {
-        XCTAssertEqual(labMinutesLeft(0), "0 min")
-        XCTAssertEqual(labMinutesLeft(45), "45 min")
-        XCTAssertEqual(labMinutesLeft(60), "1 h 0 min")
-        XCTAssertEqual(labMinutesLeft(132), "2 h 12 min")
         let how = Dictionary(uniqueKeysWithValues: LabSample.relay.works.map { ($0.what, $0.how) })
         XCTAssertEqual(how["Messages, questions, answers, Stop"], "Always")
         XCTAssertEqual(how["Files and pictures"], "Not on the shared relay")

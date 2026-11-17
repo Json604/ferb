@@ -219,6 +219,11 @@ class Notifier(
                 choices.sortedByDescending { it.yes }.forEach { c ->
                     b.addAction(Notification.Action.Builder(null, c.label, answerIntent(id, q.choices.indexOf(c), null)).build())
                 }
+                // Android shows three actions: "until I'm back at my Mac" when the Mac offers it and there is room (PHN-611)
+                if (q.untilBack && choices.size < 3) {
+                    b.addAction(Notification.Action.Builder(null, context.getString(R.string.until_back_yes),
+                        answerIntent(id, AnswerReceiver.UNTIL_BACK, null)).build())
+                }
             } else if (q.options.isEmpty()) {
                 val input = RemoteInput.Builder(AnswerReceiver.TEXT).setLabel(context.getString(R.string.n_answer_hint)).build()
                 b.addAction(Notification.Action.Builder(null, context.getString(R.string.n_answer), answerIntent(id, -1, true)).addRemoteInput(input).build())

@@ -38,19 +38,27 @@ final class FileDropTests: XCTestCase {
 
     private func files(_ urls: [URL]) -> NSPasteboard { pasteboard { $0.writeObjects(urls.map { $0 as NSURL }) } }
 
-    // decision: APP-737, APP-738
-    func testOnlyFilesAndFoldersAreADrop() {
+    // decision: APP-930, APP-931
+    func testFilesPromisedFilesAndPicturesAreADropButTextAndLinksAreNot() {
         XCTAssertTrue(FileDrop.accepts([["public.file-url"], ["public.file-url", "public.utf8-plain-text"]]))
         XCTAssertFalse(FileDrop.accepts([]))
         XCTAssertFalse(FileDrop.accepts([["public.utf8-plain-text"]]))                  // selected text
         XCTAssertFalse(FileDrop.accepts([["public.url", "public.utf8-plain-text"]]))    // a web link
         XCTAssertFalse(FileDrop.accepts([["public.file-url"], ["public.utf8-plain-text"]]))   // mixed: refused whole
-        XCTAssertFalse(FileDrop.accepts([["com.apple.NSFilePromiseItemMetaData", "com.apple.pasteboard.promised-file-url"]]))
-        XCTAssertFalse(FileDrop.accepts([["public.file-url", "com.apple.pasteboard.promised-file-url"]]))
-        XCTAssertFalse(FileDrop.accepts([["public.file-url", "x.promise"]], promises: ["x.promise"]))
+        // The screenshot thumbnail, Mail and Photos: promised files, the promise winning over a file URL beside it
+        XCTAssertEqual(FileDrop.carried(["com.apple.NSFilePromiseItemMetaData", "com.apple.pasteboard.promised-file-url"]),
+                       .promise)
+        XCTAssertEqual(FileDrop.carried(["public.file-url", "com.apple.pasteboard.promised-file-url"]), .promise)
+        XCTAssertEqual(FileDrop.carried(["public.file-url", "x.promise"], promises: ["x.promise"]), .promise)
+        // A picture with no file (Preview), and an image dragged out of a page with its address beside it
+        XCTAssertEqual(FileDrop.carried(["public.png"]), .image)
+        XCTAssertEqual(FileDrop.carried(["public.tiff", "public.url", "public.utf8-plain-text"]), .image)
+        XCTAssertEqual(FileDrop.carried(["public.url", "com.apple.pasteboard.promised-file-url"]), nil, "a link is text")
+        XCTAssertEqual(FileDrop.carried(["public.file-url", "public.utf8-plain-text"]), .file)
+        XCTAssertTrue(FileDrop.accepts([["public.file-url"], ["com.apple.pasteboard.promised-file-url"], ["public.png"]]))
     }
 
-    // decision: APP-737, APP-739, APP-577
+    // decision: APP-930, APP-739, APP-577
     func testADropAttachesEveryFileAtOnceOpensTheChatAndNeverSends() throws {
         let rpc = ScriptedRPC()
         let model = NotchModel(rpc: rpc, preferences: scratchDefaults())
@@ -71,8 +79,8 @@ final class FileDropTests: XCTestCase {
         XCTAssertTrue(model.canSend, "files alone can be sent")
     }
 
-    // decision: APP-737, APP-738
-    func testTextLinksPromisesTheTourAndDictationAreRefused() async throws {
+    // decision: APP-930, APP-931
+    func testTextLinksTheTourAndDictationAreRefused() async throws {
         let model = NotchModel(rpc: ScriptedRPC(), preferences: scratchDefaults(), microphone: HeldMicrophone())
         let urls = try scratchFiles(["a.txt"])
         let text = pasteboard { $0.setString("hello", forType: .string) }
@@ -83,7 +91,16 @@ final class FileDropTests: XCTestCase {
             item.setString("x", forType: NSPasteboard.PasteboardType("com.apple.pasteboard.promised-file-url"))
             board.writeObjects([item])
         }
-        XCTAssertEqual(model.drops.entered(.handle, promise), [])
+        XCTAssertEqual(model.drops.entered(.handle, promise), .copy, "a promised file is taken now (APP-930)")
+        model.drops.exited(.handle)
+        let link = pasteboard { board in
+            let item = NSPasteboardItem()
+            item.setString("https://example.com/", forType: .URL)
+            item.setString("https://example.com/", forType: .string)
+            board.writeObjects([item])
+        }
+        XCTAssertEqual(model.drops.entered(.handle, link), [])
+        XCTAssertFalse(model.drops.drop(link))
         XCTAssertEqual(model.drops.entered(.handle, files(urls)), .copy)
         model.drops.exited(.handle)
 
@@ -98,7 +115,7 @@ final class FileDropTests: XCTestCase {
         XCTAssertTrue(model.session.attachments.isEmpty)
     }
 
-    // decision: APP-737, APP-739, APP-577
+    // decision: APP-930, APP-739, APP-577
     func testFilesWaitInTheComposerWhileATaskRunsAndSendWithoutWords() throws {
         let rpc = ScriptedRPC()
         let model = NotchModel(rpc: rpc, preferences: scratchDefaults())
@@ -169,7 +186,7 @@ final class FileDropTests: XCTestCase {
         return Harness(model: model, coordinator: coordinator)
     }
 
-    // decision: APP-737, APP-705
+    // decision: APP-930, APP-705
     func testWithHoverOffADropOnTheClosedHandleOpensAndAttaches() throws {
         let h = try harness(hover: false)
         defer { h.coordinator.tearDown() }
@@ -181,7 +198,7 @@ final class FileDropTests: XCTestCase {
         XCTAssertTrue(h.model.staysOpenOnHoverOut)
     }
 
-    // decision: APP-737, APP-739
+    // decision: APP-930, APP-739
     func testAHeldDragSpringsTheChatOpenAndLeavingWithoutADropFoldsIt() async throws {
         for hover in [false, true] {
             let h = try harness(hover: hover)
@@ -209,7 +226,7 @@ final class FileDropTests: XCTestCase {
         }
     }
 
-    // decision: APP-737, APP-739
+    // decision: APP-930, APP-739
     func testADropWhileFERBYieldsBringsItBack() throws {
         let h = try harness(hover: false)
         defer { h.coordinator.tearDown() }
@@ -377,7 +394,7 @@ final class FileDragRoutingTests: XCTestCase {
     /// pill itself had to be reached by the window server, under the menu bar's strip. Now FERB's own pointer reading
     /// over the closed handle or pill springs the chat (or the sticky window) open whatever the hover setting, on a
     /// notchless display and in the notch alike; the sticky window stays out of the overlay space for the drop.
-    // decision: APP-820, APP-737, APP-739, APP-742
+    // decision: APP-820, APP-930, APP-739, APP-742
     func testOnANotchlessDisplayAFileDragHeldOverTheRestingPillOpensTheChatWithHoverOff() async throws {
         for notchless in [true, false] {
             for host in [ChatHost.notch, .window] {

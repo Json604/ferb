@@ -272,7 +272,7 @@ impl ClaudeRuntime {
     ) -> Result<(String, Options), RuntimeError> {
         let Some(own) = claude_home(&self.ferb_home) else {
             return Err(RuntimeError::unsupported(
-                "Claude isn't signed in for FERB: sign in to Claude in Settings → AI",
+                "Claude isn't signed in for FERB: sign in to Claude in Settings → Thinking",
             ));
         };
         let Some(cli) = self.cli.as_ref() else {

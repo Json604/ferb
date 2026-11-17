@@ -10,8 +10,46 @@ public struct PasteProvenance: Equatable {
     public private(set) var pastes: [NSRange] = []
     /// A change no edit reported touched a paste, so which words are pasted is no longer known.
     public private(set) var isUnclear = false
+    /// Long pastes held out of the field as chips (owner, 2026-11-17, APP-934), in the order they were pasted. Each is
+    /// anchored where it was pasted and follows the edits around it; on send it goes back in at its place, as a paste.
+    public private(set) var held: [HeldPaste] = []
 
     public init() {}
+
+    /// `text` held as a chip at `location` of `current`, the draft at the moment of the paste (any selection the paste
+    /// replaced already removed). Its id is the chip's.
+    @discardableResult
+    public mutating func hold(_ text: String, at location: Int, in current: String, id: UUID = UUID()) -> UUID {
+        follow(current)
+        let place = max(0, min(location, (draft as NSString).length))
+        held.append(HeldPaste(id: id, text: text, location: place))
+        return id
+    }
+
+    /// The chip's cross: its text is dropped, the typed draft is unchanged.
+    public mutating func removeHeld(_ id: UUID) {
+        held.removeAll { $0.id == id }
+    }
+
+    /// The draft as sent: every held paste put back in at its place, marked as a paste exactly as if it had been pasted
+    /// into the field there; the provenance returned describes that text and holds nothing.
+    public func expanded(_ text: String) -> (text: String, provenance: PasteProvenance) {
+        var current = self
+        current.follow(text)
+        var full = current.draft
+        // Highest place first, so the places still to come are unchanged; at one place the later paste goes in first,
+        // which leaves them in the order they were pasted.
+        let order = current.held.enumerated().sorted { a, b in
+            a.element.location != b.element.location ? a.element.location > b.element.location : a.offset > b.offset
+        }
+        for (_, paste) in order {
+            let at = NSRange(location: min(paste.location, (full as NSString).length), length: 0)
+            current.edit(at, with: paste.text, in: full, pasted: true)
+            full = (full as NSString).replacingCharacters(in: at, with: paste.text)
+        }
+        current.held = []
+        return (full, current)
+    }
 
     /// `text` pasted over `selection` of `current`, the draft just before the paste.
     public mutating func paste(_ text: String, over selection: NSRange, in current: String) {
@@ -87,8 +125,62 @@ public struct PasteProvenance: Equatable {
             kept.append(NSRange(location: range.location, length: length))
         }
         pastes = kept.sorted { $0.location < $1.location }
+        // A held paste stays before text put at its own place (it was pasted before the owner typed on), moves with
+        // text put or removed before it, and sits where removed text around it was.
+        for index in held.indices where held[index].location > range.location {
+            let place = held[index].location
+            held[index].location = place >= NSMaxRange(range) ? place + delta : range.location
+        }
         draft = (draft as NSString).replacingCharacters(in: range, with: text)
-        if draft.isEmpty { self = PasteProvenance() }   // nothing is left of any paste
+        if draft.isEmpty {                              // nothing is left of any paste in the field; chips stay
+            pastes = []
+            isUnclear = false
+        }
+    }
+}
+
+/// A long paste held as a chip in the composer (APP-934): its whole text and its place in the draft (UTF-16).
+public struct HeldPaste: Equatable, Identifiable {
+    public let id: UUID
+    public let text: String
+    public internal(set) var location: Int
+
+    public init(id: UUID, text: String, location: Int) {
+        self.id = id
+        self.text = text
+        self.location = location
+    }
+
+    /// The chip's size line: "240 lines", or for one long line "5,000 characters".
+    public var size: String {
+        let lines = LongPaste.lines(in: text)
+        if lines > 1 { return "\(lines.formatted()) lines" }
+        let count = text.count
+        return count == 1 ? "1 character" : "\(count.formatted()) characters"
+    }
+}
+
+/// When pasted text is held as a chip instead of filling the field (owner, 2026-11-17, APP-934).
+public enum LongPaste {
+    /// The owner's to confirm: a paste longer than this many characters or lines, whichever comes first, is held as a
+    /// chip; anything up to it goes into the field as before.
+    public static let limit = (characters: 2_000, lines: 30)
+
+    /// Whether `text` is held as a chip.
+    public static func isLong(_ text: String) -> Bool {
+        text.count > limit.characters || lines(in: text) > limit.lines
+    }
+
+    /// Lines as the field shows them; a final line break doesn't start another.
+    public static func lines(in text: String) -> Int {
+        guard !text.isEmpty else { return 0 }
+        var lines = 1
+        var index = text.startIndex
+        while index < text.endIndex {
+            if text[index].isNewline, text.index(after: index) < text.endIndex { lines += 1 }
+            index = text.index(after: index)
+        }
+        return lines
     }
 }
 

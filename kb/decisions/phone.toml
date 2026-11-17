@@ -1871,7 +1871,8 @@ evidence = "app AppLockTest (2), ViewModelTest gate and unlock tests, OnPhoneTes
 title = "What the phone library doesn't carry yet is said plainly on the phone, never drawn invented"
 by = "agent"
 date = 2026-11-16
-status = "active"
+status = "superseded"
+superseded_by = "PHN-605"
 rule = "Slice S11. Files, sending files, Watch live, Stop everything, FERB's settings and speaking keep the lab's buttons and open one sheet: '<what> isn't connected on the phone yet. It comes in an update of FERB.' Watch live on the shared relay says the relay's rule instead. Tasks are drawn from the chat's own transcript (what waits, runs, ran)."
 why = "ferb-mobile-ffi exposes no phone.files/read/put, tasks.preview, stop.engage, settings.get, tasks.list or chat.status yet (journal 115 lists the additions); a fake list or a partial stop would mislead. The owner sees the lab's layout and an honest line."
 evidence = "app ScreenShotsTest files_say_plainly_they_are_not_on_the_phone_yet; the not-yet sheet's words in strings.xml."
@@ -2234,7 +2235,8 @@ evidence = "FERBUITests testTheScannerWithoutACameraOffersTheTypedCode (the simu
 title = "iOS can't blank screenshots: the app switcher is always covered, captures hide FERB"
 by = "agent"
 date = 2026-11-16
-status = "active"
+status = "superseded"
+superseded_by = "PHN-597"
 rule = "For PHN-420, PHN-454, PHN-110 on iPhone. A cover (FERB's mark on black) whenever the scene is not active; while the screen is recorded or mirrored (UIScreen.isCaptured) the content is hidden when the owner's switch is on, always for Watch live and a private answer. A screenshot can't be prevented or blanked; no secure-field layer trick. The owner rules on this difference."
 why = "Android's FLAG_SECURE has no iOS equivalent; the documented signals are the scene phase and the capture state. The layer trick relies on undocumented behaviour."
 evidence = "FerbAppTests AppScreensTests (the cover when not active, captures by switch and always for Watch live and a private answer); the owner's question T-1240."
@@ -2320,3 +2322,360 @@ status = "active"
 rule = "For PHN-515, PHN-516, PHN-517. Fetched and outgoing files live in Caches/files with FileProtectionType.completeUnlessOpen, excluded from backup; gone at the app's lock, after 24 h and on Forget, a key place's at the next return. Picked files and folders are copied through NSFileCoordinator from the picker's URLs; a folder's security scope is kept until it is sent or dropped. Files open only on the owner's tap (QuickLook or the share sheet)."
 why = "Android's cache rule with iOS's own Data Protection: a fetched file can't be read while the phone is locked."
 evidence = "FerbAppTests FilesAndDeviceTests (LocalFiles 2); Data Protection itself only on a phone."
+
+# ---- 2026-11-17: the owner's answers to the phone apps' summary (journal 121)
+
+[PHN-595]
+title = "A time left reads \"5 h\" for whole hours, not \"5 h 0 min\""
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "5h"
+words_source = "Owner 2026-11-17, answering 'in 5 h or 5 h 0 min' about the phone's home line (the 2026-11-16 decisions list, Q16)."
+rule = "Both phone apps write a time left as \"45 min\", \"5 h\" for whole hours and \"5 h 20 min\" otherwise, with the design's spacing; never \"5 h 0 min\"."
+why = "The owner's choice of wording."
+evidence = "apps/android design words/time-left.json held by :design LabWordsTest and FerbDesign WordsTests; large-text home golden re-recorded."
+
+[PHN-596]
+title = "Jev is gone from the phone apps, now and in future, whatever an older Mac sends"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "remove, no jev now or in future"
+words_source = "Owner 2026-11-17, on the phone's 'Jev decisions' settings row (Q14: rename, hide or leave?)."
+rule = "Neither phone app shows a Jev row or names Jev anywhere; retention.decision_days from a Mac that still sends it is not shown."
+why = "Jev was paused (perception) and the owner removed it for good."
+evidence = "Android MacSettingsTest, iPhone MacSettingsTests (an older Mac's row ignored; no string names Jev); the settings golden without the row."
+
+[PHN-597]
+title = "iPhone keeps Watch live's picture of the Mac out of screenshots through a secure field's canvas"
+by = "agent"
+date = 2026-11-17
+status = "active"
+supersedes = ["PHN-565"]
+rule = "For PHN-598, PHN-454. Watch live's frame is hosted in a never-attached secure UITextField's canvas (FerbAppUI ScreenshotShield); none found: a plain view and This phone says screenshots can show FERB. Private answers show no value (dots, SecureField). The rest of the app is not shielded; captures hide FERB."
+why = "Banking apps' technique: public calls, undocumented, may change (Apple). The window-layer variant crashed on iOS 26. SwiftUI hosted in the canvas isn't reached by VoiceOver (simulator UI test), so only a picture nothing reads or taps goes in."
+evidence = "FerbAppTests ScreenshotShieldTests (canvas found, content inside, layer marked on the iOS 18.6 simulator); FERBUITests testTheShieldIsFoundAndDrawnInPlace. A blank screenshot needs an iPhone (T-1243)."
+
+[PHN-598]
+title = "iPhone screenshots: find what banking apps do rather than say it can't be done"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "but then how does bank apps screenshots work in that??? there might be somethign"
+words_source = "Owner 2026-11-17, to T-1240 ('iPhone can't blank screenshots: is the switcher cover plus hiding during recording enough?')."
+rule = "The iPhone app uses the way banking apps keep their screens out of screenshots, as far as iOS allows it, and says plainly where it can't (PHN-597)."
+why = "The earlier report said iPhone can't blank screenshots; apps do it with a secure text field's layer."
+untestable = "The owner's ask; PHN-597 holds the mechanism and its tests, and a blank screenshot is checked on an iPhone (T-1243)."
+
+[PHN-599]
+title = "A message may wait in the phone's encrypted outbox while the Mac is off"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "I would accept it as built"
+words_source = "Owner 2026-11-17, on the outbox as built (PHN-401, PHN-476): messages kept encrypted on the phone until the Mac is back."
+rule = "As built: a message written while the Mac is off waits in the phone's encrypted store (SQLCipher) and is sent when the Mac is back, cancellable meanwhile."
+why = "The owner accepted the built behaviour."
+evidence = "ferb-mobile tests/outbox.rs; Android ViewModelTest and iPhone AppModelTests a message with the Mac off waits in the outbox."
+untestable = "As built; held by PHN-401's and PHN-476's outbox tests (ferb-mobile tests/outbox.rs)."
+
+[PHN-600]
+title = "A locked phone app may still tell the Mac its time zone, city and battery"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "yes allowed"
+words_source = "Owner 2026-11-17, to T-1222 (may a phone whose FERB app is locked still report its time zone, city and battery?)."
+rule = "As built (PHN-523): phone.device_report is accepted from a locked app's connection that proved the device key; nothing of FERB's goes back to it."
+why = "Keeps FERB right about where and when the owner is."
+evidence = "ferb-daemon tests/phone_device.rs (who may report while locked)."
+untestable = "As built; held by PHN-523's tests (ferb-daemon tests/phone_device.rs)."
+
+[PHN-601]
+title = "The phone app's id is com.ferb.phone and the iPhone app needs iOS 17"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "ok"
+words_source = "Owner 2026-11-17, to T-1242's id and minimum iOS (keep com.ferb.phone, iOS 17 or later); the Apple team stays his question."
+rule = "Both apps keep com.ferb.phone (PHN-562, Android's applicationId); the iPhone app requires iOS 17 (PHN-560)."
+why = "The owner agreed to the built values."
+untestable = "Values set in apps/ios/tools/make_project.py (BUNDLE_ID, MIN_IOS) and app/build.gradle.kts; checked by make_project.py --check."
+
+[PHN-602]
+title = "The phone apps' words listed to the owner on 2026-11-16 are approved"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "i apprive your new proposed wordings"
+words_source = "Owner 2026-11-17, on the wording list of 2026-11-16 (.local while-you-slept 7-wording-to-approve.md, T-1245, T-1241's iPhone line)."
+rule = "The strings shown to him on 2026-11-16 (strings.xml and the iPhone's differences, 'While FERB is closed / Questions show when you open FERB' included) stand; newer strings are listed to him again."
+why = "Owner approves the apps' words. He then asked why iPhone can't notify while closed: that is stage 5's push (PHN-421, T-1247), not these words."
+untestable = "An approval of words; strings.py --check keeps the iPhone catalog equal to the approved Android strings."
+
+[PHN-603]
+title = "Speaking to FERB from the phone: hold to talk, as on the Mac"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "yeah sure"
+words_source = "Owner 2026-11-17, to Q18: 'Speaking to FERB from the phone. Not built. Do you want it, and how: hold to talk like the Mac?'"
+rule = "Both phone apps let the owner speak a message by holding the microphone in the message box, as FERB.app's dictation works (PHN-605)."
+why = "The owner's product decision."
+untestable = "The owner's ask; PHN-604 and PHN-605 hold the mechanism and its tests."
+
+[PHN-604]
+title = "Phone speech is recognised on the phone where it can; the phone's service only after FERB says so"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For PHN-603. On-device where offered (Android 12+ createOnDeviceSpeechRecognizer; iOS requiresOnDeviceRecognition), else the phone's service (Google's on most Androids, Apple's), with FERB's words before the first use of each kind, then the system asks. No silent switch; no audio to the Mac."
+why = "APP-591 keeps the Mac on-device only; many phones have no on-device recogniser for a language, and the owner asked for speech on both. Saying where the voice may go before it goes keeps it honest."
+evidence = "Android VoiceTest, iPhone VoiceTests (told first, asked next, the service only after its words); voice-on-device and voice-service goldens."
+
+[PHN-605]
+title = "Hold the microphone: the words land in the message box, stay there, and are never sent by themselves"
+by = "agent"
+date = 2026-11-17
+status = "active"
+supersedes = ["PHN-506"]
+rule = "For PHN-603, APP-673, APP-675. FERB.app's DictationCapture ported to both phones: every word kept, a task the recogniser ends mid-hold replaced; letting go keeps the words after the draft (2 s for the last answer); a tap says to hold; leaving the app or the lock stops it. Never sent, recorded or stored."
+why = "One behaviour with the Mac (APP-568's review in the composer); the owner checks before sending. PHN-506's not-yet sheet named only speaking still: gone."
+evidence = "dictation-cases.json run by Android DictationTest and iPhone DictationTests; VoiceTest and VoiceTests (draft, grace, tap, failure, leaving)."
+
+[PHN-606]
+title = "Load more asks the library for the page after the shown one and adds it in place"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For PHN-609, PHN-589. The phone asks files(path, signer, after) and search_files(query, path, after) with the shown page's `next` (ferb-mobile-ffi Folder/FoundFiles); the page's entries go under those shown; a key place's page asks for the fingerprint again (PHN-121); the bound's line stays."
+why = "One call for the first and later pages, as the library gives them; a key place's listing is that path's own proof each time."
+evidence = "Android FilesMoreTest load_more_adds_the_next_page...; iPhone FilesPagingTests; the files-load-more golden."
+
+[PHN-607]
+title = "The question sheet shows any extra option the Mac sends after Yes and No"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For PHN-502. Options starting Yes, No keep the lab's two buttons (No a plain No, Yes option 1); each further option is a grey pill under them answering with its own number (FERB.app's numbering). The same row carries 'until I'm back at my Mac' (PHN-611)."
+why = "The screen-use question may gain a third choice from the Mac; before this a third option turned No into 'option 2'."
+evidence = "Android QuestionTest an_extra_option_after_yes_and_no..., iPhone QuestionTests; question-extra golden."
+
+[PHN-608]
+title = "After a file or folder is sent, the phone says where it is on the Mac"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For PHN-580, PHN-581. A sent file's card says 'Saved in <place>' and the message's files 'On your Mac in <place>': Uploaded.saved_in, else MacInfo.upload_folder.shown, else 'Downloads › FERB from phone'. The full path is never shown."
+why = "The owner wants to know where his files land; the Mac says it in its own words and the folder may change in FERB.app's settings."
+evidence = "Android UploadPlaceTest and the files-sent golden; iPhone VoiceTests testTheDefaultPlaceForFilesFromThePhoneIsAndroidsWords."
+
+[PHN-609]
+title = "Long folder listings and searches from the phone load more, a page at a time"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "yes ofc load more. lets them see how much they want but in a controlled fetch limit ofc"
+words_source = "Owner 2026-11-17, to T-1217's limits (a folder shows at most 500 entries, a search 500 matches)."
+rule = "The phone's folder listing and file search show a 'Load more' row when the Mac has more, 500 a page, as many pages as the owner asks for; the search's bound on names looked at stays and is said."
+why = "The owner's product decision; each fetch stays bounded."
+
+# ---- 2026-11-17: the owner's answers on files, uploads, unused phones, screen use and the relays (journal 120)
+
+[PHN-580]
+title = "Say plainly where files from the phone land, and let the owner change it in Settings"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "just mention thta its in there and also be changeable in Settings"
+words_source = "Owner 2026-11-17, to T-1216 (files from the phone land in Downloads › FERB from phone; keep it, or another folder, changeable in Settings → Phone?)."
+rule = "Files from a phone land in Downloads › FERB from phone unless the owner picks another folder in Settings → Phone. The place is said plainly: on Settings → Phone and to the phone after each upload."
+why = "The owner's answer to T-1216."
+evidence = "ferb-daemon tests/phone_files.rs where_files_from_the_phone_land_is_said_and_changed_only_on_the_mac; FERBNotch PhoneSettingsTests."
+
+[PHN-581]
+title = "The upload folder: phone.upload_folder on the Mac, judged first, said as Downloads › FERB from phone"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For PHN-580. phone.upload_folder {path} or {reset} (FERB.app's; class never on a phone) keeps [phone] upload_folder in config.toml after checking the folder exists, is a folder and is none of FERB's data, a protected place or a key place, by its name and real path. phone.list carries upload_folder {path, shown, default}; put_end and put_group carry saved_in (shown_place: the folders after home, joined by ›). Uploads under way finish where they began."
+why = "One judge for the folder as for every phone path (PHN-114); the phone reads the place, the Mac chooses it."
+evidence = "ferb-daemon tests/phone_files.rs where_files_from_the_phone_land...; ferb-rpc tests phone_classes, golden; ferbd every_method_answers."
+
+[PHN-582]
+title = "A paused upload is kept longer than an hour (7 days, to confirm); the 1 GB floor stands"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "why ont more?? what does it cost us?"
+words_source = "Owner 2026-11-17, told a paused or interrupted upload is kept one hour (PHN-139). The coordinator answered: only the part file's disk space."
+rule = "Changes PHN-139's keep: a paused or interrupted upload's part file is kept 7 days (UPLOAD_PARTIAL_KEEP_S; the number is the coordinator's and awaits the owner's confirmation, T-1252). A removed phone's parts go at once. An upload that would leave under 1 GB free is still refused before its first byte (PHN-139's floor)."
+why = "Keeping it longer costs only the part file's disk space."
+evidence = "ferb-daemon tests/phone_files.rs a_paused_upload_is_kept_seven_days_then_goes."
+
+[PHN-583]
+title = "Uploads as PHN-127, a partial one kept 7 days"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "Refines PHN-127 with PHN-582's keep: an upload needs the unlock window, is refused before its first byte when it would leave under upload_free_floor (1 GiB) free, lands 0600 under a random id, quarantined. One that stops part way is kept upload_partial_keep_s (7 days) for the same phone to go on. A folder is one folder in the upload place; no file climbs out. A message's attachments are that phone's own finished uploads, by id."
+why = "PHN-582 changed the keep from 1 hour; the rest stands. A restart forgets an upload's id: its part file then waits only for the age sweep."
+evidence = "ferb-daemon tests/phone_files.rs (uploads, pause and resume, the floor, folders)."
+
+[PHN-584]
+title = "Tell the owner when a paired phone has gone 30 days unused, not only when Settings is opened"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "shoudl be, how do we know its in use/nouse to cacnel it??"
+words_source = "Owner 2026-11-17, told the 'not used for 30 days' note had no timer and showed only when Settings → Phone was opened."
+rule = "FERB tells the owner once, as a notice in chat, when a paired phone passes 30 days unused, naming it and saying it stays paired and can be removed in Settings → Phone. Never removed by itself (PHN-419)."
+why = "The owner wants to know without opening Settings."
+evidence = "ferbd compose::consumers test the_owner_is_told_once_in_plain_words; ferb-daemon tests/phone.rs an_unused_phone_is_warned_about_never_removed."
+
+[PHN-585]
+title = "The 30-day notice: the hourly pass warns, the notice is posted once per unused stretch"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For PHN-584. The hourly retention pass calls sweep_unused (as phone.list does); a phone whose last_seen is 30+ days old and not yet warned gets phone.unused (journal, bus, warned_at), and ferbd posts one notice (ident phone-unused-<phone>-<last_seen>). Used = a link session opened or any call admitted from the phone (gate.rs touch, written at most once a minute), refused calls and a Stay-connected reconnect included; use clears warned_at."
+why = "One path for the warning; a new stretch needs real use since."
+evidence = "ferbd consumers the_owner_is_told_once_in_plain_words; ferb-store tests/phones.rs; ferb-daemon tests/phone.rs."
+
+[PHN-586]
+title = "Screen use from the phone needs no fingerprint and can be allowed until the owner is back"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "no it shoudlnt, when im not on the screeen ferb is free to do however, not necessarly background, but yeah it can ask and i was thnking that there shoudl be a button that comes when this question is asked on phone adn there is dont ask to use screen until i sent the next message on mac or return to mac"
+words_source = "Owner 2026-11-17, to T-1215 (should a Yes to FERB using the Mac's screen, from the phone, need the fingerprint?)."
+rule = "Narrows PHN-417: screen use is routine from the phone, no fingerprint. The phone's screen-use question also offers 'until I'm back at my Mac': no more screen-use questions until the owner sends a message on the Mac or returns to it (GATE-615). Money, deletion, account security and terminal typing still need the fingerprint."
+why = "The owner's answer; PHN-417 had listed screen use among the fingerprint ones."
+evidence = "ferb-gateway tests/until_back.rs; ferb-daemon tests/phone.rs until_i_m_back_goes_only_with_a_yes...; ferb-mobile tests/remote.rs."
+
+[PHN-587]
+title = "'Until I'm back' from a phone: a Yes on the unlock window, chat.status's screen_use, screen_use.end"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For PHN-586, GATE-615. The gate offers until_back: true on the screen-use question's phone part when the gateway can; chat.approve {granted: true, until_back: true} needs this phone's unlock window (no proof), else locked or bad request; it is given before the Yes goes on and taken back unsaid if that answer fails. chat.status (phone) carries screen_use; screen_use.status and screen_use.end are plain, allowed locked (ending only takes away; audited). The phone locking doesn't end it; removing it does."
+why = "No fingerprint (PHN-586) but never a locked or unknown phone; the owner sees and can end it from either side."
+evidence = "ferb-daemon tests/phone.rs until_i_m_back_goes_only_with_a_yes_to_the_screen_question_from_an_unlocked_phone; ferb-rpc tests/phone_classes.rs."
+
+[PHN-588]
+title = "A phone's folder listing, whole-folder fetch and name search keep their numbers"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "agree"
+words_source = "Owner 2026-11-17, to T-1217 (a listing shows 500 entries, a whole folder 2,000 files, a search looks at 100,000 names and shows 500)."
+rule = "list_max 500 (now a page: PHN-609 adds load more), tree_max 2,000, search_names_max 100,000 and 500 matches a page stay."
+why = "The owner agreed with the provisional numbers."
+evidence = "ferb-daemon tests/phone_files.rs a_listing_and_a_search_load_more_a_page_at_a_time; ferb-mobile tests/remote.rs."
+
+[PHN-589]
+title = "Load more: a page of list_max with a signed next marker bound to the phone, folder and query"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For PHN-609, PHN-588. phone.files {path, after?} pages its entries in a stable order (folders first, then names); phone.search {query, path?, after?} reruns its walk and skips the matches already given. Each reply carries from, next (null on the last page) and cut (more remain). next is opaque: the count and a SHA-256 tag over a per-daemon key, the phone, the call, the folder's real path and the query; another one is bad request. Every page is opened and judged as the first."
+why = "Stateless and bounded; a marker can't list elsewhere, and a restart's markers start over."
+evidence = "ferb-daemon tests/phone_files.rs a_listing_and_a_search_load_more_a_page_at_a_time; ferb-link tests/remote.rs; ferb-mobile tests/remote.rs."
+
+[PHN-590]
+title = "Stop keeping the shared relays open for a phone that never came back, after a set number of days"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "ok do it"
+words_source = "Owner 2026-11-17, told journal 102's proposal: close PHN-220's second endpoint on the shared relays after some days even if a phone never returned."
+rule = "The second endpoint closes when every paired phone was seen on the own relay (PHN-220) or 30 days after the relay setting last changed, whichever is first (BEACON_MAX_DAYS; the number awaits the owner's confirmation, T-1253). Settings → Phone says so plainly."
+why = "Nothing of an own-relay user stays on the shared relays for ever."
+evidence = "ferb-link bridge beacon_tests; FERBNotch PhoneSettingsTests testPhonesStillToComeAfterARelayChange..."
+
+[PHN-591]
+title = "The beacon's bound: relay_set_at in link.json; a phone left behind reconnects by a relay switch-off"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For PHN-590, PHN-220. link.json keeps relay_set_at (unix s; absent in older files, so their seal holds; set at the first read with a relay). The beacon is open while a phone waits and now < relay_set_at + 30 days. relay_handover adds closes_at and closed. A phone that comes back later dials where it last knew the Mac and finds nothing; Settings → Phone says to stop using the relay, open FERB on it, set the relay again, or pair it again."
+why = "PHN-220's other guarantees stand; the owner is told the one way back that works."
+evidence = "ferb-link bridge beacon_tests, tests/relay.rs a_change_of_the_relay_never_strands_a_phone; the left-behind path is unverified live."
+
+[PHN-592]
+title = "A removed phone pairs again as a new phone; a disconnected phone's facts are kept 12 hours"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "ok"
+words_source = "Owner 2026-11-17, shown that re-pairing a removed phone makes a new entry (PHN-469) and that a phone's own facts stay 12 h after it was last heard (PHN-523)."
+rule = "As built: PHN-469's new row for a phone paired again, and PHN-523's 12 hours."
+why = "The owner accepted the built behaviour."
+untestable = "As built; held by PHN-469's and PHN-523's tests (ferb-store tests/phones.rs, ferb-daemon tests/phone_device.rs)."
+
+[PHN-593]
+title = "If FERB can't tell his input from its own: ask 'Are you back?' for 10 s, then not again for a while"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "if it cnat tell the diff, it shoud just ask a 10second ttl question. but it could then keep firign on it sown pressing if my and its cant be separeted. have to thignk of better in this direction too. maybe not ask for a some time of the 10s quesion isnt answered ig / that is what hte question was for / yeah just make sure user is shon ferb acknowledgeds them coming back, shodlnt seem it was a spam message n all"
+words_source = "Owner 2026-11-17, on input macOS might make from FERB's own (journal 120's live unknown), then on how a return is shown."
+rule = "An event FERB can't tell from its own holds screen use and asks 'Are you back?' for 10 seconds; any input then is his and ends 'until I'm back'; silence means it was FERB's own and it isn't asked again for a while (GATE-619). His return is always acknowledged visibly; an unanswered question goes quietly."
+why = "Never end at FERB's own echo, never keep going past him, and never look like spam."
+evidence = "ferb-gateway tests/until_back.rs and screen_use.rs; ferbd tests/owner_lines.rs; FERBNotch PhoneSettingsTests testAreYouBack..."
+
+[PHN-610]
+title = "From the phone, screen use needs no fingerprint and can be allowed until the owner is back"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "no it shoudlnt, when im not on the screeen ferb is free to do however, not necessarly background, but yeah it can ask and i was thnking that there shoudl be a button that comes when this question is asked on phone adn there is dont ask to use screen until i sent the next message on mac or return to mac"
+words_source = "Owner 2026-11-17, to T-1215 (should a Yes to screen use from the phone need the fingerprint?); the Mac side records the same words as PHN-586; this is the phone apps' copy."
+rule = "The phone's screen-use question needs no fingerprint, and offers a button to let FERB use the Mac's screen without asking again until he sends a message on the Mac or returns to it."
+why = "The owner's product decision for the phone apps (PHN-586 holds the Mac's)."
+untestable = "The owner's ask; PHN-611 holds the phone apps' mechanism and its tests."
+
+[PHN-611]
+title = "The phone offers 'Yes, until I'm back at my Mac' when the Mac does; a line shows while it holds"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For PHN-610, PHN-586, PHN-587. When QuestionNeeds.until_back, a third answer (sheet pill with its line; notification action) sends AnswerInput::UntilBack: unlock and retry once when locked, no fingerprint; a refusal says the Mac's words, the question stays. screen_use.active: a line, 'Ask me again' ends it."
+why = "His button, on both phones, only where the Mac offers it; ending it on the Mac clears the line by the status, with no extra notification."
+evidence = "Android UntilBackTest (5), iPhone UntilBackTests (5); goldens question-until-back and mac-screen-use on both phones."
+
+# ---- 2026-11-17: the owner on the link's library, the relays and closed-app notifications (not built yet)
+
+[PHN-612]
+title = "The phone link stays on iroh"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "yes to first two"
+words_source = "Owner 2026-11-17, to the library research's decisions: \"1. Keep building on iroh? Recommended: yes.\""
+rule = "The phone link keeps building on iroh. Its releases are followed as they make sense for FERB (owner: \"we will see their changes, if they make snes eonly then change\"); the pinned patches and the iPhone API check stay until upstream carries the fixes."
+why = "Research 2026-11-17 (.local/phone-link-library/report.md): no other shipping option gives no account, keys on the two devices, mobile data, one Rust core and no per-user server."
+untestable = "A choice of foundation; the gate's phone builds and ios_api_check.py show it builds."
+
+[PHN-613]
+title = "The free shared relays for now; paid shared relays when FERB has real users or is throttled"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "yes to first two"
+words_source = "Owner 2026-11-17, to: \"2. Who carries messages when there's no direct path and no own relay? Recommended: (a) free shared relays for now, (b) paid shared ones later.\""
+rule = "With no direct path and no relay of the owner's own, the phone link uses n0's free shared relays, as today (text, questions and Stop only, PHN-410). When FERB has real users beyond friends, or the free relays throttle or block it, it moves to paid relays FERB's users share; users still need no account."
+why = "n0 says its free relays are for development and testing, with no uptime promise."
+untestable = "A hosting choice; PHN-410's tests cover what the shared relay may carry."
+
+[PHN-614]
+title = "Closed-app notifications use push on Android too, and the question travels scrambled inside the push"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "the same run in bg is in my PairIt app, but after sometime my phone stops it from running in bg. so i think we should approach teh same thing in android too"
+words_source = "Owner 2026-11-17. On the question riding in the push, encrypted for the phone alone: \"ok lets have this for now\". On where the sender runs: \"my server for now\"."
+rule = "Changes PHN-421's push part (stage 5, not built). Android gets push as iPhone does; Stay connected stays as an extra. The Mac encrypts the question for the paired phone; the sender, Apple and Google carry only that ciphertext; the phone decrypts and shows it with its answers (PHN-415, PHN-417, PHN-422 unchanged; a hidden answer's content never travels). If it can't decrypt in time it shows a plain line. Answers go over the link, never the sender. The sender runs on the owner's server for now, its address a setting."
+why = "Phone makers stop background apps; iPhone's silent wake-ups are throttled, so wake-then-fetch is unreliable there."
+untestable = "Stage 5 is not built; its tests come with it (T-1247)."

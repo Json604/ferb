@@ -51,6 +51,8 @@ pub trait ChatGateway: Send + Sync {
     ) -> BoxFuture<'a, Result<Value, String>>;
     /// `state.stopped`: the global stop is engaged.
     fn stopped(&self) -> bool;
+    /// GATE-615: the owner sent a message from FERB.app on the Mac: the phone's "until I'm back at my Mac" ends.
+    fn owner_wrote_on_the_mac(&self) {}
 }
 
 /// `mac.report_click_through(pid, windows)`: whether the caller is one of FERB's running apps (D31).
@@ -938,7 +940,12 @@ pub fn register(server: &Server, rpc: Arc<ChatRpc>) {
     let send = rpc.clone();
     server.register_stream(
         "chat.send",
-        move |_session: Session, params: Params| -> Box<dyn EventStream> {
+        move |session: Session, params: Params| -> Box<dyn EventStream> {
+            // decision: GATE-615 — a message from FERB.app on the Mac: the owner is back, the phone's "until I'm back
+            // at my Mac" ends (a phone's own message never ends it)
+            if session.phone.is_none() {
+                send.deps.gateway.owner_wrote_on_the_mac();
+            }
             match send.chat_send(&params) {
                 Ok(rx) => Box::new(ChatEvents {
                     rx,

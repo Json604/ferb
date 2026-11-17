@@ -1,8 +1,11 @@
-//! ferb/orchestrator/verify.py: literal checks and observed result facts. File existence and content, tab URLs, the
-//! latest acting call's read-back and the action checks of ORCH-576 yield literal predicates, never final outcome
-//! judgments; anything else goes to the checker.
+//! ferb/orchestrator/verify.py: literal checks and code's facts about a step's result. File existence and content, tab
+//! URLs and the latest acting call's read-back yield literal predicates. An action check (sent, paid, submitted,
+//! uploaded, trashed, deleted, downloaded) yields only what code can see itself (ORCH-664): the Mac's state now (a
+//! file is there or gone, its bytes, the Trash, a taken download), a receipt a tool wrote when it acted (which bytes,
+//! to whom, where), and, in the supervisor, the owner's word and "FERB did nothing in this step". It never concludes
+//! "not done" from a missing record of one route; whatever it can't see goes to the checker.
 //!
-//! decision: ORCH-576, ORCH-609, ORCH-613, ORCH-624, ORCH-309, ORCH-660, ORCH-661
+//! decision: ORCH-664, ORCH-666, ORCH-667, ORCH-668, ORCH-613, ORCH-309
 
 use std::io::Read;
 
@@ -16,7 +19,8 @@ use crate::sql::Result;
 pub const UNCHECKED: &str = "unchecked";
 pub const DECLINED: &str = "owner";
 pub const DECLINED_SAID: &str = "You said no to it on its card, so FERB didn't do it";
-/// schemas.py:20 `ACTION_CHECKS`.
+/// The action check kinds (ORCH-576's six and ORCH-667's `uploaded`): what each names tells code which facts to
+/// gather; none is a veto.
 pub const ACTION_CHECKS: &[&str] = &[
     "sent",
     "paid",
@@ -24,23 +28,47 @@ pub const ACTION_CHECKS: &[&str] = &[
     "trashed",
     "deleted",
     "downloaded",
+    "uploaded",
 ];
 
-/// ORCH-660: how an action check's evidence starts when the task used a route it doesn't read.
-pub const CANT_SETTLE: &str = "FERB's records can't settle it";
-/// ORCH-660: the call kinds whose records don't say what the input did (W2's generic input outside FERB's own
-/// structured tools, and a shell command), each with how a route through it is told (`{}`: the call's app or site).
-pub const UNREAD_ROUTES: &[(&str, &str)] = &[
-    ("mac_input", "input went into {} through the Mac tools"),
-    ("applescript", "a script ran in {}"),
-    ("run_shell", "a shell command ran"),
-];
+/// ORCH-665: a condition's verdict.
+pub const MET: &str = "met";
+pub const NOT_MET: &str = "not_met";
+/// FERB acted, but on something other than what the condition names (ORCH-668).
+pub const DIFFERENT: &str = "different";
+pub const CANT_TELL: &str = "cant_tell";
 
-/// ORCH-660: at most this many routes are named in one evidence line (a technical bound), then "<n> more".
-pub const MAX_ROUTES: usize = 5;
+/// ORCH-665: who gave a verdict. The Mac's own state read now.
+pub const BY_MAC: &str = "mac";
+/// The owner's Yes or No on a card.
+pub const BY_OWNER: &str = "owner";
+/// What a tool wrote about its own action when it acted.
+pub const BY_RECEIPT: &str = "receipt";
+/// FERB's own records of what it did: here, that it did nothing that could have done it.
+pub const BY_RECORD: &str = "record";
+/// The checker, on its look.
+pub const BY_CHECKER: &str = "checker";
 
-/// verify.py:31 `ConditionResult`.
-#[derive(Debug, Clone, PartialEq)]
+/// What a verdict's met is: true for met, false for not met and different, null for can't tell.
+pub fn met_of(verdict: &str) -> Option<bool> {
+    match verdict {
+        MET => Some(true),
+        NOT_MET | DIFFERENT => Some(false),
+        _ => None,
+    }
+}
+
+/// Code's own fact kept beside a verdict someone else gave (ORCH-665): who, what it said, on what basis.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct CodeFact {
+    pub by: String,
+    pub verdict: String,
+    pub basis: String,
+}
+
+/// verify.py:31 `ConditionResult`, with ORCH-665's verdict, who gave it, its basis, and for `different` what was asked
+/// and what was acted on. The added fields are stored only when set, so a plain result keeps its recorded bytes.
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct ConditionResult {
     pub index: i64,
     pub text: String,
@@ -48,6 +76,15 @@ pub struct ConditionResult {
     pub path: String,
     pub evidence: String,
     pub how: String,
+    /// "" (a result from before ORCH-665: read it from `met` and `path`), or one of MET, NOT_MET, DIFFERENT, CANT_TELL.
+    pub verdict: String,
+    /// "" or one of BY_MAC, BY_OWNER, BY_RECEIPT, BY_RECORD, BY_CHECKER.
+    pub by: String,
+    pub basis: String,
+    pub asked: String,
+    pub acted_on: String,
+    /// Code's fact when the verdict is someone else's (a disagreement, or "nothing done" beside an outcome that holds).
+    pub code: Option<CodeFact>,
 }
 
 impl ConditionResult {
@@ -64,11 +101,41 @@ impl ConditionResult {
             met,
             path: path.into(),
             evidence: evidence.into(),
-            how: String::new(),
+            ..ConditionResult::default()
         }
     }
 
-    /// verify.py:39 `as_dict`.
+    /// ORCH-665: a fact of code's (path "code"): its verdict, who, the basis (also its evidence).
+    pub fn fact(index: i64, text: &str, verdict: &str, by: &str, basis: &str) -> ConditionResult {
+        ConditionResult {
+            verdict: verdict.into(),
+            by: by.into(),
+            basis: basis.into(),
+            ..ConditionResult::new(index, text, met_of(verdict), "code", basis)
+        }
+    }
+
+    /// The verdict: the stored one, else read from `met`.
+    pub fn verdict_of(&self) -> &str {
+        if !self.verdict.is_empty() {
+            return &self.verdict;
+        }
+        match self.met {
+            Some(true) => MET,
+            Some(false) => NOT_MET,
+            None => CANT_TELL,
+        }
+    }
+
+    /// ORCH-664: whether code's own fact proves the condition false (the Mac's state, or FERB did nothing); the
+    /// owner's No is apart (path "owner"), and a receipt never proves "not done".
+    pub fn proved_false(&self) -> bool {
+        self.path == "code"
+            && self.verdict == NOT_MET
+            && (self.by == BY_MAC || self.by == BY_RECORD)
+    }
+
+    /// verify.py:39 `as_dict`, with ORCH-665's fields when set.
     pub fn as_dict(&self) -> Value {
         let mut d = Map::new();
         d.insert("index".into(), json!(self.index));
@@ -82,7 +149,43 @@ impl ConditionResult {
         if !self.how.is_empty() {
             d.insert("how".into(), json!(self.how));
         }
+        if !self.verdict.is_empty() {
+            d.insert("verdict".into(), json!(self.verdict));
+            d.insert("by".into(), json!(self.by));
+            d.insert("basis".into(), json!(self.basis));
+        }
+        if !self.asked.is_empty() {
+            d.insert("asked".into(), json!(self.asked));
+        }
+        if !self.acted_on.is_empty() {
+            d.insert("acted_on".into(), json!(self.acted_on));
+        }
+        if let Some(c) = &self.code {
+            d.insert(
+                "code".into(),
+                json!({"by": c.by, "verdict": c.verdict, "basis": c.basis}),
+            );
+        }
         Value::Object(d)
+    }
+
+    /// The fields `as_dict` added (ORCH-665), read back from a stored result.
+    pub fn with_stored(mut self, r: &Value) -> ConditionResult {
+        let text = |k: &str| r.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+        self.verdict = text("verdict");
+        self.by = text("by");
+        self.basis = text("basis");
+        self.asked = text("asked");
+        self.acted_on = text("acted_on");
+        self.code = r.get("code").filter(|c| c.is_object()).map(|c| {
+            let t = |k: &str| c.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+            CodeFact {
+                by: t("by"),
+                verdict: t("verdict"),
+                basis: t("basis"),
+            }
+        });
+        self
     }
 }
 
@@ -91,29 +194,23 @@ fn name_of(p: &str) -> String {
     ferb_fs::pypath::name(p)
 }
 
-/// verify.py:45 `not_done_said` (ORCH-609).
-pub fn not_done_said(c: &Condition) -> String {
-    let k = &c.check;
-    let on = match k.site.as_deref().filter(|s| !s.is_empty()) {
-        Some(s) => format!(" on {s}"),
-        None => String::new(),
-    };
-    let name = match k.path.as_deref().filter(|p| !p.is_empty()) {
-        Some(p) => name_of(p),
-        None => "the file".into(),
-    };
-    match k.kind.as_str() {
-        "sent" => match k.expected.as_deref().filter(|e| !e.is_empty()) {
-            Some(e) => format!("Nothing was sent to {e}{on}."),
-            None => format!("Nothing was sent{on}."),
-        },
-        "paid" => format!("No payment went through{on}."),
-        "submitted" => format!("No form{on} was submitted."),
-        "trashed" => format!("{name} wasn't moved to the Trash."),
-        "deleted" => format!("{name} wasn't deleted."),
-        "downloaded" => format!("{name} wasn't downloaded."),
-        _ => String::new(),
+/// A file's SHA-256 now, as lowercase hex (None: it can't be read as a file).
+pub fn sha256_of(path: &str) -> Option<String> {
+    use sha2::Digest;
+    if !ferb_fs::pypath::is_file(path) {
+        return None;
     }
+    let mut f = std::fs::File::open(path).ok()?;
+    let mut h = sha2::Sha256::new();
+    let mut buf = vec![0u8; 1 << 16];
+    loop {
+        let n = f.read(&mut buf).ok()?;
+        if n == 0 {
+            break;
+        }
+        h.update(&buf[..n]);
+    }
+    Some(h.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }
 
 /// aftercheck.py `compare`: an expectation against the acting call's after block.
@@ -170,6 +267,11 @@ pub trait CheckHost {
     fn policy(&self) -> &dyn Policy;
     /// The store (None: Checks built without spans).
     fn db(&self) -> Option<&ferb_store::Db>;
+    /// ORCH-666: the owner's Trash folder, where a trashed item is looked for by name (None: only FERB's own trash
+    /// receipts say where an item went).
+    fn trash_dir(&self) -> Option<String> {
+        None
+    }
 }
 
 /// `str(e)` of an OSError for a path, as Python writes it.
@@ -411,280 +513,585 @@ impl<'a> Checks<'a> {
         ))
     }
 
+    /// ORCH-666: an action check's facts. Each says only what code saw: the Mac's state now (`mac`), or a receipt a tool
+    /// wrote when it acted (`receipt`), or that nothing that could carry a file from the Mac ran (`record`, uploads
+    /// only). What none of them covers is CANT_TELL with the facts as its basis, for the checker's look.
     fn action(&self, i: i64, c: &Condition, task_id: &str) -> Result<ConditionResult> {
         let db = self.host.db().expect("action checks need the store");
-        let policy = self.host.policy();
-        let k = &c.check;
-        let result = |met: Option<bool>, evidence: String| {
-            ConditionResult::new(i, &c.text, met, "code", &evidence)
-        };
-        let on = match k.site.as_deref().filter(|s| !s.is_empty()) {
+        // the step's own calls, not its checks' observations
+        let calls: Vec<cards::Recorded> = cards::recorded(db, task_id)?
+            .into_iter()
+            .filter(|r| !r.task_id.ends_with(".verify"))
+            .collect();
+        match c.check.kind.as_str() {
+            "sent" => Ok(self.sent(i, c, &calls)),
+            "paid" => self.paid(i, c, task_id),
+            "submitted" => Ok(self.submitted(i, c, &calls)),
+            "uploaded" => Ok(self.uploaded(i, c, &calls)),
+            "downloaded" => self.downloaded(i, c, task_id),
+            _ => Ok(self.removed(i, c, &calls)),
+        }
+    }
+
+    fn on(c: &Condition) -> String {
+        match c.check.site.as_deref().filter(|s| !s.is_empty()) {
             Some(s) => format!(" on {s}"),
             None => String::new(),
-        };
-        // ORCH-660: proved false only when every route by which it could have happened in this task is one this check
-        // reads; else code can't tell, its evidence names what was recorded, and the checker's own look decides
-        let not_met = |evidence: String, shown: String| -> Result<ConditionResult> {
-            if let Some(owner) = self.declined(i, c, task_id)? {
-                return Ok(owner);
-            }
-            let routes = self.unread_routes(c, task_id)?;
-            if routes.is_empty() {
-                return Ok(result(Some(false), evidence));
-            }
-            Ok(result(
-                None,
-                format!(
-                    "{CANT_SETTLE}: they show {shown} in this task, but {}",
-                    routes.join("; ")
-                ),
-            ))
-        };
-        let expected = k.expected.clone().unwrap_or_else(|| "None".into());
-        match k.kind.as_str() {
-            "sent" => {
-                let (kinds, aims) = self.aimed(c).expect("a send aims");
-                if cards::ran(db, task_id, &kinds)?.iter().any(&aims) {
-                    return Ok(result(Some(true), format!("FERB sent it to {expected}")));
-                }
-                return not_met(
-                    format!(
-                        "FERB didn't send it; no send to {expected}{on} went through in this task"
-                    ),
-                    format!("no send to {expected}{on}"),
-                );
-            }
-            "paid" => {
-                let (_, aims) = self.aimed(c).expect("a payment aims");
-                if cards::paid(db, policy, task_id)?.iter().any(&aims) {
-                    return Ok(result(Some(true), format!("FERB paid{on} after your Yes")));
-                }
-                return not_met(
-                    format!(
-                        "FERB didn't pay; no payment you said Yes to went through{on} in this task"
-                    ),
-                    format!("no payment you said Yes to{on}"),
-                );
-            }
-            "submitted" => {
-                let (kinds, aims) = self.aimed(c).expect("a submit aims");
-                for call in cards::ran(db, task_id, &kinds)? {
-                    if aims(&call) && self.submits(&call)? {
-                        return Ok(result(
-                            Some(true),
-                            format!(
-                                "FERB submitted the form on {}",
-                                k.site.as_deref().unwrap_or("None")
-                            ),
-                        ));
-                    }
-                }
-                let site = k.site.as_deref().unwrap_or("None");
-                return not_met(
-                    format!("FERB didn't submit it; no form on {site} went through in this task"),
-                    format!("no form on {site} submitted"),
-                );
-            }
-            _ => {}
         }
-        let want = match self.host.resolve(k.path.as_deref().unwrap_or(""), false) {
-            Ok(p) => p,
-            Err(PathError::Refused(e)) => {
-                return Ok(result(
-                    Some(false),
-                    format!("{}: {e}", k.path.as_deref().unwrap_or("None")),
-                ))
-            }
-            Err(PathError::Os(kind, e)) => {
-                return Err(crate::sql::Error::Value(format!("{kind}: {e}")))
-            }
-        };
-        if k.kind == "downloaded" {
-            if cards::downloaded(db, task_id)?
+    }
+
+    /// The recipients a send-class call's tool resolved (`target.recipients`, `target.contact`).
+    fn reached(r: &cards::Recorded) -> Vec<String> {
+        let target = r.target();
+        let mut out: Vec<String> = match target.get("recipients") {
+            Some(Value::Array(a)) => a
                 .iter()
-                .any(|p| same(p, &want))
+                .filter(|x| ferb_py::value::truthy(x))
+                .map(crate::py::str_of)
+                .collect(),
+            _ => Vec::new(),
+        };
+        if let Some(contact) = target.get("contact").filter(|v| ferb_py::value::truthy(v)) {
+            out.push(crate::py::str_of(contact));
+        }
+        out
+    }
+
+    /// sent {expected, site?}: the recipients FERB's own send tools resolved (by the call's kind or structural facts,
+    /// never the worker's declaration). One to the expected recipient is a receipt for the checker; sends only to
+    /// other addresses of the same kind (both email addresses, both phone numbers, both handles) are `different`.
+    fn sent(&self, i: i64, c: &Condition, calls: &[cards::Recorded]) -> ConditionResult {
+        let policy = self.host.policy();
+        let k = &c.check;
+        let want = k.expected.clone().unwrap_or_default();
+        let on = Self::on(c);
+        let mut reached: Vec<String> = Vec::new();
+        for r in calls {
+            let site_ok = k.site.as_deref().is_none_or(str::is_empty)
+                || policy.site_key(k.site.as_deref()) == policy.site_key(r.site().as_deref());
+            if r.error.is_some()
+                || !r.performed()
+                || !site_ok
+                || !r
+                    .structural()
+                    .iter()
+                    .any(|x| cards::SEND_KINDS.contains(&x.as_str()))
             {
-                return Ok(result(Some(true), format!("FERB downloaded {want}")));
+                continue;
             }
-            if ferb_fs::pypath::exists(&want) {
-                return Ok(result(
-                    None,
-                    format!(
-                        "{want} is there, but FERB has no record of downloading it in this task"
+            for to in Self::reached(r) {
+                if !reached.contains(&to) {
+                    reached.push(to);
+                }
+            }
+        }
+        let want_key = policy.account_key(Some(&want));
+        if reached
+            .iter()
+            .any(|r| policy.account_key(Some(r)) == want_key || same_address(r, &want))
+        {
+            return ConditionResult::fact(
+                i,
+                &c.text,
+                CANT_TELL,
+                BY_RECEIPT,
+                &format!(
+                    "FERB's own send to {want}{on} is recorded; whether it arrived is for the check's look"
+                ),
+            );
+        }
+        if let Some((kind, _)) = address_kind(&want) {
+            let others: Vec<String> = reached
+                .iter()
+                .filter(|r| address_kind(r).is_some_and(|(k2, _)| k2 == kind))
+                .cloned()
+                .collect();
+            if !others.is_empty() {
+                let mut r = ConditionResult::fact(
+                    i,
+                    &c.text,
+                    DIFFERENT,
+                    BY_RECEIPT,
+                    &format!(
+                        "FERB's recorded send{on} went to {}, not to {want}",
+                        others.join(", ")
                     ),
-                ));
+                );
+                r.asked = want;
+                r.acted_on = others.join(", ");
+                return r;
             }
-            return Ok(result(
-                Some(false),
-                format!("FERB didn't download it; {want} isn't there and no download of it went through in this task"),
-            ));
         }
-        let (kinds, aims) = self.aimed(c).expect("trash and delete aim");
-        let done = cards::ran(db, task_id, &kinds)?.iter().any(&aims);
-        let did = if k.kind == "trashed" {
-            format!("moved {want} to the Trash")
+        let basis = if reached.is_empty() {
+            format!(
+                "no send of FERB's own to {want}{on} is recorded; a send through a page's own button or an app's window \
+                 may not be, so whether it went is for the check's look"
+            )
         } else {
-            format!("deleted {want} permanently")
+            format!(
+                "FERB's recorded sends{on} went to {}; whether one of them is {want} is for the check's look",
+                reached.join(", ")
+            )
         };
-        if done {
-            return Ok(result(Some(true), format!("FERB {did}")));
-        }
-        let shown = if k.kind == "trashed" {
-            format!("nothing moving {want} to the Trash")
+        ConditionResult::fact(i, &c.text, CANT_TELL, BY_RECEIPT, &basis)
+    }
+
+    /// paid {site?}: a payment FERB pressed after the owner's Yes is a receipt for the checker; none recorded is no
+    /// proof of anything (a page's own button, a redirect host). The amount was checked at the press (the gateway).
+    fn paid(&self, i: i64, c: &Condition, task_id: &str) -> Result<ConditionResult> {
+        let db = self.host.db().expect("store");
+        let policy = self.host.policy();
+        let k = &c.check;
+        let on = Self::on(c);
+        let pays: Vec<Map<String, Value>> = cards::paid(db, policy, task_id)?
+            .into_iter()
+            .filter(|call| {
+                k.site.as_deref().is_none_or(str::is_empty)
+                    || policy.site_key(k.site.as_deref())
+                        == policy.site_key(
+                            call.get("target")
+                                .and_then(|t| t.get("site"))
+                                .filter(|v| !v.is_null())
+                                .map(crate::py::str_of)
+                                .as_deref(),
+                        )
+            })
+            .collect();
+        let basis = match pays.last() {
+            Some(call) => {
+                let amount = call
+                    .get("facts")
+                    .and_then(|f| f.get("page_amount"))
+                    .filter(|v| ferb_py::value::truthy(v))
+                    .map(|v| format!(" ({})", crate::py::str_of(v)))
+                    .unwrap_or_default();
+                format!(
+                    "FERB pressed pay{on}{amount} after your Yes; whether the payment went through is for the check's look"
+                )
+            }
+            None => format!(
+                "no payment of FERB's own after your Yes is recorded{on}; a page's own button or a bank's page may not \
+                 be, so whether one went through is for the check's look"
+            ),
+        };
+        Ok(ConditionResult::fact(
+            i, &c.text, CANT_TELL, BY_RECEIPT, &basis,
+        ))
+    }
+
+    /// submitted {site}: FERB's own actions on the site and whether a page reported a form submitted during one. A
+    /// page's own button can submit without a form, so none of it is a verdict.
+    fn submitted(&self, i: i64, c: &Condition, calls: &[cards::Recorded]) -> ConditionResult {
+        let policy = self.host.policy();
+        let site = c.check.site.clone().unwrap_or_default();
+        let key = policy.site_key(Some(&site));
+        let here: Vec<&cards::Recorded> = calls
+            .iter()
+            .filter(|r| r.acting() && policy.site_key(r.site().as_deref()) == key)
+            .collect();
+        let Some(last) = here.last() else {
+            return ConditionResult::fact(
+                i,
+                &c.text,
+                CANT_TELL,
+                BY_RECEIPT,
+                &format!(
+                    "no action of FERB's own on {site} is recorded in this step; work on another host of the site or \
+                     through an app's window may not be, so whether it went through is for the check's look"
+                ),
+            );
+        };
+        let submits = here.iter().filter(|r| r.submit_seen()).count();
+        let seen = if submits > 0 {
+            "; the page reported a form submitted during one of them"
         } else {
-            format!("nothing deleting {want} permanently")
+            ""
         };
-        not_met(
-            format!("FERB didn't do it; nothing in this task {did}"),
-            shown,
+        let note = last
+            .output
+            .get("after")
+            .and_then(|a| a.get("note"))
+            .filter(|n| ferb_py::value::truthy(n))
+            .map(|n| format!(" (read back: {})", crate::py::str_of(n)))
+            .unwrap_or_default();
+        let kind = last
+            .input
+            .get("kind")
+            .map(crate::py::str_of)
+            .unwrap_or_default();
+        ConditionResult::fact(
+            i,
+            &c.text,
+            CANT_TELL,
+            BY_RECEIPT,
+            &format!(
+                "FERB acted {} time(s) on {site} in this step{seen}; the last was a {kind}{note}. A page's own button can \
+                 submit without a form, so whether it went through is for the check's look",
+                here.len()
+            ),
         )
     }
 
-    /// ORCH-660: the routes this task used by which the action could have happened but which this check doesn't read,
-    /// each as a short fact (empty: the check reads every route used, and its "not done" is a proof). By the kind of
-    /// each recorded call, never its words: input into an app through the Mac tools, a script or a shell command (their
-    /// records don't say what the input did); the same action recorded at another target than the condition's (a form
-    /// submitted to another host, a payment on another site, a send whose recipients aren't recorded or include the
-    /// expected one elsewhere, a trash or deletion of a folder holding the path); one of the condition's own actions that
-    /// ended with an error; and, for the owner's result, a send or payment card of the request's tree that the action
-    /// could be (the answer never says "nothing was sent" beside a Sent card).
-    pub fn unread_routes(&self, c: &Condition, task_id: &str) -> Result<Vec<String>> {
-        let Some(db) = self.host.db() else {
-            return Ok(Vec::new());
-        };
-        let policy = self.host.policy();
-        let k = &c.check;
-        let mut out: Vec<String> = Vec::new();
-        let mut add = |t: String| {
-            if !out.contains(&t) {
-                out.push(t);
+    /// uploaded {path} (ORCH-667): the receipts of FERB's upload tool (each file's path and SHA-256 as read, and
+    /// whether the page's file field holds the same bytes) against the named file (by path, or by its bytes now).
+    /// An upload of other files only is `different`; no call that can carry a file from the Mac at all is `record`.
+    /// ORCH-670: the named path counts as the same file whatever its bytes are now.
+    fn uploaded(&self, i: i64, c: &Condition, calls: &[cards::Recorded]) -> ConditionResult {
+        let path = c.check.path.clone().unwrap_or_default();
+        let want = match self.host.resolve(&path, false) {
+            Ok(p) => p,
+            Err(PathError::Refused(e)) | Err(PathError::Os(_, e)) => {
+                return ConditionResult::fact(
+                    i,
+                    &c.text,
+                    CANT_TELL,
+                    BY_RECEIPT,
+                    &format!("{path}: {e}"),
+                )
             }
         };
-        let place = |call: &Map<String, Value>| {
-            call.get("target")
-                .and_then(|t| t.get("site"))
-                .filter(|v| ferb_py::value::truthy(v))
-                .map(crate::py::str_of)
-        };
-        let Some((kinds, aims)) = self.aimed(c) else {
-            return Ok(Vec::new());
-        };
-        let want_path = match k.kind.as_str() {
-            "trashed" | "deleted" => self
-                .host
-                .resolve(k.path.as_deref().unwrap_or(""), false)
-                .ok(),
-            _ => None,
-        };
-        for (call, error) in cards::attempted(db, task_id)? {
-            let structural = cards::structural_kinds(&call);
-            for (kind, said) in UNREAD_ROUTES {
-                if structural.contains(*kind) {
-                    let at = place(&call).unwrap_or_else(|| "an app".into());
-                    add(said.replace("{}", &at));
+        let name = name_of(&want);
+        let now = sha256_of(&want);
+        let uploads: Vec<(&cards::Recorded, Vec<(String, String)>)> = calls
+            .iter()
+            .filter_map(|r| r.uploaded_files().map(|f| (r, f)))
+            .collect();
+        let same_file =
+            |(p, sha): &(String, String)| same(p, &want) || now.as_deref() == Some(sha.as_str());
+        if let Some((r, _)) = uploads
+            .iter()
+            .rev()
+            .find(|(_, files)| files.iter().any(same_file))
+        {
+            if r.output.get("bytes_match") == Some(&Value::Bool(false)) {
+                let mut out = ConditionResult::fact(
+                    i,
+                    &c.text,
+                    DIFFERENT,
+                    BY_RECEIPT,
+                    &format!("FERB gave the page {name}, but the page's file field holds different bytes"),
+                );
+                out.asked = want;
+                out.acted_on = "different bytes in the page's file field".into();
+                return out;
+            }
+            let checked = if r.output.get("bytes_match") == Some(&Value::Bool(true)) {
+                " (the page's file field holds its bytes)"
+            } else {
+                ""
+            };
+            return ConditionResult::fact(
+                i,
+                &c.text,
+                CANT_TELL,
+                BY_RECEIPT,
+                &format!(
+                    "FERB uploaded {name} from your Mac{checked}; whether the site took it is for the check's look"
+                ),
+            );
+        }
+        if !uploads.is_empty() {
+            let mut acted: Vec<String> = Vec::new();
+            for (_, files) in &uploads {
+                for (p, _) in files {
+                    if !acted.contains(p) {
+                        acted.push(p.clone());
+                    }
                 }
             }
-            if !cards::kinds(&call)
+            let mut out = ConditionResult::fact(
+                i,
+                &c.text,
+                DIFFERENT,
+                BY_RECEIPT,
+                &format!(
+                    "FERB uploaded {} from your Mac, not {want}",
+                    acted.join(", ")
+                ),
+            );
+            out.asked = want;
+            out.acted_on = acted.join(", ");
+            return out;
+        }
+        let routes: Vec<String> = calls
+            .iter()
+            .filter(|r| r.performed() && r.carries_bytes())
+            .map(|r| r.tool())
+            .fold(Vec::new(), |mut v, t| {
+                if !v.contains(&t) {
+                    v.push(t);
+                }
+                v
+            });
+        if !routes.is_empty() {
+            return ConditionResult::fact(
+                i,
+                &c.text,
+                CANT_TELL,
+                BY_RECEIPT,
+                &format!(
+                    "FERB's own upload of {name} isn't recorded, but {} ran, which can carry a file from the Mac; \
+                     whether {name} reached the site is for the check's look",
+                    routes.join(", ")
+                ),
+            );
+        }
+        let mut out = ConditionResult::fact(
+            i,
+            &c.text,
+            NOT_MET,
+            BY_RECORD,
+            &format!(
+                "no file from your Mac was uploaded in this step: FERB's upload of {name} isn't recorded, and nothing \
+                 else that can carry a file from the Mac (input through the Mac tools, a script, a shell command) ran"
+            ),
+        );
+        out.asked = want;
+        out
+    }
+
+    /// trashed / deleted {path}: the Mac's state now. Still there is not met (or `different` when FERB's receipts
+    /// show the same action on another path); gone is met for a deletion FERB has a receipt for, and for a trash when
+    /// the item is in the Trash; the other of the two actions on it is `different`.
+    fn removed(&self, i: i64, c: &Condition, calls: &[cards::Recorded]) -> ConditionResult {
+        let trashed = c.check.kind == "trashed";
+        let path = c.check.path.clone().unwrap_or_default();
+        let want = match self.host.resolve(&path, false) {
+            Ok(p) => p,
+            Err(PathError::Refused(e)) | Err(PathError::Os(_, e)) => {
+                return ConditionResult::fact(
+                    i,
+                    &c.text,
+                    CANT_TELL,
+                    BY_RECEIPT,
+                    &format!("{path}: {e}"),
+                )
+            }
+        };
+        let name = name_of(&want);
+        let done = |kind: &str| -> Vec<&cards::Recorded> {
+            calls
                 .iter()
-                .any(|x| kinds.contains(&x.as_str()))
+                .filter(|r| r.error.is_none() && r.performed() && r.structural().contains(kind))
+                .collect()
+        };
+        let (trash, delete) = (done("trash"), done("delete_permanent"));
+        let on_want = |r: &&cards::Recorded| {
+            let t = cards::target_path(&r.input);
+            !t.is_empty() && (same(&t, &want) || holds(&t, &want))
+        };
+        let asked_kind = if trashed { &trash } else { &delete };
+        let other_kind = if trashed { &delete } else { &trash };
+        let verb = if trashed {
+            "moved to the Trash"
+        } else {
+            "deleted"
+        };
+        if ferb_fs::pypath::exists(&want) {
+            let elsewhere: Vec<String> = asked_kind
+                .iter()
+                .filter(|r| !on_want(r))
+                .map(|r| cards::target_path(&r.input))
+                .filter(|t| !t.is_empty())
+                .collect();
+            if !elsewhere.is_empty() {
+                let mut out = ConditionResult::fact(
+                    i,
+                    &c.text,
+                    DIFFERENT,
+                    BY_RECEIPT,
+                    &format!(
+                        "{want} is still there, and FERB {verb} {} instead",
+                        elsewhere.join(", ")
+                    ),
+                );
+                out.asked = want;
+                out.acted_on = elsewhere.join(", ");
+                return out;
+            }
+            return ConditionResult::fact(
+                i,
+                &c.text,
+                NOT_MET,
+                BY_MAC,
+                &format!("{want} is still there"),
+            );
+        }
+        // where FERB's own trash receipts put it (a folder holding it: its place inside), if still there
+        let in_trash = || -> Option<String> {
+            for r in trash.iter().filter(|r| on_want(r)) {
+                let target = cards::target_path(&r.input);
+                let Some(to) = r
+                    .output
+                    .get("trashed_to")
+                    .filter(|v| ferb_py::value::truthy(v))
+                    .map(crate::py::str_of)
+                else {
+                    continue;
+                };
+                let at = if same(&target, &want) {
+                    to
+                } else {
+                    let home = std::env::var("HOME").unwrap_or_default();
+                    let real =
+                        |p: &str| ferb_fs::pypath::realpath(&ferb_fs::pypath::expanduser(p, &home));
+                    let (o, inner) = (real(&target), real(&want));
+                    format!("{to}{}", &inner[o.len().min(inner.len())..])
+                };
+                if ferb_fs::pypath::exists(&at) {
+                    return Some(at);
+                }
+            }
+            let dir = self.host.trash_dir()?;
+            let at = format!("{}/{name}", dir.trim_end_matches('/'));
+            ferb_fs::pypath::exists(&at).then_some(at)
+        };
+        if trashed {
+            if delete.iter().any(on_want) && !trash.iter().any(on_want) {
+                let mut out = ConditionResult::fact(
+                    i,
+                    &c.text,
+                    DIFFERENT,
+                    BY_RECEIPT,
+                    &format!("{want} was deleted for good, not moved to the Trash"),
+                );
+                out.asked = "moved to the Trash".into();
+                out.acted_on = "deleted for good".into();
+                return out;
+            }
+            return match in_trash() {
+                Some(at) => ConditionResult::fact(
+                    i,
+                    &c.text,
+                    MET,
+                    BY_MAC,
+                    &format!("{want} is gone from its folder and is in the Trash ({at})"),
+                ),
+                None => ConditionResult::fact(
+                    i,
+                    &c.text,
+                    CANT_TELL,
+                    BY_MAC,
+                    &format!(
+                        "{want} is gone from its folder, but FERB didn't find it in the Trash"
+                    ),
+                ),
+            };
+        }
+        if trash.iter().any(on_want) && !delete.iter().any(on_want) {
+            if let Some(at) = in_trash() {
+                let mut out = ConditionResult::fact(
+                    i,
+                    &c.text,
+                    DIFFERENT,
+                    BY_RECEIPT,
+                    &format!("{want} was moved to the Trash ({at}), not deleted for good"),
+                );
+                out.asked = "deleted for good".into();
+                out.acted_on = "moved to the Trash".into();
+                return out;
+            }
+        }
+        if asked_kind.iter().any(on_want) || other_kind.iter().any(on_want) || in_trash().is_some()
+        {
+            return ConditionResult::fact(i, &c.text, MET, BY_MAC, &format!("{want} is gone"));
+        }
+        // gone, with nothing showing it was ever there: a wrong path costs a fact, never a false "done"
+        ConditionResult::fact(
+            i,
+            &c.text,
+            CANT_TELL,
+            BY_MAC,
+            &format!("{want} isn't there, and FERB's records don't show it there before"),
+        )
+    }
+
+    /// downloaded {path}: the named file on the Mac with the bytes of one of this step's taken downloads is met; the
+    /// file absent with nothing downloaded and no other route that could fetch one is not met; a download under another
+    /// name or a file FERB didn't download is a fact for the checker (a guessed name is never a failure).
+    fn downloaded(&self, i: i64, c: &Condition, task_id: &str) -> Result<ConditionResult> {
+        let db = self.host.db().expect("store");
+        let path = c.check.path.clone().unwrap_or_default();
+        let want = match self.host.resolve(&path, false) {
+            Ok(p) => p,
+            Err(PathError::Refused(e)) | Err(PathError::Os(_, e)) => {
+                return Ok(ConditionResult::fact(
+                    i,
+                    &c.text,
+                    CANT_TELL,
+                    BY_RECEIPT,
+                    &format!("{path}: {e}"),
+                ))
+            }
+        };
+        let taken = cards::taken_downloads(db, task_id)?;
+        if ferb_fs::pypath::exists(&want) {
+            let sha = sha256_of(&want);
+            if taken
+                .iter()
+                .any(|(p, s)| same(p, &want) || (sha.is_some() && s.as_deref() == sha.as_deref()))
             {
-                continue;
+                return Ok(ConditionResult::fact(
+                    i,
+                    &c.text,
+                    MET,
+                    BY_MAC,
+                    &format!("{want} is on your Mac with the bytes FERB downloaded in this task"),
+                ));
             }
-            let at = place(&call).unwrap_or_else(|| "an unrecorded place".into());
-            if aims(&call) {
-                if error.is_some() {
-                    add(format!(
-                        "an attempt at it on {at} ended with an error, which doesn't record whether it went through"
-                    ));
-                }
-                continue;
-            }
-            if error.is_some() {
-                continue;
-            }
-            match k.kind.as_str() {
-                "submitted" => {
-                    if cards::kinds(&call).contains("submit") && self.submits(&call)? {
-                        let mac = call
-                            .get("tool")
-                            .map(crate::py::str_of)
-                            .is_some_and(|t| t.starts_with("mac."));
-                        add(if mac {
-                            format!("a form was submitted in {at} through the Mac tools")
-                        } else {
-                            format!("a form was submitted to {at}")
-                        });
-                    }
-                }
-                "trashed" | "deleted" => {
-                    let target = cards::target_path(&call);
-                    if let Some(want) = &want_path {
-                        if !target.is_empty() && holds(&target, want) {
-                            let did = if k.kind == "trashed" {
-                                "was moved to the Trash"
-                            } else {
-                                "was deleted"
-                            };
-                            add(format!("{target}, which holds it, {did}"));
-                        }
-                    }
-                }
-                _ => {}
+            return Ok(ConditionResult::fact(
+                i,
+                &c.text,
+                CANT_TELL,
+                BY_MAC,
+                &format!(
+                    "{want} is there, but it isn't one of the files FERB downloaded in this task (it may have been there already)"
+                ),
+            ));
+        }
+        let landed: Vec<String> = taken
+            .iter()
+            .map(|(p, _)| p.clone())
+            .filter(|p| ferb_fs::pypath::exists(p))
+            .collect();
+        // the browser records every download it takes; with no other route that can fetch a file (Mac input, a
+        // script, a shell command) in the step, nothing downloaded and the file absent is a fact both ways
+        if taken.is_empty() {
+            let routes = cards::recorded(db, task_id)?
+                .iter()
+                .filter(|r| !r.task_id.ends_with(".verify"))
+                .any(|r| r.performed() && r.carries_bytes());
+            if !routes {
+                return Ok(ConditionResult::fact(
+                    i,
+                    &c.text,
+                    NOT_MET,
+                    BY_MAC,
+                    &format!(
+                        "{want} isn't on your Mac, and nothing was downloaded in this task (no browser download, and no \
+                         Mac input, script or shell command that could fetch one)"
+                    ),
+                ));
             }
         }
-        // the owner's cards of the whole request: an action check never says "not done" beside a card that could be it
-        let root = tree_of(db, task_id);
-        let want = policy.account_key(k.expected.as_deref());
-        match k.kind.as_str() {
-            "sent" | "submitted" => {
-                for card in cards::sends(db, &root)? {
-                    let recipient = card.get("recipient").map(crate::py::str_of);
-                    let could = k.kind == "submitted"
-                        || recipient
-                            .as_deref()
-                            .is_none_or(|r| policy.account_key(Some(r)) == want);
-                    if !could {
-                        continue;
-                    }
-                    let at = card
-                        .get("site")
-                        .or_else(|| card.get("app"))
-                        .map(crate::py::str_of)
-                        .unwrap_or_else(|| "an unrecorded place".into());
-                    add(match recipient {
-                        Some(r) => format!("a send to {r} went through {at}"),
-                        None => format!("a send went through {at}"),
-                    });
-                }
-            }
-            "paid" => {
-                for card in cards::payments(db, policy, &root)? {
-                    let at = card
-                        .get("site")
-                        .map(crate::py::str_of)
-                        .unwrap_or_else(|| "an unrecorded site".into());
-                    add(format!("a payment you said Yes to went through on {at}"));
-                }
-            }
-            _ => {}
-        }
-        // a technical bound on the evidence line: the first few routes, then how many more
-        if out.len() > MAX_ROUTES {
-            let more = out.len() - MAX_ROUTES;
-            out.truncate(MAX_ROUTES);
-            out.push(format!("{more} more"));
-        }
-        Ok(out)
+        let basis = if !landed.is_empty() {
+            format!(
+                "{want} isn't there; FERB's download in this task landed at {}",
+                landed.join(", ")
+            )
+        } else if taken.is_empty() {
+            format!(
+                "{want} isn't there, and FERB's browser recorded no download in this task (a download through an app's \
+                 window or a command wouldn't be)"
+            )
+        } else {
+            format!("{want} isn't there; FERB's downloads in this task were moved or removed since")
+        };
+        Ok(ConditionResult::fact(i, &c.text, CANT_TELL, BY_MAC, &basis))
     }
 
-    /// verify.py:185 `_submits` (ORCH-624).
-    fn submits(&self, call: &Map<String, Value>) -> Result<bool> {
-        Ok(cards::structural_kinds(call).contains("submit")
-            || call.get("observed_change") == Some(&Value::Bool(true))
-            || cards::approved(self.host.db().expect("store"), call)?)
-    }
-
-    /// verify.py:195 `_aimed`: an action check's call kinds and whether a call has its target.
+    /// verify.py:195 `_aimed`: an action check's call kinds and whether a call has its target (ORCH-613's declined
+    /// test reads the calls this way).
     #[allow(clippy::type_complexity)]
     fn aimed(
         &self,
@@ -801,33 +1208,91 @@ impl<'a> Checks<'a> {
             .last()
             .is_some_and(|t| t.get("declined").is_some_and(ferb_py::value::truthy))
         {
-            return Ok(Some(ConditionResult::new(
-                i,
-                &c.text,
-                Some(false),
-                DECLINED,
-                DECLINED_SAID,
-            )));
+            let mut r = ConditionResult::new(i, &c.text, Some(false), DECLINED, DECLINED_SAID);
+            r.verdict = NOT_MET.into();
+            r.by = BY_OWNER.into();
+            r.basis = DECLINED_SAID.into();
+            return Ok(Some(r));
         }
         Ok(None)
     }
 }
 
-/// ORCH-660: whether the folder `outer` holds `inner` (resolved as `same` resolves).
+/// ORCH-668: an address's kind and its comparable form: an email address, a phone number (its digits) or a handle;
+/// None for anything else (a name, "my manager"), which code never compares.
+pub fn address_kind(text: &str) -> Option<(&'static str, String)> {
+    let t = crate::py::lower(crate::py::strip(text));
+    let phone_like = t.chars().all(|c| "+0123456789 -().".contains(c));
+    if t.is_empty() || (t.contains(char::is_whitespace) && !phone_like) {
+        return None;
+    }
+    if let Some(rest) = t.strip_prefix('@') {
+        return (!rest.is_empty()
+            && rest
+                .chars()
+                .all(|c| c.is_alphanumeric() || "._-".contains(c)))
+        .then(|| ("handle", t.clone()));
+    }
+    if let Some((user, domain)) = t.split_once('@') {
+        return (!user.is_empty()
+            && domain.contains('.')
+            && !domain.starts_with('.')
+            && !domain.ends_with('.')
+            && !domain.contains('@'))
+        .then(|| ("email", t.clone()));
+    }
+    if phone_like {
+        let digits: String = t.chars().filter(char::is_ascii_digit).collect();
+        if digits.len() >= 7 {
+            return Some(("phone", digits));
+        }
+    }
+    None
+}
+
+/// Two addresses of the same kind that name the same place: equal emails or handles; phone numbers whose digits are
+/// equal or where one is the other with a country or trunk prefix (at least 7 digits shared at the end).
+fn same_address(a: &str, b: &str) -> bool {
+    match (address_kind(a), address_kind(b)) {
+        (Some(("phone", x)), Some(("phone", y))) => x.ends_with(&y) || y.ends_with(&x),
+        (Some((k1, x)), Some((k2, y))) => k1 == k2 && x == y,
+        _ => false,
+    }
+}
+
+/// ORCH-666: the action ledger's rows of a step (and the tasks under it) whose outcome is unknown and that the owner
+/// hasn't had tried again: each one's place (its target's site, else its capability).
+pub fn unknown_outcomes(db: &ferb_store::Db, task_id: &str) -> Result<Vec<String>> {
+    let (where_, args) = ferb_store::spans::tree_where(task_id);
+    let args: Vec<rusqlite::types::Value> = args.iter().map(|a| crate::sql::text(a)).collect();
+    let mut out = Vec::new();
+    for row in crate::sql::rows(
+        db.conn(),
+        &format!(
+            "SELECT capability, target_json FROM action_ledger WHERE state = 'unknown' AND retried_by IS NULL \
+             AND {where_} ORDER BY created_at, rowid"
+        ),
+        &args,
+    )? {
+        let target = crate::sql::loads(&crate::sql::col(&row, "target_json")).unwrap_or(Value::Null);
+        let place = target
+            .get("site")
+            .filter(|v| ferb_py::value::truthy(v))
+            .map(crate::py::str_of)
+            .unwrap_or_else(|| crate::sql::col(&row, "capability"));
+        if !out.contains(&place) {
+            out.push(place);
+        }
+    }
+    Ok(out)
+}
+
+/// Whether the folder `outer` holds `inner` (resolved as `same` resolves).
 fn holds(outer: &str, inner: &str) -> bool {
     let home = std::env::var("HOME").unwrap_or_default();
     let real = |p: &str| ferb_fs::pypath::realpath(&ferb_fs::pypath::expanduser(p, &home));
     let (o, i) = (real(outer), real(inner));
     i.len() > o.len() && i.starts_with(&o) && i[o.len()..].starts_with('/')
-}
-
-/// The request's root task of a task (its tree), the task itself when the store has no row for it.
-fn tree_of(db: &ferb_store::Db, task_id: &str) -> String {
-    db.conn()
-        .query_row("SELECT tree_id FROM tasks WHERE id = ?", [task_id], |r| {
-            r.get::<_, String>(0)
-        })
-        .unwrap_or_else(|_| task_id.to_string())
 }
 
 /// verify.py:241 `_same`: two paths naming the same place, as written or resolved.

@@ -31,6 +31,10 @@ pub struct QuestionNeeds {
     pub challenge: Option<String>,
     /// Why it can't be answered here, in the Mac's words.
     pub problem: Option<String>,
+    /// The screen-use question ("let FERB use your screen") may be answered here with a Yes that also covers later
+    /// screen-use questions until the owner is back at the Mac (GATE-615): offer that button only when true. The answer
+    /// is `Answer::UntilBack`.
+    pub until_back: bool,
 }
 
 impl QuestionNeeds {
@@ -47,6 +51,7 @@ impl QuestionNeeds {
             fingerprint: part["fingerprint"].as_bool().unwrap_or(false),
             challenge: part["challenge"].as_str().map(str::to_string),
             problem: part["error"]["message"].as_str().map(str::to_string),
+            until_back: part["until_back"].as_bool().unwrap_or(false),
         }
     }
 }
@@ -92,6 +97,34 @@ pub struct StatusResult {
     pub held: bool,
 }
 
+/// FERB using the Mac's screen on a phone's "until I'm back at my Mac" (GATE-615): the gate's `screen_use` in
+/// `chat.status`, and what `screen_use.status` and `screen_use.end` answer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ScreenUse {
+    /// A phone's "until I'm back" covers screen-use questions now.
+    pub active: bool,
+    /// Since when (ISO 8601).
+    pub since: Option<String>,
+    /// The phone that said it (its endpoint id on the link).
+    pub phone: Option<String>,
+    /// That phone's name on the Mac.
+    pub phone_name: Option<String>,
+    /// The Mac offers "until I'm back" on a phone now (a screen-use question may be answered so).
+    pub can_offer: bool,
+}
+
+impl ScreenUse {
+    pub fn read(v: &Value) -> ScreenUse {
+        ScreenUse {
+            active: v["active"].as_bool().unwrap_or(false),
+            since: opt(&v["since"]),
+            phone: opt(&v["phone"]),
+            phone_name: opt(&v["phone_name"]),
+            can_offer: v["can_offer"].as_bool().unwrap_or(false),
+        }
+    }
+}
+
 /// What FERB has waiting, as this phone may see it now.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PhoneStatus {
@@ -104,6 +137,8 @@ pub struct PhoneStatus {
     pub questions: Vec<StatusQuestion>,
     pub running: Vec<StatusTask>,
     pub results: Vec<StatusResult>,
+    /// FERB using the screen on a phone's "until I'm back" (GATE-615); none from a Mac that doesn't say.
+    pub screen_use: Option<ScreenUse>,
 }
 
 fn text(v: &Value) -> String {
@@ -175,6 +210,10 @@ impl PhoneStatus {
                     held: r["held"].as_bool().unwrap_or(false),
                 })
                 .collect(),
+            screen_use: v
+                .get("screen_use")
+                .filter(|s| s.is_object())
+                .map(ScreenUse::read),
         }
     }
 
@@ -218,5 +257,36 @@ mod tests {
         assert_eq!(s.questions[2].needs.problem.as_deref(), Some("On the Mac."));
         assert!(s.running[0].held && s.running[0].name.is_empty());
         assert_eq!(s.results[0].status, "done");
+        assert!(s.questions.iter().all(|q| !q.needs.until_back));
+        assert_eq!(s.screen_use, None);
+    }
+
+    /// The screen-use question offered "until I'm back" (its `phone.until_back`), and FERB using the screen on it.
+    // decision: GATE-615
+    #[test]
+    fn until_back_is_offered_per_question_and_screen_use_is_read() {
+        let s = PhoneStatus::read(&json!({
+            "locked": false, "words": true, "stopped": false,
+            "approvals": [
+                {"approval_id": "s1", "kind": "approve", "options": [], "reason": "Let FERB use your screen?",
+                 "phone": {"can_answer": true, "needs_unlock": false, "until_back": true}},
+                {"approval_id": "s2", "kind": "approve", "options": [], "reason": "Open it?",
+                 "phone": {"can_answer": true, "needs_unlock": false}}
+            ],
+            "running": [], "results": [],
+            "screen_use": {"active": true, "since": "2026-11-17T10:00:00+05:30", "phone": "EP1",
+                           "phone_name": "Pixel", "can_offer": true}
+        }));
+        assert!(s.questions[0].needs.until_back && s.questions[0].needs.routine());
+        assert!(!s.questions[1].needs.until_back);
+        let u = s.screen_use.unwrap();
+        assert!(u.active && u.can_offer);
+        assert_eq!(u.since.as_deref(), Some("2026-11-17T10:00:00+05:30"));
+        assert_eq!(
+            (u.phone.as_deref(), u.phone_name.as_deref()),
+            (Some("EP1"), Some("Pixel"))
+        );
+        let idle = ScreenUse::read(&json!({"active": false, "can_offer": false}));
+        assert!(!idle.active && idle.since.is_none() && idle.phone_name.is_none());
     }
 }

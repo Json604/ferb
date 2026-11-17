@@ -76,6 +76,8 @@ public struct PhoneList: Equatable {
     public let pairingSecondsLeft: Double?
     public let max: Int
     public let unusedDays: Int
+    /// Where files sent from a phone land (PHN-580); nil from a daemon that doesn't say.
+    public let uploadFolder: UploadFolder?
 
     public init(_ reply: [String: Any]) {
         phones = (reply["phones"] as? [[String: Any]] ?? []).compactMap(PhoneEntry.init)
@@ -83,6 +85,80 @@ public struct PhoneList: Equatable {
         pairingSecondsLeft = ((reply["pairing"] as? [String: Any])?["seconds_left"] as? NSNumber)?.doubleValue
         max = (reply["max"] as? NSNumber)?.intValue ?? 5
         unusedDays = (reply["unused_days"] as? NSNumber)?.intValue ?? 30
+        uploadFolder = UploadFolder(reply["upload_folder"])
+    }
+}
+
+/// PHN-580, PHN-581: the folder files sent from a phone land in (`phone.list` / `phone.upload_folder`).
+public struct UploadFolder: Equatable {
+    public let path: String
+    /// Said plainly: "Downloads › FERB from phone".
+    public let shown: String
+    public let isDefault: Bool
+
+    public init?(_ value: Any?) {
+        guard let value = value as? [String: Any], let path = value["path"] as? String, !path.isEmpty else { return nil }
+        self.path = path
+        shown = (value["shown"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? path
+        isDefault = value["default"] as? Bool ?? true
+    }
+}
+
+/// GATE-615: "until I'm back at my Mac" as the daemon has it (`screen_use.status`).
+public struct ScreenUse: Equatable {
+    public let active: Bool
+    public let phoneName: String?
+    public let since: Date?
+
+    public init(_ reply: [String: Any]) {
+        active = reply["active"] as? Bool ?? false
+        phoneName = (reply["phone_name"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        since = WindowTime.parse(reply["since"])
+    }
+}
+
+/// GATE-618 (owner: "make sure user is shon ferb acknowledgeds them coming back, shodlnt seem it was a spam message"):
+/// the quiet "Are you back?" line while "until I'm back" holds screen use. It shows in the chat with no sound and is
+/// nothing the phone sees; when the owner is back it turns into the welcome line in place; a hold that passes in
+/// silence (FERB's own echo) takes it away with nothing further.
+public enum ScreenBackLine {
+    static func id(_ data: [String: Any]) -> String {
+        "screen-back-\(data["since"] as? String ?? "")-\(data["hold"] as? NSNumber ?? 0)"
+    }
+
+    /// Applies one `screen.until_back` event to the chat: true when it changed.
+    public static func apply(_ data: [String: Any], to archive: inout ConversationArchive) -> Bool {
+        let id = id(data)
+        switch data["state"] as? String {
+        case "checking":
+            let title = data["title"] as? String ?? "Are you back?"
+            let line = data["line"] as? String ?? ""
+            return archive.addNotice(id: id, text: line.isEmpty ? title : title + " " + line, tag: "FERB")
+        case "resumed":
+            return archive.removeNotice(id: id)
+        case "ended":
+            // the daemon leaves this one to FERB.app: in place of the question, or (none shown here) as a new line
+            guard data["during_hold"] as? Bool == true, let line = data["line"] as? String else { return false }
+            return archive.rewordNotice(id: id, text: line) || archive.addNotice(id: id, text: line, tag: "FERB")
+        default:
+            return false
+        }
+    }
+}
+
+/// PHN-220, PHN-591: phones that haven't connected since the relay setting changed (`link.status` `relay_handover`).
+public struct RelayHandover: Equatable {
+    public let phonesWaiting: Int
+    /// When the shared relays stop being kept open for them.
+    public let closesAt: Date?
+    /// Past that, with phones still waiting: they can't find this Mac until reconnected or paired again.
+    public let closed: Bool
+
+    public init?(_ value: Any?) {
+        guard let value = value as? [String: Any] else { return nil }
+        phonesWaiting = (value["phones_waiting"] as? NSNumber)?.intValue ?? 0
+        closesAt = (value["closes_at"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue) }
+        closed = value["closed"] as? Bool ?? false
     }
 }
 
@@ -145,8 +221,10 @@ public struct LinkStatus: Equatable {
     public let ownRelay: String?
     public let alwaysUseRelay: Bool
     public let connections: [String: PhoneConnection]
+    public let handover: RelayHandover?
 
     public init(_ reply: [String: Any], always: Bool? = nil) {
+        handover = RelayHandover(reply["relay_handover"])
         let relay = reply["relay"] as? [String: Any] ?? [:]
         let why = (relay["error"] as? [String: Any]).flatMap { PhoneWords.linkMessage($0["message"] as? String, allow: $0["allow"] as? String) }
         switch relay["state"] as? String {
@@ -251,6 +329,17 @@ public protocol PhoneService: AnyObject {
     func useRelay(_ entry: RelayEntry) async throws -> RelayCheck
     func stopUsingRelay() async throws
     func setAlwaysUseRelay(_ on: Bool) async throws
+    // PHN-581: where a phone's files land (nil: back to Downloads › FERB from phone)
+    func setUploadFolder(_ path: String?) async throws -> UploadFolder?
+    // GATE-615: "until I'm back at my Mac"
+    func screenUse() async throws -> ScreenUse
+    func endScreenUse() async throws
+}
+
+public extension PhoneService {
+    func setUploadFolder(_ path: String?) async throws -> UploadFolder? { nil }
+    func screenUse() async throws -> ScreenUse { ScreenUse([:]) }
+    func endScreenUse() async throws {}
 }
 
 /// The service over FERB's daemon. The link's helper is reached only through the daemon (S4, kb PHN-441: the daemon
@@ -307,6 +396,14 @@ public final class RPCPhoneService: PhoneService {
     public func useRelay(_ entry: RelayEntry) async throws -> RelayCheck { RelayCheck(try await helper("phone.relay_set", entry.params)) }
     public func stopUsingRelay() async throws { _ = try await helper("phone.relay_set", ["off": true]) }
     public func setAlwaysUseRelay(_ on: Bool) async throws { _ = try await helper("phone.relay_always", ["on": on]) }
+
+    public func setUploadFolder(_ path: String?) async throws -> UploadFolder? {
+        let params: [String: Any] = path.map { ["path": $0] } ?? ["reset": true]
+        return UploadFolder(try await daemon.call("phone.upload_folder", params: params)["upload_folder"])
+    }
+
+    public func screenUse() async throws -> ScreenUse { ScreenUse(try await daemon.call("screen_use.status", params: [:])) }
+    public func endScreenUse() async throws { _ = try await daemon.call("screen_use.end", params: [:]) }
 }
 
 // MARK: - The page's model
@@ -332,6 +429,8 @@ public final class PhoneSettingsModel: ObservableObject {
     @Published public private(set) var phones: [PhoneEntry] = []
     @Published public private(set) var max = 5
     @Published public private(set) var unusedDays = 30
+    @Published public private(set) var uploadFolder: UploadFolder?
+    @Published public private(set) var screenUse: ScreenUse?
     @Published public private(set) var pairing: Pairing = .idle
     @Published public private(set) var activity: [PhoneAuditRow] = []
     @Published public private(set) var link: LinkStatus?
@@ -376,6 +475,7 @@ public final class PhoneSettingsModel: ObservableObject {
     // MARK: Reading
 
     public func load() async {
+        await loadScreenUse()
         await loadPhones()
         await loadActivity()
         await loadLink()
@@ -415,6 +515,7 @@ public final class PhoneSettingsModel: ObservableObject {
         phones = list.phones
         max = list.max
         unusedDays = list.unusedDays
+        uploadFolder = list.uploadFolder
         mergeConnections()
         let current = now()
         switch pairing {
@@ -509,6 +610,8 @@ public final class PhoneSettingsModel: ObservableObject {
         case "phone.removed", "phone.unused":
             await loadPhones()
             await loadActivity()
+        case "screen.until_back":
+            await loadScreenUse()
         default: break
         }
     }
@@ -539,6 +642,37 @@ public final class PhoneSettingsModel: ObservableObject {
         }
         await loadPhones()
         await loadActivity()
+    }
+
+    // MARK: Where files from a phone land (PHN-580, PHN-581)
+
+    /// The owner's chosen folder; the daemon checks it first (it must exist and not be one of FERB's private places).
+    public func chooseUploadFolder(_ path: String) async { await saveUploadFolder(path) }
+
+    public func resetUploadFolder() async { await saveUploadFolder(nil) }
+
+    private func saveUploadFolder(_ path: String?) async {
+        do {
+            if let folder = try await service.setUploadFolder(path) { uploadFolder = folder }
+            problem = nil
+        } catch {
+            problem = PhoneWords.daemonProblem(error)
+        }
+    }
+
+    // MARK: "Until I'm back at my Mac" (GATE-615)
+
+    func loadScreenUse() async {
+        screenUse = try? await service.screenUse()
+    }
+
+    public func endScreenUse() async {
+        do {
+            try await service.endScreenUse()
+        } catch {
+            problem = PhoneWords.daemonProblem(error)
+        }
+        await loadScreenUse()
     }
 
     // MARK: Your own relay
@@ -619,6 +753,22 @@ public enum PhoneWords {
         "Not used for \(days) days. It stays paired; remove it if you don't use it anymore."
     }
     public static func full(_ max: Int) -> String { "FERB keeps up to \(max) phones. Remove one to pair another." }
+
+    // files from a phone (PHN-580)
+    public static let filesTitle = "Files from your phone"
+    public static func filesLandIn(_ shown: String) -> String { "Files you send from your phone are saved in \(shown) on this Mac." }
+    public static let chooseFolder = "Choose…"
+    public static let useDefaultFolder = "Use Downloads"
+    public static let chooseFolderPrompt = "Use This Folder"
+    public static let chooseFolderMessage = "Choose where files you send from your phone are saved."
+
+    // "until I'm back at my Mac" (GATE-615)
+    public static func screenUntilBack(_ phone: String?) -> String {
+        "FERB may use your Mac's screen without asking until you're back" + (phone.map { ", as you allowed from “\($0)”." } ?? ".")
+    }
+    public static let screenUntilBackEnds = "It ends as soon as you use the keyboard or pointer here, send a message from " +
+        "this Mac, or your Mac locks or sleeps."
+    public static let askAgain = "Ask me again"
     public static func removed(_ name: String) -> String { "“\(name)” was removed. It can't reach FERB anymore." }
     public static let connectedDirect = "Connected directly"
     public static let connectedOwnRelay = "Connected through your relay"
@@ -699,6 +849,18 @@ public enum PhoneWords {
     public static let reachable = "Your relay answered."
     public static let savedNow = "Saved. Your phones switch to your relay now."
     public static let relayStopped = "FERB stopped using your relay. Phones connect directly or through the shared relay."
+    // PHN-220, PHN-590, PHN-591: phones that haven't connected since the relay changed
+    public static func phonesToCome(_ count: Int, until: Date?) -> String {
+        let phones = count == 1 ? "1 phone hasn't" : "\(count) phones haven't"
+        let date = until.map { " until " + $0.formatted(date: .abbreviated, time: .omitted) } ?? ""
+        return "\(phones) connected since you changed the relay. FERB keeps the way to this Mac open for them\(date); " +
+            "they switch to your relay the next time they connect."
+    }
+    public static func phonesLeftBehind(_ count: Int) -> String {
+        let phones = count == 1 ? "1 phone hasn't" : "\(count) phones haven't"
+        return "\(phones) connected since you changed the relay and can't find this Mac now. To bring one back, choose " +
+            "Stop using my relay, open FERB on that phone, then set your relay again. Or remove it and pair it again."
+    }
     public static func checkLines(_ check: RelayCheck) -> [String] { check.steps + check.warnings.map { "Note: " + $0 } }
 
     // the how-to (PHN-418: the public relay's message points here)

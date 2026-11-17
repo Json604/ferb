@@ -1,0 +1,15 @@
+{
+  "about": "How the phone writes a time left (minutes in, words out), the same on Android (LabWordsTest) and iPhone (WordsTests). The owner chose \"5h\" over \"5 h 0 min\" (kb PHN-595): whole hours drop the zero minutes; the spacing stays the design's (\"5 h\", \"5 h 20 min\").",
+  "cases": [
+    [0, "0 min"],
+    [1, "1 min"],
+    [45, "45 min"],
+    [59, "59 min"],
+    [60, "1 h"],
+    [61, "1 h 1 min"],
+    [132, "2 h 12 min"],
+    [300, "5 h"],
+    [320, "5 h 20 min"],
+    [1440, "24 h"]
+  ]
+}
