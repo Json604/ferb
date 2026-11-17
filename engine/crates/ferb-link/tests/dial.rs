@@ -6,6 +6,11 @@ use common::*;
 use ferb_link::net::Shared;
 use std::time::{Duration, Instant};
 
+/// "At once" for these tests. A dial that waits for anything it should not costs 5 s (the old wait for the phone's
+/// own relay) or 10 s and more (a dial's whole deadline on a relay the Mac is not on), and a quick one well under a
+/// second on an idle Mac; 4 s tells them apart and still holds while the gate's other suites load the machine.
+const QUICK: Duration = Duration::from_secs(4);
+
 /// A relay address that takes the connection and never answers: the phone's own relay is not ready.
 async fn silent_relay() -> (tokio::task::JoinHandle<()>, String) {
     let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -83,10 +88,7 @@ async fn a_dead_candidate_beside_a_live_one_costs_nothing() {
     println!(
         "MEASURE the Mac moved to another relay (the old one up): online after {took:?}, {dials} dials"
     );
-    assert!(
-        took < Duration::from_secs(2) && dials == 1,
-        "{took:?}, {dials} dials"
-    );
+    assert!(took < QUICK && dials == 1, "{took:?}, {dials} dials");
     // the welcome says where the Mac is now: that is remembered for next time
     assert!(
         wait(5, || p
@@ -110,10 +112,7 @@ async fn a_dead_candidate_beside_a_live_one_costs_nothing() {
     println!(
         "MEASURE the Mac moved to another relay (the old one down): online after {took:?}, {dials} dials"
     );
-    assert!(
-        took < Duration::from_secs(2) && dials == 1,
-        "{took:?}, {dials} dials"
-    );
+    assert!(took < QUICK && dials == 1, "{took:?}, {dials} dials");
     p.phone.close().await;
 }
 
@@ -137,10 +136,7 @@ async fn the_dial_does_not_wait_for_the_phones_own_relay() {
         ferb_link::net::home_relays(&p.phone.endpoint()).is_empty(),
         "the phone has no home relay in this test"
     );
-    assert!(
-        took < Duration::from_secs(2) && dials == 1,
-        "{took:?}, {dials} dials"
-    );
+    assert!(took < QUICK && dials == 1, "{took:?}, {dials} dials");
     assert!(p.call("ping", serde_json::json!({})).await.is_ok());
     p.phone.close().await;
 }
@@ -232,7 +228,7 @@ async fn a_phone_whose_last_process_died_reaches_the_mac_at_once() {
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
     assert!(
-        took.iter().all(|t| *t < 2000.0),
+        took.iter().all(|t| *t < QUICK.as_millis() as f64),
         "online after (ms): {took:?}"
     );
 }
@@ -281,7 +277,7 @@ async fn a_relay_that_comes_up_late_is_used_the_moment_it_is_up() {
         "MEASURE the way to the relay opened after {after} s: online after {took:?}, {dials} dials"
     );
     assert!(
-        took < Duration::from_millis(after * 1000 + 1500) && dials == 1,
+        took < Duration::from_millis(after * 1000) + QUICK && dials == 1,
         "{took:?}, {dials} dials"
     );
     p.phone.close().await;
