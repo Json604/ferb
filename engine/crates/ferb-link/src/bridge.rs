@@ -160,6 +160,8 @@ struct Inner {
     pairing: Mutex<PairState>,
     live: Mutex<HashMap<String, Vec<Arc<Mutex<Live>>>>>,
     unpaired: Arc<Semaphore>,
+    /// Phones whose own "Forget this Mac" is under way (PHN-646): their removal cuts them only after the reply left.
+    forgetting: Mutex<std::collections::HashSet<String>>,
     budget: Mutex<SharedBudget>,
     connects: Mutex<HashMap<String, VecDeque<Instant>>>,
     admin: broadcast::Sender<Value>,
@@ -209,6 +211,7 @@ impl Bridge {
             pairing: Default::default(),
             live: Default::default(),
             unpaired: Arc::new(Semaphore::new(limits.unpaired_slots as usize)),
+            forgetting: Mutex::new(std::collections::HashSet::new()),
             budget: Mutex::new(SharedBudget {
                 pause_until: None,
                 seen_ratelimited: 0,
@@ -462,7 +465,16 @@ impl Bridge {
             }
             Some("device_removed") => {
                 if let Some(id) = ev["id"].as_str() {
-                    self.cut(id);
+                    if self.inner.forgetting.lock().unwrap().remove(id) {
+                        // the phone's own forget: its reply goes first, then the connection closes
+                        let (b, id) = (self.clone(), id.to_owned());
+                        tokio::spawn(async move {
+                            tokio::time::sleep(Duration::from_millis(500)).await;
+                            b.cut(&id);
+                        });
+                    } else {
+                        self.cut(id);
+                    }
                     self.tell_admin(json!({"event": "device_revoked", "id": id}));
                 }
                 let _ = self.refresh_devices().await;
@@ -790,12 +802,15 @@ impl Bridge {
         let mut relay_changes = self.inner.policy.subscribe();
         let mut tick = tokio::time::interval(Duration::from_secs(1));
         let mut hour = Instant::now();
+        // where connected phones were last told the Mac is (its home relays)
+        let mut told = self.inner.policy.reachable_at();
         loop {
             tokio::select! {
                 _ = tick.tick() => {}
                 r = relay_changes.changed() => {
                     if r.is_err() { return; }
                     let info = self.relay_info();
+                    told = self.inner.policy.reachable_at();
                     self.tell_admin(json!({"event": "relay", "relay": info}));
                     self.push_all(json!({"type": "relay", "relay": info})).await;
                     continue;
@@ -803,6 +818,17 @@ impl Bridge {
             }
             if self.is_closed() {
                 return;
+            }
+            // decision: PHN-742
+            // The home relay moved without the relay state changing (iroh switched faster than the state is
+            // read): the connected phones are told where the Mac is now, as for any relay change, so their next
+            // dial starts there. Phones of every build read this event.
+            let homes = self.inner.policy.reachable_at();
+            if !homes.is_empty() && homes != told {
+                told = homes;
+                crate::diag::log("the Mac's home relay moved; the connected phones are told");
+                self.push_all(json!({"type": "relay", "relay": self.relay_info()}))
+                    .await;
             }
             let c = net::relay_counters(&self.ep());
             let noticed = {
@@ -1588,6 +1614,8 @@ impl Session {
                 {
                     Ok(mut st) => {
                         down = false;
+                        // decision: PHN-763 — the planner's question goes only to an app that knows it
+                        crate::status_for_level(&mut st, self.live.lock().unwrap().level);
                         let plain = st.to_string();
                         if plain != last_status {
                             last_status = plain;
@@ -1709,6 +1737,37 @@ impl Session {
                     .await
             }
             "link.lock" => self.daemon("phone.lock", json!({}), None).await,
+            // PHN-649: the unlock signed in the app's opening prompt before the link was up; its age by the phone's
+            // steady clock rides beside the signed statement
+            "link.unlock_statement" => {
+                let age = req.params.get("age_ms").cloned().unwrap_or(Value::Null);
+                self.daemon(
+                    "phone.unlock_statement",
+                    json!({"age_ms": age}),
+                    req.proof.take(),
+                )
+                .await
+            }
+            // PHN-646: "Forget this Mac" on the phone: the daemon removes this phone only (its device key proved on
+            // this connection); the removal then closes its connections as any removal does
+            "link.forget" => {
+                self.bridge
+                    .inner
+                    .forgetting
+                    .lock()
+                    .unwrap()
+                    .insert(self.device_id.clone());
+                let out = self.daemon("phone.forget_self", json!({}), None).await;
+                if out.is_err() {
+                    self.bridge
+                        .inner
+                        .forgetting
+                        .lock()
+                        .unwrap()
+                        .remove(&self.device_id);
+                }
+                out
+            }
             // this connection comes from the paired phone itself: a signature by its device key (no prompt)
             "link.present" => {
                 self.daemon("phone.present", json!({}), req.proof.take())
@@ -1815,7 +1874,7 @@ impl Session {
         };
         // the audit: what was asked and how it ended; never a parameter's value (a path on the Mac is not one)
         let class = match method.as_str() {
-            "link.unlock" | "link.keys" => "sensitive",
+            "link.unlock" | "link.unlock_statement" | "link.keys" => "sensitive",
             "link.files" | "link.tree" => "private",
             "link.get" if what.as_deref() == Some("path") => "private",
             m if m.starts_with("link.") => "link",
@@ -2076,6 +2135,8 @@ impl Session {
         }
         let mut v = self.daemon(&method, params, proof).await?;
         if method == "chat.status" {
+            // decision: PHN-763
+            crate::status_for_level(&mut v, self.live.lock().unwrap().level);
             fit(&mut v, self.limits().control_frame_max as usize - 256);
             return Ok(v);
         }

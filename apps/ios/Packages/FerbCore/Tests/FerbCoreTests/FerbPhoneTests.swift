@@ -49,8 +49,12 @@ final class FakeUplinks: UplinkFactory, @unchecked Sendable {
         if refuseState, start.state != nil { throw FerbError.BadArgument(detail: "not the link's state", linkCode: nil) }
         l.lock(); _starts.append(start); l.unlock()
         start.listener.persist(state: start.state ?? Data("{\"invented\":\"link state\"}".utf8))
-        return FakeUplink(mac: mac, listener: start.listener)
+        let u = FakeUplink(mac: mac, listener: start.listener)
+        l.lock(); _made.append(u); l.unlock()
+        return u
     }
+    private var _made: [FakeUplink] = []
+    var made: [FakeUplink] { l.lock(); defer { l.unlock() }; return _made }
 }
 
 final class FakeUplink: Uplink, @unchecked Sendable {
@@ -67,11 +71,25 @@ final class FakeUplink: Uplink, @unchecked Sendable {
         paired = true
     }
     func status() -> LinkStatus? { nil }
-    func setActive(_ on: Bool) {}
-    func networkChanged(_ kind: String?) {}
-    func retry() {}
+    /// What the app told the link, in the order it arrived.
+    private let l = NSLock()
+    private var _said: [String] = []
+    var said: [String] { l.lock(); defer { l.unlock() }; return _said }
+    private func say(_ s: String) { l.lock(); _said.append(s); l.unlock() }
+    func setActive(_ on: Bool) { say("active=\(on)") }
+    func setOpen(_ on: Bool) { say("open=\(on)") }
+    func networkChanged(_ kind: String?) { say("network=\(kind ?? "nil")") }
+    func retry() { say("retry") }
     func forget() throws { paired = false }
     func shutdown() {}
+}
+
+/// What `MainGuard` named, from whichever thread.
+final class Named: @unchecked Sendable {
+    private let l = NSLock()
+    private var v: [String] = []
+    func add(_ s: String) { l.lock(); v.append(s); l.unlock() }
+    var all: [String] { l.lock(); defer { l.unlock() }; return v }
 }
 
 @MainActor
@@ -122,6 +140,36 @@ final class FerbPhoneTests: XCTestCase {
         XCTAssertEqual(p.state, .closed)
         let after = await p.call { try $0.sync() }
         XCTAssertEqual(after.error?.code, "closed")
+    }
+
+    /// The rule the owner's freeze broke (kb PHN-680, PHN-682): the main thread never enters the phone library. Called
+    /// from the main actor, as the app does: the last status, a sync, the unlock, and what the app tells the link,
+    /// which the link hears in the order said. `MainGuard` stands at the library's door and names every call that
+    /// reaches it on the main thread; there must be none.
+    // decision: PHN-680, PHN-682
+    func testTheMainActorNeverEntersThePhoneLibrary() async throws {
+        let onMain = Named()
+        MainGuard.onMain = { what in onMain.add(what) }
+        defer { MainGuard.onMain = nil }
+        let uplinks = FakeUplinks()
+        let p = phone(MemoryStore(), uplinks)
+        _ = await p.start()
+        let none = await p.lastStatus()
+        XCTAssertNil(none, "no status before the Mac said one")
+        let synced = await p.call { try $0.sync() }
+        XCTAssertNotNil(synced.value)
+        _ = await p.unlock(p.signer(.lock, reason: "Unlock FERB"))
+        p.setActive(false)
+        p.setActive(true)
+        p.setOpen(true)
+        p.networkChanged("wifi")
+        p.retry()
+        let link = try XCTUnwrap(uplinks.made.last)
+        let want = ["active=false", "active=true", "open=true", "network=wifi", "retry"]
+        for _ in 0..<400 where link.said.count < want.count { try await Task.sleep(nanoseconds: 5_000_000) }
+        XCTAssertEqual(link.said, want, "the link hears the app in the order said")
+        await p.close()
+        XCTAssertEqual(onMain.all, [], "the main thread entered the phone library")
     }
 
     // decision: PHN-563, PHN-561

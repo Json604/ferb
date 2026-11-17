@@ -82,11 +82,20 @@ golden's JSON exactly (`serde_json::to_value`), which is one way to hand it over
 
 `Mobile` is `Send + Sync`; every method is blocking and bounded: store work, plus at most the transport's own call
 deadline per network call (the link answers `mac_unreachable` after its 15 s; `DoorTransport` adds a 60 s backstop).
-State sits behind one mutex that is never held across a network call. Two more locks serialize work: one sync at a
-time, one outbox flush at a time (so messages go in order and once). The watch's frames arrive on the transport's
-thread and are applied there under the state lock. Work the core starts by itself (a sync when the link comes
-online, a resync after `behind`, reading a cut entry, an older page offered again when the path improves) goes to
-the `Spawner`. Listener callbacks run with nothing locked. Call the API from a background thread, never the UI thread.
+State sits behind one mutex (`api::StateLock`) that is never held across a call to the Mac, a callback to the app, or
+the end of a transport or a watch: the thread that holds it does store and memory work only. The rule is checked, not
+only said (kb PHN-681): every call to the Mac and every change told asserts that this thread holds no state guard
+(debug and test builds, so every test of the core holds every path to it), and taking the lock twice on one thread is
+refused in every build. It matters twice over: every reader of the core queues behind that lock, and the link's one
+pump thread (`door`) needs it to hand over a watch frame or a link event, so a call awaited under it can never be
+answered. That happened: `sync` read the cursor inside an `if let` whose guard lived through the body's
+`chat.entries.mark` call, the watch's first frame stopped the pump, and each sync ended only at the door's 60 s
+backstop with the state locked throughout (tests/no_wait_under_lock.rs). The last status has its own small lock, held
+only to copy it. Two more locks serialize work: one sync at a time, one outbox flush at a time (so messages go in order
+and once). The watch's frames arrive on the transport's thread and are applied there under the state lock. Work the
+core starts by itself (a sync when the link comes online, a resync after `behind`, reading a cut entry, an older page
+offered again when the path improves) goes to the `Spawner`. Call the API from a background thread, never the UI
+thread.
 
 ## Behaviour
 

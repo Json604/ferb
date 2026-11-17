@@ -12,19 +12,22 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
-import com.ferb.app.model.Corpus
 import com.ferb.app.model.Why
 import com.ferb.app.ui.FerbRoot
 import com.ferb.core.KeyKind
+import com.ferb.design.LaunchState
+import com.ferb.design.reducedMotion
 import com.ferb.core.PromptText
 import com.ferb.mobile.Signer
 import kotlin.coroutines.resume
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 
@@ -40,7 +43,7 @@ class MainActivity : ComponentActivity() {
         viewModelFactory {
             initializer {
                 val a = this@MainActivity.application as FerbApplication
-                val corpus = runCatching { a.assets.open("corpus.json").bufferedReader().use { Corpus(it.readText()) } }.getOrNull()
+                val corpus = a.corpus() // read on a background thread since the Application began (PHN-633)
                 FerbViewModel(a.api, a.session, a.prefs, a::screenLockSet, corpus, createSavedStateHandle(), a.local,
                     locator = AndroidLocator(a), coarse = a.sensors.coarse, say = a::getString, locationAnswered = a.notifier::locationAnswered,
                     voice = AndroidSpeech(a), micAllowed = { a.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED })
@@ -51,9 +54,37 @@ class MainActivity : ComponentActivity() {
     /** The owner's screenshot switch (PHN-420); the view model's mustSecure overrides it (PHN-110, PHN-454). */
     val blockScreenshots = MutableStateFlow(true)
 
+    /**
+     * The launch (kb PHN-631..634): FERB's mark from the first frame, settling into the lock page's mark. Only for a
+     * new activity (a cold or warm start, never a turned screen); null once it ended or when there was none.
+     */
+    var launch: LaunchState? = null
+        private set
+
+    /** The launch's mark has settled enough for the system prompt (PHN-633); true when there is no launch. */
+    private var launchSettled = true
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        val cold = StartLog.fresh() && !app.launched
+        app.launched = true
+        StartLog.each("activity", if (cold) "cold" else "warm")
+        if (savedInstanceState == null) {
+            // a cold start's splash began with the process; a warm one's time comes from the splash itself
+            launch = LaunchState(reducedMotion(this), originNanos = if (cold) android.os.Process.getStartUptimeMillis() * 1_000_000 else null)
+            launchSettled = false
+        }
+        if (Build.VERSION.SDK_INT >= 31) {
+            launch?.awaitSplash()
+            splashScreen.setOnExitAnimationListener { view ->
+                // the app's launch continues the splash's icon animation from where it is, then the splash goes
+                val began = view.iconAnimationStart
+                if (began != null) launch?.syncToSplash(java.time.Duration.between(began, java.time.Instant.now()).toMillis().toFloat())
+                else launch?.splashGone()
+                view.remove()
+            }
+        }
         blockScreenshots.value = app.prefs.blockScreenshots
         // PHN-15: the app's content is covered in recent apps at once, whatever the screenshot switch says
         if (Build.VERSION.SDK_INT >= 33) setRecentsScreenshotEnabled(false)
@@ -62,8 +93,41 @@ class MainActivity : ComponentActivity() {
             combine(blockScreenshots, vm.mustSecure, app.session.locked) { block, must, locked -> block || must || locked }.collect(::secure)
         }
         vm.prompts = ActivityPrompts()
+        // kb PHN-765: what keeps FERB's questions from reaching this phone, said in the app with its fix
+        vm.notifyBlocker = { NotifyHealth.blocker(app, app.prefs.stayConnected) }
         handle(intent)
         setContent { FerbRoot(vm, this) }
+        // the starting window's mark was only for before the first frame; the app draws its own from here
+        window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(getColor(R.color.launch_ink0)))
+        watchStart()
+    }
+
+    /** The start-up's milestones (StartLog) and the launch's end: the prompt may come once the mark has settled. */
+    private fun watchStart() {
+        val decor = window.decorView
+        decor.viewTreeObserver.addOnDrawListener(object : android.view.ViewTreeObserver.OnDrawListener {
+            private var drawn = false
+            override fun onDraw() {
+                if (drawn) return
+                drawn = true
+                StartLog.each("first frame")
+                decor.post { decor.viewTreeObserver.removeOnDrawListener(this) }
+            }
+        })
+        lifecycleScope.launch {
+            val gate = vm.ui.first { it.gate != Gate.STARTING }.gate
+            StartLog.each("page", gate.name)
+        }
+        val l = launch ?: return
+        lifecycleScope.launch {
+            snapshotFlow { l.promptOk }.first { it }
+            launchSettled = true
+            StartLog.each("launch settled")
+            vm.windowReady(hasWindowFocus() && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED))
+            snapshotFlow { l.done }.first { it }
+            launch = null
+            reportFullyDrawn()
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -82,7 +146,7 @@ class MainActivity : ComponentActivity() {
     // system drops it; while a dialog, the shade or another prompt has the focus it would stack on top of them.
     override fun onResume() {
         super.onResume()
-        vm.windowReady(hasWindowFocus())
+        vm.windowReady(hasWindowFocus() && launchSettled)
     }
 
     override fun onPause() {
@@ -92,7 +156,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        vm.windowReady(hasFocus && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED))
+        vm.windowReady(hasFocus && launchSettled && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED))
     }
 
     override fun onDestroy() {
@@ -103,7 +167,8 @@ class MainActivity : ComponentActivity() {
     private fun handle(intent: Intent?) {
         val i = intent ?: return
         i.getStringExtra(EXTRA_QUESTION)?.let { vm.openQuestion(it) }
-        i.getStringExtra(EXTRA_ENTRY)?.let { vm.openChat() }
+        // FERB's own question (a clarify) is answered by a message: the box takes the cursor (FERB.app's needs-you)
+        i.getStringExtra(EXTRA_ENTRY)?.let { vm.openChat(focus = it == Notifier.CHAT) }
         i.getStringExtra(EXTRA_LOCATION)?.let { vm.openLocation(it) }
         i.removeExtra(EXTRA_QUESTION)
         i.removeExtra(EXTRA_ENTRY)

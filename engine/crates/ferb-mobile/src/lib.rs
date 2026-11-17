@@ -7,6 +7,7 @@
 //! - `store`: the SQLCipher store (PHN-448), kept until Forget this Mac (PHN-408).
 //! - `transport`: how the core reaches the Mac (a trait; the real link plugs in through `door`).
 //! - `device`: the phone's own record for FERB (T-1214) and finding the Mac's files (recent, search).
+//! - `rich`, `shown`: FERB's words and answers laid out as FERB.app draws them (Markdown, the sites row, cards).
 //! - `api`: `Mobile`, the object the apps use: sync, watch, outbox (PHN-401), answers, stop, older pages.
 
 pub mod api;
@@ -16,7 +17,10 @@ pub mod entries;
 pub mod entry;
 pub mod fold;
 pub mod live;
+pub mod question;
 pub mod remote;
+pub mod rich;
+pub mod shown;
 pub mod status;
 pub mod store;
 pub mod time;

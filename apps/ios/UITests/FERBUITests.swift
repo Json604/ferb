@@ -10,9 +10,22 @@ final class FERBUITests: XCTestCase {
 
     private func launch(_ more: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["-FERBUITestUnlock", "YES", "-FERBUITestFresh", "YES"] + more
+        app.launchArguments = ["-FERBUITestUnlock", "YES", "-FERBUITestFresh", "YES", "-FERBUITestFirstRunDone", "YES"] + more
         app.launch()
         return app
+    }
+
+    /// A fresh install asks for what FERB needs once, after the unlock (kb PHN-636); Not now still leads to pairing
+    /// (PHN-639).
+    // decision: PHN-635, PHN-636, PHN-639
+    func testTheFirstRunAsksOnceAndNotNowStillPairs() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-FERBUITestUnlock", "YES", "-FERBUITestFresh", "YES"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["Before you start"].waitForExistence(timeout: 30), "the first run's asks after the unlock")
+        app.buttons["Not now"].tap()
+        XCTAssertTrue(app.staticTexts["Use FERB from your phone"].waitForExistence(timeout: 10), "pairing with everything declined")
+        // never again on a relaunch: FirstRunTests (a relaunch here would meet the simulator's own passcode sheet)
     }
 
     /// The screenshot shield on this iOS: the secure canvas is found and the shielded half is drawn where it belongs

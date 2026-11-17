@@ -33,6 +33,15 @@ android {
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
+        // A build that starts as a release does (kb PHN-633): R8, not debuggable, the baseline profile
+        // (src/main/baseline-prof.txt); signed with the debug key, so it installs over the debug app on the same phone
+        // and keeps its pairing (`adb install -r`). For measuring and for the owner's own phone; never published.
+        create("benchmark") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            isDebuggable = false
+            matchingFallbacks += listOf("release")
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -50,17 +59,33 @@ android {
                 // the screenshots draw as a phone does (kb PHN-455)
                 test.systemProperty("robolectric.graphicsMode", "NATIVE")
                 test.systemProperty("robolectric.pixelCopyRenderMode", "hardware")
+                // the real phone library under Robolectric (MainThreadRuleTest, kb PHN-682): its bindings pick
+                // Android's cleaner there, which on the JVM is the JDK's own
+                test.jvmArgs("--add-exports=java.base/jdk.internal.ref=ALL-UNNAMED")
             }
         }
     }
     // the engine's chat fixtures (the scenarios a phone must draw) for the JVM tests
     sourceSets["test"].resources.srcDir(engine.resolve("fixtures/chat-entries"))
+    // :core's fake Mac, software keys and in-memory protector: the real phone object in the app's own tests, on the
+    // JVM (MainThreadRuleTest) and in the storm test on the emulator (kb PHN-682, PHN-683)
+    sourceSets["test"].kotlin.srcDir(rootDir.resolve("core/src/sharedTest/kotlin"))
+    sourceSets["androidTest"].kotlin.srcDir(rootDir.resolve("core/src/sharedTest/kotlin"))
+}
+
+// The JVM tests' stand-in phone, also for the frame measurements on an emulator or phone (FrameBudgetOnPhoneTest, kb
+// PHN-713): the chat drawn by the app's own screens, without a Mac.
+tasks.matching { it.name == "compileDebugAndroidTestKotlin" }.configureEach {
+    (this as org.jetbrains.kotlin.gradle.tasks.KotlinCompile).source(file("src/test/kotlin/com/ferb/app/FakePhone.kt"))
 }
 
 kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
 
 androidComponents {
     beforeVariants(selector().withBuildType("release")) {
+        (it as com.android.build.api.variant.HasUnitTestBuilder).enableUnitTest = false
+    }
+    beforeVariants(selector().withBuildType("benchmark")) {
         (it as com.android.build.api.variant.HasUnitTestBuilder).enableUnitTest = false
     }
 }

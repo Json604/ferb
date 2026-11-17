@@ -119,7 +119,7 @@ public struct Coarse: Equatable, Sendable {
 }
 
 /// The city from coarse fixes: the geocoder is asked only for the first fix and after a move of [moveM] or more from
-/// the last place it named (so a phone that stays put asks it once), never on a timer. Kb PHN-532.
+/// the last place it named (so a phone that stays put asks it once), never on a timer. Kb PHN-638.
 @MainActor
 @Observable
 public final class PlaceKeeper {

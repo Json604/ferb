@@ -271,3 +271,156 @@ fn an_aborted_plan_stream_goes_back_to_the_dots() {
     assert!(!live.frame(Some("r2"), &json!({"type": "subtask", "state": "started"})));
     assert!(live.turn("r2").is_none());
 }
+
+/// The owner's one-part research task of 2026-11-18 02:16: a plan with no card and no checklist, then the worker's
+/// step lines on the stream. The phone drew nothing; FERB.app's work row says what the task does now
+/// (`TaskItem.currentLine`): "Starting task…", then each newest line, then "Checking the result", gone at the answer.
+// decision: PHN-725
+#[test]
+fn a_one_part_task_says_what_it_does_now() {
+    let mut set = EntrySet::new();
+    let mut live = LiveState::new();
+    let message = entry(
+        "p1",
+        10,
+        11,
+        "message",
+        "r-one",
+        json!({"text": "search online and then tell", "attachments": [], "hidden": []}),
+    );
+    set.apply(message.clone());
+    live.entry(&message);
+    assert_eq!(
+        live.view(&set.transcript(0))[0].current,
+        None,
+        "no task yet: the typing dots say it"
+    );
+    let plan = entry(
+        "p2",
+        11,
+        12,
+        "plan",
+        "r-one",
+        json!({"text": "I'll research it.", "plan_line": "I'll research it.",
+        "lines": [], "name": "Research automation detection"}),
+    );
+    set.apply(plan.clone());
+    live.entry(&plan);
+    let v = live.view(&set.transcript(0));
+    assert_eq!(v[0].current.as_deref(), Some("Starting task…"));
+    assert!(v[0].card_line.is_none());
+    assert!(live.frame(Some("r-one"), &json!({"type": "progress", "step_task_id": "t-phone.worker",
+        "text": "searching for extension detection", "started_at": "2026-01-01T09:00:05+00:00", "task_id": "t-phone"})));
+    assert_eq!(
+        live.view(&set.transcript(0))[0].current.as_deref(),
+        Some("Searching for extension detection")
+    );
+    live.frame(Some("r-one"), &json!({"type": "verification"}));
+    assert_eq!(
+        live.view(&set.transcript(0))[0].current.as_deref(),
+        Some("Checking the result")
+    );
+    let t = set.transcript(0);
+    let turn = t
+        .items
+        .iter()
+        .find_map(|i| match i {
+            ferb_mobile::fold::Item::Turn(x) => Some(x),
+            _ => None,
+        })
+        .unwrap();
+    assert!(
+        turn.plan_at.is_some(),
+        "the work row's time counts from the plan"
+    );
+    let answer = entry(
+        "p3",
+        12,
+        13,
+        "answer",
+        "r-one",
+        json!({"text": "Yes, sometimes.", "status": "done"}),
+    );
+    set.apply(answer.clone());
+    live.entry(&answer);
+    assert!(live.view(&set.transcript(0)).is_empty());
+}
+
+/// A running card's one status line, as FERB.app's (`CardStatusLine`): "0 of 2 done · 1 running · 1 waiting".
+// decision: PHN-726
+#[test]
+fn a_running_card_has_the_macs_status_line() {
+    let mut set = EntrySet::new();
+    let mut live = LiveState::new();
+    set.apply(entry(
+        "p1",
+        10,
+        11,
+        "message",
+        "r-c",
+        json!({"text": "both", "attachments": [], "hidden": []}),
+    ));
+    let card = json!({"request_id": "r-c", "task_id": "t-phone", "total": 2,
+        "rows": [{"part": "a", "label": "A", "state": "working", "step": "s1"},
+                 {"part": "b", "label": "B", "state": "working", "step": "s2"}]});
+    set.apply(entry(
+        "p2",
+        11,
+        12,
+        "plan",
+        "r-c",
+        json!({"text": "Both.", "plan_line": "Both.", "lines": [], "card": card}),
+    ));
+    live.frame(Some("r-c"), &json!({"type": "step", "task_id": "t-phone", "step": "s1", "status": "running", "seq": "1"}));
+    live.frame(Some("r-c"), &json!({"type": "step", "task_id": "t-phone", "step": "s2", "status": "waiting", "waits_on": ["s1"], "seq": "1"}));
+    let v = live.view(&set.transcript(0));
+    assert_eq!(
+        v[0].card_line.as_deref(),
+        Some("0 of 2 done · 1 running · 1 waiting")
+    );
+}
+
+/// APP-895: under a card row still waiting, the plan steps it waits on that no row answers, each with its own line.
+// decision: PHN-736
+#[test]
+fn a_waiting_row_shows_the_steps_it_waits_on() {
+    let mut set = EntrySet::new();
+    let mut live = LiveState::new();
+    set.apply(entry(
+        "p1",
+        10,
+        11,
+        "message",
+        "r-f",
+        json!({"text": "draft it", "attachments": [], "hidden": []}),
+    ));
+    let card = json!({"request_id": "r-f", "task_id": "t-phone", "total": 1,
+        "plan": [{"id": "s1", "label": "Read the notes", "step_task_id": "t-phone.s1"},
+                 {"id": "s2", "label": "Find the address", "step_task_id": "t-phone.s2", "depends_on": ["s1"]},
+                 {"id": "s3", "label": "Write the email", "step_task_id": "t-phone.s3", "depends_on": ["s2"]}],
+        "rows": [{"part": "a", "label": "Draft the email", "state": "working", "step": "s3"}]});
+    set.apply(entry(
+        "p2",
+        11,
+        12,
+        "plan",
+        "r-f",
+        json!({"text": "On it.", "plan_line": "On it.", "lines": [], "card": card}),
+    ));
+    live.frame(Some("r-f"), &json!({"type": "step", "task_id": "t-phone", "step": "s3", "status": "waiting", "waits_on": ["s2"], "seq": "1"}));
+    live.frame(Some("r-f"), &json!({"type": "step", "task_id": "t-phone", "step": "s1", "status": "running", "seq": "1"}));
+    live.frame(
+        Some("r-f"),
+        &json!({"type": "progress", "step_task_id": "t-phone.s1", "text": "reading the notes"}),
+    );
+    let v = live.view(&set.transcript(0));
+    let f = &v[0].feeders;
+    assert_eq!(
+        f.iter().map(|x| x.step.as_str()).collect::<Vec<_>>(),
+        ["s1", "s2"]
+    );
+    assert_eq!(f[0].part, "a");
+    assert_eq!(f[0].line.kind, "running");
+    assert_eq!(f[0].line.words.as_deref(), Some("Reading the notes"));
+    assert_eq!(f[1].line.kind, "upcoming");
+}

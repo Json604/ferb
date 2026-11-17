@@ -78,6 +78,8 @@ pub struct Arrival {
     /// Its capture at send, once awaited (`_screen_at_send`); None while not awaited.
     pub seen: Option<super::Seen>,
     pub screen: bool,
+    /// SENSE-424: where it was sent from (`words::sent_from`); None when its `chat.send` named no client.
+    pub sent_from: Option<String>,
 }
 
 /// One chat's messages in arrival order (`_ChatLine` with its arrivals and the running turn's state).
@@ -282,7 +284,7 @@ impl Inner {
         input_paths: Vec<String>,
         request_id: String,
         (hidden, sealed): (Vec<String>, Vec<(String, String)>),
-        screen: bool,
+        (screen, sent_from): (bool, Option<String>),
         emit: &Emit,
     ) -> Flow<()> {
         let (tx, rx) = oneshot::channel();
@@ -298,6 +300,7 @@ impl Inner {
                     hidden,
                     sealed,
                     screen,
+                    sent_from,
                     ..Arrival::default()
                 },
             );
@@ -556,9 +559,13 @@ impl Inner {
             }
             let m = mark(&a.text);
             a.paths = unique(a.input_paths.iter().map(|p| self.normalize(p)));
-            let mut data = obj(json!({
-                "session_id": session_id, "request_id": a.request_id, "text": m.for_model,
-                "untrusted_parts": m.untrusted.len() + usize::from(!a.paths.is_empty()), "input_paths": a.paths}));
+            let mut data = obj(json!({"session_id": session_id, "request_id": a.request_id}));
+            // SENSE-424: before the text, so a lookup's short preview of a long message still shows it
+            if let Some(from) = &a.sent_from {
+                data.insert(crate::words::SENT_FROM.into(), json!(from));
+            }
+            data.extend(obj(json!({"text": m.for_model,
+                "untrusted_parts": m.untrusted.len() + usize::from(!a.paths.is_empty()), "input_paths": a.paths})));
             if *rid != lead {
                 data.insert("read_with".into(), json!(lead));
             }
@@ -1820,6 +1827,17 @@ impl Inner {
             asked_outside: s.asked_outside.clone(),
         });
         let entry_ids: Vec<String> = t.entries.iter().map(|e| e.id.clone()).collect();
+        // SENSE-424: each message's device, as its journal row recorded it
+        let sent_from: Vec<String> = t
+            .entries
+            .iter()
+            .filter(|e| e.kind == "chat.message")
+            .filter_map(|e| {
+                e.get(crate::words::SENT_FROM)
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            })
+            .collect();
         let now = self.now();
         let last_runs = if preview {
             BTreeSet::new()
@@ -1876,6 +1894,7 @@ impl Inner {
             entries: &entry_ids,
             payload: &t.payload,
             message_origin: &t.message_origin,
+            sent_from: &sent_from,
             wrap: &wrap,
             zone: &zone,
         });

@@ -1,9 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The notification icon: the "f" of FERB's mark (ferb-mark.svg's letter, :design Marks.kt ferbLetter), in its 96 tile. -->
+<!-- The status bar and notification icon (owner kb PHN-665; PHN-666): FERB's bare "f." as the Mac's menu bar has it
+     (MenuBarIcon.swift's letter style), from the logo's own geometry (site/logo.svg: the f's path and its dot at 82,85
+     radius 8, to the right of the stem on the baseline). The f and its dot together fill the icon's 20 dp safe area
+     (2 dp padding on the 24 dp canvas): 20 dp tall, 16.6 dp wide, centred; the stem is 3.8 dp, as heavy as the system's
+     own glyphs. White on transparent: Android tints it for the status bar, the shade and the always-on display. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="24dp" android:height="24dp" android:viewportWidth="96" android:viewportHeight="96">
-    <group android:translateX="-8" android:translateY="-15.5">
+    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <group android:scaleX="0.358192" android:scaleY="0.358192" android:translateX="-11.941364" android:translateY="-11.311842">
         <path android:fillColor="#FFFFFFFF"
             android:pathData="M49.969,58.772L49.969,90L60.477,90L60.477,58.772L67.729,58.772L67.729,51.742L60.477,51.742L60.477,49.448Q60.477,47.08 61.402,46.081Q62.327,45.082 64.473,45.082Q66.471,45.082 68.321,45.304L68.321,37.46Q66.989,37.386 65.583,37.275Q64.177,37.164 62.771,37.164Q56.333,37.164 53.151,40.42Q49.969,43.676 49.969,48.782L49.969,51.742L43.679,51.742L43.679,58.772Z" />
+        <path android:fillColor="#FFFFFFFF" android:pathData="M82,85m-8,0a8,8 0,1 1,16 0a8,8 0,1 1,-16 0" />
     </group>
 </vector>

@@ -14,7 +14,9 @@ from email.utils import format_datetime
 from pathlib import Path
 from xml.sax.saxutils import quoteattr
 
-REPO = "https://github.com/Json604/ferb"
+# REL-431, REL-432: every address in the feed is a path on the owner's own domain, which redirects to wherever the
+# releases live (site/vercel.json), so they can move without touching an installed copy.
+UPDATES = "https://ferb.kartikey.xyz/updates"
 SIGNED = re.compile(r'sparkle:edSignature="([A-Za-z0-9+/]+=*)"\s+length="(\d+)"')
 CHECKS = (("version", re.compile(r"\d+\.\d+\.\d+")), ("build", re.compile(r"\d{12}")),
           ("tag", re.compile(r"v\d+\.\d+\.\d+")), ("DMG name", re.compile(r"FERB-(AppleSilicon|Intel)\.dmg")),
@@ -38,7 +40,7 @@ def appcast(version: str, build: str, tag: str, dmg: str, signature: str, min_ma
     if signed is None:
         raise ValueError('the signature must be sign_update\'s output: sparkle:edSignature="…" length="…"')
     ed, length = signed.groups()
-    url = f"{REPO}/releases/download/{tag}/{dmg}"
+    url = f"{UPDATES}/files/{tag}/{dmg}"
     return ('<?xml version="1.0" encoding="utf-8"?>\n'
             '<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">\n'
             '  <channel>\n'
@@ -50,7 +52,7 @@ def appcast(version: str, build: str, tag: str, dmg: str, signature: str, min_ma
             f'      <sparkle:shortVersionString>{version}</sparkle:shortVersionString>\n'
             f'      <sparkle:minimumSystemVersion>{min_macos}</sparkle:minimumSystemVersion>\n'
             f'{major}'
-            f'      <link>{REPO}/releases/tag/{tag}</link>\n'
+            f'      <link>{UPDATES}/notes/{tag}</link>\n'
             f'      <enclosure url={quoteattr(url)} length="{length}" type="application/octet-stream" '
             f'sparkle:edSignature="{ed}"/>\n'
             '    </item>\n'

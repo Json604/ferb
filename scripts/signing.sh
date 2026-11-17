@@ -264,6 +264,9 @@ ferb_sign() {
   local target=$1; shift
   local stamp=--timestamp=none
   ferb_developer_id && stamp=--timestamp
+  # A build for this Mac only (FERB_NOTARIZE=0) may be signed without Apple's timestamp server when it can't be
+  # reached (FERB_SIGN_TIMESTAMP=none): the signature still names the Developer ID. A notarized build never may.
+  if ferb_developer_id && ! ferb_notarizes && [[ "${FERB_SIGN_TIMESTAMP:-}" == none ]]; then stamp=--timestamp=none; fi
   local -a req kc
   [[ -n "${FERB_SIGN_KEYCHAIN:-}" ]] && kc=(--keychain "$FERB_SIGN_KEYCHAIN")
   if ferb_release; then

@@ -22,9 +22,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import com.ferb.design.components.pressable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -76,6 +78,9 @@ interface Host {
     fun blockScreenshots(on: Boolean)
     fun askNotifications()
 
+    /** The one tap that lets FERB's questions reach this phone again (kb PHN-765): Android's page, or Stay connected. */
+    fun fixNotifications(b: com.ferb.app.NotifyBlocker) {}
+
     /** The system's picker for files to send to the Mac ([forChat]: they go with the next message). */
     fun pickFiles(forChat: Boolean)
 
@@ -119,6 +124,7 @@ fun Sheets(vm: FerbViewModel, ui: UiState, sheet: Sheet?, insets: PhoneInsets, h
             }
         }
         Sheet.Relay -> RelaySheet(labRelay, insets, onClose = close)
+        Sheet.Connection -> ConnectionSheetFor(vm, ui, insets, close)
         Sheet.Profile -> Profile(vm, ui, insets, host, close)
         Sheet.StopAll -> Plain(stringResource(R.string.stop_all_title), stringResource(R.string.stop_all_text), insets, close) {
             Pill(stringResource(R.string.stop_all_yes), Modifier.padding(top = 18.dp), icon = FerbIcons.stop,
@@ -128,6 +134,35 @@ fun Sheets(vm: FerbViewModel, ui: UiState, sheet: Sheet?, insets: PhoneInsets, h
         Sheet.Settings -> SettingsSheet(vm, ui, insets, close)
         is Sheet.Days -> DaysSheet(vm, ui, sheet.key, insets)
         is Sheet.Live -> LiveScreen(vm, insets)
+        // a running task's short view (kb PHN-725; FERB.app's TaskShortView): its picture, title, line, Watch live, Stop
+        is Sheet.Task -> {
+            val r = ui.running?.tasks?.firstOrNull { it.taskId == sheet.taskId }
+            val shown by vm.live.view.collectAsState()
+            val picture = shown?.frame?.let { androidx.compose.runtime.remember(it) { it.asImageBitmap() } }
+            SheetFrame(title = r?.title ?: "", bottomInset = insets.bottom, onDismiss = close) {
+                SheetTitle(r?.title ?: stringResource(R.string.question_default_title), close)
+                com.ferb.design.components.TaskShortView(
+                    com.ferb.design.components.WorkTask(sheet.taskId, r?.title ?: "", shown?.line ?: r?.line ?: "", r?.waiting == true, r?.paused == true, picture),
+                    empty = shown?.ended?.let { noteText(it) } ?: shown?.empty,
+                    onWatch = { vm.watchLive(sheet.taskId) }, onStop = { vm.stop(sheet.taskId) },
+                )
+            }
+        }
+        is Sheet.Sites -> {
+            val sites = ui.rows.firstNotNullOfOrNull { (it as? com.ferb.app.model.ChatRow.Answer)?.takeIf { a -> a.key == sheet.row }?.ui?.sites }.orEmpty()
+            val uri = androidx.compose.ui.platform.LocalUriHandler.current
+            SheetFrame(title = stringResource(R.string.sites_visited), bottomInset = insets.bottom, onDismiss = close) {
+                SheetTitle(stringResource(R.string.sites_visited), close)
+                com.ferb.design.components.Card {
+                    sites.forEachIndexed { i, h ->
+                        if (i > 0) com.ferb.design.components.Divide()
+                        com.ferb.design.components.CardRow(h, onClick = { com.ferb.app.model.Present.siteLink(h)?.let { runCatching { uri.openUri(it) } } },
+                            leading = { com.ferb.design.FerbIcon(com.ferb.design.components.CardIcons.globe, 20f, Ink.black) },
+                            trailing = { com.ferb.design.components.Opens() })
+                    }
+                }
+            }
+        }
         Sheet.Forget -> Plain(stringResource(R.string.forget_title), stringResource(R.string.forget_text), insets, close) {
             Pill(stringResource(R.string.forget_yes), Modifier.padding(top = 18.dp), onClick = { vm.forget() })
             Pill(stringResource(R.string.cancel), Modifier.padding(top = 4.dp), PillKind.PLAIN, height = 44.dp, onClick = close)
@@ -138,6 +173,10 @@ fun Sheets(vm: FerbViewModel, ui: UiState, sheet: Sheet?, insets: PhoneInsets, h
             val url = ui.link?.ownRelayUrl
             Plain(stringResource(R.string.mac_own_relay_title),
                 if (url != null) stringResource(R.string.mac_own_relay_set, host(url)) else stringResource(R.string.mac_own_relay_none), insets, close)
+        }
+        is Sheet.CantNotify -> Plain(stringResource(R.string.cant_notify_title), stringResource(sheet.blocker.words), insets, close) {
+            Pill(stringResource(sheet.blocker.fix), Modifier.padding(top = 18.dp), onClick = { close(); host.fixNotifications(sheet.blocker) })
+            Pill(stringResource(R.string.first_run_not_now), Modifier.padding(top = 4.dp), PillKind.PLAIN, height = 44.dp, onClick = close)
         }
         Sheet.Notifications -> {
             Plain(stringResource(R.string.notify_title), stringResource(R.string.notify_text), insets, close) {
@@ -187,15 +226,21 @@ internal fun Plain(title: String, text: String, insets: PhoneInsets, onClose: ()
  */
 @Composable
 private fun Asking(vm: FerbViewModel, q: Question, insets: PhoneInsets, busy: Boolean, close: () -> Unit) {
-    val title = q.title ?: stringResource(R.string.question_default_title)
+    // FERB.app's card (kb PHN-739; ApprovalView.swift): header, the one question, why it asks, the exact thing, the
+    // task's reason and the evidence, the buttons' words and the note under them; the phone adds only its own lines
+    val m = q.shown
+    val title = m?.question ?: q.title ?: stringResource(R.string.question_default_title)
+    val text = if (m != null) listOfNotNull(m.pictureProblem, m.detail).joinToString("\n\n") else q.reason
     val choices = q.choices
-    val exact: @Composable () -> Unit = { q.exact?.let { ExactCommand(it) } }
+    val exact: @Composable () -> Unit = { (m?.exact ?: q.exact)?.let { ExactCommand(it) } }
+    val below: @Composable () -> Unit = { if (m != null) MacBelow(m) }
     if (choices.size == 2 || q.yesNo) {
         val (no, yes) = choices[0] to choices[1]
         // the lab's own line, said only where the Mac's status says the Yes needs the fingerprint-only key
         val note = if (q.needsProof && q.needs?.fingerprint == true) stringResource(R.string.question_yes_fingerprint) else null
         QuestionSheet(
-            FerbIcons.help, title, q.reason, yes.label, insets, no = no.label, note = note, onDismiss = close,
+            FerbIcons.help, title, text, yes.label, insets, no = no.label, note = note, onDismiss = close,
+            header = m?.header?.ifEmpty { null }, below = below, answerNote = m?.note,
             onNo = if (busy) null else ({ vm.answer(q.approvalId, no.input) }),
             onYes = if (busy) null else ({ vm.answer(q.approvalId, yes.input) }),
             more = choices.drop(2).map { c -> c.label to (if (busy) null else ({ vm.answer(q.approvalId, c.input); Unit })) } +
@@ -211,25 +256,35 @@ private fun Asking(vm: FerbViewModel, q: Question, insets: PhoneInsets, busy: Bo
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             SheetIcon(FerbIcons.help)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                m?.header?.ifEmpty { null }?.let { PhoneText(it, 13.5f, FerbType.Medium, Ink.detail) }
                 PhoneText(title, 22f, FerbType.Semibold)
-                PhoneText(q.reason, 15.5f, color = Ink.detail)
+                if (text.isNotEmpty()) PhoneText(text, 15.5f, color = Ink.detail)
             }
         }
         Box(Modifier.padding(top = 14.dp)) { exact() }
+        below()
         if (choices.isNotEmpty()) {
             Column(Modifier.padding(top = 18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 choices.forEachIndexed { i, c ->
                     Pill(c.label, kind = if (i == 0) PillKind.BLACK else PillKind.GREY, onClick = if (busy) null else ({ vm.answer(q.approvalId, c.input) }))
                 }
+                m?.note?.let { PhoneText(it, 13.5f, color = Ink.detail, modifier = Modifier.padding(horizontal = 4.dp)) }
+            }
+            // FERB.app's box under a task's choices: his own words instead (DaemonApproval.answerBox "answer")
+            if (m?.answerBox == "answer") {
+                var words by remember(q.approvalId) { mutableStateOf("") }
+                Field(words, { words = it }, m.field ?: stringResource(R.string.question_answer_hint), Modifier.padding(top = 14.dp))
+                Pill(m.send ?: stringResource(R.string.question_send), Modifier.padding(top = 10.dp),
+                    onClick = if (busy || words.isBlank()) null else ({ vm.answer(q.approvalId, AnswerInput.Words(words.trim())); words = "" }))
             }
         } else {
-            var text by remember(q.approvalId) { mutableStateOf("") }
-            Field(text, { text = it }, stringResource(R.string.question_answer_hint), Modifier.padding(top = 18.dp))
+            var answer by remember(q.approvalId) { mutableStateOf("") }
+            Field(answer, { answer = it }, m?.field ?: stringResource(R.string.question_answer_hint), Modifier.padding(top = 18.dp))
             Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Pill(stringResource(R.string.question_skip), kind = PillKind.GREY, fill = false,
+                Pill(m?.decline ?: stringResource(R.string.question_skip), kind = PillKind.GREY, fill = false,
                     onClick = if (busy) null else ({ vm.answer(q.approvalId, AnswerInput.Words("")) }))
-                Pill(stringResource(R.string.question_send), Modifier.weight(1f),
-                    onClick = if (busy || text.isBlank()) null else ({ vm.answer(q.approvalId, AnswerInput.Words(text.trim())); text = "" }))
+                Pill(m?.send ?: stringResource(R.string.question_send), Modifier.weight(1f),
+                    onClick = if (busy || answer.isBlank()) null else ({ vm.answer(q.approvalId, AnswerInput.Words(answer.trim())); answer = "" }))
             }
         }
     }
@@ -245,7 +300,12 @@ private fun Asking(vm: FerbViewModel, q: Question, insets: PhoneInsets, busy: Bo
  */
 @Composable
 private fun PrivateAnswer(vm: FerbViewModel, q: Question, insets: PhoneInsets, busy: Boolean, close: () -> Unit) {
-    val title = q.title ?: stringResource(R.string.private_title_default)
+    // FERB.app's words for a hidden input (kb PHN-739): its question, why, the field's label and its two buttons
+    val m = q.shown
+    val title = m?.question ?: q.title ?: stringResource(R.string.private_title_default)
+    val detail = if (m != null) m.detail.orEmpty() else q.reason
+    val decline = m?.decline ?: stringResource(R.string.private_decline)
+    val sendWord = m?.send ?: stringResource(R.string.private_send)
     if (q.isCode) {
         val digits = remember(q.approvalId) { CharArray(MAX_CODE) }
         var count by remember(q.approvalId) { mutableIntStateOf(0) }
@@ -258,13 +318,14 @@ private fun PrivateAnswer(vm: FerbViewModel, q: Question, insets: PhoneInsets, b
         }
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
             SheetFrame(title = title, bottomInset = insets.bottom, lift = (4 * 57 + 18).dp + insets.bottom, onDismiss = close) {
-                PrivateHead(title, q.reason)
+                PrivateHead(title, detail, m?.header?.ifEmpty { null })
+        m?.let { MacBelow(it) }
                 SecretCodeBoxes(count, Modifier.padding(top = 16.dp), length = maxOf(6, minOf(MAX_CODE, count + 1)))
                 PrivateNote()
                 Row(Modifier.fillMaxWidth().padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Pill(stringResource(R.string.private_decline), kind = PillKind.GREY, fill = false, height = 46.dp,
+                    Pill(decline, kind = PillKind.GREY, fill = false, height = 46.dp,
                         onClick = if (busy) null else ({ vm.answer(q.approvalId, AnswerInput.Words("")) }))
-                    Pill(stringResource(R.string.private_send), Modifier.weight(1f), height = 46.dp, onClick = if (busy || count == 0) null else send)
+                    Pill(sendWord, Modifier.weight(1f), height = 46.dp, onClick = if (busy || count == 0) null else send)
                 }
             }
             SecretKeypad(bottomInset = insets.bottom, onKey = { k ->
@@ -276,7 +337,8 @@ private fun PrivateAnswer(vm: FerbViewModel, q: Question, insets: PhoneInsets, b
     val field = remember(q.approvalId) { TextFieldState() }
     DisposableEffect(q.approvalId) { onDispose { field.clearText() } }
     SheetFrame(title = title, bottomInset = insets.bottom, onDismiss = close) {
-        PrivateHead(title, q.reason)
+        PrivateHead(title, detail, m?.header?.ifEmpty { null })
+        m?.let { MacBelow(it) }
         Box(Modifier.padding(top = 16.dp).fillMaxWidth().heightIn(min = Phone.secretBoxHeight).background(Ink.fill, RoundedCornerShape(Phone.secretBoxCorner)).padding(horizontal = 16.dp),
             contentAlignment = Alignment.CenterStart) {
             BasicSecureTextField(
@@ -285,13 +347,13 @@ private fun PrivateAnswer(vm: FerbViewModel, q: Question, insets: PhoneInsets, b
                 keyboardOptions = KeyboardOptions(KeyboardCapitalization.None, autoCorrectEnabled = false, keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
                 cursorBrush = SolidColor(Ink.black),
             )
-            if (field.text.isEmpty()) PhoneText(stringResource(R.string.private_field), 16f, color = Ink.faint)
+            if (field.text.isEmpty()) PhoneText(m?.field ?: stringResource(R.string.private_field), 16f, color = Ink.faint)
         }
         PrivateNote()
         Row(Modifier.fillMaxWidth().padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Pill(stringResource(R.string.private_decline), kind = PillKind.GREY, fill = false,
+            Pill(decline, kind = PillKind.GREY, fill = false,
                 onClick = if (busy) null else ({ field.clearText(); vm.answer(q.approvalId, AnswerInput.Words("")) }))
-            Pill(stringResource(R.string.private_send), Modifier.weight(1f), onClick = if (busy || field.text.isEmpty()) null else ({
+            Pill(sendWord, Modifier.weight(1f), onClick = if (busy || field.text.isEmpty()) null else ({
                 // read character by character (no String of it here), the field cleared, the copy zeroed by the view
                 // model once its units are in the library's SecretInput (kb PHN-536)
                 val t = field.text
@@ -306,10 +368,11 @@ private fun PrivateAnswer(vm: FerbViewModel, q: Question, insets: PhoneInsets, b
 private const val MAX_CODE = 10
 
 @Composable
-private fun PrivateHead(title: String, detail: String) {
+private fun PrivateHead(title: String, detail: String, header: String? = null) {
     Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
         SheetIcon(FerbIcons.key)
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            if (header != null) PhoneText(header, 13.5f, FerbType.Medium, Ink.detail)
             PhoneText(title, 19f, FerbType.Semibold)
             if (detail.isNotEmpty()) PhoneText(detail, 15f, color = Ink.detail)
         }
@@ -349,6 +412,9 @@ private fun TypeCode(vm: FerbViewModel, insets: PhoneInsets, close: () -> Unit) 
 @Composable
 private fun Profile(vm: FerbViewModel, ui: UiState, insets: PhoneInsets, host: Host, close: () -> Unit) {
     val s: PhoneSettings by vm.settings.collectAsState()
+    // read again when the switches change and when he comes back from Android's settings (the app returns to front)
+    val front by vm.front.collectAsState()
+    val blocker = androidx.compose.runtime.remember(s, front) { vm.notifyBlocker() }
     // the Mac's own date for this phone's pairing (phone.list), else the day this phone first saw it paired
     val pairedAt = ui.mac?.pairedAt?.let { runCatching { java.time.OffsetDateTime.parse(it).toInstant().toEpochMilli() }.getOrNull() }
         ?: s.pairedSince.takeIf { it > 0 }
@@ -356,11 +422,20 @@ private fun Profile(vm: FerbViewModel, ui: UiState, insets: PhoneInsets, host: H
     ProfileSheet(
         ui.mac?.name ?: stringResource(R.string.profile_mac_name), since, insets,
         lockOn = true, // PHN-8: FERB always opens with the fingerprint or the screen lock; there is no off
+        // PHN-656: no switch that does nothing: "Always on", and a tap says why
+        lockAlways = stringResource(R.string.profile_lock_always),
+        onLockInfo = { vm.note(com.ferb.app.Note(R.string.profile_lock_why)) },
         stayConnected = s.stayConnected,
         onClose = close,
         onStayConnected = host::stayConnected,
         onForget = { vm.show(Sheet.Forget) },
         more = {
+            // kb PHN-765: what keeps FERB's questions from reaching this phone, said where he looks, with its fix
+            blocker?.let { b ->
+                Divide()
+                CardRow(stringResource(R.string.cant_notify_title), stringResource(b.words), leading = { RowIcon(FerbIcons.bell) },
+                    onClick = { host.fixNotifications(b) }, trailing = { com.ferb.design.components.Opens() })
+            }
             Divide()
             CardRow(stringResource(R.string.profile_screenshots), stringResource(R.string.profile_screenshots_detail), leading = { RowIcon(FerbIcons.eye) },
                 trailing = { PhoneSwitch(s.blockScreenshots, { host.blockScreenshots(it); vm.refreshProfile() }, stringResource(R.string.profile_screenshots)) })
@@ -377,4 +452,19 @@ private fun Profile(vm: FerbViewModel, ui: UiState, insets: PhoneInsets, host: H
             }
         },
     )
+}
+
+/**
+ * What FERB.app shows under a question's exact thing (ApprovalView.swift:60-73): the task's reason in its own words,
+ * smaller, and the app-use evidence behind a disclosure.
+ */
+@Composable
+private fun MacBelow(m: com.ferb.mobile.QuestionShown) {
+    m.why?.let { PhoneText(it, 13.5f, color = Ink.detail, modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) }
+    if (m.evidence.isNotEmpty()) {
+        var open by remember(m) { mutableStateOf(false) }
+        PhoneText((if (open) "▾ " else "▸ ") + "App-use evidence", 13.5f, FerbType.Medium, Ink.detail,
+            Modifier.padding(top = 10.dp).pressable({ open = !open }))
+        if (open) for (line in m.evidence) PhoneText(line, 13.5f, color = Ink.detail, modifier = Modifier.padding(top = 4.dp, start = 12.dp))
+    }
 }

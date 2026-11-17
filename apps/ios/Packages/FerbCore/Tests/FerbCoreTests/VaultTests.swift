@@ -61,8 +61,8 @@ final class VaultTests: XCTestCase {
         XCTAssertNil(try vault(secrets).linkState(), "after the wipe a first start")
     }
 
-    // decision: PHN-408
-    func testForgetKeepsTheLinkKeyAndDropsTheStoreAndTheSigningKeys() throws {
+    // decision: PHN-408, PHN-646
+    func testForgetDropsTheLinkIdentityTheStoreAndTheSigningKeys() throws {
         let secrets = MemoryStore()
         let v = vault(secrets)
         _ = v.clientId()
@@ -75,7 +75,7 @@ final class VaultTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: v.storeFile.path))
         XCTAssertNil(v.registeredKeys())
         XCTAssertEqual(v.keys.health(), KeyHealth(device: .none, lock: .none, strong: .none))
-        XCTAssertEqual(try v.linkState(), Data("state".utf8), "Link.forget rewrites it; the phone's link key stays")
+        XCTAssertNil(try v.linkState(), "the link's identity and pairing go: the next pairing is a new phone (PHN-646)")
         XCTAssertNotEqual(try v.storeKey(), key, "a new store, a new key")
     }
 

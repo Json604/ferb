@@ -1181,10 +1181,13 @@ impl Phone {
         let l = self.limits();
         let id = EndpointId::from_str(&target.id)
             .map_err(|_| LinkError::new(errors::BAD_REQUEST, "The saved Mac id is damaged."))?;
-        // Where to look for the Mac. With an own relay: only there, so the connection cannot settle on a shared
-        // relay by accident. Without one: where the Mac was last seen. The shared relays are added when the
-        // own relay is in fallback, or after two dials in a row found nobody (the Mac may have fallen back
-        // while this phone still reaches the own relay).
+        // Where to look for the Mac, all in one dial: iroh sends the connection's first packet to every relay of
+        // the address at once and the first to answer carries it (kb PHN-740). With an own relay: only there, so
+        // the connection cannot settle on a shared relay by accident; the shared relays are added when the own
+        // relay is in fallback, or after two dials in a row found nobody (the Mac may have fallen back while this
+        // phone still reaches the own relay). Without one: where the Mac was last seen and every shared relay,
+        // since the Mac's home relay moves by itself with the network's latencies (on the owner's network every
+        // 5 to 20 minutes) and a phone that was closed meanwhile cannot know where to.
         let fallback = matches!(self.inner.policy.state(), RelayState::OwnFallback { .. });
         let widen = fallback
             || self
@@ -1204,7 +1207,6 @@ impl Phone {
         let wanted: Vec<String> = match (target.own.is_some(), widen) {
             (true, false) => own.collect(),
             (true, true) => own.chain(last).chain(shared).collect(),
-            (false, false) if !target.relays.is_empty() => last.collect(),
             (false, _) => last.chain(shared).collect(),
         };
         let mut relays: Vec<RelayUrl> = vec![];
@@ -1215,26 +1217,10 @@ impl Phone {
                 relays.push(u);
             }
         }
-        // The Mac sends to this phone through the phone's home relay, so with an own relay set the phone
-        // must be at home there before it dials (unless the shared relays are standing in for it).
-        let want_own = target
-            .own
-            .as_ref()
-            .and_then(|o| o.parsed().ok())
-            .filter(|_| !matches!(self.inner.policy.state(), RelayState::OwnFallback { .. }));
-        let _ = tokio::time::timeout(Duration::from_secs(5), async {
-            loop {
-                let homes = net::home_relays(ep);
-                if want_own
-                    .as_ref()
-                    .map_or(!homes.is_empty(), |o| homes.contains(o))
-                {
-                    return;
-                }
-                tokio::time::sleep(Duration::from_millis(50)).await;
-            }
-        })
-        .await;
+        // No waiting for this phone's own home relay first (kb PHN-741): iroh connects to each relay it sends
+        // through and holds the first packet until that relay connection is up (QUIC sends it again if that took
+        // longer), and the Mac answers through the relay the packet came by. The home relay comes from iroh's first
+        // network report, which took 4 s on the owner's phone: that was the dial's first 4 s.
         let addr = net::dial_addr(id, &relays);
         let conn = match tokio::time::timeout(
             Duration::from_secs(l.dial_deadline_s),

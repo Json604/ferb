@@ -50,6 +50,8 @@ final class FakePhone: PhoneApi {
     @ObservationIgnored var fetchRefusal: FerbError?
     @ObservationIgnored var cancelled: [String] = []
     @ObservationIgnored var uploadRefusal: FerbError?
+    /// An upload waits here half way until it is let go (a cancel lets it go, refused as stopped).
+    @ObservationIgnored var uploadGate: Latch?
     @ObservationIgnored var sentWith: [(String, [Attachment])] = []
     @ObservationIgnored var preview: PreviewSink?
     @ObservationIgnored var previewStopped = 0
@@ -117,7 +119,21 @@ final class FakePhone: PhoneApi {
         return unlockResult
     }
     func pair(_ code: String) async -> Outcome<Void> { calls.append("pair:\(code)"); return .ok(()) }
-    func forget() async -> Outcome<Void> { calls.append("forget"); return .ok(()) }
+    var macForgot = true
+    func forget() async -> Outcome<Bool> { calls.append("forget"); return .ok(macForgot) }
+
+    /// PHN-649: the statement path; `statementResults` answer in turn (then ok); what was sent, with its age.
+    var statementOk = true
+    var statementResults: [Outcome<Void>] = []
+    var statements: [(String, UInt64)] = []
+    func statementReady() async -> Bool { statementOk && link?.paired != false }
+    func unlockWithStatement(payload: String, sig: String, ageMs: UInt64) async -> Outcome<Void> {
+        calls.append("statement")
+        statements.append((payload, ageMs))
+        return statementResults.isEmpty ? .ok(()) : statementResults.removeFirst()
+    }
+    var opens: [Bool] = []
+    func setOpen(_ on: Bool) { opens.append(on) }
     func lock() async -> Outcome<Bool> { calls.append("lock"); return .ok(true) }
     func unlocked() async -> Outcome<Void> { calls.append("unlocked"); return .ok(()) }
     func stopEverything() async -> Outcome<Void> { calls.append("stop-everything"); return .ok(()) }
@@ -134,7 +150,7 @@ final class FakePhone: PhoneApi {
         calls.append("status")
         return status.map { .ok($0) } ?? .failed(.Offline(detail: "no", linkCode: nil))
     }
-    func lastStatus() -> PhoneStatus? { status }
+    func lastStatus() async -> PhoneStatus? { status }
     func markReadLatest(conversation: String) async -> Outcome<Void> { calls.append("mark:\(conversation)"); return .ok(()) }
     func sendWith(_ text: String, attachments: [Attachment]) async -> Outcome<OutboxItem> {
         sentWith.append((text, attachments))
@@ -174,12 +190,18 @@ final class FakePhone: PhoneApi {
         if let r = uploadRefusal { return .failed(r) }
         let size = ((try? FileManager.default.attributesOfItem(atPath: localPath)[.size]) as? NSNumber)?.uint64Value ?? 0
         listener.accepted(uploadId: resume ?? "up-\(name)", offset: 0)
+        if let g = uploadGate {
+            listener.progress(done: size / 2, of: size)
+            await g.wait()
+            if cancelled.contains(id) { return .failed(.Cancelled(detail: "Stopped.", linkCode: "cancelled")) }
+        }
         listener.progress(done: size, of: size)
         return .ok(Uploaded(uploadId: resume ?? "up-\(name)", saved: "~/Downloads/FERB/\(name)", size: size, savedIn: nil))
     }
     func cancelTransfer(id: String) async -> Outcome<Void> {
         cancelled.append(id)
         fetchGate?.release()
+        uploadGate?.release()
         return .ok(())
     }
     func tree(path: String, signer: Signer?) async -> Outcome<Tree> { .failed(.NotFound(detail: "No such folder.", linkCode: nil)) }
@@ -205,6 +227,19 @@ final class FakePhone: PhoneApi {
     func answerLocation(requestId: String, fix: LocationFix?, whyNot: String?) async -> Outcome<Void> {
         calls.append("location:\(requestId):\(fix != nil):\(whyNot ?? "-")")
         return .ok(())
+    }
+    /// The work row's pictures asked for, by task, and their sinks (kb PHN-725).
+    var thumbnails: [String: PreviewSink] = [:]
+    var thumbnailsStopped = 0
+    func watchStepThumbnail(taskId: String, worker: String, everyMs: UInt64, sink: PreviewSink) async -> Outcome<Live> {
+        calls.append("step-thumbnail:\(taskId):\(worker):\(everyMs)")
+        thumbnails[Thumbnails.key(taskId, worker)] = sink
+        return .ok(Live { [weak self] in Task { @MainActor in self?.thumbnailsStopped += 1 } })
+    }
+    func watchThumbnail(taskId: String, everyMs: UInt64, sink: PreviewSink) async -> Outcome<Live> {
+        calls.append("thumbnail:\(taskId):\(everyMs)")
+        thumbnails[taskId] = sink
+        return .ok(Live { [weak self] in Task { @MainActor in self?.thumbnailsStopped += 1 } })
     }
     func watchLive(taskId: String, sink: PreviewSink) async -> Outcome<Live> {
         calls.append("live:\(taskId)")
@@ -304,7 +339,7 @@ final class Rig {
     let prefs: Prefs
     var screenLock = true
     /// Short waits, so a test sees the bounds without real seconds (Android's tests move a test clock instead).
-    var timing = UnlockTiming(promptWait: 0.3, macSlow: 0.4, recheck: 0.02, rechecks: 2)
+    var timing = UnlockTiming(statementAge: 100, statementRetry: 0.02, statementTries: 6, macSlow: 0.4, recheck: 0.02, rechecks: 2)
 
     init() {
         let c = clock
@@ -314,9 +349,9 @@ final class Rig {
         prefs = Prefs(defaults: UserDefaults(suiteName: suite)!)
     }
 
-    func model(corpus: Corpus? = nil, locator: Locator? = nil) -> AppModel {
+    func model(corpus: Corpus? = nil, locator: Locator? = nil, now: (() -> Date)? = nil) -> AppModel {
         let m = AppModel(api: phone, session: session, prefs: prefs, local: local, screenLock: { [weak self] in self?.screenLock ?? true },
-                         corpus: corpus, locator: locator, timing: timing)
+                         corpus: corpus, now: now ?? Date.init, locator: locator, timing: timing, steady: { [clock] in clock.t })
         m.prompts = prompts
         return m
     }

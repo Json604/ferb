@@ -41,11 +41,14 @@ pub const GUIDE_CHARS: usize = 400;
 pub const VALUE_CHARS: usize = 120;
 
 /// The always-on lines (`about.summary`): no live numbers (prompt cache). `models`: role -> "runtime model".
+/// PRM-363: the conversation is one, shown in FERB.app and in FERB's phone app (Python said FERB "always replies in
+/// text in FERB.app").
 pub fn summary(version: &str, models: &[(String, String)]) -> String {
     let shown: Vec<String> = models.iter().map(|(r, m)| format!("{r} {m}")).collect();
     format!(
         "- About FERB: version {version}; models: {}. The owner types or dictates messages to FERB in FERB.app \
-         (dictation turns their speech into text); FERB always replies in text in FERB.app and never speaks aloud: \
+         on this Mac or in FERB's app on a paired phone (dictation turns their speech into text); FERB replies in \
+         text in that one conversation, which FERB.app and FERB's phone app both show, and never speaks aloud: \
          it has no voice. FERB's settings (AI models, permissions, browsers, notifications, privacy and how long \
          records are kept) are the owner's to change in FERB.app's Settings; FERB never changes them and tells the \
          owner where they are. A worker reads FERB's full self-description (what it records about the owner, where \
@@ -376,6 +379,157 @@ pub const PERMISSION_REASONS: [PermissionReason; 9] = [
     },
 ];
 
+/// What FERB's phone app is (PHN-650), the first line of the document's `app.phone_app`.
+pub const PHONE_APP_WHAT: &str = "FERB's app for Android phones and iPhones lets the owner use FERB on this Mac from \
+their phone. FERB itself runs only on this Mac, so the Mac must be on with FERB running; the app looks and works the \
+same on both kinds of phone.";
+
+/// How to do things in FERB's phone app (PHN-650): (title, steps), written from what the apps do.
+pub const PHONE_APP_HOWTOS: &[(&str, &str)] = &[
+    (
+        "Pair a phone",
+        "On the Mac: FERB.app → Settings → Phone → Pair a phone. On the phone: open FERB and scan the code the Mac \
+         shows, or tap Type code and type the text shown under the code. Both screens then show the same six digits: \
+         say yes on the Mac only if they match. Up to 5 phones can be paired.",
+    ),
+    (
+        "Open the app (the lock)",
+        "FERB on the phone opens only with the phone's fingerprint, face or PIN (a phone with no screen lock can't \
+         use it). It locks again after more than 5 minutes in the background, and the unlock prompt appears by itself.",
+    ),
+    (
+        "Find your way around the app",
+        "Four tabs at the top: Chat, Tasks, Files and Mac. The profile button at the top opens This phone: the \
+         phone's own switches and Forget this Mac.",
+    ),
+    (
+        "See earlier messages on the phone",
+        "Chat is the same conversation as FERB.app on the Mac: a message sent from either shows in both, and FERB \
+         answers in both. Chat opens on the conversation, with a line for each day; the home page shows only while \
+         today's chat is empty. Scroll up to reach earlier messages and earlier days: they load as you reach the top \
+         (or tap Earlier messages). Through the free shared relay, earlier messages load only once the phone reaches \
+         the Mac directly or through your own relay.",
+    ),
+    (
+        "Send a message while the Mac can't be reached",
+        "What you send waits on the phone (Waiting for your Mac) and is sent when the Mac is back; Cancel takes it \
+         back before then.",
+    ),
+    (
+        "Speak instead of typing",
+        "Hold the microphone in the message box while you speak and let go when you're done; the words appear in the \
+         box so you can check them before sending. The phone turns speech into words itself when it can; when it \
+         can't, FERB says so first and then uses the phone's own speech service (Google's on most Android phones, \
+         Apple's on iPhone), which may get the sound of your voice. Your voice never goes to the Mac.",
+    ),
+    (
+        "Answer FERB's questions on the phone",
+        "A question shows in Chat (Tap to answer) and, when notifications reach the phone, in the notification \
+         itself. Routine questions, using the Mac's screen included, are answered straight away. A Yes to a \
+         payment, deleting, account security or typing in a terminal needs your fingerprint. A private answer (a \
+         code or a password) is typed into its own hidden field and goes only to the Mac. A few questions can be \
+         answered only in FERB on the Mac, and the phone says so.",
+    ),
+    (
+        "Let FERB use the Mac's screen until you're back",
+        "When FERB asks to use the Mac's screen, the phone also offers Yes, until I'm back at my Mac: FERB then uses \
+         the Mac's screen without asking again until you use the Mac's keyboard or pointer, send a message from the \
+         Mac, or the Mac locks or sleeps. Payments, deleting, new recipients and the like still ask. Ask me again \
+         on the Mac tab ends it.",
+    ),
+    (
+        "Follow and stop tasks from the phone",
+        "The Tasks tab lists what waits for you, what is running (with how far it got) and what finished earlier. \
+         Stop on a running task's card in Chat stops that task.",
+    ),
+    (
+        "Watch FERB work from the phone",
+        "Watch live on a running task's card shows what FERB is doing on the Mac, full screen. It needs the app \
+         unlocked and a direct connection or your own relay, never the free shared relay. Nothing is recorded, and \
+         the picture is kept out of screenshots.",
+    ),
+    (
+        "Get files from the Mac on the phone",
+        "The Files tab shows the Mac's Desktop, Documents and Downloads, Recent files (made by FERB, and files moved \
+         between the phone and the Mac) and a search of the Mac by name; Load more shows the rest of a long list, \
+         and Get this whole folder fetches a folder's files. Tap a file to get it, then open, share or save it. \
+         Files kept in FERB stay on the phone until FERB locks; a file from a place FERB guards closely asks for your \
+         fingerprint each time and is removed as soon as you come back to FERB.",
+    ),
+    (
+        "Send files from the phone to the Mac",
+        "Send files to your Mac (Files tab), or attach files to a message in Chat; photos and whole folders can go \
+         too. They are saved in Downloads › FERB from phone on the Mac, unless another folder is chosen on the Mac in \
+         Settings → Phone, and the phone says where each one landed. A transfer can be paused and goes on where it \
+         stopped; an interrupted one is kept 7 days. Getting and sending files needs a direct connection or your own \
+         relay.",
+    ),
+    (
+        "Get FERB's notifications on the phone",
+        "On Android, Stay connected (This phone, behind the profile button) keeps the link up in the background, so \
+         FERB's questions, replies and finished tasks arrive as notifications. On iPhone there is no Stay connected: \
+         notifications come while FERB is open and for a short while after leaving it; once it's closed, questions \
+         show when you open FERB. The words of payment, deleting and account-security questions are kept off the \
+         lock screen (Hide checks on the lock screen).",
+    ),
+    (
+        "Stop everything from the phone",
+        "Mac tab → Stop everything: FERB stops what it is doing on the Mac and starts nothing new until the stop is \
+         lifted in FERB on the Mac.",
+    ),
+    (
+        "Change FERB's settings from the phone",
+        "Mac tab → FERB's settings: how long FERB keeps its records and whether it records window titles; each \
+         change asks for your fingerprint. The lists of apps and sites FERB ignores are changed on the Mac.",
+    ),
+    (
+        "This phone's own switches",
+        "This phone (the profile button): Stay connected (Android), Block screenshots, Hide checks on the lock \
+         screen, and Share this phone's city with FERB (the city only; the exact location is asked for each time a \
+         task needs it).",
+    ),
+    (
+        "Remove a phone or forget the Mac",
+        "On the Mac: Settings → Phone → Paired phones → Rename or Remove…. On the phone: This phone → Forget this \
+         Mac deletes the chat kept on the phone and tells the Mac to remove the phone; the Mac keeps everything, and \
+         the phone can be paired again. A phone unused for 30 days stays paired, and FERB says so once.",
+    ),
+    (
+        "How the phone reaches the Mac",
+        "Directly when it can, otherwise through a relay. Everything is encrypted end to end, so no relay can read \
+         it. Without a relay of your own the phone uses the free shared relay, which carries only messages, FERB's \
+         replies, questions and answers, and Stop: files, Watch live and earlier messages wait for a direct \
+         connection or your own relay (set on the Mac in Settings → Phone).",
+    ),
+];
+
+/// What the phone app can't do yet (PHN-650).
+pub const PHONE_APP_NOT_YET: &[&str] = &[
+    "FERB can't control or use the phone itself: it works on this Mac only.",
+    "On iPhone, nothing reaches the phone while FERB is closed: notifications for a closed app come later.",
+    "There is no sign-in on the phone: the phone talks to FERB on this Mac, so nothing is done while the Mac is off.",
+    "A paired phone can't remove another (lost) phone yet: remove it on the Mac.",
+];
+
+/// The document's `app.phone_app` (PHN-650, a named addition to Python's document, after FERB.app's own guide): what
+/// FERB's phone app is, how to do things in it and what it can't do yet. Read with the rest of `app` by about.read.
+pub fn phone_app() -> Value {
+    json!({
+        "what": PHONE_APP_WHAT,
+        "howtos": PHONE_APP_HOWTOS.iter().map(|(t, s)| json!({"title": t, "steps": s})).collect::<Vec<_>>(),
+        "not_yet": PHONE_APP_NOT_YET,
+    })
+}
+
+/// Adds `phone_app` at the end of the document's `app` section (the document builder calls it; the recorded
+/// documents' tests call it on Python's).
+// decision: PHN-650
+pub fn add_phone_app(doc: &mut Map<String, Value>) {
+    if let Some(Value::Object(app)) = doc.get_mut("app") {
+        app.insert("phone_app".into(), phone_app());
+    }
+}
+
 /// The document's `permission_reasons` (APP-927, a named addition to Python's document): each permission's reasons
 /// and its status now: the daemon's own grants (`grants`, by id: the four TCC rows), Location as FERB.app last reported
 /// it (`location`, "" before its first report); Notifications, Microphone and the clipboard as FERB.app's Settings shows
@@ -515,6 +669,7 @@ pub fn document(h: &Host, d: &Deps) -> HandlerResult {
     });
     let mut doc = doc.as_object().cloned().unwrap_or_default();
     add_reasons(&mut doc, &(d.app_location)());
+    add_phone_app(&mut doc);
     ok(h.redact(&Value::Object(doc)))
 }
 
@@ -938,6 +1093,92 @@ fn seen_image(h: &Host, d: &Deps, params: &Map<String, Value>) -> HandlerResult 
         json!(base64::engine::general_purpose::STANDARD.encode(image)),
     );
     Ok(out)
+}
+
+#[cfg(test)]
+mod phone_app_tests {
+    use super::*;
+
+    fn apps(rel: &str) -> String {
+        std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../../apps")
+                .join(rel),
+        )
+        .unwrap_or_else(|e| panic!("{rel}: {e}"))
+    }
+
+    /// PHN-650: the phone app's section names only what the apps show (each control by its own words in the Android
+    /// app, the same words on iPhone) and the numbers FERB enforces; plain words about FERB, none about "AI". It sits at
+    /// the end of `app`, so about.read's frozen `app` section carries it.
+    // decision: PHN-650
+    // decision: PHN-653
+    #[test]
+    fn the_phone_guide_names_what_the_apps_show() {
+        let strings = apps("android/app/src/main/res/values/strings.xml").replace("\\'", "'");
+        let design = apps("android/design/src/main/kotlin/com/ferb/design/components/TopBar.kt")
+            + &apps("android/design/src/main/kotlin/com/ferb/design/screens/SheetScreens.kt")
+            + &apps("android/app/src/main/kotlin/com/ferb/app/ui/Files.kt");
+        for words in [
+            ">Type code<",
+            ">Earlier messages<",
+            ">Waiting for your Mac<",
+            ">Yes, until I'm back at my Mac<",
+            ">Ask me again<",
+            ">Watch live<",
+            ">Stop everything<",
+            ">Get this whole folder<",
+            ">Load more<",
+            ">Downloads › FERB from phone<",
+            ">FERB's settings<",
+            ">Block screenshots<",
+            ">Hide checks on the lock screen<",
+            ">Share this phone's city with FERB<",
+            ">Forget this Mac<",
+            ">Tap to answer<",
+        ] {
+            assert!(strings.contains(words), "strings.xml has {words}");
+        }
+        for words in [
+            "\"Chat\"",
+            "\"Tasks\"",
+            "\"Files\"",
+            "\"Mac\"",
+            "\"Stay connected\"",
+            "\"Send files to your Mac\"",
+        ] {
+            assert!(design.contains(words), "the Android app shows {words}");
+        }
+        let limits = crate::phone::Limits::default();
+        assert_eq!(limits.devices_max, 5);
+        assert_eq!(limits.unlock_idle_s, 300.0);
+        assert_eq!(limits.device_unused_days, 30);
+        assert_eq!(crate::phone::files::UPLOAD_PARTIAL_KEEP_S, 7.0 * 86_400.0);
+        let all = phone_app().to_string();
+        for said in [
+            "Up to 5 phones",
+            "more than 5 minutes",
+            "kept 7 days",
+            "unused for 30 days",
+        ] {
+            assert!(all.contains(said), "{said}");
+        }
+        let words: Vec<&str> = all.split(|c: char| !c.is_alphanumeric()).collect();
+        assert!(!words.contains(&"AI"), "{all}");
+        let mut doc = json!({"version": {}, "app": {"howtos": [], "settings": []}})
+            .as_object()
+            .unwrap()
+            .clone();
+        add_phone_app(&mut doc);
+        let keys: Vec<&String> = doc["app"].as_object().unwrap().keys().collect();
+        assert_eq!(keys, ["howtos", "settings", "phone_app"]);
+        assert!(doc["app"]["phone_app"]["howtos"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|h| h["title"] == "See earlier messages on the phone"
+                && h["steps"].as_str().unwrap().contains("Scroll up")));
+    }
 }
 
 #[cfg(test)]

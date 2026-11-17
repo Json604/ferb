@@ -92,7 +92,8 @@ fun Modifier.pressable(onClick: (() -> Unit)?, role: Role = Role.Button, label: 
     var touched by remember { androidx.compose.runtime.mutableStateOf(false) }
     val pressed = pressedByCompose || touched
     val reduced = com.ferb.design.rememberReducedMotion()
-    val scale by animateFloatAsState(
+    // read in the layer, never in composition: a press's frames recompose nothing around it (kb PHN-711)
+    val scale = animateFloatAsState(
         if (pressed && !reduced) Motion.PRESS_SCALE else 1f,
         if (pressed) Motion.pressDown.spec() else Motion.pressUp.spec(),
         label = "press",
@@ -114,7 +115,7 @@ fun Modifier.pressable(onClick: (() -> Unit)?, role: Role = Role.Button, label: 
                 }
             }
         }
-        .graphicsLayer { scaleX = scale; scaleY = scale; alpha = if (pressed) Motion.PRESS_ALPHA else 1f }
+        .graphicsLayer { scaleX = scale.value; scaleY = scale.value; alpha = if (pressed) Motion.PRESS_ALPHA else 1f }
         .clickable(interactionSource = source, indication = null, role = role, onClickLabel = label, onClick = onClick)
 }
 
@@ -140,7 +141,7 @@ fun PhoneText(
 fun Card(modifier: Modifier = Modifier, padding: Dp = Phone.cardPadding, content: @Composable ColumnScope.() -> Unit) {
     // SwiftUI's VStack centres what is narrower than the card; rows fill it.
     Column(
-        modifier.fillMaxWidth().background(Ink.white, RoundedCornerShape(Phone.cardCorner)).padding(padding),
+        modifier.fillMaxWidth().background(CardInk.current().card, RoundedCornerShape(Phone.cardCorner)).padding(padding),
         horizontalAlignment = Alignment.CenterHorizontally,
         content = content,
     )
@@ -149,7 +150,7 @@ fun Card(modifier: Modifier = Modifier, padding: Dp = Phone.cardPadding, content
 /** Mobile.swift Divide: a line between rows, inset 14. */
 @Composable
 fun Divide() {
-    Box(Modifier.fillMaxWidth().padding(horizontal = 14.dp).height(1.dp).background(Ink.line))
+    Box(Modifier.fillMaxWidth().padding(horizontal = 14.dp).height(1.dp).background(CardInk.current().line))
 }
 
 /** Mobile.swift CardRow: a mark or icon, a title and its detail, and what is on the right. One TalkBack stop. */
@@ -170,8 +171,9 @@ fun CardRow(
         Box(Modifier.width(Phone.rowLeading), contentAlignment = Alignment.Center) { leading() }
         Spacer(Modifier.width(Phone.rowGap))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            PhoneText(title, 16.5f, FerbType.Semibold, if (danger) Ink.red else Ink.black, maxLines = 2)
-            if (detail != null) PhoneText(detail, 14f, color = Ink.detail, maxLines = 1)
+            val ink = CardInk.current()
+            PhoneText(title, 16.5f, FerbType.Semibold, if (danger) ink.red else ink.primary, maxLines = 2)
+            if (detail != null) PhoneText(detail, 14f, color = ink.secondary, maxLines = 1)
         }
         Spacer(Modifier.width(8.dp))
         trailing()
@@ -181,15 +183,17 @@ fun CardRow(
 /** Mobile.swift RowIcon: a 20-point symbol, red for danger. */
 @Composable
 fun RowIcon(icon: ImageVector, danger: Boolean = false) {
-    FerbIcon(icon, 20f, if (danger) Ink.red else Ink.black)
+    val ink = CardInk.current()
+    FerbIcon(icon, 20f, if (danger) ink.red else ink.primary)
 }
 
 /** Mobile.swift Opens: an optional value and a chevron. */
 @Composable
 fun Opens(value: String? = null) {
     Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
-        if (value != null) PhoneText(value, 15f, FerbType.Medium, Ink.faint)
-        FerbIcon(FerbIcons.chevronRight, 14f, Ink.faint)
+        val ink = CardInk.current()
+        if (value != null) PhoneText(value, 15f, FerbType.Medium, ink.faint)
+        FerbIcon(FerbIcons.chevronRight, 14f, ink.faint)
     }
 }
 
@@ -204,8 +208,9 @@ fun Mark(kind: MarkKind, size: Dp = Phone.mark, modifier: Modifier = Modifier) {
     Box(modifier.size(size).semantics { contentDescription = kind.spoken }, contentAlignment = Alignment.Center) {
         when (kind) {
             MarkKind.DONE -> {
-                Box(Modifier.size(size).background(Ink.black, CircleShape))
-                FerbIcon(FerbIcons.check, check, Color.White)
+                val dark = LocalOnFerb.current
+                Box(Modifier.size(size).background(if (dark) Color.White else Ink.black, CircleShape))
+                FerbIcon(FerbIcons.check, check, if (dark) Ink.black else Color.White)
             }
             MarkKind.ASKING -> {
                 Box(Modifier.size(size).background(Ink.amber, CircleShape))
@@ -215,7 +220,7 @@ fun Mark(kind: MarkKind, size: Dp = Phone.mark, modifier: Modifier = Modifier) {
                 Box(Modifier.size(size).background(Ink.red, CircleShape))
                 BasicText("!", style = FerbType.style(0f, FerbType.Bold, Color.White).copy(fontSize = glyph, letterSpacing = 0.sp))
             }
-            MarkKind.RUNNING -> RunningArc(size, Ink.black)
+            MarkKind.RUNNING -> RunningArc(size, CardInk.current().primary)
             MarkKind.WAITING -> Canvas(Modifier.size(size)) {
                 val w = 2.dp.toPx()
                 drawCircle(LabColors.waitingRing, radius = this.size.minDimension / 2 - w / 2,
@@ -227,18 +232,19 @@ fun Mark(kind: MarkKind, size: Dp = Phone.mark, modifier: Modifier = Modifier) {
 
 /** Mobile.swift Mark(.running): a 30 % arc, 2.5 wide, round ends, inset 2, one turn in 0.8 s. */
 @Composable
-fun RunningArc(size: Dp, color: Color, modifier: Modifier = Modifier) {
+fun RunningArc(size: Dp, color: Color, modifier: Modifier = Modifier, stroke: Dp = 2.5.dp) {
     val reduced = rememberReducedMotion()
-    val turn = if (reduced) 0f else {
+    val turn: androidx.compose.runtime.State<Float>? = if (reduced) null else {
         val transition = rememberInfiniteTransition(label = "running")
-        val t by transition.animateFloat(0f, 360f, infiniteRepeatable(tween(Motion.MARK_TURN_MS, easing = LinearEasing), RepeatMode.Restart), label = "turn")
-        t
+        transition.animateFloat(0f, 360f, infiniteRepeatable(tween(Motion.MARK_TURN_MS, easing = LinearEasing), RepeatMode.Restart), label = "turn")
     }
-    Canvas(modifier.size(size)) {
-        val w = 2.5.dp.toPx()
-        val inset = 2.dp.toPx() + w / 2
+    // The turn is read while drawing, in a layer of its own: a turning mark redraws itself alone and recomposes
+    // nothing, wherever it sits (kb PHN-711).
+    Canvas(modifier.size(size).graphicsLayer()) {
+        val w = stroke.toPx()
+        val inset = (if (stroke < 2.5.dp) 1.dp else 2.dp).toPx() + w / 2
         drawArc(
-            color, startAngle = turn, sweepAngle = 0.3f * 360f, useCenter = false,
+            color, startAngle = turn?.value ?: 0f, sweepAngle = 0.3f * 360f, useCenter = false,
             topLeft = Offset(inset, inset), size = Size(this.size.width - 2 * inset, this.size.height - 2 * inset),
             style = Stroke(w, cap = StrokeCap.Round),
         )
@@ -258,10 +264,12 @@ fun Pill(
     fill: Boolean = true,
     onClick: (() -> Unit)? = {},
 ) {
-    val fg = if (kind == PillKind.BLACK) Ink.white else Ink.black
+    // on FERB's surface the one thing to do is the black pill's inverse, the other choice the dark fill
+    val dark = LocalOnFerb.current
+    val fg = if ((kind == PillKind.BLACK) != dark) Ink.white else Ink.black
     val bg = when (kind) {
-        PillKind.BLACK -> Ink.black
-        PillKind.GREY -> Ink.fill
+        PillKind.BLACK -> if (dark) Ink.white else Ink.black
+        PillKind.GREY -> if (dark) Ink.darkFill else Ink.fill
         PillKind.PLAIN -> Color.Transparent
     }
     Row(
@@ -315,7 +323,8 @@ fun SheetIcon(icon: ImageVector, asking: Boolean = true) {
 /** Mobile.swift Switch: 52 by 32, black when on; the knob 24. */
 @Composable
 fun PhoneSwitch(on: Boolean, onChange: ((Boolean) -> Unit)? = null, label: String? = null) {
-    val position by animateFloatAsState(if (on) 1f else 0f, Motion.toggle.spec(), label = "switch")
+    // the knob's place is read while placing it: its slide recomposes nothing (kb PHN-711)
+    val position = animateFloatAsState(if (on) 1f else 0f, Motion.toggle.spec(), label = "switch")
     Box(
         Modifier
             .then(if (onChange != null) Modifier.clickable(role = Role.Switch, onClickLabel = label) { onChange(!on) } else Modifier)
@@ -323,6 +332,6 @@ fun PhoneSwitch(on: Boolean, onChange: ((Boolean) -> Unit)? = null, label: Strin
             .size(Phone.switchWidth, Phone.switchHeight)
             .background(if (on) Ink.black else LabColors.switchOff, CircleShape),
     ) {
-        Box(Modifier.offset((4 + 20 * position).dp, 4.dp).size(24.dp).background(Color.White, CircleShape))
+        Box(Modifier.offset { androidx.compose.ui.unit.IntOffset((4 + 20 * position.value).dp.roundToPx(), 4.dp.roundToPx()) }.size(24.dp).background(Color.White, CircleShape))
     }
 }

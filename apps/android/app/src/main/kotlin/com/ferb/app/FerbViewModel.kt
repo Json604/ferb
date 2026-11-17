@@ -16,6 +16,7 @@ import com.ferb.app.model.VoiceInput
 import com.ferb.app.model.HomeWords
 import com.ferb.app.model.LiveWatch
 import com.ferb.app.model.LocalFiles
+import com.ferb.app.model.UnlockStatement
 import com.ferb.app.model.MacSettings
 import com.ferb.app.model.Moment
 import com.ferb.app.model.Phase
@@ -24,6 +25,7 @@ import com.ferb.app.model.Question
 import com.ferb.app.model.Questions
 import com.ferb.app.model.SettingRow
 import com.ferb.app.model.Transfers
+import com.ferb.app.model.Outgoing
 import com.ferb.app.model.Unlocker
 import com.ferb.app.model.Why
 import com.ferb.app.model.Work
@@ -70,12 +72,15 @@ import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -83,7 +88,10 @@ import kotlinx.coroutines.withTimeoutOrNull
 enum class Gate { STARTING, FAILED, NO_SCREEN_LOCK, LOCKED, PAIR, CODES, REMOVED, MAIN }
 
 /** Why the pairing screen shows again (or null on a first run). */
-enum class PairReason { WIPED, REMOVED, KEYS }
+enum class PairReason { WIPED, REMOVED, KEYS, UNKNOWN }
+
+/** Why the Mac's side needs the owner's fingerprint again while the app is open (kb PHN-649's card). */
+enum class MacNeed { LAPSED, CANCELLED, OLD }
 
 /** What slides up over the page. Only ids are kept (saved state holds no question words and never a private value). */
 sealed interface Sheet {
@@ -101,6 +109,12 @@ sealed interface Sheet {
     data class Days(val key: String) : Sheet
     data class Live(val taskId: String) : Sheet
 
+    /** A running task's short view (kb PHN-725; FERB.app's TaskShortView): its picture, title and line, Watch live, Stop. */
+    data class Task(val taskId: String, val worker: String? = null) : Sheet
+
+    /** The sites a task contacted (FERB.app's "Sites visited" list), by the chat row that has them. */
+    data class Sites(val row: String) : Sheet
+
     /** The words before the owner's first use of speaking to FERB, for this phone's kind of recognition (PHN-604). */
     data class Voice(val kind: SpeechKind) : Sheet
 
@@ -109,6 +123,12 @@ sealed interface Sheet {
 
     /** The words before Android's own question, when the owner turns on sharing the city (SENSE-420). */
     data object City : Sheet
+
+    /** What keeps FERB's questions from reaching this phone, with the tap that fixes it (kb PHN-765). */
+    data class CantNotify(val blocker: NotifyBlocker) : Sheet
+
+    /** The connection control's sheet (kb PHN-752): which Mac, how the link stands, its path, Try again. */
+    data object Connection : Sheet
 }
 
 /** What pressing the microphone needs from the screen: nothing more, or Android's microphone question. */
@@ -162,6 +182,21 @@ data class UiState(
     val keys: KeyHealth? = null,
     val conversation: String? = null,
     val rows: List<ChatRow> = emptyList(),
+    /** The work row above the message box (kb PHN-725): what runs, from the chat's live state; null when nothing does. */
+    val running: com.ferb.app.model.RunningUi? = null,
+    /** Each entry's calendar day (epoch days, the phone's zone): the chat's day dividers (kb PHN-627). */
+    val days: Map<String, Long> = emptyMap(),
+    /**
+     * The chat's "today" (epoch days; ChatModel.chatDay, kb PHN-697), held: it moves only when the app opens or unlocks,
+     * comes back to the front, or the Chat tab is chosen, so a day changing never moves the page under him. 0: not set
+     * (screens then ask ChatModel.chatDay themselves).
+     */
+    val chatDay: Long = 0,
+    /**
+     * The Mac has really not been reachable (kb PHN-753): stopped for good, or not online for [FerbViewModel.LINK_LOST_AFTER_MS]
+     * while the app is open and unlocked. Until then a link that isn't online is connecting, never an error.
+     */
+    val linkLost: Boolean = false,
     /** What the chat holds (the Tasks tab falls back to it when the Mac's own list can't be read). */
     val chatWork: Work = Work(emptyList(), emptyList(), emptyList()),
     val work: Work = Work(emptyList(), emptyList(), emptyList()),
@@ -170,6 +205,10 @@ data class UiState(
     val questions: List<Question> = emptyList(),
     val older: OlderState = OlderState.Unknown,
     val needsMacUnlock: Boolean = false,
+    /** Why the Mac's side needs the fingerprint again: the card with its one button (PHN-649); null: nothing to do. */
+    val macNeed: MacNeed? = null,
+    /** The Mac doesn't know this phone's keys any more (`unlock_invalid`): it needs pairing again (PHN-649). */
+    val macForgotPhone: Boolean = false,
     /** The Mac's side while the app is already open (PHN-641): its unlock under way, or slow to answer. */
     val macLine: MacLine? = null,
     val busy: Set<String> = emptySet(),
@@ -215,13 +254,25 @@ class FerbViewModel(
     private val micAllowed: () -> Boolean = { false },
     /** How a short pause is waited (tests pass one that returns at once). */
     private val wait: suspend (Long) -> Unit = { delay(it) },
+    /** Where the opening prompt's signature waits (its prompt blocks): never the main thread (tests: their own). */
+    private val io: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.IO,
+    /** The phone's steady clock in ms (the unlock statement's age, PHN-649). */
+    private val steady: () -> Long = { android.os.SystemClock.elapsedRealtime() },
 ) : ViewModel() {
     private val _ui = MutableStateFlow(UiState())
     val ui: StateFlow<UiState> = _ui.asStateFlow()
 
     /** The chosen tab and whether the chat tab shows the home screen; saved across process death. */
     val tab: StateFlow<PhoneTab> = saved.getStateFlow("tab", PhoneTab.CHAT)
-    val home: StateFlow<Boolean> = saved.getStateFlow("home", true)
+    /**
+     * The chat tab shows today's home page (kb PHN-696): today, with nothing said on it yet (his send, FERB's post, a
+     * message with files on its way). Typing, speaking or picking a file never changes it; something said today does.
+     */
+    private val _home = MutableStateFlow(true)
+    val home: StateFlow<Boolean> = _home.asStateFlow()
+
+    /** The chat tab shows the earlier days (kb PHN-696): "Earlier messages" opened them; Today and a send come back. */
+    val earlier: StateFlow<Boolean> = saved.getStateFlow("earlier", false)
     val draft: StateFlow<String> = saved.getStateFlow("draft", "")
     private val _settings = MutableStateFlow(readSettings())
     val settings: StateFlow<PhoneSettings> = _settings.asStateFlow()
@@ -235,9 +286,33 @@ class FerbViewModel(
     private var refreshing: Job? = null
     private var dirty = false
 
+    // (declared before `init`, which already reads the chat: a property further down is still null then)
+    private val applying = kotlinx.coroutines.sync.Mutex()
+    private var statusJob: Job? = null
+    private var statusAgain = false
+    private var markJob: Job? = null
+    private var markAgain = false
+
     private val unlocker = Unlocker(api, { api.state.value.keys }) { kind, why -> prompts?.signer(kind, why) }
     val transfers = Transfers(viewModelScope, api, local, unlocker)
+
+    /** The message box's files and the messages that carry files (kb PHN-690, PHN-691); kept on the phone, off main. */
+    val outgoing = Outgoing(viewModelScope, api, transfers, local, io) { item ->
+        if (item.waitingFor == "unlock") macLocked()
+        refresh()
+    }
     val live = LiveWatch(viewModelScope, api)
+
+    /** The work row's round live pictures (kb PHN-725), only while it shows, unlocked, in front and not on the shared relay. */
+    val thumbnails = com.ferb.app.model.Thumbnails(viewModelScope, api)
+    private val workRowShows = MutableStateFlow<List<String>>(emptyList())
+
+    /** The card rows on screen with their own pictures, by row (kb PHN-726; FERB.app's RowPreview): their keys. */
+    private val rowPictureKeys = MutableStateFlow<Map<String, List<String>>>(emptyMap())
+
+    /** The tasks whose card rows show their pictures now: the work row leaves their circles out (APP-891). */
+    val tasksWithRowPictures: StateFlow<Set<String>> = rowPictureKeys.map { m -> m.values.flatten().mapTo(HashSet()) { it.substringBefore('\u001F') } }
+        .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, emptySet())
 
     /** Key places' files the owner opened in another app: they go when he is back in FERB (PHN-11). */
     private val openedKeyFiles = HashSet<String>()
@@ -251,10 +326,31 @@ class FerbViewModel(
     val mustSecure: StateFlow<Boolean> = _mustSecure.asStateFlow()
 
     init {
+        _ui.update { it.copy(chatDay = today()) }
+        viewModelScope.launch {
+            // today's home page while nothing was said on the chat's day and the earlier days aren't open (kb PHN-696)
+            combine(earlier, _ui, outgoing.messages) { e, u, m -> !e && m.isEmpty() && !ChatModel.saidToday(lastView, u.chatDay, zone) }
+                .distinctUntilChanged().collect { _home.value = it }
+        }
         viewModelScope.launch {
             combine(_sheet, _ui) { s, u ->
-                s is Sheet.Live || (s is Sheet.Asking && u.questions.firstOrNull { it.approvalId == s.approvalId }?.hidden == true)
+                s is Sheet.Live || s is Sheet.Task || (s is Sheet.Asking && u.questions.firstOrNull { it.approvalId == s.approvalId }?.hidden == true)
+            // the views that show the Mac's screen readably force the block (Watch live, a task's or step's short view);
+            // the small round pictures in the chat follow the owner's switch (owner 2026-11-18, kb PHN-732, PHN-727)
             }.collect { _mustSecure.value = it }
+        }
+        viewModelScope.launch {
+            // the work row's pictures: while it shows, the app unlocked and in front, and the path carries pictures
+            // the rows' own pictures first, then the work row's for the tasks no row shows (APP-891); at most 4
+            val wanted = combine(workRowShows, rowPictureKeys) { ids, rows ->
+                val r = rows.values.flatten()
+                val taken = r.mapTo(HashSet()) { it.substringBefore('\u001F') }
+                r + ids.filter { it !in taken }
+            }
+            combine(wanted, session.locked, session.front, api.link) { keys, locked, front, l ->
+                val bulk = l?.phase == LinkPhase.ONLINE && l.bulkAllowed && l.path != LinkPath.PUBLIC_RELAY
+                if (!locked && front && bulk) keys else emptyList()
+            }.distinctUntilChanged().collect { thumbnails.show(it) }
         }
         viewModelScope.launch {
             combine(api.state, api.link, session.locked) { s, l, locked -> Triple(s, l, locked) }.collect { (s, l, locked) ->
@@ -270,12 +366,17 @@ class FerbViewModel(
             api.changes.collect { c ->
                 when (c) {
                     is Change.Closed -> Unit
-                    is Change.Status -> apply(lastView)
+                    is Change.Status -> statusChanged()
                     is Change.Mac -> readMac()
                     is Change.LocationWanted -> { pendingLocation = c.requestId; showPending() }
                     else -> refresh()
                 }
             }
+        }
+        viewModelScope.launch {
+            // PHN-648: while the app is unlocked and in front the device key's presence keeps the Mac's window open
+            combine(session.locked, session.front) { locked, front -> !locked && front }.distinctUntilChanged()
+                .collect { api.setOpen(it) }
         }
         viewModelScope.launch {
             // PHN-615: the lock page that came with opening or returning asks by itself, once, when the window is the
@@ -285,29 +386,64 @@ class FerbViewModel(
             }.distinctUntilChanged().collect { if (it) autoUnlock() }
         }
         viewModelScope.launch {
-            // the link came online while the app is open and unlocked: fetch what changed (one call, no timer)
-            api.link.collect { l -> if (l?.phase == LinkPhase.ONLINE && l.paired && !session.locked.value) syncNow() }
+            // the link came online while the app is open and unlocked: fetch what changed. Once per coming online
+            // (the link's status changes several times a minute on a path that moves, and each word of it started a
+            // whole sync), and not while the opening prompt's statement is on its way: its unlock reads the chat itself
+            api.link.map { it?.phase == LinkPhase.ONLINE && it.paired }.distinctUntilChanged()
+                .collect { online -> if (online && !session.locked.value && statement == null) syncNow() }
+        }
+        viewModelScope.launch {
+            // can't reach the Mac (kb PHN-753): only once it has stopped for good, or hasn't been online for
+            // LINK_LOST_AFTER_MS of the app being open and unlocked; every open starts the count again (connecting is
+            // normal: about a second after the link fix)
+            combine(api.link.map { it?.phase }, session.locked, session.front) { phase, locked, front ->
+                when {
+                    phase == LinkPhase.STOPPED -> 2
+                    phase == LinkPhase.ONLINE || phase == null || locked || !front -> 0
+                    else -> 1
+                }
+            }.distinctUntilChanged()
+                .collectLatest { away ->
+                    if (away == 1) wait(LINK_LOST_AFTER_MS)
+                    val lost = away != 0
+                    if (_ui.value.linkLost != lost) _ui.update { it.copy(linkLost = lost) }
+                }
         }
         viewModelScope.launch {
             // files cross the path again (PHN-444): what waited for it is tried once more, by itself
             api.link.map { it?.bulkAllowed == true && it.phase == LinkPhase.ONLINE }.distinctUntilChanged().collect { if (it) transfers.bulkAllowed() }
         }
         viewModelScope.launch {
+            // the box's files and the messages on their way, as FERB left them (read off the main thread)
+            withContext(io) { outgoing.load() }
+            // a message with files that waited for the Mac, or for a path that carries files, starts when it can
+            api.link.map { it?.phase to it?.bulkAllowed }.distinctUntilChanged().collect { outgoing.linkChanged() }
+        }
+        viewModelScope.launch {
             session.locked.collect { locked ->
                 if (!locked) {
-                    refresh(); saved["home"] = true
+                    // the home screen only for an empty chat: a first-time user, or a new day with nothing said yet
+                    // (kb PHN-626); the chat as soon as something was said today
+                    // opened or unlocked: today's chat, on the day it is now (kb PHN-696, PHN-697)
+                    turnTheDay()
+                    saved["earlier"] = false
+                    refresh()
+                    outgoing.unlocked()
                     // a request for the exact location that came while the app was closed or locked
                     (api.locationWanted() as? Outcome.Ok)?.value?.let { pendingLocation = it; showPending() }
                 } else {
                     // PHN-15: nothing private stays open; the preview stops, the fetched files go
                     AppLog.i("lock shown")
                     macJob?.cancel()
+                    statementJob?.cancel()
+                    statement = null
                     macPending = false
-                    _ui.update { it.copy(macLine = null, needsMacUnlock = false) }
+                    _ui.update { it.copy(macLine = null, needsMacUnlock = false, macNeed = null) }
                     stopListening()
                     live.stop()
-                    if (_sheet.value is Sheet.Live || _sheet.value is Sheet.Settings || _sheet.value is Sheet.Days || _sheet.value is Sheet.Location) _sheet.value = null
+                    if (_sheet.value is Sheet.Live || _sheet.value is Sheet.Task || _sheet.value is Sheet.Settings || _sheet.value is Sheet.Days || _sheet.value is Sheet.Location) _sheet.value = null
                     transfers.locked()
+                    outgoing.locked()
                     _ui.update { it.copy(files = FilesUi(), settings = null, macTasks = null) }
                 }
             }
@@ -323,6 +459,8 @@ class FerbViewModel(
                     transfers.dropKeyPlaceFiles(openedKeyFiles.toList())
                     openedKeyFiles.clear()
                     withContext(Dispatchers.IO) { local.dropOld(now()) }
+                    // back in front: a natural moment for the chat's day to move (kb PHN-697)
+                    turnTheDay()
                     markRead()
                     showPending()
                 }
@@ -339,19 +477,22 @@ class FerbViewModel(
         val keys = s.keys
         val removed = l?.phase == LinkPhase.STOPPED && l.problem?.code in REMOVED_CODES
         val gate = when {
-            s is PhoneState.Closed || s is PhoneState.Starting -> Gate.STARTING
             s is PhoneState.Failed -> Gate.FAILED
             !screenLock() -> Gate.NO_SCREEN_LOCK
+            // the lock page needs neither the library, the store nor the link: it shows at the first frame (PHN-633)
             locked -> Gate.LOCKED
+            s is PhoneState.Closed || s is PhoneState.Starting -> Gate.STARTING
             l == null -> Gate.STARTING
             l.phase == LinkPhase.PAIRING_WAIT_FOR_MAC -> Gate.CODES
             removed -> Gate.REMOVED
+            u.macForgotPhone && l.paired -> Gate.REMOVED
             !l.paired -> Gate.PAIR
             keys?.pairAgain == true -> Gate.REMOVED
             else -> Gate.MAIN
         }
         val reason = when {
             removed -> PairReason.REMOVED
+            u.macForgotPhone && l?.paired == true -> PairReason.UNKNOWN
             keys?.pairAgain == true && l?.paired == true -> PairReason.KEYS
             wiped != null -> PairReason.WIPED
             else -> null
@@ -427,18 +568,62 @@ class FerbViewModel(
 
     private var lastView: TranscriptView? = null
 
-    /** The transcript and the Mac's last status (each question's needs, Stop everything, PHN-125) as the screens draw them. */
-    private fun apply(view: TranscriptView?) {
+    /** When this model started, and whether the chat's first entries were logged (`ferb-app`, kb PHN-629). */
+    private val born = android.os.SystemClock.elapsedRealtime()
+    private var storedShown = false
+
+    /** The phone's own zone and today in it (epoch days): the chat's days and "said today" (kb PHN-626, PHN-627). */
+    private val zone: java.time.ZoneId get() = java.time.ZoneId.systemDefault()
+    /** The chat's day rule, asked now (kb PHN-697): only ChatModel.chatDay says what "today" is. */
+    private fun today(): Long = ChatModel.chatDay(now(), zone)
+
+    /** The chat's held day catches up with the clock: only at a natural moment (kb PHN-697). */
+    private fun turnTheDay() {
+        val d = today()
+        if (_ui.value.chatDay != d) _ui.update { it.copy(chatDay = d) }
+    }
+
+    /** The Mac's status changed: the screens are drawn again from the transcript as last read (one at a time). */
+    private fun statusChanged() {
+        if (statusJob?.isActive == true) { statusAgain = true; return }
+        statusJob = viewModelScope.launch {
+            do {
+                statusAgain = false
+                apply(null, statusOnly = true)
+            } while (statusAgain)
+        }
+    }
+
+    /**
+     * The transcript and the Mac's last status (each question's needs, Stop everything, PHN-125) as the screens draw
+     * them; [statusOnly]: the transcript as last read. The status is read from the library off the main thread (kb
+     * PHN-682), so one apply runs at a time and the last one in has the newest of both.
+     */
+    private suspend fun apply(read: TranscriptView?, statusOnly: Boolean = false) = applying.withLock {
+        val view = if (statusOnly) lastView else read
         lastView = view
         val status = api.lastStatus()
-        val questions = Questions.merged(view?.let { Questions.open(it.questions) }.orEmpty(), status)
-        val chatWork = WorkModel.of(view, "")
+        // everything made from the whole transcript is made off the main thread: on a long chat it is many
+        // milliseconds per streamed word, more than a frame on a phone (kb PHN-714). The rows read the phone library's
+        // layout of FERB's words, made when the transcript was read and kept per entry (ChatModel.prepare, PHN-682).
+        // A short chat is made where it is (well under a millisecond; no hop, so a test's main looper sees it at once).
+        val make = {
+            val questions = Questions.merged(view?.let { Questions.open(it.questions) }.orEmpty(), status)
+            Made(questions, WorkModel.of(view, ""), ChatModel.rows(view), com.ferb.app.model.RunningModel.of(view, _ui.value.macTasks), ChatModel.days(view, zone))
+        }
+        val made = if ((view?.items?.size ?: 0) > OFF_MAIN_ENTRIES) withContext(io) { make() } else make()
+        val questions = made.questions
+        val chatWork = made.chatWork
         if (prefs.lastOpen == 0L && prefs.seen.isEmpty()) prefs.seen = chatWork.earlier.mapNotNull { it.entry }.toSet()
         val seen = prefs.seen
         val away = chatWork.earlier.filter { it.entry !in seen }
         _ui.update {
-            it.copy(conversation = view?.conversation, rows = ChatModel.rows(view), chatWork = chatWork, away = away,
-                questions = questions, older = view?.older ?: OlderState.Unknown, status = status)
+            it.copy(conversation = view?.conversation, rows = made.rows, running = made.running, chatWork = chatWork, away = away,
+                questions = questions, older = view?.older ?: OlderState.Unknown, status = status, days = made.days)
+        }
+        if (!storedShown && _ui.value.rows.isNotEmpty()) {
+            storedShown = true
+            AppLog.i("chat entries ready ${android.os.SystemClock.elapsedRealtime() - born} ms after the app started: ${_ui.value.rows.size} rows, link ${_ui.value.link?.phase}")
         }
         rebuildWork()
         // a question slides up over whatever is open, once (MobileScreens.swift QuestionSheet)
@@ -453,6 +638,15 @@ class FerbViewModel(
             note(Note(R.string.question_gone))
         }
     }
+
+    /** What [apply] makes from a transcript, off the main thread. */
+    private class Made(
+        val questions: List<Question>,
+        val chatWork: Work,
+        val rows: List<ChatRow>,
+        val running: com.ferb.app.model.RunningUi?,
+        val days: Map<String, Long>,
+    )
 
     /** The Tasks tab: the Mac's own list where it answers, else the chat's (offline, or the Mac's window closed). */
     private fun rebuildWork() {
@@ -477,7 +671,7 @@ class FerbViewModel(
         tasksJob = viewModelScope.launch {
             if (session.locked.value || api.link.value?.phase != LinkPhase.ONLINE) return@launch
             when (val r = api.tasks(TASKS_PAGE, null)) {
-                is Outcome.Ok -> _ui.update { it.copy(macTasks = r.value.tasks) }
+                is Outcome.Ok -> _ui.update { it.copy(macTasks = r.value.tasks, running = com.ferb.app.model.RunningModel.of(lastView, r.value.tasks)) }
                 is Outcome.Failed -> if (r.error is FerbException.NeedsUnlock) macLocked()
             }
             rebuildWork()
@@ -498,9 +692,17 @@ class FerbViewModel(
     }
 
     private suspend fun syncNow() {
+        val asked = android.os.SystemClock.elapsedRealtime()
+        AppLog.i("chat sync asked at ${asked - born} ms")
         when (val r = api.sync()) {
-            is Outcome.Failed -> if (r.error is FerbException.NeedsUnlock) macLocked()
-            is Outcome.Ok -> { macPending = false; _ui.update { it.copy(needsMacUnlock = false) } }
+            is Outcome.Failed -> {
+                AppLog.i("chat sync failed after ${android.os.SystemClock.elapsedRealtime() - asked} ms: ${r.error::class.simpleName}")
+                if (r.error is FerbException.NeedsUnlock) macLocked()
+            }
+            is Outcome.Ok -> {
+                AppLog.i("chat sync answered after ${android.os.SystemClock.elapsedRealtime() - asked} ms")
+                macPending = false; _ui.update { it.copy(needsMacUnlock = false, macNeed = null) }
+            }
         }
     }
 
@@ -509,149 +711,160 @@ class FerbViewModel(
         val conv = _ui.value.conversation ?: return
         if (_ui.value.gate != Gate.MAIN || session.locked.value || !session.front.value) return
         if (tab.value != PhoneTab.CHAT || home.value) return
-        viewModelScope.launch { api.markReadLatest(conv) }
+        // one mark on its way at a time, and at most one more behind it: every read of the chat asks for one, and on
+        // a slow link each started its own call to the Mac before the first had answered (kb PHN-682)
+        if (markJob?.isActive == true) { markAgain = true; return }
+        markJob = viewModelScope.launch {
+            do {
+                markAgain = false
+                api.markReadLatest(_ui.value.conversation ?: conv)
+            } while (markAgain)
+        }
     }
 
-    // ---- the app lock (PHN-8, PHN-13, PHN-125) ---------------------------------------------------------------------
+    // ---- the app lock (PHN-8, PHN-13, PHN-125, PHN-649) ----------------------------------------------------------------
 
     /**
-     * One prompt opens the app and unlocks the Mac (PHN-13, PHN-641). With the Mac reachable the lock key signs the
-     * Mac's challenge inside the prompt; the app opens the moment the prompt passes, and the Mac's answer (and the sync
-     * the library makes after it) arrives in the background under a calm line. The prompt never waits on the network
-     * longer than [PROMPT_WAIT_MS] (the link, then the Mac's challenge): past that, or on a second tap, the prompt alone
-     * opens the app and the Mac is unlocked once it answers ([macLocked]).
+     * One prompt opens the app, at once, whatever the link is doing (PHN-649). On a paired phone the lock key signs,
+     * inside that prompt, an unlock statement the phone makes itself; the app opens the moment the prompt passes and
+     * the statement goes to the Mac whenever the link is up ([handStatement]). Not paired: the prompt alone.
      */
-    fun unlockApp(auto: Boolean = false): Job {
-        if ("unlock" in _ui.value.busy) {
-            // a tap while the first try still waits for the Mac: the prompt now, never a silent no-op
-            hurry?.complete(Unit)
-            AppLog.i("unlock tap while waiting: prompt now")
-            return unlockJob ?: Job()
+    fun unlockApp(auto: Boolean = false): Job = busy("unlock") {
+        val p = prompts ?: return@busy
+        session.takePrompt() // the owner's tap takes the due prompt too: after its cancel nothing asks by itself
+        if (auto && !windowReady.value) { session.promptAgain(); AppLog.i("unlock: screen elsewhere, prompt later"); return@busy }
+        AppLog.i("unlock started auto=$auto")
+        val shown = now()
+        if (api.statementReady()) {
+            val payload = UnlockStatement.make(now())
+            AppLog.i("prompt shown (signs the unlock statement)")
+            val signer = p.signer(KeyKind.LOCK)
+            val sig = withContext(io) { runCatching { signer.sign(payload) }.getOrNull() }
+            AppLog.i("prompt result ${if (sig != null) "passed" else "cancelled"} after ${now() - shown} ms")
+            if (sig == null) return@busy
+            openApp()
+            AppLog.i("local unlock done; the statement waits for the link")
+            statement = UnlockStatement(payload, sig, steady())
+            handStatement()
+            return@busy
         }
-        return busy("unlock") {
-            val p = prompts ?: return@busy
-            session.takePrompt() // the owner's tap takes the due prompt too: after its cancel nothing asks by itself
-            val started = now()
-            val hurried = CompletableDeferred<Unit>().also { hurry = it }
-            AppLog.i("unlock started auto=$auto link=${api.link.value?.phase}")
-            if (api.link.value?.paired == true && api.link.value?.phase != LinkPhase.ONLINE) {
-                withTimeoutOrNull(PROMPT_WAIT_MS) {
-                    val up = async { api.link.first { it?.phase == LinkPhase.ONLINE } }
-                    select<Unit> {
-                        hurried.onAwait { }
-                        up.onAwait { }
-                    }
-                    up.cancel()
-                }
-            }
-            // the screen went elsewhere while the link was awaited: the prompt waits for the owner's return
-            if (auto && !windowReady.value) { session.promptAgain(); AppLog.i("unlock: screen elsewhere, prompt later"); return@busy }
-            val online = api.link.value?.let { it.paired && it.phase == LinkPhase.ONLINE } == true
-            if (online && api.state.value.keys?.lock == KeyState.OK && !hurried.isCompleted) {
-                val gate = PromptGate(p.signer(KeyKind.LOCK))
-                val call = viewModelScope.async { api.unlock(gate) }
-                val left = (PROMPT_WAIT_MS - (now() - started)).coerceAtLeast(0)
-                withTimeoutOrNull(left) {
-                    select<Unit> {
-                        gate.asked.onAwait { }
-                        call.onAwait { }
-                        hurried.onAwait { }
-                    }
-                }
-                if (gate.giveUp()) {
-                    AppLog.i("unlock: the Mac's challenge didn't come in ${now() - started} ms; the prompt alone")
-                } else {
-                    AppLog.i("prompt shown (with the Mac's challenge) after ${now() - started} ms")
-                    val shown = now()
-                    val passed = gate.passed.await()
-                    AppLog.i("prompt result ${if (passed) "passed" else "cancelled"} after ${now() - shown} ms")
-                    if (!passed) return@busy
-                    openApp()
-                    AppLog.i("local unlock done")
-                    macAnswer(call, now())
-                    return@busy
-                }
-            }
-            AppLog.i("prompt shown (alone)")
-            val shown = now()
-            val passed = p.local()
-            AppLog.i("prompt result ${if (passed) "passed" else "cancelled"} after ${now() - shown} ms")
-            if (passed) {
-                openApp()
-                api.unlocked()
-                AppLog.i("local unlock done")
-                if (api.link.value?.paired == true) {
-                    AppLog.i("the Mac's unlock waits for the Mac")
-                    viewModelScope.launch { _ui.first { "unlock" !in it.busy }; macLocked() }
-                }
-            }
-        }.also { unlockJob = it }
+        AppLog.i("prompt shown (alone)")
+        val passed = p.local()
+        AppLog.i("prompt result ${if (passed) "passed" else "cancelled"} after ${now() - shown} ms")
+        if (passed) {
+            openApp()
+            api.unlocked()
+            AppLog.i("local unlock done")
+        }
     }
-
-    private var hurry: CompletableDeferred<Unit>? = null
-    private var unlockJob: Job? = null
 
     /** The app is open: the lock's state, the open's facts (PHN-13). */
     private fun openApp() {
         session.unlocked()
         opened()
-        macTries = 0
+        statementExpired = false
+        _ui.update { it.copy(macNeed = null, needsMacUnlock = false) }
     }
 
-    /** The Mac's unlock that the opening prompt signed, answered in the background under a calm line (PHN-641). */
-    private fun macAnswer(call: Deferred<Outcome<Unit>>, asked: Long) {
-        macJob?.cancel()
-        _ui.update { it.copy(macLine = MacLine.OPENING, needsMacUnlock = false) }
-        macJob = viewModelScope.launch {
-            val r = withTimeoutOrNull(MAC_SLOW_MS) { call.await() } ?: run {
-                _ui.update { it.copy(macLine = MacLine.SLOW) }
-                AppLog.i("mac unlock slow: no answer in $MAC_SLOW_MS ms")
-                call.await()
-            }
-            macAnswered(r, asked)
-        }
-    }
+    /** The statement signed in the opening prompt, until the Mac took it (PHN-649). */
+    private var statement: UnlockStatement? = null
+    private var statementJob: Job? = null
 
-    private suspend fun macAnswered(r: Outcome<Unit>, asked: Long) {
-        when (r) {
-            is Outcome.Ok -> {
-                AppLog.i("mac unlock answered ok in ${now() - asked} ms")
-                _ui.update { it.copy(macLine = null, needsMacUnlock = false) }
-                refresh()
-                afterMacUnlock()
+    /** The statement grew too old before the link was up: the Mac's side needs the fingerprint once more. */
+    private var statementExpired = false
+
+    /**
+     * Hands the opening prompt's statement to the Mac once the link is up and paired, with its age by the phone's
+     * steady clock: no prompt, no line. A connection that hasn't proved the device key yet is tried again in a moment;
+     * an older Mac (one that doesn't know the statement) gets the Mac's own unlock, one prompt; a statement older than
+     * [STATEMENT_AGE_MS] is dropped and, if the Mac then says it is locked, the card asks once.
+     */
+    private fun handStatement() {
+        val st = statement ?: return
+        if (statementJob?.isActive == true) return
+        statementJob = viewModelScope.launch {
+            val left = STATEMENT_AGE_MS - (steady() - st.signedAt)
+            val l = withTimeoutOrNull(left.coerceAtLeast(0)) {
+                api.link.first { it != null && it.paired && it.phase == LinkPhase.ONLINE }
             }
-            is Outcome.Failed -> {
-                AppLog.i("mac unlock failed ${r.error.linkCode ?: r.error.javaClass.simpleName} in ${now() - asked} ms")
-                api.unlocked()
-                _ui.update { it.copy(macLine = null) }
-                when {
-                    r.error is FerbException.NotSigned -> Unit
-                    // the Mac didn't take this phone's proof: said plainly, with the one way that fixes it
-                    r.error is FerbException.NeedsUnlock && r.error.linkCode in Unlocker.PROOF_CODES -> failed(r.error)
-                    r.error is FerbException.NeedsSigner -> failed(r.error)
-                    else -> macPending = true // can't be reached now: unlocked once it answers, by itself
+            if (statement !== st) return@launch
+            if (l == null) {
+                AppLog.i("statement dropped: the link wasn't up in time")
+                statement = null
+                statementExpired = true
+                return@launch
+            }
+            if (l.macOlder) {
+                AppLog.i("statement: the Mac is older; its own unlock")
+                statement = null
+                unlockMacNow()
+                return@launch
+            }
+            for (attempt in 1..STATEMENT_TRIES) {
+                val age = steady() - st.signedAt
+                if (age > STATEMENT_AGE_MS) break
+                val sent = steady()
+                when (val r = api.unlockWithStatement(st.payload, st.sig, age)) {
+                    is Outcome.Ok -> {
+                        AppLog.i("mac unlock by statement ok in ${steady() - sent} ms (age $age ms)")
+                        statement = null
+                        macPending = false
+                        _ui.update { it.copy(needsMacUnlock = false, macNeed = null, macLine = null) }
+                        refresh()
+                        afterMacUnlock()
+                        return@launch
+                    }
+                    is Outcome.Failed -> {
+                        val code = r.error.linkCode ?: r.error.javaClass.simpleName
+                        AppLog.i("mac unlock by statement failed $code (try $attempt, age $age ms)")
+                        when (code) {
+                            // the connection hasn't proved the device key yet: a moment, then again
+                            "locked" -> wait(STATEMENT_RETRY_MS)
+                            "unlock_invalid" -> { statement = null; macForgot(); return@launch }
+                            "unlock_required" -> break
+                            else -> {
+                                if (api.link.value?.phase == LinkPhase.ONLINE && r.error !is FerbException.Offline) break
+                                // the link dropped under it: once it is back, again
+                                wait(STATEMENT_RETRY_MS)
+                                api.link.first { it != null && it.phase == LinkPhase.ONLINE }
+                            }
+                        }
+                    }
                 }
-                if (macPending && api.link.value?.phase == LinkPhase.ONLINE) macLocked()
             }
+            statement = null
+            statementExpired = true
+            needMac(MacNeed.OLD)
         }
+    }
+
+    /** The Mac doesn't know this phone's keys (`unlock_invalid`): the page that says to pair again (PHN-649). */
+    private fun macForgot() {
+        AppLog.i("mac doesn't know this phone's keys: pair again")
+        _ui.update { gateOf(it.copy(macForgotPhone = true, macNeed = null, needsMacUnlock = false), api.state.value, api.link.value, session.locked.value) }
+    }
+
+    /** The card: the Mac's side needs the fingerprint once, and why (PHN-649). Never while a statement is on its way. */
+    private fun needMac(why: MacNeed) {
+        if (statement != null || session.locked.value) return
+        AppLog.i("mac needs the fingerprint: $why")
+        _ui.update { it.copy(macNeed = why, needsMacUnlock = true, macLine = null) }
     }
 
     /** The Mac couldn't be unlocked yet (offline, or its answer was lost): it is, once the link is up again. */
     private var macPending = false
     private var macJob: Job? = null
 
-    /** Automatic Mac unlocks since the app opened: one, never a loop (PHN-641). */
-    private var macTries = 0
-
     /**
-     * The Mac said its window is closed (a private call came back `locked`), or the app opened without it. First the
-     * same read again ([RECHECKS] times, [RECHECK_MS] apart): right after a reconnect the phone proves itself on the new
-     * connection and the window is open again. Still locked: one automatic unlock with the lock key (its one prompt) while the owner
-     * is here; after that, or if he cancels, the line he can tap.
+     * The Mac said its window is closed (a private call came back `locked`). First the same read again ([RECHECKS]
+     * times, [RECHECK_MS] apart): right after a reconnect the phone proves itself on the new connection and the window
+     * is open again; a statement on its way settles it too. Still locked: the card asks once, with its reason
+     * (PHN-649). Nothing asks by itself.
      */
     private fun macLocked() {
         if (macJob?.isActive == true || "unlock-mac" in _ui.value.busy || "unlock" in _ui.value.busy) return
         if (session.locked.value || api.link.value?.paired != true) return
+        if (statement != null) { handStatement(); return }
         macJob = viewModelScope.launch {
             if (api.link.value?.phase != LinkPhase.ONLINE) { macPending = true; return@launch }
             var open = false
@@ -664,41 +877,46 @@ class FerbViewModel(
             if (open) {
                 AppLog.i("mac locked: open again after the recheck")
                 macPending = false
-                _ui.update { it.copy(needsMacUnlock = false) }
+                _ui.update { it.copy(needsMacUnlock = false, macNeed = null) }
                 refresh()
                 return@launch
             }
-            if (macTries >= 1 || !windowReady.value || prompts == null) {
-                AppLog.i("mac locked: the owner's tap (tries=$macTries)")
-                _ui.update { it.copy(needsMacUnlock = true) }
-                return@launch
-            }
-            macTries++
-            macPending = false
-            AppLog.i("mac locked: one automatic unlock")
-            unlockMacNow()
+            needMac(if (statementExpired) MacNeed.OLD else MacNeed.LAPSED)
         }
     }
 
-    /** The Mac's unlock alone (its window closed while the app stayed open): one prompt, the owner's tap. */
-    fun unlockMac() = busy("unlock-mac") { unlockMacNow() }
+    /** The card's Unlock: the Mac's own challenge unlock, one prompt (PHN-649). */
+    fun unlockMac() = busy("unlock-mac", tap = true) { unlockMacNow() }
 
     private suspend fun unlockMacNow() {
         val p = prompts ?: return
         val asked = now()
-        _ui.update { it.copy(macLine = MacLine.OPENING, needsMacUnlock = false) }
-        val gate = PromptGate(p.signer(KeyKind.LOCK))
-        val call = viewModelScope.async { api.unlock(gate) }
+        _ui.update { it.copy(macLine = MacLine.OPENING, needsMacUnlock = false, macNeed = null) }
+        val call = viewModelScope.async { api.unlock(p.signer(KeyKind.LOCK)) }
         val r = withTimeoutOrNull(MAC_SLOW_MS) { call.await() } ?: run {
             _ui.update { it.copy(macLine = MacLine.SLOW) }
             call.await()
         }
-        if (r is Outcome.Failed && r.error is FerbException.NotSigned) {
-            AppLog.i("mac unlock prompt cancelled")
-            _ui.update { it.copy(macLine = null, needsMacUnlock = true) }
-            return
+        _ui.update { it.copy(macLine = null) }
+        when (r) {
+            is Outcome.Ok -> {
+                AppLog.i("mac unlock answered ok in ${now() - asked} ms")
+                statementExpired = false
+                macPending = false
+                refresh()
+                afterMacUnlock()
+            }
+            is Outcome.Failed -> {
+                val code = r.error.linkCode ?: r.error.javaClass.simpleName
+                AppLog.i("mac unlock failed $code in ${now() - asked} ms")
+                when {
+                    r.error is FerbException.NotSigned -> needMac(MacNeed.CANCELLED)
+                    code == "unlock_invalid" -> macForgot()
+                    r.error is FerbException.NeedsSigner -> failed(r.error)
+                    else -> { macPending = true; needMac(MacNeed.LAPSED) }
+                }
+            }
         }
-        macAnswered(r, asked)
     }
 
     /**
@@ -731,7 +949,7 @@ class FerbViewModel(
     }
 
     /** PHN-133: registers the fingerprint key made after pairing (one prompt), so hard Yeses can use it. */
-    fun registerKeys() = busy("keys") {
+    fun registerKeys() = busy("keys", tap = true) {
         val p = prompts ?: return@busy
         when (val r = api.registerKeys { kind -> p.signer(kind, Why.KEYS) }) {
             is Outcome.Ok -> { _ui.update { it.copy(newKeys = false) }; if (r.value) note(Note(R.string.keys_registered)) }
@@ -767,7 +985,6 @@ class FerbViewModel(
     fun typed(text: String) {
         dictation?.cancel()
         saved["draft"] = text
-        if (text.isNotEmpty()) saved["home"] = false
     }
 
     // ---- speaking to FERB (kb PHN-603..PHN-605) ---------------------------------------------------------------------
@@ -824,7 +1041,6 @@ class FerbViewModel(
             },
             level = { if (_mic.value == com.ferb.design.components.MicState.LISTENING) _micLevel.value = it })
         dictation = d
-        saved["home"] = false
         d.start()
         return VoicePress.DONE
     }
@@ -894,19 +1110,38 @@ class FerbViewModel(
     fun send() = busy("send") {
         val text = draft.value.trim()
         val files = transfers.ready.value
+        // files in the box: the message shows at once and goes when its files are on the Mac (kb PHN-690, PHN-691)
+        if (outgoing.chips.value.isNotEmpty()) {
+            saved["draft"] = ""
+            // a send from the earlier days goes to today, where his message is (kb PHN-698)
+            saved["earlier"] = false
+            outgoing.send(text, files)
+            if (files.isNotEmpty()) transfers.sent()
+            return@busy
+        }
         if (text.isEmpty() && files.isEmpty()) return@busy
         saved["draft"] = ""
-        saved["home"] = false
+        saved["earlier"] = false
         val r = if (files.isEmpty()) api.send(text) else api.sendWith(text, files)
         when (r) {
             is Outcome.Ok -> {
                 if (files.isNotEmpty()) transfers.sent()
                 if (r.value.waitingFor == "unlock") macLocked()
+                cantNotifyOnce()
             }
             is Outcome.Failed -> { saved["draft"] = text; failed(r.error) }
         }
         refresh()
     }
+
+    /** A file's cross in the message box: it goes; nothing was sent. */
+    fun unpick(key: String) = outgoing.unpick(key)
+
+    /** A message with files: stop it while its files go, try it again, send its words without the files, remove it. */
+    fun stopSending(id: String) = outgoing.cancel(id)
+    fun retrySending(id: String) = outgoing.retry(id)
+    fun sendTextOnly(id: String) = outgoing.textOnly(id)
+    fun removeSending(id: String) = outgoing.remove(id)
 
     fun cancelOutbox(id: String) = busy("cancel:$id") {
         when (val r = api.cancel(id)) {
@@ -926,10 +1161,10 @@ class FerbViewModel(
     }
 
     /** "Stop everything on the Mac" (DMN-1, PHN-125): after the owner's confirmation; no fingerprint, never queued. */
-    fun stopEverything() = busy("stop-all") {
+    fun stopEverything() = busy("stop-all", tap = true) {
         _sheet.value = null
         when (val r = api.stopEverything()) {
-            is Outcome.Ok -> { note(Note(R.string.stop_all_done)); api.status(); apply(lastView) }
+            is Outcome.Ok -> { note(Note(R.string.stop_all_done)); api.status(); apply(null, statusOnly = true) }
             is Outcome.Failed -> failed(r.error)
         }
     }
@@ -1172,7 +1407,8 @@ class FerbViewModel(
         if (uris.isEmpty()) return@busy
         val staged = withContext(Dispatchers.IO) { uris.mapNotNull(local::stage) }
         if (staged.size < uris.size) note(Note(R.string.files_unreadable))
-        if (staged.isNotEmpty()) transfers.send(staged, forChat)
+        // for the chat they wait in the message box until Send (kb PHN-690); from the Files tab the tap is the send
+        if (staged.isNotEmpty()) { if (forChat) outgoing.pick(staged) else transfers.send(staged, forChat = false) }
     }
 
     /** The files of a finished batch go to the composer, to send with a message. */
@@ -1207,6 +1443,22 @@ class FerbViewModel(
         live.start(taskId)
     }
 
+    /** A running task's short view (kb PHN-725): its larger picture comes from the same live preview as Watch live. */
+    fun showTask(taskId: String?, worker: String? = null) {
+        if (taskId == null) return
+        _sheet.value = Sheet.Task(taskId, worker)
+        val l = api.link.value
+        if (l?.path != LinkPath.PUBLIC_RELAY && !(l?.phase == LinkPhase.ONLINE && !l.bulkAllowed)) live.start(taskId, worker)
+    }
+
+    /** The work row is on screen with these tasks' pictures (empty: it went): kb PHN-725. */
+    fun workRowShown(taskIds: List<String>) { workRowShows.value = taskIds }
+
+    /** A card on screen with its rows' pictures ([keys]: Thumbnails.key of task and step); empty: it went (kb PHN-726). */
+    fun rowPictures(row: String, keys: List<String>) {
+        rowPictureKeys.update { m -> if (keys.isEmpty()) m - row else m + (row to keys) }
+    }
+
     /** The Mac's window closed under the preview: unlock (one prompt) and watch again. */
     fun watchAgain() = busy("live") {
         val s = _sheet.value as? Sheet.Live ?: return@busy
@@ -1227,7 +1479,12 @@ class FerbViewModel(
 
     // ---- FERB's settings (PHN-404, PHN-112, PHN-133) ----------------------------------------------------------------
 
-    fun openSettings() = busy("settings") {
+    /** "Try again" on the connection sheet (kb PHN-752): the link dials now; it never waits on the main thread. */
+    fun retryLink() {
+        viewModelScope.launch(io) { api.retryLink() }
+    }
+
+    fun openSettings() = busy("settings", tap = true) {
         show(Sheet.Settings)
         when (val r = unlocker.run { api.settings() }) {
             is Outcome.Ok -> _ui.update { it.copy(settings = MacSettings.rows(r.value)) }
@@ -1239,10 +1496,19 @@ class FerbViewModel(
     }
 
     /** One change, one prompt: the fingerprint-only key where the phone has one, else the lock key (PHN-133). */
-    fun setSetting(key: String, valueJson: String) = busy("setting:$key") {
-        val spec = MacSettings.spec(key) ?: return@busy
+    fun setSetting(key: String, valueJson: String) = busy("setting:$key", tap = true) {
+        val spec = MacSettings.spec(key) ?: run { AppLog.i("setting $key unknown here"); note(Note(R.string.err_app_older)); return@busy }
+        val p = prompts ?: run { note(Note(R.string.err_try_again)); return@busy }
+        // the fingerprint-only key this phone made after its pairing isn't known to the Mac yet: register it here first
+        // (its one prompt), then the change (kb PHN-656)
+        if (api.unregisteredKeys()?.strong != null) {
+            AppLog.i("setting $key: registering the fingerprint key first")
+            when (val r = api.registerKeys { kind -> p.signer(kind, Why.KEYS) }) {
+                is Outcome.Ok -> _ui.update { it.copy(newKeys = false) }
+                is Outcome.Failed -> { if (r.error !is FerbException.NotSigned) failed(r.error); return@busy }
+            }
+        }
         val kind = unlocker.freshKind() ?: run { note(Note(R.string.needs_pairing_again)); return@busy }
-        val p = prompts ?: return@busy
         when (val r = unlocker.run { api.setSetting(key, valueJson, p.signer(kind, Why.SETTING)) }) {
             is Outcome.Ok -> {
                 val row = MacSettings.row(spec, r.value)
@@ -1263,8 +1529,17 @@ class FerbViewModel(
 
     // ---- navigation and sheets ------------------------------------------------------------------------------------
 
+    /** The Chat tab tapped while on Chat: the chat goes to its end (kb PHN-662). Heard only by a chat on screen. */
+    private val _chatToEnd = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val chatToEnd: kotlinx.coroutines.flow.SharedFlow<Unit> = _chatToEnd
+
     fun choose(t: PhoneTab) {
-        if (t == PhoneTab.CHAT && tab.value == PhoneTab.CHAT) saved["home"] = !home.value
+        if (t == PhoneTab.CHAT) {
+            // choosing the Chat tab is a natural moment for the chat's day to move (kb PHN-697); on the chat already:
+            // from the earlier days back to today, in today to its end (kb PHN-662, PHN-698)
+            turnTheDay()
+            if (tab.value == PhoneTab.CHAT) { if (earlier.value) saved["earlier"] = false else _chatToEnd.tryEmit(Unit) }
+        }
         saved["tab"] = t
         when (t) {
             PhoneTab.TASKS -> loadTasks()
@@ -1274,11 +1549,28 @@ class FerbViewModel(
         }
     }
 
-    fun openChat() { saved["tab"] = PhoneTab.CHAT; saved["home"] = false; markRead() }
+    /** "Earlier messages" (the home page's, or the top of today's chat): the earlier days (kb PHN-696). */
+    fun openChat(focus: Boolean = false) {
+        saved["tab"] = PhoneTab.CHAT; saved["earlier"] = true; markRead()
+        if (focus) _focusAsk.value = true
+    }
+
+    private val _focusAsk = MutableStateFlow(false)
+    /** The message box takes the cursor once (a tap on FERB's question's notification: he answers it there, kb PHN-739). */
+    val focusAsk: StateFlow<Boolean> = _focusAsk.asStateFlow()
+    fun focusTaken() { _focusAsk.value = false }
+
+    /** Back to today from the earlier days (kb PHN-698): its chat, or its home page while nothing was said on it. */
+    fun backToToday() {
+        saved["tab"] = PhoneTab.CHAT
+        saved["earlier"] = false
+        turnTheDay()
+    }
 
     fun show(s: Sheet?) {
         if (s is Sheet.Asking) { presented.add(s.approvalId); saved["presented"] = ArrayList(presented) }
-        if (_sheet.value is Sheet.Live && s !is Sheet.Live) live.stop()
+        val watching = { x: Sheet? -> x is Sheet.Live || x is Sheet.Task }
+        if (watching(_sheet.value) && !watching(s)) live.stop()
         _sheet.value = s
         if (s == null && pendingLocation != null) showPending()
     }
@@ -1290,17 +1582,39 @@ class FerbViewModel(
     /** The profile's switches changed outside the view model (the service, the screenshot switch): read them again. */
     fun refreshProfile() { _settings.value = readSettings() }
 
+    /** What keeps FERB's questions from reaching this phone (NotifyHealth, set by the activity; none in tests). */
+    var notifyBlocker: () -> NotifyBlocker? = { null }
+
+    /** The app is on screen (read again by the profile sheet when he comes back from Android's settings). */
+    val front: StateFlow<Boolean> get() = session.front
+
+    /**
+     * Once per kind, after he sends something from the phone: if FERB's questions couldn't reach him once he leaves,
+     * he is told now, while he is still here, with the tap that fixes it (kb PHN-765).
+     */
+    private fun cantNotifyOnce() {
+        val b = notifyBlocker() ?: return
+        if (b.name in prefs.toldBlockers || _sheet.value != null) return
+        prefs.toldBlockers = prefs.toldBlockers + b.name
+        show(Sheet.CantNotify(b))
+    }
+
     fun hideChecks(on: Boolean) { prefs.hideChecksOnLockScreen = on; refreshProfile() }
 
     /** Forget this Mac (PHN-408): the fetched chat, the Mac, the keys and the files here go; the pairing screen comes. */
-    fun forget() = busy("forget") {
+    fun forget() = busy("forget", tap = true) {
         _sheet.value = null
         live.stop()
         when (val r = api.forget()) {
             is Outcome.Ok -> {
-                prefs.forgetPairing(); saved["tab"] = PhoneTab.CHAT; saved["home"] = true; presented.clear()
-                withContext(Dispatchers.IO) { transfers.clear() }
-                _ui.update { it.copy(mac = null, macTasks = null, files = FilesUi(), settings = null, status = null) }
+                prefs.forgetPairing(); saved["tab"] = PhoneTab.CHAT; saved["earlier"] = false; presented.clear()
+                withContext(Dispatchers.IO) { transfers.clear(); outgoing.clear() }
+                statement = null
+                _ui.update { it.copy(mac = null, macTasks = null, files = FilesUi(), settings = null, status = null,
+                    macForgotPhone = false, macNeed = null, needsMacUnlock = false) }
+                // PHN-646: the Mac removed this phone too, or it couldn't be told (then it still lists it until removed there)
+                AppLog.i("forgot the Mac; the Mac was ${if (r.value) "told" else "not reachable"}")
+                if (!r.value) note(Note(R.string.forget_mac_kept))
             }
             is Outcome.Failed -> failed(r.error)
         }
@@ -1369,37 +1683,18 @@ class FerbViewModel(
 
     private fun failed(e: FerbException) = note(errorNote(e))
 
-    private fun busy(what: String, block: suspend () -> Unit): Job = viewModelScope.launch {
-        if (what in _ui.value.busy) return@launch
+    /**
+     * One job of [what] at a time. A tap ([tap]) that comes while it still runs is never a silent no-op: it says FERB
+     * is still on it (kb PHN-656); the control shows its working state from `ui.busy` meanwhile.
+     */
+    private fun busy(what: String, tap: Boolean = false, block: suspend () -> Unit): Job = viewModelScope.launch {
+        if (what in _ui.value.busy) {
+            if (tap) note(Note(R.string.still_working))
+            AppLog.i("tap while $what is still working")
+            return@launch
+        }
         _ui.update { it.copy(busy = it.busy + what) }
         try { block() } finally { _ui.update { it.copy(busy = it.busy - what) } }
-    }
-
-    /**
-     * The opening prompt inside the Mac's unlock (PHN-641): says when the library asks for the signature (the Mac's
-     * challenge came: the prompt shows) and whether the owner passed it, so the app opens then and not after the Mac's
-     * answer. Given up before it was asked (the challenge was slow), it signs nothing and shows no prompt.
-     */
-    private class PromptGate(private val inner: Signer) : Signer {
-        val asked = CompletableDeferred<Unit>()
-        val passed = CompletableDeferred<Boolean>()
-        private var state = 0 // 0 waiting, 1 asked, 2 given up
-
-        override fun sign(payload: String): String? {
-            synchronized(this) {
-                if (state == 2) return null
-                state = 1
-            }
-            asked.complete(Unit)
-            val sig = runCatching { inner.sign(payload) }.getOrNull()
-            passed.complete(sig != null)
-            return sig
-        }
-
-        /** True when the prompt had not been asked and now never will be. */
-        fun giveUp(): Boolean = synchronized(this) {
-            if (state == 0) { state = 2; passed.complete(false); true } else false
-        }
     }
 
     override fun onCleared() {
@@ -1409,8 +1704,20 @@ class FerbViewModel(
     }
 
     companion object {
-        /** The longest the opening prompt waits on the network (the link, then the Mac's challenge), PHN-641. */
-        const val PROMPT_WAIT_MS = 2_000L
+        /**
+         * How long the link may be not online, with the app open and unlocked, before the app says it can't reach the
+         * Mac: 10 s, the owner's (kb PHN-757); the connect itself takes about a second after the link fix.
+         */
+        const val LINK_LOST_AFTER_MS = 10_000L
+        /**
+         * The opening prompt's statement is handed to the Mac at most this long after it was signed (PHN-649): the
+         * Mac's own bound is `statement_age_s`, 120 s; the phone stops a little sooner so a send in flight still fits.
+         */
+        const val STATEMENT_AGE_MS = 115_000L
+
+        /** A statement refused because the connection hasn't proved the device key yet is sent again after this. */
+        const val STATEMENT_RETRY_MS = 1_000L
+        const val STATEMENT_TRIES = 6
 
         /** No answer from the Mac's unlock in this long: the line says the Mac is slow (the app is open already). */
         const val MAC_SLOW_MS = 6_000L
@@ -1433,6 +1740,9 @@ class FerbViewModel(
         }
         const val TASKS_PAGE = 30
 
+        /** Above this many entries the chat's rows are made off the main thread (kb PHN-714). */
+        const val OFF_MAIN_ENTRIES = 100
+
         /** How many recent files the Files tab asks for. */
         const val RECENT_FILES = 20
 
@@ -1447,6 +1757,9 @@ class FerbViewModel(
 
         fun errorNote(e: FerbException): Note = when {
             e.linkCode == Unlocker.PAIR_AGAIN -> Note(R.string.needs_pairing_again)
+            // a feature the paired Mac's FERB doesn't have yet: said, never a silent failure (kb PHN-656)
+            e.linkCode == "mac_link_older" || e.linkCode == "method_not_allowed" -> Note(R.string.err_mac_older)
+            e.linkCode == "app_older" -> Note(R.string.err_app_older)
             e is FerbException.Offline -> Note(R.string.err_offline)
             e is FerbException.NeedsBetterPath -> Note(R.string.err_needs_better_path)
             e is FerbException.NeedsUnlock -> Note(R.string.err_needs_unlock)

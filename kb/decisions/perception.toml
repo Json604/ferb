@@ -212,9 +212,32 @@ paths = ["engine/crates/ferbd/src/compose/device.rs::tool", "engine/crates/ferb-
 title = "Each paired phone's line after the Mac's, and its facts under phones in device.facts"
 by = "agent"
 date = 2026-11-16
-status = "active"
+status = "superseded"
+superseded_by = "SENSE-425"
 rule = "For SENSE-420, SENSE-421 (T-1214). After this Mac's line, one line per paired phone FERB has a record of: its name, wall time, zone, city while shared, then 'connected, in use now / locked / screen off' from its last report, or 'not connected, last seen 2 h ago'. device.facts lists them under phones; device names a phone for exact_location."
 why = "The owner wants each device's time and place known; the clause is facts only (the phone's own screen state as it reported it while connected), never a guess that the owner is with it. The recorded Python cases have no phone, so no frozen fixture changes."
 evidence = "ferbd compose::device tests a_phone_s_line_has_its_own_time_city_and_state, the_lookup_lists_each_phone_as_it_reported_itself; ferb-core device test."
 paths = ["engine/crates/ferbd/src/compose/device.rs::phone_line", "engine/crates/ferbd/src/compose/device.rs::phone_content"]
+live = ["LIVE-1145"]
+
+[SENSE-424]
+title = "An owner message records which device it was sent from, by the client that sent it"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "chat.send's client decides it: phone:<link id> (the phone gate's mark) is that phone by its name in FERB's list, any other client this Mac in FERB.app, no client nothing. The chat.message journal row keeps it as sent_from (before text) for the planner's lines and chat.history; never the link id."
+why = "The owner asked from the phone which device he was on and FERB said the Mac: nothing in its records said where a message came from. A message's device is a structural fact of its client (rule 4), not a guess."
+evidence = "ferb-supervisor tests/sent_from.rs a_phones_message_is_recorded_and_read_as_sent_from_that_phone; tests/planner.rs an_owner_message_says_which_device_it_was_sent_from."
+paths = ["engine/crates/ferb-supervisor/src/words.rs::sent_from", "engine/crates/ferb-supervisor/src/flow/chat.rs", "engine/crates/ferb-supervisor/src/flow/turn.rs"]
+
+[SENSE-425]
+title = "Each phone's line says its screen as it reported it, never that it is in use"
+by = "agent"
+date = 2026-11-17
+status = "active"
+supersedes = ["SENSE-423"]
+rule = "SENSE-423 with one change of words: after this Mac's line, one line per paired phone FERB has a record of: name, wall time, zone, city while shared, then 'connected, screen on and unlocked / locked / screen off' from its last report, or 'not connected, last seen 2 h ago'. device.facts lists them under phones."
+why = "'In use now' read as the device the owner was talking through; where a message came from is now the message's own fact (SENSE-424), so the line says only what the phone reported."
+evidence = "ferbd compose::device tests a_phone_s_line_has_its_own_time_city_and_state, the_lookup_lists_each_phone_as_it_reported_itself; ferb-core device test."
+paths = ["engine/crates/ferbd/src/compose/device.rs::phone_note", "engine/crates/ferbd/src/compose/device.rs::phone_line"]
 live = ["LIVE-1145"]

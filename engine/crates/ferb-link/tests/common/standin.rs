@@ -238,6 +238,8 @@ struct St {
     config: Config,
     sessions: HashMap<(String, String), Sess>,
     approvals: Vec<Approval>,
+    /// The planner's question that waits (ferb-daemon phone/asking.rs): its id and words, until the next message.
+    clarify: Option<(String, String)>,
     tasks: Vec<Task>,
     results: Vec<Value>,
     messages: Vec<Value>,
@@ -330,6 +332,10 @@ impl St {
                 v
             })
             .collect();
+        let mut pending = pending;
+        if let Some((id, words)) = &self.clarify {
+            pending.push(json!({"approval_id": id, "kind": "clarify", "reason": words, "options": [], "task_id": null}));
+        }
         let running: Vec<Value> = self.tasks.iter().filter(|t| !t.done).map(|t| json!({"task_id": t.id, "goal": t.goal, "name": t.goal.chars().take(40).collect::<String>(), "started_at": t.started_at})).collect();
         let results: Vec<Value> = self
             .results
@@ -800,6 +806,7 @@ impl Standin {
             },
             sessions: HashMap::new(),
             approvals: vec![],
+            clarify: None,
             tasks: vec![],
             results: vec![],
             messages: vec![],
@@ -1783,6 +1790,16 @@ async fn chat_send(
         .push(json!({"text": text, "input_paths": paths, "role": role, "device": device}));
     let _ = out.send(ev(&request_id, json!({"type": "ack", "text": text})));
     let (word, rest) = text.split_once(' ').unwrap_or((&text, ""));
+    // any message answers the planner's question that waited; `clarify <words>` asks one (the turn ends with it)
+    st.lock().unwrap().clarify = None;
+    if word == "clarify" {
+        st.lock().unwrap().clarify = Some((format!("clarify:{request_id}"), rest.to_string()));
+        let _ = out.send(ev(
+            &request_id,
+            json!({"type": "clarify", "text": rest, "status": "done"}),
+        ));
+        return Ok(());
+    }
     if st.lock().unwrap().stopped {
         let _ = out.send(ev(&request_id, json!({"type": "reply", "text": "FERB is stopped. Lift the stop on the Mac first.", "status": "failed"})));
         return Ok(());

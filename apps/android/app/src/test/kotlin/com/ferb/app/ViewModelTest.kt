@@ -72,7 +72,8 @@ class ViewModelTest {
 
     private fun vm(): FerbViewModel {
         val prefs = Prefs(ApplicationProvider.getApplicationContext())
-        return FerbViewModel(phone, session, prefs, { screenLock }, null, SavedStateHandle(), local, wait = {}).also {
+        return FerbViewModel(phone, session, prefs, { screenLock }, null, SavedStateHandle(), local, wait = {},
+            io = Dispatchers.Main, steady = { t }).also {
             it.prompts = object : Prompts {
                 override fun signer(kind: KeyKind, why: Why) = FakeSigner(kind, cancelPrompt).also { s -> signers.add(s); whys.add(why) }
                 override suspend fun local(): Boolean { localAsked++; return localPrompt }
@@ -85,12 +86,22 @@ class ViewModelTest {
 
     private fun view(vararg qs: QuestionItem) = TranscriptView("c1", emptyList(), qs.toList(), emptyList(), emptyList(), OlderState.Complete)
 
-    // decision: PHN-8, PHN-125, PHN-505
+    // decision: PHN-8, PHN-125, PHN-505, PHN-633
     @Test
     fun nothing_shows_before_the_screen_lock_and_the_unlock() {
+        // PHN-633: the lock page needs neither the library, the store nor the link: it shows while the phone starts
         phone.state.value = PhoneState.Starting
+        screenLock = false
         val vm = vm()
+        assertEquals(Gate.NO_SCREEN_LOCK, vm.ui.value.gate)
+        screenLock = true
+        vm.recheck()
+        assertEquals(Gate.LOCKED, vm.ui.value.gate)
+        // unlocked before the phone opened: still nothing of the app's content until it is open (PHN-8)
+        session.unlocked()
         assertEquals(Gate.STARTING, vm.ui.value.gate)
+        session.lockNow()
+        assertEquals(Gate.LOCKED, vm.ui.value.gate)
         phone.state.value = PhoneState.Open(KeyHealth(KeyState.OK, KeyState.OK, KeyState.OK))
         screenLock = false
         vm.recheck()
@@ -106,7 +117,7 @@ class ViewModelTest {
         assertEquals(Gate.CODES, vm.ui.value.gate)
     }
 
-    // decision: PHN-13, PHN-125, PHN-505
+    // decision: PHN-13, PHN-125, PHN-505, PHN-649
     @Test
     fun one_prompt_opens_the_app_and_unlocks_the_mac() {
         val vm = vm()
@@ -114,7 +125,7 @@ class ViewModelTest {
         shadowOf(Looper.getMainLooper()).idle()
         assertFalse(session.locked.value)
         assertEquals(listOf(KeyKind.LOCK), signers.map { it.kind })
-        assertTrue("unlock" in phone.calls)
+        assertTrue("the statement, not a second prompt", "statement" in phone.calls)
         assertFalse(vm.ui.value.needsMacUnlock)
     }
 
@@ -133,6 +144,11 @@ class ViewModelTest {
     private fun shown() = signers.sumOf { it.asked } + localAsked
 
     private fun idle() = shadowOf(Looper.getMainLooper()).idle()
+
+    /** Forget's files are cleared on a background thread: waits (bounded) for [cond]. */
+    private fun eventually(cond: () -> Boolean) {
+        repeat(150) { if (cond()) return; Thread.sleep(20); idle() }
+    }
 
     /** The app leaves for [ms] and comes back: paused, the process away, then in front, resumed and focused. */
     private fun away(vm: FerbViewModel, ms: Long) {
@@ -242,147 +258,205 @@ class ViewModelTest {
         assertEquals(1, shown())
     }
 
-    // decision: PHN-615, PHN-13
-    @Test
-    fun a_cold_start_waiting_for_the_link_asks_once_and_only_on_the_owners_screen() {
-        phone.link.value = FakePhone.status(LinkPhase.CONNECTING)
-        val vm = vm()
-        session.foreground(true)
-        vm.windowReady(true)
-        idle()
-        assertEquals("waiting for the link (one prompt for the app and the Mac)", 0, shown())
-        // a turn of the screen while it waits: no second prompt is started
-        vm.windowReady(false)
-        vm.windowReady(true)
-        phone.link.value = FakePhone.status()
-        idle()
-        assertEquals(1, shown())
-        assertFalse(session.locked.value)
-    }
+    private val notProved = Outcome.Failed(FerbException.NeedsUnlock("This connection hasn't proved it is the paired phone yet.", "locked"))
+    private val locked = Outcome.Failed(FerbException.NeedsUnlock("locked", "locked"))
 
-    // decision: PHN-615
+    // decision: PHN-649, PHN-640, PHN-615
     @Test
     fun a_prompt_due_while_the_screen_is_elsewhere_waits_for_it() {
-        phone.link.value = FakePhone.status(LinkPhase.CONNECTING)
+        val vm = vm()
+        session.foreground(true)
+        idle()
+        assertEquals("not while the window isn't the owner's", 0, shown())
+        vm.windowReady(true)
+        idle()
+        assertEquals(1, shown())
+        assertFalse(session.locked.value)
+    }
+
+    // decision: PHN-649, PHN-640
+    @Test
+    fun a_cold_start_asks_at_once_before_the_phone_is_open_and_the_statement_goes_when_it_is() {
+        phone.state.value = PhoneState.Starting
+        phone.link.value = null
         val vm = vm()
         session.foreground(true)
         vm.windowReady(true)
         idle()
-        vm.windowReady(false) // a system dialog over FERB while the link was awaited
+        assertEquals("the lock page and its prompt before the library, the store and the link", 1, shown())
+        assertFalse("open at once", session.locked.value)
+        assertTrue(phone.statements.isEmpty())
+        t += 1_900
+        phone.state.value = PhoneState.Open(KeyHealth(KeyState.OK, KeyState.OK, KeyState.OK))
+        phone.link.value = FakePhone.status(LinkPhase.CONNECTING)
+        t += 2_100
         phone.link.value = FakePhone.status()
         idle()
-        assertEquals(0, shown())
-        assertTrue(session.locked.value)
-        vm.windowReady(true)
-        idle()
-        assertEquals(1, shown())
+        assertEquals("handed over once the link is up, with its age", listOf(4_000L), phone.statements.map { it.second })
+        assertEquals("exactly one prompt", 1, shown())
+        assertFalse("never the challenge unlock", "unlock" in phone.calls)
+        assertNull(vm.ui.value.macNeed)
+        assertTrue(phone.statements[0].first.contains("\"domain\":\"ferb.unlock-statement.v1\""))
     }
 
-    // decision: PHN-640, PHN-641, PHN-13
+    // decision: PHN-649
     @Test
-    fun the_app_opens_when_the_prompt_passes_not_when_the_slow_mac_answers() {
-        phone.answerGate = CompletableDeferred()
+    fun a_phone_not_paired_gets_the_prompt_alone() {
+        phone.statementOk = false
         val vm = vm()
         vm.unlockApp()
-        idle()
-        assertFalse("open at once after the fingerprint", session.locked.value)
-        assertEquals(1, shown())
-        assertEquals(MacLine.OPENING, vm.ui.value.macLine)
-        assertFalse("the lock button is free again", "unlock" in vm.ui.value.busy)
-        scheduler.advanceTimeBy(FerbViewModel.MAC_SLOW_MS + 1)
-        idle()
-        assertEquals("a slow Mac is said, calmly", MacLine.SLOW, vm.ui.value.macLine)
-        phone.answerGate!!.complete(Unit)
-        idle()
-        assertNull("the line clears by itself", vm.ui.value.macLine)
-        assertFalse(vm.ui.value.needsMacUnlock)
-        assertEquals("nothing asked twice", 1, shown())
-    }
-
-    // decision: PHN-640, PHN-641
-    @Test
-    fun a_mac_that_cant_be_reached_never_holds_the_prompt_or_the_app() {
-        phone.link.value = FakePhone.status(LinkPhase.CONNECTING)
-        val vm = vm()
-        vm.unlockApp()
-        idle()
-        assertEquals("waiting briefly for the link", 0, shown())
-        scheduler.advanceTimeBy(FerbViewModel.PROMPT_WAIT_MS + 1)
-        idle()
-        assertEquals("the prompt alone after the bound", 1, localAsked)
-        assertTrue("no challenge prompt", signers.isEmpty())
-        assertFalse(session.locked.value)
-        assertFalse("no control to tap: the line says the Mac can't be reached", vm.ui.value.needsMacUnlock)
-    }
-
-    // decision: PHN-640, PHN-641
-    @Test
-    fun a_slow_challenge_gives_the_prompt_alone_and_never_a_late_second_prompt() {
-        phone.challengeGate = CompletableDeferred()
-        val vm = vm()
-        vm.unlockApp()
-        idle()
-        assertEquals(0, shown())
-        scheduler.advanceTimeBy(FerbViewModel.PROMPT_WAIT_MS + 1)
         idle()
         assertEquals(1, localAsked)
+        assertTrue(signers.isEmpty())
+        assertTrue(phone.statements.isEmpty())
         assertFalse(session.locked.value)
-        phone.challengeGate!!.complete(Unit) // the challenge comes after all: no prompt appears out of nowhere
-        idle()
-        assertEquals(0, signers.sumOf { it.asked })
     }
 
-    // decision: PHN-640, PHN-641
+    // decision: PHN-649, PHN-641
     @Test
-    fun a_second_tap_while_waiting_shows_the_prompt_at_once() {
+    fun a_mac_that_isnt_there_never_holds_the_prompt_or_the_app_and_asks_once_when_it_comes_too_late() {
         phone.link.value = FakePhone.status(LinkPhase.CONNECTING)
-        val vm = vm()
-        vm.unlockApp()
-        idle()
-        assertEquals(0, shown())
-        vm.unlockApp()
-        idle()
-        assertEquals("the second tap is never a silent no-op", 1, shown())
-        assertFalse(session.locked.value)
-    }
-
-    // decision: PHN-640, PHN-641, PHN-225
-    @Test
-    fun a_reconnect_while_open_neither_locks_nor_asks() {
-        val vm = vm()
-        vm.unlockApp()
-        idle()
-        assertEquals(1, shown())
-        // the link drops and comes back; the first read on the new connection races the phone's own proof
-        phone.syncScript.add(Outcome.Failed(FerbException.NeedsUnlock("locked", "locked")))
-        phone.link.value = FakePhone.status(LinkPhase.CONNECTING)
-        phone.link.value = FakePhone.status()
-        idle()
-        assertFalse(session.locked.value)
-        assertEquals("nothing asked again", 1, shown())
-        assertFalse(vm.ui.value.needsMacUnlock)
-    }
-
-    // decision: PHN-640, PHN-641, PHN-13
-    @Test
-    fun the_mac_locked_after_the_open_is_unlocked_once_by_itself_then_waits_for_a_tap() {
         val vm = vm()
         vm.windowReady(true)
         vm.unlockApp()
         idle()
         assertEquals(1, shown())
-        repeat(3) { phone.syncScript.add(Outcome.Failed(FerbException.NeedsUnlock("locked", "locked"))) }
-        phone.link.value = FakePhone.status(LinkPhase.CONNECTING)
+        assertFalse(session.locked.value)
+        scheduler.advanceTimeBy(FerbViewModel.STATEMENT_AGE_MS + 1)
+        idle()
+        assertTrue("too old: never sent", phone.statements.isEmpty())
+        assertNull("nothing asks while the Mac isn't there", vm.ui.value.macNeed)
+        repeat(3) { phone.syncScript.add(locked) }
         phone.link.value = FakePhone.status()
         idle()
-        assertEquals("one automatic unlock", 2, shown())
+        assertEquals("then the card, once, with why", MacNeed.OLD, vm.ui.value.macNeed)
+        assertEquals("no prompt by itself", 1, shown())
+        vm.unlockMac()
+        idle()
+        assertEquals("its button: one prompt", 2, shown())
+        assertNull(vm.ui.value.macNeed)
+    }
+
+    // decision: PHN-649, PHN-641, PHN-225
+    @Test
+    fun a_storm_of_reconnects_neither_locks_nor_asks() {
+        val vm = vm()
+        vm.unlockApp()
+        idle()
+        repeat(6) {
+            phone.syncScript.add(locked) // the first read on each new connection races the phone's own proof
+            phone.link.value = FakePhone.status(LinkPhase.CONNECTING)
+            phone.link.value = FakePhone.status()
+            idle()
+        }
+        assertFalse(session.locked.value)
+        assertEquals(1, shown())
+        assertNull(vm.ui.value.macNeed)
         assertFalse(vm.ui.value.needsMacUnlock)
-        repeat(3) { phone.syncScript.add(Outcome.Failed(FerbException.NeedsUnlock("locked", "locked"))) }
+    }
+
+    // decision: PHN-649
+    @Test
+    fun a_statement_before_the_connection_proved_itself_is_sent_again_in_a_moment() {
+        phone.statementResults.add(notProved)
+        phone.statementResults.add(notProved)
+        val vm = vm()
+        vm.unlockApp()
+        idle()
+        assertEquals(3, phone.statements.size)
+        assertEquals(1, shown())
+        assertNull(vm.ui.value.macNeed)
+    }
+
+    // decision: PHN-649
+    @Test
+    fun a_statement_the_mac_found_too_old_asks_once_with_the_card() {
+        phone.statementResults.add(Outcome.Failed(FerbException.NeedsUnlock("too long ago", "unlock_required")))
+        val vm = vm()
+        vm.unlockApp()
+        idle()
+        assertEquals(MacNeed.OLD, vm.ui.value.macNeed)
+        assertEquals(1, shown())
+        cancelPrompt = true
+        vm.unlockMac()
+        idle()
+        assertEquals("he closed the prompt: the card says so", MacNeed.CANCELLED, vm.ui.value.macNeed)
+    }
+
+    // decision: PHN-649
+    @Test
+    fun a_mac_that_doesnt_know_this_phones_keys_asks_to_pair_again() {
+        phone.statementResults.add(Outcome.Failed(FerbException.NeedsUnlock("not this phone's", "unlock_invalid")))
+        val vm = vm()
+        vm.unlockApp()
+        idle()
+        assertEquals(Gate.REMOVED, vm.ui.value.gate)
+        assertEquals(PairReason.UNKNOWN, vm.ui.value.pairReason)
+        vm.forget()
+        eventually { !vm.ui.value.macForgotPhone }
+        assertTrue("forget" in phone.calls)
+        assertFalse(vm.ui.value.macForgotPhone)
+    }
+
+    // decision: PHN-649, PHN-313
+    @Test
+    fun an_older_mac_gets_its_own_unlock() {
+        phone.link.value = FakePhone.status().copy(macOlder = true)
+        val vm = vm()
+        vm.unlockApp()
+        idle()
+        assertTrue(phone.statements.isEmpty())
+        assertTrue("unlock" in phone.calls)
+        assertEquals("one more prompt, only with an older Mac", 2, shown())
+    }
+
+    // decision: PHN-649
+    @Test
+    fun a_lapsed_mac_window_is_asked_for_by_the_card_never_by_itself() {
+        val vm = vm()
+        vm.windowReady(true)
+        vm.unlockApp()
+        idle()
+        repeat(3) { phone.syncScript.add(locked) }
         phone.link.value = FakePhone.status(LinkPhase.CONNECTING)
         phone.link.value = FakePhone.status()
         idle()
-        assertEquals("never a loop", 2, shown())
-        assertTrue("then the line he can tap", vm.ui.value.needsMacUnlock)
+        assertEquals(MacNeed.LAPSED, vm.ui.value.macNeed)
+        assertEquals(1, shown())
+    }
+
+    // decision: PHN-648
+    @Test
+    fun the_mac_is_told_the_app_is_open_only_while_it_is_unlocked_and_in_front() {
+        val vm = vm()
+        session.foreground(true)
+        vm.unlockApp()
+        idle()
+        assertEquals(true, phone.opens.last())
+        vm.windowReady(false)
+        session.foreground(false)
+        idle()
+        assertEquals(false, phone.opens.last())
+        session.foreground(true)
+        session.lockNow()
+        idle()
+        assertEquals(false, phone.opens.last())
+    }
+
+    // decision: PHN-646
+    @Test
+    fun forgetting_a_mac_that_couldnt_be_told_says_it_still_lists_this_phone() {
+        session.unlocked()
+        phone.macForgot = false
+        val vm = vm()
+        vm.forget()
+        eventually { vm.ui.value.note != null }
+        assertEquals(Note(R.string.forget_mac_kept), vm.ui.value.note)
+        phone.macForgot = true
+        vm.note(null)
+        vm.forget()
+        eventually { "forget" in phone.calls.drop(1) && "forget" !in vm.ui.value.busy }
+        assertNull(vm.ui.value.note)
     }
 
     // decision: PHN-401, PHN-476

@@ -40,7 +40,8 @@ pub const UNCLEAR_WINDOW_S: f64 = 0.5;
 /// GATE-618 (owner: "a 10second ttl question"): how long an unclear event holds screen use while FERB asks.
 pub const HOLD_S: f64 = 10.0;
 /// GATE-619 (owner: "maybe not ask for a some time of the 10s quesion isnt answered"): after a hold that passed in
-/// silence, unclear events are not asked about for this long (10 minutes, awaiting the owner's confirmation: T-1260).
+/// silence, unclear events are not asked about for this long (10 minutes, the owner's APP-958).
+// decision: APP-958
 pub const QUIET_S: f64 = 600.0;
 /// The quiet line FERB.app shows in the notch while it holds (no sound, nothing to the phone).
 pub const CHECK_TITLE: &str = "Are you back?";
@@ -389,7 +390,8 @@ mod tests {
         );
     }
 
-    /// A hold that passes in silence resumes; unclear events are let pass for QUIET_S; a clear one still ends it.
+    /// A hold that passes in silence resumes; unclear events are let pass for QUIET_S (10 minutes, APP-958); a clear
+    /// one still ends it.
     // decision: GATE-618
     // decision: GATE-619
     #[test]

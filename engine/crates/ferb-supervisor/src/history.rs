@@ -264,7 +264,11 @@ pub fn timeline(t: &Timeline<'_>) -> (Vec<Entry>, Vec<(String, Time)>) {
             }
         }
         let mut who = if entry.kind == "chat.message" {
-            "Owner".to_string()
+            // SENSE-424, PRM-362: where it was sent from, when its client was named (never in a recording)
+            match s(data, SENT_FROM) {
+                Some(from) => format!("Owner ({})", sent_from_clause(&from)),
+                None => "Owner".to_string(),
+            }
         } else {
             "FERB".to_string()
         };

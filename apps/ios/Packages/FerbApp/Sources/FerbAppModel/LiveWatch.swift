@@ -47,14 +47,17 @@ public final class LiveWatch {
     public var showing: Bool { view != nil }
 
     @discardableResult
-    public func start(_ taskId: String) -> Task<Void, Never> {
+    public func start(_ taskId: String, worker: String? = nil) -> Task<Void, Never> {
         stop(keepView: true)
         generation += 1
         let gen = generation
         view = LiveScreen(taskId: taskId)
         let sink = Sink(self, generation: gen)
         return Task {
-            switch await api.watchLive(taskId: taskId, sink: sink) {
+            // a step's own picture (a card row's short view, kb PHN-726) comes at the row's pace
+            let asked = if let worker { await api.watchStepThumbnail(taskId: taskId, worker: worker, everyMs: Thumbnails.everyMs, sink: sink) }
+                else { await api.watchLive(taskId: taskId, sink: sink) }
+            switch asked {
             case .ok(let l):
                 if gen == generation { live = l } else { l.stop() }
             case .failed(let e):

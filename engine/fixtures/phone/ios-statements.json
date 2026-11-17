@@ -1,0 +1,21 @@
+{
+  "made_by" : "apps/ios/Packages/FerbApp StatementVectorTests on the iOS simulator: the app's own UnlockStatement text signed through FerbCore's keys (CryptoKit P-256; the Secure Enclave's form on a phone), kb PHN-649. ferb-daemon tests/phone_open.rs registers each key as a phone's lock key and the real gate takes each statement once.",
+  "vectors" : [
+    {
+      "key" : "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEoBOfpZdk1HV+bhP43nZ8m4FH8c9e43lKbdZW+MmVf4IEx5DZu23NJ5+JKXI5MdS1B29zujJgga2/uez4eAtyDA==",
+      "payload" : "{\"domain\":\"ferb.unlock-statement.v1\",\"nonce\":\"3b59933272d566fd4e6de1e6526eeab2\",\"made\":1700000000001}",
+      "sig" : "MEUCIG5Dc/p8ZAghYGN3bjZgnGlo9lO6oN1GTEk0W7AmXjePAiEAvI1F05pqAyjtCiE383xKlj66CDk+dZMyxgzahuOjFas=",
+      "statement" : true,
+      "valid" : true,
+      "what" : "ios unlock statement 1"
+    },
+    {
+      "key" : "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEoBOfpZdk1HV+bhP43nZ8m4FH8c9e43lKbdZW+MmVf4IEx5DZu23NJ5+JKXI5MdS1B29zujJgga2/uez4eAtyDA==",
+      "payload" : "{\"domain\":\"ferb.unlock-statement.v1\",\"nonce\":\"0b6ba4ef2520b1962f780eb90bdd7e7f\",\"made\":1700000000002}",
+      "sig" : "MEUCIEPrJ6wO3Y6Pg8MuJiDh0Y58wUSGHdJIg2SSuB9ge+1uAiEAtWXQq8SRpLLGg5tSh6LQ1sSYpjacFfmkBXerpg5BdWI=",
+      "statement" : true,
+      "valid" : true,
+      "what" : "ios unlock statement 2"
+    }
+  ]
+}

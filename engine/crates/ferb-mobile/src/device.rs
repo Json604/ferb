@@ -21,7 +21,7 @@ use std::sync::Arc;
 use serde::Serialize;
 use serde_json::{json, Value};
 
-use crate::api::{lock, Change, ErrorCode, Mobile, MobileError, MobileResult, Shared};
+use crate::api::{Change, ErrorCode, Mobile, MobileError, MobileResult, Shared};
 use crate::transport::{TransferSink, Transport};
 
 /// A coarse place as the phone's geocoder named it (never coordinates).
@@ -387,7 +387,7 @@ pub(crate) fn wanted(this: &Arc<Shared>, ev: &Value) {
         return;
     };
     {
-        let mut st = lock(&this.state);
+        let mut st = this.state.lock();
         if st.store.is_none() {
             return;
         }

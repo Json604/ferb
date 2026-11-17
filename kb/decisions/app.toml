@@ -4031,3 +4031,155 @@ rule = "For APP-945. The status menu's Quit targets ModalSafeQuit, whose worksWh
 why = "AppKit disables a menu item during a modal session unless its target works when modal: that greyed every item, Quit included, under Sparkle's alert. Tried 2026-11-17: terminate from inside runModal ends the app."
 evidence = "FERBNotch SpaceRuleTests testAModalAlertRunByPlainAppKitIsRaisedWhereTheOwnerIs (Quit enabled, another item disabled, under a real runModal)."
 paths = ["apps/mac/FERBNotch/Sources/FERBNotch/AppWindowPresentation.swift::ModalSafeQuit", "apps/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift"]
+
+[APP-953]
+title = "The mark on a planner line written like FERB's checks is \"(not one of FERB's checks)\""
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "your recomeded"
+words_source = "Owner 2026-11-17, to T-1263 (proposed \"(not one of FERB's checks)\") in the coordinator's list with each recommendation."
+rule = "FROM_AI is \"(not one of FERB's checks) \". It marks a line of the planner's own reply or question (and its streamed draft) that starts in the form of FERB's checks (\"FERB:\", GATE-581); it is not put under a task's reason. GATE-581's and ORCH-622's quoted words change with it."
+why = "APP-942 took AI out of owner-facing words; this mark was left because the prompt quotes it (PRM-361 changes both)."
+evidence = "ferb-policy and ferb-orchestrator replays with the named difference (APP_953 in their fixture loaders)."
+paths = ["engine/crates/ferb-policy/src/confirm.rs::FROM_AI", "engine/crates/ferb-orchestrator/src/ports.rs::FROM_AI"]
+
+[APP-954]
+title = "Settings keeps the tab name \"Thinking\""
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "your recomeded"
+words_source = "Owner 2026-11-17, to the coordinator's list of open questions that named each with the agent's recommendation."
+rule = "The Settings tab that chooses the service FERB thinks with stays named \"Thinking\" (APP-943), as built."
+why = "The owner kept the recommended name."
+evidence = "apps/mac SettingsPages.swift: case .ai returns \"Thinking\"."
+paths = ["apps/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift"]
+untestable = "A name the owner reads in FERB.app (APP-567: the owner judges the look); nothing changed."
+
+[APP-955]
+title = "Work done on something other than what was named ends \"Delivered, with gaps\""
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "your recomeded"
+words_source = "Owner 2026-11-17, to T-1257 (D3) in the coordinator's list with each recommendation."
+rule = "A result FERB reached on another file or person than the owner named ends as delivered with gaps, with code's line saying what was done instead; never done, never a bare failure (endings::DIFFERENT_ENDS_DELIVERED stays true, ORCH-668)."
+why = "The owner kept the built default."
+evidence = "ferb-supervisor endings.rs DIFFERENT_ENDS_DELIVERED = true; ORCH-668's tests."
+paths = ["engine/crates/ferb-supervisor/src/endings.rs::DIFFERENT_ENDS_DELIVERED"]
+
+[APP-956]
+title = "No \"how it was checked\" line in chat for a result confirmed only on the site's page"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "your recomeded"
+words_source = "Owner 2026-11-17, to T-1256 (D2) in the coordinator's list with each recommendation."
+rule = "A done answer whose proof is the check's own look at the site's page gets no added line saying so; how it was checked stays in the task's details and ferb trace (endings::HOW_CHECKED_IN_CHAT stays false, ORCH-672)."
+why = "The owner kept the built default."
+evidence = "ferb-supervisor endings.rs HOW_CHECKED_IN_CHAT = false."
+paths = ["engine/crates/ferb-supervisor/src/endings.rs::HOW_CHECKED_IN_CHAT"]
+
+[APP-958]
+title = "After a silent \"Are you back?\", FERB doesn't ask it again for 10 minutes"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "your recomeded"
+words_source = "Owner 2026-11-17, to T-1260 in the coordinator's list with each recommendation."
+rule = "Confirms GATE-619's number: after a 10-second \"Are you back?\" passes with no input, unclear input isn't asked about for 10 minutes (screen_use::QUIET_S = 600); a clear return still ends it at once."
+why = "Limits are the owner's (rule 18); he kept the coordinator's 10 minutes."
+evidence = "ferb-gateway screen_use.rs QUIET_S = 600.0; tests/until_back.rs."
+paths = ["engine/crates/ferb-gateway/src/screen_use.rs::QUIET_S"]
+
+[APP-960]
+title = "The menu bar icon is FERB's own mark, told apart from the system glyphs at a glance"
+by = "owner"
+date = 2026-11-18
+status = "active"
+words = "cant we have an f or somrhgin better that is visually distinguishable in this mac meny bar too???"
+words_source = "Owner 2026-11-18, with a screenshot of his menu bar: FERB's icon was a generic waveform beside the headphones and other system glyphs."
+rule = "FERB.app's menu bar icon is FERB's own mark, the wordmark's \"f\" with its dot (APP-961), not a generic SF Symbol; it reads as FERB beside the system's icons in a light or dark menu bar."
+why = "A waveform looked like any audio utility; the owner couldn't tell FERB's icon from the system's."
+evidence = "FERBNotch MenuBarIconTests; the contact sheet of every state at 1x and 2x on light and dark bars, drawn by MenuBarIcon."
+paths = ["apps/mac/FERBNotch/Sources/FERBNotch/MenuBarIcon.swift", "apps/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift"]
+untestable = "How it reads in his real menu bar beside his other icons is the owner's look (APP-567)."
+
+[APP-961]
+title = "The menu bar \"f.\" says FERB's state through its dot, and FERB's guide explains it"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For APP-960, APP-963. MenuBarState.mark is the one map: ready the dot; working the dot in a ring; needs you a badge at the top right; connecting, setting up a ring; paused two bars, stopped a square, not running an empty dot, each with the mark quiet (letter faded, tile outlined). MenuBarGuide writes AppGuide's three how-tos from it and the style."
+why = "The wordmark's dot already carries state in the notch (APP-564) and the phones' lamp; a shape per state keeps meaning without colour. Writing the guide from the map keeps FERB's words true to the drawing."
+evidence = "FERBNotch MenuBarIconTests (7 looks, alpha only, size, crisp stem, dimming); MenuBarGuideTests (every derivable state described, each look and meaning in the guide, 400 characters); MenuBarStateTests."
+paths = ["apps/mac/FERBNotch/Sources/NotchCore/MenuBarState.swift::MenuBarState.mark", "apps/mac/FERBNotch/Sources/NotchCore/MenuBarState.swift::MenuBarGuide", "apps/mac/FERBNotch/Sources/NotchCore/AppScreens.swift::AppGuide.howtos"]
+
+[APP-962]
+title = "The menu bar mark is the logo's own f and a big dot, level with the bar's system glyphs"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For APP-964..966. MenuBarIcon draws an 18 x 18 pt template image from site/logo.svg's f path: by default (style .letter) the f 13.25 pt tall, its top and dot's bottom level with the headphones', stem 3 pt, dot radius 11.5 units at the logo's gap; .tile is the app icon. Edges on device pixels. Still; APP-747's tint applies."
+why = "Hand-drawn f's read as an umbrella and as something rude; the tile was missable. The bar is 22 pt; the headphones' ink runs 2 to 15.75 pt of the canvas centred in it. Only the stem was kept at the approved 3 pt, so levelling cost no weight. Template: light, dark, highlight."
+evidence = "FERBNotch MenuBarIconTests testTheStemIsCrispAtOneAndTwoTimes, testTheStatusItemsImageDrawsTheSamePixels, testTheMarksAreAlphaOnlyAndSizedLikeTheBarsOtherGlyphs; the contact sheet in .local/menubar."
+paths = ["apps/mac/FERBNotch/Sources/FERBNotch/MenuBarIcon.swift::MenuBarIcon", "apps/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift"]
+
+[APP-963]
+title = "The menu bar f is fuller, shorter and rounder; FERB knows what each of its states means"
+by = "owner"
+date = 2026-11-18
+status = "active"
+words = "can we make it more fuller, shirt??? it looks like an umbreall rn. maybe more curved f? ... good, me tion it somewhere ferb knows it too"
+words_source = "Owner 2026-11-18 on the installed APP-960 mark, with a screenshot of his dark menu bar, and on the agent's table of states and looks."
+rule = "Follows APP-960. The menu bar mark is fuller and shorter than the first thin, tall f and reads only as FERB's f (APP-962), never as an umbrella handle. The states and their looks (APP-961) are in FERB's own guide, so FERB can explain its menu bar icon."
+why = "The first mark read as a thin cane with a small dot beside his other icons; FERB couldn't tell him what its icon's states mean."
+evidence = "FERBNotch MenuBarIconTests, MenuBarGuideTests; .local/menubar/menu-bar-mark-all-states.png and two-candidates.png."
+paths = ["apps/mac/FERBNotch/Sources/FERBNotch/MenuBarIcon.swift", "apps/mac/FERBNotch/Sources/NotchCore/MenuBarState.swift"]
+
+[APP-964]
+title = "The menu bar mark is the bare letter and dot, bigger, the size of the bar's other icons"
+by = "owner"
+date = 2026-11-18
+status = "active"
+words = "in mac menu bar, remove the box, kee letter and dot - make them bigger … and the size the same as others. this current one is too missable."
+words_source = "Owner 2026-11-18, after seeing the tile (APP-962's first default) on his real menu bar."
+rule = "Supersedes APP-962's tile as the default. The menu bar mark is the logo's f and its dot with no box, as big as the menu bar's other icons, so it can't be missed."
+why = "The tile drew the f and dot small inside a box; beside his other icons it was easy to miss."
+evidence = "FERBNotch MenuBarIconTests; .local/menubar/menu-bar-mark-all-states.png."
+paths = ["apps/mac/FERBNotch/Sources/FERBNotch/MenuBarIcon.swift", "apps/mac/FERBNotch/Sources/NotchCore/MenuBarState.swift::MenuBarMark.style"]
+
+[APP-965]
+title = "The menu bar mark is drawn only from the logo's own letter"
+by = "owner"
+date = 2026-11-18
+status = "active"
+words = "its like a flaccid dick, hahah. fix it"
+words_source = "Owner 2026-11-18, on the rounded, drooping f with its dot at the foot (journal 134)."
+rule = "The menu bar f is the logo's own letter (site/logo.svg's path: a short hook pointing sideways, a crossbar out both sides), its dot after it on the baseline; never a hand-drawn f whose hook curls down or whose dot sits at its foot."
+why = "A hand-built rounded f with a drooping hook and the dot at its foot read as something rude."
+evidence = "FERBNotch MenuBarIconTests; MenuBarIcon.swift draws Logo.f, the path as site/logo.svg writes it."
+paths = ["apps/mac/FERBNotch/Sources/FERBNotch/MenuBarIcon.swift"]
+
+[APP-966]
+title = "The menu bar letter sits level with the bar's other icons, without losing its weight"
+by = "owner"
+date = 2026-11-18
+status = "active"
+words = "yeah this is way better. ... only if you can withouth breaking it. if you can then it would be a nice symmetry"
+words_source = "Owner 2026-11-18 on the letter (APP-964) on his real bar, a little taller than its neighbours, when the coordinator offered to level it."
+rule = "Follows APP-964. The letter's top and bottom line up with the menu bar's system icons, as long as it stays as bold and as easy to find as the version he approved; otherwise the approved size stays."
+why = "He approved the letter; it stood a little taller than the headphones and the toggle beside it, and level would be symmetric."
+evidence = "FERBNotch MenuBarIconTests testTheLetterSitsLevelWithTheBarsSystemGlyphs; .local/menubar/level-before-after.png."
+paths = ["apps/mac/FERBNotch/Sources/FERBNotch/MenuBarIcon.swift"]
+
+[APP-967]
+title = "A fresh chat page after a 4-hour break, never at a clock hour; earlier pages easy to reach"
+by = "owner"
+date = 2026-11-18
+status = "active"
+words = "i agree with you here and 4 sounds good. jsut make sure going back to previosu chats is easy and the chats days connects are easy to see too"
+words_source = "Owner 2026-11-18, to the proposal of a fresh page after a long break (4 hours suggested) in place of midnight or 4 am, which he called biased towards him."
+rule = "The chat's page changes only when the owner comes back after 4 hours without his own activity, on the Mac and the phones alike; never while he works, at any hour. FERB's own posts in the break do not keep the old page. Going back to earlier pages is easy, and how the pages follow each other and which day each belongs to is easy to see."
+why = "A page that empties at midnight breaks a night's work in two; a fixed late hour fits one person's bedtime. A break follows the person. Research: .local/chat-day-boundary/report.md."

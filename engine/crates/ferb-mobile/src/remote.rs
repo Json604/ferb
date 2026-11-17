@@ -256,10 +256,13 @@ impl Shared {
     ) -> MobileResult<PhoneStatus> {
         let v = Self::call(t, "chat.status", json!({}))?;
         let status = PhoneStatus::read(&v);
+        if this.closed.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(MobileError::closed());
+        }
         let changed = {
-            let mut st = this.open_state()?;
-            let changed = st.status.as_ref() != Some(&status);
-            st.status = Some(status.clone());
+            let mut last = lock(&this.status);
+            let changed = last.as_ref() != Some(&status);
+            *last = Some(status.clone());
             changed
         };
         if changed {
@@ -271,8 +274,8 @@ impl Shared {
     /// FERB's use of the screen as just read: kept in the last status (when there is one), told when it changed.
     fn note_screen_use(&self, now: &ScreenUse) {
         let changed = {
-            let mut st = lock(&self.state);
-            match st.status.as_mut() {
+            let mut last = lock(&self.status);
+            match last.as_mut() {
                 Some(s) if s.screen_use.as_ref() != Some(now) => {
                     s.screen_use = Some(now.clone());
                     true
@@ -289,7 +292,7 @@ impl Shared {
     /// anything is asked.
     fn transport_bulk(&self, what: &str) -> MobileResult<Arc<dyn Transport>> {
         let t = self.transport_online()?;
-        if !lock(&self.state).link.bulk_allowed {
+        if !self.state.lock().link.bulk_allowed {
             return Err(MobileError::new(
                 ErrorCode::NeedsBetterPath,
                 format!("{what} is available when connected directly or through your relay."),
@@ -409,7 +412,7 @@ impl Mobile {
 
     /// Whether the app said it locked and has not synced since (the next `sync`, after the unlock, clears it).
     pub fn is_locked(&self) -> bool {
-        lock(&self.shared.state).locked
+        self.shared.state.lock().locked
     }
 
     /// "Stop everything on the Mac" (`stop.engage`, DMN-1): FERB stops all it does and starts nothing until the owner
@@ -433,7 +436,10 @@ impl Mobile {
 
     /// The last status pushed by the Mac or read (memory only; none after a start until one arrives).
     pub fn last_status(&self) -> MobileResult<Option<PhoneStatus>> {
-        Ok(self.shared.open_state()?.status.clone())
+        if self.shared.closed.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(MobileError::closed());
+        }
+        Ok(lock(&self.shared.status).clone())
     }
 
     // ---- FERB using the screen "until I'm back" (GATE-615) ------------------------------------------------------
@@ -640,8 +646,22 @@ impl Mobile {
     /// is the same). On the public relay it is refused here before anything is asked (the link and the Mac refuse it
     /// there too). The link keeps at least its least time between two pictures (200 ms).
     pub fn preview(&self, task_id: &str, have: Option<i64>) -> MobileResult<PreviewFrame> {
+        self.preview_of(task_id, None, have)
+    }
+
+    /// The same for one step of the task (`worker`: the step task id a card row or checklist line watches, FERB.app's
+    /// RowPreview, APP-888; the Mac's `tasks.preview` takes it, DMN-404); none: the step that acted last.
+    pub fn preview_of(
+        &self,
+        task_id: &str,
+        worker: Option<&str>,
+        have: Option<i64>,
+    ) -> MobileResult<PreviewFrame> {
         let t = self.shared.transport_bulk("Watch live")?;
         let mut params = json!({"what": "preview", "live": true, "task_id": task_id});
+        if let Some(w) = worker.filter(|w| !w.is_empty()) {
+            params["worker"] = json!(w);
+        }
         if let Some(h) = have {
             params["have"] = json!(h);
         }

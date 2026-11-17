@@ -5,7 +5,7 @@ import XCTest
 /// ready or as the work it waits for; the notch says "Updated to …" once per new build.
 final class UpdatePlanTests: XCTestCase {
     private let release: [String: Any] = [
-        "SUFeedURL": "https://github.com/Json604/ferb/releases/latest/download/appcast-arm64.xml",
+        "SUFeedURL": "https://ferb.kartikey.xyz/updates/appcast-arm64.xml",
         "SUPublicEDKey": "pfIShU4dEXqPd5ObYNfDBiQWcXozk7estwzTnF9BamQ="]
 
     func testOnlyAReleaseBuildWithFERBsFeedAndKeyChecks() {
@@ -13,6 +13,29 @@ final class UpdatePlanTests: XCTestCase {
         XCTAssertNil(UpdatePlan.feedURL([:]))                                         // a development build
         XCTAssertNil(UpdatePlan.feedURL(["SUFeedURL": release["SUFeedURL"]!]))         // no key: Sparkle would refuse
         XCTAssertNil(UpdatePlan.feedURL(["SUFeedURL": "https://example.org/appcast-arm64.xml",
+                                         "SUPublicEDKey": "k"]))
+    }
+
+    // decision: REL-431, REL-432
+    func testABuildAsksTheOwnersDomainFirstThenTheReleasesOwnAddressAndNothingElse() {
+        XCTAssertEqual(UpdatePlan.feeds(release),
+                       ["https://ferb.kartikey.xyz/updates/appcast-arm64.xml",
+                        "https://github.com/Json604/ferb-update/releases/latest/download/appcast-arm64.xml"])
+        // a build made with the second address keeps it first, and still knows the other
+        let direct: [String: Any] = [
+            "SUFeedURL": "https://github.com/Json604/ferb-update/releases/latest/download/appcast-x86_64.xml",
+            "SUPublicEDKey": "k"]
+        XCTAssertEqual(UpdatePlan.feeds(direct).last, "https://ferb.kartikey.xyz/updates/appcast-x86_64.xml")
+        XCTAssertEqual(UpdatePlan.feeds([:]), [])
+        // only a feed that couldn't be had moves on to the next address; the last one's failure is told
+        XCTAssertTrue(UpdatePlan.feedFailed(domain: "SUSparkleErrorDomain", code: 1002))
+        XCTAssertTrue(UpdatePlan.feedFailed(domain: "SUSparkleErrorDomain", code: 1000))
+        XCTAssertFalse(UpdatePlan.feedFailed(domain: "SUSparkleErrorDomain", code: 2001))   // a download that failed
+        XCTAssertFalse(UpdatePlan.feedFailed(domain: "NSURLErrorDomain", code: 1002))
+        XCTAssertEqual(UpdatePlan.nextFeed(after: 0, of: UpdatePlan.feeds(release)), 1)
+        XCTAssertNil(UpdatePlan.nextFeed(after: 1, of: UpdatePlan.feeds(release)))
+        // the old address of the now private repository is no feed of this build
+        XCTAssertNil(UpdatePlan.feedURL(["SUFeedURL": "https://github.com/Json604/ferb/releases/latest/download/appcast-arm64.xml",
                                          "SUPublicEDKey": "k"]))
     }
 

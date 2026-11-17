@@ -129,7 +129,7 @@ class DeviceTest {
     }
 
     // decision: SENSE-420, PHN-420
-    // decision: PHN-532
+    // decision: PHN-638
     @Test
     fun the_city_is_looked_up_once_per_kilometre_and_the_sky_takes_the_rounded_fix() = runBlocking {
         val asked = ArrayList<Pair<Double, Double>>()
@@ -146,7 +146,7 @@ class DeviceTest {
     }
 
     // decision: SENSE-420, PHN-420
-    // decision: PHN-530, PHN-532
+    // decision: PHN-530, PHN-638
     @Test
     fun androids_broadcasts_reach_the_report_and_the_city_waits_for_the_switch_and_the_permission() {
         val scope = MainScope()

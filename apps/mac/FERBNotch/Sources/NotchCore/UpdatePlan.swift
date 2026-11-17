@@ -5,7 +5,12 @@ import Foundation
 /// EdDSA key or the same code-signing identity, so the Developer ID switch passes on the key alone; plan §1); the
 /// daemon says whether a restart would cut work.
 public enum UpdatePlan {
-    public static let feedPrefix = "https://github.com/Json604/ferb/releases/latest/download/appcast-"
+    /// REL-431, REL-432: where a build may ask for FERB's feed, in order. The first is a path on the owner's own domain
+    /// (it redirects to wherever the releases live, so they can move without touching an installed copy); the second
+    /// is the releases' own address, tried when the first can't be reached. Nothing outside this list is ever asked,
+    /// and an update is trusted for its EdDSA signature, never for where it came from.
+    public static let feedPrefixes = ["https://ferb.kartikey.xyz/updates/appcast-",
+                                      "https://github.com/Json604/ferb-update/releases/latest/download/appcast-"]
 
     /// An update Sparkle marks as a major upgrade (the appcast's minimumAutoupdateVersion is newer than this build:
     /// the switch to the Developer ID, REL-423) never installs in the background: FERB asks first (APP-903).
@@ -15,9 +20,18 @@ public enum UpdatePlan {
 
     /// The feed a release build checks: FERB's own, with FERB's public key beside it; nil for any other build.
     public static func feedURL(_ info: [String: Any]) -> String? {
-        guard let feed = info["SUFeedURL"] as? String, feed.hasPrefix(feedPrefix), feed.hasSuffix(".xml"),
+        guard let feed = info["SUFeedURL"] as? String, feed.hasSuffix(".xml"),
+              feedPrefixes.contains(where: { feed.hasPrefix($0) }),
               let key = info["SUPublicEDKey"] as? String, !key.isEmpty else { return nil }
         return feed
+    }
+
+    /// Every address this build may ask, the build's own first, then the others of the list for the same file
+    /// (`appcast-<arch>.xml`), in the list's order.
+    public static func feeds(_ info: [String: Any]) -> [String] {
+        guard let own = feedURL(info), let prefix = feedPrefixes.first(where: { own.hasPrefix($0) }) else { return [] }
+        let file = String(own.dropFirst(prefix.count))
+        return [own] + feedPrefixes.filter { $0 != prefix }.map { $0 + file }
     }
 
     public enum Prepared: Equatable {
@@ -59,6 +73,18 @@ public enum UpdatePlan {
     /// an abort too) nor an install the owner cancelled (SUInstallationCancelledError).
     public static func abortIsFailure(domain: String, code: Int) -> Bool {
         !(domain == "SUSparkleErrorDomain" && (code == 1001 || code == 4007))
+    }
+
+    /// REL-432: the feed itself couldn't be had (Sparkle's appcast errors: not fetched, or not readable), the one kind
+    /// of failure where the next address of the list is worth asking. A download or install that failed is not.
+    public static func feedFailed(domain: String, code: Int) -> Bool {
+        domain == "SUSparkleErrorDomain" && (code == 1000 || code == 1002)
+    }
+
+    /// REL-432: which address to ask after `asked` failed: the next of the list, or nil when it was the last (the
+    /// failure is then told, and the next check starts from the first again).
+    public static func nextFeed(after asked: Int, of feeds: [String]) -> Int? {
+        asked + 1 < feeds.count ? asked + 1 : nil
     }
 
     /// The line the notch shows once after the first launch of a new version (APP-749); nil on a first launch, a

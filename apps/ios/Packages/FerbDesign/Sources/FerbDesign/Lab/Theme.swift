@@ -171,11 +171,7 @@ public struct FerbMark: View {
 
     public var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: size * 0.23, style: .continuous)
-                .fill(LinearGradient(colors: [Tone.ink3, Tone.ink0], startPoint: .top, endPoint: .bottom))
-            RoundedRectangle(cornerRadius: size * 0.23, style: .continuous)
-                .strokeBorder(LinearGradient(colors: [.white.opacity(0.22), .white.opacity(0.02)],
-                                             startPoint: .top, endPoint: .center), lineWidth: max(0.75, size / 96))
+            Tile(size: size)
             Letter().fill(Tone.text)
             LampDot(color: Lamp.amber, size: size / 6)
                 .position(x: size * (82.0 - 16) / 96, y: size * (85.0 - 16) / 96)
@@ -183,8 +179,22 @@ public struct FerbMark: View {
         .frame(width: size, height: size)
     }
 
+    /// The dark tile with its light edge (the launch draws the same, kb PHN-632).
+    struct Tile: View {
+        var size: CGFloat
+        var body: some View {
+            ZStack {
+                RoundedRectangle(cornerRadius: size * 0.23, style: .continuous)
+                    .fill(LinearGradient(colors: [Tone.ink3, Tone.ink0], startPoint: .top, endPoint: .bottom))
+                RoundedRectangle(cornerRadius: size * 0.23, style: .continuous)
+                    .strokeBorder(LinearGradient(colors: [.white.opacity(0.22), .white.opacity(0.02)],
+                                                 startPoint: .top, endPoint: .center), lineWidth: max(0.75, size / 96))
+            }
+        }
+    }
+
     /// The "f" of ferb-mark.svg, in that file's 96-point tile (its 128 box less the 16 margin).
-    private struct Letter: Shape {
+    struct Letter: Shape {
         func path(in rect: CGRect) -> Path {
             let k = rect.width / 96
             func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: (x - 16) * k, y: (y - 16) * k) }

@@ -327,7 +327,7 @@ impl DeviceState {
 }
 
 /// The devices' lines for the live facts (SENSE-421): this Mac's, then one per paired phone FERB has heard from
-/// (SENSE-423).
+/// (SENSE-425).
 pub fn facts_line(
     state: &DeviceState,
     name: &str,
@@ -365,7 +365,7 @@ fn phone_now(
     Some(now.with_timezone(&offset))
 }
 
-/// How a phone is with the owner now, from facts only (SENSE-423): connected or not; its screen as it last said while
+/// How a phone is with the owner now, from facts only (SENSE-425): connected or not; its screen as it last said while
 /// connected; when it was last seen when it is not.
 pub fn phone_note(v: &PhoneView, now: &ferb_core::when::DateTime) -> String {
     if !v.connected {
@@ -378,12 +378,14 @@ pub fn phone_note(v: &PhoneView, now: &ferb_core::when::DateTime) -> String {
     match (r.and_then(|r| r.screen_on), r.and_then(|r| r.screen_locked)) {
         (Some(false), _) => "connected, screen off".into(),
         (_, Some(true)) => "connected, locked".into(),
-        (Some(true), Some(false)) => "connected, in use now".into(),
+        // SENSE-425: the screen as it said, never "in use" (where a message came from is the message's own fact,
+        // SENSE-424)
+        (Some(true), Some(false)) => "connected, screen on and unlocked".into(),
         _ => "connected".into(),
     }
 }
 
-/// One phone's line (SENSE-423): its wall time, zone and city as it reported them, and how it is with the owner; never
+/// One phone's line (SENSE-425): its wall time, zone and city as it reported them, and how it is with the owner; never
 /// coordinates. A phone that has said nothing since FERB started gets a short line of what is known.
 pub fn phone_line(v: &PhoneView, now: &ferb_core::when::DateTime) -> Option<String> {
     let note = phone_note(v, now);
@@ -542,7 +544,7 @@ pub fn content(state: &DeviceState, n: &Now) -> Map<String, Value> {
             .unwrap_or_default()
     };
     m.extend(n.reading.facts(&when));
-    // SENSE-423: the owner's paired phones, as each reported itself (none listed when no phone is paired)
+    // SENSE-425: the owner's paired phones, as each reported itself (none listed when no phone is paired)
     let phones = state.phone_views();
     if !phones.is_empty() {
         m.insert(
@@ -902,16 +904,16 @@ mod tests {
         }
     }
 
-    /// A phone's line (SENSE-423): its own time and zone (London here, the Mac in Kolkata), its city only while it
+    /// A phone's line (SENSE-425): its own time and zone (London here, the Mac in Kolkata), its city only while it
     /// shares it, and how it is with the owner from facts only; never coordinates.
-    // decision: SENSE-423
+    // decision: SENSE-425
     #[test]
     fn a_phone_s_line_has_its_own_time_city_and_state() {
         let now = at("2026-11-16T15:35:00+05:30");
         assert_eq!(
             phone_line(&view(true, Some(record())), &now).unwrap(),
             "- Phone “Moto”: Monday 2026-11-16 10:05, time zone Europe/London (UTC+00:00); place: London, England, \
-             United Kingdom (city level); connected, in use now"
+             United Kingdom (city level); connected, screen on and unlocked"
         );
         let mut off = record();
         off.location = "off".into();
@@ -941,7 +943,7 @@ mod tests {
 
     /// device.facts lists each phone with what it reported, a fact it didn't say left out; a phone is found by its
     /// id or its name.
-    // decision: SENSE-423
+    // decision: SENSE-425
     #[test]
     fn the_lookup_lists_each_phone_as_it_reported_itself() {
         let now = at("2026-11-16T15:35:00+05:30");
@@ -954,7 +956,7 @@ mod tests {
         assert_eq!(v["battery_saver"], true);
         assert_eq!(v["place"]["city"], "London");
         assert_eq!(v["time"]["local"], "2026-11-16T10:05:00+00:00");
-        assert_eq!(v["status"], "connected, in use now");
+        assert_eq!(v["status"], "connected, screen on and unlocked");
         let bare = phone_content(&view(false, None), &now);
         assert!(bare.get("time").is_none() && bare.get("battery").is_none());
         let views = vec![view(true, None)];

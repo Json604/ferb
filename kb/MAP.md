@@ -6,18 +6,18 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 
 | Area | Title | Paths | Active decisions | Open tasks | Pending live checks |
 |---|---|---|---|---|---|
-| app | FERB.app (notch UI, intro, sounds) | `apps/mac`, `apps/AGENTS.md`, `apps/docs`, `apps/output`, `apps/.gitignore`, `demo` | 320 | 14 | 41 |
+| app | FERB.app (notch UI, intro, sounds) | `apps/mac`, `apps/AGENTS.md`, `apps/docs`, `apps/output`, `apps/.gitignore`, `demo` | 333 | 14 | 41 |
 | daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 92 | 9 | 7 |
 | engine | Rust engine (the rewrite) | `engine/*`, `engine/crates`, `engine/fixtures`, `engine/packaging` | 23 | 4 | 0 |
-| gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `engine/runtime/identity` | 128 | 10 | 61 |
+| gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `engine/runtime/identity` | 129 | 10 | 61 |
 | hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extension`, `extension-store` | 192 | 9 | 40 |
 | memory | Memory and memory import | `engine/runtime/memory` | 60 | 4 | 0 |
-| orchestration | Orchestration | `ferb/orchestrator/*.py`, `engine/runtime/decide`, `ferb/clock` | 167 | 11 | 40 |
-| perception | Perception | `ferb/sense` | 21 | 4 | 1 |
-| phone | Phone role, link and phone apps | `apps/android`, `apps/ios`, `engine/patches` | 263 | 13 | 18 |
+| orchestration | Orchestration | `ferb/orchestrator/*.py`, `engine/runtime/decide`, `ferb/clock` | 167 | 9 | 40 |
+| perception | Perception | `ferb/sense` | 22 | 4 | 1 |
+| phone | Phone role, link and phone apps | `apps/android`, `apps/ios`, `engine/patches` | 361 | 11 | 18 |
 | project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `HANDOFF.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `kb`, `tools`, `spikes` | 14 | 8 | 0 |
-| prompts | Prompts and abilities | `engine/runtime/orchestrator/prompts`, `engine/runtime/abilities` | 50 | 4 | 10 |
-| release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 25 | 5 | 4 |
+| prompts | Prompts and abilities | `engine/runtime/orchestrator/prompts`, `engine/runtime/abilities` | 53 | 4 | 10 |
+| release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 28 | 6 | 4 |
 | runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 58 | 6 | 6 |
 | storage | Storage | `engine/runtime/store` | 33 | 5 | 4 |
 | tests | Tests | `tests` | 14 | 6 | 0 |
@@ -43,14 +43,9 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 - T-1117 (gateway): When you paste text into the box under one of FERB's questions, should it count as your own words like a paste in chat (today), or be treated as pasted data that can't name a site for the task and can't count as Yes or No?
 - T-1242 (phone): Which Apple developer team signs the iPhone app (the Mac's 8N7RNGH974?)
 - T-1250 (app): A paste longer than 2,000 characters or 30 lines, whichever comes first, shows in the message box as a "Pasted text" chip you can click to read or remove. Keep that limit, or should it be different?
-- T-1252 (phone): A file you were sending from your phone that got interrupted now waits 7 days on your Mac so it can carry on where it stopped (it only takes disk space). Is 7 days right?
-- T-1253 (phone): After you change your relay, FERB keeps the old way to your Mac open for 30 days for phones that haven't connected since. A phone that comes back later needs your relay switched off for a moment, or pairing again. Is 30 days right?
-- T-1256 (orchestration): When FERB did something on a site and the site's own page confirms it, but FERB has no record of its own that proves it (like the Goibibo refund), should the answer add a short line such as “I checked this on Goibibo's page afterwards.”? Today there is no line; how it was checked is in the task's details.
-- T-1257 (orchestration): When FERB did the work on something other than what you named (another file with the same name, another address), it now ends like “Delivered, with gaps”, with a line such as “Not done: report.pdf from your Desktop is attached — report.pdf wasn't uploaded from your Mac, so the file the site has came from somewhere else, even if its name is the same.” Keep that ending, or end it as not done?
-- T-1260 (gateway): When FERB asks 'Are you back?' and nobody answers in 10 seconds, it carries on and doesn't ask that again for 10 minutes (a clear return still stops it at once). Is 10 minutes right?
 - T-1262 (phone): When you're ready, I draft each short issue and you post it under your GitHub account. Start with the one-line request for a release of the already-merged fix?
-- T-1263 (app): Under a task's own reason on a question card FERB still writes "(written by the AI)". Change it to "(not one of FERB's checks)", or your own words?
-- T-1264 (phone): On a phone that can't turn speech into words on the phone itself, should FERB use the phone's own speech service (Google's or Apple's, which may get the sound of your voice; FERB says so first), or offer no speaking there, like the Mac?
+- T-1267 (release): Failure reports still go to a workers.dev address. Put them behind your domain as reports.ferb.kartikey.xyz (a Cloudflare custom domain on the worker, recommended) or as ferb.kartikey.xyz/reports through the site?
+- T-1268 (phone): When you open FERB on the phone, your fingerprint unlocks it at once and the Mac is told when the phone reaches it. If the phone takes longer than 2 minutes to reach your Mac, FERB asks for your fingerprint once more. Is 2 minutes right, or should it be shorter or longer?
 
 ## Terms
 

@@ -6256,3 +6256,1089 @@ the owner's network, with three drops in six minutes (iroh #4424's shape); each 
 update feed (GitHub releases of the now private repo) answers 404: where updates live is the owner's to decide.
 
 **Unverified.** A second pairing on the build with the digits' fix (the owner's phone was already paired).
+
+## 2026-11-17 · 129 · The phone chat as he met it: home only for an empty chat, one continuous chat with days, its end followed, never a blank or silent screen
+
+**What.** The owner on the Android app: the chat was "a normal black chat screen" until he typed, then everything
+appeared; it "isn't caching"; FERB's reply didn't scroll into view (PHN-625, PHN-628, his words). His answers to the
+coordinator's questions: the chat when it has messages, home only for an empty chat, no toggle (PHN-626). Agent rulings
+PHN-627, PHN-629. Both phones alike.
+- **Cause (not the motion hosts, not caching).** Every unlock set the chat tab to the home screen
+  (`FerbViewModel.kt`, the unlock collector: `saved["home"] = true`; iPhone `AppModel.swift` `home = true`), and only
+  typing (`typed()`) or tapping Chat again left it. At night the home screen is a dark sky with "Still up?". The chat
+  itself was stored and read without the network (`refresh()` reads the library's local transcript on every change).
+  The hosts draw their content fresh: a test now draws the chat through them, adds entries with nothing else changing,
+  and sees them.
+- **Home rule (PHN-626).** Home only when nothing was said today (an entry of today, his or FERB's, or his message in
+  the outbox): at unlock home = not said today; any read that finds something said today moves to the chat; the Chat-tab
+  toggle is gone. A new day's home screen has "Earlier messages" at the top, opening the chat.
+- **One continuous chat with days (PHN-627).** The engine change: `at` (the entry's `created_at`, seconds since 2001) on
+  ferb-mobile's `TurnItem`, `ReplyItem` and `NoticeItem` and their bindings (`ferb-mobile-ffi` records, `same!` gains
+  f64), `#[serde(skip_serializing)]`: the named handling that keeps the transcript golden FERB.app's byte for byte. The
+  phone library was rebuilt for Android (`:core`) and iPhone (`build-rust.sh`); the regenerated bindings also carry the
+  lock agent's new calls. The apps put "Today", "Yesterday" or the weekday and date (the phone's language and zone)
+  before each day's first row (`ChatModel.withDays`; the day of a row is its entry's, the outbox today, a question
+  its neighbour's); older pages still load on scroll with "Getting earlier messages…" while they come.
+- **The end followed (PHN-628).** Cause: `Main.kt` `LaunchedEffect(rows.size) { animateScrollToItem(rows.size - 1) }`
+  and iPhone `.onChange(of: rows.count)`: a reply replaces the "typing" row and grows inside one row, so the count
+  never changed, and Android aligned the top of the last row. Now (`:design` `rememberChatFollow`; iPhone an end marker
+  with `defaultScrollAnchor(.bottom)`): the last row and its contents, his own drags and the list's height (keyboard,
+  message box) decide; at the end it follows to the very end, his own message always, and scrolled up a "New message"
+  pill takes him down.
+- **Never blank or silent (PHN-625, PHN-628).** Nothing stored and the link online: still message shapes and "Getting
+  your chat from your Mac…" (`ChatWaiting`); FERB working: "FERB is thinking…" beside the typing dots; sending: his
+  message in the outbox with its state (as before, now rising in with the list's motion).
+- **Where the time goes (PHN-629).** From the code: a reconnect's `sync` (ferb-mobile `api.rs` `Shared::sync`) sends the
+  device record, asks a 1-entry page (which conversation and epoch), then only the changes after the stored cursor, starts
+  the watch and marks delivered: incremental, no whole-page refetch unless the epoch changed; while the phone's app lock
+  is closed it asks nothing of the conversation, and the Mac refuses the conversation until its unlock (PHN-125), so the
+  first sync after opening waits for the Mac's unlock (PHN-641's background unlock). Stored entries need no network and
+  now show at once. The `ferb-app` log gains: sync asked (ms after start), answered or failed (ms), the chat's entries
+  ready (ms after start, rows, link phase), and what the chat drew. Not measured on his phone yet.
+- **New strings (for the owner):** "Getting your chat from your Mac…", "New message", "FERB is thinking…", "Getting
+  earlier messages…", "Today", "Yesterday" (Android strings.xml; the iPhone catalog from them by tools/strings.py).
+- **iPhone motion, from journal 127.** List rows and the pill now use built-in offset and opacity transitions in an
+  animated change (`.motionItem`), as SwiftUI did not run the custom one.
+
+**Evidence.** Engine (own target dir `engine/target/agents/chat-times`, each crate by its own manifest): ferb-mobile all
+pass, the transcript golden unchanged, new `every_item_carries_its_entrys_time_and_the_golden_does_not_see_it` (every
+scenario's items carry their entry's time within a millisecond: the fold nudges equal times by a microsecond to keep
+order; `at` absent from the serialised item); ferb-mobile-ffi all pass. Android: ChatListTest 6 (unlock with something
+said today opens the chat; a new day shows home until FERB posts; tapping Chat stays; a day's start between days;
+entries that arrive after the chat was drawn show with nothing else changing, through the real Main and its hosts; a
+reply growing to 40 lines keeps its last line above the message box, and scrolled up a "New message" pill shows),
+ChatStateShotsTest 4 new goldens (chat-waiting, chat-sending-thinking, chat-days, home-earlier; looked at), every other
+golden unchanged; :design and :core pass; the last full app run, 139 tests, failed one, FeaturesTest
+`an_offline_unlock_tells_the_library_and_reads_the_macs_name_when_online`, inside the lock agent's unlock rework (its
+new `io` dispatcher for the prompt's signature, which that test does not pass), not this work. Before that rework,
+design 89, core 29, app 131 all passed with this work in. iPhone: FerbDesign 47 (new ChatPiecesTests 2, goldens
+components/chat-pieces-night and screens/home-earlier-night, looked at); the app's suite could not build at the last
+try (FakePhone.swift `promptWait`, Shell.swift `LaunchState`: the lock and launch agents' work in progress), so
+ChatListTests 4 have not run yet; strings.py --check passes after regenerating the catalog.
+
+**Not done.** The emulator recording of open → stored chat → live update: the gallery's "The chat" page (ChatDemo.kt,
+the same :design pieces, invented words) is built for it, but the machine's load average was 325 with every agent
+building, the emulator sat on the splash screen, and it was stopped. The tests that fail first were written against the
+causes read in the code; they were not run against the code before the fix.
+
+**Unverified.** Everything on his phone: the home rule after a real unlock and a real new day, the follow under his
+finger and the keyboard, the `ferb-app` timings on his link.
+
+## 2026-11-17 · 130 · Which device a message came from, FERB's phone app explained, the mark "(not one of FERB's checks)", the owner's answers and the update feed's records
+
+**What.**
+- **A message's device (SENSE-424, PRM-362).** `chat.send`'s client decides it (ferb-supervisor `words::sent_from`):
+  `phone:<link id>` (the phone gate's mark) is that phone by its name in FERB's list (`ferb_store::phones::by_endpoint`),
+  any other client this Mac in FERB.app, no client nothing. `chat_send` works it out, the turn carries it to the
+  arrival, and the `chat.message` journal row keeps it as `sent_from`, before `text` (so a `chat.history` preview of a
+  long message still shows it). The planner reads it in the one path every call uses: a conversation line
+  `Owner (sent from this Mac, in FERB.app): …` / `Owner (sent from the phone “moto g85 5G”, in FERB's phone app): …`
+  (history.rs), and the Layer 5 heading `Layer 5 — owner's complete new message (sent from …):` (several messages:
+  `…the most recent; sent from X; then from Y):`, `words::with_sent_from`). The link id is never stored or shown. A
+  message with no client reads "Owner" as before: no Python recording names a client, so no recording changes.
+- **The phone's device line (SENSE-425, superseding SENSE-423's words).** "connected, in use now" is "connected, screen
+  on and unlocked": the line says what the phone reported, and where a message came from is the message's own fact.
+- **The always-on line (PRM-363).** `about::summary` says the owner writes in FERB.app on this Mac or in FERB's app on
+  a paired phone and FERB replies in that one conversation, which both show (Python: "always replies in text in
+  FERB.app", which FERB repeated to the owner on his phone at 21:47).
+- **FERB's phone app explained (PHN-650).** The about document's `app` section ends with `phone_app` (what it is, 18
+  how-tos, what it can't do yet), so about.read, whole or `section=app`, gives it. FERB.app's guide is sent by FERB.app;
+  the phone's is the engine's (`about::PHONE_APP_HOWTOS`). Written from the Android app's strings and screens, the
+  phone decisions and journal 115-128. Two parts describe work landing tonight from other agents (the coordinator's
+  word): Chat opening on the conversation with a line per day and the home page only for an empty day (journal 129),
+  and Forget this Mac telling the Mac to remove the phone.
+- **The mark (APP-953, PRM-361).** `FROM_AI` (ferb-policy confirm.rs, ferb-orchestrator ports.rs) is "(not one of
+  FERB's checks) "; supervisor.md quotes it. It marks a line of the planner's own reply or question that starts in the
+  form of FERB's checks ("FERB:", GATE-581), not anything under a task's reason (T-1263 said so; corrected in
+  APP-953). No Swift, Kotlin or iPhone copy exists (grep).
+- **Owner answers recorded, each checked against the code:** APP-954 ("Thinking", SettingsPages.swift:14), APP-955
+  (`DIFFERENT_ENDS_DELIVERED`), APP-956 (`HOW_CHECKED_IN_CHAT`), APP-958 (`QUIET_S` 600), PHN-651 (the scanner's white
+  card), PHN-652 (the phone's speech service, AndroidSpeech.kt), PHN-653 (`UPLOAD_PARTIAL_KEEP_S` 7 days), PHN-654
+  (`BEACON_MAX_DAYS` 30). Tasks T-1252, T-1253, T-1256, T-1257, T-1260, T-1263, T-1264 deleted. Comments citing them:
+  endings.rs, screen_use.rs; phone/files.rs and ferb-link bridge.rs were left to the agents working there.
+- **Updates (REL-430..432).** The owner's public ferb-update repo, his "from this point on … futuresafe" and the
+  ruling (FERB's own addresses under his domain, an ordered list of feeds, the signature as the trust). The coordinator
+  built and deployed the feed move; T-1267 holds what is left (the report relay's address, REL-414's text, a first
+  release).
+
+**Why.** The owner's first evening with the phone (2026-11-17, chat_entries read-only): asked from the phone which
+device he was on, FERB said the Mac; asked how to see earlier chats on the phone, it had no guide for the phone.
+
+**Evidence.** ferb-supervisor: tests/sent_from.rs 1 (plain_reply with `client_id "phone:…"` and an invented paired
+phone: the row's `sent_from`, its key order, the planner's heading, no link id), tests/planner.rs 5 (new:
+an_owner_message_says_which_device_it_was_sent_from; the 38 recorded timelines unchanged), gaps.rs 8 (APP-955/956), and
+every other binary unchanged (replay 2, replay_more 39, control_scenarios 14, chat_entries 20, prompts 5 …). ferb-daemon:
+lib phone_app_tests (each control by the Android app's words, the limits' numbers), b_small 11 (about.get with the
+PHN-650 fixer; PHN-653), the rest passing. ferb-gateway until_back 6 (APP-958), all passing. ferb-policy, ferb-orchestrator
+(APP_953 in the loaders), ferb-core: passing. ferbd: lib 79, replay 9 (about.get with the fixer), every other binary
+passing; chat_replay 10 passed (both scenario sets, PRM-361's change named; areas_c once
+showed a difference under a loaded machine and passed alone and in the next full run). Clippy `-D warnings` on the seven crates clean; fmt clean for these files.
+
+**Named differences.** PRM-361 in engine/fixtures/catalog/prompt_changes.json (the quote; 2 prompt_static systems, 7
+bodies). APP_953 in ferb-policy's and ferb-orchestrator's fixture loaders (7 forms in policy/confirm.json, 9 in
+orchestrator/texts.json). PRM-363 needs none: tried first as a named pair in ferbd chat_replay's loaders, it showed that
+no replay reads the real daemon's line (the chat and more scenarios feed each recorded environment, summary included,
+through stand-ins), so the pair was taken out again. PHN-650's `add_phone_app` in the two about.get fixers (b_small.rs, ferbd replay.rs).
+
+**Unverified.** Nothing ran on a real phone or Mac: the device fact and the guide are offline only. The guide's two
+dependent parts depend on other agents' work tonight. `cargo fmt -p ferb-daemon` early in this session may have
+reformatted ferb-daemon src/phone/ files another agent was editing (formatting only). My `kb lock` also locked
+PHN-625, PHN-626 and PHN-628, which another agent was writing at that moment.
+
+## 2026-11-18 · 131 · The phone and the Mac, both ends: Forget that forgets, pairing that ends unlocked, presence that keeps the window, and one prompt that never waits
+
+**What.** The owner on his phone (kb PHN-644, PHN-645), and the coordinator's rulings. One agent on both ends so the
+contract can't drift. kb PHN-646..649 (rulings), T-1268 (the 120 s, a question for the owner).
+
+- **Forget this Mac (PHN-646).** Cause: `FerbPhone.forgetThisMac` (Android `core/FerbPhone.kt`, iPhone
+  `FerbCore/FerbPhone.swift` `Engine.forget`) asked the link to forget, which only queued its save
+  (ferb-link `client.rs` `forget` → a `persist` event), then closed the link at once, and `Vault.forget` never deleted
+  `link.state`: the restart read the old identity with the pairing still in it and dialled the Mac with new signing
+  keys (the Mac's 22:49:16 reconnect, then `unlock_invalid`). Now: first `link.forget` (the bridge → daemon
+  `phone.forget_self`: only the calling phone, only on a connection that proved its device key, journalled
+  `phone.removed` by it and audited; the bridge cuts the connection 0.5 s after the reply), 3 s at most and only to a
+  Mac at link level 3; then, whatever it answered, the link stops (a generation number drops its late saves), the
+  store and its key, `link.state` (identity and pairing), the registered keys and the signing keys go, and a fresh
+  link starts with no state: a new phone to any Mac. A Mac that couldn't be told keeps listing it (PHN-419's 30-day
+  note); the phone keeps no credential to retry, and says so ("FERB couldn't reach your Mac, so it still lists…").
+- **Pairing ends unlocked (PHN-647).** `pair_decide` with Yes opens that phone's window (idle rule, 12 h), audited as
+  an unlock by pairing; a connection gets it only after the device key's proof. That was the 99 s of `locked`.
+- **Presence keeps the window (PHN-648).** `link.present` signed with `{"active": true}` moves the idle end of an open
+  window, never past 12 h, never after `phone.lock`. The phone sends it (ffi `Link.set_open`) now and every 2 minutes
+  while the app is unlocked and in front, only to a Mac at link level 3 (an older daemon takes only `{}`); each new
+  session's first presence stays `{}`. ferb-link LEVEL 3.
+- **One prompt, at once (PHN-649).** Cause of his two prompts at +4.06 s and +10.0 s: the opening prompt waited up to
+  2 s for the link, then signed the Mac's challenge, else showed the prompt alone and asked again for the Mac. Now the
+  lock key signs, inside the opening prompt, the phone's own statement `{"domain":"ferb.unlock-statement.v1","nonce",
+  "made"}` (model/UnlockStatement.kt, FerbAppModel/UnlockStatement.swift); the app opens when the prompt passes; the
+  statement goes (`link.unlock_statement` → `phone.unlock_statement`) when the link is up and paired, with its age by
+  the phone's steady clock. The Mac takes it once: this phone's lock or fingerprint-only key, a connection that proved
+  the device key (else `locked`, and the phone tries again a second later), age ≤ `statement_age_s` (120 s), not made
+  before the app last locked, nonce never taken (kept 12 h). The wall clock in `made` is only reported. Only the lock
+  key and the vault are needed, so the prompt works before the library, store and link are up (the launch agent's
+  lock page at the first frame). An older Mac: the challenge unlock, one more prompt. Too old, or the Mac's window
+  lapsed (12 h, a restart, a closed prompt): the lab's white card "Unlock your Mac's chat" with the reason and one
+  button, never the thin line (removed). `unlock_invalid`: "Your Mac doesn't know this phone any more, so it needs to
+  be paired again." with Pair again.
+- **Logs** under `ferb-app`: unlock started, prompt shown and its result, local unlock done, the statement's send and
+  answer with code and age, the card's reason, forget told or not.
+
+**Attacks considered (PHN-649).** Replay on another connection or phone: nonce once, this phone's key (tests). Replay
+after a lock: refused when made before `phone.lock` (test). A captured statement: it travels only inside the
+end-to-end link, once, ≤ 120 s. A wrong phone clock: age is the steady clock, `made` is only reported (test). A rooted
+phone: could hold one signed statement and use it once within 120 s, or already keep a window open by calls. The
+device key can't make one (test); a challenge-signed proof isn't one (test).
+
+**New strings** (Android strings.xml; the iPhone catalog from it; iPhone wording in strings.py for two): mac_needs_title
+"Unlock your Mac's chat"; mac_needs_lapsed "FERB on your Mac locked this phone's chat. That happens after 12 hours, or
+when FERB restarts on your Mac."; mac_needs_cancelled "The fingerprint prompt was closed, so your Mac's chat is still
+locked." (iPhone: "The unlock prompt was closed, …"); mac_needs_old "Your Mac took a while to come online, so FERB needs
+your fingerprint once more." (iPhone: "… needs to unlock once more."); mac_needs_unlock "Unlock"; pair_reason_unknown;
+forget_mac_kept "FERB couldn't reach your Mac, so it still lists this phone. You can remove it there in Settings,
+Phone."; chat_unlock_mac removed.
+
+**Evidence.** ferb-daemon `tests/phone_open.rs` 7 (self-forget only itself; pairing Yes; presence ≤ 12 h and not after a
+lock; statement once/too old/unproved; replay, other key, device key, challenge proof, before a lock, wrong clock; a
+restart asks again; the phones' own statements through the real gate), `tests/phone.rs` 18 (three tests let the
+pairing window lapse first); ferb-link `real_daemon` 6 (new: pairing opens, a statement once, forget only itself
+through the real bridge; the gate test locks first); ferb-rpc (classes.json regenerated, UPDATE_GOLDEN); ferb-mobile-ffi
+suite. Android :app 139, :core 29 (forget: no state on the new link, a late save dropped); emulator (my own, pinned
+by ANDROID_SERIAL; the owner's phone was attached and untouched) :app connected 9 of 9 with the new
+StatementVectorsTest. iPhone FerbAppTests and FerbCoreTests pass. Fixtures: engine/fixtures/phone/android-statements.json
+(the app's statement signed by the emulator's Keystore) and ios-statements.json (FerbCore keys on the simulator).
+
+**Unverified.** Nothing against a real Mac and his phone: the statement over his link, presence keeping the window
+over hours, Forget telling a real Mac, pairing ending unlocked. The lock key itself signs only after a prompt, so the
+fixtures carry device-key signatures of statements (same algorithm and form). The FERB.app build with the Mac side and
+the app must ship together for the one-prompt path; against the installed Mac (level 2) the app falls back as said.
+
+## 2026-11-18 · 132 · FERB's own "f." in the menu bar, its dot saying the state
+
+**What.** The owner, with a screenshot of his menu bar (kb APP-960): "cant we have an f or somrhgin better that is
+visually distinguishable in this mac meny bar too???". The status item (PanelCoordinator `configureMenu`,
+`updateStatusItem`) showed SF Symbols: `waveform` for connecting, setting up and ready; `ellipsis.circle` working;
+`exclamationmark.bubble` needs you; `pause.circle` paused and stopped; `exclamationmark.triangle` not running; tinted
+amber/red/green when the pill is hidden (APP-747). Now it is the wordmark's lowercase f and its dot, drawn in code
+(`FERBNotch/MenuBarIcon.swift`), and `MenuBarState.mark` (NotchCore) is the one map from state to look (APP-961):
+ready solid dot; working the dot in a ring; needs you a bigger dot raised beside the hook, the f cut clear of it as a
+badge; connecting and setting up a hollow dot; paused two bars, stopped a square, not running a hollow dot, each with
+the f at 38%. `MenuBarState.symbol` is gone (its only uses were the status item and one test).
+
+**How (APP-962).** An 18 x 18 pt template image (black, alpha only), the f 14 pt tall with 1.6 pt strokes after the
+logo's letter (crossbar at 72%, the hook ending in a vertical cut). The drawing handler reads the backing scale and
+snaps the stem, crossbar and round shapes to device pixels, so 1x is a 2 px stem and 2x a 3 px one with no soft edge.
+Measured beside it: the bar's SF Symbols are 15-19 pt images with about 13.5 pt of ink and 1.1 pt strokes. Still, no
+animation; the image is set only when the state changes (`statusItemShows`), the pill-hidden tint still applies, and
+each image's accessibility description and tooltip are the state's line, as before.
+
+**Evidence.** FERBNotch `MenuBarIconTests` 6 (template, size and description per state; alpha only and ink 13.5-16.5
+pt inside the canvas at 1x and 2x; seven different looks at both scales, connecting = setting up; a crisp stem; the f
+dimmed with the dot at full; the status item's image draws the same pixels as the bitmap at 2x), `MenuBarStateTests`
+2 (now on `mark`). `swift build` clean. A contact sheet of every state at 1x and 2x on a light and a dark bar, beside
+SF Symbols headphones, wifi and speaker, rendered from MenuBarIcon.swift itself (scratchpad, not in the repo).
+
+**Unverified.** Only the real menu bar shows: AppKit's own template tint and vibrancy over a wallpaper, the menu-open
+highlight, the notch Mac's taller bar, the f beside the owner's real icons, and the owner's verdict (APP-567). A
+WindowModeTests case about window levels (line 352) failed in the same run; it doesn't touch the status item.
+
+## 2026-11-18 · 133 · The phones: no control that does nothing; nothing blocking on the main thread, and a stall that says where
+
+**What.** kb PHN-655 (owner), PHN-656, PHN-657.
+
+- **The control that did nothing (PHN-656).** His "fingerprint to open" is This phone's lock row: an on switch with
+  nothing to change (Android `ui/Sheets.kt` `lockOn = true` into design `SheetScreens.kt` `PhoneSwitch(lockOn)`; iPhone
+  `FerbAppUI/Sheets.swift` into `MobileScreens.swift`'s `PhoneSwitch(on: lockOn, onChange: nil)`): PHN-8 has no off,
+  so the switch could never act. Now the row reads "Always on" and a tap says why (`profile_lock_why`). The sweep:
+  a repeated tap on a one-at-a-time action (settings, a setting, keys, the Mac's unlock, forget, Stop everything)
+  said nothing (`busy` returned): now "FERB is still working on that."; `mac_link_older`/`method_not_allowed` read as
+  the Mac's own text: now "This needs a newer FERB on your Mac."; a change signed by a fingerprint-only key the Mac
+  never registered failed: now that key is registered first (its prompt), then the change. The Mac tab's settings
+  path itself was read through: its tap reaches `openSettings` (Main.kt `onSettings`), the sheet shows "Loading…" at
+  once, and every failure is a note; nothing there drops a first tap.
+- **The freeze after pairing (PHN-657).** Found and fixed: `FerbPhone.unlock` and `unlockWithStatement` published the
+  keys' health with `.also { publishOpen() }` on the caller's dispatcher, the main thread (`core/FerbPhone.kt:209`,
+  `:326`), and `registerKeys` read it there too: six Keystore binder calls per publish that can wait behind the other
+  Keystore work right then (the presence thread's device key, `unregisteredKeys`); iPhone's `publishOpen` read the
+  Keychain on the main actor. Now both read it off the main thread and publish after. Not proven to be the whole ANR:
+  his stack isn't available. So debuggable builds now carry a watchdog (a stall over 1 s logs `ferb-app` "main thread
+  stalled N ms at" with the app's own frames first), `MainGuard` (a Keystore read reached from main logs its name; tests
+  can make it throw), and `ferb-app` lines also kept in `files/ferb-app.log` (256 KB, newest half kept; `adb shell
+  run-as com.ferb.phone cat files/ferb-app.log`), since a busy phone's logcat drops an app's lines. The other suspect,
+  the whole chat arriving after pairing and rebuilt on the main thread per page, measured 6 ms worst per change for
+  5 000 entries in 20 pages on the JVM (MainThreadTest, budget 100 ms).
+
+**New strings.** profile_lock_always "Always on"; profile_lock_why "FERB always asks for your fingerprint or PIN when it
+opens, so nobody else with your phone can reach your Mac. This can't be turned off." (iPhone: "Face ID, Touch ID or
+your passcode … iPhone …"); still_working "FERB is still working on that. One moment."; err_mac_older "This needs a
+newer FERB on your Mac. Update FERB on your Mac, then try again."; err_app_older "This needs a newer FERB on this
+phone. Update the app, then try again."; err_try_again "That didn't start. Try again in a moment."
+
+**Evidence.** Android :core 29, :app 161 (ControlsActTest 2: no switch with nothing to change, no empty tap action,
+every one-at-a-time action a screen calls says so when tapped again; FeaturesTest: register first, a newer Mac;
+MainThreadTest; golden profile.png re-recorded after looking). iPhone FerbAppTests and FerbCoreTests pass. Emulator:
+pinned to my own (ANDROID_SERIAL), the owner's phone untouched.
+
+**Unverified.** The ANR's own stack: not reproduced (no level-2 Mac stand-in on the emulator); the next one on his
+phone will say where through the watchdog's line and the file. The structural test can't see an action that returns
+early inside its own code; those are each one's tests.
+
+**Follow-up the same night (PHN-660..664): the status line and the way back to today.** The owner on the build: the
+line under the tabs was white at body size and read like a message ("Your Mac is slow to answer…"), and there was no
+way back to today from earlier days. Both phones now have one StatusLine in the design modules: 13 pt grey words on a
+compact black capsule with the lab's marks (dashed waiting ring for working, grey dot for a fact, amber lamp and amber
+words only for the Mac out of reach), item motion in and out (Android MotionShow, which pushes the chat by its own
+height only). mac_slow became "Still reaching your Mac…" and chat_offline "Can't reach your Mac. Messages wait for
+it." so each state is one line. The chat has a floating control whenever he is away from its end: "New message",
+else the latest day's name ("Today") from an earlier day, else the arrow alone ("Go to the latest messages"); Chat
+tapped on the chat goes to the end; the day of the top row is held at the top while he is away from the end. On
+Android any scroll that is not the follow's own now counts (only drags did, so a screen reader's scroll never showed
+the pill).
+
+**Evidence.** Android: design 103, core 29, app 161 all pass, gallery builds; ChatListTest 10 (4 new); goldens
+status-line-dawn/-noon/-night/-large-text, chat-status-slow, chat-earlier-day, chat-scrolled-up (looked at);
+chat-offline-outbox re-recorded on purpose (the old white two-line offline text became the new line). iPhone:
+FerbAppTests 119, FerbDesignTests 60, FerbCoreTests, FerbMobileTests pass; goldens components/status-line-dawn/-noon/
+-night, chat-way-back-night (looked at), chat-pieces-night and home-earlier-night re-recorded (the pill's fill).
+FERBUITests: 5 of 6 fail on the launch and pairing pages before any chat (the launch agent's FirstRunAsker work in
+progress); not this work.
+
+**Unverified.** The iPhone's sticky day and way back in a running app (scrollPosition is not exercised by the unit
+tests; only the decision function, the day of a row and the tab counter are); iPhone type does not follow Dynamic Type
+anywhere in the app (`.type` uses fixed sizes), so the status line's large-text golden is Android only; everything on
+his phone.
+
+## 2026-11-18 · 134 · The menu bar "f." made fuller, shorter and rounder; FERB's guide explains its icon
+
+**What.** The owner saw entry 132's mark on his dark menu bar between the headphones and a toggle (kb APP-963): "can
+we make it more fuller, shirt??? it looks like an umbreall rn. maybe more curved f?", and on the table of states:
+"good, me tion it somewhere ferb knows it too". On his bar the 14 pt f with 1.6 pt strokes read as a thin cane with a
+narrow crook and a small dot low and away from it.
+
+- **The f (APP-962).** `MenuBarIcon.swift` now draws the logo's bold proportions: 12.5 pt tall (was 14), a 2.4 pt
+  stem (5 px at 2x, 2 px at 1x; was 1.6) with a rounded foot, a round hook (an elliptical centre line 2.6 x 2.1 pt,
+  stroked at the stem's width) that curls over the top and down to a round end, a round-ended crossbar reaching past
+  the stem on both sides, and a 5.5 pt dot (at 2x) 1.25 pt from the foot. The f's parts draw into one transparency
+  layer, so the faded states fade once. The needs-you badge moved to the canvas's top right so the hook stays whole;
+  the working ring moves 0.9 pt right to stay clear of the foot. `MenuBarIcon.stroke` is the one stem number.
+- **The guide (APP-961).** `MenuBarState.every`, `meaning` and `MenuBarMark.look` (NotchCore) are the words;
+  `MenuBarGuide.howtos` writes three how-tos from them and from `StatusTint` (the pill-hidden colours): where the icon
+  is and what its colours mean, the dot's looks, and the faded looks. They join `AppGuide.howtos`, so FERB.app sends
+  them with `about.guide` on each connection and Settings → About lists them. Each stays under the daemon's 400
+  characters for a how-to's steps (`about.rs` GUIDE_CHARS); no daemon change.
+
+**Evidence.** FERBNotch `MenuBarIconTests` 6 (ink 12 to 15 pt; the stem's pixel count is `MenuBarIcon.stroke`
+snapped), `MenuBarGuideTests` 2 (every state `derive` can give across links, pause, stop, questions, tasks and setup is
+in `every`; each look, meaning and colour is in the guide; 400 characters; no "AI"), `MenuBarStateTests` 2,
+`AppScreensTests` 17, `KeyboardShortcutTests` 8; `swift build` clean. The sheet `.local/menubar/menu-bar-mark-all-states.png`
+and a recreation of his bar (headphones, f., toggle, wifi on black, 2x) rendered from MenuBarIcon.swift and looked
+at: a bold "f." the weight of the toggle.
+
+**Unverified.** His screenshot was gone (macOS's temporary capture) before it could be composited, so the comparison
+is a recreated bar. The real bar, the menu-open highlight, the tint over his wallpaper and his verdict remain; so does
+FERB answering "what does the icon mean" from the guide on the installed build. At 1x the working ring is coarse.
+
+## 2026-11-18 · 135 · The menu bar mark drawn from the logo's own path: the app icon's tile by default, the bare "f." as the other
+
+**What.** The owner on entry 134's rounded f (a thick stem whose hook curled over and drooped to a round end, a big
+dot at its foot): it read as something rude, and he asked for it to be fixed; entry 132's thin f had read as an
+umbrella handle. Both were hand-built letters. Now `MenuBarIcon.swift` draws only the logo's own shapes: site/logo.svg's
+f path (its quadratic curves as written: a short hook pointing sideways, a crossbar out on both sides), its dot at
+(82, 85) r 8 after the letter on the baseline, and its 96-unit tile with corners of 22. Two drawings, picked by one
+line, `MenuBarMark.style` (NotchCore):
+
+- **.tile (the default, APP-962).** The app icon in one colour: a 15 pt rounded square with the f and dot cut out.
+  Working cuts a ring round the dot, needs you puts a badge on the tile's top-right corner (cut clear), connecting and
+  setting up cut only a ring; paused, stopped and not running draw the tile as an outline with the f inside and two
+  bars, a square or an empty dot.
+- **.letter.** The bare f at 13 pt with the dot after it at the logo's gap; the f fades for the quiet states.
+
+The stem's edges, the baseline, the crossbar's edges and ends, the terminal and the top land on whole pixels (the stem a
+whole number of pixels wide at each scale; the letter keeps the logo's height). `MenuBarMark.look` and the quiet
+how-to's title follow the style, so the guide describes the drawing in use. Recommended the tile: at real size it
+reads only as FERB's icon, solid among outline glyphs, and its quiet states change from filled to outline; the bare
+letter now reads cleanly as "f." but is easier to overlook. Its weakness: the working ring in the tile is small.
+
+**Evidence.** FERBNotch `MenuBarIconTests` 6 (both styles: alpha only and inside the canvas at 1x and 2x, seven
+looks each, a crisp stem whose width is `MenuBarIcon.stemWidth`, quiet marks faded or outlined with the state's shape
+at full), `MenuBarGuideTests` 2, `MenuBarStateTests` 2, `AppScreensTests` 17; `swift build` clean.
+`.local/menubar/two-candidates.png` (both on a recreated dark and light bar beside the headphones and toggle, real size
+and 4x, every state at 2x and 1x) and `menu-bar-mark-all-states.png` (the tile), rendered from the code and looked at.
+
+**Unverified.** The tile on his real bar, beside his icons, and his choice between the two. The 1x working ring is
+coarse in both.
+
+## 2026-11-18 · 136 · The phones' launch: where his four seconds went, the mark from the first frame into the lock page, the first run's asks, a status icon you can see
+
+**What.** The owner, on his moto g85 running the debug build: "...even after openign its takes sedon to show ferb logo and
+the fingerprintp in;ock buttona dn tehn tebhauto fingrtpeint moddla ... we are gonna provide percieved performance here"
+(owner PHN-630), then "take all teh imp req permission at the start" (owner PHN-635) and "the nitification icon is tooo
+small" (owner PHN-665). Agent rulings PHN-631..634, 636..639, 666. Both phones, one behaviour. By an Opus agent on the
+coordinator's brief, beside the lock agent and the chat agent (their files touched only where named below).
+
+- **Where the seconds went** (his phone's logcat, read only; nothing installed on it). Two cold starts: tap → process
+  20 ms; render thread up +0.62/+0.70 s; the link's dial began about +1.9 s (inferred: the gate waited for the whole
+  FerbPhone.start before LOCKED); the prompt was asked at +3.93/+4.06 s (2 s of it the lock agent's PROMPT_WAIT_MS, his
+  link took 4 s to dial) and on screen at +4.24/+4.38 s. A warm start (process alive) asked at +1.09 s. The first frame
+  drew only the sky (Root.kt `Gate.STARTING -> Unit`), after the system splash showed the launcher icon on black. In
+  short: about 0.3 s his phone and the system's dialog, about 1 s the debug build (55 MB of unshrunk dex run from the
+  APK, JIT only, -Xcheck:jni; inferred from the emulator's ratio and his 0.7 s to the render thread), the rest FERB's
+  order (1 s of sky with no logo, then 2 s of link wait).
+- **Emulator** (an AVD of my own, 4 cores, API 36; the host's load went from 3 to 115 during the day, so only quiet runs
+  count). Debug, quiet: TotalTime 479-649 ms; atrace of one cold start: bindApplication 186 ms (opening the dex 128 ms),
+  Application.onCreate about 30 ms, MainActivity.performCreate 73 ms, the first Choreographer frame 166 ms. Release-like
+  (the old r8check build): 155-846 ms. After this work, quiet: debug Displayed 569-654 ms, prompt asked 950-1025 ms;
+  benchmark with its profile Displayed 546-705 ms, prompt 967-1204 ms. On this host the debug/release gap is small; on a
+  mid-range phone it is not (his 0.7 s to the render thread against the emulator's 0.1-0.2 s).
+- **Start-up order (PHN-633).** The gate shows LOCKED as soon as the screen lock is known, before the library, keys,
+  link and store (FerbViewModel.gateOf: Closed/Starting moved below `locked`; iPhone AppModel.gateOf the same); unlocked
+  before the phone opens shows nothing (STARTING) until it does. The corpus is read on a thread from Application.onCreate
+  (MainActivity's factory takes `a.corpus()`). DeviceSensors.snapshot (about 1 s on the main thread under load, found by
+  the lock agent's watchdog) runs on Dispatchers.Default; DeviceReporter.seed starts the report from it. Start-up lines
+  under ferb-app (StartLog: application, activity, first frame, page, phone open with its ms, launch settled) and Android's
+  "Fully drawn" when the launch ends; iPhone the same from the process's start time. After: no stall of FERB's own in
+  three cold starts (files/ferb-app.log); two showed 1.4 s in HardwareRenderer.nSetStopped on the first draw, the
+  emulator's GL under load.
+- **The launch (PHN-631, 632, 634).** motion.json `launch` is the one table; Launch.kt, Launch.swift and
+  tools/launch_samples.py are three copies of one pure function of time, held to the same 24 samples. Frame by frame: the
+  system's first frame is the mark (the f on its dark tile, 112 dp at the screen's centre, on ink0). Android 12+ plays it
+  as the splash icon (launch_splash, vector animators: the dot falls 0.42 of the tile on t² in 300 ms while it fades in,
+  hops 0.05 up and down in 90 + 90 ms, the f gives to 0.965 from its foot; from 900 ms the dot breathes to 0.86 and 72 %
+  every 1.8 s). The app's overlay continues from the splash's iconAnimationStart and the splash is removed; Android 11's
+  starting window and iPhone's Launch.storyboard are the still first frame and the app's dot drops in. When the page is
+  ready (the lock page, at once) the mark flies to the lock page's FerbMark in 450 ms on (0.4, 0, 0.2, 1) while ink0 lifts
+  off the sky; the page's own mark is hidden until it lands (`launchTarget()`, a shared element). No minimum, no
+  intro when ready: it is cut wherever it is. The settle waits for Android's splash to go (at most 1 s) and for iOS's
+  0.25 s crossfade, or the mark showed as a ghost or played unseen (both seen in recordings and fixed). The enter curve
+  was tried first and read as a jump. Only layer transforms and alpha per frame; the halo's blur is drawn once.
+- **The prompt follows the settle.** MainActivity passes `focus && launchSettled` to vm.windowReady (onResume and
+  onWindowFocusChanged; one field, one re-check when the settle reaches 315 ms); iPhone's AppShell the same on scene
+  active. The lock agent's own changes made the prompt independent of the link and the store.
+- **Reduced motion (PHN-634):** nothing moves; the dot fades in over 200 ms and the overlay fades off over 200 ms.
+- **Benchmark build:** `:app:assembleBenchmark` (R8, not debuggable, the baseline profile `src/main/baseline-prof.txt`
+  with the app's and the library bindings' packages, debug-signed). It installs over the debug app with `adb install -r`
+  and keeps the pairing (seen on the emulator, LOCKED kept).
+- **Android splash size:** the system draws the splash icon in about a 280 dp box, not 288: the tile came out 2.7 %
+  small (measured on recorded frames); the viewport is sized for it (f height 163 px against 161.7 expected after).
+- **First run's asks (PHN-636..639).** One page after the first unlock, before pairing or the app (never in front of
+  the lock or the screen-lock page): notifications (Android 13+), the city (coarse / when in use), the camera, the
+  microphone (iPhone: and speech). Continue brings the system's questions one after another; Not now passes them over;
+  each answer is kept and never asked again; an update adding one shows only it. The city's Yes turns on sharing the
+  city (PHN-638 supersedes PHN-532's off-by-default; its fixes unchanged). OnPhoneTest's lock test now passes through
+  the page (Not now) to pairing; the iPhone UI tests about other pages pass `-FERBUITestFirstRunDone YES`.
+- **Status icon (PHN-666):** ic_stat_ferb is the logo's bold f with its dot, 20 dp tall in the 24 dp canvas.
+
+**New strings** (Android strings.xml, the iPhone catalog from it): first_run_title "Before you start"; first_run_intro
+"FERB asks your phone for a few things. You can say no to any of them: FERB still works, and says what is missing when
+you need it."; first_run_notifications "Notifications" / _why "So FERB can tell you about its questions and finished
+tasks when you're outside the app."; first_run_location "Your city" / _why "So local times and places come out right.
+Only your city goes to your Mac; FERB asks before using your exact spot."; first_run_camera "Camera" / _why "To scan the
+code on your Mac when you pair. Nothing is recorded."; first_run_microphone "Microphone" (iPhone "Microphone and
+speech") / _why "So you can hold the microphone and speak to FERB. Nothing is recorded."; first_run_continue
+"Continue"; first_run_not_now "Not now".
+
+**Evidence.** Android `./gradlew --offline :design:testDebugUnitTest :core:testDebugUnitTest :app:testDebugUnitTest
+:app:assembleDebug :app:assembleBenchmark`: design 103, core 29, app 161 (plus StatusIconShotsTest 2 after), none
+failed. New: LaunchTest 8, LaunchShotsTest 3 (first frame, a moment of the settle, the settled frame equal to
+screens/unlock-noon.png within 0.1 %), PermissionsShotsTest 3 (first-run-dawn/noon/night), FirstRunTest 6,
+StatusIconShotsTest 2; ViewModelTest's gate test updated (LOCKED while starting, STARTING after an unlock before Open).
+connectedDebugAndroidTest of OnPhoneTest's two lock tests on my emulator (ANDROID_SERIAL pinned): 2/2. iPhone (`xcodebuild
+test`, the FERB scheme, a simulator and DerivedData of my own): FERBUITests 7, FerbAppTests 119, FerbCoreTests 14 (1
+skipped), FerbMobileTests 4, FerbDesignTests 60 (new LaunchTests 9 with the launch screen's PNGs drawn by the test
+itself, PermissionsPageTests 1, FirstRunTests 5); make_project.py and strings.py --check pass. Recordings and contact
+sheets (scratchpad launch/): android-benchmark-cold.webm, android-debug-cold.webm, iphone-cold.mp4,
+android-launch-contact-sheet.png, iphone-launch-contact-sheet.png; the emulator's capture shows one frame mid-flight
+(its GL drops frames), the simulator's 30 fps shows the whole flight.
+
+**Unverified.** Everything on his phone: the splash icon's box there (sized from the emulator), 60/120 Hz smoothness of
+the settle, the real cold-start numbers after these changes (expected about 1.8 s to a visible prompt in debug and about
+1.1-1.3 s in the benchmark build, against 4.4 s measured: estimates from the parts), the baseline profile's gain
+(ProfileInstaller compiles it in the background after a sideload; on the emulator it was within the noise), the first
+run's system questions in sequence on a real phone, and the status icon in his real status bar and shade.
+
+## 2026-11-18 · 137 · The menu bar mark: the logo's bare "f." again, as big as the bar's own icons
+
+**What.** The owner saw entry 135's tile on his menu bar (kb APP-964): "in mac menu bar, remove the box, kee letter
+and dot - make them bigger … and the size the same as others. this current one is too missable." His earlier words on
+entry 134's drooping f are now on record too (APP-965: "its like a flaccid dick, hahah. fix it" → only the logo's own
+letter). `MenuBarMark.style` is `.letter` again; `.tile` stays one line away.
+
+- **Size.** The status bar here is 22 pt (`NSStatusBar.system.thickness`); its SF Symbol images are 16 pt with 13 to
+  13.5 pt of ink (headphones 16 x 16, the toggle 16 x 14). The image stays 18 x 18 pt (an image taller than the bar
+  would be scaled or clipped): the f is now 15 pt from the baseline to the hook's top (was 13), the f and dot fill
+  about 15.9 pt, the stem 3 pt at 2x, 3 px at 1x, the logo's path and proportions otherwise unchanged.
+- **The dot.** Radius 10.5 logo units instead of 8 (about 6 pt across), its left edge at the logo's gap after the f
+  (x 74) and its bottom where the logo's is (y 93), so it is what the eye finds. Working is a ring with a dot in it and
+  connecting/setting up an empty ring, both in the dot's own place a touch wider (a ring looks smaller than a disc);
+  needs you raises the same dot to the hook's height; pause bars and the square fill the dot's place; the f fades for
+  the quiet states. The guide's words follow the style (the letter's words, as in entry 134).
+
+**Evidence.** FERBNotch `MenuBarIconTests` 6 (both styles), `MenuBarGuideTests` 2, `MenuBarStateTests` 2,
+`AppScreensTests` 17; `swift build` clean. `.local/menubar/menu-bar-mark-all-states.png` (the letter, every state, 1x
+and 2x, light and dark) and `two-candidates.png` (both styles beside the headphones and toggle, real 2x and 4x),
+rendered from the code and looked at: a bold "f." a little taller than the headphones, the dot plain at real size.
+
+**Unverified.** His real bar and his verdict. At 1x the working ring's centre dot nearly fills it, so working and
+ready look alike there; at 2x they differ clearly.
+
+## 2026-11-18 · 138 · The menu bar letter levelled with the bar's own icons, its weight kept
+
+**What.** The owner on entry 137's letter on his bar: "yeah this is way better." Offered to level it with its
+neighbours: "only if you can withouth breaking it. if you can then it would be a nice symmetry" (kb APP-966).
+Measured: the bar is 22 pt and AppKit centres a status image in it; the headphones symbol (16 x 16 pt) then has ink
+from 2.0 to 15.75 pt of an 18 pt canvas centred the same way (the toggle 3.25 to 14.25). The letter (still
+`MenuBarMark.style = .letter`) now runs its hook's top to 15.75 and its dot's round bottom to about 1.75: the f 13.25 pt
+from a baseline at 2.45 (was 15 pt and 1.1 to 16.9).
+
+- **Weight kept.** `Placement` takes a stem in points: the letter's stays 3 pt (6 px at 2x, 3 at 1x), and only the
+  stem widens; everything left and right of it keeps the logo's proportions, so the hook, crossbar and gap are the
+  logo's at the new size. The dot is radius 11.5 logo units (was 10.5 at the larger size): the same 5.5 pt drawn at 2x.
+  The raised needs-you dot moved to 41 units so it stays under the headphones' top.
+- **Chosen.** Side by side, before and after, on the recreated dark and light bars at real 2x and 4x beside the
+  headphones and toggle (`.local/menubar/level-before-after.png`): as bold, as findable, and now level. Every state
+  re-checked on the sheet (`menu-bar-mark-all-states.png`).
+
+**Evidence.** FERBNotch `MenuBarIconTests` 7 (new: `testTheLetterSitsLevelWithTheBarsSystemGlyphs`, the letter's ink
+top and bottom within 0.5 pt of the headphones' drawn the same way, and its stem 3 pt at 1x and 2x), `MenuBarGuideTests`
+2, `MenuBarStateTests` 2, `AppScreensTests` 17; `swift build` clean.
+
+**Unverified.** His bar and verdict. At 1x the working ring's centre dot still nearly fills it.
+
+**The chat blank while the keyboard moves (PHN-670, PHN-671).** The owner's recording: on Android the chat list drew
+nothing for as long as the keyboard slid in or out. Cause, proved: rememberChatFollow kept the end in view by calling
+`scrollToItem(n - 1, Int.MAX_VALUE)` on every change of the list's height (each frame of the IME inset); Compose
+1.7.6's `LazyListState.snapToItemIndexInternal` calls `LazyLayoutItemAnimator.reset()` whenever the requested position
+differs from the stored one (always, with that offset), so every visible row restarted the item fade from alpha 0 on
+every frame. The same jump ran on each streamed token of a growing reply and on the chat's first draw. Fix: the end is
+reached by scrolling (`scrollBy` to the list's end, the glide by `animateScrollBy` on the sheet spring), a height
+change at the end scrolls by the difference (`dispatchRawDelta`), one jump only from more than 8 rows away, and only
+rows new to the list fade (`motionItem(arriving)`; the chat tracks the keys it drew). KeyboardTest (3, Robolectric,
+the window drawn into a bitmap on each frame) failed before the fix (frame 2 of the slide: 0.0 of the list drawn, 0.58
+at rest; the first draw faded from nothing) and passes after. Emulator (gallery's chat demo given a real message box
+and the keyboard): every frame of a slide in and out shows the rows; settled, the end sits against the box. The end can
+trail the box by one frame while the keyboard moves (a forward scroll is refused until the list has measured its new
+height). iPhone: by reading only, nothing scrolls per keyboard frame there (SwiftUI's keyboard avoidance with
+`defaultScrollAnchor(.bottom)`; rows move only on `rows.last` changing); not run in the simulator.
+
+## 2026-11-18 · 139 · The phone that stopped responding after the unlock: the core's lock held across a call to the Mac, and the main thread waiting behind it
+
+**What.** The owner, again, on the build of 01:09 that already had entry 133's fix: "again ferb stopped responding after
+opening it adn pressing unlock … it worked on a app ressrt, but this shdolnt be happenign int eh first place". kb
+PHN-680 (owner), PHN-681..685. His phone's own file (entry 133's watchdog) named it: from 01:09:53 the main thread
+stood, for 20 s until he killed the app, at `uniffi…mobile_last_status < Mobile.lastStatus < FerbPhone.lastStatusNow <
+LibraryPhone.lastStatus < Notifier.lookStatus:106`; Android's ANR at 01:10:10. Two defects that needed each other:
+
+- **The core waited for the Mac with its one lock held (ferb-mobile `api.rs` `Shared::sync`, since entry 107).** The
+  delivered mark read the cursor as `if let Ok(Some(c)) = this.open_state()?…cursor(..) { t.call("chat.entries.mark") }`:
+  an `if let` keeps its scrutinee's temporaries, here the state's MutexGuard, through the whole body. Every reader of
+  the core queued behind a network call. And the link's one pump thread (`door.rs`), which must take that lock to hand
+  over a watch frame or a link event, met the watch's first frame (it arrives ahead of the mark's answer, the watch
+  having been started just before), waited for the lock, and so never read the answer the sync was waiting for: the
+  sync ended only at the door's backstop, 60 s, with the core locked throughout. On the real link this is every sync
+  that reaches the mark: every unlock and every reconnect. His second run that night says it in so many words: "mac
+  unlock by statement ok in 60100 ms"; the picture he then sent started at the Mac exactly when those 60 s ended.
+- **The main thread called the library itself.** `lastStatus` was the one plain (not `suspend`) function of `PhoneApi`,
+  documented "memory only; safe on the main thread": `Notifier.lookStatus` and `lookTranscript` (Notifier.kt:106, :150),
+  `FerbViewModel.apply` (:467) and the notification answer (Background.kt:104) ran it on the main thread, where it
+  queued behind that lock. iPhone the same (`AppModel.apply`, `Notifications.swift`, `FerbPhone.lastStatusNow`).
+
+**Reproduced, then gone.**
+- `engine/crates/ferb-mobile/tests/no_wait_under_lock.rs`, through the real door pump with a door that answers as his
+  link did (the watch's frame, a pushed status and a change of path ahead of the mark's answer): before, "the sync
+  waited 60.007550292s"; after, the two tests take 1.1 s. The other test asks, from another thread during every call to
+  the Mac, what the screens ask (last status, link state, transcript, outbox): before, readers waited through
+  `chat.entries.mark`; after, none waits.
+- Emulator (the agent's own AVD), `MainThreadStormTest`: the real library, view model, notifier and lock on the real
+  main thread against a stand-in Mac on a link like his (direct ↔ shared relay, drops of 1–3 s, a new connection
+  `locked` until proved so the first statement is refused, slow answers, status and live frames pushed throughout; open,
+  read, send, lock, open again). Unfixed build, 90 s: 2 stalls, 831 and 1669 ms, at `uniffi…mobile_last_status <
+  Mobile.lastStatus:5601 < FerbPhone.lastStatusNow:263 < LibraryPhone.lastStatus:178 < FerbViewModel.apply:467`, his
+  phone's top four frames (bounded by the stand-in's slow mark: a transport in Kotlin has no pump, the 60 s is the
+  Rust test's). Fixed build, 241 s, 25 opens, 21 drops, 33 statements: no stall over 250 ms, no "blocking call on the
+  main thread" line.
+
+**The class, closed (PHN-681, PHN-682, PHN-683).**
+- Rust: the state sits behind `api::StateLock`. Every call to the Mac (the transport is wrapped at `connect`) and every
+  change told to the app asserts that this thread holds no state guard, in debug and test builds: with the old `if
+  let` put back, six existing sync and outbox tests fail with "a call to the Mac with the core's state locked". Taking
+  the lock twice on one thread is refused in every build. The last status has its own lock, held only to copy it.
+- Android: `PhoneApi.lastStatus` is `suspend`; `PhoneApiShapeTest` fails on any plain function of `PhoneApi` but
+  `setOpen`. `FerbPhone.call` is the one way into `Mobile` (its IO dispatcher); what the app tells the link (`setActive`,
+  `setOpen`, `networkChanged`, `retry`) goes through one serial lane, in order. `MainGuard.offMain` stands at both and
+  names any call that arrives on the main thread; `MainThreadRuleTest` drives open, unlock, a changed status, a
+  message, the link's words and the lock over the real library and asserts it named none.
+- iPhone: `lastStatus()` is `async` through `FerbPhone.call`; the link's words go through `Engine.tellLink` (a serial
+  queue); `link = engine.linkStatus()` and `registerKeys`' vault and key reads left the main actor; `MainGuard` at the
+  engine's door; `FerbPhoneTests.testTheMainActorNeverEntersThePhoneLibrary`.
+- Floor: with no call from the main thread into the library, a stuck background job (the store, the link, a Mac that
+  never answers) leaves taps, scrolling and the lock working; what waits is a line of text.
+
+**Found on the way and fixed.**
+- A transport or a watch let go while the state was locked (`Mobile::close`, `disconnect`, `forget_this_mac`,
+  `connect`, `Sink::ended`): when the core held a door's last reference, the door's end called the watch's `ended`,
+  which asked for the state on the thread that held it, for good (the first test's process hung on it). Each is taken
+  out under the lock and let go after it. The app's id and clock are asked before the lock, not under it.
+- The refused first statement (PHN-684): by design the Mac takes a statement only on a connection that proved the device
+  key; his arrived 60 ms before that proof (Mac audit 01:09:53.589 `locked`, 53.650 `phone.present` ok, 54.652 ok after
+  the phone's one-second retry, three `locked` reads between). The library now marks the proof as on its way before the
+  app hears "online", and `unlock_with_statement` waits for it, 3 s at most. The retry stays as the fallback.
+- A whole sync on every word of the link's status (FerbViewModel's link collector; several a minute on a path that
+  moves): once per coming online now, and not while a statement is on its way.
+- One coroutine and one whole-transcript read per change in the notifier (live frames come several times a second),
+  and one `markReadLatest` call per chat read with none waiting for the one before (233 marks in 181 s of the storm; 73
+  in 241 s after): each is one at a time with at most one more behind it (`Coalesced`, the mark job; iPhone the same).
+- The prompt's Keystore signature was made in BiometricPrompt's callback on the main thread (`PromptSigner`): the
+  callback hands the signature object over and the waiting thread signs.
+- `prefs.announced` was written after every look whether or not it changed (each a whole-file write the main thread
+  waits out when the app stops): only when changed.
+- iPhone UI tests (PHN-685): `-FERBUITestUnlock YES` did not cover the simulator key's own prompt, so the statement's
+  signature showed "Enter iPhone Passcode" on an install that already had keys; the stand-in passes it (Debug,
+  simulator).
+
+**Found and left (for the owner or a later slice).**
+- `LinkListener.persist` seals the link's state with the Keystore on the pump thread (FerbPhone.kt `linkHeard.persist`,
+  FerbPhone.swift `Engine.persist`): every call's answer waits that round out. Deliberate (the key is never kept
+  unsealed); a queue of its own would need that decision revisited.
+- Each coming online still syncs twice (the core's own, `link_event`'s `start_sync`, and the app's `syncNow`); the
+  Mac's audit shows the pairs 500 ms apart.
+- Every change, a live frame included, reads the whole transcript across the FFI (FerbViewModel `refresh`, Notifier):
+  off the main thread and coalesced, but a long chat is marshalled several times a second while a task runs.
+- `prefs.announced` and `prefs.seen` only grow.
+- The second, smaller line in his file (1,019 ms at `FocusableNode.applySemantics` on a warm start): the activity's
+  launch and its first frame in a debuggable build (activity at …471776, first frame at …472500; the watchdog's ping
+  waits behind the launch and the first traversal's barrier). The cold start's was 573 ms. Not a wait; not measured on
+  the benchmark build.
+- Entry 133's fix (key health off the main thread) stands; it was not this.
+
+**Evidence.** ferb-mobile 59 (2 new), ferb-mobile-ffi 20; clippy clean on both; the phone library rebuilt for Android
+(arm64) and both iPhone targets. Android `./gradlew --offline :design:test :core:testDebugUnitTest
+:app:testDebugUnitTest`: design 103, core 29, app 186 (new: PhoneApiShapeTest 1, MainThreadRuleTest 1); the app's unit
+tests take `--add-exports=java.base/jdk.internal.ref=ALL-UNNAMED` so the bindings' cleaner works under Robolectric,
+and :core's shared fakes are in the app's test source sets. Emulator: MainThreadStormTest as above. iPhone `xcodebuild
+test` on the agent's own simulator and derived data: FERBUITests 7, FerbAppTests 119, FerbCoreTests 15 (1 new),
+FerbMobileTests 4, FerbDesignTests 60 passed; a rerun after the last small edit had one failure, the chat agent's
+`send_files_gone` not yet in the iPhone catalog (`testEveryKeyTheAppNamesIsInTheCatalog`). The owner's phone was read
+only (its log file and logcat); nothing was installed, started or typed on it.
+
+**Unverified.** Everything on his phone and against his Mac: the unlock's time there (expected: the statement's own
+answer, well under a second after the proof), the chat following at once, no stall line in `files/ferb-app.log`. The
+presence wait has no test of its own (PHN-684's reason). The storm has no screen: the lock page, BiometricPrompt and
+the chat list on screen under the same storm were not run (the Application has no seam for a stand-in link). The
+real-link tests of ferb-mobile-ffi pass before and after and never showed the 60 s (their stand-in daemon's sync does
+not reach the mark). Whether the pump's 60 s stops also cost start-overs their `prove` answers, and so fed his link's
+moving between paths, is inferred, not shown.
+
+**Attaching files in the phone chat, and the way back to today (PHN-690..695).** The owner: a file picked with + went
+to the Mac at once ("Sending IMG-….jpg to your Mac — 0%" above the box); it should wait in the box and go with the
+message. Both phones now have Outgoing (Android model/Outgoing.kt, iPhone FerbAppModel/Outgoing.swift): a pick is
+copied here and shown as a chip in the message box (name, size, a photo's thumbnail, a cross); Send shows the message
+in the chat at once; its files upload as one Transfers batch named by the message (progress, stop, resume by upload
+id; `Transfer.message` keeps them off the Files tab); then `sendWith(text, ids)`. The box and the messages under way
+are kept in `messages.json` in the files' folder, written off the main thread in order; every library call of the
+flow runs on the io dispatcher (iPhone: a detached task), per the freeze investigation's rule. Mac away: waits, goes
+when back. Shared relay: the message waits whole with "Send text only" and Remove, and goes by itself on a direct path
+or his own relay. Cancel while the files go: "Not sent: you stopped it", Try again goes on from the upload id. FERB
+closed mid-upload: "Not sent: FERB closed before it was sent", Try again goes on from the upload id. The lock pauses it
+and the unlock goes on. The Files tab's own send still goes at once. The iPhone chat's picker no longer offers a whole
+folder (Android's chat picker never did; folders go from the Files tab). PhoneComposer gained an attachments slot (the
+capsule becomes a card only when files are in it: every old golden unchanged).
+Today: on a new day with nothing said, the chat (opened from the home page's Earlier messages) ends in today's start
+and "Nothing said yet today"; the floating control reads "Today" anywhere in it, its end too, and opens the home page;
+the Chat tab goes to the end, then home. Tests: Android SendWithFilesTest 10, ChatListTest 15 (5 new), FeaturesTest's
+pick test moved to the new flow; goldens composer-one-file, composer-files, chat-sending-files, chat-not-sent-files,
+chat-today-empty (looked at). iPhone SendWithFilesTests 9, ChatListTests +1, ChatPiecesTests +2 goldens
+(composer-files-noon, files-messages-night; the snapshot renderer draws no scroll view or text field, so the test lays
+the chips in a plain row). A test-only race (Kotlin's deleteRecursively asserting while the test's teardown deleted
+the same folder) is caught in Outgoing's background deletes.
+Unverified: everything on his phone; the emulator re-check of the way back (rotation, keyboard, another tab: covered
+in Robolectric for another tab and the keyboard only); on iPhone the chat's scroll position, the sticky day and the
+keyboard (read only, not run in the simulator; the app needs a paired Mac to show the chat).
+
+## 2026-11-18 · 136a · The phones' launch without the dot's drop
+
+**What.** The owner saw the launch on his phone: "all good except remove the startng dot movement, keep it glowing as
+it is currently, btu remove the dot movement" (owner PHN-700; agent PHN-701, PHN-702). Both phones: the mark is whole
+from the system's first frame, the f with its dot in place; nothing drops, hops or gives. The dot breathes from 900 ms
+as before; the flight into the lock page's mark is unchanged (450 ms, (0.4, 0, 0.2, 1), prompt at 315 ms). Reduced
+motion: the whole mark, still (the dot no longer fades in). motion.json `launch` lost drop, hop and dip; Launch.kt,
+Launch.swift and tools/launch_samples.py lost the same branches and the samples were regenerated. The system's own
+frame carries the dot so nothing pops at the hand-over: launch_splash (Android 12+) draws the dot and halo at rest and
+animates only the breath; launch_mark (the starting window before 12) gained the dot and halo; the iPhone's
+LaunchMark PNGs (2x, 3x) were redrawn by LaunchTests with the dot.
+
+**Evidence.** Android design 103, core 29, app 195, none failed; iPhone FERBUITests 7, FerbAppTests 129, FerbCoreTests
+15 (1 skipped), FerbMobileTests 4, FerbDesignTests 63 (new: each side's theFirstFrameIsTheWholeMarkAndNothingDrops),
+on a simulator and emulator of my own. Goldens re-recorded: launch/first-frame-noon and launch/settling-noon on both.
+Recordings checked frame by frame around the mark: the Android splash-to-app hand-over changes the crop by under 1/255
+on average with the f's box unmoved; on the iPhone the box holds within a pixel through the launch screen's crossfade,
+then the flight begins. strings.py --check failed on other agents' new strings.xml entries (not regenerated by me).
+
+**Unverified.** On his phone.
+
+**The phone chat separates days as FERB.app does (PHN-696..698; PHN-627 and PHN-695 superseded).** The owner: typing
+on an empty new day switched to the chat with yesterday above (`typed()` set home to false on the first character;
+dictation, a send and "Earlier messages" did the same), and after a send yesterday stayed above today. FERB.app shows
+one day: `Conversation.swift:32-39` (visibleEntries: today's, or a chosen day's), `ChatBody.swift:83-111` (Today and
+History), `:141-145` (the composer only in Today; other days "Continue in Today"), `:19-24` (at midnight it follows the
+new day at once). Both phones now have three chat pages: today's home page (nothing said today; typing, speaking and
+picking files never leave it), today's chat (only rows of the chat's day and after, his outbox and messages with files,
+earlier days' open questions at its end, no older paging, "Earlier messages" at its top), and the earlier days (the
+continuous chat with day starts, sticky day and older pages, ending at yesterday, "Today" always at its foot; the Chat
+tab and a send go back to today; the message box stays). `home` is derived, not set: not earlier, nothing said on the
+chat's day, no message with files under way. The day rule is one function, `ChatModel.chatDay`; the view model holds
+its answer (`UiState.chatDay`) and moves it only when the app opens or unlocks, comes to the front, or the Chat tab is
+chosen; a day change while open moves nothing. Tests: Android ChatListTest 17 (typing on an empty today never shows an
+earlier row on any frame; his send alone in today; FERB's post; earlier and back; the day change with the app open; the
+split), goldens chat-today-only, chat-earlier, home-typing, chat-earlier-day, chat-offline-outbox re-recorded (the
+older-messages note is the earlier days' now; today offers Earlier messages); iPhone ChatListTests +4, AppModelTests'
+relaunch test now expects the home page (typing never left it). Unverified on his phone; midnight mid-conversation is
+his open question (only made a one-place change).
+
+**A connection control instead of an amber line at every open (PHN-750..754).** The owner: at every open the chat said
+"Can't reach your Mac. Messages wait for it." in amber for several seconds while the link was only connecting
+(`ui/Main.kt` statusLine: any phase but online was that line; tonight his phone's connect takes ~25 s, two dials timing
+out before the third). Both phones now have a connection control in the top bar beside the profile button, on every
+tab, provided once from Root (Android `LocalConnection`, iPhone `\.connection` environment), so the pages' own code is
+untouched: connecting is the design's turning arc (FERB.app's "Connecting to FERB…", MenuBarState.swift:67/:76),
+connected a quiet dot by path (white direct, white in a ring through his relay, grey through the shared relay), can't
+reach the amber lamp. A tap opens the connection sheet: the Mac's name, the state, the path with the relay sheet's own
+list on the shared relay, the link's own problem words, Try again (`retryLink` → FerbPhone.retry, the link's own lane,
+named in PhoneApiShapeTest), More on the Mac tab. "Can't reach" is `UiState.linkLost`: the link stopped for good, or
+not online for 30 s while the app is open and unlocked (a proposal for the owner); every open counts again. The chat's
+line keeps only messages waiting while lost, the unlock lines once connected, and screen use. New strings:
+conn_connecting, conn_connected, conn_unreachable, conn_direct, conn_shared, conn_more, conn_a11y. Tests: Android
+ConnectionTest 5, goldens connection-dawn/-noon/-night and connection-sheet-connecting/-shared/-unreachable (looked at);
+chat-offline-outbox now sets linkLost (unchanged pixels); iPhone ConnectionTests 3 and the same six goldens. Not on his
+phone yet; the link's slow connect is the link agent's.
+
+**The chat's can't-reach line removed (PHN-755, PHN-756; PHN-754 superseded).** The owner: with the connection control
+showing connecting/connected/failed, the line "Can't reach your Mac. Messages wait for it." repeated it (and each waiting
+message says it waits). Both phones' statusLine now never speaks of the link: not online, no line; left are the Mac's
+unlock lines once connected and screen use. `chat_offline` is removed (Android strings, iPhone catalog regenerated).
+The waiting rows' own words ("Waiting for your Mac", outbox and messages with files) needed nothing new. Android:
+ConnectionTest's chat-line test now checks no line and no "reach your Mac" in any link state while the waiting row says
+it waits; goldens chat-offline-outbox and status-line-dawn/-noon/-night/-large-text re-recorded (that row gone);
+SendWithFilesTest's teardown tolerates the app still removing a copy (a test-only race seen once). iPhone: only the
+statusLine edit (the Mac-parity agent is in its other files); its build is blocked by that agent's in-progress
+`FerbDesign/Lab/MobileScreens.swift` (`WorkRow` redeclared), so the iPhone edit is not yet built or run. FerbDesign's own
+status-line goldens still show the component's attention example with the old words; left for after that agent.
+
+## 2026-11-18 · 140 · The 25 seconds from opening the phone app to the Mac: one dial to every relay the Mac may be at, at once
+
+**What.** The owner (PHN-750's words): "cant connect to your mac, messages wait" for several seconds at every open.
+His phone's log of the 02:39:53 open: "this phone's relay: shared" at +4.0 s, "dial failed after 13770 ms", "dial
+failed after 10001 ms", "dial answered after 366 ms", online at +27.7 s; the app log's two other opens tonight had
+the Mac's unlock at 23.9 s and 24.5 s of age, the same shape.
+
+**Cause (ferb-link `client.rs` `connect_on`, before this entry).** With no own relay the phone dialed only
+`MacTarget.relays`, the Mac's home relays from its last welcome or relay event; the shared relays were added only
+when `failed_dials >= 2`. So whenever the Mac's home relay was no longer the remembered one, dials 1 and 2 each ran the
+whole `dial_deadline_s` (10 s) into a relay where the Mac is not, and dial 3, the first with every relay, was
+answered at once. Nothing else differs between dial 2 and dial 3: the server answers a handshake through the relay
+the packet came by (iroh `socket.rs` 635-646 maps a relay packet's source to that relay; `remote_state.rs` 805-845
+sends a client's first packet to every relay of the address at once). Before dial 1 the phone also waited up to 5 s
+for its own home relay, which comes from iroh's first network report: his 4 s. Reproduced on 127.0.0.1 (the Mac
+on relay B, the phone remembering A): 25.9 s and 3 dials; on n0's relays from this Mac, 20 cold starts: remembering
+another n0 relay than the Mac's, 26.7 s p50 (26.2-26.9 s), 3 dials every time; remembering the right one, 3.5 s
+p50, all of it the wait for the home relay.
+Why the remembered relay was wrong (inferred, not seen directly): his Mac's link audit has 18 reconnects of its home
+relay in under five hours (`mac.relay` pairs, 21:31-02:17), each a fresh choice among n0's relays by latency (from
+this Mac aps1 usually, but one probe had aps1 152 ms against euc1 160 ms); the phone hears of a move only while
+connected, and only when the bridge's 500 ms read of the relay state saw the switch (iroh can switch in between).
+His phone was connected through both moves before the slow opens (presence every 2 minutes, phone_audit), so the
+event the bridge did not send is the likely way; that the phone stores what it is told is tested below. An idle
+endpoint of mine on n0 for 25 minutes did not move at all.
+
+**Rejected hypotheses, with the evidence.** The old process's connection still open on the Mac (his Mac moved it
+to the relay at 02:40:09, during dial 2): the server's handshake goes out on the relay four-tuple, not the old
+connection's selected path, and a killed child process's connection left open on the Mac costs nothing
+(`a_phone_whose_last_process_died_reaches_the_mac_at_once`, 55 ms). The dial before the phone's relay is up: iroh
+holds the first packet and QUIC resends it; a way to the relay that opens after 2 to 9 s is answered within 0.25 s
+of opening, no cliff. A stale direct address: a fresh process has none. The 10 s deadline and the redial schedule:
+right for a Mac that is away; they only cost time because two dials could not work. PHN-220's shadow endpoint: only
+with an own relay.
+
+**Fix.** `client.rs` `connect_on`: with no own relay every dial is the last known relays and every shared relay (one
+QUIC connect, iroh races the relays, the first answer wins; the welcome's homes are still remembered); with an own
+relay it is unchanged (PHN-418). No wait for the phone's own home relay. `bridge.rs` `watch_loop`: every second the
+Mac compares its home relays with what the connected phones were last told and pushes the usual `relay` event when
+they differ, also without a change of relay state (every phone build stores it). No protocol change, no LEVEL change,
+no iroh patch, no FFI change. kb PHN-740 (dial everywhere at once), PHN-741 (no wait), PHN-742 (the Mac tells).
+
+**Before and after.** 127.0.0.1: the Mac moved, 25.9 s / 3 dials before, 0.06 s / 1 dial after (the old relay up
+or down); no home relay for the phone, 5.05 s before, 0.06 s after. n0, 20 cold starts each after 180 s of the Mac's
+link idle: the Mac moved 26.7 s p50 (max 26.9) before, 0.8 s p50 (max 2.2 s) after; where the Mac was 3.5 s p50
+before, 0.8 s p50 after. One after-start of 40.8 s and two of 2-3.5 s were this test's own doing: the Mac's 12
+connections a minute per phone (PHN-309, `too_many_requests`), now a 6 s gap. In about 100 later n0 starts, the slow
+ones (1.7-5.8 s) followed the relay's round trip that minute (a 2.0 s ping in the trace), and once a dial ran its
+full 10 s with every relay in it and the next answered in 131 ms; not reproduced in 60 rapid restarts on 127.0.0.1
+or 52 traced n0 starts; unexplained.
+
+**What each side needs.** The fix is the phone's: a new phone build is online in about a second at every open with
+any FERB.app, old or new. A new FERB.app alone helps an old phone only while it is connected (it is told every move),
+not after the app was closed during one. Old and new mix both ways (same events, same fields).
+
+**Tests.** ferb-link `tests/dial.rs` 5 (+1 child process, ignored): a dead candidate beside a live one (old relay up,
+then down) under 2 s with one dial (fails before: 25.9 s); no home relay at all under 2 s (fails before: 5.05 s); a
+connected phone learns where the Mac moved (54 s: iroh's own re-homing); a phone whose last process was killed, 3
+times; a relay that comes up after `DIAL_SLOW_S` (4) s. `tests/n0.rs` `cold_starts_through_n0` by hand. The whole
+crate: 71 passed, 5 by hand, none failed (`--test-threads 3`); fmt and clippy (`-D warnings`) clean (cargo fmt also
+reformatted three earlier hunks in bridge.rs and real_daemon.rs: spacing only).
+
+**Unverified.** On his phone and network (needs a new phone build); the fast home switch itself (no event) was not
+seen; the one 10 s dial above. kb check counts PHN-742's test only once dial.rs is tracked.
+
+## 2026-11-18 · 140b · The phones' frames: a chat that composed every row, a keyboard that recomposed the app, a folder built in one frame
+
+**What.** The owner: "invoke an agent that can find somethign that might cause low fps in the app - i dont want any
+slow FPS in teh app due to any UI erros, ive had a good hsare of it in teh mac app - so learn from it adn fix if any"
+(owner PHN-710; agent rulings PHN-711..715). By an Opus agent on the coordinator's brief, beside the chat, launch and
+Mac-parity agents (their files edited only after they finished, as the coordinator said).
+
+- **The Mac's lessons, as rules** (kb APP-590, APP-800, APP-806..811, APP-815, APP-799, APP-407; commits 27b2567d,
+  4a3f4996, f28ebf2a, 6348c4fa): never rebuild a derived list in a getter that frames or keys read; observers read the
+  narrowest state and an unchanged value publishes nothing; build only what is near the view; rows need known heights
+  (no estimates); decode off the main thread and publish only visible changes; periodic work only while visible; don't
+  fight the platform's own scroll; animate only layer properties, never a blur. Applied below: the first three, the
+  decode rule (work row pictures: already so) and the layer rule.
+- **Found and fixed (Android).**
+  - The chat composed every row on open (design ChatList.kt `keepEnd`/`toEnd`): the end was reached by scrolling
+    1,000,000 px, and a LazyColumn far from its end composes each row on the way. 5,000 entries: 5,001 rows, 50,090
+    layout nodes, about 190 MB; the emulator's process died (OOM). Now the scroll is the distance left plus a screen,
+    only within 8 rows of the end; further away, toEnd's jump after the rows' first layout (PHN-714).
+  - Every row got the whole `UiState` (Main.kt `ChatRowView(vm, ui, …)`) and `arriving` was a new set per
+    recomposition: each streamed word and each keyboard frame recomposed every visible row. Rows now get `today` and
+    `olderLoading`; `ChatRow` is `@Immutable` (PHN-714).
+  - `WindowInsets.ime` was read in FerbRoot's composition: the whole app recomposed on every frame of the keyboard.
+    `PhoneInsets.live` keeps the bottom inset as a value read when asked; pages pad with `paddingOverBottom`, read
+    while measuring (PHN-712). FerbRoot reads only the gate and the pairing flag (derivedStateOf); the page and the
+    sheet read the whole state (PHN-711).
+  - Animated values read in composition: a press's scale (Basics `pressable`), the switch's knob, the turning mark
+    (now also its own layer: the connection control and the work row turn it), FERB's typing dots (offset read while
+    placing, same whole pixels). The sheet's dim fades by modulating its one rectangle (ModulateAlpha), not through a
+    whole-screen offscreen layer (PHN-711). The sky's glide was already read while drawing (delegated reads); no change.
+  - The view model rebuilt the rows, days, work and questions from the whole transcript on the main thread for every
+    change: above 100 entries they are made off it (`io`), shorter ones inline (PHN-714).
+  - Files: a folder page of up to 500 (PHN-609) was one Column built in one frame (494 ms on the emulator; his phone's
+    own log: stalls of 1 and 2 s at FileIcon's badge 30 s after an unlock). Now 40 rows at once and 40 per frame, each
+    row its own composable; the page, its slide and its rows are as before (PHN-715). iPhone the same (`Revealing`).
+- **iPhone.** Each chat row read `model.ui` (a day divider, the older row): every row's body ran again on each change.
+  Rows get `today` and `olderLoading` (Tabs.swift). Files: `Revealing`, as Android. AppModel: the rows and days left
+  `UiState` for observed properties of their own (`rows`, `days`), with `places` (withDays and split, with the
+  messages with files) and `saidToday` (the home page's rule) made by the model; `ui` is set only when it changed
+  (one compare; @Observable notifies on every set). Above 100 entries the rows, days, work row and the chat's work are
+  made in a detached task and the places too; the newest result is kept. A streamed word now changes `rows` and
+  `places`: RootView and MainView, which read `ui` and `home`, don't run again; ChatView (the list's owner) and the
+  changed row do.
+- **Found and left (reported).** The live sky glides 2.2 s every minute (the lab's design): about 130 full-screen
+  frames a minute while idle at 60 Hz, more at 120. The home screen's season layer draws every frame with a blurred far
+  layer and an offscreen near one (the lab's design). RichWords measures the streaming row's whole text again per word
+  to fold it. Watch live decodes each frame at full size (no inSampleSize). FileIcon allocates a Paint and a blur per
+  draw. iPhone: a 5,000-entry chat's first screen is LazyVStack's (not counted by a test).
+
+- **Scrolling (owner, later the same night: "the noly thikn i felt jankky and not toooo smooth was the message/chat
+  scroling"; the sky, the leaves and every animation stay as they are) (PHN-716).** Counted over 40 flings through 500
+  rows shaped as FERB writes (the engine's recorded conversations, and Markdown answers of one to three screens):
+  the chat's body and its message box recomposed once per row passing the top (478 times for 493 rows), because the
+  chat read the list's first row (sticky day, way back) and the follow read each drag in composition; now ChatOverlays
+  alone reads it, and the follow watches drags in an effect (5 or fewer). Every answer scrolling back in rebuilt its
+  AnnotatedString and measured its whole text again for the fold before BasicText laid it out: RichCache keeps both per
+  message (300 rebuilt on a second pass before, 0 after); iPhone RichTextCache keeps the AttributedString the body
+  built on every run. Rows have a content type per kind (reuse). FileIcon makes its paths, shadow paint and badge once
+  per size (a Paint, a blur and a text measure per draw before). Watch live decodes at screen width.
+
+**Measured.** JVM, by the compiler's trace markers (app and design FrameWorkTest): an idle chat runs nothing in 30 s;
+a streamed word costs the same in 500 rows as in 50; the keyboard runs no root, sky, tab bar or row; a 5,000-row chat
+opens with 60 rows or fewer composed and its last row on screen; a 500-file folder composes 60 rows or fewer in its
+first frame and each row's detail once. Emulator (my own AVD, 1080x2400, debug build, `FrameBudgetOnPhoneTest`, logs
+`ferb-frames`): idle chat 0 frames in 30 s, each tab at rest 0 in 5 s (before and after); opening 500 rows, longest
+main message 146 → 30 ms; keyboard, main thread per frame p90 6.1 → 3.4 ms; 5,000 entries streaming through the view
+model: OOM → longest main message 8 ms. Cold start, activity to first frame: debug 446–1336 ms, benchmark 37–83 ms
+(the "1,016 ms at FerbRoot:139" on his phone is the debug build's first composition). His phone (read only:
+gfxinfo, the app's log, refresh rate): 60/90/120 Hz panel; over 19 minutes 971 frames, 17 % janky, p50 21 ms, p90
+48 ms, GPU p50 11 ms; the last 74 frames at 120 Hz with the UI thread p50 10.6 ms and the GPU 18 ms; the debug build.
+
+**Evidence.** Android `./gradlew --offline :design:testDebugUnitTest :core:testDebugUnitTest :app:testDebugUnitTest`:
+design 105, core 29, app 225, none failed, every golden unchanged; gallery and the androidTest APK build. New: design
+FrameWorkTest 2, app FrameWorkTest 5, FrameBudgetOnPhoneTest 2 (instrumented; `-e insets read_in_root` for the old
+root, `-e entries 500,5000`). iPhone `FERB_SIM="FERB iOS fps" apps/ios/tools/build.sh test`: FERBUITests 7,
+FerbAppTests 150, FerbCoreTests 15 (1 skipped), FerbMobileTests 4, FerbDesignTests 65, none failed; after the AppModel
+change (xcodebuild test directly: build.sh stopped at `strings.py --check`, the catalog not regenerated after another
+agent's strings.xml change) 242 tests, 241 passed, 1 skipped, with FrameWorkTests
+testAStreamedWordInALongChatChangesOnlyTheRows (2,000 entries, 10 words: `ui` and `home` never notified, no long chat
+made on the main thread).
+
+**Unverified.** Everything on his phone after the fixes (the benchmark build is the one to judge); the emulator's
+host load went from 2 to 71 while other agents built, so its times are noisy and only the counts are firm; the folder's
+40-a-frame reveal timed on a quiet host; the iPhone's frames (not measured; only built and tested).
+
+## 2026-11-18 · 141 · The phone chat shows what FERB.app shows: rich answers, one sites row, cards by kind, the work row, each part's answer, FERB's dark surface
+
+**What.** The owner after using the Android app (kb PHN-720, his words): "basically the UX and how thingns are shown at
+places in mac app is what i like, im hating taht in the phone apps. PLEASE FIX"; then on running work (PHN-730), a
+card row's own picture (PHN-731), the screenshot rule (PHN-732), each finished part's answer (PHN-733) and FERB's dark
+surface (PHN-734). Agent rulings PHN-721..729, PHN-735. Both phones, one look.
+- **His two cases, from the evidence.** A: chat entry 95f9ee54 (read-only DB) ends its text with "Sites contacted: 6
+  sites", carries it again in `lines` and six `link` cards each with that `line`; the phone appended `lines` to the text
+  and drew every card through a generic row titled by its line (Android model/Chat.kt `answer`/`cardLine`, iPhone the
+  same), and stripped Markdown with links written out. B: plan 00fc6cf8 had no card or checklist; a one-part task's live
+  frames are `progress` with `step_task_id` (ferb-worker progress.rs), which ferb-mobile kept only as step lines drawn
+  inside card rows: nothing showed (inferred from code; his phone's log was not read). FERB.app's running box is not a
+  transcript row but its work row above the composer (ChatBody.swift:141, 275-298) with its round pictures
+  (TaskActivityBubble.swift).
+- **The library (ferb-mobile, ferb-mobile-ffi).** `rich.rs`: FERB.app's MarkdownDocument blocks (paragraphs, headings,
+  list items with marker and level, quotes, fenced code, pipe tables, dividers) with CommonMark-style inline looks (bold,
+  italics, strikethrough, code, links, autolinks, plain http/https/www/mail addresses), only http, https and mailto made
+  links (APP-589), an image only its words; bounded (100 000 characters, 2 000 blocks, 12×200 table, level 8, 64-mark
+  emphasis look-back, 2 048-character addresses). `shown.rs`: FERB.app's AnswerView parts (card lines and the sites line
+  out of the words, Couldn't confirm and code's lines under them, Details, the sites row from the link cards' hosts or the
+  Sites contacted line, cards by where they go, files once with their place), CardBoxes.moved, status words, NoticeView's
+  layout. Skip-serialised fields: TurnItem `plan_at`, `status_words`, `hidden`; ReplyItem/NoticeItem `hidden`; FirstReply
+  `receipts_shown`; CardView `lines_shown`; LiveView `current` (FERB.app's TaskItem.currentLine) and `card_line`
+  (CardStatusLine). FFI: `rich_text`, `rich_plain`, `answer_shown`, `notice_shown` (pure), `Mobile.watch_thumbnail`,
+  `Mobile.watch_step_thumbnail` (a step's preview, `worker`, at most every 2 s). Records convert back to the core's
+  (`mirror!` both ways). The transcript golden is unchanged.
+- **The apps.** Rows built from the library's layouts, made off the main thread when the transcript is read
+  (`ChatModel.prepare` in LibraryPhone.transcript) and kept per entry; plain words with no mark are laid out by the app
+  (tested equal to the library over every fixture's words). Rich bubbles (selectable, links open the browser), folding
+  by FERB.app's CollapsePolicy at the chat's tallest height (answers, plans) and 8→3 lines (parts), the sites chip and its
+  "Sites visited" list, result cards by kind, notices in FERB's bubble with their boxes and quotes, "Answered below",
+  "Read together with your message above/below", "A task from earlier", status words, the question row's title and
+  reason, the work row on the home page and today's chat with its circles and the short view, card rows' own pictures
+  (the Mac's RowPreview rule; the work row then leaves that task out), each finished part's answer, and FERB's dark
+  surface (one CompositionLocal / environment the design pieces read). Compose 1.7's TextLinkScope fails on a link a
+  maxLines cut off: a folded text is laid out only up to its last shown line.
+- **Screenshots (PHN-732, PHN-727).** The small circles follow his switch; the short view and Watch live force it; iPhone
+  draws the short view's picture in the screenshot shield; the app switcher cover (iPhone) and recents (Android
+  FLAG_SECURE) follow the same rule as before.
+- **Cost of the pictures.** At most 4 at once, each at most one per 2 s, only while on screen, unlocked, in front, on a
+  direct path or his own relay; the Mac sends the task's window JPEG at quality 0.8 at full size (no thumbnail size in
+  `tasks.preview`; leaving out a frame the phone already has), decoded to ≤128 px in memory. Not measured on his link.
+
+**New strings** (Android strings.xml, the iPhone catalog from it): show_all "Show all", show_less "Show less", show_more
+"Show more", answer_details "Details", question_needs_answer "FERB needs your answer", question_private_title "Private
+input needed", work_view_tasks "View tasks", sites_visited "Sites visited". FERB.app's own words used in code (cards and
+rows): "Reminder", "Timer", "Due …", "Repeats", "Reminder set", "Timer set", "Scheduled", "Schedule changed", "Was",
+"Now", "Instructions were/now", "Remembered", "Saved in my words · waits for your Keep", "Remembered · corrected",
+"Forgotten", "You approved", "Amount not read", "Sent/Emailed/Called/Posted/Replied", "From …", "N schedules", "until
+the next one …", "until it ends …", "Starting task…", "N active task(s)", "N paused", "N kept going", "Couldn't
+confirm: ", "Updated: …", "You chose …", "UPDATED", "Couldn't do it.", "Preview: I'd do this step", "Answered below",
+"Read together with your message above/below", "A task from earlier", "Delivered, with parts not done".
+
+**Evidence.** ferb-mobile all pass (new tests/shown.rs 17, tests/live.rs +2), transcript golden unchanged;
+ferb-mobile-ffi all pass; clippy -D warnings and fmt clean on both. Android `:design 105, :core 29, :app 231` pass (new
+ShownTest 13, ParityShotsTest 12 goldens in app/src/test/screenshots/parity, looked at; the lab-equality chat test is now
+the app's own golden chat-lab-sample-noon.png, PHN-734; sheet goldens over the chat re-recorded, looked at). iPhone on its
+own simulator and derived data: FerbAppTests 150 (new ParityTests 15, goldens Screenshots/app/parity on dawn/noon/night),
+FerbDesignTests 65 (lab goldens unchanged), FerbCoreTests 15 (1 skipped), FerbMobileTests 4; strings.py --check passes.
+
+**Later the same day (PHN-736..738).** The card of parts as FERB.app's TurnCardView (the owner, PHN-737: "see these box
+cut outs for rows, see hte mac ones … so clean while running adn after too. please make it clean liek mac"): one dark
+card, no fill behind a part, no buttons; running and waiting parts one line each (spinner or hollow circle, label,
+grey state words, each at most half the line when both are long, the round picture at the far right); ended parts a
+small heading with the answer under it and hairlines; the footer's done line bold with code's lines on the same line
+(Android design components/PartsCard.kt, iPhone FerbDesign Parity.swift PartsCard). Stop and Watch live live in the
+short view: a picture opens its step's, a running part's row its task's. And PHN-736: the card's tint (amber asking,
+red failed, blue updated or paused); a waiting row's feeder steps (ferb-mobile `LiveView.feeders`, `live::feeders_of`,
+skip-serialised, FFI `LiveFeeder` with a default); the connection line ticking its time; "Draft · still responding";
+tables as grids that scroll sideways (RichBlocks / RichBlocksView; with a table the text doesn't fold); one box per
+timer or reminder per shown day (`shown::boxes` keyed by box and day); the work row counting running tasks from the
+Mac's own list as the Tasks tab last read it (no new call; such a task has a circle but no line until its short view
+reads it); the iPhone's inert Open page pills removed. Before/after pictures of the four surfaces still white (Tasks
+tab rows, the home page's away list, Files cards, the Mac-needs-unlock card) went to the coordinator for his call;
+nothing of them changed.
+
+**Questions (PHN-739).** The owner: "just so you knwo, question workdings are different in phone and mac. check it and
+you'll know. add this to fix too." FERB.app's card (NotchCore/DaemonApproval.swift:23, 26, 49-52, 69-74;
+FERBNotch/ApprovalView.swift:26-27, 44-51, 60-73, 82-93, 95-107, 136-145) shows the daemon's `title` as its header,
+the `summary` (else the `reason`) as its one question, the picture or its problem, `detail`, `exact` in its box, "The
+task's reason: "/"The task's note: " + `why`, the "App-use evidence" disclosure, each option's `labels` word, `note`
+under the buttons, and a hidden input's field, decline and send words; it never shows `reason` beside a summary. The
+phones took `summary` as their title and drew `reason` (with "The step: browser.act …") under it, and read none of
+`title`, `detail`, `why`, `note` (Android model/Questions.kt `parse`/`fromStatus`, iPhone Questions.swift). Now
+ferb-mobile `question::shown` is that derivation (and the Mac's banner words, ferb-daemon areas_b/notify.rs
+`approval_notice`; none for a clarify, which FERB.app draws as its reply bubble), carried skip-serialised as `words` on
+QuestionItem and StatusQuestion (FFI `Option`, default none; `question_shown(body_json)` for records an app made); the
+apps' `Question.shown` holds it, `title` is its question, and the sheets, the chat's question row (question over its
+header) and the Tasks tab draw it, with the Mac's answer box under a task's choices. Tested over every question in
+engine/fixtures (tests/question.rs, 6) and by goldens of six kinds on each phone. The notifications agent takes the
+notification's words from `Question.shown`. Not ported: FERB.app's correction box beside a safety check's buttons
+(`chat.correct`, GATE-510): the phone has no path for it yet; the payment page's picture (the phone shows the problem
+line only). A tap on a clarify's notification opens the chat with the cursor in the message box (Android
+MainActivity's EXTRA_ENTRY == Notifier.CHAT, iPhone NotificationTap.chat), as FERB.app's needs-you does.
+
+**Evidence (later).** ferb-mobile all pass (tests/question.rs 6, tests/live.rs 7, tests/shown.rs 18), ferb-mobile-ffi
+all pass, clippy -D warnings clean on both, the transcript golden unchanged. Android `:design 105, :core 29, :app 256`
+(ParityShotsTest 21 with goldens parity/card-states-{dawn,noon,night}, card-eight-and-checklist, question-{sink,money,
+terminal,retry,task,code}; ShownTest 16), looked at. iPhone on its own simulator: FerbAppTests 159 (ParityTests 21,
+goldens app/parity/card-states-*, card-eight-and-checklist, question-*), FerbDesignTests 66, FerbCoreTests 15 (1
+skipped), FerbMobileTests 4; strings.py --check passes. ImageRenderer draws a TextField as its yellow placeholder in
+the iPhone's question-task golden (a renderer limit, not the app).
+
+**Not done (named for the owner).** "Let FERB read" (needs a signed settings call) and the runtime switch / Send to
+developer: report only. A notice's learning proposals (the fold drops them), note cards' Correct/Forget, a thumbnail
+size for `tasks.preview`, a step's short view at full rate: report only. Kept white for his call: Tasks tab rows, the
+home page's away list, Files cards, the Mac-needs-unlock card.
+
+**Unverified.** Everything on his phone: the pictures' cost and pace on his link, links opening the browser, the fold at
+his chat's height, the dark surface on his screen. The iPhone's fold height is estimated from the plain words at the
+bubble's width (ImageRenderer can't measure); the Android noon/dawn goldens of the finished card were taken by changing
+the sky's hour after the first frame.
+
+## 2026-11-18 · 142 · Every question notifies on the phone unless he is in the app: the planner's question was never one the phone knew
+
+**What.** The owner on the Android build: "im not getting the wuestions in my notifications, i shoudl get it like nothc
+comes down for all questions from worker or palnner no matter what. no notifications only when im in the app" (kb
+PHN-760, owner; PHN-761..766 agent).
+
+**Evidence (his phone read only, 03:52; the Mac's store read only).** Ruled out on the phone: POST_NOTIFICATIONS
+granted (USER_SET); the questions and checks channels at importance 4, nothing blocked; Stay connected on
+(StayConnectedService a foreground service of type remoteMessaging, restarted by UpdatedReceiver after the 03:50
+install, which it does only when the setting is on); standby bucket 10, Doze active, no background restriction; the link
+online with the Mac's status pushed at each change. The Mac's journal that night: two gateway questions (03:18:41
+browsing.choose, 03:26:18 owner.ask), answered from the phone in 16 s and 35 s, the second with the app on screen
+(logcat: its keyboard 03:26:42-52), so no notification was right; and two planner questions, chat.clarify at 03:36:12
+and 03:36:31 (question.asked kind clarify, no approval id), with the app gone to the launcher at 03:36:07-09. Nothing
+could be posted for those: the status lists only the gateway's approvals (ferb-supervisor flow/chat_rpc.rs:189-271),
+the phone gate decorates only those (ferb-daemon phone/gate.rs), `Questions.open` keeps only entries with an approval
+id (Questions.kt:110), and the phone's fold drops an answer's `asks` (ferb-mobile fold/mod.rs `show_answer`).
+FERB.app's notch does come down for a clarify (DaemonConnection.swift:384-388, 457-466: needs you). Two more holes in
+the notifier, not that night's cause: its first look after a process start marked every waiting question announced
+(a question waiting across a restart never notified), and a question that arrived while he was in the app was marked
+announced, so leaving with it unanswered left nothing in the shade.
+
+**Done.**
+- Mac (PHN-761): the phone gate's `chat.status` adds the planner's question that waits to `approvals` as kind
+  `clarify`, id `clarify:<request>`, its words as reason, needs {can_answer, no unlock}, held for a locked session as
+  any question's. FERB.app's own `chat.status` is unchanged. The rule, once (ferb-daemon phone/asking.rs): in the
+  current conversation, the newest answer that asks, while no message of his follows it from any client; a newer one
+  replaces it; deleted, or another conversation, it ends. The Mac keeps no other "waiting" for a clarify: the notch's
+  coming down is the arrival, and his next message is the answer (the turn joins it, ORCH-586). Difference from the
+  coordinator's list: a stop does not end it (a clarify ends its turn; nothing runs to stop), and FERB saying something
+  else after it does not either (the question still waits for him).
+- Link (PHN-763): LEVEL 4 (`LEVEL_CLARIFY`); the helper strips kind clarify from the status, pushed and asked, for an
+  app below it. No FFI change: `StatusQuestion.kind` already carries it.
+- Both phones (PHN-762, PHN-764): `Questions.waiting` (everything, for notifications) and `Questions.merged` (without
+  the planner's question: no sheet, no Tasks row, FERB's bubble as on the Mac). One rule, `QuestionAlerts` (Android
+  model/QuestionAlerts.kt, iPhone in Notifications.swift): every waiting question posted once with sound and heads-up
+  unless the app is on screen; seen in the app and still waiting when he leaves, posted quietly (Android: the silent
+  group with GROUP_ALERT_SUMMARY, as NotificationCompat.setSilent does it; iOS: passive, no sound); on the lock page,
+  a heads-up when he leaves; updates quiet; removed when gone; no priming for questions. One look for every change
+  and for the app's own front/lock changes. The planner's question: its words and "Tap to answer in FERB.", no
+  buttons, the tap opens the chat. The words a notification shows are read in one place (`headline`, `detail`,
+  PHN-767): on Android the Mac's banner words from the library's `QuestionShown` (`bannerTitle`, `bannerText`: "FERB
+  needs you", "FERB needs your OK: ..."), the planner's question "FERB needs you" with its own words; the iPhone takes
+  the banner words when its bindings carry `QuestionShown` (until then its title and reason; the planner's title is
+  already "FERB needs you").
+- Android (PHN-765): NotifyHealth names what only he can change (notifications off, the Questions or Checks channel
+  off, Stay connected off, background restricted): a row in the profile sheet with the tap that fixes it, and a sheet
+  once per kind after he sends something from the phone. iPhone: strings for notifications off (its row not built).
+
+**Tests.** ferb-daemon tests/phone_asking.rs 2 (each way it ends; locked words held). ferb-link tests/link.rs 1 (old
+app and new app on one Mac; a message from either ends it; the file's 9 pass). Android NotifierTest 10 (the banner
+words too) (each kind in the background, in
+the app then leaving, on the lock page, once and asked again, after a restart, notifications off and the other
+blockers, the sheet once after a send, the planner's question not a sheet or a task, the rule alone); the whole :app
+JVM suite 245 passed. iPhone NotificationTests 7 (3 new), UntilBack 5, AppModel 25 passed on its own simulator;
+FeaturesTests' two picked-file tests failed there (timeouts in the file copy, not this work's code: unverified).
+
+**Unverified.** Everything on his phones: a heads-up for each kind with the app away and with the phone locked;
+Motorola's battery manager over hours; the iPhone after the time iOS gives (nothing can arrive then until stage 5).
+The owner's question (not changed): Stay connected is off until he turns it on (Prefs.kt); recommended on as part of
+the first run's notifications ask.
+
+**The can't-reach point is the owner's 10 s (PHN-757, PHN-758; PHN-753 superseded).** He agreed to 10 seconds for the
+connection control's amber point (the connect takes about a second after the link fix). Android `LINK_LOST_AFTER_MS`
+and iPhone `UnlockTiming.linkLost` are 10 s; ConnectionTest's connecting-within-the-point case now fails a dial and
+connects inside 10 s, and both phones' tests pin the value. Only ConnectionTest (5) and ConnectionTests (3) were run
+(the Mac was overloaded); both pass.
+
+## 2026-11-18 · 143 · The coordinator's own changes of 17 and 18 November, and the state at this commit
+
+What the coordinator did itself, between entries 128 and 142 (the agents' work is in their own entries).
+
+**Where an installed FERB looks for updates (REL-431, REL-432).** The feed and downloads are asked on the owner's
+domain first (`https://ferb.kartikey.xyz/updates/appcast-<arch>.xml`, `site/vercel.json` redirecting, 307, to the
+releases of the public `ferb-update` repository) and on the releases' own address second: `UpdatePlan.feeds`,
+`feedFailed`, `nextFeed`; `SparkleUpdater` asks the next feed when one cannot be reached. The EdDSA signature stays
+the trust. `scripts/build-app-rust.sh` (SUFeedURL), `scripts/make_appcast.py`, `scripts/tests/test_packaging.py`,
+`README.md`. The site was deployed and the redirects checked (307, then the file); release v0.27.3 was published to
+`ferb-update` with its appcast pointing through the domain. `site/index.html` and `site/privacy.html` no longer link
+the private repository or call FERB open source.
+
+**Signing a local build without Apple's timestamp server.** `scripts/signing.sh` `ferb_sign`: with a Developer ID
+identity, notarization off and `FERB_SIGN_TIMESTAMP=none`, codesign is told `--timestamp=none`. Opt-in only; a
+notarized build is unchanged. Reason: timestamp.apple.com was unreachable from the owner's network and every local
+build failed with "A timestamp was expected but was not found".
+
+**Decisions recorded on the owner's word.** APP-967: a fresh chat page after a 4-hour break, never at a clock hour,
+with earlier pages easy to reach and to tell apart (research in `.local/`, not in the repo); its build is T-1269 and
+is not started: the phones hold the day until a natural moment (PHN-697) and FERB.app still jumps at midnight.
+GATE-620: destinations found only in outside content are asked about once, as a list; its build is T-1270, not
+started.
+
+**kb.** `kb/config.toml` sets `test_globs`: the defaults plus `**/androidTest/**`, so a decision whose test runs on a
+phone or emulator counts as tested (PHN-683's storm test). Superseded tags moved (PHN-753 to PHN-758); four decisions
+got their test's tag (PHN-702, PHN-713, PHN-767, PHN-683). Two journal entries were both numbered 140; the second is
+now 140b.
+
+**A measurement that cost the owner his model quota.** A replay of candidate planner and checker wordings on real
+history, through the owner's Codex sign-in, made 266 model calls and reached the account's usage limit; FERB's own
+Codex runtime uses the same account. The coordinator's brief had no ceiling on calls. Nothing from the replay is in
+the repo: the candidates are a proposal in `.local/` awaiting the owner. From now on a real-model run states its call
+count to the owner first and carries a hard ceiling in its brief.
+
+**Builds made and installed for the owner's live testing (none is a release).** FERB.app, Developer ID signed without
+a timestamp, swapped in without wiping: 202611171909, 202611171934, 202611171950, 202611171959 (the menu bar mark's
+versions) and 202611172309 (the phone gate's clarify and link level 4). Android debug builds on his phone through the
+night, each started on an emulator first; the last one installed is the 03:50 build. A benchmark build with everything
+in this commit ran on the emulator and was not installed (his phone was not reachable).
+
+**Unverified at this commit.**
+- On the owner's phone: the clean card of parts, the Mac's question wording, notifications for every question
+  (including the planner's), the scroll fixes' frame times, the 10-second can't-reach point, the benchmark build.
+- On any real iPhone: everything; the iPhone app ran only on the simulator, and its chat pages, keyboard behaviour,
+  live pictures and notifications were not exercised against a paired Mac.
+- One unexplained 10-second dial with every relay in it (entry 140), not seen again in over 100 starts.
+- `OnPhoneTest.the_planner_s_question_pops_and_one_he_saw_goes_to_the_shade_quietly` compiles and was not run.
+- The 500-file folder's per-frame time after the stepwise build (entry 140b) was not re-measured on a quiet host.
+- The update check end to end against the new feed from an installed build ("FERB is up to date").

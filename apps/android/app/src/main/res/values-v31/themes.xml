@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 12+: the system's splash is the launch's first moments (kb PHN-631, PHN-632): ink0 and the animated
+         mark (launch_splash: the whole mark from the first frame; the dot breathes) from the first frame, played by the
+         system while the process starts; MainActivity's handover continues it in the app at the moment it reached. -->
+    <style name="Theme.Ferb" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@drawable/launch_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowSplashScreenBackground">@color/launch_ink0</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/launch_splash</item>
+        <item name="android:windowSplashScreenAnimationDuration">900</item>
+    </style>
+</resources>

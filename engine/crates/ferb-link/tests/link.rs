@@ -4,7 +4,7 @@
 mod common;
 use common::*;
 use ferb_link::{errors, net::Shared, wire};
-use serde_json::json;
+use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 
 /// The id of the running task with this goal, once the Mac has pushed it to the phone.
@@ -1204,5 +1204,62 @@ async fn floods_and_bad_frames_do_not_hurt_the_link() {
         storm.phone.dial_times().len(),
         dials,
         "no dial while told to wait"
+    );
+}
+
+/// The planner's question that waits (`kind` "clarify", answered by a message) is in the status of an app that knows
+/// it, pushed and asked for; an app from before (level 3) is never sent one, so it never answers it as a gateway
+/// question. Any message, from either phone, ends it.
+// decision: PHN-763
+#[tokio::test(flavor = "multi_thread")]
+async fn the_planner_s_question_reaches_only_an_app_that_knows_it() {
+    use ferb_link::LEVEL_CLARIFY;
+    let (_relay, w) = shared_world().await;
+    w.limits_set(&json!({"devices_max": 3})).unwrap();
+    let new = w.paired_phone("new app").await;
+    let old = TestPhone::start_with("old app", &w.shared, w.force_relay, None, true, |c| {
+        c.level = LEVEL_CLARIFY - 1
+    })
+    .await;
+    w.pair(&old).await;
+    old.unlock().await.expect("unlock");
+    let clarify = |s: &Value| {
+        s["approvals"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|a| a["kind"] == "clarify")
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    new.call("chat.send", json!({"text": "clarify Which account?"}))
+        .await
+        .unwrap();
+    assert!(
+        wait(10, || clarify(&new.status()).len() == 1).await,
+        "not pushed: {}",
+        new.status()
+    );
+    let q = clarify(&new.status())[0].clone();
+    assert!(
+        q["approval_id"].as_str().unwrap().starts_with("clarify:"),
+        "{q}"
+    );
+    assert_eq!(q["reason"], "Which account?");
+    assert_eq!(
+        clarify(&new.call("chat.status", json!({})).await.unwrap()).len(),
+        1
+    );
+    // the older app: neither pushed nor answered
+    assert!(clarify(&old.call("chat.status", json!({})).await.unwrap()).is_empty());
+    assert!(clarify(&old.status()).is_empty(), "{}", old.status());
+    // the owner answers from the other phone: it waits no more anywhere
+    old.call("chat.send", json!({"text": "the work one"}))
+        .await
+        .unwrap();
+    assert!(
+        wait(10, || clarify(&new.status()).is_empty()).await,
+        "still pushed: {}",
+        new.status()
     );
 }

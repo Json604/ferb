@@ -78,6 +78,9 @@ pub struct LiveTurn {
     pub step_lines: BTreeMap<String, LiveLine>,
     /// Each plan step's state, by task id then step id.
     pub steps: BTreeMap<String, BTreeMap<String, StepState>>,
+    /// What the task is doing now (FERB.app's `TaskItem.currentLine`, APP-890, APP-893): the newest step line of any
+    /// of its steps, a step's summary, or "Checking the result".
+    pub current: Option<LiveLine>,
 }
 
 /// The live frames' state for one conversation.
@@ -142,13 +145,19 @@ impl LiveState {
                         });
                     }
                 } else if let Some(step) = words(f, "step_task_id") {
-                    t.step_lines.insert(
-                        step,
-                        LiveLine {
-                            text,
-                            started_at: words(f, "started_at"),
-                        },
-                    );
+                    let line = LiveLine {
+                        text,
+                        started_at: words(f, "started_at"),
+                    };
+                    if !line.text.is_empty() {
+                        t.current = Some(line.clone());
+                    }
+                    t.step_lines.insert(step, line);
+                } else if !text.is_empty() {
+                    t.current = Some(LiveLine {
+                        text,
+                        started_at: frame_time(f),
+                    });
                 }
             }
             Some("step") => {
@@ -166,10 +175,20 @@ impl LiveState {
             // a step's summary is a line; its bare state ("started") is not (APP-893)
             Some("subtask") => {
                 if let Some(text) = words(f, "summary") {
+                    t.current = Some(LiveLine {
+                        text: text.clone(),
+                        started_at: frame_time(f),
+                    });
                     t.activity = Some(text);
                 }
             }
-            Some("verification") => t.activity = Some("Checking the result".into()),
+            Some("verification") => {
+                t.activity = Some("Checking the result".into());
+                t.current = Some(LiveLine {
+                    text: "Checking the result".into(),
+                    started_at: frame_time(f),
+                });
+            }
             Some("memory") | Some("timer") => {
                 t.activity = Some(s(f, "text").unwrap_or_else(|| "Task updated".into()))
             }
@@ -285,6 +304,36 @@ impl LiveState {
                     .collect()
             })
             .unwrap_or_default();
+        // APP-895: under a row still waiting, the steps it waits on that answer no row, each with its own line
+        let feeders: Vec<LiveFeeder> = t
+            .card
+            .as_ref()
+            .map(|c| {
+                let row_steps: std::collections::HashSet<&str> = c
+                    .rows
+                    .iter()
+                    .filter(|r| !r.row.direct)
+                    .filter_map(|r| r.row.step.as_deref())
+                    .collect();
+                let mut out = Vec::new();
+                for (r, shown) in c.rows.iter().zip(&rows) {
+                    if shown.kind != "waiting" {
+                        continue;
+                    }
+                    for step in feeders_of(r.row.step.as_deref(), &c.plan, &row_steps) {
+                        let line = live.step_lines.get(&step.step_task_id);
+                        out.push(LiveFeeder {
+                            part: r.row.part.clone(),
+                            step: step.id.clone(),
+                            label: step.label.clone(),
+                            step_task_id: step.step_task_id.clone(),
+                            line: LiveRow::checklist(step, steps.get(&step.id), line),
+                        });
+                    }
+                }
+                out
+            })
+            .unwrap_or_default();
         let checklist: Vec<LiveRow> = t
             .checklist
             .as_ref()
@@ -321,6 +370,23 @@ impl LiveState {
         } else {
             "running"
         };
+        // the work row's line (FERB.app's `TaskItem.currentLine`): only a turn that became a task has one
+        let is_task = t.first_reply.is_some()
+            || t.card.is_some()
+            || t.checklist.is_some()
+            || t.task_id.is_some();
+        let current = is_task.then(|| {
+            live.current
+                .as_ref()
+                .map(|l| sentence(&l.text))
+                .filter(|l| !l.is_empty())
+                .unwrap_or_else(|| "Starting task…".into())
+        });
+        let card_line = t
+            .card
+            .as_ref()
+            .filter(|c| c.line.is_none() && !rows.is_empty())
+            .map(|c| card_status_line(c.done, c.total, &rows));
         LiveView {
             entry: t.entry.clone(),
             request_id: t.request_id.clone(),
@@ -335,8 +401,82 @@ impl LiveState {
             rows,
             checklist,
             open_questions: open,
+            current,
+            card_line,
+            feeders,
         }
     }
+}
+
+/// `ChecklistSummary.feeders` (APP-895): the steps a row's step waits on that no row answers, and theirs, in plan order.
+pub fn feeders_of<'a>(
+    step: Option<&str>,
+    plan: &'a [PlanStep],
+    row_steps: &std::collections::HashSet<&str>,
+) -> Vec<&'a PlanStep> {
+    let Some(step) = step else {
+        return Vec::new();
+    };
+    let by_id: std::collections::HashMap<&str, &PlanStep> =
+        plan.iter().rev().map(|p| (p.id.as_str(), p)).collect();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut pending: Vec<String> = by_id
+        .get(step)
+        .map(|p| p.depends_on.clone())
+        .unwrap_or_default();
+    while let Some(next) = pending.pop() {
+        if row_steps.contains(next.as_str()) || !seen.insert(next.clone()) {
+            continue;
+        }
+        if let Some(p) = by_id.get(next.as_str()) {
+            pending.extend(p.depends_on.iter().cloned());
+        }
+    }
+    plan.iter().filter(|p| seen.contains(&p.id)).collect()
+}
+
+/// One step a waiting card row waits on that no row answers (APP-895), with its live line.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct LiveFeeder {
+    /// The row it shows under.
+    pub part: String,
+    pub step: String,
+    pub label: String,
+    pub step_task_id: String,
+    pub line: LiveRow,
+}
+
+/// `CardStatusLine.text`: a running card's one status line, "1 of 4 done · 1 stopped by you · 2 running · 1 waiting
+/// · 1 needs you" (APP-718, APP-752).
+pub fn card_status_line(done: i64, total: i64, rows: &[LiveRow]) -> String {
+    let count = |kinds: &[&str]| {
+        rows.iter()
+            .filter(|r| kinds.contains(&r.kind.as_str()))
+            .count()
+    };
+    let mut pieces = vec![format!("{done} of {total} done")];
+    let stopped = count(&["stopped"]);
+    if stopped > 0 {
+        pieces.push(format!("{stopped} stopped by you"));
+    }
+    let running = count(&[
+        "starting", "running", "checking", "retrying", "loop", "working",
+    ]);
+    let waiting = count(&["waiting"]);
+    let asking = count(&["needsYou", "paused"]);
+    if running > 0 {
+        pieces.push(format!("{running} running"));
+    }
+    if waiting > 0 {
+        pieces.push(format!("{waiting} waiting"));
+    }
+    if asking > 0 {
+        pieces.push(format!(
+            "{asking} need{} you",
+            if asking == 1 { "s" } else { "" }
+        ));
+    }
+    pieces.join(" · ")
 }
 
 /// A card row's or checklist line's live look (`RowDisplay`, `ChecklistLine`): kind, words, spinner; `until` when it
@@ -571,4 +711,11 @@ pub struct LiveView {
     pub checklist: Vec<LiveRow>,
     /// The open questions of this turn (their approval ids), drawn by the questions' `shown`.
     pub open_questions: Vec<String>,
+    /// What the task is doing now, as FERB.app's work row and short view say it (APP-890, APP-893): its newest step
+    /// line, else "Starting task…". None for a turn that is no task (a reply being written).
+    pub current: Option<String>,
+    /// A running card's status line (`CardStatusLine`), none once the card has its footer.
+    pub card_line: Option<String>,
+    /// The steps each waiting row waits on that no row answers, with their lines (APP-895).
+    pub feeders: Vec<LiveFeeder>,
 }

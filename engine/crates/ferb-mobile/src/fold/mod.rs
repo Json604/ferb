@@ -59,6 +59,8 @@ pub struct Turn {
     pub merged_into: Option<String>,
     pub hidden_kinds: Option<Vec<String>>,
     pub sealed: Option<Vec<Sealed>>,
+    /// When its plan was stored (seconds since 2001): where the work row's time counts from (kb PHN-720..).
+    pub plan_at: Option<f64>,
 }
 
 impl Turn {
@@ -526,6 +528,7 @@ fn saved_turn(m: &Map<String, Value>) -> Got<Turn> {
             opt(m, "hiddenKinds", strings)?
         },
         sealed: lossy_list(m, "sealed", Sealed::saved)?,
+        plan_at: None,
     })
 }
 
@@ -619,6 +622,9 @@ pub fn archive(newest: &[&ChatEntry]) -> Archive {
             "plan" => {
                 if let Some(&i) = e.request_id.as_ref().and_then(|r| by_request.get(r)) {
                     show_plan(&e.body, &mut a.turns[i]);
+                    if a.turns[i].plan_at.is_none() {
+                        a.turns[i].plan_at = Some(time::date(&e.created_at));
+                    }
                 }
             }
             "answer" | "error" => {
@@ -714,6 +720,10 @@ pub struct FirstReply {
     pub plan_line: Option<String>,
     pub plan_lines: Vec<String>,
     pub plan: Option<String>,
+    /// `receipts` without those a receipt card stands for (`CardLayout.remaining`), what FERB.app's first bubble says.
+    /// Left out when serialised: the transcript golden stays FERB.app's (kb PHN-720..).
+    #[serde(skip_serializing)]
+    pub receipts_shown: Vec<String>,
 }
 
 /// A turn's answer, or a later answer's own words (`said`, with its `status`).
@@ -751,6 +761,9 @@ pub struct CardView {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub headline: Option<String>,
     pub plan: Vec<PlanStep>,
+    /// The footer's lines without those the turn's cards stand for (TurnCardView `footer`). Left out when serialised.
+    #[serde(skip_serializing)]
+    pub lines_shown: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -766,6 +779,11 @@ pub struct ChecklistView {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct TurnItem {
     pub entry: String,
+    /// When the entry was made, in seconds since 2001-01-01 (Foundation's reference date, `created_at`): for the
+    /// phones' day dividers and "anything today". Left out when serialised, so the transcript golden (FERB.app's fold)
+    /// stays the Mac's byte for byte (kb PHN-627).
+    #[serde(skip_serializing)]
+    pub at: f64,
     pub legacy: bool,
     pub client_id: Option<String>,
     pub request_id: Option<String>,
@@ -787,22 +805,44 @@ pub struct TurnItem {
     pub goal: Option<String>,
     #[serde(flatten)]
     pub words: Option<OwnerWords>,
+    /// When its plan was stored (seconds since 2001), for the work row's time. Left out when serialised (PHN-720..).
+    #[serde(skip_serializing)]
+    pub plan_at: Option<f64>,
+    /// The words under its answer when it didn't end done (`shown::status_words`, FERB.app's rule: no notice, no card).
+    #[serde(skip_serializing)]
+    pub status_words: Option<String>,
+    /// The boxes (timers, reminders, schedules) a later item draws (`shown::boxes`, APP-769).
+    #[serde(skip_serializing)]
+    pub hidden: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ReplyItem {
     pub entry: String,
+    /// When the entry was made, in seconds since 2001-01-01 (Foundation's reference date, `created_at`): for the
+    /// phones' day dividers and "anything today". Left out when serialised, so the transcript golden (FERB.app's fold)
+    /// stays the Mac's byte for byte (kb PHN-627).
+    #[serde(skip_serializing)]
+    pub at: f64,
     pub legacy: bool,
     pub answers: String,
     pub after: String,
     pub part: Option<String>,
     pub quotes_request: bool,
     pub said: Option<AnswerView>,
+    /// The boxes a later item draws (`shown::boxes`, APP-769). Left out when serialised.
+    #[serde(skip_serializing)]
+    pub hidden: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct NoticeItem {
     pub entry: String,
+    /// When the entry was made, in seconds since 2001-01-01 (Foundation's reference date, `created_at`): for the
+    /// phones' day dividers and "anything today". Left out when serialised, so the transcript golden (FERB.app's fold)
+    /// stays the Mac's byte for byte (kb PHN-627).
+    #[serde(skip_serializing)]
+    pub at: f64,
     pub legacy: bool,
     #[serde(rename = "ref")]
     pub reference: String,
@@ -810,6 +850,9 @@ pub struct NoticeItem {
     pub text: String,
     pub quotes: Vec<Quote>,
     pub cards: Option<Vec<ResultCard>>,
+    /// The boxes a later item draws (`shown::boxes`, APP-769). Left out when serialised.
+    #[serde(skip_serializing)]
+    pub hidden: Vec<String>,
 }
 
 /// One item of the chat, top to bottom. (Owned values handed to the app once per read: a turn is larger than the
@@ -854,6 +897,9 @@ pub struct QuestionItem {
     /// `card_row`, `end_of_chat`, or None (no longer open).
     pub shown: Option<String>,
     pub row: Option<RowRef>,
+    /// What FERB.app's card shows for it (kb PHN-739; not in FERB.app's transcript bytes).
+    #[serde(skip_serializing)]
+    pub words: Option<crate::question::QuestionShown>,
 }
 
 /// A conversation as a phone draws it.
@@ -891,7 +937,7 @@ fn said_view(l: &LaterAnswer) -> AnswerView {
     }
 }
 
-fn card_view(c: &Card, live: bool) -> CardView {
+fn card_view(c: &Card, live: bool, cards: &[ResultCard]) -> CardView {
     CardView {
         task_id: c.task_id.clone(),
         request_id: c.request_id.clone(),
@@ -909,6 +955,7 @@ fn card_view(c: &Card, live: bool) -> CardView {
         lines: c.lines.clone(),
         headline: c.headline.clone(),
         plan: c.plan.clone(),
+        lines_shown: crate::shown::remaining(&c.lines, cards),
     }
 }
 
@@ -949,6 +996,10 @@ fn first_reply(t: &Turn) -> Option<FirstReply> {
         } else {
             None
         },
+        receipts_shown: crate::shown::remaining(
+            &t.receipts.clone().unwrap_or_default(),
+            &t.receipt_cards.clone().unwrap_or_default(),
+        ),
     })
 }
 
@@ -997,6 +1048,7 @@ pub fn transcript_of(newest: &[&ChatEntry], utc_offset_s: i32) -> Transcript {
                 });
                 Item::Turn(TurnItem {
                     entry: r(&t.id),
+                    at: t.created_at,
                     legacy: is_legacy(&t.id),
                     client_id: made.get(&t.id).and_then(|e| e.client_id.clone()),
                     request_id: t.request_id.clone(),
@@ -1012,7 +1064,10 @@ pub fn transcript_of(newest: &[&ChatEntry], utc_offset_s: i32) -> Transcript {
                     answer: (!(t.answer.is_empty()
                         && t.display_text.as_deref().unwrap_or("").is_empty()))
                     .then(|| answer_view(t)),
-                    card: t.card.as_ref().map(|c| card_view(c, live)),
+                    card: t
+                        .card
+                        .as_ref()
+                        .map(|c| card_view(c, live, t.cards.as_deref().unwrap_or(&[]))),
                     checklist: t.checklist.as_ref().map(|c| checklist_view(c, live)),
                     first_reply: first_reply(t),
                     parts: t.parts.clone().unwrap_or_default(),
@@ -1020,26 +1075,37 @@ pub fn transcript_of(newest: &[&ChatEntry], utc_offset_s: i32) -> Transcript {
                         .is_recovered()
                         .then(|| t.task_goal.clone().unwrap_or_default()),
                     words,
+                    plan_at: t.plan_at,
+                    status_words: if t.response_notice.is_none() && t.card.is_none() {
+                        crate::shown::status_words(&t.status)
+                    } else {
+                        None
+                    },
+                    hidden: Vec::new(),
                 })
             }
             Shown::Reply(rep) => Item::Reply(ReplyItem {
                 entry: r(&rep.id),
+                at: rep.created_at,
                 legacy: is_legacy(&rep.id),
                 answers: r(&rep.turn_id),
                 after: r(&rep.after_turn_id),
                 part: rep.part.map(|p| p.as_str().to_string()),
                 quotes_request: !a.follows_its_turn(rep, utc_offset_s),
                 said: rep.said.as_ref().map(said_view),
+                hidden: Vec::new(),
             }),
             Shown::Notice(n) => {
                 let view = NoticeItem {
                     entry: r(&n.entry_id),
+                    at: n.created_at,
                     legacy: is_legacy(&n.entry_id),
                     reference: n.id.clone(),
                     after: n.after_turn_id.as_deref().map(r),
                     text: n.text.clone(),
                     quotes: n.quotes.clone(),
                     cards: n.cards.clone(),
+                    hidden: Vec::new(),
                 };
                 if made.get(&n.entry_id).is_some_and(|e| e.kind == "post") {
                     Item::Reminder(view)
@@ -1063,6 +1129,7 @@ pub fn transcript_of(newest: &[&ChatEntry], utc_offset_s: i32) -> Transcript {
                 state: e.state.clone(),
                 open: e.open,
                 body: Value::Object(e.body.clone()),
+                words: Some(crate::question::shown(&Value::Object(e.body.clone()))),
                 shown: e.open.then(|| {
                     if placed.is_some() {
                         "card_row"
@@ -1082,5 +1149,19 @@ pub fn transcript_of(newest: &[&ChatEntry], utc_offset_s: i32) -> Transcript {
             }
         })
         .collect();
-    Transcript { items, questions }
+    let mut t = Transcript { items, questions };
+    let moved = crate::shown::boxes(&t, utc_offset_s);
+    if !moved.is_empty() {
+        for item in &mut t.items {
+            let Some(h) = moved.get(item.entry()).cloned() else {
+                continue;
+            };
+            match item {
+                Item::Turn(x) => x.hidden = h,
+                Item::Reply(x) => x.hidden = h,
+                Item::Notice(x) | Item::Reminder(x) => x.hidden = h,
+            }
+        }
+    }
+    t
 }

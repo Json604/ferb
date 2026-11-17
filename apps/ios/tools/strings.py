@@ -55,13 +55,21 @@ IOS = {
     # SENSE-420 / GATE-613 on iOS: Apple's location service, iOS's own question
     "city_text": "FERB on your Mac then knows which city you're in, for things like local times and places nearby. Only the city goes to your Mac, never the exact spot. To name the city, Apple's own location service looks it up. iOS asks next; you can turn this off here any time.",
     "city_denied": "iOS didn't allow location for FERB, so FERB goes by the time zone.",
+    # the first run's asks (kb PHN-636): iOS asks for the microphone and for speech recognition together
+    "first_run_microphone": "Microphone and speech",
     "loc_why_denied": "Location wasn't allowed for FERB on the phone.",
     # speaking to FERB (kb PHN-604): Apple's speech recognition where the iPhone can't recognise the language itself;
     # iOS asks for the microphone and for speech recognition, two questions
     "voice_text_service": "Hold the microphone while you speak, and let go when you're done. Your words appear in the message box, so you can check them before you send. This iPhone turns speech into words with Apple's speech recognition, which may send the sound of your voice to Apple to do it. FERB records and keeps nothing, and your voice never goes to your Mac.",
     "voice_ask_next": "iOS asks next whether FERB may use the microphone and speech recognition.",
     "voice_denied": "The microphone or speech recognition is off for FERB, so it can't hear you. You can turn them on in Settings.",
+    "profile_lock_why": "FERB always asks for Face ID, Touch ID or your passcode when it opens, so nobody else with your iPhone can reach your Mac. This can't be turned off.",
+    "mac_needs_cancelled": "The unlock prompt was closed, so your Mac's chat is still locked.",
+    "mac_needs_old": "Your Mac took a while to come online, so FERB needs to unlock once more.",
     "voice_language": "This iPhone has no speech for your language on the phone itself yet. Add it in Settings under General, Keyboard, Dictation Languages, then try again.",
+    # kb PHN-765 on iOS: notifications off is the one thing he changes (no channels, Stay connected or battery setting)
+    "cant_notify_off": "Notifications are off for FERB on this iPhone, so its questions can't reach you outside the app.",
+    "cant_notify_open_settings": "Open Settings",
 }
 
 # Plurals (Android <plurals>): the same, with %2$@ where Android says "your fingerprint" (L.plural fills it).
@@ -79,7 +87,8 @@ IOS_PLURALS = {
 DROP = {
     "prompt_unlock_title", "prompt_yes_title", "prompt_keys_title", "prompt_cancel",
     "ch_questions", "ch_questions_desc", "ch_checks", "ch_checks_desc", "ch_done", "ch_done_desc", "ch_link",
-    "ch_link_desc", "ch_stay", "ch_stay_desc", "stay_title", "stay_text"
+    "ch_link_desc", "ch_stay", "ch_stay_desc", "stay_title", "stay_text",
+    "cant_notify_channel", "cant_notify_stay", "cant_notify_battery",
 }
 
 # Only iOS: what replaces Stay connected, the phone's own kind of lock, Info.plist-free words the app needs.

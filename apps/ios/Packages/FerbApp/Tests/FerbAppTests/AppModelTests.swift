@@ -13,11 +13,21 @@ final class AppModelTests: XCTestCase {
     override func setUp() async throws { rig = Rig() }
     override func tearDown() async throws { rig.tearDown() }
 
-    // decision: PHN-8, PHN-125, PHN-505
+    // decision: PHN-8, PHN-125, PHN-505, PHN-633
     func testNothingShowsBeforeThePasscodeAndTheUnlock() async {
+        // PHN-633: the lock page needs neither the library, the store nor the link: it shows while the phone starts
         phone.state = .starting
+        rig.screenLock = false
         let vm = rig.model()
-        XCTAssertEqual(vm.ui.gate, .starting)
+        XCTAssertEqual(vm.ui.gate, .noScreenLock)
+        rig.screenLock = true
+        vm.recheck()
+        XCTAssertEqual(vm.ui.gate, .locked)
+        // unlocked before the phone opened: still nothing of the app's content until it is open (PHN-8)
+        session.unlocked()
+        await eventually("starting") { vm.ui.gate == .starting }
+        session.lockNow()
+        await eventually("locked") { vm.ui.gate == .locked }
         phone.state = .open(keys: KeyHealth(device: .ok, lock: .ok, strong: .ok), wiped: nil)
         rig.screenLock = false
         vm.recheck()
@@ -39,7 +49,7 @@ final class AppModelTests: XCTestCase {
         await vm.unlockApp().value
         XCTAssertFalse(session.locked)
         XCTAssertEqual(rig.prompts.signers.map(\.kind), [.lock])
-        XCTAssertTrue(phone.calls.contains("unlock"))
+        await eventually("the statement, not a second prompt") { phone.calls.contains("statement") }
         XCTAssertFalse(vm.ui.needsMacUnlock)
     }
 
@@ -152,115 +162,136 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(rig.prompts.shown, 1)
     }
 
-    // decision: PHN-615, PHN-13
-    func testAColdStartWaitingForTheLinkAsksOnceAndOnlyOnTheOwnersScreen() async {
-        phone.link = FakePhone.status(.connecting)
+    private var lockedRefusal: Outcome<Void> { .failed(.NeedsUnlock(detail: "locked", linkCode: "locked")) }
+
+    // decision: PHN-649, PHN-640
+    func testAColdStartAsksAtOnceBeforeThePhoneIsOpenAndTheStatementGoesWhenItIs() async {
+        phone.state = .starting
+        phone.link = nil
         let vm = rig.model()
         session.foreground(true)
         vm.setWindowReady(true)
-        await settle()
-        XCTAssertEqual(rig.prompts.shown, 0, "waiting for the link (one prompt for the app and the Mac)")
-        vm.setWindowReady(false) // a system alert over FERB while the link was awaited
+        await eventually("open at once") { !session.locked }
+        XCTAssertEqual(rig.prompts.shown, 1)
+        XCTAssertTrue(phone.statements.isEmpty)
+        rig.clock.t += 4
+        phone.state = .open(keys: KeyHealth(device: .ok, lock: .ok, strong: .ok), wiped: nil)
         phone.link = FakePhone.status()
-        await settle()
-        await settle()
-        XCTAssertEqual(rig.prompts.shown, 0)
-        XCTAssertTrue(session.locked)
-        vm.setWindowReady(true)
-        await eventually("open") { !session.locked }
-        XCTAssertEqual(rig.prompts.shown, 1)
+        await eventually("handed over once the link is up, with its age") { !phone.statements.isEmpty }
+        XCTAssertEqual(phone.statements.map(\.1), [4000])
+        XCTAssertEqual(rig.prompts.shown, 1, "exactly one prompt")
+        XCTAssertFalse(phone.calls.contains("unlock"))
+        XCTAssertTrue(phone.statements[0].0.contains("\"domain\":\"ferb.unlock-statement.v1\""))
     }
 
-    private var locked: Outcome<Void> { .failed(.NeedsUnlock(detail: "locked", linkCode: "locked")) }
-
-    // decision: PHN-640, PHN-641, PHN-13
-    func testTheAppOpensWhenThePromptPassesNotWhenTheSlowMacAnswers() async {
-        phone.answerHeld = true
-        let vm = rig.model()
-        vm.unlockApp()
-        await eventually("open at once after Face ID") { !session.locked }
-        XCTAssertEqual(rig.prompts.shown, 1)
-        XCTAssertEqual(vm.ui.macLine, .opening)
-        await eventually("the lock button is free again") { !vm.ui.busy.contains("unlock") }
-        await eventually("a slow Mac is said, calmly") { vm.ui.macLine == .slow }
-        phone.answerHeld = false
-        await eventually("the line clears by itself") { vm.ui.macLine == nil }
-        XCTAssertFalse(vm.ui.needsMacUnlock)
-        XCTAssertEqual(rig.prompts.shown, 1, "nothing asked twice")
-    }
-
-    // decision: PHN-640, PHN-641
-    func testAMacThatCantBeReachedNeverHoldsThePromptOrTheApp() async {
-        phone.link = FakePhone.status(.connecting)
-        let vm = rig.model()
-        vm.unlockApp()
-        await settle()
-        XCTAssertEqual(rig.prompts.shown, 0, "waiting briefly for the link")
-        await eventually("open by the prompt alone") { !session.locked }
-        XCTAssertEqual(rig.prompts.localAsked, 1)
-        XCTAssertTrue(rig.prompts.signers.isEmpty, "no challenge prompt")
-        XCTAssertFalse(vm.ui.needsMacUnlock, "no control to tap: the line says the Mac can't be reached")
-    }
-
-    // decision: PHN-640, PHN-641
-    func testASlowChallengeGivesThePromptAloneAndNeverALateSecondPrompt() async {
-        phone.challengeHeld = true
-        let vm = rig.model()
-        vm.unlockApp()
-        await eventually("open by the prompt alone") { !session.locked }
-        XCTAssertEqual(rig.prompts.localAsked, 1)
-        phone.challengeHeld = false // the challenge comes after all: no prompt appears out of nowhere
-        await settle()
-        XCTAssertEqual(rig.prompts.signers.reduce(0) { $0 + $1.asked }, 0)
-    }
-
-    // decision: PHN-640, PHN-641
-    func testASecondTapWhileWaitingShowsThePromptAtOnce() async {
-        phone.link = FakePhone.status(.connecting)
-        let vm = rig.model()
-        vm.unlockApp()
-        await settle()
-        XCTAssertEqual(rig.prompts.shown, 0)
-        vm.unlockApp()
-        await eventually("the second tap is never a silent no-op", timeout: 0.25) { !session.locked }
-        XCTAssertEqual(rig.prompts.shown, 1)
-    }
-
-    // decision: PHN-640, PHN-641, PHN-225
-    func testAReconnectWhileOpenNeitherLocksNorAsks() async {
+    // decision: PHN-649
+    func testAPhoneNotPairedGetsThePromptAlone() async {
+        phone.statementOk = false
         let vm = rig.model()
         await vm.unlockApp().value
-        await eventually("open") { !session.locked && vm.ui.macLine == nil }
-        phone.syncScript = [locked]
-        phone.link = FakePhone.status(.connecting)
-        await settle()
-        phone.link = FakePhone.status()
-        await settle()
-        await settle()
+        XCTAssertEqual(rig.prompts.localAsked, 1)
+        XCTAssertTrue(rig.prompts.signers.isEmpty)
         XCTAssertFalse(session.locked)
-        XCTAssertEqual(rig.prompts.shown, 1, "nothing asked again")
-        XCTAssertFalse(vm.ui.needsMacUnlock)
     }
 
-    // decision: PHN-640, PHN-641, PHN-13
-    func testTheMacLockedAfterTheOpenIsUnlockedOnceByItselfThenWaitsForATap() async {
+    // decision: PHN-649, PHN-641
+    func testAMacThatIsntThereNeverHoldsThePromptAndAsksOnceWhenItComesTooLate() async {
+        phone.link = FakePhone.status(.connecting)
         let vm = rig.model()
         vm.setWindowReady(true)
         await vm.unlockApp().value
-        await eventually("open") { !session.locked && vm.ui.macLine == nil }
-        phone.syncScript = [locked, locked, locked]
-        phone.link = FakePhone.status(.connecting)
+        XCTAssertEqual(rig.prompts.shown, 1)
+        XCTAssertFalse(session.locked)
+        rig.clock.t += 200
         await settle()
+        XCTAssertTrue(phone.statements.isEmpty, "too old: never sent")
+        XCTAssertNil(vm.ui.macNeed)
+        phone.syncScript = [lockedRefusal, lockedRefusal, lockedRefusal]
         phone.link = FakePhone.status()
-        await eventually("one automatic unlock") { rig.prompts.shown == 2 }
-        await eventually("its answer") { vm.ui.macLine == nil }
-        XCTAssertFalse(vm.ui.needsMacUnlock)
-        phone.syncScript = [locked, locked, locked]
-        phone.link = FakePhone.status(.connecting)
-        await settle()
-        phone.link = FakePhone.status()
-        await eventually("then the line he can tap") { vm.ui.needsMacUnlock }
-        XCTAssertEqual(rig.prompts.shown, 2, "never a loop")
+        await eventually("the card, once, with why") { vm.ui.macNeed == .old }
+        XCTAssertEqual(rig.prompts.shown, 1, "no prompt by itself")
+        await vm.unlockMac().value
+        XCTAssertEqual(rig.prompts.shown, 2)
+        XCTAssertNil(vm.ui.macNeed)
+    }
+
+    // decision: PHN-649, PHN-641, PHN-225
+    func testAStormOfReconnectsNeitherLocksNorAsks() async {
+        let vm = rig.model()
+        await vm.unlockApp().value
+        await eventually("handed") { !phone.statements.isEmpty }
+        for _ in 0..<5 {
+            phone.syncScript = [lockedRefusal]
+            phone.link = FakePhone.status(.connecting)
+            await settle()
+            phone.link = FakePhone.status()
+            await settle()
+        }
+        XCTAssertFalse(session.locked)
+        XCTAssertEqual(rig.prompts.shown, 1)
+        XCTAssertNil(vm.ui.macNeed)
+    }
+
+    // decision: PHN-649
+    func testAStatementBeforeTheConnectionProvedItselfIsSentAgain() async {
+        phone.statementResults = [lockedRefusal, lockedRefusal]
+        let vm = rig.model()
+        await vm.unlockApp().value
+        await eventually("the third try") { phone.statements.count == 3 }
+        XCTAssertEqual(rig.prompts.shown, 1)
+        XCTAssertNil(vm.ui.macNeed)
+    }
+
+    // decision: PHN-649
+    func testAStatementTheMacFoundTooOldAsksOnceWithTheCard() async {
+        phone.statementResults = [.failed(.NeedsUnlock(detail: "too long ago", linkCode: "unlock_required"))]
+        let vm = rig.model()
+        await vm.unlockApp().value
+        await eventually("the card") { vm.ui.macNeed == .old }
+        rig.prompts.cancel = true
+        await vm.unlockMac().value
+        XCTAssertEqual(vm.ui.macNeed, .cancelled, "he closed the prompt: the card says so")
+    }
+
+    // decision: PHN-649
+    func testAMacThatDoesntKnowThisPhonesKeysAsksToPairAgain() async {
+        phone.statementResults = [.failed(.NeedsUnlock(detail: "not this phone's", linkCode: "unlock_invalid"))]
+        let vm = rig.model()
+        await vm.unlockApp().value
+        await eventually("pair again") { vm.ui.gate == .removed }
+        XCTAssertEqual(vm.ui.pairReason, .unknown)
+    }
+
+    // decision: PHN-649, PHN-313
+    func testAnOlderMacGetsItsOwnUnlock() async {
+        var l = FakePhone.status()
+        l.macOlder = true
+        phone.link = l
+        let vm = rig.model()
+        await vm.unlockApp().value
+        await eventually("the Mac's own unlock") { phone.calls.contains("unlock") }
+        XCTAssertTrue(phone.statements.isEmpty)
+        XCTAssertEqual(rig.prompts.shown, 2, "one more prompt, only with an older Mac")
+    }
+
+    // decision: PHN-648
+    func testTheMacIsToldTheAppIsOpenOnlyWhileItIsUnlockedAndInFront() async {
+        let vm = rig.model()
+        session.foreground(true)
+        await vm.unlockApp().value
+        await eventually("open") { phone.opens.last == true }
+        session.foreground(false)
+        await eventually("left") { phone.opens.last == false }
+        _ = vm
+    }
+
+    // decision: PHN-646
+    func testForgettingAMacThatCouldntBeToldSaysItStillListsThisPhone() async {
+        session.unlocked()
+        phone.macForgot = false
+        let vm = rig.model()
+        await vm.forget().value
+        XCTAssertEqual(vm.ui.note, Note("forget_mac_kept"))
     }
 
     // decision: PHN-401, PHN-476
@@ -271,10 +302,10 @@ final class AppModelTests: XCTestCase {
         vm.typed("Water the plants at 6")
         await vm.send().value
         XCTAssertEqual(vm.draft, "")
-        guard case .outbox(_, let item)? = vm.ui.rows.last else { return XCTFail("the outbox row: \(vm.ui.rows)") }
+        guard case .outbox(_, let item)? = vm.rows.last else { return XCTFail("the outbox row: \(vm.rows)") }
         XCTAssertEqual(item.state, "waiting")
         await vm.cancelOutbox(item.id).value
-        XCTAssertFalse(vm.ui.rows.contains { if case .outbox = $0 { return true } else { return false } })
+        XCTAssertFalse(vm.rows.contains { if case .outbox = $0 { return true } else { return false } })
         phone.sendWaitingFor = "unlock"
         phone.syncScript = Array(repeating: .failed(.NeedsUnlock(detail: "locked", linkCode: "locked")), count: 3)
         vm.typed("And the balcony")
@@ -347,7 +378,7 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(FerbError.Offline(detail: "x", linkCode: nil).code, "offline")
     }
 
-    // decision: PHN-15, PHN-505, PHN-571
+    // decision: PHN-15, PHN-505, PHN-571, PHN-696
     func testTheTabTheHomeScreenAndTheDraftComeBackAfterARelaunch() async {
         session.unlocked()
         let vm = rig.model()
@@ -358,6 +389,7 @@ final class AppModelTests: XCTestCase {
         let again = AppModel(api: phone, session: session, prefs: rig.prefs, local: rig.local, screenLock: { true }, corpus: nil, saved: saved)
         XCTAssertEqual(again.tab, .tasks)
         XCTAssertEqual(again.draft, "Half a thought")
-        XCTAssertFalse(again.home)
+        // typing never left today's home page (kb PHN-696): nothing was said, so it is still the home page
+        XCTAssertTrue(again.home)
     }
 }

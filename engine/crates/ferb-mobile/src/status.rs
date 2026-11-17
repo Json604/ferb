@@ -71,6 +71,9 @@ pub struct StatusQuestion {
     /// The words are held back (a locked phone, PHN-126).
     pub held: bool,
     pub needs: QuestionNeeds,
+    /// What FERB.app's card shows for it (kb PHN-739), from the approval's own fields; while held, the kind's words.
+    #[serde(skip_serializing)]
+    pub words: Option<crate::question::QuestionShown>,
 }
 
 /// A task that runs now.
@@ -186,6 +189,7 @@ impl PhoneStatus {
                         .collect(),
                     held: a["held"].as_bool().unwrap_or(false),
                     needs: QuestionNeeds::read(&a["phone"]),
+                    words: Some(crate::question::shown(a)),
                 })
                 .collect(),
             running: list(&v["running"])

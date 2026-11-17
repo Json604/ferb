@@ -150,6 +150,7 @@ class KeystoreKeys(private val context: Context) : PhoneKeys {
 
     /** Present, absent or destroyed, learnt without a prompt: initSign on a destroyed key throws at once. */
     fun state(kind: KeyKind): KeyState {
+        MainGuard.offMain("keystore state ${kind.name}")
         val key = try {
             Keystore.store().getKey(kind.alias, null) as? PrivateKey
         } catch (e: Exception) {

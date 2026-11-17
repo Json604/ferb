@@ -86,6 +86,20 @@ public final class KeySigner: Signer, @unchecked Sendable {
     }
 }
 
+/// The phone library is never entered on the main thread (kb PHN-682; the Android twin is `MainGuard`): every call
+/// into it can wait (its store, its link). On the owner's Android phone the main thread asked it for the last status
+/// itself, waited behind a sync, and the app froze. `offMain` stands at the library's door ([Engine]): a call that
+/// reaches it on the main thread is said in the log and told to `onMain` (tests count them; there must be none).
+public enum MainGuard {
+    nonisolated(unsafe) public static var onMain: (@Sendable (String) -> Void)?
+
+    public static func offMain(_ what: String) {
+        guard Thread.isMainThread else { return }
+        NSLog("ferb-app: blocking call on the main thread: %@", what)
+        onMain?(what)
+    }
+}
+
 /// The phone's one object for the app (kb PHN-498's twin, PHN-563): the encrypted store (ferb-mobile `Mobile`) and
 /// the link (`Link`), started from the [Vault], with the library's callbacks delivered on the main actor. One per
 /// process, owned by the app; [close] ends both. Every blocking call runs off the main thread.
@@ -133,7 +147,7 @@ public final class FerbPhone {
         state = .starting
         let s = await engine.serial { $0.start() }
         state = s
-        link = engine.linkStatus()
+        link = await engine.concurrent { $0.linkStatus() }
         return s
     }
 
@@ -141,6 +155,7 @@ public final class FerbPhone {
     public func call<T>(_ block: @escaping @Sendable (Mobile) throws -> T) async -> Outcome<T> {
         await engine.concurrent { e in
             guard let m = e.mobile else { return .failed(.Closed(detail: "FERB is not open.", linkCode: nil)) }
+            MainGuard.offMain("a call into the phone library")
             do { return .ok(try block(m)) } catch let error as FerbError { return .failed(error) } catch {
                 return .failed(.Internal(detail: "\(error)", linkCode: nil))
             }
@@ -169,6 +184,19 @@ public final class FerbPhone {
     /// The app opened by the prompt alone (offline): the conversation is read again once the Mac admits it.
     public func unlocked() async -> Outcome<Void> { await call { try $0.unlocked() } }
 
+    /// The unlock the lock key signed in the opening prompt, handed to the Mac once the link is up (kb PHN-649).
+    public func unlockWithStatement(payload: String, sig: String, ageMs: UInt64) async -> Outcome<Void> {
+        let r = await call { try $0.unlockWithStatement(payload: payload, sig: sig, ageMs: ageMs) }
+        publishOpen()
+        return r
+    }
+
+    /// Paired, with the lock key the Mac knows: the opening prompt can sign a statement before the link is up.
+    public func statementReady() async -> Bool { await engine.concurrent { $0.vault.statementReady() } }
+
+    /// The app is unlocked and in front (kb PHN-648): the device key's presence keeps the Mac's window open.
+    public func setOpen(_ on: Bool) { engine.tellLink { $0.setOpen(on) } }
+
     /// "Stop everything on the Mac" (`stop.engage`): works while locked (PHN-125), never queued, no prompt.
     public func stopEverything() async -> Outcome<Void> { await call { try $0.stopEverything() } }
 
@@ -180,13 +208,15 @@ public final class FerbPhone {
     /// Registers [unregisteredKeys] with the Mac (`link.keys`), signed by the strong key where the Mac holds one,
     /// else the lock key. ok(false): nothing to do.
     public func registerKeys(_ signer: @escaping @Sendable (KeyKind) -> Signer) async -> Outcome<Bool> {
-        guard let fresh = await unregisteredKeys(), let mac = engine.vault.registeredKeys() else { return .ok(false) }
-        let kind: KeyKind = (mac.strong != nil && engine.vault.keys.health().strong == .ok) ? .strong : .lock
+        // the vault's file and the keys' health are read off the main actor (a Keychain round each, kb PHN-682)
+        guard let fresh = await unregisteredKeys(), let mac = await engine.concurrent({ $0.vault.registeredKeys() }) else { return .ok(false) }
+        let strongOk = await engine.concurrent { $0.vault.keys.health().strong == .ok }
+        let kind: KeyKind = (mac.strong != nil && strongOk) ? .strong : .lock
         let s = signer(kind)
         let r = await call { try $0.registerKeys(devicePub: fresh.device, strongPub: fresh.strong, signer: s) }
         switch r {
         case .ok:
-            engine.vault.saveRegisteredKeys(PublicKeys(device: mac.device ?? fresh.device, lock: mac.lock, strong: mac.strong ?? fresh.strong))
+            await engine.concurrent { $0.vault.saveRegisteredKeys(PublicKeys(device: mac.device ?? fresh.device, lock: mac.lock, strong: mac.strong ?? fresh.strong)) }
             publishOpen()
             return .ok(true)
         case .failed(let e):
@@ -194,8 +224,12 @@ public final class FerbPhone {
         }
     }
 
-    /// The last status the Mac pushed or a read kept (memory only; safe on the main thread), or nil.
-    public func lastStatusNow() -> PhoneStatus? { (try? engine.mobile?.lastStatus()) ?? nil }
+    /// The last status the Mac pushed or a read kept, or nil. Like every call into the library it runs off the main
+    /// thread: on the owner's Android phone the main thread asked for it itself and waited behind a sync (kb PHN-680).
+    public func lastStatus() async -> PhoneStatus? {
+        if case .ok(let s) = await call({ try $0.lastStatus() }) { return s }
+        return nil
+    }
 
     /// A prompt signer for `kind`: Face ID, Touch ID or the passcode (lock), Face ID or Touch ID only (strong).
     public func signer(_ kind: KeyKind, reason: String) -> KeySigner {
@@ -204,20 +238,21 @@ public final class FerbPhone {
 
     /// "Forget this Mac" (PHN-408): the fetched chat and its key, the Mac in the link's state and the three signing
     /// keys go; the store and the link start again empty, ready to pair.
-    public func forgetThisMac() async -> Outcome<Void> {
+    /// "Forget this Mac": `.ok(true)` when the Mac removed this phone too, `.ok(false)` when it couldn't be told.
+    public func forgetThisMac() async -> Outcome<Bool> {
         let r = await engine.serial { $0.forget() }
         if case .failed(let e) = r { state = .failed(code: e.code, detail: e.detail) } else { publishOpen() }
-        link = engine.linkStatus()
+        link = await engine.concurrent { $0.linkStatus() }
         return r
     }
 
-    /// The app came to the front or went to the back. Non-blocking.
-    public func setActive(_ on: Bool) { engine.uplink?.setActive(on) }
+    /// The app came to the front or went to the back. Non-blocking: the link hears it on its own queue, in order.
+    public func setActive(_ on: Bool) { engine.tellLink { $0.setActive(on) } }
 
     /// The phone's network changed (`wifi`, `cellular`, `none`, …). Non-blocking.
-    public func networkChanged(_ kind: String?) { engine.uplink?.networkChanged(kind) }
+    public func networkChanged(_ kind: String?) { engine.tellLink { $0.networkChanged(kind) } }
 
-    public func retry() { engine.uplink?.retry() }
+    public func retry() { engine.tellLink { $0.retry() } }
 
     /// Ends the store and the link (bounded: about 5 s for the link).
     public func close() async {
@@ -228,9 +263,17 @@ public final class FerbPhone {
     }
 
     /// Reads the keys' health again (a passcode or Face ID changed in Settings meanwhile).
+    /// The keys' health read again and published. Never on the main actor: reading it is a Keychain and Secure Enclave
+    /// round per key, which can wait behind other key work (kb PHN-657; Android ran it on its main thread after an
+    /// unlock).
     public func publishOpen() {
         guard engine.mobile != nil, state != .closed else { return }
-        state = .open(keys: engine.vault.keys.health(), wiped: engine.wiped)
+        let engine = self.engine
+        Task { [weak self] in
+            let keys = await engine.concurrent { $0.vault.keys.health() }
+            guard let self, engine.mobile != nil, self.state != .closed else { return }
+            self.state = .open(keys: keys, wiped: engine.wiped)
+        }
     }
 }
 
@@ -272,10 +315,30 @@ final class Engine: @unchecked Sendable {
         await withCheckedContinuation { cont in callQueue.async { cont.resume(returning: work(self)) } }
     }
 
-    func linkStatus() -> LinkStatus? { uplink?.status() }
+    /// What the app tells the link (in front or not, open or not, the network changed, dial now): one at a time, in
+    /// the order said, never on the caller's thread (kb PHN-682).
+    private let linkQueue = DispatchQueue(label: "com.ferb.phone.link", qos: .userInitiated)
+    func tellLink(_ work: @escaping @Sendable (Uplink) -> Void) {
+        linkQueue.async { [self] in
+            guard let u = uplink else { return }
+            MainGuard.offMain("a call into the phone link")
+            work(u)
+        }
+    }
+
+    func linkStatus() -> LinkStatus? {
+        MainGuard.offMain("the link's status read from the library")
+        return uplink?.status()
+    }
 
     private lazy var heard: Listener = Heard(self)
-    private lazy var linkHeard: LinkListener = LinkHeard(self)
+    /// Each link started gets the next number; a link stopped since never writes the state again (PHN-646).
+    private var linkGen: UInt64 = 0
+    private func newLinkHeard() -> LinkListener {
+        lock.lock(); linkGen += 1; let g = linkGen; lock.unlock()
+        return LinkHeard(self, gen: g)
+    }
+    fileprivate func current(_ gen: UInt64) -> Bool { lock.lock(); defer { lock.unlock() }; return gen == linkGen }
     private lazy var deviceSigner = DeviceKeySigner(vault.keys)
 
     fileprivate func changed(_ c: Change) { onChange?(c) }
@@ -326,26 +389,40 @@ final class Engine: @unchecked Sendable {
         return device == nil && strong == nil ? nil : PublicKeys(device: device, lock: nil, strong: strong)
     }
 
-    func forget() -> Outcome<Void> {
+    func forget() -> Outcome<Bool> {
         do {
+            // PHN-646: first the Mac, when it can be reached and knows the call: it removes this phone (3 s at most)
+            let told = tellMacToForget()
+            // then everything here, whatever the Mac said: the link stops first (its late saves are dropped), the store
+            // and its key, the link's identity and pairing, the signing keys; a new link with a new identity
+            lock.lock(); linkGen += 1; lock.unlock()
+            uplink?.shutdown()
             if let m = mobile {
                 try? m.forgetThisMac()
                 m.shutdown()
-            }
-            if let u = uplink {
-                try? u.forget()   // the Mac-less state reaches persist before the link closes
-                u.shutdown()
             }
             lock.lock(); _mobile = nil; _uplink = nil; lock.unlock()
             vault.forget()
             wiped = nil
             try bringUp()
-            return .ok(())
+            return .ok(told)
         } catch let e as FerbError {
             return .failed(e)
         } catch {
             return .failed(.Internal(detail: "\(error)", linkCode: nil))
         }
+    }
+
+    /// Asks the Mac to remove this phone (`link.forget`), at most 3 s; true when it said it did.
+    private func tellMacToForget() -> Bool {
+        guard let m = mobile, let l = uplink?.status(), l.paired, l.phase == .online, !l.macOlder else { return false }
+        let done = DispatchSemaphore(value: 0)
+        let ok = Box(false)
+        DispatchQueue.global().async {
+            ok.value = (try? m.forgetMe()) != nil
+            done.signal()
+        }
+        return done.wait(timeout: .now() + 3) == .success && ok.value
     }
 
     func close() {
@@ -391,7 +468,7 @@ final class Engine: @unchecked Sendable {
     }
 
     private func startLink(_ state: Data?, _ keys: PublicKeys) throws -> Uplink {
-        try uplinks.start(UplinkStart(state: state, name: identity.name, app: identity.app, keys: keys, listener: linkHeard,
+        try uplinks.start(UplinkStart(state: state, name: identity.name, app: identity.app, keys: keys, listener: newLinkHeard(),
                                       deviceSigner: deviceSigner))
     }
 
@@ -434,7 +511,14 @@ private final class Heard: Listener, @unchecked Sendable {
 
 private final class LinkHeard: LinkListener, @unchecked Sendable {
     private weak var engine: Engine?
-    init(_ e: Engine) { engine = e }
-    func statusChanged(status: LinkStatus) { engine?.statusChanged(status) }
-    func persist(state: Data) { engine?.persist(state) }
+    private let gen: UInt64
+    init(_ e: Engine, gen: UInt64) { engine = e; self.gen = gen }
+    func statusChanged(status: LinkStatus) { if engine?.current(gen) == true { engine?.statusChanged(status) } }
+    // a link stopped by "Forget this Mac" (or restarted) has nothing more to say: its late save is dropped
+    func persist(state: Data) { if engine?.current(gen) == true { engine?.persist(state) } }
+}
+
+private final class Box<T>: @unchecked Sendable {
+    var value: T
+    init(_ v: T) { value = v }
 }

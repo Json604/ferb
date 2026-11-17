@@ -13,7 +13,7 @@ final class MenuBarStateTests: XCTestCase {
         let firstRun = MenuBarState.derive(link: .unreachable, paused: false, stopped: false, questions: 0, running: 0,
                                            settingUp: true)
         XCTAssertEqual(firstRun, .settingUp)
-        XCTAssertNotEqual(firstRun.symbol, MenuBarState.notRunning.symbol)
+        XCTAssertNotEqual(firstRun.mark, MenuBarState.notRunning.mark)
         let duringSetup = StatusMenu.entries(state: firstRun, paused: false, stopped: false, appName: "FERB",
                                              canSetUp: true, hasWindow: true)
         XCTAssertFalse(duringSetup.contains(.item("Restart FERB", .restart, key: "")))

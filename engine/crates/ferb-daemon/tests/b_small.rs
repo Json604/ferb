@@ -236,6 +236,8 @@ fn fixes(request: &str, python: &str) -> Option<String> {
         let doc = line.get_mut("result")?.as_object_mut()?;
         doc.contains_key("permissions").then_some(())?;
         about::add_reasons(doc, "");
+        // decision: PHN-650: FERB's phone app is explained at the end of `app`
+        about::add_phone_app(doc);
         // decision: APP-941: Jev's days are no setting any more, so the settings FERB lists leave them out
         if let Some(Value::Array(settings)) = doc.get_mut("settings") {
             settings.retain(|r| r["key"] != "retention.decision_days");
@@ -1031,4 +1033,18 @@ async fn the_owner_shows_one_identifier_and_takes_it_back() {
             && kinds.contains(&"secret.masked".to_string()),
         "{kinds:?}"
     );
+}
+
+/// PHN-653 (owner, 2026-11-17): a paused or interrupted upload from a phone is kept 7 days (PHN-582's number,
+/// confirmed); and the numbers the phone app's guide states (PHN-650) are the ones FERB enforces.
+// decision: PHN-653
+// decision: PHN-650
+#[test]
+fn a_paused_phone_upload_is_kept_seven_days_as_the_guide_says() {
+    assert_eq!(
+        ferb_daemon::phone::files::UPLOAD_PARTIAL_KEEP_S,
+        7.0 * 86_400.0
+    );
+    let guide = about::phone_app().to_string();
+    assert!(guide.contains("kept 7 days"), "{guide}");
 }

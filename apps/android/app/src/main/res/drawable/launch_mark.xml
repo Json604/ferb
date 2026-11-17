@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The launch's first frame (kb PHN-632, PHN-700): FERB's whole mark, its amber dot and halo in place, drawn as :design's FerbMark draws its tile
+     (Marks.kt ferbTile, ferbLetter) in the mark's 96-unit tile, at the launch's size (motion.json launch.size, 112).
+     Before Android 12 it is the starting window's picture (launch_background); from 12 on the splash's icon is
+     launch_splash, the same picture that then animates. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="112dp" android:height="112dp" android:viewportWidth="96" android:viewportHeight="96">
+    <path android:pathData="M22.08,0 L73.92,0 A22.08,22.08 0 0 1 96,22.08 L96,73.92 A22.08,22.08 0 0 1 73.92,96 L22.08,96 A22.08,22.08 0 0 1 0,73.92 L0,22.08 A22.08,22.08 0 0 1 22.08,0 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="linear" android:startX="0" android:startY="0" android:endX="0" android:endY="96"
+                android:startColor="#FF272521" android:endColor="#FF080706" />
+        </aapt:attr>
+    </path>
+    <path android:strokeWidth="1"
+        android:pathData="M22.08,0.5 L73.92,0.5 A21.58,21.58 0 0 1 95.5,22.08 L95.5,73.92 A21.58,21.58 0 0 1 73.92,95.5 L22.08,95.5 A21.58,21.58 0 0 1 0.5,73.92 L0.5,22.08 A21.58,21.58 0 0 1 22.08,0.5 Z">
+        <aapt:attr name="android:strokeColor">
+            <gradient android:type="linear" android:startX="0" android:startY="0" android:endX="0" android:endY="48"
+                android:startColor="#38FFFFFF" android:endColor="#05FFFFFF" />
+        </aapt:attr>
+    </path>
+    <group android:translateX="-16" android:translateY="-16">
+        <path android:fillColor="#FFF4EFE7"
+            android:pathData="M49.969,58.772L49.969,90L60.477,90L60.477,58.772L67.729,58.772L67.729,51.742L60.477,51.742L60.477,49.448Q60.477,47.08 61.402,46.081Q62.327,45.082 64.473,45.082Q66.471,45.082 68.321,45.304L68.321,37.46Q66.989,37.386 65.583,37.275Q64.177,37.164 62.771,37.164Q56.333,37.164 53.151,40.42Q49.969,43.676 49.969,48.782L49.969,51.742L43.679,51.742L43.679,58.772Z" />
+    </group>
+    <path android:fillAlpha="1"
+        android:pathData="M66,43 A26,26 0 1 1 65.99,43 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="radial" android:centerX="66" android:centerY="69" android:gradientRadius="26">
+                <item android:offset="0" android:color="#5CF5AE4B" />
+                <item android:offset="0.31" android:color="#59F5AE4B" />
+                <item android:offset="0.5" android:color="#2BF5AE4B" />
+                <item android:offset="0.73" android:color="#0DF5AE4B" />
+                <item android:offset="1" android:color="#00F5AE4B" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path android:fillAlpha="1" android:fillColor="#FFF5AE4B"
+        android:pathData="M66,61 A8,8 0 1 1 65.99,61 Z" />
+</vector>

@@ -341,11 +341,14 @@ pub const PHONE_METHODS: &[PhoneMethod] = &[
     // ---- stage 3 (T-1202): the phone session's own calls (`auth::PHONE_SESSION`), answered by the daemon's phone gate,
     //      which checks the proof each carries itself; a locked phone needs them to unlock (PHN-124, PHN-125)
     plain("phone.challenge", PHONE_SESSION_WHY).locked(Locked::Allowed),
+    // PHN-646: removing itself only takes this phone's own access away; the gate wants its device key proved
+    plain("phone.forget_self", PHONE_SESSION_WHY).locked(Locked::Allowed),
     plain("phone.keys", PHONE_SESSION_WHY).locked(Locked::Allowed),
     plain("phone.lock", PHONE_SESSION_WHY).locked(Locked::Allowed),
     plain("phone.present", PHONE_SESSION_WHY).locked(Locked::Allowed),
     plain("phone.session_end", PHONE_SESSION_WHY).locked(Locked::Allowed),
     plain("phone.unlock", PHONE_SESSION_WHY).locked(Locked::Allowed),
+    plain("phone.unlock_statement", PHONE_SESSION_WHY).locked(Locked::Allowed),
     // ---- stage 3 S3b (T-1203): files both ways (`auth::PHONE_FILES`). The window first, like every private call; the
     //      daemon's file area then judges the path as the model's file tools are judged (ferb-policy's protection
     //      lists), asks a key place for its own fresh fingerprint proof and audits each with its path (PHN-113, PHN-114,

@@ -59,16 +59,46 @@
 
     <!-- chat -->
     <string name="chat_placeholder">Add to this</string>
-    <string name="chat_offline">Your Mac can\'t be reached. What you send waits here until it\'s back.</string>
-    <string name="chat_unlock_mac">Your Mac\'s chat is locked. Tap here to unlock it.</string>
+    <string name="profile_lock_always">Always on</string>
+    <string name="profile_lock_why">FERB always asks for your fingerprint or PIN when it opens, so nobody else with your phone can reach your Mac. This can\'t be turned off.</string>
+    <string name="err_mac_older">This needs a newer FERB on your Mac. Update FERB on your Mac, then try again.</string>
+    <string name="err_app_older">This needs a newer FERB on this phone. Update the app, then try again.</string>
+    <string name="err_try_again">That didn\'t start. Try again in a moment.</string>
+    <string name="still_working">FERB is still working on that. One moment.</string>
+    <string name="mac_needs_title">Unlock your Mac\'s chat</string>
+    <string name="mac_needs_lapsed">FERB on your Mac locked this phone\'s chat. That happens after 12 hours, or when FERB restarts on your Mac.</string>
+    <string name="mac_needs_cancelled">The fingerprint prompt was closed, so your Mac\'s chat is still locked.</string>
+    <string name="mac_needs_old">Your Mac took a while to come online, so FERB needs your fingerprint once more.</string>
+    <string name="mac_needs_unlock">Unlock</string>
+    <string name="pair_reason_unknown">Your Mac doesn\'t know this phone any more, so it needs to be paired again.</string>
+    <string name="forget_mac_kept">FERB couldn\'t reach your Mac, so it still lists this phone. You can remove it there in Settings, Phone.</string>
+    <!-- the chat as a list (kb PHN-627, PHN-628) -->
+    <string name="chat_loading">Getting your chat from your Mac…</string>
+    <string name="chat_new_message">New message</string>
+    <string name="chat_to_latest">Go to the latest messages</string>
+    <string name="chat_to_today">Go to today</string>
+    <string name="chat_thinking">FERB is thinking…</string>
+    <string name="chat_older_loading">Getting earlier messages…</string>
+    <string name="day_today">Today</string>
+    <string name="day_yesterday">Yesterday</string>
     <string name="mac_opening">Reaching your Mac…</string>
-    <string name="mac_slow">Your Mac is slow to answer. This updates by itself when it does.</string>
+    <string name="mac_slow">Still reaching your Mac…</string>
     <string name="outbox_waiting">Waiting for your Mac</string>
     <string name="outbox_waiting_unlock">Waiting for you to unlock</string>
     <string name="outbox_sending">Sending…</string>
     <string name="outbox_failed">Not sent: %1$s</string>
     <string name="outbox_cancel">Cancel</string>
     <string name="outbox_remove">Remove</string>
+    <string name="chat_placeholder_files">Add a note or just send</string>
+    <string name="attach_on_mac">On your Mac</string>
+    <string name="send_progress">Sending to your Mac · %1$d%%</string>
+    <string name="send_waiting_path">Files wait for a direct connection or your own relay</string>
+    <string name="send_text_only">Send text only</string>
+    <string name="send_stopped">Not sent: you stopped it</string>
+    <string name="send_locked">Goes on when you unlock FERB</string>
+    <string name="send_closed">Not sent: FERB closed before it was sent</string>
+    <string name="send_files_gone">its files are no longer on this phone</string>
+    <string name="send_try_again">Try again</string>
     <string name="outbox_may_have_arrived">Cancelled here. Your Mac may have got it already; if so, it shows in the chat.</string>
     <string name="older_available">Earlier messages</string>
     <string name="older_needs_better_path">Older messages are available when connected directly or through your relay.</string>
@@ -256,6 +286,13 @@
     <string name="mac_own_relay">Through your own relay</string>
     <string name="mac_offline">Can\'t be reached right now</string>
     <string name="mac_connecting">Connecting…</string>
+    <string name="conn_connecting">Connecting to your Mac…</string>
+    <string name="conn_connected">Connected</string>
+    <string name="conn_unreachable">Can\'t reach your Mac</string>
+    <string name="conn_direct">Directly between this phone and your Mac</string>
+    <string name="conn_shared">Through the shared relay</string>
+    <string name="conn_more">More on the Mac tab</string>
+    <string name="conn_a11y">Your Mac: %1$s</string>
     <string name="mac_retry_in">Trying again in %1$d s</string>
     <string name="mac_own_relay_title">Your own relay</string>
     <string name="mac_own_relay_set">Your phone uses %1$s when it can\'t reach your Mac directly. It is set in FERB on your Mac, in Settings, Phone.</string>
@@ -329,6 +366,16 @@
     <string name="n_needs_fingerprint">Needs your fingerprint. Tap to answer it in FERB.</string>
     <string name="n_needs_unlock">Needs you to unlock. Tap to answer it in FERB.</string>
     <string name="n_on_mac">Answer this one in FERB on your Mac.</string>
+    <string name="n_needs_you">FERB needs you</string>
+    <string name="n_clarify_text">Tap to answer in FERB.</string>
+    <!-- what keeps FERB's questions from reaching this phone (kb PHN-765) -->
+    <string name="cant_notify_title">FERB can\'t tell you about its questions</string>
+    <string name="cant_notify_off">Notifications are off for FERB on this phone, so its questions can\'t reach you outside the app.</string>
+    <string name="cant_notify_channel">FERB\'s question notifications are turned off in Android\'s settings.</string>
+    <string name="cant_notify_stay">Stay connected is off, so FERB\'s questions can\'t reach this phone while FERB is closed.</string>
+    <string name="cant_notify_battery">Android is holding FERB back in the background, so Stay connected can\'t keep it in touch with your Mac.</string>
+    <string name="cant_notify_turn_on">Turn on</string>
+    <string name="cant_notify_open_settings">Open settings</string>
     <string name="n_done_held">FERB finished something</string>
     <!-- the lab's own line (QuestionSheet), shown only where the Mac says the Yes takes the fingerprint-only key -->
     <string name="question_yes_fingerprint">Yes asks for your fingerprint.</string>
@@ -339,10 +386,33 @@
     <string name="n_link_removed_title">This phone needs pairing again</string>
     <string name="n_link_removed_text">Your Mac no longer lists this phone. Open FERB to pair it again.</string>
 
+    <!-- the first run's asks (kb PHN-636): once, after the first unlock; each can be declined and FERB goes on -->
+    <string name="first_run_title">Before you start</string>
+    <string name="first_run_intro">FERB asks your phone for a few things. You can say no to any of them: FERB still works, and says what is missing when you need it.</string>
+    <string name="first_run_notifications">Notifications</string>
+    <string name="first_run_notifications_why">So FERB can tell you about its questions and finished tasks when you\'re outside the app.</string>
+    <string name="first_run_location">Your city</string>
+    <string name="first_run_location_why">So local times and places come out right. Only your city goes to your Mac; FERB asks before using your exact spot.</string>
+    <string name="first_run_camera">Camera</string>
+    <string name="first_run_camera_why">To scan the code on your Mac when you pair. Nothing is recorded.</string>
+    <string name="first_run_microphone">Microphone</string>
+    <string name="first_run_microphone_why">So you can hold the microphone and speak to FERB. Nothing is recorded.</string>
+    <string name="first_run_continue">Continue</string>
+    <string name="first_run_not_now">Not now</string>
+
     <!-- errors -->
     <string name="err_offline">Your Mac can\'t be reached right now.</string>
     <string name="err_needs_better_path">This waits until your phone reaches your Mac directly or through your own relay.</string>
     <string name="err_needs_unlock">Unlock to do this.</string>
     <string name="err_mac_said">%1$s</string>
     <string name="err_other">That didn\'t work: %1$s</string>
+    <!-- FERB.app's own words for the same things (kb PHN-720..) -->
+    <string name="show_all">Show all</string>
+    <string name="show_less">Show less</string>
+    <string name="show_more">Show more</string>
+    <string name="answer_details">Details</string>
+    <string name="question_needs_answer">FERB needs your answer</string>
+    <string name="question_private_title">Private input needed</string>
+    <string name="work_view_tasks">View tasks</string>
+    <string name="sites_visited">Sites visited</string>
 </resources>

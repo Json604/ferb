@@ -15,7 +15,12 @@ import NotchCore
 /// SPUStandardUpdaterController, whose start-up failure is a modal alert too.
 @MainActor
 final class SparkleUpdater: NSObject, UpdaterDriving, SPUUpdaterDelegate, SPUStandardUserDriverDelegate {
-    private let feed: String
+    /// REL-431, REL-432: the addresses this build may ask, in order (the owner's domain, then the releases' own), and
+    /// the one being asked. Sparkle reads `feedURLString` on the main thread, as it calls every delegate method.
+    private let feeds: [String]
+    nonisolated(unsafe) private var asking = 0
+    /// The address just asked couldn't be had and another is left: the next one is asked when this cycle ends.
+    nonisolated(unsafe) private var askNext = false
     private weak var coordinator: UpdateCoordinator?
     private var updater: SPUUpdater?
     private var userDriver: FERBUserDriver?
@@ -23,8 +28,9 @@ final class SparkleUpdater: NSObject, UpdaterDriving, SPUUpdaterDelegate, SPUSta
 
     /// nil for a build without FERB's release feed and key (a development build, or FERB_UPDATES=off).
     init?(coordinator: UpdateCoordinator, info: [String: Any] = Bundle.main.infoDictionary ?? [:]) {
-        guard let feed = UpdatePlan.feedURL(info) else { return nil }
-        self.feed = feed
+        let feeds = UpdatePlan.feeds(info)
+        guard !feeds.isEmpty else { return nil }
+        self.feeds = feeds
         self.coordinator = coordinator
         super.init()
         let standard = SPUStandardUserDriver(hostBundle: .main, delegate: self)
@@ -68,7 +74,7 @@ final class SparkleUpdater: NSObject, UpdaterDriving, SPUUpdaterDelegate, SPUSta
     // MARK: SPUUpdaterDelegate (Sparkle calls these on the main thread)
 
     /// FERB's own feed only: Sparkle would read a `SUFeedURL` preference before Info.plist; this answer comes first.
-    nonisolated func feedURLString(for updater: SPUUpdater) -> String? { feed }
+    nonisolated func feedURLString(for updater: SPUUpdater) -> String? { feeds[min(asking, feeds.count - 1)] }
 
     /// A major upgrade (the appcast's minimumAutoupdateVersion is newer than this build: the switch to the Developer
     /// ID, REL-423) is one Sparkle never installs in the background; FERB asks the owner first (APP-903).
@@ -102,6 +108,14 @@ final class SparkleUpdater: NSObject, UpdaterDriving, SPUUpdaterDelegate, SPUSta
         let failure = error as NSError
         // "No update found" arrives here too (updaterDidNotFindUpdate records it), as does the owner's own cancel.
         guard UpdatePlan.abortIsFailure(domain: failure.domain, code: failure.code) else { return }
+        // REL-432: the feed couldn't be had at this address and the list has another: ask it before saying anything
+        if UpdatePlan.feedFailed(domain: failure.domain, code: failure.code),
+           let next = UpdatePlan.nextFeed(after: asking, of: feeds) {
+            asking = next
+            askNext = true
+            return
+        }
+        asking = 0                                   // the next check starts from the owner's domain again
         let message = UpdatePlan.reason(failure)
         MainActor.assumeIsolated { coordinator?.aborted(message) }
     }
@@ -109,6 +123,11 @@ final class SparkleUpdater: NSObject, UpdaterDriving, SPUUpdaterDelegate, SPUSta
     /// Every update session ends here, a quiet check's included: whatever it answered, FERB stops showing "Checking".
     nonisolated func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck,
                              error: Error?) {
+        if askNext {
+            askNext = false
+            MainActor.assumeIsolated { self.updater?.checkForUpdateInformation() }   // quiet, as every check is
+            return
+        }
         MainActor.assumeIsolated { coordinator?.checkFinished() }
     }
 

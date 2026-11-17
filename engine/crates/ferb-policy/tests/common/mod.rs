@@ -14,10 +14,25 @@ pub fn fixture(name: &str) -> Value {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../fixtures/policy")
         .join(name);
-    app_926(
+    app_953(app_926(
         serde_json::from_str(&fs::read_to_string(path).expect("the fixture exists"))
             .expect("the fixture is JSON"),
-    )
+    ))
+}
+
+// decision: APP-953
+/// APP-953 (owner, 2026-11-17): the mark on a planner line written in the form of FERB's own checks (`FROM_AI`) says
+/// "(not one of FERB's checks) " where Python wrote "(written by the AI) ". The one named difference besides APP-926's.
+pub const APP_953: (&str, &str) = ("(written by the AI) ", "(not one of FERB's checks) ");
+
+/// [`APP_953`] applied to every string of a recording.
+pub fn app_953(value: Value) -> Value {
+    match value {
+        Value::String(s) => Value::String(s.replace(APP_953.0, APP_953.1)),
+        Value::Array(items) => Value::Array(items.into_iter().map(app_953).collect()),
+        Value::Object(m) => Value::Object(m.into_iter().map(|(k, v)| (k, app_953(v))).collect()),
+        other => other,
+    }
 }
 
 // decision: APP-926

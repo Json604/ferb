@@ -117,12 +117,18 @@ every guard (none known).
 
 ## Threading
 
-Every call is blocking and bounded (S7's model); none waits unboundedly. Safe on the UI thread (store or memory only):
-`transcript`, `conversations`, `currentConversation`, `outbox`, `cancel`, `linkState`, `linkEvent`, `connect`,
-`connectTransport`, `disconnect`, `shutdown`, `isClosed`, `storePath`, and on `Link`: `status`, `endpointId`, `pair`,
-`setActive`, `networkChanged`, `retry`, `forget`, `isClosed`. Background only: `Mobile.open` (opens and may upgrade
-the encrypted database), `sync`, `send` and `flushOutbox` (they send when online: up to the link's call deadline),
-`answer` and `unlock` (network and the app's fingerprint prompt), `stop`, `loadOlder`, `markRead`, `forgetThisMac`,
+Every call is blocking and bounded (S7's model); none waits unboundedly. **No method of `Mobile` or `Link` is called
+on the UI thread** (kb PHN-682): each takes a lock that store work, or a defect, can hold. The apps keep to it by
+shape: every call goes through `FerbPhone.call` (its IO dispatcher or queue), what the app tells the link
+(`setActive`, `setOpen`, `networkChanged`, `retry`) through one serial lane, and `MainGuard` at that door names any
+call that still arrives on the main thread. The only objects touched on the UI thread are `SecretInput` (its own
+lock, held for a push) and `LivePreview.stop` (a flag). Short (store or memory only, never the network): `transcript`,
+`conversations`, `currentConversation`, `outbox`, `cancel`, `linkState`, `lastStatus` (its own lock, a copy),
+`linkEvent`, `connect`, `connectTransport`, `disconnect`, `shutdown`, `isClosed`, `storePath`, and on `Link`:
+`status`, `endpointId`, `pair`, `setActive`, `networkChanged`, `retry`, `forget`, `isClosed`. Long: `Mobile.open` (opens
+and may upgrade the encrypted database), `sync`, `send` and `flushOutbox` (they send when online: up to the link's call
+deadline), `answer` and `unlock` (network and the app's fingerprint prompt), `unlockWithStatement` (it waits up to 3 s
+for the new connection's presence proof first, kb PHN-684), `stop`, `loadOlder`, `markRead`, `forgetThisMac`,
 `Link.start` (up to 20 s), `Link.shutdown` (up to about 5 s). Callbacks: `Listener.changed` and the `LinkListener`
 calls come on the library's threads (the link's pump, a sync's thread) with nothing locked: post to the UI thread
 and return; never call a blocking method from inside one. `Signer.sign` runs on the thread that called `answer` or

@@ -70,6 +70,11 @@ class DeviceReporter(initial: DeviceFacts) {
     private val _facts = MutableStateFlow(initial)
     val facts: StateFlow<DeviceFacts> = _facts.asStateFlow()
 
+    /** The first facts, read off the main thread at start (before any callback and before the report starts). */
+    fun seed(first: DeviceFacts) {
+        _facts.value = first
+    }
+
     fun zone(id: String, offsetMinutes: Int) = _facts.update { it.copy(timeZone = id, utcOffsetMinutes = offsetMinutes) }
 
     fun battery(percent: Int, charging: Boolean) = _facts.update { f ->
@@ -114,7 +119,7 @@ data class Coarse(val latitude: Double, val longitude: Double) {
 
 /**
  * The city from coarse fixes: the geocoder is asked only for the first fix and after a move of [MOVE_M] or more from
- * the last place it named (so a phone that stays put asks it once), never on a timer. kb PHN-532.
+ * the last place it named (so a phone that stays put asks it once), never on a timer. kb PHN-638.
  */
 class PlaceKeeper(private val geocode: suspend (Double, Double) -> DevicePlace?) {
     private var named: Pair<Double, Double>? = null

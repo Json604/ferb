@@ -701,7 +701,7 @@ class ReleaseAppcast(TempCase):
             (app / "Contents/Resources/python/bin").mkdir(parents=True)
         info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
         info.update(LSMinimumSystemVersion="14.2", FERBVersion="0.28.0",
-                    SUFeedURL="https://github.com/Json604/ferb/releases/latest/download/appcast-arm64.xml")
+                    SUFeedURL="https://ferb.kartikey.xyz/updates/appcast-arm64.xml")
         (app / "Contents/Info.plist").write_bytes(plistlib.dumps(info))
         dmg = self.tmp / "FERB-AppleSilicon.dmg"
         dmg.write_bytes(b"fake dmg")

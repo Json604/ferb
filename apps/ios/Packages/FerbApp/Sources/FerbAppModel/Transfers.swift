@@ -40,10 +40,12 @@ public struct FileTransfer: Equatable, Identifiable, Sendable {
     public var task: TaskFile? = nil
     /// A file sent: where it is on the Mac in the Mac's words, when the library says (UploadPlace); nil: the default place.
     public var macPlace: String? = nil
+    /// A file of a message he sent with files (kb PHN-691): its batch is the message; shown with it, never on the Files tab.
+    public var message: Bool = false
 
     public init(key: String, way: Way, name: String, local: String, macPath: String? = nil, done: Int64 = 0, total: Int64 = 0,
                 phase: Phase = .running, keyPlace: Bool = false, uploadId: String? = nil, problem: Note? = nil, batch: String? = nil,
-                forChat: Bool = false, rel: String? = nil, task: TaskFile? = nil) {
+                forChat: Bool = false, rel: String? = nil, task: TaskFile? = nil, message: Bool = false) {
         self.key = key
         self.way = way
         self.name = name
@@ -59,6 +61,7 @@ public struct FileTransfer: Equatable, Identifiable, Sendable {
         self.forChat = forChat
         self.rel = rel
         self.task = task
+        self.message = message
     }
 
     public var id: String { key }
@@ -243,6 +246,37 @@ public final class Transfers {
         return batch
     }
 
+    /// The files of a message he sent (kb PHN-691): one batch named by the message, each file keyed by its chip, going on
+    /// from its upload id when it had one (a send cut short, even across FERB closing). Already there: it goes on.
+    public func sendMessage(_ id: String, _ chips: [Chip]) {
+        if list.contains(where: { $0.batch == id }) {
+            if !list.contains(where: { $0.batch == id && attempts[$0.key] != nil }) { runBatch(id) }
+            return
+        }
+        batches[id] = TransferBatch(key: id, way: .send)
+        list += chips.map { c in
+            FileTransfer(key: "\(id).\(c.key)", way: .send, name: c.name, local: c.path, total: c.size, phase: .paused, uploadId: c.uploadId,
+                         batch: id, message: true)
+        }
+        runBatch(id)
+    }
+
+    /// Stops the file of `batch` that is going (the rest wait with it).
+    public func pauseBatch(_ batch: String) {
+        if let t = list.first(where: { $0.batch == batch && $0.phase == .running }) { pause(t.key) }
+    }
+
+    /// Stops `batch` and forgets it and its copies.
+    public func removeBatch(_ batch: String) {
+        if let t = list.first(where: { $0.batch == batch }) { remove(t.key) }
+    }
+
+    /// A message's files all arrived and it was sent: its transfers go from the list (their copies already went).
+    public func forgetBatch(_ batch: String) {
+        list.removeAll { $0.batch == batch }
+        batches[batch] = nil
+    }
+
     /// Sends a picked folder whole (PHN-127: one folder in the Mac's upload place, each file's place inside it kept):
     /// the Mac starts the folder (`putGroup`), then each file goes with its group and path, copied here only just
     /// before it goes (a large folder never doubles its space at once). The folder rides with a message as one
@@ -274,7 +308,7 @@ public final class Transfers {
             let all = list.filter { $0.batch == batch }
             if !all.isEmpty && all.allSatisfy({ $0.phase == .done }) {
                 closeFolder(batch)
-                if all[0].forChat { attach(batch) }
+                if all[0].forChat && !all[0].message { attach(batch) }
             }
         }
     }

@@ -1,4 +1,26 @@
 {
   "cleanUrls": true,
-  "trailingSlash": false
+  "trailingSlash": false,
+  "redirects": [
+    {
+      "source": "/updates/appcast-:arch.xml",
+      "destination": "https://github.com/Json604/ferb-update/releases/latest/download/appcast-:arch.xml",
+      "permanent": false
+    },
+    {
+      "source": "/updates/files/:tag/:file",
+      "destination": "https://github.com/Json604/ferb-update/releases/download/:tag/:file",
+      "permanent": false
+    },
+    {
+      "source": "/updates/notes/:tag",
+      "destination": "https://github.com/Json604/ferb-update/releases/tag/:tag",
+      "permanent": false
+    },
+    {
+      "source": "/download/:file",
+      "destination": "https://github.com/Json604/ferb-update/releases/latest/download/:file",
+      "permanent": false
+    }
+  ]
 }

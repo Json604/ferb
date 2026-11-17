@@ -576,3 +576,12 @@ async fn a_silent_hold_resumes_quietly_and_the_quiet_time_lets_unclear_events_pa
     assert!(r.gw.until_back().is_none());
     assert_eq!(r.ended()[0]["during_hold"], false);
 }
+
+/// APP-958 (owner, 2026-11-17): after an "Are you back?" that nobody answered, FERB doesn't ask it again for 10
+/// minutes (GATE-619's number, confirmed).
+// decision: APP-958
+#[test]
+fn a_silent_are_you_back_is_not_asked_again_for_ten_minutes() {
+    assert_eq!(ferb_gateway::screen_use::QUIET_S, 600.0);
+    assert_eq!(ferb_gateway::screen_use::HOLD_S, 10.0);
+}

@@ -83,7 +83,7 @@ class OnPhoneTest {
         }
     }
 
-    // decision: PHN-8, PHN-13, PHN-447, PHN-505, PHN-615, PHN-616
+    // decision: PHN-8, PHN-13, PHN-447, PHN-505, PHN-615, PHN-616, PHN-636
     @Test
     fun with_a_screen_lock_it_opens_on_the_prompt_and_shows_pairing() {
         shell("locksettings set-pin 1111")
@@ -92,6 +92,7 @@ class OnPhoneTest {
         val end = System.currentTimeMillis() + 5_000
         while (System.currentTimeMillis() < end && app.session.front.value) Thread.sleep(100)
         instrumentation.runOnMainSync { app.session.lockNow() }
+        app.prefs.firstRunAsked = emptySet() // as on a fresh install: the first run's asks are still to come
         ActivityScenario.launch(MainActivity::class.java).use {
             // the system's own prompt by itself on open (the PIN: the emulator has no fingerprint), nothing tapped
             assertNotNull("the prompt by itself on open", device.wait(Until.findObject(By.text("Unlock FERB")), 15_000))
@@ -108,6 +109,9 @@ class OnPhoneTest {
             Thread.sleep(1_000)
             shell("input text 1111")
             shell("input keyevent 66")
+            // a fresh install: the first run's asks after the unlock, never before it (kb PHN-636); Not now still pairs
+            assertNotNull("the first run's asks after the unlock", device.wait(Until.findObject(By.text("Before you start")), 15_000))
+            device.findObject(By.text("Not now")).click()
             assertNotNull("pairing after the unlock", device.wait(Until.findObject(By.text("Use FERB from your phone")), 15_000))
             // the owner's own lock from inside: the page waits for his tap
             instrumentation.runOnMainSync { app.session.lockNow() }
@@ -173,6 +177,37 @@ class OnPhoneTest {
         val p = posted.getValue(Notifier.keyOf("q:ap-test-3")).notification
         assertTrue("a private answer has no buttons", p.actions == null || p.actions.isEmpty())
         assertFalse("and its question is not worded", p.extras.getCharSequence(Notification.EXTRA_TEXT).toString().contains("Northfield"))
+        nm.cancelAll()
+    }
+
+    /**
+     * On Android's own notification service (kb PHN-760..764): the planner's question is posted on the high-importance
+     * questions channel with its words, no buttons and a tap that opens the chat; one he already saw in the app is
+     * posted in the silent group (no sound, no heads-up); a new one is not.
+     */
+    // decision: PHN-760, PHN-762, PHN-764
+    @Test
+    fun the_planner_s_question_pops_and_one_he_saw_goes_to_the_shade_quietly() {
+        shell("pm grant ${context.packageName} android.permission.POST_NOTIFICATIONS")
+        val app = context as FerbApplication
+        val nm = context.getSystemService(NotificationManager::class.java)
+        nm.cancelAll()
+        val asks = QuestionNeeds(true, false, false, false, null, null, false)
+        val clarify = Question("clarify:r-test", null, null, "Which email account should I use?", null, Question.CLARIFY, null, emptyList(), emptyList(), false, asks)
+        val seen = Question("ap-test-seen", null, "Send it?", "Send the draft to Ajay.", null, "owner_question", "owner.ask", listOf("Yes", "No"), emptyList(), false, asks)
+        app.notifier.question(clarify, lockedNow = false)
+        app.notifier.question(seen, lockedNow = false, quietly = true)
+        Thread.sleep(500)
+        val posted = nm.activeNotifications.associateBy { it.id }
+        val q = posted.getValue(Notifier.keyOf("q:clarify:r-test")).notification
+        assertEquals(Notifier.CH_QUESTIONS, q.channelId)
+        assertEquals(NotificationManager.IMPORTANCE_HIGH, nm.getNotificationChannel(Notifier.CH_QUESTIONS).importance)
+        assertTrue(q.extras.getCharSequence(Notification.EXTRA_TEXT).toString().startsWith("Which email account should I use?"))
+        assertTrue("answered by a message: no buttons", q.actions == null || q.actions.isEmpty())
+        assertTrue("a new one alerts", q.group == null && q.flags and Notification.FLAG_ONLY_ALERT_ONCE == 0)
+        val s = posted.getValue(Notifier.keyOf("q:ap-test-seen")).notification
+        assertEquals(Notifier.SILENT_GROUP, s.group)
+        assertEquals(Notification.GROUP_ALERT_SUMMARY, s.groupAlertBehavior)
         nm.cancelAll()
     }
 

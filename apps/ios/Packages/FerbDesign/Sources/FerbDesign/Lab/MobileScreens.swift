@@ -132,10 +132,16 @@ public struct HomePage: View {
     var more: (Int) -> String
     /// The app's own composer in place of the lab's still one.
     var composer: AnyView?
+    /// Not from the lab: the way back to earlier days' messages on a new day (kb PHN-626); none by default.
+    var earlier: String?
+    var onEarlier: (() -> Void)?
 
     public init(texts: HomeTexts? = nil, away: [WorkRow] = LabSample.away, insets: PhoneInsets = .lab, typed: String? = nil,
                 onTab: ((PhoneTab) -> Void)? = nil, onProfile: (() -> Void)? = nil, onRow: ((Int) -> Void)? = nil,
-                onMore: (() -> Void)? = nil, more: @escaping (Int) -> String = { "\($0) more in Tasks" }, composer: AnyView? = nil) {
+                onMore: (() -> Void)? = nil, more: @escaping (Int) -> String = { "\($0) more in Tasks" }, composer: AnyView? = nil,
+                earlier: String? = nil, onEarlier: (() -> Void)? = nil) {
+        self.earlier = earlier
+        self.onEarlier = onEarlier
         self.texts = texts
         self.away = away
         self.insets = insets
@@ -152,6 +158,7 @@ public struct HomePage: View {
         let words = texts ?? HomeTexts.lab(moment ?? .lab(12.5))
         VStack(alignment: .leading, spacing: 0) {
             TopBar(chosen: .chat, waiting: away.contains { $0.kind == .asking } ? .tasks : nil, onTab: onTab, onProfile: onProfile)
+            if let earlier { EarlierLink(earlier, onClick: onEarlier).padding(.top, 10) }
             VStack(alignment: .leading, spacing: 6) {
                 Text(words.greeting).type(42, .medium, ink.top).fixedSize(horizontal: false, vertical: true)
                     .accessibilityAddTraits(.isHeader)
@@ -478,7 +485,7 @@ public struct UnlockPage: View {
     public var body: some View {
         VStack(spacing: 14) {
             Spacer().frame(height: 150)
-            FerbMark(size: 84)
+            FerbMark(size: 84).launchTarget()
             Text("FERB is locked").type(28, .semibold, ink.top).padding(.top, 6).accessibilityAddTraits(.isHeader)
             Text("It opens with \(bio).").type(16, .medium, ink.top)
             Spacer()
@@ -592,12 +599,22 @@ public struct QuestionSheet<Exact: View>: View {
     var more: [(String, (() -> Void)?)]
     /// Not from the lab: one short line under the further answers (what "until I'm back at my Mac" means, PHN-611).
     var moreNote: String?
+    /// Not from the lab: FERB.app's header over the question ("Check before FERB goes on", kb PHN-739).
+    var header: String?
+    /// Not from the lab: what FERB.app shows under the exact thing (the task's reason, the evidence).
+    var below: AnyView?
+    /// Not from the lab: FERB.app's line under its buttons (what the 30-minute answer covers).
+    var answerNote: String?
     var exact: Exact
 
     public init(symbol: String, title: String, reason: String, yes: String, no: String = "No", count: String? = nil,
                 note: String? = "Yes asks for Face ID.", insets: PhoneInsets = .lab, onNo: (() -> Void)? = nil,
                 onYes: (() -> Void)? = nil, onDismiss: (() -> Void)? = nil, more: [(String, (() -> Void)?)] = [],
-                moreNote: String? = nil, @ViewBuilder exact: () -> Exact) {
+                moreNote: String? = nil, header: String? = nil, below: AnyView? = nil, answerNote: String? = nil,
+                @ViewBuilder exact: () -> Exact) {
+        self.header = header
+        self.below = below
+        self.answerNote = answerNote
         self.symbol = symbol
         self.title = title
         self.reason = reason
@@ -619,15 +636,19 @@ public struct QuestionSheet<Exact: View>: View {
             HStack(alignment: .top, spacing: 14) {
                 SheetIcon(symbol: symbol)
                 VStack(alignment: .leading, spacing: 4) {
+                    if let header { Text(header).type(13.5, .medium, Ink.detail) }
                     Text(title).type(22, .semibold).accessibilityAddTraits(.isHeader)
-                    Text(reason).type(15.5, .regular, Ink.detail)
-                        .fixedSize(horizontal: false, vertical: true)
+                    if !reason.isEmpty {
+                        Text(reason).type(15.5, .regular, Ink.detail)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
                 Spacer(minLength: 0)
                 if let count { Text(count).type(14, .medium, Ink.faint).fixedSize() }
             }
             exact
                 .padding(.top, 14)
+            if let below { below }
             if let note { BiometricNote(note).padding(.top, 12) }
             // Fixed against the lab: its No and Yes both stretch and Yes has the layout priority, so No is squeezed to
             // nothing (seen in this package's first render). No takes its words' width and Yes the rest, as Android does.
@@ -642,6 +663,10 @@ public struct QuestionSheet<Exact: View>: View {
             if let moreNote {
                 Text(moreNote).type(14, .regular, Ink.detail).fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8).padding(.horizontal, 4)
+            }
+            if let answerNote {
+                Text(answerNote).type(13.5, .regular, Ink.detail).fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 10).padding(.horizontal, 4)
             }
         }
     }
@@ -667,9 +692,15 @@ public struct SecretSheet: View {
     var onDismiss: (() -> Void)?
     /// What goes under the private line (the app's Send and Decline); nothing in the lab.
     var actions: AnyView?
+    /// Not from the lab: FERB.app's header and the task's reason (kb PHN-739).
+    var header: String?
+    var below: AnyView?
 
     public init(title: String = "Sign-in code", detail: String = LabSample.secretDetail, filled: Int = 4, length: Int = 6,
-                insets: PhoneInsets = .lab, onKey: ((String) -> Void)? = nil, onDismiss: (() -> Void)? = nil, actions: AnyView? = nil) {
+                insets: PhoneInsets = .lab, onKey: ((String) -> Void)? = nil, onDismiss: (() -> Void)? = nil, actions: AnyView? = nil,
+                header: String? = nil, below: AnyView? = nil) {
+        self.header = header
+        self.below = below
         self.title = title
         self.detail = detail
         self.filled = filled
@@ -686,10 +717,12 @@ public struct SecretSheet: View {
                 HStack(spacing: 14) {
                     SheetIcon(symbol: "key")
                     VStack(alignment: .leading, spacing: 2) {
+                        if let header { Text(header).type(13.5, .medium, Ink.detail) }
                         Text(title).type(19, .semibold).accessibilityAddTraits(.isHeader)
                         if !detail.isEmpty { Text(detail).type(15, .regular, Ink.detail) }
                     }
                 }
+                if let below { below }
                 SecretCodeBoxes(filled: filled, length: length)
                     .padding(.top, 16)
                 HStack(spacing: 6) {
@@ -789,11 +822,18 @@ public struct ProfileSheet: View {
     var lockTitle: String
     /// In place of Stay connected (an iPhone has none, kb PHN-566): a row with its words that opens what it says.
     var instead: (title: String, detail: String, onClick: (() -> Void)?)?
+    /// Not from the lab (kb PHN-656): the lock can't be turned off, so it says so ("Always on") instead of a switch that
+    /// does nothing, and a tap on the row says why. Nil: the lab's switch.
+    var lockAlways: String?
+    var onLockInfo: (() -> Void)?
 
     public init(macName: String = "MacBook Pro", pairedSince: String = "10 November", insets: PhoneInsets = .lab,
                 lockOn: Bool = true, stayConnected: Bool = true, onClose: (() -> Void)? = nil, onLock: ((Bool) -> Void)? = nil,
                 onStayConnected: ((Bool) -> Void)? = nil, onForget: (() -> Void)? = nil, more: AnyView? = nil,
-                lockTitle: String = "Face ID to open", instead: (title: String, detail: String, onClick: (() -> Void)?)? = nil) {
+                lockTitle: String = "Face ID to open", instead: (title: String, detail: String, onClick: (() -> Void)?)? = nil,
+                lockAlways: String? = nil, onLockInfo: (() -> Void)? = nil) {
+        self.lockAlways = lockAlways
+        self.onLockInfo = onLockInfo
         self.lockTitle = lockTitle
         self.instead = instead
         self.macName = macName
@@ -812,8 +852,14 @@ public struct ProfileSheet: View {
         Sheet(bottomInset: insets.bottom, onDismiss: onClose) {
             SheetTitle("This phone", onClose: onClose)
             VStack(spacing: 0) {
-                CardRow(title: lockTitle, detail: "Every time FERB opens") { RowIcon(symbol: "lock") } trailing: {
-                    PhoneSwitch(on: lockOn, onChange: onLock, label: lockTitle)
+                if let lockAlways {
+                    CardRow(title: lockTitle, detail: "Every time FERB opens", onClick: onLockInfo) { RowIcon(symbol: "lock") } trailing: {
+                        Text(lockAlways).type(15, .medium, Ink.detail)
+                    }
+                } else {
+                    CardRow(title: lockTitle, detail: "Every time FERB opens") { RowIcon(symbol: "lock") } trailing: {
+                        PhoneSwitch(on: lockOn, onChange: onLock, label: lockTitle)
+                    }
                 }
                 Divide()
                 if let instead {

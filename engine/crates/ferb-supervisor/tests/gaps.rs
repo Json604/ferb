@@ -366,3 +366,13 @@ fn a_checks_previous_attempts_come_after_the_steady_blocks() {
     assert!(at("Success conditions:") < attempts);
     assert!(at("FERB's workspace") < attempts);
 }
+
+/// The owner's choices of 2026-11-17 for two endings: work done on something other than what was named ends as
+/// delivered with gaps (APP-955), and an answer confirmed only on the site's page gets no added line in chat (APP-956).
+// decision: APP-955
+// decision: APP-956
+#[test]
+fn the_owner_s_endings_stay_as_he_chose() {
+    const { assert!(ferb_supervisor::endings::DIFFERENT_ENDS_DELIVERED) };
+    const { assert!(!ferb_supervisor::endings::HOW_CHECKED_IN_CHAT) };
+}

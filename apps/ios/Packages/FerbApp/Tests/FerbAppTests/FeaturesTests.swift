@@ -211,8 +211,8 @@ final class FeaturesTests: XCTestCase {
         XCTAssertEqual(phone.calls.filter { $0.hasPrefix("fetch:~/a.pdf") }.count, 2)
     }
 
-    // decision: PHN-127, PHN-115, PHN-517, PHN-513
-    func testPickedFilesAreCopiedHereSentAndRideWithTheNextMessage() async {
+    // decision: PHN-127, PHN-115, PHN-517, PHN-513, PHN-690
+    func testPickedFilesAreCopiedHereAndGoWithTheNextMessage() async {
         session.unlocked()
         phone.view = emptyView()
         let picks = rig.root.deletingLastPathComponent().appendingPathComponent("picks-\(UUID().uuidString)", isDirectory: true)
@@ -223,17 +223,16 @@ final class FeaturesTests: XCTestCase {
         let vm = rig.model()
         vm.sendFiles([picks.appendingPathComponent("IMG_1.jpg"), picks.appendingPathComponent("IMG_2.jpg"), picks.appendingPathComponent("gone")],
                      forChat: true)
-        await eventually("both sent") { vm.transfers.ready.count == 2 }
+        // kb PHN-690: they wait in the message box; nothing goes before Send
+        await eventually("both in the box") { vm.outgoing.chips.count == 2 }
         XCTAssertEqual(vm.ui.note?.key, "files_unreadable", "the unreadable one is said")
-        XCTAssertEqual(phone.calls.filter { $0.hasPrefix("upload") }, ["upload:IMG_1.jpg:-", "upload:IMG_2.jpg:-"])
-        XCTAssertEqual(vm.transfers.ready.map(\.uploadId), ["up-IMG_1.jpg", "up-IMG_2.jpg"])
-        let left = (try? FileManager.default.subpathsOfDirectory(atPath: local.outgoing.path)) ?? []
-        XCTAssertTrue(left.allSatisfy { !$0.contains(".jpg") }, "the staged copies are gone once sent: \(left)")
+        XCTAssertTrue(phone.calls.filter { $0.hasPrefix("upload") }.isEmpty)
         vm.typed("Here are the scans")
         await vm.send().value
+        await eventually("sent") { !phone.sentWith.isEmpty }
+        XCTAssertEqual(phone.calls.filter { $0.hasPrefix("upload") }, ["upload:IMG_1.jpg:-", "upload:IMG_2.jpg:-"])
         XCTAssertEqual(phone.sentWith.first?.0, "Here are the scans")
-        XCTAssertEqual(phone.sentWith.first?.1.count, 2)
-        XCTAssertTrue(vm.transfers.ready.isEmpty)
+        XCTAssertEqual(phone.sentWith.first?.1.map(\.uploadId), ["up-IMG_1.jpg", "up-IMG_2.jpg"])
     }
 
     // decision: PHN-127, PHN-115

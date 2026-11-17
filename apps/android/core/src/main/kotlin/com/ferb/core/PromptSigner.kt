@@ -43,19 +43,14 @@ class PromptSigner(
             return null
         }
         val done = CountDownLatch(1)
-        val out = AtomicReference<String?>(null)
+        val passed = AtomicReference<java.security.Signature?>(null)
         val cancel = CancellationSignal()
         val callback = object : BiometricPrompt.AuthenticationCallback() {
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                try {
-                    val s = result.cryptoObject?.signature ?: return
-                    s.update(payload.toByteArray(Charsets.UTF_8))
-                    out.set(Proofs.signature(s.sign()))
-                } catch (e: Exception) {
-                    Log.w(Keystore.TAG, "the ${kind.name} key did not sign: ${e.javaClass.simpleName}")
-                } finally {
-                    done.countDown()
-                }
+                // on the main thread: only hand the unlocked signature over. The signing itself is a Keystore round
+                // that can wait behind other Keystore work, so it is made on the thread that waits below (kb PHN-682)
+                passed.set(result.cryptoObject?.signature)
+                done.countDown()
             }
 
             override fun onAuthenticationError(code: Int, message: CharSequence) {
@@ -82,7 +77,14 @@ class PromptSigner(
             }
         }
         if (!done.await(waitMs, TimeUnit.MILLISECONDS)) cancel.cancel()
-        return out.get()
+        val s = passed.get() ?: return null
+        return try {
+            s.update(payload.toByteArray(Charsets.UTF_8))
+            Proofs.signature(s.sign())
+        } catch (e: Exception) {
+            Log.w(Keystore.TAG, "the ${kind.name} key did not sign: ${e.javaClass.simpleName}")
+            null
+        }
     }
 }
 

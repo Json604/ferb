@@ -140,7 +140,9 @@ class FeaturesTest {
         phone.link.value = FakePhone.status()
         phone.mac = MacInfo("Studio Mac", "2026-11-10T09:00:00+05:30", "Pixel", null)
         vm.unlockApp()
-        idle()
+        // the prompt signs the unlock statement off the main thread (PHN-649); the Mac takes it, then its name
+        until("the Mac's name") { vm.ui.value.mac?.name != null }
+        assertTrue("one prompt, the statement after it", "statement" in phone.calls)
         assertEquals("Studio Mac", vm.ui.value.mac?.name)
     }
 
@@ -289,25 +291,26 @@ class FeaturesTest {
 
     // decision: PHN-127, PHN-115
     // decision: PHN-517
-    // decision: PHN-513
+    // decision: PHN-513, PHN-690
     @Test
-    fun picked_files_are_copied_here_sent_and_ride_with_the_next_message() {
+    fun picked_files_are_copied_here_and_go_with_the_next_message() {
         session.unlocked()
         phone.view = empty()
         picked["content://picker/IMG_1.jpg"] = ByteArray(30) { 1 }
         picked["content://picker/IMG_2.jpg"] = ByteArray(20) { 2 }
         val vm = vm()
         vm.sendFiles(listOf("content://picker/IMG_1.jpg", "content://picker/IMG_2.jpg", "content://picker/gone"), forChat = true)
-        until("both sent") { vm.transfers.ready.value.size == 2 }
+        // kb PHN-690: they wait in the message box; nothing goes before Send
+        until("both in the box") { vm.outgoing.chips.value.size == 2 }
         assertEquals("the unreadable one is said", R.string.files_unreadable, vm.ui.value.note?.res)
-        assertEquals(listOf("upload:IMG_1.jpg:-", "upload:IMG_2.jpg:-"), phone.calls.filter { it.startsWith("upload") })
-        assertEquals(listOf("up-IMG_1.jpg", "up-IMG_2.jpg"), vm.transfers.ready.value.map { it.uploadId })
-        until("the staged copies are gone once sent") { local.outgoing.listFiles().orEmpty().all { it.listFiles().isNullOrEmpty() } }
+        assertTrue(phone.calls.none { it.startsWith("upload") })
         vm.typed("Here are the scans")
         vm.send()
+        until("sent") { phone.sentWith.isNotEmpty() }
+        assertEquals(listOf("upload:IMG_1.jpg:-", "upload:IMG_2.jpg:-"), phone.calls.filter { it.startsWith("upload") })
         assertEquals("Here are the scans", phone.sentWith.single().first)
-        assertEquals(2, phone.sentWith.single().second.size)
-        assertTrue(vm.transfers.ready.value.isEmpty())
+        assertEquals(listOf("up-IMG_1.jpg", "up-IMG_2.jpg"), phone.sentWith.single().second.map { it.uploadId })
+        until("the staged copies are gone once sent") { local.outgoing.walk().none { it.isFile } }
     }
 
     // decision: PHN-454, PHN-420
@@ -335,6 +338,33 @@ class FeaturesTest {
         assertEquals(1, phone.previewStopped)
         assertNull(vm.sheet.value)
         assertFalse(vm.mustSecure.value)
+    }
+
+    // decision: PHN-656
+    @Test
+    fun a_settings_change_with_a_fingerprint_key_the_mac_doesnt_know_registers_it_first() {
+        session.unlocked()
+        phone.settingsValues["sense.window_titles"] = "true"
+        phone.newKeys = com.ferb.core.PublicKeys("dev", null, "strong-new")
+        val vm = vm()
+        vm.openSettings()
+        idle()
+        vm.setSwitch("sense.window_titles", false)
+        idle()
+        assertTrue("registered first: ${phone.calls}", phone.calls.any { it.startsWith("keys:") })
+        assertTrue(phone.calls.last().startsWith("set:sense.window_titles"))
+    }
+
+    // decision: PHN-656
+    @Test
+    fun a_tap_while_its_job_still_runs_says_so_and_a_newer_mac_feature_says_what_to_do() {
+        session.unlocked()
+        val vm = vm()
+        phone.settingsRefusal = Outcome.Failed(com.ferb.mobile.FerbException.Refused("settings.get is not known here", "mac_link_older"))
+        vm.openSettings()
+        idle()
+        assertEquals(R.string.err_mac_older, vm.ui.value.note?.res)
+        assertEquals(R.string.err_mac_older, FerbViewModel.errorNote(com.ferb.mobile.FerbException.Refused("x", "method_not_allowed")).res)
     }
 
     // decision: PHN-404, PHN-133, PHN-112

@@ -69,6 +69,8 @@ class FakePhone : PhoneApi {
     var fetchRefusal: Outcome.Failed? = null
     val cancelled = ArrayList<String>()
     var uploadRefusal: Outcome.Failed? = null
+    /** An upload waits here half way until it completes (a cancel lets it go, refused as stopped). */
+    var uploadGate: CompletableDeferred<Unit>? = null
     val sentWith = ArrayList<Pair<String, List<Attachment>>>()
     var preview: PreviewSink? = null
     var previewStopped = 0
@@ -133,7 +135,21 @@ class FakePhone : PhoneApi {
         return r
     }
     override suspend fun pair(code: String): Outcome<Unit> { calls += "pair:$code"; return Outcome.Ok(Unit) }
-    override suspend fun forget(): Outcome<Unit> { calls += "forget"; return Outcome.Ok(Unit) }
+    var macForgot = true
+    override suspend fun forget(): Outcome<Boolean> { calls += "forget"; return Outcome.Ok(macForgot) }
+
+    /** PHN-649: the statement path; [statementResults] answer in turn (then Ok); what was sent, with its age. */
+    var statementOk = true
+    val statementResults = ArrayDeque<Outcome<Unit>>()
+    val statements = ArrayList<Pair<String, Long>>()
+    override suspend fun statementReady() = statementOk && link.value?.paired != false
+    override suspend fun unlockWithStatement(payload: String, sig: String, ageMs: Long): Outcome<Unit> {
+        calls += "statement"
+        statements += payload to ageMs
+        return statementResults.removeFirstOrNull() ?: Outcome.Ok(Unit)
+    }
+    val opens = ArrayList<Boolean>()
+    override fun setOpen(on: Boolean) { opens += on }
     override suspend fun lock(): Outcome<Boolean> { calls += "lock"; return Outcome.Ok(true) }
     override suspend fun unlocked(): Outcome<Unit> { calls += "unlocked"; return Outcome.Ok(Unit) }
     override suspend fun stopEverything(): Outcome<Unit> { calls += "stop-everything"; return Outcome.Ok(Unit) }
@@ -147,7 +163,7 @@ class FakePhone : PhoneApi {
         return Outcome.Ok(com.ferb.mobile.ScreenUseEnd(was, "phone-1", screenUse))
     }
     override suspend fun status(): Outcome<PhoneStatus> { calls += "status"; return status?.let { Outcome.Ok(it) } ?: Outcome.Failed(FerbException.Offline("no", null)) }
-    override fun lastStatus(): PhoneStatus? = status
+    override suspend fun lastStatus(): PhoneStatus? = status
     override suspend fun markReadLatest(conversation: String): Outcome<Unit> { calls += "mark:$conversation"; return Outcome.Ok(Unit) }
     override suspend fun sendWith(text: String, attachments: List<Attachment>): Outcome<OutboxItem> {
         sentWith += text to attachments
@@ -188,10 +204,16 @@ class FakePhone : PhoneApi {
         uploadRefusal?.let { return it }
         val size = File(localPath).length()
         listener.accepted(resume ?: "up-$name", 0u)
+        // held half way while [uploadGate] waits: stopped there when it was cancelled meanwhile
+        uploadGate?.let { g ->
+            listener.progress((size / 2).toULong(), size.toULong())
+            g.await()
+            if (id in cancelled) return Outcome.Failed(FerbException.Cancelled("Stopped.", "cancelled"))
+        }
         listener.progress(size.toULong(), size.toULong())
         return Outcome.Ok(Uploaded(resume ?: "up-$name", "~/Downloads/FERB/$name", size.toULong(), null))
     }
-    override suspend fun cancelTransfer(id: String): Outcome<Unit> { cancelled += id; fetchGate?.complete(Unit); return Outcome.Ok(Unit) }
+    override suspend fun cancelTransfer(id: String): Outcome<Unit> { cancelled += id; fetchGate?.complete(Unit); uploadGate?.complete(Unit); return Outcome.Ok(Unit) }
     override suspend fun tree(path: String, signer: Signer?): Outcome<Tree> {
         calls += "tree:$path:${signer != null}"
         return trees[path]?.let { Outcome.Ok(it) } ?: Outcome.Failed(FerbException.NotFound("No such folder.", null))
@@ -228,6 +250,19 @@ class FakePhone : PhoneApi {
         calls += "live:$taskId"
         preview = sink
         return Outcome.Ok(Live { previewStopped++ })
+    }
+    /** The work row's pictures asked for, by task, and their sinks (kb PHN-725). */
+    val thumbnails = LinkedHashMap<String, PreviewSink>()
+    var thumbnailsStopped = 0
+    override suspend fun watchStepThumbnail(taskId: String, worker: String, everyMs: Long, sink: PreviewSink): Outcome<Live> {
+        calls += "step-thumbnail:$taskId:$worker:$everyMs"
+        thumbnails[com.ferb.app.model.Thumbnails.key(taskId, worker)] = sink
+        return Outcome.Ok(Live { thumbnailsStopped++ })
+    }
+    override suspend fun watchThumbnail(taskId: String, everyMs: Long, sink: PreviewSink): Outcome<Live> {
+        calls += "thumbnail:$taskId:$everyMs"
+        thumbnails[taskId] = sink
+        return Outcome.Ok(Live { thumbnailsStopped++ })
     }
     override suspend fun settings(): Outcome<List<SettingValue>> {
         calls += "settings"

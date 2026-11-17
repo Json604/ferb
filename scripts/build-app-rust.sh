@@ -109,7 +109,7 @@ else
     UPDATES_KEY="$(<"$KEY_FILE")"
   fi
   if [[ -n "$UPDATES_KEY" ]]; then
-    plist "Add :SUFeedURL string https://github.com/Json604/ferb/releases/latest/download/appcast-$ARCH.xml" "$CONTENTS/Info.plist"
+    plist "Add :SUFeedURL string https://ferb.kartikey.xyz/updates/appcast-$ARCH.xml" "$CONTENTS/Info.plist"
     plist "Add :SUPublicEDKey string $UPDATES_KEY" "$CONTENTS/Info.plist"
     plist "Add :SUEnableAutomaticChecks bool true" "$CONTENTS/Info.plist"
     plist "Add :SUAutomaticallyUpdate bool true" "$CONTENTS/Info.plist"

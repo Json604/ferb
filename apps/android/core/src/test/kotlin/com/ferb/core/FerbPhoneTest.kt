@@ -200,7 +200,7 @@ class FerbPhoneTest {
         assertNull(refusing.starts.single().state)
     }
 
-    // decision: PHN-408
+    // decision: PHN-408, PHN-646
     @Test
     fun forget_this_mac_wipes_the_store_and_the_keys_and_starts_again_ready_to_pair() = runBlocking {
         val keys = SoftwareKeys()
@@ -211,8 +211,16 @@ class FerbPhoneTest {
         p.call { it.sync() }
         val before = keys.ensure()
         val firstLink = uplinks.made.single()
+        val oldListener = uplinks.starts.single().listener
+        oldListener.persist("paired-state".toByteArray()) // the link's state with the Mac in it
+        assertTrue(vault.hasLinkState())
         uplinks.online = false // the store after forget stays as made: empty (online would sync it again at once)
         assertTrue(p.forgetThisMac() is Outcome.Ok)
+        // the link's identity and pairing are gone: the new link starts with no state, a new phone to any Mac
+        assertNull(uplinks.starts.last().state)
+        // a late save from the stopped link never brings them back
+        oldListener.persist("paired-state".toByteArray())
+        assertFalse(vault.linkState()?.contentEquals("paired-state".toByteArray()) == true)
         assertEquals(1, firstLink.shutDown)
         assertEquals(1, firstLink.closed)
         val after = uplinks.starts.last().keys

@@ -116,6 +116,9 @@ class Vault(
      */
     fun forget() {
         dropStore()
+        // the link's identity and its pairing too (PHN-646): a forgotten Mac is never dialled again, and the next
+        // pairing is a new phone to it
+        linkFile.delete()
         registeredFile.delete()
         keys.deleteAll()
     }

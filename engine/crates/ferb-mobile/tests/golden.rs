@@ -90,3 +90,36 @@ fn every_scenario_folds_to_what_the_mac_shows() {
     );
     assert_eq!(total, 146);
 }
+
+/// Each folded item carries the time its entry was made (`at`, seconds since 2001-01-01, as `created_at` reads), for
+/// the phones' day dividers and "anything today" (kb PHN-627). The field is left out when serialised: the comparison
+/// above, against FERB.app's own fold, stays byte for byte the Mac's (the named handling of this one addition).
+// decision: PHN-696
+#[test]
+fn every_item_carries_its_entrys_time_and_the_golden_does_not_see_it() {
+    let mut checked = 0;
+    for (_, _, entries) in scenarios() {
+        let made: std::collections::HashMap<&str, f64> = entries
+            .iter()
+            .map(|e| (e.id.as_str(), ferb_mobile::time::date(&e.created_at)))
+            .collect();
+        let t = fold::transcript(&entries, GOLDEN_UTC_OFFSET_S);
+        for item in &t.items {
+            let at = match item {
+                fold::Item::Turn(i) => i.at,
+                fold::Item::Reply(i) => i.at,
+                fold::Item::Notice(i) | fold::Item::Reminder(i) => i.at,
+            };
+            if let Some(&when) = made.get(item.entry()) {
+                assert!((at - when).abs() < 1e-3, "{}: {at} vs {when}", item.entry());
+                checked += 1;
+            }
+            let v = serde_json::to_value(item).unwrap();
+            assert!(v.get("at").is_none(), "`at` is never serialised: {v}");
+        }
+    }
+    assert!(
+        checked > 50,
+        "only {checked} items had their entry in the scenario"
+    );
+}

@@ -32,6 +32,7 @@ import com.ferb.design.FerbIcons
 import com.ferb.design.FerbType
 import com.ferb.design.Ink
 import com.ferb.design.Phone
+import com.ferb.design.launchTarget
 import com.ferb.design.components.Card
 import com.ferb.design.components.CardRow
 import com.ferb.design.components.Divide
@@ -92,10 +93,14 @@ fun HomePage(
     onRow: ((Int) -> Unit)? = null,
     onMore: (() -> Unit)? = null,
     composer: (@Composable (Modifier) -> Unit)? = null,
+    /** Not from the lab: the way back to earlier days' messages on a new day (kb PHN-626); none by default. */
+    earlier: String? = null,
+    onEarlier: (() -> Unit)? = null,
 ) {
     val ink = LocalSkyInk.current
     Column(Modifier.fillMaxSize()) {
         TopBar(PhoneTab.CHAT, waiting = if (away.any { it.kind == MarkKind.ASKING }) PhoneTab.TASKS else null, onTab = onTab, onProfile = onProfile)
+        if (earlier != null) com.ferb.design.components.EarlierLink(earlier, Modifier.padding(top = 10.dp), onEarlier)
         Column(Modifier.padding(start = 22.dp, end = 22.dp, top = 70.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             PhoneText(texts.greeting, FerbType.Role.greeting, FerbType.Medium, ink.top, Modifier.semantics { heading() })
             PhoneText(texts.subline, FerbType.Role.subline, FerbType.Medium, ink.top)
@@ -104,7 +109,7 @@ fun HomePage(
             FerbBubble(texts.chat, Modifier.padding(start = 16.dp, end = 16.dp, top = 22.dp), maxWidth = 300.dp)
         }
         Spacer(Modifier.weight(1f))
-        Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = insets.bottom + 8.dp)) {
+        Column(Modifier.paddingOverBottom(insets, 8.dp, start = 16.dp, end = 16.dp)) {
             if (away.isNotEmpty()) {
                 SkyLabel(texts.away)
                 Card {
@@ -149,7 +154,7 @@ fun ChatPage(items: List<ChatItem>, insets: PhoneInsets = PhoneInsets.Lab, waiti
                 ChatItem.Typing -> TypingDots(timeMillis = typingTimeMillis)
             }
         }
-        PhoneComposer(Modifier.padding(start = 16.dp, end = 16.dp, bottom = insets.bottom + 8.dp), placeholder = "Add to this")
+        PhoneComposer(Modifier.paddingOverBottom(insets, 8.dp, start = 16.dp, end = 16.dp), placeholder = "Add to this")
     }
 }
 
@@ -233,7 +238,7 @@ fun FilesPage(places: List<PlaceRow>, recent: List<FileRow>, transfer: Transfer?
                 }
             }
             Spacer(Modifier.weight(1f))
-            Pill("Send files to your Mac", Modifier.padding(bottom = insets.bottom + 8.dp), PillKind.BLACK, FerbIcons.sendFile)
+            Pill("Send files to your Mac", Modifier.paddingOverBottom(insets, 8.dp), PillKind.BLACK, FerbIcons.sendFile)
         }
     }
 }
@@ -287,11 +292,11 @@ fun UnlockPage(insets: PhoneInsets = PhoneInsets.Lab, onUnlock: (() -> Unit)? = 
     val ink = LocalSkyInk.current
     Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Spacer(Modifier.height(150.dp))
-        FerbMark(84.dp)
+        FerbMark(84.dp, Modifier.launchTarget())
         PhoneText("FERB is locked", FerbType.Role.lockTitle, FerbType.Semibold, ink.top, Modifier.padding(top = 6.dp).semantics { heading() })
         PhoneText("It opens with your fingerprint.", 16f, FerbType.Medium, ink.top)
         Spacer(Modifier.weight(1f))
-        Card(Modifier.padding(start = 16.dp, end = 16.dp, bottom = insets.bottom + 8.dp), padding = 16.dp) {
+        Card(Modifier.paddingOverBottom(insets, 8.dp, start = 16.dp, end = 16.dp), padding = 16.dp) {
             Pill("Unlock with fingerprint", icon = FerbIcons.fingerprint, onClick = onUnlock)
             PhoneText("Nothing in FERB can be read until it is unlocked.", 14f, color = Ink.detail, modifier = Modifier.padding(top = 12.dp))
         }
@@ -311,7 +316,7 @@ fun PairPage(
         Spacer(Modifier.weight(1f))
         LinkPicture(LinkKind.SEARCH)
         Spacer(Modifier.weight(1f))
-        Card(Modifier.padding(start = 16.dp, end = 16.dp, bottom = insets.bottom + 8.dp), padding = 20.dp) {
+        Card(Modifier.paddingOverBottom(insets, 8.dp, start = 16.dp, end = 16.dp), padding = 20.dp) {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 PhoneText("Use FERB from your phone", 24f, FerbType.Semibold, modifier = Modifier.semantics { heading() })
                 PairStep(1, "On your Mac, open FERB and choose Pair a phone.")
@@ -333,7 +338,7 @@ fun PairPage(
 fun CodesPage(code: String, insets: PhoneInsets = PhoneInsets.Lab, onCancel: (() -> Unit)? = {}) {
     Column(Modifier.fillMaxSize()) {
         Spacer(Modifier.weight(1f))
-        Card(Modifier.padding(start = 16.dp, end = 16.dp, bottom = insets.bottom + 8.dp), padding = 20.dp) {
+        Card(Modifier.paddingOverBottom(insets, 8.dp, start = 16.dp, end = 16.dp), padding = 20.dp) {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(10.dp).background(Ink.amber, CircleShape))

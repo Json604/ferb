@@ -209,9 +209,12 @@ Live checks use real models and disposable targets on surfaces you control, and 
    `scripts/release_checks.py` refuses a development or unbumped version, a tag that doesn't match, and an extension
    the Chrome Web Store doesn't serve yet. Signing the DMG with the Sparkle key makes macOS ask the owner for their
    login password (Keychain); it writes `build/appcast-arm64.xml`.
-5. With the owner's go: `gh release create vX.Y.Z build/FERB-AppleSilicon.dmg build/appcast-arm64.xml --target <full
-   commit sha>`. Installed copies update from `releases/latest/download/appcast-arm64.xml`, and the site's download
-   is `releases/latest/download/FERB-AppleSilicon.dmg` (REL-414).
+5. With the owner's go: `gh release create vX.Y.Z build/FERB-AppleSilicon.dmg build/appcast-arm64.xml --repo
+   Json604/ferb-update` (the public repository that holds only release files; the source repository is private,
+   REL-430). Installed copies ask `https://ferb.kartikey.xyz/updates/appcast-arm64.xml`, a path on the owner's own
+   domain that redirects to that repository's latest release (`site/vercel.json`), then the repository's own address
+   if that can't be reached (REL-431, REL-432). The site's download is `/download/FERB-AppleSilicon.dmg`, redirected
+   the same way. To move the releases somewhere else, change the redirects in `site/vercel.json` and deploy the site.
 6. The site (`site/`, Vercel project `ferb-site`, https://ferb.kartikey.xyz) deploys from that folder:
    `cd site && npx vercel@<pinned version> deploy --prod`, on the owner's go.
 

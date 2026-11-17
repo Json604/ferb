@@ -111,10 +111,13 @@ object Motion {
 @Composable
 fun rememberReducedMotion(): Boolean {
     val context = LocalContext.current
-    return remember(context) {
-        val scale = runCatching {
-            Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
-        }.getOrDefault(1f)
-        scale == 0f || !ValueAnimator.areAnimatorsEnabled()
-    }
+    return remember(context) { reducedMotion(context) }
+}
+
+/** [rememberReducedMotion] outside composition (the launch decides before the first frame, kb PHN-634). */
+fun reducedMotion(context: android.content.Context): Boolean {
+    val scale = runCatching {
+        Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+    }.getOrDefault(1f)
+    return scale == 0f || !ValueAnimator.areAnimatorsEnabled()
 }

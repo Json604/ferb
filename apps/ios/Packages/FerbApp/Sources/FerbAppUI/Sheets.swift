@@ -8,6 +8,7 @@ import UIKit
 /// The sheet over the page (Mobile.swift Sheet; Android's Sheets.kt), or nothing.
 struct SheetsView: View {
     @Bindable var model: AppModel
+    @Environment(\.openURL) private var openURL
     let shell: AppShell
     let insets: PhoneInsets
 
@@ -43,6 +44,8 @@ struct SheetsView: View {
             }
         case .relay:
             RelaySheet(copy: LabSample.relay, insets: insets, onClose: close)
+        case .connection:
+            ConnectionSheetFor(model: model, insets: insets, close: close)
         case .profile:
             Profile(model: model, shell: shell, insets: insets, close: close)
         case .stopAll:
@@ -57,6 +60,33 @@ struct SheetsView: View {
             DaysView(model: model, key: key, insets: insets)
         case .live:
             LiveView(model: model, insets: insets)
+        // a running task's short view (kb PHN-725; FERB.app's TaskShortView): its picture, title, line, Watch live, Stop
+        case .task(let taskId, _):
+            let r = model.ui.running?.tasks.first { $0.taskId == taskId }
+            let shown = model.live.view
+            Sheet(bottomInset: insets.bottom, onDismiss: close) {
+                SheetTitle(r?.title ?? L.s("question_default_title"), onClose: close)
+                TaskShortView(task: WorkTask(id: taskId, title: r?.title ?? "", line: shown?.line ?? r?.line ?? "", waiting: r?.waiting ?? false,
+                                             paused: r?.paused ?? false, picture: shown?.frame.flatMap { UIImage(data: $0) }),
+                              empty: shown?.ended?.text ?? shown?.empty,
+                              onWatch: { model.watchLive(taskId) }, onStop: { model.stop(taskId) },
+                              shield: { AnyView($0.screenshotShielded()) })
+                    .padding(.top, 8)
+            }
+        case .sites(let row):
+            let sites: [String] = model.rows.lazy.compactMap { if case .answer(let k, let ui) = $0, k == row { return ui.sites } else { return nil } }.first ?? []
+            Sheet(bottomInset: insets.bottom, onDismiss: close) {
+                SheetTitle(L.s("sites_visited"), onClose: close)
+                Card {
+                    ForEach(Array(sites.enumerated()), id: \.offset) { i, h in
+                        if i > 0 { Divide() }
+                        CardRow(title: h, onClick: { if let u = Present.siteLink(h) { openURL(u) } }) {
+                            Image(systemName: "globe").font(.system(size: 20))
+                        } trailing: { Opens() }
+                    }
+                }
+                .padding(.top, 8)
+            }
         case .forget:
             Plain(title: L.s("forget_title"), text: L.s("forget_text"), insets: insets, close: close) {
                 Pill(title: L.s("forget_yes"), kind: .black) { model.forget() }.padding(.top, 18)
@@ -158,43 +188,62 @@ struct Asking: View {
     @State private var text = ""
 
     var body: some View {
-        let title = q.title ?? L.s("question_default_title")
+        // FERB.app's card (kb PHN-739; ApprovalView.swift): header, the one question, why it asks, the exact thing, the
+        // task's reason and the evidence, the buttons' words and the note under them; the phone adds only its own lines
+        let m = q.shown
+        let title = m?.question ?? q.title ?? L.s("question_default_title")
+        let reason = m.map { [$0.pictureProblem, $0.detail].compactMap { $0 }.joined(separator: "\n\n") } ?? q.reason
+        let exact = m?.exact ?? q.exact
         let choices = q.choices
         if choices.count == 2 || q.yesNo {
             let no = choices[0], yes = choices[1]
             let note = q.needsProof && q.needs?.fingerprint == true ? L.bio("question_yes_fingerprint") : nil
-            QuestionSheet(symbol: "questionmark.circle", title: title, reason: q.reason, yes: yes.label, no: no.label, note: note,
+            QuestionSheet(symbol: "questionmark.circle", title: title, reason: reason, yes: yes.label, no: no.label, note: note,
                           insets: insets, onNo: busy ? nil : { model.answer(q.approvalId, no.input) },
                           onYes: busy ? nil : { model.answer(q.approvalId, yes.input) }, onDismiss: close,
                           more: choices.dropFirst(2).map { c in (c.label, busy ? nil : { model.answer(q.approvalId, c.input) }) }
                               // the Mac offers "until I'm back at my Mac" on its screen-use question (PHN-610, PHN-611)
                               + (q.untilBack ? [(L.s("until_back_yes"), busy ? nil : { model.answer(q.approvalId, .untilBack) })] : []),
-                          moreNote: q.untilBack ? L.s("until_back_note") : nil) {
-                if let e = q.exact { ExactCommand(e) }
+                          moreNote: q.untilBack ? L.s("until_back_note") : nil,
+                          header: m.flatMap { $0.header.isEmpty ? nil : $0.header }, below: m.map { AnyView(MacBelow(m: $0)) },
+                          answerNote: m?.note) {
+                if let e = exact { ExactCommand(e) }
             }
         } else {
             Sheet(bottomInset: insets.bottom, onDismiss: close) {
                 HStack(alignment: .top, spacing: 14) {
                     SheetIcon(symbol: "questionmark.circle")
                     VStack(alignment: .leading, spacing: 4) {
+                        if let h = m?.header, !h.isEmpty { Text(h).type(13.5, .medium, Ink.detail) }
                         Text(title).type(22, .semibold)
-                        Text(q.reason).type(15.5, .regular, Ink.detail).fixedSize(horizontal: false, vertical: true)
+                        if !reason.isEmpty { Text(reason).type(15.5, .regular, Ink.detail).fixedSize(horizontal: false, vertical: true) }
                     }
                     Spacer(minLength: 0)
                 }
-                if let e = q.exact { ExactCommand(e).padding(.top, 14) }
+                if let e = exact { ExactCommand(e).padding(.top, 14) }
+                if let m { MacBelow(m: m) }
                 if !choices.isEmpty {
                     VStack(spacing: 10) {
                         ForEach(Array(choices.enumerated()), id: \.offset) { i, c in
                             Pill(title: c.label, kind: i == 0 ? .black : .grey, onClick: busy ? nil : { model.answer(q.approvalId, c.input) })
                         }
+                        if let n = m?.note { Text(n).type(13.5, .regular, Ink.detail).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 4) }
                     }
                     .padding(.top, 18)
+                    // FERB.app's box under a task's choices: his own words instead (DaemonApproval.answerBox "answer")
+                    if m?.answerBox == "answer" {
+                        Field(text: $text, hint: m?.field ?? L.s("question_answer_hint")).padding(.top, 14)
+                        Pill(title: m?.send ?? L.s("question_send"), kind: .black, onClick: busy || text.trimmingCharacters(in: .whitespaces).isEmpty ? nil : {
+                            model.answer(q.approvalId, .words(text: text.trimmingCharacters(in: .whitespacesAndNewlines)))
+                            text = ""
+                        })
+                        .padding(.top, 10)
+                    }
                 } else {
-                    Field(text: $text, hint: L.s("question_answer_hint")).padding(.top, 18)
+                    Field(text: $text, hint: m?.field ?? L.s("question_answer_hint")).padding(.top, 18)
                     HStack(spacing: 10) {
-                        Pill(title: L.s("question_skip"), kind: .grey, fill: false, onClick: busy ? nil : { model.answer(q.approvalId, .words(text: "")) })
-                        Pill(title: L.s("question_send"), kind: .black, onClick: busy || text.trimmingCharacters(in: .whitespaces).isEmpty ? nil : {
+                        Pill(title: m?.decline ?? L.s("question_skip"), kind: .grey, fill: false, onClick: busy ? nil : { model.answer(q.approvalId, .words(text: "")) })
+                        Pill(title: m?.send ?? L.s("question_send"), kind: .black, onClick: busy || text.trimmingCharacters(in: .whitespaces).isEmpty ? nil : {
                             model.answer(q.approvalId, .words(text: text.trimmingCharacters(in: .whitespacesAndNewlines)))
                             text = ""
                         })
@@ -222,25 +271,32 @@ struct PrivateAnswer: View {
     private static let maxCode = 10
 
     var body: some View {
-        let title = q.title ?? L.s("private_title_default")
+        // FERB.app's words for a hidden input (kb PHN-739): its question, why, the field's label and its two buttons
+        let m = q.shown
+        let title = m?.question ?? q.title ?? L.s("private_title_default")
+        let detail = m.map { $0.detail ?? "" } ?? q.reason
+        let header = m.flatMap { $0.header.isEmpty ? nil : $0.header }
         Group {
             if q.isCode {
-                SecretSheet(title: title, detail: q.reason, filled: digits.count, length: max(6, min(Self.maxCode, digits.count + 1)),
+                SecretSheet(title: title, detail: detail, filled: digits.count, length: max(6, min(Self.maxCode, digits.count + 1)),
                             insets: insets, onKey: { k in
                                 if k == "⌫" { if !digits.isEmpty { digits[digits.count - 1] = 0; digits.removeLast() } }
                                 else if digits.count < Self.maxCode, let u = k.utf16.first { digits.append(u) }
                             }, onDismiss: close,
-                            actions: AnyView(actions(canSend: !digits.isEmpty) { model.answerHidden(q.approvalId, units: &digits) }))
+                            actions: AnyView(actions(canSend: !digits.isEmpty) { model.answerHidden(q.approvalId, units: &digits) }),
+                            header: header, below: m.map { AnyView(MacBelow(m: $0)) })
             } else {
                 Sheet(bottomInset: insets.bottom, onDismiss: close) {
                     HStack(spacing: 14) {
                         SheetIcon(symbol: "key")
                         VStack(alignment: .leading, spacing: 2) {
+                            if let header { Text(header).type(13.5, .medium, Ink.detail) }
                             Text(title).type(19, .semibold)
-                            if !q.reason.isEmpty { Text(q.reason).type(15, .regular, Ink.detail) }
+                            if !detail.isEmpty { Text(detail).type(15, .regular, Ink.detail) }
                         }
                     }
-                    SecureField(L.s("private_field"), text: $secret)
+                    if let m { MacBelow(m: m) }
+                    SecureField(m?.field ?? L.s("private_field"), text: $secret)
                         .font(.system(size: 18)).textContentType(.password).autocorrectionDisabled().textInputAutocapitalization(.never)
                         .padding(.horizontal, 16).frame(minHeight: 54)
                         .background(Ink.fill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -267,11 +323,11 @@ struct PrivateAnswer: View {
 
     private func actions(canSend: Bool, send: @escaping () -> Void) -> some View {
         HStack(spacing: 10) {
-            Pill(title: L.s("private_decline"), kind: .grey, height: 46, fill: false, onClick: busy ? nil : {
+            Pill(title: q.shown?.decline ?? L.s("private_decline"), kind: .grey, height: 46, fill: false, onClick: busy ? nil : {
                 secret = ""
                 model.answer(q.approvalId, .words(text: ""))
             })
-            Pill(title: L.s("private_send"), kind: .black, height: 46, onClick: busy || !canSend ? nil : send)
+            Pill(title: q.shown?.send ?? L.s("private_send"), kind: .black, height: 46, onClick: busy || !canSend ? nil : send)
         }
         .padding(.top, 14)
     }
@@ -359,7 +415,9 @@ struct Profile: View {
                          }
                      }),
                      lockTitle: L.s("profile_lock").replacingOccurrences(of: "%@", with: Words.bioTitle),
-                     instead: (title: L.s("background_title"), detail: L.s("background_detail"), onClick: { model.show(.background) }))
+                     instead: (title: L.s("background_title"), detail: L.s("background_detail"), onClick: { model.show(.background) }),
+                     // PHN-656: no switch that does nothing: "Always on", and a tap says why
+                     lockAlways: L.s("profile_lock_always"), onLockInfo: { model.note(Note("profile_lock_why")) })
     }
 }
 
@@ -441,5 +499,26 @@ struct DaysView: View {
                 Pill(title: L.s("cancel"), kind: .plain, height: 44, onClick: back).padding(.top, 4)
             }
         }
+    }
+}
+
+/// What FERB.app shows under a question's exact thing (ApprovalView.swift:60-73): the task's reason in its own words,
+/// smaller, and the app-use evidence behind a disclosure.
+struct MacBelow: View {
+    let m: QuestionShown
+    @State private var open = false
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let why = m.why { Text(why).type(13.5, .regular, Ink.detail).fixedSize(horizontal: false, vertical: true) }
+            if !m.evidence.isEmpty {
+                Button { open.toggle() } label: {
+                    Text((open ? "▾ " : "▸ ") + "App-use evidence").type(13.5, .medium, Ink.detail)
+                }
+                .buttonStyle(.plain)
+                if open { ForEach(m.evidence, id: \.self) { Text($0).type(13.5, .regular, Ink.detail).padding(.leading, 12) } }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, m.why == nil && m.evidence.isEmpty ? 0 : 12)
     }
 }

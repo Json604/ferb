@@ -26,7 +26,7 @@ class Prefs(context: Context) {
 
     /**
      * SENSE-420: the owner turned on "Share this phone's city with FERB" (and Android allowed coarse location). Off
-     * until he does; the city itself is kept in memory only.
+     * until he does, or allows the location at the first run (kb PHN-638); the city itself is kept in memory only.
      */
     var shareCity: Boolean
         get() = p.getBoolean("share_city", false)
@@ -50,6 +50,11 @@ class Prefs(context: Context) {
         get() = p.getString("last_zone", null)
         set(v) = p.edit().putString("last_zone", v).apply()
 
+    /** The first run's asks already answered or passed over (FirstRun.Ask names, kb PHN-636): never asked again. */
+    var firstRunAsked: Set<String>
+        get() = p.getStringSet("first_run_asked", emptySet()) ?: emptySet()
+        set(v) = p.edit().putStringSet("first_run_asked", v).apply()
+
     /** The owner was asked once, in context, before Android's notification question. */
     var notificationsExplained: Boolean
         get() = p.getBoolean("notify_explained", false)
@@ -66,7 +71,14 @@ class Prefs(context: Context) {
     /** Answers, results and questions already announced (entry or question ids only: never their words). */
     var announced: Set<String>
         get() = p.getStringSet("announced", emptySet()) ?: emptySet()
-        set(v) = p.edit().putStringSet("announced", v).apply()
+        // written only when it changed: the notifier sets it after every look, several times a second while a task
+        // runs, and each write is the whole file again and one more write the main thread waits out when the app stops
+        set(v) { if (v != announced) p.edit().putStringSet("announced", v).apply() }
+
+    /** The kinds of NotifyBlocker already said after a send (kb PHN-765): each is said that way once. */
+    var toldBlockers: Set<String>
+        get() = p.getStringSet("told_blockers", emptySet()) ?: emptySet()
+        set(v) = p.edit().putStringSet("told_blockers", v).apply()
 
     /** Finished tasks the owner has had the app open since (entry ids only): the home screen's "while you were away". */
     var seen: Set<String>

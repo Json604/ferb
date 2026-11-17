@@ -38,6 +38,7 @@ import com.ferb.design.components.PhoneText
 import com.ferb.design.components.Pill
 import com.ferb.design.components.PillKind
 import com.ferb.design.screens.PhoneInsets
+import com.ferb.design.screens.paddingOverBottom
 
 /**
  * Watch live (PHN-454): the task's window on the Mac as FERB.app's preview shows it, full screen, with FERB's line
@@ -57,7 +58,7 @@ fun LiveScreen(vm: FerbViewModel, insets: PhoneInsets) {
 @Composable
 fun LivePage(v: LiveView, insets: PhoneInsets, onClose: () -> Unit, onStop: () -> Unit, onAgain: (() -> Unit)?) {
     // opened over the page, it rises and fades in, and fades out (kb PHN-623)
-    Column(Modifier.presenceFade().fillMaxSize().background(Color.Black).padding(top = insets.top + 8.dp, bottom = insets.bottom + 8.dp)) {
+    Column(Modifier.presenceFade().fillMaxSize().background(Color.Black).paddingOverBottom(insets, 8.dp, top = insets.top + 8.dp)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             PhoneText(stringResource(R.string.live_title), 22f, FerbType.Semibold, Ink.white, Modifier.weight(1f).semantics { heading() })
             CloseButton(onClose)

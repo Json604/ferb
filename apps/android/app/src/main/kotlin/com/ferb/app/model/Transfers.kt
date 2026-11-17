@@ -53,6 +53,8 @@ data class Transfer(
     val task: TaskFile? = null,
     /** A file sent: where it is on the Mac in the Mac's words, when the library says (UploadPlace); null: the default place. */
     val macPlace: String? = null,
+    /** A file of a message he sent with files (kb PHN-691): its batch is the message; shown with it, never on the Files tab. */
+    val message: Boolean = false,
 ) {
     val fraction: Float get() = if (total > 0) (done.toFloat() / total).coerceIn(0f, 1f) else 0f
 }
@@ -209,6 +211,38 @@ class Transfers(
     }
 
     /**
+     * The files of a message he sent (kb PHN-691): one batch named by the message, each file keyed by its chip, going on
+     * from its upload id when it had one (a send cut short, even across FERB closing). Already there: it goes on.
+     */
+    fun sendMessage(id: String, chips: List<Chip>) {
+        if (_list.value.any { it.batch == id }) {
+            if (_list.value.none { it.batch == id && attempts.containsKey(it.key) }) runBatch(id)
+            return
+        }
+        _batches.update { it + (id to Batch(id, Way.SEND)) }
+        _list.update { l ->
+            l + chips.map { c -> Transfer("$id.${c.key}", Way.SEND, c.name, c.path, total = c.size, phase = Phase.PAUSED, uploadId = c.uploadId, batch = id, message = true) }
+        }
+        runBatch(id)
+    }
+
+    /** Stops the file of [batch] that is going (the rest wait with it). */
+    fun pauseBatch(batch: String) {
+        _list.value.firstOrNull { it.batch == batch && it.phase == Phase.RUNNING }?.let { pause(it.key) }
+    }
+
+    /** Stops [batch] and forgets it and its copies. */
+    fun removeBatch(batch: String) {
+        _list.value.firstOrNull { it.batch == batch }?.let { remove(it.key) }
+    }
+
+    /** A message's files all arrived and it was sent: its transfers go from the list (their copies already went). */
+    fun forgetBatch(batch: String) {
+        _list.update { l -> l.filterNot { it.batch == batch } }
+        _batches.update { it - batch }
+    }
+
+    /**
      * Sends a picked folder whole (PHN-127: one folder in the Mac's upload place, each file's place inside it kept):
      * the Mac starts the folder (`putGroup`), then each file goes with its group and path, copied here only just before
      * it goes (a large folder never doubles its space at once). The folder rides with a message as one attachment, the
@@ -236,7 +270,7 @@ class Transfers(
             if (!ok && get(cur.key) != null) return@launch
         }
         val all = _list.value.filter { it.batch == batch }
-        if (all.isNotEmpty() && all.all { it.phase == Phase.DONE } && all.first().forChat) attach(batch)
+        if (all.isNotEmpty() && all.all { it.phase == Phase.DONE } && all.first().forChat && !all.first().message) attach(batch)
     }
 
     private suspend fun sendOne(key: String, batch: String): Boolean {

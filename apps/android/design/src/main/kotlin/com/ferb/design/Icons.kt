@@ -11,6 +11,8 @@ import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.DesktopWindows
 import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.LocationOn
+import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.Key
@@ -25,6 +27,7 @@ import androidx.compose.material.icons.outlined.StopCircle
 import androidx.compose.material.icons.outlined.UploadFile
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.ChatBubble
 import androidx.compose.material.icons.rounded.Check
@@ -67,6 +70,7 @@ object FerbIcons {
     val laptop = Icons.Outlined.LaptopMac                  // laptopcomputer
     val person = Icons.Rounded.Person                      // person.fill
     val chevronRight = Icons.Rounded.ChevronRight          // chevron.right
+    val arrowDown = Icons.Rounded.ArrowDownward            // arrow.down (not from the lab: the chat's new-message pill)
     val check = Icons.Rounded.Check                        // checkmark
     val eye = Icons.Outlined.Visibility                    // eye
     val stop = Icons.Rounded.Stop                          // stop.fill
@@ -94,6 +98,8 @@ object FerbIcons {
     val backspace = Icons.AutoMirrored.Outlined.Backspace  // delete.left
     val close = Icons.Rounded.Close                        // xmark
     val bell = Icons.Outlined.Notifications                // bell
+    val location = Icons.Outlined.LocationOn               // location (not from the lab: the first run's asks, PHN-636)
+    val camera = Icons.Outlined.PhotoCamera                // camera (the same)
     val link = Icons.Rounded.Link                          // link
     val cart = Icons.Outlined.ShoppingCart                 // cart
     val photo = Icons.Outlined.Image                       // photo

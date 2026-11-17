@@ -798,24 +798,6 @@ why = "APP-934: a paste over the limit is held as a chip. The default is the coo
 decisions = ["APP-934", "APP-935"]
 ask = "A paste longer than 2,000 characters or 30 lines, whichever comes first, shows in the message box as a \"Pasted text\" chip you can click to read or remove. Keep that limit, or should it be different?"
 
-[T-1252]
-title = "Confirm 7 days for keeping a paused upload from the phone"
-area = "phone"
-kind = "question"
-status = "open"
-why = "PHN-582: the owner asked why only an hour; the coordinator's number is 7 days (UPLOAD_PARTIAL_KEEP_S in ferb-daemon phone/files.rs). Limits that change FERB's behaviour are the owner's (rule 18)."
-decisions = ["PHN-582", "PHN-583"]
-ask = "A file you were sending from your phone that got interrupted now waits 7 days on your Mac so it can carry on where it stopped (it only takes disk space). Is 7 days right?"
-
-[T-1253]
-title = "Confirm 30 days for keeping the shared relays open for a phone after a relay change"
-area = "phone"
-kind = "question"
-status = "open"
-why = "PHN-590: the coordinator's number is 30 days (BEACON_MAX_DAYS in ferb-link bridge.rs). After it, a phone that hasn't connected since the relay changed can't find the Mac until the owner switches the relay off for a moment or pairs it again (PHN-591)."
-decisions = ["PHN-590", "PHN-591"]
-ask = "After you change your relay, FERB keeps the old way to your Mac open for 30 days for phones that haven't connected since. A phone that comes back later needs your relay switched off for a moment, or pairing again. Is 30 days right?"
-
 [T-1254]
 title = "Remove the Jev code; data capture stays (journal 120 lists what is Jev's and what is shared)"
 area = "perception"
@@ -832,24 +814,6 @@ status = "open"
 why = "PHN-586 narrows PHN-417 (screen use is routine from the phone), PHN-582 changes PHN-139's keep and PHN-583 refines PHN-127. Superseding them now would refuse the citations in apps/android and apps/ios, which another agent is editing."
 decisions = ["PHN-586", "PHN-582", "PHN-583", "PHN-417", "PHN-139", "PHN-127"]
 
-[T-1256]
-title = "D2: should a done answer confirmed only on the site's page say how it was checked?"
-area = "orchestration"
-kind = "question"
-status = "open"
-why = "ORCH-672: built as the agent's default (no line in chat; the basis is kept in the task's details and ferb trace). One switch, endings::HOW_CHECKED_IN_CHAT, turns on the line."
-decisions = ["ORCH-672", "ORCH-664"]
-ask = "When FERB did something on a site and the site's own page confirms it, but FERB has no record of its own that proves it (like the Goibibo refund), should the answer add a short line such as “I checked this on Goibibo's page afterwards.”? Today there is no line; how it was checked is in the task's details."
-
-[T-1257]
-title = "D3: how should work FERB did on a different file or person than you named end?"
-area = "orchestration"
-kind = "question"
-status = "open"
-why = "ORCH-668: built as the agent's default (its own ending, delivered with gaps, with code's line saying what was done instead; never done, never a bare failure). One switch, endings::DIFFERENT_ENDS_DELIVERED, ends it as not done instead."
-decisions = ["ORCH-668", "ORCH-669", "ORCH-676"]
-ask = "When FERB did the work on something other than what you named (another file with the same name, another address), it now ends like “Delivered, with gaps”, with a line such as “Not done: report.pdf from your Desktop is attached — report.pdf wasn't uploaded from your Mac, so the file the site has came from somewhere else, even if its name is the same.” Keep that ending, or end it as not done?"
-
 [T-1259]
 title = "FERB.app: a result's reported answer one tap away, and the verdict sources in a task's details"
 area = "app"
@@ -857,15 +821,6 @@ kind = "build"
 status = "open"
 why = "ORCH-672: a done answer code's facts disproved is kept as the final frame's `reported` field (not in the reply, ORCH-605); each condition's verdict, by and basis are in the result. The app shows neither yet."
 decisions = ["ORCH-672", "ORCH-665"]
-
-[T-1260]
-title = "Confirm 10 minutes of not asking 'Are you back?' again after one goes unanswered"
-area = "gateway"
-kind = "question"
-status = "open"
-why = "GATE-619: after a 10-second 'Are you back?' passes with no input (FERB's own echo), unclear input isn't asked about for QUIET_S (ferb-gateway screen_use.rs, the coordinator's 10 minutes); limits are the owner's (rule 18)."
-decisions = ["PHN-593", "GATE-619"]
-ask = "When FERB asks 'Are you back?' and nobody answers in 10 seconds, it carries on and doesn't ask that again for 10 minutes (a clear return still stops it at once). Is 10 minutes right?"
 
 [T-1261]
 title = "Harden the report relay: daily total, single-use tickets, version-shaped labels, token check"
@@ -884,24 +839,6 @@ why = "PHN-612. n0's rules need a human to open the issue. Order proposed: a net
 decisions = ["PHN-612", "PHN-222", "PHN-478"]
 ask = "When you're ready, I draft each short issue and you post it under your GitHub account. Start with the one-line request for a release of the already-merged fix?"
 
-[T-1263]
-title = "The label \"(written by the AI)\" under a task's own reason on question cards"
-area = "app"
-kind = "question"
-status = "open"
-why = "APP-942 took \"AI\" out of owner-facing text; FROM_AI stays because the planner's prompt quotes it, so the words change in both places at once."
-decisions = ["APP-942"]
-ask = "Under a task's own reason on a question card FERB still writes \"(written by the AI)\". Change it to \"(not one of FERB's checks)\", or your own words?"
-
-[T-1264]
-title = "Speaking to FERB on a phone that can't turn speech into words on the phone itself"
-area = "phone"
-kind = "question"
-status = "open"
-why = "PHN-604: where the phone has no on-device recognition, the apps use the phone's speech service (Google's on most Android phones, Apple's on iPhone), which may send the sound of the voice to it, after FERB's own explanation. The Mac's dictation is on-device only (APP-591)."
-decisions = ["PHN-603", "PHN-604"]
-ask = "On a phone that can't turn speech into words on the phone itself, should FERB use the phone's own speech service (Google's or Apple's, which may get the sound of your voice; FERB says so first), or offer no speaking there, like the Mac?"
-
 [T-1265]
 title = "Live: a file sent from the phone on mobile data over a direct path (segmentation offload)"
 area = "phone"
@@ -917,3 +854,37 @@ kind = "build"
 status = "open"
 why = "Review 2026-11-17 found PHN-222's patch correct but untested across a network change: a UDP forwarder before the relay's QUIC port switches its outgoing port after the first report; the reported public port must change within about 60 s with one discovery connection kept."
 decisions = ["PHN-222"]
+
+[T-1267]
+title = "The rest of the move to the owner's domain: the report relay, REL-414's text, a first release"
+area = "release"
+kind = "question"
+status = "open"
+why = "REL-431, REL-432 left over: the report relay's address (reports.rs:33, a workers.dev name) behind the owner's domain (a Cloudflare custom domain or a site rewrite, never a redirect: the upload's body); REL-414's text; a first release on ferb-update; his and the friend's copies updated by hand once."
+decisions = ["REL-430", "REL-431", "REL-432", "REL-414"]
+ask = "Failure reports still go to a workers.dev address. Put them behind your domain as reports.ferb.kartikey.xyz (a Cloudflare custom domain on the worker, recommended) or as ferb.kartikey.xyz/reports through the site?"
+
+[T-1268]
+title = "Confirm how old the phone's opening unlock may be when the Mac takes it (120 s)"
+area = "phone"
+kind = "question"
+status = "open"
+why = "PHN-649: the coordinating agent set 120 s (statement_age_s) as the bound for the unlock the phone signs before its link is up; a limit that changes FERB's behaviour is the owner's to set (AGENTS.md rule 18)."
+decisions = ["PHN-649"]
+ask = "When you open FERB on the phone, your fingerprint unlocks it at once and the Mac is told when the phone reaches it. If the phone takes longer than 2 minutes to reach your Mac, FERB asks for your fingerprint once more. Is 2 minutes right, or should it be shorter or longer?"
+
+[T-1269]
+title = "The chat's pages follow the owner's breaks (4 hours), decided once on the Mac"
+area = "app"
+kind = "build"
+status = "open"
+why = "APP-967. FERB.app files the chat by calendar day and jumps at midnight (ChatBody.swift:22-27); the phones hold the day (PHN-697). The engine decides a message's page once, when written (store, chat.history paging); the home page's last-time line; history shows pages under their dates."
+decisions = ["APP-967", "PHN-697"]
+
+[T-1270]
+title = "The sink rule asks once for a list of outside-sourced destinations (GATE-620)"
+area = "gateway"
+kind = "build"
+status = "open"
+why = "GATE-620. Today each typed destination found only in outside content is its own question. The worker names the values it is about to enter; code checks each one's origin, asks once with the list, and the Yes covers exactly those values on that site for the task."
+decisions = ["GATE-620"]

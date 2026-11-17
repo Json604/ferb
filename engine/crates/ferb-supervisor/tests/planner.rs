@@ -326,6 +326,8 @@ fn every_planner_call() {
                 entries: &entry_ids,
                 payload: &s(&sup["payload"]),
                 message_origin: &message_origin,
+                // a recording's messages name no client (SENSE-424)
+                sent_from: &[],
                 wrap: &wrap,
                 zone: &zone,
             });
@@ -538,4 +540,87 @@ fn the_sealed_identifiers_reach_the_planner_by_name_only() {
     // nothing sealed: the payload as before
     let plain = take_in(&[one("hello", vec![])], &Start::default(), &wrap);
     assert!(!plain.payload.contains("sealed"));
+}
+
+/// SENSE-424, PRM-362: an owner message whose `chat.send` named its client says where it was sent from, in the
+/// conversation and in the new message's heading; the phone by its name, never its link id; a message with no client
+/// (every Python recording) reads as before.
+// decision: SENSE-424
+// decision: PRM-362
+#[test]
+fn an_owner_message_says_which_device_it_was_sent_from() {
+    use ferb_supervisor::words::{sent_from, with_sent_from, NEW_MESSAGE, NEW_MESSAGES};
+    let phone = |e: &str| (e == "abc").then(|| "moto g85 5G".to_string());
+    let from_phone = sent_from(Some("phone:abc"), phone).unwrap();
+    assert_eq!(
+        from_phone,
+        "the phone \u{201c}moto g85 5G\u{201d}, in FERB's phone app"
+    );
+    let from_mac = sent_from(Some("0b1c-install"), phone).unwrap();
+    assert_eq!(from_mac, "this Mac, in FERB.app");
+    assert_eq!(sent_from(None, phone), None);
+    assert_eq!(
+        sent_from(Some("phone:gone"), phone).unwrap(),
+        "a paired phone, in FERB's phone app"
+    );
+    // the heading
+    assert_eq!(
+        with_sent_from(NEW_MESSAGE, std::slice::from_ref(&from_phone)),
+        "Layer 5 \u{2014} owner's complete new message (sent from the phone \u{201c}moto g85 5G\u{201d}, in FERB's phone app):\n"
+    );
+    assert_eq!(with_sent_from(NEW_MESSAGE, &[]), NEW_MESSAGE);
+    let both = with_sent_from(
+        NEW_MESSAGES,
+        &[from_mac.clone(), from_mac.clone(), from_phone.clone()],
+    );
+    assert!(
+        both.ends_with(
+            "the last one is the most recent; sent from this Mac, in FERB.app; then from the phone \u{201c}moto g85 5G\u{201d}, in FERB's phone app):\n"
+        ),
+        "{both}"
+    );
+    // the conversation
+    let zone = Zone::utc();
+    let row = |id: &str, data: Value| {
+        JournalRow::from_json(
+            &json!({"id": id, "at": "2026-11-17T22:54:37+00:00", "kind": "chat.message",
+                                      "data": data, "origin": "owner"}),
+        )
+        .unwrap()
+    };
+    let rows = vec![
+        row(
+            "m1",
+            json!({"session_id": "owner", "request_id": "r1", "sent_from": from_phone, "text": "which device?"}),
+        ),
+        row(
+            "m2",
+            json!({"session_id": "owner", "request_id": "r2", "sent_from": from_mac, "text": "and now?"}),
+        ),
+        row(
+            "m3",
+            json!({"session_id": "owner", "request_id": "r3", "text": "an older one"}),
+        ),
+    ];
+    let outcomes = Map::new();
+    let (entries, _) = timeline(&Timeline {
+        current: &BTreeSet::new(),
+        conversation: Some("owner"),
+        rows: &rows,
+        task_ids: Some(&BTreeSet::new()),
+        covered: &BTreeSet::new(),
+        reads: &Reads(&outcomes),
+        zone: &zone,
+    });
+    let lines: Vec<&str> = entries.iter().map(|e| e.text.as_str()).collect();
+    assert!(
+        lines[0].contains(") Owner (sent from the phone \u{201c}moto g85 5G\u{201d}, in FERB's phone app): which device?"),
+        "{lines:?}"
+    );
+    assert!(
+        lines[1].contains(") Owner (sent from this Mac, in FERB.app): and now?"),
+        "{lines:?}"
+    );
+    assert!(lines[2].contains(") Owner: an older one"), "{lines:?}");
+    assert!(!lines.concat().contains("abc"), "never the phone's link id");
 }

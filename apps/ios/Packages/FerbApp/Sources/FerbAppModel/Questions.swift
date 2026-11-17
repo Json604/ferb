@@ -22,9 +22,12 @@ public struct Question: Equatable, Sendable {
     public var needs: QuestionNeeds? = nil
     /// The words were held back (a locked phone, PHN-126): only that a question waits.
     public var held: Bool = false
+    /// What FERB.app's card shows for it (kb PHN-739, ferb-mobile `question`): header, question, why, exact, buttons.
+    public var shown: QuestionShown? = nil
 
     public init(approvalId: String, taskId: String?, title: String?, reason: String, exact: String?, kind: String, capability: String?,
-                options: [String], labels: [String], hidden: Bool, needs: QuestionNeeds? = nil, held: Bool = false) {
+                options: [String], labels: [String], hidden: Bool, needs: QuestionNeeds? = nil, held: Bool = false, shown: QuestionShown? = nil) {
+        self.shown = shown
         self.approvalId = approvalId
         self.taskId = taskId
         self.title = title
@@ -39,8 +42,13 @@ public struct Question: Equatable, Sendable {
         self.held = held
     }
 
-    /// PHN-417, PHN-470: answered from the notification's buttons with no prompt. Unknown needs are not routine.
-    public var routine: Bool { (needs.map { $0.canAnswer && !$0.needsUnlock && !$0.hidden } ?? false) && !hidden }
+    /// PHN-417, PHN-470: answered from the notification's buttons with no prompt. Unknown needs are not routine; nor is
+    /// the planner's question, which is answered by a message in the chat (kb PHN-762).
+    public var routine: Bool { (needs.map { $0.canAnswer && !$0.needsUnlock && !$0.hidden } ?? false) && !hidden && !clarify }
+
+    /// The planner's question that waits on the owner (the Mac's status lists it as kind "clarify", kb PHN-761):
+    /// FERB's own bubble in the chat, answered by his next message; never a gateway question with buttons or a sheet.
+    public var clarify: Bool { kind == Question.clarifyKind }
 
     /// Only on the Mac (a hidden input on a phone that can't sign it, …): its words say why.
     public var onlyOnMac: Bool { needs?.canAnswer == false }
@@ -90,6 +98,9 @@ public struct Question: Equatable, Sendable {
         "ferb.confirm", "ferb.retry", "conversation.approve", "memory.forget", "downloads.delete", "browsing.choose",
     ]
 
+    /// The kind the Mac's status gives the planner's question (ferb-daemon phone/asking.rs).
+    public static let clarifyKind = "clarify"
+
     /// ferb-link role.rs SECRET_KINDS: answered only through the sealed path (PHN-109, PHN-110).
     public static let secretKinds: Set<String> = ["owner_login_code", "owner_admin_password", "owner_secret"]
 }
@@ -98,10 +109,12 @@ public enum Questions {
     public static func parse(_ q: QuestionItem) -> Question {
         let body = Json.object(q.bodyJson)
         let kind = body.str("kind") ?? "owner_question"
-        return Question(approvalId: q.approvalId ?? "", taskId: q.taskId, title: body.str("summary") ?? body.str("title"),
+        // kb PHN-739: the Mac's words, from the library (a record an app made itself has none: read from its body)
+        let shown = q.words ?? questionShown(bodyJson: q.bodyJson)
+        return Question(approvalId: q.approvalId ?? "", taskId: q.taskId, title: shown.question,
                         reason: body.str("reason") ?? "", exact: body.str("exact"), kind: kind, capability: body.str("capability"),
                         options: body.strings("options"), labels: body.strings("labels"),
-                        hidden: Question.secretKinds.contains(kind) || body.flag("secret"))
+                        hidden: Question.secretKinds.contains(kind) || body.flag("secret"), shown: shown)
     }
 
     /// The open questions of a transcript, oldest first.
@@ -111,14 +124,22 @@ public enum Questions {
 
     /// A question as the Mac's status gives it (the app is locked, or the chat hasn't brought it yet).
     public static func fromStatus(_ s: StatusQuestion) -> Question {
-        Question(approvalId: s.approvalId, taskId: s.taskId, title: nil, reason: s.held ? "" : s.reason, exact: nil,
-                 kind: s.needs.hidden ? "owner_secret" : "owner_question", capability: s.capability,
-                 options: s.held ? [] : s.options, labels: [], hidden: s.needs.hidden, needs: s.needs, held: s.held)
+        let words = s.held ? nil : s.words
+        return Question(approvalId: s.approvalId, taskId: s.taskId, title: words?.question, reason: s.held ? "" : s.reason, exact: words?.exact,
+                 kind: s.kind == Question.clarifyKind ? Question.clarifyKind : s.needs.hidden ? "owner_secret" : "owner_question",
+                 capability: s.capability,
+                 options: s.held ? [] : s.options, labels: words?.buttons ?? [], hidden: s.needs.hidden, needs: s.needs, held: s.held, shown: words)
     }
 
     /// The transcript's open questions, each with its needs from `status`, then the status's questions the transcript
-    /// doesn't hold yet (each question once).
+    /// doesn't hold yet (each question once): the questions the app's sheets and the Tasks tab answer. The planner's
+    /// question is not one of them (it is FERB's bubble in the chat, as on the Mac): see `waiting`.
     public static func merged(_ transcript: [Question], _ status: PhoneStatus?) -> [Question] {
+        waiting(transcript, status).filter { !$0.clarify }
+    }
+
+    /// Every question that waits on the owner, the planner's too (kb PHN-760, PHN-761): what the notifications follow.
+    public static func waiting(_ transcript: [Question], _ status: PhoneStatus?) -> [Question] {
         var byId: [String: StatusQuestion] = [:]
         for q in status?.questions ?? [] { byId[q.approvalId] = q }
         let known = transcript.map { q -> Question in

@@ -1,6 +1,7 @@
 package com.ferb.design.components
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -49,18 +50,29 @@ internal fun DrawScope.lampDot(color: Color, center: Offset, radius: Float) {
 fun FerbMark(size: Dp = 64.dp, modifier: Modifier = Modifier) {
     Canvas(modifier.size(size).semantics { contentDescription = "FERB" }) {
         val s = this.size.width
-        val corner = CornerRadius(s * 0.23f)
-        drawRoundRect(Brush.verticalGradient(listOf(Tone.ink3, Tone.ink0)), cornerRadius = corner)
-        val line = max(0.75f * density, s / 96)
-        drawRoundRect(
-            Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.22f), Color.White.copy(alpha = 0.02f)), startY = 0f, endY = s / 2),
-            topLeft = Offset(line / 2, line / 2), size = Size(s - line, s - line), cornerRadius = CornerRadius(s * 0.23f - line / 2),
-            style = Stroke(line),
-        )
+        ferbTile(s)
         drawPath(ferbLetter(s), Tone.text)
-        lampDot(Lamp.amber, Offset(s * (82f - 16) / 96, s * (85f - 16) / 96), s / 12)
+        ferbDot(s)
     }
 }
+
+/** FerbMark's dark tile with its light edge, in a square of side [s] (the launch draws the same, PHN-632). */
+internal fun DrawScope.ferbTile(s: Float) {
+    val corner = CornerRadius(s * 0.23f)
+    drawRoundRect(Brush.verticalGradient(listOf(Tone.ink3, Tone.ink0)), cornerRadius = corner)
+    val line = max(0.75f * density, s / 96)
+    drawRoundRect(
+        Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.22f), Color.White.copy(alpha = 0.02f)), startY = 0f, endY = s / 2),
+        topLeft = Offset(line / 2, line / 2), size = Size(s - line, s - line), cornerRadius = CornerRadius(s * 0.23f - line / 2),
+        style = Stroke(line),
+    )
+}
+
+/** FerbMark's amber dot: its centre as a fraction of the tile, and the dot itself in a square of side [s]. */
+internal const val FERB_DOT_X = (82f - 16) / 96
+internal const val FERB_DOT_Y = (85f - 16) / 96
+
+internal fun DrawScope.ferbDot(s: Float) = lampDot(Lamp.amber, Offset(s * FERB_DOT_X, s * FERB_DOT_Y), s / 12)
 
 /** The "f" of ferb-mark.svg, in that file's 96-point tile (its 128 box less the 16 margin): Theme.swift FerbMark.Letter. */
 internal fun ferbLetter(width: Float): Path {
@@ -128,19 +140,26 @@ fun FileIcon(name: String, width: Dp = 34.dp, modifier: Modifier = Modifier) {
         else -> null
     }
     val glyphPainter = glyph?.let { rememberVectorPainter(it) }
-    Canvas(modifier.size(width, width * 1.26f).semantics { contentDescription = "$label file" }) {
+    // the paper, its fold, the shadow's paint and the badge's words are made once per size, not on every draw: a row
+    // redrawn as the list scrolls only draws them (kb PHN-716)
+    androidx.compose.foundation.layout.Spacer(modifier.size(width, width * 1.26f).semantics { contentDescription = "$label file" }.drawWithCache {
         val w = size.width
         val h = size.height
         val fold = w * 0.3f
-        blurredRoundShadow(w, h)
-        drawPath(paper(w, h, fold), LabColors.paper)
-        drawPath(Path().apply {
+        val shadow = shadowPaint(w)
+        val paperPath = paper(w, h, fold)
+        val foldPath = Path().apply {
             moveTo(w - fold, 0f)
             lineTo(w - fold, fold - w * 0.06f)
             quadraticTo(w - fold, fold, w - fold + w * 0.06f, fold)
             lineTo(w, fold)
             close()
-        }, LabColors.fold)
+        }
+        val badge = badgeWords(measurer, label, w)
+        onDrawBehind {
+        drawContext.canvas.nativeCanvas.drawRoundRect(0f, w * 0.04f, w, h + w * 0.04f, w * 0.11f, w * 0.11f, shadow)
+        drawPath(paperPath, LabColors.paper)
+        drawPath(foldPath, LabColors.fold)
         val ink = LabColors.paperInk
         translate(0f, h * 0.1f) {
             val ch = h * 0.62f
@@ -174,11 +193,12 @@ fun FileIcon(name: String, width: Dp = 34.dp, modifier: Modifier = Modifier) {
                 }
             }
         }
-        drawBadge(measurer, label, kind.badge, w, h)
-    }
+        drawBadge(badge, kind.badge, w, h)
+        }
+    })
 }
 
-private fun DrawScope.paper(w: Float, h: Float, fold: Float): Path {
+private fun paper(w: Float, h: Float, fold: Float): Path {
     val r = w * 0.11f
     return Path().apply {
         moveTo(r, 0f); lineTo(w - fold, 0f); lineTo(w, fold); lineTo(w, h - r)
@@ -187,24 +207,20 @@ private fun DrawScope.paper(w: Float, h: Float, fold: Float): Path {
     }
 }
 
-/** The file's shadow: black 30 %, radius 0.08 x width, down 0.04 x width. */
-private fun DrawScope.blurredRoundShadow(w: Float, h: Float) {
-    val sigma = w * 0.08f
-    drawIntoNative { canvas, paint ->
-        paint.color = android.graphics.Color.argb(77, 0, 0, 0)
-        paint.maskFilter = android.graphics.BlurMaskFilter(com.ferb.design.sky.skiaBlurRadius(sigma), android.graphics.BlurMaskFilter.Blur.NORMAL)
-        canvas.drawRoundRect(0f, w * 0.04f, w, h + w * 0.04f, w * 0.11f, w * 0.11f, paint)
-    }
+/** The file's shadow's paint: black 30 %, radius 0.08 x width (drawn down 0.04 x width). */
+private fun shadowPaint(w: Float) = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+    color = android.graphics.Color.argb(77, 0, 0, 0)
+    maskFilter = android.graphics.BlurMaskFilter(com.ferb.design.sky.skiaBlurRadius(w * 0.08f), android.graphics.BlurMaskFilter.Blur.NORMAL)
 }
 
-private inline fun DrawScope.drawIntoNative(block: (android.graphics.Canvas, android.graphics.Paint) -> Unit) {
-    drawContext.canvas.nativeCanvas.let { block(it, android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)) }
-}
 
 /** The type badge: white bold text on the kind's colour, hanging off the left edge (offset -0.1 w, 0.6 h). */
-private fun DrawScope.drawBadge(measurer: TextMeasurer, label: String, colour: Color, w: Float, h: Float) {
+private fun androidx.compose.ui.unit.Density.badgeWords(measurer: TextMeasurer, label: String, w: Float): androidx.compose.ui.text.TextLayoutResult {
     val fontPx = max(6f * density, w * 0.21f)
-    val layout = measurer.measure(label, FerbType.style(0f, FontWeight.Bold, Color.White).copy(fontSize = (fontPx / density / fontScale).sp, letterSpacing = 0.sp))
+    return measurer.measure(label, FerbType.style(0f, FontWeight.Bold, Color.White).copy(fontSize = (fontPx / density / fontScale).sp, letterSpacing = 0.sp))
+}
+
+private fun DrawScope.drawBadge(layout: androidx.compose.ui.text.TextLayoutResult, colour: Color, w: Float, h: Float) {
     val bw = layout.size.width + 2 * w * 0.09f
     val bh = w * 0.33f
     val x = -w * 0.1f

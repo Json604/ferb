@@ -72,7 +72,8 @@ APP_SETTINGS = dict(COMMON_TARGET, **{
     "GENERATE_INFOPLIST_FILE": "YES",
     "INFOPLIST_KEY_CFBundleDisplayName": "FERB",
     "INFOPLIST_KEY_UIApplicationSceneManifest_Generation": "YES",
-    "INFOPLIST_KEY_UILaunchScreen_Generation": "YES",
+    # the launch's first frame (kb PHN-632): App/Launch.storyboard, FERB's mark on ink0
+    "INFOPLIST_KEY_UILaunchStoryboardName": "Launch",
     "INFOPLIST_KEY_UISupportedInterfaceOrientations": "UIInterfaceOrientationPortrait",
     "LD_RUNPATH_SEARCH_PATHS": "$(inherited) @executable_path/Frameworks",
     "DEAD_CODE_STRIPPING": "YES",

@@ -60,6 +60,9 @@ impl Drop for LivePreview {
 /// The least time between two frame requests: the link's least time between two pictures on a direct path or the
 /// owner's relay (ferb-link `Limits::good_preview_every_ms`, 200 ms); asking sooner is refused there.
 pub const PREVIEW_LEAST_MS: u64 = 200;
+/// The work row's picture: at most one answer every this many milliseconds (a small picture on the chat, not the
+/// full screen of Watch live).
+pub const THUMBNAIL_LEAST_MS: u64 = 2_000;
 /// After a passing failure (the link dropped a moment, a capture failed), the wait before asking again (FERB.app's
 /// own: "A brief failure keeps the last frame", then a second).
 pub const PREVIEW_RETRY_MS: u64 = 1000;
@@ -255,10 +258,14 @@ impl Mobile {
     /// Takes the core out (closed from now on) and lets go of the link's events.
     fn take(&self) -> Option<Arc<ferb_mobile::Mobile>> {
         let core = self.core.write().unwrap_or_else(|p| p.into_inner()).take();
-        lock(&self.transport).take();
-        if let (Some(c), Some(link)) = (&core, lock(&self.link).take()) {
+        // each taken out with its lock let go before it is used or dropped (a link's end closes its door)
+        let transport = lock(&self.transport).take();
+        let link = lock(&self.link).take();
+        if let (Some(c), Some(link)) = (&core, &link) {
             link.detach(c);
         }
+        drop(link);
+        drop(transport);
         core
     }
 }
@@ -493,6 +500,61 @@ impl Mobile {
             core.unlocked();
             // what waited for the unlock goes now; a failure of that is the sync's own, reported to the listener
             let _ = core.sync();
+            Ok(())
+        })
+    }
+
+    /// The unlock the phone's lock key signed in the app's opening prompt before the link was up (kb PHN-649):
+    /// `payload` is the phone's own statement `{domain, nonce, made}`, `sig` its signature, `age_ms` how long ago the
+    /// prompt passed by the phone's steady clock. The Mac takes it once, fresh, on a connection that proved the device
+    /// key; then, as after `unlock`, the conversation is read again. `unlock_required` when it was too old (the app asks
+    /// again), `unlock_invalid` when the Mac doesn't know this phone's keys. Network: not on the UI thread.
+    pub fn unlock_with_statement(
+        &self,
+        payload: String,
+        sig: String,
+        age_ms: u64,
+    ) -> Result<(), FerbError> {
+        guard(|| {
+            let core = self.core()?;
+            let t = lock(&self.transport)
+                .clone()
+                .ok_or_else(|| FerbError::Offline {
+                    detail: "FERB's Mac can't be reached now.".into(),
+                    link_code: None,
+                })?;
+            // the Mac takes a statement only on a connection that proved the device key: when that proof is on its
+            // way (the link just came online), it is waited for, bounded, instead of the statement being refused as
+            // `locked` and sent again a second later (kb PHN-684). The age told is the age when it goes.
+            let waited = std::time::Instant::now();
+            let link = lock(&self.link).clone();
+            if let Some(link) = link {
+                link.wait_presented();
+            }
+            let age_ms = age_ms.saturating_add(waited.elapsed().as_millis() as u64);
+            let proof = serde_json::json!({"payload": payload, "sig": sig}).to_string();
+            let params = serde_json::json!({"age_ms": age_ms}).to_string();
+            t.call("link.unlock_statement", &params, Some(&proof))
+                .map_err(FerbError::from_link)?;
+            core.unlocked();
+            let _ = core.sync();
+            Ok(())
+        })
+    }
+
+    /// "Forget this Mac" on the phone (kb PHN-646): the Mac removes this phone, and only it (`link.forget`, from a
+    /// connection that proved the device key). The app wipes everything after, whatever this answers. Network: not on
+    /// the UI thread.
+    pub fn forget_me(&self) -> Result<(), FerbError> {
+        guard(|| {
+            let t = lock(&self.transport)
+                .clone()
+                .ok_or_else(|| FerbError::Offline {
+                    detail: "FERB's Mac can't be reached now.".into(),
+                    link_code: None,
+                })?;
+            t.call("link.forget", "{}", None)
+                .map_err(FerbError::from_link)?;
             Ok(())
         })
     }
@@ -753,22 +815,38 @@ impl Mobile {
         task_id: String,
         sink: Arc<dyn PreviewSink>,
     ) -> Result<Arc<LivePreview>, FerbError> {
-        guard(|| {
-            let core = self.core()?;
-            let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
-            let flag = stop.clone();
-            let weak = Arc::downgrade(&core);
-            drop(core);
-            std::thread::Builder::new()
-                .name("ferb-preview".into())
-                .spawn(move || {
-                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        live_loop(weak, task_id, sink, flag)
-                    }));
-                })
-                .map_err(|_| FerbError::internal())?;
-            Ok(Arc::new(LivePreview { stop }))
-        })
+        watch_paced(self, task_id, None, PREVIEW_LEAST_MS, sink)
+    }
+
+    /// The work row's small live picture (kb PHN-720..; FERB.app's round pictures by "N active tasks", APP-900): the
+    /// same preview as `watch_live`, asked at most once every `every_ms` (never under `THUMBNAIL_LEAST_MS`); the Mac
+    /// leaves a frame out when it is the one the phone shows. The same rules: in memory only, refused on the public
+    /// relay, ended by the lock. Safe on the UI thread (it only starts the thread).
+    pub fn watch_thumbnail(
+        &self,
+        task_id: String,
+        every_ms: u64,
+        sink: Arc<dyn PreviewSink>,
+    ) -> Result<Arc<LivePreview>, FerbError> {
+        watch_paced(self, task_id, None, every_ms.max(THUMBNAIL_LEAST_MS), sink)
+    }
+
+    /// A card row's or checklist line's own small live picture (kb PHN-726; FERB.app's RowPreview, APP-888): the
+    /// preview of one step (`worker`, its step task id), at the work row's pace and under its rules.
+    pub fn watch_step_thumbnail(
+        &self,
+        task_id: String,
+        worker: String,
+        every_ms: u64,
+        sink: Arc<dyn PreviewSink>,
+    ) -> Result<Arc<LivePreview>, FerbError> {
+        watch_paced(
+            self,
+            task_id,
+            Some(worker),
+            every_ms.max(THUMBNAIL_LEAST_MS),
+            sink,
+        )
     }
 
     /// FERB's settings (`settings.get`; needs the unlock). Network.
@@ -866,13 +944,41 @@ impl Drop for Mobile {
     }
 }
 
+/// A live preview at `least_ms` at most (`watch_live`, `watch_thumbnail`).
+fn watch_paced(
+    m: &Mobile,
+    task_id: String,
+    worker: Option<String>,
+    least_ms: u64,
+    sink: Arc<dyn PreviewSink>,
+) -> Result<Arc<LivePreview>, FerbError> {
+    guard(|| {
+        let core = m.core()?;
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = stop.clone();
+        let weak = Arc::downgrade(&core);
+        drop(core);
+        std::thread::Builder::new()
+            .name("ferb-preview".into())
+            .spawn(move || {
+                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    live_loop(weak, task_id, worker, sink, flag, least_ms)
+                }));
+            })
+            .map_err(|_| FerbError::internal())?;
+        Ok(Arc::new(LivePreview { stop }))
+    })
+}
+
 /// The live preview's loop (`Mobile::watch_live`): one answer at a time, at the link's pace, until stopped, the core
 /// closes, or the path or the lock refuses it.
 fn live_loop(
     core: std::sync::Weak<ferb_mobile::Mobile>,
     task_id: String,
+    worker: Option<String>,
     sink: Arc<dyn PreviewSink>,
     stop: Arc<std::sync::atomic::AtomicBool>,
+    least_ms: u64,
 ) {
     use std::sync::atomic::Ordering;
     let stopped = || stop.load(Ordering::SeqCst);
@@ -893,7 +999,7 @@ fn live_loop(
                 Some("Unlock to watch live.".into()),
             );
         }
-        let answer = c.preview(&task_id, have);
+        let answer = c.preview_of(&task_id, worker.as_deref(), have);
         drop(c);
         let wait = match answer {
             Ok(f) => {
@@ -909,7 +1015,7 @@ fn live_loop(
                 let frame: PreviewFrame = f.conv();
                 let _ =
                     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| sink.frame(frame)));
-                next.max(PREVIEW_LEAST_MS)
+                next.max(least_ms)
             }
             Err(e) => {
                 let e = FerbError::from(e);

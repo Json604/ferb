@@ -159,10 +159,14 @@ impl LinkDoor for ClientDoor {
 #[derive(Default)]
 struct Seen {
     paired: bool,
-    /// The last session whose presence the device key proved.
+    /// The last session whose presence the device key set out to prove.
     presented: Option<u64>,
+    /// The last session whose presence proof was answered (taken or not): [`LinkInner::wait_presented`].
+    settled: Option<u64>,
     bulk: Option<bool>,
     relay: Option<Value>,
+    /// The Mac's link level from its welcome (PHN-313): what it knows of the phone's newer calls.
+    mac_level: u32,
 }
 
 pub(crate) struct LinkInner {
@@ -172,8 +176,22 @@ pub(crate) struct LinkInner {
     device_signer: Option<Arc<dyn DeviceSigner>>,
     cores: Mutex<Vec<Weak<ferb_mobile::Mobile>>>,
     seen: Mutex<Seen>,
+    /// Told when a session's presence proof was answered (with `seen`).
+    settled: std::sync::Condvar,
     closed: AtomicBool,
+    /// The app is unlocked and in front (PHN-648): presence says so, and is sent again every [`PRESENCE_EVERY`].
+    open: AtomicBool,
+    presence_loop: AtomicBool,
 }
+
+/// How often the device key's presence keeps the Mac's window open while the app is unlocked and in front
+/// (PHN-648): well inside the Mac's five idle minutes.
+const PRESENCE_EVERY: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// How long an unlock statement waits for the new connection's presence proof before it goes anyway (kb PHN-684):
+/// the Mac takes a statement only on a connection that proved the device key, and the proof is on its way from the
+/// moment the link is online (a challenge, the signature, `link.present`: the device signer has 3 s).
+pub(crate) const PRESENCE_WAIT: std::time::Duration = std::time::Duration::from_secs(3);
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|p| p.into_inner())
@@ -307,9 +325,14 @@ impl LinkInner {
                 if ev["phase"] == "idle" {
                     lock(&self.seen).bulk = None;
                 }
+                if let Some(l) = ev["mac"]["level"].as_u64() {
+                    lock(&self.seen).mac_level = l as u32;
+                }
+                // the presence proof is marked as on its way before the app hears "online": an unlock statement
+                // handed over at once then waits for it (`wait_presented`) instead of being refused as `locked`
+                self.present(&ev);
                 self.forward(text);
                 self.tell();
-                self.present(&ev);
             }
             "bulk" => {
                 lock(&self.seen).bulk = ev["allowed"].as_bool();
@@ -377,10 +400,49 @@ impl LinkInner {
             }
             seen.presented = Some(session);
         }
-        let Ok(door) = self.transport() else { return };
-        let _ = std::thread::Builder::new()
+        self.send_presence(signer, Some(session));
+    }
+
+    /// Waits, at most [`PRESENCE_WAIT`], for the presence proof of the newest session to be answered, when one is on
+    /// its way (kb PHN-684). Nothing on its way (no device signer, a session the link proved itself): no wait.
+    pub(crate) fn wait_presented(&self) {
+        let seen = lock(&self.seen);
+        let _ = self
+            .settled
+            .wait_timeout_while(seen, PRESENCE_WAIT, |s| {
+                s.presented.is_some()
+                    && s.settled != s.presented
+                    && !self.closed.load(Ordering::SeqCst)
+            })
+            .map_err(|p| p.into_inner());
+    }
+
+    /// The device key's proof for `link.present`, with `{"active": true}` while the app says it is unlocked and in
+    /// front ([`Link::set_open`], PHN-648). On a thread of its own.
+    fn send_presence(self: &Arc<Self>, signer: Arc<dyn DeviceSigner>, session: Option<u64>) {
+        // an older Mac's daemon takes only `{}`: the flag goes to a Mac at level 3 or above (PHN-648)
+        let open = self.open.load(Ordering::SeqCst) && lock(&self.seen).mac_level >= 3;
+        let me = self.clone();
+        // whatever the proof's outcome, a statement waiting for this session's proof goes on (kb PHN-684)
+        let settle = move || {
+            if let Some(session) = session {
+                lock(&me.seen).settled = Some(session);
+                me.settled.notify_all();
+            }
+        };
+        let Ok(door) = self.transport() else {
+            return settle();
+        };
+        let spawned = std::thread::Builder::new()
             .name("ferb-link-present".into())
             .spawn(move || {
+                struct Settle<F: Fn()>(F);
+                impl<F: Fn()> Drop for Settle<F> {
+                    fn drop(&mut self) {
+                        (self.0)()
+                    }
+                }
+                let _settle = Settle(settle);
                 let _ = catch_unwind(AssertUnwindSafe(|| {
                     use ferb_mobile::Transport as _;
                     let Ok(reply) = door.call("link.challenge", "{}", None) else {
@@ -392,11 +454,14 @@ impl LinkInner {
                     else {
                         return;
                     };
-                    let payload = ferb_link::client::Phone::call_payload(
-                        &challenge,
-                        "link.present",
-                        &json!({}),
-                    );
+                    // the app is unlocked and in front: this presence also keeps the Mac's window open (PHN-648)
+                    let params = if open {
+                        json!({"active": true})
+                    } else {
+                        json!({})
+                    };
+                    let payload =
+                        ferb_link::client::Phone::call_payload(&challenge, "link.present", &params);
                     let Some(sig) = signer.sign(payload.clone()) else {
                         return;
                     };
@@ -404,6 +469,13 @@ impl LinkInner {
                     let _ = door.call("link.present", "{}", Some(&proof));
                 }));
             });
+        if spawned.is_err() {
+            // no thread: nothing is on its way, so nothing waits for it
+            if let Some(session) = session {
+                lock(&self.seen).settled = Some(session);
+                self.settled.notify_all();
+            }
+        }
     }
 
     /// A core takes the link's events from now on; it hears the link's current state at once.
@@ -524,7 +596,10 @@ impl Link {
                     paired,
                     ..Seen::default()
                 }),
+                settled: std::sync::Condvar::new(),
                 closed: AtomicBool::new(false),
+                open: AtomicBool::new(false),
+                presence_loop: AtomicBool::new(false),
             });
             let weak: Weak<LinkInner> = Arc::downgrade(&inner);
             let door = DoorTransport::start(
@@ -579,6 +654,40 @@ impl Link {
 
     /// The app is in front (true) or in the background (false: the link closes and nothing dials, unless Stay
     /// connected keeps it active).
+    /// The app is unlocked and in front (true), or locked or left (false), kb PHN-648. While true the device key's
+    /// presence (no prompt) says so, now and every two minutes, and the Mac keeps this phone's unlock window open
+    /// (never past its 12 h limit, never after `phone.lock`). Non-blocking.
+    pub fn set_open(&self, on: bool) {
+        let inner = &self.inner;
+        inner.open.store(on, Ordering::SeqCst);
+        let Some(signer) = inner.device_signer.clone() else {
+            return;
+        };
+        if !on || inner.presence_loop.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let me = inner.clone();
+        let _ = std::thread::Builder::new()
+            .name("ferb-link-open".into())
+            .spawn(move || {
+                // at once (the app just opened or came back), then every PRESENCE_EVERY while it stays open
+                while me.open.load(Ordering::SeqCst) && !me.closed.load(Ordering::SeqCst) {
+                    if lock(&me.seen).presented.is_some() {
+                        me.send_presence(signer.clone(), None);
+                    }
+                    let mut waited = std::time::Duration::ZERO;
+                    while waited < PRESENCE_EVERY
+                        && me.open.load(Ordering::SeqCst)
+                        && !me.closed.load(Ordering::SeqCst)
+                    {
+                        std::thread::sleep(std::time::Duration::from_millis(500));
+                        waited += std::time::Duration::from_millis(500);
+                    }
+                }
+                me.presence_loop.store(false, Ordering::SeqCst);
+            });
+    }
+
     pub fn set_active(&self, on: bool) -> Result<(), FerbError> {
         guard(|| {
             self.inner

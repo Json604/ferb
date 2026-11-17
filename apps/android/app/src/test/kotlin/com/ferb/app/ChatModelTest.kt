@@ -29,15 +29,7 @@ class ChatModelTest {
             val rows = ChatModel.rows(view)
             val keys = rows.map { it.key }
             assertEquals("${c.scenario}: row keys are unique", keys.size, keys.toSet().size)
-            val text = rows.joinToString("\n") {
-                when (it) {
-                    is ChatRow.Owner -> it.text
-                    is ChatRow.Ferb -> it.text
-                    is ChatRow.Line -> it.text
-                    is ChatRow.Task -> it.headline + it.parts.joinToString { p -> p.title }
-                    else -> ""
-                }
-            }
+            val text = rows.joinToString("\n") { ChatModel.words(it) }
             for (item in view.items) {
                 if (item !is Item.Turn) continue
                 val t = item.turn
@@ -46,10 +38,10 @@ class ChatModelTest {
                     assertTrue("${c.scenario}: the owner's words '$it' are drawn", text.contains(it))
                 }
                 val a = t.answer
-                if (a != null && !t.answeredBelow) {
+                if (a != null && !t.answeredBelow && t.card == null && (a.displayText ?: a.text).isNotBlank()) {
                     answers++
-                    val words = ChatModel.plain(a.displayText ?: a.text)
-                    assertTrue("${c.scenario}: the answer '${words.take(40)}' is drawn", words.isBlank() || text.contains(words))
+                    // drawn as FERB.app draws it (its words, cards, sites and files laid out by the library: kb PHN-723)
+                    assertTrue("${c.scenario}: the answer of ${t.entry} is drawn", rows.any { it is ChatRow.Answer && it.key == "${t.entry}:answer" })
                 }
             }
             val open = Questions.open(view.questions)
@@ -66,7 +58,7 @@ class ChatModelTest {
     fun a_delivered_with_gaps_answer_keeps_its_not_done_lines() {
         val c = all.first { it.scenario == "gaps_single_task" }
         val rows = ChatModel.rows(FixtureMac.transcript(FixtureMac(c)))
-        assertTrue(rows.filterIsInstance<ChatRow.Ferb>().any { it.text.contains("Not done:") })
+        assertTrue(rows.filterIsInstance<ChatRow.Answer>().any { ChatModel.words(it).contains("Not done:") })
     }
 
     // decision: PHN-535
@@ -75,7 +67,7 @@ class ChatModelTest {
         var files = 0
         for (c in all) {
             val view = FixtureMac.transcript(FixtureMac(c))
-            val lines = ChatModel.rows(view).filterIsInstance<ChatRow.Cards>().flatMap { it.cards }.filter { it.index != null }
+            val lines = ChatModel.rows(view).filterIsInstance<ChatRow.Answer>().flatMap { it.ui.files }.filter { it.index != null }
             for (t in view.items.mapNotNull { (it as? com.ferb.mobile.Item.Turn)?.turn }) {
                 val a = t.answer ?: continue
                 if (t.answeredBelow || t.taskId == null) continue
@@ -96,7 +88,7 @@ class ChatModelTest {
             val c = all.first { it.scenario == name }
             val rows = ChatModel.rows(FixtureMac.transcript(FixtureMac(c)))
             assertTrue("$name has owner rows", rows.any { it is ChatRow.Owner })
-            assertTrue("$name has FERB's rows", rows.any { it is ChatRow.Ferb })
+            assertTrue("$name has FERB's rows", rows.any { it is ChatRow.Answer || it is ChatRow.Rich || it is ChatRow.Ferb })
         }
     }
 
@@ -111,7 +103,8 @@ class ChatModelTest {
 
     @Test
     fun markdown_marks_that_only_style_are_dropped() {
-        assertEquals("Done: the report (https://x.example)", ChatModel.plain("**Done:** [the report](https://x.example)"))
+        // a one-line summary (the Tasks tab) says a link's words, never its address (kb PHN-721)
+        assertEquals("Done: the report", ChatModel.plain("**Done:** [the report](https://x.example)"))
         assertEquals("Title\n• one", ChatModel.plain("## Title\n- one"))
     }
 }

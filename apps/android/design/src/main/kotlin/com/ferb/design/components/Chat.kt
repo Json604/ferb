@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
@@ -26,6 +27,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -87,21 +91,43 @@ fun TypingDots(modifier: Modifier = Modifier, timeMillis: Long? = null) {
     val reduced = rememberReducedMotion()
     var now by remember { mutableLongStateOf(timeMillis ?: 0L) }
     if (timeMillis == null && !reduced) LaunchedEffect(Unit) { while (true) withFrameMillis { now = it } }
-    val t = (timeMillis ?: now) / 1000.0
     Row(
         modifier.background(Ink.black, ferbBubbleShape).padding(horizontal = 16.dp, vertical = 15.dp)
             .semantics { contentDescription = "FERB is writing"; liveRegion = LiveRegionMode.Polite },
         horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
         for (i in 0 until 3) {
-            val lift = if (reduced) 0.0 else -3 * max(0.0, sin(t * 6 - i * 0.7))
-            Box(Modifier.offset(y = lift.dp).size(7.dp).background(Color.White.copy(alpha = 0.85f), CircleShape))
+            // the clock is read while placing the dot (the same whole pixels offset(y) gives): the dots rise and fall
+            // without recomposing or measuring anything on any frame (kb PHN-711)
+            Box(
+                Modifier.offset {
+                    val t = (timeMillis ?: now) / 1000.0
+                    val lift = if (reduced) 0.0 else -3 * max(0.0, sin(t * 6 - i * 0.7))
+                    androidx.compose.ui.unit.IntOffset(0, lift.dp.roundToPx())
+                }.size(7.dp).background(Color.White.copy(alpha = 0.85f), CircleShape),
+            )
         }
     }
 }
 
-/** One part of a task: its mark, its title and what it is doing. */
-data class PlanPart(val kind: MarkKind, val title: String, val detail: String? = null)
+/**
+ * One part of a task: its mark, its title and what it is doing. Not from the lab (kb PHN-733; FERB.app's CardRowView):
+ * its own answer in rich text ([rich], folded past 8 lines to 3 with "Show more"), the colour its plain words take, its
+ * lines under them ("Couldn't confirm", "Updated", "You chose"), whether it was updated, and [key] (where its fold is kept).
+ */
+@androidx.compose.runtime.Immutable
+data class PlanPart(
+    val kind: MarkKind,
+    val title: String,
+    val detail: String? = null,
+    val rich: List<RichBlock>? = null,
+    val tone: PartTone = PartTone.DIM,
+    val notes: List<PartNote> = emptyList(),
+    val updated: Boolean = false,
+    val key: String = "",
+    /** The steps a waiting part waits on that no part answers (APP-895), each its own line under it. */
+    val sub: List<PlanPart> = emptyList(),
+)
 
 /**
  * MobileScreens.swift ChatPage.task: the plan line and its count, the parts (a running one on a grey fill), and Watch
@@ -115,16 +141,29 @@ fun TaskCard(
     modifier: Modifier = Modifier,
     onWatch: (() -> Unit)? = {},
     onStop: (() -> Unit)? = {},
+    /** While it runs, FERB.app's one status line ("1 of 4 done · 2 running · 1 waiting", CardStatusLine). */
+    status: String? = null,
+    /** Once it ended, FERB.app's footer: the done line in semibold and code's lines after it. */
+    footer: String? = null,
+    footerLines: List<String> = emptyList(),
+    /** Not from the lab (kb PHN-726): which parts show their own live picture (FERB.app's RowPreview), its picture once
+     *  one came, and what a tap on it does. */
+    watching: List<Boolean> = emptyList(),
+    pictures: List<androidx.compose.ui.graphics.ImageBitmap?> = emptyList(),
+    onPicture: ((Int) -> Unit)? = null,
+    more: String = "Show more",
+    less: String = "Show less",
 ) {
-    Column(modifier.fillMaxWidth().background(Ink.white, RoundedCornerShape(Phone.taskCorner)).padding(8.dp)) {
+    val ink = CardInk.current()
+    Column(modifier.fillMaxWidth().background(ink.card, RoundedCornerShape(Phone.taskCorner)).padding(8.dp)) {
         Row(Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 8.dp, bottom = 4.dp)) {
-            PhoneText(headline, 14f, FerbType.Medium, Ink.detail, Modifier.weight(1f))
-            PhoneText(progress, 14f, FerbType.Medium, Ink.detail, Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+            PhoneText(headline, 14f, FerbType.Medium, ink.secondary, Modifier.weight(1f))
+            PhoneText(progress, 14f, FerbType.Medium, ink.secondary, Modifier.semantics { liveRegion = LiveRegionMode.Polite })
         }
-        for (part in parts) {
+        parts.forEachIndexed { i, part ->
             Row(
                 Modifier.fillMaxWidth()
-                    .then(if (part.kind == MarkKind.RUNNING) Modifier.background(Ink.fill, RoundedCornerShape(Phone.partCorner)) else Modifier)
+                    .then(if (part.kind == MarkKind.RUNNING) Modifier.background(ink.fill, RoundedCornerShape(Phone.partCorner)) else Modifier)
                     .semantics(mergeDescendants = true) {}
                     .padding(10.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -132,9 +171,44 @@ fun TaskCard(
                 Mark(part.kind)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                     val waiting = part.kind == MarkKind.WAITING
-                    PhoneText(part.title, 15.5f, if (waiting) FerbType.Regular else FerbType.Semibold, if (waiting) Ink.faint else Ink.black)
-                    if (part.detail != null) PhoneText(part.detail, 14f, color = Ink.detail)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        PhoneText(part.title, 15.5f, if (waiting) FerbType.Regular else FerbType.Semibold, if (waiting) ink.faint else ink.primary)
+                        if (part.updated) PhoneText("UPDATED", 10f, FerbType.Bold, Ink.white,
+                            Modifier.background(ink.link, RoundedCornerShape(4.dp)).padding(horizontal = 5.dp))
+                    }
+                    if (part.detail != null) PhoneText(part.detail, 14f, color = part.tone.color(ink))
+                    part.rich?.let { rich ->
+                        // the part's own answer as FERB.app's row shows it: rich text, past 8 lines folded to 3
+                        val look = RichLook(14.5f, ink.primary, ink.secondary, ink.link, ink.fill)
+                        val text = androidx.compose.runtime.remember(rich, ink.onFerb) { richText(rich, look) }
+                        RichWords(text, look, part.key, Fold.ROW, more = more, less = less, modifier = Modifier.padding(top = 2.dp))
+                    }
+                    for (n in part.notes) {
+                        androidx.compose.foundation.text.BasicText(androidx.compose.ui.text.buildAnnotatedString {
+                            n.label?.let { pushStyle(androidx.compose.ui.text.SpanStyle(color = n.tone.color(ink), fontWeight = FerbType.Semibold)); append(it); pop() }
+                            pushStyle(androidx.compose.ui.text.SpanStyle(color = if (n.label == null) n.tone.color(ink) else ink.secondary)); append(n.text); pop()
+                        }, style = FerbType.style(13.5f, color = ink.secondary), modifier = Modifier.padding(top = 2.dp))
+                    }
                 }
+                if (watching.getOrElse(i) { false }) {
+                    // the part's own live picture (FERB.app's RowPreview: a small circle with the amber ring, no dot)
+                    val picture = pictures.getOrNull(i)
+                    Box(Modifier.size(26.dp).clip(CircleShape).background(Ink.darkFill)
+                        .border(1.dp, Ink.amber.copy(alpha = 0.65f), CircleShape)
+                        .pressable(onPicture?.let { { it(i) } }, label = "Live preview of ${part.title}")) {
+                        picture?.let { androidx.compose.foundation.Image(it, null, Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop) }
+                    }
+                }
+            }
+        }
+        if (status != null) {
+            PhoneText(status, 13.5f, FerbType.Medium, ink.secondary, Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 6.dp)
+                .semantics { liveRegion = LiveRegionMode.Polite }, maxLines = 1)
+        }
+        if (footer != null || footerLines.isNotEmpty()) {
+            Column(Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 8.dp, bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                footer?.let { PhoneText(it, 14.5f, FerbType.Semibold, ink.primary) }
+                for (l in footerLines) PhoneText(l, 13.5f, color = ink.secondary)
             }
         }
         if (parts.any { it.kind == MarkKind.RUNNING || it.kind == MarkKind.ASKING }) {
@@ -178,9 +252,42 @@ fun PhoneComposer(
     micLabel: String = "Speak",
     mic: MicState = if (listening) MicState.LISTENING else MicState.IDLE,
     micLevel: Float = 0f,
+    /** Files waiting in the box (kb PHN-690): drawn inside it, above the words; the box's capsule becomes a card. */
+    attachments: (@Composable () -> Unit)? = null,
+    /** Lets the app put the cursor in the box (a tap on FERB's question's notification, kb PHN-739). */
+    focus: androidx.compose.ui.focus.FocusRequester? = null,
+) {
+    if (attachments != null) {
+        Column(modifier.fillMaxWidth().background(Ink.black, RoundedCornerShape(Phone.composerHeight / 2)).padding(top = 8.dp)) {
+            Box(Modifier.padding(horizontal = 8.dp)) { attachments() }
+            ComposerRow(Modifier, placeholder, typed, onValueChange, onSend, onAttach, onMic, onMicDown, onMicUp, listening, listeningText, micLabel, mic, micLevel, focus)
+        }
+    } else {
+        ComposerRow(modifier.background(Ink.black, CircleShape), placeholder, typed, onValueChange, onSend, onAttach, onMic, onMicDown, onMicUp,
+            listening, listeningText, micLabel, mic, micLevel, focus)
+    }
+}
+
+@Composable
+private fun ComposerRow(
+    modifier: Modifier,
+    placeholder: String,
+    typed: String?,
+    onValueChange: ((String) -> Unit)?,
+    onSend: (() -> Unit)?,
+    onAttach: (() -> Unit)?,
+    onMic: (() -> Unit)?,
+    onMicDown: (() -> Unit)?,
+    onMicUp: (() -> Unit)?,
+    listening: Boolean,
+    listeningText: String,
+    micLabel: String,
+    mic: MicState,
+    micLevel: Float,
+    focus: androidx.compose.ui.focus.FocusRequester? = null,
 ) {
     Row(
-        modifier.fillMaxWidth().heightIn(min = Phone.composerHeight).background(Ink.black, CircleShape).padding(horizontal = 8.dp, vertical = 8.dp),
+        modifier.fillMaxWidth().heightIn(min = Phone.composerHeight).padding(horizontal = 8.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -193,7 +300,8 @@ fun PhoneComposer(
             val style = FerbType.style(16.5f, color = Ink.white)
             if (onValueChange != null) {
                 BasicTextField(
-                    typed.orEmpty(), onValueChange, Modifier.fillMaxWidth().semantics { contentDescription = placeholder },
+                    typed.orEmpty(), onValueChange,
+                    Modifier.fillMaxWidth().then(if (focus != null) Modifier.focusRequester(focus) else Modifier).semantics { contentDescription = placeholder },
                     textStyle = style, cursorBrush = SolidColor(Ink.onDark), maxLines = 4,
                 )
                 if (typed.isNullOrEmpty()) PhoneText(if (listening) listeningText else placeholder, 16.5f, color = Ink.onDark, maxLines = 1)

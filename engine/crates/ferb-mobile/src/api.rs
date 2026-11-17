@@ -419,8 +419,6 @@ pub(crate) struct State {
     generation: u64,
     /// Conversations whose older page waits for a path that carries it.
     older_waiting: HashSet<String>,
-    /// What FERB has waiting, as last pushed or read (memory only: question words are never stored).
-    pub(crate) status: Option<PhoneStatus>,
     /// The app locked: the watch stays closed until the next unlock's sync (PHN-125).
     pub(crate) locked: bool,
     /// The phone's own record for the Mac and the Mac's request for a precise fix (T-1214; memory only).
@@ -428,7 +426,12 @@ pub(crate) struct State {
 }
 
 pub(crate) struct Shared {
-    pub(crate) state: Mutex<State>,
+    pub(crate) state: StateLock,
+    /// What FERB has waiting, as last pushed or read (memory only: question words are never stored). Its own small
+    /// lock, held only to copy it: `last_status` never waits for the store or for anything else (kb PHN-681).
+    pub(crate) status: Mutex<Option<PhoneStatus>>,
+    /// The core was closed (or forgot its Mac): what reads without the state says `closed` too.
+    pub(crate) closed: std::sync::atomic::AtomicBool,
     /// One sync at a time (reads, the watch's start).
     sync_lock: Mutex<()>,
     /// One outbox flush at a time, so messages go in order and once.
@@ -439,9 +442,126 @@ pub(crate) struct Shared {
 }
 
 /// The phone's core. Every method is blocking and bounded (store work, and at most the transport's own call deadline
-/// per network call); none holds a lock across a network call. `close` (or `forget_this_mac`) ends it.
+/// per network call); none holds the state's lock across a call to the Mac or a callback ([`StateLock`] checks it).
+/// `close` (or `forget_this_mac`) ends it.
 pub struct Mobile {
     pub(crate) shared: Arc<Shared>,
+}
+
+thread_local! {
+    /// How many of the core's state guards this thread holds ([`StateLock`]).
+    static STATE_HELD: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// The core's state behind its one lock, and the lock's rule (kb PHN-681; the owner's phone froze on 2026-11-18 when
+/// a sync waited for the Mac with this locked): the thread that holds it does store and memory work only. It never
+/// calls the Mac, never tells the app a change, and never lets go of a transport or a watch (whose end may come back
+/// for the state) until the guard is gone. Every reader of the core queues behind this lock, and the link's one pump
+/// thread needs it to hand over a frame or an event, so a wait under it stops the app's readers and can keep a
+/// call's answer from ever being read. [`not_held`] checks the rule in debug and test builds, on every call to the
+/// Mac and every change told; taking the lock twice on one thread, which would wait for itself for good, is refused
+/// in every build.
+pub(crate) struct StateLock(Mutex<State>);
+
+/// The state, locked ([`StateLock::lock`]).
+pub(crate) struct Held<'a>(MutexGuard<'a, State>);
+
+impl StateLock {
+    fn new(state: State) -> StateLock {
+        StateLock(Mutex::new(state))
+    }
+
+    pub(crate) fn lock(&self) -> Held<'_> {
+        assert!(
+            STATE_HELD.with(|h| h.get()) == 0,
+            "the core's state was asked for on a thread that already holds it"
+        );
+        let guard = self.0.lock().unwrap_or_else(|p| p.into_inner());
+        STATE_HELD.with(|h| h.set(h.get() + 1));
+        Held(guard)
+    }
+}
+
+impl Drop for Held<'_> {
+    fn drop(&mut self) {
+        STATE_HELD.with(|h| h.set(h.get().saturating_sub(1)));
+    }
+}
+
+impl std::ops::Deref for Held<'_> {
+    type Target = State;
+    fn deref(&self) -> &State {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for Held<'_> {
+    fn deref_mut(&mut self) -> &mut State {
+        &mut self.0
+    }
+}
+
+/// The rule of [`StateLock`]: `what` (a call to the Mac, a change told to the app) never runs on a thread that holds
+/// the core's state. Checked in debug and test builds, so every test of the core holds every path to it.
+pub(crate) fn not_held(what: &str) {
+    if cfg!(debug_assertions) {
+        assert!(
+            STATE_HELD.with(|h| h.get()) == 0,
+            "{what} with the core's state locked: every reader of the core would wait for it"
+        );
+    }
+}
+
+/// The app's transport as the core calls it: each call to the Mac checks [`StateLock`]'s rule first.
+struct Unlocked(Arc<dyn Transport>);
+
+impl Transport for Unlocked {
+    fn call(
+        &self,
+        method: &str,
+        params_json: &str,
+        proof_json: Option<&str>,
+    ) -> Result<String, crate::transport::LinkFailure> {
+        not_held("a call to the Mac");
+        self.0.call(method, params_json, proof_json)
+    }
+    fn send(&self, params_json: &str) -> Result<String, crate::transport::LinkFailure> {
+        not_held("a message sent to the Mac");
+        self.0.send(params_json)
+    }
+    fn watch(
+        &self,
+        params_json: &str,
+        sink: Arc<dyn WatchSink>,
+    ) -> Result<Box<dyn WatchHandle>, crate::transport::LinkFailure> {
+        not_held("a watch started on the Mac");
+        self.0.watch(params_json, sink)
+    }
+    fn get(
+        &self,
+        id: &str,
+        params_json: &str,
+        save_to: Option<&str>,
+        append: bool,
+        sink: Arc<dyn crate::transport::TransferSink>,
+    ) -> Result<String, crate::transport::LinkFailure> {
+        not_held("a fetch from the Mac");
+        self.0.get(id, params_json, save_to, append, sink)
+    }
+    fn put(
+        &self,
+        id: &str,
+        path: &str,
+        opts_json: &str,
+        sink: Arc<dyn crate::transport::TransferSink>,
+    ) -> Result<String, crate::transport::LinkFailure> {
+        not_held("an upload to the Mac");
+        self.0.put(id, path, opts_json, sink)
+    }
+    fn cancel(&self, id: &str) {
+        not_held("a cancel");
+        self.0.cancel(id)
+    }
 }
 
 pub(crate) fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -511,7 +631,7 @@ impl Mobile {
         let current = store.meta("current")?;
         Ok(Mobile {
             shared: Arc::new(Shared {
-                state: Mutex::new(State {
+                state: StateLock::new(State {
                     store: Some(store),
                     convs: HashMap::new(),
                     current,
@@ -526,10 +646,11 @@ impl Mobile {
                     watch: None,
                     generation: 0,
                     older_waiting: HashSet::new(),
-                    status: None,
                     locked: false,
                     device: Default::default(),
                 }),
+                status: Mutex::new(None),
+                closed: std::sync::atomic::AtomicBool::new(false),
                 sync_lock: Mutex::new(()),
                 outbox_lock: Mutex::new(()),
                 config,
@@ -542,23 +663,25 @@ impl Mobile {
     /// Plugs the link in (or a new one after the app restarted it). Nothing is called until the link says it is
     /// online (`link_event`) or the app calls `sync`.
     pub fn connect(&self, transport: Arc<dyn Transport>) -> MobileResult<()> {
-        let mut st = self.shared.open_state()?;
-        st.transport = Some(transport);
+        let new: Arc<dyn Transport> = Arc::new(Unlocked(transport));
+        // the one before is let go after the guard: its end may come back for the state (a door's last watch)
+        let old = self.shared.open_state()?.transport.replace(new);
+        drop(old);
         Ok(())
     }
 
     /// Unplugs the link: the watch stops and nothing live stays.
     pub fn disconnect(&self) {
-        let watch = {
-            let mut st = lock(&self.shared.state);
-            st.transport = None;
+        let (watch, _transport) = {
+            let mut st = self.shared.state.lock();
+            let transport = st.transport.take();
             st.link.path = LinkPath::Offline;
             st.link.watching = false;
             st.device.offline();
             for c in st.convs.values_mut() {
                 c.live.reset();
             }
-            st.watch.take()
+            (st.watch.take(), transport)
         };
         if let Some((_, _, h)) = watch {
             h.close();
@@ -637,15 +760,15 @@ impl Mobile {
     /// A message with files: this phone's finished uploads on the Mac, by their ids (PHN-127); the Mac turns them
     /// into the message's files (`input_paths`). Kept in the outbox like any message.
     pub fn send_with(&self, text: &str, attachments: &[Attachment]) -> MobileResult<OutboxItem> {
+        // the app's id and clock are asked before the state is locked (they are the app's code)
+        let (id, at) = (
+            self.shared.env.ids.new_id(),
+            self.shared.env.clock.now_iso(),
+        );
         let item = {
             let st = self.shared.open_state()?;
             let store = st.store.as_ref().ok_or_else(MobileError::closed)?;
-            let row = store.outbox_add_with(
-                &self.shared.env.ids.new_id(),
-                text,
-                &self.shared.env.clock.now_iso(),
-                attachments,
-            )?;
+            let row = store.outbox_add_with(&id, text, &at, attachments)?;
             outbox_item(&row)
         };
         self.shared.notify(Change::Outbox);
@@ -754,7 +877,7 @@ impl Mobile {
     }
 
     pub fn link_state(&self) -> LinkState {
-        let st = lock(&self.shared.state);
+        let st = self.shared.state.lock();
         let mut l = st.link.clone();
         l.locked = st.locked;
         l
@@ -763,26 +886,29 @@ impl Mobile {
     /// The app unlocked (its prompt was answered): the conversation is read again from the next sync. The Mac's own
     /// unlock is `link.unlock` (the FFI's `unlock`), which calls this before its sync.
     pub fn unlocked(&self) {
-        lock(&self.shared.state).locked = false;
+        self.shared.state.lock().locked = false;
         self.shared.notify(Change::Link);
     }
 
     /// "Forget this Mac" (PHN-408): the watch stops, the link is unplugged, the store's files are deleted and every
     /// call answers `closed`. The app then forgets its wrapped key and unpairs the link (S9).
     pub fn forget_this_mac(&self) -> MobileResult<()> {
-        let (store, watch) = {
-            let mut st = lock(&self.shared.state);
-            st.transport = None;
+        use std::sync::atomic::Ordering;
+        self.shared.closed.store(true, Ordering::SeqCst);
+        let (store, watch, _transport) = {
+            let mut st = self.shared.state.lock();
+            let transport = st.transport.take();
             st.convs.clear();
             st.current = None;
             st.older_waiting.clear();
             st.link.path = LinkPath::Offline;
             st.link.watching = false;
-            (st.store.take(), st.watch.take())
+            (st.store.take(), st.watch.take(), transport)
         };
         if let Some((_, _, h)) = watch {
             h.close();
         }
+        *lock(&self.shared.status) = None;
         let r = match store {
             Some(s) => s.forget().map_err(MobileError::from),
             None => Err(MobileError::closed()),
@@ -793,12 +919,17 @@ impl Mobile {
 
     /// Closes the core: the watch stops, the store closes (its files stay). Idempotent.
     pub fn close(&self) {
-        let (store, watch) = {
-            let mut st = lock(&self.shared.state);
-            st.transport = None;
+        self.shared
+            .closed
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        // the transport and the watch are let go after the guard: a door closed by its last holder ends its watch,
+        // which asks for the state
+        let (store, watch, _transport) = {
+            let mut st = self.shared.state.lock();
+            let transport = st.transport.take();
             st.convs.clear();
             st.link.watching = false;
-            (st.store.take(), st.watch.take())
+            (st.store.take(), st.watch.take(), transport)
         };
         if let Some((_, _, h)) = watch {
             h.close();
@@ -898,7 +1029,7 @@ impl WatchSink for Sink {
         let Some(shared) = self.shared.upgrade() else {
             return;
         };
-        if lock(&shared.state).generation != self.generation {
+        if shared.state.lock().generation != self.generation {
             return;
         }
         let Ok(frame) = serde_json::from_str::<Value>(&frame_json) else {
@@ -930,7 +1061,7 @@ impl WatchSink for Sink {
             }
             "live" => {
                 let changed = {
-                    let mut st = lock(&shared.state);
+                    let mut st = shared.state.lock();
                     match st.conv(&c) {
                         Ok(conv) => conv
                             .live
@@ -964,17 +1095,18 @@ impl WatchSink for Sink {
         let Some(shared) = self.shared.upgrade() else {
             return;
         };
-        {
-            let mut st = lock(&shared.state);
+        let _ended = {
+            let mut st = shared.state.lock();
             if st.generation != self.generation {
                 return;
             }
-            st.watch = None;
+            let ended = st.watch.take();
             st.link.watching = false;
             if let Some(conv) = st.convs.get_mut(&self.conversation) {
                 conv.live.reset();
             }
-        }
+            ended
+        };
         shared.notify(Change::Live {
             conversation: self.conversation.clone(),
         });
@@ -992,11 +1124,12 @@ impl WatchSink for Sink {
 
 impl Shared {
     pub(crate) fn notify(&self, change: Change) {
+        not_held("a change told to the app");
         self.env.listener.changed(change);
     }
 
-    pub(crate) fn open_state(&self) -> MobileResult<MutexGuard<'_, State>> {
-        let st = lock(&self.state);
+    pub(crate) fn open_state(&self) -> MobileResult<Held<'_>> {
+        let st = self.state.lock();
         if st.store.is_none() {
             return Err(MobileError::closed());
         }
@@ -1004,7 +1137,7 @@ impl Shared {
     }
 
     pub(crate) fn online(&self) -> bool {
-        let st = lock(&self.state);
+        let st = self.state.lock();
         st.transport.is_some() && st.link.path != LinkPath::Offline
     }
 
@@ -1039,7 +1172,7 @@ impl Shared {
         let mut retry_older: Vec<String> = Vec::new();
         let mut watch_to_close = None;
         {
-            let mut st = lock(&this.state);
+            let mut st = this.state.lock();
             if st.store.is_none() {
                 return;
             }
@@ -1102,12 +1235,15 @@ impl Shared {
                 }
                 "status" => {
                     // the Mac's pushed `chat.status` (the bridge's, when it changes): memory only
-                    let status = PhoneStatus::read(&ev["status"]);
-                    if st.status.as_ref() == Some(&status) {
-                        return;
-                    }
-                    st.status = Some(status);
                     drop(st);
+                    let status = PhoneStatus::read(&ev["status"]);
+                    {
+                        let mut last = lock(&this.status);
+                        if last.as_ref() == Some(&status) {
+                            return;
+                        }
+                        *last = Some(status);
+                    }
                     this.notify(Change::Status);
                     return;
                 }
@@ -1370,7 +1506,7 @@ impl Shared {
             }
             (st.generation, params)
         };
-        let old = lock(&this.state).watch.take();
+        let old = this.state.lock().watch.take();
         if let Some((_, _, h)) = old {
             h.close();
         }
@@ -1383,7 +1519,7 @@ impl Shared {
         let handle = t
             .watch(&params.to_string(), sink)
             .map_err(MobileError::from_link)?;
-        let mut st = lock(&this.state);
+        let mut st = this.state.lock();
         if st.generation == generation {
             st.watch = Some((generation, conversation.to_string(), handle));
             st.link.watching = true;
@@ -1401,7 +1537,7 @@ impl Shared {
         let t = this.transport()?;
         // the phone's own record, when this connection hasn't heard it yet (T-1214); a refusal waits for the next sync
         let _ = Self::send_device(this, &t);
-        if lock(&this.state).locked {
+        if this.state.lock().locked {
             // the app is locked (PHN-125): only what waits (the Mac's status, allowed locked), never the conversation
             let _ = Self::read_status(this, &t);
             return Err(MobileError::new(
@@ -1450,14 +1586,16 @@ impl Shared {
         }
         Self::fetch_cut(this, &conversation)?;
         Self::start_watch(this, &t, &conversation)?;
-        // the delivered mark: what this phone has stored (best effort)
-        if let Ok(Some(c)) = this
+        // the delivered mark: what this phone has stored (best effort). The cursor is read and the state let go
+        // BEFORE the call: an `if let` on the read itself keeps its guard through the whole body, and the sync then
+        // waited for the Mac with the state locked (the owner's freeze of 2026-11-18, kb PHN-680).
+        let stored = this
             .open_state()?
             .store
             .as_ref()
             .ok_or_else(MobileError::closed)?
-            .cursor(&conversation)
-        {
+            .cursor(&conversation);
+        if let Ok(Some(c)) = stored {
             let _ = t.call(
                 "chat.entries.mark",
                 &json!({"client_id": this.config.client_id, "conversation": conversation,
@@ -1488,7 +1626,8 @@ impl Shared {
             let state = OlderState::NeedsBetterPath {
                 message: OLDER_NEEDS_BETTER_PATH.into(),
             };
-            lock(&this.state)
+            this.state
+                .lock()
                 .older_waiting
                 .insert(conversation.to_string());
             Self::set_older(this, conversation, state.clone(), None)?;
@@ -1615,8 +1754,7 @@ impl Shared {
         approval_id: &str,
     ) -> MobileResult<String> {
         let held = |this: &Arc<Shared>| -> Option<String> {
-            lock(&this.state)
-                .status
+            lock(&this.status)
                 .as_ref()
                 .and_then(|s| s.needs(approval_id))
                 .and_then(|n| n.challenge.clone())
@@ -1736,7 +1874,7 @@ impl Shared {
                     _ => answer_payload(approval_id, &challenge, method, &params),
                 };
                 // a challenge is one use: the next answer reads the Mac's next one
-                if let Some(s) = lock(&this.state).status.as_mut() {
+                if let Some(s) = lock(&this.status).as_mut() {
                     for q in s
                         .questions
                         .iter_mut()

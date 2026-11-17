@@ -7,14 +7,16 @@
 use ferb_orchestrator::models::Condition;
 use ferb_orchestrator::verify::{ConditionResult, BY_MAC, BY_RECORD, DIFFERENT};
 
-/// ORCH-672, D2 (the agent's default, awaiting the owner): whether a done answer whose proof is the checker's look
-/// at the page (no receipt of FERB's own) carries a line saying so. Off: the basis is kept in the task's details
-/// (its verification `basis`, `ferb trace`). Turning it on adds [`checked_line`] under such an answer.
+/// ORCH-672, D2 (off, as the owner chose: APP-956): whether a done answer whose proof is the checker's look at the
+/// page (no receipt of FERB's own) carries a line saying so. Off: the basis is kept in the task's details (its
+/// verification `basis`, `ferb trace`). Turning it on adds [`checked_line`] under such an answer.
+// decision: APP-956
 pub const HOW_CHECKED_IN_CHAT: bool = false;
 
-/// ORCH-668, D3 (the agent's default, awaiting the owner): a result FERB reached on something other than what the
-/// owner named ends its own way, as delivered with gaps ("Not done: <condition> — <what was done instead>"), never
+/// ORCH-668, D3 (as the owner chose: APP-955): a result FERB reached on something other than what the owner named
+/// ends its own way, as delivered with gaps ("Not done: <condition> — <what was done instead>"), never
 /// done and never a bare failure. False: it ends as not done, with the same sentence.
+// decision: APP-955
 pub const DIFFERENT_ENDS_DELIVERED: bool = true;
 
 /// The B line (off by [`HOW_CHECKED_IN_CHAT`]).

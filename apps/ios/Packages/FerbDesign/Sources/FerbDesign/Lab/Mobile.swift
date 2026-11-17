@@ -150,6 +150,8 @@ public struct TopBar: View {
     @Environment(\.tabBarHosted) private var hosted
     @Environment(\.accessibilityReduceMotion) private var reduce
     @Namespace private var pill
+    /// Not from the lab (kb PHN-751): the connection control beside the profile button, when the app gives one.
+    @Environment(\.connection) private var connection
 
     public var body: some View {
         if hosted {
@@ -196,6 +198,7 @@ public struct TopBar: View {
             .clipShape(Capsule().inset(by: -1))
             .animation(reduce ? nil : FerbMotion.tab.animation, value: chosen)
             Spacer()
+            if let connection { ConnectionButton(connection).padding(.trailing, 8) }
             Image(systemName: "person.fill")
                 .font(.system(size: 17))
                 .foregroundStyle(Ink.white)
@@ -209,10 +212,11 @@ public struct TopBar: View {
     }
 }
 
-/// A white card holding rows, PairIt's settings card.
+/// A white card holding rows, PairIt's settings card; on FERB's surface (`onFerb`, kb PHN-734) FERB's dark card.
 public struct Card<Content: View>: View {
     var padding: CGFloat = 6
     var content: Content
+    @Environment(\.onFerb) private var onFerb
     public init(padding: CGFloat = 6, @ViewBuilder content: () -> Content) {
         self.padding = padding
         self.content = content()
@@ -220,17 +224,47 @@ public struct Card<Content: View>: View {
     public var body: some View {
         VStack(spacing: 0) { content }
             .padding(padding)
-            .background(Ink.white, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .background(CardInk(onFerb).card, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
     }
 }
 
 public struct Divide: View {
+    @Environment(\.onFerb) private var onFerb
     public init() {}
-    public var body: some View { Rectangle().fill(Ink.line).frame(height: 1).padding(.horizontal, 14) }
+    public var body: some View { Rectangle().fill(CardInk(onFerb).line).frame(height: 1).padding(.horizontal, 14) }
+}
+
+/// FERB's surface (kb PHN-734, the owner: "why not maintain its dark color??/ it consisten - like in mac app"):
+/// everything FERB shows in the chat sits on its bubble's black with the on-dark inks; the owner's own messages and
+/// the sheets stay white. Pieces read it from the environment (`onFerb`), so no card picks a colour of its own.
+private struct OnFerbKey: EnvironmentKey { static let defaultValue = false }
+public extension EnvironmentValues {
+    var onFerb: Bool { get { self[OnFerbKey.self] } set { self[OnFerbKey.self] = newValue } }
+}
+public extension View {
+    /// Draws what is inside on FERB's dark surface.
+    func ferbSurface() -> some View { environment(\.onFerb, true) }
+}
+
+/// The inks of a card: the lab's white card, or FERB's dark surface. Text contrast on black: white 21:1, secondary
+/// #9A9A9A 7.4:1, faint #8E8E8E 6.4:1, amber #FFB020 11:1, red #FF6B5E 6.9:1, link #9CC7FF 12:1.
+public struct CardInk: Sendable {
+    public let onFerb: Bool
+    public init(_ onFerb: Bool) { self.onFerb = onFerb }
+    public var card: Color { onFerb ? Ink.black : Ink.white }
+    public var primary: Color { onFerb ? .white : Ink.black }
+    public var secondary: Color { onFerb ? Ink.onDark : Ink.detail }
+    public var faint: Color { onFerb ? Color(hex: 0x8E8E8E) : Ink.faint }
+    public var fill: Color { onFerb ? Ink.darkFill : Ink.fill }
+    public var line: Color { onFerb ? Color.white.opacity(0.12) : Ink.line }
+    public var red: Color { onFerb ? Color(hex: 0xFF6B5E) : Ink.red }
+    public var link: Color { onFerb ? Color(hex: 0x9CC7FF) : Color(hex: 0x1F6FEB) }
+    public var amberText: Color { onFerb ? Ink.amber : Color(hex: 0xB86E00) }
 }
 
 /// One row of a card: an icon or a mark, a title and its detail, and what is on the right.
 public struct CardRow<Leading: View, Trailing: View>: View {
+    @Environment(\.onFerb) private var onFerb
     let title: String
     var detail: String? = nil
     var danger = false
@@ -252,8 +286,8 @@ public struct CardRow<Leading: View, Trailing: View>: View {
         HStack(spacing: 14) {
             leading.frame(width: 28)
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).type(16.5, .semibold, danger ? Ink.red : Ink.black).lineLimit(2)
-                if let detail { Text(detail).type(14, .regular, Ink.detail).lineLimit(1) }
+                Text(title).type(16.5, .semibold, danger ? CardInk(onFerb).red : CardInk(onFerb).primary).lineLimit(2)
+                if let detail { Text(detail).type(14, .regular, CardInk(onFerb).secondary).lineLimit(1) }
             }
             Spacer(minLength: 8)
             trailing
@@ -274,17 +308,19 @@ public extension CardRow where Trailing == EmptyView {
 public struct RowIcon: View {
     let symbol: String
     var danger = false
+    @Environment(\.onFerb) private var onFerb
     public init(symbol: String, danger: Bool = false) { self.symbol = symbol; self.danger = danger }
-    public var body: some View { Image(systemName: symbol).font(.system(size: 20)).foregroundStyle(danger ? Ink.red : Ink.black) }
+    public var body: some View { Image(systemName: symbol).font(.system(size: 20)).foregroundStyle(danger ? CardInk(onFerb).red : CardInk(onFerb).primary) }
 }
 
 public struct Opens: View {
     var value: String? = nil
+    @Environment(\.onFerb) private var onFerb
     public init(value: String? = nil) { self.value = value }
     public var body: some View {
         HStack(spacing: 5) {
-            if let value { Text(value).type(15, .medium, Ink.faint) }
-            Image(systemName: "chevron.right").font(.system(size: 14, weight: .semibold)).foregroundStyle(Ink.faint)
+            if let value { Text(value).type(15, .medium, CardInk(onFerb).faint) }
+            Image(systemName: "chevron.right").font(.system(size: 14, weight: .semibold)).foregroundStyle(CardInk(onFerb).faint)
         }
     }
 }
@@ -309,6 +345,7 @@ public struct Mark: View {
     public typealias Kind = MarkKind
     let kind: Kind
     var size: CGFloat = 26
+    @Environment(\.onFerb) private var onFerb
 
     public init(kind: Kind, size: CGFloat = 26) { self.kind = kind; self.size = size }
 
@@ -316,8 +353,8 @@ public struct Mark: View {
         ZStack {
             switch kind {
             case .done:
-                Circle().fill(Ink.black)
-                Image(systemName: "checkmark").font(.system(size: size * 0.45, weight: .bold)).foregroundStyle(.white)
+                Circle().fill(onFerb ? Color.white : Ink.black)
+                Image(systemName: "checkmark").font(.system(size: size * 0.45, weight: .bold)).foregroundStyle(onFerb ? Ink.black : .white)
             case .asking:
                 Circle().fill(Ink.amber)
                 Text("?").font(.system(size: size * 0.55, weight: .bold)).foregroundStyle(.black)
@@ -328,7 +365,7 @@ public struct Mark: View {
                 MotionClock { t in
                     let turn = t.truncatingRemainder(dividingBy: 0.8) / 0.8
                     Circle().trim(from: 0, to: 0.3)
-                        .stroke(Ink.black, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                        .stroke(onFerb ? Color.white : Ink.black, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
                         .rotationEffect(.degrees(turn * 360))
                         .padding(2)
                 }
@@ -366,20 +403,24 @@ public struct Pill: View {
         self.onClick = onClick
     }
 
+    @Environment(\.onFerb) private var onFerb
+
     public var body: some View {
-        HStack(spacing: 9) {
+        // on FERB's surface the one thing to do is white on black's inverse, the other choice the dark fill
+        let primary = onFerb ? (kind == .black ? Ink.black : Ink.white) : (kind == .black ? Ink.white : Ink.black)
+        return HStack(spacing: 9) {
             if let symbol { Image(systemName: symbol).font(.system(size: 17, weight: .medium)) }
             Text(title).font(.system(size: 16, weight: .semibold))
         }
-        .foregroundStyle(kind == .black ? Ink.white : Ink.black)
+        .foregroundStyle(primary)
         .fixedSize(horizontal: !fill, vertical: false)
         .padding(.horizontal, fill ? 0 : 28)
         .frame(maxWidth: fill ? .infinity : nil)
         .frame(height: height)
         .background {
             switch kind {
-            case .black: RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Ink.black)
-            case .grey: RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Ink.fill)
+            case .black: RoundedRectangle(cornerRadius: 16, style: .continuous).fill(onFerb ? Ink.white : Ink.black)
+            case .grey: RoundedRectangle(cornerRadius: 16, style: .continuous).fill(onFerb ? Ink.darkFill : Ink.fill)
             case .plain: EmptyView()
             }
         }
@@ -411,12 +452,18 @@ public struct PhoneComposer: View {
     /// Not from the lab (kb PHN-643): getting ready, listening (with a ring that grows with `micLevel`, 0...1), finishing.
     var micState: MicState = .idle
     var micLevel: Float = 0
+    /// Not from the lab (kb PHN-690): files waiting in the box, drawn inside it above the words; the capsule becomes a card.
+    var attachments: AnyView? = nil
+    /// Not from the lab: lets the app put the cursor in the box (a tap on FERB's question's notification, kb PHN-739).
+    var focus: FocusState<Bool>.Binding? = nil
     @GestureState private var held = false
 
     public init(placeholder: String = "Ask FERB", typed: String? = nil, text: Binding<String>? = nil,
                 onSend: (() -> Void)? = nil, onAttach: (() -> Void)? = nil, onMic: (() -> Void)? = nil,
                 onMicDown: (() -> Void)? = nil, onMicUp: (() -> Void)? = nil, listening: Bool = false,
-                listeningText: String? = nil, micLabel: String = "Speak", micState: MicState? = nil, micLevel: Float = 0) {
+                listeningText: String? = nil, micLabel: String = "Speak", micState: MicState? = nil, micLevel: Float = 0,
+                attachments: AnyView? = nil, focus: FocusState<Bool>.Binding? = nil) {
+        self.focus = focus
         self.placeholder = placeholder
         self.typed = typed
         self.text = text
@@ -430,6 +477,7 @@ public struct PhoneComposer: View {
         self.micLabel = micLabel
         self.micState = micState ?? (listening ? .listening : .idle)
         self.micLevel = micLevel
+        self.attachments = attachments
     }
 
     @ViewBuilder private var mic: some View {
@@ -469,6 +517,23 @@ public struct PhoneComposer: View {
     }
 
     public var body: some View {
+        if let attachments {
+            VStack(spacing: 0) {
+                attachments.padding(.horizontal, 8).padding(.top, 8)
+                row.padding(.horizontal, 8).padding(.vertical, 8).frame(minHeight: 56)
+            }
+            .background(Ink.black, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+        } else {
+            row
+                .padding(.horizontal, 8)
+                .padding(.vertical, text == nil ? 0 : 8)
+                .frame(minHeight: 56)
+                .frame(height: text == nil ? 56 : nil)
+                .background(Ink.black, in: Capsule())
+        }
+    }
+
+    private var row: some View {
         HStack(spacing: 10) {
             Image(systemName: "plus").font(.system(size: 18, weight: .medium)).foregroundStyle(.white)
                 .frame(width: 40, height: 40).background(Ink.darkFill, in: Circle())
@@ -478,13 +543,20 @@ public struct PhoneComposer: View {
                     if text.wrappedValue.isEmpty {
                         Text(listening ? listeningText ?? placeholder : placeholder).type(16.5, .regular, Ink.onDark).lineLimit(1)
                     }
-                    TextField("", text: text, axis: .vertical).lineLimit(1...4).type(16.5, .regular, .white).tint(Ink.onDark)
-                        .accessibilityLabel(Text(placeholder))
+                    Group {
+                        if let focus {
+                            TextField("", text: text, axis: .vertical).focused(focus)
+                        } else {
+                            TextField("", text: text, axis: .vertical)
+                        }
+                    }
+                    .lineLimit(1...4).type(16.5, .regular, .white).tint(Ink.onDark)
+                    .accessibilityLabel(Text(placeholder))
                 }
             } else if let typed, !typed.isEmpty {
                 (Text(typed) + Text("|").foregroundColor(Ink.onDark)).type(16.5, .regular, .white).lineLimit(1).truncationMode(.head)
             } else {
-                Text(placeholder).type(16.5, .regular, Ink.onDark)
+                Text(placeholder).type(16.5, .regular, Ink.onDark).lineLimit(1)
             }
             Spacer()
             mic
@@ -492,11 +564,6 @@ public struct PhoneComposer: View {
                 .frame(width: 40, height: 40).background(Ink.white, in: Circle())
                 .pressable(onSend, label: "Send")
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, text == nil ? 0 : 8)
-        .frame(minHeight: 56)
-        .frame(height: text == nil ? 56 : nil)
-        .background(Ink.black, in: Capsule())
     }
 }
 

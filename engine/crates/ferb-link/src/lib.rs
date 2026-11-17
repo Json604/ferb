@@ -16,8 +16,28 @@
 /// (a method, an event, a form of the pairing code). Each side says its own in the hello and the welcome, so a
 /// refusal can name the side that is behind. A side that says none is level 0.
 /// 1: levels themselves, the short pairing code. 2: each side says which kinds of address it offers for a
-/// direct connection and how often it tried (`link.note {net}`, `link.status`).
-pub const LEVEL: u32 = 2;
+/// direct connection and how often it tried (`link.note {net}`, `link.status`). 3: the phone forgets itself
+/// (`link.forget`), the unlock signed before the link was up (`link.unlock_statement`), and presence that keeps the
+/// Mac's window open while the app is unlocked and in front (`link.present {active}`), PHN-646..649. 4: the
+/// planner's question that waits is in `chat.status` (`kind` "clarify", answered by a message), PHN-761..763.
+pub const LEVEL: u32 = 4;
+/// The level from which an app knows the planner's question in `chat.status`; an older app is never sent one (it
+/// would take it for a gateway question and answer it with `chat.answer`).
+pub const LEVEL_CLARIFY: u32 = 4;
+
+/// What an app at `level` may be sent of the daemon's `chat.status`: the planner's question only from
+/// [`LEVEL_CLARIFY`] on.
+pub fn status_for_level(status: &mut serde_json::Value, level: u32) {
+    if level >= LEVEL_CLARIFY {
+        return;
+    }
+    if let Some(aps) = status
+        .get_mut("approvals")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        aps.retain(|a| a["kind"] != "clarify");
+    }
+}
 /// Link version 2: hidden answers through the sealed path, relays with their own certificate. A version 1 app is
 /// told to update.
 pub const VERSION: u32 = 2;

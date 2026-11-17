@@ -3,6 +3,7 @@ import FerbCore
 import FerbDesign
 import FerbMobile
 import PhotosUI
+import ImageIO
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -20,7 +21,8 @@ struct MainView: View {
         ZStack(alignment: .top) {
             // one tab bar whose pill slides; the page under it comes in from the side of its tab (kb PHN-622)
             TabBarHost(chosen: model.tab, waiting: barWaiting(waiting), onTab: { model.choose($0) }, onProfile: { model.show(.profile) }) {
-                MotionSwitch(TabKey(tab: model.tab, home: model.home), kind: .tab,
+                MotionSwitch(TabKey(tab: model.tab, home: model.tab == .chat && !model.earlier && model.home,
+                                    earlier: model.tab == .chat && model.earlier), kind: .tab,
                              direction: { a, b in (PhoneTab.allCases.firstIndex(of: b.tab) ?? 0) - (PhoneTab.allCases.firstIndex(of: a.tab) ?? 0) }) { k in
                     switch k.tab {
                     case .chat:
@@ -49,9 +51,11 @@ struct MainView: View {
 }
 
 /// The page the tab host shows: the tab, and for the chat whether it is still the home screen.
+/// The tab and, for the chat, its page (kb PHN-696): today's home page, today's chat, or the earlier days.
 private struct TabKey: Hashable {
     let tab: PhoneTab
     let home: Bool
+    var earlier = false
 }
 
 extension MainView {
@@ -126,7 +130,8 @@ private struct Pickers: ViewModifier {
             .confirmationDialog("", isPresented: $p.choosing, titleVisibility: .hidden) {
                 Button(L.s("pick_photos")) { p.photos = true }
                 Button(L.s("pick_files")) { p.files = true }
-                Button(L.s("files_send_folder")) { p.folder = true }
+                // a whole folder goes from the Files tab; the chat's box takes files and photos (kb PHN-690)
+                if !p.forChat { Button(L.s("files_send_folder")) { p.folder = true } }
                 Button(L.s("cancel"), role: .cancel) {}
             }
             .fileImporter(isPresented: $p.files, allowedContentTypes: [.item], allowsMultipleSelection: true) { r in
@@ -153,46 +158,29 @@ private struct Pickers: ViewModifier {
 
 // ---- the composer every page shares --------------------------------------------------------------------------------
 
-/// The owner's draft and send; + picks files that go to the Mac and ride with the next message (PHN-127), shown above
-/// it while they travel and once they arrived; the mic isn't on the phone yet.
+/// The owner's draft and send; + picks files that wait in the box as chips until he sends (kb PHN-690: nothing leaves
+/// the phone before Send; the cross takes one out), with files already on the Mac from the Files tab beside them.
 struct Composer: View {
     @Bindable var model: AppModel
     let placeholder: String
     let picking: Picking
     @Environment(\.skyInk) private var ink
+    @FocusState private var boxFocused: Bool
 
     var body: some View {
         let t = model.transfers
+        let chips = model.outgoing.chips
+        let hasFiles = !chips.isEmpty || !t.ready.isEmpty
         VStack(spacing: 8) {
-            let moving = t.list.filter(\.forChat)
-            if !moving.isEmpty { TransferGroupCard(model: model, group: moving, batch: nil) }
-            if !t.ready.isEmpty {
-                HStack(spacing: 10) {
-                    ForEach(t.ready.prefix(4), id: \.uploadId) { a in
-                        Button { t.unattach(a.uploadId) } label: {
-                            HStack(spacing: 4) {
-                                FileIcon(name: a.name, width: 18)
-                                Text(a.name).type(13.5, .medium, ink.low).lineLimit(1).frame(maxWidth: 120, alignment: .leading)
-                                Image(systemName: "xmark").font(.system(size: 11, weight: .semibold)).foregroundStyle(ink.low)
-                            }
-                        }
-                        .accessibilityLabel(L.s("attach_remove", a.name))
-                    }
-                    if t.ready.count > 4 { Text("+\(t.ready.count - 4)").type(13.5, .medium, ink.low) }
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, 6)
-                // where they already are on the Mac (PHN-608): the message only points FERB at them
-                Text(L.s("attach_place", t.readyPlace ?? model.ui.mac?.uploadFolder?.shown ?? L.s("tr_place_default"))).type(13, .medium, ink.low)
-                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 6)
-            }
+            // the work row above the message box (kb PHN-725; FERB.app ChatBody.swift WorkRowView)
+            if let r = model.ui.running { WorkRowFor(model: model, r: r) }
             // PHN-643: what the microphone is doing, in words above the box
             if let micText {
                 Text(micText).type(13.5, .medium, ink.low).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 6)
                     .accessibilityAddTraits(.updatesFrequently)
             }
             // hold to speak (PHN-603): the words land in the box while held and stay there; never sent by themselves
-            PhoneComposer(placeholder: placeholder, text: Binding(get: { model.draft }, set: { model.typed($0) }),
+            PhoneComposer(placeholder: hasFiles ? L.s("chat_placeholder_files") : placeholder, text: Binding(get: { model.draft }, set: { model.typed($0) }),
                           onSend: { model.send() }, onAttach: { picking.ask(forChat: true) },
                           onMicDown: {
                               if model.voicePress() == .askMicrophone {
@@ -201,7 +189,22 @@ struct Composer: View {
                           },
                           onMicUp: { model.voiceRelease() }, listening: model.listening,
                           listeningText: micText ?? L.s("voice_listening"), micLabel: L.s("voice_speak"),
-                          micState: model.mic, micLevel: model.micLevel)
+                          micState: model.mic, micLevel: model.micLevel,
+                          attachments: !hasFiles ? nil : AnyView(AttachmentRow {
+                              ForEach(chips, id: \.key) { c in
+                                  AttachmentChip(c.name, detail: ByteCountFormatter.string(fromByteCount: c.size, countStyle: .file),
+                                                 thumbnail: Thumbnail.of(c.path, c.name),
+                                                 removeLabel: L.s("attach_remove", c.name)) { model.unpick(c.key) }
+                              }
+                              ForEach(t.ready, id: \.uploadId) { a in
+                                  AttachmentChip(a.name, detail: L.s("attach_on_mac"), removeLabel: L.s("attach_remove", a.name)) { t.unattach(a.uploadId) }
+                              }
+                          }.accessibilityIdentifier("attachments")),
+                          focus: $boxFocused)
+        }
+        // FERB's own question (a clarify) is answered by a message: its notification's tap puts the cursor here
+        .task(id: model.focusAsk) {
+            if model.focusAsk { boxFocused = true; model.focusTaken() }
         }
         // a tick when FERB starts and stops hearing him
         .sensoryFeedback(trigger: model.mic) { old, new in
@@ -236,13 +239,33 @@ struct HomeView: View {
         HomePage(texts: texts, away: away.map { WorkRow(kind: $0.kind, title: $0.title.isEmpty ? asking : $0.title, detail: $0.detail) },
                  insets: insets, onTab: { model.choose($0) }, onProfile: { model.show(.profile) },
                  onRow: { i in if i < away.count { open(model, away[i]) } }, onMore: { model.choose(.tasks) },
-                 composer: AnyView(Composer(model: model, placeholder: texts.placeholder, picking: picking)))
+                 composer: AnyView(Composer(model: model, placeholder: texts.placeholder, picking: picking)),
+                 // a new day with nothing said yet: earlier days are one tap away (kb PHN-626)
+                 earlier: model.rows.contains { if case .older = $0 { return false }; return true } ? L.s("older_available") : nil,
+                 onEarlier: { model.openChat() })
     }
 }
 
 /// What happened while the owner was away: questions first, then failures, then what finished (HomePage).
 func awayRows(_ ui: UiState) -> [WorkItem] {
     ui.work.waiting + ui.away.filter { $0.kind == .failed } + ui.away.filter { $0.kind != .failed }
+}
+
+/// A day's start as words: "Today", "Yesterday", else the weekday and date in the phone's language (kb PHN-627).
+/// The chat's "today" as the model holds it (kb PHN-697); ChatModel.chatDay itself where none is held yet.
+func chatDayOf(_ ui: UiState) -> Int { ui.chatDay > 0 ? ui.chatDay : ChatModel.chatDay(Date(), Calendar.current) }
+
+/// A day's start as words: "Today", "Yesterday", else the weekday and date in the phone's language (kb PHN-627).
+func dayLabel(_ day: Int, today: Int = ChatModel.chatDay(Date(), Calendar.current)) -> String {
+    if day == today { return L.s("day_today") }
+    if day == today - 1 { return L.s("day_yesterday") }
+    var utc = Calendar(identifier: .gregorian)
+    utc.timeZone = TimeZone(identifier: "UTC")!
+    let date = Date(timeIntervalSince1970: Double(day) * 86_400)
+    let f = DateFormatter()
+    f.timeZone = utc.timeZone
+    f.setLocalizedDateFormatFromTemplate(today - day < 300 ? "EEEEdMMMM" : "EEEEdMMMMy")
+    return f.string(from: date)
 }
 
 @MainActor func open(_ model: AppModel, _ item: WorkItem) {
@@ -257,49 +280,142 @@ struct ChatView: View {
     let waiting: PhoneTab?
     let picking: Picking
     @Environment(\.skyInk) private var ink
+    /// He is at the chat's end (its last point is in view): then it is followed (kb PHN-628).
+    @State private var atEnd = true
+    /// Something arrived while he was scrolled up: the pill.
+    @State private var unseen = false
+    /// The row at the top of what he sees: the day he is in (kb PHN-663).
+    @State private var topKey: String?
+    @State private var tallest: CGFloat = 0
+    private static let end = "chat-end"
 
     var body: some View {
         VStack(spacing: 0) {
             TopBar(chosen: .chat, waiting: waiting, onTab: { model.choose($0) }, onProfile: { model.show(.profile) })
-            if let (text, tap) = statusLine {
-                Button { if tap { model.unlockMac() } } label: {
-                    Text(text).type(14, .medium, ink.low).frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .disabled(!tap)
-                .padding(.horizontal, 24).padding(.top, 10)
+            // the app's one status line: small, grey on a black capsule, its tone's mark (kb PHN-660, PHN-661)
+            if let (text, tone) = statusLine {
+                StatusLine(text, tone: tone).padding(.top, 10).transition(.motionItem)
             }
+            if let need = model.ui.macNeed {
+                MacNeedCard(need: need, busy: model.ui.macLine != nil) { model.unlockMac() }
+            }
+            // two places, as FERB.app separates days (kb PHN-696): today's chat (only today's rows, the way to earlier
+            // days at its top) or the earlier days (one continuous chat with a day's start between days), never both
+            let earlier = model.earlier
+            let todayDay = chatDayOf(model.ui)
+            // messages he sent with files go at the end, after the outbox, until their files are on the Mac (PHN-691)
+            // made by the model when the rows change, off the main actor for a long chat (kb PHN-714)
+            let places = model.places
+            // earlier days exist: rows of them, or older pages the Mac still has (or has when the path allows)
+            let hasEarlier = places.earlier.contains { !Self.isDay($0) }
+            let rows: [ChatRow] = earlier ? places.earlier
+                : (hasEarlier && !places.today.isEmpty ? [.earlierLink(key: "earlier-link")] + places.today : places.today)
+            // the day he is looking at and the latest messages' day: the sticky label and the way back (PHN-662, 663)
+            let top = topKey.flatMap { k in rows.firstIndex { $0.key == k } }
+            let shownDay = top.flatMap { ChatModel.dayAt(rows, $0) }
+            let endDay = ChatModel.dayAt(rows, rows.count - 1)
+            let jump = ChatJump.of(atEnd: atEnd, unseen: unseen, shownDay: shownDay, endDay: endDay, earlier: earlier)
             ScrollViewReader { reader in
-                ScrollView {
-                    LazyVStack(spacing: 12) {
-                        ForEach(model.ui.rows) { row in
-                            ChatRowView(model: model, row: row).id(row.key)
-                                .onAppear { if case .older(_, .available) = row { model.loadOlder() } }
-                                .transition(.motionItem)  // a row that arrives rises in (kb PHN-624)
+                ZStack(alignment: .bottom) {
+                    // nothing stored yet and the first page on its way: the waiting look, never a blank screen (PHN-628)
+                    if rows.isEmpty && model.ui.conversation == nil && model.ui.link?.phase == .online {
+                        ChatWaiting(L.s("chat_loading")).frame(maxHeight: .infinity, alignment: .top)
+                    }
+                    ScrollView {
+                        LazyVStack(spacing: 12) {
+                            ForEach(rows) { row in
+                                // each row gets only what it draws: a streamed word re-evaluates its own row (kb PHN-714)
+                                ChatRowView(model: model, row: row, today: todayDay, olderLoading: model.ui.busy.contains("older")).id(row.key)
+                                    // only the earlier days load older pages; today's chat never does
+                                    .onAppear { if earlier, case .older(_, .available) = row { model.loadOlder() } }
+                                    .transition(.motionItem)  // a row that arrives rises in (kb PHN-624)
+                            }
+                            // the end of the chat: in view means he is at the end, and it is followed (PHN-628)
+                            Color.clear.frame(height: 1).id(Self.end)
+                                .onAppear { atEnd = true; unseen = false }
+                                .onDisappear { atEnd = false }
+                        }
+                        .scrollTargetLayout()
+                        .animation(FerbMotion.item.animation, value: rows.map(\.key))
+                        // with the way to today always there, the end keeps room for it (kb PHN-698)
+                        .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, earlier ? 64 : 12)
+                    }
+                    .scrollPosition(id: $topKey, anchor: .top)
+                    .defaultScrollAnchor(.bottom)
+                    // the chat's height as answers fold to it (FERB.app's CollapsePolicy): the tallest it has been, so the
+                    // keyboard never folds or unfolds what is on screen; the earlier days' cards are a record (APP-769)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { h in if h > tallest { tallest = h } }
+                    .environment(\.chatViewport, tallest)
+                    .environment(\.cardsLive, !earlier)
+                    .scrollDismissesKeyboard(.interactively)
+                    // follow the end while he is at it: a new row, a reply that grows as it streams, his own message
+                    // always; scrolled up, a pill. Before, only a change in the number of rows scrolled (PHN-628).
+                    .onChange(of: rows.last, initial: true) { old, new in
+                        guard new != nil else { return }
+                        let newRow = old?.key != new?.key
+                        let mine: Bool = {
+                            switch new {
+                            case .outbox, .withFiles: return newRow
+                            default: return false
+                            }
+                        }()
+                        if atEnd || mine || old == nil {
+                            if newRow { withAnimation(FerbMotion.item.animation) { reader.scrollTo(Self.end, anchor: .bottom) } }
+                            else { reader.scrollTo(Self.end, anchor: .bottom) }
+                        } else if newRow {
+                            withAnimation(FerbMotion.item.animation) { unseen = true }
                         }
                     }
-                    .animation(FerbMotion.item.animation, value: model.ui.rows.map(\.key))
-                    .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 12)
+                    // the day he is in, held at the top while he looks through the chat (kb PHN-663)
+                    if earlier, !atEnd, let shownDay, let top, !Self.isDay(rows[top]) {
+                        StickyDay(dayLabel(shownDay, today: todayDay)).padding(.top, 8)
+                            .frame(maxHeight: .infinity, alignment: .top)
+                            .transition(.motionItem)
+                            .accessibilityIdentifier("sticky-day")
+                    }
+                    // the way back to the latest messages whenever he is not at the end (kb PHN-662)
+                    if jump != .none {
+                        JumpPill(jump == .newMessage ? L.s("chat_new_message") : jump == .day ? endDay.map { dayLabel($0, today: todayDay) }
+                                    : jump == .today ? L.s("day_today") : nil,
+                                 label: L.s(jump == .today ? "chat_to_today" : "chat_to_latest")) {
+                            if jump == .today { model.backToToday() } else { toEnd(reader) }
+                        }
+                        .padding(.bottom, 10)
+                        .transition(.motionItem)
+                        .accessibilityIdentifier("chat-jump")
+                    }
                 }
-                .scrollDismissesKeyboard(.interactively)
-                .onChange(of: model.ui.rows.count, initial: true) { _, _ in
-                    if let last = model.ui.rows.last { withAnimation { reader.scrollTo(last.key, anchor: .bottom) } }
-                }
+                .animation(FerbMotion.item.animation, value: jump)
+                // the Chat tab tapped on today's chat: to its end (kb PHN-662; in the earlier days it goes back to
+                // today, PHN-698)
+                .onChange(of: model.chatToEnd) { toEnd(reader) }
             }
             Composer(model: model, placeholder: L.s("chat_placeholder"), picking: picking)
                 .padding(.horizontal, 16).padding(.bottom, insets.bottom + 8)
         }
+        .animation(FerbMotion.item.animation, value: statusLine?.0)
     }
 
-    /// The line under the tabs: the Mac can't be reached, its unlock is on its way or slow (PHN-641), or it is needed
-    /// after the owner cancelled its prompt (a tap gives it).
-    private var statusLine: (String, Bool)? {
-        if model.ui.link?.phase != .online { return (L.s("chat_offline"), false) }
+    private func toEnd(_ reader: ScrollViewProxy) {
+        unseen = false
+        withAnimation(FerbMotion.item.animation) { reader.scrollTo(Self.end, anchor: .bottom) }
+    }
+
+    private static func isDay(_ row: ChatRow) -> Bool { if case .day = row { return true } else { return false } }
+
+    /// The line under the tabs: the Mac can't be reached, or its unlock is on its way or slow (PHN-641). What needs the
+    /// owner is the card (PHN-649), never this line.
+    /// The line under the tabs: only what the top bar's connection control cannot say (kb PHN-756). The link's state is
+    /// the control's (PHN-751), and each message that waits says so in its own row ("Waiting for your Mac"), so the
+    /// line never speaks of the link. Left: the Mac's unlock once connected, and screen use.
+    private var statusLine: (String, StatusTone)? {
+        // not connected: the control in the top bar says it, the waiting rows say they wait
+        if model.ui.link?.phase != .online { return nil }
         // PHN-641: the Mac's side after the app opened: words only, it clears by itself
-        if model.ui.macLine == .opening { return (L.s("mac_opening"), false) }
-        if model.ui.macLine == .slow { return (L.s("mac_slow"), false) }
-        if model.ui.needsMacUnlock { return (L.s("chat_unlock_mac"), true) }
+        if model.ui.macLine == .opening { return (L.s("mac_opening"), .working) }
+        if model.ui.macLine == .slow { return (L.s("mac_slow"), .working) }
         // FERB may use the Mac's screen until the owner is back (PHN-611; "Ask me again" is on the Mac tab)
-        if model.ui.status?.screenUse?.active == true { return (L.s("screen_use_active"), false) }
+        if model.ui.status?.screenUse?.active == true { return (L.s("screen_use_active"), .info) }
         return nil
     }
 }
@@ -307,9 +423,24 @@ struct ChatView: View {
 struct ChatRowView: View {
     @Bindable var model: AppModel
     let row: ChatRow
+    /// The chat's today and whether older pages are on their way, handed in: a row never reads the model's whole state.
+    var today: Int
+    var olderLoading: Bool
     @Environment(\.skyInk) private var ink
 
+    /// Whatever FERB says or did sits on FERB's dark surface; the owner's own messages stay white (kb PHN-734).
+    private var fromFerb: Bool {
+        switch row {
+        case .owner, .outbox, .withFiles, .day, .earlierLink, .older: return false
+        default: return true
+        }
+    }
+
     var body: some View {
+        content.environment(\.onFerb, fromFerb)
+    }
+
+    @ViewBuilder private var content: some View {
         switch row {
         case .owner(_, let text, let files, let note):
             VStack(alignment: .trailing, spacing: 4) {
@@ -325,16 +456,38 @@ struct ChatRowView: View {
             .frame(maxWidth: .infinity, alignment: .trailing)
         case .ferb(_, let text):
             FerbBubble(text).frame(maxWidth: .infinity, alignment: .leading)
-        case .line(_, let text, let quotes):
+        case .line(_, let text, let quotes, let since):
             VStack(alignment: .leading, spacing: 4) {
-                Text(text).type(14.5, .medium, ink.low)
+                // a connection line ticks its time as FERB.app's LiveLineView ("… · 0:42")
+                if let since { TickingText(text, since: since, size: 14.5, color: ink.low) } else { Text(text).type(14.5, .medium, ink.low) }
                 ForEach(quotes, id: \.self) { Text($0).type(14, .regular, ink.low) }
             }
             .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 6)
         case .task(let t):
-            TaskCard(headline: t.headline, progress: L.s("progress", t.done, t.total), parts: t.parts,
-                     watchTitle: L.s("live_title"), stopTitle: L.s("live_stop"),
-                     onWatch: { model.watchLive(t.taskId) }, onStop: { model.stop(t.taskId) })
+            // each running part's own live picture (kb PHN-726; FERB.app's RowPreview), asked for while the card shows
+            let keys = t.taskId.map { task in t.watch.map { $0.map { Thumbnails.key(task, $0) } } } ?? []
+            // FERB.app's card (kb PHN-737): no buttons in it; a part's picture opens its short view, a running part with no
+            // picture its task's (Watch live and Stop are there), and View tasks is under the chat
+            PartsCard(headline: t.headline, progress: L.s("progress", t.done, t.total), parts: t.parts, tint: t.tint,
+                      status: t.status, footer: t.footer, footerLines: t.footerLines,
+                      watching: keys.map { $0 != nil }, pictures: keys.map { $0.flatMap { model.thumbnails.pictures[$0] } },
+                      onPicture: { i in if i < t.watch.count { model.showTask(t.taskId, worker: t.watch[i]) } },
+                      onPart: { _ in model.showTask(t.taskId, worker: nil) },
+                      more: L.s("show_more"), less: L.s("show_less"))
+                .onAppear { model.rowPictures(t.key, keys.compactMap { $0 }) }
+                .onChange(of: keys) { _, now in model.rowPictures(t.key, now.compactMap { $0 }) }
+                .onDisappear { model.rowPictures(t.key, []) }
+        case .rich(let key, let blocks, let copy, let tail, let fold):
+            FerbRichBubble(copy: copy) {
+                RichBlocksView(blocks, look: .onBlack, key: key, fold: fold, more: L.s("show_all"), less: L.s("show_less"),
+                               tail: tail.map { ($0, false) })
+            }
+        case .answer(let key, let ui):
+            AnswerRow(model: model, key: key, a: ui)
+        case .notice(let key, let text, let quotes, let ui):
+            NoticeRow(key: key, text: text, quotes: quotes, ui: ui)
+        case .results(_, let cards):
+            VStack(spacing: 8) { ForEach(Array(cards.enumerated()), id: \.offset) { _, c in ResultCardView(c) } }.padding(.trailing, 28)
         case .cards(_, let cards):
             Card {
                 ForEach(Array(cards.enumerated()), id: \.offset) { i, c in
@@ -349,17 +502,37 @@ struct ChatRowView: View {
                 }
             }
         case .typing:
-            TypingDots().frame(maxWidth: .infinity, alignment: .leading)
-        case .asking(_, let id, let title):
+            // FERB has his message and is on it: never a silent screen (kb PHN-628)
+            HStack(spacing: 10) {
+                TypingDots()
+                Text(L.s("chat_thinking")).type(14, .medium, ink.low)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        case .day(_, let day):
+            DayDivider(dayLabel(day, today: today))
+        // FERB.app's inline question leads with its title (else "FERB needs your answer") and the question under it;
+        // the phone opens the answer sheet, since some answers need the fingerprint (kb PHN-729)
+        case .asking(_, let id, let title, let reason, let hidden):
             Card {
-                CardRow(title: title ?? L.s("question_default_title"), detail: L.s("question_tap"),
+                CardRow(title: title ?? L.s(hidden ? "question_private_title" : "question_needs_answer"), detail: reason ?? L.s("question_tap"),
                         onClick: { model.show(.asking(approvalId: id)) }) { Mark(kind: .asking) } trailing: { Opens() }
             }
         case .outbox(_, let o):
             OutboxRow(model: model, item: o)
+        case .withFiles(_, let m):
+            WithFilesRow(model: model, m: m)
+        case .earlierLink:
+            EarlierLink(L.s("older_available")) { model.openChat() }.accessibilityIdentifier("earlier-link")
         case .older(_, let state):
             if case .needsBetterPath = state {
                 Text(L.s("older_needs_better_path")).type(14, .medium, ink.low).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 6)
+            } else if olderLoading {
+                // earlier messages on their way: a small turning mark at the top (kb PHN-628)
+                HStack(spacing: 8) {
+                    Spinner(size: 14)
+                    Text(L.s("chat_older_loading")).type(14, .medium, ink.low)
+                }
+                .frame(maxWidth: .infinity).padding(.vertical, 8)
             } else {
                 Button { model.loadOlder() } label: {
                     Text(L.s("older_available")).type(14, .medium, ink.low).frame(maxWidth: .infinity, alignment: .leading)
@@ -510,4 +683,183 @@ func hostOf(_ url: String) -> String {
     var s = url
     if let r = s.range(of: "://") { s = String(s[r.upperBound...]) }
     return String(s.prefix { $0 != "/" && $0 != "?" })
+}
+
+/// The Mac's side needs the owner's Face ID once (kb PHN-649; Android's MacNeedCard): the lab's white card with what
+/// happened in plain words and one button, never a line to find.
+struct MacNeedCard: View {
+    let need: MacNeed
+    let busy: Bool
+    let onUnlock: () -> Void
+
+    var body: some View {
+        Card(padding: 16) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(L.s("mac_needs_title")).type(17, .semibold)
+                Text(L.s(need == .lapsed ? "mac_needs_lapsed" : need == .cancelled ? "mac_needs_cancelled" : "mac_needs_old"))
+                    .type(15, .regular, Ink.detail).fixedSize(horizontal: false, vertical: true)
+                Pill(title: L.s("mac_needs_unlock"), kind: .black, symbol: Words.bioSymbol, onClick: busy ? nil : onUnlock)
+            }
+        }
+        .padding(.horizontal, 16).padding(.top, 12)
+    }
+}
+
+/// A message he sent with files (kb PHN-691; Android's WithFilesRow): its files and words as his message, how it stands,
+/// and what he can do: stop it while its files go; try again, send the words alone (when files can't go on this path)
+/// or remove it.
+struct WithFilesRow: View {
+    @Bindable var model: AppModel
+    let m: Sending
+
+    var body: some View {
+        let bad = m.phase == .failed || m.phase == .closed
+        let status: String = {
+            switch m.phase {
+            case .uploading: return L.s("send_progress", Int(m.fraction * 100))
+            case .sending: return L.s("outbox_sending")
+            case .waitingLink: return L.s("outbox_waiting")
+            case .waitingPath: return m.note.map(\.text) ?? L.s("send_waiting_path")
+            case .stopped: return L.s("send_stopped")
+            case .locked: return L.s("send_locked")
+            case .closed: return L.s("send_closed")
+            case .failed: return L.s("outbox_failed", m.note.map(\.text) ?? "")
+            }
+        }()
+        var actions: [(String, () -> Void)] = []
+        switch m.phase {
+        case .uploading: actions = [(L.s("outbox_cancel"), { model.stopSending(m.id) })]
+        case .sending: break
+        case .waitingPath:
+            if !m.text.trimmingCharacters(in: .whitespaces).isEmpty { actions.append((L.s("send_text_only"), { model.sendTextOnly(m.id) })) }
+            actions.append((L.s("outbox_remove"), { model.removeSending(m.id) }))
+        case .stopped, .closed:
+            actions = [(L.s("send_try_again"), { model.retrySending(m.id) }), (L.s("outbox_remove"), { model.removeSending(m.id) })]
+        case .failed:
+            if m.note?.key != "send_files_gone" { actions.append((L.s("send_try_again"), { model.retrySending(m.id) })) }
+            actions.append((L.s("outbox_remove"), { model.removeSending(m.id) }))
+        case .waitingLink, .locked: actions = [(L.s("outbox_remove"), { model.removeSending(m.id) })]
+        }
+        return FilesMessage(files: m.chips.map { (name: $0.name, detail: ByteCountFormatter.string(fromByteCount: $0.size, countStyle: .file),
+                                                    thumbnail: Thumbnail.of($0.path, $0.name)) },
+                            text: m.text, status: status, bad: bad, actions: actions)
+            .accessibilityIdentifier("sending")
+    }
+}
+
+/// A small picture of a photo in the phone's own copy, made by ImageIO at thumbnail size; nil for other files or when
+/// the copy can't be read (kept per path, so it is made once).
+@MainActor
+enum Thumbnail {
+    private static var made: [String: Image] = [:]
+    private static let kinds: Set<String> = ["jpg", "jpeg", "png", "heic", "heif", "gif", "webp", "bmp", "tiff"]
+
+    static func of(_ path: String, _ name: String) -> Image? {
+        guard kinds.contains((name as NSString).pathExtension.lowercased()) else { return nil }
+        if let i = made[path] { return i }
+        guard let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil),
+              let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true,
+                                                                    kCGImageSourceThumbnailMaxPixelSize: 108,
+                                                                    kCGImageSourceCreateThumbnailWithTransform: true] as CFDictionary)
+        else { return nil }
+        let i = Image(decorative: cg, scale: 3)
+        made[path] = i
+        return i
+    }
+}
+
+
+/// The work row above the message box (kb PHN-725; FERB.app ChatBody.swift WorkRowView): "1 active task · 0:42", the
+/// round live pictures of the first two tasks, "+N", "View tasks". A picture opens the task's short view. Its pictures
+/// are asked for only while it is on screen (the model adds the rest: unlocked, in front, not on the shared relay).
+struct WorkRowFor: View {
+    @Bindable var model: AppModel
+    let r: RunningUi
+    var body: some View {
+        // a task whose card rows show their own pictures has no circle here (APP-891: a picture shows once)
+        let shown = r.tasks.filter { $0.taskId.map { !model.tasksWithRowPictures.contains($0) } ?? true }
+        let ids = Array(shown.compactMap(\.taskId).prefix(2))
+        ActiveWorkRow(words: r.words, running: r.running, since: r.since,
+                tasks: shown.map { t in WorkTask(id: t.entry, title: t.title, line: t.line, waiting: t.waiting, paused: t.paused,
+                                                    picture: t.taskId.flatMap { model.thumbnails.pictures[$0] }) },
+                viewTasks: L.s("work_view_tasks"),
+                onPicture: { w in model.showTask(r.tasks.first { $0.entry == w.id }?.taskId) },
+                onMore: { model.choose(.tasks) }, onViewTasks: { model.choose(.tasks) })
+            .padding(.horizontal, 6)
+            .onAppear { model.workRowShown(ids) }
+            .onChange(of: ids) { _, now in model.workRowShown(now) }
+            .onDisappear { model.workRowShown([]) }
+            .accessibilityIdentifier("work-row")
+    }
+}
+
+/// A turn's answer as FERB.app draws it (kb PHN-723, PHN-724; ConversationTranscript.swift AnswerView).
+struct AnswerRow: View {
+    @Bindable var model: AppModel
+    let key: String
+    let a: AnswerUi
+    @State private var details = false
+    @Environment(\.openURL) private var openURL
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(a.above.enumerated()), id: \.offset) { _, c in ResultCardView(c).padding(.trailing, 28) }
+            if a.bubble {
+                FerbRichBubble(copy: a.copy) {
+                    let tail = (a.note.map { [("Couldn't confirm: " + $0, true)] } ?? []) + a.lines.map { ($0, false) }
+                    RichBlocksView(a.blocks, look: .onBlack, key: key, fold: .answer, more: L.s("show_all"), less: L.s("show_less"), tail: tail)
+                    if !a.details.isEmpty {
+                        Button { details.toggle() } label: {
+                            Text(L.s("answer_details")).font(.system(size: 14.5, weight: .semibold)).foregroundStyle(RichLook.onBlack.link)
+                        }.buttonStyle(.plain)
+                        if details { RichBlocksView(a.details, look: .onBlack, key: key + ":full") }
+                    }
+                }
+            }
+            if !a.below.isEmpty { VStack(spacing: 8) { ForEach(Array(a.below.enumerated()), id: \.offset) { _, c in ResultCardView(c) } }.padding(.trailing, 28) }
+            if !a.sites.isEmpty {
+                SitesChip(sites: a.sites, onOpen: { h in if let u = Present.siteLink(h) { openURL(u) } }, onAll: { model.show(.sites(row: key)) })
+            }
+            if !a.files.isEmpty {
+                Card {
+                    ForEach(Array(a.files.enumerated()), id: \.offset) { i, c in
+                        if i > 0 { Divide() }
+                        if let taskId = c.taskId, let index = c.index {
+                            TaskFileRow(model: model, line: c, taskId: taskId, index: index)
+                        } else {
+                            CardRow(title: c.title, detail: c.detail) { FileIcon(name: c.title, width: 26) }
+                        }
+                    }
+                }
+                .padding(.trailing, 28)
+            }
+        }
+    }
+}
+
+/// FERB's own message (FERB.app's NoticeView): a reminder's arrival is its one box; else its words in FERB's bubble with
+/// the facts FERB remembered, the quotes with where they came from, and the page buttons.
+struct NoticeRow: View {
+    let key: String
+    let text: String
+    let quotes: [Quote]
+    let ui: NoticeUi
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(ui.above.enumerated()), id: \.offset) { _, c in ResultCardView(c).padding(.trailing, 28) }
+            if !ui.boxSays {
+                FerbRichBubble(copy: text) {
+                    RichWords(richText(FerbDesign.RichBlock.plain(text), .onBlack), look: .onBlack, key: key)
+                    ForEach(Array(ui.notes.enumerated()), id: \.offset) { _, c in ResultCardView(c) }
+                    ForEach(Array(quotes.enumerated()), id: \.offset) { _, q in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(q.text).type(14.5, .regular, .white).lineSpacing(2)
+                            if !q.origin.isEmpty { Text(q.origin).type(13, .regular, Ink.onDark) }
+                        }
+                        .padding(.leading, 10)
+                        .overlay(alignment: .leading) { Capsule().fill(Ink.onDark).frame(width: 2) }
+                    }
+                }
+            }
+        }
+    }
 }

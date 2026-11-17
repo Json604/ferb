@@ -14,6 +14,9 @@ interface Uplink {
     fun pair(code: String)
     fun status(): LinkStatus?
     fun setActive(on: Boolean)
+
+    /** The app is unlocked and in front (kb PHN-648). */
+    fun setOpen(on: Boolean) {}
     fun networkChanged(kind: String?)
     fun retry()
     fun forget()
@@ -65,6 +68,7 @@ private class LinkUplink(private val link: Link) : Uplink {
     override fun networkChanged(kind: String?) = link.networkChanged(kind)
     override fun retry() = link.retry()
     override fun forget() = link.forget()
+    override fun setOpen(on: Boolean) = link.setOpen(on)
     override fun shutdown() = link.shutdown()
     override fun close() = link.close()
 }

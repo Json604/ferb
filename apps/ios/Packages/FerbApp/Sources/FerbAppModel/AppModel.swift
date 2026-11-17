@@ -8,7 +8,10 @@ import Observation
 public enum Gate: Sendable { case starting, failed, noScreenLock, locked, pair, codes, removed, main }
 
 /// Why the pairing screen shows again (or nil on a first run).
-public enum PairReason: Sendable { case wiped, removed, keys }
+public enum PairReason: Sendable { case wiped, removed, keys, unknown }
+
+/// Why the Mac's side needs the owner's fingerprint again while the app is open (kb PHN-649's card).
+public enum MacNeed: Sendable { case lapsed, cancelled, old }
 
 /// What pressing the microphone needs from the screen: nothing more, or iOS's microphone and speech questions.
 public enum VoicePress: Sendable { case done, askMicrophone }
@@ -17,8 +20,14 @@ public enum VoicePress: Sendable { case done, askMicrophone }
 public enum AppSheet: Equatable, Sendable {
     case asking(approvalId: String)
     case relay, profile, forget, typeCode, scan, ownRelay, notifications, help, stopAll, settings
+    /// The connection control's sheet (kb PHN-752): which Mac, how the link stands, its path, Try again.
+    case connection
     case days(key: String)
     case live(taskId: String)
+    /// A running task's short view (kb PHN-725; FERB.app's TaskShortView): its picture, title, line, Watch live, Stop.
+    case task(taskId: String, worker: String?)
+    /// The sites a task contacted (FERB.app's "Sites visited"), by the chat row that has them.
+    case sites(row: String)
     /// The words before the owner's first use of speaking to FERB, for this phone's kind of recognition (PHN-604).
     case voice(SpeechKind)
     /// The Mac asks for this phone's exact location once, for a task (GATE-613); the owner says yes or no here.
@@ -131,7 +140,12 @@ public struct UiState: Equatable {
     public var link: LinkStatus? = nil
     public var keys: KeyHealth? = nil
     public var conversation: String? = nil
-    public var rows: [ChatRow] = []
+    /// The work row above the message box (kb PHN-725): what runs, from the chat's live state; nil when nothing does.
+    public var running: RunningUi? = nil
+    /// The chat's "today" (days since 1970; ChatModel.chatDay, kb PHN-697), held: it moves only when the app opens or
+    /// unlocks, comes back to the front, or the Chat tab is chosen, so a day changing never moves the page under him.
+    /// 0: not set (screens then ask ChatModel.chatDay themselves).
+    public var chatDay: Int = 0
     /// What the chat holds (the Tasks tab falls back to it when the Mac's own list can't be read).
     public var chatWork: Work = .empty
     public var work: Work = .empty
@@ -140,8 +154,15 @@ public struct UiState: Equatable {
     public var questions: [Question] = []
     public var older: OlderState = .unknown
     public var needsMacUnlock = false
+    /// Why the Mac's side needs the fingerprint again: the card with its one button (PHN-649); nil: nothing to do.
+    public var macNeed: MacNeed? = nil
+    /// The Mac doesn't know this phone's keys any more (`unlock_invalid`): it needs pairing again (PHN-649).
+    public var macForgotPhone = false
     /// The Mac's side while the app is already open (PHN-641): its unlock under way, or slow to answer.
     public var macLine: MacLine? = nil
+    /// The Mac has really not been reachable (kb PHN-753): stopped for good, or not online for `UnlockTiming.linkLost`
+    /// while the app is open and unlocked. Until then a link that isn't online is connecting, never an error.
+    public var linkLost = false
     public var busy: Set<String> = []
     public var note: Note? = nil
     /// What FERB has waiting, as the Mac last said it (PHN-125): its questions' needs, Stop everything.
@@ -172,20 +193,31 @@ public struct SavedState: Codable, Equatable, Sendable {
 /// The calm line about the Mac's side once the app is open (PHN-641); never a control.
 public enum MacLine: Sendable { case opening, slow }
 
-/// How long the unlock waits on the Mac (PHN-641; Android's PROMPT_WAIT_MS, MAC_SLOW_MS, RECHECK_MS, RECHECKS).
+/// How long the unlock waits on the Mac (PHN-649; Android's STATEMENT_AGE_MS, MAC_SLOW_MS, RECHECK_MS, RECHECKS).
 public struct UnlockTiming: Sendable {
-    /// The longest the opening prompt waits on the network (the link, then the Mac's challenge).
-    public var promptWait: Double = 2
+    /// The opening prompt's statement is handed to the Mac at most this long after it was signed (the Mac's own
+    /// bound is 120 s; the phone stops a little sooner so a send in flight still fits).
+    public var statementAge: Double = 115
+    /// A statement refused because the connection hasn't proved the device key yet is sent again after this.
+    public var statementRetry: Double = 1
+    public var statementTries = 6
     /// No answer from the Mac's unlock in this long: the line says the Mac is slow (the app is open already).
     public var macSlow: Double = 6
     /// A `locked` refusal is read again `rechecks` times, this far apart, before anything is asked.
     public var recheck: Double = 1.5
     public var rechecks = 2
-    public init(promptWait: Double = 2, macSlow: Double = 6, recheck: Double = 1.5, rechecks: Int = 2) {
-        self.promptWait = promptWait
+    /// How long the link may be not online, with the app open and unlocked, before the app says it can't reach the Mac
+    /// (kb PHN-753): 10 s, the owner's (kb PHN-757); the connect itself takes about a second after the link fix.
+    public var linkLost: Double = 10
+    public init(statementAge: Double = 115, statementRetry: Double = 1, statementTries: Int = 6, macSlow: Double = 6,
+                recheck: Double = 1.5, rechecks: Int = 2, linkLost: Double = 10) {
+        self.statementAge = statementAge
+        self.statementRetry = statementRetry
+        self.statementTries = statementTries
         self.macSlow = macSlow
         self.recheck = recheck
         self.rechecks = rechecks
+        self.linkLost = linkLost
     }
 }
 
@@ -196,6 +228,8 @@ public struct UnlockTiming: Sendable {
 @Observable
 public final class AppModel {
     @ObservationIgnored private let timing: UnlockTiming
+    /// The phone's steady clock in seconds (the unlock statement's age, PHN-649).
+    @ObservationIgnored private let steady: () -> Double
     public static let tasksPage = 30
     /// How many recent files the Files tab asks for.
     public static let recentFilesCount = 20
@@ -206,10 +240,49 @@ public final class AppModel {
     /// The Mac no longer knows this phone: pair again.
     public static let removedCodes: Set<String> = ["device_revoked", "not_paired", "unknown_phone"]
 
-    public private(set) var ui = UiState()
+    /// Everything but the chat's rows. Set only when something in it changed: every view that reads it runs again on a
+    /// set, so an apply that changes nothing here (a streamed word) runs none of them (kb PHN-714).
+    public private(set) var ui: UiState {
+        get {
+            access(keyPath: \.ui)
+            return uiValue
+        }
+        set {
+            guard newValue != uiValue else { return }
+            let dayMoved = newValue.chatDay != uiValue.chatDay
+            withMutation(keyPath: \.ui) { uiValue = newValue }
+            if dayMoved { rebuildPlaces() }
+        }
+    }
+    @ObservationIgnored private var uiValue = UiState()
+    /// The chat's rows as the library lays them out (ChatModel.rows), and each entry's calendar day (epoch days, the
+    /// phone's zone: the day dividers, kb PHN-627): apart from [ui], so a streamed word changes only these.
+    public private(set) var rows: [ChatRow] = []
+    public private(set) var days: [String: Int] = [:]
+    /// Today's chat and the earlier days as the chat draws them (ChatModel.withDays and split over the rows and the
+    /// messages with files, kb PHN-696), made off the main actor for a long chat (kb PHN-714).
+    public private(set) var places = ChatModel.Places(today: [], earlier: [])
+    /// Something was said on the chat's day (ChatModel.said): the home page's rule, kept as one value.
+    public private(set) var saidToday = false
+    @ObservationIgnored private var placesGeneration = 0
+    /// Above this many rows the chat's places are made off the main actor (Android FerbViewModel.OFF_MAIN_ENTRIES).
+    public static let offMainEntries = 100
+    #if DEBUG
+    /// Long chats whose rows were made on the main thread (tests: must stay 0).
+    nonisolated(unsafe) static var longChatsMadeOnMain = 0
+    #endif
     /// The chosen tab and whether the chat tab shows the home screen.
     public private(set) var tab: PhoneTab
-    public private(set) var home: Bool
+    /// The chat tab shows the earlier days (kb PHN-696): "Earlier messages" opened them; Today and a send come back.
+    public private(set) var earlier = false
+
+    /// The chat tab shows today's home page (kb PHN-696): today, with nothing said on it yet (his send, FERB's post, a
+    /// message with files on its way). Typing, speaking or picking a file never changes it; something said today does.
+    public var home: Bool {
+        !earlier && outgoing.messages.isEmpty && !saidToday
+    }
+    /// Counts the Chat tab's taps while on Chat: each one takes the chat to its end (kb PHN-662).
+    public private(set) var chatToEnd = 0
     public private(set) var draft: String
     public private(set) var settings: PhoneSettings
     public private(set) var sheet: AppSheet?
@@ -217,7 +290,12 @@ public final class AppModel {
     private var presented: Set<String>
 
     public let transfers: Transfers
+    /// The message box's files and the messages that carry files (kb PHN-690, PHN-691); kept on the phone, off main.
+    public let outgoing: Outgoing
     public let live: LiveWatch
+    /// The work row's round live pictures (kb PHN-725), only while it shows, unlocked, in front and not on the shared relay.
+    public let thumbnails: Thumbnails
+    @ObservationIgnored private var workRowIds: [String] = []
 
     @ObservationIgnored private let api: PhoneApi
     @ObservationIgnored private let session: Session
@@ -246,12 +324,28 @@ public final class AppModel {
     @ObservationIgnored private let box = PromptBox()
     @ObservationIgnored private let unlocker: Unlocker
     @ObservationIgnored private var follows: [AnyObject] = []
+    /// The count towards "can't reach the Mac" (kb PHN-753).
+    @ObservationIgnored private var lostTask: Task<Void, Never>?
     @ObservationIgnored private var changesTask: Task<Void, Never>?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var refreshing = false
     @ObservationIgnored private var dirty = false
     @ObservationIgnored private var tasksLoading = false
     @ObservationIgnored private var lastView: TranscriptView?
+
+    /// When this model started, and whether the chat's first entries were logged (`ferb-app`, kb PHN-629).
+    @ObservationIgnored private let born = Date()
+    @ObservationIgnored private var storedShown = false
+
+    /// Today in the phone's own zone (epoch days): "said today" (kb PHN-626).
+    /// The chat's day rule, asked now (kb PHN-697): only ChatModel.chatDay says what "today" is.
+    private func today() -> Int { ChatModel.chatDay(now(), Calendar.current) }
+
+    /// The chat's held day catches up with the clock: only at a natural moment (kb PHN-697).
+    private func turnTheDay() {
+        let d = today()
+        if ui.chatDay != d { ui.chatDay = d }
+    }
     @ObservationIgnored private var pending: String?
     @ObservationIgnored private var pendingLocation: String?
     /// Key places' files the owner opened in another app: they go when he is back in FERB (PHN-11).
@@ -279,7 +373,9 @@ public final class AppModel {
     /// (PHN-110) and Watch live (PHN-454). The shell hides the app's content while the screen is captured then.
     public var mustSecure: Bool {
         switch sheet {
-        case .live: return true
+        // the views that show the Mac's screen readably (Watch live, a task's or step's short view) whatever the switch
+        // says; the small round pictures in the chat follow the owner's switch (owner 2026-11-18, kb PHN-727)
+        case .live, .task: return true
         case .asking(let id): return ui.questions.first { $0.approvalId == id }?.hidden == true
         default: return false
         }
@@ -299,8 +395,10 @@ public final class AppModel {
                 screenLock: @escaping () -> Bool = { Biometry.screenLockSet }, corpus: Corpus? = .bundled,
                 saved: SavedState = SavedState(), now: @escaping () -> Date = Date.init, locator: Locator? = nil,
                 coarse: @escaping () -> Coarse? = { nil }, locationAnswered: @escaping () -> Void = {},
-                voice: VoiceInput? = nil, micAllowed: @escaping () -> Bool = { false }, timing: UnlockTiming = UnlockTiming()) {
+                voice: VoiceInput? = nil, micAllowed: @escaping () -> Bool = { false }, timing: UnlockTiming = UnlockTiming(),
+                steady: @escaping () -> Double = { Session.monotonic() }) {
         self.timing = timing
+        self.steady = steady
         self.api = api
         self.session = session
         self.prefs = prefs
@@ -314,7 +412,6 @@ public final class AppModel {
         self.voice = voice
         self.micAllowed = micAllowed
         tab = Self.tab(named: saved.tab)
-        home = saved.home
         draft = saved.draft
         presented = Set(saved.presented)
         settings = PhoneSettings(blockScreenshots: prefs.blockScreenshots, hideChecks: prefs.hideChecksOnLockScreen,
@@ -322,7 +419,15 @@ public final class AppModel {
         let box = self.box
         unlocker = Unlocker(api: api, keys: { api.state.keys }, signer: { kind, why in box.prompts?.signer(kind, why: why) })
         transfers = Transfers(api: api, local: local, unlocker: unlocker)
+        outgoing = Outgoing(api: api, transfers: transfers, local: local)
         live = LiveWatch(api: api)
+        thumbnails = Thumbnails(api: api)
+        outgoing.onSent = { [weak self] item in
+            guard let self else { return }
+            if item.waitingFor == "unlock" { macLocked() }
+            refresh()
+        }
+        ui.chatDay = today()
         start()
     }
 
@@ -332,7 +437,36 @@ public final class AppModel {
         let locked: Bool
     }
 
+    /// Remakes [places] and [saidToday] from the rows, the days, the messages with files and the chat's day: in place for
+    /// a short chat, off the main actor for a long one (only the newest result is kept).
+    private func rebuildPlaces() {
+        placesGeneration += 1
+        let gen = placesGeneration
+        let day = ui.chatDay > 0 ? ui.chatDay : today()
+        let rows = self.rows
+        let days = self.days
+        let all = rows + outgoing.messages.map { ChatRow.withFiles(key: "send:\($0.id)", item: $0) }
+        let make = { (ChatModel.split(ChatModel.withDays(all, days, today: day), day: day), ChatModel.said(rows, days, from: day)) }
+        if all.count <= Self.offMainEntries {
+            publishPlaces(make())
+            return
+        }
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let made = make()
+            await MainActor.run { [weak self] in
+                guard let self, gen == self.placesGeneration else { return }
+                self.publishPlaces(made)
+            }
+        }
+    }
+
+    private func publishPlaces(_ made: (ChatModel.Places, Bool)) {
+        if places != made.0 { places = made.0 }
+        if saidToday != made.1 { saidToday = made.1 }
+    }
+
     private func start() {
+        follows.append(Follow({ [weak self] () -> [Sending]? in self?.outgoing.messages }) { [weak self] (_: [Sending]) in self?.rebuildPlaces() })
         follows.append(Follow({ [weak self] () -> GateInput? in guard let self else { return nil }; return GateInput(state: api.state, link: api.link, locked: session.locked) }) { [weak self] (g: GateInput) in
             guard let self else { return }
             ui.link = g.link
@@ -351,7 +485,7 @@ public final class AppModel {
                 guard let self else { return }
                 switch c {
                 case .closed: break
-                case .status: apply(lastView)
+                case .status: statusChanged()
                 case .mac: readMac()
                 case .locationWanted(let id):
                     pendingLocation = id
@@ -363,18 +497,54 @@ public final class AppModel {
         // the link came online while the app is open and unlocked: fetch what changed (one call, no timer)
         follows.append(Follow({ [weak self] () -> Bool? in guard let self else { return nil }; return api.link.map { $0.phase == .online && $0.paired } ?? false }) { [weak self] (online: Bool) in
             guard let self else { return }
-            if online && !session.locked { Task { await self.syncNow() } }
+            // not while the opening prompt's statement is on its way: its unlock reads the chat itself
+            if online && !session.locked && statement == nil { Task { await self.syncNow() } }
+        })
+        // can't reach the Mac (kb PHN-753): only once it has stopped for good, or hasn't been online for
+        // timing.linkLost of the app being open and unlocked; every open starts the count again (connecting is normal:
+        // on his phone it takes about 25 s tonight, two dials timing out before the third answers)
+        follows.append(Follow({ [weak self] () -> Int? in
+            guard let self else { return nil }
+            let phase = api.link?.phase
+            if phase == .stopped { return 2 }
+            if phase == .online || phase == nil || session.locked || !session.front { return 0 }
+            return 1
+        }) { [weak self] (away: Int) in
+            guard let self else { return }
+            lostTask?.cancel()
+            ui.linkLost = away == 2
+            if away == 1 {
+                let after = timing.linkLost
+                lostTask = Task { [weak self] in
+                    try? await Task.sleep(nanoseconds: UInt64(after * 1_000_000_000))
+                    if !Task.isCancelled { self?.ui.linkLost = true }
+                }
+            }
         })
         // files cross the path again (PHN-444): what waited for it is tried once more, by itself
         follows.append(Follow({ [weak self] () -> Bool? in guard let self else { return nil }; return api.link.map { $0.bulkAllowed && $0.phase == .online } ?? false }) { [weak self] (bulk: Bool) in
             guard let self else { return }
             if bulk { transfers.bulkAllowed() }
         })
+        // the box's files and the messages on their way, as FERB left them (read off the main thread); a message with
+        // files that waited for the Mac, or for a path that carries files, starts when it can
+        let outgoing = self.outgoing
+        Task { [weak self] in
+            await outgoing.load().value
+            guard let self else { return }
+            follows.append(Follow({ [weak self] () -> [Bool]? in
+                guard let self else { return nil }
+                return [api.link?.phase == .online, api.link?.bulkAllowed == true]
+            }) { [weak self] (_: [Bool]) in self?.outgoing.linkChanged() })
+        }
         follows.append(Follow({ [weak self] () -> Bool? in guard let self else { return nil }; return session.locked }) { [weak self] (locked: Bool) in
             guard let self else { return }
             if !locked {
+                // opened or unlocked: today's chat, on the day it is now (kb PHN-696, PHN-697)
+                turnTheDay()
+                earlier = false
                 refresh()
-                home = true
+                outgoing.unlocked()
                 // a request for the exact location that came while the app was closed or locked
                 Task {
                     if case .ok(let id?) = await self.api.locationWanted() {
@@ -386,16 +556,22 @@ public final class AppModel {
                 // PHN-15: nothing private stays open; the preview stops, the fetched files go
                 AppLog.i("lock shown")
                 macTask?.cancel()
+                statementTask?.cancel()
+                statementTask = nil
+                statement = nil
                 macPending = false
                 ui.macLine = nil
                 ui.needsMacUnlock = false
+                ui.macNeed = nil
                 stopListening()
                 live.stop()
+                thumbnails.show([])
                 switch sheet {
-                case .live, .settings, .days, .location: sheet = nil
+                case .live, .task, .settings, .days, .location: sheet = nil
                 default: break
                 }
                 transfers.locked()
+                outgoing.locked()
                 ui.files = FilesUi()
                 ui.settings = nil
                 ui.macTasks = nil
@@ -408,18 +584,25 @@ public final class AppModel {
         }) { [weak self] (due: Bool) in
             if due { self?.autoUnlock() }
         })
+        // PHN-648: while the app is unlocked and in front the device key's presence keeps the Mac's window open
+        follows.append(Follow({ [weak self] () -> Bool? in guard let self else { return nil }; return !session.locked && session.front }) { [weak self] (open: Bool) in
+            self?.api.setOpen(open)
+        })
         follows.append(Follow({ [weak self] () -> Bool? in guard let self else { return nil }; return session.front }) { [weak self] (front: Bool) in
             guard let self else { return }
             if !front {
                 // leaving the app: what finished so far has been seen; the preview stops (PHN-454)
                 markSeen()
                 stopListening()
+                thumbnails.show([])
                 if live.showing { closeLive() }
             } else {
                 transfers.dropKeyPlaceFiles(openedKeyFiles)
                 openedKeyFiles = []
                 let local = self.local, at = now()
                 Task.detached { local.dropOld(now: at) }
+                // back in front: a natural moment for the chat's day to move (kb PHN-697)
+                turnTheDay()
                 markRead()
                 showPending()
             }
@@ -437,7 +620,8 @@ public final class AppModel {
         let removed = l?.phase == .stopped && Self.removedCodes.contains(l?.problem?.code ?? "")
         let gate: Gate
         switch s {
-        case .closed, .starting: gate = .starting
+        // the lock page needs neither the library, the store nor the link: it shows at the first frame (PHN-633)
+        case .closed, .starting: gate = !screenLock() ? .noScreenLock : locked ? .locked : .starting
         case .failed: gate = .failed
         case .open:
             if !screenLock() { gate = .noScreenLock }
@@ -445,6 +629,7 @@ public final class AppModel {
             else if let l {
                 if l.phase == .pairingWaitForMac { gate = .codes }
                 else if removed { gate = .removed }
+                else if ui.macForgotPhone && l.paired { gate = .removed }
                 else if !l.paired { gate = .pair }
                 else if keys?.pairAgain == true { gate = .removed }
                 else { gate = .main }
@@ -452,6 +637,7 @@ public final class AppModel {
         }
         let reason: PairReason?
         if removed { reason = .removed }
+        else if ui.macForgotPhone && l?.paired == true { reason = .unknown }
         else if keys?.pairAgain == true && l?.paired == true { reason = .keys }
         else if wiped != nil { reason = .wiped }
         else { reason = nil }
@@ -516,7 +702,7 @@ public final class AppModel {
                 dirty = false
                 var view: TranscriptView?
                 if case .ok(let v) = await api.transcript() { view = v }
-                apply(view)
+                await apply(view)
             } while dirty
             refreshing = false
             markRead()
@@ -530,16 +716,76 @@ public final class AppModel {
         if !done.isEmpty { prefs.seen = prefs.seen.union(done) }
     }
 
+    @ObservationIgnored private var applyChain: Task<Void, Never>?
+    @ObservationIgnored private var statusQueued = false
+
+    /// The Mac's status changed: the screens are drawn again from the transcript as last read. At most one waits.
+    private func statusChanged() {
+        if statusQueued { return }
+        statusQueued = true
+        Task { await apply(nil, statusOnly: true) }
+    }
+
+    /// The transcript and the Mac's last status as the screens draw them; `statusOnly`: the transcript as last read.
+    /// The status is read from the library off the main actor (kb PHN-682), so the applies run one after another, in
+    /// the order asked, and the last one has the newest of both.
+    private func apply(_ read: TranscriptView?, statusOnly: Bool = false) async {
+        let before = applyChain
+        let t = Task { [weak self] in
+            await before?.value
+            guard let self else { return }
+            if statusOnly { self.statusQueued = false } else { self.lastView = read }
+            let status = await self.api.lastStatus()
+            let view = self.lastView
+            let mac = self.ui.macTasks
+            // made from the whole transcript: off the main actor for a long chat (kb PHN-714), in place for a short one
+            let made: Made
+            if (view?.items.count ?? 0) > Self.offMainEntries {
+                made = await Task.detached(priority: .userInitiated) { Made(view, mac) }.value
+            } else {
+                made = Made(view, mac)
+            }
+            self.applyNow(view, status, made)
+        }
+        applyChain = t
+        await t.value
+    }
+
     /// The transcript and the Mac's last status (each question's needs, Stop everything, PHN-125) as the screens draw them.
-    private func apply(_ view: TranscriptView?) {
-        lastView = view
-        let status = api.lastStatus()
+    /// What an apply makes from the whole transcript (the rows, their days, the work row, the chat's work).
+    private struct Made: @unchecked Sendable {
+        let rows: [ChatRow]
+        let days: [String: Int]
+        let running: RunningUi?
+        let chatWork: Work
+
+        init(_ view: TranscriptView?, _ mac: [TaskRow]?) {
+            #if DEBUG
+            if Thread.isMainThread && (view?.items.count ?? 0) > AppModel.offMainEntries { AppModel.longChatsMadeOnMain += 1 }
+            #endif
+            rows = ChatModel.rows(view)
+            days = ChatModel.days(view, Calendar.current)
+            running = RunningModel.of(view, mac: mac)
+            chatWork = WorkModel.of(view, asking: "")
+        }
+    }
+
+    private func applyNow(_ view: TranscriptView?, _ status: PhoneStatus?, _ made: Made) {
         let questions = Questions.merged(view.map { Questions.open($0.questions) } ?? [], status)
-        let chatWork = WorkModel.of(view, asking: "")
+        let chatWork = made.chatWork
         if prefs.lastOpen == 0 && prefs.seen.isEmpty { prefs.seen = Set(chatWork.earlier.compactMap(\.entry)) }
         let seen = prefs.seen
         ui.conversation = view?.conversation
-        ui.rows = ChatModel.rows(view)
+        // FERB's words come laid out by the library, made off the main actor when the transcript was read and kept per
+        // entry (ChatModel.prepare, LibraryPhone.transcript): here only found again (PHN-682)
+        rows = made.rows
+        ui.running = made.running
+        if days != made.days { days = made.days }
+        rebuildPlaces()
+        if !storedShown && !rows.isEmpty {
+            storedShown = true
+            AppLog.i("chat entries ready \(Int(Date().timeIntervalSince(born) * 1000)) ms after the app started: \(rows.count) rows")
+        }
         ui.chatWork = chatWork
         ui.away = chatWork.earlier.filter { w in w.entry.map { !seen.contains($0) } ?? true }
         ui.questions = questions
@@ -588,7 +834,9 @@ public final class AppModel {
             defer { tasksLoading = false }
             if session.locked || api.link?.phase != .online { return }
             switch await api.tasks(limit: Self.tasksPage, before: nil) {
-            case .ok(let page): ui.macTasks = page.tasks
+            case .ok(let page):
+                ui.macTasks = page.tasks
+                ui.running = RunningModel.of(lastView, mac: page.tasks)
             case .failed(let e): if case .NeedsUnlock = e { macLocked() }
             }
             rebuildWork()
@@ -607,9 +855,14 @@ public final class AppModel {
     }
 
     private func syncNow() async {
+        let asked = Date()
+        AppLog.i("chat sync asked at \(Int(asked.timeIntervalSince(born) * 1000)) ms")
         switch await api.sync() {
-        case .failed(let e): if case .NeedsUnlock = e { macLocked() }
+        case .failed(let e):
+            AppLog.i("chat sync failed after \(Int(Date().timeIntervalSince(asked) * 1000)) ms")
+            if case .NeedsUnlock = e { macLocked() }
         case .ok:
+            AppLog.i("chat sync answered after \(Int(Date().timeIntervalSince(asked) * 1000)) ms")
             macPending = false
             ui.needsMacUnlock = false
         }
@@ -620,86 +873,66 @@ public final class AppModel {
         guard let conv = ui.conversation else { return }
         if ui.gate != .main || session.locked || !session.front { return }
         if tab != .chat || home { return }
-        Task { _ = await api.markReadLatest(conversation: conv) }
+        // one mark on its way at a time, and at most one more behind it: every read of the chat asks for one, and on
+        // a slow link each started its own call to the Mac before the first had answered (kb PHN-682)
+        if marking { markAgain = true; return }
+        marking = true
+        Task { [weak self] in
+            repeat {
+                self?.markAgain = false
+                _ = await self?.api.markReadLatest(conversation: self?.ui.conversation ?? conv)
+            } while self?.markAgain == true
+            self?.marking = false
+        }
     }
+    @ObservationIgnored private var marking = false
+    @ObservationIgnored private var markAgain = false
 
     // ---- the app lock (PHN-8, PHN-13, PHN-125) ---------------------------------------------------------------------
 
-    /// One prompt opens the app and unlocks the Mac (PHN-13, PHN-641; Android's unlockApp). With the Mac reachable the
-    /// lock key signs the Mac's challenge inside the prompt; the app opens the moment the prompt passes, and the Mac's
-    /// answer (and the sync the library makes after it) arrives in the background under a calm line. The prompt never
-    /// waits on the network longer than `timing.promptWait`: past that, or on a second tap, the prompt alone opens the
-    /// app and the Mac is unlocked once it answers (`macLocked`).
+    /// One prompt opens the app, at once, whatever the link is doing (PHN-649; Android's unlockApp). On a paired phone
+    /// the lock key signs, inside that prompt, an unlock statement the phone makes itself; the app opens the moment the
+    /// prompt passes and the statement goes to the Mac whenever the link is up (`handStatement`). Not paired: the
+    /// prompt alone.
     @discardableResult
     public func unlockApp(auto: Bool = false) -> Task<Void, Never> {
-        if ui.busy.contains("unlock") {
-            // a tap while the first try still waits for the Mac: the prompt now, never a silent no-op
-            hurried = true
-            AppLog.i("unlock tap while waiting: prompt now")
-            return unlockTask ?? Task {}
-        }
-        let task = busy("unlock") { [self] in
+        busy("unlock") { [self] in
             guard let p = prompts else { return }
             _ = session.takePrompt() // the owner's tap takes the due prompt too: after its cancel nothing asks by itself
-            hurried = false
-            let started = Date()
-            AppLog.i("unlock started auto=\(auto)")
-            if api.link?.paired == true && api.link?.phase != .online {
-                _ = await waitFor(timing.promptWait) { hurried || api.link?.phase == .online }
-            }
-            // the screen went elsewhere while the link was awaited: the prompt waits for the owner's return
             if auto && !windowReady { session.promptAgain(); AppLog.i("unlock: screen elsewhere, prompt later"); return }
-            let online = api.link.map { $0.paired && $0.phase == .online } ?? false
-            if online && api.state.keys?.lock == .ok && !hurried, let inner = p.signer(.lock, why: .open) {
-                let gate = PromptGate(inner)
-                let call = Task { await api.unlock(gate) }
-                var callDone = false
-                Task { _ = await call.value; callDone = true }
-                let left = max(0, timing.promptWait - Date().timeIntervalSince(started))
-                _ = await waitFor(left) { gate.asked || callDone || hurried }
-                if gate.giveUp() {
-                    AppLog.i("unlock: the Mac's challenge didn't come in \(ms(since: started)) ms; the prompt alone")
-                } else {
-                    AppLog.i("prompt shown (with the Mac's challenge) after \(ms(since: started)) ms")
-                    let shown = Date()
-                    while gate.passed == nil { try? await Task.sleep(nanoseconds: 20_000_000) }
-                    let passed = gate.passed == true
-                    AppLog.i("prompt result \(passed ? "passed" : "cancelled") after \(ms(since: shown)) ms")
-                    if !passed { return }
-                    openApp()
-                    AppLog.i("local unlock done")
-                    macAnswer(call, asked: Date())
-                    return
-                }
+            AppLog.i("unlock started auto=\(auto)")
+            let shown = Date()
+            if await api.statementReady(), let inner = p.signer(.lock, why: .open) {
+                let payload = UnlockStatement.make(wallMs: Int64(now().timeIntervalSince1970 * 1000))
+                AppLog.i("prompt shown (signs the unlock statement)")
+                let sig = await Task.detached { inner.sign(payload: payload) }.value
+                AppLog.i("prompt result \(sig != nil ? "passed" : "cancelled") after \(ms(since: shown)) ms")
+                guard let sig else { return }
+                openApp()
+                AppLog.i("local unlock done; the statement waits for the link")
+                statement = UnlockStatement(payload: payload, sig: sig, signedAt: steady())
+                handStatement()
+                return
             }
             AppLog.i("prompt shown (alone)")
-            let shown = Date()
             let passed = await p.local()
             AppLog.i("prompt result \(passed ? "passed" : "cancelled") after \(ms(since: shown)) ms")
             if passed {
                 openApp()
                 _ = await api.unlocked()
                 AppLog.i("local unlock done")
-                if api.link?.paired == true {
-                    AppLog.i("the Mac's unlock waits for the Mac")
-                    Task { [self] in
-                        while ui.busy.contains("unlock") { try? await Task.sleep(nanoseconds: 20_000_000) }
-                        macLocked()
-                    }
-                }
             }
         }
-        unlockTask = task
-        return task
     }
 
-    @ObservationIgnored private var hurried = false
-    @ObservationIgnored private var unlockTask: Task<Void, Never>?
     @ObservationIgnored private var macTask: Task<Void, Never>?
     /// The Mac couldn't be unlocked yet (offline, or its answer was lost): it is, once the link is up again.
     @ObservationIgnored private var macPending = false
-    /// Automatic Mac unlocks since the app opened: one, never a loop (PHN-641).
-    @ObservationIgnored private var macTries = 0
+    /// The statement signed in the opening prompt, until the Mac took it (PHN-649).
+    @ObservationIgnored private var statement: UnlockStatement?
+    @ObservationIgnored private var statementTask: Task<Void, Never>?
+    /// The statement grew too old before the link was up: the Mac's side needs the fingerprint once more.
+    @ObservationIgnored private var statementExpired = false
 
     private func ms(since d: Date) -> Int { Int(Date().timeIntervalSince(d) * 1000) }
 
@@ -707,58 +940,101 @@ public final class AppModel {
     private func openApp() {
         session.unlocked()
         opened()
-        macTries = 0
-    }
-
-    /// The Mac's unlock that the opening prompt signed, answered in the background under a calm line (PHN-641).
-    private func macAnswer(_ call: Task<Outcome<Void>, Never>, asked: Date) {
-        macTask?.cancel()
-        ui.macLine = .opening
+        statementExpired = false
+        ui.macNeed = nil
         ui.needsMacUnlock = false
-        macTask = Task { [self] in
-            let slow = Task { [self] in
-                try? await Task.sleep(nanoseconds: UInt64(timing.macSlow * 1e9))
-                if !Task.isCancelled && ui.macLine == .opening {
-                    ui.macLine = .slow
-                    AppLog.i("mac unlock slow: no answer in \(Int(timing.macSlow * 1000)) ms")
+    }
+
+    /// Hands the opening prompt's statement to the Mac once the link is up and paired, with its age by the phone's
+    /// steady clock: no prompt, no line (Android's handStatement).
+    private func handStatement() {
+        guard let st = statement, statementTask == nil else { return }
+        statementTask = Task { [self] in
+            defer { statementTask = nil }
+            let up = { (l: LinkStatus?) -> Bool in l.map { $0.paired && $0.phase == .online } ?? false }
+            while !up(api.link) {
+                if steady() - st.signedAt > timing.statementAge || statement !== st {
+                    if statement === st {
+                        AppLog.i("statement dropped: the link wasn't up in time")
+                        statement = nil
+                        statementExpired = true
+                    }
+                    return
                 }
+                try? await Task.sleep(nanoseconds: 50_000_000)
             }
-            let r = await call.value
-            slow.cancel()
-            await macAnswered(r, asked: asked)
+            if statement !== st { return }
+            if api.link?.macOlder == true {
+                AppLog.i("statement: the Mac is older; its own unlock")
+                statement = nil
+                await unlockMacNow()
+                return
+            }
+            for attempt in 1...timing.statementTries {
+                let age = steady() - st.signedAt
+                if age > timing.statementAge { break }
+                let sent = Date()
+                switch await api.unlockWithStatement(payload: st.payload, sig: st.sig, ageMs: UInt64(max(0, age) * 1000)) {
+                case .ok:
+                    AppLog.i("mac unlock by statement ok in \(ms(since: sent)) ms (age \(Int(age * 1000)) ms)")
+                    statement = nil
+                    macPending = false
+                    ui.needsMacUnlock = false
+                    ui.macNeed = nil
+                    ui.macLine = nil
+                    refresh()
+                    await afterMacUnlock()
+                    return
+                case .failed(let e):
+                    let code = e.linkCode ?? AppLog.kind(e)
+                    AppLog.i("mac unlock by statement failed \(code) (try \(attempt), age \(Int(age * 1000)) ms)")
+                    if code == "locked" {
+                        // the connection hasn't proved the device key yet: a moment, then again
+                        try? await Task.sleep(nanoseconds: UInt64(timing.statementRetry * 1e9))
+                        continue
+                    }
+                    if code == "unlock_invalid" { statement = nil; macForgot(); return }
+                    if code == "unlock_required" { break }
+                    if api.link?.phase == .online, case .Offline = e {} else if api.link?.phase == .online { break }
+                    // the link dropped under it: once it is back, again
+                    try? await Task.sleep(nanoseconds: UInt64(timing.statementRetry * 1e9))
+                    while !up(api.link) { try? await Task.sleep(nanoseconds: 50_000_000) }
+                    continue
+                }
+                break
+            }
+            statement = nil
+            statementExpired = true
+            needMac(.old)
         }
     }
 
-    private func macAnswered(_ r: Outcome<Void>, asked: Date) async {
-        switch r {
-        case .ok:
-            AppLog.i("mac unlock answered ok in \(ms(since: asked)) ms")
-            ui.macLine = nil
-            ui.needsMacUnlock = false
-            refresh()
-            await afterMacUnlock()
-        case .failed(let e):
-            AppLog.i("mac unlock failed \(e.linkCode ?? AppLog.kind(e)) in \(ms(since: asked)) ms")
-            _ = await api.unlocked()
-            ui.macLine = nil
-            switch e {
-            case .NotSigned: break
-            case .NeedsUnlock where Unlocker.proofCodes.contains(e.linkCode ?? ""): failed(e)
-            case .NeedsSigner: failed(e)
-            default: macPending = true // can't be reached now: unlocked once it answers, by itself
-            }
-            if macPending && api.link?.phase == .online { macLocked() }
-        }
+    /// The Mac doesn't know this phone's keys (`unlock_invalid`): the page that says to pair again (PHN-649).
+    private func macForgot() {
+        AppLog.i("mac doesn't know this phone's keys: pair again")
+        ui.macForgotPhone = true
+        ui.macNeed = nil
+        ui.needsMacUnlock = false
+        recheck()
     }
 
-    /// The Mac said its window is closed (a private call came back `locked`), or the app opened without it. First the
-    /// same read again (`timing.rechecks` times): right after a reconnect the phone proves itself on the new
-    /// connection and the window is open again. Still locked: one automatic unlock with the lock key (its one prompt)
-    /// while the owner is here; after that, or if he cancels, the line he can tap.
+    /// The card: the Mac's side needs the fingerprint once, and why (PHN-649). Never while a statement is on its way.
+    private func needMac(_ why: MacNeed) {
+        if statement != nil || session.locked { return }
+        AppLog.i("mac needs the fingerprint: \(why)")
+        ui.macNeed = why
+        ui.needsMacUnlock = true
+        ui.macLine = nil
+    }
+
+    /// The Mac said its window is closed (a private call came back `locked`). First the same read again
+    /// (`timing.rechecks` times): right after a reconnect the phone proves itself on the new connection and the window
+    /// is open again; a statement on its way settles it too. Still locked: the card asks once (PHN-649). Nothing asks
+    /// by itself.
     private func macLocked() {
-        if let t = macTask, !t.isCancelled, macRunning { return }
-        if ui.busy.contains("unlock-mac") || ui.busy.contains("unlock") { return }
+        if macRunning || ui.busy.contains("unlock-mac") || ui.busy.contains("unlock") { return }
         if session.locked || api.link?.paired != true { return }
+        if statement != nil { handStatement(); return }
         macRunning = true
         macTask = Task { [self] in
             defer { macRunning = false }
@@ -774,18 +1050,11 @@ public final class AppModel {
                 AppLog.i("mac locked: open again after the recheck")
                 macPending = false
                 ui.needsMacUnlock = false
+                ui.macNeed = nil
                 refresh()
                 return
             }
-            if macTries >= 1 || !windowReady || prompts == nil {
-                AppLog.i("mac locked: the owner's tap (tries=\(macTries))")
-                ui.needsMacUnlock = true
-                return
-            }
-            macTries += 1
-            macPending = false
-            AppLog.i("mac locked: one automatic unlock")
-            await unlockMacNow()
+            needMac(statementExpired ? .old : .lapsed)
         }
     }
 
@@ -799,10 +1068,10 @@ public final class AppModel {
         unlockApp(auto: true)
     }
 
-    /// The Mac's unlock alone (its window closed while the app stayed open): one prompt, the owner's tap.
+    /// The card's Unlock: the Mac's own challenge unlock, one prompt (PHN-649).
     @discardableResult
     public func unlockMac() -> Task<Void, Never> {
-        busy("unlock-mac") { [self] in await unlockMacNow() }
+        busy("unlock-mac", tap: true) { [self] in await unlockMacNow() }
     }
 
     private func unlockMacNow() async {
@@ -810,20 +1079,32 @@ public final class AppModel {
         let asked = Date()
         ui.macLine = .opening
         ui.needsMacUnlock = false
-        let call = Task { await api.unlock(PromptGate(inner)) }
+        ui.macNeed = nil
+        let call = Task { await api.unlock(inner) }
         let slow = Task { [self] in
             try? await Task.sleep(nanoseconds: UInt64(timing.macSlow * 1e9))
             if !Task.isCancelled && ui.macLine == .opening { ui.macLine = .slow }
         }
         let r = await call.value
         slow.cancel()
-        if case .failed(let e) = r, case .NotSigned = e {
-            AppLog.i("mac unlock prompt cancelled")
-            ui.macLine = nil
-            ui.needsMacUnlock = true
-            return
+        ui.macLine = nil
+        switch r {
+        case .ok:
+            AppLog.i("mac unlock answered ok in \(ms(since: asked)) ms")
+            statementExpired = false
+            macPending = false
+            refresh()
+            await afterMacUnlock()
+        case .failed(let e):
+            let code = e.linkCode ?? AppLog.kind(e)
+            AppLog.i("mac unlock failed \(code) in \(ms(since: asked)) ms")
+            switch e {
+            case .NotSigned: needMac(.cancelled)
+            case .NeedsSigner: failed(e)
+            default:
+                if code == "unlock_invalid" { macForgot() } else { macPending = true; needMac(.lapsed) }
+            }
         }
-        await macAnswered(r, asked: asked)
     }
 
     private func opened() {
@@ -838,7 +1119,7 @@ public final class AppModel {
     /// PHN-133: registers the Face ID / Touch ID key made after pairing (one prompt), so hard Yeses can use it.
     @discardableResult
     public func registerKeys() -> Task<Void, Never> {
-        busy("keys") { [self] in
+        busy("keys", tap: true) { [self] in
             guard let p = prompts else { return }
             let lock = p.signer(.lock, why: .keys) ?? Declined()
             let strong = p.signer(.strong, why: .keys) ?? Declined()
@@ -886,7 +1167,6 @@ public final class AppModel {
     public func typed(_ text: String) {
         dictation?.cancel()
         draft = text
-        if !text.isEmpty { home = false }
     }
 
     // ---- speaking to FERB (kb PHN-603..PHN-605) ---------------------------------------------------------------------
@@ -922,7 +1202,6 @@ public final class AppModel {
         listening = true
         mic = .readying
         AppLog.i("voice start kind=\(kind.rawValue)")
-        home = false
         let d = Dictation(input: input, kind: kind, words: { [weak self] said in
             guard let self else { return }
             self.partials += 1
@@ -1017,9 +1296,18 @@ public final class AppModel {
         busy("send") { [self] in
             let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
             let files = transfers.ready
+            // files in the box: the message shows at once and goes when its files are on the Mac (kb PHN-690, PHN-691)
+            if !outgoing.chips.isEmpty {
+                draft = ""
+                // a send from the earlier days goes to today, where his message is (kb PHN-698)
+                earlier = false
+                outgoing.send(text, onMac: files)
+                if !files.isEmpty { transfers.sent() }
+                return
+            }
             if text.isEmpty && files.isEmpty { return }
             draft = ""
-            home = false
+            earlier = false
             let r = files.isEmpty ? await api.send(text) : await api.sendWith(text, attachments: files)
             switch r {
             case .ok(let item):
@@ -1074,13 +1362,13 @@ public final class AppModel {
     /// "Stop everything on the Mac" (DMN-1, PHN-125): after the owner's confirmation; no prompt, never queued.
     @discardableResult
     public func stopEverything() -> Task<Void, Never> {
-        busy("stop-all") { [self] in
+        busy("stop-all", tap: true) { [self] in
             sheet = nil
             switch await api.stopEverything() {
             case .ok:
                 note(Note("stop_all_done"))
                 _ = await api.status()
-                apply(lastView)
+                await apply(nil, statusOnly: true)
             case .failed(let e):
                 failed(e)
             }
@@ -1338,9 +1626,22 @@ public final class AppModel {
             let local = self.local
             let staged = await Task.detached { urls.compactMap(local.stage) }.value
             if staged.count < urls.count { note(Note("files_unreadable")) }
-            if !staged.isEmpty { transfers.send(staged, forChat: forChat) }
+            // for the chat they wait in the message box until Send (kb PHN-690); from the Files tab the tap is the send
+            if !staged.isEmpty {
+                if forChat { outgoing.pick(staged) } else { transfers.send(staged, forChat: false) }
+            }
         }
     }
+
+    /// A file's cross in the message box: it goes; nothing was sent.
+    public func unpick(_ key: String) { outgoing.unpick(key) }
+
+    /// A message with files: stop it while its files go, try it again, send its words without the files, remove it.
+    public func stopSending(_ id: String) { outgoing.cancel(id) }
+    public func retrySending(_ id: String) { outgoing.retry(id) }
+    @discardableResult
+    public func sendTextOnly(_ id: String) -> Task<Void, Never>? { outgoing.textOnly(id) }
+    public func removeSending(_ id: String) { outgoing.remove(id) }
 
     /// The files of a finished batch go to the composer, to send with a message.
     public func attachToChat(_ batch: String) {
@@ -1374,6 +1675,42 @@ public final class AppModel {
         live.start(taskId)
     }
 
+    /// A running task's short view (kb PHN-725): its larger picture comes from the same live preview as Watch live.
+    public func showTask(_ taskId: String?, worker: String? = nil) {
+        guard let taskId else { return }
+        sheet = .task(taskId: taskId, worker: worker)
+        let l = api.link
+        if !(l?.path == .publicRelay || (l?.phase == .online && l?.bulkAllowed == false)) { live.start(taskId, worker: worker) }
+    }
+
+    /// The card rows on screen with their own pictures, by row (kb PHN-726; FERB.app's RowPreview): their keys.
+    @ObservationIgnored private var rowPictureKeys: [String: [String]] = [:]
+    /// The tasks whose card rows show their pictures now: the work row leaves their circles out (APP-891).
+    public private(set) var tasksWithRowPictures: Set<String> = []
+
+    /// The work row is on screen with these tasks' pictures (empty: it went), kb PHN-725.
+    public func workRowShown(_ ids: [String]) {
+        workRowIds = ids
+        updatePictures()
+    }
+
+    /// A card on screen with its rows' pictures (`keys`, Thumbnails.key of task and step); empty: it went (kb PHN-726).
+    public func rowPictures(_ row: String, _ keys: [String]) {
+        rowPictureKeys[row] = keys.isEmpty ? nil : keys
+        updatePictures()
+    }
+
+    /// Asks for the pictures on screen: only while the app is unlocked and in front and the path carries pictures.
+    private func updatePictures() {
+        let rows = rowPictureKeys.values.flatMap { $0 }
+        let taken = Set(rows.compactMap { $0.split(separator: "\u{1F}").first.map(String.init) })
+        if taken != tasksWithRowPictures { tasksWithRowPictures = taken }
+        let l = api.link
+        let bulk = l?.phase == .online && l?.bulkAllowed == true && l?.path != .publicRelay
+        let want = rows + workRowIds.filter { !taken.contains($0) }
+        thumbnails.show(!session.locked && session.front && bulk ? want : [])
+    }
+
     /// The Mac's window closed under the preview: unlock (one prompt) and watch again.
     @discardableResult
     public func watchAgain() -> Task<Void, Never> {
@@ -1401,7 +1738,7 @@ public final class AppModel {
 
     @discardableResult
     public func openSettings() -> Task<Void, Never> {
-        busy("settings") { [self] in
+        busy("settings", tap: true) { [self] in
             show(.settings)
             switch await unlocker.run({ await api.settings() }) {
             case .ok(let values): ui.settings = MacSettings.rows(values)
@@ -1415,10 +1752,23 @@ public final class AppModel {
     /// One change, one prompt: the Face ID / Touch ID key where the phone has one, else the lock key (PHN-133).
     @discardableResult
     public func setSetting(_ key: String, valueJson: String) -> Task<Void, Never> {
-        busy("setting:\(key)") { [self] in
-            guard let spec = MacSettings.spec(key) else { return }
+        busy("setting:\(key)", tap: true) { [self] in
+            guard let spec = MacSettings.spec(key) else { return note(Note("err_app_older")) }
+            guard let p = prompts else { return note(Note("err_try_again")) }
+            // the fingerprint-only key made after the pairing isn't known to the Mac yet: registered here first (kb PHN-656)
+            if await api.unregisteredKeys()?.strong != nil {
+                AppLog.i("setting \(key): registering the Face ID key first")
+                let lock = p.signer(.lock, why: .keys) ?? Declined()
+                let strong = p.signer(.strong, why: .keys) ?? Declined()
+                switch await api.registerKeys({ kind in kind == .strong ? strong : lock }) {
+                case .ok: ui.newKeys = false
+                case .failed(let e):
+                    if case .NotSigned = e {} else { failed(e) }
+                    return
+                }
+            }
             guard let kind = unlocker.freshKind() else { return note(Note("needs_pairing_again")) }
-            guard let p = prompts, let signer = p.signer(kind, why: .setting) else { return }
+            guard let signer = p.signer(kind, why: .setting) else { return note(Note("err_try_again")) }
             switch await unlocker.run({ await api.setSetting(key: key, valueJson: valueJson, signer: signer) }) {
             case .ok(let stored):
                 let row = MacSettings.row(spec, stored)
@@ -1445,7 +1795,12 @@ public final class AppModel {
     // ---- navigation and sheets ------------------------------------------------------------------------------------
 
     public func choose(_ t: PhoneTab) {
-        if t == .chat && tab == .chat { home.toggle() }
+        if t == .chat {
+            // choosing the Chat tab is a natural moment for the chat's day to move (kb PHN-697); on the chat already:
+            // from the earlier days back to today, in today to its end (kb PHN-662, PHN-698)
+            turnTheDay()
+            if tab == .chat { if earlier { earlier = false } else { chatToEnd += 1 } }
+        }
         tab = t
         switch t {
         case .tasks: loadTasks()
@@ -1455,17 +1810,35 @@ public final class AppModel {
         }
     }
 
-    public func openChat() {
+    /// "Try again" on the connection sheet (kb PHN-752): the link dials now; it never waits on the main thread.
+    public func retryLink() {
+        // it hands its word to the link's own lane and returns (as setOpen does): it never waits here
+        api.retryLink()
+    }
+
+    /// "Earlier messages" (the home page's, or the top of today's chat): the earlier days (kb PHN-696).
+    public func openChat(focus: Bool = false) {
         tab = .chat
-        home = false
+        earlier = true
         markRead()
+        if focus { focusAsk = true }
+    }
+
+    /// The message box takes the cursor once (a tap on FERB's question's notification: he answers it there, kb PHN-739).
+    public private(set) var focusAsk = false
+    public func focusTaken() { focusAsk = false }
+
+    /// Back to today from the earlier days (kb PHN-698): its chat, or its home page while nothing was said on it.
+    public func backToToday() {
+        tab = .chat
+        earlier = false
+        turnTheDay()
     }
 
     public func show(_ s: AppSheet?) {
         if case .asking(let id) = s { presented.insert(id) }
-        if case .live = sheet {
-            if case .live = s {} else { live.stop() }
-        }
+        func watching(_ x: AppSheet?) -> Bool { switch x { case .live, .task: return true; default: return false } }
+        if watching(sheet) && !watching(s) { live.stop() }
         sheet = s
         if s == nil && pendingLocation != nil { showPending() }
     }
@@ -1492,16 +1865,24 @@ public final class AppModel {
     /// Forget this Mac (PHN-408): the fetched chat, the Mac, the keys and the files here go; the pairing screen comes.
     @discardableResult
     public func forget() -> Task<Void, Never> {
-        busy("forget") { [self] in
+        busy("forget", tap: true) { [self] in
             sheet = nil
             live.stop()
             switch await api.forget() {
-            case .ok:
+            case .ok(let told):
+                statement = nil
+                ui.macForgotPhone = false
+                ui.macNeed = nil
+                ui.needsMacUnlock = false
+                // PHN-646: the Mac removed this phone too, or it couldn't be told (then it still lists it until removed)
+                AppLog.i("forgot the Mac; the Mac was \(told ? "told" : "not reachable")")
+                if !told { note(Note("forget_mac_kept")) }
                 prefs.forgetPairing()
                 tab = .chat
-                home = true
+                earlier = false
                 presented = []
                 transfers.clear()
+                outgoing.clear()
                 ui.mac = nil
                 ui.macTasks = nil
                 ui.files = FilesUi()
@@ -1581,9 +1962,15 @@ public final class AppModel {
 
     /// Runs `block` once at a time per `what` (the screen greys the control while `ui.busy` holds it).
     @discardableResult
-    private func busy(_ what: String, _ block: @escaping @MainActor () async -> Void) -> Task<Void, Never> {
+    /// One job of `what` at a time. A tap (`tap`) that comes while it still runs is never a silent no-op: it says FERB
+    /// is still on it (kb PHN-656).
+    private func busy(_ what: String, tap: Bool = false, _ block: @escaping @MainActor () async -> Void) -> Task<Void, Never> {
         Task { [self] in
-            if ui.busy.contains(what) { return }
+            if ui.busy.contains(what) {
+                if tap { note(Note("still_working")) }
+                AppLog.i("tap while \(what) is still working")
+                return
+            }
             ui.busy.insert(what)
             await block()
             ui.busy.remove(what)
@@ -1592,6 +1979,9 @@ public final class AppModel {
 
     public static func errorNote(_ e: FerbError) -> Note {
         if e.linkCode == Unlocker.pairAgain { return Note("needs_pairing_again") }
+        // a feature the paired Mac's FERB doesn't have yet: said, never a silent failure (kb PHN-656)
+        if e.linkCode == "mac_link_older" || e.linkCode == "method_not_allowed" { return Note("err_mac_older") }
+        if e.linkCode == "app_older" { return Note("err_app_older") }
         switch e {
         case .Offline: return Note("err_offline")
         case .NeedsBetterPath: return Note("err_needs_better_path")
@@ -1634,35 +2024,6 @@ extension AppSheet {
 @MainActor
 private final class PromptBox {
     var prompts: Prompts?
-}
-
-/// The opening prompt inside the Mac's unlock (PHN-641; Android's PromptGate): says when the library asks for the
-/// signature (the Mac's challenge came: the prompt shows) and whether the owner passed it, so the app opens then and
-/// not after the Mac's answer. Given up before it was asked (the challenge was slow), it signs nothing and shows no
-/// prompt.
-private final class PromptGate: Signer, @unchecked Sendable {
-    private let inner: Signer
-    private let lock = NSLock()
-    private var state = 0 // 0 waiting, 1 asked, 2 given up
-    private var _passed: Bool?
-    init(_ inner: Signer) { self.inner = inner }
-    var asked: Bool { lock.lock(); defer { lock.unlock() }; return state == 1 }
-    var passed: Bool? { lock.lock(); defer { lock.unlock() }; return _passed }
-    func sign(payload: String) -> String? {
-        lock.lock()
-        if state == 2 { lock.unlock(); return nil }
-        state = 1
-        lock.unlock()
-        let s = inner.sign(payload: payload)
-        lock.lock(); _passed = s != nil; lock.unlock()
-        return s
-    }
-    /// True when the prompt had not been asked and now never will be.
-    func giveUp() -> Bool {
-        lock.lock(); defer { lock.unlock() }
-        if state == 0 { state = 2; _passed = false; return true }
-        return false
-    }
 }
 
 /// No prompt could be shown: signs nothing (the library answers `not_signed`).

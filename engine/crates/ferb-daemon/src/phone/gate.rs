@@ -49,6 +49,10 @@ pub(crate) struct State {
     /// GATE-615: a session's "until I'm back at my Mac" given with the answer under way (by its question's id), taken
     /// back when that answer fails.
     until_back: HashMap<(String, String), String>,
+    /// PHN-649: each phone's unlock statements already taken (nonce → when), kept for `unlock_max_s`.
+    statement_nonces: HashMap<String, HashMap<String, f64>>,
+    /// PHN-649: when each phone's app last locked (`phone.lock`): a statement made before it is refused.
+    locked_at: HashMap<String, f64>,
 }
 
 fn invalid(why: &str, done: &str) -> Refusal {
@@ -100,9 +104,18 @@ impl State {
     }
 
     /// A removed phone: its sessions, its unlock and what it was asked end now.
+    /// The phone's FERB opens as after a fingerprint, for its sessions that prove the device key (PHN-647: the
+    /// owner's Yes to its pairing).
+    pub(crate) fn open_device_window(&mut self, device: &str, now: f64, limits: &Limits) {
+        self.windows
+            .insert(device.to_owned(), (now, now + limits.unlock_idle_s));
+    }
+
     pub(crate) fn forget_device(&mut self, device: &str) {
         self.sessions.retain(|(d, _), _| d != device);
         self.windows.remove(device);
+        self.statement_nonces.remove(device);
+        self.locked_at.remove(device);
         self.seen_written.remove(device);
     }
 
@@ -547,6 +560,99 @@ pub(crate) fn unlock(
     Ok(out)
 }
 
+/// The domain an unlock statement's signed text starts with (PHN-649); nothing else the phone signs carries it.
+pub const STATEMENT_DOMAIN: &str = "ferb.unlock-statement.v1";
+
+/// `phone.unlock_statement {age_ms}` (the phone's `link.unlock_statement`, PHN-649): the unlock the phone's lock key
+/// signed in the app's opening prompt before the link was up, `{domain, nonce, made}` made by the phone itself. Taken
+/// once, as `phone.unlock`'s challenge-signed proof would be, when: the signature is this phone's (its lock key or its
+/// fingerprint-only key, registered at its pairing: no other phone's key verifies it); the text is a statement; the
+/// nonce was never taken from this phone; the phone's steady clock says it was made at most `statement_age_s` ago; it
+/// wasn't made before the app last locked; and this connection proved the phone's device key. `made` (the phone's
+/// wall clock) is only reported: a phone's wrong clock neither refuses nor admits anything.
+pub(crate) fn unlock_statement(
+    inner: &Inner,
+    st: &mut State,
+    dev: &Phone,
+    phone: &PhoneSession,
+    params: &Params,
+) -> Result<Params, Refusal> {
+    let checked = statement_ok(inner, st, dev, phone, params);
+    let outcome = checked
+        .as_ref()
+        .map_or_else(|r| code_name(r.code), |_| "ok".to_owned());
+    inner.audit(
+        &phone.device,
+        "phone.unlock",
+        "link",
+        &outcome,
+        json!({"by": "statement"}),
+    );
+    checked?;
+    let now = inner.mono();
+    let w = (now, now + inner.limits.unlock_idle_s);
+    st.sess(&phone.device, &phone.session).unlocked = Some(w);
+    st.windows.insert(phone.device.clone(), w);
+    let mut out = Params::new();
+    out.insert("unlocked".into(), json!(true));
+    out.insert("idle_s".into(), json!(inner.limits.unlock_idle_s as u64));
+    out.insert("max_s".into(), json!(inner.limits.unlock_max_s as u64));
+    Ok(out)
+}
+
+fn statement_ok(
+    inner: &Inner,
+    st: &mut State,
+    dev: &Phone,
+    phone: &PhoneSession,
+    params: &Params,
+) -> Result<(), Refusal> {
+    if !st.proved_present(phone) {
+        // the device key's proof is the link's own, on its own thread: the phone tries again in a moment
+        return Err(refused(
+            phone_gate::LOCKED,
+            "This connection hasn't proved it is the paired phone yet.",
+        ));
+    }
+    let signed = st.signed(dev, phone.proof.as_ref(), "Opening FERB", "opened", false)?;
+    if signed.get("domain") != Some(&json!(STATEMENT_DOMAIN)) {
+        return Err(invalid("it is not an unlock statement", "opened"));
+    }
+    let nonce = signed
+        .get("nonce")
+        .and_then(Value::as_str)
+        .filter(|n| n.len() >= 16 && n.len() <= 128)
+        .ok_or_else(|| invalid("it has no nonce", "opened"))?
+        .to_owned();
+    let age_s = params
+        .get("age_ms")
+        .and_then(Value::as_u64)
+        .map(|ms| ms as f64 / 1000.0)
+        .ok_or_else(|| invalid("it doesn't say how old it is", "opened"))?;
+    let now = inner.mono();
+    if age_s > inner.limits.statement_age_s {
+        return Err(refused(
+            phone_gate::UNLOCK_REQUIRED,
+            "The phone's unlock was made too long ago. Unlock the phone again.",
+        ));
+    }
+    if st
+        .locked_at
+        .get(&phone.device)
+        .is_some_and(|t| now - age_s <= *t)
+    {
+        return Err(invalid("it was made before the app locked", "opened"));
+    }
+    let max = inner.limits.unlock_max_s;
+    let used = st.statement_nonces.entry(phone.device.clone()).or_default();
+    used.retain(|_, t| now - *t <= max);
+    if used.contains_key(&nonce) {
+        return Err(invalid("it was used before", "opened"));
+    }
+    used.insert(nonce, now);
+    Ok(())
+}
+
 /// `phone.lock`: this phone's unlock ends (the app locked).
 pub(crate) fn lock_phone(
     inner: &Inner,
@@ -556,6 +662,7 @@ pub(crate) fn lock_phone(
 ) -> Result<Params, Refusal> {
     st.sess(&phone.device, &phone.session).unlocked = None;
     st.windows.remove(&phone.device);
+    st.locked_at.insert(phone.device.clone(), inner.mono());
     inner.audit(&phone.device, "phone.lock", "link", "ok", json!({}));
     let mut out = Params::new();
     out.insert("unlocked".into(), json!(false));
@@ -587,10 +694,13 @@ pub(crate) fn present(
         p.get("sig").and_then(Value::as_str).unwrap_or(""),
     );
     let mut ok = false;
+    let mut active = false;
     if proof::verify(&key, payload.as_bytes(), sig) {
         let signed: Value = serde_json::from_str(payload).unwrap_or(Value::Null);
+        // `{"active": true}`: the app says it is unlocked and in front (PHN-648), signed with the rest
+        active = signed.get("params") == Some(&json!({"active": true}));
         if signed.get("method") == Some(&json!("link.present"))
-            && signed.get("params") == Some(&json!({}))
+            && (signed.get("params") == Some(&json!({})) || active)
         {
             let (ttl, now) = (inner.limits.challenge_ttl_s, inner.mono());
             let s = st.sess(&phone.device, &phone.session);
@@ -607,6 +717,21 @@ pub(crate) fn present(
     let s = st.sess(&phone.device, &phone.session);
     s.present = s.present || ok;
     let present = s.present;
+    if ok && active {
+        // decision: PHN-648 — the device key proves the phone and the app's own lock proves the owner: while the app
+        // is unlocked and in front its presence moves the idle end of a window a fingerprint or the pairing Yes opened.
+        // Never past the 12 h limit (`open_window` checks it from the window's start), never a window `phone.lock`
+        // ended or one that already lapsed.
+        let now = inner.mono();
+        let limits = &inner.limits;
+        if let Some((since, until)) = st.windows.get(&phone.device).copied() {
+            if now < until && now - since <= limits.unlock_max_s {
+                let w = (since, now + limits.unlock_idle_s);
+                st.windows.insert(phone.device.clone(), w);
+                st.sess(&phone.device, &phone.session).unlocked = Some(w);
+            }
+        }
+    }
     inner.audit(
         &phone.device,
         "phone.present",
@@ -878,6 +1003,16 @@ impl PhoneGate for Gate {
         }
         if let Ok(out) = &mut result {
             if method == "chat.status" {
+                // decision: PHN-761 — the planner's question that waits is one more of the phone's questions (read
+                // before the gate's state is held: the store is never locked inside it)
+                let asking = super::asking::waiting(&lock(&inner.seams.db));
+                if let Some(q) = asking {
+                    if let Some(Value::Array(aps)) = out.get_mut("approvals") {
+                        aps.push(q);
+                    } else {
+                        out.insert("approvals".into(), Value::Array(vec![q]));
+                    }
+                }
                 if let Ok(dev) = inner.live(&phone.device) {
                     let mut st = lock(&inner.state);
                     *out = st.status_for(inner, &dev, phone, std::mem::take(out));

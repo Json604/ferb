@@ -43,6 +43,7 @@ import com.ferb.design.components.Pill
 import com.ferb.design.components.PillKind
 import com.ferb.design.components.QrFrame
 import com.ferb.design.screens.PhoneInsets
+import com.ferb.design.screens.paddingOverBottom
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import zxingcpp.BarcodeReader
@@ -96,7 +97,7 @@ fun ScannerPage(
                 Modifier.padding(horizontal = 32.dp))
         }
         Spacer(Modifier.weight(1f))
-        Card(Modifier.padding(start = 16.dp, end = 16.dp, bottom = insets.bottom + 8.dp), padding = 20.dp) {
+        Card(Modifier.paddingOverBottom(insets, 8.dp, start = 16.dp, end = 16.dp), padding = 20.dp) {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 PhoneText(stringResource(R.string.scan_title), 24f, FerbType.Semibold)
                 if (camera == CameraAccess.NOT_ASKED) Pill(stringResource(R.string.scan_allow), icon = FerbIcons.qrScan, onClick = onAllow)

@@ -2,6 +2,7 @@ import CoreLocation
 import Network
 import FerbAppModel
 import FerbCore
+import FerbDesign
 import FerbMobile
 import SwiftUI
 import UIKit
@@ -25,8 +26,15 @@ public final class AppShell: ObservableObject {
     private let lockTeller: LockTeller
     private var background: UIBackgroundTaskIdentifier = .invalid
     private var observers: [NSObjectProtocol] = []
+    /// The launch (kb PHN-631..634): FERB's mark from the first frame, settling into the lock page's mark; the prompt
+    /// by itself waits for it to settle (PHN-633).
+    public let launch = LaunchState(reduced: UIAccessibility.isReduceMotionEnabled)
+    /// The first run's asks (kb PHN-636): once, after the first unlock.
+    let firstRun: FirstRunAsker
+    private var active = false
 
     public init() {
+        StartLog.mark("app")
         Self.freshForUITests()
         prefs = Prefs()
         session = Session()
@@ -35,10 +43,13 @@ public final class AppShell: ObservableObject {
         let api = LibraryPhone(phone)
         let sensors = Sensors(prefs: prefs)
         self.sensors = sensors
+        firstRun = FirstRunAsker(prefs: prefs, sensors: sensors)
         model = AppModel(api: api, session: session, prefs: prefs, local: local, saved: Self.loadSaved(),
                          locator: sensors, coarse: { sensors.places.coarse }, locationAnswered: {},
                          voice: AppleSpeech(), micAllowed: { AppleSpeech.allowed })
         model.prompts = Self.prompts(phone)
+        firstRun.refreshProfile = { [model] in model.refreshProfile() }
+        Task { [firstRun] in await firstRun.refresh() }  // ready before the first unlock ends
         let poster = self.poster
         notifier = Notifier(api: api, prefs: prefs, session: session,
                             lockedNow: { !UIApplication.shared.isProtectedDataAvailable },
@@ -50,7 +61,16 @@ public final class AppShell: ObservableObject {
         notifier.start()
         poster.answer = { [weak self] id, choice, typed in await self?.notifier.answer(id, choice: choice, typed: typed) }
         poster.open = { [weak self] tap in self?.open(tap) }
-        Task { await phone.start() }
+        Task {
+            let began = Date()
+            let s = await phone.start()
+            StartLog.mark("phone open", "\(s.isOpen ? "open" : "not open"), \(Int(Date().timeIntervalSince(began) * 1000)) ms: library, keys, link and store")
+        }
+        launch.onPromptOk = { [weak self] in
+            guard let self else { return }
+            StartLog.mark("launch settled")
+            if active { model.setWindowReady(true) }
+        }
         let center = NotificationCenter.default
         observers.append(center.addObserver(forName: UIApplication.protectedDataWillBecomeUnavailableNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.notifier.lockScreen(locked: true) }
@@ -68,8 +88,10 @@ public final class AppShell: ObservableObject {
             session.foreground(true)
             signals.scene(active: true)
             model.transfers.resumeAfterBackground()
-            model.setWindowReady(true)  // the unlock prompt by itself may show now (PHN-615)
+            active = true
+            model.setWindowReady(launch.promptOk)  // the unlock prompt by itself may show now (PHN-615), the mark settled (PHN-633)
         case .background:
+            active = false
             model.setWindowReady(false)
             session.foreground(false)
             signals.scene(active: false)
@@ -78,6 +100,7 @@ public final class AppShell: ObservableObject {
         default:
             // .inactive: the app switcher, a system sheet or Face ID's own sheet over FERB; the privacy cover shows
             // (PHN-565) and no prompt starts by itself (PHN-615)
+            active = false
             model.setWindowReady(false)
         }
     }
@@ -116,6 +139,8 @@ public final class AppShell: ObservableObject {
         case .app: break
         case .question(let id): model.openQuestion(id)
         case .task: model.openChat()
+        // FERB's own question (a clarify) is answered by a message: the box takes the cursor (FERB.app's needs-you)
+        case .chat: model.openChat(focus: true)
         }
     }
 
@@ -284,6 +309,9 @@ final class Sensors: NSObject, Locator, CLLocationManagerDelegate {
 
     // Locator
     func allowed() -> Bool { [.authorizedWhenInUse, .authorizedAlways].contains(manager.authorizationStatus) }
+
+    /// iOS's answer about location so far (notDetermined: never asked).
+    var authorization: CLAuthorizationStatus { manager.authorizationStatus }
 
     func exact(timeout: Double) async -> LocationFix? {
         manager.desiredAccuracy = kCLLocationAccuracyBest

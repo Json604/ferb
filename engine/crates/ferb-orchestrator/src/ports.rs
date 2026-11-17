@@ -40,8 +40,8 @@ pub trait Policy: Send + Sync {
     fn reads_as_ferbs_check(&self, text: &str) -> bool;
 }
 
-/// confirm.py:133 `FROM_AI`.
-pub const FROM_AI: &str = "(written by the AI) ";
+/// confirm.py:133 `FROM_AI`; APP-953 (owner, 2026-11-17): its words, which Python wrote "(written by the AI) ".
+pub const FROM_AI: &str = "(not one of FERB's checks) ";
 
 /// One journal row as ferb/memory/journal.py's `JournalEntry` holds it.
 #[derive(Debug, Clone, PartialEq)]

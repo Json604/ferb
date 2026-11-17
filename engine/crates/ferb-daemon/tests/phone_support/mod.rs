@@ -203,7 +203,22 @@ impl EventStream for One {
 
 /// A world with the phone area and stub handlers, its server started; `prompts` as given.
 pub async fn world(prompts: Option<Arc<dyn MacPrompts>>) -> World {
-    let dir = tempfile::tempdir().unwrap();
+    world_at(tempfile::tempdir().unwrap(), prompts, "run/d.sock").await
+}
+
+/// The daemon started again over the same store (PHN-649: what lives only in memory, the unlock windows, is gone).
+#[allow(dead_code)]
+pub async fn reopen(w: World) -> World {
+    let World { dir, server, .. } = w;
+    drop(server);
+    world_at(dir, None, "run/d2.sock").await
+}
+
+async fn world_at(
+    dir: tempfile::TempDir,
+    prompts: Option<Arc<dyn MacPrompts>>,
+    sock: &str,
+) -> World {
     let db = ferb_store::Db::open(dir.path().join("ferb.db")).unwrap();
     db.migrate().unwrap();
     let db = Arc::new(Mutex::new(db));
@@ -238,7 +253,7 @@ pub async fn world(prompts: Option<Arc<dyn MacPrompts>>) -> World {
     };
     let phones = Phones::new(seams, Limits::default());
     let tokens = Arc::new(RunTokens::new(Arc::new(ferb_rpc::SystemClock::default())));
-    let server = Server::new(dir.path().join("run/d.sock"), tokens);
+    let server = Server::new(dir.path().join(sock), tokens);
     // every peer of this test is the link's helper (the peer check itself: ferb-rpc tests/phone_entry.rs)
     server.set_is_link(|_| true);
     let calls = Arc::new(Mutex::new(Vec::new()));

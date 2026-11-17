@@ -64,7 +64,8 @@ pub const SHOWN: usize = 3;
 pub const QUOTED_CHARS: usize = 200;
 pub const FROM_TASK: &str = "(from the task) ";
 pub const CHECK_PREFIX: &str = "FERB:";
-pub const FROM_AI: &str = "(written by the AI) ";
+/// APP-953 (owner, 2026-11-17): the mark on a planner line written in the form of FERB's own checks.
+pub const FROM_AI: &str = "(not one of FERB's checks) ";
 pub const ALWAYS_PAY: &str = "floor:pay";
 pub const ALWAYS_ACCOUNT_SECURITY: &str = "floor:account_security";
 const TRAIL: &str = ".,;:!?)]}>\"'";

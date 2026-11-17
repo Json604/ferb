@@ -127,19 +127,17 @@ class ScreenShotsTest {
         compose.onNodeWithTag(PHONE).captureRoboImage("src/test/screenshots/$path", roborazziOptions = options)
     }
 
-    // decision: PHN-416, PHN-455, PHN-509
+    /**
+     * The lab's sample chat as the app draws it. It was the lab's own golden (screens/chat-noon.png) pixel for pixel;
+     * since the owner's FERB surface (kb PHN-734) FERB's task card sits on FERB's dark surface where the lab has its white
+     * card, so the app keeps its own golden: everything else is still the lab's (look at both side by side).
+     */
+    // decision: PHN-416, PHN-455, PHN-509, PHN-734
     @Test
-    fun the_chat_drawn_from_the_labs_sample_is_the_labs_chat() {
+    fun the_chat_drawn_from_the_labs_sample_is_the_labs_chat_on_ferbs_surface() {
         val moment = labMoment(12.5)
         compose.setContent { Frame(moment, base.copy(rows = labRows)) }
-        compose.mainClock.autoAdvance = false
-        compose.mainClock.advanceTimeByFrame()
-        val out = File("build/lab-compare/chat-noon.png")
-        compose.onNodeWithTag(PHONE).captureRoboImage(out.path, roborazziOptions = RoborazziOptions(taskType = com.github.takahirom.roborazzi.RoborazziTaskType.Record))
-        val ours = BitmapFactory.decodeFile(out.path)
-        val golden = BitmapFactory.decodeFile(File(System.getProperty("ferb.design.goldens"), "screens/chat-noon.png").path)
-        val changed = changedFraction(ours, golden)
-        assertTrue("the app's chat differs from the lab's in ${"%.3f".format(changed * 100)} % of its pixels", changed < 0.001)
+        shoot("chat-lab-sample-noon.png")
     }
 
     // decision: PHN-401, ORCH-651
@@ -155,7 +153,7 @@ class ScreenShotsTest {
             ChatRow.Outbox("o:1", OutboxItem("1", "And empty the trash", "2026-01-02T10:00:00+00:00", "waiting", "link", null, false, emptyList())),
             ChatRow.Outbox("o:2", OutboxItem("2", "Rename the scans", "2026-01-02T10:00:00+00:00", "failed", null, "FERB on your Mac turned this down", false, emptyList())),
         )
-        compose.setContent { Frame(labMoment(12.5), base.copy(rows = rows, link = FakePhone.status(LinkPhase.WAITING))) }
+        compose.setContent { Frame(labMoment(12.5), base.copy(rows = rows, link = FakePhone.status(LinkPhase.WAITING), linkLost = true)) }
         shoot("chat-offline-outbox.png")
     }
 
@@ -298,7 +296,7 @@ class ScreenShotsTest {
     }
 
     // decision: SENSE-420, PHN-420
-    // decision: PHN-532
+    // decision: PHN-638
     @Test
     fun sharing_the_city_is_explained_before_androids_question() {
         compose.setContent { Frame(labMoment(6.1), base.copy(rows = labRows), sheet = Sheet.City) }

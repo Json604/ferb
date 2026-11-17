@@ -158,6 +158,8 @@ pub const METHODS: &[Method] = &[
     // (PHONE_LINK_ADDITIONS, FERB.app's own)
     m("phone.enable", &[Role::Cli], true),
     m("phone.files", &[], false),
+    // PHN-646: a phone's "Forget this Mac" removes that phone itself (its own session, its device key proved)
+    m("phone.forget_self", &[], false),
     m("phone.keys", &[], false),
     m("phone.link_status", &[Role::Cli], true),
     m("phone.list", &[Role::Cli], true),
@@ -181,6 +183,8 @@ pub const METHODS: &[Method] = &[
     m("phone.session_end", &[], false),
     m("phone.tree", &[], false),
     m("phone.unlock", &[], false),
+    // PHN-649: the unlock the phone's lock key signed in the opening prompt before the link was up
+    m("phone.unlock_statement", &[], false),
     // PHN-581: where a phone's files land, chosen in FERB.app's Settings → Phone (PHONE_ADDITIONS, FERB.app's own)
     m("phone.upload_folder", &[Role::Cli], true),
     m("ping", &[Role::Cli, Role::McpShim], false),
@@ -319,13 +323,15 @@ pub const SCREEN_USE_ADDITIONS: [&str; 2] = ["screen_use.end", "screen_use.statu
 /// Stage 3 (T-1202): a phone session's own calls: a challenge, the unlock and lock, the device key's proof, keys
 /// registered late, the session's end. No local role may call them; on a phone session the phone gate answers each,
 /// checking the proof it carries itself (CONTRACT §12).
-pub const PHONE_SESSION: [&str; 6] = [
+pub const PHONE_SESSION: [&str; 8] = [
     "phone.challenge",
+    "phone.forget_self",
     "phone.keys",
     "phone.lock",
     "phone.present",
     "phone.session_end",
     "phone.unlock",
+    "phone.unlock_statement",
 ];
 
 /// Stage 3 S3b (T-1203): a phone session's file calls: browse, fetch (a stream) and upload. No local role may call

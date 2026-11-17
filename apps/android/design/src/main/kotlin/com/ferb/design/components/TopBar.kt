@@ -1,5 +1,11 @@
 package com.ferb.design.components
 
+import androidx.compose.ui.unit.Dp
+
+import androidx.compose.foundation.layout.width
+
+import androidx.compose.foundation.border
+
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
@@ -66,6 +72,20 @@ enum class PhoneTab(val title: String, val icon: ImageVector, val chosenIcon: Im
     FILES("Files", FerbIcons.folder, FerbIcons.folderFill),
     MAC("Mac", FerbIcons.laptop, FerbIcons.laptop),
 }
+
+/**
+ * How the link to the Mac stands, as the top bar's connection control shows it (kb PHN-751): connecting (the design's
+ * turning arc, as FERB.app shows "Connecting to FERB…"), connected by its path (a quiet solid dot: white directly, white
+ * with a ring through his own relay, grey through the shared relay), or can't reach (an amber lamp, only after
+ * connecting has really failed).
+ */
+enum class LinkMark { CONNECTING, DIRECT, OWN_RELAY, SHARED_RELAY, UNREACHABLE }
+
+/** The connection control: its [mark], what a screen reader says ([label]) and its tap (the connection sheet). */
+data class Connection(val mark: LinkMark, val label: String, val onClick: (() -> Unit)?)
+
+/** The connection control every page's top bar shows beside the profile button (kb PHN-751); none: no control. */
+val LocalConnection = staticCompositionLocalOf<Connection?> { null }
 
 /** What a page's own TopBar hands the one bar of a [TabBarHost]. */
 private data class BarValue(val chosen: PhoneTab, val waiting: PhoneTab?, val onTab: ((PhoneTab) -> Unit)?, val onProfile: (() -> Unit)?)
@@ -194,6 +214,10 @@ private fun Bar(
             }
         }
         Spacer(Modifier.weight(1f))
+        LocalConnection.current?.let { c ->
+            ConnectionButton(c)
+            Spacer(Modifier.width(8.dp))
+        }
         Box(
             Modifier.pressable(onProfile, label = "This phone").semantics { contentDescription = "This phone" }
                 .size(Phone.profileButton).background(Ink.darkFill, CircleShape),
@@ -218,5 +242,29 @@ private fun DrawScope.drawPill(pill: Pill, chosen: PhoneTab) {
     } else {
         val bar = Path().apply { addOutline(CircleShape.createOutline(size, layoutDirection, this@drawPill)) }
         clipPath(bar) { translate(pad + x, pad + target.top) { pillOutline() } }
+    }
+}
+
+/** The connection control (kb PHN-751): the profile button's round, with the link's mark in it. */
+@Composable
+fun ConnectionButton(c: Connection, modifier: Modifier = Modifier) {
+    Box(
+        modifier.pressable(c.onClick, label = c.label).semantics { contentDescription = c.label }
+            .size(Phone.profileButton).background(Ink.darkFill, CircleShape),
+        contentAlignment = Alignment.Center,
+    ) { LinkMarkView(c.mark, 9.dp) }
+}
+
+/** The link's mark at [size] (the dot's size): the arc, a dot, a dot in a ring, or the amber lamp. */
+@Composable
+fun LinkMarkView(mark: LinkMark, size: Dp, modifier: Modifier = Modifier) {
+    when (mark) {
+        LinkMark.CONNECTING -> RunningArc(size * 1.8f, Ink.onDark, modifier)
+        LinkMark.DIRECT -> Box(modifier.size(size).background(Ink.white, CircleShape))
+        LinkMark.OWN_RELAY -> Box(modifier.size(size * 1.9f).border(1.2.dp, Ink.white.copy(alpha = 0.55f), CircleShape), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(size * 0.9f).background(Ink.white, CircleShape))
+        }
+        LinkMark.SHARED_RELAY -> Box(modifier.size(size).background(Ink.onDark, CircleShape))
+        LinkMark.UNREACHABLE -> LampDot(Ink.amber, size, modifier)
     }
 }

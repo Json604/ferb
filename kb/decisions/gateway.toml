@@ -1499,3 +1499,13 @@ status = "active"
 rule = "For PHN-593. A hold that runs out with no input resumes screen use and sets a quiet time of QUIET_S (10 minutes; the number awaits the owner, T-1260): unclear events in it are journaled (ignored) and let pass; a clear event, the Mac locking or sleeping, a Mac message and the rest still end 'until I'm back' at once."
 why = "The owner: if it can't tell, FERB would keep asking at its own presses; not asking for a while stops that."
 evidence = "ferb-gateway screen_use.rs a_silent_hold_resumes..., tests/until_back.rs a_silent_hold_resumes_quietly..."
+
+[GATE-620]
+title = "Addresses found on a page the owner sent FERB to are asked about once, as a list, not one by one"
+by = "owner"
+date = 2026-11-18
+status = "active"
+words = "- A: one question for the whole list (\"Use these three addresses from Mailmeteor as recipients?\").\" - id take A"
+words_source = "Owner 2026-11-18, after a task asked for his Yes before typing each of three addresses it had found for a draft. Offered: A one question for the list; B none for an unsent draft; as is."
+rule = "When a task is about to enter several destinations it found only in outside content, FERB asks once, naming every one and where it found them; his Yes covers exactly those, there, for that task. One not on the list asks again."
+why = "One Yes per address for an unsent draft he asked for is the false-alarm kind; the list keeps the check on what leaves his words."

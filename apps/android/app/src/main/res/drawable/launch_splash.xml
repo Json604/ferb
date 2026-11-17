@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The launch on Android 12+'s splash screen (kb PHN-631, PHN-632): the system draws and plays this from its first
+     frame, while the app's process is still starting; the app's launch (:design LaunchHost.kt) continues from the
+     moment the splash says it reached. It is launch_mark (the f on its tile) at the launch's size, 112 dp, with
+     FerbMark's amber dot and a halo like its blur (units: the mark's 96-unit tile). The system draws this icon in a
+     box of about 280 dp, not the 288 its guidance names: measured on the emulator (Android 16, 420 dpi), the tile
+     came out 2.7 % small, so the viewport is sized for that box.
+     The motion is motion.json `launch` (Launch.kt): the whole mark, its dot in place, from the first frame (owner kb
+     PHN-700: no drop, no hop, no give of the f), and from 900 ms the dot breathes to 0.86 and 0.72 opacity and back
+     every 1800 ms (accelerate_decelerate is (1 - cos pi u) / 2). -->
+<animated-vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt">
+    <aapt:attr name="android:drawable">
+        <vector android:width="288dp" android:height="288dp" android:viewportWidth="240.1714" android:viewportHeight="240.1714">
+            <group android:translateX="72.0857" android:translateY="72.0857">
+                <path android:pathData="M22.08,0 L73.92,0 A22.08,22.08 0 0 1 96,22.08 L96,73.92 A22.08,22.08 0 0 1 73.92,96 L22.08,96 A22.08,22.08 0 0 1 0,73.92 L0,22.08 A22.08,22.08 0 0 1 22.08,0 Z">
+                    <aapt:attr name="android:fillColor">
+                        <gradient android:type="linear" android:startX="0" android:startY="0" android:endX="0" android:endY="96"
+                            android:startColor="#FF272521" android:endColor="#FF080706" />
+                    </aapt:attr>
+                </path>
+                <path android:strokeWidth="1"
+                    android:pathData="M22.08,0.5 L73.92,0.5 A21.58,21.58 0 0 1 95.5,22.08 L95.5,73.92 A21.58,21.58 0 0 1 73.92,95.5 L22.08,95.5 A21.58,21.58 0 0 1 0.5,73.92 L0.5,22.08 A21.58,21.58 0 0 1 22.08,0.5 Z">
+                    <aapt:attr name="android:strokeColor">
+                        <gradient android:type="linear" android:startX="0" android:startY="0" android:endX="0" android:endY="48"
+                            android:startColor="#38FFFFFF" android:endColor="#05FFFFFF" />
+                    </aapt:attr>
+                </path>
+                <group>
+                    <group android:translateX="-16" android:translateY="-16">
+                        <path android:fillColor="#FFF4EFE7" android:pathData="M49.969,58.772L49.969,90L60.477,90L60.477,58.772L67.729,58.772L67.729,51.742L60.477,51.742L60.477,49.448Q60.477,47.08 61.402,46.081Q62.327,45.082 64.473,45.082Q66.471,45.082 68.321,45.304L68.321,37.46Q66.989,37.386 65.583,37.275Q64.177,37.164 62.771,37.164Q56.333,37.164 53.151,40.42Q49.969,43.676 49.969,48.782L49.969,51.742L43.679,51.742L43.679,58.772Z" />
+                    </group>
+                </group>
+                <group android:name="dot" android:pivotX="66" android:pivotY="69">
+                    <path android:name="halo" android:fillAlpha="1"
+                        android:pathData="M66,43 A26,26 0 1 1 65.99,43 Z">
+                        <aapt:attr name="android:fillColor">
+                            <gradient android:type="radial" android:centerX="66" android:centerY="69" android:gradientRadius="26">
+                                <item android:offset="0" android:color="#5CF5AE4B" />
+                                <item android:offset="0.31" android:color="#59F5AE4B" />
+                                <item android:offset="0.5" android:color="#2BF5AE4B" />
+                                <item android:offset="0.73" android:color="#0DF5AE4B" />
+                                <item android:offset="1" android:color="#00F5AE4B" />
+                            </gradient>
+                        </aapt:attr>
+                    </path>
+                    <path android:name="core" android:fillAlpha="1" android:fillColor="#FFF5AE4B"
+                        android:pathData="M66,61 A8,8 0 1 1 65.99,61 Z" />
+                </group>
+            </group>
+        </vector>
+    </aapt:attr>
+    <target android:name="dot">
+        <aapt:attr name="android:animation">
+            <set>
+                <objectAnimator android:propertyName="scaleX" android:valueFrom="1" android:valueTo="0.86" android:duration="900" android:startOffset="900"
+                    android:interpolator="@android:interpolator/accelerate_decelerate" android:repeatCount="infinite" android:repeatMode="reverse" android:valueType="floatType" />
+                <objectAnimator android:propertyName="scaleY" android:valueFrom="1" android:valueTo="0.86" android:duration="900" android:startOffset="900"
+                    android:interpolator="@android:interpolator/accelerate_decelerate" android:repeatCount="infinite" android:repeatMode="reverse" android:valueType="floatType" />
+            </set>
+        </aapt:attr>
+    </target>
+    <target android:name="halo">
+        <aapt:attr name="android:animation">
+            <set>
+                <objectAnimator android:propertyName="fillAlpha" android:valueFrom="1" android:valueTo="0.72" android:duration="900" android:startOffset="900"
+                    android:interpolator="@android:interpolator/accelerate_decelerate" android:repeatCount="infinite" android:repeatMode="reverse" android:valueType="floatType" />
+            </set>
+        </aapt:attr>
+    </target>
+    <target android:name="core">
+        <aapt:attr name="android:animation">
+            <set>
+                <objectAnimator android:propertyName="fillAlpha" android:valueFrom="1" android:valueTo="0.72" android:duration="900" android:startOffset="900"
+                    android:interpolator="@android:interpolator/accelerate_decelerate" android:repeatCount="infinite" android:repeatMode="reverse" android:valueType="floatType" />
+            </set>
+        </aapt:attr>
+    </target>
+</animated-vector>

@@ -159,6 +159,8 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         })
     private var geometry: NotchGeometry?
     private var statusItem: NSStatusItem?
+    /// The menu bar state the status item's image shows, so an unchanged state doesn't redraw it.
+    private(set) var statusItemShows: MenuBarState?
     /// The pending hover open or hover-out fold (tests await it).
     private(set) var hoverTask: Task<Void, Never>?
     /// Where the pointer is, in screen coordinates (tests place it).
@@ -1992,8 +1994,11 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
 
     private func updateStatusItem() {
         let state = model.menuBarState
-        statusItem?.button?.image = NSImage(systemSymbolName: state.symbol, accessibilityDescription: state.statusLine)
-        statusItem?.button?.toolTip = state.statusLine
+        if let button = statusItem?.button, statusItemShows != state {
+            statusItemShows = state
+            button.image = MenuBarIcon.image(for: state)      // FERB's "f." with the state in its dot (APP-961)
+            button.toolTip = state.statusLine
+        }
         statusItem?.button?.contentTintColor = statusTint.map { tint in
             switch tint {
             case .amber: NSColor.systemYellow

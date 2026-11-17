@@ -280,6 +280,13 @@ impl Inner {
             );
         }
         let _ = tx.send(Value::Object(ack));
+        // SENSE-424: where the message was sent from, by its own client (a phone by the name the Mac knows it by)
+        let sent_from = crate::words::sent_from(params.client_id.as_deref(), |endpoint| {
+            ferb_store::phones::by_endpoint(self.db().conn(), endpoint)
+                .ok()
+                .flatten()
+                .map(|p| p.name)
+        });
         let me = self.me();
         let job = tokio::spawn(async move {
             me.turn_stream(
@@ -288,7 +295,7 @@ impl Inner {
                 paths,
                 request_id,
                 (hidden, sealed),
-                params.screen,
+                (params.screen, sent_from),
                 tx,
             )
             .await;
@@ -306,7 +313,7 @@ impl Inner {
         paths: Vec<String>,
         request_id: String,
         (hidden, sealed): (Vec<String>, Vec<(String, String)>),
-        screen: bool,
+        (screen, sent_from): (bool, Option<String>),
         out: mpsc::UnboundedSender<Value>,
     ) {
         let (tx, mut rx) = mpsc::unbounded_channel::<Value>();
@@ -358,7 +365,7 @@ impl Inner {
                 paths,
                 request_id.clone(),
                 (hidden, sealed),
-                screen,
+                (screen, sent_from),
                 &tx,
             )
             .await

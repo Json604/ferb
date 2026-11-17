@@ -5,7 +5,8 @@ import XCTest
 
 /// What FERB's notifications carry, decided as plain data (Android's Notifier.kt and AnswerReceiver, PHN-415, PHN-417,
 /// PHN-422, PHN-126): buttons only for a routine question, never words for a private answer or held words, FERB's own
-/// checks wordless on a locked phone, nothing new while the owner looks at the app, and the answer from a button.
+/// checks wordless on a locked phone, nothing new while the owner looks at the app, every waiting question (the
+/// planner's too) once otherwise (kb PHN-760..764), and the answer from a button.
 @MainActor
 final class NotificationTests: XCTestCase {
     private var rig: Rig!
@@ -65,25 +66,65 @@ final class NotificationTests: XCTestCase {
         XCTAssertTrue(again[0].wordless && again[0].quietly)
     }
 
-    // decision: PHN-415, PHN-421, PHN-519
-    func testWhatWasThereAtStartIsNotNewsAndAQuestionIsAnnouncedOnce() {
-        let first = phoneStatus(asked("ap-1", needs(unlock: false)))
-        XCTAssertTrue(planner.status(first, chat: nil, quiet: false, lockedNow: false).isEmpty, "primed: not news")
+    private func look(_ status: PhoneStatus?, front: Bool = false, unlocked: Bool = true) -> [NotificationAction] {
+        planner.look(status: status, view: nil, front: front, unlocked: unlocked, lockedNow: false)
+    }
+
+    private let clarify = StatusQuestion(approvalId: "clarify:r1", kind: Question.clarifyKind, capability: nil, taskId: nil,
+                                         reason: "Which email account should I use?", options: [], held: false,
+                                         needs: QuestionNeeds(canAnswer: true, needsUnlock: false, hidden: false, fingerprint: false,
+                                                              challenge: nil, problem: nil, untilBack: false))
+
+    // decision: PHN-760, PHN-415, PHN-421, PHN-519
+    func testAWaitingQuestionIsNewsEvenAtStartAndIsAnnouncedOnce() {
+        let first = phoneStatus(asked("ap-1", needs(unlock: false)),
+                                results: [StatusResult(taskId: "t-0", requestId: nil, at: nil, status: "done", name: "Old", answer: "", held: false)])
+        XCTAssertEqual(posted(look(first)).map(\.id), ["q:ap-1"], "a waiting question, even at start; what had finished, not")
         let second = phoneStatus(asked("ap-1", needs(unlock: false)), asked("ap-2", needs(unlock: true)),
                                  results: [StatusResult(taskId: "t-9", requestId: nil, at: nil, status: "failed", name: "Invoice", answer: "", held: false)])
-        let a = posted(planner.status(second, chat: nil, quiet: false, lockedNow: false))
+        let a = posted(look(second))
         XCTAssertEqual(a.map(\.id), ["q:ap-2", "t:t-9"])
+        XCTAssertFalse(a[0].quietly, "a new one: sound and banner")
         XCTAssertEqual(a[1].title, L.s("n_task_failed"))
-        XCTAssertTrue(planner.status(second, chat: nil, quiet: false, lockedNow: false).isEmpty, "once")
+        XCTAssertTrue(look(second).isEmpty, "once")
         // its needs changed: re-posted quietly; gone from the Mac: removed
         let changed = phoneStatus(asked("ap-2", needs(unlock: false)))
-        let b = planner.status(changed, chat: nil, quiet: false, lockedNow: false)
+        let b = look(changed)
         XCTAssertEqual(posted(b).map(\.id), ["q:ap-2"])
         XCTAssertTrue(posted(b)[0].quietly)
-        XCTAssertEqual(planner.status(phoneStatus(), chat: nil, quiet: false, lockedNow: false), [.remove(id: "q:ap-2")])
-        // the owner looking at the open app: marked, not posted
-        XCTAssertTrue(planner.status(phoneStatus(asked("ap-3", needs(unlock: false))), chat: nil, quiet: true, lockedNow: false).isEmpty)
-        XCTAssertTrue(rig.prefs.announced.contains("q:ap-3"))
+        XCTAssertEqual(look(phoneStatus()), [.remove(id: "q:ap-2")])
+    }
+
+    // decision: PHN-760, PHN-764
+    func testInTheAppNothingAndOneHeSawGoesQuietlyWhenHeLeaves() {
+        let s = phoneStatus(asked("ap-3", needs(unlock: false)))
+        XCTAssertTrue(look(s, front: true).isEmpty, "in the app: the app shows it")
+        let away = posted(look(s))
+        XCTAssertEqual(away.map(\.id), ["q:ap-3"])
+        XCTAssertTrue(away[0].quietly, "seen in the app: no sound again")
+        // on the app's lock page he has not seen it: a banner when he leaves
+        let s2 = phoneStatus(asked("ap-3", needs(unlock: false)), asked("ap-4", needs(unlock: false)))
+        XCTAssertTrue(look(s2, front: true, unlocked: false).isEmpty)
+        XCTAssertFalse(posted(look(s2))[0].quietly)
+    }
+
+    // decision: PHN-760, PHN-761, PHN-762
+    func testThePlannersQuestionNotifiesWithItsWordsAndOpensTheChat() {
+        let a = posted(look(phoneStatus(clarify)))
+        XCTAssertEqual(a.map(\.id), ["q:clarify:r1"])
+        XCTAssertTrue(a[0].body.hasPrefix("Which email account should I use?"))
+        XCTAssertTrue(a[0].body.contains(L.s("n_clarify_text")))
+        XCTAssertTrue(a[0].buttons.isEmpty, "answered by a message in the chat, never a button")
+        XCTAssertEqual(a[0].tap, .chat)
+        XCTAssertEqual(a[0].title, L.s("n_needs_you"))
+        // answered anywhere (his next message): it goes; asked again: a new one
+        XCTAssertEqual(look(phoneStatus()), [.remove(id: "q:clarify:r1")])
+        var again = clarify
+        again.approvalId = "clarify:r2"
+        XCTAssertEqual(posted(look(phoneStatus(again))).map(\.id), ["q:clarify:r2"])
+        // never a question sheet or a task: not in the app's own list
+        XCTAssertTrue(Questions.merged([], phoneStatus(clarify)).isEmpty)
+        XCTAssertFalse(Questions.waiting([], phoneStatus(clarify))[0].routine)
     }
 
     // decision: PHN-421, PHN-302

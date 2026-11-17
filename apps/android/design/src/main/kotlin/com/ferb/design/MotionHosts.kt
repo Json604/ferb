@@ -221,12 +221,24 @@ internal fun Modifier.sheetPanelMotion(p: MotionPresence, onDismiss: (() -> Unit
     }
 }
 
-/** The dim under a sheet, fading with it. */
-internal fun Modifier.sheetScrimMotion(p: MotionPresence): Modifier = graphicsLayer { alpha = p.value.coerceIn(0f, 1f) }
+/**
+ * The dim under a sheet, fading with it. It is one rectangle, so its alpha is applied to that rectangle as it is drawn
+ * (the same pixels) instead of through a whole-screen offscreen buffer on every frame of the fade (kb PHN-711).
+ */
+internal fun Modifier.sheetScrimMotion(p: MotionPresence): Modifier = graphicsLayer {
+    alpha = p.value.coerceIn(0f, 1f)
+    compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
+}
 
-/** A row of a lazy list: fades in where it arrives, the others glide to their places, a removed one fades out. */
-fun LazyItemScope.motionItem(): Modifier = Modifier.animateItem(
-    fadeInSpec = Motion.item(),
+/**
+ * A row of a lazy list: fades in where it arrives, the others glide to their places, a removed one fades out.
+ * [arriving] says this row is new to the list (it was not in it a moment ago): only then does it fade in. Compose
+ * treats every row as appearing after a jump of the list's position (scrollToItem resets its item animations), so a
+ * fade for every row turns a jump into a blank list for as long as the fade lasts (kb PHN-670); a row that was there
+ * already, or one scrolled into view, is drawn at once.
+ */
+fun LazyItemScope.motionItem(arriving: Boolean = true): Modifier = Modifier.animateItem(
+    fadeInSpec = if (arriving) Motion.item() else null,
     placementSpec = spring(Motion.sheet.dampingRatio, Motion.sheet.stiffness, IntOffset(1, 1)),
     fadeOutSpec = Motion.exit(),
 )
@@ -257,4 +269,30 @@ fun AppearAfterFirst(content: @Composable () -> Unit) {
     var ready by remember { mutableStateOf(false) }
     SideEffect { ready = true }
     androidx.compose.runtime.CompositionLocalProvider(LocalAppearReady provides ready, content = content)
+}
+
+/**
+ * [value] shown while it is not null (a status line, the chat's jump control, its day label): it rises 6 dp and fades
+ * in on the item curve, and fades out on the exit curve, still drawing what it showed while it goes. With [push] its
+ * height opens and closes with it, so what is below moves by its own height and no more, smoothly. On the first draw
+ * it is simply there; with the system's animations off every change is instant.
+ */
+@Composable
+fun <T : Any> MotionShow(value: T?, modifier: Modifier = Modifier, push: Boolean = false, content: @Composable (T) -> Unit) {
+    val reduced = rememberReducedMotion()
+    val held = remember { arrayOfNulls<Any>(1) }
+    if (value != null) held[0] = value
+    val shift = with(LocalDensity.current) { Motion.ITEM_SHIFT_DP.dp.roundToPx() }
+    val enter = if (reduced) androidx.compose.animation.EnterTransition.None else
+        androidx.compose.animation.fadeIn(Motion.item()) + androidx.compose.animation.slideInVertically(Motion.item()) { shift } +
+            (if (push) androidx.compose.animation.expandVertically(Motion.item(), expandFrom = androidx.compose.ui.Alignment.Top)
+            else androidx.compose.animation.EnterTransition.None)
+    val exit = if (reduced) androidx.compose.animation.ExitTransition.None else
+        androidx.compose.animation.fadeOut(Motion.exit()) +
+            (if (push) androidx.compose.animation.shrinkVertically(Motion.exit(), shrinkTowards = androidx.compose.ui.Alignment.Top)
+            else androidx.compose.animation.ExitTransition.None)
+    androidx.compose.animation.AnimatedVisibility(value != null, modifier, enter, exit) {
+        @Suppress("UNCHECKED_CAST")
+        (held[0] as T?)?.let { content(it) }
+    }
 }

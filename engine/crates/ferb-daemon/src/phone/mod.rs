@@ -30,6 +30,7 @@
 //! A phone's turn is the owner's: the handlers FERB.app's calls reach answer it, with the phone named as the client
 //! (`client_id` `phone:<endpoint>`), so the Mac shows which device sent it (APP-916).
 
+pub mod asking;
 pub mod device;
 pub mod files;
 pub mod find;
@@ -66,6 +67,9 @@ pub struct Limits {
     pub pair_confirm_s: f64,
     /// The audit is kept this long (PHN-130: 90 days).
     pub audit_keep_days: i64,
+    /// An unlock statement the phone signed in its opening prompt is taken only this soon after it was made, by the
+    /// phone's own steady clock (PHN-649: 120 s, the coordinator's number until the owner confirms it, T-1270).
+    pub statement_age_s: f64,
 }
 
 impl Default for Limits {
@@ -78,6 +82,7 @@ impl Default for Limits {
             challenge_ttl_s: 120.0,
             pair_confirm_s: 120.0,
             audit_keep_days: 90,
+            statement_age_s: 120.0,
         }
     }
 }
@@ -321,10 +326,11 @@ impl Phones {
     /// Registers the area's methods and sets its gate on `server`.
     pub fn register(&self, server: &Server) {
         server.set_phone_gate(self.gate());
-        let unary: [(&str, Handler); 15] = [
+        let unary: [(&str, Handler); 17] = [
             ("phone.list", |p, s, _| p.list(&s)),
             ("phone.rename", |p, _, a| p.rename(&a)),
             ("phone.remove", |p, s, a| p.remove(&s, &a)),
+            ("phone.forget_self", |p, s, _| p.forget_self(&s)),
             ("phone.pair_decide", |p, _, a| p.pair_decide(&a)),
             ("phone.audit", |p, _, a| p.audit_rows(&a)),
             ("phone.challenge", |p, s, _| {
@@ -332,6 +338,12 @@ impl Phones {
             }),
             ("phone.unlock", |p, s, _| {
                 p.inner.on_session(&s, gate::unlock)
+            }),
+            ("phone.unlock_statement", |p, s, a| {
+                let phone = s.phone.clone().unwrap_or_default();
+                let dev = p.inner.live(&phone.device).map_err(coded)?;
+                let mut st = lock(&p.inner.state);
+                gate::unlock_statement(&p.inner, &mut st, &dev, &phone, &a).map_err(coded)
             }),
             ("phone.lock", |p, s, _| {
                 p.inner.on_session(&s, gate::lock_phone)
@@ -487,6 +499,30 @@ impl Phones {
 
     /// `phone.remove {id}`: FERB.app's, or a second phone's with its fingerprint (the gate checked the proof). Its
     /// sessions end at once; the helper closes its connections (`link.events`); every later call under it is refused.
+    /// `phone.forget_self` (the phone's `link.forget`, PHN-646): "Forget this Mac" on a phone removes that phone, and
+    /// only it, from a session that proved its device key; journalled and audited as by that phone. Any other
+    /// removal's checks and effects are `remove`'s.
+    pub fn forget_self(&self, session: &Session) -> HandlerResult {
+        let Some(phone) = session.phone.as_ref() else {
+            return Err(coded(refused(
+                phone_gate::BAD_REQUEST,
+                "phone.forget_self is a paired phone's own call",
+            )));
+        };
+        if !lock(&self.inner.state).proved_present(phone) {
+            return Err(coded(refused(
+                phone_gate::UNLOCK_INVALID,
+                "This connection hasn't proved it is the paired phone itself.",
+            )));
+        }
+        let mut params = Params::new();
+        params.insert("id".into(), json!(phone.device));
+        let out = self.remove(session, &params)?;
+        self.inner
+            .audit(&phone.device, "phone.forget_self", "link", "ok", json!({}));
+        Ok(out)
+    }
+
     pub fn remove(&self, session: &Session, params: &Params) -> HandlerResult {
         let inner = &self.inner;
         let id = text(params, "id").ok_or_else(|| {
@@ -787,6 +823,18 @@ impl Phones {
         p.decided = Some(paired);
         let (endpoint, name) = (p.new.endpoint.clone(), p.new.name.clone());
         drop(pairing);
+        if paired {
+            // decision: PHN-647 — the owner's Yes here, after the matching code, is his proof: the new phone's FERB
+            // opens as after a fingerprint (the same idle rule and 12 h limit), for the session that proves its key
+            lock(&inner.state).open_device_window(&endpoint, inner.mono(), &inner.limits);
+            inner.audit(
+                &endpoint,
+                "phone.unlock",
+                "link",
+                "ok",
+                json!({"by": "pairing"}),
+            );
+        }
         inner.decided.notify_waiters();
         inner.pair_ended(json!({"phone": endpoint, "paired": paired}));
         inner.audit(

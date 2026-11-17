@@ -1,0 +1,6 @@
+# FERB's baseline profile (kb PHN-633): the app's own code and the phone library's bindings are compiled ahead of time
+# at install (by the Play Store, or by androidx.profileinstaller on a sideloaded non-debuggable build: the benchmark
+# and release builds), so a cold start does not interpret them. Compose and the other AndroidX libraries bring their
+# own profiles. Wildcards: every method and class of these packages.
+HSPLcom/ferb/**->**(**)**
+Lcom/ferb/**;

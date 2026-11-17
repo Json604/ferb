@@ -8,6 +8,8 @@ public protocol Uplink: AnyObject, Sendable {
     func pair(_ code: String) throws
     func status() -> LinkStatus?
     func setActive(_ on: Bool)
+    /// The app is unlocked and in front (kb PHN-648).
+    func setOpen(_ on: Bool)
     func networkChanged(_ kind: String?)
     func retry()
     func forget() throws
@@ -23,6 +25,10 @@ public struct UplinkStart: @unchecked Sendable {
     public let keys: PublicKeys
     public let listener: LinkListener
     public let deviceSigner: DeviceSigner?
+}
+
+public extension Uplink {
+    func setOpen(_ on: Bool) {}
 }
 
 public protocol UplinkFactory: Sendable {
@@ -53,6 +59,7 @@ private final class LinkUplink: Uplink, @unchecked Sendable {
     func pair(_ code: String) throws { try link.pair(code: code) }
     func status() -> LinkStatus? { link.status() }
     func setActive(_ on: Bool) { try? link.setActive(on: on) }
+    func setOpen(_ on: Bool) { link.setOpen(on: on) }
     func networkChanged(_ kind: String?) { try? link.networkChanged(kind: kind) }
     func retry() { try? link.retry() }
     func forget() throws { try link.forget() }

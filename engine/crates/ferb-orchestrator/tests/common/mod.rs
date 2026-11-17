@@ -12,7 +12,10 @@ pub fn fixture(name: &str) -> Value {
         .join("../../fixtures/orchestrator")
         .join(name);
     let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-    serde_json::from_str(&text).expect("fixture JSON")
+    // decision: APP-953: FROM_AI's words, "(not one of FERB's checks) " where Python wrote "(written by the AI) " (the
+    // one named difference in these recordings' texts)
+    serde_json::from_str(&text.replace("(written by the AI) ", "(not one of FERB's checks) "))
+        .expect("fixture JSON")
 }
 
 /// ferb/policy, through the policy part's port (ferb-policy): what the Python build's confirm.py and urls.py answer.

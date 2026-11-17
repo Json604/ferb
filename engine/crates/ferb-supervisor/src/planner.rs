@@ -502,6 +502,8 @@ pub struct PlannerTurn<'a> {
     pub entries: &'a [String],
     pub payload: &'a str,
     pub message_origin: &'a BTreeSet<String>,
+    /// SENSE-424, PRM-362: where the turn's messages were sent from, in order (only those whose client was named).
+    pub sent_from: &'a [String],
     pub wrap: &'a dyn Fn(&str) -> String,
     pub zone: &'a Zone,
 }
@@ -639,11 +641,11 @@ pub fn planner_sourced(t: PlannerTurn<'_>) -> (Vec<Sourced>, usize, usize) {
         ));
     }
     let head = if t.entries.len() > 1 {
-        NEW_MESSAGES.to_string()
+        with_sent_from(NEW_MESSAGES, t.sent_from)
     } else if schedule {
         format!("Layer 5 — {SCHEDULED_REQUEST}")
     } else {
-        NEW_MESSAGE.to_string()
+        with_sent_from(NEW_MESSAGE, t.sent_from)
     };
     let made = if t.message_origin.is_empty() {
         let mut m = BTreeSet::new();

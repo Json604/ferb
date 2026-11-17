@@ -7,6 +7,7 @@
 //! - `link`: `Link`, the phone link (ferb-link `ffi::LinkClient`) with pairing and status, plugged into the core as
 //!   its transport through ferb-mobile's `door`.
 //! - `callbacks`: what the app supplies (clock, ids, listeners, signers, a transport of its own).
+//! - `shown`: FERB's words and answers laid out as FERB.app draws them (pure functions).
 //! - `records`: what the app reads (the transcript and the rest), total copies of the core's types.
 //! - `error`: `FerbError`, one enum with the stable codes, and the panic guard every call runs in.
 //!
@@ -21,6 +22,7 @@ pub mod error;
 pub mod link;
 pub mod mobile;
 pub mod records;
+pub mod shown;
 
 pub use callbacks::{
     Clock, DeviceSigner, Ids, Listener, Signer, TransferListener, TransferProgress, Transport,

@@ -281,6 +281,8 @@ async fn the_daemon_s_gate_decides_every_call() {
     let w = real(5).await;
     let p = TestPhone::start("phone", &w.shared, false, None, true).await;
     w.pair(&p).await;
+    // the pairing's Yes opened the phone (PHN-647): it locks first, as the app does when it is put away
+    p.call("link.lock", json!({})).await.expect("link.lock");
     assert_eq!(
         code(p.call("schedules.list", json!({})).await),
         errors::LOCKED
@@ -365,6 +367,80 @@ async fn a_phone_removed_in_ferb_app_is_cut_off_at_once() {
             .unwrap()
             .iter()
             .any(|(k, _)| k == "phone.removed")
+    );
+}
+
+/// PHN-646, PHN-647, PHN-649 through the real bridge and daemon: a pairing Yes opens the new phone (its first private
+/// call needs no unlock once its connection proved the device key); the unlock statement the phone signed before the
+/// link was up opens it once; "Forget this Mac" on the phone removes that phone only and cuts it off.
+// decision: PHN-646
+// decision: PHN-647
+// decision: PHN-649
+#[tokio::test(flavor = "multi_thread")]
+async fn a_phone_opens_on_its_pairing_unlocks_by_statement_and_forgets_itself() {
+    let w = real(5).await;
+    let p = TestPhone::start("phone", &w.shared, false, None, true).await;
+    w.pair(&p).await;
+    let other = TestPhone::start("other", &w.shared, false, None, true).await;
+    w.pair(&other).await;
+    // the presence proof is the link's own, on its own thread: the first private call may race it
+    let mut open = false;
+    for _ in 0..50 {
+        if p.call("schedules.list", json!({})).await.is_ok() {
+            open = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+    assert!(
+        open,
+        "the paired phone's first private call needed an unlock"
+    );
+    // the statement: made and signed by the phone itself, with its age beside it
+    let payload =
+        json!({"domain": "ferb.unlock-statement.v1", "nonce": "nonce-real-0123456789", "made": 1})
+            .to_string();
+    let proof = p.pin_proof_for(&payload);
+    p.phone
+        .call(
+            "link.unlock_statement",
+            json!({"age_ms": 2000}),
+            Some(proof.clone()),
+            |_| {},
+        )
+        .await
+        .expect("the statement opens it");
+    assert_eq!(
+        code(
+            p.phone
+                .call(
+                    "link.unlock_statement",
+                    json!({"age_ms": 2000}),
+                    Some(proof),
+                    |_| {}
+                )
+                .await
+        ),
+        errors::UNLOCK_INVALID,
+        "a statement opens once"
+    );
+    // Forget this Mac: this phone, and only it
+    let id = p.phone.id();
+    p.phone
+        .call("link.forget", json!({}), None, |_| {})
+        .await
+        .expect("link.forget");
+    assert!(
+        wait(10, || w.bridge.devices().iter().all(|d| d.id != id)).await,
+        "the phone that forgot itself is still listed"
+    );
+    assert_eq!(w.bridge.devices().len(), 1, "the other phone stays");
+    assert!(
+        w.published
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(k, v)| k == "phone.removed" && v["phone"] == json!(id))
     );
 }
 

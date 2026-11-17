@@ -92,7 +92,7 @@ pub struct DeviceLine<'a> {
     pub zone: &'a str,
     /// Its coarse place when the device may read it and has a fix.
     pub place: Option<&'a Place>,
-    /// A last clause, when there is one ("connected, in use now"; "not connected, last seen 2 h ago"): "" for none.
+    /// A last clause, when there is one ("connected, screen on and unlocked"; "not connected, last seen 2 h ago"): "" for none.
     pub note: &'a str,
 }
 
@@ -175,12 +175,12 @@ mod tests {
             now: &at("2026-11-16T15:35:00+05:30"),
             zone: "Asia/Kolkata",
             place: Some(&place),
-            note: "connected, in use now",
+            note: "connected, screen on and unlocked",
         });
         assert_eq!(
             phone,
             "- Phone “Moto”: Monday 2026-11-16 15:35, time zone Asia/Kolkata (UTC+05:30); place: Pune, Maharashtra, \
-             India (city level); connected, in use now"
+             India (city level); connected, screen on and unlocked"
         );
     }
 

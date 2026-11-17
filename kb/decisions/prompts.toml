@@ -652,3 +652,33 @@ status = "active"
 rule = "For ORCH-671, ORCH-669, ORCH-666. Code writes, as protected context: the refused pass's reason (endings::refused_look: the place of the last action, look at it now, met only for what is seen); the named file to upload (endings::upload_fact: only FERB's upload carries it, a picker's file is another, stop and ask before sending another); and each action check's basis given to the check as an observation (verify.rs: receipts, the Mac's state, nothing done)."
 why = "Text that reaches a model changes only as a prompts decision says; these are code-written, not runtime Markdown."
 paths = ["engine/crates/ferb-supervisor/src/endings.rs", "engine/crates/ferb-orchestrator/src/verify.rs::action"]
+
+[PRM-361]
+title = "supervisor.md quotes the planner line's mark as \"(not one of FERB's checks)\""
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For APP-953. supervisor.md's text rule says code marks a line written in the form of FERB's checks \"(not one of FERB's checks)\" where it said \"(written by the AI)\". Named in engine/fixtures/catalog/prompt_changes.json."
+why = "The prompt quotes FROM_AI, so the words change in both places at once."
+paths = ["engine/runtime/orchestrator/prompts/supervisor.md"]
+untestable = "Prompt text (TEST-500); the named change is checked by ferb-supervisor's prompts test and ferb-context's parity test."
+
+[PRM-362]
+title = "The planner reads where each owner message was sent from, in the conversation and the new message"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For SENSE-424. A conversation line reads 'Owner (sent from this Mac, in FERB.app): …' or 'Owner (sent from the phone “<name>”, in FERB's phone app): …'; the Layer 5 heading adds '(sent from …)' (several: '; then from …'). A message with no client stays 'Owner'. No Python recording names a client, so none changes."
+why = "Both are the owner's own words (rule 9); the device is a fact beside them, in the one path every planner call reads (history.rs, planner.rs)."
+evidence = "ferb-supervisor tests/planner.rs an_owner_message_says_which_device_it_was_sent_from (the recorded timelines unchanged) and tests/sent_from.rs."
+paths = ["engine/crates/ferb-supervisor/src/history.rs::timeline", "engine/crates/ferb-supervisor/src/words.rs::with_sent_from", "engine/crates/ferb-supervisor/src/planner.rs::planner_sourced"]
+
+[PRM-363]
+title = "The always-on line about FERB names the phone app and the one conversation"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "about::summary says the owner writes to FERB in FERB.app on this Mac or in FERB's app on a paired phone, and FERB replies in that one conversation, which both show; Python said it 'always replies in text in FERB.app'. No recording holds the real daemon's line (the replays feed each recorded environment through stand-ins), so none changes."
+why = "FERB told the owner on his phone that it works only through FERB.app on the Mac (2026-11-17 21:47): the line every call reads said so. The coordinator's ruling."
+paths = ["engine/crates/ferb-daemon/src/areas_b/about.rs::summary"]
+untestable = "Prompt-facing wording (TEST-500 keeps no wording tests); every replay reads its recorded environment through stand-ins, so no fixture compares this line."

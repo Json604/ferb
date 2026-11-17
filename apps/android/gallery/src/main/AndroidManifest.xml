@@ -9,7 +9,8 @@
         <activity
             android:name=".GalleryActivity"
             android:exported="true"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|fontScale|density">
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|fontScale|density"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

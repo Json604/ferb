@@ -1,6 +1,6 @@
 {
   "counts": {
-    "plain": 52,
+    "plain": 54,
     "private": 38,
     "sensitive": 48,
     "never": 26
@@ -702,6 +702,15 @@
       "owner_to_confirm": false,
       "why": "a folder's entries on the Mac (PHN-113); a key place needs its own fresh proof (PHN-121)"
     },
+    "phone.forget_self": {
+      "class": "plain",
+      "locked": "allowed",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the phone session's own call: the daemon's phone gate answers it and checks the proof it carries (PHN-124)"
+    },
     "phone.keys": {
       "class": "plain",
       "locked": "allowed",
@@ -901,6 +910,15 @@
       "why": "a folder's files, to fetch it whole (PHN-113); key places inside are left out"
     },
     "phone.unlock": {
+      "class": "plain",
+      "locked": "allowed",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the phone session's own call: the daemon's phone gate answers it and checks the proof it carries (PHN-124)"
+    },
+    "phone.unlock_statement": {
       "class": "plain",
       "locked": "allowed",
       "stream": false,

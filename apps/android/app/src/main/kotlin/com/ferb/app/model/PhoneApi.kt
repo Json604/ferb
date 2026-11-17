@@ -38,6 +38,11 @@ import kotlinx.coroutines.flow.StateFlow
 /**
  * What the app's screens ask of the phone: one seam over [FerbPhone], so the view models are tested with a fake
  * and the real one is the library. Every call runs off the main thread (FerbPhone.call) and comes back typed.
+ *
+ * The rule (kb PHN-682; the owner's phone froze when the main thread asked the library for the last status itself):
+ * everything here that reaches the library is a `suspend` function, so no caller on the main thread can wait inside
+ * it. The only plain function is [setOpen], which hands its word to the link's own lane and returns
+ * (`PhoneApiShapeTest` holds this).
  */
 interface PhoneApi {
     val state: StateFlow<PhoneState>
@@ -60,7 +65,21 @@ interface PhoneApi {
     suspend fun loadOlder(conversation: String): Outcome<OlderState>
     suspend fun unlock(signer: Signer): Outcome<Unit>
     suspend fun pair(code: String): Outcome<Unit>
-    suspend fun forget(): Outcome<Unit>
+    /** "Forget this Mac": Ok(true) when the Mac removed this phone too, Ok(false) when it couldn't be told (PHN-646). */
+    suspend fun forget(): Outcome<Boolean>
+
+    /** Paired with its lock key there: the opening prompt can sign an unlock statement before the link is up. */
+    suspend fun statementReady(): Boolean = false
+
+    /** The statement the opening prompt signed, handed to the Mac with its age (PHN-649). */
+    suspend fun unlockWithStatement(payload: String, sig: String, ageMs: Long): Outcome<Unit> =
+        Outcome.Failed(com.ferb.mobile.FerbException.Offline("No link.", null))
+
+    /** The app is unlocked and in front: the device key's presence keeps the Mac's window open (PHN-648). */
+    fun setOpen(on: Boolean) {}
+
+    /** "Try again" on the connection sheet (kb PHN-752): the link dials now instead of at its next try. Non-blocking. */
+    fun retryLink() {}
 
     /** PHN-15: the app locked: the Mac is told and the conversation waits for the next unlock. */
     suspend fun lock(): Outcome<Boolean>
@@ -80,7 +99,7 @@ interface PhoneApi {
      */
     suspend fun screenUse(): Outcome<ScreenUse>
     suspend fun endScreenUse(): Outcome<ScreenUseEnd>
-    fun lastStatus(): PhoneStatus?
+    suspend fun lastStatus(): PhoneStatus?
 
     suspend fun markReadLatest(conversation: String): Outcome<Unit>
     suspend fun sendWith(text: String, attachments: List<Attachment>): Outcome<OutboxItem>
@@ -116,6 +135,12 @@ interface PhoneApi {
     /** A task's live preview (PHN-454): frames to [sink] in memory only; [Live.stop] ends it. */
     suspend fun watchLive(taskId: String, sink: PreviewSink): Outcome<Live>
 
+    /** The work row's small live picture (kb PHN-725): the same preview at most every [everyMs] (never under 2 s). */
+    suspend fun watchThumbnail(taskId: String, everyMs: Long, sink: PreviewSink): Outcome<Live>
+
+    /** A card row's own small live picture (kb PHN-726; FERB.app's RowPreview): one step's preview ([worker]). */
+    suspend fun watchStepThumbnail(taskId: String, worker: String, everyMs: Long, sink: PreviewSink): Outcome<Live>
+
     suspend fun settings(): Outcome<List<SettingValue>>
     suspend fun setSetting(key: String, valueJson: String, signer: Signer): Outcome<String>
     suspend fun tasks(limit: Int, before: String?): Outcome<TaskPage>
@@ -143,6 +168,10 @@ class LibraryPhone(private val phone: FerbPhone) : PhoneApi {
     override suspend fun transcript(): Outcome<TranscriptView?> = phone.call { m ->
         val conv = m.currentConversation() ?: m.conversations().firstOrNull { it.current }?.id
         conv?.let(m::transcript)
+    }.also { r ->
+        // FERB's words laid out by the library (kb PHN-721..724) here, off the main thread, so the rows the screen
+        // builds from this view find every layout kept (ChatModel.prepare)
+        (r as? Outcome.Ok)?.value?.let { v -> kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { ChatModel.prepare(v) } }
     }
 
     override suspend fun sync() = phone.call { it.sync() }
@@ -155,13 +184,17 @@ class LibraryPhone(private val phone: FerbPhone) : PhoneApi {
     override suspend fun unlock(signer: Signer) = phone.unlock(signer)
     override suspend fun pair(code: String) = phone.pair(code)
     override suspend fun forget() = phone.forgetThisMac()
+    override suspend fun statementReady() = phone.statementReady()
+    override suspend fun unlockWithStatement(payload: String, sig: String, ageMs: Long) = phone.unlockWithStatement(payload, sig, ageMs)
+    override fun setOpen(on: Boolean) = phone.setOpen(on)
+    override fun retryLink() = phone.retry()
     override suspend fun lock() = phone.lock()
     override suspend fun unlocked() = phone.unlocked()
     override suspend fun stopEverything() = phone.stopEverything()
     override suspend fun status() = phone.call { it.status() }
     override suspend fun screenUse() = phone.call { it.screenUse() }
     override suspend fun endScreenUse() = phone.call { it.endScreenUse() }
-    override fun lastStatus(): PhoneStatus? = runCatching { phone.lastStatusNow() }.getOrNull()
+    override suspend fun lastStatus(): PhoneStatus? = phone.lastStatus()
     override suspend fun markReadLatest(conversation: String) = phone.call { it.markReadLatest(conversation) }
     override suspend fun sendWith(text: String, attachments: List<Attachment>) = phone.call { it.sendWith(text, attachments) }
     override suspend fun files(path: String?, signer: Signer?, after: String?) = phone.call { it.files(path, signer, after) }
@@ -181,6 +214,12 @@ class LibraryPhone(private val phone: FerbPhone) : PhoneApi {
     override suspend fun answerLocation(requestId: String, fix: LocationFix?, whyNot: String?) = phone.call { it.answerLocation(requestId, fix, whyNot) }
     override suspend fun watchLive(taskId: String, sink: PreviewSink): Outcome<Live> =
         phone.call { m -> m.watchLive(taskId, sink).let { p -> Live { runCatching { p.stop() } } } }
+
+    override suspend fun watchThumbnail(taskId: String, everyMs: Long, sink: PreviewSink): Outcome<Live> =
+        phone.call { m -> m.watchThumbnail(taskId, everyMs.toULong(), sink).let { p -> Live { runCatching { p.stop() } } } }
+
+    override suspend fun watchStepThumbnail(taskId: String, worker: String, everyMs: Long, sink: PreviewSink): Outcome<Live> =
+        phone.call { m -> m.watchStepThumbnail(taskId, worker, everyMs.toULong(), sink).let { p -> Live { runCatching { p.stop() } } } }
     override suspend fun settings() = phone.call { it.settings() }
     override suspend fun setSetting(key: String, valueJson: String, signer: Signer) = phone.call { it.setSetting(key, valueJson, signer) }
     override suspend fun tasks(limit: Int, before: String?) = phone.call { it.tasks(limit.toUInt(), before) }

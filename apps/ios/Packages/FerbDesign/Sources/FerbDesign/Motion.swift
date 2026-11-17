@@ -196,8 +196,10 @@ extension AnyTransition {
     }
 
     /// A row of a list that arrives: up 6 points and in; one removed fades out.
+    /// (Built-in offset and opacity: SwiftUI did not run a custom modifier transition here, journal 127; the list's change
+    /// must be an animated one, `.animation(FerbMotion.item.animation, value:)` on the list.)
     public static var motionItem: AnyTransition {
-        .asymmetric(insertion: .modifier(active: ItemEffect(value: 0), identity: ItemEffect(value: 1)).animation(FerbMotion.item.animation),
+        .asymmetric(insertion: AnyTransition.offset(y: FerbMotion.itemShift).combined(with: .opacity).animation(FerbMotion.item.animation),
                     removal: AnyTransition.opacity.animation(FerbMotion.exit.animation))
     }
 }

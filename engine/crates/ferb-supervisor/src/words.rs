@@ -148,6 +148,64 @@ pub const CAPTURE_LATE: &str =
 pub const FRONT_WINDOW_AT: &str = "Layer 2 — the owner's front window as they sent ";
 pub const SAID_CHARS: usize = 80;
 
+// ---- where an owner message was sent from (SENSE-424, PRM-362) ----
+/// The `chat.message` journal field naming the device a message was sent from (as [`sent_from`] wrote it).
+pub const SENT_FROM: &str = "sent_from";
+/// A message from a client of this Mac (FERB.app sends its install's id).
+pub const SENT_FROM_MAC: &str = "this Mac, in FERB.app";
+/// The prefix of a paired phone's client id (`phone:<its link id>`, the phone gate's mark).
+pub const PHONE_CLIENT: &str = "phone:";
+
+/// Where a message with this `chat.send` client was sent from, by the phone's name as the Mac knows it (`phone`):
+/// None for a message that names no client (a recording, an older app). Never the phone's link id.
+// decision: SENSE-424
+pub fn sent_from(
+    client_id: Option<&str>,
+    phone: impl FnOnce(&str) -> Option<String>,
+) -> Option<String> {
+    let client = client_id?;
+    Some(match client.strip_prefix(PHONE_CLIENT) {
+        Some(endpoint) => match phone(endpoint).filter(|n| !n.trim().is_empty()) {
+            Some(name) => format!("the phone “{name}”, in FERB's phone app"),
+            None => "a paired phone, in FERB's phone app".to_string(),
+        },
+        None => SENT_FROM_MAC.to_string(),
+    })
+}
+
+/// The device clause a model reads: "sent from the phone “Moto”, in FERB's phone app".
+pub fn sent_from_clause(sent_from: &str) -> String {
+    format!("sent from {sent_from}")
+}
+
+/// A Layer 5 heading (`NEW_MESSAGE`, `NEW_MESSAGES`) with where the messages were sent from, in order (each device
+/// once in a row): `…new message (sent from X):`, `…the most recent; sent from X; then from Y):`. Unchanged for none.
+// decision: PRM-362
+pub fn with_sent_from(head: &str, devices: &[String]) -> String {
+    let mut shown: Vec<&str> = Vec::new();
+    for d in devices {
+        if shown.last() != Some(&d.as_str()) {
+            shown.push(d);
+        }
+    }
+    if shown.is_empty() {
+        return head.to_string();
+    }
+    let clause = format!(
+        "{}{}",
+        sent_from_clause(shown[0]),
+        shown[1..]
+            .iter()
+            .map(|d| format!("; then from {d}"))
+            .collect::<String>()
+    );
+    let bare = head.strip_suffix(":\n").unwrap_or(head);
+    match bare.strip_suffix(')') {
+        Some(open) => format!("{open}; {clause}):\n"),
+        None => format!("{bare} ({clause}):\n"),
+    }
+}
+
 // ---- history labels (ORCH-566, ORCH-622) ----
 pub const HISTORY_LABELS: [&str; 5] = [
     "FERB (code record): ",

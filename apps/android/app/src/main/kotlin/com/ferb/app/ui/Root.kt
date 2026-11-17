@@ -20,9 +20,11 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,7 +50,11 @@ import com.ferb.app.Sheet
 import com.ferb.app.StayConnectedService
 import com.ferb.design.FerbType
 import com.ferb.design.Ink
+import com.ferb.design.LaunchOverlay
+import com.ferb.design.LaunchState
+import com.ferb.design.LocalLaunch
 import com.ferb.design.MotionKind
+import com.ferb.design.reducedMotion
 import com.ferb.design.MotionSwitch
 import com.ferb.design.heldWhileLeaving
 import com.ferb.design.components.Card
@@ -59,7 +65,12 @@ import com.ferb.design.components.PhoneText
 import com.ferb.design.components.Pill
 import com.ferb.design.screens.CodesPage
 import com.ferb.design.screens.PairPage
+import com.ferb.design.screens.AskRow
+import com.ferb.design.screens.PermissionsPage
+import com.ferb.design.FerbIcons
+import com.ferb.app.model.FirstRun
 import com.ferb.design.screens.PhoneInsets
+import com.ferb.design.screens.paddingOverBottom
 import com.ferb.design.screens.PhoneScreen
 import com.ferb.design.screens.UnlockPage
 import com.ferb.design.sky.rememberSkyNow
@@ -72,7 +83,11 @@ import kotlinx.coroutines.launch
  */
 @Composable
 fun FerbRoot(vm: FerbViewModel, activity: MainActivity) {
-    val ui by vm.ui.collectAsState()
+    // The whole state is read only inside the page and the sheet that draw it; here only the gate and the pairing flag,
+    // so a streamed word or a link's status recomposes the page, never the root, the sky or the hosts (kb PHN-711).
+    val uiState = vm.ui.collectAsState()
+    val gate by remember { derivedStateOf { uiState.value.gate } }
+    val pairing by remember { derivedStateOf { uiState.value.pairing } }
     val tab by vm.tab.collectAsState()
     val home by vm.home.collectAsState()
     val sheet by vm.sheet.collectAsState()
@@ -81,9 +96,13 @@ fun FerbRoot(vm: FerbViewModel, activity: MainActivity) {
     val moment = rememberSkyNow(place)
     val density = LocalDensity.current
     val top = with(density) { WindowInsets.statusBars.getTop(this).toDp() }
-    val nav = with(density) { WindowInsets.navigationBars.getBottom(this).toDp() }
-    val ime = with(density) { WindowInsets.ime.getBottom(this).toDp() }
-    val insets = PhoneInsets(top, max(nav, ime))
+    // the bottom (the gesture bar, or the keyboard over it) is read where it is used, never here: the keyboard's slide
+    // changes it on every frame, and read here it recomposed the whole app on each of them (kb PHN-712)
+    val navBars = WindowInsets.navigationBars
+    val keyboard = WindowInsets.ime
+    val insets = remember(top, density, navBars, keyboard) {
+        PhoneInsets.live(top) { with(density) { max(navBars.getBottom(this).toDp(), keyboard.getBottom(this).toDp()) } }
+    }
     val light = moment.ink.topIsDark
     SideEffect { activity.lightBars(light) }
     val stay = rememberStayConnected(activity, vm)
@@ -100,11 +119,17 @@ fun FerbRoot(vm: FerbViewModel, activity: MainActivity) {
     val city = rememberCity(activity, vm)
     val exact = rememberExact(activity, vm)
     val microphone = rememberMicrophone(activity, vm)
+    val asks = rememberFirstRun(activity, vm)
     val host = remember(activity) {
         object : Host {
             override fun stayConnected(on: Boolean) = stay(on)
             override fun blockScreenshots(on: Boolean) = activity.setBlockScreenshots(on)
             override fun askNotifications() = askNotifications()
+            // kb PHN-765: Stay connected is the app's own switch; the rest are Android's pages
+            override fun fixNotifications(b: com.ferb.app.NotifyBlocker) {
+                if (b == com.ferb.app.NotifyBlocker.STAY_CONNECTED_OFF) stay(true)
+                else com.ferb.app.NotifyHealth.settings(activity, b)?.let { runCatching { activity.startActivity(it) } }
+            }
             override fun pickFiles(forChat: Boolean) {
                 pickForChat = forChat
                 runCatching { picker.launch(arrayOf("*/*")) }
@@ -123,40 +148,131 @@ fun FerbRoot(vm: FerbViewModel, activity: MainActivity) {
         }
     }
 
-    PhoneScreen(
-        moment,
-        insets = insets,
-        season = ui.gate == Gate.MAIN && tab == PhoneTab.CHAT && home,
-        // one sheet at a time, up from below and back down; a going one shows what it showed (kb PHN-623). Gone at
-        // once with its gate (the lock: PHN-8).
-        sheet = {
-            if (ui.gate == Gate.MAIN || ui.gate == Gate.PAIR) {
-                MotionSwitch(sheet.takeIf { it != Sheet.Scan }, Modifier.fillMaxSize(), MotionKind.SHEET) { s ->
-                    Sheets(vm, heldWhileLeaving(ui), s, insets, host)
+    // the launch (kb PHN-631..634): FERB's mark from the first frame over everything, settling into the lock page's
+    // mark as soon as the gate allows a page; the page's mark is hidden until then (LocalLaunch, launchTarget)
+    val launch = activity.launch
+    CompositionLocalProvider(LocalLaunch provides launch) {
+        PhoneScreen(
+            moment,
+            insets = insets,
+            season = gate == Gate.MAIN && tab == PhoneTab.CHAT && home,
+            // one sheet at a time, up from below and back down; a going one shows what it showed (kb PHN-623). Gone at
+            // once with its gate (the lock: PHN-8).
+            sheet = {
+                if (gate == Gate.MAIN || gate == Gate.PAIR) {
+                    MotionSwitch(sheet.takeIf { it != Sheet.Scan }, Modifier.fillMaxSize(), MotionKind.SHEET) { s ->
+                        Sheets(vm, heldWhileLeaving(uiState.value), s, insets, host)
+                    }
+                }
+            },
+        ) {
+            // the gate's pages change with a rise and a fade; the lock (and the start) replace everything at once (PHN-8)
+            // the first run's asks come once, after the first unlock, before pairing or the app (kb PHN-636)
+            val screen: Any = when {
+                asks.pending.isNotEmpty() && (gate == Gate.PAIR || gate == Gate.MAIN) -> AsksScreen
+                gate == Gate.PAIR && sheet == Sheet.Scan && !pairing -> ScanScreen
+                else -> gate
+            }
+            MotionSwitch(screen, Modifier.fillMaxSize(), instant = { it == Gate.LOCKED || it == Gate.STARTING }) { s ->
+                val ui = uiState.value
+                when (s) {
+                    // after the launch (unlocked before the phone opened): the mark breathes where the launch left it
+                    Gate.STARTING -> if (launch == null || launch.done) StartingMark()
+                    Gate.FAILED -> Failed(insets)
+                    Gate.NO_SCREEN_LOCK -> NoScreenLock(insets)
+                    Gate.LOCKED -> UnlockPage(insets, onUnlock = { vm.unlockApp() })
+                    ScanScreen -> Scanner(vm, insets) { vm.show(null) }
+                    AsksScreen -> Asks(asks, insets)
+                    Gate.PAIR -> Pair(vm, ui.pairing, ui.pairReason, ui.pairError?.let { noteText(it) }, insets)
+                    Gate.CODES -> CodesPage(ui.link?.pairingCode.orEmpty(), insets, onCancel = { vm.cancelPairing() })
+                    Gate.REMOVED -> Removed(vm, ui.pairReason, insets)
+                    // the connection control in every page's top bar (kb PHN-751)
+                    Gate.MAIN -> androidx.compose.runtime.CompositionLocalProvider(com.ferb.design.components.LocalConnection provides rememberConnection(vm, ui)) {
+                        Main(vm, ui, tab, home, insets, moment, host)
+                    }
                 }
             }
-        },
-    ) {
-        // the gate's pages change with a rise and a fade; the lock (and the start) replace everything at once (PHN-8)
-        val screen: Any = if (ui.gate == Gate.PAIR && sheet == Sheet.Scan && !ui.pairing) ScanScreen else ui.gate
-        MotionSwitch(screen, Modifier.fillMaxSize(), instant = { it == Gate.LOCKED || it == Gate.STARTING }) { s ->
-            when (s) {
-                Gate.STARTING -> Unit
-                Gate.FAILED -> Failed(insets)
-                Gate.NO_SCREEN_LOCK -> NoScreenLock(insets)
-                Gate.LOCKED -> UnlockPage(insets, onUnlock = { vm.unlockApp() })
-                ScanScreen -> Scanner(vm, insets) { vm.show(null) }
-                Gate.PAIR -> Pair(vm, ui.pairing, ui.pairReason, ui.pairError?.let { noteText(it) }, insets)
-                Gate.CODES -> CodesPage(ui.link?.pairingCode.orEmpty(), insets, onCancel = { vm.cancelPairing() })
-                Gate.REMOVED -> Removed(vm, ui.pairReason, insets)
-                Gate.MAIN -> Main(vm, ui, tab, home, insets, moment, host)
-            }
         }
+        if (launch != null) LaunchOverlay(launch, ready = gate != Gate.STARTING)
     }
+}
+
+/** The phone still opening after the launch ended: the launch's mark, breathing over the sky (no ink0 ground). */
+@Composable
+private fun StartingMark() {
+    val context = LocalContext.current
+    val state = remember { LaunchState(reducedMotion(context)) }
+    LaunchOverlay(state, ready = false, ground = false)
 }
 
 /** The scanner's page, a screen of the pairing gate of its own (MotionSwitch's key). */
 private object ScanScreen
+
+/** The first run's asks, a page of its own before pairing or the app (MotionSwitch's key). */
+private object AsksScreen
+
+/** What the first run's page needs: the asks still to make, Continue and Not now (kb PHN-636). */
+class FirstRunUi(val pending: List<FirstRun.Ask>, val onContinue: () -> Unit, val onNotNow: () -> Unit)
+
+@Composable
+private fun Asks(asks: FirstRunUi, insets: PhoneInsets) {
+    val rows = asks.pending.map { a ->
+        when (a) {
+            FirstRun.Ask.NOTIFICATIONS -> AskRow(FerbIcons.bell, stringResource(R.string.first_run_notifications), stringResource(R.string.first_run_notifications_why))
+            FirstRun.Ask.LOCATION -> AskRow(FerbIcons.location, stringResource(R.string.first_run_location), stringResource(R.string.first_run_location_why))
+            FirstRun.Ask.CAMERA -> AskRow(FerbIcons.camera, stringResource(R.string.first_run_camera), stringResource(R.string.first_run_camera_why))
+            FirstRun.Ask.MICROPHONE -> AskRow(FerbIcons.mic, stringResource(R.string.first_run_microphone), stringResource(R.string.first_run_microphone_why))
+        }
+    }
+    PermissionsPage(stringResource(R.string.first_run_title), stringResource(R.string.first_run_intro), rows,
+        stringResource(R.string.first_run_continue), stringResource(R.string.first_run_not_now), insets,
+        onContinue = asks.onContinue, onNotNow = asks.onNotNow)
+}
+
+/**
+ * The first run's asks (owner kb PHN-635; PHN-636..639): Continue brings Android's own questions one after another;
+ * each answer, yes or no, is kept so it is never asked again; the city's Yes turns on sharing the city (what he is
+ * granting). Coarse location only, never in the background; the exact spot is still asked per task (GATE-613).
+ */
+@Composable
+fun rememberFirstRun(activity: MainActivity, vm: FerbViewModel): FirstRunUi {
+    val app = activity.application as FerbApplication
+    val run = remember(activity) {
+        FirstRun(FirstRun.asksFor(android.os.Build.VERSION.SDK_INT), { a -> activity.checkSelfPermission(permissionOf(a)) == PackageManager.PERMISSION_GRANTED },
+            { app.prefs.firstRunAsked }, { app.prefs.firstRunAsked = it })
+    }
+    var pending by remember(run) { mutableStateOf(run.pending()) }
+    val asking = remember { arrayOfNulls<FirstRun.Ask>(1) }
+    val next = remember { arrayOf<() -> Unit>({}) }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val a = asking[0] ?: return@rememberLauncherForActivityResult
+        asking[0] = null
+        run.answered(a)
+        if (a == FirstRun.Ask.LOCATION && granted) {
+            app.prefs.shareCity = true
+            app.sensors.city()
+            vm.refreshProfile()
+        }
+        next[0]()
+    }
+    next[0] = {
+        val a = run.pending().firstOrNull()
+        if (a == null) {
+            pending = emptyList()
+        } else {
+            asking[0] = a
+            runCatching { launcher.launch(permissionOf(a)) }.onFailure { run.answered(a); next[0]() }
+        }
+    }
+    return FirstRunUi(pending, onContinue = { next[0]() }, onNotNow = { run.notNow(); pending = emptyList() })
+}
+
+private fun permissionOf(a: FirstRun.Ask): String = when (a) {
+    FirstRun.Ask.NOTIFICATIONS -> Manifest.permission.POST_NOTIFICATIONS
+    FirstRun.Ask.LOCATION -> Manifest.permission.ACCESS_COARSE_LOCATION
+    FirstRun.Ask.CAMERA -> Manifest.permission.CAMERA
+    FirstRun.Ask.MICROPHONE -> Manifest.permission.RECORD_AUDIO
+}
 
 @Composable
 internal fun Pair(vm: FerbViewModel, pairing: Boolean, reason: PairReason?, error: String?, insets: PhoneInsets) {
@@ -190,7 +306,11 @@ internal fun Pair(vm: FerbViewModel, pairing: Boolean, reason: PairReason?, erro
 private fun Removed(vm: FerbViewModel, reason: PairReason?, insets: PhoneInsets) {
     Message(
         title = stringResource(R.string.removed_title),
-        text = stringResource(if (reason == PairReason.KEYS) R.string.pair_reason_keys else R.string.pair_reason_removed),
+        text = stringResource(when (reason) {
+            PairReason.KEYS -> R.string.pair_reason_keys
+            PairReason.UNKNOWN -> R.string.pair_reason_unknown
+            else -> R.string.pair_reason_removed
+        }),
         action = stringResource(R.string.pair_again),
         insets = insets,
     ) { vm.forget() }
@@ -221,7 +341,7 @@ fun Message(title: String, text: String, action: String, insets: PhoneInsets, on
         FerbMark(84.dp)
         PhoneText(title, FerbType.Role.lockTitle, FerbType.Semibold, ink.top, Modifier.padding(top = 6.dp, start = 24.dp, end = 24.dp).semantics { heading() })
         Spacer(Modifier.weight(1f))
-        Card(Modifier.padding(start = 16.dp, end = 16.dp, bottom = insets.bottom + 8.dp), padding = 16.dp) {
+        Card(Modifier.paddingOverBottom(insets, 8.dp, start = 16.dp, end = 16.dp), padding = 16.dp) {
             PhoneText(text, 15.5f, color = Ink.detail, lineSpacing = 2f, modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp, start = 4.dp, end = 4.dp))
             Pill(action, onClick = onAction)
         }
@@ -256,7 +376,7 @@ fun rememberStayConnected(activity: MainActivity, vm: FerbViewModel): (Boolean) 
 }
 
 /**
- * The owner's switch for sharing this phone's city (SENSE-420, kb PHN-532): off at once; on asks Android's coarse
+ * The owner's switch for sharing this phone's city (SENSE-420, kb PHN-638): off at once; on asks Android's coarse
  * location question in context, after FERB's own words (Sheet.City), and only the city then goes to the Mac.
  */
 @Composable

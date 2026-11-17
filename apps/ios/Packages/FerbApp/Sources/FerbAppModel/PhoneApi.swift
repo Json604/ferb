@@ -25,7 +25,16 @@ public protocol PhoneApi: AnyObject {
     func loadOlder(conversation: String) async -> Outcome<OlderState>
     func unlock(_ signer: Signer) async -> Outcome<Void>
     func pair(_ code: String) async -> Outcome<Void>
-    func forget() async -> Outcome<Void>
+    /// "Forget this Mac": `.ok(true)` when the Mac removed this phone too, `.ok(false)` when it couldn't be told.
+    func forget() async -> Outcome<Bool>
+    /// Paired with its lock key there: the opening prompt can sign an unlock statement before the link is up.
+    func statementReady() async -> Bool
+    /// The statement the opening prompt signed, handed to the Mac with its age (PHN-649).
+    func unlockWithStatement(payload: String, sig: String, ageMs: UInt64) async -> Outcome<Void>
+    /// The app is unlocked and in front: the device key's presence keeps the Mac's window open (PHN-648).
+    func setOpen(_ on: Bool)
+    /// "Try again" on the connection sheet (kb PHN-752): the link dials now instead of at its next try. Non-blocking.
+    func retryLink()
     /// PHN-15: the app locked: the Mac is told and the conversation waits for the next unlock.
     func lock() async -> Outcome<Bool>
     /// The app opened by the prompt alone (the Mac out of reach): the next sync reads the conversation again.
@@ -38,7 +47,9 @@ public protocol PhoneApi: AnyObject {
     /// owner's "Ask me again" from the phone (both plain, allowed while locked).
     func screenUse() async -> Outcome<ScreenUse>
     func endScreenUse() async -> Outcome<ScreenUseEnd>
-    func lastStatus() -> PhoneStatus?
+    /// The last status pushed or read. `async` like everything here that reaches the library (kb PHN-682): no caller
+    /// on the main actor can wait inside it.
+    func lastStatus() async -> PhoneStatus?
     func markReadLatest(conversation: String) async -> Outcome<Void>
     func sendWith(_ text: String, attachments: [Attachment]) async -> Outcome<OutboxItem>
 
@@ -66,6 +77,10 @@ public protocol PhoneApi: AnyObject {
 
     /// A task's live preview (PHN-454): frames to `sink` in memory only; [Live.stop] ends it.
     func watchLive(taskId: String, sink: PreviewSink) async -> Outcome<Live>
+    /// The work row's small live picture (kb PHN-725): the same preview at most every `everyMs` (never under 2 s).
+    func watchThumbnail(taskId: String, everyMs: UInt64, sink: PreviewSink) async -> Outcome<Live>
+    /// A card row's own small live picture (kb PHN-726; FERB.app's RowPreview): one step's preview (`worker`).
+    func watchStepThumbnail(taskId: String, worker: String, everyMs: UInt64, sink: PreviewSink) async -> Outcome<Live>
 
     func settings() async -> Outcome<[SettingValue]>
     func setSetting(key: String, valueJson: String, signer: Signer) async -> Outcome<String>
@@ -81,6 +96,7 @@ public protocol PhoneApi: AnyObject {
 
 /// Listings and searches a page at a time (kb PHN-606): `after` is the page before's `next` ("Load more").
 public extension PhoneApi {
+    func retryLink() {}
     func files(path: String?, signer: Signer?) async -> Outcome<Folder> { await files(path: path, signer: signer, after: nil) }
     func searchFiles(query: String, path: String?) async -> Outcome<FoundFiles> { await searchFiles(query: query, path: path, after: nil) }
 }
@@ -106,10 +122,14 @@ public final class LibraryPhone: PhoneApi {
     public func changes() -> AsyncStream<Change> { phone.changes() }
 
     public func transcript() async -> Outcome<TranscriptView?> {
-        await phone.call { m in
+        let read = await phone.call { m in
             let conv = try m.currentConversation() ?? m.conversations().first(where: \.current)?.id
             return try conv.map { try m.transcript(conversation: $0) }
         }
+        // FERB's words laid out by the library (kb PHN-721..724) here, off the main actor, so the rows the screen builds
+        // from this view find every layout kept (ChatModel.prepare)
+        if case .ok(let v?) = read { await Task.detached(priority: .userInitiated) { ChatModel.prepare(v) }.value }
+        return read
     }
 
     public func sync() async -> Outcome<Void> { await phone.call { try $0.sync() } }
@@ -125,14 +145,20 @@ public final class LibraryPhone: PhoneApi {
     public func loadOlder(conversation: String) async -> Outcome<OlderState> { await phone.call { try $0.loadOlder(conversation: conversation) } }
     public func unlock(_ signer: Signer) async -> Outcome<Void> { await phone.unlock(signer) }
     public func pair(_ code: String) async -> Outcome<Void> { await phone.pair(code) }
-    public func forget() async -> Outcome<Void> { await phone.forgetThisMac() }
+    public func forget() async -> Outcome<Bool> { await phone.forgetThisMac() }
+    public func statementReady() async -> Bool { await phone.statementReady() }
+    public func unlockWithStatement(payload: String, sig: String, ageMs: UInt64) async -> Outcome<Void> {
+        await phone.unlockWithStatement(payload: payload, sig: sig, ageMs: ageMs)
+    }
+    public func setOpen(_ on: Bool) { phone.setOpen(on) }
+    public func retryLink() { phone.retry() }
     public func lock() async -> Outcome<Bool> { await phone.lock() }
     public func unlocked() async -> Outcome<Void> { await phone.unlocked() }
     public func stopEverything() async -> Outcome<Void> { await phone.stopEverything() }
     public func status() async -> Outcome<PhoneStatus> { await phone.call { try $0.status() } }
     public func screenUse() async -> Outcome<ScreenUse> { await phone.call { try $0.screenUse() } }
     public func endScreenUse() async -> Outcome<ScreenUseEnd> { await phone.call { try $0.endScreenUse() } }
-    public func lastStatus() -> PhoneStatus? { phone.lastStatusNow() }
+    public func lastStatus() async -> PhoneStatus? { await phone.lastStatus() }
     public func markReadLatest(conversation: String) async -> Outcome<Void> { await phone.call { try $0.markReadLatest(conversation: conversation) } }
     public func sendWith(_ text: String, attachments: [Attachment]) async -> Outcome<OutboxItem> {
         await phone.call { try $0.sendWith(text: text, attachments: attachments) }
@@ -161,6 +187,18 @@ public final class LibraryPhone: PhoneApi {
     public func watchLive(taskId: String, sink: PreviewSink) async -> Outcome<Live> {
         await phone.call { m in
             let p = try m.watchLive(taskId: taskId, sink: sink)
+            return Live { p.stop() }
+        }
+    }
+    public func watchThumbnail(taskId: String, everyMs: UInt64, sink: PreviewSink) async -> Outcome<Live> {
+        await phone.call { m in
+            let p = try m.watchThumbnail(taskId: taskId, everyMs: everyMs, sink: sink)
+            return Live { p.stop() }
+        }
+    }
+    public func watchStepThumbnail(taskId: String, worker: String, everyMs: UInt64, sink: PreviewSink) async -> Outcome<Live> {
+        await phone.call { m in
+            let p = try m.watchStepThumbnail(taskId: taskId, worker: worker, everyMs: everyMs, sink: sink)
             return Live { p.stop() }
         }
     }

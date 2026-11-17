@@ -1,6 +1,17 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "answer_details": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Details"
+          }
+        }
+      }
+    },
     "answer_needs_pairing": {
       "extractionState": "manual",
       "localizations": {
@@ -19,6 +30,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "FERB"
+          }
+        }
+      }
+    },
+    "attach_on_mac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On your Mac"
           }
         }
       }
@@ -133,13 +155,79 @@
         }
       }
     },
-    "chat_offline": {
+    "cant_notify_off": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your Mac can't be reached. What you send waits here until it's back."
+            "value": "Notifications are off for FERB on this iPhone, so its questions can't reach you outside the app."
+          }
+        }
+      }
+    },
+    "cant_notify_open_settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Settings"
+          }
+        }
+      }
+    },
+    "cant_notify_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FERB can't tell you about its questions"
+          }
+        }
+      }
+    },
+    "cant_notify_turn_on": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn on"
+          }
+        }
+      }
+    },
+    "chat_loading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Getting your chat from your Mac…"
+          }
+        }
+      }
+    },
+    "chat_new_message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New message"
+          }
+        }
+      }
+    },
+    "chat_older_loading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Getting earlier messages…"
           }
         }
       }
@@ -155,13 +243,46 @@
         }
       }
     },
-    "chat_unlock_mac": {
+    "chat_placeholder_files": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your Mac's chat is locked. Tap here to unlock it."
+            "value": "Add a note or just send"
+          }
+        }
+      }
+    },
+    "chat_thinking": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FERB is thinking…"
+          }
+        }
+      }
+    },
+    "chat_to_latest": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go to the latest messages"
+          }
+        }
+      }
+    },
+    "chat_to_today": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go to today"
           }
         }
       }
@@ -206,6 +327,127 @@
           "stringUnit": {
             "state": "translated",
             "value": "Share this phone's city?"
+          }
+        }
+      }
+    },
+    "conn_a11y": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Mac: %1$@"
+          }
+        }
+      }
+    },
+    "conn_connected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected"
+          }
+        }
+      }
+    },
+    "conn_connecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecting to your Mac…"
+          }
+        }
+      }
+    },
+    "conn_direct": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Directly between this phone and your Mac"
+          }
+        }
+      }
+    },
+    "conn_more": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More on the Mac tab"
+          }
+        }
+      }
+    },
+    "conn_shared": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Through the shared relay"
+          }
+        }
+      }
+    },
+    "conn_unreachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can't reach your Mac"
+          }
+        }
+      }
+    },
+    "day_today": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Today"
+          }
+        }
+      }
+    },
+    "day_yesterday": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yesterday"
+          }
+        }
+      }
+    },
+    "err_app_older": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This needs a newer FERB on this phone. Update the app, then try again."
+          }
+        }
+      }
+    },
+    "err_mac_older": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This needs a newer FERB on your Mac. Update FERB on your Mac, then try again."
           }
         }
       }
@@ -261,6 +503,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "That didn't work: %1$@"
+          }
+        }
+      }
+    },
+    "err_try_again": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That didn't start. Try again in a moment."
           }
         }
       }
@@ -596,6 +849,149 @@
         }
       }
     },
+    "first_run_camera": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Camera"
+          }
+        }
+      }
+    },
+    "first_run_camera_why": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To scan the code on your Mac when you pair. Nothing is recorded."
+          }
+        }
+      }
+    },
+    "first_run_continue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue"
+          }
+        }
+      }
+    },
+    "first_run_intro": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FERB asks your phone for a few things. You can say no to any of them: FERB still works, and says what is missing when you need it."
+          }
+        }
+      }
+    },
+    "first_run_location": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your city"
+          }
+        }
+      }
+    },
+    "first_run_location_why": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "So local times and places come out right. Only your city goes to your Mac; FERB asks before using your exact spot."
+          }
+        }
+      }
+    },
+    "first_run_microphone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Microphone and speech"
+          }
+        }
+      }
+    },
+    "first_run_microphone_why": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "So you can hold the microphone and speak to FERB. Nothing is recorded."
+          }
+        }
+      }
+    },
+    "first_run_not_now": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not now"
+          }
+        }
+      }
+    },
+    "first_run_notifications": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications"
+          }
+        }
+      }
+    },
+    "first_run_notifications_why": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "So FERB can tell you about its questions and finished tasks when you're outside the app."
+          }
+        }
+      }
+    },
+    "first_run_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Before you start"
+          }
+        }
+      }
+    },
+    "forget_mac_kept": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FERB couldn't reach your Mac, so it still lists this phone. You can remove it there in Settings, Phone."
+          }
+        }
+      }
+    },
     "forget_text": {
       "extractionState": "manual",
       "localizations": {
@@ -849,6 +1245,61 @@
         }
       }
     },
+    "mac_needs_cancelled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The unlock prompt was closed, so your Mac's chat is still locked."
+          }
+        }
+      }
+    },
+    "mac_needs_lapsed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FERB on your Mac locked this phone's chat. That happens after 12 hours, or when FERB restarts on your Mac."
+          }
+        }
+      }
+    },
+    "mac_needs_old": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Mac took a while to come online, so FERB needs to unlock once more."
+          }
+        }
+      }
+    },
+    "mac_needs_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unlock your Mac's chat"
+          }
+        }
+      }
+    },
+    "mac_needs_unlock": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unlock"
+          }
+        }
+      }
+    },
     "mac_offline": {
       "extractionState": "manual",
       "localizations": {
@@ -954,7 +1405,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your Mac is slow to answer. This updates by itself when it does."
+            "value": "Still reaching your Mac…"
           }
         }
       }
@@ -1010,6 +1461,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "FERB has a check for you"
+          }
+        }
+      }
+    },
+    "n_clarify_text": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap to answer in FERB."
           }
         }
       }
@@ -1120,6 +1582,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Needs you to unlock. Tap to answer it in FERB."
+          }
+        }
+      }
+    },
+    "n_needs_you": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FERB needs you"
           }
         }
       }
@@ -1542,6 +2015,17 @@
         }
       }
     },
+    "pair_reason_unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Mac doesn't know this phone any more, so it needs to be paired again."
+          }
+        }
+      }
+    },
     "pair_reason_wiped": {
       "extractionState": "manual",
       "localizations": {
@@ -1707,6 +2191,17 @@
         }
       }
     },
+    "profile_lock_always": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Always on"
+          }
+        }
+      }
+    },
     "profile_lock_screen": {
       "extractionState": "manual",
       "localizations": {
@@ -1725,6 +2220,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Money, deleting, accounts"
+          }
+        }
+      }
+    },
+    "profile_lock_why": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FERB always asks for Face ID, Touch ID or your passcode when it opens, so nobody else with your iPhone can reach your Mac. This can't be turned off."
           }
         }
       }
@@ -1883,6 +2389,17 @@
         }
       }
     },
+    "question_needs_answer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FERB needs your answer"
+          }
+        }
+      }
+    },
     "question_on_mac": {
       "extractionState": "manual",
       "localizations": {
@@ -1890,6 +2407,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "This one can be answered only in FERB on your Mac."
+          }
+        }
+      }
+    },
+    "question_private_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Private input needed"
           }
         }
       }
@@ -2270,6 +2798,94 @@
         }
       }
     },
+    "send_closed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not sent: FERB closed before it was sent"
+          }
+        }
+      }
+    },
+    "send_files_gone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "its files are no longer on this phone"
+          }
+        }
+      }
+    },
+    "send_locked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Goes on when you unlock FERB"
+          }
+        }
+      }
+    },
+    "send_progress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sending to your Mac · %1$lld%%"
+          }
+        }
+      }
+    },
+    "send_stopped": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not sent: you stopped it"
+          }
+        }
+      }
+    },
+    "send_text_only": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send text only"
+          }
+        }
+      }
+    },
+    "send_try_again": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try again"
+          }
+        }
+      }
+    },
+    "send_waiting_path": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Files wait for a direct connection or your own relay"
+          }
+        }
+      }
+    },
     "set_days_hint": {
       "extractionState": "manual",
       "localizations": {
@@ -2486,6 +3102,61 @@
           "stringUnit": {
             "state": "translated",
             "value": "Share"
+          }
+        }
+      }
+    },
+    "show_all": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show all"
+          }
+        }
+      }
+    },
+    "show_less": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show less"
+          }
+        }
+      }
+    },
+    "show_more": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show more"
+          }
+        }
+      }
+    },
+    "sites_visited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sites visited"
+          }
+        }
+      }
+    },
+    "still_working": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FERB is still working on that. One moment."
           }
         }
       }
@@ -3147,6 +3818,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "This phone has no speech recognition FERB can use. Type your message instead."
+          }
+        }
+      }
+    },
+    "work_view_tasks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "View tasks"
           }
         }
       }

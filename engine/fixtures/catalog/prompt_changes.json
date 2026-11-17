@@ -60,6 +60,12 @@
       "prompt": "verifier.md",
       "old": "  substance, not its headings.\n- Judge the owner's outcome, not FERB's machinery.",
       "new": "  substance, not its headings.\n- After the step acted on a page or an app, met=true needs your own look at that tab, app or site after its last\n  action; FERB refuses a pass without it. A code fact about an action is a receipt of what FERB did (which file, to\n  whom, where), never proof that the site took it.\n- Judge the owner's outcome, not FERB's machinery."
+    },
+    {
+      "decision": "PRM-361",
+      "prompt": "supervisor.md",
+      "old": "(code marks such a line \"(written by the AI)\")",
+      "new": "(code marks such a line \"(not one of FERB's checks)\")"
     }
   ]
 }

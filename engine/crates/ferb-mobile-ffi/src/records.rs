@@ -30,7 +30,7 @@ macro_rules! same {
         }
     )*};
 }
-same!(String, bool, i64, i32, u32, u64);
+same!(String, bool, i64, i32, u32, u64, f64);
 
 impl<T: Conv<U>, U> Conv<Option<U>> for Option<T> {
     fn conv(self) -> Option<U> {
@@ -41,6 +41,12 @@ impl<T: Conv<U>, U> Conv<Option<U>> for Option<T> {
 impl<T: Conv<U>, U> Conv<Vec<U>> for Vec<T> {
     fn conv(self) -> Vec<U> {
         self.into_iter().map(Conv::conv).collect()
+    }
+}
+
+impl Conv<BTreeMap<String, String>> for HashMap<String, String> {
+    fn conv(self) -> BTreeMap<String, String> {
+        self.into_iter().collect()
     }
 }
 
@@ -74,6 +80,14 @@ macro_rules! mirror {
         impl From<$core> for $name {
             fn from(c: $core) -> $name {
                 c.conv()
+            }
+        }
+
+        /// Back to the core's type (what the app hands in again, `shown`): as total as the way out.
+        impl Conv<$core> for $name {
+            fn conv(self) -> $core {
+                let $name { $($f),* } = self;
+                $core { $($f: Conv::conv($f)),* }
             }
         }
     };
@@ -294,6 +308,10 @@ mirror! {
         plan_line: Option<String>,
         plan_lines: Vec<String>,
         plan: Option<String>,
+        /// `receipts` without those a receipt card stands for: what FERB.app's first bubble says. Not serialised.
+        #[serde(skip_serializing)]
+        #[uniffi(default = [])]
+        receipts_shown: Vec<String>,
     }
 }
 
@@ -336,6 +354,10 @@ mirror! {
         #[serde(skip_serializing_if = "Option::is_none")]
         headline: Option<String>,
         plan: Vec<PlanStep>,
+        /// The footer's lines without those the turn's cards stand for. Not serialised.
+        #[serde(skip_serializing)]
+        #[uniffi(default = [])]
+        lines_shown: Vec<String>,
     }
 }
 
@@ -355,6 +377,9 @@ mirror! {
     /// A turn: the owner's words (or FERB's own goal), FERB's first bubble, the card or checklist, the answer.
     TurnItem from ff::TurnItem {
         entry: String,
+        /// When the entry was made, seconds since 2001-01-01 (Foundation's reference date); not serialised (kb PHN-627).
+        #[serde(skip_serializing)]
+        at: f64,
         legacy: bool,
         client_id: Option<String>,
         request_id: Option<String>,
@@ -376,6 +401,19 @@ mirror! {
         goal: Option<String>,
         #[serde(flatten)]
         words: Option<OwnerWords>,
+        /// When its plan was stored (seconds since 2001), for the work row's time. Not serialised.
+        #[serde(skip_serializing)]
+        #[uniffi(default = None)]
+        plan_at: Option<f64>,
+        /// The words under its answer when it didn't end done ("Delivered, with parts not done", "Failed"). Not
+        /// serialised.
+        #[serde(skip_serializing)]
+        #[uniffi(default = None)]
+        status_words: Option<String>,
+        /// The boxes (timers, reminders, schedules) a later item draws. Not serialised.
+        #[serde(skip_serializing)]
+        #[uniffi(default = [])]
+        hidden: Vec<String>,
     }
 }
 
@@ -383,12 +421,19 @@ mirror! {
     /// An answer drawn below, quoting the turn it answers.
     ReplyItem from ff::ReplyItem {
         entry: String,
+        /// When the entry was made, seconds since 2001-01-01 (Foundation's reference date); not serialised (kb PHN-627).
+        #[serde(skip_serializing)]
+        at: f64,
         legacy: bool,
         answers: String,
         after: String,
         part: Option<String>,
         quotes_request: bool,
         said: Option<AnswerView>,
+        /// The boxes a later item draws. Not serialised.
+        #[serde(skip_serializing)]
+        #[uniffi(default = [])]
+        hidden: Vec<String>,
     }
 }
 
@@ -396,6 +441,9 @@ mirror! {
     /// FERB's own line in the chat (a notice or a reminder); `reference` is the item it belongs to.
     NoticeItem from ff::NoticeItem {
         entry: String,
+        /// When the entry was made, seconds since 2001-01-01 (Foundation's reference date); not serialised (kb PHN-627).
+        #[serde(skip_serializing)]
+        at: f64,
         legacy: bool,
         #[serde(rename = "ref")]
         reference: String,
@@ -403,6 +451,10 @@ mirror! {
         text: String,
         quotes: Vec<Quote>,
         cards: Option<Vec<ResultCard>>,
+        /// The boxes a later item draws. Not serialised.
+        #[serde(skip_serializing)]
+        #[uniffi(default = [])]
+        hidden: Vec<String>,
     }
 }
 
@@ -467,6 +519,10 @@ pub struct QuestionItem {
     pub body_json: String,
     pub shown: Option<String>,
     pub row: Option<RowRef>,
+    /// What FERB.app's card shows for it (kb PHN-739); none only in a record an app made itself.
+    #[serde(skip_serializing)]
+    #[uniffi(default = None)]
+    pub words: Option<QuestionShown>,
 }
 
 fn as_json_value<S: serde::Serializer>(text: &str, s: S) -> Result<S::Ok, S::Error> {
@@ -487,6 +543,7 @@ impl Conv<QuestionItem> for ff::QuestionItem {
             body,
             shown,
             row,
+            words,
         } = self;
         QuestionItem {
             entry,
@@ -498,6 +555,7 @@ impl Conv<QuestionItem> for ff::QuestionItem {
             body_json: body.to_string(),
             shown,
             row: row.conv(),
+            words: words.conv(),
         }
     }
 }
@@ -540,6 +598,26 @@ mirror! {
         rows: Vec<LiveRow>,
         checklist: Vec<LiveRow>,
         open_questions: Vec<String>,
+        /// What the task is doing now (FERB.app's work row and short view); none for a turn that is no task.
+        #[uniffi(default = None)]
+        current: Option<String>,
+        /// A running card's status line ("1 of 4 done · 2 running").
+        #[uniffi(default = None)]
+        card_line: Option<String>,
+        /// The steps each waiting row waits on that no row answers, with their lines (APP-895).
+        #[uniffi(default = [])]
+        feeders: Vec<LiveFeeder>,
+    }
+}
+
+mirror! {
+    /// One step a waiting card row waits on that no row answers (APP-895): the row it shows under, the step, its line.
+    LiveFeeder from fl::LiveFeeder {
+        part: String,
+        step: String,
+        label: String,
+        step_task_id: String,
+        line: LiveRow,
     }
 }
 
@@ -627,6 +705,36 @@ mirror! {
         options: Vec<String>,
         held: bool,
         needs: QuestionNeeds,
+        /// What FERB.app's card shows for it (kb PHN-739); none only in a record an app made itself.
+        #[uniffi(default = None)]
+        words: Option<QuestionShown>,
+    }
+}
+
+mirror! {
+    /// A question as FERB.app shows it (ferb-mobile `question`, kb PHN-739): header, the one question, the why line,
+    /// the exact thing, the task's reason, evidence, the buttons' words, the note, the typed answer's box and words,
+    /// and the Mac's banner.
+    QuestionShown from ferb_mobile::question::QuestionShown {
+        header: String,
+        secret: bool,
+        from_task: bool,
+        question: String,
+        plain: bool,
+        picture: bool,
+        picture_problem: Option<String>,
+        detail: Option<String>,
+        exact: Option<String>,
+        why: Option<String>,
+        evidence: Vec<String>,
+        buttons: Vec<String>,
+        note: Option<String>,
+        answer_box: String,
+        field: Option<String>,
+        decline: Option<String>,
+        send: Option<String>,
+        banner_title: Option<String>,
+        banner_text: Option<String>,
     }
 }
 

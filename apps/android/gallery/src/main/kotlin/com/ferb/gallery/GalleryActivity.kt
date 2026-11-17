@@ -74,6 +74,7 @@ private sealed interface Page {
     data class Screen(val screen: LabScreen) : Page
     data class Showcase(val name: String) : Page
     data object Motion : Page
+    data object Chat : Page
 }
 
 /** The places the lab offers, and the phone's own time zone's place (PHN-420's fallback). */
@@ -123,6 +124,11 @@ private fun Gallery() {
             val bars = WindowInsets.systemBars.asPaddingValues()
             val insets = PhoneInsets(bars.calculateTopPadding(), WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding())
             LabScreenView(p.screen, moment, labHomeTexts(moment), insets, chrome = false, glide = !playing)
+        }
+        Page.Chat -> {
+            SystemBars(moment.ink)
+            val bars = WindowInsets.systemBars.asPaddingValues()
+            ChatDemo(moment, PhoneInsets(bars.calculateTopPadding(), WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()))
         }
         Page.Motion -> {
             SystemBars(moment.ink)
@@ -197,6 +203,7 @@ private fun Index(
             }
         }
         PhoneText("Motion", 15f, FerbType.Semibold, Ink.white, Modifier.padding(top = 10.dp))
+        Card { CardRow("The chat", "Waiting, the stored chat with its days, FERB thinking, a reply followed as it grows (kb PHN-626..628)", onClick = { onOpen(Page.Chat) }, trailing = { Opens() }) }
         Card { CardRow("Tabs and sheets", "The app's motion (kb PHN-620..624) over the lab's pages: tap the tabs, the rows, the Mac", onClick = { onOpen(Page.Motion) }, trailing = { Opens() }) }
         PhoneText("Tokens and components", 15f, FerbType.Semibold, Ink.white, Modifier.padding(top = 10.dp))
         Card {

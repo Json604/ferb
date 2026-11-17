@@ -235,3 +235,74 @@ async fn basics_through_n0s_public_relay() {
     p.phone.close().await;
     w.bridge.close().await;
 }
+
+// decision: PHN-740, PHN-741
+/// By hand: the time from the app's start to online through n0's public relays, over cold starts of the phone
+/// (`N0_STARTS`, default 10; the Mac's link idle `N0_FIRST_IDLE_S` before the first). Every other start the phone
+/// remembers another of n0's relays than the Mac's home: the Mac's home relay moved while the app was closed, as it
+/// does by itself on the owner's network. About 30 kB a start, a start every `N0_GAP_S` (6) s.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "uses n0's public relays; run it by hand, once"]
+async fn cold_starts_through_n0() {
+    let env = |k: &str, d: u64| {
+        std::env::var(k)
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(d)
+    };
+    let (starts, idle, gap) = (
+        env("N0_STARTS", 10),
+        env("N0_FIRST_IDLE_S", 0),
+        env("N0_GAP_S", 6),
+    );
+    let w = World::start(Shared::N0, None, false).await;
+    let p = w.paired_phone("phone").await;
+    let state = p.saved().unwrap();
+    p.phone.close().await;
+    drop(p);
+    let home = net::home_relays(&w.bridge.endpoint());
+    let elsewhere = Shared::N0
+        .urls()
+        .into_iter()
+        .find(|u| !home.contains(u))
+        .unwrap();
+    println!("MEASURE n0 cold starts: the Mac's link idle {idle} s first");
+    tokio::time::sleep(std::time::Duration::from_secs(idle)).await;
+    let (mut same, mut moved) = (vec![], vec![]);
+    for i in 0..starts {
+        let mut s = state.clone();
+        if i % 2 == 1 {
+            s.mac.as_mut().unwrap().relays = vec![elsewhere.to_string()];
+        }
+        let t = Instant::now();
+        let p = TestPhone::start("phone", &Shared::N0, false, Some(s), true).await;
+        let online = p.wait_phase("online", 60).await;
+        let took = t.elapsed().as_secs_f64() * 1000.0;
+        println!(
+            "MEASURE n0 cold start {i} ({}): online {online} after {took:.0} ms, {} dials",
+            if i % 2 == 1 {
+                "the Mac moved"
+            } else {
+                "where the Mac was"
+            },
+            p.phone.dial_times().len()
+        );
+        assert!(online, "{}", p.phone.phase());
+        if i % 2 == 1 {
+            moved.push(took)
+        } else {
+            same.push(took)
+        }
+        p.phone.close().await;
+        drop(p);
+        // (under the Mac's 12 new connections a minute per phone, PHN-309)
+        tokio::time::sleep(std::time::Duration::from_secs(gap)).await;
+    }
+    println!(
+        "MEASURE n0 cold starts to online: where the Mac was p50 {:.0} ms max {:.0} ms; the Mac moved p50 {:.0} ms max {:.0} ms",
+        pct(&mut same.clone(), 0.5),
+        pct(&mut same, 1.0),
+        pct(&mut moved.clone(), 0.5),
+        pct(&mut moved, 1.0)
+    );
+}

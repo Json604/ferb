@@ -363,3 +363,34 @@ words = "just so you know, i dont have any size limit, it was agent forced that 
 words_source = "Owner 2026-11-15, told the 720/750 MB caps were now enforced on the Rust bundle; then, offered their removal: \"yeah, why is it even required\"."
 rule = "No build refuses FERB.app for its size. build-app-rust.sh prints the size report (ferb_rust_size_report) so growth stays visible."
 paths = ["scripts/build-app-rust.sh", "scripts/rust-parts.sh::ferb_rust_size_report"]
+
+[REL-430]
+title = "FERB.app's updates and release files move to a public repo, ferb-update"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "i'll make a new github public repo ferb-update , ok??? … https://github.com/Json604/ferb-update is live, maek the changes in teh site yourself, you can vercel soi loggedin/"
+words_source = "Owner 2026-11-17, told FERB.app's updates and download come from the source repo's GitHub releases, which a private repo doesn't serve."
+rule = "A public GitHub repo, Json604/ferb-update, holds only releases (DMGs and appcasts), no source; the source repo stays private (PROJ-513). Built by the coordinator 2026-11-17 (REL-432): the site's redirects send FERB's update and download paths there."
+why = "Sparkle and the site's download link read GitHub release files, which only a public repo serves to everyone."
+untestable = "A GitHub repo the owner made; how FERB reaches it is REL-432's, tested by UpdatePlanTests and the deployed redirects."
+
+[REL-431]
+title = "From now on FERB's own addresses can move without manual steps on installed copies"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "its just me and a frined, so no worreis. JUST FROM THIS POINT ON, we have to make it futuresafe, build to prevent these maniual efforts in future, easy migration to anythign we want"
+words_source = "Owner 2026-11-17, told that installed copies can't find a moved update feed by themselves (the source repo is private and its feed answers 404)."
+rule = "From now on every address a shipped FERB build uses for FERB's own services can move without touching installed copies or any manual step. The copies installed today (his and a friend's) are updated by hand once; no bridge release in the old repo."
+why = "The owner's answer; the coordinator's ruling on how is REL-432."
+
+[REL-432]
+title = "FERB's own services sit behind the owner's domain, with an ordered list of feeds in each build"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For REL-431. Every address a shipped build contacts for FERB's own services is under the owner's domain (ferb.kartikey.xyz), never a host's name; the site redirects it (307) to where the thing lives (ferb-update's releases now): the feed (/updates/appcast-ARCH.xml), the appcast's files and notes, the download. A build carries an ordered list of feeds (UpdatePlan.feedPrefixes: the owner's domain first, then the releases' own address), asks the next only when one can't be had, never any other; only an update FERB's EdDSA key signed installs."
+why = "Sparkle follows redirects and trusts the signature, not the host; a path under the owner's domain moves by changing the site's redirect, with nothing to rebuild or reinstall."
+evidence = "FERBNotch UpdatePlanTests testABuildAsksTheOwnersDomainFirstThenTheReleasesOwnAddressAndNothingElse; scripts/tests test_packaging; the deployed redirects answered 307 (coordinator, 2026-11-17). The report relay's address is still T-1267."
+paths = ["site/vercel.json", "apps/mac/FERBNotch/Sources/NotchCore/UpdatePlan.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SparkleUpdater.swift", "scripts/build-app-rust.sh", "scripts/make_appcast.py"]

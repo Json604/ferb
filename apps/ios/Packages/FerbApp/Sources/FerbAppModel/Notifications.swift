@@ -13,6 +13,7 @@ import Foundation
 // - needs the phone's proof: its words and no buttons, "Needs Face ID. Tap to answer it in FERB.";
 // - only on the Mac (can_answer false): its words and that it is answered on the Mac;
 // - a hidden input: never worded (PHN-422), "Open FERB to answer.";
+// - the planner's question (kb PHN-762): its words and "Tap to answer in FERB.", no buttons; the tap opens the chat;
 // - words held back (a locked session that didn't prove the device key, PHN-126): "FERB has a question", wordless;
 // - one of FERB's own checks while the phone is locked and the owner's setting is on: wordless, no buttons (PHN-422).
 // Unknown needs (no status yet) are treated as needing the app: no buttons. Every notification carries a public text
@@ -33,6 +34,8 @@ public enum NotificationTap: Equatable, Sendable {
     case question(String)
     /// The chat where the task is (Android passes the task id as its entry).
     case task(String)
+    /// The chat, where the planner's question is answered by a message (kb PHN-762).
+    case chat
 }
 
 /// One answer button. `choice` is the index in [Question.choices]; nil: a typed answer (the shell shows a text field
@@ -88,6 +91,62 @@ public enum NotificationAction: Equatable, Sendable {
     case remove(id: String)
 }
 
+/// The one rule for FERB's questions in the phone's notifications (the owner, kb PHN-760: "i shoudl get it like nothc
+/// comes down for all questions from worker or palnner no matter what. no notifications only when im in the app";
+/// Android's QuestionAlerts.kt):
+/// - every question that waits (the Mac's status: a worker's question or check, a hidden input, the planner's question)
+///   is posted once, at once, unless he is in the app;
+/// - in the app, unlocked, he sees it there: nothing is posted, and it is remembered as seen; if he leaves with it still
+///   waiting, it is posted quietly (no sound, no banner), so it can still be answered from there (PHN-764);
+/// - in the app but on its lock page he has not seen it: nothing yet, and a banner when he leaves without unlocking;
+/// - one already posted is updated quietly when its words or needs change, never posted again; a question FERB asks
+///   again is a new question (a new id) and is posted again;
+/// - what no longer waits is removed (answered on the phone, the Mac or another phone; withdrawn; expired).
+public final class QuestionAlerts {
+    public struct Post: Equatable, Sendable {
+        public let question: Question
+        public let quiet: Bool
+    }
+
+    public struct Plan: Equatable, Sendable {
+        public let post: [Post]
+        public let update: [Question]
+        public let cancel: [String]
+        /// The announced ids to keep (`q:<id>`, and every other kind as it was).
+        public let announced: Set<String>
+    }
+
+    private var seen = Set<String>()
+
+    public init() {}
+
+    /// `waiting`: every question that waits now, nil when nothing says yet (then nothing is posted or removed).
+    public func decide(_ waiting: [Question]?, front: Bool, unlocked: Bool, posted: [String: Question], announced: Set<String>) -> Plan {
+        guard let waiting else { return Plan(post: [], update: [], cancel: [], announced: announced) }
+        let ids = Set(waiting.map(\.approvalId))
+        seen.formIntersection(ids)
+        var known = announced.filter { !$0.hasPrefix("q:") || ids.contains(String($0.dropFirst(2))) }
+        var post: [Post] = []
+        var update: [Question] = []
+        for q in waiting {
+            let key = "q:\(q.approvalId)"
+            if known.contains(key) {
+                if let shown = posted[q.approvalId], shown != q { update.append(q) }
+                continue
+            }
+            if front {
+                // in the app: shown there, not in the shade; seen only past the lock page
+                if unlocked { seen.insert(q.approvalId) }
+                continue
+            }
+            known.insert(key)
+            post.append(Post(question: q, quiet: seen.contains(q.approvalId)))
+        }
+        let cancel = posted.keys.filter { !ids.contains($0) }.sorted()
+        return Plan(post: post, update: update, cancel: cancel, announced: known)
+    }
+}
+
 /// The decisions, pure over what the Mac's status and the transcript say: tested without iOS. What was announced
 /// lives in [Prefs.announced] (ids only); what is on show now is kept here.
 @MainActor
@@ -95,36 +154,52 @@ public final class NotificationPlanner {
     private let prefs: Prefs
     /// Questions on show now (re-planned when the phone locks or unlocks: FERB's checks change their words then).
     public private(set) var posted: [String: Question] = [:]
-    private var primedTranscript = false
+    /// What had finished when this process started is not news (questions are: each waiting one is posted once).
     private var primedStatus = false
+    private var primedTranscript = false
     private var lastPhase: LinkPhase?
+    /// The one rule for questions (kb PHN-760..764).
+    private let alerts = QuestionAlerts()
 
     public init(prefs: Prefs) {
         self.prefs = prefs
     }
 
-    /// The Mac's status: questions with their needs, and what finished (held: wordless). Works while locked.
-    /// `chat`: the transcript's open questions (nil while the app is locked: it reads no chat). `quiet`: the owner is
-    /// looking at the open app (nothing new is posted then; it is still marked announced).
-    public func status(_ status: PhoneStatus, chat: [Question]?, quiet: Bool, lockedNow: Bool) -> [NotificationAction] {
+    /// One look at what waits (kb PHN-760; Android's Notifier.look): the Mac's status (every question, the planner's
+    /// too, with its needs; it keeps coming while the app is locked) and, while unlocked, the transcript (`view`: the
+    /// questions' full words, finished turns). Every question that waits is posted once unless the owner is in the app
+    /// (`front`; `unlocked`: past its lock page, so he saw it there), by [QuestionAlerts]; what finished is posted
+    /// once, and what was already finished when this process started is not news.
+    public func look(status: PhoneStatus?, view: TranscriptView?, front: Bool, unlocked: Bool, lockedNow: Bool) -> [NotificationAction] {
         var out: [NotificationAction] = []
-        var announced = prefs.announced
-        let ids = Set(status.questions.map(\.approvalId))
-        let questions = Questions.merged((chat ?? []).filter { ids.contains($0.approvalId) }, status)
-        if !primedStatus {
-            primedStatus = true
-            announced.formUnion(questions.map { "q:\($0.approvalId)" } + status.results.map { "t:\($0.taskId)" })
-            prefs.announced = announced
-            return []
+        let chat = view.map { Questions.open($0.questions) }
+        let waiting: [Question]?
+        if let status {
+            let ids = Set(status.questions.map(\.approvalId))
+            waiting = Questions.waiting((chat ?? []).filter { ids.contains($0.approvalId) }, status)
+        } else {
+            waiting = chat
         }
-        out += questionsChanged(questions, &announced, quiet: quiet, lockedNow: lockedNow)
-        // what the Mac no longer has waiting goes from the shade
-        for id in posted.keys.sorted() where !ids.contains(id) { out.append(cancel(id)) }
-        for r in status.results {
+        let plan = alerts.decide(waiting, front: front, unlocked: unlocked, posted: posted, announced: prefs.announced)
+        var announced = plan.announced
+        for p in plan.post { out.append(.post(question(p.question, lockedNow: lockedNow, quietly: p.quiet))) }
+        for q in plan.update { out.append(.post(question(q, lockedNow: lockedNow, quietly: true))) }
+        for id in plan.cancel { out.append(cancel(id)) }
+        let terminal = view.map(finished) ?? []
+        // the first status and the first transcript this process reads: what had finished is not news
+        if !primedStatus, let status {
+            primedStatus = true
+            announced.formUnion(status.results.map { "t:\($0.taskId)" })
+        }
+        if !primedTranscript, view != nil {
+            primedTranscript = true
+            announced.formUnion(terminal.map { "t:\($0.task)" })
+        }
+        for r in status?.results ?? [] {
             let key = "t:\(r.taskId)"
             if announced.contains(key) { continue }
             announced.insert(key)
-            if quiet { continue }
+            if front { continue }
             if r.held {
                 out.append(.post(done(key, title: L.s("n_done_held"), body: L.s("n_held_text"), tap: .app, wordless: true)))
             } else {
@@ -133,50 +208,13 @@ public final class NotificationPlanner {
                 out.append(.post(done(key, title: L.s(failed ? "n_task_failed" : "n_task_done"), body: line, tap: .app, wordless: false)))
             }
         }
-        prefs.announced = announced
-        return out
-    }
-
-    /// The transcript (unlocked): the questions' full words, with their needs from the last status.
-    public func transcript(_ view: TranscriptView, status: PhoneStatus?, quiet: Bool, lockedNow: Bool) -> [NotificationAction] {
-        var out: [NotificationAction] = []
-        var announced = prefs.announced
-        let inView = Set(view.questions.compactMap(\.approvalId))
-        let open = Questions.merged(Questions.open(view.questions), status).filter { inView.contains($0.approvalId) }
-        let terminal = finished(view)
-        if !primedTranscript {
-            // what was already there when the app started is not news
-            primedTranscript = true
-            announced.formUnion(open.map { "q:\($0.approvalId)" } + terminal.map { "t:\($0.task)" })
-            prefs.announced = announced
-            return []
-        }
-        out += questionsChanged(open, &announced, quiet: quiet, lockedNow: lockedNow)
-        // a question answered elsewhere, or no longer waiting: its notification goes
-        let still = Set(open.map(\.approvalId))
-        for id in posted.keys.sorted() where !still.contains(id) { out.append(cancel(id)) }
         for t in terminal {
             let key = "t:\(t.task)"
             if announced.contains(key) { continue }
             announced.insert(key)
-            if !quiet { out.append(.post(done(key, title: t.title, body: t.line, tap: .task(t.task), wordless: false))) }
+            if !front { out.append(.post(done(key, title: t.title, body: t.line, tap: .task(t.task), wordless: false))) }
         }
         prefs.announced = announced
-        return out
-    }
-
-    private func questionsChanged(_ questions: [Question], _ announced: inout Set<String>, quiet: Bool, lockedNow: Bool) -> [NotificationAction] {
-        var out: [NotificationAction] = []
-        for q in questions {
-            let key = "q:\(q.approvalId)"
-            if announced.contains(key) {
-                // known already: its words or needs may have changed (the app unlocked, a status arrived)
-                if let was = posted[q.approvalId], was != q { out.append(.post(question(q, lockedNow: lockedNow, quietly: true))) }
-                continue
-            }
-            announced.insert(key)
-            if !quiet { out.append(.post(question(q, lockedNow: lockedNow, quietly: false))) }
-        }
         return out
     }
 
@@ -200,8 +238,8 @@ public final class NotificationPlanner {
     public func question(_ q: Question, lockedNow: Bool, quietly: Bool) -> PlannedNotification {
         let id = q.approvalId
         let wordless = q.ownCheck && prefs.hideChecksOnLockScreen && lockedNow
-        let asking = q.title ?? L.s("n_question_title")
-        let reason: String? = q.reason.isEmpty ? nil : q.reason
+        let asking = Self.headline(q) ?? L.s("n_question_title")
+        let reason = Self.detail(q)
         let title: String
         let body: String
         if q.hidden {
@@ -210,6 +248,9 @@ public final class NotificationPlanner {
             (title, body) = (L.s("n_question_title"), L.s("n_held_text"))
         } else if wordless {
             (title, body) = (L.s("n_check_title"), L.s("n_check_text"))
+        } else if q.clarify {
+            // the planner's question (kb PHN-762): his answer is a message in the chat, which the tap opens
+            (title, body) = (asking, [reason, L.s("n_clarify_text")].compactMap { $0 }.joined(separator: "\n"))
         } else if q.onlyOnMac {
             (title, body) = (asking, [reason, L.s("n_on_mac")].compactMap { $0 }.joined(separator: "\n"))
         } else if !q.routine {
@@ -239,8 +280,15 @@ public final class NotificationPlanner {
         posted[id] = q
         return PlannedNotification(id: "q:\(id)", kind: q.ownCheck ? .check : .question, title: title, body: body,
                                    publicText: L.s("n_public_question"), wordless: q.hidden || q.held || wordless,
-                                   buttons: buttons, tap: .question(id), quietly: quietly)
+                                   buttons: buttons, tap: q.clarify ? .chat : .question(id), quietly: quietly)
     }
+
+    /// A notification's title and words for a question (Android's Notifier.headline and detail): the Mac's own banner
+    /// words (`QuestionShown.bannerTitle`/`bannerText`, ferb-daemon notify.rs `approval_notice`) once the iPhone's
+    /// bindings carry them; the planner's question, which has no banner on the Mac, "FERB needs you" and its own words.
+    /// The one place a notification reads a question's words; the lock-screen and held-words rules apply on top.
+    static func headline(_ q: Question) -> String? { q.clarify ? L.s("n_needs_you") : q.title }
+    static func detail(_ q: Question) -> String? { q.reason.isEmpty ? nil : q.reason }
 
     /// After an answer from the notification: gone, or replaced by what stopped it (PHN-302).
     public func answered(_ approvalId: String, problem: String?, needsApp: Bool) -> NotificationAction {
@@ -300,8 +348,7 @@ public final class Notifier {
         self.deliver = deliver
     }
 
-    /// Should a notification show now: not while the owner is looking at the open app.
-    private var quiet: Bool { session.front && !session.locked }
+    private var sessionFollow: Follow<[Bool]>?
 
     public func start() {
         let stream = api.changes()
@@ -309,11 +356,18 @@ public final class Notifier {
             for await c in stream {
                 guard let self else { return }
                 switch c {
-                case .transcript, .live: look { await $0.lookTranscript() }
-                case .status: look { await $0.lookStatus() }
+                case .transcript, .live, .status: look { await $0.lookNow() }
                 default: break
                 }
             }
+        }
+        // he leaves the app, comes back, unlocks it: what waits is looked at again (a question seen in the app goes to
+        // the shade when he leaves with it still waiting, kb PHN-764)
+        sessionFollow = Follow<[Bool]>(initial: false, { [weak self] in
+            guard let self else { return nil }
+            return [session.front, session.locked]
+        }) { [weak self] _ in
+            self?.look { await $0.lookNow() }
         }
         linkFollow = Follow<LinkStatus?>({ [weak self] in
             guard let self else { return nil }
@@ -328,6 +382,7 @@ public final class Notifier {
     public func stop() {
         changesTask?.cancel()
         linkFollow?.stop()
+        sessionFollow?.stop()
     }
 
     @discardableResult
@@ -342,22 +397,13 @@ public final class Notifier {
         return t
     }
 
-    /// Reads the Mac's status now (a status change, or a test).
+    /// Looks at what waits now (a change of the Mac's status or the chat, the app's own state, or a test).
     @discardableResult
-    public func lookStatus() async -> [NotificationAction] {
-        guard let status = api.lastStatus() else { return [] }
-        var chat: [Question]?
-        if !session.locked, case .ok(let view?) = await api.transcript() { chat = Questions.open(view.questions) }
-        let a = planner.status(status, chat: chat, quiet: quiet, lockedNow: lockedNow())
-        if !a.isEmpty { deliver(a) }
-        return a
-    }
-
-    /// Reads the transcript now (a transcript change, or a test).
-    @discardableResult
-    public func lookTranscript() async -> [NotificationAction] {
-        guard case .ok(let view?) = await api.transcript() else { return [] }
-        let a = planner.transcript(view, status: api.lastStatus(), quiet: quiet, lockedNow: lockedNow())
+    public func lookNow() async -> [NotificationAction] {
+        let status = await api.lastStatus()
+        var view: TranscriptView?
+        if !session.locked, case .ok(let v?) = await api.transcript() { view = v }
+        let a = planner.look(status: status, view: view, front: session.front, unlocked: !session.locked, lockedNow: lockedNow())
         if !a.isEmpty { deliver(a) }
         return a
     }
@@ -377,7 +423,7 @@ public final class Notifier {
     public func answer(_ approvalId: String, choice: Int?, typed: String?) async -> NotificationAction? {
         _ = await waitFor(8) { api.state.isOpen && api.link?.phase == .online }
         // the question as the chat holds it, else as the Mac's status gives it (a locked app reads no chat)
-        var status = api.lastStatus()
+        var status = await api.lastStatus()
         if status == nil, case .ok(let s) = await api.status() { status = s }
         var fromChat: [Question] = []
         if case .ok(let view?) = await api.transcript(),

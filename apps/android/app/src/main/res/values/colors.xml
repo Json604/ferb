@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The launch's ground (kb PHN-632): :design Tone.ink0, motion.json launch.background. -->
+    <color name="launch_ink0">#FF080706</color>
+</resources>

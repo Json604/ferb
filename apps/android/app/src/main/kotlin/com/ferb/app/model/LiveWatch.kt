@@ -36,14 +36,14 @@ data class LiveView(
 class LiveWatch(
     private val scope: CoroutineScope,
     private val api: PhoneApi,
-    private val decode: (ByteArray) -> Bitmap? = { BitmapFactory.decodeByteArray(it, 0, it.size) },
+    private val decode: (ByteArray) -> Bitmap? = ::atScreenSize,
 ) {
     private val _view = MutableStateFlow<LiveView?>(null)
     val view: StateFlow<LiveView?> = _view.asStateFlow()
     @Volatile private var live: Live? = null
     @Volatile private var generation = 0
 
-    fun start(taskId: String) {
+    fun start(taskId: String, worker: String? = null) {
         stop(keepView = true)
         val gen = ++generation
         _view.value = LiveView(taskId)
@@ -80,7 +80,9 @@ class LiveWatch(
                     }
                 }
             }
-            when (val r = api.watchLive(taskId, sink)) {
+            // a step's own picture (a card row's short view, kb PHN-726) comes at the row's pace
+            val asked = if (worker != null) api.watchStepThumbnail(taskId, worker, Thumbnails.EVERY_MS, sink) else api.watchLive(taskId, sink)
+            when (val r = asked) {
                 is Outcome.Ok -> if (gen == generation) live = r.value else r.value.stop()
                 is Outcome.Failed -> if (gen == generation) _view.update { it?.copy(ended = FerbViewModel.errorNote(r.error)) }
             }
@@ -96,4 +98,17 @@ class LiveWatch(
     }
 
     val showing: Boolean get() = _view.value != null
+}
+
+/**
+ * A frame decoded no larger than it is shown (kb PHN-716): halved while it stays at least the screen's width, so the
+ * page fits the same picture from a smaller bitmap (a whole Mac window was decoded and uploaded at full size per frame).
+ */
+internal fun atScreenSize(bytes: ByteArray): Bitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+    val target = android.content.res.Resources.getSystem().displayMetrics.widthPixels.coerceAtLeast(1)
+    var sample = 1
+    while (bounds.outWidth / (sample * 2) >= target) sample *= 2
+    return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
 }

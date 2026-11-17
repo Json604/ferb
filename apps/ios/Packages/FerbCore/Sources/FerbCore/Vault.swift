@@ -129,12 +129,18 @@ public final class Vault: @unchecked Sendable {
         write(Data([k.device, k.lock, k.strong].map { $0 ?? "-" }.joined(separator: "\n").utf8), to: registeredFile)
     }
 
-    /// "Forget this Mac" (PHN-408): the store, its key and the three signing keys go (the next pairing registers new
-    /// ones). The link state stays as `Link.forget` rewrites it: the phone's link key without the Mac.
+    /// "Forget this Mac" (PHN-408, PHN-646): the store, its key, the three signing keys and the link's state, its
+    /// identity and pairing with it: a forgotten Mac is never dialled again, and the next pairing is a new phone to it.
     public func forget() {
         dropStore()
-        try? FileManager.default.removeItem(at: registeredFile)
+        secrets.delete(Self.linkState)
+        for f in [registeredFile, keptMark] { try? FileManager.default.removeItem(at: f) }
         keys.deleteAll()
+    }
+
+    /// Paired, with the lock key the Mac knows (PHN-649): the opening prompt can sign an unlock statement at once.
+    public func statementReady() -> Bool {
+        (secrets.exists(Self.linkState) ?? false) && registeredKeys()?.lock != nil && keys.health().lock == .ok
     }
 
     /// Everything: the next start is a first start.
@@ -167,7 +173,15 @@ public final class Vault: @unchecked Sendable {
                 }
             },
             biometry: { Biometry.enrolledState() },
-            authenticate: { kind, reason in Prompt.evaluate(biometricOnly: kind == .strong, reason: reason) })
+            authenticate: { kind, reason in
+                // the UI tests' stand-in (`-FERBUITestUnlock YES`, Debug on the simulator only): a UI test can't
+                // answer the system's sheet, and the opening prompt's statement is signed through this key too, so
+                // an install that already had keys showed "Enter iPhone Passcode" in a test run (kb PHN-685)
+                #if DEBUG
+                if UserDefaults.standard.bool(forKey: "FERBUITestUnlock") { return true }
+                #endif
+                return Prompt.evaluate(biometricOnly: kind == .strong, reason: reason)
+            })
         #else
         backend = SecureEnclaveBackend()
         #endif

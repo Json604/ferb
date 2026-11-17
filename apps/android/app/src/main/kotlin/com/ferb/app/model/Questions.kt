@@ -36,9 +36,20 @@ data class Question(
     val needs: QuestionNeeds? = null,
     /** The words were held back (a locked phone, PHN-126): only that a question waits. */
     val held: Boolean = false,
+    /** What FERB.app's card shows for it (kb PHN-739, ferb-mobile `question`): header, question, why, exact, buttons. */
+    val shown: com.ferb.mobile.QuestionShown? = null,
 ) {
-    /** PHN-417, PHN-470: answered from the notification's buttons with no prompt. Unknown needs are not routine. */
-    val routine: Boolean get() = needs?.let { it.canAnswer && !it.needsUnlock && !it.hidden } == true && !hidden
+    /**
+     * PHN-417, PHN-470: answered from the notification's buttons with no prompt. Unknown needs are not routine; nor is
+     * the planner's question, which is answered by a message in the chat (kb PHN-762).
+     */
+    val routine: Boolean get() = needs?.let { it.canAnswer && !it.needsUnlock && !it.hidden } == true && !hidden && !clarify
+
+    /**
+     * The planner's question that waits on the owner (the Mac's status lists it as kind "clarify", kb PHN-761): FERB's
+     * own bubble in the chat, answered by his next message; never a gateway question with buttons or a sheet.
+     */
+    val clarify: Boolean get() = kind == CLARIFY
 
     /** Only on the Mac (a hidden input on a phone that can't sign it, …): its words say why. */
     val onlyOnMac: Boolean get() = needs?.canAnswer == false
@@ -82,6 +93,9 @@ data class Question(
         /** ferb-link role.rs OWN_CHECKS (the gateway's): FERB's own consequential checks. */
         val OWN_CHECKS = setOf("ferb.confirm", "ferb.retry", "conversation.approve", "memory.forget", "downloads.delete", "browsing.choose")
 
+        /** The kind the Mac's status gives the planner's question (ferb-daemon phone/asking.rs). */
+        const val CLARIFY = "clarify"
+
         /** ferb-link role.rs SECRET_KINDS: answered only through the sealed path (PHN-109, PHN-110). */
         val SECRET_KINDS = setOf("owner_login_code", "owner_admin_password", "owner_secret")
     }
@@ -91,10 +105,12 @@ object Questions {
     fun parse(q: QuestionItem): Question {
         val body = runCatching { Json.parse(q.bodyJson) }.getOrNull() as? Map<String, Any?> ?: emptyMap()
         val kind = body.str("kind") ?: "owner_question"
+        // kb PHN-739: the Mac's words, from the library (a record an app made itself has none: read from its body)
+        val shown = q.words ?: runCatching { com.ferb.mobile.questionShown(q.bodyJson) }.getOrNull()
         return Question(
             approvalId = q.approvalId.orEmpty(),
             taskId = q.taskId,
-            title = body.str("summary") ?: body.str("title"),
+            title = shown?.question ?: body.str("summary") ?: body.str("title"),
             reason = body.str("reason").orEmpty(),
             exact = body.str("exact"),
             kind = kind,
@@ -102,6 +118,7 @@ object Questions {
             options = body.strings("options"),
             labels = body.strings("labels"),
             hidden = kind in Question.SECRET_KINDS || body.bool("secret"),
+            shown = shown,
         )
     }
 
@@ -111,16 +128,31 @@ object Questions {
 
     /** A question as the Mac's status gives it (the app is locked, or the chat hasn't brought it yet). */
     fun fromStatus(s: StatusQuestion): Question = Question(
-        approvalId = s.approvalId, taskId = s.taskId, title = null, reason = if (s.held) "" else s.reason, exact = null,
-        kind = if (s.needs.hidden) "owner_secret" else "owner_question", capability = s.capability,
-        options = if (s.held) emptyList() else s.options, labels = emptyList(), hidden = s.needs.hidden, needs = s.needs, held = s.held,
+        approvalId = s.approvalId, taskId = s.taskId, title = s.words?.question?.takeIf { !s.held }, reason = if (s.held) "" else s.reason,
+        exact = s.words?.exact?.takeIf { !s.held },
+        kind = when {
+            s.kind == Question.CLARIFY -> Question.CLARIFY
+            s.needs.hidden -> "owner_secret"
+            else -> "owner_question"
+        },
+        capability = s.capability,
+        options = if (s.held) emptyList() else s.options, labels = if (s.held) emptyList() else s.words?.buttons.orEmpty(),
+        hidden = s.needs.hidden, needs = s.needs, held = s.held, shown = s.words?.takeIf { !s.held },
     )
 
     /**
      * The transcript's open questions, each with its needs from [status], then the status's questions the transcript
-     * doesn't hold yet (each question once).
+     * doesn't hold yet (each question once): the questions the app's sheets and the Tasks tab answer. The planner's
+     * question is not one of them (it is FERB's bubble in the chat, as on the Mac): see [waiting].
      */
-    fun merged(transcript: List<Question>, status: PhoneStatus?): List<Question> {
+    fun merged(transcript: List<Question>, status: PhoneStatus?): List<Question> = waiting(transcript, status).filterNot { it.clarify }
+
+    /**
+     * Every question that waits on the owner, the planner's too (kb PHN-760, PHN-761): what the notifications follow.
+     * With a status the Mac's list decides which wait (the transcript gives their full words); before the first status
+     * the transcript's open questions do.
+     */
+    fun waiting(transcript: List<Question>, status: PhoneStatus?): List<Question> {
         val byId = status?.questions.orEmpty().associateBy { it.approvalId }
         val known = transcript.map { q -> byId[q.approvalId]?.let { q.copy(needs = it.needs) } ?: q }
         val ids = known.map { it.approvalId }.toSet()

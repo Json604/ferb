@@ -73,7 +73,7 @@ class FakeMac : Transport {
             "chat.entries.page" -> """{"conversation":"c1","epoch":"E1","head":1,"entries":[$ENTRY],"more":false,"before_pos":null}"""
             "chat.entries.changes" -> """{"conversation":"c1","epoch":"E1","head":1,"entries":[],"more":false,"next_seq":1}"""
             "link.challenge" -> """{"challenge":"C-${calls.size}"}"""
-            "link.unlock", "task.stop", "chat.approve", "chat.entries.mark", "link.lock", "stop.engage", "link.keys" -> """{"ok":true}"""
+            "link.unlock", "link.unlock_statement", "task.stop", "chat.approve", "chat.entries.mark", "link.lock", "stop.engage", "link.keys" -> """{"ok":true}"""
             "chat.status" -> status
             "link.files" -> {
                 val path = field(paramsJson, "path")

@@ -97,12 +97,14 @@ struct FilesView: View {
             else if let p = s.problem { line(p.text) }
             else if let f = s.found {
                 if f.files.isEmpty { line(L.s("search_none", s.query)) } else {
-                    Card {
-                        ForEach(Array(f.files.enumerated()), id: \.offset) { i, e in
-                            if i > 0 { Divide() }
-                            CardRow(title: e.name, detail: foundDetail(e), onClick: { model.openFound(e) }) {
-                                if e.dir { RowIcon(symbol: "folder") } else { FileIcon(name: e.name, width: 26) }
-                            } trailing: { Opens() }
+                    Revealing(key: "\(s.query)\u{0}\(s.path ?? "")", total: f.files.count) { n in
+                        Card {
+                            ForEach(Array(f.files.prefix(n).enumerated()), id: \.offset) { i, e in
+                                if i > 0 { Divide() }
+                                CardRow(title: e.name, detail: foundDetail(e), onClick: { model.openFound(e) }) {
+                                    if e.dir { RowIcon(symbol: "folder") } else { FileIcon(name: e.name, width: 26) }
+                                } trailing: { Opens() }
+                            }
                         }
                     }
                 }
@@ -168,13 +170,15 @@ struct FilesView: View {
             }
             .padding(.top, 14).padding(.vertical, 8)
             if f.entries.isEmpty { line(L.s("files_empty")) } else {
-                Card {
-                    ForEach(Array(f.entries.enumerated()), id: \.offset) { i, e in
-                        if i > 0 { Divide() }
-                        CardRow(title: e.name, detail: entryDetail(e), onClick: { model.openEntry(e) }) {
-                            if e.dir { RowIcon(symbol: "folder") } else { FileIcon(name: e.name, width: 26) }
-                        } trailing: {
-                            if e.locked { Image(systemName: "lock.fill").font(.system(size: 15)).foregroundStyle(Ink.faint) } else { Opens() }
+                Revealing(key: f.path, total: f.entries.count) { n in
+                    Card {
+                        ForEach(Array(f.entries.prefix(n).enumerated()), id: \.offset) { i, e in
+                            if i > 0 { Divide() }
+                            CardRow(title: e.name, detail: entryDetail(e), onClick: { model.openEntry(e) }) {
+                                if e.dir { RowIcon(symbol: "folder") } else { FileIcon(name: e.name, width: 26) }
+                            } trailing: {
+                                if e.locked { Image(systemName: "lock.fill").font(.system(size: 15)).foregroundStyle(Ink.faint) } else { Opens() }
+                            }
                         }
                     }
                 }
@@ -318,3 +322,33 @@ struct TransferGroupCard: View {
         }
     }
 }
+
+/// A list's rows built a screenful at a time (Android's `revealed`, kb PHN-715): 40 at once, then 40 more on each frame
+/// after, so a folder of 500 (a page, PHN-609) never holds one frame for all of them. The rows past the first screen are
+/// below the fold while they come; the page, its slide and its rows look and move as before. [key] names the list (a
+/// folder, a search): another starts again at 40; more rows of the same one ("Load more") keep what is shown.
+private struct Revealing<Content: View>: View {
+    let key: String
+    let total: Int
+    @ViewBuilder var content: (Int) -> Content
+    @State private var shown = revealFirst
+    @State private var shownKey: String?
+
+    var body: some View {
+        content(min(shownKey == nil || shownKey == key ? shown : revealFirst, total))
+            .task(id: "\(key)\u{0}\(total)") {
+                if shownKey != key {
+                    shownKey = key
+                    shown = revealFirst
+                }
+                while shown < total {
+                    try? await Task.sleep(for: .milliseconds(16))
+                    if Task.isCancelled { return }
+                    shown += revealStep
+                }
+            }
+    }
+}
+
+private let revealFirst = 40
+private let revealStep = 40

@@ -33,7 +33,9 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -96,6 +98,13 @@ class FerbPhone(
 ) : Closeable {
     private val scope = CoroutineScope(SupervisorJob() + main)
     private val serial = Mutex()
+
+    /**
+     * What the app tells the link (in front or not, open or not, the network changed, dial now) goes to it one at a
+     * time, in the order said, never on the caller's thread (kb PHN-682): the main thread never enters the library.
+     */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val linkLane = io.limitedParallelism(1)
     private val closed = AtomicBoolean(false)
 
     private val _state = MutableStateFlow<PhoneState>(PhoneState.Closed)
@@ -122,12 +131,19 @@ class FerbPhone(
         }
     }
 
-    private val linkHeard = object : LinkListener {
+    /** Each link started gets the next number; a link stopped since never writes the state again (PHN-646). */
+    private val linkGen = java.util.concurrent.atomic.AtomicLong(0)
+
+    private fun linkHeard(gen: Long) = object : LinkListener {
         override fun statusChanged(status: LinkStatus) {
+            if (gen != linkGen.get()) return
             scope.launch { _link.value = status }
         }
 
         override fun persist(state: ByteArray) {
+            // a link stopped by "Forget this Mac" (or restarted) has nothing more to say: its late save is dropped,
+            // so a forgotten Mac's pairing and the old link identity never come back
+            if (gen != linkGen.get()) { state.fill(0); return }
             // on the link's thread, at once: the state holds the phone's link key; never kept unsealed
             try {
                 vault.saveLinkState(state)
@@ -161,6 +177,8 @@ class FerbPhone(
     /** Runs [block] with the core on [io]; the library's error comes back typed. */
     suspend fun <T> call(block: (Mobile) -> T): Outcome<T> = withContext(io) {
         val m = mobile ?: return@withContext Outcome.Failed(FerbException.Closed("FERB is not open.", null))
+        // kb PHN-682: every call into the library can wait (its store, its link); never from the main thread
+        MainGuard.offMain("a call into the phone library")
         try {
             Outcome.Ok(block(m))
         } catch (e: FerbException) {
@@ -236,7 +254,8 @@ class FerbPhone(
     suspend fun registerKeys(signer: (KeyKind) -> Signer): Outcome<Boolean> {
         val fresh = unregisteredKeys() ?: return Outcome.Ok(false)
         val mac = withContext(io) { vault.registeredKeys() } ?: return Outcome.Ok(false)
-        val kind = if (mac.strong != null && vault.keys.health().strong == KeyState.OK) KeyKind.STRONG else KeyKind.LOCK
+        val strongOk = withContext(io) { vault.keys.health().strong == KeyState.OK }
+        val kind = if (mac.strong != null && strongOk) KeyKind.STRONG else KeyKind.LOCK
         val r = call { it.registerKeys(fresh.device, fresh.strong, signer(kind)) }
         if (r is Outcome.Ok) {
             withContext(io) { vault.saveRegisteredKeys(PublicKeys(mac.device ?: fresh.device, mac.lock, mac.strong ?: fresh.strong)) }
@@ -248,13 +267,19 @@ class FerbPhone(
         }
     }
 
-    /** The last status the Mac pushed or a read kept (memory only; safe on the main thread), or null. */
-    fun lastStatusNow(): com.ferb.mobile.PhoneStatus? = try {
-        mobile?.lastStatus()
-    } catch (e: FerbException) {
-        null
-    } catch (e: IllegalStateException) {
-        null
+    /**
+     * The last status the Mac pushed or a read kept, or null. Like every call into the library it runs on [io]: on the
+     * owner's phone the main thread asked for it itself and waited behind a sync, and the app froze (kb PHN-680).
+     */
+    suspend fun lastStatus(): com.ferb.mobile.PhoneStatus? = (call { it.lastStatus() } as? Outcome.Ok)?.value
+
+    /** Runs [block] with the link on [linkLane]: in order, off the caller's thread, nothing thrown. */
+    private fun tellLink(block: (Uplink) -> Unit) {
+        scope.launch(linkLane) {
+            val u = uplink ?: return@launch
+            MainGuard.offMain("a call into the phone link")
+            runCatching { block(u) }
+        }
     }
 
     /** A prompt signer whose key loss updates [state]. */
@@ -265,25 +290,29 @@ class FerbPhone(
      * "Forget this Mac" (PHN-408): the fetched chat and its key, the Mac in the link's state, and the three signing
      * keys go; the store and the link start again empty, ready to pair.
      */
-    suspend fun forgetThisMac(): Outcome<Unit> = withContext(io) {
+    suspend fun forgetThisMac(): Outcome<Boolean> = withContext(io) {
         serial.withLock {
             try {
+                // PHN-646: first the Mac, when it can be reached and knows the call: it removes this phone (3 s at most)
+                val told = tellMacToForget()
+                // then everything here, whatever the Mac said: the link stops first (its late saves are dropped), the
+                // store and its key, the link's identity and pairing, the signing keys; a new link with a new identity
+                linkGen.incrementAndGet()
+                uplink?.let { u ->
+                    runCatching { u.shutdown() }
+                    runCatching { u.close() }
+                }
+                uplink = null
                 mobile?.let { m ->
                     runCatching { m.forgetThisMac() }
                     m.close()
                 }
                 mobile = null
-                uplink?.let { u ->
-                    runCatching { u.forget() } // the Mac-less state reaches persist before the link closes
-                    u.shutdown()
-                    u.close()
-                }
-                uplink = null
                 vault.forget()
                 wiped = null
                 bringUp()
                 publishOpen()
-                Outcome.Ok(Unit)
+                Outcome.Ok(told)
             } catch (e: FerbException) {
                 _state.value = PhoneState.Failed(e)
                 Outcome.Failed(e)
@@ -291,19 +320,41 @@ class FerbPhone(
         }
     }
 
-    /** The app came to the front or went to the back (Stay connected keeps it true). Non-blocking. */
-    fun setActive(on: Boolean) {
-        runCatching { uplink?.setActive(on) }
+    /** Asks the Mac to remove this phone (`link.forget`), bounded; true when it said it did. Never throws. */
+    private suspend fun tellMacToForget(): Boolean {
+        val m = mobile ?: return false
+        val l = _link.value ?: return false
+        if (!l.paired || l.phase != com.ferb.mobile.LinkPhase.ONLINE || l.macOlder) return false
+        val asked = scope.async(io) { runCatching { m.forgetMe() }.isSuccess }
+        return withTimeoutOrNull(FORGET_TELL_MS) { asked.await() } ?: false
     }
+
+    /**
+     * The app is unlocked and in front (true), or locked or left (false), kb PHN-648: the device key's presence keeps
+     * the Mac's window open meanwhile. Non-blocking.
+     */
+    fun setOpen(on: Boolean) = tellLink { it.setOpen(on) }
+
+    /** The unlock the lock key signed in the opening prompt, handed to the Mac once the link is up (kb PHN-649). */
+    suspend fun unlockWithStatement(payload: String, sig: String, ageMs: Long): Outcome<Unit> =
+        call { it.unlockWithStatement(payload, sig, ageMs.toULong()) }.also { publishOpen() }
+
+    /**
+     * This phone is paired and its lock key is there: the opening prompt can sign an unlock statement at once, before
+     * the store and the link are up (kb PHN-649). Reads two small files and the Keystore; not on the main thread.
+     */
+    suspend fun statementReady(): Boolean = withContext(io) {
+        runCatching { vault.hasLinkState() && vault.registeredKeys()?.lock != null && vault.keys.health().lock == KeyState.OK }
+            .getOrDefault(false)
+    }
+
+    /** The app came to the front or went to the back (Stay connected keeps it true). Non-blocking. */
+    fun setActive(on: Boolean) = tellLink { it.setActive(on) }
 
     /** The phone's default network changed (`wifi`, `cellular`, …). Non-blocking. */
-    fun networkChanged(kind: String?) {
-        runCatching { uplink?.networkChanged(kind) }
-    }
+    fun networkChanged(kind: String?) = tellLink { it.networkChanged(kind) }
 
-    fun retry() {
-        runCatching { uplink?.retry() }
-    }
+    fun retry() = tellLink { it.retry() }
 
     /** Ends the store and the link and frees both (bounded: up to about 5 s for the link). Not on the main thread. */
     override fun close() {
@@ -322,8 +373,15 @@ class FerbPhone(
 
     // ---- inside -------------------------------------------------------------------------------------------------
 
+    /**
+     * The keys' health read again and published. Never on the calling thread: reading it is a Keystore round per key
+     * (getKey and initSign), binder calls that can wait behind other Keystore work; after an unlock this ran on the
+     * main thread (kb PHN-657).
+     */
     private fun publishOpen() {
-        if (mobile != null && !closed.get()) _state.value = PhoneState.Open(vault.keys.health(), wiped)
+        scope.launch(io) {
+            if (mobile != null && !closed.get()) _state.value = PhoneState.Open(vault.keys.health(), wiped)
+        }
     }
 
     /** The link first (its kept state decides whether anything else is kept), then the store. */
@@ -359,7 +417,7 @@ class FerbPhone(
     }
 
     private fun startLink(state: ByteArray?, keys: PublicKeys): Uplink =
-        uplinks.start(UplinkStart(state, identity.name, identity.app, keys, linkHeard, deviceSigner))
+        uplinks.start(UplinkStart(state, identity.name, identity.app, keys, linkHeard(linkGen.incrementAndGet()), deviceSigner))
 
     private fun restartLink(keys: PublicKeys) {
         uplink?.let {
@@ -402,6 +460,8 @@ class FerbPhone(
     }
 
     companion object {
+        /** How long "Forget this Mac" waits for the Mac to remove this phone before it wipes everything anyway. */
+        const val FORGET_TELL_MS = 3_000L
         /** The phone's object: its vault, the real link, its names. Then [start]. */
         fun create(context: Context): FerbPhone =
             FerbPhone(Vault.forPhone(context.applicationContext), LinkUplinks(), PhoneIdentity.of(context),

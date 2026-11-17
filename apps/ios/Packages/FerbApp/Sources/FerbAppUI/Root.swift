@@ -68,28 +68,41 @@ struct RootView: View {
                             }, page: {
                                 // the gate's pages change with a rise and a fade; the lock and the start replace
                                 // everything at once (PHN-8), and the page after the lock comes in (kb PHN-623)
-                                MotionSwitch(Screen(gate: gate, scan: gate == .pair && model.sheet == .scan && !model.ui.pairing),
+                                // the first run's asks come once, after the first unlock, before pairing or the app
+                                // (kb PHN-636)
+                                let asks = !shell.firstRun.pending.isEmpty && (gate == .pair || gate == .main)
+                                MotionSwitch(Screen(gate: gate, scan: gate == .pair && model.sheet == .scan && !model.ui.pairing, asks: asks),
                                              instant: { $0.gate == .locked || $0.gate == .starting }) { s in
-                                    page(s.gate, insets: insets, moment: moment)
+                                    if s.asks { AsksPage(asker: shell.firstRun, insets: insets) } else { page(s.gate, insets: insets, moment: moment) }
                                 }
                             })
                     .preferredColorScheme(moment.ink.topIsDark ? .light : .dark)
             }
         }
+        // the launch (kb PHN-631..634): FERB's mark from the first frame over everything, settling into the lock
+        // page's mark as soon as the gate allows a page
+        .launchOverlay(shell.launch, ready: model.ui.gate != .starting)
+        .onAppear { StartLog.mark("first frame") }
+        .onChange(of: model.ui.gate, initial: true) { _, g in if g != .starting { StartLog.mark("page", "\(g)") } }
         .ferbPrivacy(hideWhenCaptured: model.settings.blockScreenshots, mustHide: model.mustSecure)
-        .task(id: model.ui.gate) { await askNotificationsOnce() }
+        .task(id: model.ui.gate) {
+            await shell.firstRun.refresh()
+            await askNotificationsOnce()
+        }
     }
 
     /// Which page shows: the gate's, and the scanner as a page of the pairing gate of its own (MotionSwitch's key).
     private struct Screen: Hashable {
         let gate: Gate
         let scan: Bool
+        var asks = false
     }
 
     @ViewBuilder private func page(_ gate: Gate, insets: PhoneInsets, moment: SkyMoment) -> some View {
         switch gate {
         case .starting:
-            Color.clear
+            // after the launch (unlocked before the phone opened): the mark breathes where the launch left it
+            if shell.launch.done { StartingMark() } else { Color.clear }
         case .failed:
             MessagePage(title: L.s("failed_title"), text: L.s("failed_text"), action: L.s("try_again"), insets: insets) {
                 Task { await shell.phone.start() }
@@ -110,17 +123,19 @@ struct RootView: View {
             CodesPage(code: model.ui.link?.pairingCode ?? "", insets: insets) { model.cancelPairing() }
         case .removed:
             MessagePage(title: L.s("removed_title"),
-                        text: L.bio(model.ui.pairReason == .keys ? "pair_reason_keys" : "pair_reason_removed"),
+                        text: L.bio(model.ui.pairReason == .keys ? "pair_reason_keys"
+                                    : model.ui.pairReason == .unknown ? "pair_reason_unknown" : "pair_reason_removed"),
                         action: L.s("pair_again"), insets: insets) { model.forget() }
         case .main:
-            MainView(model: model, shell: shell, insets: insets, moment: moment)
+            // the connection control in every page's top bar (kb PHN-751)
+            MainView(model: model, shell: shell, insets: insets, moment: moment).environment(\.connection, connection(model))
         }
     }
 
     /// Notifications are asked once, after FERB's own words, when the phone is first paired (iOS asks only once; no
     /// Stay connected switch to hang it on, kb PHN-566).
     private func askNotificationsOnce() async {
-        guard model.ui.gate == .main, !shell.prefs.notificationsExplained, model.sheet == nil else { return }
+        guard model.ui.gate == .main, !shell.prefs.notificationsExplained, model.sheet == nil, shell.firstRun.pending.isEmpty else { return }
         guard await NotificationPoster.notAsked() else { shell.prefs.notificationsExplained = true; return }
         model.show(.notifications)
     }
@@ -155,6 +170,7 @@ struct PairView: View {
         case .wiped: return L.s("pair_reason_wiped")
         case .removed: return L.s("pair_reason_removed")
         case .keys: return L.bio("pair_reason_keys")
+        case .unknown: return L.s("pair_reason_unknown")
         case nil: return nil
         }
     }
@@ -233,6 +249,33 @@ enum Words {
         case .touchID: "touchid"
         case .opticID: "opticid"
         case .none: "lock"
+        }
+    }
+}
+
+/// The phone still opening after the launch ended: the launch's mark, breathing over the sky (no ink0 ground).
+private struct StartingMark: View {
+    @State private var state = LaunchState(reduced: UIAccessibility.isReduceMotionEnabled)
+    var body: some View { LaunchOverlay(state: state, target: nil, ground: false) }
+}
+
+/// The first run's page with the app's words (kb PHN-636; Android's Asks in Root.kt).
+private struct AsksPage: View {
+    let asker: FirstRunAsker
+    let insets: PhoneInsets
+
+    var body: some View {
+        PermissionsPage(title: L.s("first_run_title"), intro: L.s("first_run_intro"), rows: asker.pending.map(Self.row),
+                        continueTitle: L.s("first_run_continue"), notNowTitle: L.s("first_run_not_now"), insets: insets,
+                        onContinue: { asker.start() }, onNotNow: { asker.notNow() })
+    }
+
+    static func row(_ a: FirstRun.Ask) -> AskRow {
+        switch a {
+        case .notifications: AskRow(symbol: "bell", title: L.s("first_run_notifications"), why: L.s("first_run_notifications_why"))
+        case .location: AskRow(symbol: "location", title: L.s("first_run_location"), why: L.s("first_run_location_why"))
+        case .camera: AskRow(symbol: "camera", title: L.s("first_run_camera"), why: L.s("first_run_camera_why"))
+        case .microphone: AskRow(symbol: "mic", title: L.s("first_run_microphone"), why: L.s("first_run_microphone_why"))
         }
     }
 }

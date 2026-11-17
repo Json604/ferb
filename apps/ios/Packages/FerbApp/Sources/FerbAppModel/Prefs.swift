@@ -24,7 +24,7 @@ public final class Prefs: @unchecked Sendable {
     }
 
     /// SENSE-420: the owner turned on sharing this phone's city with FERB (and iOS allowed an approximate location).
-    /// Off until he does; the city itself is kept in memory only.
+    /// Off until he does, or allows the location at the first run (kb PHN-638); the city itself is kept in memory only.
     public var shareCity: Bool {
         get { d.bool(forKey: "share_city") }
         set { d.set(newValue, forKey: "share_city") }
@@ -51,6 +51,12 @@ public final class Prefs: @unchecked Sendable {
     public var lastZone: String? {
         get { d.string(forKey: "last_zone") }
         set { d.set(newValue, forKey: "last_zone") }
+    }
+
+    /// The first run's asks already answered or passed over (FirstRun.Ask raw values, kb PHN-636): never asked again.
+    public var firstRunAsked: Set<String> {
+        get { Set(d.stringArray(forKey: "first_run_asked") ?? []) }
+        set { d.set(newValue.sorted(), forKey: "first_run_asked") }
     }
 
     /// The owner was told once, in context, before iOS's notification question.

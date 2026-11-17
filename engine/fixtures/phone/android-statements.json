@@ -1,0 +1,21 @@
+{
+ "made_by": "apps/android/app androidTest StatementVectorsTest on the emulator (Medium_Phone_API_36.0): the app's own UnlockStatement text signed by an Android Keystore P-256 key in the Mac's wire form (kb PHN-649). ferb-daemon tests/phone_open.rs registers each key as a phone's lock key and the real gate takes each statement once.",
+ "vectors": [
+  {
+   "what": "android unlock statement 1",
+   "statement": true,
+   "key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEBE8y7Z8J6BPLS6WUeaIhSzbjDXUTS6HJmtp5Y6R96nHmB9TvLMBVgrBIQcAVBRuodi6WaQa8mDssOWcqEZoMqw==",
+   "payload": "{\"domain\":\"ferb.unlock-statement.v1\",\"nonce\":\"27aa01335b35de8477176d340feb48dd\",\"made\":1700000000001}",
+   "sig": "MEQCIAqlWr5DoKnpanhQTdmcbUEqrGDeKAjgPqXDYUrfaevFAiBU/gTu9KEms6WocbjuHuU28pHFtM2X2bq7etNaJCEhBw==",
+   "valid": true
+  },
+  {
+   "what": "android unlock statement 2",
+   "statement": true,
+   "key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEBE8y7Z8J6BPLS6WUeaIhSzbjDXUTS6HJmtp5Y6R96nHmB9TvLMBVgrBIQcAVBRuodi6WaQa8mDssOWcqEZoMqw==",
+   "payload": "{\"domain\":\"ferb.unlock-statement.v1\",\"nonce\":\"07b2ce0c5617614d6589106ddd9da274\",\"made\":1700000000002}",
+   "sig": "MEQCIDD1xHT2C1xKVBCnAsJYwyA9vQYf5hNNTd2ojeThNMO/AiBvqH5CqbbrWsbJ/wFXufr7Ep9km32vgVLM7RjV80eyyg==",
+   "valid": true
+  }
+ ]
+}

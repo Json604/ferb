@@ -424,6 +424,8 @@ fn b_fix(request: &str, python: &str) -> Option<String> {
         let doc = line.get_mut("result")?.as_object_mut()?;
         doc.contains_key("permissions").then_some(())?;
         ferb_daemon::areas_b::about::add_reasons(doc, "");
+        // decision: PHN-650: FERB's phone app is explained at the end of `app`
+        ferb_daemon::areas_b::about::add_phone_app(doc);
         return Some(ferb_py::json::dumps(&line));
     }
     if !python.contains("-32603") {

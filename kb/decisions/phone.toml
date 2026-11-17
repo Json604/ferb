@@ -2116,7 +2116,8 @@ paths = ["apps/android/app/src/main/kotlin/com/ferb/app/model/Device.kt"]
 title = "This phone's city is off until the owner turns it on; passive fixes, a geocode only after 1 km"
 by = "agent"
 date = 2026-11-16
-status = "active"
+status = "superseded"
+superseded_by = "PHN-638"
 rule = "For SENSE-420. This phone → Share this phone's city with FERB shows FERB's words, then Android's coarse-location question. Fixes: the passive provider (1 km minimum) and one network fix when turned on or at start; Android's Geocoder only on the first fix and after a 1 km move; places in memory only. Background location is never asked."
 why = "SENSE-420: the phone asks its own permission. The passive provider costs nothing; the Geocoder sends the coarse fix to the phone's geocoding service (Google's on most phones), so it is asked as rarely as the Mac's (1 km)."
 evidence = "app DeviceTest (broadcasts, the permission, the 1 km rule, off forgets the place)."
@@ -2821,3 +2822,1024 @@ status = "active"
 rule = "For PHN-620. A press sinks to 0.97 and 85 % the moment a finger lands, even in a scrolling list (Android observes the touch; Compose waits a tap timeout), and rises when a scroll takes it. Chat rows fade in where they land, transfer cards rise 6 pt. Android with animations off or removed: instant; iPhone Reduce Motion: 0.12 s fades, nothing moves."
 why = "PairIt's feedback is at touch-down. Motion is only opacity and offsets in layers, never layout per frame or an animated blur (the sky and season layer stay still behind a change; the dim is plain black, as PairIt's dialogs)."
 evidence = "Android MotionSwitchTest (sunk 48 ms after touch-down inside a scroll; animator scale 0: instant); iPhone MotionTests (reduce motion). Smoothness on a moto g85 is the owner's to see."
+
+# ---- 2026-11-17: the launch: the owner's seconds before the logo and the prompt (ids PHN-630..634)
+
+[PHN-630]
+title = "Opening the app shows FERB at once: a launch animation of the f and its dot, for perceived speed"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "invoke an animation agent, that mkes the app load animation, plying with teh logo f and its dot, this might help seem the app load faster, since even after openign its takes sedon to show ferb logo and the fingerprintp in;ock buttona dn tehn tebhauto fingrtpeint moddla, - i think its my phen, but investigate and tell. we are gonna provide percieved performance here"
+words_source = "Owner 2026-11-17 on his moto g85 5G running the debug build (as the coordinating agent relayed it)."
+rule = "The app's start is investigated (his phone, the build, or FERB's code) and made to feel fast: from the first frame a launch animation of FERB's logo, the f and its dot, that flows into the lock page and its fingerprint prompt."
+why = "Seconds of a still or empty screen before the logo, the lock button and the prompt read as a slow app."
+untestable = "The owner's ask; PHN-631..634 hold the mechanism and its tests."
+
+[PHN-631]
+title = "One launch on both phones: the dot drops in, the f gives, the dot breathes, the mark settles"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For PHN-630. motion.json launch: the mark (112 pt) at the screen's centre on ink0; the dot falls 0.42 on t squared in 300 ms and hops, the f gives to 0.965; from 900 ms the dot breathes (1800 ms). When the page is ready it settles in 450 ms on the standard curve into the lock page's mark (a shared element) while ink0 lifts. Ready at the first frame: no intro, no minimum."
+why = "The motion covers only the loading: it never delays the app and is cut cleanly at any moment. One pure function of time (Launch.kt, Launch.swift, tools/launch_samples.py) so both phones move alike. Only layer transforms and alpha per frame; the halo's blur is drawn once."
+evidence = "Android LaunchTest 7 (table, samples, ready early, slow loop, reduced, splash clock), LaunchShotsTest 3 (first frame, settling, the settled frame equals unlock-noon.png); iPhone LaunchTests (the same, and the lock page golden)."
+paths = ["apps/android/design/src/main/kotlin/com/ferb/design/Launch.kt", "apps/android/design/src/main/kotlin/com/ferb/design/LaunchHost.kt", "apps/ios/Packages/FerbDesign/Sources/FerbDesign/Launch.swift"]
+
+[PHN-632]
+title = "The launch begins in the system's first frame: Android's animated splash, iPhone's storyboard"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For PHN-631. Android 12+: windowSplashScreenAnimatedIcon launch_splash, the same motion as vector animators on ink0, played by the system while the process starts; the app continues from the splash's iconAnimationStart and removes it. Before 12 and on iPhone (Launch.storyboard, LaunchMark): the still first frame, the f on its tile without the dot. The settle waits for the splash to go (Android) or iOS's 0.25 s crossfade."
+why = "The owner's seconds were before the app's own first frame: only the system can draw then. One drawing everywhere: FerbMark's tile and f (ferbTile, FerbMark.Tile), so the hand-over is invisible."
+evidence = "Android LaunchShotsTest first-frame golden; iPhone LaunchTests: the LaunchMark PNGs are the package's mark drawn at 2x and 3x (the test writes them). Emulator recording of the splash hand-over."
+paths = ["apps/android/app/src/main/res/drawable/launch_splash.xml", "apps/android/app/src/main/res/values-v31/themes.xml", "apps/ios/App/Launch.storyboard"]
+
+[PHN-633]
+title = "The lock page shows at the first frame; the prompt follows the settle; nothing heavy goes first"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For PHN-630, PHN-8. The gate shows the lock page while the phone still starts (the library, keys, link and store run after, off the main thread); unlocked before it opens shows nothing yet. The prompt by itself waits for the mark's settle (315 ms in). The corpus is read off the main thread. ferb-app logs start: lines in ms; a benchmark build (R8, not debuggable, the baseline profile, debug-signed) installs over the debug app."
+why = "On his phone the lock page waited ~1.9 s for the whole phone start and then 2 s for the link. The debug build itself (55 MB of unshrunk dex run from the APK, JIT only) costs about as much again; the benchmark build shows what a release does."
+evidence = "Android ViewModelTest nothing_shows_before_the_screen_lock_and_the_unlock; emulator am start -W debug vs benchmark (journal 136); his phone's logcat: prompt asked at +3.93 and +4.06 s after the tap. Unverified on his phone after the change."
+paths = ["apps/android/app/src/main/kotlin/com/ferb/app/StartLog.kt", "apps/android/app/src/main/baseline-prof.txt", "apps/ios/Packages/FerbApp/Sources/FerbAppUI/StartLog.swift"]
+
+[PHN-634]
+title = "With motion reduced or animations off the launch is a still mark and a short fade"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For PHN-631, PHN-624. Android with the animator scale 0 or animations removed, iPhone with Reduce Motion: nothing moves; the dot fades in over 200 ms and at ready the launch fades off linearly over 200 ms while the lock page shows its own mark in place; the prompt may come when the fade ends."
+why = "A moving logo is the kind of motion reduced motion asks to remove; a fade still tells that the app is starting."
+evidence = "Android LaunchTest reducedMotionIsStill; iPhone LaunchTests testReducedMotionIsStill. Not switched on in a recording."
+
+# ---- 2026-11-17: the first run's asks (ids PHN-635..639)
+
+[PHN-635]
+title = "On the first start the app asks for the permissions it needs, location and notifications included"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "also take locationa dn notification permission on first app start, i dont want manula in settings. take all teh imp req permission at the start"
+words_source = "Owner 2026-11-17 (as the coordinating agent relayed it), with the launch work (PHN-630)."
+rule = "On the first start FERB itself asks for every important permission it needs (notifications, location and the other required ones), so he never turns them on by hand in the phone's settings."
+why = "Finding and turning on permissions in Settings by hand is work he doesn't want."
+untestable = "The owner's ask; PHN-636..639 hold the mechanism and its tests."
+
+[PHN-636]
+title = "One first-run page after the first unlock asks for notifications, city, camera and microphone"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For PHN-635. Once, after the first unlock and before pairing or the app (never before the lock, PHN-8): one page in the pair page's style, a line of why per ask; Continue brings the system's questions one after another, Not now passes them over. Each answer is kept and never asked again; an ask already allowed (Android) or decided (iPhone) is left out; an update adding one shows only it."
+why = "One calm page with reasons reads better than four cold system questions, and in front of pairing the camera is there before the scanner needs it. Declining anything still leads to pairing."
+evidence = "Android FirstRunTest 6 and PermissionsShotsTest (first-run-dawn/noon/night); iPhone FirstRunTests 5 and PermissionsPageTests (the same three goldens)."
+paths = ["apps/android/app/src/main/kotlin/com/ferb/app/model/FirstRun.kt", "apps/android/design/src/main/kotlin/com/ferb/design/screens/Permissions.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/FirstRun.swift", "apps/ios/Packages/FerbApp/Sources/FerbAppUI/FirstRunAsker.swift"]
+
+[PHN-637]
+title = "First-run location is the city only (coarse, when in use); notifications by the system's question"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For PHN-635, SENSE-420, GATE-613. Android asks ACCESS_COARSE_LOCATION only, never fine, never in the background; iPhone asks when-in-use. The exact spot is still asked per task from FERB's own sheet. Notifications: Android 13+ POST_NOTIFICATIONS (before 13 they are on); iPhone's notification authorization. Allowing notifications does not turn on Stay connected."
+why = "The city is what the first run needs; a precise or background location would ask for more than FERB uses."
+evidence = "Android FirstRunTest only_these_asks_exist and the permission mapping in Root.kt; iPhone FirstRunAsker (CLLocationManager when-in-use)."
+
+[PHN-638]
+title = "Allowing location at the first run turns on sharing the city; passive fixes, a geocode after 1 km"
+by = "agent"
+date = 2026-11-17
+status = "active"
+supersedes = ["PHN-532"]
+rule = "For PHN-635, SENSE-420. A Yes to the first run's location turns on This phone's Share this phone's city (what he grants); a No leaves it off, with This phone's switch and words as before. Fixes as PHN-532 had them: the passive provider (1 km), one network fix when turned on or at start, the Geocoder only on the first fix and after 1 km, places in memory only; background location never."
+why = "PHN-532 kept the city off until he turned it on; his words make the first run's Yes that turning on. Only the default changed."
+evidence = "Android rememberFirstRun (prefs.shareCity and sensors.city() on Yes), DeviceTest unchanged; iPhone FirstRunAsker (prefs.shareCity, cityStateChanged)."
+paths = ["apps/android/app/src/main/kotlin/com/ferb/app/DeviceSensors.kt"]
+
+[PHN-639]
+title = "The camera and microphone are asked at the first run too; declining anything still pairs"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For PHN-635. The camera (for the pairing code moments later) and the microphone (iPhone: with speech recognition, two questions) are on the page. FERB's words about where speech is recognised (PHN-604) still come before the first hold. A declined ask is not asked again by the first run; the scanner, hold to talk, This phone and the notifications sheet still explain and ask in context."
+why = "He asked for all the important ones; a cold microphone question harms nothing here, since the disclosure that matters (where the words are recognised) is shown at first use either way."
+evidence = "Android FirstRunTest some_declined_and_everything_declined_still_pairs; iPhone FirstRunTests testSomeDeclinedAndEverythingDeclinedStillPairs."
+
+# ---- 2026-11-18: the launch without the dot's drop (ids PHN-700..702)
+
+[PHN-700]
+title = "The launch keeps the logo and the dot's glow but drops the dot's falling movement"
+by = "owner"
+date = 2026-11-18
+status = "active"
+words = "the phone app started animation is the logo is there and dot comes down from above and then logo transisiotn to the lcol screenn logo - all good except remove the startng dot movement, keep it glowing as it is currently, btu remove the dot movement"
+words_source = "Owner 2026-11-18, after seeing the launch (PHN-631) on his moto g85 (as the coordinating agent relayed it)."
+rule = "At the app's start the logo shows with its dot already in place: the dot does not come down from above. The dot keeps glowing as before, and the logo still moves into the lock page's logo."
+why = "He liked the launch except the dot's starting movement."
+untestable = "The owner's words; PHN-701 and PHN-702 hold the change and its tests."
+
+[PHN-701]
+title = "From the system's first frame the launch is the whole mark at rest; only the dot's breath moves"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-700, PHN-631. Launch.kt, Launch.swift and launch_samples.py: before ready the dot is at its place at full opacity and the f at full height (no drop, no hop, no give); from 900 ms the dot breathes as before (1800 ms, to 0.86 and 72 %). The settle into the lock page's mark is unchanged (450 ms, the standard curve, prompt at 315 ms). motion.json no longer has drop, hop or dip."
+why = "With the dot in place from the first frame there is nothing to land, so the f has nothing to give under."
+evidence = "Android LaunchTest theFirstFrameIsTheWholeMarkAndNothingDrops and the samples; iPhone LaunchTests testTheFirstFrameIsTheWholeMarkAndNothingDrops and the same samples; first-frame goldens on both phones now show the dot."
+
+[PHN-702]
+title = "The system's first frame has the dot too: Android's splash and window, iPhone's launch screen"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-700, PHN-632. launch_splash (Android 12+) draws the dot and its halo at rest from its first frame and animates only the breath from 900 ms; launch_mark (the starting window before 12) carries the dot and halo; the iPhone's LaunchMark PNGs are the package's mark with its dot, drawn by LaunchTests. So nothing pops in when the app takes over from the system's frame."
+why = "If the system's frame lacked the dot, the app's first frame would add it: a pop at the hand-over."
+evidence = "iPhone LaunchTests testTheLaunchScreenImageIsTheFirstFrame (2x and 3x); emulator and simulator recordings frame by frame at the hand-over."
+paths = ["apps/android/app/src/main/res/drawable/launch_splash.xml", "apps/android/app/src/main/res/drawable/launch_mark.xml"]
+
+# ---- 2026-11-18: the status bar icon (ids PHN-665..666)
+
+[PHN-665]
+title = "FERB's notification icon is as big and as clear as its neighbours in the status bar"
+by = "owner"
+date = 2026-11-18
+status = "active"
+words = "dont you think the nitification icon is tooo small and not distinguishabel and easy to miss"
+words_source = "Owner 2026-11-18, with a screenshot of his moto g85's status bar: FERB's thin f between the X app's icon and the headphones (as the coordinating agent relayed it)."
+rule = "The icon FERB shows in the status bar and its notifications is easy to see and to tell apart: the same size and weight as the icons beside it, recognisably FERB's."
+why = "A tiny thin f next to bold system icons is missed."
+untestable = "The owner's ask; PHN-666 holds the drawing and its goldens."
+
+[PHN-666]
+title = "The status bar icon is the bold f. of the logo filling its 20 dp safe area, white on transparent"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-665. ic_stat_ferb draws site/logo.svg's f and its dot (to the right of the stem, on the baseline), as the Mac's menu bar letter (APP-960..963): 20 dp tall, 16.6 dp wide, centred on the 24 dp canvas, stem 3.8 dp; white on transparent so Android tints it. One icon for every notification; nothing animates."
+why = "The old icon was the f alone at about half the canvas height, thinner than the system glyphs. The dot makes it read as FERB's mark, as on the Mac."
+evidence = "app StatusIconShotsTest: goldens status-icon-xxhdpi and status-icon-mdpi beside the bell, headphones, cellular, wifi and battery glyphs on a dark and a light bar. Not seen on his phone's real status bar, shade or always-on display."
+
+[PHN-650]
+title = "FERB can explain its phone app: about.read's app section carries the phone guide"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "The about document's app section ends with phone_app (what it is, 18 how-tos, what it can't do yet), written in the engine from what the apps do; about.read section=app or a full read gives it. A named addition to Python's document (the recorded about.get documents' fixers add it)."
+why = "On the phone FERB couldn't say how to see earlier messages: its only guide was FERB.app's, which the Mac app sends. The engine owns the phone role, so it owns the phone guide."
+evidence = "ferb-daemon about phone_app_tests the_phone_guide_names_what_the_apps_show (each control by the Android app's words, the limits' numbers); b_small and ferbd replay about.get with the fixer."
+paths = ["engine/crates/ferb-daemon/src/areas_b/about.rs::phone_app", "engine/crates/ferb-daemon/src/areas_b/about.rs::add_phone_app"]
+
+[PHN-651]
+title = "The pairing page's card under the scanner stays the lab's white card"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "your recomeded"
+words_source = "Owner 2026-11-17, to the coordinator's list of open questions that named each with the agent's recommendation."
+rule = "Under the scanner's frame the pairing page keeps the design's white Card (Scan the code, Type code, Cancel), on Android and iPhone, as built."
+why = "The owner kept the recommended look (PHN-416, PHN-617)."
+evidence = "Android Scanner.kt (Card, Basics.kt white background); iPhone Root.swift Card(padding: 20)."
+paths = ["apps/android/app/src/main/kotlin/com/ferb/app/ui/Scanner.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppUI/Root.swift"]
+untestable = "The look of a built screen, judged by the owner (PHN-617); the Android and iPhone goldens hold it, nothing changed."
+
+[PHN-652]
+title = "Without on-device speech, the phone uses its own speech service after FERB says so"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "your recomeded"
+words_source = "Owner 2026-11-17, to T-1264 in the coordinator's list with each recommendation."
+rule = "On a phone that can't turn speech into words on the phone itself, hold to talk uses the phone's own speech service (Google's on most Android phones, Apple's on iPhone) after FERB's words say it may get the sound of the voice (PHN-604), as built."
+why = "The owner kept the recommendation; the Mac's dictation stays on-device only (APP-591)."
+evidence = "Android AndroidSpeech.kt kind() (ON_DEVICE, else SERVICE); Sheets.kt voice_text_service."
+paths = ["apps/android/app/src/main/kotlin/com/ferb/app/AndroidSpeech.kt"]
+untestable = "Behaviour as built and judged on a real phone; Android's VoiceTest covers the two kinds of recognition. Nothing changed."
+
+[PHN-653]
+title = "A paused upload from the phone is kept 7 days"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "your recomeded"
+words_source = "Owner 2026-11-17, to T-1252 in the coordinator's list with each recommendation."
+rule = "Confirms PHN-582's number: a paused or interrupted upload's part file is kept 7 days (UPLOAD_PARTIAL_KEEP_S)."
+why = "Limits are the owner's (rule 18); he kept the coordinator's 7 days."
+evidence = "ferb-daemon phone/files.rs UPLOAD_PARTIAL_KEEP_S = 7 days; tests/phone_files.rs a_paused_upload_is_kept_seven_days_then_goes."
+paths = ["engine/crates/ferb-daemon/src/phone/files.rs::UPLOAD_PARTIAL_KEEP_S"]
+
+[PHN-654]
+title = "The shared relays stay open for a phone for 30 days after a relay change"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "your recomeded"
+words_source = "Owner 2026-11-17, to T-1253 in the coordinator's list with each recommendation."
+rule = "Confirms PHN-590's number: the second endpoint on the shared relays closes 30 days after the relay setting last changed at most (BEACON_MAX_DAYS)."
+why = "Limits are the owner's (rule 18); he kept the coordinator's 30 days."
+evidence = "ferb-link bridge.rs BEACON_MAX_DAYS = 30; the beacon test."
+paths = ["engine/crates/ferb-link/src/bridge.rs::BEACON_MAX_DAYS"]
+untestable = "A confirmed number in ferb-link (BEACON_MAX_DAYS), being edited by another agent tonight: its beacon test should carry this id."
+
+# ---- 2026-11-17: the phone chat on the owner's phone: home only for an empty chat, one continuous chat, its end followed
+
+[PHN-625]
+title = "The phone chat never looks empty or silent while it has messages or is getting them"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "when its connected, it ofc takes time loadin chat, but there isnt any good animation of chat loading. its just a normal black chat screeen. … i faced nuber 2 again when i started typing in the chat, the messages are there BUT whos gonna tell user?? and why does it take so much time??? … it also isnt caching in local storage i get, i reopend the app and the chat is still not there. maybe loadin … fuck, as soon as i starteted typing it appeared"
+words_source = "Owner 2026-11-17 on the Android debug app on his moto g85 5G (as the coordinating agent relayed it)."
+rule = "Opening the app shows what the phone has stored at once; while the first page comes and nothing is stored, the chat says it is getting it; nothing that holds messages looks like an empty screen."
+why = "He read the home screen (shown after every unlock until he typed) as a chat that never loaded."
+
+[PHN-626]
+title = "The home screen only for an empty chat: a first-time user or a new day with nothing said yet"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "yes to first 2 … no to 3rd. home only an empty hcat. that can be a first time user or a new day chat- right?? also how iwll previous day chat work in phone, is it scroll or like mac app??"
+words_source = "Owner 2026-11-17, to the coordinator's three questions: the Chat tab opens on the chat when it has messages; home only when there's no conversation yet; tapping Chat no longer toggles to home."
+rule = "With anything said today (his, or FERB's) the Chat tab is the chat; with nothing said today, the home screen, which offers the earlier messages in one tap. Tapping Chat on the chat stays on the chat."
+why = "His expectation from the Mac and other chat apps: opening the chat shows the conversation."
+
+[PHN-627]
+title = "One continuous phone chat with a day's start between days; each chat item carries its entry's time"
+by = "agent"
+date = 2026-11-17
+status = "superseded"
+rule = "For PHN-626, ENG-10, ENG-14. Older pages load on scroll; 'Today', 'Yesterday', then the date mark each day. ferb-mobile's TurnItem, ReplyItem and NoticeItem (and the bindings) carry `at` (seconds since 2001, created_at), left out when serialised so the transcript golden stays FERB.app's byte for byte."
+why = "The library is one conversation paged by scroll; the Mac's Today/History split would need a second view the phone doesn't have. The days need each item's time, which the fold had and did not hand on."
+evidence = "ferb-mobile golden.rs every_item_carries_its_entrys_time_and_the_golden_does_not_see_it; Android ChatListTest the_chat_has_a_days_start_between_days, golden chat-days; iPhone ChatListTests testTheChatHasADaysStartBetweenDays."
+superseded_by = "PHN-696"
+
+[PHN-628]
+title = "The phone chat follows FERB's reply to its end while he is at the end; a pill when he scrolled up"
+by = "owner"
+date = 2026-11-17
+status = "active"
+words = "ferb's chat window doestn slides up n when a ferb response comes, it deos when i type, but why not on ferb reply??? … this is in phone btw"
+words_source = "Owner 2026-11-17 on the Android app (he corrected the coordinator: the phone, not FERB.app)."
+rule = "A reply arriving or growing keeps its last line in view while he is at the end; his own message always goes to the end; the keyboard and the message box never hide the last message; scrolled up, a 'New message' pill takes him down. While FERB works the chat says so; sending shows on his message; earlier pages show they are coming."
+why = "The list scrolled only when the number of rows changed, to the top of the last row: a reply replaces the 'typing' row and grows inside one row."
+
+[PHN-629]
+title = "The chat's follow, waiting and thinking looks in the design modules; its timing in the ferb-app log"
+by = "agent"
+date = 2026-11-17
+status = "active"
+rule = "For PHN-625, PHN-628. Cause of the empty look: every unlock set home (FerbViewModel :302, AppModel :377). Follow: by the last row and its contents, his drags and the list's height (rememberChatFollow; iPhone an end marker). ferb-app lines: sync asked and answered ms, entries ready ms, rows drawn."
+why = "A reconnect's sync is incremental (a 1-entry probe, changes after the stored cursor, the watch, the delivered mark), not a refetch; stored entries need no network; the wait he saw was the home screen."
+evidence = "Android ChatListTest 6 (unlock with today's entries opens the chat; a new day shows home until FERB posts; no toggle; entries after the first draw show alone; a growing reply's end in view; the pill); goldens chat-waiting, chat-sending-thinking, chat-days, home-earlier; iPhone ChatListTests 4."
+
+# ---- 2026-11-18: the owner on Forget this Mac and the locked line; one prompt, both sides (ids after the motion agent's)
+
+[PHN-644]
+title = "Forget this Mac on the phone must really forget; it mustn't connect again by itself"
+by = "owner"
+date = 2026-11-18
+status = "active"
+words = "i pressed on forgot this mac on phone app and then opened ferb settings windo, it auto connected. ok behavior??? it forgot succesfuuly hen done from mac tho"
+words_source = "Owner 2026-11-18 on his moto g85 5G (as the coordinating agent relayed it); the Mac's log showed the same phone dial in again 7 s after Forget."
+rule = "Forget this Mac on the phone ends the pairing on both sides as removing the phone on the Mac does: the phone never dials that Mac again and starts as a new phone."
+why = "A forgotten pairing that comes back by itself is no forget."
+untestable = "The owner's ask; PHN-646 holds the mechanism and its tests."
+
+[PHN-645]
+title = "No second unlock in normal use; what needs him is said clearly, once, with one button"
+by = "owner"
+date = 2026-11-18
+status = "active"
+words = "the line that your mac's chat is locked, tap here to unlock is there, why(also its jsut a line, easy to miss)??? the app is unlocked i opeedn it, then what is this fukgin message??? why isnt there a good feedbcak, control adn conssitencyu in the phone app???"
+words_source = "Owner 2026-11-18 on his phone, after opening the unlocked app (as the coordinating agent relayed it)."
+rule = "Opening the app is one prompt and FERB is open, the Mac's side included. While the app is open and unlocked the Mac's side stays unlocked without asking. What truly needs him is a clear card with one button, never a thin line."
+why = "A second, easy-to-miss unlock after he already unlocked is no control and no feedback."
+untestable = "The owner's ask; PHN-647, PHN-648 and PHN-649 hold the mechanism and its tests."
+
+[PHN-646]
+title = "Forget on the phone: the Mac removes it first when reachable, then everything here goes"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-644. The phone's link.forget (daemon phone.forget_self) removes only that phone, from a connection that proved its device key, journalled and audited as by it; cut after the reply. Then, whatever the Mac said: the link stops, its late saves dropped, and the store, link identity, pairing and keys go."
+why = "Cause: the link's forget only queued its save and was closed at once, and the vault never deleted link.state, so the old identity and pairing came back. An unreachable Mac lists the phone until removed (PHN-419's 30-day note); the phone keeps no credential to retry."
+evidence = "ferb-daemon tests/phone_open.rs a_phone_forgets_itself_and_only_itself; ferb-link tests/real_daemon.rs a_phone_opens_on_its_pairing_unlocks_by_statement_and_forgets_itself; Android ViewModelTest, iPhone AppModelTests forget."
+
+[PHN-647]
+title = "The owner's Yes to a pairing opens the new phone's FERB, as a fingerprint unlock would"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-645. pair_decide with Yes opens that phone's unlock window (the same idle rule and 12 h limit), audited as an unlock by pairing; a connection gets it only after proving the phone's device key. The new phone needs no second, hidden unlock after pairing."
+why = "He scanned the code, matched six digits and said Yes on the Mac: a stronger proof than a fingerprint on the phone, and the app was unlocked to reach the pair page. The 99 s of `locked` after his pairing were this gap."
+evidence = "ferb-daemon tests/phone_open.rs a_pairing_yes_opens_the_new_phone_with_no_unlock; ferb-link real_daemon (the first private call after pairing)."
+
+[PHN-648]
+title = "While the app is unlocked and in front, the device key's presence keeps the Mac's window open"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-645. link.present signed with params {active: true} moves the idle end of a window a fingerprint, a statement or the pairing Yes opened; never past the 12 h limit, never after phone.lock. The phone sends it every 2 minutes and on return while unlocked and in front, to a Mac at link level 3."
+why = "The device key proves the phone, the app's own lock (5 minutes away, phone.lock at once) proves the owner; a rooted phone could already keep a window alive by making calls. The Mac's 5 idle minutes no longer lapse under an open app."
+evidence = "ferb-daemon tests/phone_open.rs presence_while_the_app_is_open_keeps_the_window_but_never_past_twelve_hours_or_a_lock; Android and iPhone tests that setOpen follows unlocked and in front."
+
+[PHN-649]
+title = "One prompt at once: the lock key signs the phone's own unlock statement; a card for the rest"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-645, PHN-640. The opening prompt never waits: the lock key signs {domain, nonce, made}; the app opens; the statement goes when the link is up, age by the phone's steady clock. Taken once, this phone's keys, proved connection, age <= 120 s (T-1268), not before a lock. Else: a card with one button; unlock_invalid: pair again."
+why = "As strong as a challenge: no signature without his fingerprint or PIN then; single-use, short-lived, this phone's key only, inside the link. Considered: replay elsewhere, after a lock, a captured statement, a wrong clock, a rooted phone (could already use it once)."
+evidence = "ferb-daemon tests/phone_open.rs (statement once, too old, unproved, replay, other phone's key, device key, challenge proof, before a lock, wrong clock, restart); Android ViewModelTest and iPhone AppModelTests (4 s dial, absent Mac, reconnect storm, older Mac)."
+
+# ---- 2026-11-18: a control that does nothing, and the freeze after pairing
+
+[PHN-655]
+title = "A control that does nothing must not exist: it acts, or says why not and what to do"
+by = "owner"
+date = 2026-11-18
+status = "active"
+words = "the fingerprinto to open settings button isnt responding in the app. if its not gonna be function why is ti there??? or either make it with a warning if you made that choice."
+words_source = "Owner 2026-11-18 on his phone, about the This phone sheet (as the coordinating agent relayed it)."
+rule = "Every tappable control in the phone apps acts, or says at once why it can't and the one thing that fixes it, and shows that it is working while it works."
+why = "A control that silently does nothing looks broken and leaves him guessing."
+untestable = "The owner's ask; PHN-656 holds the mechanism and its tests."
+
+[PHN-656]
+title = "The lock row says Always on and why; a repeated tap says FERB is on it; a too-old Mac is named"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-655, PHN-8. Cause: This phone's 'Fingerprint to open' drew an on switch with nothing to change (Sheets.kt lockOn = true; SheetScreens.kt PhoneSwitch(lockOn)). Now 'Always on', a tap says why. busy(tap = true) says 'still working'; mac_link_older says a newer FERB is needed; an unknown fingerprint key is registered before a change."
+why = "Each silent end found: a switch with no action, a dropped repeat tap, a Mac too old for a call, a fingerprint key the Mac doesn't know. A structural test fails on a switch with nothing to change, an empty tap action, or a one-at-a-time action without tap = true."
+evidence = "Android ControlsActTest (2), FeaturesTest (register first; a newer Mac), golden profile.png; iPhone the same lock row and words (strings.py), FerbAppTests pass."
+
+[PHN-657]
+title = "No blocking call on the main thread; a stalled main thread says where in the app's own log"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "The phones' Keystore, Keychain, file and library calls never run on the main thread (Android) or main actor (iPhone). FerbPhone.publishOpen read the keys' health on the caller's thread after unlock (FerbPhone.kt:209, :326; FerbPhone.swift publishOpen): now off it. Debug builds log stalls with frames."
+why = "The ANR after pairing: the main thread blocked or busy for over 10 s with no stack to read. The watchdog logs a stall over 1 s with the main thread's frames; ferb-app lines go to a 256 KB file a busy phone's logcat can't drop; MainGuard logs a blocking call reached from main."
+evidence = "Android MainThreadTest (5 000 entries arriving in 20 pages: worst 6 ms a change on the JVM); unit and emulator suites; iPhone FerbAppTests and FerbCoreTests. The freeze itself was not reproduced: no Mac at level 2 on the emulator."
+
+# ---- 2026-11-18: the owner on the phone chat's status line and the way back to today
+
+[PHN-660]
+title = "The phone's status line under the tabs: smaller, another colour, a better look than white body text"
+by = "owner"
+date = 2026-11-18
+status = "active"
+words = "can we have that top notigy/warnign line in smaller diferent color??? its white and the same size, a better UI for that woudl be better. this time it was something like 'you mac is slower....'"
+words_source = "Owner 2026-11-18 on the build with the chat work (as the coordinating agent relayed it); the line was \"Your Mac is slow to answer. This updates by itself when it does.\" in white at body size."
+rule = "The line under the tabs reads as the app talking about itself: smaller than the chat's words, not white, compact, and the same on both phones at every time of day."
+why = "In white at body size it read like a message."
+
+[PHN-661]
+title = "One status line component in the design modules: three tones, a mark each, short words"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-660. StatusLine (both design modules): 13 pt grey words on a compact black capsule (the lab's surface on the sky), led by a mark. Working (Reaching / Still reaching your Mac…): the lab's dashed waiting ring, no spinner. Info (screen use): a grey dot. Attention, only what needs him on the Mac's side (Can't reach your Mac): an amber lamp and amber words. Never tappable: actions are the card (PHN-649). Item motion in and out; pushes the chat by its own height only. mac_slow and chat_offline shortened to one line."
+why = "Grey on black stays readable on dawn, noon and night skies where grey straight on the sky would not; the lab's own marks (waiting ring, lamp) say working, fact or attention without colour alone; one line per state avoids the two-line block that looked like a message."
+evidence = "Android ChatStateShotsTest goldens status-line-dawn, -noon, -night, -large-text, chat-status-slow; chat-offline-outbox re-recorded; iPhone ChatPiecesTests goldens components/status-line-dawn, -noon, -night."
+
+[PHN-662]
+title = "A clear way back to today's latest messages from earlier days"
+by = "owner"
+date = 2026-11-18
+status = "active"
+words = "there isnt an option to go back to today. how am i gonna naviagaet to previosu days and hten come abck to today???"
+words_source = "Owner 2026-11-18 on the build with the chat work (as the coordinating agent relayed it)."
+rule = "Whenever he is not at the end of the chat a control takes him back to the latest messages in one tap, and tapping Chat on the chat does the same."
+why = "The pill showed only when a new message arrived while he was scrolled up."
+
+[PHN-663]
+title = "The chat's way back says where it goes; the day he is in stays at the top while he scrolls"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-662. One floating control at the list's foot whenever he is not at the end: 'New message' when something arrived while he was away; else the latest messages' day ('Today') when he is in an earlier day; else the down arrow alone (described as 'Go to the latest messages'). A tap, or Chat tapped on the chat, scrolls to the very end. While he is away from the end, the day of the top row is held at the top as a small capsule in the divider's words. Both float on the dark fill so they stand apart from FERB's black messages."
+why = "The arrow alone in today is enough; a day name says the jump crosses days; the sticky day answers where he is without counting dividers."
+evidence = "Android ChatListTest 4 (earlier day says Today and goes to the end; arrow in today, New message; Chat tab to the end; jump and dayAt), goldens chat-earlier-day, chat-scrolled-up; iPhone ChatListTests 2, ChatPiecesTests testWhatTheWayBackShows, golden chat-way-back-night."
+
+[PHN-664]
+title = "How the phones know he left the chat's end"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-662, PHN-628. Android: any scroll that is not the follow's own (a drag, a fling, a screen reader's scroll) decides whether he is at the end when it stops; the top row comes from the list's first visible item; the Chat tab's tap is a one-time signal heard only by a chat on screen (FerbViewModel.chatToEnd). iPhone: the end marker's visibility, scrollPosition(id:) for the top row, and a counter (AppModel.chatToEnd) the chat watches. MotionShow (Android) shows and hides a piece on the item motion."
+why = "Only a drag counted before, so a screen reader's scroll never showed the way back; coming back from another tab must keep his place."
+evidence = "As PHN-663."
+
+[PHN-670]
+title = "The phone chat never blanks while the keyboard opens or closes"
+by = "owner"
+date = 2026-11-18
+status = "active"
+words = "notuce the flicker/blank screen when i open clise keyboard??? why is it there?? FIX THIS UI bug."
+words_source = "Owner 2026-11-18 with a 5 s screen recording of the Android chat (the list drew nothing for as long as the keyboard slid in, and again as it slid out)."
+rule = "While the keyboard, the message box or a status line changes the chat's height, every row stays drawn at full strength; at the end the end stays against the message box; scrolled up, what he reads does not move. Rows fade in only when they arrive."
+why = "A blank list for the length of every keyboard slide."
+evidence = "Android KeyboardTest 3 (each frame of a slide in and out at the end, scrolled up, the first draw, the box growing, a status line); emulator recording of the gallery chat with the real keyboard."
+
+[PHN-671]
+title = "How the chat follows its end without a jump"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-670. Cause: following the end called scrollToItem(last, Int.MAX_VALUE) on every frame the list's height changed; Compose 1.7.6 resets every row's animation on a jump (snapToItemIndexInternal calls LazyLayoutItemAnimator.reset), so each row restarted its fade from 0. Now: the end is reached by scrolling (scrollBy to the list's end; a height change scrolls by it in that frame's delta), one jump only from more than 8 rows away, and only rows new to the list fade in (motionItem(arriving))."
+why = "A scroll keeps the rows' animations; a fade for rows that were already there is never wanted."
+evidence = "As PHN-670."
+
+[PHN-680]
+title = "The phone app never stops responding after it is opened and unlocked"
+by = "owner"
+date = 2026-11-18
+status = "active"
+words = "again ferb stopped responding after opening it adn pressing unlock. dont you think all these are normla shits that shoudnt be happenign?? FIX HTEM WITH A SMARTER NEW AGENT. it worked on a app ressrt, but this shdolnt be happenign int eh first place"
+words_source = "Owner 2026-11-18, after the Android app froze again right after the fingerprint on the build installed at 01:09 (Android's ANR at 01:10:10), which already had PHN-657's fix."
+rule = "Opening and unlocking the phone app never leaves it not responding, whatever the link and the Mac do. Nothing of FERB's own (the phone library, the link, the store, the keys, the Mac's answers) is waited for on the main thread. A freeze is closed by proving its cause and making its whole class impossible in code and tests, on both phones, never by a patch that only fits the last report."
+why = "The first fix moved one blocking call and could not show the stall gone; the freeze came back the same night."
+evidence = "His phone's own log named the stack (Notifier.lookStatus > Mobile.lastStatus, 20 s). ferb-mobile tests/no_wait_under_lock.rs: 60.0 s before, 1.1 s after. Emulator storm: stalls of 831 and 1669 ms at the same frames before; none after. engine/JOURNAL.md entry 139."
+
+[PHN-681]
+title = "The phone core's state is never locked across a call to the Mac, a callback, or a transport's end"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-680. ferb-mobile's state sits behind api::StateLock: the thread that holds it does store and memory work only. Every call to the Mac and every change told to the app asserts that this thread holds no state guard (debug and test builds, so every test of the core holds every path); taking the lock twice on one thread is refused in every build. A transport or a watch is taken out under the lock and let go after it. The last status has its own lock, held only to copy it. The cause it closes: sync read the cursor in an `if let` whose guard lived through chat.entries.mark."
+why = "Every reader queues behind that lock, and the link's one pump thread needs it for a frame or an event: a call awaited under it is never answered, so each sync ended at the door's 60 s backstop with the core locked throughout."
+evidence = "ferb-mobile tests/no_wait_under_lock.rs (2): through the real door 60.0 s before, 1.1 s after; no reader waits during any call. With the old `if let` restored the rule fails 6 existing sync and outbox tests. ferb-mobile 59, ferb-mobile-ffi 20 pass."
+
+[PHN-682]
+title = "The main thread never enters the phone library, on either phone"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-680. Everything of PhoneApi that reaches the library is a suspend (Swift: async) function over FerbPhone.call, which runs it off the main thread; lastStatus was the plain one that froze his phone. What the app tells the link (in front, open, the network changed, dial now) goes through one serial lane, in order. MainGuard stands at FerbPhone's door and names any call that arrives on the main one. The prompt's signature is made on the waiting thread, not in its callback. A collector on the main thread starts at most one read and one more behind it (Coalesced; the status and mark jobs)."
+why = "A lock a main-thread call waits on can be held by store work or by a defect; only never calling keeps input alive when a background job is stuck."
+evidence = "Android PhoneApiShapeTest (no plain function but setOpen), MainThreadRuleTest (real library, view model, notifier and lock on the main thread: no call from it). iPhone FerbPhoneTests testTheMainActorNeverEntersThePhoneLibrary."
+
+[PHN-683]
+title = "A storm test on a running phone fails on any main-thread stall over 250 ms"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-680. apps/android MainThreadStormTest (instrumented; `-e storm_s N`, default 150 s): the real library, view model, notifier and lock on the real main thread against a stand-in Mac on a link like his: it moves between direct and the shared relay, drops for seconds and returns, a new connection answers `locked` until proved (the first statement is refused), answers are slow (the read mark above all), status and live frames are pushed throughout; he opens, reads, sends, locks, opens again. A watchdog asks the main thread every 20 ms; a stall over 250 ms fails the test with the stack."
+why = "The freeze needed his link's timing; a fake Mac that answers at once could never show it."
+evidence = "Emulator, before the fix, 90 s: 2 stalls (831 and 1669 ms) at uniffi last_status < FerbPhone.lastStatusNow < LibraryPhone.lastStatus, his phone's frames. After, 241 s, 25 opens, 21 drops, 33 statements: none."
+
+[PHN-684]
+title = "An unlock statement waits for the connection's presence proof; one sync per coming online"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-649. The Mac takes a statement only on a connection that proved the device key, and his fresh statement was refused as locked 60 ms before that proof arrived (then sent again a second later, with three locked reads between). The library now marks the proof as on its way before the app hears online, and unlockWithStatement waits for it, 3 s at most, before it sends; the age told is the age when it goes. The app syncs once per coming online, not on every word of the link's status, and not while a statement is on its way (its unlock reads the chat itself)."
+why = "A refusal the phone could foresee; each word of the link's status started a whole sync."
+evidence = "Mac audit 2026-11-18 01:09:53.589 phone.unlock locked, 53.650 phone.present ok, 54.652 phone.unlock ok. ferb-mobile-ffi suite passes; MainThreadStormTest counts the statements and syncs."
+untestable = "The wait needs a real link with the Mac's gate behind it (ferb-link's bridge and a daemon that checks the statement), which the phone library's tests don't have; the app's side (one sync per coming online) is in the storm's counts."
+
+[PHN-685]
+title = "The iPhone UI tests' unlock stand-in also passes the key's own prompt"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "On the simulator the lock key is a software key whose prompt is LocalAuthentication's sheet (Vault.forPhone's `authenticate`). The opening prompt's statement is signed through that key, so a relaunch of an install that already had keys showed 'Enter iPhone Passcode' in a UI test. In a Debug build on the simulator started with `-FERBUITestUnlock YES` that stand-in passes without the sheet; UITestPrompts still cancels the first `-FERBUITestCancelPrompts N`. Never in a Release build or on a phone."
+why = "A UI test can't answer the system's sheet."
+evidence = "Read from the code path (UITestPrompts.signer > KeySigner > SoftwareBackend.sign > authenticate); FERBUITests 7 pass with it."
+untestable = "A relaunch of an install that already has keys and a pairing needs a Mac to pair with; the UI tests start fresh (-FERBUITestFresh). The launch agent's relaunch run is the check."
+
+# ---- 2026-11-18: the owner on attaching files in the phone chat, and the way back to today
+
+[PHN-690]
+title = "A file picked in the phone chat waits in the message box and goes only with the message"
+by = "owner"
+date = 2026-11-18
+status = "active"
+words = "dont you think it shsodl just attach in teh message box and only be sent after pressed sent???"
+words_source = "Owner 2026-11-18, screenshot of the Android chat: a picked image showed at once as a card, \"Sending IMG-20261118-WA0011.jpg to your Mac — 0%\" (relayed by the coordinator)."
+rule = "As FERB.app's composer: a picked file (or several) shows in the message box with a cross to take it out; nothing leaves the phone until Send; then the message goes with its files."
+why = "Picking is not sending."
+
+[PHN-691]
+title = "A message with files: held on the phone until its files are on the Mac, then sent with their ids"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-690. Picks are copied here as chips (name, size, a photo's thumbnail). Send shows the message at once; its files upload as one batch (progress, stop, resume by upload id); then sendWith(text, ids). Mac away: waits, goes when back. Shared relay: files wait (PHN-410); the row offers Send text only and Remove, and goes by itself on a direct path or his own relay. Cancel: not sent, Try again or Remove. Kept in messages.json: after FERB closes it says so; Try again goes on from its upload id."
+why = "Pressing Send always shows the message and never loses it; the least surprising answer on the shared relay is to keep the message whole and let him send the words alone."
+evidence = "Android SendWithFilesTest 10, KeyboardTest; goldens composer-one-file, composer-files, chat-sending-files, chat-not-sent-files; iPhone SendWithFilesTests 9, goldens composer-files-noon, files-messages-night."
+
+[PHN-692]
+title = "The Files tab's send goes at once; the chat's box takes files and photos"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-690. \"Send files to your Mac\" on the Files tab is a deliberate send: it uploads at once, as before, and its finished files can still be added to a message. A whole folder goes from the Files tab only: the iPhone chat's picker no longer offers Folder (Android's chat picker never did)."
+why = "There the tap is the send; a folder in the box would need its picker's access kept across a closed app, which the phone does not keep."
+evidence = "Android SendWithFilesTest the_files_tabs_send_is_the_send_and_goes_at_once; iPhone testTheFilesTabsSendIsTheSendAndGoesAtOnce."
+
+[PHN-693]
+title = "The send flow touches the library and its store only off the main thread"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-691 and the freeze work (PHN-680..689). Outgoing calls send and sendWith on the io dispatcher (iPhone: a detached task) and reads and writes messages.json there, in order (one write after another); the main thread only updates the screen's state."
+why = "A library call on the main thread froze the app (the freeze investigation's proven cause)."
+untestable = "Which thread runs a call is read in the code; the tests' fake phone answers on the test's own threads."
+
+[PHN-694]
+title = "A way back to today's empty page from earlier days"
+by = "owner"
+date = 2026-11-18
+status = "active"
+words = "also i still cant see the today chat button. earlier chat button was there but wheres today???"
+words_source = "Owner 2026-11-18, 01:12, nothing said yet that day: from Earlier messages he was at the end of yesterday's chat with no way back (relayed by the coordinator)."
+rule = "From the earlier chat there is always a visible way back to today, also at the end of yesterday's messages."
+why = "At the end the way back showed nothing, and the Chat tab no longer went home."
+
+[PHN-695]
+title = "With nothing said today, today is the home page: the way back goes there from anywhere"
+by = "agent"
+date = 2026-11-18
+status = "superseded"
+rule = "For PHN-694. When the chat's last day is before today, the floating control reads \"Today\" wherever he is in the earlier chat, its end too, and opens today's home page; the chat ends in today's start with a quiet \"Nothing said yet today\"; tapping Chat goes to the end first, then to the home page. With anything said today nothing changes (PHN-662). No pull past the end: the end's today line and the control make it one place."
+why = "The home page is today's empty state; the day line at the end ties the two together without a second gesture."
+evidence = "Android ChatListTest 5 (end, top/middle/end, Chat tab, after another tab and with the keyboard, unchanged with today) and golden chat-today-empty; iPhone ChatListTests testTodaysHomePage, ChatPiecesTests testWhatTheWayBackShows."
+superseded_by = "PHN-698"
+
+# ---- 2026-11-18: the owner on the phone chat's days: FERB.app's separation
+
+[PHN-696]
+title = "The phone chat separates days as FERB.app does; typing never shows earlier days"
+by = "owner"
+date = 2026-11-18
+status = "active"
+supersedes = ["PHN-627"]
+words = "the bug hwere i sart typiign and chat becomes visible is still there, this time it showed me the previosu day's chat when i start typing - you said it was removed adn a smarter system was there. FIX THIS. and when i start it., the previosu dauys chat is above. it shoidln be, keep it like mac apps separation."
+words_source = "Owner 2026-11-18 on the build with the attach chips (relayed by the coordinator)."
+rule = "Today is the Chat tab: with nothing said today, the home page, which typing, speaking or picking files never leaves; it changes only when something is said today. Then the chat lists only today's entries; earlier days are another place, reached from its top."
+why = "Typing switched to the one continuous chat with yesterday above; FERB.app shows one day at a time."
+
+[PHN-697]
+title = "What counts as today for the phone chat: one function, moved only at a natural moment"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-696. ChatModel.chatDay (Android model/Chat.kt, iPhone FerbAppModel/Chat.swift) is the only rule (now the local calendar day). The view model holds its answer (UiState.chatDay) and moves it only when the app opens or unlocks, comes back to the front, or the Chat tab is chosen: a day change while open never moves the page, the draft stays. What midnight does mid-conversation is the owner's open question."
+why = "One place to change after his discussion; a page that moves under his typing is the bug he reported."
+evidence = "Android ChatListTest a_day_change_while_the_app_is_open_waits_for_a_natural_moment; iPhone ChatListTests testADayChangeWhileTheAppIsOpenWaitsForANaturalMoment."
+
+[PHN-698]
+title = "Earlier days: their own place, with the way back to today always there"
+by = "agent"
+date = 2026-11-18
+status = "active"
+supersedes = ["PHN-695"]
+rule = "For PHN-696. Earlier messages (the home page's, and at the top of today's chat) opens the earlier days: one continuous chat with day starts, the sticky day and older pages on scroll, ending at yesterday's last message, with no open questions (they are in today). \"Today\" floats at its foot everywhere, its end too; the Chat tab tapped there and a send also go back to today. The message box stays in the earlier days (least surprising: he can always type), and a send shows his message in today."
+why = "FERB.app (ChatBody.swift:83-111, Conversation.swift:32-39) shows one day with a Today button; the phone keeps its scroll through earlier days but never mixes them into today."
+evidence = "Android ChatListTest (today only, earlier and back, anywhere in earlier, Chat tab, after another tab and with the keyboard, the split), goldens chat-today-only, chat-earlier, home-typing; iPhone ChatListTests 4 new."
+
+# ---- 2026-11-18: the owner on the "can't reach your Mac" line at every open; a connection control
+
+[PHN-750]
+title = "Connecting is not an error: a connection control beside the profile button, with a loader"
+by = "owner"
+date = 2026-11-18
+status = "active"
+words = "when i open teh mac, why is the \"cant connect to your mac, messages wait\" - is there for several seconds??? is it connecting??? that shodlnt that be shown witha mac style loader??? a better info and not seem like some kind if err??? anyways i think this is the connectin button adn this shoudll live in a second navbar ont eh right along with profilr, this will tell connected/disconnected, relay type etcetc"
+words_source = "Owner 2026-11-18 on the build with the day separation (relayed by the coordinator)."
+rule = "While the phone connects it shows a loader and calm words, never an error. The connection's state (connected or not, the relay in use) lives in a control on the right of the top bar, beside the profile button."
+why = "Every open showed the amber \"Can't reach your Mac\" for the seconds the link took to connect."
+
+[PHN-751]
+title = "The connection control: one mark per link state, on every page's top bar"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-750. The profile button's round, left of it, on both phones and every tab: connecting, the design's turning arc (FERB.app: \"Connecting to FERB…\", MenuBarState.swift:76, its hollow dot :67); connected, a quiet solid dot (white direct, white in a ring through his relay, grey through the shared relay); can't reach, the amber lamp (PHN-753). VoiceOver and TalkBack say \"Your Mac:\" and the state with its path."
+why = "One glance tells the state; the normal ones never look like errors; colour is never the only signal (the shapes differ)."
+evidence = "Android ConnectionTest the_control_says_each_state_and_opens_its_sheet, goldens connection-dawn/-noon/-night; iPhone ChatPiecesTests goldens components/connection-dawn/-noon/-night."
+
+[PHN-752]
+title = "The connection sheet: the Mac, the state, the path and what it means, Try again, the Mac tab"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-750. A tap on the control: the Mac's name; Connecting to your Mac… / Connected / Can't reach your Mac with the mark; the path (Directly between this phone and your Mac / Through your own relay / Through the shared relay, with the relay sheet's own list of what works there); the link's own words for why it can't connect; Try again while not connected (FerbPhone.retry); More on the Mac tab, which keeps the relay settings and the rest."
+why = "One place per fact: the sheet only reads the link; the Mac tab still owns its details and settings."
+evidence = "Android goldens connection-sheet-connecting, -shared, -unreachable; iPhone goldens components/connection-sheet-*."
+
+[PHN-753]
+title = "When the phone says it can't reach the Mac"
+by = "agent"
+date = 2026-11-18
+status = "superseded"
+rule = "For PHN-750. Can't reach (amber) only when the link stopped for good, or has not been online for 30 s while the app is open and unlocked; every open, unlock or return to the front counts again; online ends it. Until then a link that is not online is connecting. 30 s is a proposal for the owner, above tonight's ~25 s connect on his phone (two dials timing out before the third answers)."
+why = "The link's own `waiting` comes after every failed dial, and his phone fails two on a normal open: that point would still show amber at every open."
+evidence = "Android ConnectionTest 3 (an open that connects never says it; past the point it does and a reconnect ends it; every open counts again, stopped at once); iPhone ConnectionTests 3."
+superseded_by = "PHN-758"
+
+[PHN-754]
+title = "The chat's line no longer says the link's state"
+by = "agent"
+date = 2026-11-18
+status = "superseded"
+rule = "For PHN-750. The line under the tabs keeps only what changes what he can do now: Can't reach your Mac. Messages wait for it. when his messages wait in the outbox and PHN-753's point has passed; the Mac's unlock on its way or slow once connected; screen use. Connecting shows nothing there; the outbox rows still say they wait."
+why = "The control shows the state at all times; a normal open shows no amber anywhere."
+evidence = "Android ConnectionTest the_chats_line_speaks_only_when_his_messages_wait_after_the_point."
+
+# ---- 2026-11-18: the 25 seconds from opening the phone app to the Mac (ids PHN-740..742)
+superseded_by = "PHN-756"
+
+[PHN-740]
+title = "Without an own relay the phone dials every relay the Mac may be at in one dial, from the first"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-750. With no own relay set, each dial's address is the Mac's last known relays and every shared relay; iroh sends the first packet to all of them at once and the first answer carries the connection. With an own relay set nothing changes: the own relay alone, the shared relays added in fallback or after two dials found nobody (PHN-418). The welcome's homes are still remembered."
+why = "His opens took about 25 s: the phone dialed only the relay it last saw the Mac at; when the Mac's home relay had moved, two 10 s dials timed out and the third, the first to try every relay, answered in 0.4 s. His Mac's home relay reconnected 18 times in under 5 h."
+evidence = "tests/dial.rs a_dead_candidate_beside_a_live_one_costs_nothing: 25.9 s and 3 dials before, 0.06 s after; n0 by hand (cold_starts_through_n0), the Mac moved: 26.7 s p50 before, 0.8 s after."
+paths = ["engine/crates/ferb-link/src/client.rs"]
+
+[PHN-741]
+title = "A dial does not wait for the phone's own home relay"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-750. The phone dials at once; it no longer waits up to 5 s for its home relay first. iroh connects to each relay it sends through and holds the first packet until that connection is up (QUIC resends it if that took longer), and the Mac answers through the relay the packet came by."
+why = "The home relay comes from iroh's first network report: 4 s on his phone, all of it spent before the dial began. Reaching the Mac's relay needs no home relay."
+evidence = "tests/dial.rs: no home relay at all, 5.05 s before, 0.06 s after; a way to the relay that opens after 2 to 9 s, online within 0.25 s of it opening; n0 by hand, a correct last relay: 3.5 s before, 0.6 s after."
+paths = ["engine/crates/ferb-link/src/client.rs"]
+
+[PHN-742]
+title = "The Mac tells connected phones when its home relay moved, also without a change of relay state"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-740. The bridge compares its home relays every second with what the connected phones were last told; when they differ it pushes the usual relay event (own, homes, state), which every build of the phone stores. A relay state change pushes it as before."
+why = "iroh can switch the home relay between two of the bridge's 500 ms reads of the state, and then no event went out: a phone open at that moment kept the old relay. An app from before PHN-740 still dials only that one."
+evidence = "tests/dial.rs a_connected_phone_learns_where_the_mac_moved (a move the state shows). The fast switch itself is iroh's timing on a real network and was not made to happen locally: read in bridge.rs watch_loop."
+paths = ["engine/crates/ferb-link/src/bridge.rs"]
+
+[PHN-755]
+title = "No can't-reach line beside the connection control"
+by = "owner"
+date = 2026-11-18
+status = "active"
+words = "but wont the connecting button be showing all this state or connecting/failed??? or restart. is thsi line along wth this button?"
+words_source = "Owner 2026-11-18 on the 30-second rule for the chat's can't-reach line (relayed by the coordinator)."
+rule = "The connection control alone shows connecting, connected and failed; the chat does not repeat it in a line."
+why = "With messages waiting he would see the amber control, the line and each message saying it waits: three times the same."
+
+[PHN-756]
+title = "The chat's line never speaks of the link"
+by = "agent"
+date = 2026-11-18
+status = "active"
+supersedes = ["PHN-754"]
+rule = "For PHN-755. The line under the tabs shows only what the control cannot: the Mac's unlock on its way or slow once connected (PHN-641) and screen use (PHN-611). Not connected, it shows nothing; each waiting message says \"Waiting for your Mac\" in its own row. chat_offline is gone from both phones."
+why = "The control carries the link's state (PHN-751); the waiting rows already say what waits."
+evidence = "Android ConnectionTest the_chat_never_speaks_of_the_link_and_his_waiting_message_says_it_waits; golden chat-offline-outbox."
+
+[PHN-710]
+title = "No slow frames in the phone apps from the app's own work"
+by = "owner"
+date = 2026-11-18
+status = "active"
+words = "invoke an agent that can find somethign that might cause low fps in the app - i dont want any slow FPS in teh app due to any UI erros, ive had a good hsare of it in teh mac app - so learn from it adn fix if any"
+words_source = "Owner 2026-11-18 to the coordinator, after the Mac app's own frame-rate and heat troubles (relayed by the coordinator)."
+rule = "Nothing the phone apps do themselves may drop a frame: a screen where nothing changes draws nothing; the work of a change is bounded by what is on screen, never by the chat's or a list's length; what moves is drawn or placed, not recomposed. The look and the motion stay as approved."
+why = "The Mac app lost frames to work redone on every read and to observers of the whole model; the phones must not repeat it."
+
+[PHN-711]
+title = "What moves is read while drawing or placing; the root reads only the gate"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-710. Android: a press's scale, the switch's knob and the turning mark's angle are read in their layer, placement or draw (the mark in a layer of its own); FerbRoot reads only the gate and the pairing flag (derivedStateOf), the page and the sheet read the whole state; the sheet's dim fades by modulating its one rectangle instead of a whole-screen offscreen layer."
+why = "A value read in composition recomposes its holder on every frame of its animation; a whole state read at the root recomposed the root, the sky's host and the switches on every streamed word."
+evidence = "design FrameWorkTest (the switch: 1 recomposition for its slide, was one per frame); app FrameWorkTest an_idle_chat_recomposes_nothing; every golden unchanged."
+
+[PHN-712]
+title = "The keyboard's height is read where it is used, never at the root"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-710. PhoneInsets.live keeps the window's bottom inset (the gesture bar, or the keyboard over it) as a value read when asked; FerbRoot makes it once; pages pad above it with paddingOverBottom (the padding read while measuring). A slide of the keyboard relayouts what sits above it and recomposes no root, host, tab bar or chat row."
+why = "Root.kt read WindowInsets.ime in composition: every frame of the keyboard's slide recomposed the whole app."
+evidence = "app FrameWorkTest the_keyboard_recomposes_nothing_above_the_page_and_no_row (Main ran once per keyboard frame before); emulator keyboard scene, main thread per frame p90 6.1 ms read at the root, 3.9 ms after (debug build)."
+
+[PHN-713]
+title = "Frame work is counted: compositions on the JVM, frames and main-thread time on a phone"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-710. app and design FrameWorkTest count every composable body that runs (the compiler's trace markers): an idle chat runs none, a streamed word costs the same in 500 rows as in 50, the keyboard runs no root or row. FrameBudgetOnPhoneTest (instrumented) logs gfxinfo frames, percentiles and main-thread time per frame for each scene under ferb-frames, and fails when an idle chat or a tab at rest draws a frame."
+why = "An emulator's frame times are its host's; counts hold everywhere. Absolute times come from the benchmark build on a phone (a debug build is several times slower)."
+evidence = "Emulator (debug), quiet host: idle chat 0 frames in 30 s; each tab at rest 0 in 5 s; streaming 20 words/s into 500 rows 254 frames, main thread p50 3.5 ms."
+
+# ---- 2026-11-18: the phone chat shows what FERB.app shows (ids PHN-720..PHN-733)
+
+[PHN-720]
+title = "The phone apps show things as FERB.app does"
+by = "owner"
+date = 2026-11-18
+status = "active"
+words = "basically the UX and how thingns are shown at places in mac app is what i like, im hating taht in the phone apps. PLEASE FIX"
+words_source = "Owner 2026-11-18 after using the Android app, with phone screenshots of a research answer and a running task (relayed by the coordinator)."
+rule = "What the phone chat shows follows FERB.app's chat element by element (answers, cards, sites, running work, questions, notices), drawn in the phone design (PHN-416)."
+why = "His research answer showed raw links, the sites line twice and six identical rows; a running task showed nothing."
+
+[PHN-730]
+title = "Running work visible in the phone chat as on the Mac"
+by = "owner"
+date = 2026-11-18
+status = "active"
+words = "why the runnings tasks, preview box not visible here like in mac chat. its showing int aks page, btu thers no visual feedback here. i thoguht the tasks page was like its is the mac app for inspecting/stopping live or old tasks. can we fix this UX issue"
+words_source = "Owner 2026-11-18, 02:17, on a one-part research task running on his Mac with nothing in the phone chat (relayed by the coordinator)."
+rule = "A task running shows in the phone chat with what it is doing and its live picture, as FERB.app's work row does; Stop and Watch live are one tap away."
+why = "The phone drew live state only inside a card of parts; a one-part task had none."
+
+[PHN-731]
+title = "A card row's own live picture on the phone as on the Mac"
+by = "owner"
+date = 2026-11-18
+status = "active"
+words = "liek in mac, feed is in this row, its no liek in phone, its in the main circle only, shoudlnt it be in the row too??? is it missed in code or what??"
+words_source = "Owner 2026-11-18 on the Android build of 03:08, with a Mac screenshot of a card whose running row ends in its own round picture (relayed by the coordinator)."
+rule = "Each running part of a card shows its own round live picture at its row's end, as FERB.app's RowPreview does."
+why = "The phone had only the work row's circles."
+
+[PHN-732]
+title = "Small live pictures follow the screenshot switch; the big views always block"
+by = "owner"
+date = 2026-11-18
+status = "active"
+words = "\" B (my recommendation) │ follow your switch │ force blocking on \" - i chose thi stoo"
+words_source = "Owner 2026-11-18, choosing B of A (every live picture forces blocking), B (small round pictures follow the switch, big views force it), C (everything follows the switch)."
+rule = "Refines the rule that live frames stay out of screenshots (PHN-454): it binds the views that show the Mac's screen readably (Watch live, a task's or step's short view); the small round pictures in the chat follow his Block screenshots switch."
+why = "Every circle forcing the block made his switch look broken."
+
+[PHN-721]
+title = "FERB's words in rich text from one parser in the phone library"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-720. ferb-mobile rich.rs ports FERB.app's MarkdownDocument blocks with CommonMark-style inline looks; links only http, https, mailto (APP-589); images are their words, nothing fetched. The apps call rich_text, answer_shown, notice_shown off the main thread when the transcript is read and keep each result per entry; selection copies the whole message."
+why = "Both phones draw the same as the Mac from one place; Kotlin and SwiftUI have no shared Markdown."
+
+[PHN-722]
+title = "Reading FERB's words is bounded for any input"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-721. At most 100 000 characters and 2 000 blocks read, 12 columns and 200 rows a table, list level 8, emphasis looks back 64 marks, a link address 2 048 characters. Plain words with no mark are laid out by the app itself, tested equal to the library's."
+why = "The text can quote the web; a crafted answer must not stall a phone."
+
+[PHN-723]
+title = "An answer laid out as FERB.app's AnswerView, its sites as one row"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-720. shown.rs: lines the drawn cards stand for and the Sites contacted line leave the words; Couldn't confirm and code's lines go under them; Details when FERB shortened it; the link cards' hosts (else the Sites contacted line) are one row: globe, the first as a link, +N opening Sites visited."
+why = "The research answer showed its sites line twice and six rows."
+
+[PHN-724]
+title = "Each result card drawn by its kind; an unknown kind draws nothing"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-720. Reminder, event, note, payment, send and schedules cards with FERB.app's words; a kind the build doesn't know draws nothing and its line stays in the words (ResultCard.swift:237-242); a file card and the task's files show each file once, tappable by its place."
+why = "Every card was one generic row titled by its line."
+
+[PHN-725]
+title = "The work row above the message box"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-730. On the home page and today's chat: spinner, \"1 active task · 0:42 · 1 paused\", the first two tasks' round pictures, +N, View tasks (FERB.app's WorkRowView). Its line is LiveView.current: the stream's newest step line, summary or Checking the result, else Starting task…; its time from the plan. A circle opens the short view: picture, title, line, Watch live, Stop."
+why = "FERB.app's running box is its work row, not a transcript row; the stream already carries the line."
+
+[PHN-726]
+title = "Live pictures on the chat: their rules and their cost"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-730, PHN-731. A picture is asked only while its row is on screen, the app unlocked and in front, on a direct path or his own relay: one at most every 2 s (watch_thumbnail, watch_step_thumbnail), at most 4 at once, decoded to 128 px in memory, never stored. A part shows its step's picture while that step starts, runs, retries or is checked; then its task has no work-row circle (APP-891)."
+why = "The Mac's rules (APP-403, APP-891) at a phone's cost: a full window JPEG every 2 s per picture at most, repeats left out by the Mac."
+
+[PHN-727]
+title = "Where small ends and big begins for screenshot blocking"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-732. Small: the work row's 30 pt circles and a row's 26 pt circle. Big: the short view's picture (sheet width, 16:9) and Watch live; they set mustSecure while open and on iPhone draw in the screenshot shield. The app switcher: iPhone's cover is always on; Android's recents follow FLAG_SECURE as screenshots do."
+why = "The big views show the Mac's screen readably; a 30 pt circle doesn't."
+
+[PHN-728]
+title = "Long answers fold as FERB.app's do, at the chat's height"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-720. CollapsePolicy on the phone: an answer or plan taller than the chat list's tallest height shows about half of it with Show all; a row's text past 8 lines shows 3 with Show more; none hides under 3 lines. The keyboard never folds or unfolds a text."
+why = "FERB.app folds at the height the owner set; the phone's equivalent is the chat's own height."
+
+[PHN-729]
+title = "A question's row says what FERB.app's inline question says"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-720. The row leads with the question's title (else FERB needs your answer, or Private input needed) and its reason; a tap opens the answer sheet, kept because some answers need the fingerprint."
+why = "The row said only FERB has a question and Tap to answer."
+
+[PHN-714]
+title = "A chat's work is bounded by what is on screen: open, scroll to its end, a streamed word"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-710. The chat scrolls to its end by the distance left and a screen (only within 8 rows of it; further, one jump first, after the rows' first layout), never by a huge delta through rows not laid out. A row gets only what it draws (today, older loading), never the whole state; rows are immutable values. Above 100 entries the rows are made off the main thread. iPhone: rows, days and places are AppModel properties of their own; `ui` is set only when it changed."
+why = "A 1,000,000 px scroll composed every row: opening 5,000 entries made 50,090 layout nodes and ran an emulator out of memory. The whole state passed to each row recomposed every visible row per streamed word."
+evidence = "app FrameWorkTest a_chat_of_5000_rows_opens_at_its_end_with_only_a_screenful_composed (5,001 rows composed before, 60 or fewer after); emulator (debug): opening 500 rows, longest main message 146 ms before, 30 ms after."
+
+[PHN-715]
+title = "Long Files lists come a screenful per frame; the page looks and moves as before"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-710. A folder page (up to 500, PHN-609) and a search's answer compose 40 rows at once and 40 more on each frame after, each row a composable of its own (rows already there are skipped); the same column, the same slide of the folder as one piece, the same rows. Both phones (Android revealed, iPhone Revealing)."
+why = "All 500 rows were built in one frame: 494 ms on an emulator, about 2 s on his phone (his log, a stall at FileIcon). A lazy list would change how the search field and transfers scroll and slide with the folder."
+evidence = "app FrameWorkTest a_folder_of_500_files_never_composes_all_its_rows_in_one_frame (60 rows or fewer in the first frame, each row's detail made once)."
+
+[PHN-733]
+title = "Each finished part's answer in the card, as on the Mac"
+by = "owner"
+date = 2026-11-18
+status = "active"
+words = "i just got tick on the teo task rows adn not the end result message like this"
+words_source = "Owner 2026-11-18 on the Android build of 03:08, with a Mac screenshot of a finished two-part card (relayed by the coordinator)."
+rule = "A card's parts show what FERB.app's CardRowView shows: each finished part's answer in rich text under its title, folded past 8 lines to 3 (Show more), its failure or stop in words, Couldn't confirm, Updated, You chose; the footer's done line and lines under the card."
+why = "The phone drew only each part's state words: a tick and Done."
+
+[PHN-734]
+title = "FERB's things in the chat on FERB's dark surface"
+by = "owner"
+date = 2026-11-18
+status = "active"
+words = "also many of ferb replies/rows/boxes in phone apps are in white, why not maintain its dark color??/ it consisten - like in mac app"
+words_source = "Owner 2026-11-18 on the Android build (relayed by the coordinator)."
+rule = "In the chat, whatever comes from FERB sits on FERB's dark surface (its bubble's black, on-dark inks); only the owner's own messages, chips and outbox stay white, and sheets keep their white. Supersedes PHN-416's white cards for these surfaces only."
+why = "FERB.app draws everything FERB shows on one dark material; the phone mixed black bubbles and white cards."
+
+[PHN-735]
+title = "FERB's surface is one setting the pieces read"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-734. Android LocalOnFerb and CardInk (design components/Surface.kt), iPhone the onFerb environment and CardInk (FerbDesign Lab/Mobile.swift): Card, CardRow, Divide, RowIcon, Opens, Mark, Pill, TaskCard and the result cards draw dark when it is set; the chat row view sets it for every row but the owner's, his outbox and the day markers. Text on black: white 21:1, #9A9A9A 7.4:1, #8E8E8E 6.4:1, amber 11:1, #FF6B5E 6.9:1, link #9CC7FF 12:1. Not changed, for his call: the Tasks tab rows, the home page's away list, the Files cards, the Mac-needs-unlock card."
+why = "One rule in the shared pieces; no card picks its own colour, and the lab's screens keep their goldens."
+
+[PHN-736]
+title = "Tint, waiting steps, the line's time, drafts, tables, per-day boxes and the Mac's tasks, as FERB.app"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-720, from ferb-mobile on both phones: the card tinted amber asking, red failed, blue updated or paused (surfaceTint); under a waiting row the steps it waits on that no row answers (LiveView.feeders, APP-895); the connection line ticking its time; 'Draft · still responding' under a reply still coming; tables as sideways-scrolling grids (12 columns, 200 rows; no fold with a table); one box per timer or reminder per shown day (APP-769); the work row also counts the Mac's running tasks as the Tasks tab last read them (no new call). The inert Open page buttons are gone."
+why = "The owner compared both chats element by element and wanted the Mac's (PHN-720); each of these was missing or different on the phones."
+evidence = "ferb-mobile tests/live.rs a_waiting_row_shows_the_steps_it_waits_on, tests/shown.rs one_box_per_timer_is_counted_within_each_day; Android ShownTest, iPhone ParityTests."
+
+[PHN-737]
+title = "The card of parts is clean, as on the Mac"
+by = "owner"
+date = 2026-11-18
+status = "active"
+words = "see these box cut outs for rows, see hte mac ones … so clean while running adn after too. please make it clean liek mac"
+words_source = "Owner 2026-11-18 on the Android build, with screenshots of the phone's card and FERB.app's (relayed by the coordinator, the ellipsis as relayed)."
+rule = "A request in parts is one card on FERB's dark surface with no box or fill behind any part and no buttons in it: running and waiting parts one line each; finished parts their label as a small heading with the answer under it, hairlines between; the done line as the footer. Stop and Watch live are in the task's short view, reached from a part's picture, a running part's row or the work row (PHN-725)."
+why = "The phone drew each part in its own box with Watch live and Stop under the card; FERB.app's TurnCardView is a clean list."
+
+[PHN-738]
+title = "How the clean card is laid out on the phones"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-737. Header: headline small grey semibold, count right. A running or waiting part is one line: thin spinner or hollow circle, label (bold running, grey waiting), grey state words; when both are long each takes at most half the line, cut with '…', never wrapped; its 24-point round picture far right. A tap on a running part with no picture opens its task's short view. Status line under a hairline; footer done line bold with code's lines grey on the same line. Android components/PartsCard.kt, iPhone Parity.swift PartsCard."
+why = "FERB.app's TurnCardView rows at the phone's width: one line keeps an eight-part card readable at a glance."
+evidence = "Android ParityShotsTest goldens parity/card-states-{dawn,noon,night}, card-eight-and-checklist; iPhone ParityTests goldens app/parity/card-states-*, card-eight-and-checklist."
+
+
+[PHN-739]
+title = "A question reads on the phones exactly as FERB.app's card"
+by = "owner"
+date = 2026-11-18
+status = "active"
+words = "just so you knwo, question workdings are different in phone and mac. check it and you'll know. add this to fix too."
+words_source = "Owner 2026-11-18 with a phone screenshot of the answer sheet for one of FERB's own checks (relayed by the coordinator)."
+rule = "Both phones draw a question from ferb-mobile `question::shown`, FERB.app's own derivation (DaemonApproval.swift, ApprovalView.swift): its header, the one question (summary, else reason; the step line never), the why line, the exact thing in its box, the task's reason, the evidence, each button's words, the note, the typed answer's box and words. The sheet, the chat's question row and the Tasks tab use it; the phone adds only its fingerprint line and its sheet. Carried on QuestionItem and StatusQuestion as `words`."
+why = "The phone took the summary as its title and drew the raw reason under it, with the tool call ('The step: browser.act …'); FERB.app never shows the reason when a summary exists."
+evidence = "ferb-mobile tests/question.rs over every question in engine/fixtures (gateway, chat-entries); Android ShownTest and ParityShotsTest question-*.png, iPhone ParityTests app/parity/question-*.png."
+[PHN-760]
+title = "Every question FERB asks notifies on the phone unless he is in the app"
+by = "owner"
+date = 2026-11-18
+status = "active"
+words = "im not getting the wuestions in my notifications, i shoudl get it like nothc comes down for all questions from worker or palnner no matter what. no notifications only when im in the app"
+words_source = "Owner 2026-11-18 on the Android build (relayed by the coordinator)."
+rule = "Every question FERB asks him (a worker's question or check, the planner's clarifying question, a hidden input, anything that waits for his answer) is a phone notification at once, the way FERB.app's notch comes down for it. The only time there is none is while he is in the app, where the app shows it. PHN-417's buttons and fingerprint, PHN-422's lock-screen words and PHN-126's held words stand."
+why = "A planner's clarifying question never reached the phone's notifications: the phone knew only the gateway's questions."
+evidence = "Android NotifierTest, iPhone NotificationTests (each kind of question in the app, away, on the lock page, answered elsewhere, asked again, after a restart)."
+
+[PHN-761]
+title = "A phone's status lists the planner's question that waits"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-760. The phone gate's chat.status (never FERB.app's) adds the planner's question to `approvals`: kind clarify, id clarify:<request>, its words as reason, no options, needs {can_answer, no unlock}; held for a locked session as any question's (PHN-126). It waits while, in the current conversation, it is the newest answer that asks (`asks`) and no message of his follows it, from any client; a newer one replaces it; a deleted one or another conversation ends it. ferb-daemon phone/asking.rs."
+why = "FERB.app's notch comes down for a clarify (DaemonConnection.swift needsYou); the Mac keeps no other 'waiting' state for it, and his next message is its answer. The stored entries are what every client draws."
+evidence = "ferb-daemon tests/phone_asking.rs the_planner_s_question_waits_until_the_owner_says_anything_after_it, a_locked_phone_learns_the_planner_asks_with_its_words_held_as_any_question_s."
+
+[PHN-762]
+title = "The planner's question on the phone: a notification that opens the chat"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-760. Its notification has its words and 'Tap to answer in FERB.', no buttons, and its tap opens the chat, where the answer is a message (which needs the unlock window like any message). It is never routine, never a question sheet and never a 'needs you' row in Tasks: in the app it stays FERB's own bubble, as on the Mac (Questions.merged leaves it out; Questions.waiting has it)."
+why = "Answering it is sending a message, not an approval; FERB.app shows it as FERB's reply, not a question card."
+evidence = "Android NotifierTest every_kind_of_question_notifies_at_once_when_he_is_not_in_the_app, the_planner_s_question_is_ferb_s_bubble_in_the_app_not_a_question_sheet_or_a_task; iPhone NotificationTests testThePlannersQuestionNotifiesWithItsWordsAndOpensTheChat."
+
+[PHN-763]
+title = "Link level 4: only an app that knows the planner's question is sent one"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "ferb-link LEVEL is 4 (LEVEL_CLARIFY). The Mac's helper removes kind clarify from chat.status, pushed and asked for, for an app whose hello says a lower level, so an older app never answers it with chat.answer. A new app with an older Mac simply gets no clarify notifications."
+why = "Old phone with new Mac and new phone with old Mac must both keep working (PHN-313's levels)."
+evidence = "ferb-link tests/link.rs the_planner_s_question_reaches_only_an_app_that_knows_it."
+
+[PHN-764]
+title = "One rule decides which questions are posted, updated and removed"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-760 (Android model/QuestionAlerts.kt, iPhone QuestionAlerts): each waiting question is posted once with sound and heads-up unless the app is on screen. Seen in the app (unlocked) and still waiting when he leaves: posted quietly. On the app's lock page: not seen, a heads-up when he leaves. Changed words or needs: updated quietly. Gone from the status: removed. A waiting question is news after a restart; only what had finished is not."
+why = "The notifier marked questions that arrived while he was in the app, or were waiting when the process started, as announced, so they never reached the shade."
+evidence = "Android NotifierTest in_the_app_nothing_is_posted_and_one_he_saw_goes_to_the_shade_quietly_when_he_leaves, a_question_already_waiting_when_the_app_starts_again_still_notifies, the_rule_alone; iPhone NotificationTests."
+
+[PHN-765]
+title = "What keeps questions from reaching the phone is said, with its fix"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "When only he can change it (Android: notifications off, the Questions or Checks channel off, Stay connected off, the app restricted in the background; iPhone: notifications off), the profile sheet says so with the one tap that fixes it, and once per kind a sheet says it after he sends something from the phone. The app never posts nothing silently."
+why = "A question that cannot be shown must not look like a question that was never asked."
+evidence = "Android NotifierTest what_he_must_change_is_named_never_silently_nothing, after_a_send_he_is_told_once_what_keeps_questions_from_reaching_him."
+
+[PHN-766]
+title = "What reaches the phone with the app closed, until stage 5"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "Android with Stay connected on: every question notifies while the app is in the background, closed or swiped away, and the phone is locked. Android with it off, and iPhone after the short time iOS gives after he leaves: the link is closed and nothing can arrive until the app opens. Closing that gap is stage 5's push (PHN-421), not built here."
+why = "PHN-2: no dialling in the background unless told to stay connected; iOS suspends the app."
+untestable = "What Android and iOS do to a backgrounded app is seen only on his phones."
+
+[PHN-757]
+title = "The connection control says it can't reach the Mac after 10 seconds"
+by = "owner"
+date = 2026-11-18
+status = "active"
+words = "agree"
+words_source = "Owner 2026-11-18, to the coordinator's proposal \"10 seconds for the amber can't-reach point\" (the agent had proposed 30 s in PHN-753; the connect takes about a second after the link fix)."
+rule = "The control turns to can't reach after 10 seconds without getting online while the app is open and unlocked."
+why = "The connect now takes about a second; 30 s was only there for the slow connect before the link fix."
+
+[PHN-758]
+title = "When the phone says it can't reach the Mac: stopped for good, or 10 s not online while open"
+by = "agent"
+date = 2026-11-18
+status = "active"
+supersedes = ["PHN-753"]
+rule = "For PHN-757. Can't reach (the amber control) only when the link stopped for good, or has not been online for 10 s (Android LINK_LOST_AFTER_MS, iPhone UnlockTiming.linkLost) while the app is open and unlocked; every open, unlock or return to the front counts again; online ends it. Until then a link that is not online is connecting."
+why = "The owner's number replaces the proposal; the rest of PHN-753 stands."
+evidence = "Android ConnectionTest (the value pinned; connecting inside 10 s never amber; past it amber; every open counts again); iPhone ConnectionTests (the default pinned)."
+
+
+[PHN-767]
+title = "A question's notification reads as the Mac's banner"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-760. Title and words come from the library's presentation of the question: the Mac's banner words (QuestionShown.bannerTitle and bannerText, ferb-daemon notify.rs approval_notice: 'FERB needs you', 'FERB needs your OK: ...'), never the raw reason or a tool-call line. The planner's question, which has no banner on the Mac, is 'FERB needs you' with its own words. Without that presentation (an older Mac): its title and reason. PHN-422's and PHN-126's wordless forms apply on top. Android Notifier headline and detail; iPhone the same once its bindings carry the presentation."
+why = "The owner saw the phone show the raw reason (a tool call) where FERB.app shows its own words; one question should read the same on both."
+evidence = "Android NotifierTest a_question_reads_as_the_mac_s_banner_and_the_planner_s_with_its_own_words."
+
+[PHN-716]
+title = "Scrolling the chat: only what moves recomposes; a message is built and measured once"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PHN-710. Where the list is (its first row, its offset, a drag) is read only by the sticky day and the way back (ChatOverlays) and the follow's own effects, never by the chat's body; rows have a content type per kind for reuse; FERB's built words and their fold are kept per message (RichCache, iPhone RichTextCache); file icons make their paths, paint and badge once per size; Watch live decodes at screen width."
+why = "The owner felt the chat's scrolling as janky. A fling recomposed the whole chat and its message box once per row passing the top (478 times over 493 rows), and every answer scrolling back in rebuilt and measured its words again."
+evidence = "app ScrollWorkTest a_fling_through_500_mixed_rows_composes_each_row_once_and_not_the_chat (chat 478 recompositions before, 5 or fewer after) and a_message_scrolling_back_in_is_neither_built_nor_measured_again (300 rebuilt before, 0 after); iPhone RichTextCacheTests."

@@ -63,5 +63,41 @@
     "fraction": 0.25,
     "velocity": 900,
     "from": "not from PairIt (its sheets are the system's): a sheet let go past a quarter of its height, or flung down faster than 900 points a second, closes; otherwise it springs back"
+  },
+  "launch": {
+    "about": "The launch (owner kb PHN-630; PHN-631..634): FERB's mark, the f on its dark tile, at the screen's centre over ink0 from the system's first frame (Android's splash icon, iPhone's launch screen) with its amber dot already in place (owner PHN-700: the dot's drop, hop and the f's give were removed), and while FERB loads the dot breathes. The moment the page under it is ready the mark settles into the lock page's mark (a shared element) while ink0 lifts off the sky. Times in ms from the launch's start; lengths are fractions of the mark's side, down positive. Launch.kt and Launch.swift evaluate the same function; `samples` are its values from apps/android/tools/launch_samples.py, a third copy of the formulas.",
+    "size": 112,
+    "background": "ink0",
+    "breath": { "after_ms": 900, "period_ms": 1800, "scale": 0.86, "alpha": 0.72, "curve": "accelerate_decelerate" },
+    "settle": { "ms": 450, "bezier": [0.4, 0, 0.2, 1], "prompt_ms": 315 },
+    "reduced": { "ms": 200, "bezier": [0, 0, 1, 1] },
+    "ios_launch_screen_ms": 250,
+    "ios_launch_screen_why": "iOS crossfades its launch screen into the app's first frame (about 0.25 s, seen on the simulator): the settle starts after it, so the launch screen's mark never shows as a ghost beside the moving one. Android 12+ says when its splash goes (LaunchState.syncToSplash).",
+    "samples": [
+      {"t": 0, "ready": null, "reduced": false, "dotY": 0.0, "dotAlpha": 1.0, "dotScale": 1.0, "fScale": 1.0, "handover": 0.0, "promptOk": false},
+      {"t": 60, "ready": null, "reduced": false, "dotY": 0.0, "dotAlpha": 1.0, "dotScale": 1.0, "fScale": 1.0, "handover": 0.0, "promptOk": false},
+      {"t": 150, "ready": null, "reduced": false, "dotY": 0.0, "dotAlpha": 1.0, "dotScale": 1.0, "fScale": 1.0, "handover": 0.0, "promptOk": false},
+      {"t": 299, "ready": null, "reduced": false, "dotY": 0.0, "dotAlpha": 1.0, "dotScale": 1.0, "fScale": 1.0, "handover": 0.0, "promptOk": false},
+      {"t": 330, "ready": null, "reduced": false, "dotY": 0.0, "dotAlpha": 1.0, "dotScale": 1.0, "fScale": 1.0, "handover": 0.0, "promptOk": false},
+      {"t": 400, "ready": null, "reduced": false, "dotY": 0.0, "dotAlpha": 1.0, "dotScale": 1.0, "fScale": 1.0, "handover": 0.0, "promptOk": false},
+      {"t": 470, "ready": null, "reduced": false, "dotY": 0.0, "dotAlpha": 1.0, "dotScale": 1.0, "fScale": 1.0, "handover": 0.0, "promptOk": false},
+      {"t": 600, "ready": null, "reduced": false, "dotY": 0.0, "dotAlpha": 1.0, "dotScale": 1.0, "fScale": 1.0, "handover": 0.0, "promptOk": false},
+      {"t": 900, "ready": null, "reduced": false, "dotY": 0.0, "dotAlpha": 1.0, "dotScale": 1.0, "fScale": 1.0, "handover": 0.0, "promptOk": false},
+      {"t": 1350, "ready": null, "reduced": false, "dotY": 0.0, "dotAlpha": 0.86, "dotScale": 0.93, "fScale": 1.0, "handover": 0.0, "promptOk": false},
+      {"t": 1800, "ready": null, "reduced": false, "dotY": 0.0, "dotAlpha": 0.72, "dotScale": 0.86, "fScale": 1.0, "handover": 0.0, "promptOk": false},
+      {"t": 2700, "ready": null, "reduced": false, "dotY": 0.0, "dotAlpha": 1.0, "dotScale": 1.0, "fScale": 1.0, "handover": 0.0, "promptOk": false},
+      {"t": 0, "ready": 0, "reduced": false, "dotY": 0.0, "dotAlpha": 1.0, "dotScale": 1.0, "fScale": 1.0, "handover": 0.0, "promptOk": false},
+      {"t": 100, "ready": 0, "reduced": false, "dotY": 0.0, "dotAlpha": 1.0, "dotScale": 1.0, "fScale": 1.0, "handover": 0.175168, "promptOk": false},
+      {"t": 220, "ready": 0, "reduced": false, "dotY": 0.0, "dotAlpha": 1.0, "dotScale": 1.0, "fScale": 1.0, "handover": 0.761167, "promptOk": false},
+      {"t": 380, "ready": 0, "reduced": false, "dotY": 0.0, "dotAlpha": 1.0, "dotScale": 1.0, "fScale": 1.0, "handover": 0.985651, "promptOk": true},
+      {"t": 1350, "ready": 1350, "reduced": false, "dotY": 0.0, "dotAlpha": 0.86, "dotScale": 0.93, "fScale": 1.0, "handover": 0.0, "promptOk": false},
+      {"t": 1500, "ready": 1350, "reduced": false, "dotY": 0.0, "dotAlpha": 0.924015, "dotScale": 0.962008, "fScale": 1.0, "handover": 0.457252, "promptOk": false},
+      {"t": 1730, "ready": 1350, "reduced": false, "dotY": 0.0, "dotAlpha": 0.997991, "dotScale": 0.998996, "fScale": 1.0, "handover": 0.985651, "promptOk": true},
+      {"t": 0, "ready": null, "reduced": true, "dotY": 0.0, "dotAlpha": 1.0, "dotScale": 1.0, "fScale": 1.0, "handover": 0.0, "promptOk": false},
+      {"t": 100, "ready": null, "reduced": true, "dotY": 0.0, "dotAlpha": 1.0, "dotScale": 1.0, "fScale": 1.0, "handover": 0.0, "promptOk": false},
+      {"t": 300, "ready": null, "reduced": true, "dotY": 0.0, "dotAlpha": 1.0, "dotScale": 1.0, "fScale": 1.0, "handover": 0.0, "promptOk": false},
+      {"t": 400, "ready": 300, "reduced": true, "dotY": 0.0, "dotAlpha": 1.0, "dotScale": 1.0, "fScale": 1.0, "handover": 0.5, "promptOk": false},
+      {"t": 500, "ready": 300, "reduced": true, "dotY": 0.0, "dotAlpha": 1.0, "dotScale": 1.0, "fScale": 1.0, "handover": 1.0, "promptOk": true}
+    ]
   }
 }

@@ -98,7 +98,7 @@ public enum AppGuide {
         HowTo(title: "Check FERB's health or send diagnostics", steps: "Settings → Advanced → Health / Diagnostic file"),
         HowTo(title: "Uninstall FERB", steps: "Settings → Advanced → Uninstall FERB…"),
         HowTo(title: "See what FERB is and what it records about you", steps: "Settings → About"),
-    ]
+    ] + MenuBarGuide.howtos
 
     /// Where each setting the daemon lists (`settings.get`) is changed in this app.
     public static let places: [String: String] = [

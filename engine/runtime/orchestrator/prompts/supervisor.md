@@ -279,7 +279,7 @@ Write the fields in schema order with `text` last: finish every action and contr
 prose. `text` holds no planning notes, reasoning or internal metadata: the labels on your context's lines ([cN], their
 time, "FERB (code record)", "(reply, model-written, unchecked)", "posted by itself", "short form", "Result id") are
 FERB's, for you, never text to repeat. Speak as FERB in the first person ("I", "my records"); never start a line
-"FERB:", the way FERB's own checks begin (code marks such a line "(written by the AI)"). For a reply or a question it
+"FERB:", the way FERB's own checks begin (code marks such a line "(not one of FERB's checks)"). For a reply or a question it
 is the complete
 answer or question, the only one (the owner sees it as it streams), and it answers their message as they asked it,
 in the conversation's context, keeping the fact the conversation is about. For a task it is one short sentence of what

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -60,18 +61,26 @@ fun QuestionSheet(
     more: List<Pair<String, (() -> Unit)?>> = emptyList(),
     /** One short line under the further answers (what "until I'm back at my Mac" means, PHN-611); none by default. */
     moreNote: String? = null,
+    /** FERB.app's header over the question ("Check before FERB goes on", kb PHN-739); none in the lab's. */
+    header: String? = null,
+    /** What FERB.app shows under the exact thing: the task's reason, the evidence (kb PHN-739). */
+    below: @Composable () -> Unit = {},
+    /** FERB.app's line under its buttons (what the 30-minute answer covers). */
+    answerNote: String? = null,
     exact: @Composable () -> Unit,
 ) {
     Sheet(title = title, bottomInset = insets.bottom, onDismiss = onDismiss) {
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             SheetIcon(icon)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (header != null) PhoneText(header, 13.5f, FerbType.Medium, Ink.detail)
                 PhoneText(title, 22f, FerbType.Semibold)
-                PhoneText(reason, 15.5f, color = Ink.detail)
+                if (reason.isNotEmpty()) PhoneText(reason, 15.5f, color = Ink.detail)
             }
             if (count != null) PhoneText(count, 14f, FerbType.Medium, Ink.faint, maxLines = 1)
         }
         Box(Modifier.padding(top = 14.dp)) { exact() }
+        below()
         if (note != null) FingerprintNote(note, Modifier.padding(top = 12.dp))
         Row(Modifier.fillMaxWidth().padding(top = 18.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             // The lab gives Yes the layout priority: No takes what its word needs, Yes the rest.
@@ -80,6 +89,7 @@ fun QuestionSheet(
         }
         for ((label, onClick) in more) Pill(label, Modifier.padding(top = 10.dp), PillKind.GREY, onClick = onClick)
         if (moreNote != null) PhoneText(moreNote, 14f, color = Ink.detail, modifier = Modifier.fillMaxWidth().padding(top = 8.dp, start = 4.dp, end = 4.dp))
+        if (answerNote != null) PhoneText(answerNote, 13.5f, color = Ink.detail, modifier = Modifier.fillMaxWidth().padding(top = 10.dp, start = 4.dp, end = 4.dp))
     }
 }
 
@@ -162,11 +172,20 @@ fun ProfileSheet(
     onStayConnected: ((Boolean) -> Unit)? = null,
     onForget: (() -> Unit)? = null,
     more: (@Composable () -> Unit)? = null,
+    /** Not from the lab (kb PHN-656): the lock can't be turned off, so it says so ("Always on") instead of a switch that
+     *  does nothing, and a tap on the row says why. Null: the lab's switch. */
+    lockAlways: String? = null,
+    onLockInfo: (() -> Unit)? = null,
 ) {
     Sheet(title = "This phone", bottomInset = insets.bottom, onDismiss = onClose) {
         SheetTitle("This phone", onClose)
         Column(Modifier.padding(top = 8.dp).outset(14.dp)) {
-            CardRow("Fingerprint to open", "Every time FERB opens", leading = { RowIcon(FerbIcons.lock) }, trailing = { PhoneSwitch(lockOn) })
+            if (lockAlways != null) {
+                CardRow("Fingerprint to open", "Every time FERB opens", onClick = onLockInfo, leading = { RowIcon(FerbIcons.lock) },
+                    trailing = { PhoneText(lockAlways, 15f, FerbType.Medium, Ink.detail) })
+            } else {
+                CardRow("Fingerprint to open", "Every time FERB opens", leading = { RowIcon(FerbIcons.lock) }, trailing = { PhoneSwitch(lockOn) })
+            }
             Divide()
             CardRow("Stay connected", "Questions arrive while the app is closed", leading = { RowIcon(FerbIcons.bell) },
                 trailing = { PhoneSwitch(stayConnected, onStayConnected, "Stay connected") })
@@ -175,6 +194,52 @@ fun ProfileSheet(
             CardRow("Paired with $macName", "Since $pairedSince", leading = { RowIcon(FerbIcons.laptop) })
             Divide()
             CardRow("Forget this Mac", danger = true, onClick = onForget, leading = { RowIcon(FerbIcons.link, danger = true) })
+        }
+    }
+}
+
+/**
+ * The connection sheet (kb PHN-752): which Mac, how the link stands in plain words with its mark, the path and what it
+ * means for him (on the shared relay, the relay sheet's own list of what works there), the link's own words for why it
+ * can't connect, Try again while it isn't connected, and the way to the Mac tab for the rest.
+ */
+@Composable
+fun ConnectionSheet(
+    mac: String,
+    mark: com.ferb.design.components.LinkMark,
+    state: String,
+    path: String?,
+    reason: String?,
+    relay: RelayCopy?,
+    tryAgain: String?,
+    onTryAgain: (() -> Unit)?,
+    more: String,
+    onMore: () -> Unit,
+    insets: PhoneInsets = PhoneInsets.Lab,
+    onClose: (() -> Unit)? = {},
+) {
+    Sheet(title = mac, bottomInset = insets.bottom, onDismiss = onClose) {
+        SheetTitle(mac, onClose)
+        Row(Modifier.padding(top = 8.dp).semantics(mergeDescendants = true) {}, horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(28.dp).background(Ink.black, androidx.compose.foundation.shape.CircleShape), contentAlignment = Alignment.Center) {
+                com.ferb.design.components.LinkMarkView(mark, 9.dp)
+            }
+            PhoneText(state, 17f, FerbType.Semibold)
+        }
+        if (path != null) PhoneText(path, 15.5f, color = Ink.detail, lineSpacing = 2f, modifier = Modifier.padding(top = 10.dp))
+        if (reason != null) PhoneText(reason, 15.5f, color = Ink.detail, lineSpacing = 2f, modifier = Modifier.padding(top = 10.dp))
+        if (relay != null) {
+            Column(Modifier.padding(top = 14.dp).fillMaxWidth().background(Ink.fill, RoundedCornerShape(18.dp))) {
+                relay.works.forEachIndexed { i, (what, how) ->
+                    if (i > 0) Box(Modifier.fillMaxWidth().height(1.dp).background(Ink.line))
+                    Works(what, how)
+                }
+            }
+        }
+        Column(Modifier.padding(top = 18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (tryAgain != null) Pill(tryAgain, Modifier.fillMaxWidth(), PillKind.BLACK, onClick = onTryAgain)
+            Pill(more, Modifier.fillMaxWidth(), PillKind.GREY, onClick = onMore)
         }
     }
 }

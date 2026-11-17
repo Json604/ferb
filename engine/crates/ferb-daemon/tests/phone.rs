@@ -266,6 +266,8 @@ async fn answers_follow_the_question_s_kind() {
     let w = world(None).await;
     let keys = Keys::new(1);
     pair(&w, P1, &keys, true, true).await;
+    // the pairing's own window (PHN-647) lapses first: these are a locked phone's answers
+    w.clock.advance(301.0);
     let mut c = Conn::phone(&w, P1, "s").await;
     let q = |pending, hidden, own_check, routine| QuestionFacts {
         pending,
@@ -472,6 +474,8 @@ async fn a_locked_status_holds_its_words_back() {
     let w = world(None).await;
     let keys = Keys::new(1);
     pair(&w, P1, &keys, false, true).await;
+    // the pairing's own window (PHN-647) lapses first: this is a locked phone's status
+    w.clock.advance(301.0);
     ask(
         &w,
         "q",
@@ -1046,6 +1050,8 @@ async fn until_i_m_back_goes_only_with_a_yes_to_the_screen_question_from_an_unlo
     let (k1, k2) = (Keys::new(1), Keys::new(2));
     pair(&w, P1, &k1, true, true).await;
     pair(&w, P2, &k2, true, false).await;
+    // the pairings' own windows (PHN-647) lapse first: these phones start locked
+    w.clock.advance(301.0);
     let routine = QuestionFacts {
         pending: true,
         hidden: false,

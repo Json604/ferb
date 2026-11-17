@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The starting window before Android 12 (kb PHN-632): ink0 with the launch's first frame at the centre, where the
+     app's launch then draws the same mark. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/launch_ink0" />
+    <item android:width="112dp" android:height="112dp" android:gravity="center" android:drawable="@drawable/launch_mark" />
+</layer-list>

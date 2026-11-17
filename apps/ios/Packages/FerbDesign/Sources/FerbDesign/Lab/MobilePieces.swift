@@ -60,7 +60,43 @@ public struct PlanPart: Equatable, Sendable {
     public var kind: MarkKind
     public var title: String
     public var detail: String?
-    public init(kind: MarkKind, title: String, detail: String? = nil) { self.kind = kind; self.title = title; self.detail = detail }
+    /// Not from the lab (kb PHN-733; FERB.app's CardRowView): the part's own answer in rich text, folded past 8 lines
+    /// to 3 with "Show more"; the colour its plain words take; its lines under them ("Couldn't confirm", "Updated", "You
+    /// chose"); whether it was updated; its key (where its fold is kept).
+    public var rich: [RichBlock]? = nil
+    public var tone: PartTone = .dim
+    public var notes: [PartNote] = []
+    public var updated = false
+    public var key = ""
+    /// The steps a waiting part waits on that no part answers (APP-895), each its own line under it.
+    public var sub: [PlanPart] = []
+    public init(kind: MarkKind, title: String, detail: String? = nil, rich: [RichBlock]? = nil, tone: PartTone = .dim, notes: [PartNote] = [],
+                updated: Bool = false, key: String = "", sub: [PlanPart] = []) {
+        self.kind = kind; self.title = title; self.detail = detail
+        self.rich = rich; self.tone = tone; self.notes = notes; self.updated = updated; self.key = key; self.sub = sub
+    }
+}
+
+/// The colour a part's words take (FERB.app's row content: red for a failure, amber when it needs you, the quieter
+/// grey otherwise).
+public enum PartTone: Sendable { case dim, red, amber, blue }
+
+/// A line under a part's words: a label in its tone ("Couldn't confirm: ") and the words after it.
+public struct PartNote: Equatable, Sendable {
+    public var label: String?, text: String, tone: PartTone
+    public init(label: String? = nil, text: String, tone: PartTone = .dim) { self.label = label; self.text = text; self.tone = tone }
+}
+
+extension PartTone {
+    func color(_ onFerb: Bool) -> Color {
+        let ink = CardInk(onFerb)
+        switch self {
+        case .dim: return ink.secondary
+        case .red: return ink.red
+        case .amber: return ink.amberText
+        case .blue: return ink.link
+        }
+    }
 }
 
 /// ChatPage.task: the plan line and its count, the parts (a running one on a grey fill), and Watch live and Stop
@@ -73,9 +109,26 @@ public struct TaskCard: View {
     var stopTitle = "Stop"
     var onWatch: (() -> Void)?
     var onStop: (() -> Void)?
+    /// Not from the lab (kb PHN-726): FERB.app's running status line, and once ended its footer and code's lines.
+    var status: String? = nil
+    var footer: String? = nil
+    var footerLines: [String] = []
+    /// Not from the lab (kb PHN-726): which parts show their own live picture (FERB.app's RowPreview), its picture once
+    /// one came, and what a tap on it does.
+    var watching: [Bool] = []
+    var pictures: [UIImage?] = []
+    var onPicture: ((Int) -> Void)? = nil
+    @Environment(\.onFerb) private var onFerb
 
     public init(headline: String, progress: String, parts: [PlanPart], watchTitle: String = "Watch live", stopTitle: String = "Stop",
-                onWatch: (() -> Void)? = nil, onStop: (() -> Void)? = nil) {
+                onWatch: (() -> Void)? = nil, onStop: (() -> Void)? = nil, status: String? = nil, footer: String? = nil, footerLines: [String] = [],
+                watching: [Bool] = [], pictures: [UIImage?] = [], onPicture: ((Int) -> Void)? = nil) {
+        self.watching = watching
+        self.pictures = pictures
+        self.onPicture = onPicture
+        self.status = status
+        self.footer = footer
+        self.footerLines = footerLines
         self.headline = headline
         self.progress = progress
         self.parts = parts
@@ -88,14 +141,24 @@ public struct TaskCard: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text(headline).type(14, .medium, Ink.detail)
+                Text(headline).type(14, .medium, CardInk(onFerb).secondary)
                 Spacer()
-                Text(progress).type(14, .medium, Ink.detail).monospacedDigit()
+                Text(progress).type(14, .medium, CardInk(onFerb).secondary).monospacedDigit()
             }
             .padding(.horizontal, 10).padding(.top, 8).padding(.bottom, 4)
-            ForEach(Array(parts.enumerated()), id: \.offset) { _, p in
-                part(p.kind, p.title, p.detail)
-                    .background(p.kind == .running ? Ink.fill : .clear, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            ForEach(Array(parts.enumerated()), id: \.offset) { i, p in
+                part(p, watching: i < watching.count && watching[i], picture: i < pictures.count ? pictures[i] : nil, index: i)
+                    .background(p.kind == .running ? CardInk(onFerb).fill : .clear, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+            if let status {
+                Text(status).type(13.5, .medium, CardInk(onFerb).secondary).lineLimit(1).padding(.horizontal, 10).padding(.top, 6)
+            }
+            if footer != nil || !footerLines.isEmpty {
+                VStack(alignment: .leading, spacing: 3) {
+                    if let footer { Text(footer).type(14.5, .semibold, CardInk(onFerb).primary) }
+                    ForEach(footerLines, id: \.self) { Text($0).type(13.5, .regular, CardInk(onFerb).secondary) }
+                }
+                .padding(.horizontal, 10).padding(.top, 8).padding(.bottom, 4)
             }
             if parts.contains(where: { $0.kind == .running || $0.kind == .asking }) {
                 HStack(spacing: 8) {
@@ -106,17 +169,44 @@ public struct TaskCard: View {
             }
         }
         .padding(8)
-        .background(Ink.white, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .background(CardInk(onFerb).card, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
     }
 
-    private func part(_ kind: MarkKind, _ title: String, _ detail: String?) -> some View {
-        HStack(alignment: .top, spacing: 12) {
+    private func part(_ p: PlanPart, watching: Bool = false, picture: UIImage? = nil, index: Int = 0) -> some View {
+        let (kind, title) = (p.kind, p.title)
+        return HStack(alignment: .top, spacing: 12) {
             Mark(kind: kind)
             VStack(alignment: .leading, spacing: 1) {
-                Text(title).type(15.5, kind == .waiting ? .regular : .semibold, kind == .waiting ? Ink.faint : Ink.black)
-                if let detail { Text(detail).type(14, .regular, Ink.detail) }
+                HStack(spacing: 6) {
+                    Text(title).type(15.5, kind == .waiting ? .regular : .semibold, kind == .waiting ? CardInk(onFerb).faint : CardInk(onFerb).primary)
+                    if p.updated {
+                        Text("UPDATED").font(.system(size: 10, weight: .bold)).tracking(0.5).foregroundStyle(.white)
+                            .padding(.horizontal, 5).background(Color(hex: 0x1F6FEB), in: RoundedRectangle(cornerRadius: 4))
+                    }
+                }
+                if let detail = p.detail { Text(detail).type(14, .regular, p.tone.color(onFerb)) }
+                if let rich = p.rich {
+                    // the part's own answer as FERB.app's row shows it: rich text, past 8 lines folded to 3
+                    let look = RichLook(size: 14.5, ink: CardInk(onFerb).primary, dim: CardInk(onFerb).secondary, link: CardInk(onFerb).link, codeFill: CardInk(onFerb).fill)
+                    RichWords(richText(rich, look), look: look,
+                              key: p.key, fold: .row, more: "Show more", width: 250)
+                }
+                ForEach(Array(p.notes.enumerated()), id: \.offset) { _, n in
+                    (Text(n.label ?? "").fontWeight(.semibold).foregroundColor(n.tone.color(onFerb)) + Text(n.text).foregroundColor(n.label == nil ? n.tone.color(onFerb) : CardInk(onFerb).secondary))
+                        .font(.system(size: 13.5))
+                }
             }
             Spacer(minLength: 0)
+            if watching {
+                // the row's own live picture (FERB.app's RowPreview: 22 points, the amber ring, no dot)
+                Button { onPicture?(index) } label: {
+                    Group { if let picture { Image(uiImage: picture).resizable().scaledToFill() } else { Ink.darkFill } }
+                        .frame(width: 26, height: 26).clipShape(Circle())
+                        .overlay(Circle().stroke(Ink.amber.opacity(0.65), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Live preview of \(title)")
+            }
         }
         .padding(10)
         .accessibilityElement(children: .combine)

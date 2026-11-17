@@ -49,11 +49,32 @@ class FerbApplication : Application() {
         private set
     val scope = MainScope()
 
+    /** An activity was made in this process already: the next one is a warm start (StartLog, the launch). */
+    var launched = false
+
     /** The activity on screen, for the system's fingerprint prompt (never kept beyond its life). */
     @Volatile var front: WeakReference<Activity> = WeakReference(null)
 
+    /**
+     * The home screen's words (the lab's corpus.json), read on a background thread from the start so the activity's
+     * first frame never waits for them (PHN-633); the view model takes them when it is made.
+     */
+    private val corpusLoad = java.util.concurrent.FutureTask {
+        runCatching { assets.open("corpus.json").bufferedReader().use { com.ferb.app.model.Corpus(it.readText()) } }.getOrNull()
+    }
+
+    /** The corpus, waiting for its read if it is still under way (null when it can't be read). */
+    fun corpus(): com.ferb.app.model.Corpus? = runCatching { corpusLoad.get() }.getOrNull()
+
     override fun onCreate() {
         super.onCreate()
+        // kb PHN-657: on a debuggable build the app's lines are kept in a file too, and a stalled main thread says where
+        if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+            AppLog.keepIn(java.io.File(filesDir, "ferb-app.log"))
+            AppLog.watchMain()
+        }
+        StartLog.once("application")
+        Thread(corpusLoad, "ferb-corpus").start()
         prefs = Prefs(this)
         session = Session { SystemClock.elapsedRealtime() }
         phone = FerbPhone.create(this)
@@ -62,13 +83,22 @@ class FerbApplication : Application() {
         signals.stayConnected = prefs.stayConnected && StayConnectedService.running
         notifier = Notifier(this, api, prefs, session)
         local = LocalFiles.forPhone(this)
-        scope.launch { phone.start() }
+        scope.launch {
+            val began = SystemClock.uptimeMillis()
+            val s = phone.start()
+            StartLog.once("phone open", "${s.javaClass.simpleName}, ${SystemClock.uptimeMillis() - began} ms: library, keys, link and store")
+        }
         signals.start()
         // the phone's own facts for FERB on the Mac (T-1214): from Android's callbacks, sent when they change
-        reporter = DeviceReporter(DeviceSensors.snapshot(this))
+        // the first facts ask several system services (a second on a busy phone, kb PHN-633): read off the main thread,
+        // then the callbacks and the report start from them
+        reporter = DeviceReporter(com.ferb.app.model.DeviceFacts())
         sensors = DeviceSensors(this, reporter, prefs, scope)
-        sensors.start()
-        reporter.start(scope, phone.state, phone.link) { api.reportDevice(it) }
+        scope.launch {
+            reporter.seed(withContext(Dispatchers.Default) { DeviceSensors.snapshot(this@FerbApplication) })
+            sensors.start()
+            reporter.start(scope, phone.state, phone.link) { api.reportDevice(it) }
+        }
         scope.launch { signals.foreground.collect { session.foreground(it) } }
         tellMacOnLock(scope, session, api, local)
         notifier.start(scope)

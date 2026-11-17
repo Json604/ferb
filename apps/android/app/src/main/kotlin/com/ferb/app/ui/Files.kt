@@ -72,6 +72,7 @@ import com.ferb.design.components.SkyLabel
 import com.ferb.design.components.TopBar
 import com.ferb.design.components.pressable
 import com.ferb.design.screens.PhoneInsets
+import com.ferb.design.screens.paddingOverBottom
 import com.ferb.mobile.FileEntry
 import com.ferb.mobile.FoundFile
 import com.ferb.mobile.LinkPhase
@@ -89,7 +90,9 @@ import java.util.Date
  */
 @Composable
 fun Files(vm: FerbViewModel, ui: UiState, insets: PhoneInsets, waiting: PhoneTab?, onTab: (PhoneTab) -> Unit, onProfile: () -> Unit, host: Host) {
-    val transfers by vm.transfers.list.collectAsState()
+    // a message's own files show with the message in the chat, not here (kb PHN-691)
+    val moving by vm.transfers.list.collectAsState()
+    val transfers = remember(moving) { moving.filterNot { it.message } }
     val batches by vm.transfers.batches.collectAsState()
     val folder = ui.files.folder
     val search = ui.files.search
@@ -126,11 +129,51 @@ fun Files(vm: FerbViewModel, ui: UiState, insets: PhoneInsets, waiting: PhoneTab
                 }
             }
         }
-        Row(Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = insets.bottom + 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.paddingOverBottom(insets, 8.dp, start = 16.dp, end = 16.dp, top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Pill("Send files to your Mac", Modifier.weight(1f), PillKind.BLACK, FerbIcons.sendFile, onClick = { host.pickFiles(false) })
             Pill(stringResource(R.string.files_send_folder), kind = PillKind.GREY, icon = FerbIcons.folder, fill = false, onClick = { host.pickFolder(false) })
         }
     }
+}
+
+/**
+ * How many of a list's [total] rows to compose now: a screenful and more at once, then [REVEAL_STEP] more on each frame
+ * after, so a folder of 500 (a page, PHN-609) never holds one frame for all of them (it held 494 ms on an emulator, and
+ * about 2 s on his phone, kb PHN-715). The rows past the first screen are below the fold while they come; the page,
+ * its slide and its rows look and move as before.
+ */
+@Composable
+private fun revealed(key: Any, total: Int): Int {
+    var n by remember(key) { androidx.compose.runtime.mutableIntStateOf(REVEAL_FIRST) }
+    androidx.compose.runtime.LaunchedEffect(key, total) {
+        while (n < total) {
+            androidx.compose.runtime.withFrameNanos { }
+            n += REVEAL_STEP
+        }
+    }
+    return minOf(n, total)
+}
+
+private const val REVEAL_FIRST = 40
+private const val REVEAL_STEP = 40
+
+/** A folder's row, a composable of its own: rows already there are skipped when more come (kb PHN-715). */
+@Composable
+private fun EntryRow(vm: FerbViewModel, e: FileEntry) {
+    val context = LocalContext.current
+    CardRow(
+        e.name, detail(context, e), onClick = { vm.openEntry(e) },
+        leading = { if (e.dir) RowIcon(FerbIcons.folder) else FileIcon(e.name, 26.dp) },
+        trailing = { if (e.locked) FerbIcon(FerbIcons.lockFill, 15f, Ink.faint) else Opens() },
+    )
+}
+
+/** A search's row, a composable of its own (as [EntryRow]). */
+@Composable
+private fun FoundRow(vm: FerbViewModel, e: FoundFile) {
+    val context = LocalContext.current
+    CardRow(e.name, foundDetail(context, e), onClick = { vm.openFound(e) },
+        leading = { if (e.dir) RowIcon(FerbIcons.folder) else FileIcon(e.name, 26.dp) }, trailing = { Opens() })
 }
 
 /** What the Files page shows under its search field: the places, a folder (by its depth) or a search's answer. */
@@ -191,10 +234,10 @@ private fun Found(vm: FerbViewModel, ui: UiState) {
             val f = s.found ?: return
             if (f.files.isEmpty()) line(stringResource(R.string.search_none, s.query))
             else Card {
-                f.files.forEachIndexed { i, e ->
+                val n = revealed(s.query to s.path, f.files.size)
+                f.files.take(n).forEachIndexed { i, e ->
                     if (i > 0) Divide()
-                    CardRow(e.name, foundDetail(context, e), onClick = { vm.openFound(e) },
-                        leading = { if (e.dir) RowIcon(FerbIcons.folder) else FileIcon(e.name, 26.dp) }, trailing = { Opens() })
+                    FoundRow(vm, e)
                 }
             }
             // more pages (PHN-609): "Load more" while the Mac says there are; the plain line only when it doesn't page
@@ -260,13 +303,10 @@ private fun FolderView(vm: FerbViewModel, ui: UiState) {
         return
     }
     Card(Modifier.padding(top = 4.dp)) {
-        f.entries.forEachIndexed { i, e ->
+        val n = revealed(f.path, f.entries.size)
+        f.entries.take(n).forEachIndexed { i, e ->
             if (i > 0) Divide()
-            CardRow(
-                e.name, detail(context, e), onClick = { vm.openEntry(e) },
-                leading = { if (e.dir) RowIcon(FerbIcons.folder) else FileIcon(e.name, 26.dp) },
-                trailing = { if (e.locked) FerbIcon(FerbIcons.lockFill, 15f, Ink.faint) else Opens() },
-            )
+            EntryRow(vm, e)
         }
     }
     if (f.cut) PhoneText(stringResource(R.string.files_cut, f.entries.size, f.total.toInt()), 14f, FerbType.Medium, ink.low, Modifier.padding(start = 8.dp, top = 10.dp))

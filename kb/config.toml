@@ -6,7 +6,8 @@ coverage = true
 # Every tracked file must belong to exactly one area in kb/areas.toml, except these.
 ownership = true
 # ownership_ignore = [".gitignore", "README*", "LICENSE*", "docs/**"]
-# test_globs = ["tests/**", "**/*_test.go"]
+# The defaults (kb.py DEFAULT_CONFIG) plus Android's instrumented tests, which run on a phone or emulator.
+test_globs = ["tests/**", "test/**", "**/tests/**", "**/test/**", "**/Tests/**", "**/__tests__/**", "**/test_*.py", "**/*_test.py", "**/*_test.go", "**/*.test.*", "**/*.spec.*", "**/*Tests.swift", "**/androidTest/**"]
 # Generate .claude/rules/kb-<area>.md (path-scoped rules that Claude Code loads when it touches the area's files).
 claude_rules = true
 

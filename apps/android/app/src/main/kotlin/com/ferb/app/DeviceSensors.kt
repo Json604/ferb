@@ -49,7 +49,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  * where Android gives it without a permission.
  *
  * The city only when the owner turned it on in This phone and Android allowed ACCESS_COARSE_LOCATION (SENSE-420, kb
- * PHN-532): fixes from the passive provider with a 1 km minimum distance (no cost of its own: it hears fixes other apps
+ * PHN-638): fixes from the passive provider with a 1 km minimum distance (no cost of its own: it hears fixes other apps
  * asked for) and one fresh network fix when turned on or at start; the city from Android's Geocoder, asked only after a
  * move of a kilometre or more ([PlaceKeeper]). Without ACCESS_BACKGROUND_LOCATION (never asked) Android gives this app
  * little or no location while it is in the background.

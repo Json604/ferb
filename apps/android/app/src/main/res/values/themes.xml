@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Edge to edge over the sky (the activity draws the bars' colour itself); black behind it before the first frame. -->
+    <!-- Edge to edge over the sky (the activity draws the bars' colour itself). Before the first frame the starting
+         window shows the launch's first frame, FERB's mark on ink0 (kb PHN-632; values-v31 for Android 12's splash);
+         MainActivity sets the window's own background to plain ink0 once the app draws. -->
     <style name="Theme.Ferb" parent="android:Theme.Material.NoActionBar">
-        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:windowBackground">@drawable/launch_background</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">false</item>
