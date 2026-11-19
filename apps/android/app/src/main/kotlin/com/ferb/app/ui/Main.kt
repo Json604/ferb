@@ -596,8 +596,9 @@ private fun AnswerRow(vm: FerbViewModel, row: ChatRow.Answer, host: Host) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         for (c in a.above) ResultCard(c, Modifier.padding(end = 28.dp))
         if (a.bubble) FerbRichBubble(copy = a.copy) {
-            val tail = remember(a.note, a.lines) {
-                listOfNotNull(a.note?.let { "Couldn't confirm: $it" to true }) + a.lines.map { it to false }
+            val tail = remember(a.gaps, a.note, a.lines) {
+                a.gaps.map { "${com.ferb.app.model.GapLines.LABEL} $it" to true } +
+                    listOfNotNull(a.note?.let { "Couldn't confirm: $it" to true }) + a.lines.map { it to false }
             }
             com.ferb.design.components.RichBlocks(a.blocks, onBlack, row.key, Fold.ANSWER, more = stringResource(R.string.show_all),
                 less = stringResource(R.string.show_less), tail = tail)

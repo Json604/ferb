@@ -20,6 +20,9 @@ pub const KINDS: [&str; 3] = ["turn", "reply", "notice"];
 /// A day's first page and each earlier one (`chat_history.py:17`; decision: DMN-555).
 pub const PAGE: i64 = 30;
 pub const PAGE_MAX: i64 = 200;
+/// The migration that removes the copies an older FERB.app filed of a task it had already shown (0066; decision:
+/// APP-979): a turn with no request and no goal whose task has a turn with the same status and answer on an earlier day.
+pub const REPAIR_VERSION: i64 = 66;
 /// Entries one call may write (`chat_history.py:20`; decision: DMN-555).
 pub const WRITE_MAX: usize = 500;
 pub const REF_MAX: usize = 200;

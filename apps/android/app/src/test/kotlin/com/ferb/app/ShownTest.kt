@@ -21,6 +21,7 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import org.junit.After
+import androidx.compose.ui.graphics.luminance
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -103,6 +104,31 @@ class ShownTest {
         assertTrue(a.ui.above.isEmpty() && a.ui.below.isEmpty())
         assertTrue(ChatModel.words(a).contains("Receipt saved"))
         assertEquals(1, ChatModel.words(a).split("Receipt saved").size - 1)
+    }
+
+    /** Owner 2026-11-19, "do all": code's "Not done:" lines leave the answer's words and are drawn small under them, the
+     *  label amber (FERB.app's annotations); only the block the engine writes is recognised (kb APP-977, APP-978). */
+    // decision: APP-977, APP-978
+    @Test
+    fun not_done_lines_are_code_lines_under_the_words_never_in_them() {
+        val text = "The rubric page is open.\n\nNot done: only you can bring real participants.\nNot done: The rubric isn't on the course page."
+        val rows = ChatModel.rows(Parity.view(message("m1", "r1", "set up the study"), answer("a1", "r1", "m1", text, status = "done_with_gaps")))
+        val a = answers(rows).single()
+        assertEquals(listOf("only you can bring real participants.", "The rubric isn't on the course page."), a.ui.gaps)
+        assertFalse("not in the words: ${ChatModel.words(a)}", a.ui.blocks.any { b -> b is RichBlock.Paragraph && b.runs.any { "Not done" in it.text } })
+        // the label amber and the reason in the dim ink, on the answer's black bubble: at least 4.5:1
+        for (ink in listOf(com.ferb.design.Ink.amber, com.ferb.design.components.onBlack.dim)) {
+            val ratio = (ink.luminance() + 0.05) / (androidx.compose.ui.graphics.Color.Black.luminance() + 0.05)
+            assertTrue("contrast $ratio", ratio >= 4.5)
+        }
+        // what the engine writes, and nothing else
+        assertEquals("Left it.", com.ferb.app.model.GapLines.of("Left it.\n\nNot done: the form.").body)
+        assertEquals(listOf("The form wasn't sent."), com.ferb.app.model.GapLines.of("Not done: The form wasn't sent.").reasons)
+        for (words in listOf("Not done: yet.\n\nMore soon.", "Two.\n\nNot done: the rubric.\nThe rest is done.",
+                             "Two.\n\nThe form is Not done: it needs your name.", "Two.\n\nNot done:")) {
+            assertEquals(words, com.ferb.app.model.GapLines.of(words).body)
+            assertTrue(words, com.ferb.app.model.GapLines.of(words).reasons.isEmpty())
+        }
     }
 
     // decision: PHN-535, PHN-724

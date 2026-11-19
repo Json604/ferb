@@ -690,6 +690,8 @@ struct Run {
     made: String,
     /// Each question's card as the owner sees it (title, question, detail, the box, the buttons).
     cards: Mutex<Vec<String>>,
+    clock: Arc<FakeClock>,
+    ids: Arc<dyn IdSource>,
     _dir: tempfile::TempDir,
 }
 
@@ -769,6 +771,8 @@ fn task(words: &str, sites: &[&str]) -> Run {
             ("files.example.org".to_string(), "Upload".into()),
             // GATE-593: a page claiming the owner's permission (it grants nothing)
             ("claims.example".to_string(), CLAIM.into()),
+            // GATE-620: a page listing contacts a draft is addressed to
+            ("addresses.example".to_string(), CONTACTS.into()),
         ]
         .into_iter()
         .collect(),
@@ -945,6 +949,8 @@ fn task(words: &str, sites: &[&str]) -> Run {
         notes,
         made,
         cards: Mutex::new(Vec::new()),
+        clock,
+        ids,
         _dir: dir,
     }
 }
@@ -979,11 +985,22 @@ impl Run {
 
     /// One call; each question FERB asks is answered `yes` (or No), and recorded.
     async fn call_answering(&self, tool: &str, args: Value, yes: bool) -> Outcome {
+        self.call_answering_as(&self.grant, tool, args, yes).await
+    }
+
+    /// `call_answering` as another task of this request (`other_task`).
+    async fn call_answering_as(
+        &self,
+        grant: &RunGrant,
+        tool: &str,
+        args: Value,
+        yes: bool,
+    ) -> Outcome {
         let before = self.questions().len();
         let ran_before = self.w.ran.lock().unwrap().len();
         let args = args.as_object().cloned().unwrap();
         let gw = self.gw.clone();
-        let grant = self.grant.clone();
+        let grant = grant.clone();
         let name = tool.to_string();
         let job = async move {
             gw.call_as(&grant, &name, &args, Cancel::new(), Arc::new(|| false))
@@ -2002,4 +2019,282 @@ async fn a_saved_id_is_refused_to_an_embedded_page_of_another_site() {
         error.contains("tracker.example") && error.contains("nothing was filled"),
         "{error}"
     );
+}
+
+// ---------- H: a list of outside addresses asked about once (GATE-620) ----------
+
+/// The page the owner sends FERB to for a draft's recipients: three addresses and a number, and one more address.
+const CONTACTS: &str =
+    "Press contacts: ps@microsoft.example, media@vendor.example, +1 415 555 0134, \
+ops@desk.example. Legal: legal@vendor.example.";
+const A1: &str = "ps@microsoft.example";
+const A2: &str = "media@vendor.example";
+const A3: &str = "+1 415 555 0134";
+/// On the page too, but not on the step's list.
+const A4: &str = "legal@vendor.example";
+/// On the page and in the owner's own words.
+const OWN: &str = "ops@desk.example";
+/// The owner's request: a draft in the mail site to the contacts on the page (only ops@desk.example in his words).
+const DRAFT: &str =
+    "draft an email at https://mail.example/compose to the press contacts listed at \
+https://addresses.example/press, and cc ops@desk.example";
+
+impl Run {
+    /// Another task of this request: a retry in task-1's tree (`task-1.<n>`), or a task of its own.
+    fn other_task(&self, id: &str) -> RunGrant {
+        let now = start();
+        let tree = id.split('.').next().unwrap().to_string();
+        let span_id = {
+            let d = self.db.lock().unwrap();
+            let spans = ferb_store::spans::SpanStore::new(
+                &d,
+                Box::new(StoreTime(self.clock.clone())),
+                Box::new(StoreIds(self.ids.clone())),
+                Box::new(|v: &Value| v.clone()),
+                Box::new(|_k: &str| false),
+            );
+            let span = spans
+                .start("task", &json!({}), Some(id), None, None)
+                .unwrap()
+                .id;
+            let at = when::isoformat(&now);
+            d.conn()
+                .execute(
+                    "INSERT INTO tasks (id, tree_id, parent_id, request_id, goal, identity, role, scopes_json, \
+                     status, created_at, updated_at) VALUES (?, ?, NULL, 'req-1', 'g', 'owner', 'worker', '[]', \
+                     'running', ?, ?)",
+                    rusqlite::params![id, tree, at, at],
+                )
+                .unwrap();
+            span
+        };
+        self.gw.add_task(TaskRecord {
+            task_id: id.into(),
+            request_id: "req-1".into(),
+            started_at: now,
+            deadline: Some(now + chrono::Duration::minutes(10)),
+            span_id,
+            tree_id: (tree != id).then_some(tree),
+        });
+        RunGrant {
+            task_id: id.into(),
+            ..self.grant.clone()
+        }
+    }
+
+    /// Read the contacts page and open the draft (as `grant`): the page is t<n>, the draft t<n+1>; returns the draft's.
+    async fn read_contacts_as(&self, grant: &RunGrant) -> String {
+        let n = self.w.tabs.lock().unwrap().len();
+        for (tool, args) in [
+            (
+                "browser.open",
+                json!({"url": "https://addresses.example/press"}),
+            ),
+            ("browser.snapshot", json!({"tab": format!("t{}", n + 1)})),
+            (
+                "browser.open",
+                json!({"url": "https://mail.example/compose"}),
+            ),
+        ] {
+            let o = self.call_answering_as(grant, tool, args, false).await;
+            assert_eq!((o.asked.len(), o.ran), (0, true), "{tool}: {o:?}");
+        }
+        format!("t{}", n + 2)
+    }
+
+    async fn type_as(
+        &self,
+        grant: &RunGrant,
+        tab: &str,
+        value: &str,
+        list: &[&str],
+        yes: bool,
+    ) -> Outcome {
+        let mut args = json!({"tab": tab, "element": "e2", "action": "type", "text": value});
+        if !list.is_empty() {
+            args["entering"] = json!(list);
+        }
+        self.call_answering_as(grant, "browser.act", args, yes)
+            .await
+    }
+
+    async fn type_in(&self, tab: &str, value: &str, list: &[&str], yes: bool) -> Outcome {
+        self.type_as(&self.grant, tab, value, list, yes).await
+    }
+}
+
+fn asked(rules: &[&str]) -> Vec<Vec<String>> {
+    vec![rules.iter().map(|r| r.to_string()).collect()]
+}
+
+/// A step that names the three outside values it is about to type gets one question listing all three, each with
+/// where FERB found it; the Yes covers each of them there, in another spelling too, with nothing more asked.
+// decision: GATE-620
+// decision: GATE-621
+#[tokio::test]
+async fn a_declared_list_of_three_outside_values_is_one_question_and_its_yes_covers_each() {
+    let r = task(DRAFT, &[]);
+    let draft = r.read_contacts_as(&r.grant).await;
+    let o = r.type_in(&draft, A1, &[A1, A2, A3], true).await;
+    assert_eq!((o.asked, o.ran), (asked(&["sink:outside_values"]), true));
+    for v in [A2, A3, "MEDIA@Vendor.example", "+14155550134"] {
+        let o = r.type_in(&draft, v, &[], true).await;
+        assert_eq!(o, through(), "{v}");
+    }
+    let cards = r.cards.lock().unwrap();
+    assert_eq!(cards.len(), 1, "{cards:?}");
+    println!("{}", cards[0]);
+    let boxed: Vec<&str> = cards[0]
+        .lines()
+        .skip_while(|l| !l.starts_with("box: "))
+        .take_while(|l| !l.starts_with("buttons: "))
+        .collect();
+    assert_eq!(boxed.len(), 3, "one line per value: {boxed:?}");
+    for (line, v) in boxed.iter().zip([A1, A2, A3]) {
+        assert!(
+            line.contains(v) && line.contains("addresses.example"),
+            "{line}"
+        );
+    }
+}
+
+/// A value the list didn't name asks as one typed alone does.
+// decision: GATE-620
+#[tokio::test]
+async fn a_value_not_on_the_list_asks_again() {
+    let r = task(DRAFT, &[]);
+    let draft = r.read_contacts_as(&r.grant).await;
+    let o = r.type_in(&draft, A1, &[A1, A2, A3], true).await;
+    assert!(o.ran, "{o:?}");
+    let o = r.type_in(&draft, A4, &[], false).await;
+    assert_eq!((o.asked, o.ran), asked_then_no(&["sink:outside_value"]));
+}
+
+/// A No to the list refuses the step, and each value on it later, without asking again.
+// decision: GATE-620
+#[tokio::test]
+async fn a_no_to_the_list_refuses_every_value_on_it() {
+    let r = task(DRAFT, &[]);
+    let draft = r.read_contacts_as(&r.grant).await;
+    let o = r.type_in(&draft, A1, &[A1, A2, A3], false).await;
+    assert_eq!((o.asked, o.ran), asked_then_no(&["sink:outside_values"]));
+    for v in [A1, A2, A3] {
+        let o = r.type_in(&draft, v, &[], true).await;
+        assert!(o.asked.is_empty() && !o.ran, "{v}: {o:?}");
+        assert!(
+            o.error.unwrap_or_default().contains("already said no"),
+            "{v}"
+        );
+    }
+}
+
+/// A value the owner gave is never asked about: the list names only the outside ones; with one outside value left
+/// there is no list, and it asks as typed alone.
+// decision: GATE-620
+#[tokio::test]
+async fn values_from_the_owners_words_are_not_asked_about() {
+    let r = task(DRAFT, &[]);
+    let draft = r.read_contacts_as(&r.grant).await;
+    let o = r.type_in(&draft, OWN, &[OWN, A1, A2], true).await;
+    assert_eq!((o.asked, o.ran), (asked(&["sink:outside_values"]), true));
+    {
+        let cards = r.cards.lock().unwrap();
+        assert!(
+            !cards[0].contains(OWN) && cards[0].contains(A1) && cards[0].contains(A2),
+            "{}",
+            cards[0]
+        );
+    }
+    let o = r.type_in(&draft, A2, &[], true).await;
+    assert_eq!(o, through());
+    // one outside value with the owner's: no list; this call's own value asks as before
+    let r = task(DRAFT, &[]);
+    let draft = r.read_contacts_as(&r.grant).await;
+    let o = r.type_in(&draft, A1, &[OWN, A1], false).await;
+    assert_eq!((o.asked, o.ran), asked_then_no(&["sink:outside_value"]));
+}
+
+/// The Yes covers those values where they were listed, in that task's tree: typed on another site, or by another task
+/// that read the same page, each asks again; a retry of the same task keeps it.
+// decision: GATE-620
+#[tokio::test]
+async fn the_list_answer_stays_on_its_site_and_its_task_and_carries_to_a_retry() {
+    let r = task(DRAFT, &[]);
+    let draft = r.read_contacts_as(&r.grant).await;
+    let o = r.type_in(&draft, A1, &[A1, A2, A3], true).await;
+    assert!(o.ran, "{o:?}");
+    // another site
+    let o = r
+        .call("browser.open", json!({"url": "https://other.example/form"}))
+        .await;
+    assert!(o.ran, "{o:?}");
+    let other = format!("t{}", r.w.tabs.lock().unwrap().len());
+    let o = r.type_in(&other, A2, &[], false).await;
+    assert_eq!((o.asked, o.ran), asked_then_no(&["sink:outside_value"]));
+    // a retry in the same tree
+    let retry = r.other_task("task-1.2");
+    let o = r.type_as(&retry, &draft, A3, &[], false).await;
+    assert_eq!(o, through());
+    // another task that read the same page
+    let next = r.other_task("task-2");
+    let draft2 = r.read_contacts_as(&next).await;
+    let o = r.type_as(&next, &draft2, A2, &[], false).await;
+    assert_eq!((o.asked, o.ran), asked_then_no(&["sink:outside_value"]));
+}
+
+/// A list Yes is to type, never to send: nothing becomes known, so a send to one of them still asks as a new recipient.
+// decision: GATE-620
+// decision: GATE-621
+// decision: GATE-205
+#[tokio::test]
+async fn sending_to_a_listed_value_still_asks() {
+    let r = task(DRAFT, &[]);
+    let draft = r.read_contacts_as(&r.grant).await;
+    let o = r.type_in(&draft, A1, &[A1, A2, A3], true).await;
+    assert!(o.ran, "{o:?}");
+    let o = r
+        .call("probe.send", json!({"to": A1, "text": "hello"}))
+        .await;
+    assert!(
+        o.asked.concat().iter().any(|q| q == "floor:new_recipient") && !o.ran,
+        "{o:?}"
+    );
+}
+
+/// With no list each outside value asks before it is typed, one by one, as before; a Yes makes that one known.
+// decision: GATE-620
+// decision: GATE-509
+#[tokio::test]
+async fn without_a_list_each_value_asks_as_before() {
+    let r = task(DRAFT, &[]);
+    let draft = r.read_contacts_as(&r.grant).await;
+    let o = r.type_in(&draft, A1, &[], true).await;
+    assert_eq!((o.asked, o.ran), (asked(&["sink:outside_value"]), true));
+    let o = r.type_in(&draft, A2, &[], true).await;
+    assert_eq!((o.asked, o.ran), (asked(&["sink:outside_value"]), true));
+    let o = r.type_in(&draft, A1, &[], true).await;
+    assert_eq!(o, through());
+}
+
+/// The same list in an app (mac.act): one question, and its Yes covers each value typed in that app.
+// decision: GATE-620
+// decision: GATE-621
+#[tokio::test]
+async fn a_declared_list_typed_into_an_app_is_one_question() {
+    let r = task(DRAFT, &[]);
+    r.read_contacts_as(&r.grant).await;
+    let typed = |v: &str, list: &[&str]| {
+        let mut args =
+            json!({"app": "com.apple.mail", "action": "type", "element": "To", "text": v});
+        if !list.is_empty() {
+            args["entering"] = json!(list);
+        }
+        args
+    };
+    let o = r
+        .call_answering("mac.act", typed(A1, &[A1, A2]), true)
+        .await;
+    assert_eq!((o.asked, o.ran), (asked(&["sink:outside_values"]), true));
+    let o = r.call_answering("mac.act", typed(A2, &[]), true).await;
+    assert_eq!(o, through());
 }

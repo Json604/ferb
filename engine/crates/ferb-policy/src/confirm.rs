@@ -163,6 +163,10 @@ pub struct Need {
     pub reaches: Option<Target>,
     /// GATE-586: a wider key a Yes to this need also answers Yes for the rest of the task tree.
     pub grants: String,
+    /// GATE-620: a typed outside value's key in a list answer ([`listed_key`]): that answer, Yes or No, covers it.
+    pub listed: String,
+    /// GATE-620: a list question's per-value keys, each recorded with the owner's answer to it.
+    pub lists: Vec<String>,
 }
 
 impl Need {
@@ -177,6 +181,8 @@ impl Need {
             spent_on_ask: false,
             reaches: None,
             grants: String::new(),
+            listed: String::new(),
+            lists: Vec::new(),
         }
     }
 }
@@ -2654,12 +2660,7 @@ pub fn decide(
     let who = who(target);
     let who_keys: Vec<String> = who.iter().map(|(k, _)| k.clone()).collect();
     let to_site = site_is_destination(kinds.iter().copied(), &who_keys);
-    let where_ = f
-        .place
-        .filter(|p| !p.is_empty())
-        .map(str::to_string)
-        .or_else(|| target.site.clone().filter(|s| !s.is_empty()))
-        .unwrap_or_default();
+    let where_ = entry_place(f.place, target);
     let get = |k: &str| provenance::get(arg_sources, k);
     let mut needs: Vec<Need> = Vec::new();
     for k in [Kind::PAY, Kind::ACCOUNT_SECURITY] {
@@ -2877,8 +2878,61 @@ pub fn decide(
             values.push(("amount".to_string(), ferb_py::json::python_float(a)));
         }
     }
+    // GATE-588: an address written in an AppleScript addresses someone; it isn't typed
+    let sending = !sends.is_empty() || kind == Kind::APPLESCRIPT;
+    needs.extend(outside_values(
+        &values,
+        sending,
+        target,
+        arg_sources,
+        f,
+        &where_,
+    ));
+    for n in &mut needs {
+        n.reaches = Some(target.clone());
+    }
+    needs
+}
+
+/// Where a call enters what it types: its place (an app), else its site (`decide`'s `where_`).
+pub fn entry_place(place: Option<&str>, target: &Target) -> String {
+    place
+        .filter(|p| !p.is_empty())
+        .map(str::to_string)
+        .or_else(|| target.site.clone().filter(|s| !s.is_empty()))
+        .unwrap_or_default()
+}
+
+/// GATE-620: a list question's rule; its per-value keys ([`listed_key`]) are recorded under it too.
+pub const OUTSIDE_LIST: &str = "sink:outside_values";
+
+/// GATE-620: the key a list answer records for one value entered at one place (a site, or an app): the value as
+/// `KnownDestinations` normalizes it, so a spelling of the same address or number is the same entry.
+pub fn listed_key(place: &str, value: &str) -> String {
+    let (kind, v) = destination_of(value);
+    key(&[
+        s(OUTSIDE_LIST),
+        s(&site_key(Some(place))),
+        s(&kind),
+        s(&crate::destinations::normalize(&kind, &v)),
+    ])
+}
+
+/// S4 (b): each value of the call (`values`: its recipients, contact and amount) found only in outside content, not in
+/// the owner's words, answers or own files, unless it is the owner's own contact or a known destination. `sending`:
+/// the call sends (a recipient), else a value typed at `where_`, which a list answer can cover (GATE-620).
+fn outside_values(
+    values: &[(String, String)],
+    sending: bool,
+    target: &Target,
+    arg_sources: &ArgSources,
+    f: &Facts<'_>,
+    where_: &str,
+) -> Vec<Need> {
+    let get = |k: &str| provenance::get(arg_sources, k);
+    let mut needs: Vec<Need> = Vec::new();
     let mut mine: Option<Vec<String>> = None;
-    for (k, value) in &values {
+    for (k, value) in values {
         let outside: Vec<&String> = get(k).iter().filter(|x| *x != "unknown").collect();
         let outside_owned: Vec<String> = outside.iter().map(|x| (*x).clone()).collect();
         if outside.is_empty()
@@ -2903,10 +2957,9 @@ pub fn decide(
                 continue;
             }
         }
-        // GATE-588: an address written in an AppleScript addresses someone; it isn't typed
         let what = if k == "amount" {
             "amount"
-        } else if !sends.is_empty() || kind == Kind::APPLESCRIPT {
+        } else if sending {
             "recipient"
         } else {
             "typed"
@@ -2924,16 +2977,144 @@ pub fn decide(
                 ("value", &shown_value),
                 ("origin", &shown_origins(outside.iter().map(|x| x.as_str()))),
                 ("places", &shown_places(outside.iter().map(|x| x.as_str()))),
-                ("site", &host_shown(&where_)),
+                ("site", &host_shown(where_)),
             ]),
         );
         n.destinations = dest.into_iter().collect();
+        if what == "typed" && !where_.is_empty() {
+            n.listed = listed_key(where_, value);
+        }
         needs.push(n);
     }
     for n in &mut needs {
         n.reaches = Some(target.clone());
     }
     needs
+}
+
+/// GATE-620: the values a call lists before entering them (`target.recipients`, each an address or number as typing
+/// records it, at the call's place or site), each found only in outside content: the same test, need for need, as
+/// typing each one alone (`decide`), so the worker's list names values and never says where they came from.
+pub fn listed_values(target: &Target, arg_sources: &ArgSources, f: &Facts<'_>) -> Vec<Listed> {
+    let where_ = entry_place(f.place, target);
+    if where_.is_empty() {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    for (k, value) in who(target) {
+        let labels: Vec<&str> = provenance::get(arg_sources, &k)
+            .iter()
+            .map(String::as_str)
+            .filter(|x| *x != "unknown")
+            .collect();
+        let one = [(k.clone(), value)];
+        for need in outside_values(&one, false, target, arg_sources, f, &where_) {
+            out.push(Listed {
+                need,
+                from: shown_from(&labels),
+            });
+        }
+    }
+    out
+}
+
+/// GATE-620: one listed value found only in outside content: its typed-value need and where FERB found it.
+#[derive(Debug, Clone)]
+pub struct Listed {
+    pub need: Need,
+    /// Where FERB found it, a page by its site ("mailmeteor.com"), else as `shown_place` says.
+    pub from: String,
+}
+
+/// Where a listed value was found, in a list's line: a web page by its site alone, the rest as `shown_places`.
+fn shown_from(labels: &[&str]) -> String {
+    let mut items: Vec<String> = dedup(
+        ordered_labels(labels.iter().copied())
+            .into_iter()
+            .map(|label| {
+                let (head, _, rest) = py::partition(label, ":");
+                let (kind, _, detail) = py::partition(rest, ":");
+                if head == "external"
+                    && kind == "web"
+                    && !detail.is_empty()
+                    && detail != "excluded"
+                    && detail != "trail"
+                {
+                    detail.to_string()
+                } else {
+                    shown_place(label)
+                }
+            })
+            .collect(),
+    );
+    if items.len() > SHOWN {
+        let more = items.len() - SHOWN;
+        items.truncate(SHOWN);
+        items.push(format!("{more} more places"));
+    }
+    match items.len() {
+        0 => String::new(),
+        1 => items[0].clone(),
+        n => format!("{} and {}", items[..n - 1].join(", "), items[n - 1]),
+    }
+}
+
+/// GATE-620: one question for `each` (from [`listed_values`], two or more): every value with where FERB found it, the
+/// place it is entered at; its key names the place and the values, and the owner's answer is also recorded for each
+/// value's [`listed_key`]. A Yes makes nothing known for later tasks (no `destinations`): it is not a Yes to send.
+pub fn outside_list(listed: &[Listed]) -> Need {
+    let each: Vec<&Need> = listed.iter().map(|l| &l.need).collect();
+    let mut lists: Vec<String> = each.iter().map(|n| n.listed.clone()).collect();
+    lists.sort();
+    lists.dedup();
+    let site = each
+        .first()
+        .and_then(|n| n.values.get("site"))
+        .unwrap_or("")
+        .to_string();
+    let kinds: BTreeSet<&str> = each
+        .iter()
+        .map(|n| value_kind(n.values.opt("value")))
+        .collect();
+    let noun = match kinds.into_iter().collect::<Vec<_>>().as_slice() {
+        ["email address"] => "addresses",
+        ["phone number"] => "phone numbers",
+        _ => "addresses and numbers",
+    };
+    let lines: Vec<String> = listed
+        .iter()
+        .map(|l| format!("{} — {}", l.need.values.opt("value"), l.from))
+        .collect();
+    let shown: Vec<&str> = each.iter().map(|n| n.values.opt("value")).collect();
+    let mut origins: Vec<String> = Vec::new();
+    let mut places: Vec<&str> = Vec::new();
+    for l in listed {
+        let v = l.need.values.opt("origin").to_string();
+        if !v.is_empty() && !origins.contains(&v) {
+            origins.push(v);
+        }
+        if !l.from.is_empty() && !places.contains(&l.from.as_str()) {
+            places.push(&l.from);
+        }
+    }
+    let one_place = places.len() == 1;
+    // each per-value key names the place, so the list's key is those keys
+    let mut n = Need::new(
+        OUTSIDE_LIST,
+        key(&[s(OUTSIDE_LIST), json!(lists)]),
+        Values::of(&[
+            ("count", &each.len().to_string()),
+            ("noun", noun),
+            ("values", &shown.join(", ")),
+            ("lines", &lines.join("\n")),
+            ("origin", &origins.join("; ")),
+            ("from", if one_place { places[0] } else { "" }),
+            ("site", &site),
+        ]),
+    );
+    n.lists = lists;
+    n.reaches = each.first().and_then(|n| n.reaches.clone());
+    n
 }
 
 /// `bulk_delete` (S4 c): a permanent delete of a folder the owner didn't name, counted (`facts`: fs.usage).

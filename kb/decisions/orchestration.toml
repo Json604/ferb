@@ -2157,3 +2157,13 @@ rule = "Refines ORCH-651's line and ORCH-653's question. A gap's line is \"Not d
 why = "Live 2026-11-18: a gapped result printed each unmet condition's whole sentence after \"Not done:\" (the done parts read as not done) and one cause twice; the owner read it as the check not knowing a person had been left out on purpose."
 paths = ["engine/crates/ferb-supervisor/src/lines.rs::gap_lines", "engine/crates/ferb-supervisor/src/lines.rs::after_gaps_question", "engine/crates/ferb-supervisor/src/flow/attempt.rs::different_ending", "engine/crates/ferb-supervisor/src/flow/tree.rs"]
 live = ["LIVE-957"]
+
+[ORCH-678]
+title = "A check's question keeps what it found missing and its route for the attempt after the answer"
+by = "owner"
+date = 2026-11-19
+status = "active"
+words = "yes make them"
+words_source = "Owner 2026-11-19, to: when the checker asks you something, its notes on what is missing are dropped, so after 'keep trying' the next attempt lacks the route; keep them."
+rule = "When the check's next is ask, code keeps its missing and instructions with the question; after the owner's answer the next attempt gets them first, labelled as the check's notes, then the owner's answer, which decides whether the route is still wanted. A question without notes adds nothing. No limit changes."
+why = "A retry carried the check's notes; a question dropped them, so 'keep trying' restarted without the route the check had seen."

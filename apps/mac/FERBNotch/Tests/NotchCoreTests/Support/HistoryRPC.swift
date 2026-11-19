@@ -10,6 +10,11 @@ final class HistoryRPC: DaemonRPCTransport, @unchecked Sendable {
     private(set) var calls: [(String, [String: Any])] = []
     var refuse = false
     var failPuts = false
+    /// What `chat.status` says is running and which results it hasn't shown yet; `results.ack` marks them shown.
+    var running: [[String: Any]] = []
+    var results: [[String: Any]] = []
+    /// `trace.get`'s answer per task.
+    var traces: [String: [String: Any]] = [:]
 
     func held(_ id: UUID) -> [String: Any]? { lock.lock(); defer { lock.unlock() }; return rows[id.uuidString] }
     func count(_ method: String) -> Int { lock.lock(); defer { lock.unlock() }; return calls.filter { $0.0 == method }.count }
@@ -48,8 +53,14 @@ final class HistoryRPC: DaemonRPCTransport, @unchecked Sendable {
         case "chat.history.days":
             return ["days": Array(Set(rows.values.compactMap { $0["day"] as? String })).sorted(by: >)]
         case "chat.status":
-            return ["results": [], "approvals": [], "loops": [], "notices": [], "running": [], "paused": false,
+            return ["results": results, "approvals": [], "loops": [], "notices": [], "running": running, "paused": false,
                     "stopped": false]
+        case "results.ack":
+            let shown = Set(params["task_ids"] as? [String] ?? [])
+            results.removeAll { shown.contains($0["task_id"] as? String ?? "") }
+            return ["ok": true]
+        case "trace.get":
+            return traces[params["task_id"] as? String ?? ""] ?? [:]
         case "chat.attach":
             return ["session_id": "S1", "capabilities": []]
         default:

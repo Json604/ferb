@@ -4,7 +4,8 @@
 
 use crate::confirm::{
     app_label, shown_quoted, Apps, Missing, Need, Values, ACCOUNT_SECURITY, BROWSER_PAGE, BULK,
-    FOREGROUND, PAIR, QUOTED_CHARS, TERMINAL_INPUT, TLS_OFF, TLS_QUESTION, UNREAD_AMOUNT,
+    FOREGROUND, OUTSIDE_LIST, PAIR, QUOTED_CHARS, TERMINAL_INPUT, TLS_OFF, TLS_QUESTION,
+    UNREAD_AMOUNT,
 };
 use crate::py;
 
@@ -387,6 +388,16 @@ fn part(n: &Need, alongside: &[&str]) -> R<String> {
             v.req("value")?,
             v.req("origin")?
         ),
+        // GATE-620: the list a step names before it types them
+        OUTSIDE_LIST => format!(
+            "this types these {} {} on {}, which FERB found only in outside content ({}), not in your words, your \
+             answers or your own files: {}; one Yes covers exactly these there for the rest of this task",
+            v.req("count")?,
+            v.req("noun")?,
+            v.req("site")?,
+            v.req("origin")?,
+            v.req("values")?
+        ),
         "sink:outside_value" => format!(
             "FERB found the {} {} only in outside content ({}), not in your words, your answers or your own files",
             v.req("what")?,
@@ -563,6 +574,14 @@ fn short(n: &Need, alongside: &[&str]) -> R<Option<String>> {
             "type {}, which FERB found only in {}",
             v.req("value")?,
             v.req("origin")?
+        ),
+        OUTSIDE_LIST => format!(
+            "type these {} {} on {}, which FERB found only in {}: {}",
+            v.req("count")?,
+            v.req("noun")?,
+            v.req("site")?,
+            v.req("origin")?,
+            v.req("values")?
         ),
         "sink:outside_value" => format!(
             "use the {} {}, which FERB found only in {}",
@@ -1178,6 +1197,27 @@ fn card_of(n: &Need, alongside: &[&str]) -> Option<Card> {
                 dest.to_string(),
                 "Send",
                 "Don't send",
+            ))
+        }
+        // GATE-620: the list, one question; the box holds each value with where FERB found it, one per line
+        OUTSIDE_LIST => {
+            let (count, noun, site) = (v.opt("count"), v.opt("noun"), v.opt("site"));
+            let (question, saw) = if v.has("from") {
+                let from = v.opt("from");
+                (format!("Use these {count} {noun} from {from}?"), format!("it only saw them on {from}"))
+            } else {
+                (format!("Use these {count} {noun}?"), "it only saw them where each line says".to_string())
+            };
+            Some(c(
+                question,
+                format!(
+                    "FERB is about to type them on {site}. You didn't give FERB these {noun}; {saw}. A page can plant \
+                     these to get your data, so check they're right. Yes covers only these, on {site}, for this task; \
+                     any other asks again."
+                ),
+                v.opt("lines").to_string(),
+                "Use them",
+                "Don't use them",
             ))
         }
         "sink:outside_value" => {

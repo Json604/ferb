@@ -157,16 +157,23 @@ fn a_fresh_store_is_the_one_python_makes() {
     // 0065 (T-1202): stage 3's paired phones and their audit
     let phones = ferb_store::phones::SCHEMA_VERSION;
     assert_eq!(phones, gaps + 1);
+    // 0066 (APP-979): a data repair of chat_history, no schema object of its own
+    let repair = ferb_store::chat_history::REPAIR_VERSION;
+    assert_eq!(repair, phones + 1);
 
-    assert_eq!(applied[applied.len() - 3..], [stage_2, gaps, phones]);
-    assert_eq!(json!(applied[..applied.len() - 3]), python["applied"]);
-    assert_eq!(known_schema(), phones);
+    assert_eq!(
+        applied[applied.len() - 4..],
+        [stage_2, gaps, phones, repair]
+    );
+    assert_eq!(json!(applied[..applied.len() - 4]), python["applied"]);
+    assert_eq!(known_schema(), repair);
     assert_eq!(json!(stage_2 - 1), python["known_schema"]);
     let versions = rust["schema_version"].as_array().unwrap();
-    let (before, last) = versions.split_at(versions.len() - 3);
+    let (before, last) = versions.split_at(versions.len() - 4);
     assert_eq!(last[0][0], json!(stage_2));
     assert_eq!(last[1][0], json!(gaps));
     assert_eq!(last[2][0], json!(phones));
+    assert_eq!(last[3][0], json!(repair));
     assert_eq!(
         json!(before),
         python["schema_version"],
@@ -676,8 +683,8 @@ fn a_populated_store_at_0063_upgrades_to_take_done_with_gaps() {
     let tasks_before = dump(c, "SELECT rowid, * FROM tasks ORDER BY rowid");
     let context_before = dump(c, "SELECT rowid, * FROM task_context ORDER BY rowid");
 
-    // 0065 (T-1202, the paired phones) follows
-    assert_eq!(db.migrate().unwrap(), vec![64, 65]);
+    // 0065 (T-1202, the paired phones) and 0066 (APP-979, chat_history's copies) follow
+    assert_eq!(db.migrate().unwrap(), vec![64, 65, 66]);
     let c = db.conn();
     assert_eq!(
         dump(c, "SELECT rowid, * FROM tasks ORDER BY rowid"),

@@ -59,6 +59,8 @@ once for this task";
 pub const RETRY_STALE: &str =
     "the action was tried again while the owner was being asked, so this answer is out of \
 date; check what happened, then ask again with the newest retry_action";
+/// GATE-620: the typing tools' argument that lists the values a step is about to type (tool_changes.json).
+pub const ENTERING: &str = "entering";
 pub const YES: &str = "Yes";
 pub const NO: &str = "No";
 pub const ALLOW_WINDOW: &str = "Yes, and don't ask for 30 min";

@@ -22,6 +22,33 @@ public struct AnswerUi: Equatable, Sendable {
     public var pages: [String]
     public var files: [CardLine]
     public var statusWords: String?
+    /// Code's "Not done:" reasons, drawn small under the words with the note (kb APP-978); not in `blocks`.
+    public var gaps: [String] = []
+}
+
+/// The "Not done:" lines code writes under a delivered-with-gaps answer (ferb-supervisor `with_gap_lines`; FERB.app's
+/// GapLines, TurnCard.swift; Android's GapLines): after the answer and a blank line, one line per reason. Only that block
+/// is recognised: a paragraph every line of which starts with "Not done: " and has a reason, after the answer's first
+/// paragraph (or the whole text when the answer was empty). The same words inside the answer's own paragraphs stay words
+/// (kb APP-978).
+public struct GapLines: Equatable, Sendable {
+    public static let label = "Not done:"
+    public let body: String
+    public let reasons: [String]
+
+    public init(_ text: String) {
+        let paragraphs = text.components(separatedBy: "\n\n")
+        let lead = Self.label + " "
+        var kept: [String] = [], reasons: [String] = []
+        for (i, paragraph) in paragraphs.enumerated() {
+            let lines = paragraph.components(separatedBy: "\n")
+            let block = (i > 0 || paragraphs.count == 1)
+                && lines.allSatisfy { $0.hasPrefix(lead) && !$0.dropFirst(lead.count).allSatisfy(\.isWhitespace) }
+            if block { reasons += lines.map { String($0.dropFirst(lead.count)) } } else { kept.append(paragraph) }
+        }
+        body = reasons.isEmpty ? text : kept.joined(separator: "\n\n")
+        self.reasons = reasons
+    }
 }
 
 /// A notice's layout (FERB.app's NoticeView).
@@ -90,9 +117,17 @@ public enum Present {
     public static func answer(_ a: AnswerView, card: Bool, hidden: [String], taskId: String?) -> AnswerUi {
         kept("a\u{1}\(a.hashValue)\u{1}\(a.text.count)\u{1}\(card)\u{1}\(hidden)\u{1}\(taskId ?? "")") {
             MainGuard.offMain("answer_shown")
-            let s = FerbMobile.answerShown(answer: a, card: card, hidden: hidden)
+            // code's "Not done:" lines leave the words and are drawn small under them (kb APP-978)
+            let full = GapLines(a.text)
+            let gaps = a.displayText.map { GapLines($0).reasons }.flatMap { $0.isEmpty ? nil : $0 } ?? full.reasons
+            var words = a
+            if !gaps.isEmpty {
+                words.text = full.body
+                words.displayText = a.displayText.map { GapLines($0).body }
+            }
+            let s = FerbMobile.answerShown(answer: words, card: card, hidden: hidden)
             return AnswerUi(
-                bubble: s.bubble, blocks: s.blocks.map(block), copy: s.copy, note: s.note, lines: s.lines,
+                bubble: s.bubble || !gaps.isEmpty, blocks: s.blocks.map(block), copy: s.copy, note: s.note, lines: s.lines,
                 details: s.details.map(block), sites: s.sites,
                 above: s.above.compactMap { shown($0, words: nil) }, below: s.below.compactMap { shown($0, words: nil) },
                 pages: s.pages.map(page),
@@ -100,7 +135,7 @@ public enum Present {
                     CardLine(title: ChatModel.fileName(f.path), detail: ChatModel.folderOf(f.path), file: true,
                              taskId: f.index != nil ? taskId : nil, index: f.index.map(Int.init))
                 },
-                statusWords: s.statusWords)
+                statusWords: s.statusWords, gaps: gaps)
         }
     }
 

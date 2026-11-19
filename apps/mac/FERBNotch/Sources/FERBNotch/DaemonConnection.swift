@@ -98,7 +98,7 @@ extension NotchModel {
         if bodyVisible && viewingToday { await fetchLearningDigest(); await fetchGuessBacklog() }
         let rootsBefore = Set(workSessions.values.compactMap(\.backendTaskID))
             .union(session.backendTaskID.map { [$0] } ?? [])
-            .union(conversation.turns.filter { ["working", "interrupted", "needs_user"].contains($0.status) }.compactMap(\.backendTaskID))
+            .union(conversation.turns.filter { Self.waitingStatuses.contains($0.status) }.compactMap(\.backendTaskID))
         let snapshotRevision = taskStateRevision
         defer { refreshingStatus = false }
         let previousSize = panelSize
@@ -167,7 +167,16 @@ extension NotchModel {
                 guard taskStateRevision == snapshotRevision else { return }
             }
             if session.backendTaskID == nil, session.activeTaskID == nil {
-                let remembered = preferences.string(forKey: "FERBActiveTaskID")
+                var remembered = preferences.string(forKey: Self.rememberedTaskKey)
+                // APP-975: the task last sent from here is taken up again only while it is still under way: running,
+                // its result never shown, or a turn of it here still waiting. A task that ended and was shown is over;
+                // brought back, its old answer was filed again as a new turn dated now, on the day of the restart.
+                if let id = remembered, runningTasks[id] == nil,
+                   !results.contains(where: { $0["task_id"] as? String == id }),
+                   !conversation.turns.contains(where: { $0.backendTaskID == id && Self.waitingStatuses.contains($0.status) }) {
+                    preferences.removeObject(forKey: Self.rememberedTaskKey)
+                    remembered = nil
+                }
                 if let id = remembered, let goal = runningTasks[id] {
                     session.resumeBackendTask(id, goal: goal)
                 } else if let remembered,
@@ -175,7 +184,7 @@ extension NotchModel {
                     restoreResult(result)
                 } else if let id = running.last?["task_id"] as? String, let goal = runningTasks[id] {
                     session.resumeBackendTask(id, goal: goal)
-                    preferences.set(id, forKey: "FERBActiveTaskID")
+                    preferences.set(id, forKey: Self.rememberedTaskKey)
                 } else if let remembered {
                     await recoverTask(remembered)
                     guard taskStateRevision == snapshotRevision else { return }
@@ -203,6 +212,11 @@ extension NotchModel {
             daemonLink.failed(unreachable: Self.unreachable(error))
         }
     }
+
+    /// The task this chat sent last (`plan`), taken up again at the next launch while it is under way (APP-975).
+    static let rememberedTaskKey = "FERBActiveTaskID"
+    /// A turn's states while its task is still FERB's business: what a reconnect reconciles.
+    static let waitingStatuses: Set<String> = ["working", "interrupted", "needs_user"]
 
     /// The daemon's goal is shown as FERB's description of the task, never as the owner's message; empty when unknown.
     private func restoreResult(_ result: [String: Any]) {
@@ -269,7 +283,7 @@ extension NotchModel {
             session.draft = draft
             session.attach(sources)
         } else { session.resumeBackendTask(taskID, goal: goal) }
-        preferences.set(taskID, forKey: "FERBActiveTaskID")
+        preferences.set(taskID, forKey: Self.rememberedTaskKey)
         expand()
     }
 
@@ -419,7 +433,7 @@ extension NotchModel {
             // Several asks (ORCH-319): the asks answered at once, receipts, the plan line, and the card.
             conversation.showPlan(id: localID, text: event["text"] as? String ?? "", details: event)
             saveConversation()
-            preferences.set(id, forKey: "FERBActiveTaskID")
+            preferences.set(id, forKey: Self.rememberedTaskKey)        // a newer task of this chat replaces it
             runningTasks[id] = Self.heading(event, empty: session.draft)
             if pendingStops.remove(localID) != nil { requestDaemonStop() }
         case "part":
@@ -723,6 +737,10 @@ extension NotchModel {
     func receiveOutcome(_ event: [String: Any], announce: Bool = true, recordEvent: Bool = true) {
         guard let taskID = event["task_id"] as? String else { return }
         if recordEvent { taskStateRevision += 1 }
+        // Its result is placed now: the task is no longer one to take up again at a launch (APP-975)
+        if event["status"] != nil, preferences.string(forKey: Self.rememberedTaskKey) == taskID {
+            preferences.removeObject(forKey: Self.rememberedTaskKey)
+        }
         // ENG-10: a turn another device sent (or one this run adopted) is written from the engine's entries only; the
         // rest (running tasks, the session, the announcement) is as for any task
         let watched = watchedTurn(taskID: taskID, requestID: event["request_id"] as? String) != nil
@@ -967,8 +985,10 @@ extension NotchModel {
         let alreadyAnnounced = knownCompletedTasks.contains(id)
         let status = event["status"] as? String ?? "failed"
         let answer = event["answer"] as? String ?? event["summary"] as? String ?? "No answer was recorded."
+        // the result keeps the task's own time (APP-975): a resumed task's turn is filed when it ended, never "now"
         guard session.finishBackendWork(taskID: id, status: status, answer: answer,
-                                       artifacts: event["artifacts"] as? [String] ?? []) else { return }
+                                       artifacts: event["artifacts"] as? [String] ?? [],
+                                       at: LiveProgress.time(event["at"])) else { return }
         workSessions = workSessions.filter { $0.value.backendTaskID != id }
         knownCompletedTasks.insert(id)
         runningTasks.removeValue(forKey: id)

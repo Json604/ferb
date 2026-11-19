@@ -89,6 +89,25 @@ impl Next {
     }
 }
 
+/// ORCH-678: the check's notes carried with its question to the attempt after the owner's answer; the answer, which
+/// follows them, decides whether the route is still wanted. Empty when the check left neither.
+pub fn check_notes(choice: &Next) -> String {
+    let mut notes = String::new();
+    if !choice.missing.is_empty() {
+        notes.push_str(&format!(
+            "\nWhat the check found missing: {}",
+            choice.missing
+        ));
+    }
+    if !choice.instructions.is_empty() {
+        notes.push_str(&format!(
+            "\nWhat the check would try next, if the owner's answer below wants more: {}",
+            choice.instructions
+        ));
+    }
+    notes
+}
+
 /// `_Changed`: the change records a check reads and their blocks.
 #[derive(Default)]
 struct Changed {
@@ -710,7 +729,7 @@ impl Inner {
                 if tree.asks_in_place {
                     match self.ask_in_place(tree, &task, &choice.question).await {
                         Ok(more) => {
-                            instructions = more;
+                            instructions = check_notes(&choice) + &more;
                             continue;
                         }
                         Err(true) => break,
@@ -1175,6 +1194,10 @@ impl Inner {
             if !question.is_empty() {
                 let mut next = Next::of("ask");
                 next.question = question;
+                // ORCH-678: what the check found missing and the route it saw stay with the question, so the attempt
+                // after the owner's answer has them (before, an ask kept only its question)
+                next.missing = checked.missing.trim().to_string();
+                next.instructions = checked.instructions.trim().to_string();
                 return next;
             }
         }

@@ -372,7 +372,9 @@ public enum ChatModel {
         switch row {
         case .owner(_, let t, _, _), .ferb(_, let t), .line(_, let t, _, _), .small(_, let t, _): return t
         case .rich(_, _, let copy, let tail, _): return ([copy] + tail).joined(separator: "\n")
-        case .answer(_, let ui): return ([ui.copy] + [ui.note].compactMap { $0 } + ui.lines).filter { !$0.isEmpty }.joined(separator: "\n")
+        case .answer(_, let ui):
+            return ([ui.copy] + ui.gaps.map { GapLines.label + " " + $0 } + [ui.note].compactMap { $0 } + ui.lines)
+                .filter { !$0.isEmpty }.joined(separator: "\n")
         case .notice(_, let text, _, _): return text
         case .task(let t): return t.headline + "\n" + t.parts.map(\.title).joined(separator: "\n")
         default: return ""
@@ -412,7 +414,9 @@ public enum ChatModel {
     /// failure's or stop's words, else its state words; then "Couldn't confirm", "Updated: …" and "You chose …".
     static func part(_ row: FerbMobile.CardRow, display: String, words: String?, key: String) -> PlanPart {
         var p = PlanPart(kind: markOf(display), title: row.label, key: key)
-        let text = row.text.flatMap { $0.isBlank ? nil : $0 }
+        // code's "Not done:" lines under a part's words: small notes, "Not done:" amber, as FERB.app (kb APP-978)
+        let gapped = row.text.map(GapLines.init)
+        let text = gapped.flatMap { $0.body.isBlank ? nil : $0.body }
         switch display {
         case "preview": p.detail = "Preview: I'd do this step"
         case "previewRunning": p.detail = "Preview: as if working…"
@@ -425,6 +429,7 @@ public enum ChatModel {
             if let text { p.rich = Present.rich(text) } else if row.question == nil { p.detail = words; p.tone = .amber }
         default: p.detail = words
         }
+        for reason in gapped?.reasons ?? [] { p.notes.append(PartNote(label: GapLines.label + " ", text: reason, tone: .amber)) }
         if let note = row.note { p.notes.append(PartNote(label: "Couldn't confirm: ", text: note, tone: .amber)) }
         if let why = row.why, display == "updated" { p.notes.append(PartNote(text: why.hasPrefix("Updated") ? why : "Updated: " + why, tone: .blue)) }
         if let chosen = row.chosen { p.notes.append(PartNote(text: "You chose " + chosen, tone: .dim)) }

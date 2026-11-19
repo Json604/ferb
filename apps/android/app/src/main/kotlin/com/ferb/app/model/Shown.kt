@@ -38,7 +38,33 @@ data class AnswerUi(
     val pages: List<String>,
     val files: List<CardLine>,
     val statusWords: String?,
+    /** Code's "Not done:" reasons, drawn small under the words with the note (kb APP-978); not in [blocks]. */
+    val gaps: List<String> = emptyList(),
 )
+
+/**
+ * The "Not done:" lines code writes under a delivered-with-gaps answer (ferb-supervisor `with_gap_lines`; FERB.app's
+ * GapLines, TurnCard.swift): after the answer and a blank line, one line per reason. Only that block is recognised: a
+ * paragraph every line of which starts with "Not done: " and has a reason, after the answer's first paragraph (or the
+ * whole text when the answer was empty). The same words inside the answer's own paragraphs stay words (kb APP-978).
+ */
+data class GapLines(val body: String, val reasons: List<String>) {
+    companion object {
+        const val LABEL = "Not done:"
+        fun of(text: String): GapLines {
+            val paragraphs = text.split("\n\n")
+            val kept = ArrayList<String>()
+            val reasons = ArrayList<String>()
+            val lead = "$LABEL "
+            paragraphs.forEachIndexed { i, p ->
+                val lines = p.split("\n")
+                val block = (i > 0 || paragraphs.size == 1) && lines.all { it.startsWith(lead) && it.substring(lead.length).isNotBlank() }
+                if (block) lines.forEach { reasons += it.substring(lead.length) } else kept += p
+            }
+            return GapLines(if (reasons.isEmpty()) text else kept.joinToString("\n\n"), reasons)
+        }
+    }
+}
 
 /** A notice's layout (FERB.app's NoticeView): its reminder boxes, whether one says it all, its facts and pages. */
 data class NoticeUi(val boxSays: Boolean, val above: List<ResultShown>, val notes: List<ResultShown>, val pages: List<String>)
@@ -109,9 +135,14 @@ object Present {
     fun answer(a: AnswerView, card: Boolean, hidden: List<String>, taskId: String?, zone: ZoneId = ZoneId.systemDefault()): AnswerUi =
         keep(listOf("a", a, card, hidden, taskId)) {
             MainGuard.offMain("answer_shown")
-            val s = com.ferb.mobile.answerShown(a, card, hidden)
+            // code's "Not done:" lines leave the words and are drawn small under them (kb APP-978)
+            val shownGaps = GapLines.of(a.displayText ?: a.text)
+            val fullGaps = GapLines.of(a.text)
+            val gaps = shownGaps.reasons.ifEmpty { fullGaps.reasons }
+            val words = if (gaps.isEmpty()) a else a.copy(text = fullGaps.body, displayText = a.displayText?.let { GapLines.of(it).body })
+            val s = com.ferb.mobile.answerShown(words, card, hidden)
             AnswerUi(
-                bubble = s.bubble,
+                bubble = s.bubble || gaps.isNotEmpty(),
                 blocks = s.blocks.map(::block),
                 copy = s.copy,
                 note = s.note,
@@ -126,6 +157,7 @@ object Present {
                         taskId = if (f.index != null) taskId else null, index = f.index?.toInt())
                 },
                 statusWords = s.statusWords,
+                gaps = gaps,
             )
         }
 

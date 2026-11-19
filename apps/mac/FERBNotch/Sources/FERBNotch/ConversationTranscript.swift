@@ -618,8 +618,9 @@ private struct AnswerView: View {
 
         /// A collapsed answer's own lines ("Couldn't confirm", code's lines) stay in view under the fade.
         var collapsedLines: NSAttributedString? {
-            guard split.note != nil || !codeLines.isEmpty else { return nil }
-            return MarkdownTextAttributes.annotations(note: split.note, lines: codeLines)
+            let gaps = GapLines(visibleParts.answer).reasons          // code's "Not done:" lines too (APP-978)
+            guard split.note != nil || !codeLines.isEmpty || !gaps.isEmpty else { return nil }
+            return MarkdownTextAttributes.annotations(note: split.note, lines: codeLines, gaps: gaps)
         }
     }
 

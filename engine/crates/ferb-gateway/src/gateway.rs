@@ -1511,9 +1511,10 @@ fn sorted_dumps(v: &Value) -> String {
 pub fn hashed_args(tool: &dyn Tool, args: &Args) -> Args {
     let f = tool.facts();
     let dropped: HashSet<&String> = f.target_args.iter().chain(f.method_args.iter()).collect();
+    // GATE-620: the list a step names before typing is a declaration, not part of the action
     let hashed: Args = args
         .iter()
-        .filter(|(k, _)| !dropped.contains(k))
+        .filter(|(k, _)| !dropped.contains(k) && k.as_str() != ENTERING)
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
     tool.ledger_args(args, &hashed).unwrap_or(hashed)
@@ -3516,6 +3517,60 @@ impl Gateway {
         Ok(Some(shown.unwrap_or(raw)))
     }
 
+    /// GATE-620: the addresses and numbers a step lists in `entering` before it types them where it acts. Each one's
+    /// origin is code's own test, the same as typing it alone (`confirm::listed_values`), never the step's word; one
+    /// the owner gave, a known one or one already answered in this tree is left out. Two or more left are one question
+    /// (`confirm::outside_list`), in place of this call's own question for any of them; its answer covers each of them
+    /// there for the rest of the tree (`authorize_held`, by `Need::listed`). Fewer change nothing.
+    fn outside_list(
+        &self,
+        c: &Call,
+        root: &str,
+        facts: &confirm::Facts<'_>,
+        needs: &mut Vec<Need>,
+    ) -> R<()> {
+        let mut values: Vec<String> = Vec::new();
+        let listed = c.args.get(ENTERING).and_then(Value::as_array);
+        for v in listed
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .filter_map(provenance::typed_destination)
+        {
+            if !values.contains(&v) {
+                values.push(v);
+            }
+        }
+        if values.len() < 2 {
+            return Ok(());
+        }
+        let target = Target {
+            recipients: values,
+            site: c.checked.target.site.clone(),
+            page: c.checked.target.page.clone(),
+            ..Target::default()
+        };
+        let sources = self.arg_sources(&target, &c.rec, &c.grant)?;
+        let reopened = self.reopened(root)?;
+        let mut each: Vec<confirm::Listed> = Vec::new();
+        for l in confirm::listed_values(&target, &sources, facts) {
+            if l.need.listed.is_empty()
+                || each.iter().any(|m| m.need.listed == l.need.listed)
+                || self.find(root, &l.need.listed, &reopened)?.is_some()
+            {
+                continue;
+            }
+            each.push(l);
+        }
+        if each.len() < 2 {
+            return Ok(());
+        }
+        let list = confirm::outside_list(&each);
+        needs.retain(|n| !(n.rule == "sink:outside_value" && list.lists.contains(&n.listed)));
+        needs.push(list);
+        Ok(())
+    }
+
     /// `_floor_needs` (D23 floor, D33, S4, SQ6, L39): `confirm.decide` over the call's kinds and its facts' kinds.
     async fn floor_needs(&self, c: &mut Call) -> R<Result<Vec<Need>, Map<String, Value>>> {
         let root = c.root();
@@ -3593,6 +3648,8 @@ impl Gateway {
                     needs.push(n);
                 }
             }
+            // decision: GATE-620 — the outside values a step lists before typing them: one question for the list
+            self.outside_list(c, &root, &facts, &mut needs)?;
             (needs, deletes)
         };
         c.file_sent = file_sent;
@@ -4427,6 +4484,10 @@ impl Gateway {
                     row = self.find(root, &partner, &reopened)?;
                 }
             }
+            // decision: GATE-620 — a list's answer, Yes or No, covers each value on it, where it is typed, in this tree
+            if row.is_none() && !need.listed.is_empty() {
+                row = self.find(root, &need.listed, &reopened)?;
+            }
             if let Some(r) = &row {
                 if !r.granted {
                     out.ids.push(r.id.clone());
@@ -4940,6 +5001,12 @@ impl Gateway {
             ids.push(
                 self.confirmations(|s| s.record(&root, &n.rule, &n.key, yes, Some(&q_span.id)))?,
             );
+        }
+        // decision: GATE-620 — the answer to a list is each listed value's answer too
+        for n in needs {
+            for k in &n.lists {
+                self.confirmations(|s| s.record(&root, &n.rule, k, yes, Some(&q_span.id)))?;
+            }
         }
         // decision: GATE-618 — the phone's Yes that gave "until I'm back" lasts only as long as it does
         if yes {

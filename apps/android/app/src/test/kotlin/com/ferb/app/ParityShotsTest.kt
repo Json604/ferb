@@ -381,9 +381,10 @@ class ParityShotsTest {
         shoot("first-run.png")
     }
 
-    /** An answer delivered with parts not done: its uncertain-step note and code's lines small and grey, "Couldn't confirm"
-     *  amber, the status words small and amber under it (FERB.app's sizes and colours; kb PHN-773), on three skies. */
-    // decision: PHN-773
+    /** An answer delivered with parts not done: its uncertain-step note and code's lines small and grey, "Not done:" and
+     *  "Couldn't confirm" amber, the status words small and amber under it (FERB.app's sizes and colours; kb PHN-773,
+     *  APP-978), on three skies. */
+    // decision: PHN-773, APP-978
     @Test
     fun an_answer_with_gaps_says_its_lines_and_status_smaller_in_their_colours() {
         val uncertain = "I'm not sure whether my last step on mail.example went through: I couldn't tell how it ended. I haven't tried it again, so nothing can happen twice."

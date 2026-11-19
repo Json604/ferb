@@ -4226,3 +4226,70 @@ rule = "For APP-759. While the owner holds the window's header and moves it, its
 why = "Each event wrote the place and posted a settings change that the notch and the model each read the settings for: 3-4 ms per event, 120 writes for 120 events. The window move was otherwise already cheap: nothing in the chat was evaluated."
 evidence = "DragWorkTests testMovingTheWindowByItsHeaderEvaluatesNothingAndSavesItsPlaceOnce; probe: 3.0-4.2 ms to 0.8-2.5 ms mean per event."
 paths = ["apps/mac/FERBNotch/Sources/FERBNotch/ChatWindow.swift::WindowDragArea", "apps/mac/FERBNotch/Sources/FERBNotch/ChatWindow.swift::ChatWindowController.windowDrag"]
+
+[APP-974]
+title = "A restart, reconnect or update never shows a finished task again or moves a turn's day"
+by = "owner"
+date = 2026-11-19
+status = "active"
+words = "btw why am i being shown this taks message now??? is it due to your breakign the messages into non-day breask or what??"
+words_source = "Owner 2026-11-19, on FERB.app's Today page (window mode) after the 09:39 update: a task that ended the day before, at 04:14, shown again as \"A task from earlier\"."
+rule = "A restart, reconnect or update of FERB.app never changes the day a past turn belongs to and never shows a finished task again. A turn keeps the time it happened. Only a task still running, or one that finished while the app was away and was never shown, may appear: once, at its own time."
+why = "The first launch on a new day filed the remembered task's old answer as a new turn dated the restart, on today's page, beside the turn it already had the day before."
+paths = ["apps/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift", "apps/mac/FERBNotch/Sources/FERBNotch/Conversation.swift::NotchModel.recordAnswer"]
+
+[APP-975]
+title = "The task last sent is taken up at a launch only while it is under way; a result keeps its own time"
+by = "agent"
+date = 2026-11-19
+status = "active"
+rule = "For APP-974. At a launch the remembered task (FERBActiveTaskID) is taken up again only if the daemon lists it running, its result is among the unshown results, or a turn of it here still waits; otherwise it is forgotten. It is also forgotten when its result is placed, and replaced by a newer task's plan. A resumed task's result files its turn at the time the daemon says it ended, never now."
+why = "The id was never cleared. With the chat in FERB's database only today's page is loaded at launch, so recordAnswer didn't find yesterday's turn and began a second one dated the restart (chat_history row of 19 Nov beside the 18 Nov turn of task 455bfe6c)."
+evidence = "ReconnectDayTests: with the fix switched off the restart test made 2 rows (one on today's page) and called trace.get; with it 1 row, 0 calls. Journal 147."
+rejected = ["Look the task's turn up on every day before filing: a scan of the whole history for a result that should not be filed at all", "Clear the id only at a launch: it would still go stale between launches"]
+paths = ["apps/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift::NotchModel.refreshDaemonStatus", "apps/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift::NotchModel.receiveOutcome", "apps/mac/FERBNotch/Sources/NotchCore/NotchSession.swift::NotchSession.finishBackendWork"]
+
+[APP-976]
+title = "Fixes are judged for every later install, never to spare the owner's own test install"
+by = "owner"
+date = 2026-11-19
+status = "active"
+words = "yeah do it, youre just worreid about my current ferb, right??? dont be, i want it better for eveyrone else that later installs, mine is anywys testing n shit."
+words_source = "Owner 2026-11-19, to the coordinator's explanation of the stray turn and the question whether to clear it from his data."
+rule = "A fix is designed for every install that will run it, including repairing what an earlier build already left in other people's data; sparing or special-casing the owner's own test install is never a reason to weaken or skip it. His own data may be repaired by hand."
+why = "He uses his install for testing; what matters is the product other people install."
+untestable = "A standing way of judging fixes, not a behaviour a test can check; each fix it shapes has its own tests."
+paths = ["apps/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift"]
+
+[APP-977]
+title = "\"Not done:\" lines are small and coloured, like \"Couldn't confirm:\", on the Mac and the phones"
+by = "owner"
+date = 2026-11-19
+status = "active"
+words = "do all"
+words_source = "Owner 2026-11-19, to the coordinator's question: \"'Not done:' lines smaller and coloured on both apps? On the Mac today they're plain answer text.\""
+rule = "Code's \"Not done:\" lines under a delivered-with-gaps answer are drawn as the \"Couldn't confirm:\" line is, on FERB.app and both phone apps: small, the label \"Not done:\" bold amber, the reason in the secondary ink, one line per reason, inside the answer's bubble; never as ordinary answer text."
+why = "On the Mac they were plain answer text, and the phones kept them full-size to match; the other code lines were already small and coloured."
+paths = ["apps/mac/FERBNotch/Sources/FERBNotch/MarkdownContent.swift", "apps/android/app/src/main/kotlin/com/ferb/app/model/Shown.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/Shown.swift"]
+
+[APP-978]
+title = "\"Not done:\" lines are recognised only as the block code writes, drawn with the annotations"
+by = "agent"
+date = 2026-11-19
+status = "active"
+rule = "For APP-977. The lines exist only in the answer's text (with_gap_lines; the entries and the app's turn carry no field). Recognised (GapLines, one rule on each platform): a paragraph after the first (or the whole text) every line of which is \"Not done: <reason>\". Taken out of the words and drawn first among the annotations at 11.5 of 12; a part's go to its notes. Contrast on the dark bubble at least 4.5:1."
+why = "A field would need the outcome, the entries and their frozen fixtures changed in the engine; the block's form is fixed by code, so no keyword search over the words is needed."
+evidence = "Mac NotDoneLinesTests (amber 8.9:1, secondary 6.0:1); Android ShownTest and the parity goldens answer-gaps-*; iPhone ChatModelTests and ParityTests' answer-gaps-* goldens. Journal 148."
+rejected = ["A gaps field from the engine (outcome lines, entries): an engine and fixture change, kept for later", "Searching the words for \"Not done\": the model's own words could carry it"]
+paths = ["apps/mac/FERBNotch/Sources/NotchCore/TurnCard.swift::GapLines", "apps/mac/FERBNotch/Sources/FERBNotch/MarkdownContent.swift::MarkdownTextAttributes.annotations", "apps/android/app/src/main/kotlin/com/ferb/app/model/Shown.kt::GapLines", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/Shown.swift::GapLines"]
+
+[APP-979]
+title = "Migration 0066 removes the copies an older FERB.app filed of a task it had already shown"
+by = "agent"
+date = 2026-11-19
+status = "active"
+rule = "For APP-974 and APP-976. Store migration 0066, run once by the daemon at its update, deletes each chat_history turn with an empty request and goal that names a task when an earlier day holds a turn of that task with the same status and answer. The earliest turn of a task always stays. chat_history is FERB.app's own page table (APP-805, DMN-555) whose rows data.delete deletes outright (STORE-424); ENG-12's no-hard-delete rule is for the 0063 tables, left untouched."
+why = "APP-975 stops new copies; copies already written stay on later days (and their days in History) on every install that took up a remembered task at a new day's first launch. Run read-only on the owner's database the rule matched exactly his one copy among 31 turns."
+evidence = "ferb-store tests/chat_history_repair.rs: copies of a shown task (one alone on its day) and of a recovered task go; the original, a later turn with another answer, an unrelated turn and a reply stay byte for byte; the day list loses the empty days; a second run changes nothing."
+rejected = ["A chat.history.delete call: the app would scan the whole history to find the copies", "Hiding the copies in the app: the rows and their days in History would stay"]
+paths = ["engine/runtime/store/migrations/0066_chat_history_recovered_duplicates.sql", "engine/crates/ferb-store/src/chat_history.rs::REPAIR_VERSION"]

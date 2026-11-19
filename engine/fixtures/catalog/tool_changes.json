@@ -21,6 +21,27 @@
       "part": "validation",
       "old": "'select' or 'cancel'",
       "new": "'select', 'cancel', 'menu' or 'perform'"
+    },
+    {
+      "decision": "GATE-621",
+      "tool": "browser.act",
+      "part": "input_schema",
+      "old": "\"title\": \"Dialog Text\"}, \"files\": {",
+      "new": "\"title\": \"Dialog Text\"}, \"entering\": {\"anyOf\": [{\"items\": {\"type\": \"string\"}, \"type\": \"array\"}, {\"type\": \"null\"}], \"default\": null, \"description\": \"type and paste: before typing several email addresses or phone numbers you found in what you read (not in the owner's words), list them all here with the first one; FERB asks the owner once for the list, not before each\", \"title\": \"Entering\"}, \"files\": {"
+    },
+    {
+      "decision": "GATE-621",
+      "tool": "ferb_browser.act",
+      "part": "input_schema",
+      "old": "\"title\": \"Dialog Text\"}, \"files\": {",
+      "new": "\"title\": \"Dialog Text\"}, \"entering\": {\"anyOf\": [{\"items\": {\"type\": \"string\"}, \"type\": \"array\"}, {\"type\": \"null\"}], \"default\": null, \"description\": \"type and paste: before typing several email addresses or phone numbers you found in what you read (not in the owner's words), list them all here with the first one; FERB asks the owner once for the list, not before each\", \"title\": \"Entering\"}, \"files\": {"
+    },
+    {
+      "decision": "GATE-621",
+      "tool": "mac.act",
+      "part": "input_schema",
+      "old": "\"title\": \"Text\"}, \"contact\": {",
+      "new": "\"title\": \"Text\"}, \"entering\": {\"anyOf\": [{\"items\": {\"type\": \"string\"}, \"type\": \"array\"}, {\"type\": \"null\"}], \"default\": null, \"description\": \"type and set_value: before typing several email addresses or phone numbers you found in what you read (not in the owner's words), list them all here with the first one; FERB asks the owner once for the list, not before each\", \"title\": \"Entering\"}, \"contact\": {"
     }
   ]
 }

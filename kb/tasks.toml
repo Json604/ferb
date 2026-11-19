@@ -881,14 +881,6 @@ status = "open"
 why = "APP-967. FERB.app files the chat by calendar day and jumps at midnight (ChatBody.swift:22-27); the phones hold the day (PHN-697). The engine decides a message's page once, when written (store, chat.history paging); the home page's last-time line; history shows pages under their dates."
 decisions = ["APP-967", "PHN-697"]
 
-[T-1270]
-title = "The sink rule asks once for a list of outside-sourced destinations (GATE-620)"
-area = "gateway"
-kind = "build"
-status = "open"
-why = "GATE-620. Today each typed destination found only in outside content is its own question. The worker names the values it is about to enter; code checks each one's origin, asks once with the list, and the Yes covers exactly those values on that site for the task."
-decisions = ["GATE-620"]
-
 [T-1271]
 title = "Later: control the Mac from the phone (the live view takes touch and typing)"
 area = "phone"
@@ -905,3 +897,11 @@ status = "open"
 why = "Owner 2026-11-18: wanted, 'BUT needs proper feature plannign - BUT not now, later'. His test of 2026-11-18: FERB typed into a Claude Code session and read the reply, but its watch loop used a worker and a checker call every round while idle. A plan comes before any code."
 decisions = ["PHN-413", "GATE-585"]
 ask = "When you want to plan it: which sessions (Claude Code, Codex, any terminal), what the phone shows and may type, and how a new reply wakes FERB without a model call while nothing happens."
+
+[T-1273]
+title = "Explore: keep the Mac working for FERB like Amphetamine (awake, lid closed, scheduled wake)"
+area = "app"
+kind = "question"
+status = "open"
+why = "Owner 2026-11-19: 'remember to add amphetamine like mac runnign capabilities in ferb since we have apple dev key now ... has to be explored first too - about keepign it close and runnign, sleeping and runnign controllign thigns etcetc'. Explore what macOS allows first."
+ask = "When the exploration is back: which of these should FERB do, and when (only while a task runs, on a schedule, on your word)?"

@@ -23,9 +23,11 @@ struct MarkdownContent: View, Equatable {
     }
 
     var body: some View {
+        // code's "Not done:" lines (ORCH-651) come out of the words and are drawn small, as the note is (APP-978)
+        let gapped = GapLines(source)
         NativeMessageText(MessageTextAttributes.joined([
-            MarkdownTextAttributes.make(source, size: baseSize),
-            MarkdownTextAttributes.annotations(note: note, lines: lines)
+            MarkdownTextAttributes.make(gapped.body, size: baseSize),
+            MarkdownTextAttributes.annotations(note: note, lines: lines, gaps: gapped.reasons, size: baseSize)
         ]))
     }
 }
@@ -33,8 +35,23 @@ struct MarkdownContent: View, Equatable {
 /// Paragraphs, lists, code and tables share one text storage, so native selection
 /// and Command-A/Command-C work across the entire message. Parsing stays inert.
 enum MarkdownTextAttributes {
-    static func annotations(note: String?, lines: [String]) -> NSAttributedString {
+    /// Code's own lines under the words: each "Not done:" reason (APP-978), "Couldn't confirm:" and code's other lines,
+    /// small (11.5 of the body's 12; the other lines 11), the labels bold amber and the words in the secondary ink.
+    static func annotations(note: String?, lines: [String], gaps: [String] = [], size: CGFloat = 12) -> NSAttributedString {
         var parts: [NSAttributedString] = []
+        if !gaps.isEmpty {
+            let small = size * 11.5 / 12
+            let block = NSMutableAttributedString(string: "")
+            for (i, reason) in gaps.enumerated() {
+                if i > 0 { block.append(plain("\n", size: small)) }
+                let label = NSMutableAttributedString(attributedString: plain(GapLines.label, size: small, bold: true))
+                label.addAttribute(.foregroundColor, value: NSColor(Palette.amber),
+                                   range: NSRange(location: 0, length: label.length))
+                block.append(label)
+                block.append(plain(" " + reason, size: small, secondary: true))
+            }
+            parts.append(block)
+        }
         if let note {
             let label = NSMutableAttributedString(attributedString: plain("Couldn't confirm: ", size: 11.5, bold: true))
             label.addAttribute(.foregroundColor, value: NSColor(Palette.amber),

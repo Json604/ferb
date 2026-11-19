@@ -454,9 +454,9 @@ final class ParityTests: XCTestCase {
                                       "lines": lines, "cards": [[String: Any]]()], task: "t-1", answers: of)
     }
 
-    /// An answer delivered with parts not done: its lines small and grey, "Couldn't confirm" amber, the status words small
-    /// and amber under it (FERB.app's sizes and colours; kb PHN-773), on three skies.
-    // decision: PHN-773
+    /// An answer delivered with parts not done: its lines small and grey, "Not done:" and "Couldn't confirm" amber, the
+    /// status words small and amber under it (FERB.app's sizes and colours; kb PHN-773, APP-978), on three skies.
+    // decision: PHN-773, APP-978
     func testGoldenAnAnswerWithGapsSaysItsLinesAndStatusSmallerInTheirColours() throws {
         let uncertain = "I'm not sure whether my last step on mail.example went through: I couldn't tell how it ended. I haven't tried it again, so nothing can happen twice."
         let text = "Left the unsent draft open for your review. It includes the requested content and leaves Sam out.\n\n"

@@ -111,6 +111,8 @@ pub enum Question {
     OutsideTyped,
     OutsideRecipient,
     OutsideAmount,
+    /// GATE-620: several outside values a step lists before typing them, one question.
+    OutsideList,
     NewRecipient,
     UnseenRecipient,
     Pay,
@@ -133,7 +135,7 @@ pub enum Question {
 }
 
 impl Question {
-    pub const ALL: [Question; 25] = [
+    pub const ALL: [Question; 26] = [
         Question::PrivateUrl,
         Question::FileSend,
         Question::FormSend,
@@ -141,6 +143,7 @@ impl Question {
         Question::OutsideTyped,
         Question::OutsideRecipient,
         Question::OutsideAmount,
+        Question::OutsideList,
         Question::NewRecipient,
         Question::UnseenRecipient,
         Question::Pay,
@@ -207,6 +210,18 @@ impl Question {
                     ("what", "amount"),
                     ("value", "<amount>"),
                     ("places", "<page>"),
+                ],
+            ),
+            Question::OutsideList => (
+                confirm::OUTSIDE_LIST,
+                &[
+                    ("count", "<n>"),
+                    ("noun", "addresses"),
+                    ("values", "<address>, <address>"),
+                    ("lines", "<address> — <page>\n<address> — <page>"),
+                    ("origin", "<page>"),
+                    ("from", "<page>"),
+                    ("site", "<site>"),
                 ],
             ),
             Question::NewRecipient => ("floor:new_recipient", &[("recipients", "<person>")]),

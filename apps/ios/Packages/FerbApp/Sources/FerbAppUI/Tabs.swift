@@ -819,7 +819,8 @@ struct AnswerRow: View {
             ForEach(Array(a.above.enumerated()), id: \.offset) { _, c in ResultCardView(c).padding(.trailing, 28) }
             if a.bubble {
                 FerbRichBubble(copy: a.copy) {
-                    let tail = (a.note.map { [("Couldn't confirm: " + $0, true)] } ?? []) + a.lines.map { ($0, false) }
+                    let tail = a.gaps.map { (GapLines.label + " " + $0, true) }
+                        + (a.note.map { [("Couldn't confirm: " + $0, true)] } ?? []) + a.lines.map { ($0, false) }
                     RichBlocksView(a.blocks, look: .onBlack, key: key, fold: .answer, more: L.s("show_all"), less: L.s("show_less"), tail: tail)
                     if !a.details.isEmpty {
                         Button { details.toggle() } label: {

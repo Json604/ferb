@@ -407,7 +407,9 @@ object ChatModel {
      * failure's or stop's words, else its state words; then "Couldn't confirm", "Updated: …" and "You chose …".
      */
     fun part(row: com.ferb.mobile.CardRow, display: String, words: String?, key: String): PlanPart {
-        val text = row.text?.takeIf { it.isNotBlank() }
+        // code's "Not done:" lines under a part's words: small notes, "Not done:" amber, as FERB.app (kb APP-978)
+        val gapped = row.text?.let(GapLines::of)
+        val text = gapped?.body?.takeIf { it.isNotBlank() }
         var detail: String? = null
         var rich: List<com.ferb.design.components.RichBlock>? = null
         var tone = com.ferb.design.components.PartTone.DIM
@@ -423,6 +425,7 @@ object ChatModel {
             else -> detail = words
         }
         val notes = buildList {
+            gapped?.reasons?.forEach { add(com.ferb.design.components.PartNote(it, GapLines.LABEL + " ", com.ferb.design.components.PartTone.AMBER)) }
             row.note?.let { add(com.ferb.design.components.PartNote(it, "Couldn't confirm: ", com.ferb.design.components.PartTone.AMBER)) }
             row.why?.takeIf { display == "updated" }?.let { add(com.ferb.design.components.PartNote(if (it.startsWith("Updated")) it else "Updated: $it", tone = com.ferb.design.components.PartTone.BLUE)) }
             row.chosen?.let { add(com.ferb.design.components.PartNote("You chose $it")) }
@@ -460,7 +463,8 @@ object ChatModel {
         is ChatRow.Ferb -> row.text
         is ChatRow.Line -> row.text
         is ChatRow.Rich -> row.copy + row.tail.joinToString("") { "\n" + it }
-        is ChatRow.Answer -> (listOf(row.ui.copy) + listOfNotNull(row.ui.note) + row.ui.lines).filter { it.isNotEmpty() }.joinToString("\n")
+        is ChatRow.Answer -> (listOf(row.ui.copy) + row.ui.gaps.map { "${GapLines.LABEL} $it" } + listOfNotNull(row.ui.note) + row.ui.lines)
+            .filter { it.isNotEmpty() }.joinToString("\n")
         is ChatRow.Notice -> row.text
         is ChatRow.Task -> row.headline + "\n" + row.parts.joinToString("\n") { it.title }
         else -> ""

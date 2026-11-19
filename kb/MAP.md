@@ -6,17 +6,17 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 
 | Area | Title | Paths | Active decisions | Open tasks | Pending live checks |
 |---|---|---|---|---|---|
-| app | FERB.app (notch UI, intro, sounds) | `apps/mac`, `apps/AGENTS.md`, `apps/docs`, `apps/output`, `apps/.gitignore`, `demo` | 337 | 14 | 42 |
+| app | FERB.app (notch UI, intro, sounds) | `apps/mac`, `apps/AGENTS.md`, `apps/docs`, `apps/output`, `apps/.gitignore`, `demo` | 343 | 15 | 42 |
 | daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 92 | 9 | 7 |
 | engine | Rust engine (the rewrite) | `engine/*`, `engine/crates`, `engine/fixtures`, `engine/packaging` | 23 | 4 | 0 |
-| gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `engine/runtime/identity` | 129 | 10 | 61 |
+| gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `engine/runtime/identity` | 130 | 9 | 61 |
 | hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extension`, `extension-store` | 192 | 9 | 40 |
 | memory | Memory and memory import | `engine/runtime/memory` | 60 | 4 | 0 |
-| orchestration | Orchestration | `ferb/orchestrator/*.py`, `engine/runtime/decide`, `ferb/clock` | 168 | 9 | 40 |
+| orchestration | Orchestration | `ferb/orchestrator/*.py`, `engine/runtime/decide`, `ferb/clock` | 169 | 9 | 40 |
 | perception | Perception | `ferb/sense` | 22 | 4 | 1 |
 | phone | Phone role, link and phone apps | `apps/android`, `apps/ios`, `engine/patches` | 364 | 13 | 18 |
 | project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `HANDOFF.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `kb`, `tools`, `spikes` | 14 | 8 | 0 |
-| prompts | Prompts and abilities | `engine/runtime/orchestrator/prompts`, `engine/runtime/abilities` | 56 | 4 | 10 |
+| prompts | Prompts and abilities | `engine/runtime/orchestrator/prompts`, `engine/runtime/abilities` | 57 | 4 | 10 |
 | release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 28 | 6 | 4 |
 | runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 58 | 6 | 6 |
 | storage | Storage | `engine/runtime/store` | 33 | 5 | 4 |
@@ -47,6 +47,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 - T-1267 (release): Failure reports still go to a workers.dev address. Put them behind your domain as reports.ferb.kartikey.xyz (a Cloudflare custom domain on the worker, recommended) or as ferb.kartikey.xyz/reports through the site?
 - T-1268 (phone): When you open FERB on the phone, your fingerprint unlocks it at once and the Mac is told when the phone reaches it. If the phone takes longer than 2 minutes to reach your Mac, FERB asks for your fingerprint once more. Is 2 minutes right, or should it be shorter or longer?
 - T-1272 (phone): When you want to plan it: which sessions (Claude Code, Codex, any terminal), what the phone shows and may type, and how a new reply wakes FERB without a model call while nothing happens.
+- T-1273 (app): When the exploration is back: which of these should FERB do, and when (only while a task runs, on a schedule, on your word)?
 
 ## Terms
 

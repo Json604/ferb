@@ -7518,3 +7518,169 @@ backdrop is masked by layers rather than by the window's shape was not measured;
 not measured (no screen recording, no synthesized pointer on his screen). The vector outline's look was checked only
 by construction (the same paths; Core Animation's `CARenderer` showed a mask under a flipped parent lands where the
 fills do).
+
+## 2026-11-19 · 147 · FERB.app: a restart on a new day filed yesterday's finished task again on today's page
+
+**What.** Owner 2026-11-19, on the Today page in window mode after the 09:39 update: "btw why am i being shown this taks
+message now??? is it due to your breakign the messages into non-day breask or what??" Then, on clearing the stray turn:
+"yeah do it, youre just worreid about my current ferb, right??? dont be, i want it better for eveyrone else that later
+installs, mine is anywys testing n shit." (kb APP-974 and APP-976, his words verbatim, the lock updated; ruling APP-975.)
+Not the day-break change.
+
+**Cause (read on a copy of his ferb.db, since deleted, and his preferences, read only).** `FERBActiveTaskID`, the task
+this chat sent last, is set at each `plan` and was never cleared; his held `455bfe6c…`, which ended on 18 Nov at 04:14
+(`task_results.shown = 1`). At the 09:39 launch nothing was running and no result was unshown, so the launch chain
+(`DaemonConnection.swift`, the idle session's branch) fell to `recoverTask(remembered)`: the session took the task up as
+resumed with an empty goal, `trace.get` gave its outcome, `handleOutcome` -> `finishBackendWork` made a receipt dated
+`Date()`, and `recordAnswer` (`Conversation.swift:129-148`) looked for the task's turn only in what was loaded. With the
+chat in FERB's database (APP-805, APP-806) a launch loads today's page and the waiting turns; yesterday's finished turn
+wasn't there, so it began a second one dated the restart: `chat_history` row `DF01BB8D-…` (day 2026-11-19, 04:09:53Z,
+request and goal empty, `done_with_gaps`, the checklist and sites cards) beside the untouched 18 Nov turn `D31F2572-…`.
+Earlier restarts on 18 Nov found that turn on the loaded Today page, so nothing showed; tomorrow's first launch would
+have added a third. The daemon offered nothing; the phones read `chat_entries` (nothing there) and take a day from each
+entry's own time, so they never showed it (read in `ferb-mobile`, not run).
+
+**Changed (APP-975).** At a launch the remembered task is taken up again only if the daemon lists it running, its result
+is among the unshown results, or a turn of it here still waits (`working`, `interrupted`, `needs_user`); otherwise it
+is removed. It is also removed when its result is placed (`receiveOutcome`) and replaced by a newer task's `plan` (as
+before). `finishBackendWork` takes `at`; `handleOutcome` passes the event's time, so a resumed task's turn is dated when
+it ended. A result that ended while the app was away already went through `results` and `recordRecovered(at:)`, once,
+at its own time.
+
+**Other installs' stray rows.** Not repaired by the app: nothing in the app or the daemon deletes a `chat_history` row
+(put, import, page, days only), and hiding it in the app would leave the row (and its day in History). Specified for the
+engine, in the report: a one-time data repair in the store.
+
+**Evidence.** New `ReconnectDayTests` 3 (launches against `HistoryRPC`, now with `chat.status` running and results,
+`results.ack` and `trace.get`): a restart on a later day with a finished, shown task (1 row, yesterday's unchanged, today
+empty, no `trace.get`, the id forgotten; a second launch adds nothing); a result that ended while away (filed once, on its
+day at its time, acknowledged, not again at the next launch); a task still running (shown working, still remembered; its
+answer dated when it ended, then forgotten). With the fix switched off the first and third fail (2 rows, one today;
+`trace.get` called; the answer dated now). `QuestionsAndNoticesTests.testRecoveredTaskIsNeverShownAsTheOwnersWords`
+now feeds its task through `results`. Touched classes (ReconnectDay, QuestionsAndNotices, ChatHistory): 42 tests, none
+failed. The whole package (`swift test`, on the final tree): 870 tests, 4 skipped, none failed. An earlier run had one
+failure, `WindowSpaceTests.testTheProfileMenuOpensOnOneClickInTheFixedSpace` (0 clicks; another app held keyboard focus,
+as its sibling's skip said), which passed 3 of 3 alone and in the second whole run.
+
+**Unverified.** On his Mac: his stray row stays until removed by hand (the coordinator's swap); the fix's effect at his
+next new-day launch.
+
+## 2026-11-19 · 148 · "Not done:" lines small and coloured on FERB.app and both phones
+
+**What.** The coordinator asked him "'Not done:' lines smaller and coloured on both apps? On the Mac today they're plain
+answer text." He answered "do all" (kb APP-977, his words verbatim, the lock updated; ruling APP-978). Code's
+"Not done: <reason>" lines under a delivered-with-gaps answer are now drawn as "Couldn't confirm:" is: at 11.5 of the
+body's 12, "Not done:" bold amber, the reason in the secondary ink, one line per reason, inside the answer's bubble,
+first among the answer's own lines; under a folded answer they stay in view under the fade with the note. A card part's
+lines become the part's notes ("Not done:" amber), as its "Couldn't confirm" is.
+
+**How they are found.** They exist only as text: `with_gap_lines` (ferb-supervisor lines.rs) writes them into `answer`
+after a blank line; the outcome's `gaps` field is not carried by the app's turn, the entries (chat-entries README: "there
+is no separate field") or the phones' AnswerView. A field would change the outcome, the entries and their frozen
+fixtures in `engine/`, so it is left for later and named in APP-978. Recognised instead is exactly the block code
+writes: a paragraph after the answer's first (or the whole text, for an empty answer) every line of which is
+"Not done: " plus a reason. A "Not done:" in the answer's own first paragraph, inside a sentence, mixed with other lines
+or without a reason stays words. One rule, `GapLines`, on each platform: Mac `NotchCore/TurnCard.swift` (used by
+`MarkdownContent`, so the answer, its Details, card rows and the task list all take it), Android `model/Shown.kt` (the
+answer's words are split before the library's `answerShown`; `Chat.part` for card rows), iPhone
+`FerbAppModel/Shown.swift` (the same). The rows' read-aloud words (`ChatModel.words`) still carry the lines.
+
+**Contrast** on the dark bubble: Mac amber 8.9:1, secondary (55 % white over the glass) 6.0:1 (NotDoneLinesTests);
+phones #FFB020 and #9A9A9A on the black bubble, 11.5:1 and 7.5:1 (Android ShownTest; the iPhone uses the same values,
+Mobile.swift:60-61).
+
+**Goldens, looked at.** Android `app/src/test/screenshots/parity/answer-gaps-{dawn,noon,night}.png` and iPhone
+`Screenshots/app/parity/answer-gaps-*.png` recorded again: the "Not done:" line now small, amber label, grey reason,
+between the answer and "Couldn't confirm:". The Mac has no image goldens (fonts differ between Macs); its bubble was
+drawn to a PNG by `NotDoneLinesTests.testDrawTheAnswerForLooking` (FERB_GOLDEN_DIR) and looked at.
+
+**Evidence.** Mac `NotDoneLinesTests` 4 (one draws only with FERB_GOLDEN_DIR). Android `:app:testDebugUnitTest`: 260
+tests, none failed, every other golden unchanged (`ChatModel.words` now lists the lines, so
+`a_delivered_with_gaps_answer_keeps_its_not_done_lines` holds). iPhone `apps/ios/tools/build.sh test`: FERBUITests 7,
+FerbAppTests 161, FerbCoreTests 15 (1 skipped), FerbMobileTests 4, FerbDesignTests 66, none failed. Mac `swift test`: 874
+tests, 5 skipped, none failed; a first whole run stopped part way, in IntroControllerTests, with no failure written
+(the class passed 42 of 42 twice alone, and the next whole run passed): not explained.
+
+**Unverified.** On his phones and Mac; the iPhone's card rows with "Not done:" parts (no golden shows one).
+
+## 2026-11-19 · 149 · Outside addresses a step is about to type are asked about once, as a list (GATE-620)
+
+**What.** The owner's GATE-620 (2026-11-18, "id take A"): a task drafting an email asked his Yes before typing each of
+three addresses it had found on a page. Now the typing tools (browser.act, ferb_browser.act, mac.act) take `entering`:
+the addresses and phone numbers the step is about to type, listed with the first one. The gateway checks each listed
+value itself, exactly as typing it alone would (`confirm::listed_values` runs `decide`'s S4(b) loop, now
+`outside_values`, per value: found only in outside content, not the owner's words, answers, own files, own contacts or
+a known destination); two or more left that this task tree hasn't answered are one question, rule
+`sink:outside_values` (`confirm::outside_list`), which replaces this call's own typed-value question for any of them
+(`Gateway::outside_list`, called from `floor_needs`). The answer, Yes or No, is recorded for the list's key and for
+each value's `listed_key` (rule, site key of where it is typed, the value normalized as KnownDestinations does) in the
+tree (`ask_confirmation`); a later typed value's need carries that key (`Need::listed`) and `authorize_held` takes its
+row as it takes a site partner's (GATE-608). So the Yes covers exactly those values, there, for the task and its
+retries; another value, another site or another task asks as before; a No refuses each of them without asking again.
+The card (policy `wording.rs`, so FERB.app and both phones read it from the approval's fields): "Use these 3
+addresses and numbers from addresses.example?", the detail "FERB is about to type them on mail.example. You didn't
+give FERB these addresses and numbers; it only saw them on addresses.example. A page can plant these to get your data,
+so check they're right. Yes covers only these, on mail.example, for this task; any other asks again.", the box one
+line per value "ps@microsoft.example — addresses.example", buttons "Use them" / "Don't use them". New owner-facing
+strings: those, plus "Use these {n} {noun}?" when they came from several places ("it only saw them where each line
+says"), the nouns "addresses" / "phone numbers" / "addresses and numbers", and the record line "this types these {n}
+{noun} on {site}, which FERB found only in outside content (…), not in your words, your answers or your own files: …;
+one Yes covers exactly these there for the rest of this task".
+
+**What it doesn't change.** The list's need has no `destinations`: nothing becomes known for later tasks (a one-by-one
+Yes still does, GATE-205), so a send to a listed address still asks floor:new_recipient. Payment, account security,
+deletion, terminal, foreground and the other floor questions are untouched; the question is not routine (no 30-minute
+answer, GATE-207) and is a ferb.confirm check, so the phone's Yes takes the fingerprint as before. With no `entering`,
+or fewer than two outside values on it, every call behaves as before. `entering` is left out of the ledger's hash
+(`hashed_args`): a declaration, not the action, so an unknown-outcome retry is still recognised.
+
+**Named differences.** engine/fixtures/catalog/tool_changes.json, decision GATE-621: `entering` added to the input
+schemas of browser.act, ferb_browser.act (between `dialog_text` and `files`) and mac.act (between `text` and
+`contact`), with its description (PRM-367: the worker's instruction lives in the field, PRM-314; no runtime Markdown
+changed). Validated arguments of those three tools now carry `"entering": null`. Fixed against Python: none.
+
+**Records.** GATE-621 (agent, how), PRM-367 (agent, the field's words); T-1270 deleted; kb MAP regenerated.
+
+**Evidence.** ferb-gateway tests/outside_destinations.rs, 8 new on the real Gateway with the file's stand-in tools
+(no model): a list of three is one question and its Yes covers each (another spelling too); a value not on it asks;
+a No refuses all; the owner's own value is not asked (and one outside value left is the old single question); the
+answer stays on its site and its task and carries to a retry in the tree; a send to a listed address still asks
+floor:new_recipient; without a list each asks as before; mac.act's list. tests/catalog.rs lists the three changes.
+Runs: ferb-gateway all tests (lib 24, catalog 7, link_rule 55, outside_destinations 44, scenarios 9, …) passed;
+ferb-policy, ferb-browser, ferb-mac-hands passed; clippy clean on ferb-policy and ferb-gateway.
+
+**Unverified.** No end-to-end run through the daemon: the repo has no daemon-level sink test to follow; the gateway
+tests run the real Gateway. Whether a model fills `entering` (no model run). The phones' drawing of a multi-line box
+(question::shown passes it as is; FERB.app's ExactBox draws each line and scrolls past 6). Live: the owner's draft.
+
+## 2026-11-19 · 150 · Store migration 0066: the copies an older FERB.app filed of a shown task leave every install
+
+**What.** For APP-974 and the owner's standing preference APP-976 ("i want it better for eveyrone else that later
+installs"): journal 147's fix (APP-975) stops new copies, but every install that took up a remembered task at a new
+day's first launch keeps the copy it filed (a turn with no request and no goal, dated that launch) and History keeps
+listing its day. `engine/runtime/store/migrations/0066_chat_history_recovered_duplicates.sql` (kb APP-979), applied once
+by the daemon at its update in its own `BEGIN IMMEDIATE` transaction with its SHA-256 recorded (STORE-414), deletes each
+`chat_history` turn whose request and goal are empty, which names a task, when an earlier day holds a turn of that task
+with the same status and the same answer. The earliest turn of a task always stays. `ferb_store::chat_history::
+REPAIR_VERSION` (66) names it, as `phones::SCHEMA_VERSION` names 0065.
+
+**Why a delete is allowed here.** `chat_history` is FERB.app's own page table (APP-805, DMN-555); data.delete already
+deletes its rows outright (STORE-424). ENG-12's "no hard deletes (tombstones)" is for the 0063 tables (`chat_entries`
+and its streams), which 0066 does not touch. An entry an owner had imported by hand from `chat_history` into
+`chat_entries` (ENG-12's one-time archive import) would keep its legacy copy there; none is known.
+
+**On real data.** The coordinator ran the rule as a read-only SELECT on the owner's live database: it matched exactly
+one row of 31 turns, `DF01BB8D-…` (19 Nov), the copy journal 147 found.
+
+**Evidence.** `cargo test -p ferb-store` (own target folder, `-j 3`): every test passes, among them the new
+`tests/chat_history_repair.rs` 2 (an original turn, its copy on the next day and another alone on a later day, a later
+turn of the task with another answer, a recovered task's turn and its copy, an unrelated turn and a reply: only the three
+copies go, every other row byte for byte, `days` loses 21 and 22 Nov, a second start applies nothing and the statement
+run again changes nothing, integrity ok; a store with no history, a same-day turn and a turn with a goal are left as
+they were) and the pins moved by one: `store.rs` (the fresh store: 0063..0066 after Python's, `known_schema` 66; the
+0064 upgrade applies 64, 65, 66), `chat_entries.rs` (63..66), `phones.rs` (65, 66): 54 tests in 9 binaries, none failed. `./gate.sh fmt` passes;
+`./gate.sh lint` (the workspace and the phone crates, `-D warnings`) passes once the new test's helper took 6 arguments
+(clippy refused 8).
+
+**Unverified.** The migration on the owner's database (the coordinator removes his one row by hand at the next swap
+either way); on other installs.

@@ -53,6 +53,24 @@ final class ChatModelTests: XCTestCase {
         XCTAssertTrue(rows.contains { if case .answer = $0 { return ChatModel.words($0).contains("Not done:") } else { return false } })
     }
 
+    /// Owner 2026-11-19, "do all": code's "Not done:" lines leave the answer's words and are drawn small under them, the
+    /// label amber (FERB.app's annotations); only the block the engine writes is recognised (kb APP-977, APP-978).
+    // decision: APP-977, APP-978
+    func testNotDoneLinesAreCodesLinesUnderTheWordsNeverInThem() throws {
+        let c = try XCTUnwrap(try Fixtures.conversations().first { $0.scenario == "gaps_single_task" })
+        let rows = ChatModel.rows(try FixtureMac.transcript(FixtureMac(c)))
+        let ui = try XCTUnwrap(rows.compactMap { if case .answer(_, let ui) = $0 { return ui } else { return nil } }.first { !$0.gaps.isEmpty })
+        XCTAssertFalse(ui.copy.contains("Not done"), "not in the words: \(ui.copy)")
+        XCTAssertEqual(GapLines("Left it.\n\nNot done: the form.").body, "Left it.")
+        XCTAssertEqual(GapLines("The page is open.\n\nNot done: one.\nNot done: two.").reasons, ["one.", "two."])
+        XCTAssertEqual(GapLines("Not done: The form wasn't sent.").reasons, ["The form wasn't sent."])
+        for words in ["Not done: yet.\n\nMore soon.", "Two.\n\nNot done: the rubric.\nThe rest is done.",
+                      "Two.\n\nThe form is Not done: it needs your name.", "Two.\n\nNot done:"] {
+            XCTAssertEqual(GapLines(words).body, words, words)
+            XCTAssertTrue(GapLines(words).reasons.isEmpty, words)
+        }
+    }
+
     // decision: ENG-12
     func testLegacyRowsAndATurnFromAnotherDeviceAreDrawnLikeAnyTurn() throws {
         let all = try Fixtures.conversations()

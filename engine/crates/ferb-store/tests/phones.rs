@@ -46,7 +46,13 @@ fn a_store_at_0064_upgrades_with_its_rows_kept_and_no_phones() {
             .unwrap()
     };
     let before = journal(&db);
-    assert_eq!(db.migrate().unwrap(), vec![phones::SCHEMA_VERSION]);
+    assert_eq!(
+        db.migrate().unwrap(),
+        vec![
+            phones::SCHEMA_VERSION,
+            ferb_store::chat_history::REPAIR_VERSION
+        ]
+    );
     assert_eq!(journal(&db), before);
     assert!(phones::live(db.conn()).unwrap().is_empty());
     let ok: String = db

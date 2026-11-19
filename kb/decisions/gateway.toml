@@ -1509,3 +1509,13 @@ words = "- A: one question for the whole list (\"Use these three addresses from 
 words_source = "Owner 2026-11-18, after a task asked for his Yes before typing each of three addresses it had found for a draft. Offered: A one question for the list; B none for an unsent draft; as is."
 rule = "When a task is about to enter several destinations it found only in outside content, FERB asks once, naming every one and where it found them; his Yes covers exactly those, there, for that task. One not on the list asks again."
 why = "One Yes per address for an unsent draft he asked for is the false-alarm kind; the list keeps the check on what leaves his words."
+
+[GATE-621]
+title = "A step lists the outside values it will type; code checks each and asks once, per task and place"
+by = "agent"
+date = 2026-11-19
+status = "active"
+rule = "For GATE-620. browser.act, ferb_browser.act and mac.act take `entering` (tool_changes.json). Code tests each listed address or number as typing it alone (confirm::listed_values); two or more found only in outside content and unanswered in the task tree are one question, sink:outside_values. Its answer, Yes or No, is recorded per value and place (listed_key) for the tree; a value typed there later takes it (Need.listed). It makes nothing known, unlike GATE-205's Yes, so a send to them still asks. No list, or one value: as before."
+why = "The worker can name its list, never vouch for it: code checks each origin. Recording each value's key lets later steps type one at a time; keeping them out of known destinations keeps a draft's Yes from becoming a Yes to send."
+evidence = "ferb-gateway tests/outside_destinations.rs (8 GATE-620 tests on the real Gateway with stand-in tools; one prints the card), catalog.rs (the three schema changes, once each). `entering` is left out of the ledger's hash (hashed_args): a declaration, not the action."
+paths = ["engine/crates/ferb-policy/src/confirm.rs::listed_values", "engine/crates/ferb-policy/src/confirm.rs::outside_list", "engine/crates/ferb-policy/src/confirm.rs::listed_key", "engine/crates/ferb-gateway/src/gateway.rs::Gateway.outside_list", "engine/crates/ferb-gateway/src/gateway.rs::Gateway.authorize_held", "engine/crates/ferb-policy/src/wording.rs", "engine/fixtures/catalog/tool_changes.json"]

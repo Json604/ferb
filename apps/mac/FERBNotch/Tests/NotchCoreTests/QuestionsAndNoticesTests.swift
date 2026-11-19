@@ -547,10 +547,12 @@ final class QuestionsAndNoticesTests: XCTestCase {
         }
     }
 
-    // decision: APP-585
+    // decision: APP-585, APP-975
     func testRecoveredTaskIsNeverShownAsTheOwnersWords() async throws {
         let rpc = StatusRPC()
-        rpc.traces["remembered"] = ["outcome": ["result": ["status": "done", "answer": "Renamed 12 files."]]]
+        // the task this chat sent last ended while the app was away, its result never shown (APP-975: a remembered
+        // task that ended and was shown is not taken up again)
+        rpc.status["results"] = [["task_id": "remembered", "status": "done", "answer": "Renamed 12 files."]]
         let (model, suite) = makeModelWithSuite(rpc)
         model.preferences.set("remembered", forKey: "FERBActiveTaskID")
         await model.refreshDaemonStatus()

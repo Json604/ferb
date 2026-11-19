@@ -212,13 +212,15 @@ public struct NotchSession {
         activity.append(TaskActivity(title: text, symbol: symbol))
     }
 
+    /// `at`: when the task ended, as the daemon recorded it; a turn this files is dated by it (APP-975). Now when unknown.
     @discardableResult
-    public mutating func finishBackendWork(taskID: String?, status: String, answer: String, artifacts: [String]) -> Bool {
+    public mutating func finishBackendWork(taskID: String?, status: String, answer: String, artifacts: [String],
+                                           at: Date? = nil) -> Bool {
         if let taskID, backendTaskID != taskID { return false }
         guard let localID = activeTaskID else { return false }
         let urls = artifacts.filter { $0.hasPrefix("/") }.map { URL(fileURLWithPath: $0) }
         let receipt = WorkReceipt(id: localID, request: submittedRequest, sources: submittedSources,
-            createdAt: Date(), activity: activity, documentURL: urls.first, backendTaskID: taskID,
+            createdAt: at ?? Date(), activity: activity, documentURL: urls.first, backendTaskID: taskID,
             answer: answer, status: status, artifacts: urls, isResumed: resumed)
         result = receipt
         if let taskID { history.removeAll { $0.backendTaskID == taskID } }

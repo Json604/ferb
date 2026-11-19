@@ -348,3 +348,29 @@ public struct AnswerParts: Equatable {
         self.lines = shownLines
     }
 }
+
+/// The "Not done:" lines code writes under a delivered-with-gaps answer (ORCH-651, ORCH-677: ferb-supervisor
+/// `lines::with_gap_lines`): after the answer and a blank line, one line per reason, each "Not done: <reason>". Only that
+/// block is recognised: a paragraph (text between blank lines) every line of which starts with the label, after the
+/// answer's first paragraph (or the whole text, when the answer was empty). A "Not done:" inside the answer's own
+/// paragraphs, or a paragraph mixing it with other lines, stays words (APP-978).
+public struct GapLines: Equatable {
+    public static let label = "Not done:"
+    public let body: String
+    public let reasons: [String]
+
+    public init(_ text: String) {
+        let paragraphs = text.components(separatedBy: "\n\n")
+        var kept: [String] = []
+        var reasons: [String] = []
+        for (i, paragraph) in paragraphs.enumerated() {
+            let lines = paragraph.components(separatedBy: "\n")
+            let lead = Self.label + " "
+            let isBlock = (i > 0 || paragraphs.count == 1) && !lines.isEmpty
+                && lines.allSatisfy { $0.hasPrefix(lead) && !$0.dropFirst(lead.count).trimmingCharacters(in: .whitespaces).isEmpty }
+            if isBlock { reasons += lines.map { String($0.dropFirst(lead.count)) } } else { kept.append(paragraph) }
+        }
+        body = reasons.isEmpty ? text : kept.joined(separator: "\n\n")
+        self.reasons = reasons
+    }
+}
