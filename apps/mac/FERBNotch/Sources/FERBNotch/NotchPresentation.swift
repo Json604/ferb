@@ -18,8 +18,11 @@ final class NotchPresentation: NSObject, ObservableObject {
     var cutoutHeight: CGFloat = 32
     var size: CGSize { CGSize(width: geometry.first.first, height: geometry.first.second) }
     var canvasSize: CGSize { backdrop.bounds.size }
+    /// Where SwiftUI draws the surface in its host: the origin less the host's own shift during a drag (APP-971), so a
+    /// view evaluated mid-drag for another reason draws where the host already carries it.
     var surfaceOffset: CGPoint {
-        CGPoint(x: surfaceOrigin.x - (canvasSize.width - size.width) / 2, y: surfaceOrigin.y)
+        CGPoint(x: surfaceOrigin.x - contentShift.x - (canvasSize.width - size.width) / 2,
+                y: surfaceOrigin.y - contentShift.y)
     }
     var expansion: CGFloat { min(1, max(0, geometry.second.first)) }
 
@@ -35,6 +38,16 @@ final class NotchPresentation: NSObject, ObservableObject {
     private var completion: (() -> Void)?
     private var publishedOrigin: CGPoint?
     private var publishedCanvas: CGSize?
+    /// The plain view carrying SwiftUI's host (the notch's NotchView), as large as the backdrop. A drag that only moves
+    /// the surface translates this view's layer by the distance from the origin SwiftUI last drew at, as the backdrop
+    /// moves the frost and the tint: Core Animation moves the pixels and SwiftUI evaluates and lays out nothing (a
+    /// moved frame, even an ancestor's, has SwiftUI lay its whole tree out again). The pointer is held by the handle
+    /// meanwhile, so nothing is clicked where the frames still say. Any other change (a size, the spring, the drag's
+    /// end) takes the translation off and SwiftUI draws at the new origin in the same pass (APP-971).
+    weak var content: NSView?
+    private(set) var contentShift = CGPoint.zero
+    /// How many times SwiftUI was handed new geometry (tests read it).
+    private(set) var publishes = 0
 
     func present(size: CGSize, expanded: Bool, anchor: CGPoint? = nil, animate: Bool,
                  completion: @escaping () -> Void) {
@@ -112,9 +125,17 @@ final class NotchPresentation: NSObject, ObservableObject {
             // Origin/canvas are read by SwiftUI too. A pure translation still
             // publishes, while repeated identical drag samples do not relayout it.
             if geometry != value || publishedOrigin != surfaceOrigin || publishedCanvas != canvasSize {
+                let shifted = contentShift != .zero
+                if shifted, let content {
+                    contentShift = .zero
+                    content.layer?.setAffineTransform(.identity)
+                }
+                publishes += 1
                 geometry = value
                 publishedOrigin = surfaceOrigin
                 publishedCanvas = canvasSize
+                // the host back in place and SwiftUI's new origin in the same frame, never one without the other
+                if shifted { content?.layoutSubtreeIfNeeded() }
             }
             backdrop.updateSurface(size: size, expansion: expansion, cutoutHeight: cutoutHeight,
                                    origin: surfaceOrigin)
@@ -133,7 +154,23 @@ final class NotchPresentation: NSObject, ObservableObject {
         surfaceOrigin = CGPoint(x: (origin.x * scale).rounded() / scale,
                                 y: (origin.y * scale).rounded() / scale)
         destination = surfaceOrigin
-        apply(Vector(AnimatablePair(size.width, size.height), AnimatablePair(1, 1)))
+        let value = Vector(AnimatablePair(size.width, size.height), AnimatablePair(1, 1))
+        if let content, let layer = content.layer, let drawn = publishedOrigin, geometry == value,
+           publishedCanvas == canvasSize {
+            // Only the surface moved: its host moves with the frost, SwiftUI keeps what it drew
+            // (No transaction of its own: one opened here would commit at once, and AppKit lays the whole window
+            // out before every commit. The event's changes go out together at the end of the event.)
+            let shift = CGPoint(x: surfaceOrigin.x - drawn.x, y: surfaceOrigin.y - drawn.y)
+            if shift != contentShift {
+                contentShift = shift
+                // in the backdrop's flipped coordinates, as SwiftUI's offset is
+                layer.setAffineTransform(CGAffineTransform(translationX: shift.x, y: shift.y))
+            }
+            backdrop.updateSurface(size: self.size, expansion: expansion, cutoutHeight: cutoutHeight,
+                                   origin: surfaceOrigin)
+            return
+        }
+        apply(value)
     }
 
     func stop() {

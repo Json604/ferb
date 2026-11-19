@@ -42,6 +42,7 @@ final class EntryFoldTranscriptTests: XCTestCase {
     /// dangling "Answered below", the fresh conversation's marker first, another client's turn in place, questions by
     /// state and where an open one shows.
     // decision: ORCH-651
+    // decision: ORCH-677
     // decision: GATE-604
     // decision: ENG-12
     // decision: STORE-424
@@ -58,14 +59,15 @@ final class EntryFoldTranscriptTests: XCTestCase {
         func items(_ name: String, _ index: Int = 0) throws -> [[String: Any]] {
             try conversations(name)[index]["items"] as? [[String: Any]] ?? []
         }
-        // ORCH-651: delivered, with parts not done: the status, no check mark, the answer ending with code's line
+        // ORCH-651, ORCH-677: delivered, with parts not done: the status, no check mark, the answer ending with code's
+        // line, the reason alone
         let gapped = try items("gaps_single_task")
         XCTAssertEqual(gapped.count, 1)
         XCTAssertEqual(gapped[0]["status"] as? String, "done_with_gaps")
         let answer = try XCTUnwrap(gapped[0]["answer"] as? [String: Any])
         XCTAssertEqual(answer["verified"] as? Bool, false)
         XCTAssertTrue((answer["text"] as? String ?? "").hasSuffix(
-            "\n\nNot done: Five real participants took part in the test — Only you can bring real participants; none were invented."))
+            "\n\nNot done: Only you can bring real participants; none were invented."))
         let checklist = try XCTUnwrap(try items("gaps_checklist")[0]["checklist"] as? [String: Any])
         let lines = checklist["lines"] as? [[String: Any]] ?? []
         XCTAssertEqual(lines.map { $0["kind"] as? String }, ["done", "gaps", "done"])

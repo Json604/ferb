@@ -2145,3 +2145,15 @@ rule = "For ORCH-669. One check in the gateway's floor (ferb-policy named.rs, ga
 why = "The owner's D4 asks to catch the wrong file before the send, not tell after. A name can match; only the bytes FERB carried, and what the page's field holds, tell two same-named files apart. Recipients: floor:new_recipient is this check for people."
 live = ["LIVE-1148"]
 paths = ["engine/crates/ferb-policy/src/named.rs", "engine/crates/ferb-gateway/src/gateway.rs::not_named", "engine/crates/ferb-browser/src/ops.rs::act_facts", "engine/crates/ferb-core/src/types.rs::ActionFacts", "engine/crates/ferb-supervisor/src/flow/tree.rs::final_"]
+
+[ORCH-677]
+title = "A \"Not done:\" line says what is missing, once: the reason alone, one line per cause"
+by = "owner"
+date = 2026-11-18
+status = "active"
+words = "i agree with all, and yes you can use claude with sonnet."
+words_source = "Owner 2026-11-18, shown the before/after lines of his one gapped result: each unmet condition's whole sentence and one cause twice, against one line naming only what was missing"
+rule = "Refines ORCH-651's line and ORCH-653's question. A gap's line is \"Not done: <the check's reason>\", one line per distinct reason; the condition's sentence is not printed, so parts that were done are never listed as not done. A \"different\" gap (ORCH-668) and a step not started carry their condition or step in their reason, so their lines read as before. The question before the next step lists each distinct reason once."
+why = "Live 2026-11-18: a gapped result printed each unmet condition's whole sentence after \"Not done:\" (the done parts read as not done) and one cause twice; the owner read it as the check not knowing a person had been left out on purpose."
+paths = ["engine/crates/ferb-supervisor/src/lines.rs::gap_lines", "engine/crates/ferb-supervisor/src/lines.rs::after_gaps_question", "engine/crates/ferb-supervisor/src/flow/attempt.rs::different_ending", "engine/crates/ferb-supervisor/src/flow/tree.rs"]
+live = ["LIVE-957"]

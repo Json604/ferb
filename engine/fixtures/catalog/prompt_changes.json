@@ -66,6 +66,18 @@
       "prompt": "supervisor.md",
       "old": "(code marks such a line \"(written by the AI)\")",
       "new": "(code marks such a line \"(not one of FERB's checks)\")"
+    },
+    {
+      "decision": "PRM-365",
+      "prompt": "supervisor.md",
+      "old": "  for the result, in their words (\"score well\", \"no overfitting\", \"easy to understand\", \"every part of the syllabus\").\n  Never narrow it (read-only, a sample, a shortlist, \"as far as possible\"). Never add a cap the owner didn't choose\n  (top-N, excerpts, file size, time). Words about how to work (\"in parallel\", \"one by one\") shape the plan and are never\n  a condition. The work is done in full, without caveats or a lesser offer.\n",
+      "new": "  for the result, in their words (\"score well\", \"no overfitting\", \"easy to understand\", \"every part of the syllabus\").\n  When they name the kind of thing FERB makes or where it is left, it stays that kind in the goal, every step's goal and\n  label, each part's label and the conditions: a mail is an email draft or email, never a message on another site; a\n  PDF stays a PDF, a sheet a sheet, \"a list in my notes\" a note. When making it needs something the request doesn't give\n  (a mail needs an account to write from and each person's address), plan the step that looks for it where the work\n  can see it (the profile it works in, the pages, memory) before asking; if it can't be found, that condition is a gap\n  the worker reports, never met by another kind. Never swap in another kind yourself. Never narrow it (read-only, a\n  sample, a shortlist, \"as far as possible\"). Never add a cap the owner didn't choose (top-N, excerpts, file size,\n  time). Words about how to work (\"in parallel\", \"one by one\") shape the plan and are never a condition. The work is\n  done in full, without caveats or a lesser offer.\n"
+    },
+    {
+      "decision": "PRM-366",
+      "prompt": "verifier.md",
+      "old": "  condition's index and the plain reason; FERB shows the owner what was delivered and each gap as not done. A condition\n  more work could meet is a retry. Invented evidence presented as real (made-up participants, data or quotes) is an\n  unmet condition, named as such in `gaps`, and its sentences are `findings`.",
+      "new": "  condition's index and its reason; FERB shows the owner what was delivered and, after \"Not done:\", each reason on its\n  own: one plain sentence naming only what is missing and why, never what was done, the same sentence for conditions\n  missed for one cause (shown once). A condition more work could meet is a retry. Invented evidence presented as real\n  (made-up participants, data or quotes) is an unmet condition, named as such in `gaps`, and its sentences are\n  `findings`."
     }
   ]
 }

@@ -390,7 +390,7 @@
     <string name="first_run_title">Before you start</string>
     <string name="first_run_intro">FERB asks your phone for a few things. You can say no to any of them: FERB still works, and says what is missing when you need it.</string>
     <string name="first_run_notifications">Notifications</string>
-    <string name="first_run_notifications_why">So FERB can tell you about its questions and finished tasks when you\'re outside the app.</string>
+    <string name="first_run_notifications_why">So FERB\'s questions reach you here, even with FERB closed. FERB stays connected to your Mac to do this.</string>
     <string name="first_run_location">Your city</string>
     <string name="first_run_location_why">So local times and places come out right. Only your city goes to your Mac; FERB asks before using your exact spot.</string>
     <string name="first_run_camera">Camera</string>

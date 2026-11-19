@@ -57,6 +57,8 @@ IOS = {
     "city_denied": "iOS didn't allow location for FERB, so FERB goes by the time zone.",
     # the first run's asks (kb PHN-636): iOS asks for the microphone and for speech recognition together
     "first_run_microphone": "Microphone and speech",
+    # no Stay connected on iPhone (kb PHN-566, PHN-771): its own words for the notifications ask
+    "first_run_notifications_why": "So FERB can tell you about its questions and finished tasks when you're outside the app.",
     "loc_why_denied": "Location wasn't allowed for FERB on the phone.",
     # speaking to FERB (kb PHN-604): Apple's speech recognition where the iPhone can't recognise the language itself;
     # iOS asks for the microphone and for speech recognition, two questions

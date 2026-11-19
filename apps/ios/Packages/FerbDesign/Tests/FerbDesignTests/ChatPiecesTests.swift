@@ -96,20 +96,20 @@ final class ChatPiecesTests: XCTestCase {
                        removeLabel: remove ? "Remove \(name)" : nil, onRemove: remove ? {} : nil)
     }
 
-    // decision: PHN-690
+    // decision: PHN-690, PHN-772
     func testFilesWaitInTheMessageBox() {
         let view = PhoneScreen(moment: .lab(12.5), glide: false) {
             VStack(spacing: 24) {
                 Spacer()
-                // the snapshot renderer draws no scroll view or text field: the chips in a plain row, the words as typed
+                // the app's own row: compact chips that wrap (owner kb PHN-772); the words as typed (no text field drawn)
                 PhoneComposer(placeholder: "Add a note or just send", onSend: {}, onAttach: {},
-                              attachments: AnyView(HStack(spacing: 8) { chip("IMG-20261118-WA0011.jpg", 2_400_000); Spacer(minLength: 0) }))
+                              attachments: AnyView(AttachmentRow { chip("IMG-20261118-WA0011.jpg", 2_400_000) }))
                 PhoneComposer(placeholder: "Add a note or just send", typed: "Rename these by date", onSend: {}, onAttach: {},
-                              attachments: AnyView(HStack(spacing: 8) {
+                              attachments: AnyView(AttachmentRow {
                                   chip("Lease agreement.pdf", 1_100_000)
                                   chip("IMG_2041.jpg", 3_200_000)
                                   chip("Budget 2027.xlsx", 84_000)
-                              }.fixedSize().frame(width: PhoneInsets.labSize.width - 48, alignment: .leading).clipped()))
+                              }))
             }
             .padding(.horizontal, 16).padding(.bottom, 40)
         }

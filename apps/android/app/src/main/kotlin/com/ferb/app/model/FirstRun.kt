@@ -13,6 +13,8 @@ class FirstRun(
     private val allowed: (Ask) -> Boolean,
     private val asked: () -> Set<String>,
     private val record: (Set<String>) -> Unit,
+    /** A Yes to notifications on this page turns Stay connected on (owner kb PHN-771); nothing else does. */
+    private val stayConnected: () -> Unit = {},
 ) {
     enum class Ask { NOTIFICATIONS, LOCATION, CAMERA, MICROPHONE }
 
@@ -23,7 +25,10 @@ class FirstRun(
     fun showsOver(unlockedPage: Boolean): Boolean = unlockedPage && pending().isNotEmpty()
 
     /** The phone's question for [ask] was answered (either way): it is never asked again. */
-    fun answered(ask: Ask) = record(asked() + ask.name)
+    fun answered(ask: Ask, granted: Boolean = false) {
+        record(asked() + ask.name)
+        if (ask == Ask.NOTIFICATIONS && granted) stayConnected()
+    }
 
     /** Not now: the page's asks are passed over; each feature still explains itself when it is used. */
     fun notNow() = record(asked() + pending().map { it.name })

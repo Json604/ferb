@@ -18,7 +18,6 @@ public enum VoicePress: Sendable { case done, askMicrophone }
 
 /// What slides up over the page. Only ids are kept (nothing saved holds question words, and never a private value).
 public enum AppSheet: Equatable, Sendable {
-    case asking(approvalId: String)
     case relay, profile, forget, typeCode, scan, ownRelay, notifications, help, stopAll, settings
     /// The connection control's sheet (kb PHN-752): which Mac, how the link stands, its path, Try again.
     case connection
@@ -286,7 +285,7 @@ public final class AppModel {
     public private(set) var draft: String
     public private(set) var settings: PhoneSettings
     public private(set) var sheet: AppSheet?
-    /// Questions shown once already (presented or dismissed): a question slides up by itself only the first time.
+    /// Questions shown once already: kept in saved state only (questions are boxes in the chat since kb PHN-770).
     private var presented: Set<String>
 
     public let transfers: Transfers
@@ -376,9 +375,26 @@ public final class AppModel {
         // the views that show the Mac's screen readably (Watch live, a task's or step's short view) whatever the switch
         // says; the small round pictures in the chat follow the owner's switch (owner 2026-11-18, kb PHN-727)
         case .live, .task: return true
-        case .asking(let id): return ui.questions.first { $0.approvalId == id }?.hidden == true
-        default: return false
+        // a hidden input's field in a question's box (kb PHN-770)
+        default: return !hiddenBoxes.isEmpty
         }
+    }
+
+    /// The question boxes with a hidden input's field on screen now: the screen stays out of captures (PHN-110).
+    public private(set) var hiddenBoxes: Set<String> = []
+    public func hiddenShown(_ approvalId: String, _ on: Bool) {
+        if on { hiddenBoxes.insert(approvalId) } else { hiddenBoxes.remove(approvalId) }
+    }
+
+    /// A question's box to bring into view in today's chat (a notification's tap, the Tasks tab's row; kb PHN-770).
+    public private(set) var toQuestion: (id: String, n: Int)? = nil
+
+    /// Today's chat with this question's box in view: where it is answered (kb PHN-770).
+    public func goToQuestion(_ approvalId: String) {
+        tab = .chat
+        earlier = false
+        sheet = nil
+        toQuestion = (approvalId, (toQuestion?.n ?? 0) + 1)
     }
 
     /// What the shell keeps in scene storage (and passes back at the next launch).
@@ -676,7 +692,7 @@ public final class AppModel {
         if ui.gate != .main || session.locked { return }
         if let id = pending {
             pending = nil
-            show(.asking(approvalId: id))
+            goToQuestion(id)
             return
         }
         guard let loc = pendingLocation else { return }
@@ -792,16 +808,6 @@ public final class AppModel {
         ui.older = view?.older ?? .unknown
         ui.status = status
         rebuildWork()
-        // a question slides up over whatever is open, once (MobileScreens.swift QuestionSheet)
-        if let fresh = questions.first(where: { !presented.contains($0.approvalId) && !$0.held }),
-           ui.gate == .main, session.front, sheet == nil {
-            show(.asking(approvalId: fresh.approvalId))
-        }
-        if case .asking(let id) = sheet, !questions.contains(where: { $0.approvalId == id }) {
-            // answered on the Mac or elsewhere, or expired: the sheet goes and says so
-            sheet = nil
-            note(Note("question_gone"))
-        }
     }
 
     /// The Tasks tab: the Mac's own list where it answers, else the chat's (offline, or the Mac's window closed).
@@ -1413,7 +1419,6 @@ public final class AppModel {
     private func answered(_ approvalId: String, _ r: Answered) {
         switch r {
         case .sent:
-            if case .asking(let id) = sheet, id == approvalId { sheet = nil }
             refresh()
         case .notSent: break
         case .needsPairingAgain: note(Note("answer_needs_pairing"))
@@ -1836,7 +1841,6 @@ public final class AppModel {
     }
 
     public func show(_ s: AppSheet?) {
-        if case .asking(let id) = s { presented.insert(id) }
         func watching(_ x: AppSheet?) -> Bool { switch x { case .live, .task: return true; default: return false } }
         if watching(sheet) && !watching(s) { live.stop() }
         sheet = s

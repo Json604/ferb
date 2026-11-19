@@ -127,7 +127,7 @@ final class ParityTests: XCTestCase {
         XCTAssertEqual(files.map(\.index), [0, 1])
     }
 
-    // decision: PHN-729
+    // decision: PHN-770
     func testAnOpenQuestionShowsTheWordsTheMacsInlineQuestionLeadsWith() throws {
         let rows = ChatModel.rows(try view([message("m1", "r1", "send it"),
                                             entry("q1", "question", "r1", ["approval_id": "ap-1", "kind": "approval", "title": "Send the email to Ana?",
@@ -352,7 +352,7 @@ final class ParityTests: XCTestCase {
         var lv = try XCTUnwrap(v.live.first)
         lv.streamingReply = "Hel"
         v.live = [lv]
-        XCTAssertTrue(ChatModel.rows(v).contains { if case .line(_, let text, _, _) = $0 { return text == "Draft · still responding" } else { return false } })
+        XCTAssertTrue(ChatModel.rows(v).contains { if case .small(_, let text, _) = $0 { return text == "Draft · still responding" } else { return false } })
         let mac = [TaskRow(taskId: "t-9", name: "Morning news", goal: "Read the news", status: "working", createdAt: nil, updatedAt: nil, answer: "",
                            stepsDone: nil, stepsTotal: nil)]
         let r = try XCTUnwrap(RunningModel.of(v, mac: mac))
@@ -435,20 +435,41 @@ final class ParityTests: XCTestCase {
         XCTAssertEqual(row?.1, "Check before FERB goes on")
     }
 
-    // decision: PHN-739
+    // decision: PHN-739, PHN-770
     func testGoldenEachKindOfQuestionReadsAsTheMacsCard() throws {
         let rig = Rig()
         defer { rig.tearDown() }
         let m = rig.model()
         for (name, body) in kinds {
             let q = question("q-\(name)", body)
-            let sheet: AnyView = q.hidden ? AnyView(PrivateAnswer(model: m, q: q, insets: .lab, busy: false, close: {}))
-                : AnyView(Asking(model: m, q: q, insets: .lab, busy: false, close: {}))
-            let page = PhoneScreen(moment: .lab(22.5), glide: false) { Color.clear }
-                .overlay(alignment: .bottom) { sheet }
-                .frame(width: 402, height: 874).stillMotion()
-            AppSnapshot.assert(page, size: CGSize(width: 402, height: 874), path: "app/parity/question-\(name).png")
+            // the box in the chat (kb PHN-770), as the chat draws it
+            let box = QuestionBox(model: m, approvalId: q.approvalId, title: q.title, reason: nil)
+                .environment(\.questions, [q])
+            shot(box, "question-\(name)", height: 874)
         }
+    }
+
+    private func answerEntry(_ id: String, _ request: String, _ of: String, _ text: String, lines: [String], note: String?, status: String) -> [String: Any] {
+        entry(id, "answer", request, ["from": "task", "text": text, "status": status, "verified": true, "artifacts": [String](), "note": note ?? NSNull(),
+                                      "lines": lines, "cards": [[String: Any]]()], task: "t-1", answers: of)
+    }
+
+    /// An answer delivered with parts not done: its lines small and grey, "Couldn't confirm" amber, the status words small
+    /// and amber under it (FERB.app's sizes and colours; kb PHN-773), on three skies.
+    // decision: PHN-773
+    func testGoldenAnAnswerWithGapsSaysItsLinesAndStatusSmallerInTheirColours() throws {
+        let uncertain = "I'm not sure whether my last step on mail.example went through: I couldn't tell how it ended. I haven't tried it again, so nothing can happen twice."
+        let text = "Left the unsent draft open for your review. It includes the requested content and leaves Sam out.\n\n"
+            + "Not done: the main people are in To and the others in CC — you asked to stop before the duplicate was removed.\n\n"
+            + "Couldn't confirm: the draft saved.\n" + uncertain
+        let rows = ChatModel.rows(try view([message("m1", "r1", "Draft the email to the team"),
+                                            answerEntry("a1", "r1", "m1", text, lines: [uncertain], note: "the draft saved", status: "done_with_gaps")]))
+        XCTAssertTrue(rows.contains { if case .small(_, "Delivered, with parts not done", true) = $0 { return true } else { return false } })
+        let rig = Rig()
+        defer { rig.tearDown() }
+        let m = rig.model()
+        let v = VStack(spacing: 12) { ForEach(rows.filter { if case .owner = $0 { return false }; return true }) { ChatRowView(model: m, row: $0, today: 0, olderLoading: false) } }
+        for (hour, name) in [(6.5, "dawn"), (12.5, "noon"), (22.5, "night")] { shot(v, "answer-gaps-\(name)", height: 700, hour: hour) }
     }
 }
 #endif

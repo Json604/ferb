@@ -3651,9 +3651,10 @@ why = "FERB.app folds at the height the owner set; the phone's equivalent is the
 title = "A question's row says what FERB.app's inline question says"
 by = "agent"
 date = 2026-11-18
-status = "active"
+status = "superseded"
 rule = "For PHN-720. The row leads with the question's title (else FERB needs your answer, or Private input needed) and its reason; a tap opens the answer sheet, kept because some answers need the fingerprint."
 why = "The row said only FERB has a question and Tap to answer."
+superseded_by = "PHN-770"
 
 [PHN-714]
 title = "A chat's work is bounded by what is on screen: open, scroll to its end, a streamed word"
@@ -3740,6 +3741,51 @@ words_source = "Owner 2026-11-18 with a phone screenshot of the answer sheet for
 rule = "Both phones draw a question from ferb-mobile `question::shown`, FERB.app's own derivation (DaemonApproval.swift, ApprovalView.swift): its header, the one question (summary, else reason; the step line never), the why line, the exact thing in its box, the task's reason, the evidence, each button's words, the note, the typed answer's box and words. The sheet, the chat's question row and the Tasks tab use it; the phone adds only its fingerprint line and its sheet. Carried on QuestionItem and StatusQuestion as `words`."
 why = "The phone took the summary as its title and drew the raw reason under it, with the tool call ('The step: browser.act …'); FERB.app never shows the reason when a summary exists."
 evidence = "ferb-mobile tests/question.rs over every question in engine/fixtures (gateway, chat-entries); Android ShownTest and ParityShotsTest question-*.png, iPhone ParityTests app/parity/question-*.png."
+
+[PHN-770]
+title = "Questions are boxes in the chat, as on the Mac, not a sheet"
+by = "owner"
+date = 2026-11-18
+status = "active"
+words = "Also the questipns come as modal in pone, i want them like temp boxes like in mac, so fix that too. because an accidental back press can close the modal, not this box. anywyas it goes after being answered"
+words_source = "Owner 2026-11-18 (relayed by the coordinator)."
+rule = "Each open question is FERB.app's card (PHN-739's words) drawn in the chat where the Mac draws it (after its turn, or at the end), answered in place: Yes asks for the fingerprint when pressed, No needs nothing, choices and the typed answer inline, a hidden input in the box (a code on the lab's keypad, a password field; the screen out of screenshots while it shows; cleared once sent). It stays until answered anywhere or withdrawn; back never dismisses it. A notification's tap and the Tasks tab's row go to it in today's chat. No question sheet."
+why = "A modal sheet could be closed by an accidental back press; FERB.app keeps the question in the chat until it is answered."
+supersedes = ["PHN-729"]
+evidence = "Android QuestionBox.kt, ViewModelTest a_question_is_a_box_in_the_chat_and_goes_when_answered_elsewhere, goldens question.png, private-code.png, parity/question-*.png."
+
+[PHN-771]
+title = "Stay connected comes on with notifications on the first-run page"
+by = "owner"
+date = 2026-11-18
+status = "active"
+words = "yeah on it"
+words_source = "Owner 2026-11-18, to the coordinator's proposal to turn Stay connected on in the first-run Notifications step, worded as in the rule (relayed)."
+rule = "Android: the first-run page's Notifications row says \"Notifications — so FERB's questions reach you here, even with FERB closed. FERB stays connected to your Mac to do this.\"; a Yes to Android's notification question there turns Stay connected on (its service starts). Not now or a No leaves it off, and the profile's \"FERB can't tell you about its questions\" row offers it later (PHN-765). An existing install's setting is not changed. iPhone has no Stay connected (PHN-566) and keeps its own words."
+why = "Off by default, FERB's questions never reached a phone with the app closed unless he found the switch."
+evidence = "Android FirstRunTest a_yes_to_notifications_keeps_ferb_connected_and_not_now_leaves_it_off; golden parity/first-run.png."
+
+[PHN-772]
+title = "Files in the message box are compact chips that wrap, as on the Mac"
+by = "owner"
+date = 2026-11-18
+status = "active"
+words = "why is the file attached taking so much space, why not like mac app?? exapnd this box if want but fix this UI"
+words_source = "Owner 2026-11-18 with a screenshot of two large thumbnail cards scrolling sideways above the message box (relayed by the coordinator)."
+rule = "A file waiting in the message box is a compact chip inside the box: a small icon or picture (24 points), its name on one line, the cross; its size is told to the screen reader, not drawn. Chips wrap onto more lines and the box grows with them, scrolling inside past four lines. FERB.app keeps a file to its icon and name (ChatBody.swift:200-216, ArtifactPreview.swift:214-250), in small 116 by 84 point cards in a strip."
+why = "The phone's file cards took the width of the box and scrolled sideways."
+evidence = "Android goldens composer-files.png, composer-one-file.png; iPhone components/composer-files-noon.png."
+
+[PHN-773]
+title = "Status and gap lines in FERB.app's sizes and colours"
+by = "owner"
+date = 2026-11-18
+status = "active"
+words = "lso teh erro/nonconfirmation lines are hte same length adn white. shoudlnt they mathc their threat levek color and be smaller in phone apps too??? it is in mac app btu not in phone"
+words_source = "Owner 2026-11-18 on a result bubble whose \"Not done\" lines and note were full-size white text on the phone (relayed by the coordinator)."
+rule = "As FERB.app (MarkdownContent.swift:36-47, ConversationTranscript.swift:671-683): under an answer, \"Couldn't confirm:\" bold amber with its note grey at 11.5/12 of the words, code's lines (the uncertain step's note) grey at 11/12; under the bubble the status words at 10/12, \"Delivered, with parts not done\" amber, others grey, on a small dark capsule so either reads on any sky; notices and \"Draft · still responding\" the same small grey. \"Not done:\" lines that are part of the answer's text stay its text, as on the Mac."
+why = "The phone drew these lines like the answer's words."
+evidence = "Android golden parity/answer-gaps-{dawn,noon,night}.png; iPhone app/parity/answer-gaps-*.png."
 [PHN-760]
 title = "Every question FERB asks notifies on the phone unless he is in the app"
 by = "owner"

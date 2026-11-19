@@ -7342,3 +7342,179 @@ in this commit ran on the emulator and was not installed (his phone was not reac
 - `OnPhoneTest.the_planner_s_question_pops_and_one_he_saw_goes_to_the_shade_quietly` compiles and was not run.
 - The 500-file folder's per-frame time after the stepwise build (entry 140b) was not re-measured on a quiet host.
 - The update check end to end against the new feed from an installed build ("FERB is up to date").
+
+## 2026-11-18 · 144 · The planner keeps the kind of thing the owner named; a "Not done:" line says what is missing, once
+
+**What changed.** Two of four candidates prepared and measured in `.local/planner-keeps-form/` (ignored by git), both
+approved by the owner (PRM-364, ORCH-677):
+
+- **The planner (PRM-364, PRM-365, refines PRM-303).** supervisor.md's goal bullet now says that when the owner names
+  the kind of thing FERB makes or where it is left, it stays that kind in the goal, every step's goal and label, each
+  part's label and the conditions. What making it needs is looked for where the work can see it before asking; if it
+  can't be found, the condition is a gap, never met by another kind. The case behind it: a request to draft a mail to
+  people whose profiles were open on a site became unsent messages on that site, and the check, judging the planner's
+  conditions, said done.
+- **The gap lines (ORCH-677, PRM-366, refines ORCH-651's line and ORCH-653's question).** `lines::gap_lines` writes
+  "Not done: <the check's reason>", one line per distinct reason; the condition's sentence is no longer printed, so
+  parts that were done no longer read as not done. `after_gaps_question` lists each distinct reason once. Two kinds of gap carry their subject inside their own reason, so their lines read exactly as before:
+  - a "different" gap (`attempt.rs::different_ending`, ORCH-668): "<condition> — <what FERB did instead>";
+  - a step not started after a No (`tree.rs`): "<step> — not started: …".
+  verifier.md's accept_with_gaps asks for a reason that names only what is missing, the same sentence for conditions
+  missed for one cause.
+
+**Measurement (numbers only).** Real-model replay of recorded planner inputs, Codex gpt-5.6-sol: 42 real requests,
+current and candidate prompt twice each (168 calls). The candidate was better on 4 requests (the named kind kept; a
+missing address looked for before asking, twice; a "which notes app" question gone), wrong on none, and left 38
+unchanged. Questions: 9 with the current prompt, 7 with the candidate; no question that the current prompt didn't
+also ask on some run. The gap line: computed exactly on the one stored done_with_gaps result (two lines with the
+conditions' sentences become two lines of reasons alone); one line needs the new verifier sentence, not measured.
+
+**Named differences.**
+- `engine/fixtures/catalog/prompt_changes.json`: PRM-365 (supervisor.md's goal bullet) and PRM-366 (verifier.md's
+  accept_with_gaps reason). The second rewrites text an earlier change added (ORCH-652's gaps); the helpers already
+  follow a change made on a changed text.
+- The chat-entries goldens are not Python-recorded and ENG-17 doesn't cover them (ENG-9, their README): the
+  engine's own projection, written by their tests. `scenarios.json` was written again by `chat_entries`
+  (UPDATE_GOLDEN=1); its diff is only the gap line of the written `gaps_*` timelines (18 lines, the condition
+  dropped). `transcripts.json`'s three gap lines were edited to the same line. FERB.app's `EntryFoldTranscriptTests`
+  (compare mode, byte for byte) and `EntryFoldTests` pass on it, so the bytes are what its fold writes. That test's
+  expected line names ORCH-677.
+- The stored record of a "different" gap now holds its condition at the start of its `reason`.
+
+**Not shipped.** The checker kind rule was dropped: it never caught the case in 6 replays across 3 wordings. The
+no-rabbit-holes candidate and the `gapped()` change it needs wait for the owner.
+
+**Unverified.**
+- No live run of the new planner wording.
+- The checker's new reason sentence is unmeasured: no model run in this change, and its effect was computed on one
+  stored case for the code part only.
+
+**Checks.** `./gate.sh fmt`, `./gate.sh lint` and `./gate.sh test` pass (303 test binaries, none failed).
+ferb-supervisor's `gap_lines` 4, `gaps` 8, `action_routes` 13 (the "different" line unchanged), `prompts` 5 and
+`chat_entries` 20, and ferb-context `parity` 11 pass. FERB.app's `EntryFoldTranscriptTests` and `EntryFoldTests`
+pass (14).
+
+## 2026-11-18 · 145 · The phones' questions as boxes in the chat; Stay connected from the first run; compact file chips; status lines in the Mac's sizes
+
+**What.** Four owner decisions of the night, each on both phones (kb PHN-770..773, his words verbatim, the lock updated).
+- **PHN-770, questions are boxes in the chat.** "Also the questipns come as modal in pone, i want them like temp boxes
+  like in mac, so fix that too. because an accidental back press can close the modal, not this box. anywyas it goes
+  after being answered". FERB.app draws `ApprovalView` in the chat: at the end (ConversationTranscript.swift:205-208)
+  or in its card's row (TurnCardView.swift:298-301), and only the words once its approval isn't open (:302-305). Both
+  phones now draw each open question as that card (PHN-739's words from `question::shown`) where the chat already
+  placed its row: after its turn, else at the end of today's chat; a question only the Mac's status knows yet is a box
+  at the end of today's chat. The buttons answer in place through the same answer path (a Yes that needs the fingerprint
+  asks when pressed; No needs nothing); choices, the typed answer and "Sending your answer…" inline. A hidden input is
+  entered in the box: a code on the lab's keypad drawn in the box (the system keyboard never sees it), a password in a
+  password field; while such a field shows the screen is out of screenshots (Android `hiddenShown` → FLAG_SECURE; iPhone
+  `hiddenBoxes` → `mustSecure`), and the value is cleared once sent and when the box goes. No kind needed the sheet. The
+  Asking sheet route, the slide-up of a new question and its "question_gone" note are removed; a notification's tap
+  and the Tasks tab's row call `goToQuestion` (today's chat, the box scrolled into view). PHN-729 (the row opened the
+  sheet) is superseded. The box reads its question from the chat's locals (Android `LocalQuestions`/`LocalBusy`, iPhone
+  environment), so only boxes recompose when a question or a sending changes. One difference from the Mac: a question
+  of a card's part is drawn under the card, not inside the part's row.
+- **PHN-771, Stay connected from the first run** ("yeah on it"). Android: the first-run Notifications row says "So
+  FERB's questions reach you here, even with FERB closed. FERB stays connected to your Mac to do this."; a Yes to
+  Android's question there turns Stay connected on (`FirstRun.answered(ask, granted)`); Not now or No leaves it off
+  and the existing "can't tell you" row offers it later; an existing install is not touched. Android 12 and earlier ask
+  no notification question, so the row isn't on the page and Stay connected stays off there. iPhone keeps its own words
+  (strings.py override).
+- **PHN-772, compact file chips.** FERB.app's composer shows a file as its icon and name in small 116×84-point cards in a
+  strip (ChatBody.swift:200-216, ArtifactPreview.swift:214-250). The phones' chips are now 34 high: a 24-point icon or
+  picture, the name on one line (the size told to the screen reader), the cross; they wrap onto more lines and the box
+  grows (Android FlowRow, iPhone ChipFlow).
+- **PHN-773, status and gap lines.** FERB.app (MarkdownContent.swift:36-47, ConversationTranscript.swift:671-683): the
+  note at 11.5 and code's lines at 11 under its 12 (the phones had the lines at 11.5), "Couldn't confirm:" bold amber;
+  the status words, the notices and "Draft · still responding" at 10 under 12, "Delivered, with parts not done" amber,
+  the rest grey. The phones draw these small lines on a dark capsule so either colour reads on any sky (amber on black
+  11:1, the grey 7.4:1). "Not done:" lines that are part of the answer's text are the answer's text on the Mac too
+  (nothing there styles them; his entry 5a75e057 has them in `text`, its uncertain-step line in `lines`): they stay the
+  words' size. If he meant those, it is a new rule for both apps.
+
+**Evidence.** Android: ViewModelTest (the box, the tap), UntilBackTest, NotifierTest, MotionShotsTest (a profile sheet
+now carries PHN-623's settle), FirstRunTest, ParityShotsTest goldens question-*, first-run, answer-gaps-{dawn,noon,
+night}, ScreenShotsTest question.png, question-extra, question-until-back, private-code, private-password, composer-
+files, composer-one-file (all looked at). ScreenShotsTest's shared state no longer carries a question, so its other
+goldens lost the Tasks tab's waiting dot. iPhone: AppModelTests, UntilBackTests, ParityTests goldens app/parity/
+question-*, answer-gaps-*, app/question-until-back-noon, components/composer-files-noon (now the app's own chip row),
+looked at. Full-suite counts are in the report.
+
+**Unverified.** Everything on his phone: the fingerprint prompt over the chat from a box, the keypad inside a box at his
+font size, TalkBack/VoiceOver on the boxes, Stay connected starting from the first-run page on a fresh install.
+
+## 2026-11-19 · 146 · FERB.app: the notch held and dragged moves layers; nothing is rasterized or evaluated per event
+
+**What.** Owner 2026-11-19: "i just noticed that mac app hold and drag jitters sooo much, maybe its resrawign it too. i
+think i solved thsi but i can still see it ... i want it smoooth liket hechat scrolls", then "its the drag when i hold the
+notch mode and drag it on the screen. windwos is ok ig." (kb APP-970, his words verbatim, the lock updated; rulings
+APP-971..973; live check LIVE-1150).
+
+**Found by counting** (new `DragWorkTests`, a 60-entry day in the notch, the pill dragged through FERB's own views with
+a stand-in pointer, never the owner's; `FERB_DRAG_PROBE=1` prints the numbers; `sample(1)` of the test process for
+where the time went). Per pointer event of a held notch drag, before: 17-31 ms of the main thread (mean, varying with
+the host's load), worst 39-88 ms; 121 SwiftUI geometry hand-overs and 139-156 outline images for 120 events; no model
+change, no transcript or composer evaluation. The sample: 85% of the main thread in `-[NSVisualEffectView
+setMaskImage:]` -> `-[NSWindow _createCornerMaskFromCornerMaskImage]` and, at each commit,
+`SLSTransactionSetWindowCornerMask` (`A8_sample_ALPHAf16`). During a drag the notch's window is a stationary canvas the
+size of the display (DragSurfaceCanvas, chosen on 29 Oct so the grabbed pill never drifts from the pointer); the
+frost's outline was drawn into a display-sized mask image on every event and display frame, and because the frost is
+the window's content view AppKit made that image the window's shape, rasterizing it twice more. The 29 Oct
+"floating rendering performance" pass (the fix he remembers) cut four builds per event to one and measured "CPU setup
+work only, not native mask rasterization" (its own words, OWNER_ACCEPTANCE at c6621c31): the one display-sized build
+that stayed was the jitter.
+
+**Changed (APP-971).** `NotchBackdropView.moving`: while the notch is held (a drag, the dock that follows, an edge
+resize) the outline is three vector shape layers set as the mask of the material's own layer, the layer AppKit masks
+with `maskImage` (checked: for a content view and any other, AppKit sets `mask` on the `kCUIVariant…Material` layer,
+the backdrop's parent); `maskImage` is nil, so the window gets no shape per event. The parts sit in the surface's
+coordinates, so a move changes only their position. When the hold ends the image comes back once at the window's
+size. The SwiftUI host now sits in a plain carrier view; a move that keeps the surface's size translates the carrier's
+layer by the distance from where SwiftUI last drew (`NotchPresentation.placeDuringDrag`, `contentShift`), and SwiftUI
+gets no new geometry (moving any frame, even an ancestor's, made NSHostingView lay its whole tree out again: counted).
+Any other change (a size, the spring, the drop) takes the translation off and publishes in the same pass;
+`surfaceOffset` subtracts the shift, so a view evaluated mid-drag for another reason draws where the carrier is. The
+drag reads the notch's geometry (the camera housing, the menu bar: synchronous window-server calls, 60% of what was
+left) once per display; the hidden indicator and field panels are no longer ordered out on every frame. Nothing about
+the look changed: the same outline, tint, fills, pill and spring.
+
+**Also counted, and fixed where clear.** APP-972: `MessageTextView` compared a new text with its text storage, which
+makes each paragraph's style one style; an answer with a list never matched, so every evaluation of its row staged the
+same text, emptied the measure cache and typeset it whole (a notch height resize: 263 typesettings in 60 events, now 0).
+It now compares with the text last given. Link rectangles are found once per layout, not twice (the debug log reused
+them). APP-973: the chat window moved by its header wrote its place to the preferences on every event (120 writes, each
+read back by the notch and the model); now once at the release. Its move evaluated nothing in the chat before and
+after. The notch's edge resize uses the vector outline while held too (120 outline images in 60 width events, now 0).
+
+**Measured (debug build, this Mac, load average 5-9 from other agents; counts are firm, times noisy).**
+| per pointer event | before | after |
+|---|---|---|
+| notch held, open screen: main thread mean / worst | 17-31 / 39-88 ms | 0.9-1.3 / 2-8 ms |
+| SwiftUI geometry hand-overs / outline images (120 events) | 121 / 139-156 | 0 / 0 |
+| model, transcript, composer, text typeset | 0 | 0 |
+| notch resize by the bottom edge: mean | 11.3-14.7 ms | 9.7-10.7 ms |
+| notch resize (height): text typeset / outline images | 263 / 60 per 60 | 0 / 0 |
+| window moved by header: mean / settings writes | 3.0-4.2 ms / 120 | 0.8-2.9 ms / 0 |
+| window resized: mean (width / height) | 9-12 / 6-9 ms | unchanged: the chat lays out at each size |
+
+**Phones (drags only).** Android's sheet drag to dismiss (`sheetPanelMotion`) reads the drag in `graphicsLayer`, the
+draw phase: no recomposition per frame. The press and the hold-to-talk set their state once per press, not per move;
+the file chips row is a native horizontal scroll. iPhone's sheet (`LabSheet`) keeps the drag in `@State`, so its own
+small body runs per touch move and the offset is applied in `visualEffect` (no layout); its content is passed through
+unchanged (inferred, not counted). No Watch live pan or zoom exists on either. Nothing changed on the phones.
+
+**Found and left (reported).** A resize re-lays out the whole chat at each new size (60 transcript and composer
+evaluations for 60 events, 9-11 ms): live reflow is what a resize is; freezing the layout until the release would change
+how it looks while held. During a notch width resize a row measured for the list is built again per event (16-21
+typesettings in 60 events). The window's resize hands its size to the model every event (60 announcements).
+
+**Evidence.** `swift test` (the whole package, once, at the end): 867 tests, 3 skipped, none failed. `DragWorkTests` 6 (one probe,
+skipped unless `FERB_DRAG_PROBE=1`): the held drag (every event: 0 model, 0 SwiftUI geometry, 0 transcript, 0 composer,
+0 typeset, 0 outline images, the window still, the composer exactly where it was against its frost; at the drop's own
+commit no jump, the image back, the window small again), the dock after a drag, the edge resize, the window's header
+move, an answer given again.
+
+**Unverified.** How it feels on his screen (LIVE-1150): the window server's GPU work for a full-display window whose
+backdrop is masked by layers rather than by the window's shape was not measured; frames per second on the display were
+not measured (no screen recording, no synthesized pointer on his screen). The vector outline's look was checked only
+by construction (the same paths; Core Animation's `CARenderer` showed a mask under a flipped parent lands where the
+fills do).

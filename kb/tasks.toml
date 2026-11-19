@@ -888,3 +888,20 @@ kind = "build"
 status = "open"
 why = "GATE-620. Today each typed destination found only in outside content is its own question. The worker names the values it is about to enter; code checks each one's origin, asks once with the list, and the Yes covers exactly those values on that site for the task."
 decisions = ["GATE-620"]
+
+[T-1271]
+title = "Later: control the Mac from the phone (the live view takes touch and typing)"
+area = "phone"
+kind = "build"
+status = "open"
+why = "Owner 2026-11-18: 'note it as a seoarete later feature for remote mac control'. Watch live is view-only and no phone call carries input. Needs a control channel beside the picture (direct path or own relay), the fingerprint to start, and what the Mac's screen shows meanwhile. Not now."
+decisions = ["PHN-413"]
+
+[T-1272]
+title = "Later, to be planned first: control a terminal or join a running agent session from the phone"
+area = "phone"
+kind = "question"
+status = "open"
+why = "Owner 2026-11-18: wanted, 'BUT needs proper feature plannign - BUT not now, later'. His test of 2026-11-18: FERB typed into a Claude Code session and read the reply, but its watch loop used a worker and a checker call every round while idle. A plan comes before any code."
+decisions = ["PHN-413", "GATE-585"]
+ask = "When you want to plan it: which sessions (Claude Code, Codex, any terminal), what the phone shows and may type, and how a new reply wakes FERB without a model call while nothing happens."

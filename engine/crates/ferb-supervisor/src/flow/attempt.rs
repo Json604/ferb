@@ -1248,6 +1248,15 @@ impl Inner {
                     .map(|g| ferb_orchestrator::py::strip(&g.reason).to_string())
                     .find(|t| !t.is_empty())
             };
+            // ORCH-677: a gap's line is its reason alone; a "different" reason names what FERB did, so it carries its
+            // condition and its line reads as ORCH-668 wrote it
+            let reason = reason.map(|reason| {
+                if r.verdict == DIFFERENT {
+                    format!("{condition} — {reason}")
+                } else {
+                    reason
+                }
+            });
             match reason {
                 Some(reason) => gaps.push(Gap {
                     index: r.index,

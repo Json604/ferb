@@ -105,7 +105,7 @@ fn one_step_with_a_gap(calls: &mut [Value], reason: &str) {
 /// ORCH-651/652: the worker reports a gap, the check accepts with it: the task ends done_with_gaps (its tasks row
 /// too), its answer is the worker's then code's "Not done:" line, never verified; the
 /// check read the worker's gaps in its report.
-// decision: ORCH-651, ORCH-675
+// decision: ORCH-651, ORCH-675, ORCH-677
 #[test]
 fn a_gap_the_worker_names_and_the_check_accepts_ends_delivered_with_gaps() {
     let name = "one_step_task";
@@ -120,7 +120,7 @@ fn a_gap_the_worker_names_and_the_check_accepts_ends_delivered_with_gaps() {
     assert_eq!(out["verified"], false);
     assert_eq!(
         out["answer"],
-        json!(format!("Said hello.\n\nNot done: {PARTICIPANTS} — {WHY}."))
+        json!(format!("Said hello.\n\nNot done: {WHY}."))
     );
     assert_eq!(out["gaps"][0]["condition"], PARTICIPANTS);
     assert!(
@@ -164,7 +164,7 @@ fn a_gap_without_a_reason_is_refused_and_reads_as_a_plain_accept() {
 /// ORCH-652, PRM-357: a check that finds the deliverable's evidence invented names it as an unmet condition (a gap
 /// saying so) and its sentences as findings: the answer's sentence is fixed by the worker's fix turn, and the owner
 /// reads "Not done:" with the check's reason, never the invented claim as done.
-// decision: ORCH-675, PRM-357
+// decision: ORCH-675, PRM-357, ORCH-677
 #[test]
 fn invented_evidence_is_named_as_not_done_never_accepted_silently() {
     let name = "checker_findings_fix";
@@ -200,7 +200,7 @@ fn invented_evidence_is_named_as_not_done_never_accepted_silently() {
         "the invented sentence is gone: {said}"
     );
     assert!(
-        said.contains("Not done: The hours come from the library's own page — the report's garden detail was invented"),
+        said.contains("Not done: the report's garden detail was invented"),
         "{said}"
     );
     assert!(
@@ -212,7 +212,7 @@ fn invented_evidence_is_named_as_not_done_never_accepted_silently() {
 /// ORCH-653: the step after a gapped one declares an outside effect (its condition's check is `submitted`): FERB
 /// asks once, naming the gaps, before it starts; a No leaves it not started, and the task ends delivered with gaps,
 /// that step told as not done.
-// decision: ORCH-653
+// decision: ORCH-653, ORCH-677
 #[test]
 fn a_submit_step_after_a_gapped_one_asks_first_and_a_no_stops_it() {
     let name = "multi_step_plan";
@@ -255,7 +255,7 @@ fn a_submit_step_after_a_gapped_one_asks_first_and_a_no_stops_it() {
     let question = asked[0].to_string();
     assert!(
         question.contains("finished with these parts not done")
-            && question.contains(official)
+            && !question.contains(official)
             && question.contains("the cities are invented, so no office exists")
             && question.contains("Go on to"),
         "{question}"
@@ -274,10 +274,7 @@ fn a_submit_step_after_a_gapped_one_asks_first_and_a_no_stops_it() {
         said.starts_with("Avalon 21C, Brindle 18C, Corvo 25C."),
         "{said}"
     );
-    assert!(
-        said.contains(&format!("Not done: {official} — the cities are invented")),
-        "{said}"
-    );
+    assert!(said.contains("Not done: the cities are invented"), "{said}");
     assert!(
         said.contains("— not started: you said not to go on after the parts not done."),
         "{said}"

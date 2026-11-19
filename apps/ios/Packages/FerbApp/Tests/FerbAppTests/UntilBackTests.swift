@@ -59,13 +59,12 @@ final class UntilBackTests: XCTestCase {
         phone.status = status(screenQuestion(untilBack: true))
         let vm = rig.model()
         await vm.refresh()?.value
-        vm.show(.asking(approvalId: "ap-s"))
         phone.answerScript = [.failed(.Refused(detail: "Input Monitoring is off for FERB on the Mac.", linkCode: "screen_use_unavailable"))]
         await vm.answer("ap-s", .untilBack).value
         XCTAssertEqual(vm.ui.note, Note("err_mac_said", "Input Monitoring is off for FERB on the Mac."))
-        XCTAssertEqual(vm.sheet, .asking(approvalId: "ap-s"), "the question stays open")
+        XCTAssertTrue(vm.ui.questions.contains { $0.approvalId == "ap-s" }, "the question stays open")
         await vm.answer("ap-s", .approve(granted: true, choice: 1)).value
-        XCTAssertNil(vm.sheet)
+        XCTAssertNotNil(phone.answers.last)
     }
 
     // decision: PHN-611

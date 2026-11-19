@@ -86,4 +86,21 @@ class FirstRunTest {
     fun only_these_asks_exist() {
         assertEquals(listOf(Ask.LOCATION, Ask.CAMERA, Ask.MICROPHONE), FirstRun.asksFor(30))
     }
+
+    /** A Yes to notifications on the first-run page turns Stay connected on; a No or Not now leaves it off. */
+    // decision: PHN-771
+    @Test
+    fun a_yes_to_notifications_keeps_ferb_connected_and_not_now_leaves_it_off() {
+        var stay = 0
+        val yes = FirstRun(FirstRun.asksFor(36), { it in allowed }, { asked }, { asked = it }) { stay++ }
+        yes.answered(Ask.NOTIFICATIONS, granted = true)
+        assertEquals(1, stay)
+        asked = emptySet()
+        val no = FirstRun(FirstRun.asksFor(36), { it in allowed }, { asked }, { asked = it }) { stay++ }
+        no.answered(Ask.NOTIFICATIONS, granted = false)
+        no.answered(Ask.LOCATION, granted = true)
+        asked = emptySet()
+        FirstRun(FirstRun.asksFor(36), { it in allowed }, { asked }, { asked = it }) { stay++ }.notNow()
+        assertEquals("only his Yes to notifications turns it on", 1, stay)
+    }
 }

@@ -74,6 +74,26 @@ final class NotchBackdropView: FerbGlassView {
         var magneticJoin: CGFloat?
     }
     private var renderedBackground: Background?
+    /// How many times the outline was drawn into a new mask image (each one, for this window's content view, a new
+    /// window shape that AppKit and the window server rasterize at the window's full size). Tests read it (APP-971).
+    private(set) var maskImageBuilds = 0
+
+    /// While the owner holds FERB: a drag (the window then a stationary canvas the size of the display,
+    /// DragSurfaceCanvas, the surface moving within it on every pointer event and display frame), the dock after it, an
+    /// edge resize. Then the outline is not a mask image: drawing one at the window's size and making it the window's
+    /// shape took two full rasterizations per event on the main thread (17-31 ms a drag event; owner 2026-11-19: "hold
+    /// and drag jitters sooo much"). It is a vector mask on the material's own layer, where AppKit puts the mask image's
+    /// layer, so Core Animation moves it with the surface; the controls above the frost are shaped by their own
+    /// outlines (tint, fills, NotchView's mask). When the hold ends the mask image comes back once (APP-971).
+    var moving = false {
+        didSet {
+            guard oldValue != moving else { return }
+            renderedBackground = nil
+            updateBackground()
+        }
+    }
+    private let movingMask = CALayer()
+    private let movingParts = [CAShapeLayer(), CAShapeLayer(), CAShapeLayer()]
 
     /// One drag frame changes the card and pill together. Build their final union
     /// once instead of rasterizing several intermediate attachment configurations.
@@ -102,6 +122,28 @@ final class NotchBackdropView: FerbGlassView {
         tint.wantsLayer = true
         tint.layerContentsRedrawPolicy = .onSetNeedsDisplay
         addSubview(tint)
+        movingMask.anchorPoint = .zero
+        for part in movingParts {
+            part.fillColor = NSColor.white.cgColor
+            part.anchorPoint = .zero
+            movingMask.addSublayer(part)
+        }
+    }
+
+    override func refresh() {
+        super.refresh()
+        if moving { attachMovingMask() }      // after AppKit rebuilt the material's layers
+    }
+
+    /// The material's own layer (the backdrop's parent), which AppKit masks with the mask image.
+    private var materialLayer: CALayer? { ProgressiveBlur.backdropLayer(in: layer)?.superlayer }
+
+    private func attachMovingMask() {
+        guard let material = materialLayer, material.mask !== movingMask else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        material.mask = movingMask
+        CATransaction.commit()
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -157,15 +199,35 @@ final class NotchBackdropView: FerbGlassView {
         if let resize = subviews.first(where: { $0 is PanelResizeOverlay }) {
             if resize.frame != tint.frame { resize.frame = tint.frame }
         }
-        maskImage = NSImage(size: bounds.size, flipped: true) { _ in
-            guard let context = NSGraphicsContext.current?.cgContext else { return true }
-            context.setFillColor(NSColor.white.cgColor)
-            // Paint the union independently: mirrored shoulders have opposite winding.
-            for component in [cardPath, attachment, shoulder] {
-                context.addPath(component)
-                context.fillPath()
+        if moving {
+            // The outline in the surface's own coordinates, placed by the mask's offset: a drag that only moves the
+            // surface changes the offset alone. Each part is its own layer, as the image painted each on its own
+            // (mirrored shoulders have opposite winding).
+            if maskImage != nil { maskImage = nil }
+            attachMovingMask()
+            let back = CGAffineTransform(translationX: -surfaceOrigin.x, y: -surfaceOrigin.y)
+            let local = NotchSurfaceShape(expansion: expansion, docked: docked, joining: magneticJoin).path(in: rect).cgPath
+            let parts = [local, attachment.copy(using: [back]) ?? attachment, shoulder.copy(using: [back]) ?? shoulder]
+            if movingMask.frame != bounds { movingMask.frame = bounds }
+            // the material's layer has the view's flipped coordinates, as the fills above have
+            let place = CGPoint(x: surfaceOrigin.x, y: surfaceOrigin.y)
+            for (part, path) in zip(movingParts, parts) {
+                if part.position != place { part.position = place }
+                if part.path != path { part.path = path }
             }
-            return true
+        } else {
+            if materialLayer?.mask === movingMask { materialLayer?.mask = nil }
+            maskImageBuilds += 1
+            maskImage = NSImage(size: bounds.size, flipped: true) { _ in
+                guard let context = NSGraphicsContext.current?.cgContext else { return true }
+                context.setFillColor(NSColor.white.cgColor)
+                // Paint the union independently: mirrored shoulders have opposite winding.
+                for component in [cardPath, attachment, shoulder] {
+                    context.addPath(component)
+                    context.fillPath()
+                }
+                return true
+            }
         }
         tint.needsDisplay = pendingTintPaint || tintNeedsPaint
         CATransaction.commit()

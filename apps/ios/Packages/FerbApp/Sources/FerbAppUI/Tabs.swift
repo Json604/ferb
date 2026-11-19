@@ -269,7 +269,7 @@ func dayLabel(_ day: Int, today: Int = ChatModel.chatDay(Date(), Calendar.curren
 }
 
 @MainActor func open(_ model: AppModel, _ item: WorkItem) {
-    if let id = item.approvalId { model.show(.asking(approvalId: id)) } else { model.openChat() }
+    if let id = item.approvalId { model.goToQuestion(id) } else { model.openChat() }
 }
 
 // ---- chat ------------------------------------------------------------------------------------------------------
@@ -308,8 +308,13 @@ struct ChatView: View {
             let places = model.places
             // earlier days exist: rows of them, or older pages the Mac still has (or has when the path allows)
             let hasEarlier = places.earlier.contains { !Self.isDay($0) }
+            // a question the chat doesn't hold yet (the Mac's status brought it first) is a box at the end of today's
+            // chat, as FERB.app draws its open questions (ConversationTranscript.swift:205-208; kb PHN-770)
+            let placed = Set(model.rows.compactMap { if case .asking(_, let id, _, _, _) = $0 { return id } else { return nil } })
+            let loose: [ChatRow] = model.ui.questions.filter { !placed.contains($0.approvalId) }
+                .map { .asking(key: "q:\($0.approvalId)", approvalId: $0.approvalId, title: $0.title, reason: nil, hidden: $0.hidden) }
             let rows: [ChatRow] = earlier ? places.earlier
-                : (hasEarlier && !places.today.isEmpty ? [.earlierLink(key: "earlier-link")] + places.today : places.today)
+                : (hasEarlier && !places.today.isEmpty ? [.earlierLink(key: "earlier-link")] + places.today + loose : places.today + loose)
             // the day he is looking at and the latest messages' day: the sticky label and the way back (PHN-662, 663)
             let top = topKey.flatMap { k in rows.firstIndex { $0.key == k } }
             let shownDay = top.flatMap { ChatModel.dayAt(rows, $0) }
@@ -347,6 +352,8 @@ struct ChatView: View {
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { h in if h > tallest { tallest = h } }
                     .environment(\.chatViewport, tallest)
                     .environment(\.cardsLive, !earlier)
+                    .environment(\.questions, model.ui.questions)
+                    .environment(\.busy, model.ui.busy)
                     .scrollDismissesKeyboard(.interactively)
                     // follow the end while he is at it: a new row, a reply that grows as it streams, his own message
                     // always; scrolled up, a pill. Before, only a change in the number of rows scrolled (PHN-628).
@@ -389,6 +396,11 @@ struct ChatView: View {
                 // the Chat tab tapped on today's chat: to its end (kb PHN-662; in the earlier days it goes back to
                 // today, PHN-698)
                 .onChange(of: model.chatToEnd) { toEnd(reader) }
+                // a notification's tap or the Tasks tab's row: the question's box in view (kb PHN-770)
+                .onChange(of: model.toQuestion?.n) {
+                    guard let id = model.toQuestion?.id else { return }
+                    withAnimation(FerbMotion.item.animation) { reader.scrollTo("q:\(id)", anchor: .center) }
+                }
             }
             Composer(model: model, placeholder: L.s("chat_placeholder"), picking: picking)
                 .padding(.horizontal, 16).padding(.bottom, insets.bottom + 8)
@@ -463,6 +475,12 @@ struct ChatRowView: View {
                 ForEach(quotes, id: \.self) { Text($0).type(14, .regular, ink.low) }
             }
             .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 6)
+        // FERB.app's status words and notices under a reply: 10 points under its 12 (the phone's 16 scaled the same), grey,
+        // "Delivered, with parts not done" amber, on FERB's dark surface so either reads on any sky (kb PHN-773)
+        case .small(_, let text, let amber):
+            Text(text).type(13.5, .medium, amber ? Ink.amber : Ink.onDark)
+                .padding(.horizontal, 10).padding(.vertical, 4).background(Ink.black, in: Capsule())
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 6)
         case .task(let t):
             // each running part's own live picture (kb PHN-726; FERB.app's RowPreview), asked for while the card shows
             let keys = t.taskId.map { task in t.watch.map { $0.map { Thumbnails.key(task, $0) } } } ?? []
@@ -510,13 +528,9 @@ struct ChatRowView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         case .day(_, let day):
             DayDivider(dayLabel(day, today: today))
-        // FERB.app's inline question leads with its title (else "FERB needs your answer") and the question under it;
-        // the phone opens the answer sheet, since some answers need the fingerprint (kb PHN-729)
-        case .asking(_, let id, let title, let reason, let hidden):
-            Card {
-                CardRow(title: title ?? L.s(hidden ? "question_private_title" : "question_needs_answer"), detail: reason ?? L.s("question_tap"),
-                        onClick: { model.show(.asking(approvalId: id)) }) { Mark(kind: .asking) } trailing: { Opens() }
-            }
+        // FERB.app's question card in the chat, answered in place (kb PHN-770)
+        case .asking(_, let id, let title, let reason, _):
+            QuestionBox(model: model, approvalId: id, title: title, reason: reason)
         case .outbox(_, let o):
             OutboxRow(model: model, item: o)
         case .withFiles(_, let m):

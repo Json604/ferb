@@ -4183,3 +4183,46 @@ words = "i agree with you here and 4 sounds good. jsut make sure going back to p
 words_source = "Owner 2026-11-18, to the proposal of a fresh page after a long break (4 hours suggested) in place of midnight or 4 am, which he called biased towards him."
 rule = "The chat's page changes only when the owner comes back after 4 hours without his own activity, on the Mac and the phones alike; never while he works, at any hour. FERB's own posts in the break do not keep the old page. Going back to earlier pages is easy, and how the pages follow each other and which day each belongs to is easy to see."
 why = "A page that empties at midnight breaks a night's work in two; a fixed late hour fits one person's bedtime. A break follows the person. Research: .local/chat-day-boundary/report.md."
+
+[APP-970]
+title = "Holding the notch and dragging it is as smooth as the chat's scrolling"
+by = "owner"
+date = 2026-11-19
+status = "active"
+words = "i just noticed that mac app hold and drag jitters sooo much, maybe its resrawign it too. i think i solved thsi but i can still see it. - i want it smoooth liket hechat scrolls in both mac adn phone apps. also what is the method how to remove thsi redrwaing, in both phone adn mac how is it done?? ... its the drag when i hold the notch mode and drag it on the screen. windwos is ok ig."
+words_source = "Owner 2026-11-19, about FERB.app's notch held by its pill and dragged across the screen; the second part named which drag after he was asked."
+rule = "A held drag of FERB's notch (the pill with the open chat or a line attached) follows the pointer as smoothly as the chat scrolls, on the Mac and the phones; nothing on screen is redrawn or re-laid-out by a move that only changes where FERB is. He is told, in plain words, how the apps avoid redrawing."
+why = "He felt the notch jitter while dragging it, after an earlier fix (the 29 Oct floating-performance pass) he thought had solved it."
+live = ["LIVE-1150"]
+paths = ["apps/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift", "apps/mac/FERBNotch/Sources/FERBNotch/NotchBackdrop.swift", "apps/mac/FERBNotch/Sources/FERBNotch/NotchPresentation.swift"]
+
+[APP-971]
+title = "A held drag, dock or edge resize of the notch moves layers; no outline image, no SwiftUI pass"
+by = "agent"
+date = 2026-11-19
+status = "active"
+rule = "For APP-970, keeping APP-551. While the notch is held (drag, the dock after it, an edge resize) the frost's outline is a vector mask on the material's own layer (where AppKit puts maskImage's layer), not a mask image: the window gets no new shape per event. A move that keeps the surface's size translates the SwiftUI host's carrier layer by the distance from where SwiftUI last drew; SwiftUI gets no new geometry. The notch's geometry is read once per display per drag. At the drop the image, SwiftUI's origin and the carrier come back in one pass."
+why = "Counted: each event drew the outline into a display-sized image that AppKit made the window's shape, two full rasterizations (85% of the main thread), plus a SwiftUI geometry pass: 17-31 ms mean, worst 39-88 ms, per event. Now 0.9-1.3 ms mean, worst 2-8 ms; nothing evaluated."
+evidence = "DragWorkTests (FERB_DRAG_PROBE=1 prints the numbers). sample(1) of the old path: setMaskImage -> _createCornerMaskFromCornerMaskImage, SLSTransactionSetWindowCornerMask (A8_sample_ALPHAf16). Journal 146."
+rejected = ["Move the window per event instead of the stationary canvas: the 29 Oct pass chose the canvas so the grabbed pill never drifts from the pointer", "Coalesce mask builds (done 29 Oct): one display-sized build per event stayed", "Move the SwiftUI host's frame: SwiftUI lays its whole tree out again when an ancestor's frame moves"]
+paths = ["apps/mac/FERBNotch/Sources/FERBNotch/NotchBackdrop.swift::NotchBackdropView.moving", "apps/mac/FERBNotch/Sources/FERBNotch/NotchPresentation.swift::NotchPresentation.placeDuringDrag", "apps/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift::PanelCoordinator.renderDragCard", "apps/mac/FERBNotch/Sources/FERBNotch/PanelResizeOverlay.swift"]
+
+[APP-972]
+title = "A message's text given again is compared with what was given, so it is never typeset again"
+by = "agent"
+date = 2026-11-19
+status = "active"
+rule = "For APP-809 and APP-815. MessageTextView keeps the text it was last given and compares a new one with that, not with its text storage. The storage makes each paragraph's style one style, so an answer with a list never matched it: every evaluation of its row staged the same text again, emptied the measure cache and typeset it whole."
+why = "Found counting the notch's edge resize: two long answers typeset again on every event (263 typesettings in 60 events, now 0). The same happened on every model change that re-evaluated a row with a list."
+evidence = "DragWorkTests testAnAnswerGivenAgainIsNotTypesetAgain and testResizingTheNotchByItsEdgeRasterizesTheOutlineOnlyAtTheRelease."
+paths = ["apps/mac/FERBNotch/Sources/FERBNotch/NativeMessageText.swift::MessageTextView.stage"]
+
+[APP-973]
+title = "The chat window moved by its header saves its place once, at the release"
+by = "agent"
+date = 2026-11-19
+status = "active"
+rule = "For APP-759. While the owner holds the window's header and moves it, its place is not written to the preferences on every pointer event; it is saved once when the drag ends (WindowDragOwner). Other moves (a display change, FERB placing it) save as before."
+why = "Each event wrote the place and posted a settings change that the notch and the model each read the settings for: 3-4 ms per event, 120 writes for 120 events. The window move was otherwise already cheap: nothing in the chat was evaluated."
+evidence = "DragWorkTests testMovingTheWindowByItsHeaderEvaluatesNothingAndSavesItsPlaceOnce; probe: 3.0-4.2 ms to 0.8-2.5 ms mean per event."
+paths = ["apps/mac/FERBNotch/Sources/FERBNotch/ChatWindow.swift::WindowDragArea", "apps/mac/FERBNotch/Sources/FERBNotch/ChatWindow.swift::ChatWindowController.windowDrag"]

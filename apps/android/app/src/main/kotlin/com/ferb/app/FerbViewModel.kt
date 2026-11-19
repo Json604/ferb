@@ -95,7 +95,6 @@ enum class MacNeed { LAPSED, CANCELLED, OLD }
 
 /** What slides up over the page. Only ids are kept (saved state holds no question words and never a private value). */
 sealed interface Sheet {
-    data class Asking(val approvalId: String) : Sheet
     data object Relay : Sheet
     data object Profile : Sheet
     data object Forget : Sheet
@@ -279,8 +278,21 @@ class FerbViewModel(
     private val _sheet = MutableStateFlow<Sheet?>(null)
     val sheet: StateFlow<Sheet?> = _sheet.asStateFlow()
 
-    /** Questions shown once already (presented or dismissed): a question slides up by itself only the first time. */
-    private val presented = HashSet<String>(saved.get<ArrayList<String>>("presented").orEmpty())
+    /** The question boxes with a hidden input's field on screen now: the screen stays out of screenshots (PHN-110). */
+    private val hiddenBoxes = MutableStateFlow<Set<String>>(emptySet())
+    fun hiddenShown(approvalId: String, on: Boolean) = hiddenBoxes.update { if (on) it + approvalId else it - approvalId }
+
+    private val _toQuestion = kotlinx.coroutines.flow.MutableSharedFlow<String>(extraBufferCapacity = 1)
+    /** A question's box to bring into view in today's chat (a notification's tap, the Tasks tab's row; kb PHN-770). */
+    val toQuestion: kotlinx.coroutines.flow.SharedFlow<String> = _toQuestion
+
+    /** Today's chat with this question's box in view: where it is answered (kb PHN-770). */
+    fun goToQuestion(approvalId: String) {
+        saved["tab"] = PhoneTab.CHAT
+        saved["earlier"] = false
+        _sheet.value = null
+        _toQuestion.tryEmit(approvalId)
+    }
     var prompts: Prompts? = null
     private val windowReady = MutableStateFlow(false)
     private var refreshing: Job? = null
@@ -333,8 +345,8 @@ class FerbViewModel(
                 .distinctUntilChanged().collect { _home.value = it }
         }
         viewModelScope.launch {
-            combine(_sheet, _ui) { s, u ->
-                s is Sheet.Live || s is Sheet.Task || (s is Sheet.Asking && u.questions.firstOrNull { it.approvalId == s.approvalId }?.hidden == true)
+            combine(_sheet, hiddenBoxes) { s, hidden ->
+                s is Sheet.Live || s is Sheet.Task || hidden.isNotEmpty()
             // the views that show the Mac's screen readably force the block (Watch live, a task's or step's short view);
             // the small round pictures in the chat follow the owner's switch (owner 2026-11-18, kb PHN-732, PHN-727)
             }.collect { _mustSecure.value = it }
@@ -535,7 +547,7 @@ class FerbViewModel(
         if (_ui.value.gate != Gate.MAIN || session.locked.value) return
         pending?.let { id ->
             pending = null
-            show(Sheet.Asking(id))
+            goToQuestion(id)
             return
         }
         val loc = pendingLocation ?: return
@@ -626,17 +638,6 @@ class FerbViewModel(
             AppLog.i("chat entries ready ${android.os.SystemClock.elapsedRealtime() - born} ms after the app started: ${_ui.value.rows.size} rows, link ${_ui.value.link?.phase}")
         }
         rebuildWork()
-        // a question slides up over whatever is open, once (MobileScreens.swift QuestionSheet)
-        val fresh = questions.firstOrNull { it.approvalId !in presented && !it.held }
-        if (fresh != null && _ui.value.gate == Gate.MAIN && session.front.value && _sheet.value == null) {
-            show(Sheet.Asking(fresh.approvalId))
-        }
-        val sheet = _sheet.value
-        if (sheet is Sheet.Asking && questions.none { it.approvalId == sheet.approvalId }) {
-            // answered on the Mac or elsewhere, or expired: the sheet goes and says so
-            _sheet.value = null
-            note(Note(R.string.question_gone))
-        }
     }
 
     /** What [apply] makes from a transcript, off the main thread. */
@@ -1216,7 +1217,7 @@ class FerbViewModel(
 
     private fun answered(approvalId: String, r: Answered) {
         when (r) {
-            Answered.Sent -> { if ((_sheet.value as? Sheet.Asking)?.approvalId == approvalId) _sheet.value = null; refresh() }
+            Answered.Sent -> refresh()
             Answered.NotSent -> Unit
             Answered.NeedsPairingAgain -> note(Note(R.string.answer_needs_pairing))
             is Answered.Failed -> failed(r.error)
@@ -1568,7 +1569,6 @@ class FerbViewModel(
     }
 
     fun show(s: Sheet?) {
-        if (s is Sheet.Asking) { presented.add(s.approvalId); saved["presented"] = ArrayList(presented) }
         val watching = { x: Sheet? -> x is Sheet.Live || x is Sheet.Task }
         if (watching(_sheet.value) && !watching(s)) live.stop()
         _sheet.value = s
@@ -1607,7 +1607,7 @@ class FerbViewModel(
         live.stop()
         when (val r = api.forget()) {
             is Outcome.Ok -> {
-                prefs.forgetPairing(); saved["tab"] = PhoneTab.CHAT; saved["earlier"] = false; presented.clear()
+                prefs.forgetPairing(); saved["tab"] = PhoneTab.CHAT; saved["earlier"] = false
                 withContext(Dispatchers.IO) { transfers.clear(); outgoing.clear() }
                 statement = null
                 _ui.update { it.copy(mac = null, macTasks = null, files = FilesUi(), settings = null, status = null,

@@ -296,7 +296,7 @@ class NotifierTest {
         vm.refresh(); idle()
         assertEquals(listOf("ap-routine"), vm.ui.value.questions.map { it.approvalId })
         assertTrue(vm.ui.value.work.waiting.none { it.approvalId == "clarify:r1" })
-        assertTrue(vm.sheet.value !is Sheet.Asking || (vm.sheet.value as Sheet.Asking).approvalId != "clarify:r1")
+        assertTrue(vm.ui.value.rows.none { it is com.ferb.app.model.ChatRow.Asking && it.approvalId == "clarify:r1" })
         // the notifications' list has it; the routine-answer path never answers it from a button
         val all = Questions.waiting(emptyList(), phone.status)
         assertTrue(all.single { it.approvalId == "clarify:r1" }.let { it.clarify && !it.routine })

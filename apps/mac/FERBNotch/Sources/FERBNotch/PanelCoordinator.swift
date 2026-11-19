@@ -119,8 +119,8 @@ final class TrackingHostingView<Content: View>: NSHostingView<Content> {
 @MainActor
 final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preconcurrency QLPreviewPanelDataSource, QLPreviewPanelDelegate {
     let model: NotchModel
-    private let presentation = NotchPresentation()
-    private weak var hostingView: TrackingHostingView<NotchView>?
+    let presentation = NotchPresentation()
+    private(set) weak var hostingView: TrackingHostingView<NotchView>?
     private let shortcuts = NotchShortcutMonitor()
     /// The owner's own shortcut to open FERB (D24), recorded in Settings → Keyboard & voice.
     let hotKeys: HotKeyCenter
@@ -241,6 +241,8 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     private var dragMotion: DragChatMotion?
     private var dragCanvasActive = false
     private var dragPreferredSize = CGSize.zero
+    /// The held drag's display and its notch (sampleMagneticDrag).
+    private var dragNotch: (display: UInt32?, geometry: NotchGeometry)?
     private var eventMonitors: [Any] = []
     private var previewURL: URL?
     private let yieldController: NotchYieldController
@@ -611,8 +613,14 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         hosting.autoresizingMask = [.width, .height]
         let backdrop = presentation.backdrop
         panel.contentView = backdrop
-        hosting.frame = backdrop.bounds
-        backdrop.addSubview(hosting)
+        // SwiftUI's host sits in a plain carrier whose layer a held drag translates (APP-971, NotchPresentation.content):
+        // no frame changes, so SwiftUI evaluates and lays out nothing while the surface only moves.
+        let carrier = NSView(frame: backdrop.bounds)
+        carrier.autoresizingMask = [.width, .height]
+        hosting.frame = carrier.bounds
+        carrier.addSubview(hosting)
+        backdrop.addSubview(carrier)
+        presentation.content = carrier
         let resizeOverlay = PanelResizeOverlay(model: model)
         resizeOverlay.frame = backdrop.bounds
         backdrop.addSubview(resizeOverlay)
@@ -660,6 +668,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             self.magneticClock = nil
             self.fusionCardStart = nil
             self.fusionCardTarget = nil
+            self.dragNotch = nil
             self.magneticDocking.begin(at: CACurrentMediaTime(), tornOut: self.isDocked)
             self.magneticSample = self.magneticDocking.current
             self.magneticPointerTime = CACurrentMediaTime()
@@ -729,7 +738,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         }
         presentation.backdrop.attachmentRect = isDocked ? nil : control.frame
         presentation.backdrop.attachmentEdge = indicatorEdge
-        indicatorPanel.orderOut(nil)
+        if indicatorPanel.isVisible { indicatorPanel.orderOut(nil) }       // a drag attaches it on every event
     }
 
     private func detachIndicator() {
@@ -835,6 +844,8 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         guard let control = indicatorControl, let screen = indicatorScreen else { return }
         dragCanvasActive = true
         presentation.backdrop.performUpdates {
+            // the outline moves as a vector mask on the display-sized canvas, never a new window shape (APP-971)
+            presentation.backdrop.moving = true
             DragSurfaceCanvas.place(window: panel, presentation: presentation, control: control,
                 pill: indicatorFrame, card: card, canvas: screen.frame)
             attachIndicator()
@@ -901,6 +912,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         indicatorDragFrame = nil
         pointerIsInside = false
         updateScreen()
+        presentation.backdrop.moving = false               // its mask image once, where it came to rest (APP-971)
         updatePointer()
         queueTimerActivity()
     }
@@ -914,7 +926,14 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
 
     private func sampleMagneticDrag(at time: TimeInterval) {
         guard let screen = indicatorScreen else { return }
-        let notch = notchGeometry(for: screen)
+        // Read once per display while held: each read asks the window server (the camera housing, the menu bar), on
+        // every pointer event and display frame, while it is busiest moving the drag (APP-971)
+        let id = displayID(screen)
+        let notch: NotchGeometry
+        if let held = dragNotch, held.display == id { notch = held.geometry } else {
+            notch = notchGeometry(for: screen)
+            dragNotch = (id, notch)
+        }
         updateMagneticDrag(pill: magneticRawPill, target: notch.hasNotch && !notchTaken ? notch.cutoutFrame : nil,
             at: time, reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
             velocity: time-magneticPointerTime < 0.08 ? magneticPointerVelocity : .zero)
@@ -978,6 +997,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             fusionCardTarget = CGRect(x: cutout.midX-size.width/2, y: cutout.maxY-size.height,
                                       width: size.width, height: size.height)
             fusionCanvas = fusionCardStart!.union(fusionCardTarget!).union(indicatorFrame).union(cutout)
+            presentation.backdrop.moving = true            // the join moves the outline every frame too (APP-971)
         } else {
             fusionCardStart = nil
             fusionCardTarget = nil
@@ -1029,7 +1049,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         indicatorControl?.setMagneticFusion(magneticSample.fusionProgress)
         guard let target = magneticSample.target, magneticSample.proximity > 0,
               magneticSample.phase == .dragging || magneticSample.phase == .fusing else {
-            magneticFieldPanel.orderOut(nil)
+            if magneticFieldPanel.isVisible { magneticFieldPanel.orderOut(nil) }
             return
         }
         let canvas = indicatorFrame.union(target).insetBy(dx: -8, dy: -8).integral
@@ -1054,6 +1074,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         indicatorDragFrame = nil
         panelDragFrame = nil
         stopDragLayout()
+        presentation.backdrop.moving = false
         fusionCardStart = nil
         fusionCardTarget = nil
         fusionCanvas = .zero
@@ -1084,6 +1105,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         // secondary entrance spring, layer transform, or independent window fade.
         updateScreen()
         presentation.backdrop.magneticJoin = nil
+        presentation.backdrop.moving = false               // its mask image once, at the docked size
         updatePointer()
         queueTimerActivity()
     }

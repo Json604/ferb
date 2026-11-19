@@ -4839,3 +4839,12 @@ request = "From the full-screen app open Settings → General and press Check fo
 pass = "The button shows Checking… then the line 'FERB couldn't check for updates just now. It will try again later.' with the reason small and grey beneath; no alert or Sparkle window anywhere; FERB keeps taking clicks and Quit works in the menu. With the network on: 'FERB is up to date.' or 'Update available: FERB <v>' with Install."
 decisions = ["APP-945", "APP-946", "APP-947", "APP-948", "APP-949"]
 sitting = "after this change is installed"
+
+[LIVE-1150]
+title = "The open notch held by its pill and dragged around the screen follows the pointer smoothly"
+area = "app"
+surface = "FERB.app with this build (installed by the owner), notch mode, a long day's chat open in the notch"
+request = "Hold the pill (or tear the notch out of the camera) and drag it slowly and fast around the screen, across the middle, near each edge so the chat turns to face inward, onto a second display if one is connected, then drop it on an edge and once on the camera. Also drag the open notch's bottom edge to make the chat taller and shorter."
+pass = "The pill stays under the pointer and the chat with its frost moves with it, with no shaking, stutter or lag behind the pointer, as smooth as scrolling the chat; the frost's outline, the black tint and the pill's join look as before; nothing flashes at the drop or the dock; afterwards clicks and hover on the chat work as before. The edge resize follows the pointer without stalls."
+decisions = ["APP-970", "APP-971", "APP-972"]
+sitting = "after this change is installed"

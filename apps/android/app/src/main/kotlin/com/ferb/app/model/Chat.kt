@@ -36,7 +36,12 @@ sealed interface ChatRow {
     data class Ferb(override val key: String, val text: String) : ChatRow
 
     /** A short line on the sky: a notice, the Mac's note under a message, a live activity line. */
-    data class Line(override val key: String, val text: String, val quotes: List<String> = emptyList(), val since: Long? = null) : ChatRow
+    /**
+     * A line of FERB's under its words. [small]: FERB.app's 10-point status words, notices and the draft line under a
+     * reply, smaller than the words and grey; [amber]: "Delivered, with parts not done" (kb PHN-773).
+     */
+    data class Line(override val key: String, val text: String, val quotes: List<String> = emptyList(), val since: Long? = null,
+                    val small: Boolean = false, val amber: Boolean = false) : ChatRow
 
     /**
      * FERB's words as FERB.app draws them (kb PHN-721): Markdown in a black bubble, [tail] lines in the quieter colour
@@ -277,9 +282,9 @@ object ChatModel {
                             out.add(rich("${r.entry}:q", q))
                             // the final answer follows the question unless it went further below
                             val below = view.items.any { x -> x is Item.Reply && x.reply.answers == r.answers && x.reply.part == "answer" }
-                            if (!below) turn.answer?.let { answer(r.entry, it, turn.card != null, turn.hidden, out, turn.taskId, turn.statusWords) }
+                            if (!below) turn.answer?.let { answer(r.entry, it, turn.card != null, turn.hidden, out, turn.taskId, turn.statusWords, turn.status == GAPS) }
                         }
-                        else -> turn?.answer?.let { answer(r.entry, it, turn.card != null, turn.hidden, out, turn.taskId, turn.statusWords) }
+                        else -> turn?.answer?.let { answer(r.entry, it, turn.card != null, turn.hidden, out, turn.taskId, turn.statusWords, turn.status == GAPS) }
                     }
                 }
                 is Item.Notice -> notice(item.notice, out)
@@ -346,23 +351,27 @@ object ChatModel {
                 streaming != null && t.answer == null -> {
                     out.add(rich("$e:answer", streaming, keep = false))
                     // FERB.app's `isProvisional`: a reply that isn't a task's, still coming
-                    if (t.taskId == null) out.add(ChatRow.Line("$e:draft", "Draft · still responding"))
+                    if (t.taskId == null) out.add(ChatRow.Line("$e:draft", "Draft · still responding", small = true))
                 }
                 else -> t.answer?.let { answer(e, it, false, t.hidden, out, t.taskId, null) }
             }
         }
-        live?.replyNotice?.let { out.add(ChatRow.Line("$e:reply-notice", it)) }
-        t.notice?.let { out.add(ChatRow.Line("$e:notice", it)) }
-        if (t.notice == null) t.statusWords?.let { out.add(ChatRow.Line("$e:status", it)) }
+        live?.replyNotice?.let { out.add(ChatRow.Line("$e:reply-notice", it, small = true)) }
+        t.notice?.let { out.add(ChatRow.Line("$e:notice", it, small = true)) }
+        if (t.notice == null) t.statusWords?.let { out.add(ChatRow.Line("$e:status", it, small = true, amber = t.status == GAPS)) }
     }
 
-    private fun answer(key: String, a: AnswerView, card: Boolean, hidden: List<String>, out: MutableList<ChatRow>, taskId: String?, status: String?) {
+    private fun answer(key: String, a: AnswerView, card: Boolean, hidden: List<String>, out: MutableList<ChatRow>, taskId: String?, status: String?,
+                       gaps: Boolean = false) {
         val ui = Present.answer(a, card, hidden, taskId)
         if (ui.bubble || ui.above.isNotEmpty() || ui.below.isNotEmpty() || ui.sites.isNotEmpty() || ui.files.isNotEmpty() || ui.pages.isNotEmpty()) {
             out.add(ChatRow.Answer("$key:answer", ui))
         }
-        (status ?: ui.statusWords)?.let { out.add(ChatRow.Line("$key:status", it)) }
+        (status ?: ui.statusWords)?.let { out.add(ChatRow.Line("$key:status", it, small = true, amber = (if (status != null) gaps else a.status == GAPS))) }
     }
+
+    /** ORCH-651's status: delivered with parts not done, said in amber (FERB.app ConversationTranscript.swift:678-683). */
+    private const val GAPS = "done_with_gaps"
 
     private fun card(e: String, t: TurnItem, c: CardView, planLine: String?, live: LiveView?): ChatRow.Task {
         val liveRows = live?.rows.orEmpty().associateBy { it.id }

@@ -215,7 +215,7 @@ private object AsksScreen
 class FirstRunUi(val pending: List<FirstRun.Ask>, val onContinue: () -> Unit, val onNotNow: () -> Unit)
 
 @Composable
-private fun Asks(asks: FirstRunUi, insets: PhoneInsets) {
+internal fun Asks(asks: FirstRunUi, insets: PhoneInsets) {
     val rows = asks.pending.map { a ->
         when (a) {
             FirstRun.Ask.NOTIFICATIONS -> AskRow(FerbIcons.bell, stringResource(R.string.first_run_notifications), stringResource(R.string.first_run_notifications_why))
@@ -239,7 +239,13 @@ fun rememberFirstRun(activity: MainActivity, vm: FerbViewModel): FirstRunUi {
     val app = activity.application as FerbApplication
     val run = remember(activity) {
         FirstRun(FirstRun.asksFor(android.os.Build.VERSION.SDK_INT), { a -> activity.checkSelfPermission(permissionOf(a)) == PackageManager.PERMISSION_GRANTED },
-            { app.prefs.firstRunAsked }, { app.prefs.firstRunAsked = it })
+            { app.prefs.firstRunAsked }, { app.prefs.firstRunAsked = it }) {
+            // owner kb PHN-771: his Yes to notifications here keeps FERB connected, so questions reach him with it closed
+            app.prefs.notificationsExplained = true
+            app.prefs.stayConnected = true
+            StayConnectedService.set(activity, true)
+            vm.refreshProfile()
+        }
     }
     var pending by remember(run) { mutableStateOf(run.pending()) }
     val asking = remember { arrayOfNulls<FirstRun.Ask>(1) }
@@ -247,7 +253,7 @@ fun rememberFirstRun(activity: MainActivity, vm: FerbViewModel): FirstRunUi {
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         val a = asking[0] ?: return@rememberLauncherForActivityResult
         asking[0] = null
-        run.answered(a)
+        run.answered(a, granted)
         if (a == FirstRun.Ask.LOCATION && granted) {
             app.prefs.shareCity = true
             app.sensors.city()

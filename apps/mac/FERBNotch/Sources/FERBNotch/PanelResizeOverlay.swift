@@ -164,6 +164,8 @@ final class PanelResizeOverlay: NSView {
         activeDirection = direction
         dragOrigin = screenPoint(event)
         initialSize = CGSize(width: model.bodyWidth, height: model.chatTranscriptHeight)
+        // While held the outline changes with every event: a vector mask, its image drawn once at the release (APP-971)
+        (superview as? NotchBackdropView)?.moving = true
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -182,6 +184,7 @@ final class PanelResizeOverlay: NSView {
         activeDirection = nil
         model.resizePanel(width: model.preferredPanelWidth,
                           transcriptHeight: model.preferredTranscriptHeight, persist: true)
+        (superview as? NotchBackdropView)?.moving = false
         window?.resetCursorRects()
     }
 
@@ -203,8 +206,11 @@ final class PanelResizeOverlay: NSView {
         return nil
     }
 
+    /// Where the pointer is on screen (tests stand in their own).
+    var pointer: () -> NSPoint = { NSEvent.mouseLocation }
+
     private func screenPoint(_ event: NSEvent) -> NSPoint {
-        let point = NSEvent.mouseLocation
+        let point = pointer()
         return NSPoint(x: point.x, y: -point.y)
     }
 }

@@ -159,39 +159,40 @@ public struct AttachmentChip: View {
     }
 
     public var body: some View {
-        HStack(spacing: 8) {
+        // compact, as FERB.app's composer keeps a file to its icon and name (ChatBody.swift:200-216,
+        // ArtifactPreview.swift:214-250; owner kb PHN-772): a small icon or picture, the name, the cross; its size is
+        // said to VoiceOver, not drawn
+        HStack(spacing: 6) {
             Group {
                 if let thumbnail {
-                    thumbnail.resizable().scaledToFill().frame(width: 36, height: 36).clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    thumbnail.resizable().scaledToFill().frame(width: 24, height: 24).clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                 } else {
-                    FileIcon(name: name, width: 24).frame(width: 36, height: 36)
+                    FileIcon(name: name, width: 18).frame(width: 24, height: 24)
                 }
             }
-            VStack(alignment: .leading, spacing: 1) {
-                Text(name).type(13.5, .medium, Ink.white).lineLimit(1)
-                Text(detail).type(12, .medium, Ink.onDark).lineLimit(1)
-            }
-            .frame(maxWidth: 132, alignment: .leading)
-            .accessibilityElement(children: .combine)
+            Text(name).type(13, .medium, Ink.white).lineLimit(1).truncationMode(.middle)
+                .frame(maxWidth: 150, alignment: .leading)
+                .accessibilityLabel(name + ", " + detail)
             if let onRemove {
-                Image(systemName: "xmark").font(.system(size: 11, weight: .semibold)).foregroundStyle(Ink.onDark)
-                    .frame(width: 40, height: 40).contentShape(Rectangle())
+                Image(systemName: "xmark").font(.system(size: 10, weight: .semibold)).foregroundStyle(Ink.onDark)
+                    .frame(width: 32, height: 32).contentShape(Rectangle())
                     .pressable(onRemove, label: removeLabel)
             }
         }
-        .padding(.leading, 6).padding(.trailing, onRemove == nil ? 12 : 0)
-        .frame(height: 48)
-        .background(Ink.darkFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding(.leading, 5).padding(.trailing, onRemove == nil ? 10 : 0)
+        .frame(height: 34)
+        .background(Ink.darkFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .fixedSize(horizontal: true, vertical: false)
     }
 }
 
-/// The files in the message box, side by side, scrolling sideways when there are more than fit.
+/// The files in the message box: compact chips that wrap onto more lines as files are added (the box grows with them,
+/// owner kb PHN-772), never big cards in a sideways strip.
 public struct AttachmentRow<Content: View>: View {
     let content: Content
     public init(@ViewBuilder content: () -> Content) { self.content = content() }
     public var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 8) { content } }
+        ChipFlow(spacing: 6) { content }.frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

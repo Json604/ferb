@@ -479,22 +479,23 @@ class ViewModelTest {
         assertTrue("a message waiting for the unlock says so", vm.ui.value.needsMacUnlock)
     }
 
-    // decision: PHN-415, PHN-302
+    /** A question is a box in the chat (kb PHN-770): nothing slides up over the page; answered elsewhere, its box goes. */
+    // decision: PHN-770, PHN-415, PHN-302
     @Test
-    fun a_question_slides_up_once_and_goes_when_answered_elsewhere() {
+    fun a_question_is_a_box_in_the_chat_and_goes_when_answered_elsewhere() {
         session.unlocked()
         session.foreground(true)
         phone.view = view(question("ap-1"))
         val vm = vm()
-        assertEquals(Sheet.Asking("ap-1"), vm.sheet.value)
-        vm.show(null)
-        vm.refresh()
-        assertNull("shown once: not again by itself", vm.sheet.value)
-        vm.show(Sheet.Asking("ap-1"))
+        assertNull("no sheet over the page", vm.sheet.value)
+        assertTrue(vm.ui.value.rows.any { it is com.ferb.app.model.ChatRow.Asking && it.approvalId == "ap-1" })
+        vm.openQuestion("ap-1")
+        assertEquals("a notification's tap goes to today's chat", com.ferb.design.components.PhoneTab.CHAT, vm.tab.value)
+        assertNull(vm.sheet.value)
         phone.view = view(question("ap-1", open = false))
         vm.refresh()
-        assertNull(vm.sheet.value)
-        assertEquals(R.string.question_gone, vm.ui.value.note?.res)
+        assertTrue(vm.ui.value.rows.none { it is com.ferb.app.model.ChatRow.Asking })
+        assertTrue(vm.ui.value.questions.isEmpty())
     }
 
     // decision: PHN-125

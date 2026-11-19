@@ -116,6 +116,10 @@ final class MessageTextView: NSTextView, NSTextViewDelegate {
     private var hoverArea: NSTrackingArea?
     private var linkAreas: [NSTrackingArea] = []
     private var measuredWidths: [CGFloat: CGSize] = [:]
+    /// The text as last given. What the text storage holds can't stand in for it: the storage makes each paragraph's
+    /// style one style (a list item's marker and words were given two), so a given text never matched it again, and
+    /// every evaluation of its row put the same text in once more and typeset it whole again (APP-972).
+    private var given: NSAttributedString?
     private(set) var displayRefreshCount = 0
     /// Collapsed (APP-721): only this much of the text shows, its last part fading out; the rest is neither drawn nor
     /// clickable. Nil: all of it.
@@ -278,7 +282,7 @@ final class MessageTextView: NSTextView, NSTextViewDelegate {
             update(value, generation: generation)
             return
         }
-        let shown = attributedString().isEqual(to: value)
+        let shown = isShown(value)
         if let pendingText {
             if !pendingText.isEqual(to: value) {
                 self.pendingText = shown ? nil : NSAttributedString(attributedString: value)
@@ -305,8 +309,14 @@ final class MessageTextView: NSTextView, NSTextViewDelegate {
         needsLayout = true                                 // the fold and the links' areas follow the text in place
     }
 
+    /// Whether `value` is the text in the view now.
+    private func isShown(_ value: NSAttributedString) -> Bool {
+        given.map { $0.isEqual(to: value) } ?? attributedString().isEqual(to: value)
+    }
+
     private func replaceText(_ value: NSAttributedString) {
-        guard !attributedString().isEqual(to: value) else { return }
+        guard !isShown(value) else { return }
+        given = NSAttributedString(attributedString: value)
         let selection = selectedRange()
         textStorage?.setAttributedString(value)
         let location = min(selection.location, value.length)
@@ -342,6 +352,7 @@ final class MessageTextView: NSTextView, NSTextViewDelegate {
     func measuredSize(width proposedWidth: CGFloat?) -> CGSize {
         let width = max(1, proposedWidth.flatMap { $0.isFinite ? $0 : nil } ?? 1_000_000)
         if let cached = measuredWidths[width] { return cached }
+        ChatWork.textLayouts += 1
         if let pendingText {
             let (storage, manager, container) = pendingLayout
             if !storage.isEqual(to: pendingText) { storage.setAttributedString(pendingText) }
@@ -375,6 +386,7 @@ final class MessageTextView: NSTextView, NSTextViewDelegate {
         layoutFold()
         defer { if window != nil { updateTrackingAreas() } }   // the links' areas follow the laid-out text
         guard bounds.width > 0, let container = textContainer, container.containerSize.width != bounds.width else { return }
+        ChatWork.textLayouts += 1
         container.containerSize = CGSize(width: bounds.width, height: CGFloat.greatestFiniteMagnitude)
         layoutManager?.ensureLayout(for: container)
         refreshGlyphDisplay()
@@ -457,13 +469,14 @@ final class MessageTextView: NSTextView, NSTextViewDelegate {
                                   owner: linkOwner, userInfo: nil)
         addTrackingArea(area)
         hoverArea = area
-        linkAreas = linkRects().map { rect, range in
+        let rects = linkRects()
+        linkAreas = rects.map { rect, range in
             let piece = NSTrackingArea(rect: rect, options: [.mouseEnteredAndExited, .cursorUpdate, .activeAlways],
                                        owner: linkOwner, userInfo: ["location": range.location, "length": range.length])
             addTrackingArea(piece)
             return piece
         }
-        logLinkAreas()
+        logLinkAreas(rects)                    // the same rectangles: each layout found every link's twice before
     }
 
     /// Each link's visible rectangles in this view's coordinates, with its character range.
@@ -572,9 +585,9 @@ final class MessageTextView: NSTextView, NSTextViewDelegate {
     private func restLink() { if hoveredLink != nil { lift(nil) } }
 
     /// Where each link sits on screen, for a live check of the hover (numbers only, debug level).
-    private func logLinkAreas() {
+    private func logLinkAreas(_ rects: [(CGRect, NSRange)]) {
         guard let window else { return }
-        for (rect, _) in linkRects() {
+        for (rect, _) in rects {
             let shown = window.convertToScreen(convert(rect, to: nil))
             HoverSourceView.log.debug("hover area link \(Int(shown.minX)) \(Int(shown.minY)) \(Int(shown.width)) \(Int(shown.height))")
         }

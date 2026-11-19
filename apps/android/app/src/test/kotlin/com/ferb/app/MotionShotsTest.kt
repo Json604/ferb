@@ -78,7 +78,7 @@ class MotionShotsTest {
     )
     private val asking = Question("ap-1", "t-1", "Run this in Terminal?", "To update Figma before opening the file you asked for.",
         "brew upgrade --cask figma", "owner_question", "ferb.confirm", listOf("Yes", "No"), listOf("Yes, run it", "No"), false)
-    private val base = UiState(gate = Gate.MAIN, link = FakePhone.status(), keys = KeyHealth(KeyState.OK, KeyState.OK, KeyState.OK), questions = listOf(asking))
+    private val base = UiState(gate = Gate.MAIN, link = FakePhone.status(), keys = KeyHealth(KeyState.OK, KeyState.OK, KeyState.OK))
 
     /** As Root draws it: the tab host in Main, the sheet host over it. */
     @Composable
@@ -100,14 +100,15 @@ class MotionShotsTest {
         compose.onNodeWithTag(PHONE).captureRoboImage("src/test/screenshots/$golden", roborazziOptions = ScreenShotsTest.options)
     }
 
+    /** A sheet that came up from below settles on the still golden (questions are boxes in the chat now, PHN-770). */
     // decision: PHN-623
     @Test
-    fun a_question_that_came_up_from_below_rests_on_the_question_golden() {
+    fun a_sheet_that_came_up_from_below_rests_on_its_golden() {
         var sheet by mutableStateOf<Sheet?>(null)
-        compose.setContent { Frame(labMoment(22.5), base.copy(rows = labRows), PhoneTab.CHAT, sheet) }
+        compose.setContent { Frame(labMoment(6.1), base.copy(rows = labRows), PhoneTab.CHAT, sheet) }
         compose.mainClock.autoAdvance = false
-        sheet = Sheet.Asking("ap-1")
-        settleAndCompare("question.png")
+        sheet = Sheet.Profile
+        settleAndCompare("profile.png")
     }
 
     // decision: PHN-622

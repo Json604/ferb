@@ -685,14 +685,15 @@ pub fn conversation_changed(action: &str, row: &Map<String, Value>) -> String {
     }
 }
 
-/// ORCH-652: the lines code writes under a delivered-with-gaps answer, one per gap: "Not done: <the condition, as
-/// the owner reads it> — <the check's reason>". Nothing in them claims the work was done.
+/// ORCH-677 (refines ORCH-651's line): the lines code writes under a delivered-with-gaps answer: "Not done: <the
+/// check's reason>", the reason naming only what is missing, one line per distinct reason (conditions missed for one
+/// cause carry the same sentence, PRM-366). A "different" gap carries its condition in its own reason
+/// (`different_ending`, ORCH-668), so its line reads as before. Nothing in them claims the work was done.
 pub fn gap_lines(gaps: &[crate::flow::Gap]) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for g in gaps {
-        let condition = strip(&g.condition).trim_end_matches('.').to_string();
         let reason = sentence(strip(&g.reason)).trim_end().to_string();
-        let line = format!("{} {condition} — {reason}", crate::words::GAP_LEAD);
+        let line = format!("{} {reason}", crate::words::GAP_LEAD);
         if !out.contains(&line) {
             out.push(line);
         }
@@ -714,21 +715,18 @@ pub fn with_gap_lines(answer: &str, gaps: &[crate::flow::Gap]) -> String {
     }
 }
 
-/// ORCH-653: "<step> finished with these parts not done: <condition> — <reason>; …. Go on to <next step>?", written by
-/// code from the steps' labels, the conditions and the check's reasons.
+/// ORCH-653, with ORCH-677's parts: "<step> finished with these parts not done: <reason>; …. Go on to <next step>?",
+/// written by code from the steps' labels and the check's reasons, each distinct reason once.
 pub fn after_gaps_question(gapped: &[(String, Vec<crate::flow::Gap>)], next: &str) -> String {
     let mut said = Vec::new();
     for (label, gaps) in gapped {
-        let parts: Vec<String> = gaps
-            .iter()
-            .map(|g| {
-                format!(
-                    "{} — {}",
-                    strip(&g.condition).trim_end_matches('.'),
-                    strip(&g.reason).trim_end_matches('.')
-                )
-            })
-            .collect();
+        let mut parts: Vec<String> = Vec::new();
+        for g in gaps {
+            let part = strip(&g.reason).trim_end_matches('.').to_string();
+            if !parts.contains(&part) {
+                parts.push(part);
+            }
+        }
         said.push(if parts.is_empty() {
             format!("{label} finished with some parts not done")
         } else {

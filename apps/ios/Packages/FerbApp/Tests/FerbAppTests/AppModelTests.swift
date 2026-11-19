@@ -313,23 +313,24 @@ final class AppModelTests: XCTestCase {
         await eventually("a message waiting for the unlock says so") { vm.ui.needsMacUnlock }
     }
 
-    // decision: PHN-415, PHN-302
-    func testAQuestionSlidesUpOnceAndGoesWhenAnsweredElsewhere() async {
+    /// A question is a box in the chat (kb PHN-770): nothing slides up over the page; answered elsewhere, its box goes.
+    // decision: PHN-770, PHN-415, PHN-302
+    func testAQuestionIsABoxInTheChatAndGoesWhenAnsweredElsewhere() async {
         session.unlocked()
         session.foreground(true)
         phone.view = view(questionItem("ap-1"))
         let vm = rig.model()
         await vm.refresh()?.value
-        XCTAssertEqual(vm.sheet, .asking(approvalId: "ap-1"))
-        vm.show(nil)
-        await vm.refresh()?.value
-        XCTAssertNil(vm.sheet, "shown once: not again by itself")
-        vm.show(.asking(approvalId: "ap-1"))
+        XCTAssertNil(vm.sheet, "no sheet over the page")
+        XCTAssertTrue(vm.rows.contains { if case .asking(_, let id, _, _, _) = $0 { return id == "ap-1" } else { return false } })
+        vm.choose(.tasks)
+        vm.goToQuestion("ap-1")
+        XCTAssertEqual(vm.tab, .chat, "the Tasks tab's row and a notification's tap go to today's chat")
+        XCTAssertEqual(vm.toQuestion?.id, "ap-1")
         phone.view = view(questionItem("ap-1", open: false))
         await vm.refresh()?.value
-        XCTAssertNil(vm.sheet)
-        XCTAssertEqual(vm.ui.note?.key, "question_gone")
-        XCTAssertEqual(vm.saved.presented, ["ap-1"], "what was shown is kept across a relaunch, by id only")
+        XCTAssertFalse(vm.rows.contains { if case .asking = $0 { return true } else { return false } })
+        XCTAssertTrue(vm.ui.questions.isEmpty)
     }
 
     // decision: PHN-125

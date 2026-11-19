@@ -180,11 +180,15 @@ fun richText(blocks: List<RichBlock>, look: RichLook, tail: List<Pair<String, Bo
     for ((line, label) in tail) {
         gap()
         withStyle(ParagraphStyle()) {
+            // FERB.app's annotations (MarkdownContent.swift:36-47): the note at 11.5 and code's lines at 11 under its 12,
+            // grey, "Couldn't confirm:" amber and bold (kb PHN-773)
             if (label) {
                 val at = line.indexOf(':') + 1
-                withStyle(SpanStyle(color = Ink.amber, fontWeight = FontWeight.SemiBold)) { append(line.substring(0, at)) }
-                withStyle(SpanStyle(color = look.dim)) { append(line.substring(at)) }
-            } else withStyle(SpanStyle(color = look.dim, fontSize = (base * 11.5f / 12f).sp)) { append(line) }
+                withStyle(SpanStyle(fontSize = (base * 11.5f / 12f).sp)) {
+                    withStyle(SpanStyle(color = Ink.amber, fontWeight = FontWeight.SemiBold)) { append(line.substring(0, at)) }
+                    withStyle(SpanStyle(color = look.dim)) { append(line.substring(at)) }
+                }
+            } else withStyle(SpanStyle(color = look.dim, fontSize = (base * 11f / 12f).sp)) { append(line) }
         }
     }
 }

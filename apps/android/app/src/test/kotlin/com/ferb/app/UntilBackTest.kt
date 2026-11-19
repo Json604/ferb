@@ -102,13 +102,13 @@ class UntilBackTest {
         phone.view = TranscriptView("c1", emptyList(), emptyList(), emptyList(), emptyList(), OlderState.Complete)
         phone.status = status(screenQuestion(untilBack = true))
         val vm = vm()
-        vm.show(Sheet.Asking("ap-s"))
+        vm.refresh()
         phone.answerScript.add(Outcome.Failed(FerbException.Refused("Input Monitoring is off for FERB on the Mac.", "screen_use_unavailable")))
         vm.answer("ap-s", AnswerInput.UntilBack)
         assertEquals(Note(R.string.err_mac_said, "Input Monitoring is off for FERB on the Mac."), vm.ui.value.note)
-        assertEquals("the question stays open", Sheet.Asking("ap-s"), vm.sheet.value)
+        assertTrue("the question stays open", vm.ui.value.questions.any { it.approvalId == "ap-s" })
         vm.answer("ap-s", AnswerInput.Approve(true, 1))
-        assertEquals(null, vm.sheet.value)
+        assertEquals("answered with a Yes", true, (phone.answers.last().first as? AnswerInput.Approve)?.granted)
     }
 
     // decision: PHN-611

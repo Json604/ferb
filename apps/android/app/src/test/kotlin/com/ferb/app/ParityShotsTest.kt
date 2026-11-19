@@ -337,7 +337,7 @@ class ParityShotsTest {
 
     private fun ask(name: String) {
         val q = question(name, kinds.toMap().getValue(name))
-        compose.setContent { Frame(base.copy(questions = listOf(q)), sheet = com.ferb.app.Sheet.Asking(q.approvalId)) }
+        compose.setContent { Frame(base.copy(rows = listOf(ChatRow.Owner("m", "Write to Pratyay", emptyList(), null)), questions = listOf(q))) }
         shoot("question-$name.png")
     }
 
@@ -364,6 +364,42 @@ class ParityShotsTest {
         compose.waitForIdle()
         org.junit.Assert.assertFalse("taken", vm.focusAsk.value)
         compose.onNode(androidx.compose.ui.test.isFocused()).assertExists()
+    }
+
+    /** The first run's page: the notifications ask in the owner's words, which keeps FERB connected (kb PHN-771). */
+    // decision: PHN-771
+    @Test
+    fun the_first_run_page_says_ferb_stays_connected_for_notifications() {
+        val asks = com.ferb.app.ui.FirstRunUi(com.ferb.app.model.FirstRun.Ask.entries.toList(), {}, {})
+        compose.setContent {
+            Box(Modifier.size(Phone.frameWidth, Phone.frameHeight).testTag("phone")) {
+                PhoneScreen(labMoment(12.5), insets = PhoneInsets.Lab, glide = false, sheet = { LabAndroidChrome() }) {
+                    com.ferb.app.ui.Asks(asks, PhoneInsets.Lab)
+                }
+            }
+        }
+        shoot("first-run.png")
+    }
+
+    /** An answer delivered with parts not done: its uncertain-step note and code's lines small and grey, "Couldn't confirm"
+     *  amber, the status words small and amber under it (FERB.app's sizes and colours; kb PHN-773), on three skies. */
+    // decision: PHN-773
+    @Test
+    fun an_answer_with_gaps_says_its_lines_and_status_smaller_in_their_colours() {
+        val uncertain = "I'm not sure whether my last step on mail.example went through: I couldn't tell how it ended. I haven't tried it again, so nothing can happen twice."
+        val text = "Left the unsent draft open for your review. It includes the requested content and leaves Sam out.\n\n" +
+            "Not done: the main people are in To and the others in CC — you asked to stop before the duplicate was removed.\n\n" +
+            "Couldn't confirm: the draft saved.\n" + uncertain
+        val rows = ChatModel.rows(Parity.view(message("m1", "r1", "Draft the email to the team"),
+            answer("a1", "r1", "m1", text, lines = listOf(uncertain), note = "the draft saved", status = "done_with_gaps")))
+        var hour by androidx.compose.runtime.mutableDoubleStateOf(6.5)
+        compose.setContent { Frame(base.copy(rows = rows), hour = hour) }
+        for ((h, name) in listOf(6.5 to "dawn", 12.5 to "noon", 22.5 to "night")) {
+            hour = h
+            shoot("answer-gaps-$name.png")
+        }
+        val line = rows.filterIsInstance<ChatRow.Line>().single { it.key.endsWith(":status") }
+        org.junit.Assert.assertEquals("Delivered, with parts not done" to true, line.text to line.amber)
     }
 
     private fun jpeg(): ByteArray {

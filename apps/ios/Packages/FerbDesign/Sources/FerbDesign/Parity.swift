@@ -96,6 +96,8 @@ public func richText(_ blocks: [RichBlock], _ look: RichLook, tail: [(String, Bo
         case .divider: out += plain("────────────", size: look.size, color: look.dim)
         }
     }
+    // FERB.app's annotations (MarkdownContent.swift:36-47): the note at 11.5 and code's lines at 11 under its 12, grey,
+    // "Couldn't confirm:" amber and bold (kb PHN-773)
     for (line, label) in tail {
         if !first { out += plain("\n\n", size: look.size * 0.5, color: look.ink) }
         first = false
@@ -105,7 +107,7 @@ public func richText(_ blocks: [RichBlock], _ look: RichLook, tail: [(String, Bo
             h.foregroundColor = Ink.amber
             out += h + plain(rest, size: look.size * 11.5 / 12, color: look.dim)
         } else {
-            out += plain(line, size: look.size * 11.5 / 12, color: look.dim)
+            out += plain(line, size: look.size * 11 / 12, color: look.dim)
         }
     }
     return out

@@ -67,6 +67,9 @@ public enum ChatRow: Equatable, Identifiable {
     case ferb(key: String, text: String)
     /// A short line on the sky: a notice, the Mac's note under a message, a live activity line.
     case line(key: String, text: String, quotes: [String], since: Date? = nil)
+    /// FERB.app's status words, notices and the draft line under a reply: smaller than the words and grey,
+    /// "Delivered, with parts not done" amber (kb PHN-773).
+    case small(key: String, text: String, amber: Bool)
     case task(ChatTask)
     /// Typed result cards and the files a task made.
     case cards(key: String, cards: [CardLine])
@@ -96,7 +99,7 @@ public enum ChatRow: Equatable, Identifiable {
 
     public var key: String {
         switch self {
-        case .owner(let k, _, _, _), .ferb(let k, _), .line(let k, _, _, _), .cards(let k, _), .typing(let k),
+        case .owner(let k, _, _, _), .ferb(let k, _), .line(let k, _, _, _), .small(let k, _, _), .cards(let k, _), .typing(let k),
              .asking(let k, _, _, _, _), .outbox(let k, _), .older(let k, _), .day(let k, _), .withFiles(let k, _), .earlierLink(let k),
              .rich(let k, _, _, _, _), .answer(let k, _), .notice(let k, _, _, _), .results(let k, _):
             return k
@@ -285,9 +288,9 @@ public enum ChatModel {
                 } else if r.part == "question", let turn, let q = turn.question {
                     out.append(rich("\(r.entry):q", q))
                     let below = view.items.contains { if case .reply(let x) = $0 { return x.answers == r.answers && x.part == "answer" } else { return false } }
-                    if !below, let a = turn.answer { answer(r.entry, a, card: turn.card != nil, hidden: turn.hidden, &out, taskId: turn.taskId, status: turn.statusWords) }
+                    if !below, let a = turn.answer { answer(r.entry, a, card: turn.card != nil, hidden: turn.hidden, &out, taskId: turn.taskId, status: turn.statusWords, gapped: turn.status == gaps) }
                 } else if let turn, let a = turn.answer {
-                    answer(r.entry, a, card: turn.card != nil, hidden: turn.hidden, &out, taskId: turn.taskId, status: turn.statusWords)
+                    answer(r.entry, a, card: turn.card != nil, hidden: turn.hidden, &out, taskId: turn.taskId, status: turn.statusWords, gapped: turn.status == gaps)
                 }
             case .notice(let n), .reminder(let n):
                 out.append(.notice(key: n.entry, text: n.text, quotes: n.quotes, ui: Present.notice(n.text, quotes: n.quotes.count, cards: n.cards ?? [], hidden: n.hidden)))
@@ -342,28 +345,32 @@ public enum ChatModel {
             if let streaming = live?.streamingReply, !streaming.isBlank, t.answer == nil {
                 out.append(rich("\(e):answer", streaming, keep: false))
                 // FERB.app's `isProvisional`: a reply that isn't a task's, still coming
-                if t.taskId == nil { out.append(.line(key: "\(e):draft", text: "Draft · still responding", quotes: [])) }
+                if t.taskId == nil { out.append(.small(key: "\(e):draft", text: "Draft · still responding", amber: false)) }
             } else if let a = t.answer {
                 answer(e, a, card: false, hidden: t.hidden, &out, taskId: t.taskId, status: nil)
             }
         }
-        if let n = live?.replyNotice { out.append(.line(key: "\(e):reply-notice", text: n, quotes: [])) }
-        if let n = t.notice { out.append(.line(key: "\(e):notice", text: n, quotes: [])) }
-        else if let w = t.statusWords { out.append(.line(key: "\(e):status", text: w, quotes: [])) }
+        if let n = live?.replyNotice { out.append(.small(key: "\(e):reply-notice", text: n, amber: false)) }
+        if let n = t.notice { out.append(.small(key: "\(e):notice", text: n, amber: false)) }
+        else if let w = t.statusWords { out.append(.small(key: "\(e):status", text: w, amber: t.status == gaps)) }
     }
 
-    private static func answer(_ key: String, _ a: AnswerView, card: Bool, hidden: [String], _ out: inout [ChatRow], taskId: String?, status: String?) {
+    /// ORCH-651's status: delivered with parts not done, said in amber (FERB.app ConversationTranscript.swift:678-683).
+    private static let gaps = "done_with_gaps"
+
+    private static func answer(_ key: String, _ a: AnswerView, card: Bool, hidden: [String], _ out: inout [ChatRow], taskId: String?, status: String?,
+                               gapped: Bool = false) {
         let ui = Present.answer(a, card: card, hidden: hidden, taskId: taskId)
         if ui.bubble || !ui.above.isEmpty || !ui.below.isEmpty || !ui.sites.isEmpty || !ui.files.isEmpty || !ui.pages.isEmpty {
             out.append(.answer(key: "\(key):answer", ui: ui))
         }
-        if let w = status ?? ui.statusWords { out.append(.line(key: "\(key):status", text: w, quotes: [])) }
+        if let w = status ?? ui.statusWords { out.append(.small(key: "\(key):status", text: w, amber: status != nil ? gapped : a.status == gaps)) }
     }
 
     /// A row's words without their look (tests, and what reading the chat aloud would say).
     public static func words(_ row: ChatRow) -> String {
         switch row {
-        case .owner(_, let t, _, _), .ferb(_, let t), .line(_, let t, _, _): return t
+        case .owner(_, let t, _, _), .ferb(_, let t), .line(_, let t, _, _), .small(_, let t, _): return t
         case .rich(_, _, let copy, let tail, _): return ([copy] + tail).joined(separator: "\n")
         case .answer(_, let ui): return ([ui.copy] + [ui.note].compactMap { $0 } + ui.lines).filter { !$0.isEmpty }.joined(separator: "\n")
         case .notice(_, let text, _, _): return text

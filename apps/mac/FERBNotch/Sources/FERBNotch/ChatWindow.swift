@@ -95,7 +95,7 @@ final class ChatWindowControls: ObservableObject {
 /// other apps' windows (owner, 2026-11-06, APP-772: no Keep on top setting). Without the overlay space (SkyLight
 /// unavailable) it is an ordinary all-Spaces floating panel.
 @MainActor
-final class ChatWindowController: NSObject, NSWindowDelegate {
+final class ChatWindowController: NSObject, NSWindowDelegate, WindowDragOwner {
     let panel: ChatWindowPanel
     let controls: ChatWindowControls
     private let model: NotchModel
@@ -463,8 +463,16 @@ final class ChatWindowController: NSObject, NSWindowDelegate {
     private func area(_ rect: CGRect) -> CGFloat { rect.isNull ? 0 : rect.width * rect.height }
 
     private func remember() {
-        guard !placing, panel.isVisible, let display = currentDisplay else { return }
+        guard !placing, !headerDrag, panel.isVisible, let display = currentDisplay else { return }
         ChatWindowFrames.save(panel.frame, display: display, in: defaults)
+    }
+
+    /// The owner holds the header and moves the window: its place is saved once, when the drag ends, never on every
+    /// pointer event (each save a preferences write and its change notice to everything watching the settings, APP-973).
+    private var headerDrag = false
+    func windowDrag(began: Bool) {
+        headerDrag = began
+        if !began { remember() }
     }
 
     func windowDidMove(_ notification: Notification) { remember() }
@@ -536,6 +544,12 @@ struct ChatWindowView: View {
 /// The header's empty space moves the window. The window isn't movable by the window server (APP-759), so the drag is
 /// the app's own: the window follows the pointer from where the press began until it is released, and windowDidMove
 /// remembers its place as before.
+@MainActor
+protocol WindowDragOwner: AnyObject {
+    /// A drag by the window's own drag area began or ended.
+    func windowDrag(began: Bool)
+}
+
 struct WindowDragArea: NSViewRepresentable {
     final class DragView: NSView {
         /// Where the pointer is on screen (tests stand in their own).
@@ -545,6 +559,7 @@ struct WindowDragArea: NSViewRepresentable {
         override func mouseDown(with event: NSEvent) {
             guard let window else { return }
             start = (pointer(), window.frame.origin)
+            (window.delegate as? WindowDragOwner)?.windowDrag(began: true)
         }
         override func mouseDragged(with event: NSEvent) {
             guard let window, let start else { return }
@@ -552,7 +567,11 @@ struct WindowDragArea: NSViewRepresentable {
             window.setFrameOrigin(NSPoint(x: start.origin.x + now.x - start.pointer.x,
                                           y: start.origin.y + now.y - start.pointer.y))
         }
-        override func mouseUp(with event: NSEvent) { start = nil }
+        override func mouseUp(with event: NSEvent) {
+            guard start != nil else { return }
+            start = nil
+            (window?.delegate as? WindowDragOwner)?.windowDrag(began: false)
+        }
     }
     func makeNSView(context: Context) -> NSView { DragView() }
     func updateNSView(_ nsView: NSView, context: Context) {}

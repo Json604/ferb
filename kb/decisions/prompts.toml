@@ -682,3 +682,36 @@ rule = "about::summary says the owner writes to FERB in FERB.app on this Mac or 
 why = "FERB told the owner on his phone that it works only through FERB.app on the Mac (2026-11-17 21:47): the line every call reads said so. The coordinator's ruling."
 paths = ["engine/crates/ferb-daemon/src/areas_b/about.rs::summary"]
 untestable = "Prompt-facing wording (TEST-500 keeps no wording tests); every replay reads its recorded environment through stand-ins, so no fixture compares this line."
+
+[PRM-364]
+title = "The planner keeps the kind of thing the owner named and where it is left"
+by = "owner"
+date = 2026-11-18
+status = "active"
+words = "i agree with all, and yes you can use claude with sonnet."
+words_source = "Owner 2026-11-18, shown: the planner keeps the kind of thing he named (a mail stays an email draft) through goal, steps and conditions, measured on 42 real requests, recommended to ship"
+rule = "What the owner names FERB to make, and where it is left, keeps that kind through the plan: goal, every step's goal and label, each part's label and the conditions (a mail stays an email draft, a PDF a PDF, a sheet a sheet, a list in his notes a note). What making it needs and the request doesn't give is looked for first; if it can't be found, the condition is a gap, never met by another kind."
+why = "Live 2026-11-18: a request to draft a mail to people whose profiles were open on a site became unsent messages on that site; the check judged the planner's conditions and reported it done."
+evidence = "Replay of 42 real requests, twice each with the current and the candidate prompt (Codex gpt-5.6-sol, 168 calls): 4 better (the kind kept; an address looked for before asking; a notes question gone), 0 wrong, 38 unchanged; questions 9 against 7."
+paths = ["engine/runtime/orchestrator/prompts/supervisor.md"]
+untestable = "Prompt behaviour (TEST-500 keeps no wording tests): measured by replay on recorded inputs; the planner's live behaviour only live."
+
+[PRM-365]
+title = "supervisor.md: the kind the owner named stays in goal, steps, labels and conditions"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For PRM-364; refines PRM-303. supervisor.md's goal bullet, after the list of what a condition carries from his words: when he names the kind of thing FERB makes or where it is left, it stays that kind in the goal, every step's goal and label, each part's label and the conditions; what making it needs is looked for where the work can see it (the profile, the pages, memory) before asking; if it can't be found the condition is a gap, never met by another kind. Named in engine/fixtures/catalog/prompt_changes.json."
+why = "The first wording (plan the step that finds it) asked which account twice on the replayed case; adding where to look and before asking planned the step instead. The text shipped is the one measured."
+paths = ["engine/runtime/orchestrator/prompts/supervisor.md"]
+untestable = "Prompt text (TEST-500); the named change is checked by ferb-context's parity test and ferb-supervisor's prompts test."
+
+[PRM-366]
+title = "verifier.md: a gap's reason names only what is missing, the same sentence for one cause"
+by = "agent"
+date = 2026-11-18
+status = "active"
+rule = "For ORCH-677. verifier.md's accept_with_gaps: FERB shows, after \"Not done:\", each reason on its own: one plain sentence naming only what is missing and why, never what was done, the same sentence for conditions missed for one cause (shown once). Named in engine/fixtures/catalog/prompt_changes.json."
+why = "Code prints the reason alone and drops exact repeats; only the checker can word one cause the same way for two conditions."
+paths = ["engine/runtime/orchestrator/prompts/verifier.md"]
+untestable = "Prompt text (TEST-500); the named change is checked by ferb-context's parity test and ferb-supervisor's prompts test. Its effect on the checker's wording is unmeasured: no model run (the one stored case was computed for the code part only)."

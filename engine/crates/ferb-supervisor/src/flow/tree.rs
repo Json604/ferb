@@ -2471,10 +2471,11 @@ impl Inner {
                     .find(|s| s.id == id)
                     .map(step_label)
                     .unwrap_or(id);
+                // ORCH-677: a gap's line is its reason alone, so a step not started names itself in its reason
                 gaps.push(Gap {
                     index: -1,
+                    reason: format!("{label} — {GAPS_SAID_NO}"),
                     condition: label,
-                    reason: GAPS_SAID_NO.into(),
                     evidence: String::new(),
                 });
             }

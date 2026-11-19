@@ -48,6 +48,7 @@ struct ChatInput: NSViewRepresentable {
     }
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
+        ChatWork.composer += 1
         guard let view = scroll.documentView as? ChatTextView else { return }
         if view.string != model.session.draft {
             let previousSelection = view.selectedRange()

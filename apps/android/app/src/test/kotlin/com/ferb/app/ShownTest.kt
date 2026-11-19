@@ -116,7 +116,7 @@ class ShownTest {
         assertTrue(files.all { it.taskId == "t-1" })
     }
 
-    // decision: PHN-729
+    // decision: PHN-770
     @Test
     fun an_open_question_shows_the_words_the_macs_inline_question_leads_with() {
         val rows = ChatModel.rows(Parity.view(message("m1", "r1", "send it"),

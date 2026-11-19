@@ -822,6 +822,16 @@ final class ListRowView: NSTableRowView {
     override var isOpaque: Bool { false }
 }
 
+/// How often SwiftUI went over the chat's heavy pieces: the transcript and the composer each time the view holding them
+/// was evaluated again, and a message's text each time it was typeset at a new width. Plain counts the tests read: a
+/// drag of FERB's window or notch moves pixels and adds none of them (APP-971).
+@MainActor
+enum ChatWork {
+    static var transcript = 0
+    static var composer = 0
+    static var textLayouts = 0
+}
+
 /// The transcript list in SwiftUI (APP-815): its rows, how each is drawn, and the offset reports.
 struct TranscriptListView: NSViewRepresentable {
     let list: TranscriptList
@@ -833,6 +843,7 @@ struct TranscriptListView: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView { list.scroll }
 
     func updateNSView(_ view: NSScrollView, context: Context) {
+        ChatWork.transcript += 1
         list.content = content
         list.scrolled = scrolled
         list.viewport = viewport

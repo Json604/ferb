@@ -129,9 +129,11 @@ final class AppScreensTests: XCTestCase {
                          needs: QuestionNeeds(canAnswer: true, needsUnlock: false, hidden: false, fingerprint: false, challenge: "ch-1",
                                               problem: nil, untilBack: true))
         let vm = rig.model()
-        AppSnapshot.assert(PhoneScreen(moment: .lab(12.5), glide: false,
-                                       sheet: { Asking(model: vm, q: q, insets: .lab, busy: false, close: {}) },
-                                       page: { HomePage(insets: .lab) })
+        // the question's box in the chat (kb PHN-770)
+        AppSnapshot.assert(PhoneScreen(moment: .lab(12.5), glide: false) {
+                               QuestionBox(model: vm, approvalId: q.approvalId, title: q.title, reason: nil)
+                                   .environment(\.questions, [q]).padding(16).frame(maxHeight: .infinity, alignment: .bottom)
+                           }
             .frame(width: PhoneInsets.labSize.width, height: PhoneInsets.labSize.height).stillMotion(),
                            size: PhoneInsets.labSize, path: "app/question-until-back-noon.png")
         rig.phone.link = FakePhone.status(.online, paired: true, path: .direct)

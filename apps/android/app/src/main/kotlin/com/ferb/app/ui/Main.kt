@@ -293,7 +293,7 @@ private fun awayRows(ui: UiState): List<WorkItem> =
     ui.work.waiting + ui.away.filter { it.kind == MarkKind.FAILED } + ui.away.filter { it.kind != MarkKind.FAILED }
 
 private fun open(vm: FerbViewModel, item: WorkItem) {
-    if (item.approvalId != null) vm.show(Sheet.Asking(item.approvalId)) else vm.openChat()
+    if (item.approvalId != null) vm.goToQuestion(item.approvalId) else vm.openChat()
 }
 
 @Composable
@@ -310,11 +310,17 @@ private fun Chat(vm: FerbViewModel, ui: UiState, draft: String, insets: PhoneIns
     }
     // earlier days exist: rows of them, or older pages the Mac still has (or has when the path allows)
     val hasEarlier = places.earlier.any { it !is ChatRow.Day }
-    val rows = remember(places, earlier, hasEarlier) {
+    // a question the chat doesn't hold yet (the Mac's status brought it first) is a box at the end of today's chat, as
+    // FERB.app draws its open questions (ConversationTranscript.swift:205-208; kb PHN-770)
+    val loose = remember(ui.questions, ui.rows) {
+        val placed = ui.rows.mapNotNullTo(HashSet()) { (it as? ChatRow.Asking)?.approvalId }
+        ui.questions.filter { it.approvalId !in placed }.map { ChatRow.Asking("q:${it.approvalId}", it.approvalId, it.title, null, it.hidden) }
+    }
+    val rows = remember(places, earlier, hasEarlier, loose) {
         when {
             earlier -> places.earlier
-            hasEarlier && places.today.isNotEmpty() -> listOf<ChatRow>(ChatRow.EarlierLink("earlier-link")) + places.today
-            else -> places.today
+            hasEarlier && places.today.isNotEmpty() -> listOf<ChatRow>(ChatRow.EarlierLink("earlier-link")) + places.today + loose
+            else -> places.today + loose
         }
     }
     // its end followed while he is at it: a new row, a reply growing as it streams, the keyboard; his own message
@@ -335,6 +341,15 @@ private fun Chat(vm: FerbViewModel, ui: UiState, draft: String, insets: PhoneIns
     LaunchedEffect(atTop, ui.older, earlier) { if (earlier && atTop && ui.older is OlderState.Available) vm.loadOlder() }
     // the Chat tab tapped on today's chat: to its end (kb PHN-662; in the earlier days it goes back to today, PHN-698)
     LaunchedEffect(follow) { vm.chatToEnd.collect { follow.toEnd(animate = true) } }
+    // a notification's tap or the Tasks tab's row: the question's box in view (kb PHN-770)
+    val rowsNow by androidx.compose.runtime.rememberUpdatedState(rows)
+    LaunchedEffect(list) {
+        vm.toQuestion.collect { id ->
+            androidx.compose.runtime.withFrameNanos { }
+            val at = rowsNow.indexOfFirst { it is ChatRow.Asking && it.approvalId == id }
+            if (at >= 0) list.animateScrollToItem(at) else follow.toEnd(animate = true)
+        }
+    }
     Column(Modifier.fillMaxSize()) {
         TopBar(PhoneTab.CHAT, waiting = waiting, onTab = onTab, onProfile = onProfile)
         val status = statusLine(ui)
@@ -347,7 +362,8 @@ private fun Chat(vm: FerbViewModel, ui: UiState, draft: String, insets: PhoneIns
         var tallest by remember { mutableIntStateOf(0) }
         val density = androidx.compose.ui.platform.LocalDensity.current
         Box(Modifier.weight(1f).fillMaxWidth().onSizeChanged { if (it.height > tallest) tallest = it.height }) {
-          CompositionLocalProvider(LocalChatViewport provides with(density) { tallest.toDp() }, LocalCardsLive provides !earlier) {
+          CompositionLocalProvider(LocalChatViewport provides with(density) { tallest.toDp() }, LocalCardsLive provides !earlier,
+              LocalQuestions provides ui.questions, LocalBusy provides ui.busy) {
             // nothing stored yet and the first page on its way: the waiting look, never a blank screen (kb PHN-628)
             if (rows.isEmpty() && ui.conversation == null && ui.link?.phase == LinkPhase.ONLINE) ChatWaiting(stringResource(R.string.chat_loading))
             LazyColumn(
@@ -515,6 +531,10 @@ private fun ChatRowContent(vm: FerbViewModel, today: Long, olderLoading: Boolean
         is ChatRow.Line -> Column(Modifier.fillMaxWidth().padding(horizontal = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             // a connection line ticks its time as FERB.app's LiveLineView ("… · 0:42")
             if (row.since != null) com.ferb.design.components.TickingText(row.text, row.since, 14.5f, ink.low)
+            // FERB.app's status words and notices under a reply: 10 points under its 12 (the phone's 16 scaled the same),
+            // grey, "Delivered, with parts not done" amber, on FERB's dark surface so either reads on any sky (kb PHN-773)
+            else if (row.small) PhoneText(row.text, 13.5f, FerbType.Medium, if (row.amber) com.ferb.design.Ink.amber else com.ferb.design.Ink.onDark,
+                Modifier.background(com.ferb.design.Ink.black, androidx.compose.foundation.shape.RoundedCornerShape(50)).padding(horizontal = 10.dp, vertical = 4.dp))
             else PhoneText(row.text, 14.5f, FerbType.Medium, ink.low)
             for (q in row.quotes) PhoneText(q, 14f, color = ink.low)
         }
@@ -544,11 +564,8 @@ private fun ChatRowContent(vm: FerbViewModel, today: Long, olderLoading: Boolean
         is ChatRow.Day -> DayDivider(dayLabel(row.day, today))
         // FERB.app's inline question leads with its title (else "FERB needs your answer") and the question under it;
         // the phone opens the answer sheet, since some answers need the fingerprint (kb PHN-729)
-        is ChatRow.Asking -> Card {
-            CardRow(row.title ?: stringResource(if (row.hidden) R.string.question_private_title else R.string.question_needs_answer),
-                row.reason ?: stringResource(R.string.question_tap),
-                onClick = { vm.show(Sheet.Asking(row.approvalId)) }, leading = { Mark(MarkKind.ASKING) }, trailing = { Opens() })
-        }
+        // FERB.app's question card in the chat, answered in place (kb PHN-770)
+        is ChatRow.Asking -> QuestionBox(vm, row.approvalId, row.title, row.reason)
         is ChatRow.Outbox -> OutboxRow(vm, row)
         is ChatRow.WithFiles -> WithFilesRow(vm, row.item)
         is ChatRow.EarlierLink -> com.ferb.design.components.EarlierLink(stringResource(R.string.older_available), Modifier.testTag("earlier-link")) { vm.openChat() }

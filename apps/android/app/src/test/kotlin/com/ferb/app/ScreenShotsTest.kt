@@ -109,7 +109,7 @@ class ScreenShotsTest {
     private val asking = Question("ap-1", "t-1", "Run this in Terminal?", "To update Figma before opening the file you asked for.",
         "brew upgrade --cask figma", "owner_question", "ferb.confirm", listOf("Yes", "No"), listOf("Yes, run it", "No"), false)
     private val online = FakePhone.status()
-    private val base = UiState(gate = Gate.MAIN, link = online, keys = KeyHealth(KeyState.OK, KeyState.OK, KeyState.OK), questions = listOf(asking))
+    private val base = UiState(gate = Gate.MAIN, link = online, keys = KeyHealth(KeyState.OK, KeyState.OK, KeyState.OK))
 
     @Composable
     private fun Frame(moment: SkyMoment, ui: UiState, tab: PhoneTab = PhoneTab.CHAT, sheet: Sheet? = null) {
@@ -157,10 +157,11 @@ class ScreenShotsTest {
         shoot("chat-offline-outbox.png")
     }
 
-    // decision: PHN-417, PHN-470
+    /** A question is a box at the end of the chat, answered in place (kb PHN-770). */
+    // decision: PHN-770, PHN-417, PHN-470
     @Test
-    fun a_question_sheet_with_the_macs_words() {
-        compose.setContent { Frame(labMoment(22.5), base.copy(rows = labRows), sheet = Sheet.Asking("ap-1")) }
+    fun a_question_box_with_the_macs_words() {
+        compose.setContent { Frame(labMoment(22.5), base.copy(rows = labRows, questions = listOf(asking))) }
         shoot("question.png")
     }
 
@@ -170,7 +171,7 @@ class ScreenShotsTest {
     fun a_question_with_an_extra_option_from_the_mac() {
         val q = Question("ap-3", "t-1", "Use your screen for this?", "FERB needs to click in Keynote, which works only in front.", null,
             "owner_question", "screen.foreground", listOf("Yes", "No", "Until I'm back"), listOf("Use the screen", "Not now", "Until I'm back at my Mac"), false)
-        compose.setContent { Frame(labMoment(12.5), base.copy(rows = labRows, questions = listOf(q)), sheet = Sheet.Asking("ap-3")) }
+        compose.setContent { Frame(labMoment(12.5), base.copy(rows = labRows, questions = listOf(q))) }
         shoot("question-extra.png")
     }
 
@@ -193,7 +194,7 @@ class ScreenShotsTest {
     @Test
     fun a_private_code_takes_the_labs_keypad() {
         val code = Question("ap-2", null, null, "The 6-digit code Northfield Energy sent you.", null, "owner_login_code", null, emptyList(), emptyList(), true)
-        compose.setContent { Frame(labMoment(12.5), base.copy(rows = labRows, questions = listOf(code)), sheet = Sheet.Asking("ap-2")) }
+        compose.setContent { Frame(labMoment(12.5), base.copy(rows = labRows, questions = listOf(code))) }
         shoot("private-code.png")
     }
 
@@ -201,7 +202,7 @@ class ScreenShotsTest {
     @Test
     fun a_private_password_takes_the_system_keyboard_in_its_password_mode() {
         val pw = Question("ap-3", null, "Your Mac's password", "To install the printer driver you asked for.", null, "owner_admin_password", null, emptyList(), emptyList(), true)
-        compose.setContent { Frame(labMoment(12.5), base.copy(rows = labRows, questions = listOf(pw)), sheet = Sheet.Asking("ap-3")) }
+        compose.setContent { Frame(labMoment(12.5), base.copy(rows = labRows, questions = listOf(pw))) }
         shoot("private-password.png")
     }
 
@@ -402,7 +403,7 @@ class ScreenShotsTest {
         val q = Question("ap-4", "t-1", "Use your screen for this?", "FERB needs to click in Keynote, which works only in front.", null,
             "owner_question", "screen.foreground", listOf("Yes", "No"), listOf("Use the screen", "Not now"), false,
             com.ferb.mobile.QuestionNeeds(true, false, false, false, "ch-1", null, true))
-        compose.setContent { Frame(labMoment(12.5), base.copy(rows = labRows, questions = listOf(q)), sheet = Sheet.Asking("ap-4")) }
+        compose.setContent { Frame(labMoment(12.5), base.copy(rows = labRows, questions = listOf(q))) }
         shoot("question-until-back.png")
     }
 

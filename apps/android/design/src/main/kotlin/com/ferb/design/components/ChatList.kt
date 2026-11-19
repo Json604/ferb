@@ -2,6 +2,7 @@ package com.ferb.design.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -319,32 +321,41 @@ fun AttachmentChip(
     removeLabel: String? = null,
     onRemove: (() -> Unit)? = null,
 ) {
+    // compact, as FERB.app's composer keeps a file to its icon and name (ChatBody.swift:200-216,
+    // ArtifactPreview.swift:214-250; owner kb PHN-772): a small icon or picture, the name, the cross; its size is said
+    // to TalkBack, not drawn
     Row(
-        modifier.height(48.dp).background(Ink.darkFill, RoundedCornerShape(14.dp))
-            .padding(start = 6.dp, end = if (onRemove == null) 12.dp else 0.dp),
+        modifier.height(34.dp).background(Ink.darkFill, RoundedCornerShape(10.dp))
+            .padding(start = 5.dp, end = if (onRemove == null) 10.dp else 0.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         if (thumbnail != null) {
-            androidx.compose.foundation.Image(thumbnail, null, Modifier.size(36.dp).clip(RoundedCornerShape(9.dp)), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+            androidx.compose.foundation.Image(thumbnail, null, Modifier.size(24.dp).clip(RoundedCornerShape(6.dp)), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
         } else {
-            Box(Modifier.size(36.dp), contentAlignment = Alignment.Center) { FileIcon(name, 24.dp) }
+            Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) { FileIcon(name, 18.dp) }
         }
-        Column(Modifier.widthIn(max = 132.dp).semantics(mergeDescendants = true) {}) {
-            PhoneText(name, 13.5f, FerbType.Medium, Ink.white, maxLines = 1)
-            PhoneText(detail, 12f, FerbType.Medium, Ink.onDark, maxLines = 1)
-        }
+        PhoneText(name, 13f, FerbType.Medium, Ink.white,
+            Modifier.widthIn(max = 150.dp).semantics(mergeDescendants = true) { contentDescription = "$name, $detail" }, maxLines = 1)
         if (onRemove != null) {
-            Box(Modifier.size(40.dp).pressable(onRemove, label = removeLabel).semantics { removeLabel?.let { contentDescription = it } },
-                contentAlignment = Alignment.Center) { FerbIcon(FerbIcons.close, 12f, Ink.onDark) }
+            Box(Modifier.size(32.dp).pressable(onRemove, label = removeLabel).semantics { removeLabel?.let { contentDescription = it } },
+                contentAlignment = Alignment.Center) { FerbIcon(FerbIcons.close, 11f, Ink.onDark) }
         }
     }
 }
 
-/** The files in the message box, side by side, scrolling sideways when there are more than fit. */
+/**
+ * The files in the message box: compact chips that wrap onto more lines as files are added (the box grows with them,
+ * owner kb PHN-772), never big cards in a sideways strip; past four lines the chips scroll inside the box.
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun AttachmentRow(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
-    Row(modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) { content() }
+    androidx.compose.foundation.layout.FlowRow(
+        modifier.fillMaxWidth().heightIn(max = 160.dp).verticalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) { content() }
 }
 
 /**
