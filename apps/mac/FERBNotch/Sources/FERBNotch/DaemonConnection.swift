@@ -18,6 +18,7 @@ extension NotchModel {
                     await self.prepareHistory()         // the chat in hand before the status read places anything
                     await self.catchUpEntries()         // and the turns other devices sent (ENG-10)
                     await self.refreshDaemonStatus()
+                    await self.refreshInsomnia()        // APP-980: a restarted FERB.app raises its cover again
                     await self.refreshTimers()
                     // subscribed first, so a pause or resume after the paused tasks are read comes after it (APP-901)
                     let events = self.rpc.stream("logs.subscribe", params: [:])
@@ -115,6 +116,7 @@ extension NotchModel {
             changeIfNeeded(\.daemonLink, link)
             changeIfNeeded(\.daemonPaused, status["paused"] as? Bool ?? false)
             changeIfNeeded(\.daemonStopped, status["stopped"] as? Bool ?? false)
+            if let mode = status["insomnia"] { insomnia.apply(mode) }     // APP-980: a missed insomnia.changed
             let results = status["results"] as? [[String: Any]] ?? []
             for result in results { receiveOutcome(result, announce: false, recordEvent: false) }
             acknowledgeResults(results.compactMap { $0["task_id"] as? String })
@@ -593,6 +595,10 @@ extension NotchModel {
         // T-1205: Settings → Phone, and the notch for a pairing; GATE-615: "until I'm back at my Mac" started or ended
         case "phone.pair_requested", "phone.unused", "phone.removed", "screen.until_back":
             receivePhoneEvent(topic: event["topic"] as? String ?? "", data: data)
+        // APP-980..APP-984: insomnia mode's status, a step under the cover, an app FERB is about to bring forward, the
+        // camera for the phone's Show me
+        case "insomnia.changed", "insomnia.step", "insomnia.expect", "insomnia.camera":
+            insomnia.receive(topic: event["topic"] as? String ?? "", data: data)
         case "device.location_wanted":                   // GATE-613: the owner said Yes; one precise fix, read now
             if let id = data["request_id"] as? String, let device = deviceLocation {
                 Task { await device.answer(requestID: id) }

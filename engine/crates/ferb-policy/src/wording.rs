@@ -4,8 +4,8 @@
 
 use crate::confirm::{
     app_label, shown_quoted, Apps, Missing, Need, Values, ACCOUNT_SECURITY, BROWSER_PAGE, BULK,
-    FOREGROUND, OUTSIDE_LIST, PAIR, QUOTED_CHARS, TERMINAL_INPUT, TLS_OFF, TLS_QUESTION,
-    UNREAD_AMOUNT,
+    FOREGROUND, LOCKED_SCREEN, OUTSIDE_LIST, PAIR, QUOTED_CHARS, TERMINAL_INPUT, TLS_OFF,
+    TLS_QUESTION, UNREAD_AMOUNT,
 };
 use crate::py;
 
@@ -282,6 +282,11 @@ fn part(n: &Need, alongside: &[&str]) -> R<String> {
     let rule = n.rule.as_str();
     Ok(match rule {
         TLS_OFF => tls_line(v)?,
+        LOCKED_SCREEN => format!(
+            "this would use your Mac's keyboard and pointer in {}, and your Mac's screen is locked, so FERB waits until \
+             you're back and does it then",
+            v.req("app")?
+        ),
         FOREGROUND if v.has("script") => format!(
             "this would run a script in {0}, your own browser, which can act in any of its windows and tabs; one Yes \
              covers {0} for the rest of this task, and a No keeps FERB to its own tabs",
@@ -468,6 +473,10 @@ fn short(n: &Need, alongside: &[&str]) -> R<Option<String>> {
     let rule = n.rule.as_str();
     Ok(Some(match rule {
         TLS_OFF => tls_line(v)?,
+        LOCKED_SCREEN => format!(
+            "do this in {} when you're back (your Mac's screen is locked)",
+            v.req("app")?
+        ),
         FOREGROUND if v.has("script") => format!(
             "run scripts in {}, your own browser, for this task",
             v.req("app")?
@@ -1471,6 +1480,20 @@ fn card_of(n: &Need, alongside: &[&str]) -> Option<Card> {
             "Allow once",
             "Don't",
         )),
+        // decision: HAND-645 — a locked Mac's keyboard and pointer reach no app: the owner is asked to have it done
+        // when he's back
+        LOCKED_SCREEN => {
+            let app = v.get("app").unwrap_or("the app");
+            Some(c(
+                format!("Your Mac is locked. Do this in {app} when you're back?"),
+                "Your Mac's screen is locked, so FERB can't use its keyboard and pointer right now. FERB will wait and \
+                 do it as soon as you unlock your Mac."
+                    .into(),
+                String::new(),
+                "Do it when I'm back",
+                "Skip it",
+            ))
+        }
         FOREGROUND if v.has("script") => {
             let app = v.get("app").unwrap_or("your browser");
             Some(c(

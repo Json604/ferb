@@ -183,7 +183,8 @@ final class NotchWindowYieldTests: XCTestCase {
                 if code.range(of: #"ignoresMouseEvents\s*="#, options: .regularExpression) != nil { writes.append(code) }
             }
         }
-        XCTAssertEqual(writes.sorted(), ["card.ignoresMouseEvents = url == nil",
+        // insomnia mode's cover (ShieldPanel.passClicks) lets clicks through only during a step (APP-984)
+        XCTAssertEqual(writes.sorted(), ["card.ignoresMouseEvents = url == nil", "ignoresMouseEvents = on",
                                          "ignoresMouseEvents = true", "ignoresMouseEvents = true",
                                          "ignoresMouseEvents = true", "ignoresMouseEvents = true",
                                          "ignoresMouseEvents = true",

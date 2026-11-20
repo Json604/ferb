@@ -330,7 +330,8 @@ class BuiltRustBundle(TempCase):
         self.assertEqual(signed.returncode, 0, signed.stderr)
         c = app / "Contents"
         for rel in ("MacOS/FERBNotch", "Helpers/FERB.app/Contents/MacOS/FERB", "Helpers/ferb-native-host",
-                    "Resources/bin/ferb", "Helpers/ferb-secrets", "Helpers/ferb-link",
+                    "Resources/bin/ferb", "Helpers/ferb-secrets", "Helpers/ferb-link", "Helpers/ferb-power",
+                    "Library/LaunchDaemons/com.ferb.power.plist",
                     "Resources/extensions/chromium/manifest.json",
                     "Resources/ferb/orchestrator/prompts/supervisor.md", "Library/LaunchAgents/com.ferb.daemon.plist"):
             self.assertTrue((c / rel).is_file(), rel)

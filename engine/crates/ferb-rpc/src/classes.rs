@@ -173,6 +173,23 @@ pub const PHONE_METHODS: &[PhoneMethod] = &[
     )
     .locked(Locked::Allowed),
     plain("task.stop", LOCKED_REASON).locked(Locked::Allowed),
+    // decision: APP-983 — Lock my Mac and It's fine answer a "someone's at your Mac" notice from the notification, and
+    // ending insomnia mode lets the Mac sleep as usual: each only takes something away, like Stop
+    plain(
+        "insomnia.end",
+        "ends insomnia mode: the Mac sleeps as usual again; it only takes something away, like Stop (APP-980)",
+    )
+    .locked(Locked::Allowed),
+    plain(
+        "insomnia.lock",
+        "the owner's Lock my Mac after someone touched it: the Mac's own lock, only ever safer (APP-983)",
+    )
+    .locked(Locked::Allowed),
+    plain(
+        "insomnia.dismiss",
+        "the owner's It's fine to a notice that someone touched the Mac; it changes nothing on the Mac (APP-983)",
+    )
+    .locked(Locked::Allowed),
     // ---- the owner's words and answers: the phone is his surface (PHN-111); which answer needs the fingerprint is
     //      the question's, decided by the daemon (PHN-415, PHN-417, PHN-403)
     plain("chat.send", "the owner's message, as from FERB.app")
@@ -246,6 +263,29 @@ pub const PHONE_METHODS: &[PhoneMethod] = &[
     plain("jev.stats", "the decision engine's counts"),
     sensitive("jev.enable", "changes what FERB may do"),
     sensitive("jev.reload", "changes what FERB may do"),
+    // ---- insomnia mode (T-1274)
+    private(
+        "insomnia.status",
+        "whether FERB keeps the Mac working while the owner is away, with its battery, heat and notices",
+    ),
+    // decision: APP-980 — only the owner turns it on, from the Mac or his phone after the warning: signed like a setting
+    sensitive(
+        "insomnia.start",
+        "keeps the Mac awake and working (and, with the cover, lets FERB bring apps forward under it: APP-984)",
+    ),
+    // decision: APP-983 — Show me: the Mac's camera, only for the paired, unlocked phone, never on the shared relay
+    private(
+        "insomnia.camera",
+        "the Mac's camera, live, for the owner's own eyes (APP-983); never on the shared relay (PHN-454)",
+    ),
+    never(
+        "insomnia.report",
+        "is FERB.app's own report of what happens at its cover on the Mac's screen",
+    ),
+    never(
+        "insomnia.camera_frame",
+        "is FERB.app's own picture from the Mac's camera; a phone only watches it",
+    ),
     // ---- settings, keys and model runtimes
     private("settings.get", "the owner's settings (PHN-404)"),
     sensitive("settings.set", "changes FERB's settings (PHN-404)"),

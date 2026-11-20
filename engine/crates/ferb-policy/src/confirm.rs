@@ -41,6 +41,9 @@ pub const TERMINAL_APP: &str = "floor:terminal_app";
 pub const FOREGROUND: &str = "floor:foreground";
 pub const FOREGROUND_TOOLS: &[&str] = &["mac.act", "mac.click", "mac.pointer"];
 pub const BROWSER_PAGE: &str = "floor:browser_page";
+/// HAND-645 (owner, 2026-11-20): a step that would use the keyboard and pointer while the Mac's screen is locked. Its
+/// Yes means "do it when I'm back": the call waits for the owner's unlock, then runs. Never routine.
+pub const LOCKED_SCREEN: &str = "floor:locked_screen";
 pub const BROWSER_SCHEMES: &[&str] = &[
     "chrome://",
     "brave://",
@@ -358,6 +361,15 @@ pub fn foreground_need(
         key(&[s(FOREGROUND), s(&app_key(&app, apps))]),
         values,
     ))
+}
+
+/// HAND-645: the question for a step that would use the keyboard and pointer in `app` while the screen is locked.
+pub fn locked_screen_need(app: &str, apps: &dyn Apps) -> Need {
+    Need::new(
+        LOCKED_SCREEN,
+        key(&[s(LOCKED_SCREEN), s(&app_key(app, apps))]),
+        Values::of(&[("app", app)]),
+    )
 }
 
 /// `app_key`: one app however a Mac tool's `app` argument spells it (GATE-201, GATE-560).

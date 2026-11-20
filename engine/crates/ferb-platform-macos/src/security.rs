@@ -226,6 +226,67 @@ pub(crate) fn running_code_satisfies(pid: libc::pid_t, requirement: &Requirement
     status == 0 && unsafe { SecStaticCodeCheckValidity(on_disk.0, STRICT, requirement.0 .0) } == 0
 }
 
+#[link(name = "Security", kind = "framework")]
+extern "C" {
+    static kSecCodeInfoCertificates: CFTypeRef;
+    fn SecCodeCopySelf(flags: u32, code: *mut CFTypeRef) -> OSStatus;
+    fn SecCodeCopySigningInformation(code: CFTypeRef, flags: u32, info: *mut CFTypeRef)
+        -> OSStatus;
+    fn SecCertificateCopyData(certificate: CFTypeRef) -> CFTypeRef;
+}
+
+#[link(name = "CoreFoundation", kind = "framework")]
+extern "C" {
+    fn CFDictionaryGetValue(dict: CFTypeRef, key: CFTypeRef) -> CFTypeRef;
+    fn CFArrayGetCount(array: CFTypeRef) -> isize;
+    fn CFArrayGetValueAtIndex(array: CFTypeRef, index: isize) -> CFTypeRef;
+    fn CFDataGetLength(data: CFTypeRef) -> isize;
+    fn CFDataGetBytePtr(data: CFTypeRef) -> *const u8;
+}
+
+extern "C" {
+    // CommonCrypto (libSystem)
+    fn CC_SHA1(data: *const c_void, len: u32, md: *mut u8) -> *mut u8;
+}
+
+/// The SHA-1 of this running program's leaf signing certificate (as a code requirement's `certificate leaf = H"..."`
+/// names it), uppercase hex; `None` for an ad-hoc signature (no certificate) or when it can't be read.
+pub fn own_leaf_sha1() -> Option<String> {
+    let mut code: CFTypeRef = ptr::null();
+    // SAFETY: `code` is a valid place for one pointer; on success an owned SecCode for this process.
+    let status = unsafe { SecCodeCopySelf(NO_FLAGS, &mut code) };
+    let code = Owned::new(code)?;
+    if status != 0 {
+        return None;
+    }
+    let mut info: CFTypeRef = ptr::null();
+    // SAFETY: a live SecCode; kSecCSSigningInformation (2) asks for the certificates; `info` receives an owned dict.
+    let status = unsafe { SecCodeCopySigningInformation(code.0, 2, &mut info) };
+    let info = Owned::new(info)?;
+    if status != 0 {
+        return None;
+    }
+    // SAFETY: a live CFDictionary and a framework constant key; the value is borrowed (Get rule).
+    let certs = unsafe { CFDictionaryGetValue(info.0, kSecCodeInfoCertificates) };
+    // SAFETY: `certs`, when present, is the CFArray of SecCertificates, leaf first.
+    if certs.is_null() || unsafe { CFArrayGetCount(certs) } < 1 {
+        return None;
+    }
+    // SAFETY: index 0 exists (checked); borrowed.
+    let leaf = unsafe { CFArrayGetValueAtIndex(certs, 0) };
+    // SAFETY: a SecCertificate; the result follows the Copy rule.
+    let data = Owned::new(unsafe { SecCertificateCopyData(leaf) })?;
+    // SAFETY: a live CFData: its bytes and length.
+    let (bytes, len) = unsafe { (CFDataGetBytePtr(data.0), CFDataGetLength(data.0)) };
+    if bytes.is_null() || len <= 0 {
+        return None;
+    }
+    let mut md = [0u8; 20];
+    // SAFETY: `len` bytes at `bytes` (the certificate's DER), a 20-byte digest buffer.
+    unsafe { CC_SHA1(bytes.cast(), len as u32, md.as_mut_ptr()) };
+    Some(md.iter().map(|b| format!("{b:02X}")).collect())
+}
+
 /// The running code the guest attribute `key` with `value` names.
 fn guest(key: CFTypeRef, value: &Owned) -> Option<Owned> {
     let keys = [key];

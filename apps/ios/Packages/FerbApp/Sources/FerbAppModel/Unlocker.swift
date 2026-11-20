@@ -4,7 +4,7 @@ import Foundation
 
 /// What a prompt is for: its words (the system prompt's one line of the app's, `subtitleKey` in the catalog).
 public enum Why: Sendable, CaseIterable {
-    case open, yes, file, setting, keys
+    case open, yes, file, setting, keys, insomnia
 
     public var subtitleKey: String {
         switch self {
@@ -13,6 +13,7 @@ public enum Why: Sendable, CaseIterable {
         case .file: "prompt_file_subtitle"
         case .setting: "prompt_setting_subtitle"
         case .keys: "prompt_keys_subtitle"
+        case .insomnia: "prompt_insomnia_subtitle"
         }
     }
 

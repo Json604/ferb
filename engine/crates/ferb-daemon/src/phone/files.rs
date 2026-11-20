@@ -801,12 +801,14 @@ pub(super) fn area(inner: &Inner) -> Result<&Area, Refusal> {
 /// send a file over the shared relay. A listing (`phone.files`) is the helper's to judge by its size.
 pub(crate) fn shared_relay_refusal(phone: &PhoneSession, method: &str) -> Option<Refusal> {
     // (and the live preview's frames, PHN-454: never on the public relay)
-    const BULK: [&str; 5] = [
+    // (and Show me, the Mac's camera in insomnia mode: APP-983 under the same live-view rule)
+    const BULK: [&str; 6] = [
         "phone.read",
         "phone.tree",
         "phone.put_begin",
         "phone.put_group",
         "tasks.preview",
+        "insomnia.camera",
     ];
     (BULK.contains(&method) && phone.tier.as_deref() == Some("shared_relay")).then(|| {
         refused(
@@ -2261,6 +2263,7 @@ mod tests {
     /// helper that names no tier is the helper's to stop.
     // decision: PHN-491
     // decision: PHN-444
+    // decision: APP-983
     #[test]
     fn files_are_refused_on_the_shared_relay_by_the_daemon_too() {
         let on = |tier: Option<&str>| PhoneSession {
@@ -2272,6 +2275,7 @@ mod tests {
             "phone.tree",
             "phone.put_begin",
             "phone.put_group",
+            "insomnia.camera",
         ] {
             let r = shared_relay_refusal(&on(Some("shared_relay")), m).expect(m);
             assert_eq!(r.code, phone_gate::FILE_NOT_ALLOWED, "{m}");

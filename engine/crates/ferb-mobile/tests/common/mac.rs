@@ -68,6 +68,10 @@ pub struct MacState {
     pub window_closed: bool,
     /// `screen_use.status` (GATE-615).
     pub screen_use: Value,
+    /// Insomnia mode (APP-980..APP-985): what `insomnia.*` answer and change.
+    pub insomnia: Value,
+    /// The camera's answers in insomnia mode, in order (`meta` and the frame's bytes).
+    pub camera: VecDeque<(Value, Vec<u8>)>,
 }
 
 #[derive(Clone)]
@@ -110,6 +114,9 @@ impl FakeMac {
             found: Vec::new(),
             window_closed: false,
             screen_use: json!({"active": false, "can_offer": true}),
+            insomnia: json!({"on": false, "power": {"battery": 64, "on_battery": true}, "task_awake": false,
+                             "last_end": null, "line": ""}),
+            camera: VecDeque::new(),
         })))
     }
 
@@ -400,6 +407,57 @@ impl Transport for FakeMac {
                 out["by"] = json!("EP-phone");
                 out
             }
+            "insomnia.status" => st.insomnia.clone(),
+            "insomnia.start" => {
+                // the sensitive class: refused without the phone's proof (PHN-112)
+                if proof_json.is_none() {
+                    return Err(LinkFailure::new(
+                        "fresh_unlock_required",
+                        "This needs your fingerprint.",
+                    ));
+                }
+                if st.insomnia["on"] == json!(true) {
+                    let mut out = st.insomnia.clone();
+                    out["already"] = json!(true);
+                    out
+                } else {
+                    st.insomnia = json!({"on": true, "variant": p["variant"], "since": "2026-11-20T15:00:00+05:30",
+                        "by": "EP-phone", "screen_yes": p["screen_yes"], "grace_minutes": 10, "working": 1,
+                        "ends_at": null, "shield_up": p["variant"] == "shield", "mac_locked": p["variant"] == "locked",
+                        "camera": {"on": false, "state": "allowed"},
+                        "power": {"battery": 64, "on_battery": true, "lid_closed": false, "thermal": "nominal"},
+                        "warnings": [], "notice": null,
+                        "line": "Keeping your Mac working · 1 task running · battery 64%", "last_end": null});
+                    st.insomnia.clone()
+                }
+            }
+            "insomnia.end" => {
+                let ended = st.insomnia["on"] == json!(true);
+                if ended {
+                    st.insomnia = json!({"on": false, "power": {"battery": 64, "on_battery": true}, "task_awake": false,
+                        "line": "", "last_end": {"id": "e-1", "why": "turned_off",
+                        "text": "FERB stopped keeping your Mac working.", "at": "2026-11-20T16:00:00+05:30"}});
+                }
+                let mut out = st.insomnia.clone();
+                out["ended"] = json!(ended);
+                out["by"] = json!("EP-phone");
+                out
+            }
+            "insomnia.lock" => {
+                st.insomnia["mac_locked"] = json!(true);
+                st.insomnia["notice"] = Value::Null;
+                json!({"locked": true, "text": "Your Mac is locked.", "insomnia": st.insomnia.clone()})
+            }
+            "insomnia.dismiss" => {
+                if st.insomnia["notice"]["id"] != p["notice_id"] {
+                    return Err(LinkFailure::new(
+                        "not_found",
+                        "That notice isn't waiting any more.",
+                    ));
+                }
+                st.insomnia["notice"] = Value::Null;
+                st.insomnia.clone()
+            }
             "stop.engage" => {
                 st.status["stopped"] = json!(true);
                 json!({"stopped": true})
@@ -570,6 +628,18 @@ impl Transport for FakeMac {
             return Err(closed_failure("mac_unreachable"));
         }
         Self::refuse_bulk(&st)?;
+        if p["what"] == "camera" {
+            let (meta, bytes) = st.camera.pop_front().unwrap_or((
+                json!({"seq": null, "state": "starting", "text": "Starting your Mac's camera…"}),
+                Vec::new(),
+            ));
+            use base64::Engine;
+            return Ok(
+                json!({"meta": meta, "size": bytes.len(), "received": bytes.len(),
+                             "data": base64::engine::general_purpose::STANDARD.encode(&bytes)})
+                .to_string(),
+            );
+        }
         if p["what"] == "preview" {
             let (meta, bytes) = st
                 .frames

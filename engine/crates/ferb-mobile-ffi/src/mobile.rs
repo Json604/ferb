@@ -12,10 +12,10 @@ use crate::callbacks::{
 use crate::error::{FerbError, guard, guard_or};
 use crate::link::{Link, LinkInner};
 use crate::records::{
-    Attachment, Cancelled, Conv, ConversationInfo, DeviceReport, Fetched, Folder, FoundFiles,
-    GroupStarted, LinkState, LocationFix, MacInfo, OlderState, OutboxItem, PhoneStatus,
-    PreviewFrame, RecentFiles, ScreenUse, ScreenUseEnd, SettingValue, TaskPage, TranscriptView,
-    Tree, Uploaded,
+    Attachment, CameraFrame, Cancelled, Conv, ConversationInfo, DeviceReport, Fetched, Folder,
+    FoundFiles, GroupStarted, Insomnia, InsomniaEnded, InsomniaStarted, LinkState, LocationFix,
+    MacInfo, MacLocked, OlderState, OutboxItem, PhoneStatus, PreviewFrame, RecentFiles, ScreenUse,
+    ScreenUseEnd, SettingValue, TaskPage, TranscriptView, Tree, Uploaded,
 };
 
 fn signer_of(s: Arc<dyn Signer>) -> Arc<dyn ferb_mobile::Signer> {
@@ -56,6 +56,21 @@ impl Drop for LivePreview {
         self.stop();
     }
 }
+
+/// Where the Mac's camera's answers go in insomnia mode (`Mobile.watch_camera`, APP-983), on the camera's own thread:
+/// post and return.
+#[uniffi::export(foreign)]
+pub trait CameraSink: Send + Sync {
+    /// One answer: a new frame (`jpeg`), or the state and words over the last one.
+    fn frame(&self, frame: CameraFrame);
+    /// It stopped by itself: `code` is the stable code of why (`needs_better_path` on the public relay,
+    /// `needs_unlock` after the lock, `closed`, `refused`), none when `stop` was called.
+    fn ended(&self, code: Option<String>, detail: Option<String>);
+}
+
+/// The Mac's camera is asked at most once every this many milliseconds (it makes a frame about every half second; each
+/// ask keeps it on 6 s more on the Mac).
+pub const CAMERA_EVERY_MS: u64 = 500;
 
 /// The least time between two frame requests: the link's least time between two pictures on a direct path or the
 /// owner's relay (ferb-link `Limits::good_preview_every_ms`, 200 ms); asking sooner is refused there.
@@ -604,6 +619,73 @@ impl Mobile {
         guard(|| Ok(self.core()?.end_screen_use()?.conv()))
     }
 
+    /// Insomnia mode as the Mac has it now (`insomnia.status`; needs the unlock); also kept in `last_status`, where
+    /// the Mac's pushed status (allowed while locked) brings it too. Network: not on the UI thread.
+    pub fn insomnia_status(&self) -> Result<Insomnia, FerbError> {
+        guard(|| Ok(self.core()?.insomnia_status()?.conv()))
+    }
+
+    /// "Keep my Mac working" from the phone, after the app's warning (APP-980): `variant` "shield" or "locked",
+    /// `screen_yes` the one Yes to bring apps forward under the cover (APP-984). A sensitive change: signed by
+    /// `signer` (the fingerprint-only key where the phone has one, PHN-133). Network and the prompt.
+    pub fn start_insomnia(
+        &self,
+        variant: String,
+        screen_yes: bool,
+        signer: Arc<dyn Signer>,
+    ) -> Result<InsomniaStarted, FerbError> {
+        guard(|| {
+            Ok(self
+                .core()?
+                .start_insomnia(&variant, screen_yes, signer_of(signer))?
+                .conv())
+        })
+    }
+
+    /// Ends insomnia mode now (`insomnia.end`; allowed while locked, no unlock; never queued). Network.
+    pub fn end_insomnia(&self) -> Result<InsomniaEnded, FerbError> {
+        guard(|| Ok(self.core()?.end_insomnia()?.conv()))
+    }
+
+    /// Lock my Mac (`insomnia.lock`, APP-983: only on the owner's word; allowed while locked, no unlock). Network.
+    pub fn lock_mac(&self) -> Result<MacLocked, FerbError> {
+        guard(|| Ok(self.core()?.lock_mac()?.conv()))
+    }
+
+    /// It's fine: the notice `notice_id` is answered (`insomnia.dismiss`; allowed while locked, no unlock). Network.
+    pub fn dismiss_insomnia_notice(&self, notice_id: String) -> Result<Insomnia, FerbError> {
+        guard(|| Ok(self.core()?.dismiss_insomnia_notice(&notice_id)?.conv()))
+    }
+
+    /// One answer of the Mac's camera (APP-983; in memory only). Refused on the public relay before anything is
+    /// asked (`NeedsBetterPath`). Network.
+    pub fn mac_camera(&self, have: Option<i64>) -> Result<CameraFrame, FerbError> {
+        guard(|| Ok(self.core()?.mac_camera(have)?.conv()))
+    }
+
+    /// Show me (APP-983): the Mac's camera while the camera view is on screen, asked on a thread of its own at most
+    /// every `CAMERA_EVERY_MS`, each answer to `sink`; it ends by itself on the public relay, after the lock, or when
+    /// closed (`sink.ended`), and by `stop` (the Mac turns the camera off a few seconds after the last ask). Frames
+    /// live in memory only. Safe on the UI thread (it only starts the thread).
+    pub fn watch_camera(&self, sink: Arc<dyn CameraSink>) -> Result<Arc<LivePreview>, FerbError> {
+        guard(|| {
+            let core = self.core()?;
+            let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let flag = stop.clone();
+            let weak = Arc::downgrade(&core);
+            drop(core);
+            std::thread::Builder::new()
+                .name("ferb-camera".into())
+                .spawn(move || {
+                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        camera_loop(weak, sink, flag)
+                    }));
+                })
+                .map_err(|_| FerbError::internal())?;
+            Ok(Arc::new(LivePreview { stop }))
+        })
+    }
+
     /// Marks the conversation read up to the newest entry this phone holds. Network: not on the UI thread.
     pub fn mark_read_latest(&self, conversation: String) -> Result<(), FerbError> {
         guard(|| Ok(self.core()?.mark_read_latest(&conversation)?))
@@ -1034,6 +1116,72 @@ fn live_loop(
         };
         // wait in short steps, so a stop is heard at once
         let mut left = wait;
+        while left > 0 && !stopped() {
+            let step = left.min(50);
+            std::thread::sleep(std::time::Duration::from_millis(step));
+            left -= step;
+        }
+    }
+}
+
+/// The camera's loop (`Mobile::watch_camera`): one answer at a time, at most every `CAMERA_EVERY_MS`, until stopped,
+/// the core closes, or the path or the lock refuses it.
+fn camera_loop(
+    core: std::sync::Weak<ferb_mobile::Mobile>,
+    sink: Arc<dyn CameraSink>,
+    stop: Arc<std::sync::atomic::AtomicBool>,
+) {
+    use std::sync::atomic::Ordering;
+    let stopped = || stop.load(Ordering::SeqCst);
+    let ended = |code: Option<String>, detail: Option<String>| {
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| sink.ended(code, detail)));
+    };
+    let mut have: Option<i64> = None;
+    loop {
+        if stopped() {
+            return ended(None, None);
+        }
+        let Some(c) = core.upgrade() else {
+            return ended(Some("closed".into()), None);
+        };
+        if c.is_locked() {
+            return ended(
+                Some("needs_unlock".into()),
+                Some("Unlock to see your Mac's camera.".into()),
+            );
+        }
+        let answer = c.mac_camera(have);
+        drop(c);
+        let wait = match answer {
+            Ok(f) => {
+                if f.jpeg.is_some() {
+                    have = f.seq;
+                }
+                if stopped() {
+                    return ended(None, None);
+                }
+                let frame: CameraFrame = f.conv();
+                let _ =
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| sink.frame(frame)));
+                CAMERA_EVERY_MS
+            }
+            Err(e) => {
+                let e = FerbError::from(e);
+                match e {
+                    FerbError::NeedsBetterPath { .. }
+                    | FerbError::NeedsUnlock { .. }
+                    | FerbError::Closed { .. } => {
+                        return ended(Some(e.code().to_string()), Some(e.detail().to_string()));
+                    }
+                    FerbError::Refused { .. } if e.link_code() != Some("preview_too_soon") => {
+                        return ended(Some(e.code().to_string()), Some(e.detail().to_string()));
+                    }
+                    _ => PREVIEW_RETRY_MS,
+                }
+            }
+        };
+        // wait in short steps, so a stop is heard at once
+        let mut left = wait.max(PREVIEW_LEAST_MS);
         while left > 0 && !stopped() {
             let step = left.min(50);
             std::thread::sleep(std::time::Duration::from_millis(step));

@@ -115,6 +115,16 @@ pub const METHODS: &[Method] = &[
     m("identity.choose", &[Role::Cli], true),
     m("identity.find", &[Role::Cli], true),
     m("identity.pair", &[Role::Cli], true),
+    // T-1274 (APP-980..APP-985): insomnia mode: its state, start and end, the owner's Lock my Mac and It's fine, the
+    // camera for Show me, and FERB.app's reports from its cover (INSOMNIA_ADDITIONS, FERB.app's own; a phone by class)
+    m("insomnia.camera", &[Role::Cli], true),
+    m("insomnia.camera_frame", &[Role::Cli], true),
+    m("insomnia.dismiss", &[Role::Cli], true),
+    m("insomnia.end", &[Role::Cli], true),
+    m("insomnia.lock", &[Role::Cli], true),
+    m("insomnia.report", &[Role::Cli], true),
+    m("insomnia.start", &[Role::Cli], true),
+    m("insomnia.status", &[Role::Cli], true),
     m("intro.preview", &[Role::Cli], true),
     m("intro.suggest", &[Role::Cli], true),
     m("jev.enable", &[Role::Cli], false),
@@ -319,6 +329,21 @@ pub const PHONE_ADDITIONS: [&str; 6] = [
 /// force and its end. FERB.app's own (`app_only`); from a phone by their classes (plain, allowed while locked: ending it
 /// only takes something away).
 pub const SCREEN_USE_ADDITIONS: [&str; 2] = ["screen_use.end", "screen_use.status"];
+
+/// T-1274 (APP-980..APP-985): insomnia mode. FERB.app's own (`app_only`); from a phone by their classes: the state
+/// (private), the start (sensitive: signed with the fingerprint, as a setting), the end, Lock my Mac and It's fine
+/// (plain, allowed while locked: each only takes something away), the camera (private, never on the shared relay);
+/// never the cover's reports or the camera's frames, which are FERB.app's alone.
+pub const INSOMNIA_ADDITIONS: [&str; 8] = [
+    "insomnia.camera",
+    "insomnia.camera_frame",
+    "insomnia.dismiss",
+    "insomnia.end",
+    "insomnia.lock",
+    "insomnia.report",
+    "insomnia.start",
+    "insomnia.status",
+];
 
 /// Stage 3 (T-1202): a phone session's own calls: a challenge, the unlock and lock, the device key's proof, keys
 /// registered late, the session's end. No local role may call them; on a phone session the phone gate answers each,

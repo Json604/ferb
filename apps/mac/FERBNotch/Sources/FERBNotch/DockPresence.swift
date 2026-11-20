@@ -13,10 +13,19 @@ final class DockPresence {
     /// The policy to set now, or nil to leave it. FERB joins the Dock only while it isn't the active app (APP-796): the
     /// Dock takes joining as the launch of the front app "with no windows" and switched the owner to another Space
     /// (owner's logs, 2026-11-07/08). A join wanted while FERB is active waits until it resigns active.
-    static func change(wants: Bool, current: NSApplication.ActivationPolicy, active: Bool) -> NSApplication.ActivationPolicy? {
+    ///
+    /// `cover`: insomnia mode's cover is up (APP-980). The cover is a regular-policy app's panels or a full-screen app's
+    /// Space hides it and Cmd-Tab passes (x1 experiment, measured): FERB is regular for as long as it is up, active or
+    /// not (its kiosk options hide the Dock), and goes back by this rule when it drops.
+    static func change(wants: Bool, current: NSApplication.ActivationPolicy, active: Bool,
+                       cover: Bool = false) -> NSApplication.ActivationPolicy? {
+        if cover { return current == .regular ? nil : .regular }
         if wants { return current == .regular || active ? nil : .regular }
         return current == .accessory ? nil : .accessory
     }
+
+    /// Insomnia mode's cover is up (InsomniaCover sets it and calls `settle`).
+    static var coverUp = false
 
     struct DockWindow: Equatable {
         let isPanel: Bool, isTitled: Bool, isVisible: Bool, isMiniaturized: Bool
@@ -47,11 +56,14 @@ final class DockPresence {
 
     /// After the current event, so a closing window has already left the screen when it is counted.
     func update() {
-        DispatchQueue.main.async {
-            if let policy = Self.change(wants: Self.wantsDock(NSApp.windows.map(DockWindow.init)),
-                                        current: NSApp.activationPolicy(), active: NSApp.isActive) {
-                NSApp.setActivationPolicy(policy)
-            }
+        DispatchQueue.main.async { Self.settle() }
+    }
+
+    /// The policy as the windows (and the cover) want it, now.
+    static func settle() {
+        if let policy = change(wants: wantsDock(NSApp.windows.map(DockWindow.init)), current: NSApp.activationPolicy(),
+                               active: NSApp.isActive, cover: coverUp) {
+            NSApp.setActivationPolicy(policy)
         }
     }
 }

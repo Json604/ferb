@@ -129,4 +129,9 @@ impl ferb_gateway::screen_use::AtTheMac for OwnerAtMac {
     fn away(&self) -> bool {
         self.0.owner().is_some_and(|o| o.presence.away())
     }
+
+    // decision: HAND-645
+    fn screen_locked(&self) -> bool {
+        self.0.owner().is_some() && ferb_platform_macos::power::screen_locked() == Some(true)
+    }
 }

@@ -140,3 +140,41 @@ class AnswerReceiver : BroadcastReceiver() {
         const val UNTIL_BACK = -2
     }
 }
+
+/**
+ * Lock my Mac and It's fine from the insomnia notice (APP-983): sent at once, never queued, with no prompt (both are
+ * plain calls the Mac takes while the phone is locked: they only take something away or say he saw it). Show me opens
+ * the app instead (its unlock, then the camera view). What stopped one is said in the notification (PHN-302).
+ */
+class InsomniaReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        val id = intent.getStringExtra(NOTICE) ?: return
+        val action = intent.action ?: return
+        if (action != LOCK && action != FINE) return
+        val app = context.applicationContext as FerbApplication
+        val pending = goAsync()
+        app.scope.launch {
+            try {
+                // a process started for this answer opens the phone first (bounded: a receiver has seconds)
+                withTimeoutOrNull(8_000) {
+                    app.phone.state.first { it is PhoneState.Open }
+                    app.phone.link.first { it?.phase == LinkPhase.ONLINE }
+                }
+                val r = if (action == LOCK) app.api.lockMac() else app.api.dismissInsomniaNotice(id)
+                when (r) {
+                    is Outcome.Ok -> app.notifier.insomniaAnswered(id, null)
+                    is Outcome.Failed -> app.notifier.insomniaAnswered(id,
+                        FerbViewModel.errorNote(r.error).let { n -> context.getString(n.res, n.words.orEmpty()) })
+                }
+            } finally {
+                pending.finish()
+            }
+        }
+    }
+
+    companion object {
+        const val LOCK = "com.ferb.app.INSOMNIA_LOCK"
+        const val FINE = "com.ferb.app.INSOMNIA_FINE"
+        const val NOTICE = "notice_id"
+    }
+}

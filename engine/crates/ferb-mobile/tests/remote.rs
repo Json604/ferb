@@ -689,3 +689,140 @@ fn uploads_say_where_they_landed_and_the_mac_names_its_upload_folder() {
     assert!(folder.is_default && folder.path.ends_with("FERB from phone"));
     assert_eq!(m.cached_mac_info().unwrap(), Some(info));
 }
+
+/// Insomnia mode from the phone (APP-980): the start is the sensitive class, signed over exactly
+/// `{challenge, method, params}` like a setting; a second start says it was on already; the end, Lock my Mac and
+/// It's fine go with no proof and work while the phone is locked (APP-983). Every answer is kept in the last status
+/// and told as a status change.
+// decision: APP-980
+// decision: APP-983
+// decision: APP-984
+// decision: PHN-112
+#[test]
+fn insomnia_starts_signed_and_ends_locks_and_dismisses_with_no_proof() {
+    let mac = FakeMac::new("C1");
+    let phone = Phone::new();
+    let m = connected(&phone, &mac, "direct");
+    m.status().unwrap();
+    // an older Mac's status says nothing of it
+    assert_eq!(m.last_status().unwrap().unwrap().insomnia, None);
+    assert!(!m.insomnia_status().unwrap().on);
+    // a way the Mac doesn't know is refused before anything is asked
+    let signer = Arc::new(Recorded::default());
+    let before = mac.lock().calls.len();
+    assert_eq!(
+        m.start_insomnia("asleep", true, signer.clone())
+            .unwrap_err()
+            .code,
+        ErrorCode::Refused
+    );
+    assert_eq!(mac.lock().calls.len(), before);
+    phone.heard.0.lock().unwrap().clear();
+    let started = m.start_insomnia("shield", true, signer.clone()).unwrap();
+    assert!(!started.already && started.insomnia.on && started.insomnia.screen_yes);
+    assert_eq!(started.insomnia.variant.as_deref(), Some("shield"));
+    let signed: Value = serde_json::from_str(&signer.0.lock().unwrap()[0]).unwrap();
+    assert_eq!(
+        signed,
+        json!({"challenge": "C-1", "method": "insomnia.start",
+               "params": {"variant": "shield", "screen_yes": true}})
+    );
+    let call = mac.lock().calls.last().cloned().unwrap();
+    assert_eq!(call.0, "insomnia.start");
+    let proof: Value = serde_json::from_str(call.2.as_deref().unwrap()).unwrap();
+    assert_eq!(proof["sig"], "SIG");
+    assert!(phone.heard.0.lock().unwrap().contains(&Change::Status));
+    assert!(m.last_status().unwrap().unwrap().insomnia.unwrap().on);
+    assert!(
+        m.start_insomnia("locked", false, signer).unwrap().already,
+        "on already: nothing changes"
+    );
+    // a person touched the Mac: the notice, answered with the phone locked
+    mac.lock().insomnia["notice"] = json!({"id": "n-1", "kind": "touched", "at": "x", "app": null, "count": 1,
+                                            "text": "Someone is using your Mac's keyboard or trackpad."});
+    assert!(m.lock().unwrap());
+    assert_eq!(m.insomnia_status().unwrap().notice.unwrap().id, "n-1");
+    let e = m.dismiss_insomnia_notice("n-old").unwrap_err();
+    assert_eq!(e.link_code.as_deref(), Some("not_found"));
+    let after = m.dismiss_insomnia_notice("n-1").unwrap();
+    assert!(after.notice.is_none() && after.on);
+    assert!(m
+        .last_status()
+        .unwrap()
+        .unwrap()
+        .insomnia
+        .unwrap()
+        .notice
+        .is_none());
+    let locked = m.lock_mac().unwrap();
+    assert!(locked.locked && locked.insomnia.unwrap().mac_locked);
+    assert_eq!(locked.text, "Your Mac is locked.");
+    let ended = m.end_insomnia().unwrap();
+    assert!(ended.ended && !ended.insomnia.on);
+    assert_eq!(ended.by.as_deref(), Some("EP-phone"));
+    assert_eq!(ended.insomnia.last_end.unwrap().why, "turned_off");
+    assert!(!m.end_insomnia().unwrap().ended, "nothing left to end");
+    // only the start carried a proof
+    for c in mac
+        .lock()
+        .calls
+        .iter()
+        .filter(|c| c.0.starts_with("insomnia.") && c.0 != "insomnia.start")
+    {
+        assert!(c.2.is_none(), "{} went with no proof", c.0);
+    }
+    assert_eq!(
+        mac.calls_of("insomnia.dismiss")[1],
+        json!({"notice_id": "n-1"})
+    );
+    assert_eq!(mac.calls_of("insomnia.end")[0], json!({}));
+}
+
+/// Show me (APP-983): the Mac's camera as `link.get what: camera`, frames in memory only (never stored, never in a
+/// listener's change), `have` sent; on the public relay it is refused before anything is asked, like the preview.
+// decision: APP-983
+// decision: PHN-444
+// decision: PHN-454
+#[test]
+fn the_mac_s_camera_comes_in_memory_and_never_over_the_public_relay() {
+    let mac = FakeMac::new("C1");
+    mac.lock().camera.push_back((
+        json!({"seq": 3, "state": "live", "text": null}),
+        b"\xff\xd8CAMJPEG".to_vec(),
+    ));
+    mac.lock()
+        .camera
+        .push_back((json!({"seq": 3, "state": "live"}), Vec::new()));
+    let phone = Phone::new();
+    let m = connected(&phone, &mac, "direct");
+    phone.heard.0.lock().unwrap().clear();
+    let a = m.mac_camera(None).unwrap();
+    assert_eq!(a.jpeg.as_deref(), Some(&b"\xff\xd8CAMJPEG"[..]));
+    assert_eq!((a.seq, a.state.as_str()), (Some(3), "live"));
+    let b = m.mac_camera(a.seq).unwrap();
+    assert!(b.jpeg.is_none());
+    // nothing waiting: the Mac's starting words
+    let c = m.mac_camera(b.seq).unwrap();
+    assert_eq!(c.state, "starting");
+    assert_eq!(c.text.as_deref(), Some("Starting your Mac's camera…"));
+    let gets = mac.lock().transfers.clone();
+    assert_eq!(gets[0].1, json!({"what": "camera"}));
+    assert_eq!(gets[1].1, json!({"what": "camera", "have": 3}));
+    assert!(
+        phone.heard.0.lock().unwrap().is_empty(),
+        "no change carries a frame"
+    );
+    let db = std::fs::read(phone.path()).unwrap();
+    assert!(!db.windows(7).any(|w| w == b"CAMJPEG"));
+
+    let mac = FakeMac::new("C1");
+    let phone = Phone::new();
+    let m = connected(&phone, &mac, "shared_relay");
+    let e = m.mac_camera(None).unwrap_err();
+    assert_eq!(e.code, ErrorCode::NeedsBetterPath);
+    assert_eq!(
+        e.message,
+        "Your Mac's camera is available when connected directly or through your relay."
+    );
+    assert!(mac.lock().transfers.is_empty(), "nothing was asked");
+}

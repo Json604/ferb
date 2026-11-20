@@ -162,6 +162,49 @@ class FakePhone : PhoneApi {
         screenUse = screenUse.copy(active = false, since = null, phone = null, phoneName = null)
         return Outcome.Ok(com.ferb.mobile.ScreenUseEnd(was, "phone-1", screenUse))
     }
+    /** Insomnia mode (APP-980..985): what the Mac says, what each call gets, the camera's sink and its stops. */
+    var insomnia = com.ferb.mobile.Insomnia(false, null, null, null, false, null, 0u, null, false, false,
+        com.ferb.mobile.InsomniaCamera(false, "unknown"), com.ferb.mobile.InsomniaPower(null, null, null, null),
+        emptyList(), null, "", false, null)
+    var insomniaRefusal: Outcome.Failed? = null
+    var camera: com.ferb.mobile.CameraSink? = null
+    var cameraStopped = 0
+    var cameraRefusal: Outcome.Failed? = null
+    private fun withInsomnia(i: com.ferb.mobile.Insomnia) { insomnia = i; status = status?.copy(insomnia = i) }
+    override suspend fun insomniaStatus(): Outcome<com.ferb.mobile.Insomnia> { calls += "insomnia"; return Outcome.Ok(insomnia) }
+    override suspend fun startInsomnia(variant: String, screenYes: Boolean, signer: Signer): Outcome<com.ferb.mobile.InsomniaStarted> {
+        calls += "insomnia-start:$variant:$screenYes"
+        val sig = signer.sign("insomnia.start") ?: return Outcome.Failed(FerbException.NotSigned("Nothing was sent.", null))
+        signed += sig
+        insomniaRefusal?.let { insomniaRefusal = null; return it }
+        val already = insomnia.on
+        if (!already) withInsomnia(insomnia.copy(on = true, variant = variant, screenYes = screenYes, by = "phone-1",
+            line = "Keeping your Mac working · 1 task running · battery 64%"))
+        return Outcome.Ok(com.ferb.mobile.InsomniaStarted(already, insomnia))
+    }
+    override suspend fun endInsomnia(): Outcome<com.ferb.mobile.InsomniaEnded> {
+        calls += "insomnia-end"
+        val was = insomnia.on
+        withInsomnia(insomnia.copy(on = false, variant = null, notice = null, warnings = emptyList(), line = ""))
+        return Outcome.Ok(com.ferb.mobile.InsomniaEnded(was, "phone-1", insomnia))
+    }
+    override suspend fun lockMac(): Outcome<com.ferb.mobile.MacLocked> {
+        calls += "lock-mac"
+        insomniaRefusal?.let { insomniaRefusal = null; return it }
+        withInsomnia(insomnia.copy(macLocked = true, notice = null))
+        return Outcome.Ok(com.ferb.mobile.MacLocked(true, "Your Mac is locked.", insomnia))
+    }
+    override suspend fun dismissInsomniaNotice(noticeId: String): Outcome<com.ferb.mobile.Insomnia> {
+        calls += "insomnia-fine:$noticeId"
+        withInsomnia(insomnia.copy(notice = null))
+        return Outcome.Ok(insomnia)
+    }
+    override suspend fun watchCamera(sink: com.ferb.mobile.CameraSink): Outcome<Live> {
+        calls += "camera"
+        cameraRefusal?.let { return it }
+        camera = sink
+        return Outcome.Ok(Live { cameraStopped++ })
+    }
     override suspend fun status(): Outcome<PhoneStatus> { calls += "status"; return status?.let { Outcome.Ok(it) } ?: Outcome.Failed(FerbException.Offline("no", null)) }
     override suspend fun lastStatus(): PhoneStatus? = status
     override suspend fun markReadLatest(conversation: String): Outcome<Unit> { calls += "mark:$conversation"; return Outcome.Ok(Unit) }

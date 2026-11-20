@@ -1154,6 +1154,58 @@ impl Inner {
     }
 }
 
+/// ORCH-679: how the owner answered "Keep trying, or go on with what I have?".
+#[derive(Debug)]
+pub enum KeepOrGoOn {
+    /// "Keep trying", their own words in its box, or a reply in chat: what the next attempt is told.
+    Keep(String),
+    /// "Go on with what I have".
+    GoOn,
+    /// The task was stopped while it waited.
+    Stopped,
+    /// Nobody answered (an unattended run, or dismissed): the step waits on the owner, as any question does.
+    Unanswered,
+}
+
+impl KeepOrGoOn {
+    pub fn name(&self) -> &'static str {
+        match self {
+            KeepOrGoOn::Keep(_) => "keep_trying",
+            KeepOrGoOn::GoOn => "go_on",
+            KeepOrGoOn::Stopped => "stopped",
+            KeepOrGoOn::Unanswered => "unanswered",
+        }
+    }
+}
+
+impl Inner {
+    /// ORCH-679: the step pauses in place and asks the owner the rule's question with its two choices (a question
+    /// holding the check's sentences, so tagged as the task's). Only the choice is read, never words (ORCH-680): words
+    /// in its box or a reply in chat go to the next attempt as their answer, as any answer does.
+    pub async fn keep_or_go_on(&self, tree: &Arc<Tree>, task: &Task, question: &str) -> KeepOrGoOn {
+        use ferb_orchestrator::rabbit_holes::{GO_ON, KEEP_TRYING};
+        let made = self.task_made(&tree.id);
+        let wait = Wait::new(&tree.id, question, &[KEEP_TRYING, GO_ON], &made, TASK_ASK);
+        wait.lock()
+            .extra
+            .insert("question_kind".into(), json!("keep_or_go_on"));
+        let wait = Arc::new(wait);
+        let reply = self
+            .wait_for_owner(tree, task, &wait, &tree.step_id, true, true)
+            .await;
+        if reply.kind == "stopped" || !tree.lock().stop.is_empty() {
+            return KeepOrGoOn::Stopped;
+        }
+        if reply.kind == "answer" && reply.choice.as_deref() == Some(GO_ON) {
+            return KeepOrGoOn::GoOn;
+        }
+        if reply.kind == "answer" || reply.kind == "steer" {
+            return KeepOrGoOn::Keep(owner_continuation(&reply));
+        }
+        KeepOrGoOn::Unanswered
+    }
+}
+
 /// supervisor.py:6781 `_owner_continuation`: what the next attempt is told after the owner answered or replied.
 pub fn owner_continuation(reply: &OwnerReply) -> String {
     if reply.kind == "answer" && !reply.question.is_empty() {

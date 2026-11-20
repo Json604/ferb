@@ -672,7 +672,20 @@ struct MacView: View {
                 onLink: { if online, l?.path == .publicRelay { model.show(.relay) } },
                 onOwnRelay: { model.show(.ownRelay) }, onSettings: { model.openSettings() },
                 onStopAll: { model.show(.stopAll) },
-                notice: model.ui.status?.screenUse?.active == true ? AnyView(ScreenUseCard(model: model)) : nil)
+                notice: macNotices)
+    }
+}
+
+extension MacView {
+    /// The cards above the Mac tab's rows: "until I'm back" (PHN-611) and "Keep my Mac working" (APP-980).
+    var macNotices: AnyView? {
+        let screenUse = model.ui.status?.screenUse?.active == true
+        let insomnia = model.ui.status?.insomnia
+        if !screenUse && insomnia == nil { return nil }
+        return AnyView(VStack(spacing: 0) {
+            if screenUse { ScreenUseCard(model: model) }
+            if let insomnia { InsomniaCard(model: model, i: insomnia) }
+        })
     }
 }
 

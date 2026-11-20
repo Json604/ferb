@@ -70,6 +70,29 @@ pub trait Events: Send + Sync {
     fn post(&self, event: &Event, route: &Route) -> Result<()>;
 }
 
+/// HAND-645: the stable reason input to the system-wide stream is refused while the screen is locked.
+pub const LOCKED_INPUT: &str = "Your Mac's screen is locked, so FERB can't use its keyboard and pointer now (input there \
+would reach no app, or the lock screen). Input sent to one app or through Accessibility still works; or ask the owner \
+to do this when he's back.";
+
+/// HAND-645 (owner, 2026-11-20): while the screen is locked, nothing FERB posts reaches the system-wide (HID) stream: a
+/// locked Mac's system-wide input reaches no app, or its password field. Input posted to one app's process (and a
+/// window through it) is not this guard's. A where/what boundary in code (rule 3), around every post.
+pub struct LockGuard {
+    pub events: Arc<dyn Events>,
+    /// The screen is locked now (`CGSSessionScreenIsLocked`).
+    pub locked: Arc<dyn Fn() -> bool + Send + Sync>,
+}
+
+impl Events for LockGuard {
+    fn post(&self, event: &Event, route: &Route) -> Result<()> {
+        if matches!(route, Route::Hid) && (self.locked)() {
+            return Err(HandError::Refused(LOCKED_INPUT.into()));
+        }
+        self.events.post(event, route)
+    }
+}
+
 /// How gestures become steps: the real ones post `keys`' events; a test's record what would have gone.
 pub trait Gestures: Send + Sync {
     fn click_steps(&self, x: f64, y: f64, pid: Option<i32>) -> Vec<Step>;

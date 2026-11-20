@@ -115,6 +115,7 @@ fn entry_json(e: &protection::Entry) -> Value {
 }
 
 // decision: GATE-1, GATE-200, GATE-203, GATE-224, GATE-505
+// decision: APP-986
 #[test]
 fn protection_matches_python() {
     let fx = fixture("protection.json");
@@ -204,6 +205,46 @@ fn protection_matches_python() {
             "guarded_parents": p.guarded_parents().into_iter().filter(|g| !r.above(g)).collect::<Vec<_>>(),
             "rules": p.rules(), "liftable": liftable, "forms_now": forms_now,
             "workspace_problem": protection::workspace_problem(ferb.to_str().unwrap(), &files)});
+        // the one named difference (APP-986): FERB.app's root helper's definition is one of FERB's service definitions,
+        // after Python's; with it taken out, the rest is Python's
+        let mut got = got;
+        let helper = protection::BUNDLE_HELPER_SERVICE;
+        let mut named_helper = false;
+        if let Some(files) = got["service_files"].as_array_mut() {
+            let before = files.len();
+            files.retain(|f| !f.as_str().is_some_and(|f| f.ends_with(helper)));
+            named_helper = files.len() < before;
+        }
+        // (its folder is one more guarded parent, as LaunchAgents is for the agent's definition)
+        if let Some(parents) = got["guarded_parents"].as_array_mut() {
+            parents.retain(|g| {
+                !g.as_str()
+                    .is_some_and(|g| g.ends_with("Contents/Library/LaunchDaemons"))
+            });
+        }
+        if let Some(rules) = got["rules"].as_array_mut() {
+            for r in rules.iter_mut() {
+                if r["id"] == protection::FERB_SERVICE {
+                    let text = r["path"].as_str().unwrap_or("").to_string();
+                    let cut = text
+                        .split(", ")
+                        .filter(|part| !part.trim_end_matches(')').ends_with(helper))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let cut = if cut.ends_with(')') || !text.ends_with(')') {
+                        cut
+                    } else {
+                        format!("{cut})")
+                    };
+                    r["path"] = json!(cut);
+                }
+            }
+        }
+        assert_eq!(
+            named_helper,
+            tree["app"].as_str().is_some(),
+            "the helper's definition is protected exactly when FERB.app is"
+        );
         d.check(&format!("{layout}: state"), &json!(layout), want, &got);
     }
     let r = Root::new();

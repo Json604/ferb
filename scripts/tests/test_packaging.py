@@ -193,6 +193,10 @@ class Signing(TempCase):
         self.assertIn("com.apple.security.cs.disable-library-validation", agent)   # ad-hoc code has no Team ID
         self.assertIn("com.apple.security.device.audio-input", ent(self.tmp, app))
         self.assertIn("com.apple.security.personal-information.location", ent(self.tmp, app))   # SENSE-420
+        self.assertIn("com.apple.security.device.camera", ent(self.tmp, app))                    # APP-983: Show me
+        self.assertNotIn("com.apple.security.device.camera", agent)                             # the daemon holds none
+        self.assertTrue(any("|--identifier|com.ferb.power|" in c and c.endswith("/Helpers/ferb-power")
+                            for c in calls))                                                     # APP-986
         self.assertNotIn("com.apple.security.personal-information.location", agent)          # the daemon holds none
         self.assertIn("com.apple.security.cs.disable-library-validation", ent(self.tmp, app))
         self.assertFalse(any(s.endswith("/Helpers/FERB.app/Contents/MacOS/FERB") for s in signed))  # with its app

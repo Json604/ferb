@@ -774,6 +774,140 @@ mirror! {
         results: Vec<StatusResult>,
         /// FERB using the screen "until I'm back" (none from a Mac that doesn't say).
         screen_use: Option<ScreenUse>,
+        /// Insomnia mode (APP-980..APP-985); none from a Mac that doesn't say (an older FERB).
+        #[uniffi(default = None)]
+        insomnia: Option<Insomnia>,
+    }
+}
+
+// ---- insomnia mode (APP-980..APP-985) ----------------------------------------------------------------------------
+
+mirror! {
+    /// The Mac's power in insomnia mode (APP-981); any part may be unknown. `thermal`: nominal, fair, serious, critical.
+    InsomniaPower from ferb_mobile::status::InsomniaPower {
+        battery: Option<u32>,
+        on_battery: Option<bool>,
+        lid_closed: Option<bool>,
+        thermal: Option<String>,
+    }
+}
+
+mirror! {
+    /// The camera in insomnia mode: on only while a phone pulls frames; `state` allowed, denied, not_asked, unknown.
+    InsomniaCamera from ferb_mobile::status::InsomniaCamera {
+        on: bool,
+        state: String,
+    }
+}
+
+mirror! {
+    /// A warning while the mode is on (APP-981): `kind` battery_low, battery_urgent, hot, shield_down; `text` the Mac's.
+    /// A notification of its own until it is gone from the status.
+    InsomniaWarning from ferb_mobile::status::InsomniaWarning {
+        id: String,
+        kind: String,
+        text: String,
+        at: Option<String>,
+    }
+}
+
+mirror! {
+    /// Someone at the Mac (APP-983): `kind` touched or activation (`app` names it); `count` times in this episode.
+    /// Answered by Show me (`watch_camera`), Lock my Mac (`lock_mac`) or It's fine (`dismiss_insomnia_notice`).
+    InsomniaNotice from ferb_mobile::status::InsomniaNotice {
+        id: String,
+        kind: String,
+        at: Option<String>,
+        text: String,
+        app: Option<String>,
+        count: u32,
+    }
+}
+
+mirror! {
+    /// How the mode last ended (kept by the Mac 10 minutes): said once, quietly.
+    InsomniaLastEnd from ferb_mobile::status::InsomniaLastEnd {
+        id: String,
+        why: String,
+        text: String,
+        at: Option<String>,
+    }
+}
+
+mirror! {
+    /// Insomnia mode: FERB keeps the Mac working while the owner is away (APP-980). `line` is the Mac's own status line
+    /// (empty while off); `notice` someone at the Mac; `warnings` battery, heat, the cover; `last_end` how it ended.
+    Insomnia from ferb_mobile::status::Insomnia {
+        on: bool,
+        variant: Option<String>,
+        since: Option<String>,
+        by: Option<String>,
+        screen_yes: bool,
+        grace_minutes: Option<u32>,
+        working: u32,
+        ends_at: Option<String>,
+        shield_up: bool,
+        mac_locked: bool,
+        camera: InsomniaCamera,
+        power: InsomniaPower,
+        warnings: Vec<InsomniaWarning>,
+        notice: Option<InsomniaNotice>,
+        line: String,
+        task_awake: bool,
+        last_end: Option<InsomniaLastEnd>,
+    }
+}
+
+mirror! {
+    /// What `Mobile.start_insomnia` did: `already` (it was on: nothing changed) and the mode as it stands.
+    InsomniaStarted from ferb_mobile::remote::InsomniaStarted {
+        already: bool,
+        insomnia: Insomnia,
+    }
+}
+
+mirror! {
+    /// What `Mobile.end_insomnia` did: `ended` (it was on), `by` (who ended it), and the mode after it.
+    InsomniaEnded from ferb_mobile::remote::InsomniaEnded {
+        ended: bool,
+        by: Option<String>,
+        insomnia: Insomnia,
+    }
+}
+
+mirror! {
+    /// What Lock my Mac did (`Mobile.lock_mac`): `locked`, the Mac's words, and the mode after it when the Mac gave it.
+    MacLocked from ferb_mobile::remote::MacLocked {
+        locked: bool,
+        text: String,
+        insomnia: Option<Insomnia>,
+    }
+}
+
+/// One answer of the Mac's camera in insomnia mode (APP-983): the frame (JPEG, in memory only) when the Mac sent a
+/// new one, its number, the state (starting, live, off, denied, failed) and the Mac's words for it.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct CameraFrame {
+    pub jpeg: Option<Vec<u8>>,
+    pub seq: Option<i64>,
+    pub state: String,
+    pub text: Option<String>,
+}
+
+impl Conv<CameraFrame> for ferb_mobile::remote::CameraFrame {
+    fn conv(self) -> CameraFrame {
+        let ferb_mobile::remote::CameraFrame {
+            jpeg,
+            seq,
+            state,
+            text,
+        } = self;
+        CameraFrame {
+            jpeg,
+            seq,
+            state,
+            text,
+        }
     }
 }
 

@@ -146,6 +146,71 @@ final class FakePhone: PhoneApi {
         screenUseNow = ScreenUse(active: false, since: nil, phone: nil, phoneName: nil, canOffer: screenUseNow.canOffer)
         return .ok(ScreenUseEnd(ended: was, by: "phone-1", screenUse: screenUseNow))
     }
+    /// Insomnia mode (APP-980..985): what the Mac says, what each call gets, the camera's sink and its stops.
+    var insomnia = Insomnia(on: false, variant: nil, since: nil, by: nil, screenYes: false, graceMinutes: nil, working: 0, endsAt: nil,
+                            shieldUp: false, macLocked: false, camera: InsomniaCamera(on: false, state: "unknown"),
+                            power: InsomniaPower(battery: nil, onBattery: nil, lidClosed: nil, thermal: nil), warnings: [], notice: nil,
+                            line: "", taskAwake: false, lastEnd: nil)
+    @ObservationIgnored var insomniaRefusal: FerbError?
+    @ObservationIgnored var camera: CameraSink?
+    @ObservationIgnored var cameraStopped = 0
+    @ObservationIgnored var cameraRefusal: FerbError?
+    private func withInsomnia(_ i: Insomnia) {
+        insomnia = i
+        status?.insomnia = i
+    }
+    func insomniaStatus() async -> Outcome<Insomnia> { calls.append("insomnia"); return .ok(insomnia) }
+    func startInsomnia(variant: String, screenYes: Bool, signer: Signer) async -> Outcome<InsomniaStarted> {
+        calls.append("insomnia-start:\(variant):\(screenYes)")
+        guard let sig = signer.sign(payload: "insomnia.start") else { return .failed(.NotSigned(detail: "Nothing was sent.", linkCode: nil)) }
+        signed.append(sig)
+        if let e = insomniaRefusal { insomniaRefusal = nil; return .failed(e) }
+        let already = insomnia.on
+        if !already {
+            var i = insomnia
+            i.on = true
+            i.variant = variant
+            i.screenYes = screenYes
+            i.by = "phone-1"
+            i.line = "Keeping your Mac working · 1 task running · battery 64%"
+            withInsomnia(i)
+        }
+        return .ok(InsomniaStarted(already: already, insomnia: insomnia))
+    }
+    func endInsomnia() async -> Outcome<InsomniaEnded> {
+        calls.append("insomnia-end")
+        let was = insomnia.on
+        var i = insomnia
+        i.on = false
+        i.variant = nil
+        i.notice = nil
+        i.warnings = []
+        i.line = ""
+        withInsomnia(i)
+        return .ok(InsomniaEnded(ended: was, by: "phone-1", insomnia: insomnia))
+    }
+    func lockMac() async -> Outcome<MacLocked> {
+        calls.append("lock-mac")
+        if let e = insomniaRefusal { insomniaRefusal = nil; return .failed(e) }
+        var i = insomnia
+        i.macLocked = true
+        i.notice = nil
+        withInsomnia(i)
+        return .ok(MacLocked(locked: true, text: "Your Mac is locked.", insomnia: insomnia))
+    }
+    func dismissInsomniaNotice(_ noticeId: String) async -> Outcome<Insomnia> {
+        calls.append("insomnia-fine:\(noticeId)")
+        var i = insomnia
+        i.notice = nil
+        withInsomnia(i)
+        return .ok(insomnia)
+    }
+    func watchCamera(sink: CameraSink) async -> Outcome<Live> {
+        calls.append("camera")
+        if let e = cameraRefusal { return .failed(e) }
+        camera = sink
+        return .ok(Live { [weak self] in Task { @MainActor in self?.cameraStopped += 1 } })
+    }
     func status() async -> Outcome<PhoneStatus> {
         calls.append("status")
         return status.map { .ok($0) } ?? .failed(.Offline(detail: "no", linkCode: nil))

@@ -1019,6 +1019,12 @@ impl PhoneGate for Gate {
                 }
                 // decision: GATE-615 — the phone shows "FERB may use your Mac's screen until you're back", with its end
                 out.insert("screen_use".into(), inner.questions().screen_use_status());
+                // decision: APP-983 — insomnia mode's state, warnings and "someone's at your Mac" notice ride the pushed
+                // status, so the phone notifies even while locked (its words are for the paired phone's own
+                // notifications, as a question's are)
+                if let Some(status) = inner.insomnia.get() {
+                    out.insert("insomnia".into(), Value::Object(status()));
+                }
             }
             if classes::phone_method(method).is_some_and(|r| r.on_mac_screen) {
                 self.prompt_opened(method, out);

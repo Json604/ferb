@@ -1,0 +1,323 @@
+package com.ferb.app
+
+import android.Manifest
+import android.app.Application
+import android.app.Notification
+import android.app.NotificationManager
+import android.content.Context
+import android.graphics.Bitmap
+import android.os.Looper
+import androidx.lifecycle.SavedStateHandle
+import androidx.test.core.app.ApplicationProvider
+import com.ferb.app.model.CameraWatch
+import com.ferb.app.model.LocalFiles
+import com.ferb.app.model.Why
+import com.ferb.core.KeyKind
+import com.ferb.core.Outcome
+import com.ferb.mobile.CameraFrame
+import com.ferb.mobile.Change
+import com.ferb.mobile.FerbException
+import com.ferb.mobile.Insomnia
+import com.ferb.mobile.InsomniaLastEnd
+import com.ferb.mobile.InsomniaNotice
+import com.ferb.mobile.InsomniaWarning
+import com.ferb.mobile.OlderState
+import com.ferb.mobile.PhoneStatus
+import com.ferb.mobile.TranscriptView
+import java.nio.file.Files
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.setMain
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
+import org.robolectric.annotation.Config
+
+/**
+ * Insomnia mode on the phone (APP-980..APP-984): the Mac tab's switch opens the warning and Keep it working is signed
+ * with the fingerprint; End, Lock my Mac and It's fine ask nothing; the notice and the warnings as notifications, each
+ * posted once and removed when the Mac's status no longer has them; how it ended said once; the camera view pulls only
+ * while it shows, always out of screenshots, and says the library's words on the shared relay.
+ */
+@OptIn(ExperimentalCoroutinesApi::class)
+@RunWith(RobolectricTestRunner::class)
+@Config(application = Application::class, sdk = [35])
+class InsomniaTest {
+    private val context: Context = ApplicationProvider.getApplicationContext()
+    private val phone = FakePhone()
+    private lateinit var session: Session
+    private val prefs = Prefs(context)
+    private val signers = ArrayList<Pair<FakeSigner, Why>>()
+    private var cancelPrompt = false
+    private val root = Files.createTempDirectory("ferb-insomnia").toFile()
+    private val nm = context.getSystemService(NotificationManager::class.java)
+    private val scopes = ArrayList<CoroutineScope>()
+
+    @Before
+    fun setUp() {
+        Dispatchers.setMain(UnconfinedTestDispatcher())
+        session = Session { 0L }
+        session.unlocked()
+        prefs.forgetPairing()
+        phone.view = TranscriptView("c1", emptyList(), emptyList(), emptyList(), emptyList(), OlderState.Complete)
+        phone.status = status(phone.insomnia)
+    }
+
+    @After
+    fun tearDown() {
+        scopes.forEach { it.cancel() }
+        Dispatchers.resetMain()
+        root.deleteRecursively()
+    }
+
+    private fun status(i: Insomnia?) = PhoneStatus(false, true, false, emptyList(), emptyList(), emptyList(), null, i)
+
+    private fun vm() = FerbViewModel(phone, session, prefs, { true }, null, SavedStateHandle(), LocalFiles(root) { null }).also {
+        it.prompts = object : Prompts {
+            override fun signer(kind: KeyKind, why: Why) = FakeSigner(kind, cancelPrompt).also { s -> signers += s to why }
+            override suspend fun local() = true
+        }
+    }
+
+    private fun idle() = shadowOf(Looper.getMainLooper()).idle()
+
+    private fun on(notice: InsomniaNotice? = null, warnings: List<InsomniaWarning> = emptyList()) =
+        phone.insomnia.copy(on = true, variant = "shield", line = "Keeping your Mac working · 2 tasks running · battery 64%",
+            notice = notice, warnings = warnings)
+
+    private val touched = InsomniaNotice("n-1", "touched", "2026-11-20T15:10:00+05:30", "Someone is using your Mac's keyboard or trackpad.", null, 1u)
+    private val battery = InsomniaWarning("w-1", "battery_low", "Your Mac's battery is at 18%.", null)
+
+    // ---- the switch, the warning and the signed start --------------------------------------------------------------
+
+    // decision: APP-980, APP-984, PHN-112, PHN-133, PHN-774
+    @Test
+    fun the_switch_opens_the_warning_and_keep_it_working_is_signed_with_the_fingerprint() {
+        val vm = vm()
+        assertNotNull("the Mac says it can: the row shows", vm.ui.value.status?.insomnia)
+        vm.askInsomnia()
+        assertEquals(Sheet.Insomnia, vm.sheet.value)
+        assertFalse("nothing is turned on before Keep it working", phone.calls.any { it.startsWith("insomnia-start") })
+        // the owner cancels the fingerprint: nothing is sent, the warning stays
+        cancelPrompt = true
+        vm.startInsomnia("shield", screenYes = true)
+        assertTrue(phone.signed.none { it.startsWith("sig-") })
+        assertEquals(Sheet.Insomnia, vm.sheet.value)
+        cancelPrompt = false
+        vm.startInsomnia("shield", screenYes = true)
+        assertTrue("insomnia-start:shield:true" in phone.calls)
+        assertEquals("the fingerprint-only key, for this change", KeyKind.STRONG to Why.INSOMNIA, signers.last().let { it.first.kind to it.second })
+        assertEquals(listOf("sig-STRONG"), phone.signed)
+        assertNull("the sheet goes once the Mac took it", vm.sheet.value)
+        assertTrue(vm.ui.value.status!!.insomnia!!.on)
+        // the locked way never carries the one Yes
+        phone.insomnia = phone.insomnia.copy(on = false)
+        vm.startInsomnia("locked", screenYes = false)
+        assertTrue("insomnia-start:locked:false" in phone.calls)
+    }
+
+    // decision: APP-980, APP-983
+    @Test
+    fun end_lock_my_mac_and_its_fine_ask_nothing() {
+        phone.insomnia = on(touched)
+        phone.status = status(phone.insomnia)
+        val vm = vm()
+        vm.insomniaFine("n-1")
+        assertTrue("insomnia-fine:n-1" in phone.calls)
+        assertNull(vm.ui.value.status!!.insomnia!!.notice)
+        vm.lockMac()
+        assertTrue("lock-mac" in phone.calls)
+        assertEquals(Note(R.string.err_mac_said, "Your Mac is locked."), vm.ui.value.note)
+        vm.endInsomnia()
+        assertTrue("insomnia-end" in phone.calls)
+        assertFalse(vm.ui.value.status!!.insomnia!!.on)
+        assertTrue("no prompt for any of them", signers.isEmpty())
+    }
+
+    /** How it ended (the Mac keeps it 10 minutes): said once in the app, never again. */
+    // decision: APP-980
+    @Test
+    fun how_it_ended_is_said_once_in_the_app() {
+        session.foreground(true)
+        val vm = vm()
+        val ended = phone.insomnia.copy(on = false, lastEnd = InsomniaLastEnd("e-1", "back", "Welcome back. FERB finished 2 tasks.", null))
+        phone.status = status(ended)
+        phone.changes.tryEmit(Change.Status)
+        idle()
+        assertEquals(Note(R.string.err_mac_said, "Welcome back. FERB finished 2 tasks."), vm.ui.value.note)
+        vm.note(null)
+        phone.changes.tryEmit(Change.Status)
+        idle()
+        assertNull("said once", vm.ui.value.note)
+    }
+
+    // ---- the notifications -------------------------------------------------------------------------------------------
+
+    private fun started(): Notifier = Notifier(context, phone, prefs, session).also { n -> MainScope().also { scopes += it; n.start(it) } }
+
+    private fun macSays(i: Insomnia?) {
+        phone.status = status(i)
+        phone.changes.tryEmit(Change.Status)
+        idle()
+    }
+
+    private val mine: List<Notification>
+        get() = nm.activeNotifications.filter { it.tag == Notifier.TAG_INSOMNIA }.map { it.notification }
+
+    private fun Notification.text() = extras.getCharSequence(Notification.EXTRA_TEXT).toString()
+    private fun Notification.title() = extras.getCharSequence(Notification.EXTRA_TITLE).toString()
+    private val Notification.quiet: Boolean get() = flags and Notification.FLAG_ONLY_ALERT_ONCE != 0 && group == Notifier.SILENT_GROUP
+
+    // decision: APP-983, APP-981, PHN-776
+    @Test
+    fun the_notice_is_posted_once_with_its_three_actions_and_goes_when_answered() {
+        shadowOf(context as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        session.foreground(false)
+        started()
+        macSays(on(touched))
+        val n = mine.single()
+        assertEquals(context.getString(R.string.n_insomnia_touched), n.title())
+        assertEquals(touched.text, n.text())
+        assertEquals(Notifier.CH_INSOMNIA, n.channelId)
+        assertFalse("a new notice alerts", n.quiet)
+        assertEquals(listOf("Show me", "Lock my Mac", "It's fine"), n.actions.map { it.title.toString() })
+        // Show me opens the app on the camera view; the other two are answered from the notification
+        assertTrue(shadowOf(n.actions[0].actionIntent).isActivityIntent)
+        assertTrue(shadowOf(n.actions[0].actionIntent).savedIntent.getBooleanExtra(MainActivity.EXTRA_CAMERA, false))
+        val lock = shadowOf(n.actions[1].actionIntent)
+        assertTrue(lock.isBroadcastIntent)
+        assertEquals(InsomniaReceiver.LOCK, lock.savedIntent.action)
+        assertEquals("n-1", lock.savedIntent.getStringExtra(InsomniaReceiver.NOTICE))
+        assertEquals(InsomniaReceiver.FINE, shadowOf(n.actions[2].actionIntent).savedIntent.action)
+        assertNull("no picture in a notification", n.getLargeIcon())
+        // the same status again: posted once
+        nm.cancelAll()
+        macSays(on(touched))
+        assertTrue("not posted again", mine.isEmpty())
+        macSays(on(touched.copy(count = 2u)))
+        assertTrue("a later touch updates it quietly", mine.single().quiet)
+        // answered (here or on the Mac): gone
+        macSays(on(null))
+        assertTrue(mine.isEmpty())
+        // an app FERB didn't open
+        macSays(on(InsomniaNotice("n-2", "activation", null, "Terminal opened on your Mac.", "Terminal", 1u)))
+        assertEquals(context.getString(R.string.n_insomnia_activation), mine.single().title())
+    }
+
+    /** Someone at his Mac is news wherever he is: the notice is posted with the app on screen too. */
+    // decision: APP-983
+    @Test
+    fun the_notice_is_posted_while_the_app_is_on_screen_too() {
+        shadowOf(context as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        session.foreground(true)
+        started()
+        macSays(on(touched))
+        assertEquals(1, mine.size)
+    }
+
+    // decision: APP-981
+    @Test
+    fun each_warning_is_posted_once_without_actions_and_goes_when_gone_or_the_mode_ends() {
+        shadowOf(context as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        session.foreground(false)
+        started()
+        val hot = InsomniaWarning("w-2", "hot", "Your Mac is hot.", null)
+        macSays(on(warnings = listOf(battery, hot)))
+        assertEquals(2, mine.size)
+        for (w in mine) {
+            assertEquals(context.getString(R.string.n_insomnia_warning), w.title())
+            assertTrue("no actions: a tap opens the app", w.actions.isNullOrEmpty())
+        }
+        assertEquals(setOf(battery.text, hot.text), mine.map { it.text() }.toSet())
+        nm.cancelAll()
+        macSays(on(warnings = listOf(battery, hot)))
+        assertTrue("posted once", mine.isEmpty())
+        macSays(on(touched, listOf(battery)))
+        macSays(on(warnings = listOf(battery)))
+        // the mode ends: what it posted goes, and how it ended is said once, quietly
+        val ended = phone.insomnia.copy(on = false, lastEnd = InsomniaLastEnd("e-9", "back", "Welcome back.", null))
+        macSays(ended)
+        assertTrue(mine.isEmpty())
+        val end = nm.activeNotifications.single { it.tag == Notifier.TAG_INSOMNIA_END }.notification
+        assertEquals("Welcome back.", end.text())
+        assertTrue(end.quiet)
+        nm.cancelAll()
+        macSays(ended)
+        assertTrue("said once", nm.activeNotifications.isEmpty())
+        // an older Mac (no insomnia) leaves nothing behind either
+        macSays(on(touched))
+        macSays(null)
+        assertTrue(mine.isEmpty())
+    }
+
+    // ---- the camera view ---------------------------------------------------------------------------------------------
+
+    // decision: APP-983, PHN-454, PHN-775
+    @Test
+    fun the_camera_pulls_only_while_its_view_shows_and_always_out_of_screenshots() {
+        session.foreground(true)
+        val vm = vm()
+        vm.showCamera()
+        assertEquals(Sheet.Camera, vm.sheet.value)
+        assertTrue(vm.mustSecure.value)
+        assertEquals(1, phone.calls.count { it == "camera" })
+        // it leaves: the pulling stops
+        vm.show(null)
+        assertEquals(1, phone.cameraStopped)
+        assertFalse(vm.camera.showing)
+        assertFalse(vm.mustSecure.value)
+        // the app goes to the background under it
+        vm.showCamera()
+        session.foreground(false)
+        idle()
+        assertEquals(2, phone.cameraStopped)
+        assertNull(vm.sheet.value)
+        // the app locks under it
+        session.foreground(true)
+        vm.showCamera()
+        session.lockNow()
+        idle()
+        assertEquals(3, phone.cameraStopped)
+        assertNull(vm.sheet.value)
+    }
+
+    /** A frame is decoded in memory and its bytes cleared; on the shared relay the library's words are shown. */
+    // decision: APP-983, PHN-444
+    @Test
+    fun frames_stay_in_memory_and_the_shared_relay_says_the_library_s_words() {
+        val pic = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888)
+        val watch = CameraWatch(MainScope().also { scopes += it }, phone) { pic }
+        watch.start()
+        idle()
+        assertEquals("starting", watch.view.value!!.state)
+        val bytes = byteArrayOf(1, 2, 3)
+        phone.camera!!.frame(CameraFrame(bytes, 4L, "live", null))
+        assertEquals(pic, watch.view.value!!.frame)
+        assertTrue("the frame's bytes are cleared once decoded", bytes.all { it == 0.toByte() })
+        phone.camera!!.frame(CameraFrame(null, 4L, "off", "Your Mac's camera is off."))
+        assertNull("off: the last frame goes", watch.view.value!!.frame)
+        val words = "Your Mac's camera is available when connected directly or through your relay."
+        phone.camera!!.ended("needs_better_path", words)
+        assertEquals(Note(R.string.err_mac_said, words), watch.view.value!!.ended)
+        watch.stop()
+        assertNull(watch.view.value)
+        // refused before the stream starts: its note
+        phone.cameraRefusal = Outcome.Failed(FerbException.NeedsBetterPath(words, "needs_better_path"))
+        watch.start()
+        idle()
+        assertEquals(Note(R.string.err_needs_better_path), watch.view.value!!.ended)
+    }
+}

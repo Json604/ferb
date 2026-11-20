@@ -59,6 +59,10 @@ enum Check {
     Apps,
     Hosts,
     Profile,
+    /// A whole number of minutes, 0..=1440 (insomnia mode's grace, T-1274).
+    Minutes,
+    /// A battery level, 1..=99 percent (insomnia mode's warnings, T-1274).
+    Percent,
 }
 
 /// One setting: its config place, its check and its default.
@@ -92,6 +96,14 @@ impl Setting {
             Check::Apps => apps(value),
             Check::Hosts => hosts(value),
             Check::Profile => profile(value),
+            Check::Minutes => match value.as_i64() {
+                Some(n) if value.is_i64() && (0..=1440).contains(&n) => Ok(value.clone()),
+                _ => bad("must be a whole number of minutes, from 0 to 1440"),
+            },
+            Check::Percent => match value.as_i64() {
+                Some(n) if value.is_i64() && (1..=99).contains(&n) => Ok(value.clone()),
+                _ => bad("must be a whole percent, from 1 to 99"),
+            },
         }
     }
 }
@@ -230,7 +242,51 @@ pub fn settings() -> Vec<Setting> {
         check: Check::Profile,
         default: json!(""),
     });
+    // decision: APP-981 — insomnia mode's numbers are the owner's (rule 18): how long it stays on after FERB's work is
+    // done, and the battery levels it warns at (it never ends or slows itself for them)
+    for (key, check, default) in [
+        (
+            "grace_minutes",
+            Check::Minutes,
+            crate::insomnia::GRACE_DEFAULT_MIN,
+        ),
+        (
+            "battery_warn_percent",
+            Check::Percent,
+            crate::insomnia::BATTERY_WARN_DEFAULT,
+        ),
+        (
+            "battery_urgent_percent",
+            Check::Percent,
+            crate::insomnia::BATTERY_URGENT_DEFAULT,
+        ),
+    ] {
+        out.push(Setting {
+            section: "insomnia",
+            key,
+            check,
+            default: json!(default),
+        });
+    }
     out
+}
+
+/// Insomnia mode's settings now (config.toml's, else their defaults; a value FERB can't read is its default).
+pub fn insomnia(config: &Config) -> crate::insomnia::Settings {
+    let d = crate::insomnia::Settings::default();
+    let get = |key: &str, default: i64| {
+        config
+            .get("insomnia", key)
+            .ok()
+            .flatten()
+            .and_then(|v| v.as_i64())
+            .unwrap_or(default)
+    };
+    crate::insomnia::Settings {
+        grace_minutes: get("grace_minutes", d.grace_minutes),
+        battery_warn: get("battery_warn_percent", d.battery_warn),
+        battery_urgent: get("battery_urgent_percent", d.battery_urgent),
+    }
 }
 
 /// What reading config.toml failed with.

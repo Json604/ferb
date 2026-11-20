@@ -9,7 +9,7 @@ import com.ferb.mobile.FerbException
 import com.ferb.mobile.Signer
 
 /** What a prompt is for: its words (the system prompt's subtitle). */
-enum class Why { OPEN, YES, FILE, SETTING, KEYS }
+enum class Why { OPEN, YES, FILE, SETTING, KEYS, INSOMNIA }
 
 /**
  * The one path every call to the Mac takes when it may need the owner (PHN-13): a call refused because the Mac's

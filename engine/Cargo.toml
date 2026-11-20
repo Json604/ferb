@@ -10,6 +10,7 @@ members = [
     "crates/ferb-rpc",
     "crates/ferb-identity",
     "crates/ferb-platform-macos",
+    "crates/ferb-power-helper",
     "crates/ferb-native-host",
     "crates/ferb-context",
     "crates/ferb-fs",

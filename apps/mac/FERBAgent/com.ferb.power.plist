@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- FERB's root helper (kb APP-986) for SMAppService.daemon: scripts/build-app-rust.sh copies it to
+     FERB.app/Contents/Library/LaunchDaemons/com.ferb.power.plist before signing; FERB.app registers it and the owner
+     approves it once in System Settings. launchd runs Contents/Helpers/ferb-power as root at boot (it clears a sleep
+     lease left behind) and keeps it running. Its interface is fixed (engine/crates/ferb-core/src/power.rs `helper`):
+     a sleep-disable lease that ends when ferbd stops renewing it, and FERB's own scheduled wakes; it answers only
+     ferbd's signature. Under rule 6 (GATE-1): FERB's tools and shell never write it. -->
+<plist version="1.0"><dict>
+<key>Label</key><string>com.ferb.power</string>
+<key>BundleProgram</key><string>Contents/Helpers/ferb-power</string>
+<key>ProgramArguments</key><array><string>ferb-power</string></array>
+<key>RunAtLoad</key><true/>
+<key>KeepAlive</key><true/>
+<key>ThrottleInterval</key><integer>10</integer>
+<key>AssociatedBundleIdentifiers</key><array><string>com.ferb.FERB</string></array>
+</dict></plist>

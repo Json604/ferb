@@ -85,8 +85,21 @@ class Prefs(context: Context) {
         get() = p.getStringSet("seen", emptySet()) ?: emptySet()
         set(v) = p.edit().putStringSet("seen", v).apply()
 
+    /**
+     * Insomnia mode's ends already said (their ids only, APP-980): each is said once, in the app or as a quiet
+     * notification, whichever sees it first. True for the first claim of [id].
+     */
+    @Synchronized
+    fun claimInsomniaEnd(id: String): Boolean {
+        val said = p.getStringSet("insomnia_said", emptySet()) ?: emptySet()
+        if (id in said) return false
+        // an end is kept by the Mac 10 minutes: a short list is enough
+        p.edit().putStringSet("insomnia_said", if (said.size >= 32) setOf(id) else said + id).apply()
+        return true
+    }
+
     /** Forget this Mac: what belonged to that pairing goes; the phone's own switches stay. */
     fun forgetPairing() {
-        p.edit().remove("paired_since").remove("just_paired").remove("announced").remove("seen").apply()
+        p.edit().remove("paired_since").remove("just_paired").remove("announced").remove("seen").remove("insomnia_said").apply()
     }
 }

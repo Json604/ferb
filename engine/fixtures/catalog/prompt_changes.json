@@ -78,6 +78,24 @@
       "prompt": "verifier.md",
       "old": "  condition's index and the plain reason; FERB shows the owner what was delivered and each gap as not done. A condition\n  more work could meet is a retry. Invented evidence presented as real (made-up participants, data or quotes) is an\n  unmet condition, named as such in `gaps`, and its sentences are `findings`.",
       "new": "  condition's index and its reason; FERB shows the owner what was delivered and, after \"Not done:\", each reason on its\n  own: one plain sentence naming only what is missing and why, never what was done, the same sentence for conditions\n  missed for one cause (shown once). A condition more work could meet is a retry. Invented evidence presented as real\n  (made-up participants, data or quotes) is an unmet condition, named as such in `gaps`, and its sentences are\n  `findings`."
+    },
+    {
+      "decision": "PRM-368",
+      "prompt": "verifier.md",
+      "old": "  this run on its own calls.\n- How the work was done",
+      "new": "  this run on its own calls.\n- `left`, for each condition not met (met false or null, applies true; null otherwise), whatever `next` is: what is left\n  to meet it. `kind`, one of:\n  - fix: the result is known to be there and how to reach it is known, so one more attempt is likely to finish it\n    without looking further: a page that didn't load, a wrong tab, profile or account, a half-filled form, a step\n    skipped, a block (a bot check, a rate limit, a sign-in wall) that hasn't had its one more visit.\n  - guess: meeting it means picking among candidates that nothing confirmed (which of several same-named people or\n    places, an address pattern taken as the address).\n  - search: nobody knows yet whether or where it can be found: reaching it means looking through or testing more\n    places, people, dates, options or candidates, any of which may not have it (a doctor with a free slot next week,\n    an address among generated patterns or one no lookup returned, a cheaper offer, a page that isn't at its address),\n    even when you know which ones to try next.\n  - stuck: the same block, error or refusal came back after a retry, and nothing new is known to try.\n  - owner: only the owner can give it (a choice, a password or code, something only they have, their Yes).\n  A condition that can only be met once another unmet one is (the details of a doctor not found yet) takes that one's\n  kind. `reached`: how much of this condition's outcome the work has reached: none, some or most.\n- How the work was done"
+    },
+    {
+      "decision": "PRM-368",
+      "prompt": "verifier.md",
+      "old": "  one, or ask. FERB checks in with the owner after 5 attempts.\n- ask:",
+      "new": "  one, or ask. FERB checks in with the owner after 5 attempts. FERB's code asks the owner whether to keep trying when\n  a guess, a search or a stuck block is left after a retry, from your `left`: never ask that yourself.\n- ask:"
+    },
+    {
+      "decision": "PRM-368",
+      "prompt": "verifier.md",
+      "old": "  worker\" or this check); never a success claim.\nFields a choice doesn't use are empty (\"\", [] or null); `findings` holds whatever the answer states wrongly. Write\nevidence as direct findings with their references, without repeating the condition or narrating the inspection.",
+      "new": "  worker\" or this check); never a success claim.\n`progress`, whenever a condition is not met, whatever `next` is: `found`, one plain sentence for the owner of what the\nwork has reached (\"\" for nothing), and `missing`, one full sentence naming only what is still missing and why (FERB may\nshow it after \"Not done:\"); FERB may show both to the owner as they are. Fields a choice doesn't use are empty (\"\", []\nor null); `findings` holds whatever the answer states wrongly. Write evidence as direct findings with their references,\nwithout repeating the condition or narrating the inspection."
     }
   ]
 }

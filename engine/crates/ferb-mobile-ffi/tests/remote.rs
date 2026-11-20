@@ -9,9 +9,9 @@ mod common;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use common::{FakeMac, ForeignMac, Heard, Signs, config, online, open};
-use ferb_mobile_ffi::records::{Attachment, Change, PreviewFrame};
-use ferb_mobile_ffi::{AnswerInput, FerbError, Mobile, PreviewSink, TransferListener};
+use common::{Cancels, FakeMac, ForeignMac, Heard, Signs, config, online, open};
+use ferb_mobile_ffi::records::{Attachment, CameraFrame, Change, PreviewFrame};
+use ferb_mobile_ffi::{AnswerInput, CameraSink, FerbError, Mobile, PreviewSink, TransferListener};
 use serde_json::{Value, json};
 
 fn connected(mac: &FakeMac, dir: &std::path::Path, tier: &str) -> (Arc<Mobile>, Arc<Heard>) {
@@ -379,4 +379,163 @@ fn until_back_load_more_and_where_uploads_land_through_the_bindings() {
     let info = m.mac_info().unwrap();
     let folder = info.upload_folder.unwrap();
     assert!(folder.is_default && folder.shown == "Downloads › FERB from phone");
+}
+
+#[derive(Default)]
+struct Camera {
+    frames: Mutex<Vec<CameraFrame>>,
+    ended: Mutex<Option<(Option<String>, Option<String>)>>,
+}
+impl CameraSink for Camera {
+    fn frame(&self, frame: CameraFrame) {
+        self.frames.lock().unwrap().push(frame);
+    }
+    fn ended(&self, code: Option<String>, detail: Option<String>) {
+        *self.ended.lock().unwrap() = Some((code, detail));
+    }
+}
+
+/// Insomnia mode as the app reads and drives it (APP-980..APP-984): the status's `insomnia` (none from an older Mac),
+/// the start signed (a cancelled prompt sends nothing), the end, Lock my Mac and It's fine with the app locked, the
+/// camera pulled while watched (at most every `CAMERA_EVERY_MS`, `have` naming the frame shown, `stop` ending it),
+/// never on the public relay, and every call `closed` after `shutdown`.
+// decision: APP-980
+// decision: APP-983
+// decision: APP-984
+// decision: PHN-444
+#[test]
+fn insomnia_and_the_mac_s_camera_through_the_bindings() {
+    let mac = FakeMac::new("C1");
+    let dir = tempfile::tempdir().unwrap();
+    let (m, heard) = connected(&mac, dir.path(), "direct");
+    assert_eq!(
+        m.status().unwrap().insomnia,
+        None,
+        "an older Mac says nothing"
+    );
+    mac.lock().status["insomnia"] =
+        json!({"on": false, "power": {"battery": 80}, "task_awake": true, "line": ""});
+    let st = m.status().unwrap();
+    let i = st.insomnia.unwrap();
+    assert!(!i.on && i.task_awake && i.power.battery == Some(80));
+    let before = mac.calls_of("insomnia.start").len();
+    let e = m
+        .start_insomnia("shield".into(), true, Arc::new(Cancels))
+        .unwrap_err();
+    assert!(matches!(e, FerbError::NotSigned { .. }), "{e:?}");
+    assert_eq!(
+        mac.calls_of("insomnia.start").len(),
+        before,
+        "nothing was sent"
+    );
+    heard.0.lock().unwrap().clear();
+    let signer = Arc::new(Signs::default());
+    let started = m
+        .start_insomnia("shield".into(), true, signer.clone())
+        .unwrap();
+    assert!(!started.already && started.insomnia.on && started.insomnia.screen_yes);
+    let signed: Value = serde_json::from_str(&signer.0.lock().unwrap()[0]).unwrap();
+    assert_eq!(signed["method"], "insomnia.start");
+    assert_eq!(
+        signed["params"],
+        json!({"variant": "shield", "screen_yes": true})
+    );
+    assert!(wait(5, || heard
+        .0
+        .lock()
+        .unwrap()
+        .contains(&Change::Status)));
+    assert!(m.last_status().unwrap().unwrap().insomnia.unwrap().on);
+    // the notice and its answers with the app locked
+    mac.lock().insomnia["notice"] = json!({"id": "n-7", "kind": "activation", "app": "Terminal", "count": 1,
+                                            "at": "x", "text": "Terminal opened on your Mac."});
+    assert!(m.lock().unwrap());
+    let n = m.insomnia_status().unwrap().notice.unwrap();
+    assert_eq!(
+        (n.kind.as_str(), n.app.as_deref()),
+        ("activation", Some("Terminal"))
+    );
+    assert!(
+        m.dismiss_insomnia_notice("n-7".into())
+            .unwrap()
+            .notice
+            .is_none()
+    );
+    assert!(m.lock_mac().unwrap().locked);
+    let ended = m.end_insomnia().unwrap();
+    assert!(ended.ended && !ended.insomnia.on);
+    m.unlocked().unwrap();
+    m.sync().unwrap();
+    // the camera, while watched
+    mac.lock()
+        .camera
+        .push_back((json!({"seq": 1, "state": "live"}), b"\xff\xd8cam1".to_vec()));
+    mac.lock()
+        .camera
+        .push_back((json!({"seq": 2, "state": "live"}), b"\xff\xd8cam2".to_vec()));
+    let sink = Arc::new(Camera::default());
+    let started = Instant::now();
+    let cam = m.watch_camera(sink.clone()).unwrap();
+    assert!(wait(5, || sink.frames.lock().unwrap().len() >= 3));
+    cam.stop();
+    assert!(wait(5, || sink.ended.lock().unwrap().is_some()));
+    assert_eq!(*sink.ended.lock().unwrap(), Some((None, None)));
+    let frames = sink.frames.lock().unwrap().clone();
+    assert_eq!(frames[0].jpeg.as_deref(), Some(&b"\xff\xd8cam1"[..]));
+    assert_eq!(frames[1].seq, Some(2));
+    assert_eq!(frames[2].state, "starting");
+    let asked: Vec<Value> = mac.lock().transfers.iter().map(|t| t.1.clone()).collect();
+    assert_eq!(asked[0], json!({"what": "camera"}));
+    assert_eq!(asked[1]["have"], 1);
+    assert_eq!(asked[2]["have"], 2);
+    assert!(
+        started.elapsed() >= Duration::from_millis(2 * ferb_mobile_ffi::mobile::CAMERA_EVERY_MS),
+        "three asks take at least two of the camera's gaps"
+    );
+    let n_asked = mac.lock().transfers.len();
+    std::thread::sleep(Duration::from_millis(700));
+    assert_eq!(
+        mac.lock().transfers.len(),
+        n_asked,
+        "nothing is asked after stop"
+    );
+    // the app locked: the camera ends by itself
+    let sink = Arc::new(Camera::default());
+    assert!(m.lock().unwrap());
+    let _cam = m.watch_camera(sink.clone()).unwrap();
+    assert!(wait(5, || sink.ended.lock().unwrap().is_some()));
+    assert_eq!(
+        sink.ended.lock().unwrap().as_ref().unwrap().0.as_deref(),
+        Some("needs_unlock")
+    );
+    // the public relay: ends at once, asks nothing
+    let dir2 = tempfile::tempdir().unwrap();
+    let mac2 = FakeMac::new("C1");
+    let (m2, _) = connected(&mac2, dir2.path(), "shared_relay");
+    let sink2 = Arc::new(Camera::default());
+    let _cam2 = m2.watch_camera(sink2.clone()).unwrap();
+    assert!(wait(5, || sink2.ended.lock().unwrap().is_some()));
+    assert_eq!(
+        sink2.ended.lock().unwrap().as_ref().unwrap().0.as_deref(),
+        Some("needs_better_path")
+    );
+    assert!(matches!(
+        m2.mac_camera(None),
+        Err(FerbError::NeedsBetterPath { .. })
+    ));
+    assert!(mac2.lock().transfers.is_empty());
+    // after shutdown every call is closed
+    m.shutdown();
+    let closed = |r: Result<(), FerbError>| matches!(r, Err(FerbError::Closed { .. }));
+    assert!(closed(m.insomnia_status().map(|_| ())));
+    assert!(closed(
+        m.start_insomnia("shield".into(), false, signer).map(|_| ())
+    ));
+    assert!(closed(m.end_insomnia().map(|_| ())));
+    assert!(closed(m.lock_mac().map(|_| ())));
+    assert!(closed(m.dismiss_insomnia_notice("n".into()).map(|_| ())));
+    assert!(closed(m.mac_camera(None).map(|_| ())));
+    assert!(closed(
+        m.watch_camera(Arc::new(Camera::default())).map(|_| ())
+    ));
 }

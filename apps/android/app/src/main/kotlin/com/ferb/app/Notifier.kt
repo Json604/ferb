@@ -21,6 +21,7 @@ import com.ferb.app.model.WorkModel
 import com.ferb.core.Outcome
 import com.ferb.design.components.MarkKind
 import com.ferb.mobile.Change
+import com.ferb.mobile.Insomnia
 import com.ferb.mobile.Item
 import com.ferb.mobile.LinkPhase
 import com.ferb.mobile.PhoneStatus
@@ -132,6 +133,8 @@ class Notifier(
         for (p in plan.post) question(p.question, quietly = p.quiet)
         for (q in plan.update) question(q, quietly = true)
         for (id in plan.cancel) cancel(id)
+        // insomnia mode's notice, warnings and how it ended (APP-981, APP-983), from the same status
+        if (status != null) insomnia(status.insomnia, announced)
         // what finished: from the status (held words while locked) and the transcript (its title and first line)
         val terminal = view?.let(::finished).orEmpty()
         // the first status and the first transcript this process reads: what had finished is not news
@@ -158,6 +161,93 @@ class Notifier(
             if (!quiet) post(key, CH_DONE, words.first, words.second, open(task))
         }
         prefs.announced = announced
+    }
+
+    /**
+     * Insomnia mode's notifications (APP-981, APP-983), each from the Mac's status, kept under [TAG_INSOMNIA]:
+     * - the notice (someone touched the Mac, or an app opened that FERB didn't): posted once, with Show me (opens the
+     *   app's camera view, which needs the app's unlock), Lock my Mac and It's fine (both answered from here, allowed
+     *   while the phone is locked); a later touch in the same episode updates it quietly. Posted even while the app is
+     *   on screen: someone at his Mac is news wherever he is;
+     * - each warning (battery, heat, the cover): posted once, no actions, a tap opens the app;
+     * - each is removed when the status no longer has it (answered, gone, the mode ended);
+     * - how the mode ended: said once, quietly (in the app when he is there, see FerbViewModel.sayLastEnd).
+     * No camera frame is ever put in a notification. An older Mac (no `insomnia`) removes whatever was posted.
+     */
+    private fun insomnia(i: Insomnia?, announced: MutableSet<String>) {
+        val now = HashMap<String, Int>()
+        val n = i?.notice?.takeIf { i.on }
+        if (n != null) {
+            val key = "in:${n.id}"
+            now[key] = keyOf(key)
+            val title = context.getString(if (n.kind == "activation") R.string.n_insomnia_activation else R.string.n_insomnia_touched)
+            val known = key in announced
+            // a later touch of the same episode: its count and time change, the notification is updated quietly
+            if (!known || insomniaCounts[key] != n.count) {
+                val b = builder(CH_INSOMNIA, title, n.text.ifEmpty { title }, open(null), public = R.string.n_public_mac)
+                    .setCategory(Notification.CATEGORY_ALARM)
+                    .setAutoCancel(false)
+                    .setOnlyAlertOnce(known)
+                if (known) b.setGroup(SILENT_GROUP).setGroupAlertBehavior(Notification.GROUP_ALERT_SUMMARY)
+                b.addAction(Notification.Action.Builder(null, context.getString(R.string.insomnia_show_me), camera()).build())
+                b.addAction(Notification.Action.Builder(null, context.getString(R.string.insomnia_lock_mac),
+                    insomniaIntent(InsomniaReceiver.LOCK, n.id)).build())
+                b.addAction(Notification.Action.Builder(null, context.getString(R.string.insomnia_fine),
+                    insomniaIntent(InsomniaReceiver.FINE, n.id)).build())
+                notifyTagged(keyOf(key), b.build())
+                announced += key
+                insomniaCounts[key] = n.count
+            }
+        }
+        for (w in i?.warnings.orEmpty().takeIf { i?.on == true }.orEmpty()) {
+            val key = "iw:${w.id}"
+            now[key] = keyOf(key)
+            if (key in announced) continue
+            announced += key
+            notifyTagged(keyOf(key), builder(CH_INSOMNIA, context.getString(R.string.n_insomnia_warning), w.text, open(null),
+                public = R.string.n_public_mac).build())
+        }
+        // what the status no longer has goes (answered on the Mac or here, gone, the mode ended)
+        for (sbn in nm.activeNotifications) {
+            if (sbn.tag == TAG_INSOMNIA && sbn.id !in now.values) nm.cancel(TAG_INSOMNIA, sbn.id)
+        }
+        announced.removeAll { (it.startsWith("in:") || it.startsWith("iw:")) && it !in now }
+        insomniaCounts.keys.retainAll(now.keys)
+        // how it ended: once, quietly; in the app the view model says it instead
+        val end = i?.lastEnd?.takeIf { !i.on && it.text.isNotEmpty() }
+        if (end != null && !quiet && prefs.claimInsomniaEnd(end.id)) {
+            val b = builder(CH_DONE, context.getString(R.string.n_insomnia_warning), end.text, open(null))
+                .setOnlyAlertOnce(true).setGroup(SILENT_GROUP).setGroupAlertBehavior(Notification.GROUP_ALERT_SUMMARY)
+            notifyTagged(keyOf("ie:${end.id}"), b.build(), tag = TAG_INSOMNIA_END)
+        }
+    }
+
+    /** The notices' counts as last posted (a later touch updates the notification quietly). */
+    private val insomniaCounts = ConcurrentHashMap<String, UInt>()
+
+    /** A notice's answer from here: gone at once on success (the status removes it too), else what stopped it. */
+    fun insomniaAnswered(noticeId: String, problem: String?) {
+        val id = keyOf("in:$noticeId")
+        if (problem == null) { nm.cancel(TAG_INSOMNIA, id); return }
+        notifyTagged(id, builder(CH_INSOMNIA, context.getString(R.string.n_not_answered_title), problem, open(null),
+            public = R.string.n_public_mac).build())
+    }
+
+    /** Show me: the app opens on the camera view (after its own unlock, PHN-8). */
+    private fun camera(): PendingIntent {
+        val i = Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP).putExtra(MainActivity.EXTRA_CAMERA, true)
+        return PendingIntent.getActivity(context, "camera".hashCode(), i, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+    }
+
+    private fun insomniaIntent(action: String, noticeId: String): PendingIntent {
+        val i = Intent(context, InsomniaReceiver::class.java).setAction(action).putExtra(InsomniaReceiver.NOTICE, noticeId)
+        return PendingIntent.getBroadcast(context, "$action:$noticeId".hashCode(), i,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+    }
+
+    private fun notifyTagged(id: Int, n: Notification, tag: String = TAG_INSOMNIA) {
+        if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        nm.notify(tag, id, n)
     }
 
     private fun cancel(approvalId: String) {
@@ -260,10 +350,10 @@ class Notifier(
     private fun post(key: String, channel: String, title: String, text: String, tap: PendingIntent) =
         notify(keyOf(key), builder(channel, title, text, tap).build())
 
-    private fun builder(channel: String, title: String, text: String, tap: PendingIntent): Notification.Builder {
+    private fun builder(channel: String, title: String, text: String, tap: PendingIntent, public: Int? = null): Notification.Builder {
         val public = Notification.Builder(context, channel).setSmallIcon(R.drawable.ic_stat_ferb)
             .setContentTitle(context.getString(R.string.app_name))
-            .setContentText(context.getString(if (channel == CH_DONE) R.string.n_public_done else R.string.n_public_question))
+            .setContentText(context.getString(public ?: if (channel == CH_DONE) R.string.n_public_done else R.string.n_public_question))
             .build()
         return Notification.Builder(context, channel)
             .setSmallIcon(R.drawable.ic_stat_ferb)
@@ -307,6 +397,7 @@ class Notifier(
             ch(CH_CHECKS, R.string.ch_checks, R.string.ch_checks_desc, NotificationManager.IMPORTANCE_HIGH),
             ch(CH_DONE, R.string.ch_done, R.string.ch_done_desc, NotificationManager.IMPORTANCE_DEFAULT),
             ch(CH_LINK, R.string.ch_link, R.string.ch_link_desc, NotificationManager.IMPORTANCE_HIGH),
+            ch(CH_INSOMNIA, R.string.ch_insomnia, R.string.ch_insomnia_desc, NotificationManager.IMPORTANCE_HIGH),
             ch(CH_STAY, R.string.ch_stay, R.string.ch_stay_desc, NotificationManager.IMPORTANCE_MIN),
         ))
     }
@@ -319,6 +410,11 @@ class Notifier(
         const val CH_DONE = "finished"
         const val CH_LINK = "connection"
         const val CH_STAY = "stay_connected"
+        /** Insomnia mode (APP-981, APP-983): someone at the Mac, its battery, heat and cover. */
+        const val CH_INSOMNIA = "your_mac"
+        /** Insomnia mode's notifications carry this tag (each removed when the Mac's status no longer has it). */
+        const val TAG_INSOMNIA = "insomnia"
+        const val TAG_INSOMNIA_END = "insomnia_end"
         const val KEY_LINK = "link"
         const val KEY_LOCATION = "location"
         const val SILENT_GROUP = "silent"

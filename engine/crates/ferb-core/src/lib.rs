@@ -16,6 +16,7 @@ pub mod ids;
 pub mod interfaces;
 #[cfg(unix)]
 pub mod paths;
+pub mod power;
 pub mod timing;
 pub mod types;
 pub mod when;

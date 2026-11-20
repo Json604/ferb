@@ -7684,3 +7684,229 @@ they were) and the pins moved by one: `store.rs` (the fresh store: 0063..0066 af
 
 **Unverified.** The migration on the owner's database (the coordinator removes his one row by hand at the next swap
 either way); on other installs.
+
+## 2026-11-19 · 151 · DragWorkTests count only what their own events cause
+
+**What.** `testResizingTheNotchByItsEdgeRasterizesTheOutlineOnlyAtTheRelease` failed once in the push gate (15
+typesets where 0 were expected) and passed the next run. Cause, read from the code (not yet reproduced; the load proof
+waits for a free Mac): the transcript list measures the rows within two screens of the view ahead of time, a few per
+6 ms pass, nearest first (`TranscriptList.prefetch`), and a resize re-queues it on every frame change. The test let it
+settle for a fixed 0.3 s after the warm-up pass; under the gate's load it had not finished, and its first measurements
+of rows never measured (SwiftUI sizing a new row at 1, 40 and its width: about three each, so about five rows) landed in
+the counted pass, read through `ChatWork.textLayouts`, which counts every message view in the process. They are not
+messages typeset again; the assertion stays 0.
+
+**Changed (tests only).** `quiet(window)` runs the run loop until no message has been typeset for 0.3 s (failing after
+5 s) and comes before every counted window in DragWorkTests (the held drag, the dock, the edge resize, the window's
+move, and the probe's). Each count reports the message views in its own window at its start and end, so a later
+failure says whether the typesets were this window's. `ChatWork` is unchanged. `swift test --filter DragWorkTests`:
+4 runs, 6 tests each (the probe skipped), none failed; the resize counts 0, with 3 message views in the window before
+and after.
+
+**The load proof: the cause is not confirmed.** Ten `yes` burners under `nice -n 15` beside the test (and the
+coordinator's FERB.app and phone builds; load average 40 to 169), a temporary print of every measuring pass of every
+transcript list and of every typeset with its window, with the old fixed 0.3 s settle and with `quiet`: the resize test
+alone 6 + 6 runs, the class 4 + 4, the whole suite 3 (old settle). In every run the counted pass had 0 typesets, and no
+measuring pass and no typeset of any window landed inside it; the list's measuring ahead finished during the warm-up.
+So the prefetch reading above is not what happened in these runs, and the 15 of the gate's failing run stay unexplained.
+`quiet` still keeps any trailing work out of the counted window, and each count now names its window's message views,
+so a repeat says whose work it was. The traces are removed. Under that load the whole suite also failed, once,
+IntroControllerTests.testPairAllIsLiveAndAddToWaitsThenOffersToPair (6 assertions) and two WindowSpaceTests that need
+keyboard focus; the next two whole runs passed them.
+
+**The failing gate run's log** (push-4.log, 11:24, base 569c4f74) narrows it a little. Its Swift step ran first and
+alone (the Rust checks after it), in 58.5 s, about a quiet run's time: so not under unusual load, and the load reading
+is weaker still. It had that one failure in 874 tests (5 skipped). The class's other counts were all 0 typesets (docked,
+held, window move), so the earlier tests in the same process left nothing counted in theirs. The resize line itself:
+`events=40 model=120 swiftUIGeometry=40 transcript=40 composer=40 textLayouts=15 maskImages=0`: every other count as in a
+passing run, only the typesets off; it predates the per-window count, so it can't say whose they were. The only other
+long chats built before it in that process were ChatHistoryTests' daemon-read days (300 entries, its PROBE-DAEMON and
+THUMB-DAEMON lines). What typeset 15 times stays unknown; `quiet` and the per-window count stay as the guard and the
+diagnosis for a repeat.
+
+## 2026-11-20 · 152 · No rabbit holes: the check labels what is left, code asks "Keep trying, or go on with what I have?"
+
+**What.** The owner's ORCH-679 ("yes make them, and if the new wording is good to go in sonnet then make it … i jsut
+want reproducible results with thsi change"; "ok, i jsut dont want the dumb code judging like before and faillign
+thigns"; "i agree with your recommedations"). FERB had dug on by itself through retries (Mailmeteor's address search,
+the endocrinologist search) and two prompt-only "ask first" wordings were not reproducible on Sonnet. Now the check
+only labels; code applies his rule:
+
+- verifier.md (PRM-368) adds, for each unmet condition, `left`: `kind` fix | guess | search | stuck | owner (fix means
+  the result is known to be there and how to reach it is known; search means whether or where is unknown, even when
+  the next places are known; stuck means the same block after a retry; a condition that waits on another takes its
+  kind) and `reached` none | some | most; and once per check `progress`: `found` and `missing`, one sentence each for
+  the owner. One line of fact: code asks whether to keep trying; never ask that yourself.
+- ferb-context's checker schema carries both (nullable). `before_left` takes them out in `as_recorded`, so every
+  comparison with the Python-recorded schemas stays exact (the named difference). ferb-orchestrator's validation
+  keeps them leniently: a `left` or `progress` that isn't an object is dropped before validation (`loose_left`,
+  `loose_progress`), an unknown label is no label; a dump carries them only when given, so dumps without them are
+  Python's bytes.
+- `ferb_orchestrator::rabbit_holes::rule` (ORCH-679..681) reads only the labels, whether the step already retried while
+  a condition was unmet (`TreeState::retried`, set where the step takes a retry), code's proved-false fact (ORCH-664)
+  and whether the owner already said keep trying (`kept_trying`). Its only outcomes are the checker's own choice or
+  the question. The question replaces (a) the checker's retry when a condition labelled guess, search or stuck was
+  already retried and has some or most reached, and every unmet condition has whole labels; (b) ORCH-681: a gapped
+  accept that `gapped()` refuses only because the worker reported not done, which today's code read as a plain accept
+  ending failed. Both need `progress.missing`; no condition proved false by code.
+- attempt.rs: `next()` calls `rabbit_hole()` for a retry and for that refusal; it returns `keep_or_go_on` with the
+  question (`progress.found` + `progress.missing` + "Keep trying, or go on with what I have?"), the check's notes, its
+  findings and the gaps "go on" would leave (each unmet condition, reason `progress.missing`). `worker_loop` asks it in
+  place through `Inner::keep_or_go_on` (owner_wait.rs: a wait with the choices "Keep trying" / "Go on with what I
+  have", tagged as the task's since it holds the check's sentences). Keep trying, the owner's words in its box or a
+  reply in chat: a retry with the check's notes (ORCH-678) and the answer, counted as a failed attempt, and the
+  question isn't asked again in the step (the 5-attempt check-in governs). Go on: `gone_on`, the gapped accept's
+  ending (resources released, gaps set, outcome done): done_with_gaps, "Not done: <missing>", the waiting steps run
+  (ORCH-653 still asks before a send or submit step). Stopped: the step stops. Nobody answers (an unattended run, a
+  tree not asking in place, a dismissal): the step ends needs_user with the question, as any question there (ORCH-680).
+  Journal: `task.rabbit_hole_asked` (the labels) and `task.rabbit_hole_answered`.
+
+**Measured (before building), Sonnet 5.5 through `claude -p`, no tools.** 32 recorded checks (Mailmeteor, the
+endocrinologist search, the visa Cloudflare block, rate limit and sign-in, RemoExperts, two declined WhatsApp sends,
+the class join, the EF and Northwind forms, Blender, Amazon), each replayed 3 times with the final wording and 3 times
+with the current prompt; 294 calls in all with the earlier wordings. The rule asked on endocrinologist checks 2-4 in 9
+of 9 runs (the current prompt retried 9 of 9) and never on the kept-fixing cases (class join, EF form, Blender,
+RemoExperts, the second Cloudflare check, WhatsApp); one possible false ask (Amazon, 1 of 3). Mailmeteor's check 2 was
+not reproducible from the checker's own `next` (a gapped accept, a retry, a retry labelled fix); ORCH-681 turns the
+gapped accept, which code failed in 3 of 3 current-prompt runs, into the question. A threshold of "any reached"
+instead of "some" changed no decision. The replay couldn't take the checker's own new looks (its recorded looks were
+given as data).
+
+**Named differences.** engine/fixtures/catalog/prompt_changes.json: three PRM-368 entries for verifier.md. The checker
+schema's `results[].left` and `progress` (ORCH-679), taken out by `before_left` for every recorded comparison;
+ferb-daemon's b_runtimes stand-in answers a recorded check as a model given today's schema does (`"progress": null`,
+each result's `"left": null`, as it already added `"gaps": []`). Both fields are required in the core schema (OpenAI's
+strict form needs every property), so a Claude check answered in the stated form that leaves them out gets the one
+repair turn, as `gaps` does; after it the answer is taken leniently and a missing label changes nothing. Fixed against
+Python: none (no Python behaviour changed but the refused gapped accept's ending, which is Rust-only, ORCH-675).
+
+**Records.** ORCH-679 (owner, his four quotes), ORCH-680 (agent: the invariant, unattended, keep/go on), ORCH-681
+(owner, his "i agree with your recommedations": the refused gapped accept asks, refining ORCH-675's ending), PRM-368
+(agent, the prompt); kb MAP regenerated.
+
+**Evidence.** ferb-orchestrator tests/rabbit_holes.rs: the invariant over every label combination (no, one or two
+unmet conditions; each kind or none, each reach or none, retried or not, proved false or not), every `next` (and two
+invalid ones), refused or not, progress or not, kept or not: the outcome is the checker's choice or the question, the
+question only for a retry or the refused gapped accept, never after keep trying or on a proved-false condition; the
+measured shapes; the question's text; malformed labels never fail validation and a dump without them is unchanged.
+ferb-supervisor tests/rabbit_holes.rs, through the real supervisor on recorded scenarios with invented checks: fix →
+five retries and the check-in as before; search after a retry → the first retry taken, then the question, and go on
+→ done_with_gaps with "Not done: <missing>"; keep trying → the third attempt has the check's notes and the answer,
+no second question, the check-in at five; owner → no question; malformed labels → as before; the refused gapped
+accept → the question at once and go on → done_with_gaps; unattended → needs_user with the question; a plan step's go
+on → the next step runs. Removing the rule (a temporary mutation) failed the five tests that depend on it.
+
+**Unverified.** The checker's labels live (only the replay); the question's look on FERB.app and the phones (it is an
+ordinary question with two choices); a restart while the question waits re-runs the step from its first attempt (the
+per-step retry memory is in memory, so one more retry before the rule can apply).
+
+## 2026-11-20 · 153 · Insomnia mode: the Mac kept working while the owner is away, the cover, the phone, the lock guard and the root helper
+
+**What.** T-1274, the owner's APP-980..APP-986, HAND-645 and APP-1100 (the cover's look), after the research in
+`.local/keep-awake/` and the on-device experiments x1..x3 (`~/Desktop/ferb-agent-remote/spikes/`).
+- **Daemon** (`ferb-daemon` `insomnia.rs`, composed in `ferbd` `compose/insomnia.rs`; DMN-602..DMN-612). One state
+  (shield or locked, start, who, the one Yes), journaled `insomnia.state` and resumed after a restart (said once). A look
+  every 20 s: IOKit assertions as 120 s leases (`ferb_core::power`, `ferb-platform-macos` `power.rs`): idle sleep
+  always, system sleep on AC, the display only while FERB.app's cover reports up and the lid is open; with the mode off,
+  idle sleep only while a task tree runs and the lid is open (never the display). Warnings (battery 20 % / 10 %, heat,
+  the cover not showing, a closed lid on battery) said once on the Mac and in the phone's status; nothing ends the mode
+  but his return (the cover's Touch ID or password, or his unlock), his end, or the grace (10 minutes, a setting). Sleep
+  macOS forced is found by the wall clock's gap and said plainly. "Someone's at your Mac" notices from the cover's
+  reports (one per two minutes), It's fine, Lock my Mac (`pmset displaysleepnow`, the lock read back). Show me's camera:
+  on only while the phone pulls, the latest frame in memory, refused unless the path is direct or his own relay.
+- **RPCs and phones' classes** (DMN-609): `insomnia.status/start/end/lock/dismiss/camera/report/camera_frame`, FERB.app's
+  own; phone: status private, start sensitive (signed like a setting), end/lock/dismiss plain and allowed locked, camera
+  private, report/frame never. `chat.status` carries `insomnia`. Bus topics `insomnia.changed/.step/.expect/.camera`.
+  Settings `insomnia.grace_minutes`, `.battery_warn_percent`, `.battery_urgent_percent`.
+- **Steps under the cover** (APP-984, APP-987, DMN-608): the gateway answers the screen-use question with the session's
+  one Yes (rows valid only for that session); `ferb-mac-hands` `MacDriver::real` asks a `ForegroundCover` first: the
+  daemon publishes `insomnia.step` and waits 3 s for FERB.app's click-through (`ui.click_through`), else refuses with
+  nothing done. An app FERB brings forward is announced (`insomnia.expect`).
+- **The lock guard** (HAND-645, HAND-646): `input::LockGuard` refuses every post to the HID stream while
+  `CGSSessionScreenIsLocked`; the gateway adds `floor:locked_screen` beside `floor:foreground` while locked: "Your Mac is
+  locked. Do this in <app> when you're back?" (Do it when I'm back / Skip it); a Yes waits for the unlock, then runs.
+- **The link** (DMN-607): `link.get what: "camera"` as `preview` (refused on the public relay before asking), LEVEL 5.
+- **The root helper** (APP-986, DMN-610..612): new crate `ferb-power-helper`, program `ferb-power` in FERB.app
+  (`Contents/Helpers`, signed `com.ferb.power`, `Contents/Library/LaunchDaemons/com.ferb.power.plist` for
+  `SMAppService.daemon`). A socket answering only `identifier "com.ferb.daemon" and certificate leaf = H"<its own leaf>"`;
+  a fixed interface (lease, release, wakes, wake, unwake, status). The lease sets `SleepDisabled` with a root-owned marker,
+  ends when not renewed, at SIGTERM, and is cleared at boot. Wakes are FERB's own, 30 s..8 days ahead, at most 8. The
+  daemon leases it while the mode is on and keeps a wake 60 s before each active schedule's next run. The shell's sandbox
+  already denies every Unix socket; the plist is a FERB service definition (`BUNDLE_HELPER_SERVICE`). Packaging:
+  `scripts/build-app-rust.sh`, `rust-parts.sh`, `signing.sh` (also `com.apple.security.device.camera` for Show me).
+- **FERB.app** (a sub-agent's work, APP-988..APP-997): the cover (`InsomniaCover.swift`: an NSPanel per display,
+  regular policy while up, kiosk options, level 999 while asking Touch ID), the listen-only tap (person: source pid 0,
+  state 1), the activation policy, the 10-minute dim, the camera (`InsomniaCamera.swift`, its own grant), the warning
+  dialog, the notch line with End, the menu item, the helper's registration and approval in the warning, Uninstall
+  unregistering it; the owner's look (APP-1100, APP-998..APP-1004): the x5 prototype's Metal field frosted (blur 40 pt,
+  one constant, always opaque), the f written then the dot breathing, 30/20 fps, nothing drawn asleep, locked, after the
+  10-minute stop or under Reduce Motion, the 0.9 s dismiss ending on black.
+- **Phones** (a sub-agent's work, PHN-774..PHN-776): `ferb-mobile` and the bindings (`insomnia_status`,
+  `start_insomnia`, `end_insomnia`, `lock_mac`, `dismiss_insomnia_notice`, `mac_camera`, `watch_camera`); Android and
+  iPhone: the switch and warning, the state line, the notice with its three actions, warnings, the end said once, the
+  camera view out of screenshots.
+
+**Named differences.** `settings.get` and `about.get` list the three insomnia settings after Python's last
+(ferb-daemon a_replay, b_small; ferbd replay); ferb-policy protection names the helper's definition and its folder
+(guarded parent); `engine/fixtures/phone/classes.json` rewritten from the table (UPDATE_GOLDEN); ferb-core bus test and
+ferb-orchestrator `NOT_WAITED` take the four topics; ferb-rpc golden counts 8 more methods. Fixed against Python: none.
+
+**Owner-facing words (drafts; T-1275: the owner reviews them).** Daemon: the line "Keeping your Mac working · {n} tasks
+running · ends {time} if nothing new comes · Mac locked · cover not showing · battery {n}%"; ends "Welcome back. Your Mac
+can sleep as usual again." / "Done. Your Mac can sleep as usual again." / "FERB finished its work, so your Mac can sleep
+as usual again."; "FERB restarted and is still keeping your Mac working."; warnings "Your Mac's battery is at {n}%. FERB
+keeps working; plug it in if you can." / "Your Mac's battery is at {n}%. When it runs out, macOS puts your Mac to sleep
+and FERB stops until it's charged." / "Your Mac is getting hot. FERB keeps working, but macOS may slow it down, or put it
+to sleep if it gets too hot." / "The cover isn't showing on your Mac's screen, so anyone at your Mac could use it. FERB
+keeps working; you can lock your Mac from here." / "Your Mac's lid is closed and it's running on battery. FERB keeps it
+working; keep it somewhere it can stay cool, not in a bag."; sleep "Your Mac slept from {a} to {b} because its lid was
+closed on battery. Plugged in, FERB can keep it working with the lid closed." / "… because its battery ran out." / "…
+because it got too hot." / "Your Mac slept from {a} to {b}. macOS put it to sleep, and FERB can't stop that."; notices
+"Someone is using your Mac's keyboard or trackpad." / "{App} came to the front on your Mac, and FERB didn't open it.";
+lock "Your Mac is locked." / "Your Mac's screen is off, but your Mac doesn't ask for your password straight away. You can
+change that in System Settings > Lock Screen." / "FERB couldn't lock your Mac."; camera "Starting your Mac's camera…" /
+"FERB isn't allowed to use your Mac's camera. You can allow it in System Settings > Privacy & Security > Camera." / "FERB
+hasn't asked to use your Mac's camera yet. It asks the next time you turn this on at your Mac." / "Your Mac's camera
+didn't start." / "Your Mac's camera is only for while FERB keeps your Mac working." / "Your Mac's camera crosses only a
+direct connection or your own relay, not the shared relay."; step "The cover on your Mac's screen didn't let FERB
+through, so nothing was clicked or typed. Try the step again."; link "Your Mac's camera needs a direct connection or your
+own relay; you are on the shared relay." Gateway: "Your Mac is locked. Do this in {app} when you're back?" / "Your Mac's
+screen is locked, so FERB can't use its keyboard and pointer right now. FERB will wait and do it as soon as you unlock
+your Mac." / "Do it when I'm back" / "Skip it"; the record lines "this would use your Mac's keyboard and pointer in
+{app}, and your Mac's screen is locked, so FERB waits until you're back and does it then" / "do this in {app} when you're
+back (your Mac's screen is locked)". FERB.app and the phones: the warning ("Keep your Mac working while you're away?",
+its body, "Cover the screen" / "Lock my Mac" with their lines, "Let FERB bring apps to the front under the cover when a
+step needs it", "This ends when you're back, when you end it, or {n} minutes after FERB's work is done.", "Keep it
+working" / "Not now"), "End", "Keep my Mac working…" / "End keeping my Mac working", "Keep my Mac working", "Show me" / "Lock my Mac" / "It's fine", "Someone's at your Mac"
+/ "An app opened on your Mac", "Your Mac", "Your Mac's camera"; the camera grant "When you ask from your phone to see who
+is at your Mac while FERB keeps it working, FERB shows you your Mac's camera. It's never recorded or saved."; the
+helper's lines "On battery with the lid closed, FERB keeps your Mac working too." / "On battery with the lid closed, your
+Mac sleeps until you open it. To let FERB keep it working then too, turn on FERB in System Settings → General → Login
+Items." / "On battery with the lid closed, your Mac sleeps until you open it." / "Open Login Items…" / "macOS didn't turn
+off FERB's helper that keeps a closed Mac working[ (reason)], so nothing was uninstalled. Try again, or turn FERB off in
+System Settings → General → Login Items first."; phones also "FERB is already keeping your Mac working.", "FERB has news
+about your Mac", "Your Mac while you're away" / "When someone is at your Mac, or its battery or heat needs you, while FERB
+keeps it working", "Keeps your Mac working while you're away", "Unlock to see your Mac's camera.", "The camera stopped.",
+"Your Mac's camera is available when connected directly or through your relay.", "That way of keeping the Mac working
+is not one FERB knows."; the cover's lines (APP-1100) "FERB is working · Locked to <first name>" (the account's first name),
+the daemon's line, "Touch ID to unlock", "Waiting for Touch ID…". The owner's numbers to confirm: grace 10 min, battery 20 % and 10 %, 8
+wakes.
+
+**Evidence.** ferb-daemon tests/insomnia.rs 15 (holds and leases, the task rule, warnings without an end, forced sleep,
+grace, return, restart, the one Yes, notices and the owner's lock, the camera, steps, the helper's lease, wakes),
+insomnia_phone.rs 2 (the signed start, end/lock/dismiss locked, chat.status, the camera refused on the shared relay and an
+unknown path); ferb-gateway tests/insomnia_screen.rs 2; ferb-mac-hands element_actions 2; ferb-power-helper 4 + 2;
+ferb-core 2; ferb-platform-macos 2 (the real facts read: battery, AC, lid, thermal, lock; nothing held); ferb-link
+tiers_decide_what_bulk_may_cross with the camera; ferb-rpc golden and classes; ferbd replay, loops_supervised (spawns.txt),
+every_method_answers; scripts tests 67 (the helper signed com.ferb.power, the camera entitlement). FERB.app: InsomniaTests,
+PowerHelperTests, ShieldLookTests, the full `swift test` 904 run, 5 skipped, 0 failed. Phones: ferb-mobile, ffi, Android
+:app 268 / :core 29, iPhone FerbAppTests 169 etc. (their sub-agent's runs). Gate (own build folder): `./gate.sh fmt`, `lint` and `test` pass (314 test binaries, none failed, the
+phone crates included).
+
+**Unverified (only the owner's Mac can show).** Everything live: LIVE-1151..1156. In particular: whether
+PreventSystemSleep holds in clamshell on AC without the helper; SMAppService.daemon registration and approval with the
+release certificate (no Developer ID yet) and whether launchd runs ferb-power then; SleepDisabled through
+IOPMSetSystemPowerSetting from the helper and a lit panel under the lid; the cover over full-screen apps, Touch ID at level
+999, the tap's Input Monitoring; AX hit tests through a click-through cover (`own_point`/`reaches` could still see FERB.app's
+window); `pmset displaysleepnow` locking while FERB holds the display assertion; notification actions from the phones'
+lock screens; the camera prompt and frames; the shell-launched app activation (`open -a`) is told as unplanned.

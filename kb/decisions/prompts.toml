@@ -725,3 +725,13 @@ rule = "For GATE-620, GATE-621, by PRM-314 (how one tool behaves is in that tool
 why = "The field is offered only where it applies, and a declaration only changes how a question is grouped: code still asks for every outside value."
 paths = ["engine/fixtures/catalog/tool_changes.json"]
 untestable = "Schema text (TEST-500); the named change is checked by ferb-gateway's catalog test. Whether a model fills it is unmeasured: no model run."
+
+[PRM-368]
+title = "verifier.md: the check labels what is left of each unmet condition and says what was reached"
+by = "agent"
+date = 2026-11-20
+status = "active"
+rule = "For ORCH-679. verifier.md's judging list adds `left`: kind fix (known to be there, how known), guess (candidates nothing confirmed), search (whether or where unknown, even with next places known), stuck (same block after a retry), owner; a dependent condition takes its blocker's kind; reached none/some/most. One line of fact: code asks whether to keep trying, never ask that yourself. `progress`: found, and missing as one full sentence. Named in engine/fixtures/catalog/prompt_changes.json."
+why = "Measured on Sonnet (ORCH-679's evidence): a 'definite untried step' fix labelled every endocrinologist check fix; defining fix by the result being known to exist made the labels reproducible."
+paths = ["engine/runtime/orchestrator/prompts/verifier.md", "engine/fixtures/catalog/prompt_changes.json"]
+untestable = "Prompt text (TEST-500); the named change is checked by the prompts and parity tests. The labels were measured by replay on Sonnet only, without the checker's own new looks."

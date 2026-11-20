@@ -2084,3 +2084,23 @@ words_source = "Owner 2026-11-17, after two Scaler tasks were refused their own 
 rule = "Changes HAND-580 and ORCH-648's picked_only. A browser call that names any of the owner's profiles is taken there, whatever the pick and whatever the task's words named. The pick, then the profiles the owner's words named, are only where a call that names none goes. The saved pick (APP-777) stays, so FERB doesn't ask again."
 why = "The refusal sent the worker to the Mac tools, which bring the browser forward; the owner: \"the original one was good\"."
 paths = ["engine/crates/ferb-browser/src/driver.rs::task_choice"]
+
+[HAND-645]
+title = "No input through the system-wide stream while the screen is locked; the phone is asked instead"
+by = "owner"
+date = 2026-11-20
+status = "active"
+words = "yes add the guard, and yes to the root helper"
+words_source = "Owner 2026-11-20, to: FERB never types into the real keyboard stream while the Mac is locked; such a step asks on his phone, 'Do it when I'm back?'."
+rule = "While the screen is locked (CGSSessionScreenIsLocked), code refuses input posted to the system-wide (HID or session) stream, with a stable reason; the step's question offers doing it when he is back. Input posted to one app's process and Accessibility are not this guard's (they don't reach the lock screen)."
+why = "A locked Mac's system-wide input reaches no app (measured 2026-11-19), so a step would silently believe it typed; the owner is asked instead."
+
+[HAND-646]
+title = "The lock guard: system-wide input refused while locked, and the step asks Do it when I'm back"
+by = "agent"
+date = 2026-11-20
+status = "active"
+rule = "For HAND-645. ferb-mac-hands input::LockGuard wraps every post: while CGSSessionScreenIsLocked a post to the HID stream fails with LOCKED_INPUT; posts to one app's process or window go on. In the gateway a floor:foreground call while locked also carries floor:locked_screen, asked first (\"Your Mac is locked. Do this in <app> when you're back?\", Do it when I'm back / Skip it): a Yes waits until the unlock (cancellable), then runs; a No refuses it for that app in the task. Not routine; neither until-back nor insomnia's one Yes answers it."
+why = "A locked Mac's system-wide input reaches no app or its password field (x3); the owner chose to be asked."
+evidence = "ferb-mac-hands tests/element_actions.rs a_locked_screen_refuses_system_wide_input_only; ferb-gateway tests/insomnia_screen.rs a_locked_screen_asks_do_it_when_i_m_back_and_waits_for_the_unlock; answers.rs LockedScreen."
+paths = ["engine/crates/ferb-mac-hands/src/input.rs", "engine/crates/ferb-gateway/src/gateway.rs", "engine/crates/ferb-policy/src/confirm.rs", "engine/crates/ferb-policy/src/wording.rs"]

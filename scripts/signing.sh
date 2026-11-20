@@ -240,6 +240,7 @@ ferb_entitlements() {
     # what the program does and nothing more
     link) keys=(com.apple.security.network.client com.apple.security.network.server) ;;
     app) keys=(com.apple.security.device.audio-input                  # dictation / push-to-talk microphone
+               com.apple.security.device.camera                       # APP-983: Show me, the Mac's camera to his phone
                com.apple.security.personal-information.location) ;;  # SENSE-420: the city, and the exact spot on a Yes
   esac
   # Ad-hoc (or any non-Developer-ID) code has no Team ID, so library validation would refuse the app's
@@ -359,6 +360,8 @@ ferb_sign_app() {
         ferb_sign "$f" --identifier com.ferb.secrets ;;
       "$app/Contents/Helpers/ferb-link")            # the daemon accepts it by this signature alone (PHN-468)
         ferb_sign "$f" --identifier com.ferb.link --entitlements "$work/link.entitlements" ;;
+      "$app/Contents/Helpers/ferb-power")           # APP-986: the root helper; no entitlement, it answers ferbd alone
+        ferb_sign "$f" --identifier com.ferb.power ;;
       *)
         ferb_sign "$f" ;;
     esac
@@ -379,7 +382,8 @@ ferb_sign_app() {
     local piece ident requirement what=release
     ferb_devid && what="Developer ID team"
     for piece ident in "$app" com.ferb.FERB "$app/Contents/Helpers/FERB.app" com.ferb.daemon \
-        "$app/Contents/Helpers/ferb-secrets" com.ferb.secrets "$app/Contents/Helpers/ferb-link" com.ferb.link; do
+        "$app/Contents/Helpers/ferb-secrets" com.ferb.secrets "$app/Contents/Helpers/ferb-link" com.ferb.link \
+        "$app/Contents/Helpers/ferb-power" com.ferb.power; do
       [[ -e $piece ]] || continue
       if ferb_devid; then requirement=$(ferb_team_requirement $ident); else requirement=$(ferb_requirement $ident); fi
       codesign --verify --strict -R="$requirement" "$piece" \

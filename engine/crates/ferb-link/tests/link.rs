@@ -814,6 +814,8 @@ async fn tiers_decide_what_bulk_may_cross() {
             json!({"what": "preview", "task_id": tid}),
             "A picture of what FERB is doing",
         ),
+        // decision: APP-983 — Show me's camera, under the same live-view rule
+        (json!({"what": "camera", "have": 0}), "Your Mac's camera"),
     ] {
         let e = p.phone.get(params, |_, _| {}).await.unwrap_err();
         assert_eq!(e.code, errors::NEEDS_BETTER_PATH);

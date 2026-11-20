@@ -837,8 +837,21 @@ private fun Mac(vm: FerbViewModel, ui: UiState, waiting: PhoneTab?, onTab: (Phon
         onOwnRelay = { vm.show(Sheet.OwnRelay) },
         onSettings = { vm.openSettings() },
         onStopAll = { vm.show(Sheet.StopAll) },
-        notice = if (ui.status?.screenUse?.active == true) ({ ScreenUseCard(vm, ui) }) else null,
+        notice = macNotices(vm, ui),
     )
+}
+
+/** The cards above the Mac tab's rows: "until I'm back" (PHN-611) and "Keep my Mac working" (APP-980). */
+private fun macNotices(vm: FerbViewModel, ui: UiState): (@Composable () -> Unit)? {
+    val screenUse = ui.status?.screenUse?.active == true
+    val insomnia = ui.status?.insomnia
+    if (!screenUse && insomnia == null) return null
+    return {
+        Column {
+            if (screenUse) ScreenUseCard(vm, ui)
+            if (insomnia != null) InsomniaCard(vm, ui, insomnia)
+        }
+    }
 }
 
 /** FERB may use the Mac's screen until the owner is back (PHN-611): the line and "Ask me again". */

@@ -415,4 +415,32 @@
     <string name="question_private_title">Private input needed</string>
     <string name="work_view_tasks">View tasks</string>
     <string name="sites_visited">Sites visited</string>
+    <!-- insomnia mode (APP-980..APP-985): the contract's drafts; the owner reviews all wording before shipping -->
+    <string name="insomnia_row">Keep my Mac working</string>
+    <string name="insomnia_title">Keep your Mac working while you\'re away?</string>
+    <string name="insomnia_body">FERB keeps your Mac awake so it can finish your tasks. It\'s best to leave the lid open: your Mac stays cooler and FERB can do more. You can close it too: plugged in, FERB keeps working; on battery, your Mac sleeps and FERB waits until you open it.</string>
+    <string name="insomnia_shield">Cover the screen</string>
+    <string name="insomnia_shield_text">Your Mac stays unlocked under a cover that only your Touch ID or password removes. If someone touches it, FERB tells your phone.</string>
+    <string name="insomnia_locked">Lock my Mac</string>
+    <string name="insomnia_locked_text">Your Mac locks as usual. FERB keeps working, but can\'t use apps that need the screen.</string>
+    <string name="insomnia_screen_yes">Let FERB bring apps to the front under the cover when a step needs it</string>
+    <string name="insomnia_ends">This ends when you\'re back, when you end it, or %1$d minutes after FERB\'s work is done.</string>
+    <string name="insomnia_go">Keep it working</string>
+    <string name="insomnia_not_now">Not now</string>
+    <string name="insomnia_end">End</string>
+    <string name="insomnia_already">FERB is already keeping your Mac working.</string>
+    <string name="insomnia_show_me">Show me</string>
+    <string name="insomnia_lock_mac">Lock my Mac</string>
+    <string name="insomnia_fine">It\'s fine</string>
+    <string name="n_insomnia_touched">Someone\'s at your Mac</string>
+    <string name="n_insomnia_activation">An app opened on your Mac</string>
+    <string name="n_insomnia_warning">Your Mac</string>
+    <string name="n_public_mac">FERB has news about your Mac</string>
+    <string name="ch_insomnia">Your Mac while you\'re away</string>
+    <string name="ch_insomnia_desc">When someone is at your Mac, or its battery or heat needs you, while FERB keeps it working</string>
+    <string name="prompt_insomnia_subtitle">Keeps your Mac working while you\'re away</string>
+    <string name="camera_title">Your Mac\'s camera</string>
+    <string name="camera_starting">Starting your Mac\'s camera…</string>
+    <string name="camera_needs_unlock">Unlock to see your Mac\'s camera.</string>
+    <string name="camera_ended">The camera stopped.</string>
 </resources>

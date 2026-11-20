@@ -52,7 +52,8 @@ final class PlaygroundDaemon: DaemonRPCTransport, @unchecked Sendable {
     /// Calls the playground answers silently (the notch's own housekeeping, every few seconds).
     private static let quiet: Set<String> = ["chat.status", "ui.click_through", "about.guide", "memory.learning",
                                              "results.ack", "attention.ack", "runtimes.status", "setup.permissions",
-                                             "setup.persona", "setup.browsers", "ping", "chat.attach"]
+                                             "setup.persona", "setup.browsers", "ping", "chat.attach",
+                                             "insomnia.status", "insomnia.report"]
 
     @MainActor
     private func answer(_ method: String, _ params: [String: Any]) async throws -> [String: Any] {
@@ -69,6 +70,12 @@ final class PlaygroundDaemon: DaemonRPCTransport, @unchecked Sendable {
         case "chat.status":
             return ["paused": s.paused, "stopped": false, "running": [[String: Any]](), "results": [[String: Any]](),
                     "notices": [[String: Any]](), "approvals": [[String: Any]]()]
+        case "insomnia.status", "insomnia.start", "insomnia.end", "insomnia.dismiss", "insomnia.report",
+             "insomnia.camera_frame":
+            // Insomnia mode (APP-980) is never on in the playground: no cover, no camera, nothing kept awake
+            return ["on": false, "line": "", "task_awake": false, "last_end": NSNull(), "power": [String: Any]()]
+        case "insomnia.lock":
+            return ["locked": false, "text": "The playground never locks your Mac."]
         case "sense.pause", "sense.resume":
             state.saved.paused = method == "sense.pause"
             return ["ok": true]

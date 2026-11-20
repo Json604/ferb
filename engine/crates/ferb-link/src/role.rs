@@ -63,7 +63,12 @@ pub const SECRET_KINDS: &[&str] = &["owner_login_code", "owner_admin_password", 
 
 /// Methods whose answer is a picture (a screenshot of FERB's work, a question's picture, a remembered image): never
 /// on the public relays (kb PHN-444). Structure only: what the method returns, never what it shows.
-pub const PICTURES: &[&str] = &["questions.picture", "seen.image", "tasks.preview"];
+pub const PICTURES: &[&str] = &[
+    "insomnia.camera",
+    "questions.picture",
+    "seen.image",
+    "tasks.preview",
+];
 /// Pages of the chat, and the parameters that ask for an older page than the latest: on the public relays only the
 /// latest page is given (kb PHN-444), at most `Limits::shared_page_max` entries.
 pub const PAGES: &[(&str, &[&str])] = &[

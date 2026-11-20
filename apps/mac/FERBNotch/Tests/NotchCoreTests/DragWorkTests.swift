@@ -27,13 +27,17 @@ final class DragWorkTests: XCTestCase {
         var maskImages = 0
         var frames = 0
         var defaults = 0
+        /// Message views in the counted windows at the start and the end: a row that came into view meanwhile shows
+        /// here. ChatWork counts every view in the process, and rows the list measures ahead are built outside any
+        /// window, so a typeset with no change here was measuring ahead or another test's work, not this window's.
+        var textViews = (0, 0)
         var ms: [Double] = []
         var description: String {
             let mean = ms.isEmpty ? 0 : ms.reduce(0, +) / Double(ms.count)
             let worst = ms.max() ?? 0
-            return String(format: "events=%d model=%d swiftUIGeometry=%d transcript=%d composer=%d textLayouts=%d maskImages=%d windowFrames=%d settingsWrites=%d mean=%.2fms worst=%.2fms",
-                          events, model, presentation, transcript, composer, textLayouts, maskImages, frames, defaults,
-                          mean, worst)
+            return String(format: "events=%d model=%d swiftUIGeometry=%d transcript=%d composer=%d textLayouts=%d (message views in this window %d->%d) maskImages=%d windowFrames=%d settingsWrites=%d mean=%.2fms worst=%.2fms",
+                          events, model, presentation, transcript, composer, textLayouts, textViews.0, textViews.1,
+                          maskImages, frames, defaults, mean, worst)
         }
     }
 
@@ -46,9 +50,17 @@ final class DragWorkTests: XCTestCase {
         private let presentation: NotchPresentation?
         private let startPublishes: Int
         private let startMasks: Int
+        private let windows: [NSWindow]
+
+        static func messageViews(in windows: [NSWindow]) -> Int {
+            func walk(_ view: NSView) -> Int { (view is MessageTextView ? 1 : 0) + view.subviews.map(walk).reduce(0, +) }
+            return windows.compactMap(\.contentView).map(walk).reduce(0, +)
+        }
 
         init(_ model: NotchModel, presentation: NotchPresentation?, windows: [NSWindow], defaults: UserDefaults) {
             self.presentation = presentation
+            self.windows = windows
+            work.textViews.0 = Self.messageViews(in: windows)
             startPublishes = presentation?.publishes ?? 0
             startMasks = presentation?.backdrop.maskImageBuilds ?? 0
             model.objectWillChange.sink { [unowned self] _ in self.work.model += 1 }.store(in: &bag)
@@ -73,6 +85,7 @@ final class DragWorkTests: XCTestCase {
             out.textLayouts = ChatWork.textLayouts - start.2
             out.presentation = (presentation?.publishes ?? 0) - startPublishes
             out.maskImages = (presentation?.backdrop.maskImageBuilds ?? 0) - startMasks
+            out.textViews.1 = Self.messageViews(in: windows)
             return out
         }
     }
@@ -92,6 +105,26 @@ final class DragWorkTests: XCTestCase {
             window.contentView?.layoutSubtreeIfNeeded()
             RunLoop.main.run(until: Date().addingTimeInterval(0.02))
         }
+    }
+
+    /// Runs the main run loop until no message has been typeset for 0.3 s: the transcript list's measuring ahead (a
+    /// few rows per pass, 6 ms each, slower under load) and any work queued before has finished, so a counted window
+    /// counts only what its own events cause. Fails if that never happens within 5 s.
+    func quiet(_ window: NSWindow, file: StaticString = #filePath, line: UInt = #line) {
+        let first = ChatWork.textLayouts
+        var last = first, still = Date()
+        let end = Date().addingTimeInterval(5)
+        while Date() < end {
+            window.contentView?.layoutSubtreeIfNeeded()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+            if ChatWork.textLayouts != last {
+                last = ChatWork.textLayouts
+                still = Date()
+            } else if Date().timeIntervalSince(still) >= 0.3 {
+                return
+            }
+        }
+        XCTFail("the chat never settled: \(ChatWork.textLayouts - first) typesets in 5 s", file: file, line: line)
     }
 
     /// The pointer event and a frame, timed (the display link and queued work run after, untimed).
@@ -190,6 +223,7 @@ final class DragWorkTests: XCTestCase {
         let material = try XCTUnwrap(ProgressiveBlur.backdropLayer(in: backdrop.layer)?.superlayer, "the material")
         XCTAssertEqual(material.mask?.sublayers?.count, 3, "card, pill and shoulder outlines")
         let grip = try composerAgainstFrost(coordinator)
+        quiet(held.window)
         let counter = Counter(coordinator.model, presentation: coordinator.presentation, windows: [held.window],
                               defaults: held.defaults)
         var surface = coordinator.presentation.surfaceOrigin
@@ -212,7 +246,7 @@ final class DragWorkTests: XCTestCase {
         XCTAssertEqual(work.presentation, 0, "SwiftUI was handed no new geometry: the layers moved")
         XCTAssertEqual(work.transcript, 0, "the transcript was not evaluated")
         XCTAssertEqual(work.composer, 0, "the composer was not evaluated")
-        XCTAssertEqual(work.textLayouts, 0, "no message was typeset")
+        XCTAssertEqual(work.textLayouts, 0, "no message was typeset: \(work)")
         XCTAssertEqual(work.maskImages, 0, "no outline was rasterized")
         XCTAssertEqual(work.frames, 0, "the window stays still; the surface moves inside it")
         XCTAssertNotNil(material.mask, "the vector outline stayed on the material through the drag")
@@ -250,6 +284,7 @@ final class DragWorkTests: XCTestCase {
             throw XCTSkip("Needs a display with a camera housing")
         }
         let camera = CGPoint(x: (left.maxX + right.minX) / 2, y: screen.frame.maxY - 6)
+        quiet(held.window)
         let counter = Counter(coordinator.model, presentation: coordinator.presentation, windows: [held.window],
                               defaults: held.defaults)
         let from = held.pointer()
@@ -266,7 +301,7 @@ final class DragWorkTests: XCTestCase {
         XCTAssertTrue(coordinator.model.isNotchDocked, "it docked")
         XCTAssertNotNil(backdrop.maskImage, "docked, the outline is an image again")
         XCTAssertLessThanOrEqual(work.maskImages, 4, "the join rasterized no outline per frame")
-        XCTAssertEqual(work.textLayouts, 0)
+        XCTAssertEqual(work.textLayouts, 0, "\(work)")
     }
 
     /// The open notch resized by its edge: every event resizes the window and the outline with it. The outline is the
@@ -299,7 +334,7 @@ final class DragWorkTests: XCTestCase {
             }
         }
         try pass(nil)
-        settle(window, 0.3)
+        quiet(window)
         let counter = Counter(coordinator.model, presentation: coordinator.presentation, windows: [window],
                               defaults: defaults)
         try pass(counter)
@@ -308,7 +343,7 @@ final class DragWorkTests: XCTestCase {
         XCTAssertEqual(coordinator.model.chatTranscriptHeight, height, accuracy: 0.5, "it resized and came back")
         XCTAssertEqual(work.transcript, work.events + 0, accuracy: 2, "the chat lays out once per new size")
         XCTAssertEqual(work.maskImages, 0, "no outline image per event")
-        XCTAssertEqual(work.textLayouts, 0, "a taller or shorter chat typesets no message again")
+        XCTAssertEqual(work.textLayouts, 0, "a taller or shorter chat typesets no message again: \(work)")
         XCTAssertEqual(ProgressiveBlur.backdropLayer(in: backdrop.layer)?.superlayer?.mask?.sublayers?.count, 3,
                        "the outline stayed on the material through every new size")
         let end = Counter(coordinator.model, presentation: coordinator.presentation, windows: [window],
@@ -333,6 +368,7 @@ final class DragWorkTests: XCTestCase {
         drag.pointer = { pointer }
         let press = try event(.leftMouseDown, window)
         drag.mouseDown(with: press)
+        quiet(window)
         let counter = Counter(coordinator.model, presentation: nil, windows: [window], defaults: defaults)
         for n in 0..<120 {
             pointer.x += n < 60 ? 2.5 : -2.5
@@ -345,7 +381,7 @@ final class DragWorkTests: XCTestCase {
         XCTAssertEqual(work.model, 0)
         XCTAssertEqual(work.transcript, 0)
         XCTAssertEqual(work.composer, 0)
-        XCTAssertEqual(work.textLayouts, 0)
+        XCTAssertEqual(work.textLayouts, 0, "\(work)")
         XCTAssertEqual(work.defaults, 0, "no settings write while held")
         let end = Counter(coordinator.model, presentation: nil, windows: [window], defaults: defaults)
         drag.mouseUp(with: press)
@@ -407,6 +443,7 @@ final class DragWorkTests: XCTestCase {
     func probeHeldNotch() throws {
         let held = try holdNotch()
         let coordinator = held.coordinator
+        quiet(held.window)
         let open = Counter(coordinator.model, presentation: coordinator.presentation, windows: [held.window],
                            defaults: held.defaults)
         for n in 0..<120 {
@@ -418,6 +455,7 @@ final class DragWorkTests: XCTestCase {
         print("PROBE notch held: \(open.finish())")
         try held.move(CGPoint(x: held.screen.midX, y: held.screen.midY + 40))
         settle(held.window)
+        quiet(held.window)
         let tight = Counter(coordinator.model, presentation: coordinator.presentation, windows: [held.window],
                             defaults: held.defaults)
         for n in 0..<120 {
@@ -441,6 +479,7 @@ final class DragWorkTests: XCTestCase {
                                      ("height", NSPoint(x: overlay.bounds.midX, y: overlay.bounds.maxY - 4), CGPoint(x: 0, y: -1))] {
             let press = try event(.leftMouseDown, window, at: overlay.convert(local, to: nil))
             overlay.mouseDown(with: press)
+            quiet(window)
             let counter = Counter(coordinator.model, presentation: coordinator.presentation, windows: [window],
                                   defaults: defaults)
             for n in 0..<60 {
@@ -465,6 +504,7 @@ final class DragWorkTests: XCTestCase {
         drag.pointer = { pointer }
         let press = try event(.leftMouseDown, window)
         drag.mouseDown(with: press)
+        quiet(window)
         let moved = Counter(coordinator.model, presentation: nil, windows: [window], defaults: defaults)
         for n in 0..<120 {
             pointer.x += n < 60 ? 2.5 : -2.5
@@ -473,6 +513,7 @@ final class DragWorkTests: XCTestCase {
         print("PROBE window moved: \(moved.finish())")
         drag.mouseUp(with: press)
         for axis in ["width", "height"] {
+            quiet(window)
             let counter = Counter(coordinator.model, presentation: nil, windows: [window], defaults: defaults)
             var frame = window.frame
             for n in 0..<60 {

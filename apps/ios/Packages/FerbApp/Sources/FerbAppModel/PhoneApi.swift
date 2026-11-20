@@ -47,6 +47,15 @@ public protocol PhoneApi: AnyObject {
     /// owner's "Ask me again" from the phone (both plain, allowed while locked).
     func screenUse() async -> Outcome<ScreenUse>
     func endScreenUse() async -> Outcome<ScreenUseEnd>
+    /// Insomnia mode (APP-980..APP-985): read it, turn it on after the app's warning (the sensitive class: `signer` is
+    /// the Face ID / Touch ID key where the phone has one), end it, Lock my Mac and It's fine (the last three plain,
+    /// allowed while locked), and Show me: the Mac's camera to `sink` in memory only, never on the public relay.
+    func insomniaStatus() async -> Outcome<Insomnia>
+    func startInsomnia(variant: String, screenYes: Bool, signer: Signer) async -> Outcome<InsomniaStarted>
+    func endInsomnia() async -> Outcome<InsomniaEnded>
+    func lockMac() async -> Outcome<MacLocked>
+    func dismissInsomniaNotice(_ noticeId: String) async -> Outcome<Insomnia>
+    func watchCamera(sink: CameraSink) async -> Outcome<Live>
     /// The last status pushed or read. `async` like everything here that reaches the library (kb PHN-682): no caller
     /// on the main actor can wait inside it.
     func lastStatus() async -> PhoneStatus?
@@ -158,6 +167,21 @@ public final class LibraryPhone: PhoneApi {
     public func status() async -> Outcome<PhoneStatus> { await phone.call { try $0.status() } }
     public func screenUse() async -> Outcome<ScreenUse> { await phone.call { try $0.screenUse() } }
     public func endScreenUse() async -> Outcome<ScreenUseEnd> { await phone.call { try $0.endScreenUse() } }
+    public func insomniaStatus() async -> Outcome<Insomnia> { await phone.call { try $0.insomniaStatus() } }
+    public func startInsomnia(variant: String, screenYes: Bool, signer: Signer) async -> Outcome<InsomniaStarted> {
+        await phone.call { try $0.startInsomnia(variant: variant, screenYes: screenYes, signer: signer) }
+    }
+    public func endInsomnia() async -> Outcome<InsomniaEnded> { await phone.call { try $0.endInsomnia() } }
+    public func lockMac() async -> Outcome<MacLocked> { await phone.call { try $0.lockMac() } }
+    public func dismissInsomniaNotice(_ noticeId: String) async -> Outcome<Insomnia> {
+        await phone.call { try $0.dismissInsomniaNotice(noticeId: noticeId) }
+    }
+    public func watchCamera(sink: CameraSink) async -> Outcome<Live> {
+        await phone.call { m in
+            let p = try m.watchCamera(sink: sink)
+            return Live { p.stop() }
+        }
+    }
     public func lastStatus() async -> PhoneStatus? { await phone.lastStatus() }
     public func markReadLatest(conversation: String) async -> Outcome<Void> { await phone.call { try $0.markReadLatest(conversation: conversation) } }
     public func sendWith(_ text: String, attachments: [Attachment]) async -> Outcome<OutboxItem> {

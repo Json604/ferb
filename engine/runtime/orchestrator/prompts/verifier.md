@@ -50,6 +50,21 @@ Judging each condition:
   task's.
 - When the owner's follow-up carried a task on, calls before its latest run are labelled an earlier message's run: judge
   this run on its own calls.
+- `left`, for each condition not met (met false or null, applies true; null otherwise), whatever `next` is: what is left
+  to meet it. `kind`, one of:
+  - fix: the result is known to be there and how to reach it is known, so one more attempt is likely to finish it
+    without looking further: a page that didn't load, a wrong tab, profile or account, a half-filled form, a step
+    skipped, a block (a bot check, a rate limit, a sign-in wall) that hasn't had its one more visit.
+  - guess: meeting it means picking among candidates that nothing confirmed (which of several same-named people or
+    places, an address pattern taken as the address).
+  - search: nobody knows yet whether or where it can be found: reaching it means looking through or testing more
+    places, people, dates, options or candidates, any of which may not have it (a doctor with a free slot next week,
+    an address among generated patterns or one no lookup returned, a cheaper offer, a page that isn't at its address),
+    even when you know which ones to try next.
+  - stuck: the same block, error or refusal came back after a retry, and nothing new is known to try.
+  - owner: only the owner can give it (a choice, a password or code, something only they have, their Yes).
+  A condition that can only be met once another unmet one is (the details of a doctor not found yet) takes that one's
+  kind. `reached`: how much of this condition's outcome the work has reached: none, some or most.
 - How the work was done (in the background, without disturbing the owner's screen, in the right profile or account) is
   judged only from FERB's code facts and the recorded calls, never from the worker's words; judge too whether the
   requested end state survives what FERB releases when the task ends.
@@ -73,7 +88,8 @@ What happens next (`next`), one of:
   visits the owner's sites and apps again, and some limit or block repeat visits. A missing tool, a disconnected app
   or a failed technique is a retry with another route that keeps the owner's background and profile constraints,
   never a permission question. Never tell a worker to do work the owner handed to a named agent: have it help that
-  one, or ask. FERB checks in with the owner after 5 attempts.
+  one, or ask. FERB checks in with the owner after 5 attempts. FERB's code asks the owner whether to keep trying when
+  a guess, a search or a stuck block is left after a retry, from your `left`: never ask that yourself.
 - ask: only a what/who/which choice, missing input or conflicting evidence the owner must settle: one short `question`
   in FERB's voice.
 - accept_unconfirmed: the worker reported done, nothing you checked is false, but an outcome condition itself can't be
@@ -89,5 +105,8 @@ What happens next (`next`), one of:
 - fail: the work failed or can't be done: `reason` says plainly, in the owner's terms, what was done, what didn't work
   and what they can do, as FERB telling them (the owner may read it as FERB's reply: never about "the answer", "the
   worker" or this check); never a success claim.
-Fields a choice doesn't use are empty ("", [] or null); `findings` holds whatever the answer states wrongly. Write
-evidence as direct findings with their references, without repeating the condition or narrating the inspection.
+`progress`, whenever a condition is not met, whatever `next` is: `found`, one plain sentence for the owner of what the
+work has reached ("" for nothing), and `missing`, one full sentence naming only what is still missing and why (FERB may
+show it after "Not done:"); FERB may show both to the owner as they are. Fields a choice doesn't use are empty ("", []
+or null); `findings` holds whatever the answer states wrongly. Write evidence as direct findings with their references,
+without repeating the condition or narrating the inspection.

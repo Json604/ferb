@@ -50,3 +50,5 @@ getrandom = "0.3"
 
 [dev-dependencies]
 tempfile = "3"
+# a paused clock for the insomnia step's wait (TEST-508: no real time)
+tokio = { version = "1.54.1", features = ["test-util"] }

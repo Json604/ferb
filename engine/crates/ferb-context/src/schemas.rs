@@ -53,6 +53,10 @@ pub const NEXT: [&str; 6] = [
 ];
 /// schemas.py:309 `FINDING_KINDS` (ORCH-545).
 pub const FINDING_KINDS: [&str; 2] = ["contradicted", "unsupported"];
+/// ORCH-679 (not Python's): what is left of an unmet condition, as the check labels it (`results[].left.kind`).
+pub const LEFT_KINDS: [&str; 5] = ["fix", "guess", "search", "stuck", "owner"];
+/// ORCH-679: how much of the condition the work reached (`results[].left.reached`).
+pub const REACHED: [&str; 3] = ["none", "some", "most"];
 
 /// schemas.py:21 `CHECK_KINDS`.
 pub fn check_kinds() -> Vec<&'static str> {
@@ -680,6 +684,7 @@ pub fn checker_schema() -> Value {
                 ("applies", json!({"type": "boolean"})),
                 ("evidence", string()),
                 ("how", json!({"type": ["string", "null"]})),
+                ("left", left_schema()),
             ])),
         ),
         ("next", s_enum(&NEXT)),
@@ -690,7 +695,23 @@ pub fn checker_schema() -> Value {
         ("question", string()),
         ("reason", string()),
         ("gaps", check_gaps_schema()),
+        ("progress", progress_schema()),
     ])
+}
+
+/// ORCH-679 (not Python's): a check result's `left`: what is left of an unmet condition, labels only; null for a met
+/// one. Code reads only these labels (rabbit_holes.rs in ferb-orchestrator).
+pub fn left_schema() -> Value {
+    or_null(obj(vec![
+        ("kind", s_enum(&LEFT_KINDS)),
+        ("reached", s_enum(&REACHED)),
+    ]))
+}
+
+/// ORCH-679 (not Python's): a check's `progress`: what the work reached and what is still missing, one plain sentence
+/// each for the owner; null when every condition is met. The question and the "Not done:" line show them as they are.
+pub fn progress_schema() -> Value {
+    or_null(obj(vec![("found", string()), ("missing", string())]))
 }
 
 /// schemas.py:329 `FIX_SCHEMA`.
@@ -1228,10 +1249,38 @@ pub fn new_task(answer: &Value) -> Option<&Value> {
 }
 
 /// The answer schemas as Python recorded them (engine/fixtures/catalog/answer_schemas.json): FERB's schema with its
-/// named changes taken out, ORCH-652's `gaps` ([`before_gaps`]) and HAND-580's task `profiles`
-/// ([`before_profiles`]). For the tests that compare FERB's schemas with the recorded ones.
+/// named changes taken out, ORCH-679's `left` and `progress` ([`before_left`]), ORCH-652's `gaps` ([`before_gaps`])
+/// and HAND-580's task `profiles` ([`before_profiles`]). For the tests that compare FERB's schemas with the recorded ones.
 pub fn as_recorded(schema: &Value) -> Value {
-    before_uploaded(&before_profiles(&before_gaps(schema)))
+    before_uploaded(&before_profiles(&before_gaps(&before_left(schema))))
+}
+
+/// ORCH-679's deliberate change (ENG-6): a check's `results[].left` and `progress` taken out, as Python built the
+/// checker's schema; any other schema comes back as it is.
+pub fn before_left(schema: &Value) -> Value {
+    let Some(props) = schema.get("properties").and_then(Value::as_object) else {
+        return schema.clone();
+    };
+    if !(props.contains_key("results") && props.contains_key("next")) {
+        return schema.clone();
+    }
+    let mut out = schema.clone();
+    let o = out.as_object_mut().expect("an object");
+    if let Some(Value::Object(p)) = o.get_mut("properties") {
+        p.shift_remove("progress");
+        if let Some(Value::Object(item)) = p.get_mut("results").and_then(|r| r.get_mut("items")) {
+            if let Some(Value::Object(ip)) = item.get_mut("properties") {
+                ip.shift_remove("left");
+            }
+            if let Some(Value::Array(r)) = item.get_mut("required") {
+                r.retain(|v| v != "left");
+            }
+        }
+    }
+    if let Some(Value::Array(r)) = o.get_mut("required") {
+        r.retain(|v| v != "progress");
+    }
+    out
 }
 
 /// ORCH-667's deliberate change (ENG-6): the check kind `uploaded` taken out of every check-kind enum in `schema`, as

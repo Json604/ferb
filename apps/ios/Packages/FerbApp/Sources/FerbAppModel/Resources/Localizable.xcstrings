@@ -144,6 +144,50 @@
         }
       }
     },
+    "camera_ended": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The camera stopped."
+          }
+        }
+      }
+    },
+    "camera_needs_unlock": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unlock to see your Mac's camera."
+          }
+        }
+      }
+    },
+    "camera_starting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starting your Mac's camera…"
+          }
+        }
+      }
+    },
+    "camera_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Mac's camera"
+          }
+        }
+      }
+    },
     "cancel": {
       "extractionState": "manual",
       "localizations": {
@@ -1047,6 +1091,182 @@
         }
       }
     },
+    "insomnia_already": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FERB is already keeping your Mac working."
+          }
+        }
+      }
+    },
+    "insomnia_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FERB keeps your Mac awake so it can finish your tasks. It's best to leave the lid open: your Mac stays cooler and FERB can do more. You can close it too: plugged in, FERB keeps working; on battery, your Mac sleeps and FERB waits until you open it."
+          }
+        }
+      }
+    },
+    "insomnia_end": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "End"
+          }
+        }
+      }
+    },
+    "insomnia_ends": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This ends when you're back, when you end it, or %1$lld minutes after FERB's work is done."
+          }
+        }
+      }
+    },
+    "insomnia_fine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It's fine"
+          }
+        }
+      }
+    },
+    "insomnia_go": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep it working"
+          }
+        }
+      }
+    },
+    "insomnia_lock_mac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lock my Mac"
+          }
+        }
+      }
+    },
+    "insomnia_locked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lock my Mac"
+          }
+        }
+      }
+    },
+    "insomnia_locked_text": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Mac locks as usual. FERB keeps working, but can't use apps that need the screen."
+          }
+        }
+      }
+    },
+    "insomnia_not_now": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not now"
+          }
+        }
+      }
+    },
+    "insomnia_row": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep my Mac working"
+          }
+        }
+      }
+    },
+    "insomnia_screen_yes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Let FERB bring apps to the front under the cover when a step needs it"
+          }
+        }
+      }
+    },
+    "insomnia_shield": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cover the screen"
+          }
+        }
+      }
+    },
+    "insomnia_shield_text": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Mac stays unlocked under a cover that only your Touch ID or password removes. If someone touches it, FERB tells your phone."
+          }
+        }
+      }
+    },
+    "insomnia_show_me": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show me"
+          }
+        }
+      }
+    },
+    "insomnia_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep your Mac working while you're away?"
+          }
+        }
+      }
+    },
     "keys_registered": {
       "extractionState": "manual",
       "localizations": {
@@ -1520,6 +1740,39 @@
         }
       }
     },
+    "n_insomnia_activation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An app opened on your Mac"
+          }
+        }
+      }
+    },
+    "n_insomnia_touched": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Someone's at your Mac"
+          }
+        }
+      }
+    },
+    "n_insomnia_warning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Mac"
+          }
+        }
+      }
+    },
     "n_link_removed_text": {
       "extractionState": "manual",
       "localizations": {
@@ -1648,6 +1901,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "FERB has news"
+          }
+        }
+      }
+    },
+    "n_public_mac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FERB has news about your Mac"
           }
         }
       }
@@ -2308,6 +2572,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Opens this from your Mac"
+          }
+        }
+      }
+    },
+    "prompt_insomnia_subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keeps your Mac working while you're away"
           }
         }
       }

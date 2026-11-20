@@ -138,6 +138,7 @@ struct ChatBodyView: View {
                                    typed: $model.introTyped, canSkip: model.introSkippable)
                     .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 13))
             }
+            if model.showsInsomniaLine { InsomniaLineView(model: model) }
             if model.showsWorkRow { WorkRowView(model: model) }
             if model.viewingToday { composer.disabled(!model.canCompose) }
             else {
@@ -292,6 +293,22 @@ struct WorkRowView: View {
             if model.hasRunningWork || model.pausedTaskCount > 0 { TaskActivityBubble(model: model) }
             Spacer()
             Button("View tasks", action: model.toggleTasks)
+                .buttonStyle(.plain).font(.system(size: 11))
+        }
+    }
+}
+
+/// Insomnia mode is on (APP-980): the daemon's line and the owner's End, as the work row is drawn.
+struct InsomniaLineView: View {
+    @ObservedObject var model: NotchModel
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(model.insomniaLine)
+                .font(.system(size: 11)).foregroundStyle(Palette.secondary)
+                .lineLimit(1).truncationMode(.tail)
+            Spacer(minLength: 4)
+            Button(InsomniaWords.end, action: model.endInsomnia)
                 .buttonStyle(.plain).font(.system(size: 11))
         }
     }

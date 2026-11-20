@@ -241,6 +241,18 @@ fn fixes(request: &str, python: &str) -> Option<String> {
         // decision: APP-941: Jev's days are no setting any more, so the settings FERB lists leave them out
         if let Some(Value::Array(settings)) = doc.get_mut("settings") {
             settings.retain(|r| r["key"] != "retention.decision_days");
+            // decision: APP-981: insomnia mode's three numbers are the owner's settings (T-1274), after Python's last
+            let place = settings
+                .last()
+                .and_then(|r| r.get("where").cloned())
+                .unwrap_or(Value::Null);
+            for (key, value) in [
+                ("insomnia.grace_minutes", 10),
+                ("insomnia.battery_warn_percent", 20),
+                ("insomnia.battery_urgent_percent", 10),
+            ] {
+                settings.push(json!({"key": key, "value": value, "where": place}));
+            }
         }
         return Some(ferb_py::json::dumps(&line));
     }

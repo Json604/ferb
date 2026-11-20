@@ -35,6 +35,10 @@ public enum AppSheet: Equatable, Sendable {
     case city
     /// What reaches the phone while FERB is closed (iOS has no Stay connected, kb PHN-566): plain words.
     case background
+    /// Insomnia mode's warning before the phone turns it on (APP-980): the two ways, the one Yes, Keep it working.
+    case insomnia
+    /// Show me (APP-983): the Mac's camera while this shows, out of screenshots and captures.
+    case camera
 }
 
 /// A short line for the owner: a catalog key (Android's string name) and its arguments (the Mac's own words, when
@@ -292,6 +296,8 @@ public final class AppModel {
     /// The message box's files and the messages that carry files (kb PHN-690, PHN-691); kept on the phone, off main.
     public let outgoing: Outgoing
     public let live: LiveWatch
+    /// Show me (APP-983): the Mac's camera, pulled only while its view shows.
+    public let camera: CameraWatch
     /// The work row's round live pictures (kb PHN-725), only while it shows, unlocked, in front and not on the shared relay.
     public let thumbnails: Thumbnails
     @ObservationIgnored private var workRowIds: [String] = []
@@ -347,6 +353,7 @@ public final class AppModel {
     }
     @ObservationIgnored private var pending: String?
     @ObservationIgnored private var pendingLocation: String?
+    @ObservationIgnored private var pendingCamera = false
     /// Key places' files the owner opened in another app: they go when he is back in FERB (PHN-11).
     @ObservationIgnored private var openedKeyFiles: Set<String> = []
     /// The open before this one (the corpus's awayHours, lastOpen, firstToday, newPlace).
@@ -375,6 +382,8 @@ public final class AppModel {
         // the views that show the Mac's screen readably (Watch live, a task's or step's short view) whatever the switch
         // says; the small round pictures in the chat follow the owner's switch (owner 2026-11-18, kb PHN-727)
         case .live, .task: return true
+        // the Mac's camera (APP-983)
+        case .camera: return true
         // a hidden input's field in a question's box (kb PHN-770)
         default: return !hiddenBoxes.isEmpty
         }
@@ -437,6 +446,7 @@ public final class AppModel {
         transfers = Transfers(api: api, local: local, unlocker: unlocker)
         outgoing = Outgoing(api: api, transfers: transfers, local: local)
         live = LiveWatch(api: api)
+        camera = CameraWatch(api: api)
         thumbnails = Thumbnails(api: api)
         outgoing.onSent = { [weak self] item in
             guard let self else { return }
@@ -581,9 +591,10 @@ public final class AppModel {
                 ui.macNeed = nil
                 stopListening()
                 live.stop()
+                camera.stop()
                 thumbnails.show([])
                 switch sheet {
-                case .live, .task, .settings, .days, .location: sheet = nil
+                case .live, .task, .settings, .days, .location, .camera, .insomnia: sheet = nil
                 default: break
                 }
                 transfers.locked()
@@ -612,6 +623,8 @@ public final class AppModel {
                 stopListening()
                 thumbnails.show([])
                 if live.showing { closeLive() }
+                // the Mac's camera only while he looks at it (APP-983)
+                if camera.showing { closeCamera() }
             } else {
                 transfers.dropKeyPlaceFiles(openedKeyFiles)
                 openedKeyFiles = []
@@ -688,11 +701,23 @@ public final class AppModel {
         showPending()
     }
 
+    /// The notice's Show me (APP-983): the camera view opens as soon as the app is unlocked.
+    public func openCamera() {
+        pendingCamera = true
+        showPending()
+    }
+
     private func showPending() {
         if ui.gate != .main || session.locked { return }
         if let id = pending {
             pending = nil
             goToQuestion(id)
+            return
+        }
+        if pendingCamera && session.front {
+            pendingCamera = false
+            tab = .mac
+            showCamera()
             return
         }
         guard let loc = pendingLocation else { return }
@@ -807,6 +832,7 @@ public final class AppModel {
         ui.questions = questions
         ui.older = view?.older ?? .unknown
         ui.status = status
+        sayLastEnd(status?.insomnia)
         rebuildWork()
     }
 
@@ -1365,6 +1391,98 @@ public final class AppModel {
         }
     }
 
+    // ---- insomnia mode (APP-980..APP-985) ----------------------------------------------------------------------
+
+    /// "Keep my Mac working" turned on: its warning first (APP-980), never straight on.
+    public func askInsomnia() { show(.insomnia) }
+
+    /// Keep it working (APP-980, APP-984): the way he chose and his one Yes, signed like a setting (a sensitive change
+    /// on the Mac, PHN-112). The sheet goes once the Mac took it.
+    @discardableResult
+    public func startInsomnia(variant: String, screenYes: Bool) -> Task<Void, Never> {
+        busy("insomnia", tap: true) { [self] in
+            guard let signer = await freshSigner(.insomnia) else { return }
+            switch await unlocker.run({ await api.startInsomnia(variant: variant, screenYes: screenYes, signer: signer) }) {
+            case .ok(let r):
+                ui.status?.insomnia = r.insomnia
+                if sheet == .insomnia { sheet = nil }
+                if r.already { note(Note("insomnia_already")) }
+            case .failed(let e):
+                if case .NotSigned = e {} else { failed(e) }
+            }
+        }
+    }
+
+    /// End (plain: it only takes something away; no prompt). How it ended is said once from the Mac's status.
+    @discardableResult
+    public func endInsomnia() -> Task<Void, Never> {
+        busy("insomnia-end", tap: true) { [self] in
+            switch await api.endInsomnia() {
+            case .ok(let r): ui.status?.insomnia = r.insomnia
+            case .failed(let e): failed(e)
+            }
+        }
+    }
+
+    /// Lock my Mac (APP-983): the owner's button only; FERB never locks by itself.
+    @discardableResult
+    public func lockMac() -> Task<Void, Never> {
+        busy("lock-mac", tap: true) { [self] in
+            switch await api.lockMac() {
+            case .ok(let r):
+                if let i = r.insomnia { ui.status?.insomnia = i }
+                if !r.text.isEmpty { note(Note("err_mac_said", r.text)) }
+            case .failed(let e): failed(e)
+            }
+        }
+    }
+
+    /// It's fine: the notice is answered; FERB goes on.
+    @discardableResult
+    public func insomniaFine(_ noticeId: String) -> Task<Void, Never> {
+        busy("insomnia-fine", tap: true) { [self] in
+            switch await api.dismissInsomniaNotice(noticeId) {
+            case .ok(let i): ui.status?.insomnia = i
+            case .failed(let e): failed(e)
+            }
+        }
+    }
+
+    /// Show me (APP-983): the camera view; the library refuses it on the public relay and the view says why.
+    public func showCamera() {
+        sheet = .camera
+        camera.start()
+    }
+
+    /// The app locked under the camera: unlock (one prompt) and look again.
+    @discardableResult
+    public func cameraAgain() -> Task<Void, Never> {
+        busy("camera") { [self] in
+            guard sheet == .camera, let p = prompts else { return }
+            if camera.view?.needsUnlock == true {
+                guard let s = p.signer(.lock, why: .open) else { return }
+                switch await api.unlock(s) {
+                case .ok: ui.needsMacUnlock = false
+                case .failed(let e):
+                    if case .NotSigned = e {} else { failed(e) }
+                    return
+                }
+            }
+            camera.start()
+        }
+    }
+
+    public func closeCamera() {
+        camera.stop()
+        if sheet == .camera { sheet = nil }
+    }
+
+    /// How the mode last ended (the Mac keeps it 10 minutes): said once, quietly, here while he is in the app.
+    private func sayLastEnd(_ i: Insomnia?) {
+        guard let i, let end = i.lastEnd, !i.on, session.front, !session.locked, !end.text.isEmpty else { return }
+        if prefs.claimInsomniaEnd(end.id) { note(Note("err_mac_said", end.text)) }
+    }
+
     /// "Stop everything on the Mac" (DMN-1, PHN-125): after the owner's confirmation; no prompt, never queued.
     @discardableResult
     public func stopEverything() -> Task<Void, Never> {
@@ -1759,21 +1877,7 @@ public final class AppModel {
     public func setSetting(_ key: String, valueJson: String) -> Task<Void, Never> {
         busy("setting:\(key)", tap: true) { [self] in
             guard let spec = MacSettings.spec(key) else { return note(Note("err_app_older")) }
-            guard let p = prompts else { return note(Note("err_try_again")) }
-            // the fingerprint-only key made after the pairing isn't known to the Mac yet: registered here first (kb PHN-656)
-            if await api.unregisteredKeys()?.strong != nil {
-                AppLog.i("setting \(key): registering the Face ID key first")
-                let lock = p.signer(.lock, why: .keys) ?? Declined()
-                let strong = p.signer(.strong, why: .keys) ?? Declined()
-                switch await api.registerKeys({ kind in kind == .strong ? strong : lock }) {
-                case .ok: ui.newKeys = false
-                case .failed(let e):
-                    if case .NotSigned = e {} else { failed(e) }
-                    return
-                }
-            }
-            guard let kind = unlocker.freshKind() else { return note(Note("needs_pairing_again")) }
-            guard let signer = p.signer(kind, why: .setting) else { return note(Note("err_try_again")) }
+            guard let signer = await freshSigner(.setting) else { return }
             switch await unlocker.run({ await api.setSetting(key: key, valueJson: valueJson, signer: signer) }) {
             case .ok(let stored):
                 let row = MacSettings.row(spec, stored)
@@ -1783,6 +1887,27 @@ public final class AppModel {
                 if case .NotSigned = e {} else { failed(e) }
             }
         }
+    }
+
+    /// The signer for one sensitive call (PHN-112, PHN-133): the Face ID / Touch ID key where the phone has one, else
+    /// the lock key. A key made after the pairing that the Mac doesn't know yet is registered first (its one prompt, kb
+    /// PHN-656). Nil when there is none (said) or the owner cancelled.
+    private func freshSigner(_ why: Why) async -> Signer? {
+        guard let p = prompts else { note(Note("err_try_again")); return nil }
+        if await api.unregisteredKeys()?.strong != nil {
+            AppLog.i("\(why): registering the Face ID key first")
+            let lock = p.signer(.lock, why: .keys) ?? Declined()
+            let strong = p.signer(.strong, why: .keys) ?? Declined()
+            switch await api.registerKeys({ kind in kind == .strong ? strong : lock }) {
+            case .ok: ui.newKeys = false
+            case .failed(let e):
+                if case .NotSigned = e {} else { failed(e) }
+                return nil
+            }
+        }
+        guard let kind = unlocker.freshKind() else { note(Note("needs_pairing_again")); return nil }
+        guard let signer = p.signer(kind, why: why) else { note(Note("err_try_again")); return nil }
+        return signer
     }
 
     @discardableResult
@@ -1843,6 +1968,7 @@ public final class AppModel {
     public func show(_ s: AppSheet?) {
         func watching(_ x: AppSheet?) -> Bool { switch x { case .live, .task: return true; default: return false } }
         if watching(sheet) && !watching(s) { live.stop() }
+        if sheet == .camera && s != .camera { camera.stop() }
         sheet = s
         if s == nil && pendingLocation != nil { showPending() }
     }
@@ -1872,6 +1998,7 @@ public final class AppModel {
         busy("forget", tap: true) { [self] in
             sheet = nil
             live.stop()
+            camera.stop()
             switch await api.forget() {
             case .ok(let told):
                 statement = nil

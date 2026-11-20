@@ -66,6 +66,7 @@
 
         <!-- an answer from a notification; only this app can send to it -->
         <receiver android:name=".AnswerReceiver" android:exported="false" />
+        <receiver android:name=".InsomniaReceiver" android:exported="false" />
 
         <!-- after an update, Stay connected comes back if it was on -->
         <receiver android:name=".UpdatedReceiver" android:exported="false">

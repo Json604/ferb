@@ -132,6 +132,9 @@ rustup_here cargo build --release --locked --target "$FERB_RUST_TARGET" \
   --manifest-path "$ROOT/engine/crates/ferbd/Cargo.toml" --bin ferbd --bin ferb
 rustup_here cargo build --release --locked --target "$FERB_RUST_TARGET" --manifest-path "$ROOT/engine/Cargo.toml" \
   -p ferb-native-host
+# APP-986: the root helper (a workspace member: the same lock)
+rustup_here cargo build --release --locked --target "$FERB_RUST_TARGET" --manifest-path "$ROOT/engine/Cargo.toml" \
+  -p ferb-power-helper --bin ferb-power
 print "==> ferb-link, the phone link's helper (its own Cargo.lock; iroh and two of its crates patched: engine/patches)"
 # Not a workspace member: its [patch.crates-io] table would bind the whole workspace's lock to the patched copies, and
 # every cargo command in the workspace would then need engine/patches/apply.sh first (kb PHN-486).
@@ -141,7 +144,7 @@ FERB_LINK_BUILD="$VERSION $REVISION" rustup_here cargo build --release --locked 
   --manifest-path "$ROOT/engine/crates/ferb-link/Cargo.toml" --bin ferb-link
 print "    $(rustup_here rustc --version)"
 BUILT="$WORK/cargo/$FERB_RUST_TARGET/release"
-for program in ferbd ferb ferb-native-host ferb-link; do
+for program in ferbd ferb ferb-native-host ferb-link ferb-power; do
   [[ "$(lipo -archs "$BUILT/$program")" == "$ARCH" ]] || die "cargo built no $ARCH $program"
   # only the system's libraries, by absolute path: nothing for dyld to look up through an @rpath
   ! otool -L "$BUILT/$program" | tail -n +2 | grep -q '@rpath' || die "$program links a library by @rpath"
@@ -158,7 +161,9 @@ cp "$BUILT/ferbd" "$CONTENTS/$FERB_RUST_AGENT"
 cp "$BUILT/ferb-native-host" "$CONTENTS/$FERB_RUST_NATIVE_HOST"
 cp "$BUILT/ferb" "$CONTENTS/$FERB_RUST_CLI"
 cp "$BUILT/ferb-link" "$CONTENTS/$FERB_RUST_LINK"
-chmod 755 "$CONTENTS/$FERB_RUST_AGENT" "$CONTENTS/$FERB_RUST_NATIVE_HOST" "$CONTENTS/$FERB_RUST_CLI" "$CONTENTS/$FERB_RUST_LINK"
+cp "$BUILT/ferb-power" "$CONTENTS/$FERB_RUST_POWER"
+chmod 755 "$CONTENTS/$FERB_RUST_AGENT" "$CONTENTS/$FERB_RUST_NATIVE_HOST" "$CONTENTS/$FERB_RUST_CLI" "$CONTENTS/$FERB_RUST_LINK" \
+  "$CONTENTS/$FERB_RUST_POWER"
 
 print "==> Background service definition (FERB daemon; for SMAppService with a Developer ID, DMN-587)"
 SERVICE="$CONTENTS/Library/LaunchAgents/com.ferb.daemon.plist"     # ferb-device install.rs BUNDLE_SERVICE
@@ -170,6 +175,12 @@ plist "Add :ProgramArguments array" "$SERVICE"
 plist "Add :ProgramArguments:0 string FERB" "$SERVICE"
 plist "Add :ProgramArguments:1 string daemon" "$SERVICE"                # ferb-device RUST_DAEMON_ARG
 plutil -lint "$SERVICE" >/dev/null || die "the service definition isn't a valid plist"
+
+print "==> The root helper's definition (APP-986: SMAppService.daemon, approved once by the owner)"
+POWER_SERVICE="$CONTENTS/$FERB_RUST_POWER_SERVICE"                # ferb-policy protection BUNDLE_HELPER_SERVICE
+mkdir -p "${POWER_SERVICE:h}"
+cp "$ROOT/apps/mac/FERBAgent/com.ferb.power.plist" "$POWER_SERVICE"
+plutil -lint "$POWER_SERVICE" >/dev/null || die "the helper's definition isn't a valid plist"
 
 print "==> Runtime Markdown (engine/runtime/, byte for byte) and the extension"
 PACKAGE="$CONTENTS/$FERB_RUST_PACKAGE"

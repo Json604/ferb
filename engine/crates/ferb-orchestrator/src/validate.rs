@@ -566,8 +566,11 @@ pub(crate) fn models() -> Vec<ModelDef> {
                 opt("applies", T::Bool, yes),
                 req("evidence", s()),
                 opt("how", os(), none),
+                // ORCH-679 (not Python's): the check's labels of what is left; a malformed one is dropped, never an
+                // error (ORCH-680: a bad label changes nothing)
+                opt("left", T::Opt(Box::new(T::Dict)), none),
             ],
-            vec![],
+            vec![loose_left],
             None,
         ),
         model(
@@ -612,8 +615,10 @@ pub(crate) fn models() -> Vec<ModelDef> {
                 opt("dropped_edits", ls(), nothing),
                 // ORCH-652 (not Python's): with accept_with_gaps, the unmet conditions and why
                 opt("gaps", lm("CheckGap"), nothing),
+                // ORCH-679 (not Python's): what the work reached and what is missing, for the owner
+                opt("progress", T::Opt(Box::new(T::Dict)), none),
             ],
-            vec![older_shape],
+            vec![loose_progress, older_shape],
             Some(checker_tags),
         ),
     ]
@@ -875,6 +880,32 @@ fn checker_tags(m: &mut IndexMap<String, Py>) -> Result<(), String> {
     clean_field(m, "reason");
     clean_field(m, "question");
     Ok(())
+}
+
+/// ORCH-680: a check result's `left` that isn't an object (or null) is dropped before validation: a malformed label
+/// leaves the check as it is, never fails it.
+fn loose_left(data: Py) -> Result<Py, Raised> {
+    Ok(drop_unless_dict(data, "left"))
+}
+
+/// ORCH-680: a check's `progress` that isn't an object (or null) is dropped, as `left`.
+fn loose_progress(data: Py) -> Result<Py, Raised> {
+    Ok(drop_unless_dict(data, "progress"))
+}
+
+fn drop_unless_dict(data: Py, key: &str) -> Py {
+    match data {
+        Py::Dict(mut d) => {
+            if d.0
+                .get(key)
+                .is_some_and(|v| !matches!(v, Py::Dict(_) | Py::None))
+            {
+                d.0.shift_remove(key);
+            }
+            Py::Dict(d)
+        }
+        other => other,
+    }
 }
 
 /// schemas.py:712 `CheckerOutcome._older_shape` (before ORCH-545).
@@ -2052,16 +2083,55 @@ fn result_from(v: &Py) -> CheckerResult {
         applies: r.b("applies"),
         evidence: r.s("evidence"),
         how: r.os("how"),
+        left: r.maybe("left", left_from),
     }
 }
 fn result_to(m: &CheckerResult) -> Py {
-    dict(vec![
+    let mut d = dict(vec![
         ("index", pi(&m.index)),
         ("met", pob(&m.met)),
         ("applies", Py::Bool(m.applies)),
         ("evidence", ps(&m.evidence)),
         ("how", pos(&m.how)),
-    ])
+    ]);
+    // ORCH-679: in a dump only when given, so a result without one dumps as Python's
+    if let (Py::Dict(map), Some(left)) = (&mut d, &m.left) {
+        map.0.insert("left".into(), left_to(left));
+    }
+    d
+}
+/// ORCH-679: the labels as the check wrote them, each "" when it isn't a string; the rule reads them (rabbit_holes.rs).
+fn left_from(v: &Py) -> CheckLeft {
+    let text = |k: &str| match v {
+        Py::Dict(d) => match d.0.get(k) {
+            Some(Py::Str(s)) => s.clone(),
+            _ => String::new(),
+        },
+        _ => String::new(),
+    };
+    CheckLeft {
+        kind: text("kind"),
+        reached: text("reached"),
+    }
+}
+fn left_to(m: &CheckLeft) -> Py {
+    dict(vec![("kind", ps(&m.kind)), ("reached", ps(&m.reached))])
+}
+fn progress_from(v: &Py) -> CheckProgress {
+    let text = |k: &str| match v {
+        Py::Dict(d) => match d.0.get(k) {
+            Some(Py::Str(s)) => s.clone(),
+            _ => String::new(),
+        },
+        _ => String::new(),
+    };
+    CheckProgress {
+        found: text("found"),
+        missing: text("missing"),
+    }
+}
+fn progress_to(m: &CheckProgress) -> Py {
+    dict(vec![("found", ps(&m.found)), ("missing", ps(&m.missing))])
 }
 
 fn finding_from(v: &Py) -> Finding {
@@ -2120,10 +2190,16 @@ fn checker_from(v: &Py) -> CheckerOutcome {
         reason: r.s("reason"),
         dropped_edits: r.ls("dropped_edits"),
         gaps: r.each("gaps", check_gap_from),
+        progress: r.maybe("progress", progress_from),
     }
 }
 fn checker_to(m: &CheckerOutcome) -> Py {
-    with_gaps(checker_to_python(m), pl(&m.gaps, check_gap_to))
+    let mut d = with_gaps(checker_to_python(m), pl(&m.gaps, check_gap_to));
+    // ORCH-679: in a dump only when given
+    if let (Py::Dict(map), Some(p)) = (&mut d, &m.progress) {
+        map.0.insert("progress".into(), progress_to(p));
+    }
+    d
 }
 fn checker_to_python(m: &CheckerOutcome) -> Py {
     dict(vec![

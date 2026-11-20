@@ -62,6 +62,10 @@ pub trait AtTheMac: Send + Sync {
     fn ferb_posted_at(&self) -> Option<f64>;
     /// The Mac is out of use now: asleep, its screen locked or asleep, or its session switched away.
     fn away(&self) -> bool;
+    /// HAND-645: the screen is locked now (`CGSSessionScreenIsLocked`): the keyboard and pointer reach no app.
+    fn screen_locked(&self) -> bool {
+        false
+    }
 }
 
 /// One "until I'm back" in force.

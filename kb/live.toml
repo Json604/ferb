@@ -4848,3 +4848,57 @@ request = "Hold the pill (or tear the notch out of the camera) and drag it slowl
 pass = "The pill stays under the pointer and the chat with its frost moves with it, with no shaking, stutter or lag behind the pointer, as smooth as scrolling the chat; the frost's outline, the black tint and the pill's join look as before; nothing flashes at the drop or the dock; afterwards clicks and hover on the chat work as before. The edge resize follows the pointer without stalls."
 decisions = ["APP-970", "APP-971", "APP-972"]
 sitting = "after this change is installed"
+
+[LIVE-1151]
+title = "Insomnia mode with the cover: FERB works under it, a touch reaches the phone, Show me, Lock my Mac"
+area = "app"
+surface = "FERB.app with this build (installed by the owner), lid open, plugged in; the paired phone on the same Wi-Fi (or his own relay); a scratch TextEdit document; a full-screen app in another Space"
+request = "Menu bar → Keep my Mac working… → Cover the screen (the one Yes ticked) → Keep it working. From the phone ask FERB to type a line into the scratch TextEdit document. Wait; then touch the trackpad and press a key at the Mac. On the phone tap Show me, then Lock my Mac; unlock the Mac with Touch ID."
+pass = "The cover shows on every display, over the full-screen app; pmset -g assertions lists only FERB's idle-sleep and display holds; the line lands in TextEdit with the cover still up; the phone notifies \"Someone's at your Mac\" in seconds with Show me, Lock my Mac and It's fine; Show me shows the camera live (its light on only while watching, no screenshot); Lock my Mac locks at once; his unlock ends the mode (said once on both) and FERB's holds are gone."
+decisions = ["APP-980", "APP-983", "APP-984", "DMN-603", "DMN-606", "DMN-607", "DMN-608", "APP-987", "APP-988", "APP-989", "APP-990", "APP-991", "APP-992", "APP-993", "APP-994", "APP-995", "PHN-774", "PHN-775", "PHN-776", "DMN-609"]
+sitting = "after this engine, FERB.app and the phone builds are installed"
+
+[LIVE-1152]
+title = "Insomnia mode, Lock my Mac variant, from the phone: awake, locked, ends after the grace"
+area = "app"
+surface = "FERB.app with this build, lid open, on battery; the paired phone"
+request = "On the phone: Keep my Mac working → Lock my Mac → Keep it working (fingerprint). Send a task that takes a few minutes; leave the Mac alone 20 minutes; then restart FERB's daemon once (quit and reopen FERB.app) while it is on."
+pass = "The display sleeps and the Mac locks on its own timer; the task finishes; the restart says once \"FERB restarted and is still keeping your Mac working.\"; about 10 minutes after the last task the mode ends (\"FERB finished its work…\") and the Mac sleeps as usual; nothing ended it for the battery; if the battery fell under 20 % the phone warned once."
+decisions = ["APP-980", "APP-981", "DMN-602", "DMN-603", "DMN-604", "DMN-605", "APP-997"]
+sitting = "after this engine and the phone builds are installed"
+
+[LIVE-1153]
+title = "A closed lid: plugged in it keeps working; on battery with the helper approved it keeps working"
+area = "app"
+surface = "FERB.app with this build, its helper approved in System Settings → General → Login Items; a task that takes 10 minutes"
+request = "Plugged in: start insomnia mode, start the task, close the lid for 3 minutes, open it. Then unplugged: the same. Afterwards: pmset -g log | grep -E 'Clamshell Sleep|DarkWake' | tail -5, and pmset -g | grep SleepDisabled once the mode has ended."
+pass = "Plugged in, the task went on with the lid closed (no Clamshell Sleep in the log; if there is one, PreventSystemSleep doesn't hold in clamshell without the helper: say so). On battery with the helper, the task went on, the phone warned once that the lid is closed on battery, the panel was dark under the lid, and SleepDisabled is 0 again after the end."
+decisions = ["APP-981", "APP-986", "DMN-603", "DMN-610", "DMN-611", "DMN-612", "APP-996"]
+sitting = "after a certificate-signed build with the helper is installed and approved"
+
+[LIVE-1154]
+title = "A step that needs the keyboard while the Mac is locked asks on the phone and waits for his return"
+area = "hands"
+surface = "FERB.app with this build, the paired phone; the scratch TextEdit document"
+request = "Lock the Mac (Ctrl-Cmd-Q). From the phone ask FERB to type a line into the scratch document using the real keyboard (the foreground route). Answer Do it when I'm back; unlock the Mac a minute later."
+pass = "The phone asks \"Your Mac is locked. Do this in TextEdit when you're back?\"; nothing is typed while locked (no key reaches the lock screen); after the unlock the line is typed; with Skip it instead nothing is typed and the answer says why."
+decisions = ["HAND-645", "HAND-646"]
+sitting = "after this engine is installed"
+
+[LIVE-1155]
+title = "A scheduled task wakes a sleeping Mac a minute early through the helper"
+area = "app"
+surface = "FERB.app with this build, its helper approved; lid open, plugged in"
+request = "Schedule a task for 20 minutes from now (\"at 3:40 tell me the time\"); put the Mac to sleep (Apple menu → Sleep); wait."
+pass = "pmset -g sched lists one wake by com.ferb.FERB about a minute before 3:40; the Mac wakes then and the task runs on time, not late; after the schedule is cancelled its wake is gone within 5 minutes."
+decisions = ["APP-986", "DMN-611", "DMN-612"]
+sitting = "after a certificate-signed build with the helper is installed and approved"
+
+[LIVE-1156]
+title = "The cover's look: written f, breathing dot, frosted grain, dimmed after 10 minutes"
+area = "app"
+surface = "FERB.app with this build; insomnia mode with the cover"
+request = "Turn on insomnia mode with the cover and watch; leave it 11 minutes; then touch the trackpad; then unlock with Touch ID."
+pass = "The f is written and the dot drops in with a small bounce, then breathes; nothing of the desktop shows through the frosted grain; after 10 minutes the animation stops and the cover fades to near black; the touch brings it back (and the phone notifies); Touch ID's prompt appears over the cover and its Yes dismisses it in about a second."
+decisions = ["APP-982", "APP-985", "APP-1100", "APP-989"]
+sitting = "after this FERB.app is installed"

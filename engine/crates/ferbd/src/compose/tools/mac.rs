@@ -739,7 +739,11 @@ impl Mac {
         let real = opts.mac;
         let absent = || crate::off::off("mac.absent", Arc::new(AbsentMac));
         let events: Arc<dyn ferb_mac_hands::input::Events> = if real {
-            Arc::new(native::events::NativeEvents::new())
+            // decision: HAND-645 — nothing reaches the system-wide stream while the screen is locked
+            Arc::new(ferb_mac_hands::input::LockGuard {
+                events: Arc::new(native::events::NativeEvents::new()),
+                locked: Arc::new(|| ferb_platform_macos::power::screen_locked().unwrap_or(false)),
+            })
         } else {
             absent()
         };
@@ -839,8 +843,16 @@ impl Mac {
         d.web_secrets = Some(web_secrets(p.downgrade()));
         // sensing.py:58: FERB's app switches and its actions in an app go to the daemon's one attribution
         let a = p.attribution();
-        d.on_activate =
-            Arc::new(move |bundle: &str, task: Option<&str>| a.ferb_activated(bundle, task));
+        let weak = p.downgrade();
+        d.on_activate = Arc::new(move |bundle: &str, task: Option<&str>| {
+            a.ferb_activated(bundle, task);
+            // decision: APP-983 — an app FERB brings forward is its own, never a "someone's at your Mac" notice
+            if let Some(i) = weak.upgrade().and_then(|p| p.insomnia()) {
+                i.expect(bundle);
+            }
+        });
+        // decision: APP-984 — under insomnia mode's cover a foreground step passes the cover first
+        d.cover = Arc::new(crate::compose::insomnia::Cover(p.downgrade()));
         // HAND-549, HAND-554: an app that came to the front during a Mac call is told to the owner on the same path
         // as a browser window that came up (HAND-546's notice, `browser.window_shown`, no site)
         let events = p.events();

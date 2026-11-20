@@ -718,10 +718,39 @@ pub struct MacDriver {
     pub own_pid: i32,
     /// The Launch Services browser list (browsers.py `_handlers`).
     pub handlers: Arc<crate::apps::WebHandlers>,
+    /// APP-984: insomnia mode's cover over the screen; a foreground step asks it to let input through first.
+    pub cover: Arc<dyn ForegroundCover>,
     state: Mutex<HashMap<String, AppState>>,
     exposed: Mutex<HashSet<i32>>,
     armed: Mutex<HashMap<i32, Armed>>,
     click_through: Mutex<HashMap<i32, HashSet<i64>>>,
+}
+
+/// APP-984: a cover over the whole screen (insomnia mode's, drawn by FERB.app) that a foreground step must pass. Before
+/// FERB brings `bundle` (`pid`) forward for real input, `begin` answers once the cover lets input through to it
+/// (`Some(step)`, ended with `end` after the step's input), `None` when no cover is up, or the refusal's words.
+pub trait ForegroundCover: Send + Sync {
+    fn begin<'a>(
+        &'a self,
+        pid: i32,
+        bundle: &'a str,
+    ) -> Pin<Box<dyn Future<Output = std::result::Result<Option<String>, String>> + Send + 'a>>;
+    fn end(&self, step: &str);
+}
+
+/// No cover: every step goes at once.
+pub struct NoCover;
+
+impl ForegroundCover for NoCover {
+    fn begin<'a>(
+        &'a self,
+        _pid: i32,
+        _bundle: &'a str,
+    ) -> Pin<Box<dyn Future<Output = std::result::Result<Option<String>, String>> + Send + 'a>>
+    {
+        Box::pin(std::future::ready(Ok(None)))
+    }
+    fn end(&self, _step: &str) {}
 }
 
 pub struct Parts {
@@ -761,6 +790,7 @@ impl MacDriver {
             route: false,
             own_pid: std::process::id() as i32,
             handlers: Arc::new(crate::apps::WebHandlers::default()),
+            cover: Arc::new(NoCover),
             state: Mutex::new(HashMap::new()),
             exposed: Mutex::new(HashSet::new()),
             armed: Mutex::new(HashMap::new()),
@@ -2577,6 +2607,30 @@ substituted or brought forward",
             ));
         }
         self.input.quiet(holder, what).await?;
+        // decision: APP-984 — under insomnia mode's cover, the cover lets this step's input through first
+        let step = match self.cover.begin(a.pid, &a.bundle_id).await {
+            Ok(step) => step,
+            Err(why) => return refused(why),
+        };
+        let out = self
+            .real_through(a, steps, holder, what, task, prepare)
+            .await;
+        if let Some(step) = step {
+            self.cover.end(&step);
+        }
+        out
+    }
+
+    /// [`MacDriver::real`] once the owner is quiet and any cover lets the input through.
+    async fn real_through(
+        self: &Arc<Self>,
+        a: &A,
+        steps: Vec<Step>,
+        holder: &str,
+        what: &str,
+        task: Option<&str>,
+        prepare: Option<Pin<Box<dyn Future<Output = Result<()>> + Send + '_>>>,
+    ) -> Result<ActionResult> {
         let front = self.blk(|d| d.apps.frontmost()).await;
         if !front.is_some_and(|f| f.pid == a.pid) {
             (self.on_activate)(&a.bundle_id, task);

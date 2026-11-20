@@ -217,7 +217,12 @@ pub(crate) struct Inner {
     mac_name: std::sync::OnceLock<MacName>,
     /// Each phone's own record and the open requests for a precise fix (T-1214, `device`; memory only).
     devices: Mutex<device::Devices>,
+    /// Insomnia mode's status for `chat.status` (T-1274), once `Phones::set_insomnia` put it in place.
+    insomnia: std::sync::OnceLock<InsomniaStatus>,
 }
+
+/// Insomnia mode's status now (`crate::insomnia::Insomnia::status`), for the phone's `chat.status` (T-1274).
+pub type InsomniaStatus = Arc<dyn Fn() -> Map<String, Value> + Send + Sync>;
 
 /// The Mac's computer name now (ferbd reads the system's; empty when unknown).
 pub type MacName = Arc<dyn Fn() -> String + Send + Sync>;
@@ -278,6 +283,7 @@ impl Phones {
                 asks: Mutex::new(link::Asks::default()),
                 mac_name: std::sync::OnceLock::new(),
                 devices: Mutex::new(device::Devices::default()),
+                insomnia: std::sync::OnceLock::new(),
             }),
         }
     }
@@ -316,6 +322,11 @@ impl Phones {
     /// Where the Mac's name comes from (ferbd: the computer name), for a phone's `phone.list` (T-1221). Set once.
     pub fn set_mac_name(&self, name: MacName) {
         let _ = self.inner.mac_name.set(name);
+    }
+
+    /// Where insomnia mode's status comes from, for the phone's `chat.status` (T-1274). Set once.
+    pub fn set_insomnia(&self, status: InsomniaStatus) {
+        let _ = self.inner.insomnia.set(status);
     }
 
     /// The phone gate the server asks about phone sessions (`Server::set_phone_gate`).

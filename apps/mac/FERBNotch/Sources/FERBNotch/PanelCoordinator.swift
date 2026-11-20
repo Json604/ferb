@@ -263,6 +263,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     var updateOffer: String?                     // L34 Phase G: an update waiting for the owner's click
     var updateAsks = false                       // that update is the Developer ID switch, which asks first (APP-903)
     var onInstallUpdate: (() -> Void)?
+    var onKeepWorking: (() -> Void)?             // insomnia mode's warning (APP-980), set by the packaged FERB.app
     var onOpenSettings: (() -> Void)?            // the FERB window at Settings (L34 Phase E): ⌘, and Settings…
     var service: DaemonServicing = DaemonService()
     /// launchd's words when it can't start FERB's job (`LaunchctlPlan.spawnFailure`); nil otherwise.
@@ -2042,7 +2043,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         for entry in StatusMenu.entries(state: model.menuBarState, paused: model.daemonPaused,
                                         stopped: model.daemonStopped, appName: AppName.current,
                                         canSetUp: onSetUp != nil, hasWindow: hasWindow, updateOffer: updateOffer,
-                                        updateAsks: updateAsks) {
+                                        updateAsks: updateAsks, keepingAwake: model.insomniaStatus.map(\.on)) {
             switch entry {
             case .status(let text):
                 let line = NSMenuItem(title: text, action: nil, keyEquivalent: "")
@@ -2079,6 +2080,8 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         case .setUp: onSetUp?()
         case .quit: NSApp.terminate(nil)
         case .installUpdate: onInstallUpdate?()
+        case .keepWorking: onKeepWorking?()           // the warning first (APP-980, InsomniaDialog)
+        case .endKeepWorking: model.endInsomnia()
         }
     }
 

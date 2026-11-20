@@ -53,6 +53,8 @@ ferb_rust_arch_names() {
 FERB_RUST_AGENT="Helpers/FERB.app/Contents/MacOS/FERB"           # ferbd: the nested com.ferb.daemon app's executable
 FERB_RUST_NATIVE_HOST="Helpers/ferb-native-host"
 FERB_RUST_LINK="Helpers/ferb-link"                               # the phone link's helper (ferb-rpc link_peer HELPER)
+FERB_RUST_POWER="Helpers/ferb-power"                             # the root helper (APP-986; ferb-core power::helper)
+FERB_RUST_POWER_SERVICE="Library/LaunchDaemons/com.ferb.power.plist"  # its launchd definition (SMAppService.daemon)
 FERB_RUST_CLI="Resources/bin/ferb"                               # the internal commands' program
 FERB_RUST_PACKAGE="Resources/ferb"                               # the runtime Markdown, byte for byte
 FERB_RUST_EXTENSION="Resources/extensions/chromium"

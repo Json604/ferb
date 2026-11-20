@@ -916,18 +916,33 @@ async fn codex_cache_roles_and_their_journal_lines() {
     assert_eq!(off[2].1, r("checker"));
 }
 
-/// ORCH-652's named difference: a report or check recorded against Python's schema, answered as a model given today's
-/// (whose `gaps` is required) answers it: with `"gaps": []`.
-// decision: ORCH-675
+/// ORCH-652's and ORCH-679's named differences: a report or check recorded against Python's schema, answered as a model
+/// given today's (whose `gaps`, and a check's `progress` and each result's `left`, are required) answers it: with
+/// `"gaps": []`, `"progress": null` and `"left": null`.
+// decision: ORCH-675, ORCH-679
 fn gaps_answered(data: &mut Map<String, Value>) {
     for v in data.values_mut() {
         let Some(text) = v.as_str() else { continue };
         let Ok(Value::Object(mut report)) = serde_json::from_str::<Value>(text) else {
             continue;
         };
-        let answers = report.contains_key("how") || report.contains_key("next");
+        let check = report.contains_key("next");
+        let answers = report.contains_key("how") || check;
+        let mut changed = false;
         if answers && !report.contains_key("gaps") {
             report.insert("gaps".into(), json!([]));
+            changed = true;
+        }
+        if check && !report.contains_key("progress") {
+            report.insert("progress".into(), Value::Null);
+            if let Some(Value::Array(results)) = report.get_mut("results") {
+                for r in results.iter_mut().filter_map(Value::as_object_mut) {
+                    r.entry("left").or_insert(Value::Null);
+                }
+            }
+            changed = true;
+        }
+        if changed {
             *v = Value::String(ferb_py::json::dumps(&Value::Object(report)));
         }
     }

@@ -116,6 +116,8 @@ struct Inner {
     tasks: Mutex<std::collections::HashMap<String, ferb_gateway::gateway::TaskRecord>>,
     shutting_down: std::sync::atomic::AtomicBool,
     mac: OnceLock<mac::Mac>,
+    /// T-1274: insomnia mode, once the composition built it (the Mac hands' cover and expected apps read it).
+    insomnia: OnceLock<ferb_daemon::insomnia::Insomnia>,
     snapshots: OnceLock<Arc<ferb_fs::recovery::Snapshots>>,
     /// L39's change record (`self.changes`): the gateway's hooks write it before a file call, the checker reads it.
     changes: Arc<ferb_fs::changes::Changes>,
@@ -316,6 +318,7 @@ impl Parts {
             tasks: Mutex::new(std::collections::HashMap::new()),
             shutting_down: std::sync::atomic::AtomicBool::new(false),
             mac: OnceLock::new(),
+            insomnia: OnceLock::new(),
             snapshots: OnceLock::new(),
             changes: Arc::new(ferb_fs::changes::Changes::new(
                 &opts.home.join("changes").to_string_lossy(),
@@ -356,6 +359,16 @@ impl Parts {
     /// A handle that doesn't keep the parts alive (for the parts' own members that call back into them).
     pub fn downgrade(&self) -> WeakParts {
         WeakParts(Arc::downgrade(&self.0))
+    }
+
+    /// T-1274: insomnia mode (None before the composition built it).
+    pub fn insomnia(&self) -> Option<ferb_daemon::insomnia::Insomnia> {
+        self.0.insomnia.get().cloned()
+    }
+
+    /// Puts insomnia mode in place, once.
+    pub fn set_insomnia(&self, ins: ferb_daemon::insomnia::Insomnia) {
+        let _ = self.0.insomnia.set(ins);
     }
 
     /// The owner-input tap and the Mac's presence (None when the Mac's parts are off).

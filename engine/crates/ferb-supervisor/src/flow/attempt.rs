@@ -27,6 +27,10 @@ use crate::worker_context::{self, ContextReads, SourceBlocks, SourceCall, Verifi
 
 /// supervisor.py:7676 `_RuntimeDown`: the checker's run ended on an account fact; carried as a raised class.
 const RUNTIME_DOWN: &str = "_RuntimeDown";
+/// ORCH-652's first limit, as `gapped` says it; ORCH-681 asks the owner on this refusal alone.
+const NOT_REPORTED_DONE: &str = "the worker didn't report done";
+/// ORCH-679: the choice code puts in place of the checker's when the rule asks the owner.
+pub const KEEP_OR_GO_ON: &str = "keep_or_go_on";
 
 fn obj(v: Value) -> Map<String, Value> {
     match v {
@@ -487,7 +491,13 @@ impl Inner {
         let mut task = tree.worker_task();
         let mut instructions = String::new();
         let mut attempts = Attempts::default();
-        tree.lock().confirmed.clear();
+        {
+            let mut st = tree.lock();
+            st.confirmed.clear();
+            // ORCH-679: the rule's memory is the step's own
+            st.retried.clear();
+            st.kept_trying = false;
+        }
         let mut retrying = false;
         let worker = self.worker.get().expect("the worker").clone();
         let fix = std::mem::take(&mut tree.lock().restored_fix);
@@ -696,6 +706,68 @@ impl Inner {
                     out.artifacts.clone(),
                 ));
             }
+            if choice.action == KEEP_OR_GO_ON {
+                // ORCH-679: "Keep trying, or go on with what I have?" in place of the checker's retry or refused
+                // gapped accept; the owner's answer decides (ORCH-680: never a fail or a stop by code)
+                tree.lock().owner_question = choice.question.clone();
+                let asked = if tree.asks_in_place {
+                    self.keep_or_go_on(tree, &task, &choice.question).await
+                } else {
+                    super::owner_wait::KeepOrGoOn::Unanswered
+                };
+                self.journal(
+                    "task.rabbit_hole_answered",
+                    json!({"task_id": tree.worker.id, "step": tree.step_id, "answer": asked.name()}),
+                    None,
+                );
+                match asked {
+                    super::owner_wait::KeepOrGoOn::Keep(more) => {
+                        {
+                            let mut st = tree.lock();
+                            st.owner_question.clear();
+                            st.kept_trying = true;
+                        }
+                        self.note_retried(tree);
+                        if let Some(t) = choice
+                            .worker_type
+                            .as_ref()
+                            .filter(|t| self.deps.daemon.worker_types().contains(t))
+                        {
+                            if let Some(spec) = tree.lock().spec.as_mut() {
+                                spec.worker_type = t.clone();
+                            }
+                        }
+                        instructions = check_notes(&choice) + &more;
+                        retrying = true;
+                        if attempts.failed_one() {
+                            match self
+                                .check_in_step(tree, &task, &mut attempts, out.artifacts.clone())
+                                .await
+                            {
+                                Ok(more) => instructions.push_str(&more),
+                                Err(None) => break,
+                                Err(Some(failed)) => return Ok(failed),
+                            }
+                        }
+                        continue;
+                    }
+                    super::owner_wait::KeepOrGoOn::GoOn => {
+                        tree.lock().owner_question.clear();
+                        return Ok(self.gone_on(tree, &task, &choice, &out, span).await);
+                    }
+                    super::owner_wait::KeepOrGoOn::Stopped => break,
+                    super::owner_wait::KeepOrGoOn::Unanswered => {
+                        // nobody answered (an unattended run, or not asked in place): the step waits on the owner
+                        // as any question does
+                        return Ok(outcome(
+                            &task.id,
+                            "needs_user",
+                            &choice.question,
+                            out.artifacts.clone(),
+                        ));
+                    }
+                }
+            }
             if choice.action == "ask" {
                 if let Some(answer) = self.answered_in_step(tree, &choice.question) {
                     // ORCH-650: the owner already answered this very question in this step: not asked again; the
@@ -757,6 +829,7 @@ impl Inner {
             } else {
                 format!("\nWhat the check found missing: {}", choice.missing)
             } + &format!("\nInstructions for this attempt: {}", choice.instructions);
+            self.note_retried(tree);
             retrying = true;
             if attempts.failed_one() {
                 match self
@@ -780,6 +853,50 @@ impl Inner {
             },
             Vec::new(),
         ))
+    }
+
+    /// ORCH-679: the step takes a retry: each condition unmet on this check counts as retried.
+    fn note_retried(&self, tree: &Arc<Tree>) {
+        let mut st = tree.lock();
+        let unmet: Vec<i64> = st
+            .verification
+            .iter()
+            .filter(|r| r.met != Some(true) && r.path != DECLINED)
+            .map(|r| r.index)
+            .collect();
+        st.retried.extend(unmet);
+    }
+
+    /// ORCH-679: the owner said "go on with what I have": the step ends as a gapped accept does (ORCH-651): what the
+    /// work reached stands, each unmet condition is a gap with the check's missing sentence, and the steps waiting on
+    /// it run (done_with_gaps counts as done). Never a failure (ORCH-680).
+    async fn gone_on(
+        &self,
+        tree: &Arc<Tree>,
+        task: &Task,
+        choice: &Next,
+        out: &Outcome,
+        span: &str,
+    ) -> Outcome {
+        if !tree.lock().hold_resources {
+            let mine = self
+                .live()
+                .tree_of
+                .get(&tree.id)
+                .is_some_and(|t| Arc::ptr_eq(t, tree));
+            if mine {
+                tree.lock().work_done = true;
+            }
+            self.release_resources(tree, span).await;
+        }
+        let mut st = tree.lock();
+        st.stands_unconfirmed = st.kept_contradicted;
+        st.unconfirmed.clear();
+        st.gaps = choice.gaps.clone();
+        let answer = st.owner_answer.clone();
+        let done = outcome(&task.id, "done", &answer, out.artifacts.clone());
+        st.outcome = Some(done.clone());
+        done
     }
 
     /// ORCH-650: the owner's latest answer in this step to `question` asked in the same words (as the card showed it,
@@ -1082,6 +1199,12 @@ impl Inner {
         {
             return self.different_ending(tree, out, &outcomes, checked);
         }
+        if action == "retry" {
+            // ORCH-679: the owner's no-rabbit-holes rule, from the check's labels only (ORCH-680)
+            if let Some(asked) = self.rabbit_hole(tree, &outcomes, checked, false) {
+                return asked;
+            }
+        }
         if action == "accept_with_gaps" {
             match self.gapped(tree, out, &outcomes, checked) {
                 Ok(gaps) => {
@@ -1103,6 +1226,13 @@ impl Inner {
                         json!({"task_id": tree.worker.id, "why": why}),
                         None,
                     );
+                    // ORCH-681: refused only because the worker reported not done: the owner is asked instead of
+                    // code failing the step
+                    if why == NOT_REPORTED_DONE {
+                        if let Some(asked) = self.rabbit_hole(tree, &outcomes, checked, true) {
+                            return asked;
+                        }
+                    }
                     action = "accept".into();
                 }
             }
@@ -1238,6 +1368,99 @@ impl Inner {
         next
     }
 
+    /// ORCH-679, ORCH-681: the rule (ferb_orchestrator::rabbit_holes) on this check: Some(the question in place of the
+    /// checker's retry, or of a gapped accept refused only because the worker reported not done), else None and the
+    /// checker's choice stands as today's code takes it (ORCH-680). Reads only the check's labels, the conditions'
+    /// verdicts and what this step already did; never words. The question carries the check's notes (ORCH-678) and the
+    /// gaps "go on" would leave, each with the check's missing sentence.
+    fn rabbit_hole(
+        &self,
+        tree: &Arc<Tree>,
+        outcomes: &[ConditionResult],
+        checked: &CheckerOutcome,
+        refused_not_done: bool,
+    ) -> Option<Next> {
+        use ferb_orchestrator::rabbit_holes::{self, Kind, Reached, Rule, Unmet};
+        let (retried, kept) = {
+            let st = tree.lock();
+            (st.retried.clone(), st.kept_trying)
+        };
+        let unmet: Vec<&ConditionResult> = outcomes
+            .iter()
+            .filter(|r| r.met != Some(true) && r.path != DECLINED)
+            .collect();
+        let labels: Vec<Unmet> = unmet
+            .iter()
+            .map(|r| {
+                let left = checked
+                    .results
+                    .iter()
+                    .find(|c| c.index.as_i64() == Some(r.index))
+                    .and_then(|c| c.left.as_ref());
+                Unmet {
+                    kind: left.and_then(|l| Kind::of(&l.kind)),
+                    reached: left.and_then(|l| Reached::of(&l.reached)),
+                    retried: retried.contains(&r.index),
+                    proved_false: r.proved_false(),
+                }
+            })
+            .collect();
+        let (found, missing) = checked
+            .progress
+            .as_ref()
+            .map(|p| {
+                (
+                    ferb_orchestrator::py::strip(&p.found).to_string(),
+                    ferb_orchestrator::py::strip(&p.missing).to_string(),
+                )
+            })
+            .unwrap_or_default();
+        let rule = rabbit_holes::rule(
+            &rabbit_holes::Checked {
+                next: &checked.next,
+                refused_not_done,
+                said: !missing.is_empty(),
+                owner_kept: kept,
+            },
+            &labels,
+        );
+        if rule != Rule::Ask {
+            return None;
+        }
+        let question = rabbit_holes::question(&found, &missing);
+        self.journal(
+            "task.rabbit_hole_asked",
+            json!({"task_id": tree.worker.id, "step": tree.step_id, "next": checked.next,
+                   "kinds": unmet.iter().map(|r| r.index).zip(labels.iter())
+                        .map(|(i, u)| json!({"index": i, "kind": format!("{:?}", u.kind), "reached": format!("{:?}", u.reached), "retried": u.retried}))
+                        .collect::<Vec<_>>()}),
+            None,
+        );
+        let mut next = Next::of(KEEP_OR_GO_ON);
+        next.question = question;
+        next.missing = checked.missing.trim().to_string();
+        next.instructions = checked.instructions.trim().to_string();
+        next.worker_type = checked.worker_type.clone();
+        next.gaps = unmet
+            .iter()
+            .map(|r| Gap {
+                index: r.index,
+                condition: ferb_orchestrator::py::strip(&self.owner_text(tree, r))
+                    .trim_end_matches('.')
+                    .to_string(),
+                reason: missing.clone(),
+                evidence: r.evidence.clone(),
+            })
+            .collect();
+        next.findings = checked
+            .findings
+            .iter()
+            .filter(|f| !ferb_orchestrator::py::strip(&f.quote).is_empty())
+            .cloned()
+            .collect();
+        Some(next)
+    }
+
     /// ORCH-668 (D3's default, `endings::DIFFERENT_ENDS_DELIVERED`): a step whose work FERB did on something other
     /// than what a condition names. Each such condition is a gap whose reason is code's sentence of what was done
     /// instead; a condition the check accepted as a gap keeps its reason; any other unmet one is unconfirmed. Off: the
@@ -1325,7 +1548,7 @@ impl Inner {
         checked: &CheckerOutcome,
     ) -> Result<Vec<Gap>, &'static str> {
         if out.status != OutcomeStatus::Done {
-            return Err("the worker didn't report done");
+            return Err(NOT_REPORTED_DONE);
         }
         let fresh = outcomes.iter().any(|r| {
             r.met == Some(true)

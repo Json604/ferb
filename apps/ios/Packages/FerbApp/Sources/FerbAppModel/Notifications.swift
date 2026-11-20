@@ -24,6 +24,8 @@ import Foundation
 /// (question, check and link: time-sensitive in Android's HIGH sense; done: ordinary).
 public enum NotificationKind: String, Sendable {
     case question, check, done, link
+    /// Insomnia mode (APP-981, APP-983): someone at the Mac, its battery, heat and cover (time-sensitive).
+    case mac
 }
 
 /// What a tap on the notification opens.
@@ -36,6 +38,8 @@ public enum NotificationTap: Equatable, Sendable {
     case task(String)
     /// The chat, where the planner's question is answered by a message (kb PHN-762).
     case chat
+    /// The Mac's camera (insomnia's Show me, APP-983) once the app is unlocked.
+    case camera
 }
 
 /// One answer button. `choice` is the index in [Question.choices]; nil: a typed answer (the shell shows a text field
@@ -43,6 +47,11 @@ public enum NotificationTap: Equatable, Sendable {
 public struct NotificationButton: Equatable, Sendable {
     /// The "Yes, until I'm back at my Mac" button's `choice` (not an index into the question's choices, PHN-611).
     public static let untilBack = -2
+    /// Insomnia's notice (APP-983): Show me opens the app on the camera; Lock my Mac and It's fine are answered from
+    /// the notification, the phone locked or not (not indexes into a question's choices).
+    public static let showMe = -10
+    public static let lockMac = -11
+    public static let fine = -12
 
     public let label: String
     public let choice: Int?
@@ -185,6 +194,8 @@ public final class NotificationPlanner {
         for p in plan.post { out.append(.post(question(p.question, lockedNow: lockedNow, quietly: p.quiet))) }
         for q in plan.update { out.append(.post(question(q, lockedNow: lockedNow, quietly: true))) }
         for id in plan.cancel { out.append(cancel(id)) }
+        // insomnia mode's notice, warnings and how it ended (APP-981, APP-983), from the same status
+        if let status { out += insomnia(status.insomnia, announced: &announced, front: front) }
         let terminal = view.map(finished) ?? []
         // the first status and the first transcript this process reads: what had finished is not news
         if !primedStatus, let status {
@@ -216,6 +227,72 @@ public final class NotificationPlanner {
         }
         prefs.announced = announced
         return out
+    }
+
+    /// The notices' counts as last posted (a later touch updates the notification quietly).
+    private var insomniaCounts: [String: UInt32] = [:]
+
+    /// Insomnia mode's notifications (APP-981, APP-983; Android's Notifier.insomnia), each from the Mac's status:
+    /// - the notice (someone touched the Mac, or an app opened that FERB didn't): posted once, with Show me (opens the
+    ///   app on the camera, after its unlock), Lock my Mac and It's fine (answered from here, the phone locked or not);
+    ///   a later touch of the same episode updates it quietly. Posted even while the app is on screen: someone at his
+    ///   Mac is news wherever he is;
+    /// - each warning (battery, heat, the cover): posted once, no buttons, a tap opens the app;
+    /// - each is removed when the status no longer has it (answered, gone, the mode ended);
+    /// - how the mode ended: said once, quietly (in the app when he is there: AppModel.sayLastEnd).
+    /// No camera frame is ever put in a notification. An older Mac (no `insomnia`) removes what was posted.
+    func insomnia(_ i: Insomnia?, announced: inout Set<String>, front: Bool) -> [NotificationAction] {
+        var out: [NotificationAction] = []
+        var now = Set<String>()
+        if let i, i.on, let n = i.notice {
+            let key = "in:\(n.id)"
+            now.insert(key)
+            let known = announced.contains(key)
+            if !known || insomniaCounts[key] != n.count {
+                let title = L.s(n.kind == "activation" ? "n_insomnia_activation" : "n_insomnia_touched")
+                let buttons = [
+                    NotificationButton(label: L.s("insomnia_show_me"), choice: NotificationButton.showMe, placeholder: nil),
+                    NotificationButton(label: L.s("insomnia_lock_mac"), choice: NotificationButton.lockMac, placeholder: nil),
+                    NotificationButton(label: L.s("insomnia_fine"), choice: NotificationButton.fine, placeholder: nil),
+                ]
+                out.append(.post(PlannedNotification(id: key, kind: .mac, title: title, body: n.text.isEmpty ? title : n.text,
+                                                     publicText: L.s("n_public_mac"), wordless: false, buttons: buttons,
+                                                     tap: .app, quietly: known)))
+                announced.insert(key)
+                insomniaCounts[key] = n.count
+            }
+        }
+        if let i, i.on {
+            for w in i.warnings {
+                let key = "iw:\(w.id)"
+                now.insert(key)
+                if announced.contains(key) { continue }
+                announced.insert(key)
+                out.append(.post(PlannedNotification(id: key, kind: .mac, title: L.s("n_insomnia_warning"), body: w.text,
+                                                     publicText: L.s("n_public_mac"), wordless: false, buttons: [], tap: .app,
+                                                     quietly: false)))
+            }
+        }
+        // what the status no longer has goes (answered on the Mac or here, gone, the mode ended)
+        for key in announced.filter({ ($0.hasPrefix("in:") || $0.hasPrefix("iw:")) && !now.contains($0) }).sorted() {
+            announced.remove(key)
+            insomniaCounts[key] = nil
+            out.append(.remove(id: key))
+        }
+        // how it ended: once, quietly; in the app the model says it instead
+        if let i, !i.on, let end = i.lastEnd, !end.text.isEmpty, !front, prefs.claimInsomniaEnd(end.id) {
+            out.append(.post(PlannedNotification(id: "ie:\(end.id)", kind: .done, title: L.s("n_insomnia_warning"), body: end.text,
+                                                 publicText: L.s("n_public_mac"), wordless: false, buttons: [], tap: .app,
+                                                 quietly: true)))
+        }
+        return out
+    }
+
+    /// A notice's answer from here: gone at once on success (the status removes it too), else what stopped it.
+    public func insomniaAnswered(_ noticeId: String, problem: String?) -> NotificationAction {
+        guard let problem else { return .remove(id: "in:\(noticeId)") }
+        return .post(PlannedNotification(id: "in:\(noticeId)", kind: .mac, title: L.s("n_not_answered_title"), body: problem,
+                                         publicText: L.s("n_public_mac"), wordless: false, buttons: [], tap: .app, quietly: false))
     }
 
     /// The link stopped because the Mac no longer knows this phone: the owner must pair again.
@@ -330,10 +407,10 @@ public final class NotificationPlanner {
 @MainActor
 public final class Notifier {
     public let planner: NotificationPlanner
-    private let api: PhoneApi
+    fileprivate let api: PhoneApi
     private let session: Session
     private let lockedNow: () -> Bool
-    private let deliver: ([NotificationAction]) -> Void
+    fileprivate let deliver: ([NotificationAction]) -> Void
     private var changesTask: Task<Void, Never>?
     private var linkFollow: Follow<LinkStatus?>?
     /// One look at a time, in order (Android's Mutex).
@@ -466,6 +543,25 @@ public final class Notifier {
         }
         if let result { deliver([result]) }
         return result
+    }
+}
+
+extension Notifier {
+    /// Lock my Mac (`lock` true) or It's fine from the insomnia notice (APP-983): sent at once, never queued, with no
+    /// prompt (both are plain calls the Mac takes while the phone is locked). What stopped one is said (PHN-302). A
+    /// launch for it waits for the phone to open and reach the Mac (bounded: iOS gives seconds).
+    @discardableResult
+    public func insomniaAnswer(_ noticeId: String, lock: Bool) async -> NotificationAction {
+        _ = await waitFor(8) { api.state.isOpen && api.link?.phase == .online }
+        let problem: String?
+        if lock {
+            if case .failed(let e) = await api.lockMac() { problem = AppModel.errorNote(e).text } else { problem = nil }
+        } else {
+            if case .failed(let e) = await api.dismissInsomniaNotice(noticeId) { problem = AppModel.errorNote(e).text } else { problem = nil }
+        }
+        let a = planner.insomniaAnswered(noticeId, problem: problem)
+        deliver([a])
+        return a
     }
 }
 

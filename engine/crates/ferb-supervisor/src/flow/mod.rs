@@ -912,6 +912,11 @@ pub struct TreeState {
     /// ORCH-652: the conditions the check accepted as not done (a step's), or every step's (the root's, when its plan
     /// ended): what the owner sees as "Not done:" lines. Empty: no gap.
     pub gaps: Vec<Gap>,
+    /// ORCH-679: the step's conditions that were unmet when the step took a retry (the rule's "already retried").
+    pub retried: BTreeSet<i64>,
+    /// ORCH-679: the owner said "keep trying" to the step's question: it isn't asked again in this step (the 5-attempt
+    /// check-in governs).
+    pub kept_trying: bool,
 }
 
 /// ORCH-652: one stated condition a check accepted as not done, with what code shows the owner.

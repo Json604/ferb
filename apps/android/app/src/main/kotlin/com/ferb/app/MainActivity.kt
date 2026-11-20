@@ -170,6 +170,8 @@ class MainActivity : ComponentActivity() {
         // FERB's own question (a clarify) is answered by a message: the box takes the cursor (FERB.app's needs-you)
         i.getStringExtra(EXTRA_ENTRY)?.let { vm.openChat(focus = it == Notifier.CHAT) }
         i.getStringExtra(EXTRA_LOCATION)?.let { vm.openLocation(it) }
+        if (i.getBooleanExtra(EXTRA_CAMERA, false)) vm.openCamera()
+        i.removeExtra(EXTRA_CAMERA)
         i.removeExtra(EXTRA_QUESTION)
         i.removeExtra(EXTRA_ENTRY)
         i.removeExtra(EXTRA_LOCATION)
@@ -223,6 +225,7 @@ class MainActivity : ComponentActivity() {
                 Why.FILE -> R.string.prompt_file_subtitle
                 Why.SETTING -> R.string.prompt_setting_subtitle
                 Why.KEYS -> R.string.prompt_keys_subtitle
+                Why.INSOMNIA -> R.string.prompt_insomnia_subtitle
             }
             return app.phone.signer(this@MainActivity, kind, PromptText(getString(title), getString(subtitle), cancel = getString(R.string.prompt_cancel)))
         }
@@ -250,5 +253,7 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_QUESTION = "com.ferb.app.QUESTION"
         const val EXTRA_ENTRY = "com.ferb.app.ENTRY"
         const val EXTRA_LOCATION = "com.ferb.app.LOCATION"
+        /** The insomnia notice's Show me (APP-983): the Mac's camera, after the app's unlock. */
+        const val EXTRA_CAMERA = "com.ferb.app.CAMERA"
     }
 }

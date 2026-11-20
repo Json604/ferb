@@ -8,6 +8,11 @@ import com.ferb.core.PhoneState
 import com.ferb.core.PublicKeys
 import com.ferb.mobile.AnswerInput
 import com.ferb.mobile.Attachment
+import com.ferb.mobile.CameraSink
+import com.ferb.mobile.Insomnia
+import com.ferb.mobile.InsomniaEnded
+import com.ferb.mobile.InsomniaStarted
+import com.ferb.mobile.MacLocked
 import com.ferb.mobile.Cancelled
 import com.ferb.mobile.Change
 import com.ferb.mobile.DeviceReport
@@ -100,6 +105,18 @@ interface PhoneApi {
     suspend fun screenUse(): Outcome<ScreenUse>
     suspend fun endScreenUse(): Outcome<ScreenUseEnd>
     suspend fun lastStatus(): PhoneStatus?
+
+    /**
+     * Insomnia mode (APP-980..APP-985): read it, turn it on after the app's warning (the sensitive class: [signer] is
+     * the fingerprint-only key where the phone has one), end it, Lock my Mac and It's fine (the last three plain,
+     * allowed while locked), and Show me: the Mac's camera to [sink] in memory only, never on the public relay.
+     */
+    suspend fun insomniaStatus(): Outcome<Insomnia>
+    suspend fun startInsomnia(variant: String, screenYes: Boolean, signer: Signer): Outcome<InsomniaStarted>
+    suspend fun endInsomnia(): Outcome<InsomniaEnded>
+    suspend fun lockMac(): Outcome<MacLocked>
+    suspend fun dismissInsomniaNotice(noticeId: String): Outcome<Insomnia>
+    suspend fun watchCamera(sink: CameraSink): Outcome<Live>
 
     suspend fun markReadLatest(conversation: String): Outcome<Unit>
     suspend fun sendWith(text: String, attachments: List<Attachment>): Outcome<OutboxItem>
@@ -195,6 +212,14 @@ class LibraryPhone(private val phone: FerbPhone) : PhoneApi {
     override suspend fun screenUse() = phone.call { it.screenUse() }
     override suspend fun endScreenUse() = phone.call { it.endScreenUse() }
     override suspend fun lastStatus(): PhoneStatus? = phone.lastStatus()
+    override suspend fun insomniaStatus() = phone.call { it.insomniaStatus() }
+    override suspend fun startInsomnia(variant: String, screenYes: Boolean, signer: Signer) =
+        phone.call { it.startInsomnia(variant, screenYes, signer) }
+    override suspend fun endInsomnia() = phone.call { it.endInsomnia() }
+    override suspend fun lockMac() = phone.call { it.lockMac() }
+    override suspend fun dismissInsomniaNotice(noticeId: String) = phone.call { it.dismissInsomniaNotice(noticeId) }
+    override suspend fun watchCamera(sink: CameraSink): Outcome<Live> =
+        phone.call { m -> m.watchCamera(sink).let { p -> Live { runCatching { p.stop() } } } }
     override suspend fun markReadLatest(conversation: String) = phone.call { it.markReadLatest(conversation) }
     override suspend fun sendWith(text: String, attachments: List<Attachment>) = phone.call { it.sendWith(text, attachments) }
     override suspend fun files(path: String?, signer: Signer?, after: String?) = phone.call { it.files(path, signer, after) }

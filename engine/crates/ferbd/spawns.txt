@@ -36,3 +36,4 @@ src/compose/tools/mac.rs | thread "ferb-image-redact" | one image redaction, awa
 src/compose/tools/mac.rs | thread "ferb-mac-call" | one Mac call on a thread of its own, awaited by its call
 src/compose/link.rs | .spawn() | the phone link's helper process, owned by the supervised loop "phone link" (compose/link.rs Runner::start)
 src/compose/link.rs | tokio::spawn(async move { | copies one helper run's standard error to FERB's log, ending with that run
+src/compose/insomnia.rs | rt.spawn(async move { | one insomnia notice for the owner (a warning, an end, a sleep macOS forced), per notice

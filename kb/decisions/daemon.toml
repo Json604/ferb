@@ -1045,3 +1045,113 @@ rule = "For DMN-3. `-h` / `--help` (or --h, --he, --hel) before `--` prints the 
 why = "T-1128: the Rust program had no help, and a checkout's setup still said it installed FERB's dedicated Python and a venv, which the Rust build has none of (ENG-2)."
 evidence = "ferb-device cli/help.rs tests: 33 recorded texts, all equal but the two named; tests/program.rs help_is_printed_and_exits_zero."
 paths = ["engine/crates/ferb-device/src/cli/help.rs", "engine/crates/ferb-device/src/cli/run.rs", "engine/crates/ferb-device/src/cli/setup.rs", "engine/fixtures/device/make_help.py"]
+
+[DMN-602]
+title = "Insomnia mode is one daemon state, kept in the journal and resumed after a restart"
+by = "agent"
+date = 2026-11-20
+status = "active"
+rule = "For APP-980. ferb-daemon insomnia.rs holds the mode (variant shield or locked, start, who started it, the one Yes). Each start, resume and end is journaled insomnia.state (started/resumed/ended); at the daemon's start the last row, when started or resumed, resumes it, journaled resumed and said once in chat (\"FERB restarted and is still keeping your Mac working.\"). One look every 20 s (TICK_S) renews the holds, reads the power facts, counts running tasks and checks the grace and the owner's return; every change publishes insomnia.changed with the status object."
+why = "T-1274: the research's section (c): one state the daemon owns, every client only shows it."
+evidence = "ferb-daemon tests/insomnia.rs a_restart_resumes_it_and_says_so_once, changes_are_published."
+paths = ["engine/crates/ferb-daemon/src/insomnia.rs", "engine/crates/ferbd/src/compose/insomnia.rs"]
+
+[DMN-603]
+title = "FERB's power holds are 120-second leases renewed every 20 s; the display only under the cover"
+by = "agent"
+date = 2026-11-20
+status = "active"
+rule = "For APP-980, APP-981. Each IOKit assertion (ferb-platform-macos power.rs) is a 120 s lease that releases itself, renewed at every 20 s look; macOS frees them when ferbd dies. Mode on: idle-sleep always, system sleep on AC (a closed lid plugged in), display only while FERB.app reported its cover up within 90 s and the lid is open. Mode off: idle-sleep only while a task tree runs and the lid isn't closed. Never a display hold outside the cover. The power log's words are generic, never a task's title."
+why = "The owner agreed to keeping the Mac awake while any task runs; an unlocked Mac whose display never sleeps without the cover would be open to anyone."
+evidence = "tests/insomnia.rs the_mode_holds_on_a_renewed_lease_and_the_display_only_under_the_cover, a_running_task_holds_idle_sleep_only_with_the_lid_open."
+paths = ["engine/crates/ferb-core/src/power.rs", "engine/crates/ferb-platform-macos/src/power.rs"]
+
+[DMN-604]
+title = "Insomnia warns about battery, heat, the cover and a closed lid; sleep macOS forced is said plainly"
+by = "agent"
+date = 2026-11-20
+status = "active"
+rule = "For APP-981. While on, warnings in force are in the status (an id each, raised once, gone when cleared) and said once in chat: battery_low (on battery, at or under insomnia.battery_warn_percent, 20), battery_urgent (at or under insomnia.battery_urgent_percent, 10), hot (thermal pressure heavy or worse), shield_down (no cover report for 90 s after the first 30 s), lid_closed_battery. None ends the mode. A wall-clock gap over the monotonic one of more than 60 s is sleep macOS forced: said once with the cause last seen, journaled insomnia.slept."
+why = "The owner: we don't enforce rules to protect the laptop, we only warn."
+evidence = "tests/insomnia.rs battery_and_heat_warn_and_nothing_ends, a_sleep_macos_forced_is_said_plainly, the_helper_s_lease_keeps_a_closed_mac_working_on_battery."
+paths = ["engine/crates/ferb-daemon/src/insomnia.rs", "engine/crates/ferb-daemon/src/areas_a/settings.rs"]
+
+[DMN-605]
+title = "How insomnia mode ends: back, turned off, or the work done for the grace"
+by = "agent"
+date = 2026-11-20
+status = "active"
+rule = "For APP-980. Back: FERB.app's insomnia.end with why back after the cover's Touch ID or password (only FERB.app's call may say back), or a presence unlock (mac.back_in_use signal unlock) after the start. Turned off: insomnia.end from a phone or FERB.app. Done: no task running for insomnia.grace_minutes (default 10, 0..1440), counted from the first look that saw none; any task in it starts the count again. Each end releases the holds and the helper's lease, ends the camera and any step waiting, is journaled and said once (last_end stays 10 minutes in the status for the phones)."
+why = "The owner's grace in case follow-up work comes."
+evidence = "tests/insomnia.rs the_grace_after_the_work_ends_it, the_owner_back_or_his_end_ends_it; insomnia_phone.rs (a phone's end is turned_off)."
+paths = ["engine/crates/ferb-daemon/src/insomnia.rs"]
+
+[DMN-606]
+title = "Someone at the Mac: one notice per two minutes, answered by It's fine or Lock my Mac"
+by = "agent"
+date = 2026-11-20
+status = "active"
+rule = "For APP-983. FERB.app's report person_input or activation (cover variant only) makes the status's notice (touched or activation, text, count), or within 120 s of the same kind and app bumps its count; journaled insomnia.touched or insomnia.activation. insomnia.dismiss (It's fine) clears it; insomnia.lock (Lock my Mac) runs pmset displaysleepnow as the user and reads CGSSessionScreenIsLocked back for 2 s, answering locked or the plain reason; the mode goes on and his unlock later ends it as back. Nothing else in FERB locks the Mac."
+why = "The owner decides whether a touch matters, after seeing who it is."
+evidence = "tests/insomnia.rs a_person_at_the_cover_is_a_notice_and_only_the_owner_locks; insomnia_phone.rs."
+paths = ["engine/crates/ferb-daemon/src/insomnia.rs"]
+
+[DMN-607]
+title = "Show me: the camera runs only while the phone pulls, never on the shared relay"
+by = "agent"
+date = 2026-11-20
+status = "active"
+rule = "For APP-983, PHN-454. insomnia.camera (private) turns the camera on (bus insomnia.camera on) and keeps it on 6 s past each pull; a 1 s watchdog turns it off. FERB.app sends JPEG frames with insomnia.camera_frame (never a phone's); the daemon keeps only the latest, in memory, dropped when the camera goes off or the mode ends, never journaled or logged. A phone session's call is refused with FILE_NOT_ALLOWED unless its tier is direct or own_relay (and by the phone gate's shared-relay list); the link's link.get what camera (LEVEL 5) is refused on the public relay before asking, as preview is."
+why = "The live-view rules: direct path or his own relay only, never stored, only while he watches."
+evidence = "tests/insomnia.rs the_camera_runs_only_while_the_owner_watches; insomnia_phone.rs the_camera_never_crosses_the_shared_relay; ferb-link tests/link.rs tiers_decide_what_bulk_may_cross."
+paths = ["engine/crates/ferb-daemon/src/insomnia.rs", "engine/crates/ferb-link/src/bridge.rs"]
+
+[DMN-608]
+title = "A foreground step under the cover waits for FERB.app to let its input through"
+by = "agent"
+date = 2026-11-20
+status = "active"
+rule = "For APP-984. ferb-mac-hands MacDriver::real (the one foreground path) asks its ForegroundCover before bringing the app forward: with the cover up the daemon publishes insomnia.step begin (pid, bundle) and waits up to 3 s for FERB.app's step_ready (click-through on, the windows reported with ui.click_through); no answer or step_failed refuses the step with nothing brought forward or typed. After the input, insomnia.step end. An app FERB brings forward for background work (on_activate) is published as insomnia.expect, so its activation is FERB's own."
+why = "Clicks under a cover that still catches them would land on the cover, and FERB.app must know which activation is planned."
+evidence = "ferb-mac-hands tests/element_actions.rs a_foreground_step_passes_the_cover_first_and_ends_it_after; tests/insomnia.rs a_step_under_the_cover_waits_for_the_click_through."
+paths = ["engine/crates/ferb-mac-hands/src/driver/mod.rs", "engine/crates/ferbd/src/compose/tools/mac.rs"]
+
+[DMN-609]
+title = "Insomnia's RPCs, phone classes and bus topics"
+by = "agent"
+date = 2026-11-20
+status = "active"
+rule = "Eight methods, FERB.app's own (INSOMNIA_ADDITIONS): status (phone: private), start (sensitive: the phone's fingerprint signature; variant shield or locked, screen_yes), end, lock and dismiss (plain, allowed while locked: each only takes something away), camera (private), report and camera_frame (never). The phone gate's chat.status carries the status as insomnia. Critical bus topics insomnia.changed, .step, .expect, .camera. Settings insomnia.grace_minutes, .battery_warn_percent, .battery_urgent_percent."
+why = "A UI change that needs RPCs is a daemon change (AGENTS.md, The UI)."
+evidence = "ferb-rpc tests/golden.rs, tests/phone_classes.rs (fixtures/phone/classes.json rewritten); ferb-core tests/bus.rs; ferb-daemon tests/a_replay.rs names the three settings."
+paths = ["engine/crates/ferb-rpc/src/auth.rs", "engine/crates/ferb-rpc/src/classes.rs", "engine/crates/ferb-core/src/bus.rs"]
+
+[DMN-610]
+title = "The root helper: a fixed interface, answering only ferbd signed by its own certificate"
+by = "agent"
+date = 2026-11-20
+status = "active"
+rule = "For APP-986. ferb-power (Contents/Helpers in FERB.app, signed com.ferb.power, plist Contents/Library/LaunchDaemons/com.ferb.power.plist) listens on /var/run/com.ferb.power.sock and answers a peer only when its audit token meets identifier com.ferb.daemon and certificate leaf = the helper's own leaf certificate's SHA-1 (an ad-hoc helper answers nobody; the ferb program is refused). One JSON line each way, ferb_core::power::helper: lease, release, wakes, wake, unwake, status; anything else refused. The shell's sandbox denies every Unix socket; its plist is a FERB service definition."
+why = "The smallest root surface that keeps a closed Mac working on battery and wakes it for a schedule; the owner's approval is once, in System Settings."
+evidence = "ferb-power-helper tests/helper.rs (4) and mac.rs tests (the caller check through the real Security framework refuses a test program); ferb-core power helper parsing test; ferb-platform-macos an_absent_helper_is_said_plainly; ferb-policy tests/protection.rs names the helper's definition."
+paths = ["engine/crates/ferb-power-helper/src/lib.rs", "engine/crates/ferb-power-helper/src/mac.rs", "engine/crates/ferb-power-helper/src/bin/ferb-power.rs", "apps/mac/FERBAgent/com.ferb.power.plist", "scripts/signing.sh", "scripts/build-app-rust.sh"]
+
+[DMN-611]
+title = "The daemon leases the helper while insomnia mode is on and keeps FERB's wakes on the schedules"
+by = "agent"
+date = 2026-11-20
+status = "active"
+rule = "For APP-986, APP-981. Each look with the mode on renews the helper's lease (120 s), so a closed Mac on battery keeps working; the end releases it; the status's closed_lid says ready or absent. Every 5 minutes, with the Mac's parts on, FERB's wakes are made to match a wake 60 s before each active schedule's next run (schedules.next_run), future only, the soonest 8; others are cancelled; the counts are journaled insomnia.wakes, an absent helper once as insomnia.wakes_unavailable."
+why = "APP-986's two uses, from the one state."
+evidence = "tests/insomnia.rs the_helper_s_lease_keeps_a_closed_mac_working_on_battery, wakes_follow_the_owner_s_schedules."
+paths = ["engine/crates/ferb-daemon/src/insomnia.rs", "engine/crates/ferbd/src/compose/insomnia.rs"]
+
+[DMN-612]
+title = "The root helper's lease and wakes: ended when not renewed, cleared at boot, few and bounded"
+by = "agent"
+date = 2026-11-20
+status = "active"
+rule = "For APP-986. A lease (1..300 s) sets SleepDisabled (IOPMSetSystemPowerSetting) with the root-owned marker /var/db/com.ferb.power.lease written first and removed last; it ends by itself when not renewed, at SIGTERM, and a marker found at the helper's start (boot) clears the switch. Wakes are FERB's own (IOPMSchedulePowerEvent scheduledby com.ferb.FERB), 30 s to 8 days ahead, at most 8 pending; only FERB's are listed or cancelled."
+why = "A root switch FERB set must never outlive FERB's need for it."
+evidence = "ferb-power-helper tests/helper.rs the_lease_ends_when_the_daemon_stops_renewing_it, a_lease_left_behind_is_cleared_at_boot, wakes_are_future_bounded_and_few, anything_else_is_refused."
+paths = ["engine/crates/ferb-power-helper/src/lib.rs", "engine/crates/ferb-power-helper/src/mac.rs"]

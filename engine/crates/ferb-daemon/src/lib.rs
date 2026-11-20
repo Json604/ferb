@@ -6,6 +6,8 @@
 
 pub mod areas_a;
 pub mod areas_b;
+/// T-1274: insomnia mode (APP-980..APP-985): keeping the Mac working while the owner is away.
+pub mod insomnia;
 /// Stage 3 S3 (T-1202): the daemon's phone area: paired phones, challenges, the unlock window, proofs, the audit.
 pub mod phone;
 pub mod shared;

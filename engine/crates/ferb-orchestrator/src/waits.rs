@@ -79,6 +79,11 @@ pub const NOT_WAITED: &[&str] = &[
     "phone.removed",
     "phone.heavy_fetch",
     "screen.until_back",
+    // T-1274: insomnia mode's state and FERB.app's cover, steps, expected apps and camera: not a plan's to wait on
+    "insomnia.changed",
+    "insomnia.step",
+    "insomnia.expect",
+    "insomnia.camera",
     "tool.called",
     "tool.finished",
     "trail.event",

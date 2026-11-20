@@ -898,10 +898,19 @@ why = "Owner 2026-11-18: wanted, 'BUT needs proper feature plannign - BUT not no
 decisions = ["PHN-413", "GATE-585"]
 ask = "When you want to plan it: which sessions (Claude Code, Codex, any terminal), what the phone shows and may type, and how a new reply wakes FERB without a model call while nothing happens."
 
-[T-1273]
-title = "Explore: keep the Mac working for FERB like Amphetamine (awake, lid closed, scheduled wake)"
+[T-1274]
+title = "Build insomnia mode: keep the Mac working while the owner is away, with the shield and the phone"
+area = "app"
+kind = "build"
+status = "open"
+why = "APP-980..985 and the research in .local/keep-awake/. Stay awake, never interrupted (warnings only), the shield with person-input notices, camera on request, lock from the phone, dimming after 10 minutes, lid closed on battery (a root helper). Owner-facing words reviewed with him before shipping."
+decisions = ["APP-980", "APP-981", "APP-982", "APP-983", "APP-984", "APP-985", "APP-986", "APP-1100", "HAND-645"]
+
+[T-1275]
+title = "The owner reviews insomnia mode's words before it ships"
 area = "app"
 kind = "question"
 status = "open"
-why = "Owner 2026-11-19: 'remember to add amphetamine like mac runnign capabilities in ferb since we have apple dev key now ... has to be explored first too - about keepign it close and runnign, sleeping and runnign controllign thigns etcetc'. Explore what macOS allows first."
-ask = "When the exploration is back: which of these should FERB do, and when (only while a task runs, on a schedule, on your word)?"
+why = "T-1274's owner-facing words (the warning, the status line, the notices and their buttons, the warnings, the ends, the camera, the cover's lines, the locked-screen question, the helper's lines) are drafts; the owner reviews wording before shipping (journal 153 lists them all)."
+decisions = ["APP-980", "APP-981", "APP-983", "HAND-645", "APP-986"]
+ask = "Here are all of insomnia mode's words on the Mac and the phones (journal 153). Which would you change, and to what? Also confirm the numbers: 10 minutes of grace after the work, battery warnings at 20 % and 10 %, at most 8 scheduled wakes."

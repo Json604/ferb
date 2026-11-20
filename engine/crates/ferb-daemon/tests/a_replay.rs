@@ -140,12 +140,14 @@ async fn replay(name: &str, d: &Daemon, only: &[&str]) -> (usize, usize) {
                         None if method == "settings.get"
                             && want.contains("retention.decision_days") =>
                         {
-                            // the one named difference (APP-941): Jev's days are no longer a setting
+                            // the named differences: Jev's days are no longer a setting (APP-941); insomnia mode's
+                            // three numbers are (T-1274, APP-981), after Python's last
                             let mut python: Value = serde_json::from_str(want).unwrap();
-                            python["result"]["values"]
-                                .as_object_mut()
-                                .unwrap()
-                                .shift_remove("retention.decision_days");
+                            let values = python["result"]["values"].as_object_mut().unwrap();
+                            values.shift_remove("retention.decision_days");
+                            values.insert("insomnia.grace_minutes".into(), json!(10));
+                            values.insert("insomnia.battery_warn_percent".into(), json!(20));
+                            values.insert("insomnia.battery_urgent_percent".into(), json!(10));
                             assert_eq!(
                                 got,
                                 ferb_py::json::dumps(&python),

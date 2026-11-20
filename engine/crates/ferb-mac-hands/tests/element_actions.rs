@@ -586,6 +586,10 @@ struct Mac {
 struct ChatSrcHandle(Arc<AtomicBool>);
 
 fn mac() -> Mac {
+    mac_with(None)
+}
+
+fn mac_with(cover: Option<Arc<dyn ferb_mac_hands::driver::ForegroundCover>>) -> Mac {
     let apps = Arc::new(FakeApps::new());
     let tree = Arc::new(FakeTree::from_spec(&spec(), 0.0));
     let raises = Arc::new(AtomicBool::new(false));
@@ -622,6 +626,9 @@ fn mac() -> Mac {
         time: Arc::new(PausedTime::default()),
     });
     d.own_pid = 999_999;
+    if let Some(c) = cover {
+        d.cover = c;
+    }
     let told = Arc::new(Mutex::new(vec![]));
     let t = told.clone();
     d.came_forward = Some(Arc::new(move |task: &str, shown: Value| {
@@ -1497,5 +1504,153 @@ async fn by_hand_textedit_context_menu() {
         "cancel: {:?}; front at the end: {:?}",
         ax.cancel(&menu),
         front()
+    );
+}
+
+/// A cover over the screen (insomnia mode's) that records what it was asked, and lets input through or not.
+struct Cover {
+    calls: Arc<Mutex<Vec<String>>>,
+    /// The driver's apps, put in once the Mac is built.
+    apps: Arc<Mutex<Option<Arc<FakeApps>>>>,
+    lets_through: bool,
+}
+
+impl Cover {
+    fn activations(&self) -> Vec<String> {
+        self.apps
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|a| a.calls())
+            .unwrap_or_default()
+    }
+}
+
+impl ferb_mac_hands::driver::ForegroundCover for Cover {
+    fn begin<'a>(
+        &'a self,
+        pid: i32,
+        bundle: &'a str,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = std::result::Result<Option<String>, String>>
+                + Send
+                + 'a,
+        >,
+    > {
+        // what was in front when the cover was asked: FERB hasn't brought anything forward yet
+        self.calls.lock().unwrap().push(format!(
+            "begin {pid} {bundle} after {:?}",
+            self.activations()
+        ));
+        let ok = self.lets_through;
+        Box::pin(async move {
+            if ok {
+                Ok(Some("s-1".to_string()))
+            } else {
+                Err("the cover didn't let FERB through".to_string())
+            }
+        })
+    }
+    fn end(&self, step: &str) {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(format!("end {step} after {:?}", self.activations()));
+    }
+}
+
+/// Under insomnia mode's cover a foreground step asks the cover to let its input through before FERB brings the app
+/// forward, and ends it after the input; a cover that doesn't is a refusal with nothing brought forward or typed.
+// decision: DMN-608
+// decision: APP-984
+#[tokio::test]
+async fn a_foreground_step_passes_the_cover_first_and_ends_it_after() {
+    let calls = Arc::new(Mutex::new(vec![]));
+    let slot = Arc::new(Mutex::new(None));
+    let cover = Arc::new(Cover {
+        calls: calls.clone(),
+        apps: slot.clone(),
+        lets_through: true,
+    });
+    let m = mac_with(Some(cover));
+    *slot.lock().unwrap() = Some(m.apps.clone());
+    let r = m
+        .run("mac.act", json!({"app": "Chat", "action": "type", "text": "hi", "mechanism": "foreground", "allow_foreground": true}))
+        .await;
+    assert!(!r.is_error, "{:?}", r.content);
+    let c = calls.lock().unwrap().clone();
+    assert_eq!(c.len(), 2, "{c:?}");
+    assert_eq!(
+        c[0],
+        format!("begin {CHAT} {CHAT_ID} after []"),
+        "asked before anything came forward"
+    );
+    assert_eq!(c[1], format!("end s-1 after [\"activate {CHAT_ID}\"]"));
+    assert!(!m.posted.lock().unwrap().is_empty(), "the input went");
+
+    let calls = Arc::new(Mutex::new(vec![]));
+    let m = mac_with(Some(Arc::new(Cover {
+        calls: calls.clone(),
+        apps: Arc::new(Mutex::new(None)),
+        lets_through: false,
+    })));
+    let r = m
+        .run("mac.act", json!({"app": "Chat", "action": "type", "text": "hi", "mechanism": "foreground", "allow_foreground": true}))
+        .await;
+    assert!(r.is_error, "{:?}", r.content);
+    assert!(m.apps.calls().is_empty(), "nothing brought forward");
+    assert!(m.posted.lock().unwrap().is_empty(), "nothing typed");
+    assert_eq!(
+        calls.lock().unwrap().len(),
+        1,
+        "no end for a step that never began"
+    );
+}
+
+/// While the screen is locked nothing reaches the system-wide stream; input to one app's process still goes.
+// decision: HAND-646
+// decision: HAND-645
+#[test]
+fn a_locked_screen_refuses_system_wide_input_only() {
+    use ferb_mac_hands::input::{Events, LockGuard, LOCKED_INPUT};
+    use ferb_mac_hands::keys::{Event, Route};
+    struct Rec(Mutex<Vec<String>>);
+    impl Events for Rec {
+        fn post(&self, _e: &Event, r: &Route) -> ferb_mac_hands::error::Result<()> {
+            self.0.lock().unwrap().push(format!("{r:?}"));
+            Ok(())
+        }
+    }
+    let rec = Arc::new(Rec(Mutex::new(vec![])));
+    let locked = Arc::new(AtomicBool::new(true));
+    let l = locked.clone();
+    let g = LockGuard {
+        events: rec.clone(),
+        locked: Arc::new(move || l.load(Ordering::SeqCst)),
+    };
+    let key = Event::Key {
+        code: 0,
+        flags: 0,
+        down: true,
+    };
+    let e = g.post(&key, &Route::Hid).unwrap_err();
+    assert_eq!(e.to_string(), LOCKED_INPUT);
+    g.post(&key, &Route::Process(42)).unwrap();
+    g.post(
+        &key,
+        &Route::Window {
+            pid: 42,
+            window: 7,
+            local: (1.0, 1.0),
+        },
+    )
+    .unwrap();
+    locked.store(false, Ordering::SeqCst);
+    g.post(&key, &Route::Hid).unwrap();
+    assert_eq!(
+        rec.0.lock().unwrap().len(),
+        3,
+        "the refused one never reached the stream"
     );
 }

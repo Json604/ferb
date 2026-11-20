@@ -569,6 +569,25 @@ pub struct CheckerResult {
     pub applies: bool,
     pub evidence: String,
     pub how: Option<String>,
+    /// ORCH-679 (not Python's): what is left of an unmet condition, as the check labelled it; None when not given.
+    pub left: Option<CheckLeft>,
+}
+
+/// ORCH-679: a check's labels of what is left of one unmet condition, as written ("" when not a string). Code reads only
+/// these (`rabbit_holes`); an unknown value is no label.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct CheckLeft {
+    /// fix | guess | search | stuck | owner.
+    pub kind: String,
+    /// none | some | most.
+    pub reached: String,
+}
+
+/// ORCH-679: what the work reached and what is still missing, one plain sentence each, for the owner.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct CheckProgress {
+    pub found: String,
+    pub missing: String,
 }
 
 /// schemas.py:675 `Finding`.
@@ -612,4 +631,6 @@ pub struct CheckerOutcome {
     pub dropped_edits: Vec<String>,
     /// ORCH-652: with `next` accept_with_gaps, each unmet condition and why; [] (and absent from a dump) otherwise.
     pub gaps: Vec<CheckGap>,
+    /// ORCH-679: with an unmet condition, what was reached and what is missing; None when not given.
+    pub progress: Option<CheckProgress>,
 }

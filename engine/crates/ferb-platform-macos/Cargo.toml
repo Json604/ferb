@@ -11,6 +11,8 @@ workspace = true
 
 # Everything in this crate is for macOS; on any other target it is empty and needs nothing.
 [target.'cfg(target_os = "macos")'.dependencies]
+ferb-core = { path = "../ferb-core" }
+serde_json.workspace = true
 ferb-identity = { path = "../ferb-identity" }
 ferb-rpc = { path = "../ferb-rpc" }
 libc.workspace = true

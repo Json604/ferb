@@ -234,6 +234,8 @@ extension StatusTint {
 
 public enum MenuAction: String, Equatable {
     case openFERB, openWindow, pause, resume, liftStop, restart, settings, setUp, quit, installUpdate
+    /// Insomnia mode (APP-980): the warning, or the owner's own end.
+    case keepWorking, endKeepWorking
 }
 
 public enum MenuEntry: Equatable {
@@ -245,9 +247,11 @@ public enum MenuEntry: Equatable {
 public enum StatusMenu {
     /// The menu (spec: Open FERB, Open FERB Window, Pause FERB, Settings…, Quit): the state line first, then what the
     /// state needs. `hasWindow`: Phase E's FERB window exists. `canSetUp`: the packaged FERB.app (Set Up FERB…,
-    /// which replays the first-run intro: kb area app).
+    /// which replays the first-run intro: kb area app). `keepingAwake`: insomnia mode as the daemon last said (nil: a
+    /// daemon that doesn't have it, or none read yet: no item).
     public static func entries(state: MenuBarState, paused: Bool, stopped: Bool, appName: String, canSetUp: Bool,
-                               hasWindow: Bool, updateOffer: String? = nil, updateAsks: Bool = false) -> [MenuEntry] {
+                               hasWindow: Bool, updateOffer: String? = nil, updateAsks: Bool = false,
+                               keepingAwake: Bool? = nil) -> [MenuEntry] {
         var entries: [MenuEntry] = [.status(state.statusLine), .separator, .item("Open FERB", .openFERB, key: "")]
         if hasWindow { entries.append(.item("Open FERB Window", .openWindow, key: "")) }
         if state == .notRunning {
@@ -255,6 +259,10 @@ public enum StatusMenu {
         } else if state != .connecting && state != .settingUp {
             if stopped { entries.append(.item("Lift Emergency Stop", .liftStop, key: "")) }
             entries.append(paused ? .item("Resume FERB", .resume, key: "") : .item("Pause FERB", .pause, key: ""))
+            if let keepingAwake {             // APP-980: the warning first; on, the owner's end
+                entries.append(keepingAwake ? .item(InsomniaWords.menuEnd, .endKeepWorking, key: "")
+                                            : .item(InsomniaWords.menuStart, .keepWorking, key: ""))
+            }
         }
         entries.append(.item("Settings…", .settings, key: ","))
         if let updateOffer, updateAsks {      // the switch to the Developer ID asks first (APP-903)

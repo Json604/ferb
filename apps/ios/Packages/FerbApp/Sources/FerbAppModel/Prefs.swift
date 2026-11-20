@@ -85,7 +85,19 @@ public final class Prefs: @unchecked Sendable {
     }
 
     /// Forget this Mac: what belonged to that pairing goes; the phone's own switches stay.
+    /// Insomnia mode's ends already said (their ids only, APP-980): each is said once, in the app or as a quiet
+    /// notification, whichever sees it first. True for the first claim of `id`.
+    public func claimInsomniaEnd(_ id: String) -> Bool {
+        var said = Set(d.stringArray(forKey: "insomnia_said") ?? [])
+        if said.contains(id) { return false }
+        // an end is kept by the Mac 10 minutes: a short list is enough
+        if said.count >= 32 { said = [] }
+        said.insert(id)
+        d.set(Array(said).sorted(), forKey: "insomnia_said")
+        return true
+    }
+
     public func forgetPairing() {
-        for k in ["paired_since", "just_paired", "announced", "seen"] { d.removeObject(forKey: k) }
+        for k in ["paired_since", "just_paired", "announced", "seen", "insomnia_said"] { d.removeObject(forKey: k) }
     }
 }

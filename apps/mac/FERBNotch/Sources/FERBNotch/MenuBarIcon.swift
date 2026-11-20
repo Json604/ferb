@@ -47,7 +47,7 @@ enum MenuBarIcon {
 
     /// The logo in its own units (its 128-unit box, y down): the f's path as site/logo.svg writes it, its dot and the
     /// tile it sits on.
-    private enum Logo {
+    enum Logo {
         enum Op { case move(CGFloat, CGFloat), line(CGFloat, CGFloat), quad(CGFloat, CGFloat, CGFloat, CGFloat) }
         static let f: [Op] = [
             .move(49.969, 58.772), .line(49.969, 90), .line(60.477, 90), .line(60.477, 58.772), .line(67.729, 58.772),

@@ -128,6 +128,12 @@ sealed interface Sheet {
 
     /** The connection control's sheet (kb PHN-752): which Mac, how the link stands, its path, Try again. */
     data object Connection : Sheet
+
+    /** Insomnia mode's warning before the phone turns it on (APP-980): the two ways, the one Yes, Keep it working. */
+    data object Insomnia : Sheet
+
+    /** Show me (APP-983): the Mac's camera while this shows, always out of screenshots. */
+    data object Camera : Sheet
 }
 
 /** What pressing the microphone needs from the screen: nothing more, or Android's microphone question. */
@@ -315,6 +321,9 @@ class FerbViewModel(
     }
     val live = LiveWatch(viewModelScope, api)
 
+    /** Show me (APP-983): the Mac's camera, pulled only while its view shows. */
+    val camera = com.ferb.app.model.CameraWatch(viewModelScope, api)
+
     /** The work row's round live pictures (kb PHN-725), only while it shows, unlocked, in front and not on the shared relay. */
     val thumbnails = com.ferb.app.model.Thumbnails(viewModelScope, api)
     private val workRowShows = MutableStateFlow<List<String>>(emptyList())
@@ -346,7 +355,7 @@ class FerbViewModel(
         }
         viewModelScope.launch {
             combine(_sheet, hiddenBoxes) { s, hidden ->
-                s is Sheet.Live || s is Sheet.Task || hidden.isNotEmpty()
+                s is Sheet.Live || s is Sheet.Task || s is Sheet.Camera || hidden.isNotEmpty()
             // the views that show the Mac's screen readably force the block (Watch live, a task's or step's short view);
             // the small round pictures in the chat follow the owner's switch (owner 2026-11-18, kb PHN-732, PHN-727)
             }.collect { _mustSecure.value = it }
@@ -453,7 +462,9 @@ class FerbViewModel(
                     _ui.update { it.copy(macLine = null, needsMacUnlock = false, macNeed = null) }
                     stopListening()
                     live.stop()
-                    if (_sheet.value is Sheet.Live || _sheet.value is Sheet.Task || _sheet.value is Sheet.Settings || _sheet.value is Sheet.Days || _sheet.value is Sheet.Location) _sheet.value = null
+                    camera.stop()
+                    if (_sheet.value is Sheet.Live || _sheet.value is Sheet.Task || _sheet.value is Sheet.Settings || _sheet.value is Sheet.Days ||
+                        _sheet.value is Sheet.Location || _sheet.value is Sheet.Camera || _sheet.value is Sheet.Insomnia) _sheet.value = null
                     transfers.locked()
                     outgoing.locked()
                     _ui.update { it.copy(files = FilesUi(), settings = null, macTasks = null) }
@@ -467,6 +478,8 @@ class FerbViewModel(
                     markSeen()
                     stopListening()
                     if (live.showing) closeLive()
+                    // the Mac's camera only while he looks at it (APP-983)
+                    if (camera.showing) closeCamera()
                 } else {
                     transfers.dropKeyPlaceFiles(openedKeyFiles.toList())
                     openedKeyFiles.clear()
@@ -535,6 +548,13 @@ class FerbViewModel(
     }
 
     private var pending: String? = null
+    private var pendingCamera = false
+
+    /** The notice's Show me (APP-983): the camera view opens as soon as the app is unlocked. */
+    fun openCamera() {
+        pendingCamera = true
+        showPending()
+    }
     private var pendingLocation: String? = null
 
     /** A notification's tap: the Mac's request for the exact location opens as soon as the app is unlocked. */
@@ -548,6 +568,12 @@ class FerbViewModel(
         pending?.let { id ->
             pending = null
             goToQuestion(id)
+            return
+        }
+        if (pendingCamera && session.front.value) {
+            pendingCamera = false
+            saved["tab"] = PhoneTab.MAC
+            showCamera()
             return
         }
         val loc = pendingLocation ?: return
@@ -633,6 +659,7 @@ class FerbViewModel(
             it.copy(conversation = view?.conversation, rows = made.rows, running = made.running, chatWork = chatWork, away = away,
                 questions = questions, older = view?.older ?: OlderState.Unknown, status = status, days = made.days)
         }
+        sayLastEnd(status?.insomnia)
         if (!storedShown && _ui.value.rows.isNotEmpty()) {
             storedShown = true
             AppLog.i("chat entries ready ${android.os.SystemClock.elapsedRealtime() - born} ms after the app started: ${_ui.value.rows.size} rows, link ${_ui.value.link?.phase}")
@@ -1184,6 +1211,90 @@ class FerbViewModel(
         }
     }
 
+    // ---- insomnia mode (APP-980..APP-985) ------------------------------------------------------------------------
+
+    /** The Mac's insomnia mode as its status last said it (none: an older Mac, which can't do it). */
+    private fun keepInsomnia(i: com.ferb.mobile.Insomnia?) {
+        if (i != null) _ui.update { u -> u.copy(status = u.status?.copy(insomnia = i)) }
+    }
+
+    /** "Keep my Mac working" turned on: its warning first (APP-980), never straight on. */
+    fun askInsomnia() = show(Sheet.Insomnia)
+
+    /**
+     * Keep it working (APP-980, APP-984): the way he chose and his one Yes, signed with the fingerprint like a setting
+     * (a sensitive change on the Mac, PHN-112). The sheet goes once the Mac took it.
+     */
+    fun startInsomnia(variant: String, screenYes: Boolean) = busy("insomnia", tap = true) {
+        val signer = freshSigner(Why.INSOMNIA) ?: return@busy
+        when (val r = unlocker.run { api.startInsomnia(variant, screenYes, signer()) }) {
+            is Outcome.Ok -> {
+                keepInsomnia(r.value.insomnia)
+                if (_sheet.value == Sheet.Insomnia) _sheet.value = null
+                if (r.value.already) note(Note(R.string.insomnia_already))
+            }
+            is Outcome.Failed -> if (r.error !is FerbException.NotSigned) failed(r.error)
+        }
+    }
+
+    /** End (plain: it only takes something away; no prompt). How it ended is said once from the Mac's status. */
+    fun endInsomnia() = busy("insomnia-end", tap = true) {
+        when (val r = api.endInsomnia()) {
+            is Outcome.Ok -> keepInsomnia(r.value.insomnia)
+            is Outcome.Failed -> failed(r.error)
+        }
+    }
+
+    /** Lock my Mac (APP-983): the owner's button only; FERB never locks by itself. */
+    fun lockMac() = busy("lock-mac", tap = true) {
+        when (val r = api.lockMac()) {
+            is Outcome.Ok -> {
+                keepInsomnia(r.value.insomnia)
+                if (r.value.text.isNotEmpty()) note(Note(R.string.err_mac_said, r.value.text))
+            }
+            is Outcome.Failed -> failed(r.error)
+        }
+    }
+
+    /** It's fine: the notice is answered; FERB goes on. */
+    fun insomniaFine(noticeId: String) = busy("insomnia-fine", tap = true) {
+        when (val r = api.dismissInsomniaNotice(noticeId)) {
+            is Outcome.Ok -> keepInsomnia(r.value)
+            is Outcome.Failed -> failed(r.error)
+        }
+    }
+
+    /** Show me (APP-983): the camera view; the library refuses it on the public relay and the view says why. */
+    fun showCamera() {
+        _sheet.value = Sheet.Camera
+        camera.start()
+    }
+
+    /** The app locked under the camera: unlock (one prompt) and look again. */
+    fun cameraAgain() = busy("camera") {
+        if (_sheet.value != Sheet.Camera) return@busy
+        val p = prompts ?: return@busy
+        if (camera.view.value?.needsUnlock == true) {
+            when (val r = api.unlock(p.signer(KeyKind.LOCK, Why.OPEN))) {
+                is Outcome.Ok -> _ui.update { it.copy(needsMacUnlock = false) }
+                is Outcome.Failed -> { if (r.error !is FerbException.NotSigned) failed(r.error); return@busy }
+            }
+        }
+        camera.start()
+    }
+
+    fun closeCamera() {
+        camera.stop()
+        if (_sheet.value == Sheet.Camera) _sheet.value = null
+    }
+
+    /** How the mode last ended (the Mac keeps it 10 minutes): said once, quietly, here while he is in the app. */
+    private fun sayLastEnd(i: com.ferb.mobile.Insomnia?) {
+        val end = i?.lastEnd ?: return
+        if (i.on || !session.front.value || session.locked.value || end.text.isEmpty()) return
+        if (prefs.claimInsomniaEnd(end.id)) note(Note(R.string.err_mac_said, end.text))
+    }
+
     fun loadOlder() = busy("older") {
         val conv = _ui.value.conversation ?: return@busy
         if (_ui.value.older !is OlderState.Available) return@busy
@@ -1499,18 +1610,8 @@ class FerbViewModel(
     /** One change, one prompt: the fingerprint-only key where the phone has one, else the lock key (PHN-133). */
     fun setSetting(key: String, valueJson: String) = busy("setting:$key", tap = true) {
         val spec = MacSettings.spec(key) ?: run { AppLog.i("setting $key unknown here"); note(Note(R.string.err_app_older)); return@busy }
-        val p = prompts ?: run { note(Note(R.string.err_try_again)); return@busy }
-        // the fingerprint-only key this phone made after its pairing isn't known to the Mac yet: register it here first
-        // (its one prompt), then the change (kb PHN-656)
-        if (api.unregisteredKeys()?.strong != null) {
-            AppLog.i("setting $key: registering the fingerprint key first")
-            when (val r = api.registerKeys { kind -> p.signer(kind, Why.KEYS) }) {
-                is Outcome.Ok -> _ui.update { it.copy(newKeys = false) }
-                is Outcome.Failed -> { if (r.error !is FerbException.NotSigned) failed(r.error); return@busy }
-            }
-        }
-        val kind = unlocker.freshKind() ?: run { note(Note(R.string.needs_pairing_again)); return@busy }
-        when (val r = unlocker.run { api.setSetting(key, valueJson, p.signer(kind, Why.SETTING)) }) {
+        val signer = freshSigner(Why.SETTING) ?: return@busy
+        when (val r = unlocker.run { api.setSetting(key, valueJson, signer()) }) {
             is Outcome.Ok -> {
                 val row = MacSettings.row(spec, r.value)
                 _ui.update { u -> u.copy(settings = u.settings?.map { if (it.spec.key == key) row else it }) }
@@ -1518,6 +1619,24 @@ class FerbViewModel(
             }
             is Outcome.Failed -> if (r.error !is FerbException.NotSigned) failed(r.error)
         }
+    }
+
+    /**
+     * The signer for one sensitive call (PHN-112, PHN-133): the fingerprint-only key where the phone has one, else the
+     * lock key. A fingerprint key made after the pairing that the Mac doesn't know yet is registered first (its one
+     * prompt, kb PHN-656). Null when there is none (said) or the owner cancelled.
+     */
+    private suspend fun freshSigner(why: Why): (() -> com.ferb.mobile.Signer)? {
+        val p = prompts ?: run { note(Note(R.string.err_try_again)); return null }
+        if (api.unregisteredKeys()?.strong != null) {
+            AppLog.i("$why: registering the fingerprint key first")
+            when (val r = api.registerKeys { kind -> p.signer(kind, Why.KEYS) }) {
+                is Outcome.Ok -> _ui.update { it.copy(newKeys = false) }
+                is Outcome.Failed -> { if (r.error !is FerbException.NotSigned) failed(r.error); return null }
+            }
+        }
+        val kind = unlocker.freshKind() ?: run { note(Note(R.string.needs_pairing_again)); return null }
+        return { p.signer(kind, why) }
     }
 
     fun setSwitch(key: String, on: Boolean) = setSetting(key, if (on) "true" else "false")
@@ -1571,6 +1690,7 @@ class FerbViewModel(
     fun show(s: Sheet?) {
         val watching = { x: Sheet? -> x is Sheet.Live || x is Sheet.Task }
         if (watching(_sheet.value) && !watching(s)) live.stop()
+        if (_sheet.value is Sheet.Camera && s !is Sheet.Camera) camera.stop()
         _sheet.value = s
         if (s == null && pendingLocation != null) showPending()
     }
@@ -1700,6 +1820,7 @@ class FerbViewModel(
     override fun onCleared() {
         dictation?.cancel()
         live.stop()
+        camera.stop()
         super.onCleared()
     }
 

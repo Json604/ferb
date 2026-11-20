@@ -76,7 +76,7 @@ const GROUP_A: [&str; 26] = [
 ];
 
 // decision: APP-926, APP-941
-/// A recorded answer with the two named differences applied: the owner-facing words that spoke of AI
+/// A recorded answer with the named differences applied (and insomnia mode's settings, T-1274): the owner-facing words that spoke of AI
 /// (`named_diffs::APP_926`), and Jev's days, which FERB no longer lists as a setting (in `settings.get`'s values and in
 /// the settings `about.get` shows). Nothing else of a recording changes.
 fn as_named(line: String) -> String {
@@ -92,11 +92,27 @@ fn as_named(line: String) -> String {
     let Some(result) = v.get_mut("result").and_then(Value::as_object_mut) else {
         return line;
     };
+    // decision: APP-981 — and insomnia mode's three numbers, settings since T-1274, after Python's last
+    let added = [
+        ("insomnia.grace_minutes", 10),
+        ("insomnia.battery_warn_percent", 20),
+        ("insomnia.battery_urgent_percent", 10),
+    ];
     if let Some(values) = result.get_mut("values").and_then(Value::as_object_mut) {
         values.shift_remove("retention.decision_days");
+        for (k, n) in added {
+            values.insert(k.into(), json!(n));
+        }
     }
     if let Some(Value::Array(settings)) = result.get_mut("settings") {
         settings.retain(|r| r["key"] != "retention.decision_days");
+        let place = settings
+            .last()
+            .and_then(|r| r.get("where").cloned())
+            .unwrap_or(Value::Null);
+        for (k, n) in added {
+            settings.push(json!({"key": k, "value": n, "where": place}));
+        }
     }
     ferb_py::json::dumps(&v)
 }

@@ -46,6 +46,10 @@ struct SheetsView: View {
             DaysView(model: model, key: key, insets: insets)
         case .live:
             LiveView(model: model, insets: insets)
+        case .insomnia:
+            InsomniaSheet(model: model, insets: insets)
+        case .camera:
+            CameraView(model: model, insets: insets)
         // a running task's short view (kb PHN-725; FERB.app's TaskShortView): its picture, title, line, Watch live, Stop
         case .task(let taskId, _):
             let r = model.ui.running?.tasks.first { $0.taskId == taskId }

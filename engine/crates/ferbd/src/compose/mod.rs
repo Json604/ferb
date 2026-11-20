@@ -17,6 +17,7 @@ pub mod front;
 pub mod gateway;
 pub mod group_c;
 pub mod guard;
+pub mod insomnia;
 pub mod link;
 pub mod loops;
 pub mod memory_loops;
@@ -1032,6 +1033,28 @@ impl Daemon {
         }
         // T-1214: the paired phones' own records in the facts line and device.facts
         tool_parts.device().set_phones(phones.clone());
+        // T-1274: insomnia mode (APP-980..APP-984): its RPCs; its status for the phones' `chat.status`; its one Yes for the
+        // gateway's screen-use question; its cover for the Mac hands' foreground steps
+        let ins = insomnia::build(
+            &server,
+            insomnia::Parts {
+                db: db.clone(),
+                journal: journal.clone(),
+                events: events.clone(),
+                clock: clock.clone(),
+                ids: opts.ids.clone(),
+                config: config.clone(),
+                notifier: b.notifier.clone(),
+                native: opts.native,
+            },
+        );
+        {
+            let i = ins.clone();
+            phones.set_insomnia(Arc::new(move || i.status()));
+            let i = ins.clone();
+            gw.set_standing_screen(Arc::new(move || i.screen_yes_since()));
+        }
+        tool_parts.set_insomnia(ins);
 
         // DMN-510: serve before the slow part; every call but `ping` waits for the start to finish
         server.set_starting();

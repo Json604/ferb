@@ -1,9 +1,9 @@
 {
   "counts": {
-    "plain": 54,
-    "private": 38,
-    "sensitive": 48,
-    "never": 26
+    "plain": 57,
+    "private": 40,
+    "sensitive": 49,
+    "never": 28
   },
   "methods": {
     "about.get": {
@@ -377,6 +377,78 @@
       "refused_params": [],
       "owner_to_confirm": false,
       "why": "pairs a browser profile"
+    },
+    "insomnia.camera": {
+      "class": "private",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the Mac's camera, live, for the owner's own eyes (APP-983); never on the shared relay (PHN-454)"
+    },
+    "insomnia.camera_frame": {
+      "class": "never",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "is FERB.app's own picture from the Mac's camera; a phone only watches it"
+    },
+    "insomnia.dismiss": {
+      "class": "plain",
+      "locked": "allowed",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the owner's It's fine to a notice that someone touched the Mac; it changes nothing on the Mac (APP-983)"
+    },
+    "insomnia.end": {
+      "class": "plain",
+      "locked": "allowed",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "ends insomnia mode: the Mac sleeps as usual again; it only takes something away, like Stop (APP-980)"
+    },
+    "insomnia.lock": {
+      "class": "plain",
+      "locked": "allowed",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the owner's Lock my Mac after someone touched it: the Mac's own lock, only ever safer (APP-983)"
+    },
+    "insomnia.report": {
+      "class": "never",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "is FERB.app's own report of what happens at its cover on the Mac's screen"
+    },
+    "insomnia.start": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "keeps the Mac awake and working (and, with the cover, lets FERB bring apps forward under it: APP-984)"
+    },
+    "insomnia.status": {
+      "class": "private",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "whether FERB keeps the Mac working while the owner is away, with its battery, heat and notices"
     },
     "intro.preview": {
       "class": "never",

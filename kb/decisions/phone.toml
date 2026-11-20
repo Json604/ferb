@@ -3889,3 +3889,30 @@ status = "active"
 rule = "For PHN-710. Where the list is (its first row, its offset, a drag) is read only by the sticky day and the way back (ChatOverlays) and the follow's own effects, never by the chat's body; rows have a content type per kind for reuse; FERB's built words and their fold are kept per message (RichCache, iPhone RichTextCache); file icons make their paths, paint and badge once per size; Watch live decodes at screen width."
 why = "The owner felt the chat's scrolling as janky. A fling recomposed the whole chat and its message box once per row passing the top (478 times over 493 rows), and every answer scrolling back in rebuilt and measured its words again."
 evidence = "app ScrollWorkTest a_fling_through_500_mixed_rows_composes_each_row_once_and_not_the_chat (chat 478 recompositions before, 5 or fewer after) and a_message_scrolling_back_in_is_neither_built_nor_measured_again (300 rebuilt before, 0 after); iPhone RichTextCacheTests."
+
+[PHN-774]
+title = "The phone starts insomnia mode signed like a setting; its end, lock and It's fine carry no proof"
+by = "agent"
+date = 2026-11-20
+status = "active"
+rule = "For APP-980, APP-983. start_insomnia signs {challenge, method insomnia.start, params {variant, screen_yes}} with the fingerprint signer a setting uses (registering a late key first); the phone checks variant (shield or locked) itself and never sends another. end_insomnia, lock_mac and dismiss_insomnia_notice send no proof (plain, allowed while locked)."
+why = "PHN-112, PHN-133."
+paths = ["engine/crates/ferb-mobile/src/remote.rs"]
+
+[PHN-775]
+title = "Show me pulls the Mac's camera at most every 500 ms, only while its view is on screen"
+by = "agent"
+date = 2026-11-20
+status = "active"
+rule = "watch_camera pulls link.get what camera (have: the frame shown) at most every 500 ms; it stops when the view closes, the app leaves the front or locks, and ends itself on needs_better_path, needs_unlock or closed; frames stay in memory. On the public relay it is refused before anything is asked, with the core's words. The view is screenshot-blocked (Android FLAG_SECURE; iPhone a capture-shielded canvas and the app hidden while the screen is captured); its frame goes when the Mac says off, denied or failed."
+why = "PHN-454's live-view rule."
+paths = ["engine/crates/ferb-mobile/src/remote.rs", "engine/crates/ferb-mobile-ffi/src/mobile.rs"]
+
+[PHN-776]
+title = "Insomnia notices notify even with the app open; posted once per id and removed when gone"
+by = "agent"
+date = 2026-11-20
+status = "active"
+rule = "A someone's-at-your-Mac notice (Show me, Lock my Mac, It's fine) notifies even with the app on screen (an exception to PHN-760), a later touch in the same episode updates it quietly; warnings notify without actions; each is posted once per id and removed when the status drops it (the mode's end, an older Mac). last_end is said once per id. Android: channel your_mac, tag insomnia; iPhone: per-category actions, Show me opens the app, the others run in the background, interruption level active (no time-sensitive entitlement)."
+why = "APP-983: he decides, so he must see it."
+paths = ["apps/android/app/src/main/kotlin/com/ferb/app/Notifier.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/Notifications.swift"]

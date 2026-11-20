@@ -34,6 +34,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var taskWatch: AnyCancellable?
     private let poster = NotificationPoster(center: AppBundle.isApp ? UserNotificationCenter() as NotificationCenterPosting : nil)
     private let clicks = NotificationClicks()
+    /// Insomnia mode's cover windows (APP-980), the controller's surface; the packaged FERB.app only.
+    private var cover: InsomniaCoverWindows?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         dock.start()
@@ -101,8 +103,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             // Uninstall unregisters macOS's login item first; `ferb uninstall` then removes the fallback file
             // DMN-598: before that, the service (Full Disk Access) removes FERB's files from the browsers' folders
             actions.removeBrowserFiles = { [appSetup] in await appSetup.removeBrowserFilesForUninstall() }
-            actions.beforeUninstall = { [loginItems, appSetup] in
+            // APP-986: the root helper for a closed Mac on battery, registered when the owner turns the mode on here
+            let powerHelper = AppBundle.isApp ? PowerHelper(registrar: PowerHelperService()) : nil
+            actions.beforeUninstall = { [loginItems, appSetup, powerHelper] in
                 loginItems.removeForUninstall()
+                // insomnia mode's root helper first (APP-986), then the background service, each waited for and checked
+                if let refused = await powerHelper?.unregisterForUninstall() { return refused }
                 return await appSetup.unregisterService()  // macOS stops listing FERB's background service
             }
             appSetup.onSettled = { [loginItems, weak coordinator] in
@@ -118,6 +124,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
             self.updates = updates
             coordinator.onInstallUpdate = { [updates] in updates.install() }
+            // APP-980: the warning, then the mode; the cover only in the packaged app (its camera needs the bundle's
+            // usage description)
+            coordinator.onKeepWorking = { [weak model = coordinator.model] in
+                if let model { InsomniaDialog.run(model, helper: powerHelper) }
+            }
+            if AppBundle.isApp {
+                let cover = InsomniaCoverWindows(controller: coordinator.model.insomnia, rpc: coordinator.model.rpc,
+                                                 access: coordinator.model.previewAccess)
+                coordinator.model.insomnia.surface = cover
+                self.cover = cover
+            }
             // APP-947: Sparkle's window the owner was watching closes without an alert; FERB says it in the chat
             updates.onInstallFailed = { [weak model = coordinator.model] line in
                 model?.noteFromSetup(id: "update-failed-\(Int(Date().timeIntervalSince1970))", text: line)

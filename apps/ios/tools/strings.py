@@ -91,6 +91,7 @@ DROP = {
     "ch_questions", "ch_questions_desc", "ch_checks", "ch_checks_desc", "ch_done", "ch_done_desc", "ch_link",
     "ch_link_desc", "ch_stay", "ch_stay_desc", "stay_title", "stay_text",
     "cant_notify_channel", "cant_notify_stay", "cant_notify_battery",
+    "ch_insomnia", "ch_insomnia_desc",
 }
 
 # Only iOS: what replaces Stay connected, the phone's own kind of lock, Info.plist-free words the app needs.

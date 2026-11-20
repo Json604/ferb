@@ -24,7 +24,7 @@ use serde_json::{json, Value};
 use crate::api::{
     lock, parse, sorted, Change, ErrorCode, Mobile, MobileError, MobileResult, Shared, Signer,
 };
-use crate::status::{PhoneStatus, ScreenUse};
+use crate::status::{Insomnia, PhoneStatus, ScreenUse};
 use crate::transport::{codes, TransferSink, Transport};
 
 /// What a phone sees of one entry of a folder on the Mac (`phone.files`).
@@ -139,6 +139,46 @@ pub struct ScreenUseEnd {
     pub by: String,
     /// What is in force after it.
     pub screen_use: ScreenUse,
+}
+
+/// What `insomnia.start` did (APP-980): `already` (it was on: nothing changed) and the mode as it stands.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct InsomniaStarted {
+    pub already: bool,
+    pub insomnia: Insomnia,
+}
+
+/// What `insomnia.end` did: `ended` (it was on), `by` (who ended it: "mac" or a phone's endpoint id; none from a Mac
+/// that doesn't say), and the mode after it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct InsomniaEnded {
+    pub ended: bool,
+    pub by: Option<String>,
+    pub insomnia: Insomnia,
+}
+
+/// What Lock my Mac did (`insomnia.lock`, APP-983: the owner's button only): `locked`, the Mac's words, and the mode
+/// after it when the Mac gave it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MacLocked {
+    pub locked: bool,
+    pub text: String,
+    pub insomnia: Option<Insomnia>,
+}
+
+/// One answer of the Mac's camera in insomnia mode (`insomnia.camera` through `link.get what: camera`, APP-983).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CameraFrame {
+    /// The frame (JPEG), when the Mac sent a new one; none when the phone already has it (`have`) or there is none.
+    /// Memory only: never stored, logged or put in a listener's change.
+    #[serde(skip)]
+    pub jpeg: Option<Vec<u8>>,
+    /// The frame's number (what `have` takes next time).
+    pub seq: Option<i64>,
+    /// starting, live, off, denied, failed.
+    pub state: String,
+    /// The Mac's words for the state ("Starting your Mac's camera…").
+    pub text: Option<String>,
 }
 
 /// One live preview answer (`tasks.preview` through `link.get what: preview`).
@@ -278,6 +318,23 @@ impl Shared {
             match last.as_mut() {
                 Some(s) if s.screen_use.as_ref() != Some(now) => {
                     s.screen_use = Some(now.clone());
+                    true
+                }
+                _ => false,
+            }
+        };
+        if changed {
+            self.notify(Change::Status);
+        }
+    }
+
+    /// Insomnia mode as just read: kept in the last status (when there is one), told when it changed.
+    fn note_insomnia(&self, now: &Insomnia) {
+        let changed = {
+            let mut last = lock(&self.status);
+            match last.as_mut() {
+                Some(s) if s.insomnia.as_ref() != Some(now) => {
+                    s.insomnia = Some(now.clone());
                     true
                 }
                 _ => false,
@@ -465,6 +522,125 @@ impl Mobile {
             ended: v["ended"].as_bool().unwrap_or(false),
             by: text(&v["by"]),
             screen_use: now,
+        })
+    }
+
+    // ---- insomnia mode (APP-980..APP-985) --------------------------------------------------------------------------
+
+    /// Insomnia mode as the Mac has it now (`insomnia.status`; needs the unlock). Also kept in `last_status`, where the
+    /// Mac's pushed `chat.status` (allowed while locked) brings it too.
+    pub fn insomnia_status(&self) -> MobileResult<Insomnia> {
+        let t = self.shared.transport_online()?;
+        let v = Shared::call(&t, "insomnia.status", json!({}))?;
+        let now = Insomnia::read(&v);
+        self.shared.note_insomnia(&now);
+        Ok(now)
+    }
+
+    /// Turns insomnia mode on from the phone, after the app's warning (APP-980): `variant` "shield" (FERB.app covers
+    /// the screen, the Mac stays unlocked) or "locked"; `screen_yes` the one Yes to bring apps forward under the cover
+    /// (APP-984). The sensitive class: signed over `{challenge, method, params}` by `signer` (the fingerprint-only key
+    /// where the phone registered one, PHN-133), like a setting. Never queued.
+    pub fn start_insomnia(
+        &self,
+        variant: &str,
+        screen_yes: bool,
+        signer: Arc<dyn Signer>,
+    ) -> MobileResult<InsomniaStarted> {
+        if variant != "shield" && variant != "locked" {
+            return Err(MobileError::new(
+                ErrorCode::Refused,
+                "That way of keeping the Mac working is not one FERB knows.",
+            ));
+        }
+        let t = self.shared.transport_online()?;
+        let v = Shared::call_signed(
+            &t,
+            "insomnia.start",
+            json!({"variant": variant, "screen_yes": screen_yes}),
+            Some(&signer),
+        )?;
+        let now = Insomnia::read(&v);
+        self.shared.note_insomnia(&now);
+        Ok(InsomniaStarted {
+            already: v["already"].as_bool().unwrap_or(false),
+            insomnia: now,
+        })
+    }
+
+    /// Ends insomnia mode now (`insomnia.end`; allowed while locked, no unlock: it only takes something away). The
+    /// Mac records a phone's end as "turned_off".
+    pub fn end_insomnia(&self) -> MobileResult<InsomniaEnded> {
+        let t = self.shared.transport_online()?;
+        let v = Shared::call(&t, "insomnia.end", json!({}))?;
+        let now = Insomnia::read(&v);
+        self.shared.note_insomnia(&now);
+        Ok(InsomniaEnded {
+            ended: v["ended"].as_bool().unwrap_or(false),
+            by: opt(&v["by"]),
+            insomnia: now,
+        })
+    }
+
+    /// Lock my Mac (`insomnia.lock`, APP-983: only on the owner's word; allowed while the phone is locked).
+    pub fn lock_mac(&self) -> MobileResult<MacLocked> {
+        let t = self.shared.transport_online()?;
+        let v = Shared::call(&t, "insomnia.lock", json!({}))?;
+        let now = v
+            .get("insomnia")
+            .filter(|s| s.is_object())
+            .map(Insomnia::read);
+        if let Some(n) = now.as_ref() {
+            self.shared.note_insomnia(n);
+        }
+        Ok(MacLocked {
+            locked: v["locked"].as_bool().unwrap_or(false),
+            text: text(&v["text"]),
+            insomnia: now,
+        })
+    }
+
+    /// It's fine: the notice `notice_id` is answered (`insomnia.dismiss`; allowed while the phone is locked).
+    pub fn dismiss_insomnia_notice(&self, notice_id: &str) -> MobileResult<Insomnia> {
+        let t = self.shared.transport_online()?;
+        let v = Shared::call(&t, "insomnia.dismiss", json!({"notice_id": notice_id}))?;
+        let now = Insomnia::read(&v);
+        self.shared.note_insomnia(&now);
+        Ok(now)
+    }
+
+    /// One answer of the Mac's camera in insomnia mode (APP-983: Show me), for this paired, unlocked phone, in memory
+    /// only. Each answer keeps the camera on a few seconds more on the Mac; it goes off when the phone stops asking.
+    /// `have`: the frame number the phone shows (the Mac leaves the picture out when it is the same). On the public
+    /// relay it is refused here before anything is asked, like the live preview (PHN-444, PHN-454).
+    pub fn mac_camera(&self, have: Option<i64>) -> MobileResult<CameraFrame> {
+        let t = self.shared.transport_bulk("Your Mac's camera")?;
+        let mut params = json!({"what": "camera"});
+        if let Some(h) = have {
+            params["have"] = json!(h);
+        }
+        struct Quiet;
+        impl TransferSink for Quiet {
+            fn progress(&self, _done: u64, _of: u64) {}
+        }
+        let id = format!("camera-{}", self.shared.env.ids.new_id());
+        let reply = t
+            .get(&id, &params.to_string(), None, false, Arc::new(Quiet))
+            .map_err(MobileError::from_link)?;
+        let mut v = parse(&reply)?;
+        let jpeg = match v.get_mut("data").map(Value::take) {
+            Some(Value::String(d)) if !d.is_empty() => base64::engine::general_purpose::STANDARD
+                .decode(d.as_bytes())
+                .ok()
+                .filter(|b| !b.is_empty()),
+            _ => None,
+        };
+        let meta = &v["meta"];
+        Ok(CameraFrame {
+            jpeg,
+            seq: meta["seq"].as_i64(),
+            state: text(&meta["state"]),
+            text: opt(&meta["text"]),
         })
     }
 

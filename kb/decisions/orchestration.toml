@@ -2167,3 +2167,35 @@ words = "yes make them"
 words_source = "Owner 2026-11-19, to: when the checker asks you something, its notes on what is missing are dropped, so after 'keep trying' the next attempt lacks the route; keep them."
 rule = "When the check's next is ask, code keeps its missing and instructions with the question; after the owner's answer the next attempt gets them first, labelled as the check's notes, then the owner's answer, which decides whether the route is still wanted. A question without notes adds nothing. No limit changes."
 why = "A retry carried the check's notes; a question dropped them, so 'keep trying' restarted without the route the check had seen."
+
+[ORCH-679]
+title = "No rabbit holes: after a retry, a guess, a search or a stuck block is asked about, not dug into"
+by = "owner"
+date = 2026-11-20
+status = "active"
+words = "yes make them, and if the new wording is good to go in sonnet then make it, model wont matter here. i jsut want reproducible results with thsi change / run as much as you want, you have free hand, dont be limitted in quality bt these means / ok, i jsut dont want the dumb code judging like before and faillign thigns / i agree with your recommedations"
+words_source = "Owner 2026-11-19..20 (relayed): on the checker only labelling what is left while code applies his rule, measured on Sonnet; then the measurement report's four recommendations"
+rule = "The check labels each unmet condition's `left` (fix, guess, search, stuck, owner; reached none, some or most) and gives `progress` (found, missing). Code turns the check's retry into \"<found> <missing> Keep trying, or go on with what I have?\" when a condition labelled guess, search or stuck was already retried in this step and has some or most reached. Keep trying: a retry with the check's notes (ORCH-678), not asked again in the step. Go on: the step ends done_with_gaps, \"Not done: <missing>\". The 5-attempt check-in stays."
+why = "FERB dug on without asking (Mailmeteor, the endocrinologist search); prompt-only asks weren't reproducible. Sonnet, 3 runs each: endocrinologist checks 2-4 asked 9 of 9 (the current prompt retried 9 of 9); kept-fixing cases never asked."
+evidence = "Replay of 32 recorded checks, 294 Sonnet calls (claude -p, no tools), 2026-11-19..20: the final wording and the current prompt, 3 runs each."
+paths = ["engine/crates/ferb-orchestrator/src/rabbit_holes.rs", "engine/crates/ferb-supervisor/src/flow/attempt.rs::rabbit_hole", "engine/crates/ferb-supervisor/src/flow/attempt.rs::gone_on", "engine/crates/ferb-supervisor/src/flow/owner_wait.rs::keep_or_go_on", "engine/crates/ferb-context/src/schemas.rs::left_schema"]
+
+[ORCH-680]
+title = "The rabbit-hole rule only turns the check's choice into a question, never a fail or stop"
+by = "agent"
+date = 2026-11-20
+status = "active"
+rule = "For ORCH-679, ORCH-681. The rule (ferb_orchestrator::rabbit_holes::rule) reads only the labels, whether the step already retried, code's proved-false fact (ORCH-664) and the owner's keep trying; never words. Its outcome is the checker's own choice or the question. A missing or malformed label or progress changes nothing (validation drops it, never fails the check). A run nobody attends ends the step needs_user with the question, as any question there. Go on ends as a gapped accept, never failed."
+why = "The owner: no dumb code judging and failing things. One exhaustive test runs every label combination and next through the rule; the per-step retry memory is in memory, so a restart allows one more retry first."
+paths = ["engine/crates/ferb-orchestrator/src/rabbit_holes.rs::rule", "engine/crates/ferb-orchestrator/src/validate.rs", "engine/crates/ferb-supervisor/src/flow/attempt.rs::worker_loop"]
+
+[ORCH-681]
+title = "A gapped accept refused because the worker reported not done asks the owner instead of failing"
+by = "owner"
+date = 2026-11-20
+status = "active"
+words = "i agree with your recommedations"
+words_source = "Owner 2026-11-20 (relayed), to option B: where code refuses the check's accept_with_gaps because the worker reported not done and today fails the step, ask Keep trying / go on instead"
+rule = "Refines ORCH-675's ending for one refusal: when code refuses the check's accept_with_gaps only because the worker reported not done, and the check gave progress and no unmet condition is one code's facts proved false, FERB asks ORCH-679's question (no earlier retry needed) instead of reading it as a plain accept that ends failed. Keep trying retries with the check's notes; go on ends done_with_gaps. ORCH-675's other limits and their endings are unchanged."
+why = "Sonnet's check chose a gapped accept on a not-done worker in Mailmeteor's check 2 and the visa rate-limit checks: code turned 3 of 3 runs each into a failure. With this, they ask (8 of 9 on the visa checks)."
+paths = ["engine/crates/ferb-supervisor/src/flow/attempt.rs::next", "engine/crates/ferb-supervisor/src/flow/attempt.rs::gapped"]

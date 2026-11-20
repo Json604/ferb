@@ -209,7 +209,7 @@ def stubs(tmp: Path) -> dict[str, str]:
 # The pieces of the Rust FERB.app: Mach-O files (copies of /usr/bin/true, a universal x86_64 + arm64e file); Codex's
 # binary sits under a "vendor" path, which the stub codesign reports as another team's Developer ID (kept as is)
 FAKE_MACHOS = ("MacOS/FERBNotch", "Helpers/FERB.app/Contents/MacOS/FERB", "Helpers/ferb-native-host",
-               "Helpers/ferb-secrets", "Helpers/ferb-link", "Resources/bin/ferb",
+               "Helpers/ferb-secrets", "Helpers/ferb-link", "Helpers/ferb-power", "Resources/bin/ferb",
                "Resources/node/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex",
                "Resources/node/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/lib/libtool.dylib")
 
@@ -256,7 +256,8 @@ SHA = "0123456789abcdef0123456789abcdef01234567"
 RELEASE_LISTED = f'  1) {SHA.upper()} "FERB Release Signing" (CSSMERR_TP_NOT_TRUSTED)'
 # Each piece macOS grants permissions to (signing.sh's list)
 RELEASE_PIECES = (("", "com.ferb.FERB"), ("Contents/Helpers/FERB.app", "com.ferb.daemon"),
-                  ("Contents/Helpers/ferb-secrets", "com.ferb.secrets"), ("Contents/Helpers/ferb-link", "com.ferb.link"))
+                  ("Contents/Helpers/ferb-secrets", "com.ferb.secrets"), ("Contents/Helpers/ferb-link", "com.ferb.link"),
+                  ("Contents/Helpers/ferb-power", "com.ferb.power"))
 
 
 def release_env() -> dict[str, str]:

@@ -61,6 +61,7 @@ public final class AppShell: ObservableObject {
         notifier.start()
         poster.answer = { [weak self] id, choice, typed in await self?.notifier.answer(id, choice: choice, typed: typed) }
         poster.open = { [weak self] tap in self?.open(tap) }
+        poster.insomnia = { [weak self] notice, lock in _ = await self?.notifier.insomniaAnswer(notice, lock: lock) }
         Task {
             let began = Date()
             let s = await phone.start()
@@ -141,6 +142,8 @@ public final class AppShell: ObservableObject {
         case .task: model.openChat()
         // FERB's own question (a clarify) is answered by a message: the box takes the cursor (FERB.app's needs-you)
         case .chat: model.openChat(focus: true)
+        // insomnia's Show me (APP-983): the camera, after the app's unlock
+        case .camera: model.openCamera()
         }
     }
 

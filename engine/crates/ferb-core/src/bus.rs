@@ -75,6 +75,12 @@ pub const CRITICAL: &[&str] = &[
     "phone.removed",
     "phone.heavy_fetch", // stage 3 S3b: a phone took unusually much (PHN-128): a notice, never a cap
     "screen.until_back", // GATE-615: the phone's "until I'm back at my Mac" started or ended (Settings → Phone, a notice)
+    // T-1274 (APP-980..APP-985): insomnia mode's state (FERB.app's cover, menu bar and notch line), a step that brings an
+    // app forward under the cover (click-through), an app FERB is about to bring forward, the camera for "Show me"
+    "insomnia.changed",
+    "insomnia.step",
+    "insomnia.expect",
+    "insomnia.camera",
 ];
 
 /// bus.py:36-44. May be dropped, oldest first.

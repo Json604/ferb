@@ -14,6 +14,8 @@ final class NotificationPoster: NSObject, UNUserNotificationCenterDelegate {
     var answer: ((String, Int?, String?) async -> NotificationAction?)?
     /// A tap opens the app on the question or the chat.
     var open: ((NotificationTap) -> Void)?
+    /// Lock my Mac (true) or It's fine from insomnia's notice (AppShell → Notifier.insomniaAnswer).
+    var insomnia: ((String, Bool) async -> Void)?
     private var categories: [String: UNNotificationCategory] = [:]
     private var taps: [String: NotificationTap] = [:]
     private var center: UNUserNotificationCenter? { Bundle.main.bundleIdentifier == nil ? nil : .current() }
@@ -22,7 +24,7 @@ final class NotificationPoster: NSObject, UNUserNotificationCenterDelegate {
     nonisolated static let choicePrefix = "choice."
 
     func registerCategories() {
-        for kind in [NotificationKind.question, .check, .done, .link] {
+        for kind in [NotificationKind.question, .check, .done, .link, .mac] {
             categories[kind.rawValue] = Self.category(id: kind.rawValue, buttons: [], publicText: "")
         }
         center?.setNotificationCategories(Set(categories.values))
@@ -81,7 +83,10 @@ final class NotificationPoster: NSObject, UNUserNotificationCenterDelegate {
     nonisolated static func category(id: String, buttons: [NotificationButton], publicText: String) -> UNNotificationCategory {
         let actions: [UNNotificationAction] = buttons.enumerated().map { i, b in
             if let choice = b.choice {
-                return UNNotificationAction(identifier: choicePrefix + String(choice), title: b.label, options: [])
+                // insomnia's Show me opens the app (its unlock, then the camera); every other button is answered in the
+                // background, from the lock screen too (no .authenticationRequired)
+                let options: UNNotificationActionOptions = choice == NotificationButton.showMe ? [.foreground] : []
+                return UNNotificationAction(identifier: choicePrefix + String(choice), title: b.label, options: options)
             }
             return UNTextInputNotificationAction(identifier: typedAction, title: b.label, options: [],
                                                  textInputButtonTitle: b.label, textInputPlaceholder: b.placeholder ?? "")
@@ -107,6 +112,18 @@ final class NotificationPoster: NSObject, UNUserNotificationCenterDelegate {
             if action == UNNotificationDefaultActionIdentifier {
                 open?(taps[id] ?? (id.hasPrefix("q:") ? .question(String(id.dropFirst(2))) : .app))
                 return nil
+            }
+            if id.hasPrefix("in:") {
+                let notice = String(id.dropFirst(3))
+                let choice = action.hasPrefix(Self.choicePrefix) ? Int(action.dropFirst(Self.choicePrefix.count)) : nil
+                switch choice {
+                case NotificationButton.showMe: open?(.camera); return nil
+                case NotificationButton.lockMac, NotificationButton.fine:
+                    guard let insomnia else { return nil }
+                    let lock = choice == NotificationButton.lockMac
+                    return Task { await insomnia(notice, lock) }
+                default: return nil
+                }
             }
             guard id.hasPrefix("q:") else { return nil }
             let approval = String(id.dropFirst(2))

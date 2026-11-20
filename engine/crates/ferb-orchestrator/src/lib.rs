@@ -47,6 +47,7 @@ pub mod probes;
 pub mod progress;
 pub mod py;
 mod pydantic;
+pub mod rabbit_holes;
 pub mod reply_stream;
 pub mod skills;
 #[cfg(feature = "store")]

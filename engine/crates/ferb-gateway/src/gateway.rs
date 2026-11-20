@@ -398,6 +398,9 @@ struct Inner {
     until_back: Option<crate::screen_use::UntilBack>,
     /// GATE-618: the confirmations "until I'm back" answered: they cover a later call only while one is in force.
     back_rows: HashSet<String>,
+    /// APP-984: the confirmations insomnia mode's one Yes answered, with the session (its start) that gave them: they
+    /// cover a later call only while that session lasts.
+    away_rows: HashMap<String, String>,
     terminal_arms: HashMap<String, String>,
     amount_asked: HashMap<String, HashSet<(String, Option<String>)>>,
     outside: HashMap<String, OutsideTexts>,
@@ -679,7 +682,12 @@ pub struct Gateway {
     at_mac: Mutex<Option<Arc<dyn crate::screen_use::AtTheMac>>>,
     /// GATE-618: a hold resumed or the grant ended (the calls waiting on a hold look again).
     hold_changed: Notify,
+    /// APP-984: insomnia mode's one Yes to screen use for its session (the session's start while it covers it).
+    standing_screen: Mutex<Option<StandingScreen>>,
 }
+
+/// APP-984: the start of the insomnia session whose one Yes covers screen use now, if any.
+pub type StandingScreen = Arc<dyn Fn() -> Option<String> + Send + Sync>;
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
@@ -706,6 +714,7 @@ impl Gateway {
             observer: Mutex::new(Arc::new(NoObserver)),
             locks: crate::locks::ResourceLocks::new(),
             at_mac: Mutex::new(None),
+            standing_screen: Mutex::new(None),
             hold_changed: Notify::new(),
         }
     }
@@ -867,6 +876,17 @@ impl Gateway {
         lock(&self.at_mac).clone()
     }
 
+    /// APP-984: where insomnia mode's one Yes comes from, given once by the daemon.
+    pub fn set_standing_screen(&self, standing: StandingScreen) {
+        *lock(&self.standing_screen) = Some(standing);
+    }
+
+    /// APP-984: the insomnia session whose one Yes covers screen use now.
+    pub fn standing_screen(&self) -> Option<String> {
+        let f = lock(&self.standing_screen).clone();
+        f.and_then(|f| f())
+    }
+
     /// Whether a phone may answer this question "until I'm back at my Mac" now: it waits, it is the screen-use question
     /// alone, and FERB can tell when the owner is back at a Mac in use.
     pub fn until_back_offered(&self, approval_id: &str) -> bool {
@@ -958,6 +978,22 @@ impl Gateway {
                 Some(g)
             }
         }
+    }
+
+    /// HAND-645: the Mac's screen is locked now (FERB can tell, through what it sees of the owner at the Mac).
+    pub fn screen_locked(&self) -> bool {
+        self.at_mac().is_some_and(|a| a.screen_locked())
+    }
+
+    /// HAND-645: a step the owner said to do when he's back waits here until the screen is unlocked (or the call is
+    /// cancelled: a stop, the task's end).
+    async fn wait_unlocked(&self, cancel: &Cancel) -> Result<(), CallError> {
+        while self.screen_locked() {
+            cancel
+                .guard(tokio::time::sleep(std::time::Duration::from_millis(500)))
+                .await?;
+        }
+        Ok(())
     }
 
     /// GATE-618: FERB posts no screen input while a hold lasts: a call that would (an on-screen tool) waits here until
@@ -1426,6 +1462,10 @@ impl Gateway {
             Err(e) => Err(e),
         };
         let mut covered = covered?;
+        // decision: HAND-645 — "Do it when I'm back": the step waits for the owner's unlock, then runs
+        if covered.refused.is_none() && needs.iter().any(|n| n.rule == confirm::LOCKED_SCREEN) {
+            self.wait_unlocked(&c.cancel).await?;
+        }
         let out = self.after_authorize(&mut c, &mut covered).await;
         if !covered.spent.is_empty() && !covered.started {
             for cid in &covered.spent {
@@ -2232,6 +2272,11 @@ impl Gateway {
                 if let Some(why) = c.cancel.guard(c.tool.window_reason(&c.args)).await? {
                     f.values.set("window", &why);
                 }
+            }
+            // decision: HAND-645 — while the screen is locked the step asks to be done when the owner is back
+            if self.screen_locked() {
+                let app = f.values.get("app").unwrap_or("an app").to_string();
+                needs.push(confirm::locked_screen_need(&app, self.d.apps.as_ref()));
             }
             needs.push(f);
             if let Some(page) = c.cancel.guard(c.tool.browser_page(&c.args)).await? {
@@ -4531,9 +4576,12 @@ impl Gateway {
             }
             let row = row.expect("checked");
             // decision: GATE-618 — a Yes "until I'm back" gave covers nothing once it has ended
+            let standing = self.standing_screen();
             let back_row = {
                 let i = lock(&self.inner);
-                i.until_back.is_none() && i.back_rows.contains(&row.id)
+                (i.until_back.is_none() && i.back_rows.contains(&row.id))
+                    // decision: APP-984 — insomnia mode's one Yes covers nothing once its session has ended
+                    || i.away_rows.get(&row.id).is_some_and(|s| Some(s) != standing.as_ref())
             };
             if back_row {
                 ask.push(need.clone());
@@ -4799,6 +4847,40 @@ impl Gateway {
             lock(&self.inner).back_rows.extend(ids.iter().cloned());
             let given = obj(json!({"answer": YES, "confirmed": ids,
                                    "until_back": {"since": when::isoformat(&back.since), "phone": back.phone}}));
+            self.finish_call(
+                &mut q_span,
+                OWNER_ASK,
+                &given,
+                false,
+                Some(&given),
+                None,
+                Some(&ask_origins(&given)),
+            )?;
+            return Ok(Answer {
+                granted: true,
+                ids,
+                ..Answer::default()
+            });
+        }
+        // decision: APP-984 — insomnia mode's one Yes, given when the owner turned it on with the cover, answers the
+        // screen-use question alone for that session
+        if let Some(since) = screen_only.then(|| self.standing_screen()).flatten() {
+            let mut ids = Vec::new();
+            for n in needs {
+                ids.push(
+                    self.confirmations(|s| {
+                        s.record(&root, &n.rule, &n.key, true, Some(&q_span.id))
+                    })?,
+                );
+            }
+            self.known_from(needs, rec, &q_span.id)?;
+            {
+                let mut i = lock(&self.inner);
+                for id in &ids {
+                    i.away_rows.insert(id.clone(), since.clone());
+                }
+            }
+            let given = obj(json!({"answer": YES, "confirmed": ids, "insomnia": {"since": since}}));
             self.finish_call(
                 &mut q_span,
                 OWNER_ASK,

@@ -2222,6 +2222,8 @@ impl Session {
                 },
             )?,
             "file" | "path" => self.bulk_path("This file")?,
+            // decision: APP-983 — Show me: the Mac's camera crosses only a direct path or the owner's relay
+            "camera" => self.bulk_path("Your Mac's camera")?,
             _ => Tier::Direct,
         };
         match kind {
@@ -2250,11 +2252,35 @@ impl Session {
                     None => Ok(json!({"meta": ans, "size": 0})), // nothing new to show
                 }
             }
+            // insomnia mode's Show me (APP-983): the latest frame of the Mac's camera, in memory only, as a preview's
+            "camera" => {
+                let tier = self.tier();
+                let every = Duration::from_millis(l.good_preview_every_ms);
+                {
+                    let mut last = self.last_preview.lock().unwrap();
+                    if let Some(t) = *last
+                        && t.elapsed() < every {
+                            let wait = (every - t.elapsed()).as_secs().max(1);
+                            return Err(LinkError::new(errors::PREVIEW_TOO_SOON, format!("On {} FERB sends a picture at most every {} s.", tier.words(), every.as_secs().max(1))).retry(wait));
+                        }
+                    *last = Some(Instant::now());
+                }
+                let mut p = json!({});
+                if let Some(v) = params.get("have") {
+                    p["have"] = v.clone();
+                }
+                let mut ans = self.daemon("insomnia.camera", p, None).await?;
+                let image = ans.as_object_mut().and_then(|m| m.remove("image")).and_then(|v| v.as_str().map(str::to_string));
+                match image.and_then(|s| B64S.decode(s).ok()) {
+                    Some(bytes) => self.send_bytes(tx, rx, "This picture", bytes, ans).await,
+                    None => Ok(json!({"meta": ans, "size": 0})),
+                }
+            }
             // a finished task's file, or any one file the owner could open (never a folder): the daemon opens it
             // (where links really lead decides there) and streams it; the bridge never touches the file
             "file" => self.send_file(tx, rx, json!({"artifact": {"task_id": params.get("task_id"), "index": params.get("index")}}), None).await,
             "path" => self.send_file(tx, rx, json!({"path": params.get("path"), "offset": params.get("offset").and_then(Value::as_u64).unwrap_or(0)}), proof).await,
-            _ => Err(LinkError::new(errors::BAD_REQUEST, "link.get takes what: \"preview\", \"file\" or \"path\"")),
+            _ => Err(LinkError::new(errors::BAD_REQUEST, "link.get takes what: \"preview\", \"camera\", \"file\" or \"path\"")),
         }
     }
 

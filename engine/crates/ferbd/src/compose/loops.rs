@@ -111,6 +111,10 @@ pub fn start(d: &Arc<Daemon>) {
     // GATE-615: one that ran when FERB stopped ended with the stop: said once, at this start
     restarted_until_back(d);
 
+    // T-1274: insomnia mode: the look every TICK_S (the lease, the grace, the warnings), the camera's watchdog, and a
+    // mode that was on when FERB stopped resumed (said once)
+    super::insomnia::start_loops(d);
+
     // the resource log: a sample every SAMPLE_SECONDS (the owner's "every 5 minutes"); shutdown writes the last
     if crate::basics::lock(&d.resource_log).is_some() {
         let weak = Arc::downgrade(d);

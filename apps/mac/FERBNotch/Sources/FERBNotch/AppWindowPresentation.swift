@@ -154,6 +154,13 @@ enum AppWindowPresentation {
         return open()
     }
 
+    /// Insomnia mode's cover takes the front (APP-980, APP-983): when it rises and whenever an app came forward under it.
+    /// Its panels are on every Space and join every app (InsomniaCover), so this can't switch the owner's Space; the
+    /// owner turned the mode on, and the kiosk options apply only while FERB is the active app (x1 experiment 2).
+    static func coverTakesFront() {
+        activate()
+    }
+
     /// An alert, on the Space showing.
     static func runModal(_ alert: NSAlert) -> NSApplication.ModalResponse {
         opening("an alert", activating: true) { runAlert(alert) }
@@ -473,6 +480,8 @@ extension AppWindowPresentation {
         .init(name: "Quit and Install? (update)", mechanism: .opening, file: "UpdateCoordinator.swift", code: "NSAlert()"),
         .init(name: "The artifact couldn't be opened; the service isn't installed", mechanism: .opening,
               file: "PanelCoordinator.swift", code: "NSAlert()"),
+        .init(name: "Keep your Mac working while you're away? (insomnia mode's warning, APP-980)", mechanism: .opening,
+              file: "InsomniaDialog.swift", code: "NSAlert()"),
         // File pickers
         .init(name: "The chat's file picker (notch and sticky window)", mechanism: .opening, file: "NotchModel.swift",
               code: "NSOpenPanel()"),
@@ -512,6 +521,8 @@ extension AppWindowPresentation {
               code: "class CursorPanel: NSPanel"),
         .init(name: "The first run's arrival", mechanism: .everySpace, file: "StartupArrival.swift",
               code: "class ArrivalPanel: NSPanel"),
+        .init(name: "Insomnia mode's cover, one per display (APP-980..APP-984)", mechanism: .everySpace,
+              file: "InsomniaCover.swift", code: "class ShieldPanel: NSPanel"),
         .init(name: "A reply's file list (a popover on the notch or the sticky window)", mechanism: .withParent,
               file: "ArtifactPreview.swift", code: ".popover("),
         // With their window

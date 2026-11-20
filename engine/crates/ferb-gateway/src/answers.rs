@@ -132,10 +132,12 @@ pub enum Question {
     TlsOff,
     /// ORCH-676: the file about to be sent isn't the one the owner named.
     NotNamed,
+    /// HAND-645: a step that would use the keyboard and pointer while the Mac's screen is locked: do it when he's back.
+    LockedScreen,
 }
 
 impl Question {
-    pub const ALL: [Question; 26] = [
+    pub const ALL: [Question; 27] = [
         Question::PrivateUrl,
         Question::FileSend,
         Question::FormSend,
@@ -162,6 +164,7 @@ impl Question {
         Question::Pair,
         Question::TlsOff,
         Question::NotNamed,
+        Question::LockedScreen,
     ];
 
     /// The rule that asks it and example facts (placeholders in angle brackets), as the card is built from.
@@ -277,6 +280,7 @@ impl Question {
                 ],
             ),
             Question::Foreground => (confirm::FOREGROUND, &[("app", "<app>")]),
+            Question::LockedScreen => (confirm::LOCKED_SCREEN, &[("app", "<app>")]),
             Question::BrowserPage => (
                 confirm::BROWSER_PAGE,
                 &[("app", "<browser>"), ("page", "chrome://settings")],

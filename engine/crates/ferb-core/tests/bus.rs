@@ -58,8 +58,9 @@ fn the_topic_lists_are_pythons() {
     // said Yes (decision: SENSE-422); the phone link's pairing, unused warning and removal for Settings → Phone and the
     // notch (decision: PHN-419, journal 106)
     // and a phone that took unusually much (decision: PHN-128, T-1203); the phone's "until I'm back at my Mac"
-    // (decision: GATE-615)
-    const ADDED: [&str; 7] = [
+    // (decision: GATE-615); insomnia mode's state, steps under the cover, expected apps and the camera (decision: APP-980,
+    // APP-983, APP-984)
+    const ADDED: [&str; 11] = [
         "device.location_wanted",
         "phone.pair_requested",
         "phone.pair_ended",
@@ -67,6 +68,10 @@ fn the_topic_lists_are_pythons() {
         "phone.removed",
         "phone.heavy_fetch",
         "screen.until_back",
+        "insomnia.changed",
+        "insomnia.step",
+        "insomnia.expect",
+        "insomnia.camera",
     ];
     let python: Vec<&str> = CRITICAL
         .iter()

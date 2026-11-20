@@ -128,6 +128,158 @@ impl ScreenUse {
     }
 }
 
+/// The Mac's power as insomnia mode reports it (APP-981): any part may be unknown.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct InsomniaPower {
+    /// The battery's percent.
+    pub battery: Option<u32>,
+    pub on_battery: Option<bool>,
+    pub lid_closed: Option<bool>,
+    /// nominal, fair, serious, critical.
+    pub thermal: Option<String>,
+}
+
+/// Insomnia mode's camera (APP-983): on only while a phone pulls frames; `state` is FERB.app's report (allowed,
+/// denied, not_asked, unknown).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct InsomniaCamera {
+    pub on: bool,
+    pub state: String,
+}
+
+/// A warning while insomnia mode is on (APP-981): battery_low, battery_urgent, hot, shield_down; `text` is the Mac's.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct InsomniaWarning {
+    pub id: String,
+    pub kind: String,
+    pub text: String,
+    pub at: Option<String>,
+}
+
+/// Someone at the Mac while insomnia mode is on (APP-983): `kind` touched (a person's input) or activation (an app
+/// FERB didn't open came to the front, named by `app`). Answered by Show me, Lock my Mac or It's fine; gone (none)
+/// once answered or the mode ends.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct InsomniaNotice {
+    pub id: String,
+    pub kind: String,
+    pub at: Option<String>,
+    /// The Mac's words ("Someone is using your Mac's keyboard or trackpad.").
+    pub text: String,
+    pub app: Option<String>,
+    /// How many times it happened in this episode.
+    pub count: u32,
+}
+
+/// How insomnia mode last ended (kept by the Mac 10 minutes, so each device says it once).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct InsomniaLastEnd {
+    pub id: String,
+    /// back, turned_off, …
+    pub why: String,
+    /// The Mac's words ("Welcome back. …").
+    pub text: String,
+    pub at: Option<String>,
+}
+
+/// Insomnia mode (APP-980..APP-985): FERB keeps the Mac working while the owner is away. The daemon's status object
+/// (`insomnia.status`, `chat.status`'s `insomnia`), read leniently: a part the Mac leaves out reads as its default.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Insomnia {
+    pub on: bool,
+    /// shield (FERB.app covers the screen, the Mac stays unlocked) or locked; none while off.
+    pub variant: Option<String>,
+    pub since: Option<String>,
+    /// Who turned it on: "mac" or a phone's endpoint id.
+    pub by: Option<String>,
+    /// The one Yes to bring apps to the front under the cover for this session (APP-984).
+    pub screen_yes: bool,
+    /// Minutes the mode stays on after FERB's work is done.
+    pub grace_minutes: Option<u32>,
+    /// Tasks running now.
+    pub working: u32,
+    /// When nothing runs: when the grace ends (ISO 8601).
+    pub ends_at: Option<String>,
+    pub shield_up: bool,
+    pub mac_locked: bool,
+    pub camera: InsomniaCamera,
+    pub power: InsomniaPower,
+    pub warnings: Vec<InsomniaWarning>,
+    pub notice: Option<InsomniaNotice>,
+    /// The Mac's own line ("Keeping your Mac working · 2 tasks running · battery 64%"); empty while off.
+    pub line: String,
+    /// While off: FERB holds the Mac from idle sleep because a task runs.
+    pub task_awake: bool,
+    pub last_end: Option<InsomniaLastEnd>,
+}
+
+fn opt_u32(v: &Value) -> Option<u32> {
+    v.as_u64()
+        .or_else(|| v.as_f64().filter(|f| *f >= 0.0).map(|f| f.round() as u64))
+        .map(|n| n.min(u32::MAX as u64) as u32)
+}
+
+impl Insomnia {
+    pub fn read(v: &Value) -> Insomnia {
+        let power = &v["power"];
+        let camera = &v["camera"];
+        Insomnia {
+            on: v["on"].as_bool().unwrap_or(false),
+            variant: opt(&v["variant"]),
+            since: opt(&v["since"]),
+            by: opt(&v["by"]),
+            screen_yes: v["screen_yes"].as_bool().unwrap_or(false),
+            grace_minutes: opt_u32(&v["grace_minutes"]),
+            working: opt_u32(&v["working"]).unwrap_or(0),
+            ends_at: opt(&v["ends_at"]),
+            shield_up: v["shield_up"].as_bool().unwrap_or(false),
+            mac_locked: v["mac_locked"].as_bool().unwrap_or(false),
+            camera: InsomniaCamera {
+                on: camera["on"].as_bool().unwrap_or(false),
+                state: opt(&camera["state"]).unwrap_or_else(|| "unknown".into()),
+            },
+            power: InsomniaPower {
+                battery: opt_u32(&power["battery"]),
+                on_battery: power["on_battery"].as_bool(),
+                lid_closed: power["lid_closed"].as_bool(),
+                thermal: opt(&power["thermal"]),
+            },
+            warnings: list(&v["warnings"])
+                .iter()
+                .filter(|w| w.is_object())
+                .map(|w| InsomniaWarning {
+                    id: text(&w["id"]),
+                    kind: text(&w["kind"]),
+                    text: text(&w["text"]),
+                    at: opt(&w["at"]),
+                })
+                .collect(),
+            notice: v
+                .get("notice")
+                .filter(|n| n.is_object())
+                .map(|n| InsomniaNotice {
+                    id: text(&n["id"]),
+                    kind: text(&n["kind"]),
+                    at: opt(&n["at"]),
+                    text: text(&n["text"]),
+                    app: opt(&n["app"]),
+                    count: opt_u32(&n["count"]).unwrap_or(1),
+                }),
+            line: v["line"].as_str().unwrap_or_default().to_string(),
+            task_awake: v["task_awake"].as_bool().unwrap_or(false),
+            last_end: v
+                .get("last_end")
+                .filter(|e| e.is_object())
+                .map(|e| InsomniaLastEnd {
+                    id: text(&e["id"]),
+                    why: text(&e["why"]),
+                    text: text(&e["text"]),
+                    at: opt(&e["at"]),
+                }),
+        }
+    }
+}
+
 /// What FERB has waiting, as this phone may see it now.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PhoneStatus {
@@ -142,6 +294,8 @@ pub struct PhoneStatus {
     pub results: Vec<StatusResult>,
     /// FERB using the screen on a phone's "until I'm back" (GATE-615); none from a Mac that doesn't say.
     pub screen_use: Option<ScreenUse>,
+    /// Insomnia mode (APP-980..APP-985); none from a Mac that doesn't say (an older FERB).
+    pub insomnia: Option<Insomnia>,
 }
 
 fn text(v: &Value) -> String {
@@ -218,6 +372,10 @@ impl PhoneStatus {
                 .get("screen_use")
                 .filter(|s| s.is_object())
                 .map(ScreenUse::read),
+            insomnia: v
+                .get("insomnia")
+                .filter(|s| s.is_object())
+                .map(Insomnia::read),
         }
     }
 
@@ -292,5 +450,50 @@ mod tests {
         );
         let idle = ScreenUse::read(&json!({"active": false, "can_offer": false}));
         assert!(!idle.active && idle.since.is_none() && idle.phone_name.is_none());
+    }
+
+    /// Insomnia mode as the daemon's contract gives it (on, with a notice and a warning; off, with the last end), and
+    /// a Mac that doesn't say (an older FERB): none.
+    // decision: APP-980
+    // decision: APP-981
+    // decision: APP-983
+    #[test]
+    fn insomnia_is_read_on_and_off_and_absent_from_an_older_mac() {
+        let on = PhoneStatus::read(&json!({
+            "approvals": [], "running": [], "results": [],
+            "insomnia": {"on": true, "variant": "shield", "since": "2026-11-20T15:00:00+05:30", "by": "mac",
+                "screen_yes": true, "grace_minutes": 10, "working": 2, "ends_at": null, "shield_up": true,
+                "mac_locked": false, "camera": {"on": false, "state": "allowed"},
+                "power": {"battery": 18, "on_battery": true, "lid_closed": null, "thermal": "fair"},
+                "warnings": [{"id": "w-1", "kind": "battery_low", "text": "Your Mac's battery is at 18%.", "at": "x"}],
+                "notice": {"id": "n-1", "kind": "touched", "at": "y", "app": null, "count": 3,
+                           "text": "Someone is using your Mac's keyboard or trackpad."},
+                "line": "Keeping your Mac working · 2 tasks running · battery 18%", "last_end": null}
+        }));
+        let i = on.insomnia.unwrap();
+        assert!(i.on && i.screen_yes && i.shield_up && !i.mac_locked);
+        assert_eq!(i.variant.as_deref(), Some("shield"));
+        assert_eq!((i.working, i.grace_minutes), (2, Some(10)));
+        assert_eq!(i.camera.state, "allowed");
+        assert_eq!(
+            (i.power.battery, i.power.on_battery, i.power.lid_closed),
+            (Some(18), Some(true), None)
+        );
+        assert_eq!(i.warnings[0].kind, "battery_low");
+        let n = i.notice.unwrap();
+        assert_eq!(
+            (n.id.as_str(), n.kind.as_str(), n.count),
+            ("n-1", "touched", 3)
+        );
+        assert!(i.line.starts_with("Keeping your Mac working"));
+        let off = Insomnia::read(
+            &json!({"on": false, "power": {}, "task_awake": true, "line": "",
+            "last_end": {"id": "e-1", "why": "back", "text": "Welcome back.", "at": "z"}}),
+        );
+        assert!(!off.on && off.task_awake && off.notice.is_none() && off.warnings.is_empty());
+        assert_eq!(off.camera.state, "unknown");
+        assert_eq!(off.last_end.unwrap().why, "back");
+        let older = PhoneStatus::read(&json!({"approvals": [], "running": [], "results": []}));
+        assert_eq!(older.insomnia, None);
     }
 }

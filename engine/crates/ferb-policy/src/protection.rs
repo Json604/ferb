@@ -127,6 +127,9 @@ pub const FERB_APP: &str = "ferb_app";
 pub const FERB_SERVICE: &str = "ferb_service";
 pub const SERVICE_LABELS: &[&str] = &["com.ferb.daemon", "com.ferb.FERB.login"];
 pub const BUNDLE_SERVICE: &str = "Contents/Library/LaunchAgents/com.ferb.daemon.plist";
+/// APP-986: FERB's root helper's launchd definition inside FERB.app (`SMAppService.daemon`): FERB's own service
+/// definition too, never written (GATE-1).
+pub const BUNDLE_HELPER_SERVICE: &str = "Contents/Library/LaunchDaemons/com.ferb.power.plist";
 pub const NEVER_LIFTED: &[&str] = &[FERB_STATE, NETWORK, FERB_APP, FERB_SERVICE];
 pub const WORKSPACE: &str = "workspace";
 pub const UPLOADS: &str = "uploads";
@@ -574,6 +577,8 @@ impl<'a> Protection<'a> {
             .collect();
         if let Some(b) = &p.app_bundle {
             service_files.push(ppath::div(b, BUNDLE_SERVICE));
+            // decision: APP-986 — the root helper's definition is FERB's service definition, never lifted
+            service_files.push(ppath::div(b, BUNDLE_HELPER_SERVICE));
         }
         let mut service_roots = Vec::new();
         for s in &service_files {

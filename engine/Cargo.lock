@@ -776,6 +776,7 @@ dependencies = [
 name = "ferb-platform-macos"
 version = "0.28.0"
 dependencies = [
+ "ferb-core",
  "ferb-identity",
  "ferb-rpc",
  "libc",
@@ -803,6 +804,17 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+]
+
+[[package]]
+name = "ferb-power-helper"
+version = "0.28.0"
+dependencies = [
+ "ferb-core",
+ "ferb-platform-macos",
+ "ferb-rpc",
+ "libc",
+ "serde_json",
 ]
 
 [[package]]

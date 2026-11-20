@@ -165,6 +165,11 @@ final class NotchModel: ObservableObject {
     var deviceLocation: DeviceLocationReporter?
     /// FERB's click-through windows, told to the daemon (D31 fix round 4)
     let clickThrough: ClickThroughReport
+    /// Insomnia mode (APP-980..APP-985): the daemon's status, the cover's states and FERB.app's reports
+    /// (InsomniaModel.swift); the cover's windows attach as its surface in the packaged app only.
+    let insomnia: InsomniaController
+    /// The daemon's insomnia status as last read (nil: none read, or a daemon without it): the notch's line, the menu.
+    @Published var insomniaStatus: InsomniaStatus?
     let preferences: UserDefaults
     @Published var connectionStatus = "Connecting to FERB…"
     /// L34 D: the daemon as the menu bar shows it.
@@ -312,6 +317,8 @@ final class NotchModel: ObservableObject {
         self.microphone = microphone ?? Microphone()
         self.rpc = rpc
         self.clickThrough = ClickThroughReport(rpc: rpc)
+        self.insomnia = InsomniaController(rpc: rpc, clickThrough: clickThrough, ownBundle: Bundle.main.bundleIdentifier,
+                                           ownPID: ProcessInfo.processInfo.processIdentifier)
         self.paymentPictures = PaymentPictures(rpc: rpc)
         self.preferences = preferences
         feedback = SoundFeedback(defaults: preferences)
@@ -339,6 +346,7 @@ final class NotchModel: ObservableObject {
             MainActor.assumeIsolated { self?.appSettingsChanged() }
         }
         announcedAttentionIDs = Set(preferences.stringArray(forKey: "FERBAnnouncedAttentionIDs") ?? [])
+        insomnia.onStatus = { [weak self] status in self?.insomniaChanged(status) }
         drops.accepts = { [weak self] in self?.acceptsDroppedFiles ?? false }
         drops.isOpen = { [weak self] in self?.bodyVisible ?? false }
         drops.onDrop = { [weak self] items in self?.drop(items) ?? false }
@@ -516,7 +524,8 @@ final class NotchModel: ObservableObject {
     static let shownPasteHeight: CGFloat = 190
     var shownHeldPaste: HeldPaste? { shownPaste.flatMap { id in heldPastes.first { $0.id == id } } }
     var conversationChromeHeight: CGFloat {
-        composerHeight + 58 + (showsWorkRow ? 22 : 0) + ((showingHistory || !viewingToday) ? 36 : 0)
+        composerHeight + 58 + (showsWorkRow ? 22 : 0) + (showsInsomniaLine ? 22 : 0)
+            + ((showingHistory || !viewingToday) ? 36 : 0)
             + (promptError == nil ? 0 : 48) + attachmentStripHeight + (introLine.map { introContentHeight($0, width: bodyWidth - 50, inset: IntroNarrationView.chatInset) + 9 } ?? 0)
     }
     var chatTranscriptHeight: CGFloat {

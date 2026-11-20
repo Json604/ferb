@@ -123,6 +123,8 @@ fun Sheets(vm: FerbViewModel, ui: UiState, sheet: Sheet?, insets: PhoneInsets, h
         Sheet.Settings -> SettingsSheet(vm, ui, insets, close)
         is Sheet.Days -> DaysSheet(vm, ui, sheet.key, insets)
         is Sheet.Live -> LiveScreen(vm, insets)
+        Sheet.Insomnia -> InsomniaSheet(vm, ui, insets)
+        Sheet.Camera -> CameraScreen(vm, ui, insets)
         // a running task's short view (kb PHN-725; FERB.app's TaskShortView): its picture, title, line, Watch live, Stop
         is Sheet.Task -> {
             val r = ui.running?.tasks?.firstOrNull { it.taskId == sheet.taskId }

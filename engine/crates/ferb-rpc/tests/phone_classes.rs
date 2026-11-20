@@ -85,6 +85,9 @@ fn the_phone_reaches_everything_but_the_never_rows() {
             "chat.history.import",
             "chat.history.put",
             "device.report",
+            // T-1274: FERB.app's own reports from its insomnia cover and the camera's frames
+            "insomnia.camera_frame",
+            "insomnia.report",
             "intro.preview",
             "link.answer",
             "link.devices",
@@ -175,6 +178,7 @@ fn the_six_on_the_mac_s_screen_are_sensitive_and_marked() {
 /// A connection the Mac has not seen unlocked reaches only status, Stop and answers that prove themselves.
 // decision: PHN-125
 // decision: GATE-615
+// decision: APP-983
 #[test]
 fn a_locked_phone_reaches_only_status_stop_and_self_proving_answers() {
     let mut allowed_locked = set(&["chat.status", "ping", "stop.engage", "task.stop"]);
@@ -187,6 +191,9 @@ fn a_locked_phone_reaches_only_status_stop_and_self_proving_answers() {
     allowed_locked.extend(["phone.device_report"]);
     // and "until I'm back at my Mac": what is in force and its end, which only takes something away (GATE-615)
     allowed_locked.extend(["screen_use.end", "screen_use.status"]);
+    // and insomnia mode's end, Lock my Mac and It's fine, from the notification: each only takes something away
+    // (APP-980, APP-983)
+    allowed_locked.extend(["insomnia.end", "insomnia.lock", "insomnia.dismiss"]);
     assert_eq!(names(|row| row.locked == Locked::Allowed), allowed_locked);
     assert_eq!(
         names(|row| row.locked == Locked::Answer),
