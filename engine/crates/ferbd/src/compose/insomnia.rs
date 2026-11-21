@@ -121,6 +121,7 @@ pub fn build(server: &Server, p: Parts) -> Insomnia {
     let config = p.config.clone();
     let events = p.events.clone();
     let notifier = p.notifier.clone();
+    let notifier2 = p.notifier.clone();
     let clock = p.clock.clone();
     let clock2 = p.clock.clone();
     let ids = p.ids.clone();
@@ -162,6 +163,7 @@ pub fn build(server: &Server, p: Parts) -> Insomnia {
                 });
             }
         }),
+        withdraw: Arc::new(move |prefix: &str| notifier2.withdraw(prefix)),
         now: Arc::new(move || clock.now()),
         mono: Arc::new(move || clock2.monotonic()),
         new_id: Arc::new(move || ids.new_id()),

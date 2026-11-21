@@ -414,9 +414,12 @@
     <string name="question_needs_answer">FERB needs your answer</string>
     <string name="question_private_title">Private input needed</string>
     <string name="work_view_tasks">View tasks</string>
-    <!-- FERB's alerts above the message box (kb APP-1105, PHN-791): how many wait (shown only when more than one), and the × -->
+    <!-- FERB's alerts as a toast over the chat (kb APP-1105, APP-1109): how many wait (shown only when more than one), and the × -->
     <string name="alerts_count">%1$d alerts</string>
     <string name="alert_dismiss">Dismiss</string>
+    <!-- the count, tapped, opens or closes the stack of every waiting alert (kb APP-1109): what TalkBack says it does -->
+    <string name="alerts_all">Show all %1$d alerts</string>
+    <string name="alerts_fewer">Show fewer alerts</string>
     <string name="sites_visited">Sites visited</string>
     <!-- insomnia mode (APP-980..APP-985): the contract's drafts; the owner reviews all wording before shipping -->
     <string name="insomnia_row">Keep my Mac working</string>

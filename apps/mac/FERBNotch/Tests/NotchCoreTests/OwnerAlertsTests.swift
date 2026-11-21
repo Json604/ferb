@@ -55,4 +55,18 @@ final class OwnerAlertsTests: XCTestCase {
         XCTAssertFalse(archive.addNotice(id: "update-0.28.1", text: "Updated to 0.28.1", tag: "FERB"))
         XCTAssertTrue(archive.addNotice(id: "notice-1", text: "Something FERB noticed"))
     }
+
+    // decision: APP-1109
+    func testTheToastIsTheNewestAndOnlyAnAlertWithAButtonOrAnUpdateAskWaitsForTheOwner() {
+        let plain = OwnerAlert(id: "alert:a", text: "a", fromDaemon: true)
+        let ask = OwnerAlert(id: "update-ask-0.29", text: "b", fromDaemon: false)
+        let pair = OwnerAlert(id: "phone-pair-r", text: "c", fromDaemon: false,
+                              card: ResultCard(["type": "page", "page": "phone"]))
+        XCTAssertFalse(OwnerAlerts.needsOwner(plain))
+        XCTAssertTrue(OwnerAlerts.needsOwner(ask))
+        XCTAssertTrue(OwnerAlerts.needsOwner(pair))
+        XCTAssertEqual(OwnerAlerts.toast([plain, ask, pair])?.id, "phone-pair-r")
+        XCTAssertNil(OwnerAlerts.toast([]))
+        XCTAssertEqual(OwnerAlerts.toastSeconds, 6)
+    }
 }

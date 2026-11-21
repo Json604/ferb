@@ -264,6 +264,7 @@ fn the_grace_after_the_work_ends_it() {
 /// The owner's unlock after the start is his return; his end from a phone or the Mac turns it off; each said once.
 // decision: DMN-605
 // decision: APP-980
+// decision: APP-1108
 #[test]
 fn the_owner_back_or_his_end_ends_it() {
     let (mac, ins) = insomnia();
@@ -285,7 +286,13 @@ fn the_owner_back_or_his_end_ends_it() {
     ins.start(Variant::Shield, false, "mac");
     assert!(ins.end(Ended::TurnedOff, "phone-ep"));
     assert_eq!(ins.status()["last_end"]["why"], "turned_off");
-    assert_eq!(mac.told_texts(), vec![Ended::TurnedOff.line().to_string()]);
+    // decision: APP-1108 — turned off by the owner: no alert (the device he used shows it off; `last_end` still says
+    // how it ended), and the mode's own alerts are withdrawn on every device
+    assert!(mac.told_texts().is_empty(), "{:?}", mac.told_texts());
+    assert_eq!(
+        *mac.withdrawn.lock().unwrap(),
+        vec!["insomnia-ended-", "insomnia-"]
+    );
 }
 
 /// A restart resumes the mode as it was started (variant, start, the one Yes), journaled and said once.

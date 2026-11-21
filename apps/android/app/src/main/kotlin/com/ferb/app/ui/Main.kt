@@ -6,6 +6,13 @@ import com.ferb.design.components.MicState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.draw.shadow
+import androidx.compose.animation.animateContentSize
+import com.ferb.design.Tone
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -17,6 +24,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
@@ -185,7 +193,7 @@ fun Main(vm: FerbViewModel, ui: UiState, tab: PhoneTab, home: Boolean, insets: P
  */
 @Composable
 private fun Composer(vm: FerbViewModel, draft: String, placeholder: String, modifier: Modifier, host: Host, running: com.ferb.app.model.RunningUi? = null,
-                     alert: com.ferb.mobile.StatusAlert? = null, alertCount: Int = 0) {
+                     alerts: UiState? = null) {
     val chips by vm.outgoing.chips.collectAsState()
     val ready by vm.transfers.ready.collectAsState()
     val ink = LocalSkyInk.current
@@ -212,7 +220,8 @@ private fun Composer(vm: FerbViewModel, draft: String, placeholder: String, modi
         if (micText != null) {
             PhoneText(micText, 13.5f, FerbType.Medium, ink.low, Modifier.padding(horizontal = 6.dp).semantics { liveRegion = LiveRegionMode.Polite })
         }
-        alert?.let { AlertLine(it, alertCount, onDismiss = { vm.dismissAlert(it.id) }) }
+        // the home page has no chat to float over: the toast comes in above the box here (kb APP-1109)
+        alerts?.let { AlertToast(vm, it) }
         running?.let { WorkRowFor(vm, it) }
         val onMacText = stringResource(R.string.attach_on_mac)
         val focus = remember { androidx.compose.ui.focus.FocusRequester() }
@@ -257,7 +266,7 @@ private fun Home(vm: FerbViewModel, ui: UiState, draft: String, insets: PhoneIns
         onTab = onTab, onProfile = onProfile,
         onRow = { i -> away.getOrNull(i)?.let { open(vm, it) } },
         onMore = { vm.choose(PhoneTab.TASKS) },
-        composer = { m -> Composer(vm, draft, texts.placeholder, m, host, ui.running, ui.alert, ui.alertCount) },
+        composer = { m -> Composer(vm, draft, texts.placeholder, m, host, ui.running, ui) },
         // a new day with nothing said yet: earlier days are one tap away (kb PHN-626)
         earlier = if (ui.rows.any { it !is ChatRow.Older }) stringResource(R.string.older_available) else null,
         onEarlier = { vm.openChat() },
@@ -265,21 +274,69 @@ private fun Home(vm: FerbViewModel, ui: UiState, draft: String, insets: PhoneIns
 }
 
 /**
- * FERB's newest alert above the message box (kb APP-1105, PHN-791; FERB.app ChatBody.swift AlertLineView): the Mac
- * getting hot, insomnia's end, a database set aside… shown here, never in the chat. "N alerts" when more wait; × puts it
- * away on every device, and the one before it shows.
+ * FERB's alerts as a toast (kb APP-1105, APP-1109; FERB.app ChatBody.swift AlertToastView): the newest one rises in with
+ * its words, and on their first line "N alerts" (when more wait) and ×. It leaves by itself after six seconds in front
+ * of him (the view model puts it away on every device) unless the stack is open or his finger is on it. "N alerts"
+ * opens the stack: every waiting alert, older ones above, each with its own ×; tapping it again closes it.
  */
 @Composable
-private fun AlertLine(alert: com.ferb.mobile.StatusAlert, count: Int, onDismiss: () -> Unit) {
-    val ink = LocalSkyInk.current
+internal fun AlertToast(vm: FerbViewModel, ui: UiState, modifier: Modifier = Modifier) {
+    val reduced = com.ferb.design.rememberReducedMotion()
+    val enter = if (reduced) androidx.compose.animation.fadeIn() else
+        androidx.compose.animation.fadeIn(androidx.compose.animation.core.spring(stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow)) +
+            androidx.compose.animation.slideInVertically(androidx.compose.animation.core.spring(dampingRatio = 0.8f,
+                stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow)) { it / 2 }
+    val exit = if (reduced) androidx.compose.animation.fadeOut() else
+        androidx.compose.animation.fadeOut(androidx.compose.animation.core.spring(stiffness = androidx.compose.animation.core.Spring.StiffnessMedium)) +
+            androidx.compose.animation.slideOutVertically(androidx.compose.animation.core.spring(stiffness = androidx.compose.animation.core.Spring.StiffnessMedium)) { it / 2 }
+    val held = remember { arrayOfNulls<List<com.ferb.mobile.StatusAlert>>(1) }
+    if (ui.alerts.isNotEmpty()) held[0] = ui.alerts
+    androidx.compose.animation.AnimatedVisibility(ui.alerts.isNotEmpty(), modifier, enter, exit) {
+        val alerts = held[0].orEmpty()
+        val open = ui.alertsOpen && alerts.size > 1
+        Column(
+            Modifier.fillMaxWidth().testTag("alert-toast")
+                .shadow(10.dp, RoundedCornerShape(12.dp), clip = false)
+                .background(Ink.darkFill, RoundedCornerShape(12.dp))
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        awaitFirstDown(requireUnconsumed = false)
+                        vm.alertHeld(true)
+                        waitForUpOrCancellation()
+                        vm.alertHeld(false)
+                    }
+                }
+                .padding(horizontal = 12.dp, vertical = 10.dp)
+                .animateContentSize(if (reduced) androidx.compose.animation.core.snap() else androidx.compose.animation.core.spring(stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow)),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            if (open) for (a in alerts.dropLast(1)) AlertRow(vm, a, count = 0, open = true)
+            alerts.lastOrNull()?.let { AlertRow(vm, it, count = if (alerts.size > 1) alerts.size else 0, open = open) }
+        }
+    }
+}
+
+/** One alert: the mark, its words, and on their first line the count (on the newest, with more waiting) and ×. */
+@Composable
+private fun AlertRow(vm: FerbViewModel, alert: com.ferb.mobile.StatusAlert, count: Int, open: Boolean) {
     val dismiss = stringResource(R.string.alert_dismiss)
-    Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp).testTag("alert-line"), verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        FerbIcon(FerbIcons.alert, 13f, Ink.amber, Modifier.padding(top = 1.dp))
-        PhoneText(alert.text, 13f, FerbType.Regular, ink.low, Modifier.weight(1f), maxLines = 2)
-        if (count > 1) PhoneText(stringResource(R.string.alerts_count, count), 12f, FerbType.Regular, ink.low)
-        Box(Modifier.size(28.dp).clickable(onClickLabel = dismiss, onClick = onDismiss).semantics { contentDescription = dismiss },
-            contentAlignment = Alignment.Center) { FerbIcon(FerbIcons.close, 12f, ink.low) }
+    // the icon, the count and × sit on the text's first line: each is one line of 13 sp text tall, top-aligned with it
+    Row(Modifier.fillMaxWidth().testTag("alert-row"), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Box(Modifier.height(18.dp), contentAlignment = Alignment.Center) { FerbIcon(FerbIcons.alert, 14f, Ink.amber) }
+        PhoneText(alert.text, 13.5f, FerbType.Regular, Ink.white, Modifier.weight(1f), maxLines = if (open) 4 else 2)
+        if (count > 1) {
+            val label = if (open) stringResource(R.string.alerts_fewer) else stringResource(R.string.alerts_all, count)
+            Row(
+                Modifier.height(20.dp).background(Tone.fill2, CircleShape).clickable(onClickLabel = label) { vm.toggleAlerts() }
+                    .semantics(mergeDescendants = true) { contentDescription = label }.padding(horizontal = 8.dp).testTag("alert-count"),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                PhoneText(stringResource(R.string.alerts_count, count), 12f, FerbType.Medium, Ink.onDark, maxLines = 1)
+                FerbIcon(if (open) FerbIcons.chevronDown else FerbIcons.chevronUp, 12f, Ink.onDark)
+            }
+        }
+        Box(Modifier.size(20.dp).clickable(onClickLabel = dismiss) { vm.dismissAlert(alert.id) }.semantics { contentDescription = dismiss }
+            .testTag("alert-dismiss"), contentAlignment = Alignment.Center) { FerbIcon(FerbIcons.close, 13f, Ink.onDark) }
     }
 }
 
@@ -404,10 +461,11 @@ private fun Chat(vm: FerbViewModel, ui: UiState, draft: String, insets: PhoneIns
                 items(rows, key = { it.key }, contentType = { it::class }) { row -> Box(motionItem(arriving = row.key in arriving)) { ChatRowView(vm, today, olderLoading, row, host) } }
             }
             ChatOverlays(vm, list, rows, follow, earlier, today)
+            // FERB's alerts float over the chat's foot as a toast: no room of their own (kb APP-1109)
+            AlertToast(vm, ui, Modifier.align(Alignment.BottomCenter).padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
           }
         }
-        Composer(vm, draft, stringResource(R.string.chat_placeholder), Modifier.paddingOverBottom(insets, 8.dp, start = 16.dp, end = 16.dp), host, ui.running,
-            ui.alert, ui.alertCount)
+        Composer(vm, draft, stringResource(R.string.chat_placeholder), Modifier.paddingOverBottom(insets, 8.dp, start = 16.dp, end = 16.dp), host, ui.running)
     }
 }
 

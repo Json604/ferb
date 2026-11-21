@@ -521,6 +521,32 @@ impl Notifier {
         Ok(())
     }
 
+    /// decision: APP-1108 — the owner's alerts whose ident starts with `prefix` no longer apply (insomnia's warnings
+    /// once the mode ends): the ones not yet put away are put away now on every device (`attention.acked`).
+    pub fn withdraw(&self, prefix: &str) {
+        let Some(db) = &self.notices else {
+            return;
+        };
+        let full = format!("{}{prefix}", ferb_core::chat_entry::ALERT_PREFIX);
+        let ids: Vec<String> = {
+            let guard = db.lock().unwrap();
+            let n = notices(&self.host, &guard);
+            let ids: Vec<String> = n
+                .list(true)
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|r| r.get("id").and_then(Value::as_str))
+                .filter(|id| id.starts_with(&full))
+                .map(str::to_string)
+                .collect();
+            if ids.is_empty() || n.acknowledge(&ids).is_err() {
+                return;
+            }
+            ids
+        };
+        self.host.publish(ACKED_TOPIC, json!({"ids": ids}));
+    }
+
     /// `_tell_owner`: one notice line in the owner's chat, posted once per `ident`.
     #[allow(clippy::too_many_arguments)]
     pub async fn tell_owner(

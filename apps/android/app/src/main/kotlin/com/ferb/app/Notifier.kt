@@ -235,8 +235,9 @@ class Notifier(
         }
         announced.removeAll { (it.startsWith("in:") || it.startsWith("iw:")) && it !in now }
         insomniaShown.keys.retainAll(now.keys)
-        // how it ended: once, quietly; in the app the view model says it instead
-        val end = i?.lastEnd?.takeIf { !i.on && it.text.isNotEmpty() }
+        // how it ended: once, quietly; in the app the Mac's alert says it (kb APP-1109). Turned off by the owner himself:
+        // nothing to tell him (kb APP-1108, as the Mac)
+        val end = i?.lastEnd?.takeIf { !i.on && it.text.isNotEmpty() && it.why != "turned_off" }
         if (end != null && !quiet && prefs.claimInsomniaEnd(end.id)) {
             val b = builder(CH_DONE, context.getString(R.string.n_insomnia_warning), end.text, open(null))
                 .setOnlyAlertOnce(true).setGroup(SILENT_GROUP).setGroupAlertBehavior(Notification.GROUP_ALERT_SUMMARY)

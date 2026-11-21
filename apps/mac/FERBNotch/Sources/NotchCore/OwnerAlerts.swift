@@ -58,8 +58,22 @@ public enum OwnerAlerts {
         return true
     }
 
+    /// How long a toast stays in front of the owner before it leaves by itself (APP-1109): the six seconds of the
+    /// planning preview (APP-624). Counted only while the chat shows, the stack is closed and the pointer is off it.
+    public static let toastSeconds: Double = 6
+
+    /// An alert that needs the owner (APP-1109): one with a button (a phone asking to pair) or an update that asks
+    /// first. It never leaves by itself; he puts it away or acts.
+    public static func needsOwner(_ alert: OwnerAlert) -> Bool {
+        alert.card != nil || alert.id.hasPrefix("update-ask-")
+    }
+
+    /// The toast shown while the stack is closed: the newest alert.
+    public static func toast(_ alerts: [OwnerAlert]) -> OwnerAlert? { alerts.last }
+
     /// The daemon's alerts as its status lists them now (every one not yet put away): one put away elsewhere leaves,
     /// one not shown yet comes; FERB.app's own stay.
+    @discardableResult
     public static func settle(daemon ids: Set<String>, in alerts: inout [OwnerAlert]) -> Bool {
         let before = alerts.count
         alerts.removeAll { $0.fromDaemon && !ids.contains($0.id) }

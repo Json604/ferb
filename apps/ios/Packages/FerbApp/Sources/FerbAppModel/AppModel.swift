@@ -178,6 +178,9 @@ public struct UiState: Equatable {
     /// insomnia's end, a database set aside… never in the chat; nil when none waits. `alertCount`: how many wait.
     public var alert: StatusAlert? = nil
     public var alertCount: Int = 0
+    /// Every alert waiting, oldest first (the toast's stack, kb APP-1109); `alertsOpen`: the stack is open.
+    public var alerts: [StatusAlert] = []
+    public var alertsOpen = false
     public var files = FilesUi()
     /// FERB's settings as read from the Mac, or nil before (or when they couldn't be read).
     public var settings: [MacSettingRow]? = nil
@@ -342,6 +345,11 @@ public final class AppModel {
     @ObservationIgnored private var tasksLoading = false
     /// Alerts put away on this phone this session: hidden at once, before the Mac's next status drops them (PHN-791).
     @ObservationIgnored private var dismissedAlerts = Set<String>()
+    /// The toast's wait before it leaves by itself (kb APP-1109): `AlertToast.seconds`; a test gives its own.
+    @ObservationIgnored public var alertDelay: @Sendable (Double) async -> Void = { s in try? await Task.sleep(nanoseconds: UInt64(s * 1_000_000_000)) }
+    /// His finger is on the toast: it doesn't leave while held.
+    public private(set) var alertHeld = false
+    @ObservationIgnored private var alertLapse: Task<Void, Never>?
     @ObservationIgnored private var lastView: TranscriptView?
 
     /// When this model started, and whether the chat's first entries were logged (`ferb-app`, kb PHN-629).
@@ -617,6 +625,10 @@ public final class AppModel {
         }) { [weak self] (due: Bool) in
             if due { self?.autoUnlock() }
         })
+        // kb APP-1109: the toast leaves by itself after its seconds while it may (each change starts its wait again)
+        follows.append(Follow({ [weak self] () -> String?? in guard let self else { return nil }; return .some(lapsing) }) { [weak self] (id: String?) in
+            self?.lapse(id)
+        })
         // PHN-648: while the app is unlocked and in front the device key's presence keeps the Mac's window open
         follows.append(Follow({ [weak self] () -> Bool? in guard let self else { return nil }; return !session.locked && session.front }) { [weak self] (open: Bool) in
             self?.api.setOpen(open)
@@ -839,7 +851,6 @@ public final class AppModel {
         ui.older = view?.older ?? .unknown
         ui.status = status
         showAlerts(status)
-        sayLastEnd(status?.insomnia)
         rebuildWork()
     }
 
@@ -850,6 +861,32 @@ public final class AppModel {
         let waiting = (status?.alerts ?? []).filter { !dismissedAlerts.contains($0.id) }
         if ui.alert != waiting.last { ui.alert = waiting.last }
         if ui.alertCount != waiting.count { ui.alertCount = waiting.count }
+        if ui.alerts != waiting { ui.alerts = waiting }
+        if ui.alertsOpen && waiting.count < 2 { ui.alertsOpen = false }
+    }
+
+    /// "N alerts" tapped: the stack opens (every waiting alert, each with its ×) or closes (kb APP-1109).
+    public func toggleAlerts() { ui.alertsOpen = !ui.alertsOpen && ui.alertCount > 1 }
+
+    /// His finger went down on the toast or came up (kb APP-1109).
+    public func holdAlert(_ held: Bool) { if alertHeld != held { alertHeld = held } }
+
+    /// The toast that may leave by itself now: shown on the chat, in front, unlocked, the stack closed, not held.
+    private var lapsing: String? {
+        guard let id = ui.alert?.id, !ui.alertsOpen, tab == .chat, session.front, !session.locked, !alertHeld else { return nil }
+        return id
+    }
+
+    /// FERB.app's AlertToastView: the toast shown its six seconds in front of him is seen, so it is put away everywhere.
+    private func lapse(_ id: String?) {
+        alertLapse?.cancel()
+        guard let id else { return }
+        let wait = alertDelay
+        alertLapse = Task { [weak self] in
+            await wait(AlertToast.seconds)
+            guard !Task.isCancelled, let self, self.lapsing == id else { return }
+            self.dismissAlert(id)
+        }
     }
 
     /// The alert's ×: gone here at once, and on every device once the Mac has it (`attention.ack`).
@@ -1498,12 +1535,6 @@ public final class AppModel {
     public func closeCamera() {
         camera.stop()
         if sheet == .camera { sheet = nil }
-    }
-
-    /// How the mode last ended (the Mac keeps it 10 minutes): said once, quietly, here while he is in the app.
-    private func sayLastEnd(_ i: Insomnia?) {
-        guard let i, let end = i.lastEnd, !i.on, session.front, !session.locked, !end.text.isEmpty else { return }
-        if prefs.claimInsomniaEnd(end.id) { note(Note("err_mac_said", end.text)) }
     }
 
     /// "Stop everything on the Mac" (DMN-1, PHN-125): after the owner's confirmation; no prompt, never queued.

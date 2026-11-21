@@ -209,6 +209,10 @@ final class NotchModel: ObservableObject {
     @Published var promptError: String?
     /// FERB's alerts above the composer (APP-1105, APP-1107): shown for a while, never kept in the chat.
     @Published var alerts: [OwnerAlert] = []
+    /// The toast's stack is open, every waiting alert shown (APP-1109).
+    @Published var alertsExpanded = false
+    /// Alerts put away this run: a status read before the daemon took the ack never brings one back.
+    var dismissedAlerts = Set<String>()
     /// The questions whose answer is on its way to the daemon, by approval id. Each card waits only on its own answer:
     /// another open question stays answerable meanwhile (several are open at once: a plan's asks, a safety check).
     @Published var sendingAnswers: Set<String> = []
@@ -530,7 +534,7 @@ final class NotchModel: ObservableObject {
     var conversationChromeHeight: CGFloat {
         composerHeight + 58 + (showsWorkRow ? 22 : 0) + (showsInsomniaLine ? 22 : 0)
             + ((showingHistory || !viewingToday) ? 36 : 0)
-            + (promptError == nil ? 0 : 48) + (alerts.isEmpty ? 0 : AlertLineView.height) + attachmentStripHeight + (introLine.map { introContentHeight($0, width: bodyWidth - 50, inset: IntroNarrationView.chatInset) + 9 } ?? 0)
+            + (promptError == nil ? 0 : 48) + attachmentStripHeight + (introLine.map { introContentHeight($0, width: bodyWidth - 50, inset: IntroNarrationView.chatInset) + 9 } ?? 0)
     }
     var chatTranscriptHeight: CGFloat {
         // The window's transcript fills what its body leaves after the chat's own rows (APP-745).

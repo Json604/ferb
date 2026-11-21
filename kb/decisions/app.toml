@@ -4459,10 +4459,11 @@ paths = ["apps/mac/FERBNotch/Sources/FERBNotch/PowerHelper.swift", "apps/mac/FER
 title = "Insomnia mode's end is said once as FERB's own quiet line"
 by = "agent"
 date = 2026-11-20
-status = "active"
+status = "superseded"
 rule = "The status's last_end text is shown once in the chat as FERB's line; the phones say it once too."
 why = "APP-980: each end said once on both devices."
 paths = ["apps/mac/FERBNotch/Sources/FERBNotch/InsomniaModel.swift"]
+superseded_by = "APP-1108"
 
 [APP-1100]
 title = "The shield's look: frosted grain with more blur; the f is written, then the dot breathes"
@@ -4607,3 +4608,24 @@ rule = "For APP-1105. The newest alert shows above the composer: an amber mark, 
 why = "The Mac's existing transient lines sit above the composer (the error line, the insomnia line, the work row); the phones mirror it."
 evidence = "OwnerAlertsTests, OwnerAlertsModelTests, UpdateWiringTests, InsomniaTests testTheEndIsSaidOnceAsFERBsOwnLine, PhoneSettingsTests (pairing, Are you back?), EntryFoldTests."
 paths = ["apps/mac/FERBNotch/Sources/NotchCore/OwnerAlerts.swift", "apps/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift", "apps/mac/FERBNotch/Sources/FERBNotch/ChatBody.swift", "apps/mac/FERBNotch/Sources/FERBNotch/UpdateNotes.swift", "apps/mac/FERBNotch/Sources/FERBNotch/PhonePage.swift", "apps/mac/FERBNotch/Sources/NotchCore/PhoneModel.swift", "apps/mac/FERBNotch/Sources/NotchCore/ConversationArchive.swift"]
+
+[APP-1108]
+title = "Insomnia's end is an alert only when the owner didn't end it himself; its alerts go when it ends"
+by = "agent"
+date = 2026-11-21
+status = "active"
+supersedes = ["APP-997"]
+rule = "For APP-1105. Turned off by the owner (any device), the mode raises no end alert: the device he used shows it off, and last_end keeps how it ended. Back and Done are still told, once, as the daemon's alert on every device; FERB.app adds no line of its own. When the mode ends, every alert of it not yet put away (its warnings, an earlier end) is withdrawn on every device (acked, attention.acked); starting it again withdraws an earlier end."
+why = "Live 2026-11-21: a 3-second on and off from the phone left \"Done. Your Mac can sleep as usual again.\" and a hot warning that no longer applied."
+evidence = "ferb-daemon insomnia the_owner_back_or_his_end_ends_it, b_window_shown alerts_are_named_so_and_withdrawn_on_every_device; InsomniaTests testTheEndIsTheDaemonsAlertAndFERBAppAddsNone."
+paths = ["engine/crates/ferb-daemon/src/insomnia.rs", "engine/crates/ferb-daemon/src/areas_b/notify.rs", "engine/crates/ferbd/src/compose/insomnia.rs", "apps/mac/FERBNotch/Sources/FERBNotch/InsomniaModel.swift"]
+
+[APP-1109]
+title = "FERB's alerts are a toast over the chat's foot that leaves by itself"
+by = "agent"
+date = 2026-11-21
+status = "active"
+rule = "For APP-1105, refining APP-1107's look. The newest alert rises in as a small card over the bottom of the chat (no room of its own): mark, words, then \"N alerts\" and × on its first line. \"N alerts\" opens the stack (each alert with its ×) and closes it. After six seconds in front of the owner (chat shown, stack closed, pointer off it) it is put away on every device and the next shows; one with a button or an update that asks first stays. Phones mirror it."
+why = "The owner's words of 2026-11-21: \"aling N tasks adn cross, also make it clickbale on n tasks to exapnd, make it like a toaster\"."
+evidence = "OwnerAlertsTests, OwnerAlertsModelTests (lapse, needs-owner, no return after put away), AlertToastShotsTests (by hand: the PNGs)."
+paths = ["apps/mac/FERBNotch/Sources/FERBNotch/ChatBody.swift", "apps/mac/FERBNotch/Sources/NotchCore/OwnerAlerts.swift"]

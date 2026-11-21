@@ -220,6 +220,8 @@ pub struct Seams {
     pub publish: Publish,
     /// One line for the owner on the Mac (a notice in the chat), once per ident.
     pub tell: Tell,
+    /// The owner's alerts that no longer apply, by the start of their ident (APP-1108): put away on every device.
+    pub withdraw: Arc<dyn Fn(&str) + Send + Sync>,
     /// Wall time.
     pub now: Arc<dyn Fn() -> DateTime + Send + Sync>,
     /// Seconds that never jump (the daemon's monotonic clock).
@@ -512,6 +514,8 @@ impl Insomnia {
         let mut row = saved.to_json();
         row["state"] = json!("started");
         self.seams.persist.note(JOURNAL_KIND, row);
+        // decision: APP-1108 — an earlier session's end no longer applies once the mode is on again
+        (self.seams.withdraw)("insomnia-ended-");
         self.look();
         self.status()
     }
@@ -536,7 +540,12 @@ impl Insomnia {
             JOURNAL_KIND,
             json!({"state": "ended", "why": why.as_str(), "by": by}),
         );
-        (self.seams.tell)(&format!("insomnia-ended-{ended}"), why.line());
+        // decision: APP-1108 — the mode's own alerts (its warnings, an earlier end) no longer apply once it ends; the
+        // owner who turned it off himself needs no word that he did (the device he used shows it off)
+        (self.seams.withdraw)("insomnia-");
+        if why != Ended::TurnedOff {
+            (self.seams.tell)(&format!("insomnia-ended-{ended}"), why.line());
+        }
         self.look();
         true
     }

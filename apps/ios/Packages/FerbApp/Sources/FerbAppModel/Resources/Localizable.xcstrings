@@ -12,6 +12,17 @@
         }
       }
     },
+    "alerts_all": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show all %1$lld alerts"
+          }
+        }
+      }
+    },
     "alerts_count": {
       "extractionState": "manual",
       "localizations": {
@@ -19,6 +30,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "%1$lld alerts"
+          }
+        }
+      }
+    },
+    "alerts_fewer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show fewer alerts"
           }
         }
       }

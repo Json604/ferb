@@ -855,6 +855,7 @@ extension NotchModel {
         for row in rows {
             guard let id = row["id"] as? String, !id.isEmpty else { continue }
             if OwnerAlerts.isAlert(row: row) {
+                guard !dismissedAlerts.contains(id) else { continue }
                 alertIDs.insert(id)
                 let isNew = !shown.contains { $0.id == id }
                 if OwnerAlerts.show(OwnerAlert(id: id, text: row["text"] as? String ?? "",
@@ -917,9 +918,18 @@ extension NotchModel {
     /// The owner put an alert away (its ×, APP-1107): gone here, and a daemon's on every device (`attention.ack`).
     func dismissAlert(_ id: String) {
         let alert = alerts.first { $0.id == id }
+        dismissedAlerts.insert(id)       // a status read before the ack lands never brings it back
         changeAlerts { $0.removeAll { $0.id == id } }
+        if alerts.count < 2 { alertsExpanded = false }
         guard alert?.fromDaemon == true else { return }
         Task { _ = try? await rpc.call("attention.ack", params: ["ids": [id]]) }
+    }
+
+    /// APP-1109: the toast stayed its six seconds in front of the owner: it was seen, so it leaves (on every device,
+    /// for a daemon's), unless it needs him.
+    func alertToastLapsed(_ id: String) {
+        guard let alert = alerts.first(where: { $0.id == id }), !OwnerAlerts.needsOwner(alert) else { return }
+        dismissAlert(id)
     }
 
     /// The day's learning digest (`memory.learning {op: digest}`, the read `ferb chat` makes when it opens). It marks

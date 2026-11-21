@@ -2,6 +2,8 @@ package com.ferb.design
 
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.automirrored.outlined.Backspace
 import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.ArrowCircleDown
@@ -99,6 +101,8 @@ object FerbIcons {
     val lockFill = Icons.Rounded.Lock                      // lock.fill
     val backspace = Icons.AutoMirrored.Outlined.Backspace  // delete.left
     val close = Icons.Rounded.Close                        // xmark
+    val chevronUp = Icons.Rounded.ExpandLess               // chevron.up (the alerts' count, kb APP-1109)
+    val chevronDown = Icons.Rounded.ExpandMore             // chevron.down
     val bell = Icons.Outlined.Notifications                // bell
     val location = Icons.Outlined.LocationOn               // location (not from the lab: the first run's asks, PHN-636)
     val camera = Icons.Outlined.PhotoCamera                // camera (the same)

@@ -230,6 +230,9 @@ data class UiState(
      */
     val alert: com.ferb.mobile.StatusAlert? = null,
     val alertCount: Int = 0,
+    /** Every alert waiting, oldest first (the toast's stack, kb APP-1109); [alertsOpen]: the stack is open. */
+    val alerts: List<com.ferb.mobile.StatusAlert> = emptyList(),
+    val alertsOpen: Boolean = false,
     val files: FilesUi = FilesUi(),
     /** FERB's settings as read from the Mac, or null before (or when they couldn't be read). */
     val settings: List<SettingRow>? = null,
@@ -273,6 +276,12 @@ class FerbViewModel(
     /** FERB's alerts put away on this phone this session (kb PHN-791): hidden at once, before the Mac's next status drops
      *  them. Declared first: the constructor's first read applies a status before the properties below are made. */
     private val dismissedAlerts: MutableSet<String> = java.util.Collections.synchronizedSet(HashSet<String>())
+
+    /** The toast's wait before it leaves by itself (kb APP-1109): [AlertToast.SECONDS]; a test gives its own. */
+    internal var alertDelay: suspend (Long) -> Unit = { kotlinx.coroutines.delay(it) }
+
+    /** His finger is on the toast: it doesn't leave while held (kb APP-1109). */
+    private val alertHeld = MutableStateFlow(false)
 
     private val _ui = MutableStateFlow(UiState())
     val ui: StateFlow<UiState> = _ui.asStateFlow()
@@ -358,6 +367,17 @@ class FerbViewModel(
 
     init {
         _ui.update { it.copy(chatDay = today()) }
+        // FERB's alerts leave by themselves (kb APP-1109, FERB.app's AlertToastView): the toast shown for six seconds while
+        // the app is in front on the chat, unlocked, the stack closed and his finger off it, is seen: put away everywhere
+        viewModelScope.launch {
+            combine(_ui.map { it.alert?.id to it.alertsOpen }.distinctUntilChanged(), tab, session.front, session.locked, alertHeld) { (id, open), t, front, locked, held ->
+                id.takeIf { it != null && !open && t == PhoneTab.CHAT && front && !locked && !held }
+            }.distinctUntilChanged().collectLatest { id ->
+                if (id == null) return@collectLatest
+                alertDelay(com.ferb.app.model.AlertToast.SECONDS * 1000L)
+                dismissAlert(id)
+            }
+        }
         viewModelScope.launch {
             // today's home page while nothing was said on the chat's day and the earlier days aren't open (kb PHN-696)
             combine(earlier, _ui, outgoing.messages) { e, u, m -> !e && m.isEmpty() && !ChatModel.saidToday(lastView, u.chatDay, zone) }
@@ -670,7 +690,6 @@ class FerbViewModel(
                 questions = questions, older = view?.older ?: OlderState.Unknown, status = status, days = made.days)
         }
         showAlerts(status)
-        sayLastEnd(status?.insomnia)
         if (!storedShown && _ui.value.rows.isNotEmpty()) {
             storedShown = true
             AppLog.i("chat entries ready ${android.os.SystemClock.elapsedRealtime() - born} ms after the app started: ${_ui.value.rows.size} rows, link ${_ui.value.link?.phase}")
@@ -1299,13 +1318,6 @@ class FerbViewModel(
         if (_sheet.value == Sheet.Camera) _sheet.value = null
     }
 
-    /** How the mode last ended (the Mac keeps it 10 minutes): said once, quietly, here while he is in the app. */
-    private fun sayLastEnd(i: com.ferb.mobile.Insomnia?) {
-        val end = i?.lastEnd ?: return
-        if (i.on || !session.front.value || session.locked.value || end.text.isEmpty()) return
-        if (prefs.claimInsomniaEnd(end.id)) note(Note(R.string.err_mac_said, end.text))
-    }
-
     fun loadOlder() = busy("older") {
         val conv = _ui.value.conversation ?: return@busy
         if (_ui.value.older !is OlderState.Available) return@busy
@@ -1582,8 +1594,17 @@ class FerbViewModel(
     /** The newest alert the Mac's status lists that wasn't put away here (FERB.app shows the newest the same way). */
     private fun showAlerts(status: PhoneStatus?) {
         val waiting = status?.alerts.orEmpty().filter { it.id !in dismissedAlerts }
-        _ui.update { it.copy(alert = waiting.lastOrNull(), alertCount = waiting.size) }
+        _ui.update {
+            it.copy(alert = waiting.lastOrNull(), alertCount = waiting.size, alerts = waiting,
+                alertsOpen = it.alertsOpen && waiting.size > 1)
+        }
     }
+
+    /** "N alerts" tapped: the stack opens (every waiting alert, each with its ×) or closes (kb APP-1109). */
+    fun toggleAlerts() = _ui.update { it.copy(alertsOpen = !it.alertsOpen && it.alertCount > 1) }
+
+    /** His finger went down on the toast or came up (kb APP-1109). */
+    fun alertHeld(held: Boolean) { alertHeld.value = held }
 
     /** The alert's ×: gone here at once, and on every device once the Mac has it (`attention.ack`). */
     fun dismissAlert(id: String) {

@@ -29,6 +29,8 @@ pub struct Mac {
     pub journal: Mutex<Vec<(String, Value)>>,
     pub published: Mutex<Vec<(String, Value)>>,
     pub told: Mutex<Vec<(String, String)>>,
+    /// The alerts withdrawn, by the start of their ident (APP-1108).
+    pub withdrawn: Mutex<Vec<String>>,
     /// Wall seconds after the start time, and monotonic seconds.
     pub wall: Mutex<f64>,
     pub mono: Mutex<f64>,
@@ -232,6 +234,8 @@ pub fn seams(mac: &Arc<Mac>) -> Seams {
         }
     });
     let m = mac.clone();
+    let withdraw = Arc::new(move |prefix: &str| m.withdrawn.lock().unwrap().push(prefix.into()));
+    let m = mac.clone();
     let now = Arc::new(move || m.now());
     let m = mac.clone();
     let mono = Arc::new(move || *m.mono.lock().unwrap());
@@ -252,6 +256,7 @@ pub fn seams(mac: &Arc<Mac>) -> Seams {
         persist: Arc::new(Store(mac.clone())),
         publish,
         tell,
+        withdraw,
         now,
         mono,
         new_id,

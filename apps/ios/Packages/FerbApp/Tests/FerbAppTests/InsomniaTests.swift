@@ -81,19 +81,16 @@ final class InsomniaTests: XCTestCase {
         XCTAssertTrue(rig.prompts.signers.isEmpty, "no prompt for any of them")
     }
 
-    /// How it ended (the Mac keeps it 10 minutes): said once in the app, never again.
-    // decision: APP-980
-    func testHowItEndedIsSaidOnceInTheApp() async {
+    /// How it ended is the Mac's alert on every device (kb APP-1108, APP-1109): the app adds no note of its own.
+    // decision: APP-980, APP-1109
+    func testHowItEndedIsNotSaidAgainByTheApp() async {
         rig.session.foreground(true)
         let vm = rig.model()
         var ended = phone.insomnia
         ended.lastEnd = InsomniaLastEnd(id: "e-1", why: "back", text: "Welcome back. FERB finished 2 tasks.", at: nil)
         phone.status = status(ended)
         await vm.refresh()?.value
-        XCTAssertEqual(vm.ui.note, Note("err_mac_said", "Welcome back. FERB finished 2 tasks."))
-        vm.note(nil)
-        await vm.refresh()?.value
-        XCTAssertNil(vm.ui.note, "said once")
+        XCTAssertNil(vm.ui.note, "the Mac's alert says it; a note would say it twice")
     }
 
     // ---- the notifications -------------------------------------------------------------------------------------------
@@ -150,6 +147,10 @@ final class InsomniaTests: XCTestCase {
         XCTAssertEqual(posted(end).map(\.body), ["Welcome back."])
         XCTAssertEqual(posted(end).map(\.quietly), [true], "said quietly")
         XCTAssertTrue(look(ended).isEmpty, "said once")
+        // turned off by the owner himself: nothing to tell him (kb APP-1108)
+        var off = phone.insomnia
+        off.lastEnd = InsomniaLastEnd(id: "e-10", why: "turned_off", text: "Done. Your Mac can sleep as usual again.", at: nil)
+        XCTAssertTrue(posted(look(off)).isEmpty, "his own turning off is not told")
         _ = look(on(touched))
         XCTAssertEqual(removed(look(nil)), ["in:n-1"], "an older Mac leaves nothing behind")
     }

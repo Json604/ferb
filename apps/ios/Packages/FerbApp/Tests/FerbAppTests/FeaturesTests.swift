@@ -81,6 +81,73 @@ final class FeaturesTests: XCTestCase {
         XCTAssertEqual(vm.ui.alertCount, 0)
     }
 
+    /// The toast (kb APP-1109): the count opens the stack and closes it; the shown one leaves by itself after its six
+    /// seconds in front of him (put away on every device), then the older one shows; an open stack never leaves.
+    // decision: APP-1109
+    func testTheToastLeavesByItselfAfterItsSecondsUnlessTheStackIsOpen() async {
+        session.unlocked()
+        session.foreground(true)
+        phone.view = emptyView()
+        phone.status = PhoneStatus(locked: false, words: true, stopped: false, questions: [], running: [], results: [], screenUse: nil,
+                                   alerts: [StatusAlert(id: "alert:a", text: "First.", at: nil),
+                                            StatusAlert(id: "alert:b", text: "Second.", at: nil),
+                                            StatusAlert(id: "alert:c", text: "Third.", at: nil)])
+        let vm = rig.model()
+        // the wait is the test's: each one asked for waits until the test lets them all go
+        let gate = Gate()
+        vm.alertDelay = { s in await gate.wait(s) }
+        await vm.refresh()?.value
+        await eventually("the toast") { vm.ui.alert?.id == "alert:c" }
+        XCTAssertEqual(vm.ui.alerts.map(\.id), ["alert:a", "alert:b", "alert:c"])
+        // the count opens the stack: nothing leaves while it is open
+        vm.toggleAlerts()
+        XCTAssertTrue(vm.ui.alertsOpen)
+        gate.open()
+        await settle()
+        XCTAssertEqual(vm.ui.alertCount, 3, "an open stack never leaves by itself")
+        XCTAssertTrue(phone.dismissed.isEmpty)
+        vm.toggleAlerts()
+        XCTAssertFalse(vm.ui.alertsOpen)
+        await eventually("its wait asked") { gate.waiting > 0 }
+        let asked = gate.asked
+        XCTAssertEqual(asked.last, AlertToast.seconds)
+        gate.open()
+        await eventually("the newest put away") { vm.ui.alert?.id == "alert:b" }
+        await eventually("the Mac told") { phone.dismissed == ["alert:c"] }
+        // his finger on it: it waits
+        vm.holdAlert(true)
+        await settle()
+        gate.open()
+        await settle()
+        XCTAssertEqual(vm.ui.alert?.id, "alert:b")
+        vm.holdAlert(false)
+        await eventually("its wait asked again") { gate.waiting > 0 }
+        gate.open()
+        await eventually("the next one put away") { vm.ui.alert?.id == "alert:a" }
+        // in the background it never leaves
+        session.foreground(false)
+        await settle()
+        gate.open()
+        await settle()
+        XCTAssertEqual(vm.ui.alert?.id, "alert:a")
+    }
+
+    /// The toast's waits, held until the test opens them.
+    private final class Gate: @unchecked Sendable {
+        private let lock = NSLock()
+        private var held: [CheckedContinuation<Void, Never>] = []
+        private var seconds: [Double] = []
+        var waiting: Int { lock.withLock { held.count } }
+        var asked: [Double] { lock.withLock { seconds } }
+        func wait(_ s: Double) async {
+            await withCheckedContinuation { c in lock.withLock { seconds.append(s); held.append(c) } }
+        }
+        func open() {
+            let all = lock.withLock { () -> [CheckedContinuation<Void, Never>] in let h = held; held = []; return h }
+            for c in all { c.resume() }
+        }
+    }
+
     // decision: PHN-125, DMN-1
     func testStopEverythingAfterAPlainConfirmationWithNoPrompt() async {
         session.unlocked()

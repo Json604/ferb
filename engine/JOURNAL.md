@@ -8382,3 +8382,69 @@ swap, and the phone paired again at 10:20 on the fresh database.
 - FERB.app's own alert lines last for the run only; a relaunch before he sees one loses it (an update's "Updated to"
   is still said once per version).
 - The macOS banner fallback for an alert while no client is connected is unchanged.
+
+## 2026-11-21 · 160 · The alert as a toast that leaves by itself; insomnia's end said only when the owner didn't end it
+
+**What the owner saw.** On build 202611210534 the Mac showed "(!) Done. Your Mac can sleep as usual again. ×" above
+the composer. He said: "i keep getting this even when im not doing anythgin. also i dont like the desgin. aling N
+tasks adn cross, also make it clickbale on n tasks to exapnd, make it like a toaster".
+
+**Where the alert came from.** The live journal (read from a copy) has:
+- 11:18:55 the Moto pairs again.
+- 11:19:16.83 `insomnia.state` started by that phone: variant shield, `screen_yes` false. Within the same second, a
+  "hot" warning alert.
+- 11:19:19.1 ended "turned_off" by the same phone, which raised the "Done…" alert.
+
+`phone_audit` records `insomnia.start` as a **sensitive** call that succeeded. That call is signed with the phone's
+key, and the app makes that signature only after the fingerprint prompt (`freshSigner`).
+
+In the Android code, `startInsomnia` has one caller: the sheet's Keep it working button. The sheet opens only from
+the Mac card's switch (`askInsomnia`). No launch, reconnect or status path starts or ends the mode. `screen_yes`
+false means the sheet's "bring apps forward" box was unchecked (it is on by default).
+
+So someone tapped through the sheet and the fingerprint, then switched it off 2.3 s later. I inferred this from the
+code. I could not read the phone's log: `adb connect 100.129.167.226` was refused. The address mDNS advertised
+(100.129.163.108) answered "unauthorized"; I disconnected at once, and that attempt may have shown a debugging prompt
+on whatever device that is.
+
+**Fixed (APP-1108).**
+- A mode the owner turned off himself raises no end alert: the device he used shows it off, and `last_end` still says
+  how it ended.
+- When the mode ends, its alerts not yet put away (warnings, an earlier end) are withdrawn on every device:
+  `Notifier::withdraw` acks them and publishes `attention.acked`. Starting the mode withdraws an earlier end.
+- FERB.app no longer adds its own end line. The daemon's alert already reaches every device, so the line said it
+  twice. The phones' end note is gone for the same reason.
+
+**Does a dismissed alert come back?**
+- An ack is stored, so a relaunch or reconnect on any device leaves it out of the status.
+- `attention.acked` drops it on the other devices.
+- One gap: a status read that lands before the ack. Each device now keeps the ids put away this run (`dismissedAlerts`
+  on the Mac, the session set on the phones), so that read can't bring it back.
+
+**The toaster (APP-1109).**
+- The newest alert rises in as a small card over the chat's foot. It takes no room of its own.
+- Its first line holds the mark, the words, then "N alerts" with a chevron, then ×. "N alerts" opens the stack (each
+  alert with its own ×) and closes it.
+- After six seconds in front of the owner, it is put away on every device and the next one shows. "In front" means
+  the chat is shown, the stack is closed and the pointer is off it. Six seconds matches APP-624's planning preview.
+- An alert that needs the owner stays: one with a button (a phone asking to pair), or an update that asks first.
+- Phones mirror it. Images: scratchpad mac-toast-collapsed.png and mac-toast-expanded.png, drawn offscreen by
+  AlertToastShotsTests (by hand: `FERB_TOAST_SHOTS`).
+
+**Evidence.**
+- ferb-daemon: insomnia `the_owner_back_or_his_end_ends_it`; b_window_shown
+  `alerts_are_named_so_and_withdrawn_on_every_device`; the whole ferb-daemon suite.
+- ferbd: wiring, owner_lines, replay.
+- clippy and fmt are clean.
+- Swift: 915 tests pass (OwnerAlertsTests, OwnerAlertsModelTests, InsomniaTests).
+- Phones (Android `model/AlertToast.kt`, iOS `AlertToast.swift`): the same toast. It floats over the chat above the
+  message box, and its six seconds count only while the app is in front on the Chat tab, unlocked, stack closed and
+  no finger on it. Android `./gradlew :app:testDebugUnitTest` (277) and iOS FerbApp on the simulator (176) pass.
+  Android images: scratchpad android-toast-collapsed.png and android-toast-expanded.png.
+
+**Unverified.**
+- Who tapped the phone at 11:19 (no phone log).
+- The toast's motion was not watched on a real screen; no iOS image. On the phones, the toast can cover the chat's
+  jump-to-latest button when both show.
+- A spawned `tell` of a warning can land after a fast end's `withdraw`, which would leave that warning up until its
+  toast lapses.

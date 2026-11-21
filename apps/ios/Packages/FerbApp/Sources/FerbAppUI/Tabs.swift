@@ -164,6 +164,8 @@ struct Composer: View {
     @Bindable var model: AppModel
     let placeholder: String
     let picking: Picking
+    /// The home page has no chat to float over: the toast comes in above the box here (kb APP-1109).
+    var toast = false
     @Environment(\.skyInk) private var ink
     @FocusState private var boxFocused: Bool
 
@@ -172,8 +174,7 @@ struct Composer: View {
         let chips = model.outgoing.chips
         let hasFiles = !chips.isEmpty || !t.ready.isEmpty
         VStack(spacing: 8) {
-            // FERB's newest alert (kb APP-1105, PHN-791; FERB.app ChatBody.swift AlertLineView), never in the chat
-            if let a = model.ui.alert { AlertLine(alert: a, count: model.ui.alertCount) { model.dismissAlert(a.id) } }
+            if toast { AlertToastView(model: model) }
             // the work row above the message box (kb PHN-725; FERB.app ChatBody.swift WorkRowView)
             if let r = model.ui.running { WorkRowFor(model: model, r: r) }
             // PHN-643: what the microphone is doing, in words above the box
@@ -241,7 +242,7 @@ struct HomeView: View {
         HomePage(texts: texts, away: away.map { WorkRow(kind: $0.kind, title: $0.title.isEmpty ? asking : $0.title, detail: $0.detail) },
                  insets: insets, onTab: { model.choose($0) }, onProfile: { model.show(.profile) },
                  onRow: { i in if i < away.count { open(model, away[i]) } }, onMore: { model.choose(.tasks) },
-                 composer: AnyView(Composer(model: model, placeholder: texts.placeholder, picking: picking)),
+                 composer: AnyView(Composer(model: model, placeholder: texts.placeholder, picking: picking, toast: true)),
                  // a new day with nothing said yet: earlier days are one tap away (kb PHN-626)
                  earlier: model.rows.contains { if case .older = $0 { return false }; return true } ? L.s("older_available") : nil,
                  onEarlier: { model.openChat() })
@@ -393,6 +394,9 @@ struct ChatView: View {
                         .transition(.motionItem)
                         .accessibilityIdentifier("chat-jump")
                     }
+                    // FERB's alerts float over the chat's foot as a toast: no room of their own (kb APP-1109)
+                    AlertToastView(model: model).padding(.horizontal, 16).padding(.bottom, 8)
+                        .frame(maxHeight: .infinity, alignment: .bottom)
                 }
                 .animation(FerbMotion.item.animation, value: jump)
                 // the Chat tab tapped on today's chat: to its end (kb PHN-662; in the earlier days it goes back to
@@ -802,27 +806,62 @@ enum Thumbnail {
 }
 
 
-/// FERB's newest alert above the message box (kb APP-1105, PHN-791; FERB.app ChatBody.swift AlertLineView): the Mac
-/// getting hot, insomnia's end, a database set aside… shown here, never in the chat. "N alerts" when more wait; × puts it
-/// away on every device, and the one before it shows.
-struct AlertLine: View {
-    let alert: StatusAlert
-    let count: Int
-    let dismiss: () -> Void
-    @Environment(\.skyInk) private var ink
+/// FERB's alerts as a toast (kb APP-1105, APP-1109; FERB.app ChatBody.swift AlertToastView; Android ui/Main.kt AlertToast):
+/// the newest one rises in with its words, and on their first line "N alerts" (when more wait) and ×. It leaves by itself
+/// after six seconds in front of him (the model puts it away on every device) unless the stack is open or his finger is
+/// on it. "N alerts" opens the stack: every waiting alert, older ones above, each with its own ×; tapping it again closes.
+struct AlertToastView: View {
+    @Bindable var model: AppModel
+    @Environment(\.accessibilityReduceMotion) private var reduce
+
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "exclamationmark.circle").font(.system(size: 13)).foregroundStyle(Ink.amber).padding(.top, 1)
-            Text(alert.text).type(13, .regular, ink.low).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
-            if count > 1 { Text(L.s("alerts_count", count)).type(12, .regular, ink.low) }
-            Button(action: dismiss) {
-                Image(systemName: "xmark").font(.system(size: 12, weight: .medium)).foregroundStyle(ink.low).frame(width: 28, height: 28)
+        let alerts = model.ui.alerts
+        let open = model.ui.alertsOpen && alerts.count > 1
+        ZStack {
+            if let newest = alerts.last {
+                VStack(spacing: 10) {
+                    if open { ForEach(alerts.dropLast(), id: \.id) { row($0, count: 0, open: true) } }
+                    row(newest, count: alerts.count > 1 ? alerts.count : 0, open: open)
+                }
+                .padding(.horizontal, 12).padding(.vertical, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Ink.darkFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .shadow(color: .black.opacity(0.35), radius: 10, y: 4)
+                .simultaneousGesture(DragGesture(minimumDistance: 0)
+                    .onChanged { _ in model.holdAlert(true) }.onEnded { _ in model.holdAlert(false) })
+                .transition(reduce ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+                .accessibilityIdentifier("alert-toast")
+            }
+        }
+        .animation(reduce ? .easeInOut(duration: 0.2) : .spring(response: 0.4, dampingFraction: 0.8), value: alerts.map(\.id))
+        .animation(reduce ? .easeInOut(duration: 0.2) : .spring(response: 0.35, dampingFraction: 1), value: open)
+    }
+
+    /// One alert: the mark, its words, and on their first line the count (on the newest, with more waiting) and ×.
+    private func row(_ alert: StatusAlert, count: Int, open: Bool) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: "exclamationmark.circle").font(.system(size: 13)).foregroundStyle(Ink.amber)
+            Text(alert.text).type(13.5, .regular, .white).lineLimit(open ? 4 : 2).frame(maxWidth: .infinity, alignment: .leading)
+            if count > 1 {
+                Button { model.toggleAlerts() } label: {
+                    HStack(spacing: 3) {
+                        Text(L.s("alerts_count", count)).type(12, .medium, Ink.onDark)
+                        Image(systemName: open ? "chevron.down" : "chevron.up").font(.system(size: 9, weight: .semibold)).foregroundStyle(Ink.onDark)
+                    }
+                    .padding(.horizontal, 8).padding(.vertical, 2)
+                    .background(Tone.fill2, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(open ? L.s("alerts_fewer") : L.s("alerts_all", count))
+                .accessibilityIdentifier("alert-count")
+            }
+            Button { model.dismissAlert(alert.id) } label: {
+                Image(systemName: "xmark").font(.system(size: 12, weight: .medium)).foregroundStyle(Ink.onDark).frame(width: 22, height: 22)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(L.s("alert_dismiss"))
         }
-        .padding(.horizontal, 6)
-        .accessibilityIdentifier("alert-line")
+        .accessibilityIdentifier("alert-row")
     }
 }
 

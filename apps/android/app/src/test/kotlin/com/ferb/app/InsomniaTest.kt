@@ -149,21 +149,17 @@ class InsomniaTest {
         assertTrue("no prompt for any of them", signers.isEmpty())
     }
 
-    /** How it ended (the Mac keeps it 10 minutes): said once in the app, never again. */
-    // decision: APP-980
+    /** How it ended is the Mac's alert on every device (kb APP-1108, APP-1109): the app adds no note of its own. */
+    // decision: APP-980, APP-1109
     @Test
-    fun how_it_ended_is_said_once_in_the_app() {
+    fun how_it_ended_is_not_said_again_by_the_app() {
         session.foreground(true)
         val vm = vm()
         val ended = phone.insomnia.copy(on = false, lastEnd = InsomniaLastEnd("e-1", "back", "Welcome back. FERB finished 2 tasks.", null))
         phone.status = status(ended)
         phone.changes.tryEmit(Change.Status)
         idle()
-        assertEquals(Note(R.string.err_mac_said, "Welcome back. FERB finished 2 tasks."), vm.ui.value.note)
-        vm.note(null)
-        phone.changes.tryEmit(Change.Status)
-        idle()
-        assertNull("said once", vm.ui.value.note)
+        assertNull("the Mac's alert says it; a note would say it twice", vm.ui.value.note)
     }
 
     // ---- the notifications -------------------------------------------------------------------------------------------
@@ -259,6 +255,9 @@ class InsomniaTest {
         nm.cancelAll()
         macSays(ended)
         assertTrue("said once", nm.activeNotifications.isEmpty())
+        // turned off by the owner himself: nothing to tell him (kb APP-1108)
+        macSays(phone.insomnia.copy(on = false, lastEnd = InsomniaLastEnd("e-10", "turned_off", "Done. Your Mac can sleep as usual again.", null)))
+        assertTrue("his own turning off is not told", nm.activeNotifications.none { it.tag == Notifier.TAG_INSOMNIA_END })
         // an older Mac (no insomnia) leaves nothing behind either
         macSays(on(touched))
         macSays(null)

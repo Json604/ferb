@@ -359,3 +359,71 @@ async fn the_owner_is_told_once_per_task_and_site_as_a_quiet_notice() {
         .count();
     assert_eq!(journaled, 2);
 }
+
+/// An alert is stored under `alert:<id>` and its view says so; acking it (on any device) or withdrawing what no longer
+/// applies tells every device (`attention.acked`); other notices are left alone.
+// decision: APP-1106
+// decision: APP-1108
+#[tokio::test(flavor = "multi_thread")]
+async fn alerts_are_named_so_and_withdrawn_on_every_device() {
+    let home = Home::new("");
+    let db = store(&home);
+    let notifier = notify::Notifier {
+        host: home.host.clone(),
+        posters: banners::Posters::default(),
+        desk: Arc::new(Desk),
+        listeners: Arc::new(Shown),
+        notices: Some(db.clone()),
+        held: Mutex::new(vec![]),
+        uid: Arc::new(|| "0001".into()),
+    };
+    let tell = |ident: &'static str, category: &'static str| {
+        let n = &notifier;
+        async move {
+            n.tell_owner(
+                ident,
+                &[],
+                "words",
+                "ferb",
+                category,
+                "",
+                &[],
+                &Value::Null,
+                None,
+            )
+            .await
+            .unwrap()
+        }
+    };
+    tell("insomnia-warning-w1", "alert").await;
+    tell("insomnia-slept-x", "alert").await;
+    tell("memory-always-on-1", "").await;
+    let published = home.events();
+    let notice = published
+        .iter()
+        .find(|e| e[0] == "attention.notice" && e[1]["id"] == "alert:insomnia-warning-w1")
+        .expect("published under its alert id");
+    assert_eq!(notice[1]["alert"], json!(true));
+    assert!(published.iter().any(|e| e[0] == "attention.notice"
+        && e[1]["id"] == "memory-always-on-1"
+        && e[1].get("alert").is_none()));
+    notifier.withdraw("insomnia-warning-");
+    let acked: Vec<Value> = home
+        .events()
+        .into_iter()
+        .filter(|e| e[0] == "attention.acked")
+        .collect();
+    assert_eq!(
+        acked,
+        vec![json!(["attention.acked", {"ids": ["alert:insomnia-warning-w1"]}])]
+    );
+    // nothing left to withdraw: nothing published again
+    notifier.withdraw("insomnia-warning-");
+    assert_eq!(
+        home.events()
+            .iter()
+            .filter(|e| e[0] == "attention.acked")
+            .count(),
+        1
+    );
+}

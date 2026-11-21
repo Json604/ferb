@@ -252,7 +252,8 @@ public final class NotificationPlanner {
     ///   Mac is news wherever he is;
     /// - each warning (battery, heat, the cover): posted once, no buttons, a tap opens the app;
     /// - each is removed when the status no longer has it (answered, gone, the mode ended);
-    /// - how the mode ended: said once, quietly (in the app when he is there: AppModel.sayLastEnd).
+    /// - how the mode ended: said once, quietly (in the app the Mac's alert says it, kb APP-1109); never when the owner
+    ///   turned it off himself (kb APP-1108).
     /// No camera frame is ever put in a notification. An older Mac (no `insomnia`) removes what was posted.
     func insomnia(_ i: Insomnia?, announced: inout Set<String>, front: Bool) -> [NotificationAction] {
         var out: [NotificationAction] = []
@@ -300,8 +301,8 @@ public final class NotificationPlanner {
             insomniaShown[key] = nil
             out.append(.remove(id: key))
         }
-        // how it ended: once, quietly; in the app the model says it instead
-        if let i, !i.on, let end = i.lastEnd, !end.text.isEmpty, !front, prefs.claimInsomniaEnd(end.id) {
+        // how it ended: once, quietly; in the app the Mac's alert says it
+        if let i, !i.on, let end = i.lastEnd, !end.text.isEmpty, end.why != "turned_off", !front, prefs.claimInsomniaEnd(end.id) {
             out.append(.post(PlannedNotification(id: "ie:\(end.id)", kind: .done, title: L.s("n_insomnia_warning"), body: end.text,
                                                  publicText: L.s("n_public_mac"), wordless: false, buttons: [], tap: .app,
                                                  quietly: true)))

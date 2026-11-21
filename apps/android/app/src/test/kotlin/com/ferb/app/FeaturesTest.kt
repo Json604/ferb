@@ -147,7 +147,7 @@ class FeaturesTest {
     }
 
     /** FERB's alerts (the owner, 2026-11-21): above the message box, the newest first, never in the chat; × puts one away. */
-    // decision: APP-1105, PHN-791
+    // decision: APP-1105, PHN-791, APP-1109
     @Test
     fun the_newest_alert_shows_above_the_box_and_dismissing_it_hides_it_at_once_and_tells_the_mac() {
         session.unlocked()
@@ -173,6 +173,59 @@ class FeaturesTest {
         vm.refresh()
         until("no alert") { vm.ui.value.alert == null }
         assertEquals(0, vm.ui.value.alertCount)
+    }
+
+    /** The toast (kb APP-1109): the count opens the stack and closes it; the shown one leaves by itself after its six
+     *  seconds in front of him (put away on every device), then the older one shows; an open stack never leaves. */
+    // decision: APP-1109
+    @Test
+    fun the_toast_leaves_by_itself_after_its_seconds_unless_the_stack_is_open() {
+        session.unlocked()
+        session.foreground(true)
+        phone.view = empty()
+        phone.status = PhoneStatus(false, true, false, emptyList(), emptyList(), emptyList(), null, alerts = listOf(
+            com.ferb.mobile.StatusAlert("alert:a", "First.", null),
+            com.ferb.mobile.StatusAlert("alert:b", "Second.", null),
+            com.ferb.mobile.StatusAlert("alert:c", "Third.", null)))
+        val vm = vm()
+        // the wait is the test's: each one it is asked for is a gate the test opens
+        val asked = java.util.concurrent.CopyOnWriteArrayList<Long>()
+        val gates = java.util.concurrent.LinkedBlockingQueue<kotlinx.coroutines.CompletableDeferred<Unit>>()
+        vm.alertDelay = { ms -> asked.add(ms); kotlinx.coroutines.CompletableDeferred<Unit>().also { gates.add(it) }.await() }
+        vm.refresh()
+        until("the toast") { vm.ui.value.alert?.id == "alert:c" }
+        assertEquals(listOf("alert:a", "alert:b", "alert:c"), vm.ui.value.alerts.map { it.id })
+        // the count opens the stack: nothing leaves while it is open
+        vm.toggleAlerts()
+        assertTrue(vm.ui.value.alertsOpen)
+        idle()
+        gates.forEach { it.complete(Unit) }
+        idle()
+        assertEquals("an open stack never leaves by itself", 3, vm.ui.value.alertCount)
+        assertTrue(phone.dismissed.isEmpty())
+        vm.toggleAlerts()
+        assertFalse(vm.ui.value.alertsOpen)
+        until("its wait asked") { gates.any { !it.isCompleted } }
+        assertEquals(com.ferb.app.model.AlertToast.SECONDS * 1000L, asked.last())
+        gates.filter { !it.isCompleted }.forEach { it.complete(Unit) }
+        until("the newest put away") { vm.ui.value.alert?.id == "alert:b" }
+        until("the Mac told") { phone.dismissed == listOf("alert:c") }
+        // his finger on it: it waits
+        vm.alertHeld(true)
+        idle()
+        gates.filter { !it.isCompleted }.forEach { it.complete(Unit) }
+        idle()
+        assertEquals("alert:b", vm.ui.value.alert?.id)
+        vm.alertHeld(false)
+        until("its wait asked again") { gates.any { !it.isCompleted } }
+        gates.filter { !it.isCompleted }.forEach { it.complete(Unit) }
+        until("the next one put away") { vm.ui.value.alert?.id == "alert:a" }
+        // in the background it never leaves
+        session.foreground(false)
+        idle()
+        gates.filter { !it.isCompleted }.forEach { it.complete(Unit) }
+        idle()
+        assertEquals("alert:a", vm.ui.value.alert?.id)
     }
 
     // decision: PHN-125, DMN-1

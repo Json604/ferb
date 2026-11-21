@@ -117,17 +117,21 @@ struct ChatBodyView: View {
                     NativeMessageText(localSettingReply, size: 11, color: Palette.greenText)
                 }
             }
-            if !model.visibleEntries.isEmpty || !model.inlineQuestions.isEmpty {
-                ConversationTranscript(entries: model.visibleEntries, earlier: model.earlierEntries,
-                                       questions: model.inlineQuestions, model: model)
-            } else if model.shownDayLoading {
-                // its first page on its way: the loader, in the chat's own height (APP-806)
-                ProgressView().controlSize(.small).accessibilityLabel("Loading messages")
-                    .frame(maxWidth: .infinity).frame(height: model.chatTranscriptHeight)
-            } else if !model.viewingToday {
-                Text("No messages on this day.").font(.system(size: 12)).foregroundStyle(Palette.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            Group {
+                if !model.visibleEntries.isEmpty || !model.inlineQuestions.isEmpty {
+                    ConversationTranscript(entries: model.visibleEntries, earlier: model.earlierEntries,
+                                           questions: model.inlineQuestions, model: model)
+                } else if model.shownDayLoading {
+                    // its first page on its way: the loader, in the chat's own height (APP-806)
+                    ProgressView().controlSize(.small).accessibilityLabel("Loading messages")
+                        .frame(maxWidth: .infinity).frame(height: model.chatTranscriptHeight)
+                } else if !model.viewingToday {
+                    Text("No messages on this day.").font(.system(size: 12)).foregroundStyle(Palette.secondary)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
+            // FERB's alerts float over the chat's foot as a toast (APP-1109): no room of their own
+            .overlay(alignment: .bottom) { AlertToastView(model: model) }
             if let error = model.promptError {
                 NativeMessageText(error, size: 11, color: Palette.amberText)
             }
@@ -138,7 +142,6 @@ struct ChatBodyView: View {
                                    typed: $model.introTyped, canSkip: model.introSkippable)
                     .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 13))
             }
-            if let alert = model.alerts.last { AlertLineView(model: model, alert: alert) }
             if model.showsInsomniaLine { InsomniaLineView(model: model) }
             if model.showsWorkRow { WorkRowView(model: model) }
             if model.viewingToday { composer.disabled(!model.canCompose) }
@@ -300,39 +303,82 @@ struct WorkRowView: View {
 }
 
 /// Insomnia mode is on (APP-980): the daemon's line and the owner's End, as the work row is drawn.
-/// FERB's newest alert above the composer (APP-1105, APP-1107): the Mac getting hot, insomnia's end, a database set
-/// aside, an update… shown for a while, never kept in the chat. × puts it away (a daemon's on every device), and the
-/// one before it shows; "1 of 3" says more wait.
-struct AlertLineView: View {
+/// FERB's alerts as a toast over the chat's foot (APP-1105, APP-1109): the newest one rises in, its words, "N alerts"
+/// and × on its first line; it leaves by itself after six seconds in front of the owner (put away on every device)
+/// unless it needs him, and waits while the pointer is on it or the stack is open. "N alerts" opens the stack: every
+/// waiting alert, each with its own ×; clicking it again closes it.
+struct AlertToastView: View {
     @ObservedObject var model: NotchModel
-    let alert: OwnerAlert
-    static let height: CGFloat = 38
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var hovering = false
 
     var body: some View {
-        HStack(alignment: .top, spacing: 7) {
+        let alerts = model.alerts
+        VStack(alignment: .leading, spacing: 6) {
+            if model.alertsExpanded {
+                ForEach(alerts.dropLast()) { alert in row(alert, count: nil) }
+            }
+            if let newest = OwnerAlerts.toast(alerts) {
+                row(newest, count: alerts.count > 1 ? alerts.count : nil)
+            }
+        }
+        .padding(.horizontal, 10).padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(white: 0.16).opacity(0.96), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .shadow(color: .black.opacity(0.35), radius: 10, y: 4)
+        .padding(.horizontal, 2).padding(.bottom, 6)
+        .onHover { hovering = $0 }
+        .opacity(alerts.isEmpty ? 0 : 1)
+        .offset(y: alerts.isEmpty ? (reduceMotion ? 0 : 14) : 0)
+        .allowsHitTesting(!alerts.isEmpty)
+        .animation(reduceMotion ? .easeInOut(duration: 0.2) : .spring(duration: 0.4, bounce: 0.15), value: alerts)
+        .animation(reduceMotion ? .easeInOut(duration: 0.2) : .spring(duration: 0.35, bounce: 0), value: model.alertsExpanded)
+        .task(id: lapseKey) {
+            guard let id = OwnerAlerts.toast(alerts)?.id, model.bodyVisible, !model.alertsExpanded, !hovering else { return }
+            do { try await Task.sleep(for: .seconds(OwnerAlerts.toastSeconds)) } catch { return }
+            model.alertToastLapsed(id)
+        }
+    }
+
+    private var lapseKey: String {
+        "\(OwnerAlerts.toast(model.alerts)?.id ?? "")|\(model.bodyVisible)|\(model.alertsExpanded)|\(hovering)"
+    }
+
+    /// One alert: the mark, its words, then (on the newest, with more waiting) the count, and ×, on its first line.
+    private func row(_ alert: OwnerAlert, count: Int?) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 7) {
             Image(systemName: "exclamationmark.circle").font(.system(size: 11)).foregroundStyle(Palette.amber)
-                .padding(.top, 1)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(alert.text)
-                    .font(.system(size: 11)).foregroundStyle(Palette.secondary)
-                    .lineLimit(2).truncationMode(.tail)
+                    .font(.system(size: 12)).foregroundStyle(.white.opacity(0.88))
+                    .lineLimit(model.alertsExpanded ? 4 : 2).truncationMode(.tail)
                     .help(alert.text).textSelection(.enabled)
                 if alert.card?.page == "phone" {
                     Button(alert.card?.line ?? PhoneWords.openPhoneSettings) { model.onOpenPhone?() }
-                        .buttonStyle(.plain).font(.system(size: 11))
+                        .buttonStyle(.plain).font(.system(size: 11, weight: .medium))
                 }
             }
             Spacer(minLength: 4)
-            if model.alerts.count > 1 {
-                Text("\(model.alerts.count) alerts").font(.system(size: 10)).foregroundStyle(Palette.secondary)
+            if let count {
+                Button { model.alertsExpanded.toggle() } label: {
+                    HStack(spacing: 3) {
+                        Text("\(count) alerts")
+                        Image(systemName: model.alertsExpanded ? "chevron.down" : "chevron.up").font(.system(size: 8, weight: .semibold))
+                    }
+                    .font(.system(size: 11)).foregroundStyle(Palette.secondary)
+                    .padding(.horizontal, 7).padding(.vertical, 2)
+                    .background(.white.opacity(0.08), in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(model.alertsExpanded ? "Show fewer alerts" : "Show all \(count) alerts")
             }
             Button { model.dismissAlert(alert.id) } label: {
-                Image(systemName: "xmark").font(.system(size: 10, weight: .medium)).frame(width: 18, height: 18)
+                Image(systemName: "xmark").font(.system(size: 9, weight: .semibold)).frame(width: 16, height: 16)
             }
             .buttonStyle(.plain).foregroundStyle(Palette.secondary)
             .help("Dismiss").accessibilityLabel("Dismiss")
         }
-        .frame(height: Self.height, alignment: .top)
+        .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
     }
 }
 
