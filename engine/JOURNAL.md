@@ -8448,3 +8448,47 @@ on whatever device that is.
   jump-to-latest button when both show.
 - A spawned `tell` of a warning can land after a fast end's `withdraw`, which would leave that warning up until its
   toast lapses.
+
+## 2026-11-21 · 161 · The gate's relay tests were ended by the owner's FERB asking about them, not by the network
+
+**What failed.** Three pushes today (10:12, 10:24, 11:15) were refused: ferb-test-guard said the sandbox ended
+ferb-link's `tests/relay.rs` binary for reaching the network, ~/.ferb, the Keychain or the Trash. The same tests had
+passed in the gate on 11-20, and today's commits don't touch ferb-link.
+
+**What it was.** No test reached anything.
+- The crash report of the 11:15 kill (~/Library/Logs/DiagnosticReports/Retired) says `namespace SANDBOX`. But every
+  thread was parked (condvars, kevent, the harness's wait). A test that trips the sandbox itself is ended inside the
+  call that tripped it: nc's `connectx` and a Python thread's `__sendto` were each shown as the triggering thread.
+- FERB.app's daemon builds its shell profile from every listening port on the Mac. For each owner process it asks the
+  kernel `sandbox_check(pid, "file-read-data", ~/.ferb/run)` and then the same for `~/.ferb/workspace`
+  (ferb-shell `listeners.rs` `contained`, through `local_listeners_now`, `manager.rs` and `local.rs`). The kernel runs
+  a rule's action on that question as if the process had tried. offline.sb's `(deny file-read-data ... (subpath
+  HOME/.ferb) (with send-signal SIGKILL))` therefore ended any guarded binary that held a port open while the owner's
+  FERB ran a command or started. The relay binary is the longest such binary (about 150 s, many 127.0.0.1 listeners).
+- Reproduced: the relay binary run through the guard as the gate runs it, with that one question asked from outside,
+  gave the gate's exact message and test list. A guarded `sleep` dies the same way. A question about any other path
+  leaves it alone.
+- The timing fits. Each kill came while the owner's FERB was active: FERB.app quit and its daemon exited at
+  10:12:36.15 and 11:15:01.9, and the daemon was spawning processes at 10:24:12. I infer, without reading ~/.ferb,
+  that each kill was a profile build. My eight full runs without FERB activity passed, under load too.
+
+**Fix (the guard, not the tests).** offline.sb now adds `(deny file-read-data (literal HOME/.ferb/run) (literal
+HOME/.ferb/workspace))` after the kill rule. It is a plain deny, and the last match wins. Listing exactly those two
+folders is refused with EPERM and no kill. Every file in them, any write there, listing ~/.ferb, and everything else
+in the rule still end the binary. That was checked with cat, ls, touch and mkdir in a home of the test's own.
+New proof `ferbs_containment_question_never_ends_a_guarded_binary` (tests/guards.rs) uses ferb-shell's real
+`contained` (a new dev-dependency; Cargo.lock gains one line). It fails on the old profile and passes on the new one.
+A refinement of TEST-511 (the coordinator records it).
+
+**Found, not fixed (product).**
+- `contained` calls a process "inside FERB's containment" when its sandbox denies ~/.ferb/run and allows the
+  workspace. The guard's old profile met that test too, so that fact is not unique to FERB's profile.
+- Asking the question at all can run another program's sandbox actions, so FERB can end an unrelated sandboxed
+  program on the Mac that kills on those paths.
+- Changing how containment is found is a security change to a ported behavior. It is left for a decision.
+
+**Also seen.** `own_relay_down_falls_back_to_the_shared_relay_and_comes_back` failed once in 14 diagnostic runs
+(relay.rs:296: `chat.send` answered `locked` after the own relay came back). It is unrelated to the guard.
+
+**Unverified.** I did not observe which FERB action asked at each kill, since FERB's logs in ~/.ferb were not read.
+Other macOS daemons that might ask the same kind of question about other rules were not surveyed.

@@ -142,3 +142,13 @@ words = "yeah ok"
 words_source = "Owner 2026-11-16, asked: two long replay tests ran 300-333 s on a busy Mac and were given 900 s, is that fine? And: the 4 GB cap now covers a test plus the daemons it starts."
 rule = "For TEST-511. The tests listed in ferb-test-guard's slow.txt (chat_replay's two scenario tests) may run 900 s; every other test keeps 300 s. FERB_TEST_MAX_RSS_MB (4096) is measured over a test binary's whole process group."
 untestable = "A limit's value; the guard's own tests (TEST-511) prove the limits are enforced."
+
+[TEST-514]
+title = "Another program asking whether a guarded test may list ~/.ferb/run or workspace never ends the test"
+by = "agent"
+date = 2026-11-21
+status = "active"
+rule = "Refines TEST-511. offline.sb follows its ~/.ferb kill rule with a plain deny of file-read-data on exactly HOME/.ferb/run and HOME/.ferb/workspace (the last match wins): listing those two folders is refused without ending the binary; any read of a file in them, any write there and every other place still end it."
+why = "FERB.app's daemon asks sandbox_check about those two folders for every process holding a port (ferb-shell listeners.rs), and macOS ran the guard's kill action on that question: the relay tests were killed four pushes running on 2026-11-21 with no access of their own."
+evidence = "tests/guards.rs ferbs_containment_question_never_ends_a_guarded_binary calls ferb-shell's listeners::contained on a guarded process: no kill, a file read in run/ still killed; fails on the old profile. Journal 161."
+paths = ["engine/crates/ferb-test-guard/offline.sb", "engine/crates/ferb-test-guard/tests/guards.rs"]

@@ -35,6 +35,14 @@
   (subpath (string-append (param "HOME") "/Library/Application Support/com.operasoftware.Opera"))
   (subpath (string-append (param "HOME") "/Library/Application Support/Firefox"))
   (with send-signal SIGKILL))
+;; FERB.app's daemon asks the kernel about every process that holds a listening port whether its sandbox lets it list
+;; FERB's run folder and its workspace (sandbox_check, ferb-shell's listeners.rs `contained`), and the kernel runs a
+;; rule's action on such a question as if the process had tried: with the kill above, the owner's FERB ends any test
+;; binary that has a port open (the link's relay tests, killed so in the gate on 2026-11-21). Listing exactly these two
+;; folders stays refused (EPERM) and doesn't end the binary; every file in them and everything else above still does.
+(deny file-read-data
+  (literal (string-append (param "HOME") "/.ferb/run"))
+  (literal (string-append (param "HOME") "/.ferb/workspace")))
 
 ;; Never the Keychain itself (its server reads the files on the caller's behalf).
 (deny mach-lookup

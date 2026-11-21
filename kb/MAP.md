@@ -20,7 +20,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 28 | 6 | 4 |
 | runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 58 | 6 | 6 |
 | storage | Storage | `engine/runtime/store` | 36 | 5 | 4 |
-| tests | Tests | `tests` | 14 | 6 | 0 |
+| tests | Tests | `tests` | 15 | 6 | 0 |
 | voice | Voice | `ferb/voice` | 3 | 0 | 0 |
 
 ## Waiting on the owner

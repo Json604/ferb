@@ -988,6 +988,7 @@ name = "ferb-test-guard"
 version = "0.28.0"
 dependencies = [
  "ferb-browser",
+ "ferb-shell",
  "libc",
 ]
 

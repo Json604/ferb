@@ -193,6 +193,75 @@ fn a_test_past_the_memory_cap_is_ended_and_named() {
     assert!(took < 25.0, "ended at the cap ({took} s)");
 }
 
+/// FERB.app's daemon asks the kernel about every process holding a listening port whether its sandbox lets it list
+/// FERB's run folder and its workspace (ferb-shell's `listeners::contained`), and the kernel runs a sandbox rule's
+/// action on such a question as if the process had tried. That question never ends a guarded binary; reading a file
+/// in those folders still does, and listing them stays refused. In a home of the test's own (the profile's HOME).
+// decision: TEST-511
+// decision: TEST-514
+#[test]
+fn ferbs_containment_question_never_ends_a_guarded_binary() {
+    use std::io::BufRead;
+    use std::os::unix::process::ExitStatusExt;
+    let home = std::env::temp_dir().join(format!(
+        "ferb-test-guard-probe-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(home.join(".ferb/run")).unwrap();
+    std::fs::create_dir_all(home.join(".ferb/workspace")).unwrap();
+    // the sandbox matches resolved paths (the temporary folder is behind /var -> /private/var)
+    let home = home.canonicalize().unwrap();
+    let ferb = home.join(".ferb");
+    std::fs::write(ferb.join("run/x"), "x").unwrap();
+    let guarded = |argv: &[&str]| {
+        let mut c = Command::new("/usr/bin/sandbox-exec");
+        c.arg("-D")
+            .arg(format!("HOME={}", home.display()))
+            .arg("-p")
+            .arg(include_str!("../offline.sb"))
+            .args(argv);
+        c
+    };
+    // a guarded process, sandboxed once it says so
+    let mut child = guarded(&["/bin/sh", "-c", "echo ready; exec /bin/sleep 30"])
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut line = String::new();
+    std::io::BufReader::new(child.stdout.take().unwrap())
+        .read_line(&mut line)
+        .unwrap();
+    assert_eq!(line.trim(), "ready");
+    let pid = child.id() as i32;
+    assert!(
+        !ferb_shell::listeners::contained(pid, &ferb, &ferb.join("workspace")),
+        "the guard's sandbox is not FERB's containment"
+    );
+    std::thread::sleep(Duration::from_millis(500));
+    assert!(
+        child.try_wait().unwrap().is_none(),
+        "FERB's question ended the guarded process"
+    );
+    child.kill().unwrap();
+    let _ = child.wait();
+    // a file in FERB's run folder still ends a guarded program; listing the folder is refused without ending it
+    let read = guarded(&["/bin/cat", &ferb.join("run/x").to_string_lossy()])
+        .output()
+        .unwrap();
+    assert_eq!(read.status.signal(), Some(9), "{read:?}");
+    let list = guarded(&["/bin/ls", &ferb.join("run").to_string_lossy()])
+        .output()
+        .unwrap();
+    assert_eq!(list.status.signal(), None, "{list:?}");
+    assert!(!list.status.success(), "{list:?}");
+    assert!(list.stdout.is_empty(), "{list:?}");
+    std::fs::remove_dir_all(&home).unwrap();
+}
+
 /// A good test passes through the guard unchanged, its output passed on.
 #[test]
 fn a_good_test_passes_through() {
