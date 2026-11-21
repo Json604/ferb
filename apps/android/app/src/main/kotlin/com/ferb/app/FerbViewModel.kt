@@ -513,7 +513,9 @@ class FerbViewModel(
                 } else {
                     transfers.dropKeyPlaceFiles(openedKeyFiles.toList())
                     openedKeyFiles.clear()
-                    withContext(Dispatchers.IO) { local.dropOld(now()) }
+                    // disk work on its own job: this collector never waits on it, so a leave that follows at once
+                    // still closes the camera and the preview right away
+                    launch(Dispatchers.IO) { local.dropOld(now()) }
                     // back in front: a natural moment for the chat's day to move (kb PHN-697)
                     turnTheDay()
                     markRead()
