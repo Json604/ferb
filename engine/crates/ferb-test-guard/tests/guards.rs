@@ -193,10 +193,32 @@ fn a_test_past_the_memory_cap_is_ended_and_named() {
     assert!(took < 25.0, "ended at the cap ({took} s)");
 }
 
-/// FERB.app's daemon asks the kernel about every process holding a listening port whether its sandbox lets it list
-/// FERB's run folder and its workspace (ferb-shell's `listeners::contained`), and the kernel runs a sandbox rule's
-/// action on such a question as if the process had tried. That question never ends a guarded binary; reading a file
-/// in those folders still does, and listing them stays refused. In a home of the test's own (the profile's HOME).
+/// FERB.app builds before HAND-650 ask the kernel about every process holding a listening port whether its sandbox
+/// lets it list FERB's run folder and its workspace (`old_question`), and the kernel runs a sandbox rule's action on
+/// such a question as if the process had tried. That question never ends a guarded binary (nor does today's check,
+/// ferb-shell's `listeners::contained`, which asks no sandbox); reading a file in those folders still does, and listing
+/// them stays refused. In a home of the test's own (the profile's HOME).
+/// The containment question FERB.app builds before HAND-650 ask (ferb-shell's old `listeners::contained`): whether the
+/// process's sandbox denies listing `run` and allows listing `ws`.
+fn old_question(pid: i32, run: &std::path::Path, ws: &std::path::Path) -> bool {
+    use std::ffi::{c_char, CString};
+    use std::os::unix::ffi::OsStrExt;
+    extern "C" {
+        fn sandbox_check(pid: libc::pid_t, operation: *const c_char, type_: i32, ...) -> i32;
+    }
+    let (run, ws) = (
+        CString::new(run.as_os_str().as_bytes()).unwrap(),
+        CString::new(ws.as_os_str().as_bytes()).unwrap(),
+    );
+    let (op, flags) = (c"file-read-data", 1 | 0x4000_0000); // SANDBOX_FILTER_PATH | SANDBOX_CHECK_NO_REPORT
+                                                            // SAFETY: NUL-terminated strings that outlive the call.
+    unsafe {
+        sandbox_check(pid, std::ptr::null(), 0) == 1
+            && sandbox_check(pid, op.as_ptr(), flags, run.as_ptr()) == 1
+            && sandbox_check(pid, op.as_ptr(), flags, ws.as_ptr()) == 0
+    }
+}
+
 // decision: TEST-511
 // decision: TEST-514
 #[test]
@@ -238,9 +260,10 @@ fn ferbs_containment_question_never_ends_a_guarded_binary() {
     assert_eq!(line.trim(), "ready");
     let pid = child.id() as i32;
     assert!(
-        !ferb_shell::listeners::contained(pid, &ferb, &ferb.join("workspace")),
+        !ferb_shell::listeners::contained(pid),
         "the guard's sandbox is not FERB's containment"
     );
+    old_question(pid, &ferb.join("run"), &ferb.join("workspace"));
     std::thread::sleep(Duration::from_millis(500));
     assert!(
         child.try_wait().unwrap().is_none(),

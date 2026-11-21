@@ -225,12 +225,7 @@ impl Sandbox {
         proxy_port: ProxyPort,
         socket: Option<PathBuf>,
     ) -> Sandbox {
-        let scan: Scan = {
-            let prot = protection.clone();
-            Arc::new(move || {
-                crate::listeners::local_listeners_now(prot.ferb_home(), prot.workspace())
-            })
-        };
+        let scan: Scan = Arc::new(crate::listeners::local_listeners_now);
         Sandbox {
             protection,
             profiles_dir,

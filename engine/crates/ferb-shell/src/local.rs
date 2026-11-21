@@ -8,7 +8,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io::{BufRead, BufReader};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::{Arc, Mutex};
 
@@ -82,13 +82,14 @@ pub trait SocketFacts: Send + Sync {
     /// This Mac's TCP sockets: the inspectable ones, or with `complete` every user's (others' with pid None).
     fn tcp_snapshot(&self, complete: bool) -> Option<Vec<TcpSocket>>;
     fn executable_of(&self, pid: i32) -> Option<PathBuf>;
-    fn contained(&self, pid: i32, ferb_home: &Path, workspace: &Path) -> bool;
+    /// Whether the process is one FERB contains (`listeners::contained`).
+    fn contained(&self, pid: i32) -> bool;
     /// Seconds for the accept wait.
     fn monotonic(&self) -> f64;
     fn sleep(&self, seconds: f64);
 }
 
-/// This Mac's facts: libproc, nettop, sandbox_check, the real clock.
+/// This Mac's facts: libproc, nettop, FERB's record of its contained processes, the real clock.
 pub struct MacFacts;
 
 impl SocketFacts for MacFacts {
@@ -117,8 +118,8 @@ impl SocketFacts for MacFacts {
         crate::sockets::executable_of(pid)
     }
 
-    fn contained(&self, pid: i32, ferb_home: &Path, workspace: &Path) -> bool {
-        crate::listeners::contained(pid, ferb_home, workspace)
+    fn contained(&self, pid: i32) -> bool {
+        crate::listeners::contained(pid)
     }
 
     fn monotonic(&self) -> f64 {
@@ -131,7 +132,6 @@ impl SocketFacts for MacFacts {
 }
 
 pub struct LocalAccess {
-    protection: Arc<dyn Protection>,
     pins: HashMap<u32, PathBuf>,
     facts: Arc<dyn SocketFacts>,
 }
@@ -143,11 +143,7 @@ impl LocalAccess {
             .iter()
             .map(|p| (p.port as u32, p.executable.clone()))
             .collect();
-        LocalAccess {
-            protection,
-            pins,
-            facts,
-        }
+        LocalAccess { pins, facts }
     }
 
     fn sockets(&self) -> Result<Vec<TcpSocket>, LocalRefused> {
@@ -178,11 +174,7 @@ impl LocalAccess {
                     }
                 }
                 None => {
-                    if !self.facts.contained(
-                        pid,
-                        self.protection.ferb_home(),
-                        self.protection.workspace(),
-                    ) {
+                    if !self.facts.contained(pid) {
                         return Err(LocalRefused::new(
                             "this local port is not in protection.local_ports and its server is outside FERB",
                         ));

@@ -118,7 +118,7 @@ impl SocketFacts for Script {
     fn executable_of(&self, pid: i32) -> Option<PathBuf> {
         self.exes.get(&pid.to_string()).map(PathBuf::from)
     }
-    fn contained(&self, pid: i32, _: &Path, _: &Path) -> bool {
+    fn contained(&self, pid: i32) -> bool {
         self.contained
             .get(&pid.to_string())
             .copied()

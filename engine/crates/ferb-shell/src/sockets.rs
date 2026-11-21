@@ -500,7 +500,7 @@ pub fn merge(
 }
 
 #[cfg(target_os = "macos")]
-pub use mac::{complete, executable_of, group_members, inspectable};
+pub use mac::{complete, executable_of, group_members, inspectable, pids};
 
 #[cfg(target_os = "macos")]
 mod mac {
@@ -517,7 +517,8 @@ mod mac {
     const PROX_FDTYPE_SOCKET: u32 = 2;
     const NETTOP: &str = "/usr/bin/nettop";
 
-    fn pids() -> Option<Vec<i32>> {
+    /// Every process id on this Mac now (proc_listpids); None when unreadable.
+    pub fn pids() -> Option<Vec<i32>> {
         for _ in 0..3 {
             // SAFETY: a null buffer of size 0 asks only for the size needed.
             let need = unsafe { libc::proc_listpids(PROC_ALL_PIDS, 0, std::ptr::null_mut(), 0) };
@@ -701,4 +702,9 @@ pub fn executable_of(_pid: i32) -> Option<std::path::PathBuf> {
 #[cfg(not(target_os = "macos"))]
 pub fn group_members(_pgid: i32) -> Vec<i32> {
     Vec::new()
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn pids() -> Option<Vec<i32>> {
+    None
 }

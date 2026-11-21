@@ -8517,3 +8517,102 @@ earlier diagnosis:
 seams-off.txt) instead of bare placeholders. No behavior changes.
 
 **Unverified.** Which FERB action asked at each kill (FERB's own logs were not read). The Swift miscount's cause.
+
+## 2026-11-21 · 163 · FERB knows its contained processes by its own record, and never asks another program's sandbox
+
+**The bug (journal 161).** ferb-shell's `listeners::contained` decided whether a process holding a local port was
+inside FERB's containment by asking the kernel about that process's sandbox: `sandbox_check(pid, "file-read-data",
+~/.ferb/run)` must say denied and the same for the workspace allowed. Two faults, both in Python's `listeners.py:44`
+too (git 9d3f84bc, `ferb/act/shell/listeners.py`), so this is fixed against Python:
+- Another program's sandbox can answer the same way (the test guard's offline.sb did), and its servers then got
+  the trust FERB gives its own commands' servers.
+- Asking runs the asked process's own sandbox actions as if it had tried: FERB killed guarded test binaries, and
+  could end any sandboxed program on the Mac that acts on those paths.
+
+**What the check is for.** Three places trust a contained process. The profile lets a command connect directly to
+the ports whose every listener was contained when it started (HAND-214, `sandbox.rs` `network`). FERB's proxy lets
+a command reach an unpinned local port only when the socket that holds the connection is contained (`local.rs`
+`LocalAccess::verified`, HAND-226/227/433). The stop of a group whose first process has ended signals it only when
+every member is contained (`manager.rs` `ours`, `pty.rs` `kill`: the group id could be reused by another program).
+
+**The fix (HAND-650).** A process is contained when it is a shell command FERB started under its profile, or a
+descendant of one, by facts the kernel sets and no other program can claim:
+- `pty.rs` `spawn`: for an argv under `sandbox-exec` (not an admin command: sudo runs outside the profile), the
+  child reads its own kernel unique id between fork and exec and writes it to a pipe that closes at exec. Spawn
+  returns after the exec, so the id is already there; FERB reads it without waiting, so a command that ends at once
+  is still recorded. Exactly one 8-byte write counts, which covers another thread's child holding a copy of the
+  pipe from the moment before its close-on-exec flag was set. A child that can still be read must have that id.
+  `listeners::launched` records it.
+- `listeners.rs` `contained`: reads the process's `proc_pidinfo` PROC_PIDT_BSDINFOWITHUNIQID record (its unique id,
+  the unique id of the process that forked it, its parent's pid now). It is contained if either id is in FERB's
+  record. If not, the walk goes to the living parent, which must still be the process that forked it (same unique
+  id, so a reused pid never matches) and ends at launchd or anything unreadable. Every process found ours is
+  remembered for the daemon's life, so a child stays contained after its parent ends. Unique ids are never reused
+  while the Mac is up. The record is kept in the process (one per daemon), not passed around.
+- The watch (`listeners.rs` `watch`, `sweep`): from the first recorded command, while any recorded command runs,
+  every WATCH_S (HAND-232's second) FERB lists every process on the Mac. In order of unique id (parents before
+  children), it records each process whose forking parent is already known. The same sweep runs at each listener
+  scan (`local_listeners_now`) and when a recorded command's own process ends (`pty.rs` `run`, before its tree is
+  gone). A server that detaches from its command through a helper that lived at least one tick (pg_ctl waits for
+  postgres to start) is then recorded before the helper ends, and stays contained. The thread stops when no recorded
+  command is left in a full listing, and the next recorded command starts it again.
+- One path for every caller: `local_listeners_now`, `MacFacts::contained` (the proxy) and `ManagerConfig::new`'s
+  `contained` all call it. `SocketFacts::contained`, `local_listeners_now` and `outside_ports` no longer take FERB's
+  home and workspace. Nothing in the engine calls `sandbox_check` now (the two tests below keep a copy of the old
+  question to show what it did).
+
+**Named differences from Python (deliberate; all fail closed).**
+- A server whose forking parent ended before FERB saw that parent is outside, though it still runs in FERB's
+  sandbox: reached neither directly nor through the proxy. FERB sees the parent within one tick of the watch or at
+  any check, so what remains outside is a detach that completes in less than about a second. Example: the subshell
+  of `(cmd &)`, which ends at once. Measured with a helper that forks `nc` and ends after the given time, checked
+  1.7 s later (6 tries each): 0 s (`(cmd &)`) 0/6 contained, 0.2 s 0/6, 0.5 s 4/6, 0.8 s 6/6, 1.2 s 6/6.
+  pg_ctl's helper lives until postgres is ready. Python's docstring named pg_ctl as reachable; a pg_ctl that ends
+  in under a second may now be outside. A plain `cmd &` stays contained after its command ends, because the kernel
+  still names the command as its forking parent.
+- After the daemon restarts, commands left running by the earlier daemon are outside.
+- mac.applescript's and publish's sandboxed processes are no longer counted as contained. They hold no listeners
+  that FERB's commands use.
+- An admin command's processes are not recorded. They run as root, so their sockets were already outside (pid
+  None) and FERB can't signal them.
+
+**Kept.** offline.sb's carve-out (TEST-514) stays: FERB.app builds installed before this one still ask the old
+question. `ferbs_containment_question_never_ends_a_guarded_binary` now asks that old question itself and checks
+today's `contained`.
+
+**Ruled out (in HAND-650's `rejected`).**
+- An audit session per command: `setaudit_addr` with AU_ASSIGN_ASID gave EPERM unprivileged.
+- Process group or session ids: setsid leaves them, and an emptied group's id can be reused.
+- A disclaimed spawn's responsible process: a private API that changes whose TCC grants a command runs under.
+
+**Tests (temporary folders only; only processes the tests start are signalled).**
+- `tests/live.rs` `a_foreign_sandbox_that_answers_like_ferbs_is_outside_and_never_disturbed`: two `nc` listeners
+  under foreign profiles that deny the test home's `.ferb/run` (one with `(with send-signal SIGKILL)`). Their ports
+  are outside, `contained` is false and neither is signalled. Then Python's question, asked by the test, calls the
+  plain one FERB's and kills the other (SIGKILL), which shows both are real cases of the bug.
+- `ferbs_own_command_and_its_child_are_contained_and_stay_so_after_it_ends`: a command started through
+  ShellManager backgrounds `nc`. The command and its child are contained and the port is inside, during the command
+  and after it exits. The task's stop then ends the child (`ours`). The same holds for a command that ends at once
+  after backgrounding its child. Passed 3 runs in a row.
+- `a_server_detached_through_a_helper_that_lived_a_second_stays_contained`: the pg_ctl shape. A helper forks `nc`,
+  lives 1.5 s and ends, and nothing asks about the server meanwhile. Afterwards the server's parent is launchd, it
+  is contained, its port is inside, and the task's stop ends it. With the watch disabled the test fails at
+  `contained`.
+- `listeners.rs` unit test `a_sweep_records_a_living_tree_in_one_pass_and_says_whether_a_command_runs`: a
+  grandchild listed before its parent, a foreign process, ended commands, and a command recorded after the listing.
+- `listeners.rs` unit test `descent_is_followed_by_unique_ids_and_a_reused_pid_never_matches`: scripted lineages
+  cover a grandchild through a living parent, a reused parent pid, unreadable and unknown processes, memory after the
+  parent ends, a backgrounded child of the command, and an orphan of an unseen parent.
+- The whole ferb-shell suite passes through ferb-test-guard as the gate runs it, and so does ferb-test-guard's. fmt
+  is clean, and clippy -D warnings is clean for ferb-shell and ferb-test-guard.
+
+**Unverified.**
+- The whole workspace's checks; ferbd builds the proxy with `LocalAccess::new`, whose signature is unchanged.
+- The watch's cost was measured only on this Mac, in a debug build. With 750 processes a sweep takes 0.47 ms of CPU
+  (0.49 ms wall), about 0.05% of one core per second while a recorded command runs, and nothing otherwise. A full
+  listener scan with its sweep took 18.4 ms, mostly reading the sockets as before. Not measured on the owner's
+  Mac or in a release build.
+- PROC_PIDT_BSDINFOWITHUNIQID is in xnu's headers but not the public SDK. The record size (192 bytes) was checked
+  on this Mac (macOS 27.2). Any other size is treated as unreadable, so a change fails closed.
+- A live check on the owner's installed FERB.app: a dev server a task starts is still reached through the proxy and
+  directly.

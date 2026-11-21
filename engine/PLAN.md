@@ -437,3 +437,4 @@ also worth fixing in the Python build on `main`, since that build is installed t
 | `ferb/act/mac/tools.py:348` | A launched app looked for once, too early, goes unrecorded | fixed in Rust (47) |
 | `ferb/daemon/areas/browsers.py` `_pair_one` | A pairing page missed by the profile is never opened again; the wait runs out its minute | fixed in Rust (81) |
 | `ferb/store/salvage.py` `damage` | quick_check and integrity_check on one connection: FTS5 reads the first statement's segment list against a writer's newer rows and reports a healthy index corrupt | fixed in Rust (158) |
+| `ferb/act/shell/listeners.py` `contained` | Called any sandbox that denies FERB's run folder and allows its workspace FERB's containment, and asking ran that sandbox's own actions on the asked process (the test guard's kill) | fixed in Rust (163) |

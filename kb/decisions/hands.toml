@@ -2136,3 +2136,14 @@ why = "Live 2026-11-21 07:50:37, 07:57:22: over the owner's full-screen Chrome, 
 evidence = "ferb-browser tests/extension_background.rs (four HAND-649 scenarios: full screen at create, a minimize that doesn't take, a plain one, a restored window reused); tests/background_first.rs a_window_made_full_screen_is_the_opens_fact_once."
 paths = ["extension/background.js", "extension/manifest.json", "engine/crates/ferb-browser/src/surfaced.rs", "engine/crates/ferb-browser/src/driver.rs", "engine/crates/ferb-browser/src/tools.rs"]
 live = ["LIVE-1159"]
+
+[HAND-650]
+title = "FERB knows its contained processes by its own record of what it started, never by asking a sandbox"
+by = "agent"
+date = 2026-11-21
+status = "active"
+rule = "Refines HAND-214, HAND-433. Contained = a shell command FERB started under its profile (its kernel unique id, sent before exec) or a descendant by the kernel's fork record (each process's and its forking parent's unique ids), remembered once seen. Seen: when asked (through living parents), each WATCH_S while a recorded command runs, at each listener scan, at a command's end. No sandbox_check. Outside: the unreadable, an earlier daemon's commands, a process whose forking parent ended unseen (`(cmd &)`)."
+why = "Asking a sandbox (denies ~/.ferb/run, allows the workspace) was met by the test guard's profile and ran the asked process's own sandbox actions: FERB killed guarded test binaries (journal 161). The kernel sets unique ids and never reuses them while the Mac is up."
+evidence = "ferb-shell live.rs: foreign sandboxes that Python's question calls FERB's or kills stay outside, unsignalled; a command's child, and a server whose helper ended after 1.5 s, stay contained. Helper lifetimes caught: 0 and 0.2 s 0/6, 0.5 s 4/6, 0.8 s 6/6. Journal 163."
+rejected = ["An audit session per command: setaudit_addr needs root (EPERM, measured 2026-11-21)", "Process group or session ids: setsid leaves them, and an emptied group's id can be reused by another program", "A disclaimed spawn's responsible process: a private API that changes whose privacy grants a command runs under", "Asking the sandbox only of processes FERB launched: an unknown process is still asked before FERB knows", "Only the walk through living parents, with no watch: a server whose helper ended (pg_ctl) was outside unless something asked while the helper lived"]
+paths = ["engine/crates/ferb-shell/src/listeners.rs", "engine/crates/ferb-shell/src/pty.rs", "engine/crates/ferb-shell/src/local.rs", "engine/crates/ferb-shell/src/manager.rs", "engine/crates/ferb-shell/src/sandbox.rs"]

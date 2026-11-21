@@ -4,7 +4,8 @@
 //!
 //! The process runs in its own session (its pid is its process group). `kill` ends the whole group, TERM then KILL;
 //! once the command's own process has ended, the group id could name an unrelated group (a reused pid), so it is
-//! signalled only after `members_ours` confirms every process now in it is the command's (pty_proc.py:242-266).
+//! signalled only after `members_ours` confirms every process now in it is the command's (pty_proc.py:242-266). A
+//! command under FERB's profile records its kernel unique id as it starts (`listeners::contained`, HAND-650).
 
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -66,6 +67,8 @@ struct St {
     log: Option<File>,
     output_closed: bool,
     redaction: RedactionStream<Arc<Redactor>>,
+    /// The command recorded itself as FERB's (`listeners::launched`).
+    recorded: bool,
 }
 
 pub struct PtyProc {
@@ -117,6 +120,38 @@ fn dup(fd: RawFd) -> std::io::Result<OwnedFd> {
     Ok(unsafe { OwnedFd::from_raw_fd(n) })
 }
 
+/// A pipe whose both ends close at exec.
+fn cloexec_pipe() -> std::io::Result<(OwnedFd, OwnedFd)> {
+    let mut fds = [0; 2];
+    // SAFETY: pipe writes two new descriptors into `fds`.
+    if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: both are fresh descriptors this function owns.
+    let (r, w) = unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) };
+    cloexec(r.as_raw_fd());
+    cloexec(w.as_raw_fd());
+    Ok((r, w))
+}
+
+/// The 8-byte id a child wrote before its exec, which spawn waited for, so it is there now: read without waiting
+/// (another thread's child that forked while the pipe was new could hold a copy of its write end). Exactly one 8-byte
+/// write (atomic in a pipe) counts; nothing, or more than one, is no id.
+fn read_id(read: OwnedFd) -> Option<u64> {
+    let fd = read.as_raw_fd();
+    let mut buf = [0u8; 9];
+    // SAFETY: fcntl and read on our own descriptor, into our 9-byte buffer.
+    let n = unsafe {
+        libc::fcntl(
+            fd,
+            libc::F_SETFL,
+            libc::fcntl(fd, libc::F_GETFL) | libc::O_NONBLOCK,
+        );
+        libc::read(fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len())
+    };
+    (n == 8).then(|| u64::from_ne_bytes(buf[..8].try_into().expect("8 bytes")))
+}
+
 enum Output {
     More,
     WouldBlock,
@@ -163,6 +198,7 @@ impl PtyProc {
                 log: None,
                 output_closed: false,
                 redaction: stream_factory(),
+                recorded: false,
             }),
             done,
         })
@@ -295,17 +331,42 @@ impl PtyProc {
         cmd.stderr(std::process::Stdio::from(
             dup(slave.as_raw_fd()).map_err(io)?,
         ));
-        // SAFETY: setsid is async-signal-safe; the child gets its own session and process group.
+        // A command under FERB's profile (not an admin command: sudo runs outside it) tells FERB its kernel unique id
+        // before it runs, so FERB knows its processes by a fact of its own (listeners::contained, HAND-650).
+        let marked = if secret.is_none()
+            && self.argv.first().map(String::as_str) == Some(crate::sandbox::SANDBOX_EXEC)
+        {
+            Some(cloexec_pipe().map_err(io)?)
+        } else {
+            None
+        };
+        let tell = marked.as_ref().map(|(_, w)| w.as_raw_fd());
+        // SAFETY: setsid, getpid, proc_pidinfo and write are async-signal-safe and allocate nothing; the child gets its
+        // own session and process group, and writes 8 bytes to a pipe that closes at exec.
         unsafe {
-            cmd.pre_exec(|| {
+            cmd.pre_exec(move || {
                 if libc::setsid() < 0 {
                     return Err(std::io::Error::last_os_error());
+                }
+                if let (Some(fd), Some(id)) = (tell, crate::listeners::own_uniqueid()) {
+                    let bytes = id.to_ne_bytes();
+                    libc::write(fd, bytes.as_ptr() as *const libc::c_void, bytes.len());
                 }
                 Ok(())
             });
         }
         let mut child = cmd.spawn().map_err(io)?;
         let pid = child.id().map(|p| p as i32);
+        if let (Some((read, write)), Some(pid)) = (marked, pid) {
+            drop(write);
+            // the id must be this child's while it can still be read (a command that already ended can't be)
+            let id = read_id(read)
+                .filter(|id| crate::listeners::lineage(pid).is_none_or(|l| l.uniqueid == *id));
+            if let Some(id) = id {
+                crate::listeners::launched(id);
+                self.lock().recorded = true;
+            }
+        }
         self.lock().pid = pid;
         if let Some(secret) = secret {
             if let Some(mut stdin) = child.stdin.take() {
@@ -364,6 +425,10 @@ impl PtyProc {
                 }
             };
             if let Some(status) = exited {
+                if self.lock().recorded {
+                    // its descendants, while they still hang from their parents (HAND-650)
+                    let _ = tokio::task::spawn_blocking(crate::listeners::sweep).await;
+                }
                 break status;
             }
             if over {

@@ -767,3 +767,239 @@ async fn a_command_sees_no_pager_and_no_terminal_prompt_unless_it_sets_one() {
     assert!(text.contains("[cat|less|cat|0|1|dumb]"), "{text}");
     m.kill_all().await;
 }
+
+/// A port nothing listens on now (bound and released by this test).
+fn free_port() -> u16 {
+    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    l.local_addr().unwrap().port()
+}
+
+type Ports = std::collections::BTreeSet<u32>;
+
+/// Waits (up to 10 s) until `port` is among this Mac's listeners; (outside, inside) then.
+fn listed(port: u16) -> (Ports, Ports) {
+    for _ in 0..200 {
+        if let Some((outside, inside)) = ferb_shell::listeners::local_listeners_now() {
+            if outside.contains(&(port as u32)) || inside.contains(&(port as u32)) {
+                return (outside, inside);
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    panic!("port {port} never listened");
+}
+
+fn alive(pid: i32) -> bool {
+    // SAFETY: signal 0 sends nothing; it only asks whether the process exists.
+    unsafe { libc::kill(pid, 0) == 0 }
+}
+
+/// Python's containment question (listeners.py:44, Rust before HAND-650), here only to show what it did to a foreign
+/// sandbox: whether the process's sandbox denies listing `run` and allows listing `ws`.
+fn old_question(pid: i32, run: &Path, ws: &Path) -> bool {
+    use std::ffi::{c_char, CString};
+    use std::os::unix::ffi::OsStrExt;
+    extern "C" {
+        fn sandbox_check(pid: libc::pid_t, operation: *const c_char, type_: i32, ...) -> i32;
+    }
+    let (run, ws) = (
+        CString::new(run.as_os_str().as_bytes()).unwrap(),
+        CString::new(ws.as_os_str().as_bytes()).unwrap(),
+    );
+    let (op, flags) = (c"file-read-data", 1 | 0x4000_0000); // SANDBOX_FILTER_PATH | SANDBOX_CHECK_NO_REPORT
+                                                            // SAFETY: NUL-terminated strings that outlive the call.
+    unsafe {
+        sandbox_check(pid, std::ptr::null(), 0) == 1
+            && sandbox_check(pid, op.as_ptr(), flags, run.as_ptr()) == 1
+            && sandbox_check(pid, op.as_ptr(), flags, ws.as_ptr()) == 0
+    }
+}
+
+/// Another program's sandbox that denies FERB's run folder and allows its workspace, as FERB's profile does, is not
+/// FERB's containment: its server stays outside, and finding that out never signals it, though its rule kills on the
+/// very question Python asked (shown on two more processes at the end). Only processes this test starts.
+// decision: HAND-650
+#[test]
+fn a_foreign_sandbox_that_answers_like_ferbs_is_outside_and_never_disturbed() {
+    if skip() {
+        return;
+    }
+    use std::os::unix::process::ExitStatusExt;
+    let (_tmp, home) = home();
+    let ferb = realpath(&home.join(".ferb"));
+    let (run, ws) = (ferb.join("run"), ferb.join("workspace"));
+    std::fs::create_dir_all(&run).unwrap();
+    let foreign = |kill: bool, port: u16| {
+        let profile = format!(
+            "(version 1)\n(allow default)\n(deny file-read-data (literal \"{}\"){})",
+            run.display(),
+            if kill {
+                " (with send-signal SIGKILL)"
+            } else {
+                ""
+            }
+        );
+        Command::new(SANDBOX_EXEC)
+            .arg("-p")
+            .arg(profile)
+            .args(["/usr/bin/nc", "-l", "127.0.0.1", &port.to_string()])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap()
+    };
+    let (port_kill, port_plain) = (free_port(), free_port());
+    let mut killing = foreign(true, port_kill);
+    let mut plain = foreign(false, port_plain);
+    listed(port_kill);
+    let (outside, inside) = listed(port_plain);
+    for port in [port_kill, port_plain] {
+        assert!(
+            outside.contains(&(port as u32)) && !inside.contains(&(port as u32)),
+            "{port}: {outside:?} {inside:?}"
+        );
+    }
+    assert!(!ferb_shell::listeners::contained(killing.id() as i32));
+    assert!(!ferb_shell::listeners::contained(plain.id() as i32));
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    assert!(
+        killing.try_wait().unwrap().is_none() && plain.try_wait().unwrap().is_none(),
+        "FERB's check disturbed a foreign sandbox"
+    );
+    // what the old question did: it called the plain one FERB's, and its question ended the killing one
+    assert!(old_question(plain.id() as i32, &run, &ws));
+    old_question(killing.id() as i32, &run, &ws);
+    assert_eq!(killing.wait().unwrap().signal(), Some(libc::SIGKILL));
+    plain.kill().unwrap();
+    plain.wait().unwrap();
+}
+
+/// A command FERB starts under its profile and the process it backgrounds are FERB's containment, and the child stays
+/// so after the command ends (the kernel still names the command as the process that forked it): its port is inside.
+// decision: HAND-650
+#[tokio::test(flavor = "multi_thread")]
+async fn ferbs_own_command_and_its_child_are_contained_and_stay_so_after_it_ends() {
+    if skip() {
+        return;
+    }
+    let (tmp, home) = home();
+    let lists = Lists::new(&home, &[], &[], None);
+    let ws = lists.workspace.clone();
+    let m = manager(tmp.path(), lists);
+    let port = free_port();
+    let h = m
+        .start(
+            &format!(
+                "/usr/bin/nc -l 127.0.0.1 {port} </dev/null >/dev/null 2>&1 & /bin/echo child=$!; \
+                 while [ ! -e go ]; do /bin/sleep 0.05; done"
+            ),
+            &ws,
+            "task-c",
+            false,
+            None,
+            None,
+            &[],
+        )
+        .await
+        .unwrap();
+    let leader = m.process(&h.id).unwrap().pid().unwrap();
+    let child = child_of(&m, &h).await;
+    assert!(ferb_shell::listeners::contained(leader));
+    assert!(ferb_shell::listeners::contained(child));
+    let (outside, inside) = listed(port);
+    assert!(inside.contains(&(port as u32)) && !outside.contains(&(port as u32)));
+    std::fs::write(ws.join("go"), "").unwrap();
+    assert_eq!(m.wait(&h, 10.0).await.unwrap(), Some(0));
+    assert!(alive(child), "the child outlives its command");
+    assert!(ferb_shell::listeners::contained(child));
+    let (outside, inside) = listed(port);
+    assert!(inside.contains(&(port as u32)) && !outside.contains(&(port as u32)));
+    m.end_task("task-c").await;
+    assert!(group_members(leader).is_empty(), "stop ended the child");
+    // a command that ends at once, before FERB could read it: its child is FERB's all the same
+    let port = free_port();
+    let h = m
+        .start(
+            &format!(
+                "/usr/bin/nc -l 127.0.0.1 {port} </dev/null >/dev/null 2>&1 & /bin/echo child=$!"
+            ),
+            &ws,
+            "task-d",
+            false,
+            None,
+            None,
+            &[],
+        )
+        .await
+        .unwrap();
+    assert_eq!(m.wait(&h, 10.0).await.unwrap(), Some(0));
+    let child = child_of(&m, &h).await;
+    assert!(ferb_shell::listeners::contained(child));
+    let (outside, inside) = listed(port);
+    assert!(inside.contains(&(port as u32)) && !outside.contains(&(port as u32)));
+    let leader = m.process(&h.id).unwrap().pid().unwrap();
+    m.end_task("task-d").await;
+    assert!(group_members(leader).is_empty(), "stop ended the child");
+}
+
+/// A server that detaches from FERB's command the way pg_ctl starts postgres: a helper forks it, lives on (here
+/// 1.5 s, past one tick of the watch) and ends, leaving the server with no living parent. Nothing asks about the
+/// server while the helper lives; the watch recorded it, so it stays contained and its port inside.
+// decision: HAND-650
+#[tokio::test(flavor = "multi_thread")]
+async fn a_server_detached_through_a_helper_that_lived_a_second_stays_contained() {
+    if skip() {
+        return;
+    }
+    let (tmp, home) = home();
+    let lists = Lists::new(&home, &[], &[], None);
+    let ws = lists.workspace.clone();
+    let m = manager(tmp.path(), lists);
+    let port = free_port();
+    let h = m
+        .start(
+            &format!(
+                "/bin/sh -c '/usr/bin/nc -l 127.0.0.1 {port} </dev/null >/dev/null 2>&1 & \
+                 /bin/echo child=$!; /bin/sleep 1.5' </dev/null & \
+                 while [ ! -e go ]; do /bin/sleep 0.05; done"
+            ),
+            &ws,
+            "task-e",
+            false,
+            None,
+            None,
+            &[],
+        )
+        .await
+        .unwrap();
+    let server = child_of(&m, &h).await;
+    tokio::time::sleep(std::time::Duration::from_millis(2500)).await; // the helper has ended
+    let parent = ferb_shell::listeners::lineage(server).unwrap().ppid;
+    assert_eq!(parent, 1, "the server has no living parent");
+    assert!(ferb_shell::listeners::contained(server));
+    let (outside, inside) = listed(port);
+    assert!(inside.contains(&(port as u32)) && !outside.contains(&(port as u32)));
+    std::fs::write(ws.join("go"), "").unwrap();
+    assert_eq!(m.wait(&h, 10.0).await.unwrap(), Some(0));
+    let leader = m.process(&h.id).unwrap().pid().unwrap();
+    m.end_task("task-e").await;
+    assert!(group_members(leader).is_empty(), "stop ended the server");
+}
+
+/// The pid a command printed as `child=PID`.
+async fn child_of(m: &ShellManager, h: &ferb_shell::manager::ProcHandle) -> i32 {
+    for _ in 0..200 {
+        let (text, _, _) = m.read(h, 0, None).await.unwrap();
+        if let Some(n) = text
+            .split("child=")
+            .nth(1)
+            .and_then(|r| r.split_whitespace().next())
+            .and_then(|n| n.parse::<i32>().ok())
+        {
+            return n;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    panic!("the command named no child");
+}

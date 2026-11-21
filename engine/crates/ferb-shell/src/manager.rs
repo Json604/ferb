@@ -157,8 +157,8 @@ pub type LocalRefusedFn = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 type Built = Result<(Vec<String>, Vec<LocalPort>, Option<String>), ProfileError>;
 type WallClock = Arc<dyn Fn() -> f64 + Send + Sync>;
 
-/// What the daemon wires into the manager (manager.py:93's arguments). `contained` is `listeners::contained` over
-/// the protection lists' FERB home and workspace; `now` the wall clock.
+/// What the daemon wires into the manager (manager.py:93's arguments). `contained` is `listeners::contained`
+/// (FERB's own record of the processes it contains, HAND-650); `now` the wall clock.
 pub struct ManagerConfig {
     pub log_dir: PathBuf,
     pub redact_text: RedactText,
@@ -183,7 +183,6 @@ impl ManagerConfig {
         stream_factory: StreamFactory,
         sandbox: Arc<Sandbox>,
     ) -> ManagerConfig {
-        let prot = sandbox.protection.clone();
         ManagerConfig {
             log_dir,
             redact_text,
@@ -195,9 +194,7 @@ impl ManagerConfig {
             on_escape: None,
             reports: None,
             local_refused: None,
-            contained: Arc::new(move |pid| {
-                crate::listeners::contained(pid, prot.ferb_home(), prot.workspace())
-            }),
+            contained: Arc::new(crate::listeners::contained),
             now: Arc::new(crate::wall_time),
         }
     }
@@ -329,7 +326,7 @@ impl ShellManager {
                 pid.clone(),
             );
             let built = tokio::task::spawn_blocking(move || -> Built {
-                // building the profile reads the sockets and runs sandbox_check: off the event loop
+                // building the profile reads the sockets and every listener's lineage: off the event loop
                 if use_proxy {
                     let tag = report_tag(&proc_id); // in its profile only: the command can't read it there
                     let (argv, direct) =
