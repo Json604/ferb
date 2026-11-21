@@ -27,7 +27,7 @@ class AppLockTest {
     private var t = 0L
     private val lock = AppLock { t }
 
-    // decision: PHN-8, PHN-15, PHN-505
+    // decision: PHN-8, PHN-15, PHN-794
     @Test
     fun locked_on_a_cold_start_and_again_after_five_minutes_away() {
         assertTrue("a cold start is locked", lock.locked)
@@ -74,7 +74,7 @@ class AppLockTest {
         assertTrue(lock.takePrompt())
     }
 
-    // decision: PHN-15, PHN-505
+    // decision: PHN-15, PHN-794
     @Test
     fun the_background_timer_locks_only_when_the_time_has_passed_and_the_app_is_still_away() {
         lock.unlocked()

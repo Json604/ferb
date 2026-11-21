@@ -4629,3 +4629,22 @@ rule = "For APP-1105, refining APP-1107's look. The newest alert rises in as a s
 why = "The owner's words of 2026-11-21: \"aling N tasks adn cross, also make it clickbale on n tasks to exapnd, make it like a toaster\"."
 evidence = "OwnerAlertsTests, OwnerAlertsModelTests (lapse, needs-owner, no return after put away), AlertToastShotsTests (by hand: the PNGs)."
 paths = ["apps/mac/FERBNotch/Sources/FERBNotch/ChatBody.swift", "apps/mac/FERBNotch/Sources/NotchCore/OwnerAlerts.swift"]
+
+[APP-1110]
+title = "Settings can turn FERB off completely until FERB.app opens again"
+by = "owner"
+date = 2026-11-22
+status = "active"
+words = "hmm lets hide it in settigns???"
+words_source = "Owner 2026-11-22, told that with DMN-618 nothing he could reach stopped FERB completely (an exam's proctoring app refused to start while FERB ran), and asked where such an action should live."
+rule = "Settings (not the menu bar) has one action that turns FERB off completely: its background service and what it runs stop, FERB.app quits, and FERB stays off until FERB.app is opened again, which starts everything as usual. While a task runs it asks first."
+
+[APP-1111]
+title = "Turn FERB off: service.off, FERB's own stop and a quit; opening FERB.app removes the file"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For APP-1110, DMN-619. Settings → General → Turn off: \"Turn FERB off until I open it again\", asking \"A task is running. Stop it and turn FERB off?\" while one runs. FERB.app writes ~/.ferb/service.off, sends launchctl kill SIGTERM to com.ferb.daemon, waits up to 15 s and quits. While the file exists the daemon exits 0 on any signal and one launchd starts (a login) exits 0 at once. FERB.app removes it first thing at launch; setup's install removes it too. Packaged app only."
+why = "A stop marker naming one pid would not survive a login, where launchd's RunAtLoad starts the daemon again; the file keeps the owner's off until he opens FERB.app. The phone link's helper (kill_on_drop) and the browsers' relays (socket closed) end with the daemon."
+evidence = "ferbd lifecycle.rs turned_off_in_settings_it_stays_off_until_the_app_opens; NotchCoreTests TurnOffPlanTests."
+paths = ["apps/mac/FERBNotch/Sources/NotchCore/TurnOff.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SetupServices.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift", "apps/mac/FERBNotch/Sources/FERBNotch/Application.swift", "engine/crates/ferbd/src/run.rs"]

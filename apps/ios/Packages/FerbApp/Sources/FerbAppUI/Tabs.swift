@@ -427,6 +427,8 @@ struct ChatView: View {
     /// the control's (PHN-751), and each message that waits says so in its own row ("Waiting for your Mac"), so the
     /// line never speaks of the link. Left: the Mac's unlock once connected, and screen use.
     private var statusLine: (String, StatusTone)? {
+        // the Mac asleep in a brief Power Nap wake says so in its own words first (kb SENSE-430)
+        if let line = MacAsleep.line(model.ui.status, model.ui.link) { return (line, .info) }
         // the one thing about the link the control can't say: insomnia mode was on, so the Mac may be asleep (APP-981)
         if MacAsleep.shown(model.ui.status, model.ui.link, lost: model.ui.linkLost) { return (L.s("mac_asleep"), .info) }
         // not connected: the control in the top bar says it, the waiting rows say they wait
@@ -607,8 +609,8 @@ struct OutboxRow: View {
         let failed = item.state == "failed"
         let status: String = failed ? L.s("outbox_failed", item.reason ?? "")
             : item.state == "sending" ? L.s("outbox_sending")
-            // the Mac asleep while insomnia mode was on says so (APP-981); else what it waits for
-            : L.s(MacAsleep.waitingLine(item.waitingFor, asleep: MacAsleep.shown(model.ui.status, model.ui.link, lost: model.ui.linkLost)))
+            // the Mac asleep (insomnia mode was on, APP-981, or it said so, SENSE-430) says so; else what it waits for
+            : L.s(MacAsleep.waitingLine(item.waitingFor, asleep: MacAsleep.waiting(model.ui.status, model.ui.link, lost: model.ui.linkLost)))
         VStack(alignment: .trailing, spacing: 4) {
             OwnerBubble(item.text).opacity(failed ? 1 : 0.7)
             HStack(spacing: 12) {
@@ -755,7 +757,7 @@ struct WithFilesRow: View {
             case .uploading: return L.s("send_progress", Int(m.fraction * 100))
             case .sending: return L.s("outbox_sending")
             case .waitingLink:
-                return L.s(MacAsleep.waitingLine(nil, asleep: MacAsleep.shown(model.ui.status, model.ui.link, lost: model.ui.linkLost)))
+                return L.s(MacAsleep.waitingLine(nil, asleep: MacAsleep.waiting(model.ui.status, model.ui.link, lost: model.ui.linkLost)))
             case .waitingPath: return m.note.map(\.text) ?? L.s("send_waiting_path")
             case .stopped: return L.s("send_stopped")
             case .locked: return L.s("send_locked")

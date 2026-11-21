@@ -182,12 +182,20 @@ impl Run {
         v["ok"].clone()
     }
 
-    /// SIGTERM, then the exit status and what it wrote on stderr.
+    /// FERB's own stop (ferb-device `Installer::stop`, DMN-619): the stop marker names the daemon, then SIGTERM; the
+    /// exit status and what it wrote on stderr.
     pub fn stop(&mut self) -> (ExitStatus, String) {
+        let pid = self.child.as_ref().expect("running").id();
+        ferb_device::install::mark_stop(&self.home, i64::from(pid)).unwrap();
+        self.signal_stop(libc::SIGTERM)
+    }
+
+    /// A stop FERB didn't make (a `kill`, Activity Monitor): `signal` with no stop marker.
+    pub fn signal_stop(&mut self, signal: i32) -> (ExitStatus, String) {
         let mut child = self.child.take().expect("running");
         // SAFETY: the pid is our own child's, still unreaped (we hold it).
         unsafe {
-            libc::kill(child.id() as i32, libc::SIGTERM);
+            libc::kill(child.id() as i32, signal);
         }
         let until = Instant::now() + Duration::from_secs(30);
         loop {

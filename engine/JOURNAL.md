@@ -8616,3 +8616,204 @@ today's `contained`.
   on this Mac (macOS 27.2). Any other size is treated as unreadable, so a change fails closed.
 - A live check on the owner's installed FERB.app: a dev server a task starts is still reached through the proxy and
   directly.
+
+## 2026-11-22 · 164 · The phone's lock screen follows the screenshot switch; FERB's service comes back after any stop not its own
+
+**Lock screen (PHN-793 owner, PHN-794 ruling, superseding PHN-505).** Android's MainActivity set FLAG_SECURE on
+`block || mustSecure || locked`, so the lock page was black in screenshots whatever the owner's switch said. The rule
+is now `ScreenGuard.secure(block, mustSecure)` (apps/android/.../ScreenGuard.kt), applied to the window the same way:
+FLAG_SECURE still goes on before the first frame, Watch live, a task's short view, the Mac's camera and a hidden
+answer's box (the view model's mustSecure) still force it, and `setRecentsScreenshotEnabled(false)` (PHN-15) is
+unchanged. Checked before changing: the lock page (design Pages.kt UnlockPage) takes no data, only FERB's mark,
+"FERB is locked", a fixed line and the unlock button; sheets and the first-run asks are drawn only for the PAIR and
+MAIN gates (ui/Root.kt); the unlock is BiometricPrompt with BIOMETRIC_STRONG | DEVICE_CREDENTIAL, so the PIN is
+typed in the system's own window. iPhone had no such rule: PrivacyCover (FerbAppUI Privacy.swift) takes the switch
+and mustSecure only and nothing on iOS blocks a screenshot of the lock page; a test now pins that the locked model is
+not a private screen. PHN-505's test citations moved to PHN-794.
+
+**Background service (DMN-618 owner, DMN-619 ruling).** The owner: a stopped service must come back by itself. Today
+launchd (KeepAlive {SuccessfulExit false}) restarted a crash, but the daemon exited 0 on every SIGTERM, so a `kill`,
+Activity Monitor's Quit or macOS's Quit & Reopen left it stopped. KeepAlive true was looked at and not taken: it
+restarts FERB's own stops too (Installer::stop's `launchctl kill SIGTERM` before the store clean-up's work would see
+a fresh daemon start beside the work; `update.prepare`'s stop would bring the old daemon back while Sparkle replaces
+the app and the app's exit wait would see its socket again; a newer store would start and exit every 5 s), and a
+hold for it would need a path the fixed in-app definition can't name. Instead the definition stays as it is and the
+daemon picks its exit code (ferbd run.rs): 0 for `update.prepare`, for a newer store, and for a signal while
+`~/.ferb/service.stopping` names its pid; 128 + the signal for any other SIGTERM, SIGINT or SIGHUP, after the same
+clean shutdown. ferb-device `Installer::stop` writes the marker (atomically, the pid it read from `launchctl print`)
+before its SIGTERM and clears it if its wait fails; `Installer::start` (resume_service) clears it whatever happened.
+A daemon that has started drops a marker naming another pid and keeps one naming itself (FERB's stop can come while it
+is still starting). Upgrade: the definition is byte-for-byte the same apart from its comment, and an older daemon
+stopped by a newer `ferb` still exits 0 on SIGTERM, so it stays stopped for the work as before. A checkout's
+LaunchAgent (install.rs `plist`, same KeepAlive) gets the same behavior; its unload is a bootout, never restarted.
+FERB.app's Quit never stopped the daemon (Application.swift `applicationWillTerminate` tears down the app only) and
+still doesn't, so there is no Quit path to exempt.
+
+Probe of launchd's behavior on this Mac (macOS 27.2), with a disposable LaunchAgent `com.example.keepaliveprobe`
+(KeepAlive {SuccessfulExit false}, ThrottleInterval 2, booted out after): exit 143 after an unasked SIGTERM was
+restarted, SIGKILL was restarted, exit 0 after a marked SIGTERM stayed stopped (`last exit code = 0`) until
+kickstart, bootout restarted nothing.
+
+**Named differences from Python.** main.py exited 0 on every signal; the Rust daemon exits 128 + the signal unless
+the stop is FERB's own (DMN-619). The installer fixture's commands are unchanged (the marker is a file written and
+removed inside one step, so no step's file changes differ).
+
+**Tests.** Android `ScreenGuardTest` (Robolectric, the window's FLAG_SECURE for the four cases); iOS
+`AppModelTests.testTheLockPageFollowsTheScreenshotSwitch` (all 26 AppModelTests pass on the simulator). ferbd
+`lifecycle.rs only_ferbs_own_stop_keeps_the_service_stopped` (143, the log line, `daemon.stopped` journaled, a
+stale marker dropped); `services.rs a_hang_up_stops_the_daemon_like_sigterm` now 129; test support's `stop` is FERB's
+own stop (marker, then SIGTERM; exit 0 as before) and `signal_stop` an unasked one; ferb-device
+`ferbs_own_stop_names_the_daemon_it_stops_and_the_start_clears_it` and
+`a_starting_daemon_keeps_a_marker_naming_it_and_drops_any_other`; `every_installer_scenario_matches_python` passes;
+scripts/tests `test_the_service_definition_restarts_every_exit_but_ferbs_own`, and the bundle test's SIGTERM writes
+the marker first. Ran: ferb-device all, ferbd lifecycle, services, native_host, every_method_answers, chat_replay.
+
+**Turn FERB off from Settings (APP-1110 owner, APP-1111 ruling).** After this change nothing the owner could reach
+stopped FERB completely: the owner had to have FERB stopped by hand for an exam whose proctoring app wouldn't start
+beside it. His words: "hmm lets hide it in settigns???". Settings → General has a "Turn off" section: the button
+"Turn FERB off until I open it again", the line "FERB stops completely, including its background work, until you
+open FERB.app again.", and while tasks run the question "A task is running. Stop it and turn FERB off?" ("N tasks
+are running. Stop them and turn FERB off?") with Turn Off / Cancel. FERB.app (packaged only) writes
+`~/.ferb/service.off`, sends `launchctl kill SIGTERM gui/<uid>/com.ferb.daemon`, waits up to 15 s for the pid to
+go and quits. Writing the file failing stops nothing and says "FERB couldn't turn off. Nothing was stopped; try
+again." The pid marker alone wasn't enough: launchd's RunAtLoad starts the daemon again at the next login, so the
+file persists and the daemon exits 0 at its start while it exists ("turned off in FERB's Settings: starts again when
+FERB.app opens" in its log), and exits 0 on any signal. FERB.app removes the file first thing in
+`applicationDidFinishLaunching`, before its service read; the launch then finds the daemon not running and runs its
+usual quiet update (AppSetupPlan.decide → .update → `setup --service --update` → kickstart). `Installer::install`
+also removes it (setting FERB up turns it on). What ends with the daemon: the phone link's helper (compose/link.rs:
+its stdin closes, kill_on_drop) and the browsers' native hosts (daemon_to_browser returns at the socket's close),
+both read in code, not run. The root power helper (com.ferb.power, KeepAlive) is not stopped. Tests: ferbd
+`lifecycle.rs turned_off_in_settings_it_stays_off_until_the_app_opens` (exit 0 on SIGTERM with the file, a later
+start exits 0 without serving, the file stays, serving again once it's gone); NotchCore `TurnOffPlanTests` (the
+question, the launchctl command, the pid read from `launchctl print`, the file's name the daemon reads).
+
+**Unverified.**
+- The whole workspace's gate (fmt, clippy, test, portable) was not run; fmt was run on the changed files only.
+- Turn off on a real FERB.app: the Settings section's look, that no ferb-link or ferb-native-host is left (an
+  extension retrying its native host may start one that exits at once: not checked), and the log-in afterwards
+  (LIVE-1160). The full `swift test` wasn't run (the related suites were: 98 tests).
+- The live check LIVE-1160 on an installed build: a kill brings the in-app (SMAppService, BundleProgram) job back.
+  The probe used a plain LaunchAgent; that an SMAppService job follows the same KeepAlive rules is inferred.
+- The bundle packaging test (`FERB_RUST_APP_BUNDLE`) was skipped: no bundle was built.
+- Android on-device tests (OnPhoneTest) were not run; a screenshot of the lock page with the switch off on a phone.
+- DMN-618/619, PHN-793/794, LIVE-1160 and this entry's number were the next free when written; another agent was
+  working at the same time.
+
+## 2026-11-22 · 165 · FERB knows when the Mac, not FERB, kept it answering: Power Nap's brief wakes, the sleep record, device.facts
+
+**Why.** With the lid closed on power and insomnia mode off, the owner could still chat from the phone. The
+coordinator read `pmset -g log` (2026-11-21 22:24–22:34): macOS's Power Nap woke the asleep Mac every 1–3 minutes
+("DarkWake from Deep Idle … Using AC"). FERB's daemon answered during those wakes; FERB held nothing awake. The next
+day he asked FERB from the phone how that was possible. FERB guessed that it had held the Mac awake itself. It said
+it knew no "keep Mac on" setting, and that nothing in its records covered sleep or wake. Owner: "ok, so ferb should
+knwo and tell user that its mac and not its service - can feb find it out itself??" (SENSE-426). On the first plan
+(the facts in Layer 1 and Layer 2): "so is this all again in the prompt pile up?? and not in tools planner cna see???"
+(SENSE-427).
+
+**What FERB reads now, and from where.**
+- `ferb_core::power::PowerReading` gains three fields, read by `ferb-platform-macos` `power::Facts`:
+  - `dark_wake`: asleep and only briefly awake. Read from `IOPMConnectionGetSystemCapabilities`: the CPU bit without
+    the graphics bit. 0x1f is a full wake, 0x19 a dark wake.
+  - `power_nap_ac` and `power_nap_battery`: `IOPMCopyActivePMPreferences`, `DarkWakeBackgroundTasks` per power source.
+  - Both functions are in IOPMLibPrivate.h (exported by IOKit, not in the public SDK). Unread means `None`, and nothing
+    is said.
+  - The power watch also takes `kIOMessageSystemCapabilityChange` (dark wake to full and back) as a change.
+  - Read whenever asked: each read costs well under a millisecond. On this Mac: `dark_wake: Some(false)`, Power Nap on
+    for both power sources.
+- `ferb-mac-hands` `native::device` (device.facts' reading, one shared path) gains:
+  - `hardware`: the device tree's product-name ("MacBook Air (13-inch, M4, 2025)" here), the chip
+    (`machdep.cpu.brand_string`) and memory (`hw.memsize`). Never a serial number.
+  - The output device's kind, from CoreAudio's transport type and, for the built-in device, its data source: speakers,
+    headphones, built_in, bluetooth, usb, display, airplay or other. No name is added: the existing `audio_output` name
+    stays as SENSE-422 had it.
+  - Each display's `built_in`, and `external_displays`.
+  - All of it is read on each device.facts call, as before.
+- The insomnia area (`ferb-daemon` `insomnia.rs`) follows the Mac's sleep whether the mode is on or off:
+  - It journals `mac.power` (SENSE-429): `asleep` at a sleep from a full wake (lid, power source, Power Nap), `awake`
+    at the full wake (since when, and how many brief wakes), and lid and power-source changes between looks.
+  - A brief wake is counted, not journaled: a night is two rows, not some 700.
+  - FERB first seeing a brief wake (it started during the night) records `found`. A wake whose kind can't be read ends
+    the sleep and is never counted as brief.
+  - `mac.power` joins STORE-401's operational journal kinds (90 days, `operational_days`), as `mac.back_in_use` is.
+
+**Where it is said** (SENSE-427: behind the read tool; the context gains one line, only while it is true).
+- `device.facts` (`ferbd` `compose/device.rs`; a planner lookup and a worker tool). It adds `hardware`,
+  `audio_output_kind` and `external_displays`. It adds `power`: fully awake or asleep in a brief wake, `asleep_since`
+  and `brief_wakes_since`, lid, power source, Power Nap plugged in and on battery, and what Power Nap means for FERB.
+  It adds `keep_my_mac_working`: on, since, what the mode is, and, when off, what FERB keeps awake (idle sleep only
+  while a task runs with the lid open; never a closed Mac) and whether it does so now. With the mode on, it says
+  whether a closed Mac on battery is kept working (the helper).
+- New arguments `since`/`until` (ISO dates or date-times, trail.query's `time_bound`) add `sleep_record`: the
+  `mac.power` and `insomnia.state` rows of that stretch, in words, oldest first, at most 300. A malformed one is the
+  caller's ValueError before anything is read.
+- The catalog addition's description and schema changed (`catalog_additions.json`, still SENSE-422's row); Python's
+  frozen `tools.json` is untouched.
+- The live facts: only while `dark_wake` is true, one line after this Mac's line (`mac_now::context_line`, through
+  `facts_line`'s new `asleep` part). Otherwise nothing is added: no fixture or recorded scenario changes.
+- `insomnia.status` (on and off, so `chat.status` too) carries `asleep` and `asleep_line`. `ferb-mobile`'s
+  `Insomnia` and the FFI record carry them (UniFFI defaults: false, none).
+- Both phone apps (`MacAsleep.line`/`.waiting`): the Mac's line comes first under the tabs while the last status says
+  so and the link hasn't stopped for good. A message waiting for the Mac then reads "Your Mac is asleep; this goes when
+  it wakes." No notification: the brief wakes come and go every few minutes. Files: Android `MacAsleep.kt` and
+  `ui/Main.kt`; iOS `MacAsleep.swift` and `FerbAppUI/Tabs.swift`. Nothing touched in MainActivity or the privacy
+  cover.
+
+**New words.**
+- The owner (phone status, `asleep_line`):
+  - "Your Mac is asleep with its lid closed. It wakes for a moment now and then, so replies can take a few minutes,
+    and anything that needs its screen waits until you open it."
+  - "Your Mac is asleep. It wakes for a moment now and then, so replies can take a few minutes, and anything that
+    needs its screen waits until it's awake."
+- The models (the context line while asleep): "- This Mac is asleep[ with its lid closed][, on power|, on
+  battery][ since HH:MM[ (as far as FERB saw)]]: macOS's Power Nap wakes it briefly now and then | macOS woke it
+  briefly in the background, and FERB runs only during those wakes, so replies can take minutes and anything that
+  needs the screen, keyboard or pointer waits until the Mac is opened | woken; FERB's Keep my Mac working mode is
+  on|off; device.facts has the details and the sleep record".
+- device.facts' new texts: `mac_now::POWER_NAP_ABOUT`, `MODE_ABOUT`, `OUTSIDE_MODE`, `HISTORY_ABOUT`, the `awake` and
+  `closed_lid_on_battery` values, `compose/device.rs` `RECORD_EMPTY`, and the record's event words ("went to sleep",
+  "found asleep (FERB started or missed the sleep)", "woke fully", "lid closed", "lid opened", "unplugged: on
+  battery", "plugged in", "Keep my Mac working turned on / turned off / on again after FERB restarted").
+
+**Also fixed (found reading DMN-614's path).** During insomnia mode, a Mac that sleeps anyway (closed on battery
+without the helper) gets Power Nap wakes. Each one's end held macOS's sleep for 2 s, published "your Mac is going to
+sleep" and journaled `insomnia.sleeping`. Each wake said its own "Your Mac slept from … to …" alert. Now a brief
+wake's end returns at once, and the sleep is said once, at the full wake, from its start. Test:
+`brief_wakes_during_the_mode_say_the_sleep_once`. Without the power watch, the 20-second look's wall-clock gap could
+still say a brief wake's sleep (unchanged).
+
+**Named differences.** `retention::OPERATIONAL_KINDS` gains `mac.power`: ferb-store `the_rule_tables_are_python_s`
+names it, as HAND-547's two. device.facts' catalog row has new words and two optional arguments. Fixed against Python:
+none.
+
+**Evidence.**
+- ferb-daemon `tests/mac_sleep.rs`, 3 tests (the third is the fix above). A night with the lid closed on power and Power Nap on, the mode off:
+  four brief wakes counted, the phone's line and the context line while asleep, nothing once fully awake. The
+  journal's rows are exactly lid, asleep, awake (4 brief wakes), lid. A sleep found in a brief wake is recorded as
+  found.
+- `mac_now` unit test: the context gains a line only while asleep.
+- ferbd `tests/mac_sleep_record.rs`, through the `ferbd daemon` program with stand-ins. A recorded night in the store
+  (the owner's case: the mode off in the evening, the lid closed, asleep on power with Power Nap on, 212 brief wakes,
+  the lid opened). device.facts with since/until for those days gives facts naming Power Nap, the brief wakes and
+  the mode off (what FERB keeps awake outside it). A malformed `since` is an error.
+- ferb-platform-macos: the dark-wake bits, and the real reads on this Mac.
+- ferb-mac-hands: the audio kinds; the by-hand reading of this Mac (hardware and speakers read).
+- ferb-mobile-ffi `remote.rs`: the asleep fields through the bindings.
+- Android `InsomniaTest` and iOS `InsomniaTests`: one test each for `MacAsleep.line`/`.waiting`.
+- Checks: fmt, and clippy -D warnings for the touched crates and the phone crates. The tests of ferb-core,
+  ferb-daemon, ferb-platform-macos, ferb-mac-hands, ferb-store, ferb-gateway, ferb-mobile and ferb-mobile-ffi pass
+  through ferb-test-guard. ferbd's whole suite passes through the guard too: 32 binaries, chat_replay, replay,
+  every_tool_through_the_program and seams_wired included. That run was before the brief-wake fix, which changes
+  ferb-daemon only; ferb-daemon's insomnia, insomnia_phone and mac_sleep tests and its clippy were run after it.
+  `./gate.sh portable` passes. The whole-workspace gate was not run.
+
+**Unverified.**
+- A real dark wake: whether `IOPMConnectionGetSystemCapabilities` reads CPU without graphics in the daemon during a
+  Power Nap wake (the bit meanings are IOPMLibPrivate.h's).
+- Whether `kIOMessageSystemHasPoweredOn` reaches the watch at each dark wake (else brief wakes are undercounted; the
+  20-second look still starts the record as found).
+- Whether the capability-change message reaches the root domain's general interest.
+- Whether a turn handled during such a wake finishes before macOS sleeps again. All of this is LIVE-1161.
+- The phone apps' tests weren't run here (see the report). The `kb check` paths to the new files pass once they are
+  tracked.
+- `kb lock` also locked DMN-618, PHN-793 and PROJ-514: another agent's new owner decisions.

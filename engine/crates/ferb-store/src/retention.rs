@@ -32,8 +32,9 @@ pub const BATCH: usize = 200;
 /// sorted order as the query binds them (`retention.py:225`). Owner and chat kinds, day
 /// summaries, schedule, timer-set and memory records, and the audit kinds (decision: STORE-418)
 /// are not among them and stay. Added after Python (decision: HAND-547): the image redaction's
-/// rows (`image.redaction_failed`, `image.redaction_recovered`, HAND-531) go as `preview.failed` does.
-pub const OPERATIONAL_KINDS: [&str; 53] = [
+/// rows (`image.redaction_failed`, `image.redaction_recovered`, HAND-531) go as `preview.failed` does; and the Mac's
+/// sleep, wake, lid and power-source record (`mac.power`, SENSE-429) goes as `mac.back_in_use` does.
+pub const OPERATIONAL_KINDS: [&str; 54] = [
     "attention.failed",
     "browser.focus_returned",
     "daemon.background_failed",
@@ -48,6 +49,7 @@ pub const OPERATIONAL_KINDS: [&str; 53] = [
     "image.redaction_recovered",
     "loop.round",
     "mac.back_in_use",
+    "mac.power",
     "memory.cards_failed",
     "memory.consolidate_failed",
     "memory.distill_failed",

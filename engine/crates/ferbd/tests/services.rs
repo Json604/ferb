@@ -320,24 +320,13 @@ fn setup_service_uninstall_and_doctor_run_with_a_recording_launchctl() {
     assert!(!plist.exists(), "no definition is left");
 }
 
+// decision: DMN-619
 #[test]
 fn a_hang_up_stops_the_daemon_like_sigterm() {
     let tmp = root();
     let mut run = Run::start(tmp.path(), "62", json!({}));
-    let child = run.child.take().unwrap();
-    // SAFETY: the pid is our own child's, still unreaped (we hold it).
-    unsafe {
-        libc::kill(child.id() as i32, libc::SIGHUP);
-    }
-    let mut child = child;
-    let until = Instant::now() + Duration::from_secs(30);
-    let status = loop {
-        if let Some(s) = child.try_wait().unwrap() {
-            break s;
-        }
-        assert!(Instant::now() < until, "the daemon didn't stop");
-        std::thread::sleep(Duration::from_millis(50));
-    };
-    assert_eq!(status.code(), Some(0));
+    let (status, err) = run.signal_stop(libc::SIGHUP);
+    // not FERB's own stop: 128 + SIGHUP, so launchd would start it again
+    assert_eq!(status.code(), Some(129), "{err}");
     assert!(!run.socket().exists(), "the socket is removed");
 }

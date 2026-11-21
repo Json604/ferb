@@ -19,6 +19,16 @@ object MacAsleep {
     fun shown(status: PhoneStatus?, link: LinkStatus?, lost: Boolean): Boolean =
         lost && status?.insomnia?.on == true && link?.phase != LinkPhase.ONLINE && link?.phase != LinkPhase.STOPPED
 
+    /**
+     * The Mac's own words while it is asleep and only briefly awake (one of macOS's Power Nap wakes; kb SENSE-430):
+     * replies are slow and screen work waits. From the last status, mode on or off, until the link stops for good.
+     */
+    fun line(status: PhoneStatus?, link: LinkStatus?): String? =
+        status?.insomnia?.takeIf { it.asleep && link?.phase != LinkPhase.STOPPED }?.asleepLine?.takeIf { it.isNotBlank() }
+
+    /** A message waiting for the Mac waits for it to wake: the may-be-asleep rule above, or the Mac said it is asleep. */
+    fun waiting(status: PhoneStatus?, link: LinkStatus?, lost: Boolean): Boolean = shown(status, link, lost) || line(status, link) != null
+
     /** The warning's words: the lid-open advice, then the Mac's own closed-lid sentence ([fallback] from an older Mac). */
     fun body(open: String, fallback: String, i: Insomnia?): String = "$open ${i?.lidLine?.takeIf { it.isNotBlank() } ?: fallback}"
 

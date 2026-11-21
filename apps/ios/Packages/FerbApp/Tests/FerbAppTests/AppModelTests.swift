@@ -13,7 +13,7 @@ final class AppModelTests: XCTestCase {
     override func setUp() async throws { rig = Rig() }
     override func tearDown() async throws { rig.tearDown() }
 
-    // decision: PHN-8, PHN-125, PHN-505, PHN-633
+    // decision: PHN-8, PHN-125, PHN-794, PHN-633
     func testNothingShowsBeforeThePasscodeAndTheUnlock() async {
         // PHN-633: the lock page needs neither the library, the store nor the link: it shows while the phone starts
         phone.state = .starting
@@ -43,7 +43,18 @@ final class AppModelTests: XCTestCase {
         await eventually("codes") { vm.ui.gate == .codes }
     }
 
-    // decision: PHN-13, PHN-125, PHN-505
+    /// The lock page is never a private screen: what screen captures may show of it is the owner's switch alone
+    /// (the shell's privacy cover takes the switch and mustSecure, never the lock), as on Android (PHN-793).
+    // decision: PHN-793, PHN-794
+    func testTheLockPageFollowsTheScreenshotSwitch() async {
+        phone.state = .open(keys: KeyHealth(device: .ok, lock: .ok, strong: .ok), wiped: nil)
+        let vm = rig.model()
+        session.lockNow()
+        await eventually("locked") { vm.ui.gate == .locked }
+        XCTAssertFalse(vm.mustSecure, "the lock page shows nothing private")
+    }
+
+    // decision: PHN-13, PHN-125, PHN-794
     func testOnePromptOpensTheAppAndUnlocksTheMac() async {
         let vm = rig.model()
         await vm.unlockApp().value
@@ -379,7 +390,7 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(FerbError.Offline(detail: "x", linkCode: nil).code, "offline")
     }
 
-    // decision: PHN-15, PHN-505, PHN-571, PHN-696
+    // decision: PHN-15, PHN-794, PHN-571, PHN-696
     func testTheTabTheHomeScreenAndTheDraftComeBackAfterARelaunch() async {
         session.unlocked()
         let vm = rig.model()

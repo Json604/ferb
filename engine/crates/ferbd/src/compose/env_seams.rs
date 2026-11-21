@@ -284,11 +284,18 @@ impl Seams for EnvSeams {
         // SENSE-421: this Mac's name, local time and zone, and the city FERB.app reported (memory only)
         let clock = self.tools.zoned();
         let zone = clock.zone();
+        // SENSE-430: and only while the Mac is asleep in a brief background wake, the one line that says so
+        let asleep = self
+            .tools
+            .insomnia()
+            .map(|i| ferb_daemon::mac_now::context_line(&i.mac_state()))
+            .unwrap_or_default();
         crate::compose::device::facts_line(
             &self.tools.device(),
             &crate::compose::device::computer_name(self.native),
             &zone.local(&clock.now()),
             zone.key(),
+            &asleep,
         )
     }
     fn runtime_for(&self, role: &str) -> String {

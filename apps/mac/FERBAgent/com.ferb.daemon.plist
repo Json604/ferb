@@ -7,7 +7,9 @@
      FERB.app can unregister a 2026-11 build's registration by this name, and SMAppService returns with T-27. The agent
      (a native stub embedding the app's Python) accepts exactly `-m ferb.daemon` and always runs isolated (no working folder on sys.path); a fixed definition can't name
      the owner's home, so the daemon makes FERB's home its working folder and sends its output to FERB's logs itself
-     (ferb/daemon/main.py service_streams). Restart after a crash, not after a clean exit. -->
+     (ferb/daemon/main.py service_streams). launchd starts it again after any exit but 0 (KeepAlive SuccessfulExit false),
+     and the daemon exits 0 only for FERB's own stops (its update, a stop naming it in ~/.ferb/service.stopping; DMN-619):
+     a crash, a kill or any other stop brings it back within ThrottleInterval. -->
 <plist version="1.0"><dict>
 <key>Label</key><string>com.ferb.daemon</string>
 <key>BundleProgram</key><string>Contents/Helpers/FERB.app/Contents/MacOS/FERB</string>

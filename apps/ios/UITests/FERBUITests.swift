@@ -46,14 +46,14 @@ final class FERBUITests: XCTestCase {
     }
 
     /// Opening FERB asks by itself: the stand-in prompt passes at once and the pairing page shows, nothing tapped.
-    // decision: PHN-8, PHN-505, PHN-615
+    // decision: PHN-8, PHN-794, PHN-615
     func testLaunchAsksByItselfAndOpensThePairingPage() throws {
         let app = launch()
         XCTAssertTrue(app.staticTexts["Use FERB from your phone"].waitForExistence(timeout: 30), "a fresh install pairs first")
     }
 
     /// A cancelled prompt leaves the lock page with its button and does not come back by itself; the button asks.
-    // decision: PHN-8, PHN-505, PHN-615, PHN-616
+    // decision: PHN-8, PHN-794, PHN-615, PHN-616
     func testACancelledPromptWaitsForTheButton() throws {
         let app = launch(["-FERBUITestCancelPrompts", "1"])
         XCTAssertTrue(app.staticTexts["FERB is locked"].waitForExistence(timeout: 30), "nothing of FERB's before the lock")

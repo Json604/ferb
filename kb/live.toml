@@ -4932,3 +4932,21 @@ request = "Ask FERB to read a page in the windowless profile (\"in my <that prof
 pass = "The first task: at most one brief Space change, and no Chrome window left showing on the desktop (FERB's window is in the Dock, minimized). The second task in that profile moves nothing. No new question either time."
 decisions = ["HAND-649", "HAND-647"]
 sitting = "after this engine and extension are installed"
+
+[LIVE-1160]
+title = "FERB's service comes back after a kill; FERB's own stops and Settings' Turn off stay stopped"
+area = "daemon"
+surface = "FERB.app with this build (installed by the owner); Terminal and Activity Monitor"
+request = "With nothing running: `kill $(pgrep -f 'FERB daemon')`, wait 10 s and ask FERB something; again after Activity Monitor's Quit and Force Quit of it; Quit FERB.app from its menu. Run the store clean-up in Settings. Last, start a task, choose Settings → General → Turn FERB off until I open it again and answer Turn Off; log out and in; open FERB.app."
+pass = "After each kill FERB answers within about 5 s (a new pid; `launchctl print gui/$(id -u)/com.ferb.daemon` says last exit code 143). Quit FERB.app leaves the daemon running; the clean-up ends answering. Turn off: the question comes, FERB.app quits, pgrep finds no FERB daemon, ferb-link or ferb-native-host, not after the log-in either, and opening FERB.app brings FERB back."
+decisions = ["DMN-618", "DMN-619", "APP-1110", "APP-1111"]
+sitting = "after this build is installed"
+
+[LIVE-1161]
+title = "Lid closed on power, Keep my Mac working off: FERB says it is Power Nap, then and the next day"
+area = "perception"
+surface = "FERB.app with this build (installed by the owner), Power Nap on (System Settings → Battery → Options), the owner's phone paired"
+request = "Turn Keep my Mac working off, plug the Mac in and close the lid. After a few minutes, from the phone ask: 'is my Mac awake? why can you answer?'. Open the lid. The next day, from the phone ask: 'yesterday my Mac was on power with the lid closed and keep my Mac working was off, but I could still chat with you, how?'"
+pass = "While closed, the phone's line under the tabs says the Mac is asleep with its lid closed and wakes for a moment now and then; FERB's answer says the Mac is asleep and macOS's Power Nap wakes it briefly, that FERB itself isn't keeping it awake and Keep my Mac working is off. The next day's answer calls device.facts with since/until (ferb trace TASK) and names the sleep's times, the brief wakes and Power Nap, never that FERB held the Mac awake."
+decisions = ["SENSE-426", "SENSE-427", "SENSE-428", "SENSE-429", "SENSE-430"]
+sitting = "after this build is installed"

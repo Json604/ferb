@@ -432,9 +432,11 @@ private fun Chat(vm: FerbViewModel, ui: UiState, draft: String, insets: PhoneIns
     }
     Column(Modifier.fillMaxSize()) {
         TopBar(PhoneTab.CHAT, waiting = waiting, onTab = onTab, onProfile = onProfile)
-        val status = statusLine(ui)
+        // the Mac asleep in a brief Power Nap wake says so in its own words first (kb SENSE-430)
+        val status = com.ferb.app.model.MacAsleep.line(ui.status, ui.link)?.let { it to StatusTone.INFO }
+            ?: statusLine(ui)?.let { (text, tone) -> stringResource(text) to tone }
         MotionShow(status, push = true) { (text, tone) ->
-            StatusLine(stringResource(text), tone, Modifier.padding(top = 10.dp).testTag("status-line"))
+            StatusLine(text, tone, Modifier.padding(top = 10.dp).testTag("status-line"))
         }
         ui.macNeed?.let { need -> MacNeedCard(need, ui.macLine != null) { vm.unlockMac() } }
         // the chat's height as answers fold to it (FERB.app's CollapsePolicy): the tallest it has been, so the keyboard
@@ -774,8 +776,8 @@ private fun OutboxRow(vm: FerbViewModel, row: ChatRow.Outbox) {
     val status = when {
         failed -> stringResource(R.string.outbox_failed, o.reason.orEmpty())
         o.state == "sending" -> stringResource(R.string.outbox_sending)
-        // the Mac asleep while insomnia mode was on says so (APP-981); else what it waits for
-        else -> stringResource(com.ferb.app.model.MacAsleep.waitingLine(o.waitingFor, com.ferb.app.model.MacAsleep.shown(ui.status, ui.link, ui.linkLost)))
+        // the Mac asleep (insomnia mode was on, APP-981, or it said so, SENSE-430) says so; else what it waits for
+        else -> stringResource(com.ferb.app.model.MacAsleep.waitingLine(o.waitingFor, com.ferb.app.model.MacAsleep.waiting(ui.status, ui.link, ui.linkLost)))
     }
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Box(Modifier.alpha(if (failed) 1f else 0.7f)) { OwnerBubble(o.text) }
@@ -804,7 +806,7 @@ private fun WithFilesRow(vm: FerbViewModel, m: Sending) {
     val status = when (m.phase) {
         SendPhase.UPLOADING -> stringResource(R.string.send_progress, (m.fraction * 100).toInt())
         SendPhase.SENDING -> stringResource(R.string.outbox_sending)
-        SendPhase.WAITING_LINK -> stringResource(com.ferb.app.model.MacAsleep.waitingLine(null, com.ferb.app.model.MacAsleep.shown(ui.status, ui.link, ui.linkLost)))
+        SendPhase.WAITING_LINK -> stringResource(com.ferb.app.model.MacAsleep.waitingLine(null, com.ferb.app.model.MacAsleep.waiting(ui.status, ui.link, ui.linkLost)))
         SendPhase.WAITING_PATH -> m.note?.let { noteText(it) } ?: stringResource(R.string.send_waiting_path)
         SendPhase.STOPPED -> stringResource(R.string.send_stopped)
         SendPhase.LOCKED -> stringResource(R.string.send_locked)

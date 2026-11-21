@@ -424,10 +424,50 @@ final class DaemonService: DaemonServicing {
         return false
     }
 
-    /// `launchctl kickstart` without -k: launchd starts the job only when it isn't running. A clean exit (SIGTERM, as
-    /// macOS's "Quit & Reopen" may send) isn't restarted by launchd (KeepAlive SuccessfulExit false).
+    /// `launchctl kickstart` without -k: launchd starts the job only when it isn't running. Since DMN-619 launchd itself
+    /// starts a daemon again after any stop FERB didn't make (a SIGTERM from macOS's "Quit & Reopen" included); this
+    /// covers the rest: FERB's own stop that wasn't followed by its start, an older build's daemon.
     func start() async -> Bool {
         await Self.launchctl(LaunchctlPlan.start(uid: getuid())) == 0
+    }
+
+    /// Settings' Turn FERB off until I open it again (TurnOffPlan, APP-1110): the off file in FERB's home, then
+    /// launchd's SIGTERM, waited for up to 15 s. The daemon's stop is then FERB's own (exit 0), so launchd leaves it;
+    /// the phone link's helper and the browsers' relays end with it. A daemon slower than that still stops as FERB's
+    /// own. False only when the off file couldn't be written (nothing was stopped).
+    func turnOff() async -> Bool {
+        guard let home = accountFerbHome() else { return false }
+        let off = URL(fileURLWithPath: home).appendingPathComponent(TurnOffPlan.offFile)
+        do { try Data().write(to: off) } catch { return false }
+        guard TurnOffPlan.pid(await Self.printed()) != nil else { return true }
+        _ = await Self.launchctl(TurnOffPlan.stop(uid: getuid()))
+        let end = Date().addingTimeInterval(15)
+        while Date() < end, TurnOffPlan.pid(await Self.printed()) != nil {
+            try? await Task.sleep(for: .milliseconds(250))
+        }
+        return true
+    }
+
+    /// FERB.app opens: a turn-off by Settings ends here, before anything reads or starts the service (APP-1110).
+    static func turnBackOn() {
+        guard let home = accountFerbHome() else { return }
+        try? FileManager.default.removeItem(atPath: home + "/" + TurnOffPlan.offFile)
+    }
+
+    /// `launchctl print gui/<uid>/<label>`'s words ("" when launchd has no such job).
+    private static func printed() async -> String {
+        await Task.detached {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+            process.arguments = ["print", "gui/\(getuid())/\(LaunchctlPlan.label)"]
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = FileHandle.nullDevice
+            do { try process.run() } catch { return "" }
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            return process.terminationStatus == 0 ? String(decoding: data, as: UTF8.self) : ""
+        }.value
     }
 
     private static func launchctl(_ arguments: [String]) async -> Int32 {

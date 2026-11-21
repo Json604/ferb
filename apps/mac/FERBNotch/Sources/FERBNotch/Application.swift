@@ -38,6 +38,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var cover: InsomniaCoverWindows?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // APP-1110: opening FERB.app ends a turn-off from Settings, before anything reads or starts the service
+        if appSetup.isPackaged { DaemonService.turnBackOn() }
         dock.start()
         if AppBundle.isApp {          // APP-601: the owner approved this copy; its nested code shouldn't be stopped later
             let bundle = Bundle.main.bundleURL
@@ -97,6 +99,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             actions.freshConversation = { [weak model = coordinator.model] in await model?.startFreshConversation() }
             // Settings → Phone: the link's helper is reached only through the daemon (S4, T-1204; kb PHN-441)
             actions.phoneLink = coordinator.model.rpc
+            // APP-1110: Settings' Turn FERB off; the next launch starts everything as usual (turnBackOn, then setup)
+            actions.runningTasks = { [weak model = coordinator.model] in model?.runningTasks.count ?? 0 }
+            if appSetup.isPackaged {
+                actions.turnOff = {
+                    if await DaemonService().turnOff() { NSApp.terminate(nil); return }
+                    let alert = NSAlert()
+                    alert.messageText = TurnOffPlan.failed
+                    _ = AppWindowPresentation.runModal(alert)
+                }
+            }
             let loginItems = LoginItemController.installed(available: appSetup.isPackaged)
             self.loginItems = loginItems
             actions.loginItems = loginItems

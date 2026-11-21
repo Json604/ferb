@@ -1862,7 +1862,8 @@ evidence = "app OnPhoneTest a_question_is_posted_with_its_buttons_and_no_words_o
 title = "The app lock: one prompt opens the app and the Mac; locked after five minutes away; screens covered"
 by = "agent"
 date = 2026-11-16
-status = "active"
+status = "superseded"
+superseded_by = "PHN-794"
 rule = "For PHN-8, PHN-15, PHN-125, PHN-420. AppLock (injected clock): locked at a cold start and after more than 5 minutes in the background (a timer there too). No screen lock: only the screen that says how. Unlock: with the Mac online the lock key signs the Mac's challenge in the one prompt (a cold start waits up to 6 s for it); otherwise the prompt alone. FLAG_SECURE by the switch, always while locked or private; recents always blank (API 33+)."
 why = "PHN-13's one gesture for both; a prompt that opens the app must not depend on the Mac being up. setRecentsScreenshotEnabled covers recents even with the screenshot switch off, as PHN-15 asks."
 evidence = "app AppLockTest (2), ViewModelTest gate and unlock tests, OnPhoneTest with_a_screen_lock_it_opens_on_the_prompt_and_shows_pairing (a real PIN prompt on the emulator) and without_a_screen_lock..."
@@ -3988,3 +3989,23 @@ status = "active"
 rule = "The work row counts the chat's live turns plus the Mac's running tasks from chat.status's running list (pushed by the link when it changes); the Tasks tab's last tasks.list only says whether such a task is paused or waiting. A task the Mac no longer lists as running is never counted."
 why = "Live 2026-11-21: the Tasks tab read during a task kept it as working after its answer came, so the phone showed \"1 active task\" with a spinner for a finished task until the Tasks tab was opened again."
 paths = ["apps/android/app/src/main/kotlin/com/ferb/app/model/Running.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/Running.swift"]
+
+[PHN-793]
+title = "The lock screen follows the screenshot switch"
+by = "owner"
+date = 2026-11-22
+status = "active"
+words = "i would like it"
+words_source = "Owner 2026-11-22, told that the locked app forced screenshot blocking whatever his switch said, and that letting the lock screen follow the switch risks little."
+rule = "Refines PHN-505. FERB's lock screen follows the owner's Block screenshots switch like the rest of the app: with the switch off it shows in screenshots. Private screens (Watch live, a task's short view, the Mac's camera, a hidden answer's box) stay out of screenshots whatever the switch says, and recent apps stay covered."
+
+[PHN-794]
+title = "The window is kept out of screenshots by the switch and by private screens, never by the lock alone"
+by = "agent"
+date = 2026-11-22
+status = "active"
+supersedes = ["PHN-505"]
+rule = "For PHN-793; PHN-505's rule with one change. AppLock as PHN-505 (locked at a cold start and after over 5 minutes away; no screen lock: only the screen saying how; one prompt opens the app and signs the Mac's challenge). FLAG_SECURE (ScreenGuard.secure) is the switch or mustSecure; the lock alone no longer forces it. Recents always blank (API 33+). The lock page takes no data (mark, fixed words, unlock button); the unlock is the system's BiometricPrompt (strong biometric or device credential). iPhone had no lock rule: its cover takes the switch and mustSecure."
+why = "The lock page holds nothing a screenshot could leak; forcing it secure only kept the owner from capturing it with his switch off. MainActivity sets FLAG_SECURE before the first frame, so a cold start shows nothing until the switch is read."
+evidence = "app ScreenGuardTest (Robolectric, the window's flags); FerbAppTests AppModelTests testTheLockPageFollowsTheScreenshotSwitch; OnPhoneTest's Watch live check unchanged."
+paths = ["apps/android/app/src/main/kotlin/com/ferb/app/ScreenGuard.kt", "apps/android/app/src/main/kotlin/com/ferb/app/MainActivity.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppUI/Privacy.swift"]

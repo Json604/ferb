@@ -87,7 +87,8 @@ struct SettingsView: View {
         Group {
             switch selection.settingsTab {
             case .general:
-                GeneralSettingsPage(loginItems: actions.loginItems, updates: actions.updates, onReplayIntro: actions.replayIntro)
+                GeneralSettingsPage(loginItems: actions.loginItems, updates: actions.updates, onReplayIntro: actions.replayIntro,
+                                    turnOff: actions.turnOff, runningTasks: actions.runningTasks)
             case .notch: NotchSettingsPage(cursor: actions.cursor, hotKeys: actions.hotKeys,
                                            onHoverEnabledChange: actions.setHoverEnabled)
             case .ai: AISettingsPage(store: store, actions: actions, output: aiOutput)
@@ -113,6 +114,9 @@ struct GeneralSettingsPage: View {
     var loginItems: LoginItemController? = nil
     var updates: UpdateCoordinator? = nil
     var onReplayIntro: (() -> Void)? = nil
+    var turnOff: (@MainActor () async -> Void)? = nil
+    var runningTasks: @MainActor () -> Int = { 0 }
+    @State private var turnOffQuestion: String?
 
     var body: some View {
         WindowPage {
@@ -132,6 +136,27 @@ struct GeneralSettingsPage: View {
                     }
                 }
             }
+            // APP-1110: off for good, kept out of the menu bar; opening FERB.app turns it on again
+            if let turnOff {
+                WindowSettingsSection(title: "Turn off") {
+                    HStack(spacing: 24) {
+                        Text(TurnOffPlan.detail).font(.system(size: 12)).foregroundStyle(.secondary)
+                        Spacer(minLength: 0)
+                        Button(TurnOffPlan.action) {
+                            if let question = TurnOffPlan.question(running: runningTasks()) {
+                                turnOffQuestion = question
+                            } else {
+                                Task { await turnOff() }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .alert(turnOffQuestion ?? "", isPresented: Binding(get: { turnOffQuestion != nil },
+                                                            set: { if !$0 { turnOffQuestion = nil } })) {
+            Button(TurnOffPlan.confirm, role: .destructive) { if let turnOff { Task { await turnOff() } } }
+            Button("Cancel", role: .cancel) {}
         }
     }
 }

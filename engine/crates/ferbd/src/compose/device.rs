@@ -326,13 +326,14 @@ impl DeviceState {
     }
 }
 
-/// The devices' lines for the live facts (SENSE-421): this Mac's, then one per paired phone FERB has heard from
-/// (SENSE-425).
+/// The devices' lines for the live facts (SENSE-421): this Mac's, then `asleep` (SENSE-430: the one line while the Mac
+/// is asleep in a brief background wake, "" otherwise), then one per paired phone FERB has heard from (SENSE-425).
 pub fn facts_line(
     state: &DeviceState,
     name: &str,
     now: &ferb_core::when::DateTime,
     zone: &str,
+    asleep: &str,
 ) -> String {
     let r = state.reported();
     let place = r.place.filter(|_| r.location == "granted");
@@ -344,6 +345,9 @@ pub fn facts_line(
         place: place.as_ref(),
         note: "",
     })];
+    if !asleep.is_empty() {
+        lines.push(asleep.to_string());
+    }
     lines.extend(
         state
             .phone_views()
@@ -502,6 +506,56 @@ pub struct Now {
     pub now: ferb_core::when::DateTime,
     pub zone: String,
     pub reading: ferb_mac_hands::device::Reading,
+    /// The Mac's sleep and power and FERB's Keep my Mac working mode (the insomnia area's; none before it is built).
+    pub mac: Option<ferb_daemon::mac_now::MacState>,
+    /// The sleep record asked for (`since`, `until`): its entries and how many older ones were left out.
+    pub record: Option<Record>,
+}
+
+/// The sleep record one call asked for (SENSE-429).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Record {
+    pub since: ferb_core::when::DateTime,
+    pub until: Option<ferb_core::when::DateTime>,
+    pub entries: Vec<Value>,
+    pub left_out: usize,
+}
+
+/// The kinds the sleep record reads: the Mac's power changes and FERB's mode.
+pub const RECORD_KINDS: [&str; 2] = [
+    ferb_daemon::mac_now::JOURNAL_KIND,
+    ferb_daemon::insomnia::JOURNAL_KIND,
+];
+
+/// The recorded rows (at, kind, data) of the sleep record from `since` on, oldest first (SENSE-429).
+pub fn record_rows(
+    db: &crate::basics::SharedDb,
+    since: &ferb_core::when::DateTime,
+) -> Vec<(String, String, Value)> {
+    let d = lock(db);
+    let Ok(mut st) = d.conn().prepare(
+        "SELECT at, kind, data_json FROM journal WHERE kind IN (?1, ?2) AND julianday(at) >= julianday(?3) \
+         ORDER BY seq",
+    ) else {
+        return Vec::new();
+    };
+    let since = ferb_core::when::isoformat(since);
+    let rows = st.query_map(
+        rusqlite::params![RECORD_KINDS[0], RECORD_KINDS[1], since],
+        |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        },
+    );
+    rows.map(|r| {
+        r.flatten()
+            .filter_map(|(at, kind, data)| Some((at, kind, serde_json::from_str(&data).ok()?)))
+            .collect()
+    })
+    .unwrap_or_default()
 }
 
 /// The tool's content: the device, time and place first, then the Mac's state; facts it couldn't read are left out.
@@ -544,6 +598,32 @@ pub fn content(state: &DeviceState, n: &Now) -> Map<String, Value> {
             .unwrap_or_default()
     };
     m.extend(n.reading.facts(&when));
+    // SENSE-428: the Mac's sleep and power, Power Nap, and FERB's own Keep my Mac working mode
+    if let Some(mac) = &n.mac {
+        m.extend(ferb_daemon::mac_now::power_facts(mac));
+    }
+    if let Some(r) = &n.record {
+        let mut rec = Map::new();
+        rec.insert("since".into(), json!(ferb_core::when::isoformat(&r.since)));
+        if let Some(u) = &r.until {
+            rec.insert("until".into(), json!(ferb_core::when::isoformat(u)));
+        }
+        rec.insert("entries".into(), Value::Array(r.entries.clone()));
+        if r.left_out > 0 {
+            rec.insert(
+                "older_left_out".into(),
+                json!(format!(
+                    "{} older entries left out: ask for a later since",
+                    r.left_out
+                )),
+            );
+        }
+        if r.entries.is_empty() {
+            rec.insert("note".into(), json!(RECORD_EMPTY));
+        }
+        rec.insert("about".into(), json!(ferb_daemon::mac_now::HISTORY_ABOUT));
+        m.insert("sleep_record".into(), Value::Object(rec));
+    }
     // SENSE-425: the owner's paired phones, as each reported itself (none listed when no phone is paired)
     let phones = state.phone_views();
     if !phones.is_empty() {
@@ -553,6 +633,23 @@ pub fn content(state: &DeviceState, n: &Now) -> Map<String, Value> {
         );
     }
     m
+}
+
+/// What the sleep record says when it holds nothing for the stretch asked.
+pub const RECORD_EMPTY: &str = "nothing recorded in this stretch: FERB records when this Mac sleeps and wakes, its \
+lid and power source, and its Keep my Mac working mode, from the FERB version that added this record on, and keeps \
+them as long as its other operational records";
+
+/// The sleep record's stretch from the call's `since` and `until` (ISO dates or date-times, the Mac's zone unless
+/// they name one; a date as `until` covers its day): None without `since`; Err for a malformed one (the caller's).
+pub fn record_range(
+    a: &Args,
+    zone: &ferb_clock::zone::Zone,
+) -> Result<Option<(ferb_core::when::DateTime, Option<ferb_core::when::DateTime>)>, String> {
+    let text = |k: &str| a.get(k).and_then(Value::as_str).map(str::to_string);
+    let since = ferb_sense::tools::time_bound(text("since").as_deref(), false, None, zone)?;
+    let until = ferb_sense::tools::time_bound(text("until").as_deref(), true, None, zone)?;
+    Ok(since.map(|s| (s, until)))
 }
 
 /// The tool (after abilities.read, as `catalog_additions.json` says).
@@ -573,7 +670,13 @@ pub fn tool(p: &Parts) -> Arc<dyn Tool> {
                 .map(str::trim)
                 .filter(|d| !d.is_empty())
                 .map(str::to_string);
+            let range = record_range(a, &p.zoned().zone());
             Box::pin(async move {
+                let range = range.map_err(|e| ferb_gateway::tool::ToolError {
+                    class: "ValueError".into(),
+                    message: e,
+                    before_acting: true,
+                })?;
                 let state = p.device();
                 let (native, home) = (p.native(), p.user_home().clone());
                 let (name, reading) = tokio::task::spawn_blocking(move || read_mac(native, &home))
@@ -581,12 +684,29 @@ pub fn tool(p: &Parts) -> Arc<dyn Tool> {
                     .unwrap_or_default();
                 let clock = p.zoned();
                 let zone = clock.zone();
+                let record = range.map(|(since, until)| {
+                    let rows = record_rows(&p.db(), &since);
+                    let z = zone;
+                    let local = move |t: &ferb_core::when::DateTime| {
+                        ferb_core::when::isoformat(&z.local(t))
+                    };
+                    let (entries, left_out) =
+                        ferb_daemon::mac_now::history(&rows, &since, until.as_ref(), &local);
+                    Record {
+                        since: zone.local(&since),
+                        until: until.map(|u| zone.local(&u)),
+                        entries,
+                        left_out,
+                    }
+                });
                 let n = Now {
                     device_id: device_id(&p),
                     name,
                     now: zone.local(&clock.now()),
                     zone: zone.key().to_string(),
                     reading,
+                    mac: p.insomnia().map(|i| i.mac_state()),
+                    record,
                 };
                 let mut m = content(&state, &n);
                 if exact {
@@ -818,19 +938,19 @@ mod tests {
         let state = DeviceState::default();
         let now = at("2026-11-16T10:05:00+05:30");
         assert_eq!(
-            facts_line(&state, "Studio", &now, "Asia/Kolkata"),
+            facts_line(&state, "Studio", &now, "Asia/Kolkata", ""),
             "- This Mac “Studio”: Monday 2026-11-16 10:05, time zone Asia/Kolkata (UTC+05:30); place unknown (time \
              zone only)"
         );
         granted(&state);
-        assert!(facts_line(&state, "Studio", &now, "Asia/Kolkata")
+        assert!(facts_line(&state, "Studio", &now, "Asia/Kolkata", "")
             .ends_with("place: Pune, Maharashtra, India (city level)"));
         state
             .report(&params(json!({"location": "denied"})))
             .unwrap();
         assert_eq!(state.reported().place, None);
         assert_eq!(state.reported().wifi, None);
-        assert!(facts_line(&state, "Studio", &now, "Asia/Kolkata")
+        assert!(facts_line(&state, "Studio", &now, "Asia/Kolkata", "")
             .ends_with("place unknown (time zone only)"));
         assert!(state
             .report(&params(json!({"location": "always"})))
@@ -855,6 +975,8 @@ mod tests {
                 booted_at: Some(1_763_000_000.0),
                 ..Default::default()
             },
+            mac: None,
+            record: None,
         };
         let off = Value::Object(content(&state, &n));
         assert_eq!(

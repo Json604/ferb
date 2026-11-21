@@ -5,7 +5,7 @@ import FerbMobile
 import XCTest
 
 final class AppLockTests: XCTestCase {
-    // decision: PHN-8, PHN-15, PHN-505
+    // decision: PHN-8, PHN-15, PHN-794
     func testLockedOnAColdStartAndAgainAfterFiveMinutesAway() {
         var t = 0.0
         let lock = AppLock { t }
@@ -54,7 +54,7 @@ final class AppLockTests: XCTestCase {
         XCTAssertTrue(lock.takePrompt())
     }
 
-    // decision: PHN-15, PHN-505
+    // decision: PHN-15, PHN-794
     func testTheBackgroundTimerLocksOnlyWhenTheTimeHasPassedAndTheAppIsStillAway() {
         var t = 0.0
         let lock = AppLock { t }
@@ -69,7 +69,7 @@ final class AppLockTests: XCTestCase {
         XCTAssertFalse(lock.backgroundTimer(), "already locked: once")
     }
 
-    // decision: PHN-15, PHN-505
+    // decision: PHN-15, PHN-794
     @MainActor
     func testTheSessionLocksFromItsBackgroundTimerAndOnReturn() {
         let clock = TestClock()

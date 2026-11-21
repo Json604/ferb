@@ -507,8 +507,8 @@ final class IntroControllerTests: XCTestCase {
         XCTAssertEqual(t.orb.hops, 1)                                     // confirmed by the system, then the hop
     }
 
-    /// macOS's "Quit & Reopen" can end the daemon with a clean exit, which launchd doesn't restart (KeepAlive
-    /// SuccessfulExit false), and its reopen of the agent app is refused (only `-m ferb.daemon` runs). A grant's wait
+    /// macOS's "Quit & Reopen" could end an older build's daemon with a clean exit, which launchd doesn't restart
+    /// (since DMN-619 only FERB's own stops exit 0), and its reopen of the agent app is refused. A grant's wait
     /// that stops hearing from the daemon starts it again, once per silence, and never kills a running one.
     // decision: APP-510, APP-598
     func testAGrantWaitStartsTheServiceWhenItStopsAnswering() async {

@@ -7,7 +7,6 @@ import android.os.Build
 import android.os.Bundle
 import android.os.CancellationSignal
 import android.view.WindowInsetsController
-import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -51,7 +50,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** The owner's screenshot switch (PHN-420); the view model's mustSecure overrides it (PHN-110, PHN-454). */
+    /** The owner's screenshot switch (PHN-420, the lock page too: PHN-793); mustSecure overrides it (PHN-110, PHN-454). */
     val blockScreenshots = MutableStateFlow(true)
 
     /**
@@ -88,9 +87,10 @@ class MainActivity : ComponentActivity() {
         blockScreenshots.value = app.prefs.blockScreenshots
         // PHN-15: the app's content is covered in recent apps at once, whatever the screenshot switch says
         if (Build.VERSION.SDK_INT >= 33) setRecentsScreenshotEnabled(false)
-        secure(true)
+        ScreenGuard.apply(window, true) // until the switch and the screen are read
         lifecycleScope.launch {
-            combine(blockScreenshots, vm.mustSecure, app.session.locked) { block, must, locked -> block || must || locked }.collect(::secure)
+            // the lock page follows the switch too (PHN-793); a private screen is kept out whatever it says
+            combine(blockScreenshots, vm.mustSecure, ScreenGuard::secure).collect { ScreenGuard.apply(window, it) }
         }
         vm.prompts = ActivityPrompts()
         // kb PHN-765: what keeps FERB's questions from reaching this phone, said in the app with its fix
@@ -175,11 +175,6 @@ class MainActivity : ComponentActivity() {
         i.removeExtra(EXTRA_QUESTION)
         i.removeExtra(EXTRA_ENTRY)
         i.removeExtra(EXTRA_LOCATION)
-    }
-
-    private fun secure(on: Boolean) {
-        if (on) window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
-        else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
     }
 
     /** The status bar's icons dark over a light sky, light over a dark one. */

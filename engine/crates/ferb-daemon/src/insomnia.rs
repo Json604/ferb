@@ -41,6 +41,8 @@ use ferb_rpc::Server;
 use serde_json::{json, Map, Value};
 use tokio::sync::oneshot;
 
+use crate::mac_now;
+
 /// The journal kind of a start, a resume and an end (`state`), read back at the next start.
 pub const JOURNAL_KIND: &str = "insomnia.state";
 /// The bus topic of the status (FERB.app's cover, menu bar and notch line).
@@ -303,6 +305,8 @@ struct Inner {
     going_to_sleep: bool,
     /// DMN-616: FERB.app's last word on the helper's setup (state, error).
     helper_setup: Option<(String, String)>,
+    /// The sleep the power watch follows now (mode on or off), journaled as `mac.power` when it starts and ends.
+    asleep: Option<mac_now::Asleep>,
     camera: Camera,
     steps: HashMap<String, oneshot::Sender<Result<(), String>>>,
 }
@@ -557,6 +561,7 @@ impl Insomnia {
         let working = (self.seams.working)();
         let settings = (self.seams.settings)();
         let now_dt = (self.seams.now)();
+        self.follow_sleep(&reading, &now_dt, false);
         let now_wall = secs(&now_dt);
         let now = self.mono();
         let mut tells: Vec<(String, String)> = Vec::new();
@@ -773,6 +778,12 @@ impl Insomnia {
             json!(i.root_state.map_or("unknown", HelperState::as_str)),
         );
         out.insert("lid_line".into(), json!(lid_line(ready)));
+        // the Mac asleep in a brief background wake (Power Nap): replies are slow and screen work waits (on and off)
+        out.insert("asleep".into(), json!(mac_now::asleep_now(r)));
+        out.insert(
+            "asleep_line".into(),
+            mac_now::asleep_line(r).map_or(Value::Null, Value::from),
+        );
         let setup = i.helper_setup.clone().unwrap_or_default();
         out.insert(
             "helper".into(),
@@ -866,6 +877,33 @@ impl Insomnia {
             }
             PowerEvent::WillSleep => {
                 let facts = self.seams.facts.read();
+                let now_dt = (self.seams.now)();
+                // the sleep's record starts here, from a full wake (a brief wake going back to sleep is the same sleep)
+                let started = {
+                    let mut i = lock(&self.inner);
+                    match &i.asleep {
+                        Some(_) => None,
+                        None => {
+                            let a = mac_now::Asleep {
+                                since: now_dt,
+                                brief_wakes: 0,
+                                lid_closed: facts.lid_closed,
+                                on_battery: facts.on_battery,
+                                power_nap: facts.power_nap(),
+                                found: false,
+                            };
+                            let row = a.started_row();
+                            i.asleep = Some(a);
+                            Some(row)
+                        }
+                    }
+                };
+                let Some(row) = started else {
+                    // the end of a brief background wake: the same sleep goes on, already said and timed from its start
+                    // (each Power Nap wake would otherwise hold macOS's sleep and say a sleep line of its own)
+                    return 0;
+                };
+                self.seams.persist.note(mac_now::JOURNAL_KIND, row);
                 let on = {
                     let mut i = lock(&self.inner);
                     i.sleep_at = Some(((self.seams.now)(), facts));
@@ -881,10 +919,19 @@ impl Insomnia {
             }
             PowerEvent::Woke => {
                 let now_dt = (self.seams.now)();
+                // a brief background wake (Power Nap, maintenance) is counted in the sleep; a full one ends it
+                let woke = self.seams.facts.read();
+                self.follow_sleep(&woke, &now_dt, true);
+                let brief = woke.dark_wake == Some(true);
                 let said = {
                     let mut i = lock(&self.inner);
                     i.going_to_sleep = false;
-                    let slept = i.sleep_at.take().filter(|_| i.mode.is_some());
+                    // a brief wake says nothing: the sleep is said once, at the full wake, from its start
+                    let slept = if brief {
+                        None
+                    } else {
+                        i.sleep_at.take().filter(|_| i.mode.is_some())
+                    };
                     // the gap this sleep made is this line's: the next look doesn't say it again
                     i.last_look = Some((secs(&now_dt), self.mono(), now_dt));
                     slept.map(|(from, before)| {
@@ -905,6 +952,76 @@ impl Insomnia {
                 self.look();
                 0
             }
+        }
+    }
+
+    /// Follows the Mac's sleep from a reading (`woke`: the power watch's wake, which counts a brief wake): a brief
+    /// background wake starts the sleep's record if none runs (FERB started or missed it), a full wake ends it; a
+    /// changed lid or power source is recorded too. Every record is `mac.power`.
+    fn follow_sleep(&self, r: &PowerReading, now: &DateTime, woke: bool) {
+        let mut rows = Vec::new();
+        {
+            let mut i = lock(&self.inner);
+            match (r.dark_wake, i.asleep.as_mut()) {
+                (Some(true), Some(a)) => {
+                    if woke {
+                        a.brief_wakes += 1;
+                    }
+                }
+                (Some(true), None) => {
+                    let a = mac_now::Asleep {
+                        since: *now,
+                        brief_wakes: u32::from(woke),
+                        lid_closed: r.lid_closed,
+                        on_battery: r.on_battery,
+                        power_nap: r.power_nap(),
+                        found: true,
+                    };
+                    rows.push(a.started_row());
+                    i.asleep = Some(a);
+                }
+                // a full wake, or one whose kind couldn't be read (never counted as brief): the sleep ended
+                (_, Some(_)) if woke || r.dark_wake == Some(false) => {
+                    if let Some(a) = i.asleep.take() {
+                        rows.push(a.ended_row());
+                    }
+                }
+                _ => {}
+            }
+            // the lid and the power source at the looks only (a wake's look follows it, so each change is one row)
+            let before = &i.reading;
+            if !woke {
+                if let (Some(a), Some(b)) = (before.lid_closed, r.lid_closed) {
+                    if a != b {
+                        rows.push(json!({"event": "lid", "closed": b}));
+                    }
+                }
+                if let (Some(a), Some(b)) = (before.on_battery, r.on_battery) {
+                    if a != b {
+                        rows.push(json!({"event": "power", "on_battery": b}));
+                    }
+                }
+            }
+        }
+        for row in rows {
+            self.seams.persist.note(mac_now::JOURNAL_KIND, row);
+        }
+    }
+
+    /// What device.facts and the always-sent line say of the Mac's sleep and this mode: the power facts read now, the
+    /// sleep followed, the mode.
+    pub fn mac_state(&self) -> mac_now::MacState {
+        let reading = self.seams.facts.read();
+        let i = lock(&self.inner);
+        mac_now::MacState {
+            reading,
+            asleep: i.asleep.clone(),
+            mode: mac_now::Mode {
+                on: i.mode.is_some(),
+                since: i.mode.as_ref().map(|m| m.since),
+                task_awake: i.task_awake,
+                helper_ready: i.root_state.map(|s| s == HelperState::Ready),
+            },
         }
     }
 

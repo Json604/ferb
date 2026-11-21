@@ -389,6 +389,58 @@ pub fn sealed_cdhash(bundle: &Path, nested: &str) -> Option<String> {
 }
 
 /// install.py:169: a launchd plist naming `label`.
+/// FERB's own stop of its background service (DMN-619): the file in FERB's home that names, by pid, the daemon FERB
+/// is stopping on purpose. That daemon exits 0 on its SIGTERM, so launchd (KeepAlive SuccessfulExit false) leaves it
+/// stopped; a daemon it doesn't name exits non-zero on any stop and launchd starts it again.
+pub fn stop_marker(home: &Path) -> PathBuf {
+    home.join("service.stopping")
+}
+
+/// Written before FERB's own SIGTERM to the daemon `pid`.
+pub fn mark_stop(home: &Path, pid: i64) -> std::io::Result<()> {
+    let path = stop_marker(home);
+    let staged = home.join(".service.stopping.new");
+    std::fs::write(&staged, pid.to_string())?;
+    std::fs::rename(&staged, &path)
+}
+
+/// The marker gone (after the stop's work; a daemon at its start).
+pub fn clear_stop(home: &Path) {
+    unlink_missing_ok(&stop_marker(home));
+}
+
+fn stop_named(home: &Path) -> Option<i64> {
+    std::fs::read_to_string(stop_marker(home))
+        .ok()
+        .and_then(|t| t.trim().parse::<i64>().ok())
+}
+
+/// The daemon `pid`, stopping: true when FERB's own stop named it. The marker is consumed either way.
+pub fn stopped_on_purpose(home: &Path, pid: i64) -> bool {
+    let named = stop_named(home);
+    clear_stop(home);
+    named == Some(pid)
+}
+
+/// The owner turned FERB off in FERB.app's Settings (APP-1110): FERB.app writes this file in FERB's home before its
+/// SIGTERM and removes it as it opens. While it exists every daemon stop is FERB's own (exit 0, launchd leaves it
+/// stopped) and a daemon that launchd starts (a login, a reboot) exits 0 at once, so FERB stays off until FERB.app opens.
+pub fn turned_off_marker(home: &Path) -> PathBuf {
+    home.join("service.off")
+}
+
+pub fn turned_off(home: &Path) -> bool {
+    turned_off_marker(home).exists()
+}
+
+/// The daemon `pid`, started: a marker naming another process (an earlier stop that never finished) goes; one
+/// naming this daemon stays, as FERB's stop may come while it is still starting.
+pub fn clear_stale_stop(home: &Path, pid: i64) {
+    if stop_named(home) != Some(pid) {
+        clear_stop(home);
+    }
+}
+
 pub fn labelled(path: &Path, label: &str) -> bool {
     plistlib::load(path)
         .and_then(|v| v.as_dictionary().and_then(|d| d.get("Label").cloned()))
@@ -1421,24 +1473,35 @@ impl Installer {
         Ok(())
     }
 
-    /// install.py:661: FERB.app's registered service stopped but kept registered.
+    /// install.py:661: FERB.app's registered service stopped but kept registered. FERB's own stop (DMN-619): the
+    /// stop marker names the daemon it stops, so that daemon exits 0 and launchd leaves it stopped until `start`;
+    /// any other stop makes it exit non-zero and launchd starts it again (KeepAlive SuccessfulExit false).
     pub fn stop(&mut self) -> Result<()> {
         self.stopped = self.agent_pid()?;
-        if self.stopped.is_none() {
+        let Some(pid) = self.stopped else {
             return Ok(());
-        }
+        };
+        mark_stop(&self.home, pid).map_err(|e| io_err(e, &stop_marker(&self.home)))?;
         let target = self.target();
         self.cmd(&["launchctl", "kill", "SIGTERM", &target]);
         let end = self.clock.monotonic() + 10.0;
-        while (self.agent_pid()?.is_some() || self.exiting().is_some())
-            && self.clock.monotonic() < end
-        {
-            self.clock.sleep(0.1);
+        let waited = (|| -> Result<()> {
+            while (self.agent_pid()?.is_some() || self.exiting().is_some())
+                && self.clock.monotonic() < end
+            {
+                self.clock.sleep(0.1);
+            }
+            Ok(())
+        })();
+        if waited.is_err() {
+            clear_stop(&self.home);
         }
-        Ok(())
+        waited
     }
 
     pub fn start(&mut self) -> Result<()> {
+        // whatever the stop's daemon did, the marker never outlives FERB's own stop
+        clear_stop(&self.home);
         if self.loaded() {
             let target = self.target();
             let r = self.cmd(&["launchctl", "kickstart", &target]);
@@ -1510,6 +1573,8 @@ impl Installer {
 
     /// install.py:725.
     pub fn install(&mut self, update_only: bool, while_stopped: Option<Work<'_>>) -> Result<()> {
+        // setting FERB up turns it on: a daemon started from here never stays off (APP-1110)
+        unlink_missing_ok(&turned_off_marker(&self.home));
         if self.bundle.is_some() {
             self.check_bundle()?;
             self.write_marker()?;

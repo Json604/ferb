@@ -850,3 +850,106 @@ fn a_refused_removal_doesnt_stop_the_rest_of_the_uninstall() {
     assert!(err.to_string().contains("Permission denied"), "{err}");
     assert!(!home.exists());
 }
+
+/// launchd as FERB.app's registered service: `print` shows the daemon's pid until a `kill` stops it.
+struct ServiceLaunchd {
+    home: PathBuf,
+    running: std::rc::Rc<std::cell::RefCell<bool>>,
+    /// What the stop marker said when the kill was sent.
+    marked_at_kill: std::rc::Rc<std::cell::RefCell<Option<String>>>,
+}
+
+impl ferb_device::install::Runner for ServiceLaunchd {
+    fn run(&mut self, argv: &[String]) -> ferb_device::install::Output {
+        let mut out = ferb_device::install::Output::default();
+        match argv.get(..2).map(|a| (a[0].as_str(), a[1].as_str())) {
+            Some(("launchctl", "print")) => {
+                out.stdout = "gui/501/com.ferb.daemon = {\n\tstate = running\n".into();
+                if *self.running.borrow() {
+                    out.stdout.push_str("\tpid = 4242\n");
+                }
+            }
+            Some(("launchctl", "kill")) => {
+                *self.marked_at_kill.borrow_mut() =
+                    std::fs::read_to_string(ferb_device::install::stop_marker(&self.home)).ok();
+                *self.running.borrow_mut() = false;
+            }
+            Some(("/bin/kill", _)) => out.code = 1, // the stopped process is gone
+            _ => {}
+        }
+        out
+    }
+}
+
+// decision: DMN-618, DMN-619
+#[test]
+fn ferbs_own_stop_names_the_daemon_it_stops_and_the_start_clears_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join(".ferb");
+    std::fs::create_dir_all(&home).unwrap();
+    let running = std::rc::Rc::new(std::cell::RefCell::new(true));
+    let marked = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let mut i = Installer::new(
+        home.clone(),
+        dir.path().join("LaunchAgents"),
+        Box::new(ServiceLaunchd {
+            home: home.clone(),
+            running: running.clone(),
+            marked_at_kill: marked.clone(),
+        }),
+        Box::new(Stepped::default()),
+        dir.path().to_path_buf(),
+        CodexPin {
+            version: "0".into(),
+            native_bin: "x".into(),
+        },
+        Sources {
+            repo_root: "/r".into(),
+            helper_source: "/h".into(),
+            extension: "/e".into(),
+        },
+    );
+    i.uid = 501;
+    i.bundle = Some(dir.path().join("FERB.app"));
+    i.programs = Programs::Rust(RustPrograms::ferbd(Path::new("/build")));
+    assert!(i.in_app());
+    let marker = ferb_device::install::stop_marker(&home);
+    let mut seen = None;
+    i.while_stopped(&mut || {
+        seen = std::fs::read_to_string(&marker).ok();
+        Ok(())
+    })
+    .unwrap();
+    // the SIGTERM went to the daemon the marker names: it exits 0 and launchd leaves it stopped for the work
+    assert_eq!(marked.borrow().as_deref(), Some("4242"));
+    assert_eq!(seen.as_deref(), Some("4242"));
+    // started again: the marker is gone, so any later stop of the next daemon brings it back
+    assert!(!marker.exists());
+
+    // the daemon's side: only the pid it names stops on purpose, and reading consumes it
+    ferb_device::install::mark_stop(&home, 4242).unwrap();
+    assert!(!ferb_device::install::stopped_on_purpose(&home, 77));
+    assert!(!marker.exists());
+    ferb_device::install::mark_stop(&home, 4242).unwrap();
+    assert!(ferb_device::install::stopped_on_purpose(&home, 4242));
+    assert!(!ferb_device::install::stopped_on_purpose(&home, 4242));
+}
+
+// decision: DMN-619
+#[test]
+fn a_starting_daemon_keeps_a_marker_naming_it_and_drops_any_other() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path();
+    let marker = ferb_device::install::stop_marker(home);
+    ferb_device::install::mark_stop(home, 9).unwrap();
+    ferb_device::install::clear_stale_stop(home, 9);
+    assert!(
+        marker.exists(),
+        "FERB's stop may come while this daemon is still starting"
+    );
+    ferb_device::install::clear_stale_stop(home, 10);
+    assert!(
+        !marker.exists(),
+        "an earlier daemon's marker never keeps this one stopped"
+    );
+}

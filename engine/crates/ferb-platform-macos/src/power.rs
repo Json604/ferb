@@ -39,6 +39,7 @@ extern "C" {
     fn CFNumberGetValue(n: CFTypeRef, kind: CFIndex, out: *mut c_void) -> u8;
     fn CFStringGetCString(s: CFStringRef, buf: *mut c_char, size: CFIndex, encoding: u32) -> u8;
     fn CFDictionaryGetValue(d: CFTypeRef, key: CFTypeRef) -> CFTypeRef;
+    fn CFDictionaryGetTypeID() -> usize;
     fn CFArrayGetCount(a: CFTypeRef) -> CFIndex;
     fn CFArrayGetValueAtIndex(a: CFTypeRef, i: CFIndex) -> CFTypeRef;
 }
@@ -68,6 +69,19 @@ extern "C" {
         opts: u32,
     ) -> CFTypeRef;
     fn IOObjectRelease(obj: u32) -> i32;
+    /// IOPMLibPrivate.h: the system's capabilities now (kIOPMCapability* bits); 0 when powerd can't be asked.
+    fn IOPMConnectionGetSystemCapabilities() -> u32;
+    /// IOPMLibPrivate.h: the power settings in force, one dictionary per power source ("AC Power", "Battery Power").
+    fn IOPMCopyActivePMPreferences() -> CFTypeRef;
+}
+
+/// kIOPMCapabilityCPU and kIOPMCapabilityVideo (IOPMLibPrivate.h).
+const CAPABILITY_CPU: u32 = 0x1;
+const CAPABILITY_VIDEO: u32 = 0x2;
+
+/// A dark wake from the system's capabilities: the processor runs without graphics. None when nothing was read.
+pub fn dark_wake_of(capabilities: u32) -> Option<bool> {
+    (capabilities & CAPABILITY_CPU != 0).then_some(capabilities & CAPABILITY_VIDEO == 0)
 }
 
 #[link(name = "CoreGraphics", kind = "framework")]
@@ -261,6 +275,24 @@ impl Facts {
         (None, Some(false))
     }
 
+    /// Power Nap's setting on power and on battery (`DarkWakeBackgroundTasks` of the settings in force).
+    fn power_nap() -> (Option<bool>, Option<bool>) {
+        // SAFETY: a Copy-rule dictionary (or NULL), released by `Owned`; its values are borrowed.
+        let Some(prefs) = Owned::new(unsafe { IOPMCopyActivePMPreferences() }) else {
+            return (None, None);
+        };
+        let of = |source: &str| {
+            let d = get(prefs.0, source);
+            // SAFETY: a type-id read before the dictionary is used as one.
+            if d.is_null() || unsafe { CFGetTypeID(d) } != unsafe { CFDictionaryGetTypeID() } {
+                return None;
+            }
+            let v = get(d, "DarkWakeBackgroundTasks");
+            number(v).map(|n| n != 0).or_else(|| boolean(v))
+        };
+        (of("AC Power"), of("Battery Power"))
+    }
+
     fn lid_closed() -> Option<bool> {
         let name = CString::new("IOPMrootDomain").ok()?;
         // SAFETY: a matching dictionary (consumed by IOServiceGetMatchingService); the main port 0 is the default.
@@ -304,12 +336,17 @@ pub fn screen_locked() -> Option<bool> {
 impl PowerFacts for Facts {
     fn read(&self) -> PowerReading {
         let (battery, on_battery) = Facts::battery();
+        let (power_nap_ac, power_nap_battery) = Facts::power_nap();
         PowerReading {
             battery,
             on_battery,
             lid_closed: Facts::lid_closed(),
             thermal: Facts::thermal(),
             screen_locked: screen_locked(),
+            // SAFETY: a plain query of powerd (no arguments, no ownership).
+            dark_wake: dark_wake_of(unsafe { IOPMConnectionGetSystemCapabilities() }),
+            power_nap_ac,
+            power_nap_battery,
         }
     }
 }
@@ -354,6 +391,8 @@ const MSG_SYSTEM_WILL_SLEEP: u32 = 0xe000_0280;
 const MSG_SYSTEM_HAS_POWERED_ON: u32 = 0xe000_0300;
 /// kIOPMMessageClamshellStateChange (iokit_family_msg(sub_iokit_powermanagement, 0x100)).
 const MSG_CLAMSHELL: u32 = 0xe003_4100;
+/// kIOMessageSystemCapabilityChange (iokit_common_msg(0x340)): a dark wake becoming a full one, and back.
+const MSG_CAPABILITY_CHANGE: u32 = 0xe000_0340;
 
 /// What the watch's callbacks reach (leaked: the watch lasts the process's life).
 struct WatchState {
@@ -402,7 +441,7 @@ extern "C" fn on_root_domain(
     message: u32,
     _argument: *mut c_void,
 ) {
-    if message == MSG_CLAMSHELL {
+    if message == MSG_CLAMSHELL || message == MSG_CAPABILITY_CHANGE {
         // SAFETY: `ctx` is the leaked WatchState given at registration.
         let st = unsafe { &*(ctx as *const WatchState) };
         (st.handler)(PowerEvent::Changed);
@@ -587,8 +626,20 @@ mod tests {
         if let Some(b) = r.battery {
             assert!((0..=100).contains(&b));
         }
+        // whoever runs this test is at an awake Mac: the processor and the graphics both run
+        assert_eq!(r.dark_wake, Some(false));
+        assert!(r.power_nap_ac.is_some() && r.power_nap_battery.is_some());
         assert!(Assertions::new().held.lock().unwrap().is_empty());
         Assertions::new().release(Hold::Display); // nothing held: nothing happens
+    }
+
+    /// A dark wake is the processor without graphics (IOPMLibPrivate.h's bits); nothing read is unknown.
+    #[test]
+    fn a_dark_wake_is_the_processor_without_graphics() {
+        assert_eq!(dark_wake_of(0x1f), Some(false));
+        assert_eq!(dark_wake_of(0x19), Some(true));
+        assert_eq!(dark_wake_of(0x1), Some(true));
+        assert_eq!(dark_wake_of(0), None);
     }
 
     /// A helper that isn't there is Absent, and every request says so (a socket in a temp folder: nothing listens).

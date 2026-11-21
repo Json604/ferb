@@ -1,4 +1,5 @@
-//! The real program's start and stop (main.py `run`, `start`, `shutdown`): SIGTERM ends it cleanly with exit 0; a
+//! The real program's start and stop (main.py `run`, `start`, `shutdown`): FERB's own stop (SIGTERM with the service's
+//! stop marker naming it) ends it cleanly with exit 0, any other SIGTERM with 143 so launchd brings it back; a
 //! second daemon on the same home refuses; a restart serves again; the stop marker outlives a restart; what the
 //! ledger had in flight is unknown after one (`mark_unknown_after_restart`); `ping` is answered while starting.
 
@@ -66,6 +67,76 @@ fn start_stop_restart_and_one_daemon_per_home() {
     assert_eq!(kinds.last().map(String::as_str), Some("daemon.stopped"));
 
     // restart: it serves again on the same home
+    run.spawn();
+    assert_eq!(call(&run, "ping", json!({}))["result"]["role"], "cli");
+    let (status, _) = run.stop();
+    assert_eq!(status.code(), Some(0));
+}
+
+/// The owner, 2026-11-22: FERB's background service comes back after any stop FERB didn't make. A SIGTERM with no
+/// stop marker naming this daemon (a `kill`, Activity Monitor, macOS's Quit & Reopen) shuts down as cleanly and exits
+/// 143, which launchd's KeepAlive SuccessfulExit false restarts; a marker naming another process changes nothing and
+/// goes. FERB's own stops exit 0: the stop with the marker (above) and `update.prepare`
+/// (every_method_answers.rs update_prepare_waits_for_running_work_then_stops_the_daemon).
+// decision: DMN-618, DMN-619
+#[test]
+fn only_ferbs_own_stop_keeps_the_service_stopped() {
+    let tmp = root();
+    let mut run = Run::start(tmp.path(), "04", json!({}));
+    let marker = ferb_device::install::stop_marker(&run.home);
+    ferb_device::install::mark_stop(&run.home, 1).unwrap(); // an earlier daemon's, never finished
+    let (status, err) = run.signal_stop(libc::SIGTERM);
+    assert_eq!(status.code(), Some(143), "{err}");
+    assert!(
+        err.contains("FERB: stopped (not by FERB: launchd starts it again)"),
+        "{err}"
+    );
+    assert!(!marker.exists());
+    assert!(!run.socket().exists());
+    let db = rusqlite::Connection::open(run.home.join("ferb.db")).unwrap();
+    let last: String = db
+        .query_row(
+            "SELECT kind FROM journal ORDER BY seq DESC LIMIT 1",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(last, "daemon.stopped", "the same clean shutdown");
+}
+
+/// The owner's "Turn FERB off until I open it again" (FERB.app Settings, APP-1110): FERB.app writes service.off and
+/// sends SIGTERM. The daemon stops as FERB's own stop (exit 0, launchd leaves it), and one launchd starts later (a
+/// login) exits 0 at once without serving, until FERB.app opens and removes the file.
+// decision: APP-1110, APP-1111, DMN-619
+#[test]
+fn turned_off_in_settings_it_stays_off_until_the_app_opens() {
+    let tmp = root();
+    let mut run = Run::start(tmp.path(), "05", json!({}));
+    let off = ferb_device::install::turned_off_marker(&run.home);
+    std::fs::write(&off, "").unwrap();
+    let (status, err) = run.signal_stop(libc::SIGTERM);
+    assert_eq!(status.code(), Some(0), "{err}");
+    assert!(!run.socket().exists());
+    // launchd starting it again (RunAtLoad at the next login) changes nothing
+    let again = std::process::Command::new(BIN)
+        .arg("daemon")
+        .env_clear()
+        .env("FERB_HOME", &run.home)
+        .env("HOME", &run.user)
+        .env("PATH", "/usr/bin:/bin")
+        .env("FERBD_STAND_INS", &run.stand)
+        .output()
+        .unwrap();
+    assert_eq!(again.status.code(), Some(0));
+    assert!(
+        String::from_utf8_lossy(&again.stderr).contains("turned off in FERB's Settings"),
+        "{}",
+        String::from_utf8_lossy(&again.stderr)
+    );
+    assert!(!run.socket().exists(), "nothing served");
+    assert!(off.exists(), "only FERB.app's opening turns it on");
+    // FERB.app opens: the file goes and the daemon serves again
+    std::fs::remove_file(&off).unwrap();
     run.spawn();
     assert_eq!(call(&run, "ping", json!({}))["result"]["role"], "cli");
     let (status, _) = run.stop();

@@ -38,6 +38,15 @@ class RustBuild(TempCase):
                              script)
         self.assertTrue(os.access(BUILD_APP, os.X_OK))
 
+    # decision: DMN-618, DMN-619
+    def test_the_service_definition_restarts_every_exit_but_ferbs_own(self) -> None:
+        """launchd starts FERB's background service again after any exit but 0, within its 5 s throttle; the daemon
+        exits 0 only for FERB's own stops. The fixed definition holds no condition naming a path (no home in it)."""
+        service = plistlib.loads((ROOT / "apps/mac/FERBAgent/com.ferb.daemon.plist").read_bytes())
+        self.assertEqual(service["KeepAlive"], {"SuccessfulExit": False})
+        self.assertEqual(service["ThrottleInterval"], 5)
+        self.assertIs(service["RunAtLoad"], True)
+
     # decision: ENG-7
     def test_the_rust_builds_pins_come_from_the_rust_sources_and_name_todays_programs(self) -> None:
         """The Rust build reads its version and pins from the Rust code that enforces them, never from Python files,
@@ -400,6 +409,8 @@ class BuiltRustBundle(TempCase):
                     env={**base, "FERB_DEV_HOME": str(home), "FERB_RUN_TOKEN": "not-a-real-token"})
                 self.assertTrue(json.loads(mcp.stdout.splitlines()[0])["result"]["serverInfo"], mcp.stdout + mcp.stderr)
             finally:
+                # FERB's own stop (DMN-619): the marker names this daemon, so it exits 0 and launchd would leave it
+                (home / "service.stopping").write_text(str(daemon.pid))
                 daemon.send_signal(signal.SIGTERM)
                 self.assertEqual(daemon.wait(timeout=60), 0)
             self.assertFalse(sock.exists())

@@ -91,6 +91,11 @@ struct FERBAppActions {
     /// `phone.link_status`, `phone.pair_*` and `phone.relay_*` calls to the helper (S4, T-1204); nil: no phone link
     /// (the page says pairing isn't available).
     var phoneLink: (any DaemonRPCTransport)?
+    /// Settings → General → Turn FERB off until I open it again (APP-1110): FERB's background service stopped for good
+    /// and FERB.app quit. Nil where FERB.app doesn't run its own service (a development build).
+    var turnOff: (@MainActor () async -> Void)?
+    /// How many tasks run now: Turn FERB off asks first when any does.
+    var runningTasks: @MainActor () -> Int = { 0 }
     var logsDirectory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".ferb/logs", isDirectory: true)
     var openNotificationSettings: () -> Void = {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") { NSWorkspace.shared.open(url) }

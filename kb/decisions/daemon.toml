@@ -1205,3 +1205,23 @@ rule = "Replaces DMN-603's condition that the lid is open for the display hold: 
 why = "The owner: the video should keep playing and no lock screen on reopening."
 evidence = "tests/insomnia.rs the_helper_s_lease_keeps_a_closed_mac_working_on_battery."
 paths = ["engine/crates/ferb-daemon/src/insomnia.rs"]
+
+[DMN-618]
+title = "FERB's background service comes back by itself after any stop that isn't FERB's own"
+by = "owner"
+date = 2026-11-22
+status = "active"
+words = "ok if it comes back and this is the undustry norm"
+words_source = "Owner 2026-11-22, after asking: \"if ferb's bg stops someway, theres no way a user can get it back, how is this a good design???\""
+rule = "FERB's background service comes back by itself within seconds after any stop (a crash, a kill, a clean exit) that FERB itself didn't make on purpose, as macOS services usually do: launchd starts it again, no more often than its throttle allows. It stays stopped only for FERB's own stops (its update, setup's and the store clean-up's work, uninstall) and when the owner turns FERB off in Login Items."
+
+[DMN-619]
+title = "The daemon exits 0 only for FERB's own stops; launchd restarts every other exit"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For DMN-618. The definition keeps KeepAlive {SuccessfulExit false}, ThrottleInterval 5: launchd restarts any exit but 0. The daemon exits 0 only for FERB's own stops: update.prepare, a signal while ~/.ferb/service.stopping names its pid (Installer::stop writes it before its SIGTERM; Installer::start removes it), a newer store. Any other SIGTERM, SIGINT or SIGHUP shuts down cleanly and exits 128 + the signal. A started daemon drops a marker naming another pid. A booted-out job never restarts. FERB.app's Quit never stopped the daemon and still doesn't."
+why = "KeepAlive true would restart FERB's own stops (the clean-up's work beside a new daemon, the old daemon back during an update, a newer store every 5 s), and a fixed in-app definition can't name a path for a hold. The definition is unchanged, so older installs keep working (STORE-403)."
+rejected = ["KeepAlive true: FERB's own stops would restart or loop", "A PathState or OtherJobEnabled hold in the definition: the fixed SMAppService plist can't name the owner's home; a second job as a hold is fragile", "A separate stop signal instead of the marker: an older daemon dies by it and launchd restarts it during the new build's work"]
+evidence = "launchd probe 2026-11-22 (disposable agent): exit 143 and SIGKILL restarted, exit 0 stayed until kickstart. ferbd lifecycle.rs only_ferbs_own_stop_keeps_the_service_stopped; ferb-device installer_fixtures ferbs_own_stop_names_the_daemon_it_stops_and_the_start_clears_it."
+paths = ["engine/crates/ferbd/src/run.rs", "engine/crates/ferb-device/src/install.rs", "apps/mac/FERBAgent/com.ferb.daemon.plist"]

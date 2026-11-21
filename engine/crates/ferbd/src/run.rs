@@ -74,8 +74,13 @@ fn mcp() -> i32 {
     runtime().block_on(ferb_runtimes::mcp_bridge::run_stdio(&home))
 }
 
-/// `main()` (main.py:739): output to FERB's logs when launchd gave none, the daemon run until SIGTERM, SIGINT or
-/// `update.prepare`, then a clean shutdown and exit 0 (launchd's KeepAlive SuccessfulExit false: no restart).
+/// `main()` (main.py:739): output to FERB's logs when launchd gave none, the daemon run until SIGTERM, SIGINT, SIGHUP or
+/// `update.prepare`, then a clean shutdown. The exit code tells launchd (KeepAlive SuccessfulExit false) whether to
+/// start it again (DMN-618, DMN-619): 0 only for FERB's own stops (`update.prepare`; a signal while the stop marker
+/// names this process, ferb-device `Installer::stop`, or while the owner's Settings turned FERB off, APP-1110), which
+/// stay stopped until FERB starts it; any other stop (a
+/// `kill`, Activity Monitor, macOS's Quit & Reopen) exits 128 + the signal, and launchd brings it back within its
+/// 5 s throttle. Python exited 0 on every signal.
 fn daemon() -> i32 {
     let home = match crate::home::resolve() {
         Ok((h, _)) => h,
@@ -103,6 +108,12 @@ fn daemon() -> i32 {
             .map(|s| format!("launchd ({s})"))
             .unwrap_or_else(|| "a command".into())
     ));
+    // the owner turned FERB off in Settings (APP-1110): nothing starts until FERB.app opens and removes the file
+    if ferb_device::install::turned_off(&home) {
+        crate::log::line("turned off in FERB's Settings: starts again when FERB.app opens");
+        return 0;
+    }
+    let stop_home = home.clone();
     #[allow(unused_mut)]
     let mut opts = Options::real(home);
     #[cfg(feature = "stand-ins")]
@@ -117,14 +128,17 @@ fn daemon() -> i32 {
             // a hang-up (the shell that started a development daemon closing) stops it like SIGTERM: never left behind
             let mut hup = signal(SignalKind::hangup()).expect("SIGHUP handler");
             let stop = Arc::new(tokio::sync::Notify::new());
+            // the signal that stopped it (0: none, `update.prepare`)
+            let signalled = Arc::new(std::sync::atomic::AtomicI32::new(0));
             {
-                let stop = stop.clone();
+                let (stop, signalled) = (stop.clone(), signalled.clone());
                 tokio::spawn(async move {
-                    tokio::select! {
-                        _ = term.recv() => {}
-                        _ = int.recv() => {}
-                        _ = hup.recv() => {}
-                    }
+                    let signo = tokio::select! {
+                        _ = term.recv() => libc::SIGTERM,
+                        _ = int.recv() => libc::SIGINT,
+                        _ = hup.recv() => libc::SIGHUP,
+                    };
+                    signalled.store(signo, std::sync::atomic::Ordering::SeqCst);
                     stop.notify_one();
                 });
             }
@@ -140,19 +154,35 @@ fn daemon() -> i32 {
                     return 1;
                 }
             };
+            // this daemon holds FERB's home now: a stop marker an earlier daemon's stop left never makes it stay stopped
+            ferb_device::install::clear_stale_stop(&stop_home, i64::from(std::process::id()));
             #[cfg(feature = "stand-ins")]
             if let Some(s) = stand {
                 crate::standins::attach(&daemon, s).await;
             }
             let quit = daemon.quit.clone();
-            tokio::select! {
-                _ = stop.notified() => {}
-                _ = quit.notified() => {}
-            }
+            // `update.prepare`: FERB's own stop for its update
+            let updating = tokio::select! {
+                _ = stop.notified() => false,
+                _ = quit.notified() => true,
+            };
             crate::log::line("stopping (asked to)");
             daemon.shutdown().await;
-            crate::log::line("stopped");
-            0
+            let signo = signalled.load(std::sync::atomic::Ordering::SeqCst);
+            let on_purpose = updating
+                || signo == 0
+                || ferb_device::install::turned_off(&stop_home)
+                || ferb_device::install::stopped_on_purpose(
+                    &stop_home,
+                    i64::from(std::process::id()),
+                );
+            if on_purpose {
+                crate::log::line("stopped");
+                0
+            } else {
+                crate::log::line("stopped (not by FERB: launchd starts it again)");
+                128 + signo
+            }
         })
     })
 }

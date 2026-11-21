@@ -51,6 +51,7 @@ impl Mac {
             lid_closed: Some(false),
             thermal: Some(ferb_core::power::Thermal::Nominal),
             screen_locked: Some(false),
+            ..PowerReading::default()
         };
         *m.lock_answer.lock().unwrap() = Some(Ok(true));
         m

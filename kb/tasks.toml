@@ -936,3 +936,18 @@ kind = "question"
 status = "open"
 why = "Owner 2026-11-21: \"park these for the end\". The test audit raised decisions that are his: what blocks a push, ENG-17's byte-for-byte replays now Python is gone, and which live checks to run again on Rust."
 ask = "1. A fast push check (under 8 minutes) plus a heavy run at night or before installs? 2. Keep one Python-parity replay per scenario and compare prompts by structure? 3. Which 20-30 live checks to run again on Rust (payments, new recipients, terminal typing, Stop and No, background, secrets)? 4. A spare Mac as a test runner?"
+
+[T-1279]
+title = "At the end: review every prompt against all tasks to date and improve what they get wrong"
+area = "prompts"
+kind = "chore"
+status = "open"
+why = "Owner 2026-11-22: \"just to remember we do have to look at all teh promtps and see if they are good and what needs improoving based on allll the tasks done til date adn general too\". Also: what belongs in a read tool instead of the always-sent context."
+
+[T-1280]
+title = "Later: proactive check-ins from FERB based on what the owner is doing (design with the owner first)"
+area = "app"
+kind = "question"
+status = "open"
+why = "Owner 2026-11-21/22: \"later: Proactive checkins from FERB based on what im doing/activity\" and \"the proactive codebased checkins from FERB based on my activity??? likechatogt dots does\". APP-940 kept FERB's capture for this. Not designed yet."
+ask = "Which moments should FERB check in on (stuck on something, a deadline near, a repeated task, end of day), how often at most, and where (notch, phone, both)?"

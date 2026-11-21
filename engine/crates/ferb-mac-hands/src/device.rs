@@ -29,6 +29,18 @@ pub struct Display {
     pub width: i64,
     pub height: i64,
     pub main: bool,
+    /// The Mac's own screen (CGDisplayIsBuiltin); false: an external display.
+    pub built_in: bool,
+}
+
+/// The Mac's hardware (read once: it doesn't change while FERB runs). Never a serial number.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Hardware {
+    /// The marketing name ("MacBook Air (13-inch, M4, 2025)", the device tree's product-name; Apple silicon only).
+    pub name: Option<String>,
+    /// "Apple M4" (machdep.cpu.brand_string).
+    pub chip: Option<String>,
+    pub memory_bytes: Option<u64>,
 }
 
 /// Everything read now; `None` (or empty) for a fact this Mac didn't give.
@@ -52,6 +64,10 @@ pub struct Reading {
     pub woke_at: Option<f64>,
     /// The default output device's name ("MacBook Pro Speakers", "AirPods Pro").
     pub audio_output: Option<String>,
+    /// What kind of device it is ([`audio_kind`]): "speakers", "headphones", "built_in", "bluetooth", "usb",
+    /// "display", "airplay" or "other".
+    pub audio_kind: Option<String>,
+    pub hardware: Hardware,
     /// Some app is playing through the default output device now.
     pub audio_playing: Option<bool>,
     /// "dark" or "light".
@@ -71,6 +87,20 @@ impl Reading {
             }
         };
         put("model", self.model.clone().map(Value::from));
+        let h = &self.hardware;
+        if h.name.is_some() || h.chip.is_some() || h.memory_bytes.is_some() {
+            let mut hw = Map::new();
+            if let Some(n) = &h.name {
+                hw.insert("name".into(), json!(n));
+            }
+            if let Some(c) = &h.chip {
+                hw.insert("chip".into(), json!(c));
+            }
+            if let Some(m) = h.memory_bytes {
+                hw.insert("memory_gb".into(), json!(m / (1 << 30)));
+            }
+            put("hardware", Some(Value::Object(hw)));
+        }
         put("macos", self.macos.clone().map(Value::from));
         put(
             "battery",
@@ -93,9 +123,13 @@ impl Reading {
                 Some(Value::Array(
                     self.displays
                         .iter()
-                        .map(|d| json!({"width": d.width, "height": d.height, "main": d.main}))
+                        .map(|d| json!({"width": d.width, "height": d.height, "main": d.main, "built_in": d.built_in}))
                         .collect(),
                 )),
+            );
+            put(
+                "external_displays",
+                Some(json!(self.displays.iter().filter(|d| !d.built_in).count())),
             );
         }
         if let Some(free) = self.disk_free_bytes {
@@ -108,6 +142,10 @@ impl Reading {
         put("booted_at", self.booted_at.map(|t| Value::from(when(t))));
         put("woke_at", self.woke_at.map(|t| Value::from(when(t))));
         put("audio_output", self.audio_output.clone().map(Value::from));
+        put(
+            "audio_output_kind",
+            self.audio_kind.clone().map(Value::from),
+        );
         put("audio_playing", self.audio_playing.map(Value::from));
         put("appearance", self.appearance.clone().map(Value::from));
         put("locale", self.locale.clone().map(Value::from));
@@ -129,6 +167,23 @@ pub fn percent(current: f64, max: f64) -> i64 {
         return current.clamp(0.0, 100.0).round() as i64;
     }
     (current * 100.0 / max).clamp(0.0, 100.0).round() as i64
+}
+
+/// The output device's kind from CoreAudio's transport type and, for the built-in device, its data source (four-char
+/// codes as big-endian numbers): never its name, which may be personal.
+pub fn audio_kind(transport: u32, source: Option<u32>) -> &'static str {
+    match &transport.to_be_bytes() {
+        b"bltn" => match source.map(u32::to_be_bytes).as_ref() {
+            Some(b"ispk") => "speakers",
+            Some(b"hdpn") => "headphones",
+            _ => "built_in",
+        },
+        b"blue" | b"blea" => "bluetooth",
+        b"usb " => "usb",
+        b"hdmi" | b"dprt" | b"thun" => "display",
+        b"airp" => "airplay",
+        _ => "other",
+    }
 }
 
 /// The primary interface's kind from SystemConfiguration's interface type.
@@ -153,6 +208,7 @@ mod tests {
                 width: 1512,
                 height: 982,
                 main: true,
+                built_in: true,
             }],
             disk_free_bytes: Some(123_456_789_000),
             booted_at: Some(1.0),
@@ -162,10 +218,15 @@ mod tests {
         let f = r.facts(&|t| format!("t{t}"));
         assert_eq!(
             Value::Object(f).to_string(),
-            r#"{"battery":"none (this Mac has no battery)","displays":[{"width":1512,"height":982,"main":true}],"disk":{"free_gb":123.5},"booted_at":"t1","languages":["en-IN"]}"#
+            r#"{"battery":"none (this Mac has no battery)","displays":[{"width":1512,"height":982,"main":true,"built_in":true}],"external_displays":0,"disk":{"free_gb":123.5},"booted_at":"t1","languages":["en-IN"]}"#
         );
         assert_eq!(percent(50.0, 200.0), 25);
         assert_eq!(percent(87.0, 100.0), 87);
         assert_eq!(network_kind("IEEE80211"), "wifi");
+        let code = |c: &[u8; 4]| u32::from_be_bytes(*c);
+        assert_eq!(audio_kind(code(b"bltn"), Some(code(b"ispk"))), "speakers");
+        assert_eq!(audio_kind(code(b"bltn"), Some(code(b"hdpn"))), "headphones");
+        assert_eq!(audio_kind(code(b"blue"), None), "bluetooth");
+        assert_eq!(audio_kind(code(b"virt"), None), "other");
     }
 }

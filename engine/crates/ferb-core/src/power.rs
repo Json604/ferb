@@ -95,6 +95,24 @@ pub struct PowerReading {
     pub thermal: Option<Thermal>,
     /// The login session's screen is locked (`CGSSessionScreenIsLocked`).
     pub screen_locked: Option<bool>,
+    /// The Mac is asleep and macOS woke it only in the background (a Power Nap or maintenance wake, "DarkWake"): the
+    /// processor runs, the display and graphics don't (the system's capabilities hold the CPU bit without the
+    /// graphics bit). false: fully awake.
+    pub dark_wake: Option<bool>,
+    /// macOS's Power Nap setting (`pmset` powernap, `DarkWakeBackgroundTasks`) on power and on battery: while the Mac
+    /// sleeps, macOS wakes it briefly now and then, and FERB's daemon runs during those wakes.
+    pub power_nap_ac: Option<bool>,
+    pub power_nap_battery: Option<bool>,
+}
+
+impl PowerReading {
+    /// Power Nap's setting for the power source in use now (none when either is unknown).
+    pub fn power_nap(&self) -> Option<bool> {
+        match self.on_battery? {
+            true => self.power_nap_battery,
+            false => self.power_nap_ac,
+        }
+    }
 }
 
 /// Reads the Mac's power facts.

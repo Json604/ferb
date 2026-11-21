@@ -403,6 +403,7 @@ impl CameraSink for Camera {
 // decision: APP-983
 // decision: APP-984
 // decision: PHN-444
+// decision: SENSE-430
 #[test]
 fn insomnia_and_the_mac_s_camera_through_the_bindings() {
     let mac = FakeMac::new("C1");
@@ -446,6 +447,17 @@ fn insomnia_and_the_mac_s_camera_through_the_bindings() {
         m.insomnia_status().unwrap().closed_lid.as_deref(),
         Some("absent"),
         "insomnia.status carries them too"
+    );
+    // SENSE-430: the Mac asleep in a brief Power Nap wake says so, mode on or off, in its own words
+    assert!(!m.status().unwrap().insomnia.unwrap().asleep);
+    mac.lock().status["insomnia"]["asleep"] = json!(true);
+    mac.lock().status["insomnia"]["asleep_line"] =
+        json!("Your Mac is asleep with its lid closed. It wakes for a moment now and then.");
+    let i = m.status().unwrap().insomnia.unwrap();
+    assert!(i.asleep);
+    assert_eq!(
+        i.asleep_line.as_deref(),
+        Some("Your Mac is asleep with its lid closed. It wakes for a moment now and then.")
     );
     let before = mac.calls_of("insomnia.start").len();
     let e = m

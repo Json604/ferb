@@ -887,6 +887,12 @@ mirror! {
         /// FERB's lid helper on the Mac; none from an older Mac.
         #[uniffi(default = None)]
         helper: Option<InsomniaHelper>,
+        /// The Mac is asleep and only briefly awake now (a Power Nap wake): replies are slow, screen work waits.
+        #[uniffi(default = false)]
+        asleep: bool,
+        /// The Mac's own words for that while it is so; none otherwise or from an older Mac.
+        #[uniffi(default = None)]
+        asleep_line: Option<String>,
     }
 }
 

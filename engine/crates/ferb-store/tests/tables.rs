@@ -761,6 +761,7 @@ fn the_clean_up_never_writes_a_protected_table() {
 
 // decisions: STORE-5, ENG-11
 // decision: HAND-547
+// decision: SENSE-429
 #[test]
 fn the_rule_tables_are_python_s() {
     let fixture = fixture();
@@ -774,6 +775,8 @@ fn the_rule_tables_are_python_s() {
     kinds.extend([
         "image.redaction_failed".into(),
         "image.redaction_recovered".into(),
+        // SENSE-429: the Mac's sleep record, kept as the other operational records
+        "mac.power".into(),
     ]);
     kinds.sort();
     assert_eq!(json!(retention::OPERATIONAL_KINDS.to_vec()), json!(kinds));

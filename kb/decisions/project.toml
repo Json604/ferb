@@ -141,9 +141,22 @@ untestable = "A folder placement: git shows it; the bundle comparison in journal
 title = "FERB is closed source until it has a substantial number of users"
 by = "owner"
 date = 2026-11-17
-status = "active"
+status = "superseded"
+superseded_by = "PROJ-514"
 words = "btw ive closed source ferb until i get a substantial amoutn of users and then opensource it - nobody is going to steal, but why keep it in open."
 words_source = "Owner 2026-11-17, when asked whether people who build FERB from source use his push sender or their own keys."
 rule = "FERB's source stays closed until it has a substantial number of users, then it is opened. Nothing is designed around outside source-builders for now, and new text doesn't call FERB open source."
 why = "The owner's choice about timing."
+untestable = "A publishing choice."
+
+[PROJ-514]
+title = "FERB is open source from its public release"
+by = "owner"
+date = 2026-11-22
+status = "active"
+supersedes = ["PROJ-513"]
+words = "anyways im gonna opensource, no closedsource shit. eveythings open on release"
+words_source = "Owner 2026-11-22, planning the public release after the Play Store's 14-day wait."
+rule = "Everything in FERB's repository is published as open source when FERB is released (licence per PROJ-503). New text may call FERB open source from the release on; until then the repository stays as it is."
+why = "The owner's choice."
 untestable = "A publishing choice."

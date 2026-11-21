@@ -86,7 +86,7 @@ class ViewModelTest {
 
     private fun view(vararg qs: QuestionItem) = TranscriptView("c1", emptyList(), qs.toList(), emptyList(), emptyList(), OlderState.Complete)
 
-    // decision: PHN-8, PHN-125, PHN-505, PHN-633
+    // decision: PHN-8, PHN-125, PHN-794, PHN-633
     @Test
     fun nothing_shows_before_the_screen_lock_and_the_unlock() {
         // PHN-633: the lock page needs neither the library, the store nor the link: it shows while the phone starts
@@ -117,7 +117,7 @@ class ViewModelTest {
         assertEquals(Gate.CODES, vm.ui.value.gate)
     }
 
-    // decision: PHN-13, PHN-125, PHN-505, PHN-649
+    // decision: PHN-13, PHN-125, PHN-794, PHN-649
     @Test
     fun one_prompt_opens_the_app_and_unlocks_the_mac() {
         val vm = vm()

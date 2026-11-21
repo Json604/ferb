@@ -228,6 +228,12 @@ pub struct Insomnia {
     pub closed_lid: Option<String>,
     /// FERB's lid helper on the Mac; none from an older Mac.
     pub helper: Option<InsomniaHelper>,
+    /// The Mac is asleep and only briefly awake now (one of macOS's Power Nap wakes), on and off: replies are slow and
+    /// screen work waits. False from an older Mac.
+    pub asleep: bool,
+    /// The Mac's own words for that while it is so ("Your Mac is asleep with its lid closed. …"), shown as given; none
+    /// otherwise or from an older Mac.
+    pub asleep_line: Option<String>,
 }
 
 fn opt_u32(v: &Value) -> Option<u32> {
@@ -303,6 +309,8 @@ impl Insomnia {
                     error: opt(&h["error"]),
                     problem: opt(&h["problem"]),
                 }),
+            asleep: v["asleep"].as_bool().unwrap_or(false),
+            asleep_line: opt(&v["asleep_line"]),
         }
     }
 }

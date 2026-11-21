@@ -12,13 +12,15 @@ use std::ptr::NonNull;
 
 use objc2_core_foundation::{CFArray, CFDictionary, CFRetained, CFString, CFType};
 use objc2_core_graphics::{
-    CGDirectDisplayID, CGDisplayBounds, CGGetActiveDisplayList, CGMainDisplayID,
-    CGSessionCopyCurrentDictionary,
+    CGDirectDisplayID, CGDisplayBounds, CGDisplayIsBuiltin, CGGetActiveDisplayList,
+    CGMainDisplayID, CGSessionCopyCurrentDictionary,
 };
 use objc2_foundation::{NSLocale, NSProcessInfo, NSString, NSUserDefaults};
 
 use super::cf::{boolean, dict_get, num, text};
-use crate::device::{network_kind, percent, Battery, Display, Network, Reading};
+use crate::device::{
+    audio_kind, network_kind, percent, Battery, Display, Hardware, Network, Reading,
+};
 
 #[link(name = "SystemConfiguration", kind = "framework")]
 extern "C" {
@@ -85,7 +87,7 @@ fn key(s: &'static str) -> CFRetained<CFString> {
 pub fn read(home: &std::path::Path) -> Reading {
     super::drained(|| {
         let (disk_free_bytes, disk_total_bytes) = disk(home);
-        let (audio_output, audio_playing) = audio();
+        let (audio_output, audio_playing, audio_kind) = audio();
         Reading {
             name: computer_name(),
             model: sysctl_text("hw.model"),
@@ -101,6 +103,8 @@ pub fn read(home: &std::path::Path) -> Reading {
             woke_at: sysctl_time("kern.waketime"),
             audio_output,
             audio_playing,
+            audio_kind,
+            hardware: hardware(),
             appearance: Some(appearance()),
             locale: Some(NSLocale::currentLocale().localeIdentifier().to_string()),
             languages: NSLocale::preferredLanguages()
@@ -279,6 +283,7 @@ fn displays() -> Vec<Display> {
                 width: b.size.width.round() as i64,
                 height: b.size.height.round() as i64,
                 main: *id == main,
+                built_in: CGDisplayIsBuiltin(*id),
             }
         })
         .collect()
@@ -301,9 +306,13 @@ fn disk(home: &std::path::Path) -> (Option<u64>, Option<u64>) {
 }
 
 fn audio_u32(object: u32, selector: &[u8; 4]) -> Option<u32> {
+    audio_u32_in(object, selector, b"glob")
+}
+
+fn audio_u32_in(object: u32, selector: &[u8; 4], scope: &[u8; 4]) -> Option<u32> {
     let addr = PropertyAddress {
         selector: fourcc(selector),
-        scope: fourcc(b"glob"),
+        scope: fourcc(scope),
         element: 0,
     };
     let mut value: u32 = 0;
@@ -322,11 +331,14 @@ fn audio_u32(object: u32, selector: &[u8; 4]) -> Option<u32> {
     (rc == 0).then_some(value)
 }
 
-fn audio() -> (Option<String>, Option<bool>) {
+fn audio() -> (Option<String>, Option<bool>, Option<String>) {
     const SYSTEM: u32 = 1; // kAudioObjectSystemObject
     let Some(device) = audio_u32(SYSTEM, b"dOut").filter(|d| *d != 0) else {
-        return (None, None);
+        return (None, None, None);
     };
+    // kAudioDevicePropertyTransportType, and the built-in device's output data source (speakers or headphones)
+    let kind = audio_u32(device, b"tran")
+        .map(|t| audio_kind(t, audio_u32_in(device, b"ssrc", b"outp")).to_string());
     let addr = PropertyAddress {
         selector: fourcc(b"lnam"),
         scope: fourcc(b"glob"),
@@ -351,7 +363,85 @@ fn audio() -> (Option<String>, Option<bool>) {
         None
     };
     // kAudioDevicePropertyDeviceIsRunningSomewhere: some process plays through the device now
-    (shown, audio_u32(device, b"gone").map(|v| v != 0))
+    (shown, audio_u32(device, b"gone").map(|v| v != 0), kind)
+}
+
+/// The Mac's hardware: the device tree's product-name (Apple silicon), the chip and the memory. Never the serial.
+pub fn hardware() -> Hardware {
+    let mut size = std::mem::size_of::<u64>();
+    let mut memory: u64 = 0;
+    let name = CString::new("hw.memsize").ok();
+    // SAFETY: a u64-sized buffer for hw.memsize.
+    let ok = name.is_some_and(|n| unsafe {
+        libc::sysctlbyname(
+            n.as_ptr(),
+            (&mut memory as *mut u64).cast(),
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    } == 0);
+    Hardware {
+        name: product_name(),
+        chip: sysctl_text("machdep.cpu.brand_string"),
+        memory_bytes: (ok && memory > 0).then_some(memory),
+    }
+}
+
+#[link(name = "IOKit", kind = "framework")]
+extern "C" {
+    fn IORegistryEntryFromPath(main: u32, path: *const std::ffi::c_char) -> u32;
+    fn IORegistryEntryCreateCFProperty(
+        entry: u32,
+        key: *const c_void,
+        alloc: *const c_void,
+        opts: u32,
+    ) -> *const c_void;
+    fn IOObjectRelease(obj: u32) -> i32;
+}
+
+#[link(name = "CoreFoundation", kind = "framework")]
+extern "C" {
+    fn CFDataGetLength(d: *const c_void) -> isize;
+    fn CFDataGetBytePtr(d: *const c_void) -> *const u8;
+    fn CFGetTypeID(cf: *const c_void) -> usize;
+    fn CFDataGetTypeID() -> usize;
+}
+
+/// "MacBook Air (13-inch, M4, 2025)": IODeviceTree:/product's product-name (bytes ending in NUL).
+fn product_name() -> Option<String> {
+    let path = CString::new("IODeviceTree:/product").ok()?;
+    // SAFETY: a NUL-terminated registry path; the main port 0 is the default.
+    let entry = unsafe { IORegistryEntryFromPath(0, path.as_ptr()) };
+    if entry == 0 {
+        return None;
+    }
+    let k = key("product-name");
+    // SAFETY: a registry entry this code holds; the property follows the Create rule (owned below).
+    let prop: Option<CFRetained<CFType>> = owned(unsafe {
+        IORegistryEntryCreateCFProperty(
+            entry,
+            CFRetained::as_ptr(&k).as_ptr() as *const c_void,
+            std::ptr::null(),
+            0,
+        )
+    });
+    // SAFETY: the entry from IORegistryEntryFromPath, released once.
+    unsafe { IOObjectRelease(entry) };
+    let prop = prop?;
+    let p = CFRetained::as_ptr(&prop).as_ptr() as *const c_void;
+    // SAFETY: a type-id read, then a CFData's length and bytes, valid while `prop` lives.
+    let bytes = unsafe {
+        if CFGetTypeID(p) != CFDataGetTypeID() {
+            return None;
+        }
+        std::slice::from_raw_parts(CFDataGetBytePtr(p), CFDataGetLength(p).max(0) as usize)
+    };
+    let text = String::from_utf8_lossy(bytes)
+        .trim_end_matches('\0')
+        .trim()
+        .to_string();
+    (!text.is_empty()).then_some(text)
 }
 
 fn appearance() -> String {

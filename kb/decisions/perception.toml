@@ -241,3 +241,57 @@ why = "'In use now' read as the device the owner was talking through; where a me
 evidence = "ferbd compose::device tests a_phone_s_line_has_its_own_time_city_and_state, the_lookup_lists_each_phone_as_it_reported_itself; ferb-core device test."
 paths = ["engine/crates/ferbd/src/compose/device.rs::phone_note", "engine/crates/ferbd/src/compose/device.rs::phone_line"]
 live = ["LIVE-1145"]
+
+[SENSE-426]
+title = "FERB finds out by itself when the Mac, not FERB, kept it answering, and says so"
+by = "owner"
+date = 2026-11-22
+status = "active"
+words = "ok, so ferb should knwo and tell user that its mac and not its service - can feb find it out itself??"
+words_source = "Owner 2026-11-22, told from pmset's log that with the lid closed on power and the mode off, Power Nap woke the Mac every 1-3 minutes and FERB answered then."
+rule = "FERB knows from facts it reads itself whether the Mac is fully awake or asleep in one of macOS's brief background wakes, its lid, its power source, Power Nap's setting and whether its own Keep my Mac working mode is on, keeps a record of the Mac's sleep and wake, and tells the owner the truth from those facts, never a guess."
+why = "The owner could chat with FERB with the lid closed and the mode off; asked the next day, FERB guessed it had kept the Mac awake itself and said it had no record of sleep or wake."
+live = ["LIVE-1161"]
+
+[SENSE-427]
+title = "New device facts sit behind a read tool the planner can call, not in the always-sent context"
+by = "owner"
+date = 2026-11-22
+status = "active"
+words = "so is this all again in the prompt pile up?? and not in tools planner cna see???"
+words_source = "Owner 2026-11-22, on the plan to add the Mac's battery, disk, network, devices, hardware, sleep state and Power Nap to the device facts every planner turn and worker run get (Layer 1 and Layer 2)."
+rule = "For SENSE-426. The Mac's power, sleep, hardware, devices and sleep record, and FERB's Keep my Mac working mode, are answers of a read tool the planner and the workers can call (device.facts). The always-sent context gains at most one short line, and only while it is true now and changes what FERB can do."
+why = "The owner doesn't want the prompt to grow with facts most turns don't need."
+live = ["LIVE-1161"]
+
+[SENSE-428]
+title = "device.facts answers the Mac's sleep, power, Power Nap, hardware and devices, and FERB's own mode"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For SENSE-426, SENSE-427, extending SENSE-422. device.facts adds hardware (product name, chip, memory; no serial), the sound output's kind (never a name added), built-in and external displays; power: fully awake or asleep in a brief background wake (CPU without graphics), asleep_since and brief_wakes_since, lid, power source, Power Nap plugged in and on battery; keep_my_mac_working: on, since, what it is, what FERB keeps awake when off. since/until (ISO, as trail.query's) add sleep_record: that stretch's entries, oldest first, at most 300."
+why = "One existing read tool already held the Mac's state and is a planner lookup; one shared path rather than a second tool. The power reads are the insomnia area's (ferb-platform-macos behind ferb_core::power), the rest ferb-mac-hands' device reading."
+evidence = "ferbd tests/mac_sleep_record.rs the_owners_lid_closed_question_gets_facts_that_name_power_nap (through the ferbd program); ferb-daemon tests/mac_sleep.rs; ferb-mac-hands device unit test; ferb-platform-macos power tests (the real reads on this Mac: dark_wake false, Power Nap read)."
+paths = ["engine/crates/ferb-daemon/src/mac_now.rs::power_facts", "engine/crates/ferbd/src/compose/device.rs::record_range", "engine/crates/ferb-mac-hands/src/native/device.rs::hardware", "engine/crates/ferb-platform-macos/src/power.rs::dark_wake_of", "engine/crates/ferb-gateway/src/catalog_additions.json"]
+live = ["LIVE-1161"]
+
+[SENSE-429]
+title = "The Mac's sleep, wake, lid and power source are recorded as mac.power, kept as operational records"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For SENSE-426. The insomnia area (mode on or off) journals mac.power: asleep (at sleep from a full wake: lid, power source, Power Nap; found when first seen in a brief wake), awake (at the full wake: since when, how many brief wakes), lid and power changes between looks. A brief wake is counted, not journaled; a wake of unknown kind ends the sleep. mac.power is one of STORE-401's operational journal kinds (operational_days, 90 by default), as mac.back_in_use is."
+why = "Asked about a night, FERB said nothing in its records covered sleep or wake. One row per brief wake would be some 700 a night; the counts keep the record small and complete. Retention reuses the owner's operational window instead of a new cap (rule 18)."
+evidence = "ferb-daemon tests/mac_sleep.rs a_night_of_power_nap_wakes_is_followed_recorded_and_said, a_sleep_found_in_a_brief_wake_is_recorded_as_found; ferb-store tests/tables.rs the_rule_tables_are_python_s."
+paths = ["engine/crates/ferb-daemon/src/mac_now.rs::Asleep", "engine/crates/ferb-store/src/retention.rs::OPERATIONAL_KINDS"]
+
+[SENSE-430]
+title = "Only while the Mac is asleep in a brief wake: one line in the context and in the phone's status"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For SENSE-426, SENSE-427. Only while the Mac is in a brief background wake, the live facts gain one line after this Mac's: asleep (lid, power, since when), FERB runs only during those wakes so replies are slow, screen work waits until the Mac is opened or woken, the mode's state, and that device.facts has more. insomnia's status carries asleep and asleep_line (on and off); both phone apps show that line first under the tabs and waiting messages say they go when the Mac wakes. No notification."
+why = "When FERB answers during such a wake the owner and FERB itself should know it is the Mac's brief wake, and why work on the screen waits."
+evidence = "ferb-daemon mac_now unit test and tests/mac_sleep.rs; ferb-mobile-ffi tests/remote.rs; Android InsomniaTest the_mac_asleep_in_a_power_nap_wake_says_so_in_its_own_words; iOS InsomniaTests testTheMacAsleepInAPowerNapWakeSaysSoInItsOwnWords."
+paths = ["engine/crates/ferb-daemon/src/mac_now.rs::context_line", "engine/crates/ferb-daemon/src/mac_now.rs::asleep_line", "engine/crates/ferbd/src/compose/device.rs::facts_line", "apps/android/app/src/main/kotlin/com/ferb/app/model/MacAsleep.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/MacAsleep.swift"]
+live = ["LIVE-1161"]

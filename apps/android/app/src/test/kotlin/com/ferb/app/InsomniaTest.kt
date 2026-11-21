@@ -438,4 +438,22 @@ class InsomniaTest {
         assertEquals(R.string.outbox_waiting, MacAsleep.waitingLine("link", false))
         assertEquals("Your Mac is asleep; this goes when it wakes.", context.getString(R.string.outbox_mac_asleep))
     }
+
+    /** The Mac asleep in a brief Power Nap wake, insomnia mode off: its own words under the tabs while it is so, and a
+     *  message waiting for it says it goes when the Mac wakes; nothing from a Mac that doesn't say or a removed link. */
+    // decision: SENSE-430
+    @Test
+    fun the_mac_asleep_in_a_power_nap_wake_says_so_in_its_own_words() {
+        val words = "Your Mac is asleep with its lid closed. It wakes for a moment now and then, so replies can take a " +
+            "few minutes, and anything that needs its screen waits until you open it."
+        val asleep = status(phone.insomnia.copy(on = false, asleep = true, asleepLine = words))
+        val online = FakePhone.status(LinkPhase.ONLINE)
+        assertEquals(words, MacAsleep.line(asleep, online))
+        assertEquals(words, MacAsleep.line(asleep, FakePhone.status(LinkPhase.CONNECTING)))
+        assertTrue(MacAsleep.waiting(asleep, FakePhone.status(LinkPhase.CONNECTING), lost = false))
+        assertNull("removed: not asleep", MacAsleep.line(asleep, FakePhone.status(LinkPhase.STOPPED)))
+        assertNull("awake", MacAsleep.line(status(phone.insomnia), online))
+        assertNull("an older Mac", MacAsleep.line(status(null), online))
+        assertFalse(MacAsleep.waiting(status(phone.insomnia), online, lost = false))
+    }
 }

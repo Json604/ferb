@@ -83,7 +83,7 @@ class OnPhoneTest {
         }
     }
 
-    // decision: PHN-8, PHN-13, PHN-447, PHN-505, PHN-615, PHN-616, PHN-636
+    // decision: PHN-8, PHN-13, PHN-447, PHN-794, PHN-615, PHN-616, PHN-636
     @Test
     fun with_a_screen_lock_it_opens_on_the_prompt_and_shows_pairing() {
         shell("locksettings set-pin 1111")

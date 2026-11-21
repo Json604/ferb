@@ -303,4 +303,24 @@ final class InsomniaTests: XCTestCase {
         XCTAssertFalse(MacAsleep.shown(status(nil), lost, lost: true), "an older Mac")
         XCTAssertFalse(MacAsleep.shown(status(on()), FakePhone.status(.stopped), lost: true), "removed: not asleep")
     }
+
+    /// The Mac asleep in a brief Power Nap wake, insomnia mode off: its own words under the tabs while it is so, and a
+    /// message waiting for it says it goes when the Mac wakes; nothing from a Mac that doesn't say or a removed link.
+    // decision: SENSE-430
+    func testTheMacAsleepInAPowerNapWakeSaysSoInItsOwnWords() {
+        let words = "Your Mac is asleep with its lid closed. It wakes for a moment now and then, so replies can take a "
+            + "few minutes, and anything that needs its screen waits until you open it."
+        var i = phone.insomnia
+        i.on = false
+        i.asleep = true
+        i.asleepLine = words
+        let online = FakePhone.status(.online)
+        XCTAssertEqual(MacAsleep.line(status(i), online), words)
+        XCTAssertEqual(MacAsleep.line(status(i), FakePhone.status(.connecting)), words)
+        XCTAssertTrue(MacAsleep.waiting(status(i), FakePhone.status(.connecting), lost: false))
+        XCTAssertNil(MacAsleep.line(status(i), FakePhone.status(.stopped)), "removed: not asleep")
+        XCTAssertNil(MacAsleep.line(status(phone.insomnia), online), "awake")
+        XCTAssertNil(MacAsleep.line(status(nil), online), "an older Mac")
+        XCTAssertFalse(MacAsleep.waiting(status(phone.insomnia), online, lost: false))
+    }
 }

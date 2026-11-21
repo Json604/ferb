@@ -382,7 +382,7 @@
    "decision": "SENSE-422",
    "after": "abilities.read",
    "name": "device.facts",
-   "description": "Read this Mac's facts now: its name, local date, time and time zone, its city (with FERB's Location permission), battery and Low Power Mode, network and Wi-Fi name, whether the screen is locked, displays, free disk space, when it started and last woke, the sound output and whether something is playing, light or dark appearance, language and region, macOS version and model; and under phones, each of the owner's paired phones as it last told FERB: connected or when last seen, its local time and time zone, its city (when the owner lets the phone share it), battery and battery saver, network kind, screen, language. A fact it can't read is left out. exact_location true also gives the latitude and longitude of this Mac, or of the phone named by device, only after the owner says Yes to sharing them (asked once per task and device): use it only when the task needs the exact spot, not the city.",
+   "description": "Read this Mac's facts now: its name, local date, time and time zone, its city (with FERB's Location permission), battery and Low Power Mode, network and Wi-Fi name, whether the screen is locked, displays (how many external), free disk space, when it started and last woke, the sound output (its kind: speakers, headphones, Bluetooth…) and whether something is playing, light or dark appearance, language and region, macOS version, model, chip and memory; whether it is fully awake or asleep in one of macOS's brief background wakes (Power Nap), its lid, its power source and Power Nap's setting; FERB's own Keep my Mac working mode (insomnia mode): whether it is on, and what FERB keeps awake outside it. since/until (ISO dates or date-times, the Mac's time zone unless given) also give the record of that stretch: when the Mac slept and woke, how often macOS woke it briefly, its lid, its power source and the Keep my Mac working mode. Under phones, each of the owner's paired phones as it last told FERB: connected or when last seen, its local time and time zone, its city (when the owner lets the phone share it), battery and battery saver, network kind, screen, language. A fact it can't read is left out. exact_location true also gives the latitude and longitude of this Mac, or of the phone named by device, only after the owner says Yes to sharing them (asked once per task and device): use it only when the task needs the exact spot, not the city.",
    "input_schema": {
     "additionalProperties": false,
     "properties": {
@@ -397,6 +397,18 @@
       "description": "also give the exact latitude and longitude (the owner is asked first)",
       "title": "Exact Location",
       "type": "boolean"
+     },
+     "since": {
+      "default": "",
+      "description": "start of the sleep record to give, ISO date or date-time; empty: no record",
+      "title": "Since",
+      "type": "string"
+     },
+     "until": {
+      "default": "",
+      "description": "end of the sleep record (not included), ISO date or date-time; a date covers its day; empty: now",
+      "title": "Until",
+      "type": "string"
      },
      "why": {
       "type": "string",

@@ -107,7 +107,7 @@ fn every_method_of_the_table_has_a_handler_and_the_reads_answer() {
 
 /// rpc.py:112 `_update_prepare` (fixture scenario `update_prepare`, never replayed through the program before the audit
 /// of 2026-11-16): while a command of a task runs the answer is not ready and names it; with `even_if_busy` it is
-/// ready, journaled, and the daemon then stops by itself (exit 0).
+/// ready, journaled, and the daemon then stops by itself (exit 0: FERB's own stop, launchd leaves it stopped, DMN-619).
 #[test]
 fn update_prepare_waits_for_running_work_then_stops_the_daemon() {
     let tmp = root();
