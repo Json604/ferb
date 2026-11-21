@@ -340,3 +340,31 @@ status = "active"
 rule = "A memory item goes with a turn when every memory_sources row of it is one of the turn's journal rows or trail rows of its tasks; a learned card when every learning_sources ref is journal:<row> of the turn or episode:<task> of its tasks. Both go through the memory port (forget_memory with sources kept, forget_nodes, settle_forgets); one with other sources is kept and named in the preview. The tasks' episodes rows go, and each evidence row's file under home/evidence, never through a link; a file that can't go keeps its row."
 why = "STORE-426, using the links FERB records and the forget the Memory page uses, so tombstones and search copies are handled one way. A memory with no recorded link to the turn (e.g. said again in another turn) can't be told apart and stays."
 paths = ["rust/crates/ferb-supervisor/src/flow/data_delete.rs", "rust/crates/ferb-daemon/src/areas_a/memory.rs", "rust/crates/ferbd/src/compose/supervisor.rs"]
+
+[STORE-429]
+title = "`ferb setup` never checks or moves the database"
+by = "agent"
+date = 2026-11-21
+status = "active"
+rule = "`ferb setup` (every form FERB.app runs) checks only that the database isn't from a newer FERB (refuse_newer, STORE-3) and the owner's files (check_files); it never runs SQLite's check on ferb.db and never sets it aside. Only the daemon checks the database, at its start, holding its lock, before it opens it."
+why = "As Python's setup did (ferb/cli/__init__.py:223-231) and STORE-1 says. The port ran check_home in setup, which FERB.app's quiet update runs while the daemon still writes: on 2026-11-21 it set the owner's healthy database aside twice."
+paths = ["engine/crates/ferb-store/src/salvage.rs", "engine/crates/ferbd/src/device.rs"]
+
+[STORE-430]
+title = "Each database check is its own connection; damage counts only when found again"
+by = "agent"
+date = 2026-11-21
+status = "active"
+rule = "quick_check, integrity_check and the schema read each run as one statement on a read-only connection of their own, so each reads one snapshot. When a check finds damage, FERB waits RECHECK_AFTER (2 s) and runs the full check again on new connections; only damage found again counts, and a second check that passes marks the build checked."
+why = "FTS5's check reuses the segment list a connection's first statement read: with a writer between quick_check and integrity_check on one connection, a healthy trail_fts reported corruption (25 of 25 on a copy of the owner's database; 0 of 20 one check per connection)."
+evidence = "ferb-store tests/salvage.rs: fts5_reads_a_stale_segment_list_in_a_connections_second_check; a_database_written_while_it_is_checked_is_never_set_aside fails on the old code with the owner's exact message."
+paths = ["engine/crates/ferb-store/src/salvage.rs"]
+
+[STORE-431]
+title = "Damage only in a full-text index is rebuilt in place, never a set-aside"
+by = "agent"
+date = 2026-11-21
+status = "active"
+rule = "When damage found twice (STORE-430) is all in full-text tables (FTS3/4/5: every line of the check is one the table's own `PRAGMA integrity_check('<table>')` reports), FERB rebuilds them (`INSERT INTO t(t) VALUES('rebuild')`, one transaction), checks again and keeps the database; the daemon journals store.index_rebuilt {tables, why} and logs it, the owner isn't asked. Other damage, a refused rebuild or damage left after it sets the database aside (STORE-1); a lock, I/O or permission error is raised (STORE-4)."
+why = "A search index is derived data: moving the whole database aside for it loses the owner's chat, pairing, memory and tasks from his view for nothing a rebuild can't restore."
+paths = ["engine/crates/ferb-store/src/salvage.rs", "engine/crates/ferbd/src/compose/mod.rs"]

@@ -81,6 +81,8 @@ pub const CRITICAL: &[&str] = &[
     "insomnia.step",
     "insomnia.expect",
     "insomnia.camera",
+    // APP-1106: alerts seen or put away on one device (`attention.ack`), so every other drops them at once
+    "attention.acked",
 ];
 
 /// bus.py:36-44. May be dropped, oldest first.

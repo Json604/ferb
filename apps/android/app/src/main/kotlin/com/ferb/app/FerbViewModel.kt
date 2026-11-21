@@ -224,6 +224,12 @@ data class UiState(
     val mac: MacInfo? = null,
     /** The Mac's task list (`tasks.list`), or null when it couldn't be read (the chat's list is used then). */
     val macTasks: List<TaskRow>? = null,
+    /**
+     * FERB's newest alert above the message box (kb APP-1105, PHN-791; FERB.app's alert line): the Mac getting hot,
+     * insomnia's end, a database set aside… never in the chat; null when none waits. [alertCount]: how many wait.
+     */
+    val alert: com.ferb.mobile.StatusAlert? = null,
+    val alertCount: Int = 0,
     val files: FilesUi = FilesUi(),
     /** FERB's settings as read from the Mac, or null before (or when they couldn't be read). */
     val settings: List<SettingRow>? = null,
@@ -264,6 +270,10 @@ class FerbViewModel(
     /** The phone's steady clock in ms (the unlock statement's age, PHN-649). */
     private val steady: () -> Long = { android.os.SystemClock.elapsedRealtime() },
 ) : ViewModel() {
+    /** FERB's alerts put away on this phone this session (kb PHN-791): hidden at once, before the Mac's next status drops
+     *  them. Declared first: the constructor's first read applies a status before the properties below are made. */
+    private val dismissedAlerts: MutableSet<String> = java.util.Collections.synchronizedSet(HashSet<String>())
+
     private val _ui = MutableStateFlow(UiState())
     val ui: StateFlow<UiState> = _ui.asStateFlow()
 
@@ -647,7 +657,7 @@ class FerbViewModel(
         // A short chat is made where it is (well under a millisecond; no hop, so a test's main looper sees it at once).
         val make = {
             val questions = Questions.merged(view?.let { Questions.open(it.questions) }.orEmpty(), status)
-            Made(questions, WorkModel.of(view, ""), ChatModel.rows(view), com.ferb.app.model.RunningModel.of(view, _ui.value.macTasks), ChatModel.days(view, zone))
+            Made(questions, WorkModel.of(view, ""), ChatModel.rows(view), com.ferb.app.model.RunningModel.of(view, status, _ui.value.macTasks), ChatModel.days(view, zone))
         }
         val made = if ((view?.items?.size ?: 0) > OFF_MAIN_ENTRIES) withContext(io) { make() } else make()
         val questions = made.questions
@@ -659,6 +669,7 @@ class FerbViewModel(
             it.copy(conversation = view?.conversation, rows = made.rows, running = made.running, chatWork = chatWork, away = away,
                 questions = questions, older = view?.older ?: OlderState.Unknown, status = status, days = made.days)
         }
+        showAlerts(status)
         sayLastEnd(status?.insomnia)
         if (!storedShown && _ui.value.rows.isNotEmpty()) {
             storedShown = true
@@ -699,7 +710,7 @@ class FerbViewModel(
         tasksJob = viewModelScope.launch {
             if (session.locked.value || api.link.value?.phase != LinkPhase.ONLINE) return@launch
             when (val r = api.tasks(TASKS_PAGE, null)) {
-                is Outcome.Ok -> _ui.update { it.copy(macTasks = r.value.tasks, running = com.ferb.app.model.RunningModel.of(lastView, r.value.tasks)) }
+                is Outcome.Ok -> _ui.update { it.copy(macTasks = r.value.tasks, running = com.ferb.app.model.RunningModel.of(lastView, api.lastStatus(), r.value.tasks)) }
                 is Outcome.Failed -> if (r.error is FerbException.NeedsUnlock) macLocked()
             }
             rebuildWork()
@@ -1565,6 +1576,21 @@ class FerbViewModel(
 
     /** The work row is on screen with these tasks' pictures (empty: it went): kb PHN-725. */
     fun workRowShown(taskIds: List<String>) { workRowShows.value = taskIds }
+
+    // ---- FERB's alerts (kb APP-1105, APP-1106, PHN-791) ---------------------------------------------------------------
+
+    /** The newest alert the Mac's status lists that wasn't put away here (FERB.app shows the newest the same way). */
+    private fun showAlerts(status: PhoneStatus?) {
+        val waiting = status?.alerts.orEmpty().filter { it.id !in dismissedAlerts }
+        _ui.update { it.copy(alert = waiting.lastOrNull(), alertCount = waiting.size) }
+    }
+
+    /** The alert's ×: gone here at once, and on every device once the Mac has it (`attention.ack`). */
+    fun dismissAlert(id: String) {
+        dismissedAlerts.add(id)
+        showAlerts(_ui.value.status)
+        viewModelScope.launch { api.dismissAlert(id) }
+    }
 
     /** A card on screen with its rows' pictures ([keys]: Thumbnails.key of task and step); empty: it went (kb PHN-726). */
     fun rowPictures(row: String, keys: List<String>) {

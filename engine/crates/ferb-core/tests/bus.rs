@@ -59,8 +59,8 @@ fn the_topic_lists_are_pythons() {
     // notch (decision: PHN-419, journal 106)
     // and a phone that took unusually much (decision: PHN-128, T-1203); the phone's "until I'm back at my Mac"
     // (decision: GATE-615); insomnia mode's state, steps under the cover, expected apps and the camera (decision: APP-980,
-    // APP-983, APP-984)
-    const ADDED: [&str; 11] = [
+    // APP-983, APP-984); alerts seen or put away on one device (decision: APP-1106)
+    const ADDED: [&str; 12] = [
         "device.location_wanted",
         "phone.pair_requested",
         "phone.pair_ended",
@@ -72,6 +72,7 @@ fn the_topic_lists_are_pythons() {
         "insomnia.step",
         "insomnia.expect",
         "insomnia.camera",
+        "attention.acked",
     ];
     let python: Vec<&str> = CRITICAL
         .iter()

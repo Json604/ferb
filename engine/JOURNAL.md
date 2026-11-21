@@ -8236,3 +8236,149 @@ now takes 0.19.12 or later. `cargo test -p ferb-browser`, `./gate.sh fmt` and cl
   here prevents that: the brief Space change remains (HAND-647's "if no way of opening it avoids the switch, the
   behaviour stays as it was").
 - LIVE-1159. The extension reaches his profiles only once 0.19.13 is published or loaded.
+
+## 2026-11-21 · 158 · The owner's healthy database was set aside twice: setup's check ran while the daemon wrote it
+
+**The case.** FERB.app build 202611210431 replaced 202611200450. ferb.db (163 MB) was moved to
+ferb.db.broken-20261121-1012 because "SQLite's integrity check: fts5: checksum mismatch for table "trail_fts"". The
+owner's chat, pairing, memory and tasks were gone from his view. After the coordinator restored it, it was moved
+again to ferb.db.broken-20261121-1018 ("fts5: corruption found reading blob … from table "trail_fts""). Every copy
+of the moved files checks ok with the same SQLite.
+
+**Who moved it.** The journal's `home.set_aside` "at" is 10:12:35 and 10:18:09. That is the moment set_aside
+renamed the file (salvage.rs `set_aside`), and both times it is a second BEFORE the old daemon's "stopping (asked
+to)" (10:12:36.150, 10:18:10.125). So the move was made by `ferb setup`, not by the new daemon's start.
+- FERB.app's quiet update (AppSetupPlan.decide: `.update` whenever the record or a running daemon is missing at
+  launch) runs `setup --service --update --app-service` while the daemon runs.
+- ferb-device cli/run.rs:117 calls host.salvage() for every `setup`, and ferbd device.rs called `check_home`, so the
+  whole database check ran, set-aside included.
+- Python's setup ran only `refuse_newer` and `check_files` (ferb/cli/__init__.py:223-231 at 9d3f84bc), as STORE-1
+  says.
+- setup's build is "…+checkout+…": FERB_APP_BUILD is set only in the daemon's environment. So setup ran the full
+  integrity_check every time.
+- The old daemon kept writing to the renamed inode until it stopped. That is why the moved-aside files hold its last
+  writes.
+
+**Why a healthy index read as corrupt (reproduced).**
+- The reproduction: a copy of the owner's database (raw2-pristine), a Python writer inserting, updating and deleting
+  trail rows (secure_delete, TRUNCATE checkpoints, incremental_vacuum, fts5 merges), and ferb-store's own
+  `damage(path, true)` in another process.
+- Results: 25 of 25 runs reported fts5 corruption, in the owner's words. With integrity_check alone on a fresh
+  connection: 0 of 20. quick_check then integrity_check: 14 of 14. integrity_check twice on one connection: 11 of 11.
+  Both checks inside one BEGIN: 0 of 8.
+- The mechanism, in the bundled SQLite 3.54.1 (libsqlite3-sys 0.40.0 sqlite3.c):
+  - fts5IntegrityMethod runs on quick_check too (it ignores isQuick).
+  - fts5StructureRead (253601) caches the segment list in the vtab with no data_version check.
+  - Only fts5NewTransaction (xOpen, xBegin; 262618) resets that cache, never xIntegrity.
+  - So the second statement on a connection walks the first statement's segments against newer rows: a merged
+    segment is a "missing row" (fts5DataRead, "corruption found reading blob", 252819) or a "checksum mismatch"
+    (261002).
+
+**Changed (STORE-429, STORE-430, STORE-431).**
+- `salvage::check_setup` (refuse_newer, then check_files) is setup's check. ferbd device.rs uses it, so setup never
+  checks or moves the database.
+- `damage` opens a read-only connection for each check (quick_check, integrity_check, the schema read). Each check
+  is one statement, so it reads one snapshot.
+- `check_store`: damage found waits RECHECK_AFTER (2 s, the new `Seams.pause`) and is checked again in full. Only
+  damage found again counts. A second check that passes marks the build checked.
+- Confirmed damage that is all in full-text tables is rebuilt in place, never set aside. FTS3/4/5 tables are found
+  by sqlite_master's `USING` module. The damage counts as theirs when every line of `PRAGMA integrity_check(100)` is
+  one the table's own `PRAGMA integrity_check('<t>')` reports. The rebuild is `INSERT INTO t(t) VALUES('rebuild')`
+  in one transaction, followed by a full check. `Seams.rebuilt` tells the daemon, which journals
+  `store.index_rebuilt {tables, why}` and logs one line. The owner isn't told, since nothing is lost.
+- Anything else still sets the database aside: damage elsewhere, a rebuild refused for damage or SQLITE_ERROR, or
+  damage left after the rebuild. A lock, I/O or permission error is raised as before.
+
+**Fixed against Python.** `damage` ran both checks on one connection (the stale FTS5 segment list above). The
+fixture (tables.json's salvage steps) passes unchanged. Its damaged store is a btree one, still set aside with the
+same words, and the `now` ticks are unchanged. `Seams` gains `pause` and `rebuilt`. Setup's database check
+was a drift of the port, not a fix: removed.
+
+**Evidence.**
+- ferb-store tests/salvage.rs:
+  - `fts5_reads_a_stale_segment_list_in_a_connections_second_check`: SQLite's behaviour, deterministic. Its first
+    assertion fails if a future SQLite stops doing it.
+  - `a_database_written_while_it_is_checked_is_never_set_aside`: a writer thread on the trail while check_store runs
+    five times. On the old `damage` it fails with "fts5: checksum mismatch for table "trail_fts"".
+  - `damage_not_found_again_after_the_pause_is_not_damage`.
+  - `damage_found_again_outside_the_indexes_is_still_set_aside`.
+  - `a_damaged_search_index_is_rebuilt_in_place_never_set_aside`: content changed under the index; `MATCH` finds the
+    new text after the rebuild.
+  - `a_search_index_missing_its_pages_is_rebuilt_too`.
+  - `setup_never_checks_or_moves_the_database`: NewerStore still refuses.
+- `cargo test -p ferb-store -p ferb-device`, ferbd's wiring `data_set_aside_at_start_is_told_once`, clippy
+  (`-D warnings`) for ferb-store, ferbd and ferb-device, and `./gate.sh fmt` pass.
+
+**Unverified.**
+- The daemon's `store.index_rebuilt` journal and log line (compose/mod.rs) has no test through the program. A test
+  would wait the real 2 s pause.
+- The whole workspace gate was not run.
+- Whether the old daemon's stop finishes every write before its process ends was not audited. The daemon's own
+  check runs after `take_lock` (the old one holds daemon.lock until its process ends), and a check now reads one
+  snapshot, so a late write can no longer read as damage.
+- Setup still reports "checkout" as its build. It no longer matters, because setup doesn't check the database.
+- FERB.app's choice to run the quiet update after a restart with the daemon stopped (AppSetup.swift `decide`) is
+  unchanged.
+
+## 2026-11-21 · 159 · FERB's alerts leave the chat; the phone's work row stops counting a finished task
+
+**What the owner saw.** (1) On the phone, "Your Mac is getting hot…" and "Welcome back. Your Mac can sleep as usual
+again." stayed as chat bubbles (earlier also the database set-aside line). His words are APP-1105. (2) At 10:25 the
+Moto showed "1 active task" with its spinner while every task was done.
+
+**Alerts (APP-1105, APP-1106, APP-1107, PHN-791).** Every notice the notifier tells in its `alert` category is an
+alert: insomnia's resumed, warning, slept and ended lines; the database set aside; a phone unused for 30 days; "until
+I'm back" ended or cut by a restart; a window that came forward (HAND-546); a page that refused a sealed value
+(GATE-562). `tell_owner_once` stores it as `alert:<ident>`. The attention view adds `"alert": true` for those ids and for
+the ids alerts had before (ferb-core `EARLIER_ALERTS`). The notice is still stored, journaled `chat.notice` (the
+planner still reads what FERB told) and published as before. ChatProjector makes no entry of it. At each start ChatLog
+marks the notice and imported legacy entries of earlier alerts `"alert": true`: a revision, nothing deleted, so every
+client gets the change and its fold leaves them out. `attention.ack` of an alert publishes `attention.acked {ids}`
+(a new critical topic). Not alerts, so they stay in the chat: memory and learning notices (they carry cards) and loop
+notices (a task's own report).
+
+FERB.app shows the newest alert in one line above the composer with ×, the way its error, insomnia and work lines
+show. It acks a daemon alert only when the owner puts it away, and drops one put away elsewhere (`attention.acked`, or
+a status that no longer lists it). FERB.app's own alert lines go there too: Updated to, update failed or asks, restart
+put off, insomnia's end, a phone asking to pair (with its button), GATE-618's "Are you back?". An alert saved earlier
+stays in the archive and is not drawn (`shownNotices`). The phone library reads `PhoneStatus.alerts` from the
+status's unseen notices and gives `dismiss_alert`; the apps show the newest one above the message box.
+
+**Named difference from Python.** daemon-b/small.json's `small_notices`: the refused-value notice is
+`alert:refused-sp-1`, and its views carry `"alert": true` (`as_alert` in b_small.rs; 3 notices.list lines named).
+
+**The stale "1 active task" (PHN-792): a bug in the phones' work row, not the database swap.** The temporary
+database (~/.ferb/ferb.db.fresh-20261121-1026, read from a copy) has both trees done (44c4… at 10:24:24, 1a83… at
+10:25:03) and both answers as entries (seq 21, 27). The phone's mark has read_pos 4294967315, the last entry, at
+10:25:48, so its transcript held both answers and its fold had no working turn. phone_audit has `tasks.preview` every
+~2 s from 10:24:15 to 10:25:54: the work row's round picture kept asking for a task's picture for 90 s after the last
+task ended. The only other source of the work row is the Tasks tab's last `tasks.list`
+(Android Running.kt:69-71, FerbViewModel.kt:650, 702; iOS Running.swift:53-54). It is re-read only while the Tasks tab
+is shown (FerbViewModel.kt:598, 1665). A row it read as "working" was skipped while the chat showed that task. Once
+the answer came, the chat stopped listing the task and the stale row counted it again, until the Tasks tab was
+opened. The rows now come from the status's `running` (the Mac's live trees, pushed by the link on change); the task
+list only says paused or waiting. The swaps (10:18, 10:26) are not the cause: the screenshot is before the second
+swap, and the phone paired again at 10:20 on the fresh database.
+
+**Evidence.**
+- ferb-core `an_alert_is_named_by_its_id_or_marked_in_its_body`, bus topic list.
+- ferb-supervisor `an_alert_makes_no_entry_another_notice_does` (chat_entries.rs) and
+  `alerts_saved_earlier_are_marked_at_the_start_and_nothing_else_changes` (alerts_hidden.rs).
+- ferb-daemon b_small `small_notices_and_banner_switches`.
+- ferbd wiring `data_set_aside_at_start_is_told_once`, `a_window_that_came_up_is_told_once_and_kept_in_the_tasks_record`.
+- ferb-mobile `alerts_are_not_in_the_transcript_other_notices_are`,
+  `alerts_are_read_from_the_unseen_notices_and_held_back_while_locked`.
+- Swift: OwnerAlertsTests, OwnerAlertsModelTests, UpdateWiringTests, InsomniaTests, PhoneSettingsTests, EntryFold tests.
+- Phones: Android ShownTest `a_task_the_mac_no_longer_runs_never_counts_from_the_tasks_tabs_last_read` (the stale row
+  reproduced: a finished turn and a Tasks-tab row still "working" made "1 active task"; now none) and FeaturesTest's
+  alert line; iOS ParityTests and FeaturesTests the same. `./gradlew :app:testDebugUnitTest` (276) and the FerbApp
+  package on the simulator (175) pass.
+
+**Unverified.**
+- Nothing ran on the owner's Mac or phones; no live check.
+- An alert has no phone notification while the app is closed. The phones show alerts only in the app.
+- "When it no longer applies" is only what the daemon already knows. A put-away (any device) or a status without the
+  alert removes it. Nothing retracts "Your Mac is getting hot" when it cools: that would need each source to say so.
+- FERB.app's own alert lines last for the run only; a relaunch before he sees one loses it (an update's "Updated to"
+  is still said once per version).
+- The macOS banner fallback for an alert while no client is connected is unchanged.

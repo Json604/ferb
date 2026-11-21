@@ -348,7 +348,7 @@ final class InsomniaTests: XCTestCase {
         XCTAssertFalse(model.showsInsomniaLine)
     }
 
-    // decision: APP-997
+    // decision: APP-997, APP-1107
     func testTheEndIsSaidOnceAsFERBsOwnLine() {
         let model = NotchModel(rpc: rpc, preferences: scratchDefaults("ferb-insomnia-end"))
         let off: [String: Any] = ["on": false, "line": "", "last_end": ["id": "e-1", "why": "back",
@@ -357,7 +357,9 @@ final class InsomniaTests: XCTestCase {
         model.receiveBusEvent(["topic": "insomnia.changed", "data": off])
         model.receiveBusEvent(["topic": "insomnia.changed", "data": Self.on(since: "later")])
         model.receiveBusEvent(["topic": "insomnia.changed", "data": off])              // the same end again
-        XCTAssertEqual(model.conversation.notices.filter { $0.id == "insomnia-end-e-1" }.map(\.text), ["Welcome back."])
+        // an alert above the composer (APP-1107), never a line kept in the chat
+        XCTAssertEqual(model.alerts.filter { $0.id == "insomnia-end-e-1" }.map(\.text), ["Welcome back."])
+        XCTAssertTrue(model.conversation.notices.isEmpty)
     }
 
     // decision: APP-995

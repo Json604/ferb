@@ -327,6 +327,9 @@ final class FakePhone: PhoneApi {
         return .ok(valueJson)
     }
     func tasks(limit: Int, before: String?) async -> Outcome<TaskPage> { calls.append("tasks"); return tasks }
+    /// The alerts put away through `dismissAlert`, in order.
+    var dismissed: [String] = []
+    func dismissAlert(id: String) async -> Outcome<Void> { calls.append("dismissAlert"); dismissed.append(id); return .ok(()) }
     func macInfo() async -> Outcome<MacInfo> { calls.append("mac"); return mac.map { .ok($0) } ?? .failed(.Offline(detail: "no", linkCode: nil)) }
     func cachedMacInfo() async -> Outcome<MacInfo?> { .ok(mac) }
     func unregisteredKeys() async -> PublicKeys? { newKeys }

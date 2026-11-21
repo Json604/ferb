@@ -128,6 +128,9 @@ public enum EntryFold {
                 }
                 // the message's own answer is its newest one that follows no other
                 shown[index] = entry
+            // APP-1106: an alert (marked by the engine, or named so by its id) is never drawn in the chat
+            case "notice" where isAlert(entry), "legacy" where isAlert(entry):
+                continue
             case "notice":
                 archive.notices.append(notice(entry, createdAt: date(entry.createdAt), afterTurnID: archive.turns.last?.id))
             case "post":
@@ -213,6 +216,12 @@ public enum EntryFold {
     public static func belowReply(_ entry: ChatEntry, turnID: UUID, afterTurnID: UUID, createdAt: Date) -> ConversationReply {
         ConversationReply(id: uuid(entry.id), turnID: turnID, createdAt: createdAt, afterTurnID: afterTurnID,
                           part: (entry.body["part"] as? String).flatMap(ReplyPart.init))
+    }
+
+    /// One of FERB's alerts (APP-1106), as ferb-mobile's fold reads it: marked `alert` by the engine, or a notice whose
+    /// ref is an `alert:` id.
+    static func isAlert(_ entry: ChatEntry) -> Bool {
+        entry.body["alert"] as? Bool == true || (entry.kind == "notice" && entry.ref?.hasPrefix("alert:") == true)
     }
 
     /// A notice as receiveNotices shows it.

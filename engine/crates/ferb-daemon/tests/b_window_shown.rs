@@ -252,12 +252,12 @@ async fn a_mac_apps_line_is_once_per_task_and_app() {
         told,
         vec![
             Some((
-                "window-shown-tree-2-app:WhatsApp".to_string(),
+                "alert:window-shown-tree-2-app:WhatsApp".to_string(),
                 "WhatsApp came to the front when I clicked in it; I put Notes back.".to_string()
             )),
             None,
             Some((
-                "window-shown-tree-2-app:Mail".to_string(),
+                "alert:window-shown-tree-2-app:Mail".to_string(),
                 "Mail came to the front when I clicked in it; I put Notes back.".to_string()
             )),
         ]
@@ -268,6 +268,7 @@ async fn a_mac_apps_line_is_once_per_task_and_app() {
 /// tree it came from; another site of the same task, or another task, gets its own line.
 // decision: HAND-545
 // decision: HAND-546
+// decision: APP-1106 (stored as an alert: shown for a while, never kept in the chat)
 #[tokio::test(flavor = "multi_thread")]
 async fn the_owner_is_told_once_per_task_and_site_as_a_quiet_notice() {
     let home = Home::new("");
@@ -291,7 +292,7 @@ async fn the_owner_is_told_once_per_task_and_site_as_a_quiet_notice() {
     assert_eq!(
         told,
         Some((
-            "window-shown-tree-1-app.example.edu".to_string(),
+            "alert:window-shown-tree-1-app.example.edu".to_string(),
             "A pop-up window opened for a moment on app.example.edu; I minimized it.".to_string()
         ))
     );
@@ -332,7 +333,7 @@ async fn the_owner_is_told_once_per_task_and_site_as_a_quiet_notice() {
     assert_eq!(notices.len(), 2, "{notices:?}");
     assert_eq!(
         notices[0]["id"],
-        json!("window-shown-tree-1-app.example.edu")
+        json!("alert:window-shown-tree-1-app.example.edu")
     );
     assert_eq!(
         notices[1]["text"],
@@ -345,7 +346,7 @@ async fn the_owner_is_told_once_per_task_and_site_as_a_quiet_notice() {
         .unwrap()
         .conn()
         .query_row(
-            "SELECT source_refs_json FROM attention_notices WHERE id = 'window-shown-tree-1-app.example.edu'",
+            "SELECT source_refs_json FROM attention_notices WHERE id = 'alert:window-shown-tree-1-app.example.edu'",
             [],
             |r| r.get(0),
         )

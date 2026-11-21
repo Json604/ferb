@@ -18,32 +18,23 @@ extension NotchModel {
         // An older FERB keyed its line by build ("update-<build>"): the same version's line already in the chat counts
         let said = conversation.notices.contains {
             $0.id == id || ($0.id.hasPrefix("update-") && $0.text == "Updated to \(version)")
-        }
+        } || alerts.contains { $0.id == id }
         guard let note = UpdatePlan.updatedNote(previousVersion: previousVersion, previousBuild: previousBuild,
                                                 build: build, version: version, alreadySaid: said) else { return }
-        if conversation.addNotice(id: id, text: note, tag: "FERB") {
-            saveConversation()
-            onBackgroundChange?(true)
-        }
+        showOwnAlert(id: id, text: note)      // an alert above the composer, never kept in the chat (APP-1107)
     }
 
-    /// A line setup writes for the owner (APP-921: a restart a running task defers), as a quiet FERB message in the
-    /// chat, once per id.
+    /// A line setup writes for the owner (APP-921: a restart a running task defers), as one of FERB's alerts above the
+    /// composer, never kept in the chat (APP-1107), once per id.
     func noteFromSetup(id: String, text: String) {
-        if conversation.addNotice(id: id, text: text, tag: "FERB") {
-            saveConversation()
-            onBackgroundChange?(true)
-        }
+        showOwnAlert(id: id, text: text)
     }
 
     /// The switch to the Developer ID waits for the owner (APP-903): FERB asks once per version in the chat; the
     /// menu's entry and Settings → General → Updates install it.
     func noteUpdateAsk(version: String) {
-        if conversation.addNotice(id: "update-ask-" + version, text: UpdatePlan.askLine(version: version) +
-                                  " Install it from FERB's menu or Settings → General → Updates.", tag: "FERB") {
-            saveConversation()
-            onBackgroundChange?(true)
-        }
+        showOwnAlert(id: "update-ask-" + version, text: UpdatePlan.askLine(version: version) +
+                     " Install it from FERB's menu or Settings → General → Updates.")
     }
 }
 

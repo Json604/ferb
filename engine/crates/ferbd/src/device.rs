@@ -58,20 +58,22 @@ impl Host for ProgramHost {
     fn own_session(&mut self) {
         ferb_device::cli::own_session(std::env::var("FERB_OWN_SESSION").ok().as_deref());
     }
+    /// Setup's check (decision: STORE-429): the newer-database refusal and the owner's files, never
+    /// the database, which the daemon may be writing while setup runs.
     fn salvage(&mut self) -> Result<Vec<String>, CliError> {
-        let build = ferb_store::salvage::this_build(crate::compose::VERSION);
         let now = ferb_py::time::DateTime::now_local;
         let toml_error = |text: &str| {
             ferb_core::config::Document::parse(text)
                 .err()
                 .map(|e| e.to_string())
         };
-        ferb_store::salvage::check_home(
+        ferb_store::salvage::check_setup(
             &self.home,
-            &build,
             &ferb_store::salvage::Seams {
                 now: &now,
                 toml_error: &toml_error,
+                pause: &|_| {},
+                rebuilt: &|_, _| {},
             },
         )
         .map(|moved| {

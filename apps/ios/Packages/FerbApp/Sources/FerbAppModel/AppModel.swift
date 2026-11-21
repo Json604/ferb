@@ -174,6 +174,10 @@ public struct UiState: Equatable {
     public var mac: MacInfo? = nil
     /// The Mac's task list (`tasks.list`), or nil when it couldn't be read (the chat's list is used then).
     public var macTasks: [TaskRow]? = nil
+    /// FERB's newest alert above the message box (kb APP-1105, PHN-791; FERB.app's alert line): the Mac getting hot,
+    /// insomnia's end, a database set aside… never in the chat; nil when none waits. `alertCount`: how many wait.
+    public var alert: StatusAlert? = nil
+    public var alertCount: Int = 0
     public var files = FilesUi()
     /// FERB's settings as read from the Mac, or nil before (or when they couldn't be read).
     public var settings: [MacSettingRow]? = nil
@@ -336,6 +340,8 @@ public final class AppModel {
     @ObservationIgnored private var refreshing = false
     @ObservationIgnored private var dirty = false
     @ObservationIgnored private var tasksLoading = false
+    /// Alerts put away on this phone this session: hidden at once, before the Mac's next status drops them (PHN-791).
+    @ObservationIgnored private var dismissedAlerts = Set<String>()
     @ObservationIgnored private var lastView: TranscriptView?
 
     /// When this model started, and whether the chat's first entries were logged (`ferb-app`, kb PHN-629).
@@ -782,9 +788,9 @@ public final class AppModel {
             // made from the whole transcript: off the main actor for a long chat (kb PHN-714), in place for a short one
             let made: Made
             if (view?.items.count ?? 0) > Self.offMainEntries {
-                made = await Task.detached(priority: .userInitiated) { Made(view, mac) }.value
+                made = await Task.detached(priority: .userInitiated) { Made(view, status, mac) }.value
             } else {
-                made = Made(view, mac)
+                made = Made(view, status, mac)
             }
             self.applyNow(view, status, made)
         }
@@ -800,13 +806,13 @@ public final class AppModel {
         let running: RunningUi?
         let chatWork: Work
 
-        init(_ view: TranscriptView?, _ mac: [TaskRow]?) {
+        init(_ view: TranscriptView?, _ status: PhoneStatus?, _ mac: [TaskRow]?) {
             #if DEBUG
             if Thread.isMainThread && (view?.items.count ?? 0) > AppModel.offMainEntries { AppModel.longChatsMadeOnMain += 1 }
             #endif
             rows = ChatModel.rows(view)
             days = ChatModel.days(view, Calendar.current)
-            running = RunningModel.of(view, mac: mac)
+            running = RunningModel.of(view, status: status, mac: mac)
             chatWork = WorkModel.of(view, asking: "")
         }
     }
@@ -832,8 +838,25 @@ public final class AppModel {
         ui.questions = questions
         ui.older = view?.older ?? .unknown
         ui.status = status
+        showAlerts(status)
         sayLastEnd(status?.insomnia)
         rebuildWork()
+    }
+
+    // MARK: FERB's alerts (kb APP-1105, APP-1106, PHN-791)
+
+    /// The newest alert the Mac's status lists that wasn't put away here (FERB.app shows the newest the same way).
+    private func showAlerts(_ status: PhoneStatus?) {
+        let waiting = (status?.alerts ?? []).filter { !dismissedAlerts.contains($0.id) }
+        if ui.alert != waiting.last { ui.alert = waiting.last }
+        if ui.alertCount != waiting.count { ui.alertCount = waiting.count }
+    }
+
+    /// The alert's ×: gone here at once, and on every device once the Mac has it (`attention.ack`).
+    public func dismissAlert(_ id: String) {
+        dismissedAlerts.insert(id)
+        showAlerts(ui.status)
+        Task { _ = await api.dismissAlert(id: id) }
     }
 
     /// The Tasks tab: the Mac's own list where it answers, else the chat's (offline, or the Mac's window closed).
@@ -868,7 +891,7 @@ public final class AppModel {
             switch await api.tasks(limit: Self.tasksPage, before: nil) {
             case .ok(let page):
                 ui.macTasks = page.tasks
-                ui.running = RunningModel.of(lastView, mac: page.tasks)
+                ui.running = RunningModel.of(lastView, status: await api.lastStatus(), mac: page.tasks)
             case .failed(let e): if case .NeedsUnlock = e { macLocked() }
             }
             rebuildWork()

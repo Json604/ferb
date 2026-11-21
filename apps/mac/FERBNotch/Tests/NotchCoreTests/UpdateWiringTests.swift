@@ -12,18 +12,19 @@ final class UpdateWiringTests: XCTestCase {
         NotchModel(rpc: ScriptedRPC(), preferences: scratchDefaults("ferb-update"))
     }
 
-    // decision: APP-750
+    // decision: APP-750, APP-1107
     func testTheNotchSaysUpdatedToOncePerNewVersion() {
         let model = model()
         model.preferences.set("202610250900", forKey: NotchModel.lastBuildKey)
         model.preferences.set("0.27.1", forKey: NotchModel.lastVersionKey)
         let info: [String: Any] = ["CFBundleVersion": "202611010900", "CFBundleShortVersionString": "0.28.0"]
         model.noteUpdate(info: info)
-        XCTAssertEqual(model.conversation.notices.map(\.text), ["Updated to 0.28.0"])
-        XCTAssertEqual(model.conversation.notices.first?.tag, "FERB")
+        // an alert above the composer, never kept in the chat (APP-1107)
+        XCTAssertEqual(model.alerts.map(\.text), ["Updated to 0.28.0"])
+        XCTAssertTrue(model.conversation.notices.isEmpty)
         model.noteUpdate(info: info)                                       // the same build again
         model.noteUpdate(info: ["CFBundleVersion": "202611011500", "CFBundleShortVersionString": "0.28.0"])  // rebuilt
-        XCTAssertEqual(model.conversation.notices.count, 1)
+        XCTAssertEqual(model.alerts.count, 1)
         XCTAssertEqual(model.preferences.string(forKey: NotchModel.lastBuildKey), "202611011500")
         XCTAssertEqual(model.preferences.string(forKey: NotchModel.lastVersionKey), "0.28.0")
     }
@@ -32,15 +33,20 @@ final class UpdateWiringTests: XCTestCase {
     func testAnOlderBuildsLineForTheSameVersionIsntRepeated() {
         let model = model()                       // 0.27.1 as it was: only the build recorded, its line keyed by build
         model.preferences.set("202611051241", forKey: NotchModel.lastBuildKey)
-        _ = model.conversation.addNotice(id: "update-202611051241", text: "Updated to 0.27.1", tag: "FERB")
+        // its line saved in the chat then (kept, not drawn: APP-1107)
+        let saved = #"{"turns": [], "replies": [], "notices": [{"id": "update-202611051241", "#
+            + #""entryID": "6F9619FF-8B86-D011-B42D-00C04FC964FF", "createdAt": 0, "text": "Updated to 0.27.1"}]}"#
+        model.conversation = try! JSONDecoder().decode(ConversationArchive.self, from: Data(saved.utf8))
         model.noteUpdate(info: ["CFBundleVersion": "202611060900", "CFBundleShortVersionString": "0.27.1"])
         XCTAssertEqual(model.conversation.notices.count, 1)
+        XCTAssertTrue(model.alerts.isEmpty)
     }
 
     func testAFirstLaunchSaysNothing() {
         let model = model()
         model.noteUpdate(info: ["CFBundleVersion": "202611010900", "CFBundleShortVersionString": "0.28.0"])
         XCTAssertTrue(model.conversation.notices.isEmpty)
+        XCTAssertTrue(model.alerts.isEmpty)
         XCTAssertEqual(model.preferences.string(forKey: NotchModel.lastBuildKey), "202611010900")
     }
 

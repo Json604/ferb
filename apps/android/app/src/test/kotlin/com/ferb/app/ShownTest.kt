@@ -23,6 +23,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import androidx.compose.ui.graphics.luminance
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -340,10 +341,39 @@ class ShownTest {
         val lv = v.live.single()
         val rows = ChatModel.rows(v.copy(live = listOf(lv.copy(streamingReply = "Hel"))))
         assertTrue(rows.any { it is ChatRow.Line && it.text == "Draft · still responding" })
-        val mac = listOf(com.ferb.mobile.TaskRow("t-9", "Morning news", "Read the news", "working", null, null, "", null, null))
-        val r = com.ferb.app.model.RunningModel.of(v, mac)!!
+        // the Mac's live status says what runs elsewhere (kb PHN-792)
+        val running = listOf(com.ferb.mobile.StatusTask("t-9", "Morning news", "Read the news", null, false))
+        val r = com.ferb.app.model.RunningModel.of(v, running(running))!!
         assertEquals("1 active task", r.words.lead)
         assertEquals("Morning news", r.tasks.single().title)
+    }
+
+    private fun running(tasks: List<com.ferb.mobile.StatusTask>, questions: List<com.ferb.mobile.StatusQuestion> = emptyList()) =
+        com.ferb.mobile.PhoneStatus(false, true, false, questions, tasks, emptyList(), null)
+
+    /**
+     * The owner's phone at 10:25 on 2026-11-21: "1 active task" with its spinner after every task had finished. The Tasks
+     * tab had read `tasks.list` while the task ran and was never read again; once the chat's turn had its answer the
+     * stale row counted. The Mac's live status, pushed on every change, decides now.
+     */
+    // decision: PHN-792
+    @Test
+    fun a_task_the_mac_no_longer_runs_never_counts_from_the_tasks_tabs_last_read() {
+        val done = Parity.view(message("m1", "r1", "start a 3 part parallel work", task = "t-1"),
+            entry("p1", "plan", "r1", mapOf("text" to "Starting three parts.", "plan_line" to "Starting three parts.", "lines" to emptyList<String>()), task = "t-1"),
+            Parity.answer("a1", "r1", "m1", "All three parts are done.", task = "t-1"))
+        assertTrue(done.live.isEmpty())
+        val stale = listOf(com.ferb.mobile.TaskRow("t-1", "Three parts", "start a 3 part parallel work", "working", null, null, "", null, null))
+        assertNull(com.ferb.app.model.RunningModel.of(done, running(emptyList()), stale))
+        assertNull(com.ferb.app.model.RunningModel.of(done, null, stale))
+        // one the Mac runs that this chat doesn't show counts; the Tasks tab's list only says it is paused
+        val elsewhere = listOf(com.ferb.mobile.StatusTask("t-2", "Morning news", "Read the news", null, false))
+        val r = com.ferb.app.model.RunningModel.of(done, running(elsewhere), stale)!!
+        assertEquals("1 active task", r.words.lead)
+        assertEquals("t-2", r.tasks.single().taskId)
+        val paused = com.ferb.app.model.RunningModel.of(done, running(elsewhere),
+            listOf(com.ferb.mobile.TaskRow("t-2", "Morning news", "Read the news", "paused", null, null, "", null, null)))!!
+        assertEquals("1 paused task", paused.words.lead)
     }
 
     /** The owner's case: the Mac's question, its reason and the address; never the step line (kb PHN-739). */

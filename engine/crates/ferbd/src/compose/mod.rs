@@ -303,12 +303,20 @@ impl Daemon {
         let build = ferb_store::salvage::this_build(VERSION);
         let now = || ferb_py::time::DateTime::now_local();
         let toml_error = |text: &str| toml_parse_error(text);
+        let pause = |wait: std::time::Duration| std::thread::sleep(wait);
+        // decision: STORE-431: full-text indexes rebuilt in place, journaled once the journal is open
+        let rebuilt: Mutex<Vec<Value>> = Mutex::default();
+        let told_rebuilt = |tables: &[String], why: &str| {
+            lock(&rebuilt).push(serde_json::json!({"tables": tables, "why": why}));
+        };
         let set_aside = ferb_store::salvage::check_home(
             &home,
             &build,
             &ferb_store::salvage::Seams {
                 now: &now,
                 toml_error: &toml_error,
+                pause: &pause,
+                rebuilt: &told_rebuilt,
             },
         )
         .map_err(|e| {
@@ -372,6 +380,13 @@ impl Daemon {
         });
         for entry in &set_aside {
             journal.note("store.set_aside", Value::Object(entry.clone()));
+        }
+        for entry in std::mem::take(&mut *lock(&rebuilt)) {
+            crate::log::line(&format!(
+                "store: search indexes rebuilt in place {}",
+                ferb_py::json::dumps(&entry)
+            ));
+            journal.note("store.index_rebuilt", entry);
         }
         // `_repeats` (main.py:279): a problem that keeps happening, journaled bounded; each row also one log line
         let repeats = ferb_daemon::shared::Repeats::new(

@@ -323,13 +323,15 @@ final class PhoneSettingsTests: XCTestCase {
         }
         model.receiveBusEvent(["topic": "phone.pair_requested", "data": asking, "at": "2026-11-16T09:00:00+05:30"])
         await fulfillment(of: [posted], timeout: 1)
-        let notice = try XCTUnwrap(model.conversation.notices.last)
+        // an alert above the composer with its button (APP-1107), never a line kept in the chat
+        let notice = try XCTUnwrap(model.alerts.last)
         XCTAssertEqual(notice.text, PhoneWords.notchAsks("Pixel 8"))
         XCTAssertFalse(notice.text.contains("482"), "the notch's line carries no code")
-        XCTAssertEqual(notice.cards?.first?.page, "phone")
+        XCTAssertEqual(notice.card?.page, "phone")
+        XCTAssertTrue(model.conversation.notices.isEmpty)
         XCTAssertTrue(model.announcedAttentionIDs.contains("phone-pair:r1"))
         model.receiveBusEvent(["topic": "phone.pair_requested", "data": asking])     // once per request
-        XCTAssertEqual(model.conversation.notices.filter { $0.id == "phone-pair-r1" }.count, 1)
+        XCTAssertEqual(model.alerts.filter { $0.id == "phone-pair-r1" }.count, 1)
     }
 
     // decision: PHN-580
@@ -376,28 +378,31 @@ final class PhoneSettingsTests: XCTestCase {
 
     // decision: GATE-618
     // decision: PHN-593
+    // decision: APP-1107
     func testAreYouBackTurnsIntoTheWelcomeInPlaceAndASilentHoldLeavesNothing() {
         let welcome = "Welcome back. FERB will ask before it uses your screen again: a task that needs it waits for your Yes."
         let checking: [String: Any] = ["state": "checking", "title": "Are you back?", "since": "S", "hold": 1,
                                        "line": "FERB stopped using your screen for a moment. If you're here, just move the pointer or press a key."]
-        var chat = ConversationArchive()
-        XCTAssertTrue(ScreenBackLine.apply(checking, to: &chat))
-        XCTAssertEqual(chat.notices.count, 1)
-        XCTAssertTrue(chat.notices[0].text.hasPrefix("Are you back? FERB stopped using your screen"))
+        // an alert above the composer now (APP-1107), never a line kept in the chat
+        var alerts: [OwnerAlert] = []
+        XCTAssertTrue(ScreenBackLine.apply(checking, to: &alerts))
+        XCTAssertEqual(alerts.count, 1)
+        XCTAssertTrue(alerts[0].text.hasPrefix("Are you back? FERB stopped using your screen"))
+        XCTAssertFalse(alerts[0].fromDaemon)
         // input during the hold: the same line now welcomes him (no second line, no vanishing)
         XCTAssertTrue(ScreenBackLine.apply(["state": "ended", "why": "owner_input", "since": "S", "hold": 1,
-                                            "during_hold": true, "line": welcome], to: &chat))
-        XCTAssertEqual(chat.notices.map(\.text), [welcome])
+                                            "during_hold": true, "line": welcome], to: &alerts))
+        XCTAssertEqual(alerts.map(\.text), [welcome])
         // a clear return with no question: the daemon's own notice says it, this adds nothing
-        var clear = ConversationArchive()
+        var clear: [OwnerAlert] = []
         XCTAssertFalse(ScreenBackLine.apply(["state": "ended", "why": "owner_input", "since": "S", "hold": 0,
                                              "during_hold": false, "line": welcome], to: &clear))
-        XCTAssertTrue(clear.notices.isEmpty)
+        XCTAssertTrue(clear.isEmpty)
         // a hold that passes in silence: the line goes and nothing follows
-        var quiet = ConversationArchive()
+        var quiet: [OwnerAlert] = []
         XCTAssertTrue(ScreenBackLine.apply(checking, to: &quiet))
         XCTAssertTrue(ScreenBackLine.apply(["state": "resumed", "since": "S", "hold": 1], to: &quiet))
-        XCTAssertTrue(quiet.notices.isEmpty)
+        XCTAssertTrue(quiet.isEmpty)
         for line in [welcome, checking["line"] as! String] { XCTAssertFalse(line.contains("AI"), line) }
     }
 

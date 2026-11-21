@@ -2739,3 +2739,39 @@ fn every_entry_of_a_turn_names_the_client_that_sent_it() {
         .expect("the task's end");
     assert_eq!(answer.entry.client_id.as_deref(), Some("phone-1"));
 }
+
+// decision: APP-1105, APP-1106 — FERB's alerts never become chat entries (shown for a while on every device instead);
+// any other notice still does, once
+#[test]
+fn an_alert_makes_no_entry_another_notice_does() {
+    let mut p = ChatProjector::new("owner", 1);
+    let mut seams = Fixed {
+        at: "2026-11-21T10:21:29+05:30".into(),
+        ids: 0,
+        seq: 0,
+    };
+    let mut made = |data: Value| {
+        p.apply(
+            Input::Bus {
+                topic: "attention.notice",
+                data: &data,
+            },
+            &mut seams,
+        )
+        .changes
+    };
+    let hot = json!({"id": "alert:insomnia-warning-w1", "text": "Your Mac is getting hot.", "quotes": [],
+                     "at": "2026-11-21T10:21:29+05:30", "alert": true});
+    assert!(made(hot).is_empty());
+    // an older daemon's alert, named only by its id
+    assert!(made(
+        json!({"id": "set-aside-ferb.db", "text": "FERB couldn't read its database.", "quotes": []})
+    )
+    .is_empty());
+    // marked, whatever its id
+    assert!(made(json!({"id": "n-9", "text": "said", "quotes": [], "alert": true})).is_empty());
+    let kept =
+        made(json!({"id": "memory-always-on-1", "text": "Now always on: tea", "quotes": []}));
+    assert_eq!(kept.len(), 1);
+    assert_eq!(kept[0].entry.kind, EntryKind::Notice);
+}

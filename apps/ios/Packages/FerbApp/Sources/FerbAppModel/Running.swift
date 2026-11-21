@@ -26,8 +26,13 @@ public struct RunningUi: Equatable, Sendable {
 public enum RunningModel {
     /// FERB.app's work row from the chat's live state: a turn that became a task runs; one waiting on the owner's answer
     /// to go on is paused, one only waiting for a time is kept going (L31). Nil when nothing runs, waits or is kept.
-    public static func of(_ view: TranscriptView?, mac: [TaskRow]? = nil) -> RunningUi? {
-        if view == nil && mac == nil { return nil }
+    ///
+    /// The tasks this chat doesn't show (a schedule's run) come from the Mac's live status (`status.running`, pushed by
+    /// the link whenever it changes), never from the Tasks tab's last `tasks.list` (`mac`): that list is read again only
+    /// while the Tasks tab shows, so a task that was running when it was read stayed "1 active task" after it finished
+    /// (kb PHN-792, the owner's report of 2026-11-21). `mac` only says whether such a task is paused or waits for him.
+    public static func of(_ view: TranscriptView?, status: PhoneStatus? = nil, mac: [TaskRow]? = nil) -> RunningUi? {
+        if view == nil && status == nil { return nil }
         var turns: [String: TurnItem] = [:]
         for item in view?.items ?? [] { if case .turn(let t) = item { turns[t.entry] = t } }
         var tasks: [RunTask] = []
@@ -48,14 +53,16 @@ public enum RunningModel {
                                      line: line, waiting: l.state == "needs_you", paused: l.state == "paused"))
             }
         }
-        // FERB.app counts every running task, not only this chat's: the Mac's own list (the Tasks tab's `tasks.list`, as
-        // last read) adds the ones started elsewhere (a schedule's run); no new call is made for it
+        // FERB.app counts every running task, not only this chat's: the Mac's live status adds the ones started elsewhere
         let here = Set(tasks.compactMap(\.taskId))
-        for r in mac ?? [] where !here.contains(r.taskId) && ["working", "running", "needs_user", "paused", "queued"].contains(r.status) {
-            if r.status == "paused" { paused += 1 } else { active += 1 }
+        let asking = Set((status?.questions ?? []).compactMap(\.taskId))
+        for r in status?.running ?? [] where !r.taskId.isEmpty && !here.contains(r.taskId) {
+            let listed = mac?.first { $0.taskId == r.taskId }?.status
+            let isPaused = listed == "paused"
+            if isPaused { paused += 1 } else { active += 1 }
             let title = WorkModel.oneLine(r.name.isEmpty ? r.goal : r.name)
             tasks.append(RunTask(entry: "mac:\(r.taskId)", taskId: r.taskId, title: title.isEmpty ? "A task from earlier" : title,
-                                 line: "", waiting: r.status == "needs_user", paused: r.status == "paused"))
+                                 line: "", waiting: listed == "needs_user" || asking.contains(r.taskId), paused: isPaused))
         }
         guard active + paused + kept > 0 else { return nil }
         return RunningUi(words: .of(active: active, paused: paused, kept: kept), running: active > 0,

@@ -6,6 +6,8 @@ import com.ferb.design.components.MicState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -182,7 +184,8 @@ fun Main(vm: FerbViewModel, ui: UiState, tab: PhoneTab, home: Boolean, insets: P
  * from the Files tab beside them; the microphone, held, puts the owner's spoken words in the box (PHN-603).
  */
 @Composable
-private fun Composer(vm: FerbViewModel, draft: String, placeholder: String, modifier: Modifier, host: Host, running: com.ferb.app.model.RunningUi? = null) {
+private fun Composer(vm: FerbViewModel, draft: String, placeholder: String, modifier: Modifier, host: Host, running: com.ferb.app.model.RunningUi? = null,
+                     alert: com.ferb.mobile.StatusAlert? = null, alertCount: Int = 0) {
     val chips by vm.outgoing.chips.collectAsState()
     val ready by vm.transfers.ready.collectAsState()
     val ink = LocalSkyInk.current
@@ -209,6 +212,7 @@ private fun Composer(vm: FerbViewModel, draft: String, placeholder: String, modi
         if (micText != null) {
             PhoneText(micText, 13.5f, FerbType.Medium, ink.low, Modifier.padding(horizontal = 6.dp).semantics { liveRegion = LiveRegionMode.Polite })
         }
+        alert?.let { AlertLine(it, alertCount, onDismiss = { vm.dismissAlert(it.id) }) }
         running?.let { WorkRowFor(vm, it) }
         val onMacText = stringResource(R.string.attach_on_mac)
         val focus = remember { androidx.compose.ui.focus.FocusRequester() }
@@ -253,11 +257,30 @@ private fun Home(vm: FerbViewModel, ui: UiState, draft: String, insets: PhoneIns
         onTab = onTab, onProfile = onProfile,
         onRow = { i -> away.getOrNull(i)?.let { open(vm, it) } },
         onMore = { vm.choose(PhoneTab.TASKS) },
-        composer = { m -> Composer(vm, draft, texts.placeholder, m, host, ui.running) },
+        composer = { m -> Composer(vm, draft, texts.placeholder, m, host, ui.running, ui.alert, ui.alertCount) },
         // a new day with nothing said yet: earlier days are one tap away (kb PHN-626)
         earlier = if (ui.rows.any { it !is ChatRow.Older }) stringResource(R.string.older_available) else null,
         onEarlier = { vm.openChat() },
     )
+}
+
+/**
+ * FERB's newest alert above the message box (kb APP-1105, PHN-791; FERB.app ChatBody.swift AlertLineView): the Mac
+ * getting hot, insomnia's end, a database set aside… shown here, never in the chat. "N alerts" when more wait; × puts it
+ * away on every device, and the one before it shows.
+ */
+@Composable
+private fun AlertLine(alert: com.ferb.mobile.StatusAlert, count: Int, onDismiss: () -> Unit) {
+    val ink = LocalSkyInk.current
+    val dismiss = stringResource(R.string.alert_dismiss)
+    Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp).testTag("alert-line"), verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FerbIcon(FerbIcons.alert, 13f, Ink.amber, Modifier.padding(top = 1.dp))
+        PhoneText(alert.text, 13f, FerbType.Regular, ink.low, Modifier.weight(1f), maxLines = 2)
+        if (count > 1) PhoneText(stringResource(R.string.alerts_count, count), 12f, FerbType.Regular, ink.low)
+        Box(Modifier.size(28.dp).clickable(onClickLabel = dismiss, onClick = onDismiss).semantics { contentDescription = dismiss },
+            contentAlignment = Alignment.Center) { FerbIcon(FerbIcons.close, 12f, ink.low) }
+    }
 }
 
 /**
@@ -383,7 +406,8 @@ private fun Chat(vm: FerbViewModel, ui: UiState, draft: String, insets: PhoneIns
             ChatOverlays(vm, list, rows, follow, earlier, today)
           }
         }
-        Composer(vm, draft, stringResource(R.string.chat_placeholder), Modifier.paddingOverBottom(insets, 8.dp, start = 16.dp, end = 16.dp), host, ui.running)
+        Composer(vm, draft, stringResource(R.string.chat_placeholder), Modifier.paddingOverBottom(insets, 8.dp, start = 16.dp, end = 16.dp), host, ui.running,
+            ui.alert, ui.alertCount)
     }
 }
 

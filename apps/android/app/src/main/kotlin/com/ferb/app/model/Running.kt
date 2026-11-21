@@ -7,6 +7,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import com.ferb.core.Outcome
 import com.ferb.design.components.WorkWords
 import com.ferb.mobile.Item
+import com.ferb.mobile.PhoneStatus
 import com.ferb.mobile.PreviewFrame
 import com.ferb.mobile.PreviewSink
 import com.ferb.mobile.TranscriptView
@@ -41,9 +42,14 @@ object RunningModel {
      * FERB.app's work row from the chat's live state: a turn that became a task and has no answer yet runs; one that
      * waits on the owner's answer to go on is paused, one that only waits for a time is kept going (L31), one with an
      * open question waits for him (its line then amber, "waiting for you"). Null when nothing runs, waits or is kept.
+     *
+     * The tasks this chat doesn't show (a schedule's run) come from the Mac's live status ([status]'s `running`, pushed by
+     * the link whenever it changes), never from the Tasks tab's last `tasks.list` ([mac]): that list is read again only
+     * while the Tasks tab shows, so a task that was running when it was read stayed "1 active task" after it finished
+     * (kb PHN-792, the owner's report of 2026-11-21). [mac] only says whether such a task is paused or waits for him.
      */
-    fun of(view: TranscriptView?, mac: List<com.ferb.mobile.TaskRow>? = null): RunningUi? {
-        if (view == null && mac == null) return null
+    fun of(view: TranscriptView?, status: PhoneStatus? = null, mac: List<com.ferb.mobile.TaskRow>? = null): RunningUi? {
+        if (view == null && status == null) return null
         val turns = view?.items.orEmpty().mapNotNull { (it as? Item.Turn)?.turn }.associateBy { it.entry }
         val tasks = ArrayList<RunTask>()
         var active = 0
@@ -64,14 +70,17 @@ object RunningModel {
             val title = WorkModel.title(t).ifEmpty { "A task from earlier" }
             if (l.state != "sleeping") tasks.add(RunTask(l.entry, t.taskId ?: t.card?.taskId ?: t.checklist?.taskId, title, line, l.state == "needs_you", l.state == "paused"))
         }
-        // FERB.app counts every running task, not only this chat's: the Mac's own list (the Tasks tab's `tasks.list`, as
-        // last read) adds the ones started elsewhere (a schedule's run); no new call is made for it
+        // FERB.app counts every running task, not only this chat's: the Mac's live status adds the ones started elsewhere
         val here = tasks.mapNotNullTo(HashSet()) { it.taskId }
-        for (r in mac.orEmpty()) {
-            if (r.taskId in here || r.status !in setOf("working", "running", "needs_user", "paused", "queued")) continue
-            when (r.status) { "paused" -> paused++; else -> active++ }
+        val asking = status?.questions.orEmpty().mapNotNullTo(HashSet()) { it.taskId }
+        for (r in status?.running.orEmpty()) {
+            if (r.taskId.isEmpty() || r.taskId in here) continue
+            val listed = mac?.firstOrNull { it.taskId == r.taskId }?.status
+            val isPaused = listed == "paused"
+            val waiting = listed == "needs_user" || r.taskId in asking
+            if (isPaused) paused++ else active++
             val title = WorkModel.oneLine(r.name.ifEmpty { r.goal }).ifEmpty { "A task from earlier" }
-            tasks.add(RunTask("mac:${r.taskId}", r.taskId, title, "", r.status == "needs_user", r.status == "paused"))
+            tasks.add(RunTask("mac:${r.taskId}", r.taskId, title, "", waiting, isPaused))
         }
         if (active + paused + kept == 0) return null
         return RunningUi(WorkWords.of(active, paused, kept), active > 0, since?.let { ((it + REFERENCE_UNIX) * 1000).toLong() }, tasks)

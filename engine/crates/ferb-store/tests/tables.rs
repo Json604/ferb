@@ -832,6 +832,8 @@ fn a_home_is_checked_and_set_aside_as_python_does() {
     let seams = salvage::Seams {
         now: &now,
         toml_error: &toml_error,
+        pause: &|_| {},
+        rebuilt: &|_, _| panic!("the fixture's homes have no damaged search index"),
     };
     let listing = || -> Value {
         fn walk(folder: &Path, out: &mut Vec<PathBuf>) {

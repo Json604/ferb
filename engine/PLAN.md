@@ -436,3 +436,4 @@ also worth fixing in the Python build on `main`, since that build is installed t
 | forget question in chat | FERB's own heading tagged "(from the task)" | fixed in Rust (50) |
 | `ferb/act/mac/tools.py:348` | A launched app looked for once, too early, goes unrecorded | fixed in Rust (47) |
 | `ferb/daemon/areas/browsers.py` `_pair_one` | A pairing page missed by the profile is never opened again; the wait runs out its minute | fixed in Rust (81) |
+| `ferb/store/salvage.py` `damage` | quick_check and integrity_check on one connection: FTS5 reads the first statement's segment list against a writer's newer rows and reports a healthy index corrupt | fixed in Rust (158) |

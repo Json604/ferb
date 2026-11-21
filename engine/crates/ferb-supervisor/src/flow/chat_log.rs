@@ -442,6 +442,7 @@ impl ChatLog {
     /// (`resumed`: the trees that will run again).
     pub fn after_restart(&self, inner: &Inner, resumed: &BTreeSet<String>) {
         let _ = self.run(inner, |conn, ctx| {
+            ctx.hide_alerts(conn)?;
             ctx.backstop(conn)?;
             for conversation in store::conversations(conn)? {
                 ctx.projector(conn, &conversation)?;
@@ -882,6 +883,52 @@ impl Ctx<'_> {
             }
         }
         Ok(None)
+    }
+
+    /// decision: APP-1106 — the alerts an earlier build kept as notice entries (or imported with FERB.app's saved chat)
+    /// are marked so (`"alert": true` in the body, a revision: nothing is deleted), so every client stops drawing them
+    /// in the chat; runs before any projector loads.
+    fn hide_alerts(&mut self, conn: &Connection) -> Result<(), ferb_store::Error> {
+        let ids: Vec<String> = {
+            let mut q = conn.prepare(
+                "SELECT id FROM chat_entries WHERE kind IN ('notice', 'legacy') AND deleted = 0 ORDER BY seq",
+            )?;
+            let rows = q
+                .query_map([], |r| r.get(0))?
+                .collect::<Result<Vec<_>, _>>()?;
+            rows
+        };
+        for id in ids {
+            let Some(mut e) = store::get(conn, &id)? else {
+                continue;
+            };
+            // a notice by its ref; an imported one (FERB.app's saved notice) by the id it saved
+            let id_of = match e.kind {
+                ferb_core::chat_entry::EntryKind::Notice => e.reference.clone(),
+                _ if e.body.get("kind").and_then(Value::as_str) == Some("notice") => e
+                    .body
+                    .pointer("/body/id")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                _ => None,
+            };
+            if !id_of
+                .as_deref()
+                .is_some_and(ferb_core::chat_entry::is_alert)
+                || ferb_core::chat_entry::is_alert_body(&e.body)
+            {
+                continue;
+            }
+            let Value::Object(body) = &mut e.body else {
+                continue;
+            };
+            body.insert("alert".into(), Value::Bool(true));
+            let conversation = e.conversation_id.clone();
+            let made = store::revise(conn, e, &self.inner.now_iso())?;
+            self.made
+                .push((conversation, Watched::Change(Box::new(made))));
+        }
+        Ok(())
     }
 
     /// The journal backstop (a crash between a chat journal row and its entry): every `chat.ack` after the stage-2

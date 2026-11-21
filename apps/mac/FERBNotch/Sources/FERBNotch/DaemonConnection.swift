@@ -120,7 +120,7 @@ extension NotchModel {
             let results = status["results"] as? [[String: Any]] ?? []
             for result in results { receiveOutcome(result, announce: false, recordEvent: false) }
             acknowledgeResults(results.compactMap { $0["task_id"] as? String })
-            receiveNotices(status["notices"] as? [[String: Any]] ?? [])
+            receiveNotices(status["notices"] as? [[String: Any]] ?? [], complete: true)
             // A newer event wins over this older request's snapshot. The existing
             // reconciliation cadence will fetch a fresh snapshot next time.
             guard taskStateRevision == snapshotRevision else { return }
@@ -685,6 +685,10 @@ extension NotchModel {
             else { standingWork.removeValue(forKey: taskID) }
         case "attention.notice":
             receiveNotices([data])
+        case "attention.acked":
+            // APP-1107: alerts put away on another device (a phone) go here too
+            let gone = Set(data["ids"] as? [String] ?? [])
+            if !gone.isEmpty { changeAlerts { $0.removeAll { gone.contains($0.id) } } }
         case "bus.overflow", "bus.dropped":
             // Events were lost; re-read the state they would have changed.
             Task { await refreshDaemonStatus() }
@@ -841,11 +845,26 @@ extension NotchModel {
     }
 
     /// Notices go into the chat (L9) and are saved before they are acknowledged, so a shown notice is never lost. Every
-    /// delivered id is acknowledged, including one shown earlier whose acknowledgement didn't arrive.
-    func receiveNotices(_ rows: [[String: Any]], soundIDs: [String]? = nil) {
+    /// delivered id is acknowledged, including one shown earlier whose acknowledgement didn't arrive. FERB's alerts
+    /// (APP-1105, APP-1107) never go into the chat: they show above the composer until the owner puts them away on any
+    /// device, and only that acknowledges them. `complete`: the rows are every notice not yet seen (`chat.status`), so
+    /// an alert put away elsewhere leaves.
+    func receiveNotices(_ rows: [[String: Any]], soundIDs: [String]? = nil, complete: Bool = false) {
         var ids: [String] = [], added: [String] = [], bannered = false
+        var alertIDs = Set<String>(), shown = alerts
         for row in rows {
             guard let id = row["id"] as? String, !id.isEmpty else { continue }
+            if OwnerAlerts.isAlert(row: row) {
+                alertIDs.insert(id)
+                let isNew = !shown.contains { $0.id == id }
+                if OwnerAlerts.show(OwnerAlert(id: id, text: row["text"] as? String ?? "",
+                                               at: LiveProgress.time(row["at"]) ?? Date(), fromDaemon: true), in: &shown),
+                   isNew {
+                    added.append(id)
+                    bannered = bannered || row["banner"] as? Bool == true
+                }
+                continue
+            }
             // A notice with nothing to say is still acknowledged, so it isn't delivered again on every read.
             guard let text = row["text"] as? String, !text.isEmpty else { ids.append(id); continue }
             let quotes = (row["quotes"] as? [[String: Any]] ?? []).compactMap { quote -> NoticeQuote? in
@@ -862,14 +881,45 @@ extension NotchModel {
             }
             ids.append(id)
         }
-        guard !ids.isEmpty else { return }
+        if complete { OwnerAlerts.settle(daemon: alertIDs, in: &shown) }
+        let newAlert = shown.contains { alert in !alerts.contains { $0.id == alert.id } }
+        changeAlerts { $0 = shown }
+        guard !ids.isEmpty || newAlert else { return }
         // One notification sound for the batch (a restart's backlog is one sound), carried by a banner when it has one.
         feedback.notification(for: added.isEmpty ? [] : soundIDs ?? added, bannerMayFollow: bannered)
         if !added.isEmpty {
             saveConversation()
             onBackgroundChange?(true)
         }
+        guard !ids.isEmpty else { return }
         Task { _ = try? await rpc.call("attention.ack", params: ["ids": ids]) }
+    }
+
+    /// APP-1107: the alerts above the composer, changed only when they differ (a change redraws the chat).
+    func changeAlerts(_ change: (inout [OwnerAlert]) -> Void) {
+        var next = alerts
+        change(&next)
+        guard next != alerts else { return }
+        alerts = next
+        onBackgroundChange?(true)
+    }
+
+    /// FERB.app's own alert (APP-1107): an update installed or that failed, a restart put off, insomnia's end, a phone
+    /// asking to pair; for this run, until put away. The same id says new words in place.
+    func showOwnAlert(id: String, text: String, card: ResultCard? = nil) {
+        var next = alerts
+        let isNew = !next.contains { $0.id == id }
+        guard OwnerAlerts.show(OwnerAlert(id: id, text: text, fromDaemon: false, card: card), in: &next) else { return }
+        changeAlerts { $0 = next }
+        if isNew { feedback.notification(for: [id], bannerMayFollow: false) }
+    }
+
+    /// The owner put an alert away (its ×, APP-1107): gone here, and a daemon's on every device (`attention.ack`).
+    func dismissAlert(_ id: String) {
+        let alert = alerts.first { $0.id == id }
+        changeAlerts { $0.removeAll { $0.id == id } }
+        guard alert?.fromDaemon == true else { return }
+        Task { _ = try? await rpc.call("attention.ack", params: ["ids": [id]]) }
     }
 
     /// The day's learning digest (`memory.learning {op: digest}`, the read `ferb chat` makes when it opens). It marks

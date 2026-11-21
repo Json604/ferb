@@ -54,6 +54,33 @@ final class FeaturesTests: XCTestCase {
         await eventually("the Mac's name") { vm.ui.mac?.name == "Studio Mac" }
     }
 
+    /// FERB's alerts (the owner, 2026-11-21): above the message box, the newest first, never in the chat; × puts one away.
+    // decision: APP-1105, PHN-791
+    func testTheNewestAlertShowsAboveTheBoxAndDismissingItHidesItAtOnceAndTellsTheMac() async {
+        session.unlocked()
+        phone.view = emptyView()
+        phone.status = PhoneStatus(locked: false, words: true, stopped: false, questions: [], running: [], results: [], screenUse: nil,
+                                   alerts: [StatusAlert(id: "alert:set-aside-ferb.db", text: "FERB couldn't read its database.", at: nil),
+                                            StatusAlert(id: "alert:insomnia-warning-hot", text: "Your Mac is getting hot.", at: nil)])
+        let vm = rig.model()
+        await vm.refresh()?.value
+        await eventually("the alert") { vm.ui.alert != nil }
+        XCTAssertEqual(vm.ui.alert?.id, "alert:insomnia-warning-hot")
+        XCTAssertEqual(vm.ui.alertCount, 2)
+        XCTAssertTrue(vm.rows.isEmpty, "nothing of it in the chat")
+        vm.dismissAlert("alert:insomnia-warning-hot")
+        XCTAssertEqual(vm.ui.alert?.id, "alert:set-aside-ferb.db")          // at once, before the Mac answers
+        XCTAssertEqual(vm.ui.alertCount, 1)
+        await eventually("the Mac told") { phone.dismissed == ["alert:insomnia-warning-hot"] }
+        // the next status, still listing it, doesn't bring it back; once the Mac drops both, none shows
+        await vm.refresh()?.value
+        XCTAssertEqual(vm.ui.alert?.id, "alert:set-aside-ferb.db")
+        phone.status = phoneStatus()
+        await vm.refresh()?.value
+        await eventually("no alert") { vm.ui.alert == nil }
+        XCTAssertEqual(vm.ui.alertCount, 0)
+    }
+
     // decision: PHN-125, DMN-1
     func testStopEverythingAfterAPlainConfirmationWithNoPrompt() async {
         session.unlocked()

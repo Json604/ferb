@@ -4913,6 +4913,7 @@ request = "From the phone turn on Keep my Mac working (cover). At the Mac, if ma
 pass = "With the helper allowed: the reply comes while the lid is closed, the video is still playing on reopening and no lock screen shows; pmset -g shows SleepDisabled 1 during the mode and 0 after. Without it: the phone's warning said the Mac sleeps on battery (or locks and pauses plugged in); when the link drops the phone says it may be asleep and the waiting message says it goes when it wakes; after reopening FERB says once when it slept and why."
 decisions = ["DMN-613", "DMN-614", "DMN-615", "DMN-616", "DMN-617", "APP-1101", "APP-1102", "APP-1103", "APP-1104", "PHN-777", "PHN-778", "PHN-779", "PHN-788", "PHN-789", "PHN-790"]
 sitting = "after this build is installed"
+result = "passed 2026-11-21 build 202611210431, helper approved; owner: \"the insomnia tests all passed\""
 
 [LIVE-1158]
 title = "A browser task in a Chrome profile with no window leaves the owner on his Space"

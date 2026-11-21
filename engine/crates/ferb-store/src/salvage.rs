@@ -7,7 +7,17 @@
 //! unreadable, a disk error) is returned as it is: never a reason to move anything.
 //!
 //! Seams (`Seams`): the clock (`datetime.now`), and whether `config.toml` parses, which is the
-//! config port's to say (Python asks `tomlkit`; its message is shown to the owner).
+//! config port's to say (Python asks `tomlkit`; its message is shown to the owner); the pause
+//! before damage is checked again, and who is told of a search index rebuilt in place.
+//!
+//! Fixed against Python (decisions: STORE-429, STORE-430, STORE-431; 2026-11-21, the owner's
+//! database set aside twice while it was healthy): every check runs on its own connection, one
+//! statement, so it reads one snapshot (FTS5 keeps a table's segment list from the first
+//! statement of a connection and read it against the second's rows, reporting a database another
+//! process was writing as corrupt); damage counts only when a second check after a pause finds it
+//! again; damage only in full-text indexes (data derived from the tables) is rebuilt in place,
+//! never a reason to move the database; and `ferb setup` never checks the database (Python's
+//! setup didn't either: only `check_setup`).
 
 use std::{
     fs,
@@ -43,6 +53,14 @@ const SQLITE_CORRUPT: i32 = 11;
 const SQLITE_NOTADB: i32 = 26;
 /// Problems a check reports (and FERB keeps as the reason) (`salvage.py:42`).
 const FOUND_SHOWN: u32 = 5;
+/// Problems read to tell whether damage is only in full-text indexes; a check that reports this
+/// many may have more, so it isn't (decision: STORE-431).
+const FOUND_READ: usize = 100;
+/// How long FERB waits before it checks damage again (decision: STORE-430).
+pub const RECHECK_AFTER: Duration = Duration::from_secs(2);
+/// The full-text modules whose indexes are data derived from the tables, rebuilt by SQLite's
+/// `'rebuild'` command (decision: STORE-431).
+const FTS_MODULES: [&str; 3] = ["fts3", "fts4", "fts5"];
 
 /// One move, as `set-aside.json` and the journal keep it: `file`, `moved_to`, `why`, `at`.
 pub type Entry = Map<String, Value>;
@@ -54,6 +72,11 @@ pub struct Seams<'a> {
     /// Why `config.toml`'s text doesn't parse as TOML (the parser's message), or `None` when it
     /// does (`tomlkit.parse`, `salvage.py:65`).
     pub toml_error: &'a dyn Fn(&str) -> Option<String>,
+    /// `thread::sleep`: the pause before damage found is checked again (decision: STORE-430).
+    pub pause: &'a dyn Fn(Duration),
+    /// Told of full-text indexes rebuilt in place (the tables, then the damage SQLite reported),
+    /// for the daemon's journal (decision: STORE-431).
+    pub rebuilt: &'a dyn Fn(&[String], &str),
 }
 
 /// What the owner reads for each file FERB may set aside (`salvage.py:39-40`).
@@ -84,6 +107,15 @@ pub fn check_home(home: &Path, build: &str, seams: &Seams<'_>) -> Result<Vec<Ent
     let mut moved = check_store(home, build, seams)?;
     moved.extend(check_files(home, seams)?);
     Ok(moved)
+}
+
+/// `ferb setup`'s check (the Python CLI's, `ferb/cli/__init__.py:223-231`; decisions: STORE-1,
+/// STORE-3, STORE-429): a database a newer FERB migrated refuses the setup (`NewerStore`, nothing
+/// changed), then the owner's files. It never checks or moves the database: setup runs while the
+/// daemon may be writing it, and the daemon checks it at its start, alone (under its lock).
+pub fn check_setup(home: &Path, seams: &Seams<'_>) -> Result<Vec<Entry>> {
+    refuse_newer(home)?;
+    check_files(home, seams)
 }
 
 /// `_short` (`salvage.py:228-229`) of an error's text; `name` stands for the error's type when
@@ -134,28 +166,45 @@ pub fn check_files(home: &Path, seams: &Seams<'_>) -> Result<Vec<Entry>> {
     Ok(moved)
 }
 
-/// `check_store` (`salvage.py:83-96`; decision: STORE-4): ferb.db kept when SQLite's check
-/// finds nothing; set aside with its WAL when it finds damage; `NewerStore` when a newer FERB
-/// migrated it. `build`: this FERB's build, which runs the full check once ("" for none).
+/// `check_store` (`salvage.py:83-96`; decisions: STORE-4, STORE-430, STORE-431): ferb.db kept
+/// when SQLite's check finds nothing; set aside with its WAL when it finds damage that a second
+/// check after a pause finds again and that isn't only in full-text indexes (those are rebuilt in
+/// place and checked again); `NewerStore` when a newer FERB migrated it. `build`: this FERB's
+/// build, which runs the full check once ("" for none).
 pub fn check_store(home: &Path, build: &str, seams: &Seams<'_>) -> Result<Vec<Entry>> {
     let path = home.join(STORE);
     if !path.is_file() || fs::metadata(&path)?.len() == 0 {
         return Ok(Vec::new()); // nothing yet: Db::open makes it
     }
     let full = !build.is_empty() && checked(home).as_deref() != Some(build);
-    if let Some(found) = damage(&path, full)? {
-        return Ok(vec![set_aside(
-            home,
-            STORE,
-            &found,
-            seams.now,
-            &STORE_COMPANIONS,
-        )?]);
+    let passed = |checked_fully: bool| -> Result<Vec<Entry>> {
+        if checked_fully && !build.is_empty() {
+            mark_checked(home, build, seams.now)?;
+        }
+        Ok(Vec::new())
+    };
+    if damage(&path, full)?.is_none() {
+        return passed(full);
     }
-    if full {
-        mark_checked(home, build, seams.now)?;
+    // decision: STORE-430: only damage a second check finds, on new connections, counts
+    (seams.pause)(RECHECK_AFTER);
+    let Some(found) = damage(&path, true)? else {
+        return passed(true);
+    };
+    // decision: STORE-431: damage only in full-text indexes is rebuilt, never a set-aside
+    if let Some(tables) = only_in_indexes(&path)? {
+        if rebuild(&path, &tables)? && damage(&path, true)?.is_none() {
+            (seams.rebuilt)(&tables, &found);
+            return passed(true);
+        }
     }
-    Ok(Vec::new())
+    Ok(vec![set_aside(
+        home,
+        STORE,
+        &found,
+        seams.now,
+        &STORE_COMPANIONS,
+    )?])
 }
 
 /// `refuse_newer` (`salvage.py:99-106`; decision: STORE-3): setup's check, before it installs
@@ -176,6 +225,12 @@ pub fn refuse_newer(home: &Path) -> Result<()> {
 /// `damage` (`salvage.py:109-123`): what SQLite finds wrong with the database (its own words),
 /// or `None` when nothing. quick_check; integrity_check when `full`, and to confirm a failed
 /// quick_check. `NewerStore`, and any error that isn't damage, is returned as the error.
+///
+/// Each check is one statement on a connection of its own, so each reads one snapshot of a
+/// database another process may be writing. Fixed against Python, which ran both on one
+/// connection (decision: STORE-430): FTS5's own check keeps the segment list it read in the first
+/// statement and reads it against the second statement's rows, so a segment merged in between
+/// reads as "fts5: corruption found reading blob" or "checksum mismatch" (seen 2026-11-21).
 pub fn damage(path: &Path, full: bool) -> Result<Option<String>> {
     if !path.is_file() {
         return Err(Error::Io(io::Error::new(
@@ -184,23 +239,18 @@ pub fn damage(path: &Path, full: bool) -> Result<Option<String>> {
         )));
     }
     let read = || -> Result<Option<String>> {
-        let conn = open(path)?;
-        let mut found = check(&conn, "quick_check")?;
+        let mut found = check(&open(path)?, "quick_check")?;
         if found.is_some() || full {
-            found = check(&conn, "integrity_check")?;
+            found = check(&open(path)?, "integrity_check")?;
         }
         if found.is_none() {
-            newer(&conn)?;
+            newer(&open(path)?)?;
         }
         Ok(found)
     };
     match read() {
         Err(Error::Sqlite(e)) => {
-            let code = match &e {
-                rusqlite::Error::SqliteFailure(failure, _) => failure.extended_code & 0xFF,
-                _ => 0,
-            };
-            if code == SQLITE_CORRUPT || code == SQLITE_NOTADB {
+            if is_damage(&e) {
                 let message = match &e {
                     rusqlite::Error::SqliteFailure(failure, text) => {
                         text.clone().unwrap_or_else(|| failure.to_string())
@@ -341,6 +391,119 @@ fn open(path: &Path) -> Result<Connection> {
     )?;
     conn.busy_timeout(Duration::from_millis(u64::from(BUSY_TIMEOUT_MS)))?;
     Ok(conn)
+}
+
+/// SQLite's primary result code says damage (CORRUPT, NOTADB), not a passing problem.
+fn is_damage(e: &rusqlite::Error) -> bool {
+    let code = match e {
+        rusqlite::Error::SqliteFailure(failure, _) => failure.extended_code & 0xFF,
+        _ => 0,
+    };
+    code == SQLITE_CORRUPT || code == SQLITE_NOTADB
+}
+
+/// What `PRAGMA integrity_check` (of `table` alone when given) reports, up to `limit` lines;
+/// empty when it says ok.
+fn problems(conn: &Connection, table: Option<&str>, limit: usize) -> Result<Vec<String>> {
+    let sql = match table {
+        Some(name) => format!("PRAGMA integrity_check('{}')", name.replace('\'', "''")),
+        None => format!("PRAGMA integrity_check({limit})"),
+    };
+    let mut statement = conn.prepare(&sql)?;
+    let rows: Vec<String> = statement
+        .query_map([], |r| r.get(0))?
+        .take(limit)
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(if rows == ["ok"] { Vec::new() } else { rows })
+}
+
+/// The database's full-text tables (decision: STORE-431): virtual tables whose module, as their
+/// `CREATE VIRTUAL TABLE ... USING <module>` names it, is FTS3, FTS4 or FTS5.
+fn fts_tables(conn: &Connection) -> Result<Vec<String>> {
+    let mut statement = conn.prepare(
+        "SELECT name, sql FROM sqlite_master WHERE type = 'table' AND sql LIKE 'CREATE VIRTUAL TABLE%' ORDER BY name",
+    )?;
+    let rows: Vec<(String, String)> = statement
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(rows
+        .into_iter()
+        .filter(|(_, sql)| {
+            let lower = sql.to_ascii_lowercase();
+            lower.find(" using ").is_some_and(|at| {
+                let module: String = lower[at + 7..]
+                    .trim_start()
+                    .chars()
+                    .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                    .collect();
+                FTS_MODULES.contains(&module.as_str())
+            })
+        })
+        .map(|(name, _)| name)
+        .collect())
+}
+
+/// The full-text tables to rebuild when every problem SQLite's check reports is one of theirs
+/// (each table checked alone, on connections of their own, reports exactly those lines);
+/// `None` when any problem is elsewhere (a table, an index, the file, a shadow table's pages),
+/// or SQLite can't tell (decision: STORE-431).
+fn only_in_indexes(path: &Path) -> Result<Option<Vec<String>>> {
+    let read = || -> Result<Option<Vec<String>>> {
+        let all = problems(&open(path)?, None, FOUND_READ)?;
+        if all.is_empty() || all.len() >= FOUND_READ {
+            return Ok(None);
+        }
+        let mut theirs = Vec::new();
+        let mut tables = Vec::new();
+        for table in fts_tables(&open(path)?)? {
+            let found = problems(&open(path)?, Some(&table), FOUND_READ)?;
+            if !found.is_empty() {
+                theirs.extend(found);
+                tables.push(table);
+            }
+        }
+        let every = all.iter().all(|line| theirs.contains(line));
+        Ok((every && !tables.is_empty()).then_some(tables))
+    };
+    match read() {
+        Err(Error::Sqlite(e)) if is_damage(&e) => Ok(None),
+        other => other,
+    }
+}
+
+/// SQLite's `'rebuild'` of each full-text table, from the rows it indexes, in one transaction
+/// on a read-write connection (decision: STORE-431). False when SQLite refuses for damage or
+/// another reason of the file's (the database is then set aside as before); a lock, I/O or
+/// permission error is returned as it is.
+fn rebuild(path: &Path, tables: &[String]) -> Result<bool> {
+    let run = || -> rusqlite::Result<()> {
+        let mut conn = Connection::open_with_flags(
+            path,
+            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        conn.busy_timeout(Duration::from_millis(u64::from(BUSY_TIMEOUT_MS)))?;
+        let tx = conn.transaction()?;
+        for table in tables {
+            let name = format!("\"{}\"", table.replace('"', "\"\""));
+            tx.execute_batch(&format!("INSERT INTO {name}({name}) VALUES('rebuild')"))?;
+        }
+        tx.commit()?;
+        conn.close().map_err(|(_, e)| e)
+    };
+    match run() {
+        Ok(()) => Ok(true),
+        Err(e) if is_damage(&e) || is_refusal(&e) => Ok(false),
+        Err(e) => Err(Error::Sqlite(e)),
+    }
+}
+
+/// SQLite's plain refusal (SQLITE_ERROR, e.g. a module that can't rebuild), not a lock, I/O or
+/// permission error.
+fn is_refusal(e: &rusqlite::Error) -> bool {
+    match e {
+        rusqlite::Error::SqliteFailure(failure, _) => failure.extended_code & 0xFF == 1,
+        _ => false,
+    }
 }
 
 /// `_check` (`salvage.py:196-198`).

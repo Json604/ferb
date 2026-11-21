@@ -307,6 +307,39 @@ impl Insomnia {
     }
 }
 
+/// One of FERB's alerts (kb APP-1105, APP-1106, PHN-791): the Mac getting hot, insomnia mode's end, a database set
+/// aside, … Shown for a while above the chat, never in it; it stays until the owner puts it away on any device
+/// ([`crate::remote::Remote::dismiss_alert`]), and goes from every device then. Only while words are given (a locked
+/// phone's status holds them back).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct StatusAlert {
+    /// The notice's id (what putting it away names).
+    pub id: String,
+    /// The Mac's words.
+    pub text: String,
+    /// When FERB said it (ISO 8601).
+    pub at: Option<String>,
+}
+
+impl StatusAlert {
+    /// The alerts among `chat.status`'s unseen notices (each marked `alert`), oldest first as the Mac lists them.
+    pub fn of(notices: &Value) -> Vec<StatusAlert> {
+        list(notices)
+            .iter()
+            .filter(|n| n["alert"].as_bool() == Some(true))
+            .filter_map(|n| {
+                let id = opt(&n["id"])?;
+                let text = opt(&n["text"])?;
+                Some(StatusAlert {
+                    id,
+                    text,
+                    at: opt(&n["at"]),
+                })
+            })
+            .collect()
+    }
+}
+
 /// What FERB has waiting, as this phone may see it now.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PhoneStatus {
@@ -323,6 +356,8 @@ pub struct PhoneStatus {
     pub screen_use: Option<ScreenUse>,
     /// Insomnia mode (APP-980..APP-985); none from a Mac that doesn't say (an older FERB).
     pub insomnia: Option<Insomnia>,
+    /// FERB's alerts not yet put away (APP-1106); empty while the words are held back.
+    pub alerts: Vec<StatusAlert>,
 }
 
 fn text(v: &Value) -> String {
@@ -403,6 +438,7 @@ impl PhoneStatus {
                 .get("insomnia")
                 .filter(|s| s.is_object())
                 .map(Insomnia::read),
+            alerts: StatusAlert::of(&v["notices"]),
         }
     }
 
@@ -557,5 +593,28 @@ mod tests {
             &json!({"on": true, "helper": {"state": "enabled", "error": null, "problem": null}}),
         );
         assert_eq!(fine.helper.unwrap().problem, None);
+    }
+
+    // decision: APP-1106, PHN-791
+    #[test]
+    fn alerts_are_read_from_the_unseen_notices_and_held_back_while_locked() {
+        let v = json!({"notices": [
+            {"id": "memory-always-on-1", "text": "Now always on: tea", "at": "a"},
+            {"id": "alert:insomnia-warning-hot", "text": "Your Mac is getting hot.", "at": "b", "alert": true},
+            {"id": "alert:set-aside-ferb.db", "text": "", "alert": true},
+        ]});
+        let st = PhoneStatus::read(&v);
+        assert_eq!(
+            st.alerts,
+            vec![StatusAlert {
+                id: "alert:insomnia-warning-hot".into(),
+                text: "Your Mac is getting hot.".into(),
+                at: Some("b".into()),
+            }]
+        );
+        // the gate keeps no field of a notice while the words are held: nothing to show
+        let locked = PhoneStatus::read(&json!({"locked": true, "words": false, "notices": [{}]}));
+        assert!(locked.alerts.is_empty());
+        assert!(PhoneStatus::read(&json!({})).alerts.is_empty());
     }
 }

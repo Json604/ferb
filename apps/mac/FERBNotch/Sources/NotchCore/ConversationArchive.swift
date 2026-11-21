@@ -525,6 +525,9 @@ public struct ConversationArchive: Codable, Equatable {
     public internal(set) var turns: [ConversationTurn] = []
     public internal(set) var replies: [ConversationReply] = []
     public internal(set) var notices: [ConversationNotice] = []
+    /// The notices the chat draws: FERB's alerts an earlier build saved here are kept but never drawn (APP-1105,
+    /// APP-1107).
+    public var shownNotices: [ConversationNotice] { notices.filter { !OwnerAlerts.isAlert(id: $0.id) } }
     /// Turns whose next answer is told elsewhere (ORCH-579: a task the owner stopped from a later message, whose reply
     /// tells the stop and what the task had found): that answer is filed on its own turn, never posted again below.
     private var toldElsewhere: Set<UUID> = []
@@ -616,7 +619,7 @@ public struct ConversationArchive: Codable, Equatable {
             items.append((reply.createdAt, items.count, reply.afterTurnID,
                           .reply(reply, answering: reply.said.map(answered.saying) ?? answered)))
         }
-        for notice in notices where include(notice.createdAt) {
+        for notice in shownNotices where include(notice.createdAt) {
             items.append((notice.createdAt, items.count, notice.afterTurnID, .notice(notice)))
         }
         return items.sorted { ($0.0, $0.1) < ($1.0, $1.1) }.map { ($0.2, $0.3) }
@@ -624,9 +627,9 @@ public struct ConversationArchive: Codable, Equatable {
 
     /// The id of the entry shown last: the newest turn, or the latest reply or notice shown after it.
     private var lastEntryID: UUID? {
-        guard let newest = turns.last else { return notices.last?.entryID }
+        guard let newest = turns.last else { return shownNotices.last?.entryID }
         let reply = replies.last { $0.afterTurnID == newest.id }
-        let notice = notices.last { $0.afterTurnID == newest.id }
+        let notice = shownNotices.last { $0.afterTurnID == newest.id }
         // In arrival order, as `transcript` shows them; at the same instant a notice follows a reply.
         if let reply, let notice { return notice.createdAt >= reply.createdAt ? notice.entryID : reply.id }
         return notice?.entryID ?? reply?.id ?? newest.id
@@ -644,7 +647,7 @@ public struct ConversationArchive: Codable, Equatable {
         guard reply.said != nil, reply.afterTurnID == reply.turnID,
               let turn = turns.first(where: { $0.id == reply.turnID }),
               Calendar.current.isDate(turn.createdAt, inSameDayAs: reply.createdAt) else { return false }
-        return !notices.contains { $0.afterTurnID == reply.turnID && $0.createdAt < reply.createdAt }
+        return !shownNotices.contains { $0.afterTurnID == reply.turnID && $0.createdAt < reply.createdAt }
     }
 
     /// Whether `answer` is a later answer of the turn at `index` (APP-914): the turn already shows FERB's own answer (not
@@ -753,12 +756,14 @@ public struct ConversationArchive: Codable, Equatable {
         turns.removeAll { $0.preview }
     }
 
-    /// Posts a FERB message no turn asked for, once per daemon id. Returns whether it is new to this chat.
+    /// Posts a FERB message no turn asked for, once per daemon id. Returns whether it is new to this chat. One of FERB's
+    /// alerts is never kept in the chat (APP-1107): it shows above the composer instead.
     @discardableResult
     public mutating func addNotice(id: String, text: String, quotes: [NoticeQuote] = [], tag: String? = "noticed",
                                    noticedAt: Date? = nil, proposals: [LearningProposal]? = nil, cards: [ResultCard]? = nil,
                                    at date: Date = Date()) -> Bool {
-        guard !id.isEmpty, !text.isEmpty, !notices.contains(where: { $0.id == id }) else { return false }
+        guard !id.isEmpty, !text.isEmpty, !OwnerAlerts.isAlert(id: id), !notices.contains(where: { $0.id == id })
+        else { return false }
         notices.append(ConversationNotice(id: id, entryID: UUID(), createdAt: date, noticedAt: noticedAt, text: text,
                                           quotes: quotes, tag: tag, afterTurnID: turns.last?.id, proposals: proposals,
                                           cards: cards))

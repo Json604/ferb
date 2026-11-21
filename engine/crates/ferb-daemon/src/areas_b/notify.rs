@@ -180,8 +180,20 @@ fn attention_ack(h: &Host, db: Option<&SharedDb>, params: &Map<String, Value>) -
         ferb_orchestrator::sql::Error::Value(text) => refusal(text),
         other => HandlerError::fault("DatabaseError", other.to_string()),
     })?;
+    drop(db);
+    // decision: APP-1106 — an alert seen or put away on one device goes from every other at once
+    let alerts: Vec<&String> = ids
+        .iter()
+        .filter(|id| ferb_core::chat_entry::is_alert(id))
+        .collect();
+    if !alerts.is_empty() {
+        h.publish(ACKED_TOPIC, json!({"ids": alerts}));
+    }
     ok(json!({"ok": true}))
 }
+
+/// The topic every client hears when alerts were seen or put away (APP-1106): `{"ids": [...]}`.
+pub const ACKED_TOPIC: &str = "attention.acked";
 
 /// `_notices_list`: every notice FERB posted, newest first, as clients render them, and whether one was shown.
 fn notices_list(h: &Host, db: Option<&SharedDb>) -> HandlerResult {
@@ -585,7 +597,9 @@ impl Notifier {
             .await?;
         Ok(posted.map(|n| {
             let text = n.get("text").map(ferb_py::value::py_str).unwrap_or(line);
-            (ident, text)
+            // the id it was stored under (an alert's, APP-1106)
+            let id = n.get("id").map(ferb_py::value::py_str).unwrap_or(ident);
+            (id, text)
         }))
     }
 
@@ -607,6 +621,16 @@ impl Notifier {
         let Some(db) = &self.notices else {
             return Ok(None);
         };
+        // decision: APP-1106 — an `alert` notice is named as one by its id, so every client shows it for a while and
+        // none keeps it in the chat (the store, the journal and the planner's conversation keep it as before)
+        let prefixed;
+        let ident =
+            if category == "alert" && !ident.starts_with(ferb_core::chat_entry::ALERT_PREFIX) {
+                prefixed = format!("{}{ident}", ferb_core::chat_entry::ALERT_PREFIX);
+                prefixed.as_str()
+            } else {
+                ident
+            };
         let notice = {
             let guard = db.lock().unwrap();
             let n = notices(&self.host, &guard);

@@ -94,6 +94,8 @@ public protocol PhoneApi: AnyObject {
     func settings() async -> Outcome<[SettingValue]>
     func setSetting(key: String, valueJson: String, signer: Signer) async -> Outcome<String>
     func tasks(limit: Int, before: String?) async -> Outcome<TaskPage>
+    /// Puts one of FERB's alerts away on every device (`attention.ack`, kb APP-1106, PHN-791).
+    func dismissAlert(id: String) async -> Outcome<Void>
     func macInfo() async -> Outcome<MacInfo>
     func cachedMacInfo() async -> Outcome<MacInfo?>
 
@@ -231,6 +233,7 @@ public final class LibraryPhone: PhoneApi {
         await phone.call { try $0.setSetting(key: key, valueJson: valueJson, signer: signer) }
     }
     public func tasks(limit: Int, before: String?) async -> Outcome<TaskPage> { await phone.call { try $0.tasks(limit: UInt32(limit), before: before) } }
+    public func dismissAlert(id: String) async -> Outcome<Void> { await phone.call { try $0.dismissAlert(id: id) } }
     public func macInfo() async -> Outcome<MacInfo> { await phone.call { try $0.macInfo() } }
     public func cachedMacInfo() async -> Outcome<MacInfo?> { await phone.call { try $0.cachedMacInfo() } }
     public func unregisteredKeys() async -> PublicKeys? { await phone.unregisteredKeys() }

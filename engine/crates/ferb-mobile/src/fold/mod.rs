@@ -566,6 +566,12 @@ fn saved_notice(m: &Map<String, Value>) -> Got<Notice> {
     Ok(n)
 }
 
+/// FERB's alerts (APP-1106): the engine marks them `"alert": true`; a notice made since names itself by its id.
+fn is_alert(e: &ChatEntry) -> bool {
+    e.body.get("alert").and_then(Value::as_bool) == Some(true)
+        || (e.kind == "notice" && e.r#ref.as_deref().is_some_and(|r| r.starts_with("alert:")))
+}
+
 fn read_legacy(body: &Map<String, Value>) -> Option<Stored> {
     let kind = s(body, "kind")?;
     let saved = body.get("body")?.as_object()?;
@@ -666,6 +672,9 @@ pub fn archive(newest: &[&ChatEntry]) -> Archive {
                 }
                 shown.insert(index, e);
             }
+            // decision: APP-1106 — an alert (marked by the engine, or named so by its id) is shown for a while, never
+            // in the chat
+            "notice" | "legacy" if is_alert(e) => {}
             "notice" => {
                 let at = stamp(&e.created_at);
                 let after = a.turns.last().map(|t| t.id.clone());
@@ -1164,4 +1173,67 @@ pub fn transcript_of(newest: &[&ChatEntry], utc_offset_s: i32) -> Transcript {
         }
     }
     t
+}
+
+#[cfg(test)]
+mod alert_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn entry(id: &str, pos: i64, kind: &str, r: Option<&str>, body: Value) -> ChatEntry {
+        ChatEntry::read(&json!({"id": id, "conversation_id": "owner", "pos": pos, "seq": pos, "rev": 1,
+                                "kind": kind, "state": "done", "open": false, "ref": r,
+                                "created_at": "2026-11-21T10:21:29+05:30", "updated_at": "2026-11-21T10:21:29+05:30",
+                                "day": "2026-11-21", "body": body, "deleted": false}))
+        .expect("an entry")
+    }
+
+    // decision: APP-1105, APP-1106 — FERB's alerts are never drawn in the chat: the ones the engine marked (an earlier
+    // build's, or one imported with FERB.app's saved chat) and any named `alert:`; other notices stay
+    #[test]
+    fn alerts_are_not_in_the_transcript_other_notices_are() {
+        let entries = vec![
+            entry(
+                "e1",
+                1,
+                "notice",
+                Some("insomnia-warning-w1"),
+                json!({"text": "Your Mac is getting hot.", "quotes": [], "alert": true}),
+            ),
+            entry(
+                "e2",
+                2,
+                "notice",
+                Some("alert:set-aside-ferb.db"),
+                json!({"text": "FERB couldn't read its database."}),
+            ),
+            entry(
+                "e3",
+                3,
+                "legacy",
+                None,
+                json!({"kind": "notice", "alert": true,
+                  "body": {"id": "window-shown-t-site", "entryID": "6F9619FF-8B86-D011-B42D-00C04FC964FF",
+                           "createdAt": 0, "text": "Chrome came forward."}}),
+            ),
+            entry(
+                "e4",
+                4,
+                "notice",
+                Some("memory-always-on-1"),
+                json!({"text": "Now always on: tea", "quotes": []}),
+            ),
+        ];
+        let t = transcript(&entries, 0);
+        let notices: Vec<&NoticeItem> = t
+            .items
+            .iter()
+            .filter_map(|i| match i {
+                Item::Notice(n) => Some(n),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(notices.len(), 1, "{:?}", t.items);
+        assert_eq!(notices[0].entry, "e4");
+    }
 }

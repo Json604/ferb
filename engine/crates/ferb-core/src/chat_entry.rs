@@ -371,6 +371,34 @@ pub fn body<T: Serialize>(shape: &T) -> Value {
     serde_json::to_value(shape).unwrap_or(Value::Null)
 }
 
+/// decision: APP-1105, APP-1106 — FERB's own alerts (the Mac getting hot, insomnia's end, a database set aside, a
+/// phone unused for 30 days, a window that came forward, a page that refused a value) are shown for a while and never
+/// kept in the chat. Code names an alert by its notice id: the notifier gives every notice of its `alert` category an
+/// id under [`ALERT_PREFIX`]; the ids those notices had before (the families in [`EARLIER_ALERTS`]) still count, so what
+/// was saved earlier is hidden too. These are FERB's own id formats, never words judged.
+pub const ALERT_PREFIX: &str = "alert:";
+
+/// The id families the `alert` notices had before they carried [`ALERT_PREFIX`] (frozen: a new alert needs nothing
+/// here).
+pub const EARLIER_ALERTS: [&str; 6] = [
+    "insomnia-",
+    "set-aside-",
+    "window-shown-",
+    "refused-",
+    "phone-unused-",
+    "screen-until-back-",
+];
+
+/// Whether a notice id names one of FERB's alerts ([`ALERT_PREFIX`], or an id of [`EARLIER_ALERTS`]).
+pub fn is_alert(notice_id: &str) -> bool {
+    notice_id.starts_with(ALERT_PREFIX) || EARLIER_ALERTS.iter().any(|p| notice_id.starts_with(p))
+}
+
+/// A notice entry's body marked as an alert (`"alert": true`): clients don't draw it in the transcript.
+pub fn is_alert_body(body: &Value) -> bool {
+    body.get("alert").and_then(Value::as_bool) == Some(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -435,5 +463,34 @@ mod tests {
         assert!(a.same_content(&b));
         b.state = EntryState::Done;
         assert!(!a.same_content(&b));
+    }
+
+    // decision: APP-1105, APP-1106
+    #[test]
+    fn an_alert_is_named_by_its_id_or_marked_in_its_body() {
+        assert!(is_alert("alert:insomnia-warning-w1"));
+        for earlier in [
+            "insomnia-ended-x",
+            "set-aside-ferb.db",
+            "window-shown-t-site",
+            "refused-sp",
+            "phone-unused-p-d",
+            "screen-until-back-S-why",
+        ] {
+            assert!(is_alert(earlier), "{earlier}");
+        }
+        for kept in [
+            "memory-always-on-1",
+            "loop-s1-abc",
+            "notice-1",
+            "reminder:t1",
+            "learned:2026-11-21",
+        ] {
+            assert!(!is_alert(kept), "{kept}");
+        }
+        assert!(is_alert_body(
+            &serde_json::json!({"text": "t", "alert": true})
+        ));
+        assert!(!is_alert_body(&serde_json::json!({"text": "t"})));
     }
 }

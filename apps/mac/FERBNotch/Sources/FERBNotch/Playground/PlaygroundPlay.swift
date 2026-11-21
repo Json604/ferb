@@ -360,7 +360,7 @@ enum PlayScript {
                 p.model.noteUpdate(info: ["CFBundleShortVersionString": "0.27.1", "CFBundleVersion": "play"])
                 p.model.noteUpdate(info: ["CFBundleShortVersionString": "0.27.1", "CFBundleVersion": "play-again"])
             }, check: { probe in
-                probe.model.conversation.notices.filter { $0.id == "update-0.27.1" }.count == 1 ? nil : "no single Updated line"
+                probe.model.alerts.filter { $0.id == "update-0.27.1" }.count == 1 ? nil : "no single Updated line"
             }),
             PlayBeat(caption: "FERB opens (in the notch, or the sticky window)", wait: 1.2, run: { p in
                 p.host?.setChatHost(p.mode)

@@ -84,6 +84,8 @@ pub const NOT_WAITED: &[&str] = &[
     "insomnia.step",
     "insomnia.expect",
     "insomnia.camera",
+    // APP-1106: alerts put away on a device: what clients show, not a plan's to wait on
+    "attention.acked",
     "tool.called",
     "tool.finished",
     "trail.event",

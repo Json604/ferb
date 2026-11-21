@@ -320,6 +320,9 @@ class FakePhone : PhoneApi {
         return Outcome.Ok(valueJson)
     }
     override suspend fun tasks(limit: Int, before: String?): Outcome<TaskPage> { calls += "tasks"; return tasks }
+    /** The alerts put away through [dismissAlert], in order. */
+    val dismissed = mutableListOf<String>()
+    override suspend fun dismissAlert(id: String): Outcome<Unit> { calls += "dismissAlert"; dismissed += id; return Outcome.Ok(Unit) }
     override suspend fun macInfo(): Outcome<MacInfo> { calls += "mac"; return mac?.let { Outcome.Ok(it) } ?: Outcome.Failed(FerbException.Offline("no", null)) }
     override suspend fun cachedMacInfo(): Outcome<MacInfo?> = Outcome.Ok(mac)
     override suspend fun unregisteredKeys(): PublicKeys? = newKeys

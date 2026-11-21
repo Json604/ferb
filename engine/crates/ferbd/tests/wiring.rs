@@ -111,7 +111,7 @@ fn chat_attach_starts_the_mac_scan() {
 }
 
 /// main.py:456 (DMN-10): a file FERB couldn't read is set aside at start and the owner is told once, as a notice.
-// decision: DMN-10
+// decision: DMN-10, APP-1106
 #[test]
 fn data_set_aside_at_start_is_told_once() {
     let tmp = root();
@@ -121,6 +121,15 @@ fn data_set_aside_at_start_is_told_once() {
     let mut run = Run::start(tmp.path(), "04", json!({"record_banners": true}));
     let notices = call(&run, "chat.status", json!({}))["notices"].clone();
     assert_eq!(notices.as_array().map(Vec::len), Some(1), "{notices}");
+    // decision: APP-1106 — an alert: every client shows it for a while, none keeps it in the chat
+    assert_eq!(notices[0]["alert"], json!(true), "{notices}");
+    assert!(
+        notices[0]["id"]
+            .as_str()
+            .unwrap_or("")
+            .starts_with("alert:set-aside-"),
+        "{notices}"
+    );
     assert_eq!(
         banners(&run).len(),
         1,
@@ -137,7 +146,7 @@ fn data_set_aside_at_start_is_told_once() {
 /// HAND-545, HAND-546: a browser window that came up during a task, as the browser part publishes it, reaches the owner
 /// through the daemon's own consumer: one notice (shown in chat, kept in `notices.list`), once per task and site, and
 /// the task's record holds what was told (an `owner.notice` span).
-// decision: HAND-546
+// decision: HAND-546, APP-1106
 #[test]
 fn a_window_that_came_up_is_told_once_and_kept_in_the_tasks_record() {
     let tmp = root();
@@ -156,7 +165,8 @@ fn a_window_that_came_up_is_told_once_and_kept_in_the_tasks_record() {
             .cloned()
             .unwrap_or_default()
             .into_iter()
-            .filter(|n| n["id"] == "window-shown-tree-9-app.example.edu")
+            // an alert's id (APP-1106): shown for a while on every device, never kept in the chat
+            .filter(|n| n["id"] == "alert:window-shown-tree-9-app.example.edu")
             .collect()
     };
     while ours(&run).is_empty() && Instant::now() < deadline {
@@ -166,6 +176,7 @@ fn a_window_that_came_up_is_told_once_and_kept_in_the_tasks_record() {
     let notices = ours(&run);
     assert_eq!(notices.len(), 1, "{notices:?}");
     assert_eq!(notices[0]["text"], json!(line));
+    assert_eq!(notices[0]["alert"], json!(true));
     let spans = run.control(json!({"do": "table", "name": "spans"}));
     let told: Vec<&Value> = spans
         .as_array()

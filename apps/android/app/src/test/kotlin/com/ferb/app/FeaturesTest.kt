@@ -146,6 +146,35 @@ class FeaturesTest {
         assertEquals("Studio Mac", vm.ui.value.mac?.name)
     }
 
+    /** FERB's alerts (the owner, 2026-11-21): above the message box, the newest first, never in the chat; × puts one away. */
+    // decision: APP-1105, PHN-791
+    @Test
+    fun the_newest_alert_shows_above_the_box_and_dismissing_it_hides_it_at_once_and_tells_the_mac() {
+        session.unlocked()
+        phone.view = empty()
+        phone.status = PhoneStatus(false, true, false, emptyList(), emptyList(), emptyList(), null, alerts = listOf(
+            com.ferb.mobile.StatusAlert("alert:set-aside-ferb.db", "FERB couldn't read its database.", null),
+            com.ferb.mobile.StatusAlert("alert:insomnia-warning-hot", "Your Mac is getting hot.", null)))
+        val vm = vm()
+        vm.refresh()
+        until("the alert") { vm.ui.value.alert != null }
+        assertEquals("alert:insomnia-warning-hot", vm.ui.value.alert!!.id)
+        assertEquals(2, vm.ui.value.alertCount)
+        assertTrue("nothing of it in the chat", vm.ui.value.rows.isEmpty())
+        vm.dismissAlert("alert:insomnia-warning-hot")
+        assertEquals("alert:set-aside-ferb.db", vm.ui.value.alert!!.id)          // at once, before the Mac answers
+        assertEquals(1, vm.ui.value.alertCount)
+        until("the Mac told") { phone.dismissed == listOf("alert:insomnia-warning-hot") }
+        // the next status, still listing it, doesn't bring it back; once the Mac drops both, none shows
+        vm.refresh()
+        idle()
+        assertEquals("alert:set-aside-ferb.db", vm.ui.value.alert!!.id)
+        phone.status = status()
+        vm.refresh()
+        until("no alert") { vm.ui.value.alert == null }
+        assertEquals(0, vm.ui.value.alertCount)
+    }
+
     // decision: PHN-125, DMN-1
     @Test
     fun stop_everything_after_a_plain_confirmation_with_no_prompt() {

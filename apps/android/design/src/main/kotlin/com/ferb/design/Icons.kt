@@ -10,6 +10,7 @@ import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.DesktopWindows
 import androidx.compose.material.icons.outlined.Dns
+import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.PhotoCamera
@@ -91,6 +92,7 @@ object FerbIcons {
     val qrScan = Icons.Rounded.QrCodeScanner               // qrcode.viewfinder
     val keyboard = Icons.Outlined.Keyboard                 // keyboard
     val help = Icons.AutoMirrored.Outlined.HelpOutline     // questionmark.circle
+    val alert = Icons.Outlined.ErrorOutline                // exclamationmark.circle (FERB's alerts, kb PHN-791)
     val terminal = Icons.Rounded.Terminal                  // terminal
     val key = Icons.Outlined.Key                           // key
     val lock = Icons.Outlined.Lock                         // lock

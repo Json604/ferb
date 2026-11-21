@@ -136,20 +136,24 @@ public enum ScreenBackLine {
         "screen-back-\(data["since"] as? String ?? "")-\(data["hold"] as? NSNumber ?? 0)"
     }
 
-    /// Applies one `screen.until_back` event to the chat: true when it changed.
-    public static func apply(_ data: [String: Any], to archive: inout ConversationArchive) -> Bool {
+    /// Applies one `screen.until_back` event to FERB's alerts above the composer (APP-1107: never kept in the chat):
+    /// true when they changed.
+    public static func apply(_ data: [String: Any], to alerts: inout [OwnerAlert]) -> Bool {
         let id = id(data)
         switch data["state"] as? String {
         case "checking":
             let title = data["title"] as? String ?? "Are you back?"
             let line = data["line"] as? String ?? ""
-            return archive.addNotice(id: id, text: line.isEmpty ? title : title + " " + line, tag: "FERB")
+            return OwnerAlerts.show(OwnerAlert(id: id, text: line.isEmpty ? title : title + " " + line, fromDaemon: false),
+                                    in: &alerts)
         case "resumed":
-            return archive.removeNotice(id: id)
+            let before = alerts.count
+            alerts.removeAll { $0.id == id }
+            return alerts.count != before
         case "ended":
             // the daemon leaves this one to FERB.app: in place of the question, or (none shown here) as a new line
             guard data["during_hold"] as? Bool == true, let line = data["line"] as? String else { return false }
-            return archive.rewordNotice(id: id, text: line) || archive.addNotice(id: id, text: line, tag: "FERB")
+            return OwnerAlerts.show(OwnerAlert(id: id, text: line, fromDaemon: false), in: &alerts)
         default:
             return false
         }

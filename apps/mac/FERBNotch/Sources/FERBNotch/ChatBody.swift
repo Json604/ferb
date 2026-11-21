@@ -138,6 +138,7 @@ struct ChatBodyView: View {
                                    typed: $model.introTyped, canSkip: model.introSkippable)
                     .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 13))
             }
+            if let alert = model.alerts.last { AlertLineView(model: model, alert: alert) }
             if model.showsInsomniaLine { InsomniaLineView(model: model) }
             if model.showsWorkRow { WorkRowView(model: model) }
             if model.viewingToday { composer.disabled(!model.canCompose) }
@@ -299,6 +300,42 @@ struct WorkRowView: View {
 }
 
 /// Insomnia mode is on (APP-980): the daemon's line and the owner's End, as the work row is drawn.
+/// FERB's newest alert above the composer (APP-1105, APP-1107): the Mac getting hot, insomnia's end, a database set
+/// aside, an update… shown for a while, never kept in the chat. × puts it away (a daemon's on every device), and the
+/// one before it shows; "1 of 3" says more wait.
+struct AlertLineView: View {
+    @ObservedObject var model: NotchModel
+    let alert: OwnerAlert
+    static let height: CGFloat = 38
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 7) {
+            Image(systemName: "exclamationmark.circle").font(.system(size: 11)).foregroundStyle(Palette.amber)
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(alert.text)
+                    .font(.system(size: 11)).foregroundStyle(Palette.secondary)
+                    .lineLimit(2).truncationMode(.tail)
+                    .help(alert.text).textSelection(.enabled)
+                if alert.card?.page == "phone" {
+                    Button(alert.card?.line ?? PhoneWords.openPhoneSettings) { model.onOpenPhone?() }
+                        .buttonStyle(.plain).font(.system(size: 11))
+                }
+            }
+            Spacer(minLength: 4)
+            if model.alerts.count > 1 {
+                Text("\(model.alerts.count) alerts").font(.system(size: 10)).foregroundStyle(Palette.secondary)
+            }
+            Button { model.dismissAlert(alert.id) } label: {
+                Image(systemName: "xmark").font(.system(size: 10, weight: .medium)).frame(width: 18, height: 18)
+            }
+            .buttonStyle(.plain).foregroundStyle(Palette.secondary)
+            .help("Dismiss").accessibilityLabel("Dismiss")
+        }
+        .frame(height: Self.height, alignment: .top)
+    }
+}
+
 struct InsomniaLineView: View {
     @ObservedObject var model: NotchModel
 

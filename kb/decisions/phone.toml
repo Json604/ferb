@@ -3970,3 +3970,21 @@ status = "active"
 rule = "For DMN-616. The status's helper.problem shows under the lid line in the warning sheet, and on the Mac card while the mode is on."
 why = "Why the helper is off, said where he decides."
 paths = ["engine/crates/ferb-mobile/src/status.rs", "apps/android/app/src/main/kotlin/com/ferb/app/ui/Insomnia.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppUI/Insomnia.swift"]
+
+[PHN-791]
+title = "The phones show FERB's alerts above the chat, as the Mac does, and put them away everywhere"
+by = "agent"
+date = 2026-11-21
+status = "active"
+rule = "For APP-1105, APP-1106, APP-1107. The phone library reads the alerts from chat.status's unseen notices marked alert (PhoneStatus.alerts; none while the words are held) and leaves marked entries out of the transcript. Each app shows the newest alert above the message box as FERB.app does; × calls Mobile.dismiss_alert (attention.ack), hides it at once, and it goes from every device. Nothing is stored on the phone."
+why = "The phones mirror the Mac's presentation (PHN-720)."
+paths = ["engine/crates/ferb-mobile/src/status.rs", "engine/crates/ferb-mobile/src/remote.rs", "engine/crates/ferb-mobile-ffi/src/records.rs", "engine/crates/ferb-mobile-ffi/src/mobile.rs"]
+
+[PHN-792]
+title = "The phone's work row counts the Mac's running tasks from its live status, never a stale task list"
+by = "agent"
+date = 2026-11-21
+status = "active"
+rule = "The work row counts the chat's live turns plus the Mac's running tasks from chat.status's running list (pushed by the link when it changes); the Tasks tab's last tasks.list only says whether such a task is paused or waiting. A task the Mac no longer lists as running is never counted."
+why = "Live 2026-11-21: the Tasks tab read during a task kept it as working after its answer came, so the phone showed \"1 active task\" with a spinner for a finished task until the Tasks tab was opened again."
+paths = ["apps/android/app/src/main/kotlin/com/ferb/app/model/Running.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/Running.swift"]

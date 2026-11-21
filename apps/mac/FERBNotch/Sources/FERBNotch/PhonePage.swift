@@ -370,19 +370,16 @@ extension NotchModel {
     func receivePhoneEvent(topic: String, data: [String: Any]) {
         NotificationCenter.default.post(name: .ferbPhoneEvent, object: nil, userInfo: ["topic": topic, "data": data])
         // GATE-618: the quiet "Are you back?" line, turned into the welcome in place; no sound, no notch opening
-        if topic == "screen.until_back", ScreenBackLine.apply(data, to: &conversation) {
-            saveConversation()
-            onBackgroundChange?(true)
+        // APP-1107: shown above the composer, never kept in the chat
+        if topic == "screen.until_back" {
+            var next = alerts
+            if ScreenBackLine.apply(data, to: &next) { changeAlerts { $0 = next } }
             return
         }
         guard topic == "phone.pair_requested", let request = data["request_id"] as? String ?? data["phone"] as? String else { return }
         let name = (data["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? PhoneWords.unnamedPhone
         let card = ResultCard(["type": "page", "page": "phone", "line": PhoneWords.openPhoneSettings])
-        if conversation.addNotice(id: "phone-pair-" + request, text: PhoneWords.notchAsks(name),
-                                  tag: "FERB", cards: card.map { [$0] }) {
-            saveConversation()
-            onBackgroundChange?(true)
-        }
+        showOwnAlert(id: "phone-pair-" + request, text: PhoneWords.notchAsks(name), card: card)
         announceAttention("phone-pair:" + request)
     }
 }

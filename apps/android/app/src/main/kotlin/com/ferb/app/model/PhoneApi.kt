@@ -161,6 +161,8 @@ interface PhoneApi {
     suspend fun settings(): Outcome<List<SettingValue>>
     suspend fun setSetting(key: String, valueJson: String, signer: Signer): Outcome<String>
     suspend fun tasks(limit: Int, before: String?): Outcome<TaskPage>
+    /** Puts one of FERB's alerts away on every device (`attention.ack`, kb APP-1106, PHN-791). */
+    suspend fun dismissAlert(id: String): Outcome<Unit>
     suspend fun macInfo(): Outcome<MacInfo>
     suspend fun cachedMacInfo(): Outcome<MacInfo?>
 
@@ -248,6 +250,7 @@ class LibraryPhone(private val phone: FerbPhone) : PhoneApi {
     override suspend fun settings() = phone.call { it.settings() }
     override suspend fun setSetting(key: String, valueJson: String, signer: Signer) = phone.call { it.setSetting(key, valueJson, signer) }
     override suspend fun tasks(limit: Int, before: String?) = phone.call { it.tasks(limit.toUInt(), before) }
+    override suspend fun dismissAlert(id: String) = phone.call { it.dismissAlert(id) }
     override suspend fun macInfo() = phone.call { it.macInfo() }
     override suspend fun cachedMacInfo() = phone.call { it.cachedMacInfo() }
     override suspend fun unregisteredKeys() = phone.unregisteredKeys()

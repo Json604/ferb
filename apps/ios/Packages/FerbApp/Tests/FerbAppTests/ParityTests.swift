@@ -353,11 +353,41 @@ final class ParityTests: XCTestCase {
         lv.streamingReply = "Hel"
         v.live = [lv]
         XCTAssertTrue(ChatModel.rows(v).contains { if case .small(_, let text, _) = $0 { return text == "Draft · still responding" } else { return false } })
-        let mac = [TaskRow(taskId: "t-9", name: "Morning news", goal: "Read the news", status: "working", createdAt: nil, updatedAt: nil, answer: "",
-                           stepsDone: nil, stepsTotal: nil)]
-        let r = try XCTUnwrap(RunningModel.of(v, mac: mac))
+        // the Mac's live status says what runs elsewhere (kb PHN-792)
+        let r = try XCTUnwrap(RunningModel.of(v, status: running([StatusTask(taskId: "t-9", name: "Morning news", goal: "Read the news",
+                                                                              startedAt: nil, held: false)])))
         XCTAssertEqual(r.words.lead, "1 active task")
         XCTAssertEqual(r.tasks.map(\.title), ["Morning news"])
+    }
+
+    private func running(_ tasks: [StatusTask]) -> PhoneStatus {
+        PhoneStatus(locked: false, words: true, stopped: false, questions: [], running: tasks, results: [], screenUse: nil)
+    }
+
+    private func macRow(_ id: String, _ status: String) -> TaskRow {
+        TaskRow(taskId: id, name: "Morning news", goal: "Read the news", status: status, createdAt: nil, updatedAt: nil, answer: "",
+                stepsDone: nil, stepsTotal: nil)
+    }
+
+    /// The owner's phone at 10:25 on 2026-11-21: "1 active task" with its spinner after every task had finished. The Tasks
+    /// tab had read `tasks.list` while the task ran and was never read again; once the chat's turn had its answer the stale
+    /// row counted. The Mac's live status, pushed on every change, decides now.
+    // decision: PHN-792
+    func testATaskTheMacNoLongerRunsNeverCountsFromTheTasksTabsLastRead() throws {
+        let done = try view([message("m1", "r1", "start a 3 part parallel work"),
+                             entry("p1", "plan", "r1", ["text": "Starting three parts.", "plan_line": "Starting three parts.", "lines": [String]()], task: "t-1"),
+                             answer("a1", "r1", "m1", "All three parts are done.")])
+        XCTAssertTrue(done.live.isEmpty)
+        let stale = [macRow("t-1", "working")]
+        XCTAssertNil(RunningModel.of(done, status: running([]), mac: stale))
+        XCTAssertNil(RunningModel.of(done, status: nil, mac: stale))
+        // one the Mac runs that this chat doesn't show counts; the Tasks tab's list only says it is paused
+        let elsewhere = [StatusTask(taskId: "t-2", name: "Morning news", goal: "Read the news", startedAt: nil, held: false)]
+        let r = try XCTUnwrap(RunningModel.of(done, status: running(elsewhere), mac: stale))
+        XCTAssertEqual(r.words.lead, "1 active task")
+        XCTAssertEqual(r.tasks.map(\.taskId), ["t-2"])
+        let paused = try XCTUnwrap(RunningModel.of(done, status: running(elsewhere), mac: [macRow("t-2", "paused")]))
+        XCTAssertEqual(paused.words.lead, "1 paused task")
     }
 
     private func states() -> some View {

@@ -113,6 +113,14 @@ impl<'a> AttentionNotices<'a> {
         if ferb_py::value::truthy(&cards) {
             out.insert("cards".into(), cards);
         }
+        // decision: APP-1106 — an alert says so to every client: shown for a while, never kept in the chat
+        if row
+            .get("id")
+            .and_then(Value::as_str)
+            .is_some_and(ferb_core::chat_entry::is_alert)
+        {
+            out.insert("alert".into(), Value::Bool(true));
+        }
         Ok(Value::Object(out))
     }
 

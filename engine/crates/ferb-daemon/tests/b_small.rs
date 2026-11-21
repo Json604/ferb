@@ -636,11 +636,58 @@ async fn small_notices_and_banner_switches() {
         .await
         .unwrap();
     let d = Daemon::start(|server| areas_b::register(server, &deps)).await;
-    let out = replay(&d, s["steps"].as_array().unwrap(), &keep, &[], &fixes).await;
+    let alert_fixes = |request: &str, python: &str| {
+        fixes(request, python).or_else(|| {
+            let line: Value = serde_json::from_str(python).ok()?;
+            python
+                .contains(REFUSED)
+                .then(|| ferb_py::json::dumps(&as_alert(&line)))
+        })
+    };
+    let out = replay(&d, s["steps"].as_array().unwrap(), &keep, &[], &alert_fixes).await;
     out.assert_clean();
-    assert_eq!(home.journal_rows(), python_rows(s));
-    assert_eq!(home.events(), s["published"].as_array().unwrap().clone());
+    let rows: Vec<Value> = python_rows(s).iter().map(as_alert).collect();
+    assert_eq!(home.journal_rows(), rows);
+    let published: Vec<Value> = s["published"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(as_alert)
+        .collect();
+    assert_eq!(home.events(), published);
     assert_eq!(out.named.get("attention.ack"), Some(&3));
+    assert_eq!(out.named.get("notices.list"), Some(&3));
+}
+
+/// The refused value's notice (`_tell_refused`, an `alert` notice) as Python recorded its id.
+const REFUSED: &str = "refused-sp-1";
+
+/// decision: APP-1106 — the one named difference from Python's recording here: an `alert` notice's id is
+/// `alert:<Python's id>`, and every view of it says `"alert": true` (after its `at`), so no client keeps it in the chat.
+fn as_alert(v: &Value) -> Value {
+    match v {
+        Value::Array(items) => Value::Array(items.iter().map(as_alert).collect()),
+        Value::Object(m) if m.get("id") == Some(&json!(REFUSED)) => {
+            let mut out = serde_json::Map::new();
+            for (k, val) in m {
+                if k == "id" {
+                    out.insert(k.clone(), json!(format!("alert:{REFUSED}")));
+                } else {
+                    out.insert(k.clone(), val.clone());
+                }
+                if k == "at" {
+                    out.insert("alert".into(), json!(true));
+                }
+            }
+            Value::Object(out)
+        }
+        Value::Object(m) => Value::Object(
+            m.iter()
+                .map(|(k, val)| (k.clone(), as_alert(val)))
+                .collect(),
+        ),
+        other => other.clone(),
+    }
 }
 
 fn advance(home: &Home, seconds: i64) {

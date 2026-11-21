@@ -951,6 +951,11 @@ impl Mobile {
         })
     }
 
+    /// Puts one of FERB's alerts away on every device (`attention.ack`, APP-1106, PHN-791). Network.
+    pub fn dismiss_alert(&self, id: String) -> Result<(), FerbError> {
+        guard(|| Ok(self.core()?.dismiss_alert(&id)?))
+    }
+
     /// The Mac's tasks, newest first (`tasks.list`; needs the unlock). Network.
     pub fn tasks(&self, limit: u32, before: Option<String>) -> Result<TaskPage, FerbError> {
         guard(|| Ok(self.core()?.tasks(limit, before.as_deref())?.conv()))

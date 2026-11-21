@@ -1,6 +1,28 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "alert_dismiss": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dismiss"
+          }
+        }
+      }
+    },
+    "alerts_count": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld alerts"
+          }
+        }
+      }
+    },
     "answer_details": {
       "extractionState": "manual",
       "localizations": {

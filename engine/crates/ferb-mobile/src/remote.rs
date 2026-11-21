@@ -945,6 +945,16 @@ impl Mobile {
         })
     }
 
+    // ---- FERB's alerts ----------------------------------------------------------------------------------------------
+
+    /// Puts one of FERB's alerts away (`attention.ack`, kb APP-1106, PHN-791): it leaves the status on every device, the
+    /// Mac's included. An id the Mac no longer knows is a refusal.
+    pub fn dismiss_alert(&self, id: &str) -> MobileResult<()> {
+        let t = self.shared.transport_online()?;
+        Shared::call(&t, "attention.ack", json!({"ids": [id]}))?;
+        Ok(())
+    }
+
     // ---- the Mac and this phone -----------------------------------------------------------------------------------
 
     /// What the Mac says about itself and this phone (`phone.list`, needs the unlock: the Mac's name, this phone's

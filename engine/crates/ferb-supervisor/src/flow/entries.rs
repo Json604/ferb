@@ -1217,6 +1217,11 @@ impl ChatProjector {
         let (Some(reference), Some(said)) = (words(row, "id"), words(row, "text")) else {
             return;
         };
+        // decision: APP-1106 — an alert is shown for a while on every device and never kept in the chat
+        if ferb_core::chat_entry::is_alert(&reference) || ferb_core::chat_entry::is_alert_body(row)
+        {
+            return;
+        }
         if self.notices.contains_key(&reference) {
             return;
         }

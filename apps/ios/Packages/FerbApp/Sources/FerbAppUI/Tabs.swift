@@ -172,6 +172,8 @@ struct Composer: View {
         let chips = model.outgoing.chips
         let hasFiles = !chips.isEmpty || !t.ready.isEmpty
         VStack(spacing: 8) {
+            // FERB's newest alert (kb APP-1105, PHN-791; FERB.app ChatBody.swift AlertLineView), never in the chat
+            if let a = model.ui.alert { AlertLine(alert: a, count: model.ui.alertCount) { model.dismissAlert(a.id) } }
             // the work row above the message box (kb PHN-725; FERB.app ChatBody.swift WorkRowView)
             if let r = model.ui.running { WorkRowFor(model: model, r: r) }
             // PHN-643: what the microphone is doing, in words above the box
@@ -799,6 +801,30 @@ enum Thumbnail {
     }
 }
 
+
+/// FERB's newest alert above the message box (kb APP-1105, PHN-791; FERB.app ChatBody.swift AlertLineView): the Mac
+/// getting hot, insomnia's end, a database set aside… shown here, never in the chat. "N alerts" when more wait; × puts it
+/// away on every device, and the one before it shows.
+struct AlertLine: View {
+    let alert: StatusAlert
+    let count: Int
+    let dismiss: () -> Void
+    @Environment(\.skyInk) private var ink
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.circle").font(.system(size: 13)).foregroundStyle(Ink.amber).padding(.top, 1)
+            Text(alert.text).type(13, .regular, ink.low).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+            if count > 1 { Text(L.s("alerts_count", count)).type(12, .regular, ink.low) }
+            Button(action: dismiss) {
+                Image(systemName: "xmark").font(.system(size: 12, weight: .medium)).foregroundStyle(ink.low).frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(L.s("alert_dismiss"))
+        }
+        .padding(.horizontal, 6)
+        .accessibilityIdentifier("alert-line")
+    }
+}
 
 /// The work row above the message box (kb PHN-725; FERB.app ChatBody.swift WorkRowView): "1 active task · 0:42", the
 /// round live pictures of the first two tasks, "+N", "View tasks". A picture opens the task's short view. Its pictures

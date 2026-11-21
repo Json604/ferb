@@ -777,6 +777,19 @@ mirror! {
         /// Insomnia mode (APP-980..APP-985); none from a Mac that doesn't say (an older FERB).
         #[uniffi(default = None)]
         insomnia: Option<Insomnia>,
+        /// FERB's alerts not yet put away (APP-1106, PHN-791): shown above the chat, never in it; empty while held.
+        #[uniffi(default = [])]
+        alerts: Vec<StatusAlert>,
+    }
+}
+
+mirror! {
+    /// One of FERB's alerts (APP-1105, APP-1106): the Mac's words, shown above the chat until put away on any device
+    /// (`Mobile::dismiss_alert`).
+    StatusAlert from ferb_mobile::status::StatusAlert {
+        id: String,
+        text: String,
+        at: Option<String>,
     }
 }
 
