@@ -8492,3 +8492,28 @@ A refinement of TEST-511 (the coordinator records it).
 
 **Unverified.** I did not observe which FERB action asked at each kill, since FERB's logs in ~/.ferb were not read.
 Other macOS daemons that might ask the same kind of question about other rules were not surveyed.
+
+## 2026-11-21 · 162 · The push gate, looked at again: one real failure under the flaky ones
+
+**What failed.** Six pushes today were refused. Read again from the logs, the system log and reruns, without the
+earlier diagnosis:
+- ferb-link `tests/relay.rs` ended by the guard (10:12, 10:24, 11:15): journal 161 holds. Checked again on my own:
+  a guarded `sleep` under the old offline.sb dies (137) when an outside program asks `sandbox_check(pid,
+  "file-read-data", HOME/.ferb/run)` with `SANDBOX_CHECK_NO_REPORT`, lives when asked about other paths, and lives
+  under the new profile. The system log puts each kill 0.2 to 4 s after FERB.app or its daemon started again
+  (10:12:36.4 new FERB process, kill 10:12:36.6; 10:24:12, kill 10:24:15.4; FERBNotch 11:15:00.8, kill 11:15:03.8).
+- `seams_wired.rs` (push 6, the first run to reach ferbd's tests: every earlier run stopped at the relay kill or at
+  ferb-browser): `every_seam_is_wired_or_named_off` failed on `src/device.rs:75-76`, the `pause: &|_| {}` and
+  `rebuilt: &|_, _| {}` that df1ba7e8 (journal 158) added to setup's salvage seams. A real failure, every run.
+- The rest came from the checkout being shared: an agent's untracked `ferb-store/tests/zz_repro_tmp.rs` (format, then
+  deleted mid-build), two gate runs at once (Gradle's `--stop` ending the other run's daemon, `build-rust.sh`
+  removing the headers the other copied, ferb-browser `transcripts.rs` whose fixture folder
+  `/private/tmp/ferb-browser-tools-more` and page port 47613 are fixed), and FERB.app restarts.
+- Swift `DragWorkTests` counted 15 typesets (push 2: the resize, push 6: the docking). It passed 4 of 4 alone and in
+  pushes 1, 3, 4 and 5; the counter is one global across the suite. Not reproduced.
+
+**Fix.** setup's check (`salvage::check_setup`, STORE-429) never reaches the database check, the only user of
+`pause` (STORE-430) and `rebuilt` (STORE-431). Both are now named off (`setup.store_pause`, `setup.store_rebuilt` in
+seams-off.txt) instead of bare placeholders. No behavior changes.
+
+**Unverified.** Which FERB action asked at each kill (FERB's own logs were not read). The Swift miscount's cause.

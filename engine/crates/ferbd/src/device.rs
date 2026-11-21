@@ -72,8 +72,8 @@ impl Host for ProgramHost {
             &ferb_store::salvage::Seams {
                 now: &now,
                 toml_error: &toml_error,
-                pause: &|_| {},
-                rebuilt: &|_, _| {},
+                pause: crate::off::off("setup.store_pause", &|_: std::time::Duration| {}),
+                rebuilt: crate::off::off("setup.store_rebuilt", &|_: &[String], _: &str| {}),
             },
         )
         .map(|moved| {

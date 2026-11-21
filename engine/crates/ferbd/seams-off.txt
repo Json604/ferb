@@ -28,6 +28,8 @@ off front.client | The supervisor's front-window seam carries no sending client'
 off applescript.sandbox_rest | desktop.py:317 gives AppleScript's sandbox only the apps and the events' socket; the rest of the shell's options stay at their defaults.
 off input.no_tap | Without the Mac's parts there is no owner-input tap, so foreground input is never available (a test daemon); the real daemon reads the tap.
 off hearing.no_capture | Without the Mac's parts no app's sound can be captured (a test daemon); the real daemon captures through ScreenCaptureKit.
+off setup.store_pause | Setup's check (`salvage::check_setup`, STORE-429) never runs the database check; only `check_store` pauses before checking damage again (STORE-430), and only the daemon runs that, at its start.
+off setup.store_rebuilt | As setup.store_pause: only the daemon's `check_store` rebuilds full-text indexes and reports them for its journal (STORE-431); setup never checks the database.
 off hooks.shadow | The gateway's shadow advice is Jev's; Jev is off (owner 2026-10-27), as Python's HookParts gets no shadow then.
 off reader.clock | A read-only store (conversation.read, task.evidence) never asks its clock: nothing is written.
 off reader.ids | task.evidence only reads the evidence store: no id is ever made.
