@@ -1,7 +1,7 @@
 // The extension's own code under node, with fake Chrome APIs and a fake clock (no real browser, no real waiting).
 // Usage: node harness.js <extension> <worker|hook> <scenario source>
 //   worker: background.js (and what it imports) runs in a context with `fake` (tabs, windows, debugger calls, the
-//           window updates and focus events), `advance(ms)` (runs the timers due, letting promises settle) and
+//           window updates and focus events, the windows made), `advance(ms)` (runs the timers due, letting promises settle) and
 //           `settle()`; the scenario is an async function body whose return value is printed as JSON.
 //   hook:   protocol.js's page hook (ferbPageHook) runs in a fake page: `page` (calls the native functions saw, the
 //           events the hook dispatched) and `armed(on)` (whether content.js says FERB drives the tab).
@@ -50,7 +50,7 @@ const stub = new Proxy(function () { return Promise.resolve(undefined); }, {
 
 function worker() {
   const c = clock();
-  const fake = { tabs: new Map(), windows: new Map(), updates: [], cdp: [], attached: new Set(), targets: {}, created: [], ports: [] };
+  const fake = { tabs: new Map(), windows: new Map(), updates: [], cdp: [], attached: new Set(), targets: {}, created: [], ports: [], made: [] };
   const local = { ferb: { key: null } };
   const session = { s: { seen: {}, order: [], windowId: null } };
   const tabsOnCreated = event(), tabsOnUpdated = event(), tabsOnRemoved = event(), tabsOnActivated = event();
@@ -79,8 +79,16 @@ function worker() {
       WINDOW_ID_NONE: -1, onFocusChanged: winFocus, onRemoved: winRemoved, onCreated: event(), onBoundsChanged: event(),
       get: async (id) => (fake.windows.has(id) ? { id, ...fake.windows.get(id) } : missing("window", id)),
       getAll: async () => [...fake.windows].map(([id, w]) => ({ id, ...w })),
-      update: async (id, p) => { const w = fake.windows.get(id); if (!w) return missing("window", id); fake.updates.push([id, p]); Object.assign(w, p, p.state === "minimized" ? { focused: false } : {}); return { id, ...w }; },
-      create: stub,
+      // fake.updateHook(id, p, w), when a scenario sets it, applies an update as that browser would (else as asked)
+      update: async (id, p) => { const w = fake.windows.get(id); if (!w) return missing("window", id); fake.updates.push([id, p]);
+                                 if (fake.updateHook) fake.updateHook(id, p, w); else Object.assign(w, p, p.state === "minimized" ? { focused: false } : {});
+                                 return { id, ...w }; },
+      // a window made: in the state fake.createState names when set (macOS made it full screen), with its first tab
+      create: async (p) => { const id = 500 + fake.made.length; fake.made.push(p);
+                             const w = { state: fake.createState || p.state || "normal", type: "normal", focused: false };
+                             fake.windows.set(id, w);
+                             if (p.url) { const tid = 2000 + fake.made.length; fake.tabs.set(tid, { id: tid, windowId: id, url: p.url, active: true }); }
+                             return { id, ...w }; },
     },
     debugger: {
       onEvent: dbgEvent, onDetach: dbgDetach,

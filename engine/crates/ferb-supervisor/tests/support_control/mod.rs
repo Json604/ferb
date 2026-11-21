@@ -436,6 +436,17 @@ pub struct TestDaemon {
     /// ORCH-671: a test's own observation calls of each check (none: the scripted checks look at nothing).
     pub look: Mutex<Option<Look>>,
     looks: AtomicUsize,
+    /// A test's own model calls from a point of the scenario on (`calls_from_here`): (the first call's index, them).
+    pub replaced: Mutex<Option<(usize, Vec<Value>)>>,
+    /// A tool call still in flight for every task (`in_flight`), so a stop doesn't settle while it holds.
+    pub busy: AtomicBool,
+    /// Each resumed run's outcome handed to the daemon (`resumed_outcome`); a scheduled run's is taken.
+    pub resumed: Mutex<Vec<Value>>,
+    /// What each scheduled run a test started (`run_scheduled`) returned to the daemon.
+    pub scheduled: Arc<Mutex<Vec<Value>>>,
+    /// The standing permissions granted (tree -> its scopes and approval) and each grant and revoke, in order.
+    #[allow(clippy::type_complexity)]
+    pub standing: Mutex<(HashMap<String, (Vec<Value>, String)>, Vec<String>)>,
 }
 
 pub struct Gate {
@@ -760,9 +771,28 @@ impl Daemon for TestDaemon {
     fn forget_tasks(&self, _ids: &BTreeSet<String>) {}
     fn task_folders(&self, _tree_id: &str, _folders: Option<&[String]>) {}
     fn record_named(&self, _words: &str, _request_id: &str) {}
-    fn standing_revoke(&self, _tree_id: &str) {}
-    fn standing_scopes(&self, _tree_id: &str) -> Vec<Value> {
-        Vec::new()
+    fn standing_revoke(&self, tree_id: &str) {
+        let mut st = self.standing.lock().unwrap();
+        if st.0.remove(tree_id).is_some() {
+            st.1.push(format!("revoke {tree_id}"));
+        }
+    }
+    fn standing_scopes(&self, tree_id: &str) -> Vec<Value> {
+        self.standing
+            .lock()
+            .unwrap()
+            .0
+            .get(tree_id)
+            .map(|(s, _)| s.clone())
+            .unwrap_or_default()
+    }
+    fn standing_grant(&self, tree_id: &str, scopes: &[Value], approval_id: &str) {
+        let mut st = self.standing.lock().unwrap();
+        st.0.insert(
+            tree_id.to_string(),
+            (scopes.to_vec(), approval_id.to_string()),
+        );
+        st.1.push(format!("grant {tree_id} {approval_id}"));
     }
     fn record_request(&self, request: &Request) {
         self.requests
@@ -1014,11 +1044,12 @@ impl Daemon for TestDaemon {
             json!({"runtime_role": role, "mode": mode, "tools": tool_names, "schema": name,
                                "effort": effort}),
         );
-        let events = self
-            .recorded
-            .get(n)
-            .map(|m| m["events"].clone())
-            .unwrap_or_else(|| json!([{"kind": "(a call the recording didn't make)"}]));
+        let replaced = self.replaced.lock().unwrap().clone();
+        let events = match replaced {
+            Some((from, calls)) if n >= from => calls.get(n - from).map(|m| m["events"].clone()),
+            _ => self.recorded.get(n).map(|m| m["events"].clone()),
+        }
+        .unwrap_or_else(|| json!([{"kind": "(a call the recording didn't make)"}]));
         let gate = self.gates.lock().unwrap().get(&n).cloned();
         Ok(Arc::new(ScriptRuntime {
             daemon: self.me.upgrade().expect("the scenario's daemon"),
@@ -1065,6 +1096,14 @@ impl Daemon for TestDaemon {
                 me.sinks.lock().unwrap().retain(|(i, _, _)| *i != id);
             }
         }))
+    }
+    fn in_flight(&self, _ids: &BTreeSet<String>) -> bool {
+        self.busy.load(Ordering::SeqCst)
+    }
+    fn resumed_outcome<'a>(&'a self, event: &'a Value) -> BoxFuture<'a, bool> {
+        self.resumed.lock().unwrap().push(event.clone());
+        let taken = event.get("schedule").is_some_and(Value::is_object);
+        Box::pin(async move { taken })
     }
     fn cancel_tasks(&self, ids: &BTreeSet<String>) {
         self.cancelled.lock().unwrap().push(ids.clone());
@@ -1207,7 +1246,9 @@ impl ModelRuntime for ScriptRuntime {
                 .started
                 .push(json!({"n": self.n, "task_id": task.id,
                 "system": request.system, "parts": parts, "cacheable": request.cacheable,
-                "images": request.images.len()}));
+                "images": request.images.len(),
+                "standing": self.daemon.standing.lock().unwrap().0
+                    .contains_key(task.id.split('.').next().unwrap_or(""))}));
             let cancelled = Arc::new((AtomicBool::new(false), Notify::new()));
             Ok(StartedRun {
                 handle: RunHandle {
@@ -1341,6 +1382,8 @@ pub struct Report {
     pub checked: usize,
     /// ORCH-650: the step-answer blocks the checks had (compared apart from Python's calls).
     pub step_answers: Vec<String>,
+    /// Each stream's lines as FERB sent them (its connection, its lines), in the order the streams ended.
+    pub streams: Vec<(String, Vec<String>)>,
 }
 
 impl Report {
@@ -1782,6 +1825,11 @@ pub fn world_with(name: &str, edit: impl FnOnce(&mut Vec<Value>)) -> World {
         answered: Mutex::default(),
         episode_fault: Mutex::default(),
         episode_hang: AtomicBool::new(false),
+        replaced: Mutex::default(),
+        busy: AtomicBool::new(false),
+        resumed: Mutex::default(),
+        scheduled: Arc::default(),
+        standing: Mutex::default(),
         shut_down_at_end: AtomicBool::new(false),
         browsing: Mutex::default(),
         browsing_calls: Mutex::default(),
@@ -1830,6 +1878,26 @@ fn first_request(sc: &Value) -> usize {
         .map(|v| s(&v["params"]["request_id"])[3..].parse().unwrap())
         .min()
         .unwrap_or(15)
+}
+
+/// A test's schedule for `run_scheduled`: daily at 09:00 UTC, its id, request and name from the step.
+pub fn test_schedule(st: &Value) -> ferb_clock::schedules::Schedule {
+    let first = ferb_clock::py::parse("2026-01-01T09:00:00+00:00").unwrap();
+    let rule = ferb_clock::schedules::Rule {
+        repeat: "daily".into(),
+        at: "09:00".into(),
+        weekday: None,
+        every_minutes: None,
+        tz: "UTC".into(),
+        when_active: false,
+    };
+    let targets = st["targets"].as_object().cloned().unwrap_or_default();
+    let mut sched =
+        ferb_clock::schedules::Schedule::draft(&s(&st["request"]), targets, rule, first);
+    sched.id = s(&st["id"]);
+    sched.own_words = s(&st["request"]);
+    sched.name = s(&st["name"]);
+    sched
 }
 
 /// "the model has received call 'worker' (1)" -> ("worker", 1).
@@ -1959,6 +2027,7 @@ pub fn run_with(w: &mut World, name: &str, edit: impl FnOnce(&mut Vec<Value>)) -
                     };
                     let lines = collect(w, id, got, &conn, &mut report).await;
                     compare_lines(w, st, &lines, &conn, &mut report);
+                    report.streams.push((conn.clone(), lines));
                 }
                 "stream_cut" => report
                     .skipped
@@ -1968,6 +2037,73 @@ pub fn run_with(w: &mut World, name: &str, edit: impl FnOnce(&mut Vec<Value>)) -
                     let ok = wait_step(w, &until_).await;
                     if !ok {
                         report.stopped = Some(format!("a wait for {until_} (never true here)"));
+                    }
+                }
+                // a test's own step: a schedule's run, as the daemon starts it (create_scheduled, then the rest of
+                // run_scheduled), left running; what it returns is kept
+                "run_scheduled" => {
+                    let sched = test_schedule(st);
+                    let created = {
+                        let db = w.db.lock().unwrap();
+                        w.sup
+                            .inner()
+                            .create_scheduled(db.conn(), &sched.id, false, false)
+                            .unwrap()
+                    };
+                    let sup = w.sup.clone();
+                    let out = w.daemon.scheduled.clone();
+                    tokio::spawn(async move {
+                        let r = sup
+                            .inner()
+                            .run_scheduled_rest(&sched, &created, false, 0.0, false)
+                            .await;
+                        let v = match r {
+                            Ok(m) => Value::Object(m),
+                            Err(e) => json!({"error": e.message()}),
+                        };
+                        out.lock().unwrap().push(v);
+                    });
+                    for _ in 0..200 {
+                        tokio::task::yield_now().await;
+                    }
+                }
+                // a test's own step: its model calls from the next one on, in place of the recording's; "@TREE@" in
+                // them is the newest task tree
+                "calls_from_here" => {
+                    let n = w.daemon.calls.lock().unwrap().made.len();
+                    let tree: String = w
+                        .db
+                        .lock()
+                        .unwrap()
+                        .conn()
+                        .query_row(
+                            "SELECT id FROM tasks WHERE parent_id IS NULL ORDER BY rowid DESC LIMIT 1",
+                            [],
+                            |r| r.get(0),
+                        )
+                        .unwrap_or_default();
+                    let calls: Vec<Value> = st["calls"]
+                        .as_array()
+                        .cloned()
+                        .unwrap_or_default()
+                        .iter()
+                        .map(|c| serde_json::from_str(&c.to_string().replace("@TREE@", &tree)).unwrap())
+                        .collect();
+                    *w.daemon.replaced.lock().unwrap() = Some((n, calls));
+                    w.daemon.gates.lock().unwrap().retain(|k, _| *k < n);
+                }
+                // a test's own step: the clock moves on this many seconds (the runtime's paused time)
+                "sleep" => {
+                    let secs = st["s"].as_f64().unwrap_or(0.0);
+                    tokio::time::sleep(std::time::Duration::from_secs_f64(secs)).await;
+                }
+                // a test's own step: a tool call in flight for every task, or none
+                "in_flight" => {
+                    w.daemon
+                        .busy
+                        .store(st["on"].as_bool().unwrap_or(false), Ordering::SeqCst);
+                    for _ in 0..200 {
+                        tokio::task::yield_now().await;
                     }
                 }
                 "release_model" => {
@@ -2208,6 +2344,15 @@ async fn wait_step(w: &World, until_: &str) -> bool {
                 >= n
         })
         .await;
+    }
+    if let Some(n) = until_
+        .strip_prefix("model calls made: ")
+        .and_then(|n| n.parse::<usize>().ok())
+    {
+        return until(|| w.daemon.calls.lock().unwrap().made.len() >= n).await;
+    }
+    if until_ == "the scheduled run ended" {
+        return until(|| !w.daemon.scheduled.lock().unwrap().is_empty()).await;
     }
     match until_ {
         "an approval is pending" | "an approval is pending again" => {

@@ -115,7 +115,10 @@ impl FakeMac {
             window_closed: false,
             screen_use: json!({"active": false, "can_offer": true}),
             insomnia: json!({"on": false, "power": {"battery": 64, "on_battery": true}, "task_awake": false,
-                             "last_end": null, "line": ""}),
+                             "last_end": null, "line": "", "closed_lid": "absent",
+                             "lid_line": "On battery with the lid closed, your Mac sleeps until you open it or plug it in.",
+                             "helper": {"state": "requires_approval", "error": null,
+                                        "problem": "FERB's helper is waiting for your OK in System Settings."}}),
             camera: VecDeque::new(),
         })))
     }

@@ -2876,6 +2876,11 @@ impl Inner {
         let release = move || me.release(&release_session, &release_rid);
         let r = resumed.unwrap_or_default();
         let message = r.message.unwrap_or(payload);
+        let watch = r
+            .schedule
+            .as_ref()
+            .and_then(|s| s.get("watch"))
+            .is_some_and(ferb_py::value::truthy);
         self.run_tree(
             spec,
             &out.text,
@@ -2886,6 +2891,8 @@ impl Inner {
                 origins,
                 prior_task: r.prior_task,
                 resume_id: r.resume_id,
+                schedule: r.schedule,
+                watch,
                 ..super::tree::RunOpts::default()
             },
             emit,
@@ -2902,6 +2909,8 @@ pub struct Resumed {
     pub prior_task: Option<String>,
     pub message: Option<String>,
     pub conversation: Option<String>,
+    /// ORCH-685: the scheduled run this task is (its stored `schedule`), kept when the owner's follow-up carries it on.
+    pub schedule: Option<Map<String, Value>>,
 }
 
 /// supervisor.py:494 `_Prepare`: the planner's work before its model call (ORCH-525).

@@ -1155,3 +1155,53 @@ rule = "For APP-986. A lease (1..300 s) sets SleepDisabled (IOPMSetSystemPowerSe
 why = "A root switch FERB set must never outlive FERB's need for it."
 evidence = "ferb-power-helper tests/helper.rs the_lease_ends_when_the_daemon_stops_renewing_it, a_lease_left_behind_is_cleared_at_boot, wakes_are_future_bounded_and_few, anything_else_is_refused."
 paths = ["engine/crates/ferb-power-helper/src/lib.rs", "engine/crates/ferb-power-helper/src/mac.rs"]
+
+[DMN-613]
+title = "Insomnia holds system sleep for the whole mode and sees power and lid changes at once"
+by = "agent"
+date = 2026-11-20
+status = "active"
+rule = "For DMN-603, after the owner's lid-closed test of 2026-11-20. PreventSystemSleep is held from the mode's first look whatever the power source (macOS honours it only on AC), so power plugged in under a closed lid finds it already held. A power watch (IOPS source changes, IOPMrootDomain's clamshell message, IORegisterForSystemPower) makes the daemon look at once on a power-source or lid change, not at the next 20-second look."
+why = "Plugged in at 11:27:45 under a closed lid, macOS slept again at 11:27:55 in the second FERB first held it (its look noticed AC only then)."
+evidence = "tests/insomnia.rs system_sleep_is_held_from_the_start_and_changes_are_seen_at_once; the_mode_holds_on_a_renewed_lease_and_the_display_only_under_the_cover."
+paths = ["engine/crates/ferb-daemon/src/insomnia.rs", "engine/crates/ferb-platform-macos/src/power.rs", "engine/crates/ferbd/src/compose/insomnia.rs"]
+
+[DMN-614]
+title = "Sleep during insomnia mode is said before it happens and once after the wake"
+by = "agent"
+date = 2026-11-20
+status = "active"
+rule = "For APP-981. When macOS says it is about to sleep and the mode is on, the status says going_to_sleep (line: your Mac is going to sleep) and macOS's sleep waits up to 2 s (SLEEP_TELL_MS) so the phone hears it; the wake says once when and why the Mac slept (the reading before the sleep). Without the watch, the next look finds any sleep longer than 10 s by the wall clock's gap (was 60 s: the owner's 35-second sleep went unsaid)."
+why = "His message waited while the Mac slept and nothing told him why."
+evidence = "tests/insomnia.rs sleep_is_said_before_and_after, a_short_sleep_is_found_by_the_next_look."
+paths = ["engine/crates/ferb-daemon/src/insomnia.rs", "engine/crates/ferb-platform-macos/src/power.rs"]
+
+[DMN-615]
+title = "Every word about a closed lid follows whether FERB's helper is really on"
+by = "agent"
+date = 2026-11-20
+status = "active"
+rule = "For APP-981, APP-986. The status carries closed_lid (ready, absent, unknown) and lid_line on and off (the helper's state is read at every look); the lid-closed-on-battery warning (its text updated under the same id when the state changes) and the slept line say the Mac sleeps on battery, or locks and pauses what plays plugged in, until the helper is turned on once in Login Items; only with the helper they say FERB keeps it running as if open. Every client shows these words as given."
+why = "The warning said FERB keeps it working while the helper wasn't set up."
+evidence = "tests/insomnia.rs the_lid_words_follow_the_helper."
+paths = ["engine/crates/ferb-daemon/src/insomnia.rs"]
+
+[DMN-616]
+title = "Setting up FERB's helper is never silent"
+by = "agent"
+date = 2026-11-20
+status = "active"
+rule = "FERB.app reports each registration attempt (insomnia.report event helper: state registered, requires_approval, enabled, failed or not_in_bundle, and the error's words); the daemon keeps it, journals insomnia.helper once per change, and its status carries helper {state, error, problem}: plain words for what keeps the helper off (a failure with its error, the OK still to give, set up but not started), none once the helper answers."
+why = "The registration's error was swallowed (try?), so nobody could tell why the helper never ran."
+evidence = "tests/insomnia.rs the_helper_s_setup_is_never_silent."
+paths = ["engine/crates/ferb-daemon/src/insomnia.rs"]
+
+[DMN-617]
+title = "Under a closed lid the cover's display hold stays: the Mac runs as if open"
+by = "agent"
+date = 2026-11-20
+status = "active"
+rule = "Replaces DMN-603's condition that the lid is open for the display hold: while the cover is up its display hold stays when the lid closes, so with the helper's lease (held for the whole mode, on power too) macOS neither sleeps the display nor locks, and what plays goes on, as with Amphetamine. Blanking the panel under the lid is not done: each way found is a lock (pmset displaysleepnow), a lit black panel (gamma) or a private call (journal 154 lists them)."
+why = "The owner: the video should keep playing and no lock screen on reopening."
+evidence = "tests/insomnia.rs the_helper_s_lease_keeps_a_closed_mac_working_on_battery."
+paths = ["engine/crates/ferb-daemon/src/insomnia.rs"]

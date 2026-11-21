@@ -439,54 +439,147 @@ final class InsomniaTests: XCTestCase {
 /// registered.
 @MainActor
 final class PowerHelperTests: XCTestCase {
-    // decision: APP-986, APP-996
-    func testAHelperMacOSDoesntListIsRegisteredWhenTheOwnerTurnsTheModeOn() {
-        let macOS = HelperStandIn(.notRegistered, afterRegister: .requiresApproval)
-        XCTAssertEqual(PowerHelper(registrar: macOS).prepare(), .needsApproval)
-        XCTAssertEqual(macOS.calls, ["register"])
+    private var reports: [[String: Any]] = []
+    private var logged: [String] = []
+
+    private func helper(_ macOS: HelperStandIn) -> PowerHelper {
+        let helper = PowerHelper(registrar: macOS) { [unowned self] params in self.reports.append(params) }
+        helper.log = { [unowned self] line in self.logged.append(line) }
+        return helper
+    }
+
+    private var states: [String?] { reports.map { $0["state"] as? String } }
+
+    private static func status(_ fields: [String: Any]) -> InsomniaStatus {
+        InsomniaStatus(fields.merging(["since": "2026-11-20T15:00:00+05:30"]) { old, _ in old })!
+    }
+
+    // decision: APP-986, APP-996, APP-1103, APP-1104
+    func testAHelperMacOSDoesntListIsRegisteredWhenTheBundleCarriesIt() async {
+        for listed in [ServiceStatus.notRegistered, .notFound] {       // macOS says notFound for one never registered
+            let macOS = HelperStandIn(listed, afterRegister: .requiresApproval)
+            let said = await helper(macOS).prepare()
+            XCTAssertEqual(said, .needsApproval, "\(listed)")
+            XCTAssertEqual(macOS.calls, ["register"], "\(listed)")
+        }
+        XCTAssertEqual(states, ["requires_approval", "requires_approval"])   // the state read after register()
+        let enabled = HelperStandIn(.notFound, afterRegister: .enabled)
+        await helper(enabled).attempt()
+        XCTAssertEqual(states.last, "enabled")
         XCTAssertEqual(InsomniaDialog.buttons(.needsApproval), ["Keep it working", "Not now", "Open Login Items…"])
-        PowerHelper(registrar: macOS).openLoginItems()
-        XCTAssertEqual(macOS.calls, ["register", "open login items"])
+    }
+
+    // decision: APP-986, APP-996, APP-1103
+    func testWithoutTheFilesNothingIsRegisteredAndTheDaemonIsTold() async {
+        let macOS = HelperStandIn(.notFound)
+        macOS.inBundle = false
+        let said = await helper(macOS).prepare()
+        XCTAssertEqual(said, .sleeps)
+        XCTAssertEqual(macOS.calls, [])
+        XCTAssertEqual(states, ["not_in_bundle"])
+        XCTAssertEqual(logged.count, 1)
     }
 
     // decision: APP-986, APP-996
-    func testAHelperWaitingForApprovalOrOnIsLeftAsItIs() {
+    func testAHelperWaitingForApprovalOrOnIsLeftAsItIsAndItsStateTold() async {
         for (status, said) in [(ServiceStatus.requiresApproval, PowerHelperPlan.ClosedLid.needsApproval),
-                               (.enabled, .keepsWorking), (.notFound, .sleeps)] {
+                               (.enabled, .keepsWorking)] {
             let macOS = HelperStandIn(status)
-            XCTAssertEqual(PowerHelper(registrar: macOS).prepare(), said, "\(status)")
+            let closedLid = await helper(macOS).prepare()
+            XCTAssertEqual(closedLid, said, "\(status)")
             XCTAssertEqual(macOS.calls, [], "\(status): nothing registered")
         }
+        XCTAssertEqual(states, ["requires_approval", "enabled"])
         XCTAssertEqual(InsomniaDialog.buttons(.keepsWorking), ["Keep it working", "Not now"])
-        // the contract's body stays; the closed lid's line goes under it
-        let text = InsomniaDialog.informative(minutes: 10, closedLid: .keepsWorking)
-        XCTAssertTrue(text.hasPrefix(InsomniaWords.body + "\n" + InsomniaWords.closedLid(.keepsWorking)))
-        XCTAssertTrue(text.hasSuffix(InsomniaWords.ends(minutes: 10)))
+    }
+
+    // decision: APP-986, APP-996, APP-1104
+    func testAFailedRegistrationIsLoggedToldAndShownAndNeverStopsTheStart() async {
+        let macOS = HelperStandIn(.notFound)
+        macOS.registerFails = true
+        let said = await helper(macOS).prepare()
+        XCTAssertEqual(said, .needsApproval)                                     // the warning still shows
+        XCTAssertEqual(states, ["failed"])
+        let words = reports.first?["error"] as? String
+        XCTAssertEqual(words, "The operation couldn’t be completed. (SMAppServiceErrorDomain error 1.) (SMAppServiceErrorDomain 1)")
+        XCTAssertTrue(logged.first?.contains("SMAppServiceErrorDomain 1") ?? false)
+        // the daemon's plain words come back in its status, and the warning and the menu show them
+        let status = Self.status(["on": false, "lid_line": "The lid line.",
+                                  "helper": ["state": "failed", "error": words ?? "", "problem": "FERB couldn't add its helper."]])
+        XCTAssertEqual(status.helper?.problem, "FERB couldn't add its helper.")
+        let text = InsomniaDialog.informative(minutes: 10, lidLine: status.lidLine!, problem: status.helper?.problem)
+        XCTAssertTrue(text.contains("The lid line.\nFERB couldn't add its helper.\n\n"))
+        let menu = StatusMenu.entries(state: .ready, paused: false, stopped: false, appName: "FERB", canSetUp: false,
+                                      hasWindow: true, keepingAwake: false, helperProblem: status.helper?.problem)
+        XCTAssertTrue(menu.contains(.status("FERB couldn't add its helper.")))
+        XCTAssertNil(Self.status(["on": false]).helper)
+    }
+
+    // decision: APP-986, APP-996, APP-1101
+    func testAModeStartedFromThePhoneTriesOncePerSession() async {
+        let macOS = HelperStandIn(.notFound, afterRegister: .requiresApproval)
+        let helper = helper(macOS)
+        await helper.modeChanged(Self.status(["on": false, "closed_lid": "absent"]))     // off: nothing
+        XCTAssertEqual(macOS.calls, [])
+        await helper.modeChanged(Self.status(["on": true, "by": "phone-1", "closed_lid": "absent"]))
+        XCTAssertEqual(macOS.calls, ["register"])
+        XCTAssertEqual(states, ["requires_approval"])
+        macOS.status = .notFound                                                        // macOS still doesn't list it
+        await helper.modeChanged(Self.status(["on": true, "closed_lid": "unknown", "line": "changed"]))
+        XCTAssertEqual(macOS.calls, ["register"])                                      // not twice in one session
+        await helper.modeChanged(Self.status(["on": true, "closed_lid": "absent", "since": "2026-11-21T09:00:00+05:30"]))
+        XCTAssertEqual(macOS.calls, ["register", "register"])                          // the next session tries again
+        macOS.status = .notFound
+        macOS.registerFails = true
+        await helper.modeChanged(Self.status(["on": true, "closed_lid": "absent", "since": "2026-11-22T09:00:00+05:30"]))
+        XCTAssertEqual(states.last, "failed")
     }
 
     // decision: APP-986, APP-996
-    func testAFailedRegistrationNeverStopsTheStart() {
-        let macOS = HelperStandIn(.notRegistered)
-        macOS.registerFails = true
-        XCTAssertEqual(PowerHelper(registrar: macOS).prepare(), .needsApproval)    // the warning still shows
+    func testNoRegistrationWhenTheDaemonHasItReadyOrTheBundleLacksIt() async {
+        let ready = HelperStandIn(.notRegistered)
+        await helper(ready).modeChanged(Self.status(["on": true, "closed_lid": "ready"]))
+        XCTAssertEqual(ready.calls, [])
+        XCTAssertEqual(reports.count, 0)
+        let noFiles = HelperStandIn(.notFound)
+        noFiles.inBundle = false
+        await helper(noFiles).modeChanged(Self.status(["on": true, "closed_lid": "absent"]))
+        XCTAssertEqual(noFiles.calls, [])
+        XCTAssertEqual(states, ["not_in_bundle"])
+    }
+
+    // decision: APP-986, APP-996, APP-1102
+    func testTheWarningSaysTheDaemonsLidLineAndFallsBackTruthfully() {
+        let daemon = Self.status(["on": false, "closed_lid": "absent", "lid_line": "The daemon's sentence."])
+        XCTAssertEqual(InsomniaWords.lidLine(daemon, local: .keepsWorking), "The daemon's sentence.")
+        let older = Self.status(["on": false])
+        XCTAssertNil(older.lidLine)
+        XCTAssertEqual(InsomniaWords.lidLine(older, local: .keepsWorking), InsomniaWords.closedLid(.sleeps))
+        XCTAssertEqual(InsomniaWords.lidLine(older, local: .needsApproval), InsomniaWords.closedLid(.needsApproval))
+        XCTAssertEqual(InsomniaWords.lidLine(Self.status(["on": false, "closed_lid": "ready"]), local: .keepsWorking),
+                       InsomniaWords.closedLid(.keepsWorking))
+        XCTAssertEqual(InsomniaWords.lidLine(nil, local: .sleeps), InsomniaWords.closedLid(.sleeps))
+        let text = InsomniaDialog.informative(minutes: 10, lidLine: "The lid line.")
+        XCTAssertTrue(text.hasPrefix(InsomniaWords.body + "\n" + "The lid line.\n\n"))
+        XCTAssertTrue(text.hasSuffix(InsomniaWords.ends(minutes: 10)))
     }
 
     // decision: APP-986, APP-996, APP-5
     func testUninstallUnregistersTheHelperAndStopsWhenMacOSKeepsIt() async {
         let listed = HelperStandIn(.enabled, afterUnregister: .notRegistered)
-        let removed = await PowerHelper(registrar: listed).unregisterForUninstall()
+        let removed = await helper(listed).unregisterForUninstall()
         XCTAssertNil(removed)
         XCTAssertEqual(listed.calls, ["unregister"])
         let none = HelperStandIn(.notRegistered)
-        let nothing = await PowerHelper(registrar: none).unregisterForUninstall()
+        let nothing = await helper(none).unregisterForUninstall()
         XCTAssertNil(nothing)
         XCTAssertEqual(none.calls, [])
         let kept = HelperStandIn(.requiresApproval, afterUnregister: .requiresApproval)
-        let refused = await PowerHelper(registrar: kept).unregisterForUninstall()
+        let refused = await helper(kept).unregisterForUninstall()
         XCTAssertEqual(refused, InsomniaWords.helperNotRemoved(nil))
         let failing = HelperStandIn(.enabled)
         failing.unregisterFails = true
-        let failed = await PowerHelper(registrar: failing).unregisterForUninstall()
+        let failed = await helper(failing).unregisterForUninstall()
         XCTAssertNotNil(failed)
     }
 
@@ -500,6 +593,7 @@ final class PowerHelperTests: XCTestCase {
 @MainActor
 private final class HelperStandIn: PowerHelperRegistering {
     var status: ServiceStatus
+    var inBundle = true
     private let afterRegister: ServiceStatus?
     private let afterUnregister: ServiceStatus?
     var registerFails = false

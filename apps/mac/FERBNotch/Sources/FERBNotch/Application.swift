@@ -104,7 +104,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             // DMN-598: before that, the service (Full Disk Access) removes FERB's files from the browsers' folders
             actions.removeBrowserFiles = { [appSetup] in await appSetup.removeBrowserFilesForUninstall() }
             // APP-986: the root helper for a closed Mac on battery, registered when the owner turns the mode on here
-            let powerHelper = AppBundle.isApp ? PowerHelper(registrar: PowerHelperService()) : nil
+            let powerHelper = AppBundle.isApp ? PowerHelper(registrar: PowerHelperService()) { [rpc = coordinator.model.rpc] params in
+                _ = try? await rpc.call("insomnia.report", params: params)
+            } : nil
+            coordinator.model.powerHelper = powerHelper
             actions.beforeUninstall = { [loginItems, appSetup, powerHelper] in
                 loginItems.removeForUninstall()
                 // insomnia mode's root helper first (APP-986), then the background service, each waited for and checked

@@ -447,6 +447,8 @@ private fun dayLabel(day: Long, today: Long = ChatModel.chatDay(System.currentTi
  * Mac tab).
  */
 private fun statusLine(ui: UiState): Pair<Int, StatusTone>? = when {
+    // the one thing about the link the control can't say: insomnia mode was on, so the Mac may be asleep (APP-981)
+    com.ferb.app.model.MacAsleep.shown(ui.status, ui.link, ui.linkLost) -> R.string.mac_asleep to StatusTone.INFO
     // not connected: the control in the top bar says it, the waiting rows say they wait
     ui.link?.phase != LinkPhase.ONLINE -> null
     // PHN-641: the Mac's side after the app opened: words only, it clears by itself
@@ -686,11 +688,12 @@ private fun OutboxRow(vm: FerbViewModel, row: ChatRow.Outbox) {
     val o = row.item
     val ink = LocalSkyInk.current
     val failed = o.state == "failed"
+    val ui by vm.ui.collectAsState()
     val status = when {
         failed -> stringResource(R.string.outbox_failed, o.reason.orEmpty())
         o.state == "sending" -> stringResource(R.string.outbox_sending)
-        o.waitingFor == "unlock" -> stringResource(R.string.outbox_waiting_unlock)
-        else -> stringResource(R.string.outbox_waiting)
+        // the Mac asleep while insomnia mode was on says so (APP-981); else what it waits for
+        else -> stringResource(com.ferb.app.model.MacAsleep.waitingLine(o.waitingFor, com.ferb.app.model.MacAsleep.shown(ui.status, ui.link, ui.linkLost)))
     }
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Box(Modifier.alpha(if (failed) 1f else 0.7f)) { OwnerBubble(o.text) }
@@ -715,10 +718,11 @@ private fun WithFilesRow(vm: FerbViewModel, m: Sending) {
     val ink = LocalSkyInk.current
     val context = LocalContext.current
     val bad = m.phase == SendPhase.FAILED || m.phase == SendPhase.CLOSED
+    val ui by vm.ui.collectAsState()
     val status = when (m.phase) {
         SendPhase.UPLOADING -> stringResource(R.string.send_progress, (m.fraction * 100).toInt())
         SendPhase.SENDING -> stringResource(R.string.outbox_sending)
-        SendPhase.WAITING_LINK -> stringResource(R.string.outbox_waiting)
+        SendPhase.WAITING_LINK -> stringResource(com.ferb.app.model.MacAsleep.waitingLine(null, com.ferb.app.model.MacAsleep.shown(ui.status, ui.link, ui.linkLost)))
         SendPhase.WAITING_PATH -> m.note?.let { noteText(it) } ?: stringResource(R.string.send_waiting_path)
         SendPhase.STOPPED -> stringResource(R.string.send_stopped)
         SendPhase.LOCKED -> stringResource(R.string.send_locked)

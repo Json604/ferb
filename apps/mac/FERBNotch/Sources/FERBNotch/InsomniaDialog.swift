@@ -10,12 +10,21 @@ enum InsomniaDialog {
     /// helper (APP-986), registered first when macOS doesn't list it; nil (a development build): the Mac sleeps with a
     /// closed lid on battery, as the line says.
     static func run(_ model: NotchModel, helper: PowerHelper?) {
+        Task { @MainActor in
+            let closedLid = await helper?.prepare() ?? .sleeps
+            await model.refreshInsomnia()        // the daemon's lid line and the helper's problem, after that attempt
+            show(model, helper: helper, closedLid: closedLid)
+        }
+    }
+
+    private static func show(_ model: NotchModel, helper: PowerHelper?, closedLid: PowerHelperPlan.ClosedLid) {
         let minutes = model.insomniaStatus?.graceMinutes ?? InsomniaStatus.defaultGraceMinutes
-        let closedLid = helper?.prepare() ?? .sleeps
         let form = Form()
         let alert = NSAlert()
         alert.messageText = InsomniaWords.title
-        alert.informativeText = informative(minutes: minutes, closedLid: closedLid)
+        alert.informativeText = informative(minutes: minutes, lidLine: InsomniaWords.lidLine(model.insomniaStatus,
+                                                                                               local: closedLid),
+                                            problem: model.insomniaStatus?.helper?.problem)
         alert.accessoryView = form.view
         for title in buttons(closedLid) { alert.addButton(withTitle: title) }
         switch AppWindowPresentation.runModal(alert) {                                   // on this Space (APP-796)
@@ -25,9 +34,10 @@ enum InsomniaDialog {
         }
     }
 
-    /// The contract's body, the closed lid's line under it (APP-986), then when it ends.
-    static func informative(minutes: Int, closedLid: PowerHelperPlan.ClosedLid) -> String {
-        InsomniaWords.body + "\n" + InsomniaWords.closedLid(closedLid) + "\n\n" + InsomniaWords.ends(minutes: minutes)
+    /// The contract's body, the closed lid's line under it (the daemon's `lid_line`) and the helper's problem when there
+    /// is one, then when it ends.
+    static func informative(minutes: Int, lidLine: String, problem: String? = nil) -> String {
+        InsomniaWords.body + "\n" + lidLine + (problem.map { "\n" + $0 } ?? "") + "\n\n" + InsomniaWords.ends(minutes: minutes)
     }
 
     /// Keep it working (the default), Not now, and Open Login Items… while the helper waits for his switch.

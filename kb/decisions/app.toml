@@ -4536,3 +4536,43 @@ status = "active"
 rule = "Waking from the 10-minute dim returns to Breathe; the f is written only at the cover's rise. The field's clock wraps at 10,000 s."
 why = "A wake is a glance, not a new entrance."
 paths = ["apps/mac/FERBNotch/Sources/NotchCore/ShieldLook.swift"]
+
+[APP-1101]
+title = "Any device's insomnia session registers FERB's helper once"
+by = "agent"
+date = 2026-11-20
+status = "active"
+rule = "For APP-986, beside APP-996. Every daemon status goes through PowerHelper.modeChanged: a session that is on (its since), whoever started it, has the helper registered once when the daemon doesn't report it ready and macOS doesn't list it; macOS shows its own notice."
+why = "A mode started from the phone never opened the Mac's warning, so the helper was never set up."
+evidence = "PowerHelperTests (the phone path, once per session)."
+paths = ["apps/mac/FERBNotch/Sources/FERBNotch/PowerHelper.swift", "apps/mac/FERBNotch/Sources/NotchCore/PowerHelper.swift"]
+
+[APP-1102]
+title = "The Mac's warning shows the daemon's lid line, read just before it opens"
+by = "agent"
+date = 2026-11-20
+status = "active"
+rule = "The warning's closed-lid sentence is the status's lid_line (DMN-615), with helper.problem under it; Open Login Items… follows macOS's own status. An older daemon without lid_line gets FERB.app's own truthful fallback."
+why = "One set of words on every device, true to the helper's state."
+evidence = "PowerHelperTests (the lid line and its fallback)."
+paths = ["apps/mac/FERBNotch/Sources/NotchCore/PowerHelper.swift", "apps/mac/FERBNotch/Sources/FERBNotch/InsomniaDialog.swift"]
+
+[APP-1103]
+title = "FERB.app registers the helper when macOS says not registered or not found and the bundle has it"
+by = "agent"
+date = 2026-11-20
+status = "active"
+rule = "Refines APP-996's never-when-the-bundle-has-none: the bundle carries the helper when Contents/Library/LaunchDaemons/com.ferb.power.plist and Contents/Helpers/ferb-power exist on disk; then .notRegistered and .notFound both register (macOS reports .notFound for a daemon never registered). With either file missing nothing is registered and not_in_bundle is reported."
+why = "On the installed build register() was never called: no smd or background-task line in the log, the service unknown to launchd."
+evidence = "PowerHelperTests (notFound with the files registers; without them never)."
+paths = ["apps/mac/FERBNotch/Sources/FERBNotch/PowerHelper.swift", "apps/mac/FERBNotch/Sources/NotchCore/PowerHelper.swift"]
+
+[APP-1104]
+title = "Every helper registration attempt is logged, reported and shown"
+by = "agent"
+date = 2026-11-20
+status = "active"
+rule = "Each attempt writes an NSLog line (the error's description, domain and code) and sends insomnia.report helper with the state read after it (DMN-616); the warning re-reads the status before it opens and shows helper.problem; the menu shows it in one line."
+why = "The error was swallowed by try?."
+evidence = "PowerHelperTests (a thrown error reported, logged, shown)."
+paths = ["apps/mac/FERBNotch/Sources/FERBNotch/PowerHelper.swift", "apps/mac/FERBNotch/Sources/NotchCore/PowerHelper.swift", "apps/mac/FERBNotch/Sources/NotchCore/MenuBarState.swift"]

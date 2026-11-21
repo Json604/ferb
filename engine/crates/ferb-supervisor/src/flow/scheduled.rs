@@ -23,7 +23,8 @@ use serde_json::{json, Map, Value};
 
 use super::{Failure, Flow, Inner, Request, Tree, Turn};
 use crate::words::{
-    NO_OUTCOME, PAUSED_MENTION, PAUSED_SINCE, RESUME, SCHEDULE_MESSAGES, STOP, STOP_LABEL, TASK_ASK,
+    NO_OUTCOME, PAUSED_MENTION, PAUSED_SINCE, RESTARTED, RESUME, SCHEDULE_MESSAGES, STOP,
+    STOP_LABEL, TASK_ASK,
 };
 use crate::NotPorted;
 
@@ -402,13 +403,28 @@ impl Inner {
         {
             final_.insert("suspended".into(), json!(true));
         }
+        if final_.get("summary").and_then(Value::as_str) == Some(RESTARTED) {
+            // ORCH-685: the owner's follow-up started this run again: it isn't over, and its new run's end is the
+            // schedule's result (run_tree), so this one is neither counted nor posted
+            final_.insert("restarted".into(), json!(true));
+        }
         Ok(final_)
     }
 
     /// supervisor.py:1708 `_apply_run_scope` (ORCH-313): a scheduled run's task uses what the schedule recorded when it
     /// was made (its folders, identity and worker type, for every step too), whatever this run's plan proposed.
     fn apply_run_scope(&self, sched: &Schedule, spec: &mut TaskSpec) {
-        let scope = sched.run_scope().unwrap_or_default();
+        self.apply_scope(&sched.id, &sched.run_scope().unwrap_or_default(), spec);
+    }
+
+    /// `_apply_run_scope`'s body for a schedule's recorded scope: also a scheduled run the owner's follow-up started
+    /// again (ORCH-686).
+    pub(crate) fn apply_scope(
+        &self,
+        schedule_id: &str,
+        scope: &Map<String, Value>,
+        spec: &mut TaskSpec,
+    ) {
         let worker_type = scope
             .get("worker_type")
             .filter(|v| ferb_py::value::truthy(v))
@@ -442,7 +458,7 @@ impl Inner {
         if proposed != applied {
             self.journal(
                 "schedule.scope_applied",
-                json!({"schedule_id": sched.id, "proposed": proposed, "recorded": applied}),
+                json!({"schedule_id": schedule_id, "proposed": proposed, "recorded": applied}),
                 None,
             );
         }

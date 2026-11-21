@@ -196,7 +196,8 @@ Existing tasks (control; null for an unrelated new request; never a time label s
 - stop: only when the owner's words ask for nothing but stopping. "Leave it, but tell me why" narrows it instead
   (continue: no more changes, keep diagnosing, report).
 - retry: an explicitly requested fresh attempt, or to change a running task's identity or plan steps (they can't
-  change while it runs). A retry inspects the current state first and keeps completed work.
+  change while it runs). A retry inspects the current state first and keeps completed work. A running task's retry
+  stops its unfinished work and hands the new attempt what that work had read, never a result: say only that.
 - A job and its schedule move together: pausing or resuming a scheduled run pauses or resumes its schedule by itself;
   with no run under way, pause or resume the schedule (schedule_changes); ending the job for good cancels it.
 - You may control any running task in the status facts, whichever chat it belongs to; its answer still reports in its

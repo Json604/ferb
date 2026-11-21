@@ -4,8 +4,8 @@
 //!
 //! [`MacDesktop`] is Python's `DesktopProbe`: the focused app (AX's system-wide `AXFocusedApplication`, its pid, the
 //! running app's bundle id and name), its focused window (an identity: `CFHash` of the AX element), whether that
-//! window is full screen, and a Space epoch counted by NSWorkspace's active-Space notification (delivered on the main
-//! thread, which `mainloop` turns). [`Unread`] stands in when the Mac's own parts are off: every field unavailable.
+//! window is full screen, and a Space epoch: one more each time the window server's active Space differs from the
+//! last read (HAND-648; NSWorkspace's notification never reached the daemon). [`Unread`] stands in when the Mac's own parts are off: every field unavailable.
 //! The record is desktop.py `_record_disturbance`: a span under the task's own, then `disturbance.observed`.
 
 use std::sync::Arc;
@@ -168,32 +168,57 @@ pub use mac::MacDesktop;
 
 #[cfg(target_os = "macos")]
 mod mac {
-    use std::ptr::NonNull;
+    use std::ffi::{c_void, CString};
     use std::sync::atomic::{AtomicU64, Ordering};
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Mutex, OnceLock};
 
-    use block2::RcBlock;
     use ferb_daemon::areas_b::disturbance::DesktopRead;
     use ferb_mac_hands::ax::{AxSource, AxValue};
     use ferb_mac_hands::native::ax::NativeAx;
-    use objc2::rc::Retained;
-    use objc2::runtime::{AnyObject, NSObjectProtocol, ProtocolObject};
-    use objc2_app_kit::{NSRunningApplication, NSWorkspace};
-    use objc2_foundation::{NSNotification, NSString};
+    use objc2_app_kit::NSRunningApplication;
     use serde_json::{json, Map, Value};
 
-    type Token = Retained<ProtocolObject<dyn NSObjectProtocol>>;
+    type MainConnection = unsafe extern "C" fn() -> i32;
+    type ActiveSpace = unsafe extern "C" fn(i32) -> u64;
 
-    /// A token held across threads: it is only ever handed back to the notification center that made it.
-    struct Held(Token);
-    // SAFETY: the observer token is an opaque object passed only to `removeObserver:`, which is thread-safe.
-    unsafe impl Send for Held {}
+    /// HAND-648: the window server's id of the Space the owner is on now (SkyLight's `SLSGetActiveSpace` on this
+    /// process's connection, read only, as FERB.app reads it); None when it can't be read. NSWorkspace's Space
+    /// notification never reached the daemon (every trace of 2026-11-21 kept epoch 0 through dozens of Space changes
+    /// the unified log shows), so the Space is read at each sample instead.
+    fn active_space() -> Option<u64> {
+        static FNS: OnceLock<Option<(usize, usize)>> = OnceLock::new();
+        let (main, active) = (*FNS.get_or_init(|| {
+            let path =
+                CString::new("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight")
+                    .ok()?;
+            // SAFETY: dlopen with a valid C string; the handle is kept for the process's life (never dlclosed).
+            let lib = unsafe { libc::dlopen(path.as_ptr(), libc::RTLD_LAZY) };
+            if lib.is_null() {
+                return None;
+            }
+            let sym = |name: &str| -> Option<usize> {
+                let c = CString::new(name).ok()?;
+                // SAFETY: a valid handle and C string.
+                let p: *mut c_void = unsafe { libc::dlsym(lib, c.as_ptr()) };
+                (!p.is_null()).then_some(p as usize)
+            };
+            Some((sym("SLSMainConnectionID")?, sym("SLSGetActiveSpace")?))
+        }))?;
+        // SAFETY: both symbols are SkyLight's exported functions with these C signatures (as FERB.app calls them).
+        let space = unsafe {
+            let main: MainConnection = std::mem::transmute::<usize, MainConnection>(main);
+            let active: ActiveSpace = std::mem::transmute::<usize, ActiveSpace>(active);
+            active(main())
+        };
+        (space != 0).then_some(space)
+    }
 
     /// disturbance.py `DesktopProbe`.
     #[derive(Default)]
     pub struct MacDesktop {
-        epoch: Arc<AtomicU64>,
-        observer: Mutex<Option<Held>>,
+        /// HAND-648: counts each Space change seen between two reads (the window server's active Space id).
+        epoch: AtomicU64,
+        space: Mutex<Option<u64>>,
         ax: NativeAx,
     }
 
@@ -208,41 +233,7 @@ mod mac {
 
     impl DesktopRead for MacDesktop {
         fn start(&self) {
-            let epoch = self.epoch.clone();
-            let token = objc2::rc::autoreleasepool(|_| {
-                let center = NSWorkspace::sharedWorkspace().notificationCenter();
-                let block = RcBlock::new(move |_note: NonNull<NSNotification>| {
-                    epoch.fetch_add(1, Ordering::SeqCst);
-                });
-                let name = NSString::from_str("NSWorkspaceActiveSpaceDidChangeNotification");
-                // SAFETY: a nil object and queue: the block runs on the posting (main) thread; it lives as long as
-                // the observer, which `close` removes.
-                unsafe {
-                    center.addObserverForName_object_queue_usingBlock(
-                        Some(&name),
-                        None,
-                        None,
-                        &block,
-                    )
-                }
-            });
-            *self.observer.lock().unwrap_or_else(|e| e.into_inner()) = Some(Held(token));
-        }
-
-        fn close(&self) {
-            if let Some(Held(token)) = self
-                .observer
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .take()
-            {
-                objc2::rc::autoreleasepool(|_| {
-                    let center = NSWorkspace::sharedWorkspace().notificationCenter();
-                    let obj: &AnyObject = token.as_ref();
-                    // SAFETY: the token was returned by this center's addObserverForName.
-                    unsafe { center.removeObserver(obj) };
-                });
-            }
+            *self.space.lock().unwrap_or_else(|e| e.into_inner()) = active_space();
         }
 
         fn read(&self) -> Result<Map<String, Value>, String> {
@@ -250,21 +241,24 @@ mod mac {
             let mut out = Map::new();
             // `{"unavailable": ...}` first, as Python's dict is built
             out.insert("unavailable".into(), Value::Null);
-            if self
-                .observer
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .is_some()
-            {
-                out.insert(
-                    "active_space_epoch".into(),
-                    json!(self.epoch.load(Ordering::SeqCst)),
-                );
-            } else {
-                unavailable.insert(
-                    "active_space_epoch".into(),
-                    json!("Space observer not registered"),
-                );
+            match active_space() {
+                Some(now) => {
+                    let mut seen = self.space.lock().unwrap_or_else(|e| e.into_inner());
+                    if seen.is_some_and(|before| before != now) {
+                        self.epoch.fetch_add(1, Ordering::SeqCst);
+                    }
+                    *seen = Some(now);
+                    out.insert(
+                        "active_space_epoch".into(),
+                        json!(self.epoch.load(Ordering::SeqCst)),
+                    );
+                }
+                None => {
+                    unavailable.insert(
+                        "active_space_epoch".into(),
+                        json!("the window server's active Space couldn't be read"),
+                    );
+                }
             }
             let front = (|| -> Result<(), String> {
                 let system = self.ax.system();

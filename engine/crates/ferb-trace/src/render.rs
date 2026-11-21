@@ -182,10 +182,16 @@ pub fn story(ep: &Value, verdict: &Value) -> Vec<String> {
                 .map(|t| format!("{} (another FERB task's call)", str_of(t))),
         );
         let changed: Vec<String> = items(n, "changed").iter().map(str_of).collect();
+        // HAND-648: said when recorded: the owner's own input came while those calls ran, so either may be the cause
+        let owner = if g(n, "owner_input_during_action") == &Value::Bool(true) {
+            " (the owner's own input came during it too)"
+        } else {
+            ""
+        };
         shown.push((
             str_of(g(n, "at")),
             format!(
-                "  · {} {} near {}",
+                "  · {} {} near {}{owner}",
                 at_text(g(n, "at")),
                 changed.join(", "),
                 tools.join(", ")

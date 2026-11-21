@@ -4857,6 +4857,7 @@ request = "Menu bar → Keep my Mac working… → Cover the screen (the one Yes
 pass = "The cover shows on every display, over the full-screen app; pmset -g assertions lists only FERB's idle-sleep and display holds; the line lands in TextEdit with the cover still up; the phone notifies \"Someone's at your Mac\" in seconds with Show me, Lock my Mac and It's fine; Show me shows the camera live (its light on only while watching, no screenshot); Lock my Mac locks at once; his unlock ends the mode (said once on both) and FERB's holds are gone."
 decisions = ["APP-980", "APP-983", "APP-984", "DMN-603", "DMN-606", "DMN-607", "DMN-608", "APP-987", "APP-988", "APP-989", "APP-990", "APP-991", "APP-992", "APP-993", "APP-994", "APP-995", "PHN-774", "PHN-775", "PHN-776", "DMN-609"]
 sitting = "after this engine, FERB.app and the phone builds are installed"
+result = "passed 2026-11-20 build 202611200450: owner, on turning it on from both devices, the cover with Touch ID, the someone-at-your-Mac notice, Show me and Lock my Mac: \"it works\", then \"1,2,3,4,5,6\""
 
 [LIVE-1152]
 title = "Insomnia mode, Lock my Mac variant, from the phone: awake, locked, ends after the grace"
@@ -4875,6 +4876,7 @@ request = "Plugged in: start insomnia mode, start the task, close the lid for 3 
 pass = "Plugged in, the task went on with the lid closed (no Clamshell Sleep in the log; if there is one, PreventSystemSleep doesn't hold in clamshell without the helper: say so). On battery with the helper, the task went on, the phone warned once that the lid is closed on battery, the panel was dark under the lid, and SleepDisabled is 0 again after the end."
 decisions = ["APP-981", "APP-986", "DMN-603", "DMN-610", "DMN-611", "DMN-612", "APP-996"]
 sitting = "after a certificate-signed build with the helper is installed and approved"
+result = "failed 2026-11-20 build 202611200450: started from the phone, lid closed on battery, the Mac slept: the helper was never registered (journal 154); check again in LIVE-1157"
 
 [LIVE-1154]
 title = "A step that needs the keyboard while the Mac is locked asks on the phone and waits for his return"
@@ -4902,3 +4904,30 @@ request = "Turn on insomnia mode with the cover and watch; leave it 11 minutes; 
 pass = "The f is written and the dot drops in with a small bounce, then breathes; nothing of the desktop shows through the frosted grain; after 10 minutes the animation stops and the cover fades to near black; the touch brings it back (and the phone notifies); Touch ID's prompt appears over the cover and its Yes dismisses it in about a second."
 decisions = ["APP-982", "APP-985", "APP-1100", "APP-989"]
 sitting = "after this FERB.app is installed"
+
+[LIVE-1157]
+title = "Insomnia from the phone, lid closed: the helper set up, the Mac runs as if open, or says why not"
+area = "app"
+surface = "FERB.app with this build (installed by the owner), the paired phone; a video playing in the browser; once on battery, once plugged in"
+request = "From the phone turn on Keep my Mac working (cover). At the Mac, if macOS shows its background-item notice or the warning says the helper waits, allow FERB in System Settings → General → Login Items. Close the lid for 3 minutes, send FERB a short question from the phone, then open the lid. Then once without allowing the helper."
+pass = "With the helper allowed: the reply comes while the lid is closed, the video is still playing on reopening and no lock screen shows; pmset -g shows SleepDisabled 1 during the mode and 0 after. Without it: the phone's warning said the Mac sleeps on battery (or locks and pauses plugged in); when the link drops the phone says it may be asleep and the waiting message says it goes when it wakes; after reopening FERB says once when it slept and why."
+decisions = ["DMN-613", "DMN-614", "DMN-615", "DMN-616", "DMN-617", "APP-1101", "APP-1102", "APP-1103", "APP-1104", "PHN-777", "PHN-778", "PHN-779", "PHN-788", "PHN-789", "PHN-790"]
+sitting = "after this build is installed"
+
+[LIVE-1158]
+title = "A browser task in a Chrome profile with no window leaves the owner on his Space"
+area = "hands"
+surface = "FERB.app with this build; Chrome full screen (then split, then windowed) on his Space; another paired Chrome profile with no window"
+request = "On each setup ask FERB to read a page in the windowless profile (\"in my <that profile> Chrome, open example.com and tell me its heading\")."
+pass = "No Space switch, no full-screen animation, the same app in front, and no new question. ferb trace TASK shows a Space line only where the Space changed; a swipe of his own during a call says his own input came during it."
+decisions = ["HAND-647", "HAND-648"]
+sitting = "after this engine is installed"
+
+[LIVE-1159]
+title = "FERB's window made over full-screen Chrome ends minimized and stays; the next task moves nothing"
+area = "hands"
+surface = "FERB.app with this build and extension 0.19.13 in his Chrome profiles; Chrome full screen on his Space; another paired Chrome profile with no window"
+request = "Ask FERB to read a page in the windowless profile (\"in my <that profile> Chrome, open example.com and tell me its heading\"); when it's done, ask a second task in the same profile."
+pass = "The first task: at most one brief Space change, and no Chrome window left showing on the desktop (FERB's window is in the Dock, minimized). The second task in that profile moves nothing. No new question either time."
+decisions = ["HAND-649", "HAND-647"]
+sitting = "after this engine and extension are installed"

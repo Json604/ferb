@@ -229,8 +229,21 @@ public final class NotificationPlanner {
         return out
     }
 
-    /// The notices' counts as last posted (a later touch updates the notification quietly).
-    private var insomniaCounts: [String: UInt32] = [:]
+    /// What each insomnia notification said as last posted (its count and words): a change updates it quietly.
+    private var insomniaShown: [String: String] = [:]
+    private var asleepPosted = false
+
+    /// The Mac may be asleep (APP-981): one quiet notification while it can't be reached, gone when it is back.
+    public func asleep(_ on: Bool) -> [NotificationAction] {
+        if !on {
+            defer { asleepPosted = false }
+            return asleepPosted ? [.remove(id: "mac_asleep")] : []
+        }
+        if asleepPosted { return [] }
+        asleepPosted = true
+        return [.post(PlannedNotification(id: "mac_asleep", kind: .mac, title: L.s("n_insomnia_warning"), body: L.s("mac_asleep"),
+                                          publicText: L.s("n_public_mac"), wordless: false, buttons: [], tap: .app, quietly: true))]
+    }
 
     /// Insomnia mode's notifications (APP-981, APP-983; Android's Notifier.insomnia), each from the Mac's status:
     /// - the notice (someone touched the Mac, or an app opened that FERB didn't): posted once, with Show me (opens the
@@ -248,7 +261,11 @@ public final class NotificationPlanner {
             let key = "in:\(n.id)"
             now.insert(key)
             let known = announced.contains(key)
-            if !known || insomniaCounts[key] != n.count {
+            let said = "\(n.count)|\(n.text)"
+            // after a restart what was posted is taken as it is (never posted again)
+            if known && insomniaShown[key] == nil { insomniaShown[key] = said }
+            // a later touch of the same episode (its count), or new words from the Mac: updated quietly
+            if !known || insomniaShown[key] != said {
                 let title = L.s(n.kind == "activation" ? "n_insomnia_activation" : "n_insomnia_touched")
                 let buttons = [
                     NotificationButton(label: L.s("insomnia_show_me"), choice: NotificationButton.showMe, placeholder: nil),
@@ -259,24 +276,28 @@ public final class NotificationPlanner {
                                                      publicText: L.s("n_public_mac"), wordless: false, buttons: buttons,
                                                      tap: .app, quietly: known)))
                 announced.insert(key)
-                insomniaCounts[key] = n.count
+                insomniaShown[key] = said
             }
         }
         if let i, i.on {
             for w in i.warnings {
                 let key = "iw:\(w.id)"
                 now.insert(key)
-                if announced.contains(key) { continue }
+                let known = announced.contains(key)
+                if known && insomniaShown[key] == nil { insomniaShown[key] = w.text }
+                // the same warning with new words (the lid on battery follows the Mac's helper): updated quietly
+                if known && insomniaShown[key] == w.text { continue }
                 announced.insert(key)
+                insomniaShown[key] = w.text
                 out.append(.post(PlannedNotification(id: key, kind: .mac, title: L.s("n_insomnia_warning"), body: w.text,
                                                      publicText: L.s("n_public_mac"), wordless: false, buttons: [], tap: .app,
-                                                     quietly: false)))
+                                                     quietly: known)))
             }
         }
         // what the status no longer has goes (answered on the Mac or here, gone, the mode ended)
         for key in announced.filter({ ($0.hasPrefix("in:") || $0.hasPrefix("iw:")) && !now.contains($0) }).sorted() {
             announced.remove(key)
-            insomniaCounts[key] = nil
+            insomniaShown[key] = nil
             out.append(.remove(id: key))
         }
         // how it ended: once, quietly; in the app the model says it instead
@@ -416,16 +437,44 @@ public final class Notifier {
     /// One look at a time, in order (Android's Mutex).
     private var chain: Task<Void, Never>?
 
+    /// The can't-reach time (seconds; AppModel's UnlockTiming.linkLost, kb PHN-753): tests pass a short one.
+    private let lostAfter: Double
+    private var asleepWait: Task<Void, Never>?
+
     public init(api: PhoneApi, prefs: Prefs, session: Session, lockedNow: @escaping () -> Bool,
-                deliver: @escaping ([NotificationAction]) -> Void) {
+                deliver: @escaping ([NotificationAction]) -> Void, lostAfter: Double = 10) {
         planner = NotificationPlanner(prefs: prefs)
         self.api = api
         self.session = session
         self.lockedNow = lockedNow
         self.deliver = deliver
+        self.lostAfter = lostAfter
+    }
+
+    /// The link changed (APP-981): lost for the can't-reach time while insomnia mode was on, the Mac may be asleep (one
+    /// quiet notification); back, or stopped for good, it goes.
+    private func linkChanged(_ phase: LinkPhase?) {
+        asleepWait?.cancel()
+        asleepWait = nil
+        guard let phase, phase != .online, phase != .stopped else {
+            let a = planner.asleep(false)
+            if !a.isEmpty { deliver(a) }
+            return
+        }
+        let after = lostAfter
+        asleepWait = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(after * 1_000_000_000))
+            guard let self, !Task.isCancelled else { return }
+            let status = await api.lastStatus()
+            guard !Task.isCancelled else { return }
+            let a = planner.asleep(MacAsleep.shown(status, api.link, lost: true))
+            if !a.isEmpty { deliver(a) }
+        }
     }
 
     private var sessionFollow: Follow<[Bool]>?
+    /// The link's phase as last followed (the asleep notice follows its changes only).
+    private var lastPhase: LinkPhase??
 
     public func start() {
         let stream = api.changes()
@@ -453,10 +502,12 @@ public final class Notifier {
             guard let self else { return }
             let a = planner.link(l)
             if !a.isEmpty { deliver(a) }
+            if l?.phase != lastPhase { lastPhase = l?.phase; linkChanged(l?.phase) }
         }
     }
 
     public func stop() {
+        asleepWait?.cancel()
         changesTask?.cancel()
         linkFollow?.stop()
         sessionFollow?.stop()

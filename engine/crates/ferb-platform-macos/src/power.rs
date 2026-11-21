@@ -12,7 +12,8 @@ use std::time::{Duration, Instant};
 
 use ferb_core::power::helper::{self, Request};
 use ferb_core::power::{
-    HelperState, Hold, KeepAwake, LockMac, PowerFacts, PowerReading, RootHelper, Thermal,
+    HelperState, Hold, KeepAwake, LockMac, PowerEvent, PowerFacts, PowerHandler, PowerReading,
+    PowerWatch, RootHelper, Thermal,
 };
 
 type CFTypeRef = *const c_void;
@@ -310,6 +311,169 @@ impl PowerFacts for Facts {
             thermal: Facts::thermal(),
             screen_locked: screen_locked(),
         }
+    }
+}
+
+type IoConnect = u32;
+
+#[link(name = "CoreFoundation", kind = "framework")]
+extern "C" {
+    static kCFRunLoopDefaultMode: CFStringRef;
+    fn CFRunLoopGetCurrent() -> CFTypeRef;
+    fn CFRunLoopAddSource(rl: CFTypeRef, source: CFTypeRef, mode: CFStringRef);
+    fn CFRunLoopRun();
+}
+
+#[link(name = "IOKit", kind = "framework")]
+extern "C" {
+    fn IOPSNotificationCreateRunLoopSource(
+        callback: extern "C" fn(*mut c_void),
+        context: *mut c_void,
+    ) -> CFTypeRef;
+    fn IORegisterForSystemPower(
+        refcon: *mut c_void,
+        port: *mut *mut c_void,
+        callback: extern "C" fn(*mut c_void, u32, u32, *mut c_void),
+        notifier: *mut u32,
+    ) -> IoConnect;
+    fn IOAllowPowerChange(kernel_port: IoConnect, notification_id: isize) -> IOReturn;
+    fn IONotificationPortCreate(main: MachPort) -> *mut c_void;
+    fn IONotificationPortGetRunLoopSource(port: *mut c_void) -> CFTypeRef;
+    fn IOServiceAddInterestNotification(
+        port: *mut c_void,
+        service: u32,
+        interest: *const c_char,
+        callback: extern "C" fn(*mut c_void, u32, u32, *mut c_void),
+        refcon: *mut c_void,
+        notification: *mut u32,
+    ) -> i32;
+}
+
+const MSG_CAN_SYSTEM_SLEEP: u32 = 0xe000_0270;
+const MSG_SYSTEM_WILL_SLEEP: u32 = 0xe000_0280;
+const MSG_SYSTEM_HAS_POWERED_ON: u32 = 0xe000_0300;
+/// kIOPMMessageClamshellStateChange (iokit_family_msg(sub_iokit_powermanagement, 0x100)).
+const MSG_CLAMSHELL: u32 = 0xe003_4100;
+
+/// What the watch's callbacks reach (leaked: the watch lasts the process's life).
+struct WatchState {
+    handler: PowerHandler,
+    root_port: std::sync::atomic::AtomicU32,
+}
+
+extern "C" fn on_power_source(ctx: *mut c_void) {
+    // SAFETY: `ctx` is the leaked WatchState given at registration.
+    let st = unsafe { &*(ctx as *const WatchState) };
+    (st.handler)(PowerEvent::Changed);
+}
+
+extern "C" fn on_system_power(
+    ctx: *mut c_void,
+    _service: u32,
+    message: u32,
+    argument: *mut c_void,
+) {
+    // SAFETY: `ctx` is the leaked WatchState given at registration.
+    let st = unsafe { &*(ctx as *const WatchState) };
+    let port = st.root_port.load(std::sync::atomic::Ordering::SeqCst);
+    match message {
+        MSG_CAN_SYSTEM_SLEEP => {
+            // SAFETY: the root port IORegisterForSystemPower gave; the argument is the notification's id.
+            unsafe { IOAllowPowerChange(port, argument as isize) };
+        }
+        MSG_SYSTEM_WILL_SLEEP => {
+            let wait = (st.handler)(PowerEvent::WillSleep).min(20_000);
+            if wait > 0 {
+                std::thread::sleep(Duration::from_millis(wait));
+            }
+            // SAFETY: as above; macOS waits for this answer (at most 30 s).
+            unsafe { IOAllowPowerChange(port, argument as isize) };
+        }
+        MSG_SYSTEM_HAS_POWERED_ON => {
+            (st.handler)(PowerEvent::Woke);
+        }
+        _ => {}
+    }
+}
+
+extern "C" fn on_root_domain(
+    ctx: *mut c_void,
+    _service: u32,
+    message: u32,
+    _argument: *mut c_void,
+) {
+    if message == MSG_CLAMSHELL {
+        // SAFETY: `ctx` is the leaked WatchState given at registration.
+        let st = unsafe { &*(ctx as *const WatchState) };
+        (st.handler)(PowerEvent::Changed);
+    }
+}
+
+/// The Mac's power watch (DMN-613): the power source (IOPS), the lid (IOPMrootDomain's clamshell message) and sleep
+/// and wake (IORegisterForSystemPower), each told at once on a run-loop thread of its own.
+#[derive(Default)]
+pub struct Watch;
+
+impl PowerWatch for Watch {
+    fn start(&self, handler: PowerHandler) -> bool {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let spawned = std::thread::Builder::new()
+            .name("ferb-power-watch".into())
+            .spawn(move || {
+                let st: &'static WatchState = Box::leak(Box::new(WatchState {
+                    handler,
+                    root_port: std::sync::atomic::AtomicU32::new(0),
+                }));
+                let ctx = st as *const WatchState as *mut c_void;
+                // SAFETY: this thread's run loop; every source below is retained by the run loop once added.
+                let ok = unsafe {
+                    let rl = CFRunLoopGetCurrent();
+                    let ps = IOPSNotificationCreateRunLoopSource(on_power_source, ctx);
+                    if !ps.is_null() {
+                        CFRunLoopAddSource(rl, ps, kCFRunLoopDefaultMode);
+                    }
+                    let mut port: *mut c_void = std::ptr::null_mut();
+                    let mut notifier: u32 = 0;
+                    let root =
+                        IORegisterForSystemPower(ctx, &mut port, on_system_power, &mut notifier);
+                    if root != 0 && !port.is_null() {
+                        st.root_port
+                            .store(root, std::sync::atomic::Ordering::SeqCst);
+                        CFRunLoopAddSource(
+                            rl,
+                            IONotificationPortGetRunLoopSource(port),
+                            kCFRunLoopDefaultMode,
+                        );
+                    }
+                    let name = CString::new("IOPMrootDomain").unwrap_or_default();
+                    let domain = IOServiceGetMatchingService(0, IOServiceMatching(name.as_ptr()));
+                    let iport = IONotificationPortCreate(0);
+                    if domain != 0 && !iport.is_null() {
+                        let interest = CString::new("IOGeneralInterest").unwrap_or_default();
+                        let mut n: u32 = 0;
+                        IOServiceAddInterestNotification(
+                            iport,
+                            domain,
+                            interest.as_ptr(),
+                            on_root_domain,
+                            ctx,
+                            &mut n,
+                        );
+                        CFRunLoopAddSource(
+                            rl,
+                            IONotificationPortGetRunLoopSource(iport),
+                            kCFRunLoopDefaultMode,
+                        );
+                    }
+                    !ps.is_null() || root != 0
+                };
+                let _ = tx.send(ok);
+                if ok {
+                    // SAFETY: runs this thread's run loop for the process's life.
+                    unsafe { CFRunLoopRun() };
+                }
+            });
+        spawned.is_ok() && rx.recv_timeout(Duration::from_secs(5)).unwrap_or(false)
     }
 }
 

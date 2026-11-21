@@ -276,12 +276,17 @@ fn desktop(nodes: &[&Value], task_id: &str, ended: &Value) -> Value {
                 };
                 let (own, other) = (names(true), names(false));
                 if !own.is_empty() || !other.is_empty() {
-                    near.push(map(vec![
+                    let mut item = vec![
                         ("at", g(n, "started_at").clone()),
                         ("changed", strings(sorted_names(changes))),
                         ("tools", strings(own)),
                         ("other_task_tools", strings(other)),
-                    ]));
+                    ];
+                    // HAND-648: the owner's own input came during those calls (recorded since 2026-11-21)
+                    if let Some(during @ Value::Bool(_)) = out.get("owner_input_during_action") {
+                        item.push(("owner_input_during_action", during.clone()));
+                    }
+                    near.push(map(item));
                 } else if !what.is_empty() && actions.iter().all(|a| has(a, "on_screen")) {
                     none_near.push(map(vec![
                         ("at", g(n, "started_at").clone()),

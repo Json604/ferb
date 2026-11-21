@@ -1497,6 +1497,13 @@ impl Tools {
                 out.insert("tab".into(), tab.tab_id.clone().into());
                 out.insert("url".into(), json!(d.tab_url(&tab.tab_id)));
                 out.extend(self.http(&tab));
+                // HAND-649: making FERB's window for this open wasn't plain, a fact for the worker and the trace
+                if let Some(made) = d.take_window_made(&tab) {
+                    out.insert(
+                        "window_made".into(),
+                        crate::surfaced::window_made_told(&made).into(),
+                    );
+                }
                 if owner {
                     out.insert(
                         "profile".into(),

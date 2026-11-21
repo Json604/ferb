@@ -328,6 +328,33 @@ impl<'a> PlanStore<'a> {
         Ok(())
     }
 
+    /// ORCH-683 (not Python's): a step a restart stopped before it finished is kept as an earlier result, its output
+    /// replaced by `output` (what it had done), so the new attempt's steps get it as data and no new step reads it as
+    /// its own previous attempt. An earlier result of the same step is replaced.
+    pub fn set_aside(&self, task_id: &str, step_id: &str, output: &Value) -> Result<()> {
+        let earlier = format!("{EARLIER}{step_id}");
+        sql::transaction(self.db.conn(), |c| {
+            sql::exec(
+                c,
+                "DELETE FROM plan_steps WHERE task_id=? AND step_id=?",
+                &[text(task_id), text(&earlier)],
+            )?;
+            sql::exec(
+                c,
+                "UPDATE plan_steps SET step_id=?, output=? WHERE task_id=? AND step_id=?",
+                &[
+                    text(&earlier),
+                    text(&self.json(output)),
+                    text(task_id),
+                    text(step_id),
+                ],
+            )?;
+            Ok(())
+        })?;
+        self.revised(task_id);
+        Ok(())
+    }
+
     /// plan_store.py:125 `earlier`.
     pub fn earlier(&self, task_id: &str) -> Result<Vec<(String, Value)>> {
         Ok(self

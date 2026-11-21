@@ -148,3 +148,44 @@ async fn a_reminder_is_delivered_once_even_when_handed_over_again() {
     assert_eq!(delivered, 1);
     d.close().await;
 }
+
+/// ORCH-685: a run the owner's follow-up started again in place comes back marked `restarted`: it isn't over, so it
+/// is neither counted nor posted, and no retry is queued; the new run's end goes through `resumed_outcome` instead.
+// decision: ORCH-685
+#[tokio::test(flavor = "multi_thread")]
+async fn a_run_started_again_by_the_owner_is_neither_counted_nor_posted() {
+    let tmp = tempfile::tempdir().unwrap();
+    let d = Daemon::start(tmp.path(), "01", "id", FakeClock::new(None), Seq::new("id")).await;
+    let sid = once(&d, "2026-01-01T09:05:00+00:00").await;
+    let before = d.table("schedules").await;
+    d.stand.runs.lock().unwrap().push(
+        json!({"task_id": "id-000021", "status": "cancelled", "summary": "stopped to start again with your change",
+               "answer": "Stopped here to start again with your change.", "restarted": true})
+        .as_object()
+        .unwrap()
+        .clone(),
+    );
+    d.clock.advance(300.0);
+    assert_eq!(tick(&d).await, 1);
+    assert_eq!(
+        kinds(&d.stand.calls.take()),
+        ["create_scheduled", "run_scheduled"],
+        "no task_result: the run's end is the new run's"
+    );
+    let journal = d.table("journal").await;
+    assert!(
+        !journal
+            .iter()
+            .any(|r| r[3] == "schedule.retry_queued" || r[3] == "schedule.posted"),
+        "{journal:?}"
+    );
+    let after = d.table("schedules").await;
+    assert_eq!(after[0][1], json!(sid));
+    // failures (9) and last_run (10): the run wasn't counted
+    assert_eq!(
+        (&after[0][9], &after[0][10]),
+        (&before[0][9], &before[0][10]),
+        "{before:?} {after:?}"
+    );
+    d.close().await;
+}

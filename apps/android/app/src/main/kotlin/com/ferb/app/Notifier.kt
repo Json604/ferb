@@ -28,6 +28,9 @@ import com.ferb.mobile.PhoneStatus
 import com.ferb.mobile.TranscriptView
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -54,6 +57,8 @@ class Notifier(
     private val api: PhoneApi,
     private val prefs: Prefs,
     private val session: Session,
+    /** How the can't-reach time is waited (tests pass one that returns at once). */
+    private val wait: suspend (Long) -> Unit = { kotlinx.coroutines.delay(it) },
 ) {
     private val nm = context.getSystemService(NotificationManager::class.java)
     private val keyguard = context.getSystemService(KeyguardManager::class.java)
@@ -94,6 +99,15 @@ class Notifier(
                     is Change.LocationWanted -> if (!quiet) location(c.requestId)
                     else -> Unit
                 }
+            }
+        }
+        scope.launch {
+            // the Mac may be asleep (APP-981): the link lost for the can't-reach time while insomnia mode was on; one
+            // quiet notification, gone when the link is back
+            api.link.map { it?.phase }.distinctUntilChanged().collectLatest { phase ->
+                if (phase == null || phase == LinkPhase.ONLINE || phase == LinkPhase.STOPPED) return@collectLatest asleep(false)
+                wait(FerbViewModel.LINK_LOST_AFTER_MS)
+                asleep(com.ferb.app.model.MacAsleep.shown(api.lastStatus(), api.link.value, lost = true))
             }
         }
         scope.launch {
@@ -182,8 +196,11 @@ class Notifier(
             now[key] = keyOf(key)
             val title = context.getString(if (n.kind == "activation") R.string.n_insomnia_activation else R.string.n_insomnia_touched)
             val known = key in announced
-            // a later touch of the same episode: its count and time change, the notification is updated quietly
-            if (!known || insomniaCounts[key] != n.count) {
+            val said = "${n.count}|${n.text}"
+            // after a restart what was posted is taken as it is (never posted again)
+            if (known && insomniaShown[key] == null) insomniaShown[key] = said
+            // a later touch of the same episode (its count), or new words from the Mac: updated quietly
+            if (!known || insomniaShown[key] != said) {
                 val b = builder(CH_INSOMNIA, title, n.text.ifEmpty { title }, open(null), public = R.string.n_public_mac)
                     .setCategory(Notification.CATEGORY_ALARM)
                     .setAutoCancel(false)
@@ -196,23 +213,28 @@ class Notifier(
                     insomniaIntent(InsomniaReceiver.FINE, n.id)).build())
                 notifyTagged(keyOf(key), b.build())
                 announced += key
-                insomniaCounts[key] = n.count
+                insomniaShown[key] = said
             }
         }
         for (w in i?.warnings.orEmpty().takeIf { i?.on == true }.orEmpty()) {
             val key = "iw:${w.id}"
             now[key] = keyOf(key)
-            if (key in announced) continue
+            val known = key in announced
+            if (known && insomniaShown[key] == null) insomniaShown[key] = w.text
+            // the same warning with new words (the lid on battery follows the Mac's helper): updated quietly
+            if (known && insomniaShown[key] == w.text) continue
             announced += key
-            notifyTagged(keyOf(key), builder(CH_INSOMNIA, context.getString(R.string.n_insomnia_warning), w.text, open(null),
-                public = R.string.n_public_mac).build())
+            insomniaShown[key] = w.text
+            val b = builder(CH_INSOMNIA, context.getString(R.string.n_insomnia_warning), w.text, open(null), public = R.string.n_public_mac)
+            if (known) b.setOnlyAlertOnce(true).setGroup(SILENT_GROUP).setGroupAlertBehavior(Notification.GROUP_ALERT_SUMMARY)
+            notifyTagged(keyOf(key), b.build())
         }
         // what the status no longer has goes (answered on the Mac or here, gone, the mode ended)
         for (sbn in nm.activeNotifications) {
             if (sbn.tag == TAG_INSOMNIA && sbn.id !in now.values) nm.cancel(TAG_INSOMNIA, sbn.id)
         }
         announced.removeAll { (it.startsWith("in:") || it.startsWith("iw:")) && it !in now }
-        insomniaCounts.keys.retainAll(now.keys)
+        insomniaShown.keys.retainAll(now.keys)
         // how it ended: once, quietly; in the app the view model says it instead
         val end = i?.lastEnd?.takeIf { !i.on && it.text.isNotEmpty() }
         if (end != null && !quiet && prefs.claimInsomniaEnd(end.id)) {
@@ -222,8 +244,25 @@ class Notifier(
         }
     }
 
-    /** The notices' counts as last posted (a later touch updates the notification quietly). */
-    private val insomniaCounts = ConcurrentHashMap<String, UInt>()
+    /** What each insomnia notification said as last posted (its count and words): a change updates it quietly. */
+    private val insomniaShown = ConcurrentHashMap<String, String>()
+
+    @Volatile private var asleepPosted = false
+
+    /** The Mac may be asleep (APP-981): one quiet notification while it can't be reached, gone when it is back. */
+    private fun asleep(on: Boolean) {
+        if (!on) {
+            if (asleepPosted) nm.cancel(keyOf(KEY_ASLEEP))
+            asleepPosted = false
+            return
+        }
+        if (asleepPosted) return
+        asleepPosted = true
+        val b = builder(CH_INSOMNIA, context.getString(R.string.n_insomnia_warning), context.getString(R.string.mac_asleep), open(null),
+            public = R.string.n_public_mac)
+            .setOnlyAlertOnce(true).setGroup(SILENT_GROUP).setGroupAlertBehavior(Notification.GROUP_ALERT_SUMMARY)
+        notify(keyOf(KEY_ASLEEP), b.build())
+    }
 
     /** A notice's answer from here: gone at once on success (the status removes it too), else what stopped it. */
     fun insomniaAnswered(noticeId: String, problem: String?) {
@@ -417,6 +456,8 @@ class Notifier(
         const val TAG_INSOMNIA_END = "insomnia_end"
         const val KEY_LINK = "link"
         const val KEY_LOCATION = "location"
+        /** The Mac may be asleep while insomnia mode was on (APP-981). */
+        const val KEY_ASLEEP = "mac_asleep"
         const val SILENT_GROUP = "silent"
         /** A tap that opens the chat (MainActivity.EXTRA_ENTRY): where the planner's question is answered. */
         const val CHAT = "chat"

@@ -97,6 +97,9 @@ fun InsomniaCard(vm: FerbViewModel, ui: UiState, i: Insomnia) {
                 onClick = if ("insomnia-fine" in ui.busy) null else ({ vm.insomniaFine(notice.id) }))
         }
         if (i.on) {
+            com.ferb.app.model.MacAsleep.helperProblem(i)?.let {
+                PhoneText(it, 14.5f, color = Ink.detail, modifier = Modifier.fillMaxWidth().padding(top = 10.dp))
+            }
             for (w in i.warnings) {
                 PhoneText(w.text, 14.5f, color = Ink.detail, modifier = Modifier.fillMaxWidth().padding(top = 10.dp))
             }
@@ -120,7 +123,14 @@ fun InsomniaSheet(vm: FerbViewModel, ui: UiState, insets: PhoneInsets) {
     val title = stringResource(R.string.insomnia_title)
     SheetFrame(title = title, bottomInset = insets.bottom, onDismiss = close) {
         SheetTitle(title, close)
-        PhoneText(stringResource(R.string.insomnia_body), 15.5f, color = Ink.detail, lineSpacing = 2f, modifier = Modifier.padding(top = 6.dp))
+        // the closed-lid sentence is the Mac's own, true to its helper's state (an older Mac: the app's words)
+        val body = com.ferb.app.model.MacAsleep.body(stringResource(R.string.insomnia_body_open), stringResource(R.string.insomnia_body_closed),
+            ui.status?.insomnia)
+        PhoneText(body, 15.5f, color = Ink.detail, lineSpacing = 2f, modifier = Modifier.padding(top = 6.dp))
+        // why the helper that keeps a closed Mac running isn't on (the Mac's words), under the lid line
+        com.ferb.app.model.MacAsleep.helperProblem(ui.status?.insomnia)?.let {
+            PhoneText(it, 14.5f, FerbType.Medium, Ink.black, lineSpacing = 1f, modifier = Modifier.padding(top = 8.dp))
+        }
         Column(Modifier.fillMaxWidth().padding(top = 14.dp).background(Ink.fill, RoundedCornerShape(16.dp))) {
             Choice(stringResource(R.string.insomnia_shield), stringResource(R.string.insomnia_shield_text), variant == SHIELD) { variant = SHIELD }
             if (variant == SHIELD) {

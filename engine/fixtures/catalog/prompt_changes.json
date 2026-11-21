@@ -96,6 +96,12 @@
       "prompt": "verifier.md",
       "old": "  worker\" or this check); never a success claim.\nFields a choice doesn't use are empty (\"\", [] or null); `findings` holds whatever the answer states wrongly. Write\nevidence as direct findings with their references, without repeating the condition or narrating the inspection.",
       "new": "  worker\" or this check); never a success claim.\n`progress`, whenever a condition is not met, whatever `next` is: `found`, one plain sentence for the owner of what the\nwork has reached (\"\" for nothing), and `missing`, one full sentence naming only what is still missing and why (FERB may\nshow it after \"Not done:\"); FERB may show both to the owner as they are. Fields a choice doesn't use are empty (\"\", []\nor null); `findings` holds whatever the answer states wrongly. Write evidence as direct findings with their references,\nwithout repeating the condition or narrating the inspection."
+    },
+    {
+      "decision": "PRM-369",
+      "prompt": "supervisor.md",
+      "old": "- retry: an explicitly requested fresh attempt, or to change a running task's identity or plan steps (they can't\n  change while it runs). A retry inspects the current state first and keeps completed work.\n- A job and its schedule move together",
+      "new": "- retry: an explicitly requested fresh attempt, or to change a running task's identity or plan steps (they can't\n  change while it runs). A retry inspects the current state first and keeps completed work. A running task's retry\n  stops its unfinished work and hands the new attempt what that work had read, never a result: say only that.\n- A job and its schedule move together"
     }
   ]
 }

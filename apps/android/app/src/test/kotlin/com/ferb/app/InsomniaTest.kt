@@ -11,6 +11,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.test.core.app.ApplicationProvider
 import com.ferb.app.model.CameraWatch
 import com.ferb.app.model.LocalFiles
+import com.ferb.app.model.MacAsleep
 import com.ferb.app.model.Why
 import com.ferb.core.KeyKind
 import com.ferb.core.Outcome
@@ -21,6 +22,7 @@ import com.ferb.mobile.Insomnia
 import com.ferb.mobile.InsomniaLastEnd
 import com.ferb.mobile.InsomniaNotice
 import com.ferb.mobile.InsomniaWarning
+import com.ferb.mobile.LinkPhase
 import com.ferb.mobile.OlderState
 import com.ferb.mobile.PhoneStatus
 import com.ferb.mobile.TranscriptView
@@ -166,7 +168,7 @@ class InsomniaTest {
 
     // ---- the notifications -------------------------------------------------------------------------------------------
 
-    private fun started(): Notifier = Notifier(context, phone, prefs, session).also { n -> MainScope().also { scopes += it; n.start(it) } }
+    private fun started(): Notifier = Notifier(context, phone, prefs, session, wait = {}).also { n -> MainScope().also { scopes += it; n.start(it) } }
 
     private fun macSays(i: Insomnia?) {
         phone.status = status(i)
@@ -319,5 +321,122 @@ class InsomniaTest {
         watch.start()
         idle()
         assertEquals(Note(R.string.err_needs_better_path), watch.view.value!!.ended)
+    }
+
+    // ---- the lid line, the Mac asleep, the waiting messages (round 2) ------------------------------------------------
+
+    /** The warning's closed-lid sentence is the Mac's own (true to its helper's state); an older Mac's: the app's words. */
+    // decision: APP-980, APP-981, PHN-777
+    @Test
+    fun the_warning_takes_the_lid_line_from_the_mac_and_falls_back_for_an_older_one() {
+        val open = context.getString(R.string.insomnia_body_open)
+        val fallback = context.getString(R.string.insomnia_body_closed)
+        val ready = phone.insomnia.copy(lidLine = "You can close the lid too: FERB keeps working, plugged in or on battery.", closedLid = "ready")
+        assertEquals("$open ${ready.lidLine}", MacAsleep.body(open, fallback, ready))
+        assertEquals("an older Mac: the app's words", "$open $fallback", MacAsleep.body(open, fallback, phone.insomnia))
+        assertEquals("no status yet: the app's words", "$open $fallback", MacAsleep.body(open, fallback, null))
+        assertTrue(fallback.contains("on battery"))
+    }
+
+    /** Why FERB's lid helper isn't on: the Mac's words, shown under the lid line and on the Mac card; none when fine. */
+    // decision: APP-981, PHN-790
+    @Test
+    fun the_helper_s_problem_is_the_mac_s_words_and_nothing_when_it_is_fine() {
+        val waiting = phone.insomnia.copy(helper = com.ferb.mobile.InsomniaHelper("requires_approval", null,
+            "FERB's helper is waiting for your OK in System Settings → General → Login Items."))
+        assertEquals(waiting.helper!!.problem, MacAsleep.helperProblem(waiting))
+        val fine = phone.insomnia.copy(helper = com.ferb.mobile.InsomniaHelper("enabled", null, null))
+        assertNull(MacAsleep.helperProblem(fine))
+        assertNull("an older Mac", MacAsleep.helperProblem(phone.insomnia))
+    }
+
+    /** The lid-on-battery warning follows the helper: new words under the same id update it quietly, never twice. */
+    // decision: APP-981, PHN-789
+    @Test
+    fun a_warning_with_new_words_under_the_same_id_is_updated_quietly() {
+        shadowOf(context as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        session.foreground(false)
+        started()
+        val lid = InsomniaWarning("w-lid", "lid_closed_battery", "Your Mac's lid is closed on battery: it will sleep.", null)
+        macSays(on(warnings = listOf(lid)))
+        assertFalse(mine.single().quiet)
+        val ready = lid.copy(text = "Your Mac's lid is closed on battery: FERB keeps it working.")
+        macSays(on(warnings = listOf(ready)))
+        assertEquals(ready.text, mine.single().text())
+        assertTrue("updated quietly", mine.single().quiet)
+        nm.cancelAll()
+        macSays(on(warnings = listOf(ready)))
+        assertTrue("the same words: not posted again", mine.isEmpty())
+    }
+
+    private val asleepNote: Notification? get() = shadowOf(nm).getNotification(Notifier.keyOf(Notifier.KEY_ASLEEP))
+
+    /** The Mac can't be reached while insomnia mode was on: one quiet notification, gone when the link is back. */
+    // decision: APP-981, PHN-779, PHN-788
+    @Test
+    fun the_mac_asleep_is_said_once_quietly_and_goes_when_the_link_is_back() {
+        shadowOf(context as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        session.foreground(false)
+        phone.status = status(on())
+        started()
+        phone.link.value = FakePhone.status(LinkPhase.CONNECTING)
+        idle()
+        val n = asleepNote!!
+        assertEquals(context.getString(R.string.mac_asleep), n.text())
+        assertTrue("quiet", n.quiet)
+        nm.cancelAll()
+        phone.link.value = FakePhone.status(LinkPhase.WAITING)
+        idle()
+        assertNull("said once", asleepNote)
+        phone.link.value = FakePhone.status(LinkPhase.CONNECTING)
+        idle()
+        phone.link.value = FakePhone.status(LinkPhase.ONLINE)
+        idle()
+        assertNull("gone when the link is back", asleepNote)
+        // lost again: said again, once
+        phone.link.value = FakePhone.status(LinkPhase.CONNECTING)
+        idle()
+        assertNotNull(asleepNote)
+        // a link stopped for good (removed) is not a sleeping Mac
+        phone.link.value = FakePhone.status(LinkPhase.STOPPED)
+        idle()
+        assertNull(asleepNote)
+    }
+
+    // decision: APP-981, PHN-778
+    @Test
+    fun the_mac_asleep_is_said_only_when_insomnia_mode_was_on() {
+        shadowOf(context as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        session.foreground(false)
+        phone.status = status(phone.insomnia)
+        started()
+        phone.link.value = FakePhone.status(LinkPhase.CONNECTING)
+        idle()
+        assertNull(asleepNote)
+        phone.link.value = FakePhone.status(LinkPhase.ONLINE)
+        phone.status = status(null)
+        phone.link.value = FakePhone.status(LinkPhase.CONNECTING)
+        idle()
+        assertNull("an older Mac", asleepNote)
+    }
+
+    /**
+     * A message waiting for the Mac: "Your Mac is asleep; this goes when it wakes." once the link is lost while insomnia
+     * mode was on; else today's "Waiting for your Mac" (and "Waiting for you to unlock" for the phone's unlock).
+     */
+    // decision: APP-981, PHN-401, PHN-778, PHN-779
+    @Test
+    fun a_waiting_message_says_the_mac_is_asleep_only_while_it_may_be() {
+        val lost = FakePhone.status(LinkPhase.CONNECTING)
+        val asleep = MacAsleep.shown(status(on()), lost, lost = true)
+        assertTrue(asleep)
+        assertEquals(R.string.outbox_mac_asleep, MacAsleep.waitingLine("link", asleep))
+        assertEquals(R.string.outbox_waiting_unlock, MacAsleep.waitingLine("unlock", asleep))
+        assertFalse("just connecting: not yet", MacAsleep.shown(status(on()), lost, lost = false))
+        assertFalse("insomnia mode off", MacAsleep.shown(status(phone.insomnia), lost, lost = true))
+        assertFalse("an older Mac", MacAsleep.shown(status(null), lost, lost = true))
+        assertFalse("removed: not asleep", MacAsleep.shown(status(on()), FakePhone.status(LinkPhase.STOPPED), lost = true))
+        assertEquals(R.string.outbox_waiting, MacAsleep.waitingLine("link", false))
+        assertEquals("Your Mac is asleep; this goes when it wakes.", context.getString(R.string.outbox_mac_asleep))
     }
 }

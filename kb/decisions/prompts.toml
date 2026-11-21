@@ -735,3 +735,13 @@ rule = "For ORCH-679. verifier.md's judging list adds `left`: kind fix (known to
 why = "Measured on Sonnet (ORCH-679's evidence): a 'definite untried step' fix labelled every endocrinologist check fix; defining fix by the result being known to exist made the labels reproducible."
 paths = ["engine/runtime/orchestrator/prompts/verifier.md", "engine/fixtures/catalog/prompt_changes.json"]
 untestable = "Prompt text (TEST-500); the named change is checked by the prompts and parity tests. The labels were measured by replay on Sonnet only, without the checker's own new looks."
+
+[PRM-369]
+title = "supervisor.md: a running task's retry hands on what its stopped work had read, never a result"
+by = "agent"
+date = 2026-11-21
+status = "active"
+rule = "For ORCH-682, ORCH-683. The retry line adds: a running task's retry stops its unfinished work and hands the new attempt what that work had read, never a result: say only that. Named in engine/fixtures/catalog/prompt_changes.json."
+why = "Live 2026-11-21, tree 111d1ed8: the planner told the owner 'Anything already found will be kept' when nothing was; the code now hands on the stopped work's calls, and the planner says no more than that."
+paths = ["engine/runtime/orchestrator/prompts/supervisor.md", "engine/fixtures/catalog/prompt_changes.json"]
+untestable = "Prompt text (TEST-500); the named change is checked by the prompts and parity tests."

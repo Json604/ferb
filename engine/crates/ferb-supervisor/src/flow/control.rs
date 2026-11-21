@@ -150,7 +150,14 @@ impl Inner {
                     .into(),
             );
         }
-        let stopped: Vec<String> = ids.into_iter().filter(|t| self.stop_tree(t)).collect();
+        // ORCH-684: a restart under way is called off by the owner's stop too
+        let stopped: Vec<String> = ids
+            .into_iter()
+            .filter(|t| {
+                let off = self.call_off_restart(t, false);
+                self.stop_tree(t) || off
+            })
+            .collect();
         for t in &stopped {
             self.journal("task.stopped", json!({"task_id": t, "by": "owner"}), None);
         }
@@ -624,13 +631,136 @@ impl Inner {
     }
 
     /// supervisor.py:7539 `_told_in` (ORCH-579): the request whose reply tells the owner's stop of this task, so
-    /// FERB.app files this end on the task's own turn instead of posting it again.
+    /// FERB.app files this end on the task's own turn instead of posting it again; ORCH-683: likewise the request whose
+    /// follow-up started the running task again.
     pub fn told_in(&self, tree: &Tree) -> Map<String, Value> {
         let st = tree.lock();
-        if st.stop == STOPPED_BY_YOU && !st.stop_told_in.is_empty() {
+        if (st.stop == STOPPED_BY_YOU || st.stop == RESTARTED) && !st.stop_told_in.is_empty() {
             return obj(json!({"told_in": st.stop_told_in}));
         }
         Map::new()
+    }
+
+    /// ORCH-683 (not Python's: a retry of a running task dropped what its stopped run had done, though the planner
+    /// promised "anything already found will be kept", live 2026-11-21): each step the restart stopped before it
+    /// finished is kept as an earlier result (`PlanStore::set_aside`) with its recorded calls and reports, read from
+    /// the task's trace as `task.trace` reads them (records as stored, page text data), so every step of the new attempt
+    /// gets them in its context and can open a call in full with task.evidence. A step that had finished stays as it
+    /// is: the new plan keeps or sets it aside as before.
+    pub(crate) fn keep_restarted_work(&self, tree_id: &str) -> Flow<()> {
+        use ferb_orchestrator::plan_store::EARLIER;
+        let states = self.plans(|p| p.steps(tree_id))?;
+        for (key, state) in states {
+            if key.starts_with(EARLIER) {
+                continue;
+            }
+            let stopped = state.status == "cancelled"
+                && state.output.get("summary").and_then(Value::as_str) == Some(RESTARTED);
+            if !stopped && !["running", "starting"].contains(&state.status.as_str()) {
+                continue;
+            }
+            // the step's own calls: a one-step task's worker, a plan step's `step.<id>` (and their checks)
+            let step = if key == ferb_orchestrator::plans::SINGLE {
+                key.clone()
+            } else {
+                format!("step.{key}")
+            };
+            // task.trace's own bounds: its latest calls, within its answer's size
+            let args = ferb_orchestrator::trace_read::TraceArgs {
+                step: Some(step.clone()),
+                ..Default::default()
+            };
+            let trace = {
+                let db = self.db();
+                ferb_orchestrator::trace_read::trace(&db, tree_id, &args)
+                    .ok()
+                    .flatten()
+                    .unwrap_or(Value::Null)
+            };
+            let calls = trace
+                .pointer("/calls/shown")
+                .cloned()
+                .unwrap_or_else(|| json!([]));
+            let reports: Vec<Value> = trace
+                .get("reports")
+                .and_then(Value::as_array)
+                .map(|r| {
+                    r.iter()
+                        .filter(|e| {
+                            e.get("step")
+                                .and_then(Value::as_str)
+                                .is_some_and(|s| s == step || s.starts_with(&format!("{step}.")))
+                        })
+                        .cloned()
+                        .collect()
+                })
+                .unwrap_or_default();
+            let mut output = state.output.as_object().cloned().unwrap_or_default();
+            output.insert("status".into(), json!("cancelled"));
+            output.insert("summary".into(), json!(RESTARTED));
+            output.insert(
+                "stopped_run".into(),
+                json!({"note": RESTARTED_NOTE.replace("{task}", tree_id), "calls": calls, "reports": reports}),
+            );
+            self.plans(|p| p.set_aside(tree_id, &key, &Value::Object(output)))?;
+        }
+        Ok(())
+    }
+
+    /// ORCH-683 (not Python's: a running task was steered on with "It keeps its current plan", and an ended one
+    /// resumed its saved plan, so work the owner's follow-up added as steps was never done): a correction (continue)
+    /// whose task carries a plan with a different step graph (step ids, kinds, dependencies) than the task's own is the
+    /// planner's retry, so the task starts again with that plan through the one restart path (done steps kept,
+    /// in-flight work handed on). For an ended task a rewrite (new_goal) already takes the planner's plan. A correction
+    /// without a plan, or with the same graph, steers the running work or resumes the saved plan as before.
+    fn restart_for_new_steps(
+        &self,
+        mut out: SupervisorOutcome,
+        session: &str,
+    ) -> SupervisorOutcome {
+        let graph = |plan: Option<&ferb_orchestrator::models::Plan>| {
+            plan.map(|p| {
+                p.steps
+                    .iter()
+                    .map(|s| (s.id.clone(), s.kind.clone(), s.depends_on.clone()))
+                    .collect::<Vec<_>>()
+            })
+        };
+        let Some(new) = out.task.as_ref().and_then(|t| t.plan.clone()) else {
+            return out;
+        };
+        let Some(control) = out.control.as_mut().filter(|c| c.action == "continue") else {
+            return out;
+        };
+        let active = self
+            .live()
+            .tree_of
+            .get(&control.task_id)
+            .cloned()
+            .filter(|a| a.id == control.task_id);
+        let (own, running) = match active {
+            Some(a) => {
+                let running = {
+                    let st = a.lock();
+                    st.stop.is_empty() && st.accepting_updates
+                };
+                (a.spec().plan, running)
+            }
+            None => {
+                let Some(prior) = self.control_chat(&control.task_id, session).and_then(|c| {
+                    self.continuity(|s| s.load(&control.task_id, &c))
+                        .ok()
+                        .flatten()
+                }) else {
+                    return out;
+                };
+                (prior.spec.plan, false)
+            }
+        };
+        if (running || !control.new_goal) && graph(Some(&new)) != graph(own.as_ref()) {
+            control.action = "retry".into();
+        }
+        out
     }
 
     /// supervisor.py:2866 `_control`: a stop, retry, continue or pause of a task the planner was shown.
@@ -640,9 +770,27 @@ impl Inner {
         out: SupervisorOutcome,
         emit: &Emit,
     ) -> Flow<()> {
+        let session = turn.lock().unwrap().session.clone();
+        let out = self.restart_for_new_steps(out, &session);
         let control = out.control.clone().expect("a control");
         let then = out.new_task().cloned();
-        let session = turn.lock().unwrap().session.clone();
+        if self.restart_pending(&control.task_id) {
+            // ORCH-684: one resume per tree: a stop calls the restart off; anything else waits for the new run
+            if control.action == "stop" {
+                self.call_off_restart(&control.task_id, true);
+                let stopped = ferb_orchestrator::answer_marks::STOPPED;
+                let ferb = origin_set(&[origin::FERB]);
+                if let Some(spec) = then {
+                    return self
+                        .then_start(turn, &out, spec, stopped, &ferb, Vec::new(), None, emit)
+                        .await;
+                }
+                return self
+                    .exit_as(turn, &out, "reply", stopped, ExitAs::by(origin::FERB), emit)
+                    .await;
+            }
+            self.after_restart(turn, &control.task_id, emit).await;
+        }
         let conversation = self.control_chat(&control.task_id, &session);
         let prior = conversation.as_ref().and_then(|c| {
             self.continuity(|s| s.load(&control.task_id, c))
@@ -789,6 +937,20 @@ impl Inner {
                     // ORCH-579: this reply tells the stop, if its end comes in time
                     t.lock().stop_told_in = rid.clone();
                 }
+            } else if let Some(t) = tree.as_ref().filter(|_| !finished) {
+                // ORCH-683: a retry of a running task ends its run in flight for the restart, never as the owner's
+                // stop: its end is filed on its own turn in place (told_in) and this turn carries the task on
+                {
+                    let mut st = t.lock();
+                    if st.stop.is_empty() {
+                        st.stop = RESTARTED.into();
+                        st.stop_told_in = rid.clone();
+                    }
+                }
+                // ORCH-684: until the new run is registered, this restart is the tree's one resume
+                self.live()
+                    .restarts
+                    .insert(control.task_id.clone(), (rid.clone(), None));
             }
             let was_running = self.stop_tree(&control.task_id);
             let settled = self.settled(&control.task_id, &ids, Some(10.0)).await;
@@ -872,7 +1034,13 @@ impl Inner {
                     .exit_as(turn, &out, "reply", text, ExitAs::by(origin::FERB), emit)
                     .await;
             }
-            if !settled {
+            let off = |me: &Self| {
+                me.live()
+                    .restarts
+                    .get(&control.task_id)
+                    .and_then(|(r, off)| off.filter(|_| *r == rid))
+            };
+            if !settled && off(self).is_none() {
                 // a retry still waits for the stop it needs
                 self.record_reply(turn, "reply", RETRY_SETTLING, &ferb, "", None)
                     .await;
@@ -884,8 +1052,105 @@ impl Inner {
                 let _ = emit.send(json!({"type": "reply", "text": RETRY_SETTLING}));
                 self.settled(&control.task_id, &ids, None).await;
             }
+            if !settled && off(self).is_some() {
+                // called off within the first wait: the stopped run still has to end before this turn does; the chat
+                // goes on meanwhile
+                let session = turn.lock().unwrap().session.clone();
+                self.release(&session, &rid);
+                self.settled(&control.task_id, &ids, None).await;
+            }
+            if let Some(told) = off(self) {
+                // ORCH-684: the owner stopped the task while its restart waited: it doesn't start, and the standing
+                // permissions it kept for the new run end (ORCH-686). The chat's last word is the stop: the stop's
+                // own reply told it (a chat stop), else this turn says it (the Stop button)
+                self.live().restarts.remove(&control.task_id);
+                self.deps.daemon.standing_revoke(&control.task_id);
+                if told {
+                    return Ok(());
+                }
+                return self
+                    .exit_as(
+                        turn,
+                        &out,
+                        "reply",
+                        ferb_orchestrator::answer_marks::STOPPED,
+                        ExitAs::by(origin::FERB),
+                        emit,
+                    )
+                    .await;
+            }
+            if was_running {
+                // ORCH-683: what the stopped run had done is handed to the new attempt as data
+                self.keep_restarted_work(&control.task_id)?;
+            }
         }
-        self.resume_ended(turn, &out, &conversation, emit).await
+        let rid = turn.lock().unwrap().request_id.clone();
+        let resumed = self.resume_ended(turn, &out, &conversation, emit).await;
+        // the new run took the restart over once registered (run_tree); one that never started lets it go here
+        self.clear_restart(&control.task_id, &rid);
+        resumed
+    }
+
+    /// ORCH-684: whether a restart of this tree waits for its stopped run to settle.
+    pub(crate) fn restart_pending(&self, tree_id: &str) -> bool {
+        self.live().restarts.contains_key(tree_id)
+    }
+
+    /// ORCH-684: the owner's stop of a tree whose restart is under way calls the restart off (the stopped run, if it
+    /// is still finishing, ends as the owner's stop). `told`: the stop's own reply says so (a chat stop); else the
+    /// waiting restart's turn does (the Stop button). True when one was called off.
+    pub(crate) fn call_off_restart(&self, tree_id: &str, told: bool) -> bool {
+        let found = match self.live().restarts.get_mut(tree_id) {
+            Some(entry) => {
+                entry.1 = Some(told);
+                true
+            }
+            None => false,
+        };
+        if found {
+            if let Some(tree) = self.live().tree_of.get(tree_id).cloned() {
+                let mut st = tree.lock();
+                if st.stop == RESTARTED {
+                    st.stop = STOPPED_BY_YOU.into();
+                }
+            }
+        }
+        found
+    }
+
+    fn clear_restart(&self, tree_id: &str, request_id: &str) {
+        let never_started = {
+            let mut live = self.live();
+            let ours = live
+                .restarts
+                .get(tree_id)
+                .is_some_and(|(r, _)| r == request_id);
+            if ours {
+                live.restarts.remove(tree_id);
+            }
+            ours
+        };
+        if never_started {
+            // ORCH-686: no new run took the stopped run's standing permissions over
+            self.deps.daemon.standing_revoke(tree_id);
+        }
+    }
+
+    /// ORCH-684: a follow-up about a tree whose restart is under way says so, lets the chat go, and is applied once the
+    /// new run is registered (it then controls that run).
+    async fn after_restart(&self, turn: &Arc<Mutex<Turn>>, tree_id: &str, emit: &Emit) {
+        let ferb = origin_set(&[origin::FERB]);
+        self.record_reply(turn, "reply", RESTART_QUEUED, &ferb, "", None)
+            .await;
+        let (session, rid) = {
+            let t = turn.lock().unwrap();
+            (t.session.clone(), t.request_id.clone())
+        };
+        self.release(&session, &rid);
+        let _ = emit.send(json!({"type": "reply", "text": RESTART_QUEUED}));
+        while self.restart_pending(tree_id) {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
     }
 
     /// supervisor.py:3085 `_resume`: a continue or retry of an ended task carries on in place (`resume_id`), so its
@@ -978,6 +1243,32 @@ impl Inner {
                 self.plans(|p| p.replace(&tid, new))?;
             }
         }
+        // ORCH-685: a scheduled run carried on by the owner's follow-up stays that schedule's run
+        let schedule = self
+            .plans(|p| p.load(&tid))
+            .ok()
+            .and_then(|l| {
+                l.request
+                    .get("schedule")
+                    .and_then(Value::as_object)
+                    .cloned()
+            })
+            .filter(|s| !s.is_empty());
+        if let Some(scope) = schedule
+            .as_ref()
+            .and_then(|s| s.get("facts"))
+            .and_then(|f| f.get("recorded_scope"))
+            .and_then(Value::as_object)
+        {
+            // ORCH-686 (ORCH-313): the schedule's recorded scope (folders, identity, worker type) holds for this run as
+            // for each of its runs
+            let sid = schedule
+                .as_ref()
+                .and_then(|s| s.get("id"))
+                .map(ferb_py::value::py_str)
+                .unwrap_or_default();
+            self.apply_scope(&sid, scope, &mut resumed);
+        }
         // the earlier requests' answers to FERB's questions keep what those questions were written from (S4 b)
         let (rid, typed, payload, asked_outside) = {
             let t = turn.lock().unwrap();
@@ -1028,6 +1319,7 @@ impl Inner {
                 prior_task,
                 message: Some(continued.payload),
                 conversation: Some(conversation.to_string()),
+                schedule,
             }),
         )
         .await

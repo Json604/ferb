@@ -182,6 +182,16 @@ pub struct InsomniaLastEnd {
     pub at: Option<String>,
 }
 
+/// FERB's helper on the Mac that keeps it running with the lid closed (as the daemon says it): its `state`, the
+/// `error` of a failed set-up, and `problem`, plain words for why it isn't on (waiting for the owner's OK in System
+/// Settings, a set-up that failed), none when nothing is wrong.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct InsomniaHelper {
+    pub state: String,
+    pub error: Option<String>,
+    pub problem: Option<String>,
+}
+
 /// Insomnia mode (APP-980..APP-985): FERB keeps the Mac working while the owner is away. The daemon's status object
 /// (`insomnia.status`, `chat.status`'s `insomnia`), read leniently: a part the Mac leaves out reads as its default.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -211,6 +221,13 @@ pub struct Insomnia {
     /// While off: FERB holds the Mac from idle sleep because a task runs.
     pub task_awake: bool,
     pub last_end: Option<InsomniaLastEnd>,
+    /// The Mac's own words for closing the lid on battery, true to its helper's state now (on and off); none from an
+    /// older Mac (the app then says its own words).
+    pub lid_line: Option<String>,
+    /// Whether FERB can keep working with the lid closed on battery: ready, absent or unknown; none from an older Mac.
+    pub closed_lid: Option<String>,
+    /// FERB's lid helper on the Mac; none from an older Mac.
+    pub helper: Option<InsomniaHelper>,
 }
 
 fn opt_u32(v: &Value) -> Option<u32> {
@@ -275,6 +292,16 @@ impl Insomnia {
                     why: text(&e["why"]),
                     text: text(&e["text"]),
                     at: opt(&e["at"]),
+                }),
+            lid_line: opt(&v["lid_line"]),
+            closed_lid: opt(&v["closed_lid"]),
+            helper: v
+                .get("helper")
+                .filter(|h| h.is_object())
+                .map(|h| InsomniaHelper {
+                    state: text(&h["state"]),
+                    error: opt(&h["error"]),
+                    problem: opt(&h["problem"]),
                 }),
         }
     }
@@ -495,5 +522,40 @@ mod tests {
         assert_eq!(off.last_end.unwrap().why, "back");
         let older = PhoneStatus::read(&json!({"approvals": [], "running": [], "results": []}));
         assert_eq!(older.insomnia, None);
+        assert!(
+            off.lid_line.is_none() && off.closed_lid.is_none(),
+            "an older Mac says neither"
+        );
+    }
+
+    /// The lid line and the closed-lid state, on and off, as the Mac says them now.
+    // decision: APP-981
+    #[test]
+    fn the_lid_line_and_the_closed_lid_state_are_read_on_and_off() {
+        let off = Insomnia::read(
+            &json!({"on": false, "power": {}, "line": "", "closed_lid": "absent",
+            "lid_line": "On battery with the lid closed, your Mac sleeps until you open it or plug it in."}),
+        );
+        assert_eq!(off.closed_lid.as_deref(), Some("absent"));
+        assert!(off.lid_line.unwrap().starts_with("On battery"));
+        let on = Insomnia::read(&json!({"on": true, "closed_lid": "ready",
+            "lid_line": "You can close the lid too: FERB keeps working, plugged in or on battery."}));
+        assert_eq!((on.on, on.closed_lid.as_deref()), (true, Some("ready")));
+        assert!(on.lid_line.is_some());
+        assert!(
+            on.helper.is_none() && off.helper.is_none(),
+            "a Mac that doesn't say"
+        );
+        let waiting = Insomnia::read(
+            &json!({"on": false, "helper": {"state": "requires_approval", "error": null,
+            "problem": "FERB's helper is waiting for your OK in System Settings → General → Login Items."}}),
+        );
+        let h = waiting.helper.unwrap();
+        assert_eq!(h.state, "requires_approval");
+        assert!(h.error.is_none() && h.problem.unwrap().contains("Login Items"));
+        let fine = Insomnia::read(
+            &json!({"on": true, "helper": {"state": "enabled", "error": null, "problem": null}}),
+        );
+        assert_eq!(fine.helper.unwrap().problem, None);
     }
 }

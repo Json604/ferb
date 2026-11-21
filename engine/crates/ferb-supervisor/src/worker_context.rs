@@ -173,6 +173,20 @@ fn own_one_step(saved: &Map<String, Value>, goal: &str) -> bool {
         && steps[0].get("goal").and_then(Value::as_str) == Some(goal)
 }
 
+/// ORCH-683: the saved plan's steps hold what a run the owner's follow-up stopped had done (`stopped_run`), which
+/// a one-step task started again gets with its own plan.
+fn restarted_work(saved: &Map<String, Value>) -> bool {
+    saved
+        .get("steps")
+        .and_then(Value::as_object)
+        .is_some_and(|steps| {
+            steps.iter().any(|(k, v)| {
+                k.starts_with(ferb_orchestrator::plan_store::EARLIER)
+                    && v.pointer("/output/stopped_run").is_some()
+            })
+        })
+}
+
 /// ORCH-650: the check's block of FERB's questions to the owner in this step (the checker's own, a check-in's) and
 /// the owner's answers, `{"question", "answer"}` oldest first, built as the "your questions" block is; None when there
 /// are none. Not Python's: its checker never saw the answer to its own question and asked it again (live 2026-11-15).
@@ -467,7 +481,7 @@ pub fn worker_context(
         if let Some(saved) = r
             .saved_plan
             .as_ref()
-            .filter(|s| !s.is_empty() && !own_one_step(s, &r.goal))
+            .filter(|s| !s.is_empty() && (!own_one_step(s, &r.goal) || restarted_work(s)))
         {
             parts.push(protected(
                 format!(

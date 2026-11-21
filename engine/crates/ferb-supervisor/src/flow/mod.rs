@@ -1046,6 +1046,10 @@ pub struct Live {
     pub episode_jobs: Vec<(String, tokio::task::JoinHandle<()>)>,
     /// `_capture_lock`: one capture at a time, so two never race on the same cards.
     pub capture_lock: Arc<tokio::sync::Mutex<()>>,
+    /// ORCH-684 (not Python's): tree id -> the restart under way (the follow-up's request; once the owner's stop
+    /// called it off, whether that stop's own reply told it), from the retry's stop until the new run is registered:
+    /// one resume per tree.
+    pub restarts: HashMap<String, (String, Option<bool>)>,
 }
 
 /// The supervisor. Cheap to clone; every flow runs on a shared [`Inner`].

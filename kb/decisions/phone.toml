@@ -3916,3 +3916,57 @@ status = "active"
 rule = "A someone's-at-your-Mac notice (Show me, Lock my Mac, It's fine) notifies even with the app on screen (an exception to PHN-760), a later touch in the same episode updates it quietly; warnings notify without actions; each is posted once per id and removed when the status drops it (the mode's end, an older Mac). last_end is said once per id. Android: channel your_mac, tag insomnia; iPhone: per-category actions, Show me opens the app, the others run in the background, interruption level active (no time-sensitive entitlement)."
 why = "APP-983: he decides, so he must see it."
 paths = ["apps/android/app/src/main/kotlin/com/ferb/app/Notifier.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/Notifications.swift"]
+
+[PHN-777]
+title = "The phone's warning takes the closed-lid sentence from the Mac's lid line"
+by = "agent"
+date = 2026-11-20
+status = "active"
+rule = "For DMN-615. After the lid-open advice, the warning sheet's closed-lid sentence is the status's lid_line as given; an older Mac without it gets a sentence that claims less than either of the Mac's."
+why = "The phone said a closed lid keeps working when the helper wasn't on."
+paths = ["engine/crates/ferb-mobile/src/status.rs", "apps/android/app/src/main/kotlin/com/ferb/app/ui/Insomnia.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppUI/Insomnia.swift"]
+
+[PHN-778]
+title = "The phone calls the Mac asleep when insomnia was on and the link is lost for 10 seconds"
+by = "agent"
+date = 2026-11-20
+status = "active"
+rule = "One shared rule for the notice, the chat line and the outbox line: the link has been lost for the can't-reach point (10 s, any phase but online), the last status said insomnia mode was on, and the link hasn't stopped for good."
+why = "The owner's message looked stuck while the closed Mac slept."
+paths = ["apps/android/app/src/main/kotlin/com/ferb/app/Notifier.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/Notifications.swift"]
+
+[PHN-779]
+title = "The Mac-asleep notice is quiet, once per loss, and goes on reconnect"
+by = "agent"
+date = 2026-11-20
+status = "active"
+rule = "\"Can't reach your Mac. It may be asleep: with the lid closed on battery it sleeps until you open it or plug it in.\" is posted quietly once per loss, even with the app open, and removed when the link is back or stopped; a waiting message reads \"Your Mac is asleep; this goes when it wakes.\""
+why = "He must know why nothing answers."
+paths = ["apps/android/app/src/main/kotlin/com/ferb/app/Notifier.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/Notifications.swift"]
+
+[PHN-788]
+title = "May be asleep is the one link fact the chat's status line states"
+by = "agent"
+date = 2026-11-20
+status = "active"
+rule = "An exception to PHN-756: while PHN-778 holds, the chat's status line says the Mac may be asleep."
+why = "The reason a reply is late belongs where he looks."
+paths = ["apps/android/app/src/main/kotlin/com/ferb/app/Notifier.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/Notifications.swift"]
+
+[PHN-789]
+title = "An insomnia notice whose words change keeps its notification and updates it quietly"
+by = "agent"
+date = 2026-11-20
+status = "active"
+rule = "A notice or warning whose words change under the same id updates its posted notification quietly; after an app restart what was already posted is taken as it is, not posted again."
+why = "The lid warning's words now follow the helper's state."
+paths = ["apps/android/app/src/main/kotlin/com/ferb/app/Notifier.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/Notifications.swift"]
+
+[PHN-790]
+title = "The helper's problem shows under the lid line on the phone"
+by = "agent"
+date = 2026-11-20
+status = "active"
+rule = "For DMN-616. The status's helper.problem shows under the lid line in the warning sheet, and on the Mac card while the mode is on."
+why = "Why the helper is off, said where he decides."
+paths = ["engine/crates/ferb-mobile/src/status.rs", "apps/android/app/src/main/kotlin/com/ferb/app/ui/Insomnia.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppUI/Insomnia.swift"]

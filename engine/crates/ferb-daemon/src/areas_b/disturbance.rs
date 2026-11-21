@@ -613,6 +613,15 @@ impl DisturbanceSentinel {
         let mut st = self.st();
         let actions: Vec<Value> = st.actions.iter().map(|(_, a)| a.public()).collect();
         let near = !actions.is_empty(); // every tracked action is an on-screen one, of any task
+
+        // HAND-648: the owner's own keyboard, pointer or trackpad input came while those calls were in flight (his
+        // swipe or click can be the change); a fact beside the correlation, never a verdict
+        let owner_during = owner_input_during(
+            &owner,
+            st.actions.iter().map(|(_, a)| a.started_monotonic),
+            started + sample_ms / 1000.0,
+            || timestamp(&(self.seams.now)()),
+        );
         let mut procs: Option<Vec<Value>> = None;
         let mut listed = false;
         let on_screen_ended = st.on_screen_ended;
@@ -652,6 +661,9 @@ impl DisturbanceSentinel {
                             "changes": changes, "actions": actions, "owner_input": owner,
                             "sample_duration_ms": sample_ms, "permission_assessment": "not_inferred",
                             "attribution": "temporal_correlation_only"});
+                        if let Some(during) = owner_during {
+                            data["owner_input_during_action"] = Value::Bool(during);
+                        }
                         if changes.contains_key("frontmost_app")
                             && lines::front_pid(&field(&snapshot_v, "frontmost_app")).is_none()
                         {
@@ -789,6 +801,24 @@ fn py_float(v: &Value) -> Option<f64> {
         }
         _ => None,
     }
+}
+
+/// HAND-648: whether the owner's last own input (`owner_input.last_event_wall`, wall seconds) came after the earliest
+/// of the in-flight calls began (`started`, monotonic seconds, set on the wall clock through `mono_now` and `wall_now`,
+/// read only when the input is monitored).
+/// None: no call in flight, or the owner's input isn't monitored or has no time.
+pub fn owner_input_during(
+    owner: &Map<String, Value>,
+    started: impl Iterator<Item = f64>,
+    mono_now: f64,
+    wall_now: impl FnOnce() -> f64,
+) -> Option<bool> {
+    let first = started.fold(None, |m: Option<f64>, s| Some(m.map_or(s, |m| m.min(s))))?;
+    if owner.get("monitored") != Some(&Value::Bool(true)) {
+        return None;
+    }
+    let last = owner.get("last_event_wall").and_then(py_float)?;
+    Some(last >= wall_now() - (mono_now - first))
 }
 
 fn timestamp(dt: &DateTime) -> f64 {

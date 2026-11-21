@@ -18,17 +18,38 @@ public enum PowerHelperPlan {
         case sleeps
     }
 
-    /// Whether to register now, when the owner turns the mode on from the Mac: only a helper macOS doesn't list yet.
-    /// One waiting for approval or already on is left as it is; one macOS can't find (no plist in this bundle) too.
-    public static func registers(_ status: ServiceStatus) -> Bool { status == .notRegistered }
+    /// Whether to register now: the bundle carries the helper (its plist and program on disk) and macOS doesn't list it
+    /// (`.notRegistered`, or `.notFound`, which macOS also reports for a daemon never registered). One waiting for
+    /// approval or already on is left as it is.
+    public static func registers(_ status: ServiceStatus, inBundle: Bool) -> Bool {
+        inBundle && (status == .notRegistered || status == .notFound)
+    }
+
+    /// A mode session that is on tries once, whoever started it (a phone start never opens the Mac's warning), while
+    /// the daemon doesn't have the helper ready.
+    public static func triesForSession(_ status: InsomniaStatus, tried: String?) -> Bool {
+        status.on && status.closedLid != "ready" && status.since != tried
+    }
 
     /// What the warning says for macOS's status after that.
-    public static func closedLid(_ status: ServiceStatus) -> ClosedLid {
+    public static func closedLid(_ status: ServiceStatus, inBundle: Bool) -> ClosedLid {
+        guard inBundle else { return .sleeps }
+        return status == .enabled ? .keepsWorking : .needsApproval
+    }
+
+    /// The helper's state as `insomnia.report {"event": "helper"}` names it, for macOS's status.
+    public static func reported(_ status: ServiceStatus) -> String {
         switch status {
-        case .enabled: return .keepsWorking
-        case .requiresApproval, .notRegistered: return .needsApproval
-        case .notFound: return .sleeps
+        case .enabled: return "enabled"
+        case .requiresApproval: return "requires_approval"
+        case .notRegistered, .notFound: return "registered"
         }
+    }
+
+    /// An error's words for the daemon and the log: "<description> (<domain> <code>)".
+    public static func describe(_ error: Error) -> String {
+        let ns = error as NSError
+        return "\(ns.localizedDescription) (\(ns.domain) \(ns.code))"
     }
 }
 
@@ -42,6 +63,14 @@ extension InsomniaWords {
                 + "then too, turn on FERB in System Settings → General → Login Items."
         case .sleeps: return "On battery with the lid closed, your Mac sleeps until you open it."
         }
+    }
+
+    /// The warning's closed-lid line: the daemon's `lid_line`; from an older daemon, FERB.app's own words, which never
+    /// say a closed lid keeps working unless the daemon says the helper is ready.
+    public static func lidLine(_ status: InsomniaStatus?, local: PowerHelperPlan.ClosedLid) -> String {
+        if let line = status?.lidLine { return line }
+        let ready = status?.closedLid == "ready"
+        return closedLid(local == .keepsWorking && !ready ? .sleeps : local)
     }
 
     /// The warning's extra button while the helper waits for the owner's switch.

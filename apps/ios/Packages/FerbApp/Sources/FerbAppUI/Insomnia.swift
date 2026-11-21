@@ -46,6 +46,9 @@ struct InsomniaCard: View {
                         .padding(.top, 4)
                 }
                 if i.on {
+                    if let problem = MacAsleep.helperProblem(i) {
+                        Text(problem).type(14.5, .regular, Ink.detail).fixedSize(horizontal: false, vertical: true).padding(.top, 10)
+                    }
                     ForEach(Array(i.warnings.enumerated()), id: \.offset) { _, w in
                         Text(w.text).type(14.5, .regular, Ink.detail).fixedSize(horizontal: false, vertical: true).padding(.top, 10)
                     }
@@ -72,8 +75,14 @@ struct InsomniaSheet: View {
         let minutes = Int(model.ui.status?.insomnia?.graceMinutes ?? 10)
         Sheet(bottomInset: insets.bottom, onDismiss: close) {
             SheetTitle(L.s("insomnia_title"), onClose: close)
-            Text(L.s("insomnia_body")).type(15.5, .regular, Ink.detail).lineSpacing(2).fixedSize(horizontal: false, vertical: true)
+            // the closed-lid sentence is the Mac's own, true to its helper's state (an older Mac: the app's words)
+            Text(MacAsleep.body(open: L.s("insomnia_body_open"), fallback: L.s("insomnia_body_closed"), model.ui.status?.insomnia))
+                .type(15.5, .regular, Ink.detail).lineSpacing(2).fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 6)
+            // why the helper that keeps a closed Mac running isn't on (the Mac's words), under the lid line
+            if let problem = MacAsleep.helperProblem(model.ui.status?.insomnia) {
+                Text(problem).type(14.5, .medium, Ink.black).fixedSize(horizontal: false, vertical: true).padding(.top, 8)
+            }
             VStack(spacing: 0) {
                 choice(L.s("insomnia_shield"), L.s("insomnia_shield_text"), shieldWay)
                 if way == shieldWay {

@@ -418,6 +418,35 @@ fn insomnia_and_the_mac_s_camera_through_the_bindings() {
     let st = m.status().unwrap();
     let i = st.insomnia.unwrap();
     assert!(!i.on && i.task_awake && i.power.battery == Some(80));
+    assert!(
+        i.lid_line.is_none() && i.closed_lid.is_none(),
+        "a Mac that doesn't say"
+    );
+    mac.lock().status["insomnia"]["lid_line"] =
+        json!("On battery with the lid closed, your Mac sleeps.");
+    mac.lock().status["insomnia"]["closed_lid"] = json!("absent");
+    let i = m.status().unwrap().insomnia.unwrap();
+    assert_eq!(
+        i.lid_line.as_deref(),
+        Some("On battery with the lid closed, your Mac sleeps.")
+    );
+    assert_eq!(i.closed_lid.as_deref(), Some("absent"));
+    assert!(i.helper.is_none());
+    mac.lock().status["insomnia"]["helper"] = json!({"state": "failed", "error": "SMAppService error 1", "problem": "Setting up FERB's helper failed."});
+    let h = m.status().unwrap().insomnia.unwrap().helper.unwrap();
+    assert_eq!(
+        (h.state.as_str(), h.error.as_deref(), h.problem.as_deref()),
+        (
+            "failed",
+            Some("SMAppService error 1"),
+            Some("Setting up FERB's helper failed.")
+        )
+    );
+    assert_eq!(
+        m.insomnia_status().unwrap().closed_lid.as_deref(),
+        Some("absent"),
+        "insomnia.status carries them too"
+    );
     let before = mac.calls_of("insomnia.start").len();
     let e = m
         .start_insomnia("shield".into(), true, Arc::new(Cancels))

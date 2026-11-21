@@ -10,7 +10,7 @@ use ferb_core::when::DateTime;
 use ferb_daemon::areas_b::disturbance::{
     elapsed, screen_changes, told, DesktopRead, DisturbanceSentinel, Seams,
 };
-use serde_json::{Map, Value};
+use serde_json::{json, Map, Value};
 
 fn fixture() -> Value {
     let path =
@@ -338,4 +338,40 @@ async fn the_front_app_before_a_call_in_flight_is_known_until_it_ends() {
     assert_eq!(s.front_before("tree-2"), None);
     s.after_action("span-1").await;
     assert_eq!(s.front_before("tree-1"), None);
+}
+
+/// HAND-648 (live 2026-11-21: the owner's own trackpad swipes at 07:25:36 and 07:50:47 were recorded as changes near
+/// browser.open with nothing telling them apart): a change says whether the owner's own input came after the
+/// earliest in-flight call began. Unknown (no call, input not monitored, no time) says nothing.
+// decision: HAND-648
+#[test]
+fn a_change_says_whether_the_owners_own_input_came_during_the_calls() {
+    use ferb_daemon::areas_b::disturbance::owner_input_during;
+    let owner = |m: Value| m.as_object().unwrap().clone();
+    // the call began at monotonic 100 (wall 1_000 at monotonic 110): the swipe at wall 995 came during it
+    let during = owner(json!({"monitored": true, "recent": true, "last_event_wall": 995.0}));
+    assert_eq!(
+        owner_input_during(&during, [100.0, 104.0].into_iter(), 110.0, || 1_000.0),
+        Some(true)
+    );
+    // input before the call began: not during
+    let before = owner(json!({"monitored": true, "recent": true, "last_event_wall": 985.0}));
+    assert_eq!(
+        owner_input_during(&before, [100.0].into_iter(), 110.0, || 1_000.0),
+        Some(false)
+    );
+    // nothing in flight, not monitored, or no time: no fact
+    assert_eq!(
+        owner_input_during(&during, std::iter::empty(), 110.0, || 1_000.0),
+        None
+    );
+    let unmonitored = owner(json!({"monitored": false, "last_event_wall": 995.0}));
+    assert_eq!(
+        owner_input_during(&unmonitored, [100.0].into_iter(), 110.0, || 1_000.0),
+        None
+    );
+    assert_eq!(
+        owner_input_during(&owner(json!({})), [100.0].into_iter(), 110.0, || 1_000.0),
+        None
+    );
 }

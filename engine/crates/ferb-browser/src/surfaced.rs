@@ -96,3 +96,40 @@ pub fn told(f: &Map<String, Value>) -> String {
     };
     format!("{why}, and the browser brought {which} to the front{focus}; {after}. {back}")
 }
+
+/// HAND-649 (extension 0.19.13): an open's `window_made`, when making FERB's minimized window in a profile with none
+/// wasn't plain: macOS put it in full screen on a Space of its own first (the owner's own window was full screen in
+/// that browser), or it didn't end minimized. Cut to its known fields; `None` when it isn't one.
+pub fn window_made(v: Option<&Value>) -> Option<Map<String, Value>> {
+    let o = v?.as_object()?;
+    let fullscreen = o.get("fullscreen").and_then(Value::as_bool)?;
+    let minimized = o.get("minimized").and_then(Value::as_bool)?;
+    let mut out = Map::new();
+    out.insert("fullscreen".into(), fullscreen.into());
+    out.insert("minimized".into(), minimized.into());
+    if let Some(n) = o
+        .get("tries")
+        .and_then(Value::as_i64)
+        .filter(|n| (0..=2).contains(n))
+    {
+        out.insert("tries".into(), n.into());
+    }
+    Some(out)
+}
+
+/// The worker's line for [`window_made`].
+pub fn window_made_told(f: &Map<String, Value>) -> String {
+    let flag = |k: &str| f.get(k) == Some(&Value::Bool(true));
+    let first = if flag("fullscreen") {
+        "this profile had no window, so FERB made its own minimized one; macOS first opened it full screen on a \
+         Space of its own (the owner's screen may have switched Space for a moment)"
+    } else {
+        "this profile had no window, so FERB made its own minimized one"
+    };
+    let after = if flag("minimized") {
+        "it is minimized now, and later tabs in this profile open in it"
+    } else {
+        "FERB couldn't minimize it, so it may be showing on the owner's desktop"
+    };
+    format!("{first}; {after}")
+}

@@ -2104,3 +2104,35 @@ rule = "For HAND-645. ferb-mac-hands input::LockGuard wraps every post: while CG
 why = "A locked Mac's system-wide input reaches no app or its password field (x3); the owner chose to be asked."
 evidence = "ferb-mac-hands tests/element_actions.rs a_locked_screen_refuses_system_wide_input_only; ferb-gateway tests/insomnia_screen.rs a_locked_screen_asks_do_it_when_i_m_back_and_waits_for_the_unlock; answers.rs LockedScreen."
 paths = ["engine/crates/ferb-mac-hands/src/input.rs", "engine/crates/ferb-gateway/src/gateway.rs", "engine/crates/ferb-policy/src/confirm.rs", "engine/crates/ferb-policy/src/wording.rs"]
+
+[HAND-647]
+title = "No new questions for FERB's browser windows: fix the opening itself, or leave it as it was"
+by = "owner"
+date = 2026-11-21
+status = "active"
+words = "i didnt wanted you to create new questions for me. JSUT SOLVE THIS OPENING BEHAVIOUR- for god's sake. DONT DO THIS MORE QUESTIONS, if you can fix it then do it if not then no more new question sor 'your fixes'"
+words_source = "Owner 2026-11-21, relayed verbatim by the coordinator, rejecting a proposed question before FERB opens its window in a windowless Chrome profile (removed unbuilt)."
+rule = "Browser tasks must not move the owner to another Space when FERB opens its task window. The fix is in how the window is opened; no new question, refusal or workaround is added. If no way of opening it avoids the switch, the behaviour stays as it was."
+why = "Live 2026-11-21 07:50:37 and 07:57:22: FERB's minimized window, made in a windowless Chrome profile while Chrome was full screen on his Space, opened full screen on a new Space and macOS moved him there."
+live = ["LIVE-1158"]
+
+[HAND-648]
+title = "The desktop record reads the Space itself and notes the owner's own input during a call"
+by = "agent"
+date = 2026-11-21
+status = "active"
+rule = "Refines DMN-5 and HAND-213. The disturbance sample's Space epoch counts the window server's active Space (SLSGetActiveSpace, read only) changing between reads. A disturbance.change near FERB's on-screen calls records owner_input_during_action (the owner's own last input came after the earliest in-flight call began); ferb trace adds that to the line. A fact beside the correlation, never a verdict."
+why = "On 2026-11-21 every trace kept the Space epoch 0 through dozens of Space changes (no NSWorkspace notification reaches the daemon), and the owner's own swipes (07:25:36, 07:50:47) read as changes near browser.open."
+paths = ["engine/crates/ferbd/src/compose/desktop.rs", "engine/crates/ferb-daemon/src/areas_b/disturbance.rs::owner_input_during", "engine/crates/ferb-trace/src/compose.rs", "engine/crates/ferb-trace/src/render.rs"]
+live = ["LIVE-1158"]
+
+[HAND-649]
+title = "FERB's new window macOS made full screen ends minimized; a restored FERB window is found by its tab"
+by = "agent"
+date = 2026-11-21
+status = "active"
+rule = "For HAND-647, HAND-403. Extension 0.19.13, getFerbWindow: the placeholder tab opens at about:blank#ferb-window. A new window that reports fullscreen is set to normal (waited up to 3 s), then minimized, checked (up to 1.5 s) and tried once more. If not plain, the open's reply carries window_made {fullscreen, minimized, tries} and browser.open tells the worker in one line. With no window id in session storage, a normal window holding that address is FERB's own again, used as it is. Protocol 21, minimum 0.19.0; no question or refusal."
+why = "Live 2026-11-21 07:50:37, 07:57:22: over the owner's full-screen Chrome, FERB's new window opened full screen on its own Space and the minimize only left full screen, so it stayed on the desktop, the profile lost it, and the next task moved him again."
+evidence = "ferb-browser tests/extension_background.rs (four HAND-649 scenarios: full screen at create, a minimize that doesn't take, a plain one, a restored window reused); tests/background_first.rs a_window_made_full_screen_is_the_opens_fact_once."
+paths = ["extension/background.js", "extension/manifest.json", "engine/crates/ferb-browser/src/surfaced.rs", "engine/crates/ferb-browser/src/driver.rs", "engine/crates/ferb-browser/src/tools.rs"]
+live = ["LIVE-1159"]

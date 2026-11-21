@@ -250,7 +250,8 @@ fn hellos_asked_for_at_once_are_said_once() {
 }
 
 /// 0.19.12 adds only optional handling (`stale_key` on a refusal, which an older FERB never sends), so the protocol
-/// number and FERB's minimum stay: a FERB without it and an extension without it keep working together.
+/// number and FERB's minimum stay: a FERB without it and an extension without it keep working together. Later
+/// versions (0.19.13, HAND-649) keep it.
 // decision: HAND-566
 #[test]
 fn extension_0_19_12_keeps_protocol_21_and_the_minimum() {
@@ -258,7 +259,11 @@ fn extension_0_19_12_keeps_protocol_21_and_the_minimum() {
         &std::fs::read_to_string(root().join("extension/manifest.json")).unwrap(),
     )
     .unwrap();
-    assert_eq!(manifest["version"], "0.19.12");
+    let version = manifest["version"].as_str().unwrap();
+    assert!(
+        ferb_browser::protocol::version_ok(version, "0.19.12").unwrap(),
+        "{version}"
+    );
     let protocol = std::fs::read_to_string(root().join("extension/protocol.js")).unwrap();
     assert!(protocol.contains(&format!(
         "const FERB_PROTOCOL = {};",

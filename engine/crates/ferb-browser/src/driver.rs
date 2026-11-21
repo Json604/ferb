@@ -309,6 +309,8 @@ pub struct Tab {
     pub ids_note: Map<String, Value>,
     /// HAND-496: the last html read (its key, its text, skipped frames).
     pub markup: (String, String, Vec<i64>),
+    /// HAND-649: making FERB's window for this tab's open wasn't plain (the extension's `window_made`), until told.
+    pub window_made: Option<Map<String, Value>>,
 }
 
 /// A screenshot whose points resolve: its id, the snapshot and load it goes with, when it was taken
@@ -472,6 +474,7 @@ impl Tab {
             armed: None,
             ids_note: Map::new(),
             markup: (String::new(), String::new(), vec![]),
+            window_made: None,
         }
     }
 }
@@ -913,6 +916,7 @@ impl Driver {
         t.attached = attached;
         t.muted = v.get("muted") == Some(&Value::Bool(true));
         t.opener = opener.map(String::from);
+        t.window_made = crate::surfaced::window_made(v.get("window_made"));
         self.insert(t);
         self.unreserve(reserved); // it counts as an open tab of the task from here
         self.hold(&tab.tab_id);
@@ -1206,6 +1210,13 @@ impl Driver {
     pub fn closes(&self, tab: &TabRef) -> bool {
         self.tab(&tab.tab_id)
             .is_some_and(|t| !t.attached && !t.keep_open && !t.closed)
+    }
+
+    /// HAND-649: what making FERB's window for this tab's open took, once (`None` when it was plain, or told).
+    pub fn take_window_made(&self, tab: &TabRef) -> Option<Map<String, Value>> {
+        let mut made = None;
+        self.update(&tab.tab_id, |t| made = t.window_made.take());
+        made
     }
 
     pub fn http_status(&self, tab: &TabRef) -> Option<i64> {

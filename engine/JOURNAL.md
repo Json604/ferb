@@ -7910,3 +7910,329 @@ IOPMSetSystemPowerSetting from the helper and a lit panel under the lid; the cov
 999, the tap's Input Monitoring; AX hit tests through a click-through cover (`own_point`/`reaches` could still see FERB.app's
 window); `pmset displaysleepnow` locking while FERB holds the display assertion; notification actions from the phones'
 lock screens; the camera prompt and frames; the shell-launched app activation (`open -a`) is told as unplanned.
+
+## 2026-11-20 · 154 · Insomnia mode after the owner's first test: the helper set up from any start, a closed Mac that runs as if open, and words that follow the helper
+
+**The owner's test** (build 202611200450). Turning it on from both devices, the cover with Touch ID, the notice, Show
+me and Lock my Mac worked (LIVE-1151 passed). Two failures:
+- **Lid closed, started from the phone** ("it took an eternity to reply"). The coordinator read pmset's log and the
+  journal (read-only). The mode started at 11:26:36. The lid-closed-on-battery warning came at 11:26:43, and macOS's
+  Clamshell Sleep followed at 11:27:10. FERB held only PreventUserIdleSystemSleep: the root helper had never been
+  registered, so SleepDisabled was 0. His message waited until he plugged in (11:27:45). On AC with the lid still
+  closed, macOS slept again at 11:27:55, in the same second FERB's 20-second look first held PreventSystemSleep.
+- **Lid closed, started from the Mac on AC.** The Mac stayed awake under PreventSystemSleep, but the display slept with
+  the lid, so macOS locked (his lock is immediate) and his browser video stopped. He expects Amphetamine's behaviour: no
+  lock on reopening, and media keeps playing.
+
+**Why the helper never registered** (diagnosed read-only on his Mac).
+- The installed layout and signature are right: the plist's BundleProgram `Contents/Helpers/ferb-power` exists, signed
+  Developer ID (team 8N7RNGH974, `com.ferb.power`, hardened).
+- The unified log over 3 hours has no line about com.ferb.power or ferb-power from smd or backgroundtaskmanagementd,
+  and launchd doesn't know the service.
+- FERB.app registered only when SMAppService said `.notRegistered`, and treated `.notFound` as "no helper in this
+  bundle". macOS reports `.notFound` for a daemon never registered, so `register()` was never called. Its error was
+  also swallowed (`try?`).
+- The build is also "Unnotarized Developer ID" (`spctl` rejects it; no secure timestamp, no ticket). Whether BTM or
+  launchd then refuses the daemon can only be seen once `register()` runs; it is now journaled and shown (below).
+
+**Changed.**
+- **Daemon** (DMN-613..617).
+  - PreventSystemSleep is held for the whole mode, whatever the power source.
+  - A power watch reacts at once: IOPS source changes, the clamshell message, and sleep and wake. It lives in
+    `ferb-platform-macos` `power::Watch`, a run-loop thread; `ferb_core::power::PowerWatch` is the trait.
+  - About to sleep during the mode: the status says `going_to_sleep`, and macOS waits up to 2 s so the phone hears it.
+    After the wake, FERB says once when and why the Mac slept.
+  - The gap fallback is now 10 s. It was 60 s, which is why his 35-second sleep was never said; that is also why the
+    coordinator saw no slept line.
+  - The status (on and off) carries `closed_lid` and `lid_line`, plus `helper {state, error, problem}` from FERB.app's
+    new `insomnia.report` event `helper`.
+  - The lid warning and the slept line follow the helper's real state.
+  - The cover's display hold stays under a closed lid, so with the helper's lease the Mac neither sleeps the display
+    nor locks.
+- **FERB.app** (APP-1101..1104).
+  - Any device's mode session registers the helper once.
+  - It registers on `.notRegistered` or `.notFound` when both files are in the bundle on disk.
+  - Every attempt is logged (NSLog), reported, and shown in the warning and the menu.
+  - The warning's lid sentence is the daemon's `lid_line`.
+- **Phones** (PHN-777..779, 788..790).
+  - The warning takes `lid_line`, with the helper's problem under it.
+  - When the link is lost 10 s while insomnia was on: a quiet "Can't reach your Mac. It may be asleep: …", a chat line,
+    and waiting messages read "Your Mac is asleep; this goes when it wakes." (before: "Waiting for your Mac" with
+    Cancel).
+  - A changed warning updates its notification quietly.
+
+**Blanking the panel under a closed lid: not done; the owner's choice.** With SleepDisabled the panel may stay lit under
+the lid (reported by others; LIVE-1157 shows it). The ways found:
+- (a) `pmset displaysleepnow`: turns the display off, but locks (his lock is immediate). Rejected.
+- (b) A black gamma table (`CGSetDisplayTransferByTable`, public): pixels black, but the backlight stays on (heat,
+  battery). Reversible; it ends with the process.
+- (c) The backlight to 0 through DisplayServices or CoreBrightness: what Insomnia does. Private, and macOS
+  version-dependent.
+- (d) Turning the built-in display off through a private CoreGraphics call. Private.
+None is used yet.
+
+**New owner-facing words** (T-1275).
+- `lid_line`, helper off: "With the lid closed, your Mac sleeps on battery until you open it or plug it in; plugged in
+  it keeps working but locks and pauses what's playing. To keep it running as if open, turn on FERB once in System
+  Settings → General → Login Items on your Mac."
+- `lid_line`, helper on: "With the lid closed, FERB keeps your Mac running as if it were open, on battery too."
+- The lid warning, helper off: "Your Mac's lid is closed and it's on battery, so it will go to sleep until you open it
+  or plug it in; FERB's work waits until then. To keep it working with the lid closed on battery, turn on FERB once in
+  System Settings → General → Login Items on your Mac."
+- The slept line, helper off: "Your Mac slept from {a} to {b} because its lid was closed on battery. To keep it working
+  with the lid closed on battery, turn on FERB once in System Settings → General → Login Items on your Mac; plugged in,
+  FERB keeps it working anyway."
+- The slept line, helper on: "Your Mac slept from {a} to {b} with its lid closed on battery, though FERB asked it to
+  stay awake."
+- The status line part: "your Mac is going to sleep".
+- The helper's problems: "FERB couldn't set up its helper on your Mac: {error}" / "FERB couldn't set up its helper on
+  your Mac." / "FERB's helper is waiting for your OK in System Settings → General → Login Items on your Mac." / "FERB's
+  helper is set up but macOS hasn't started it. Check FERB in System Settings → General → Login Items on your Mac, or
+  restart your Mac." / "This FERB doesn't carry its helper."
+- The phones: the asleep notice and outbox line above, and the older-Mac fallback "With the lid closed, your Mac sleeps
+  on battery until you open it or plug it in."
+
+**Evidence.**
+- ferb-daemon tests/insomnia.rs 20, 5 of them new: system sleep from the start and changes at once; the lid words
+  following the helper; sleep said before and after; a short sleep found by the next look; the helper's setup never
+  silent. insomnia_phone.rs 2.
+- FERB.app: PowerHelperTests 9 and InsomniaTests 19; the whole `swift test` 908 run, 5 skipped, 0 failed (the
+  sub-agent's run).
+- Phones: ferb-mobile and ffi 111; Android `:app` 274 and `:core` 29; iPhone FerbAppTests 173, FERBUITests 7,
+  FerbCoreTests 15, FerbMobileTests 4, FerbDesignTests 66 (the sub-agent's runs).
+- Gate (own build folder): `fmt` and `lint` pass. Every suite run once without stopping, 315 test binaries,
+  none failed. Two whole-gate runs before that each stopped at a single test that passed when run alone: ferb-orchestrator
+  action_routes `a_download_is_found_by_its_bytes` (another agent's uncommitted plan_store work) and ferb-link
+  `a_phone_whose_last_process_died_reaches_the_mac_at_once` (its 4-second bound under load).
+
+**Unverified (LIVE-1157).**
+- Whether `register()` from `.notFound` registers on an unnotarized Developer ID build, and whether launchd then starts
+  ferb-power.
+- Whether SleepDisabled keeps the display awake and unlocked under a closed lid.
+- The power watch's notifications on the real Mac, and the 2-second wait before sleep reaching the phone.
+
+## 2026-11-21 · 155 · A follow-up that re-plans a task runs the new plan; it is never told or ended as the owner's stop
+
+**The case** (owner, build 202611200450, tree 111d1ed8; ORCH-682: "so code deosnt allowed steerin even if its by
+me???"). While a one-step task searched, the owner wrote "do it faster, maybe do all that at the same time??". The
+planner answered `control {action: retry}` with a plan of three parallel steps and one after them. FERB then told the
+first turn "Stopped, as you asked.", started the new attempt at 07:14:52.371 and ended it failed at .542 with no worker
+run ("The step “Find every assignment…” couldn't be done.").
+
+**Cause, from the code and his store (read-only).**
+- control.rs `control()` handled `stop || retry` alike: `stop_tree` set `stop = "stopped by you"`, and `final_`
+  (tree.rs) answered `answer_marks::STOPPED`. Only a stop sets `stop_told_in`, so that end was posted as the first
+  turn's answer.
+- `resume_ended`'s retry branch replaced the stored plan only `if let (Some(_), Some(new)) = (prior plan, new plan)`.
+  His task had no plan (`"plan": null`; stored as the one-step plan `worker`). `run_tree` then called
+  `PlanStore::create`, whose `ON CONFLICT(task_id) DO UPDATE SET request=excluded.request` kept the old plan and only
+  added pending rows for the new ids. `run_plan` loaded the old plan: step `worker`, `cancelled`, which is in `ENDED`,
+  so nothing ran and the plan ended `blocked`. His `task_plans.plan` still holds `{"steps": [{"id": "worker", …}]}`;
+  `plan_steps` has worker=cancelled and wa, scaler, bits, answer all pending `{}`.
+- The cancelled worker's step output is `{"answer": "", "evidence": []}`, so "Anything already found will be kept" was
+  false.
+
+**Fix: one restart path (ORCH-683).**
+- A retry of a running task sets `stop = RESTARTED` ("stopped to start again with your change") before `stop_tree`. Its
+  run ends cancelled, answers `RESTARTED_SAID` ("Stopped here to start again with your change."; first
+  "Started again with your change; it carries on below.", changed by ORCH-686), is
+  `told_in` the follow-up's request (filed on its own turn in place) and adds no code lines or cards (the task's own end
+  tells them). `stop_status` treats it as an owner stop (cancelled). A multi-part card says the same headline.
+- `keep_restarted_work`: every step the restart stopped is set aside as `earlier plan: <step>` (new
+  `PlanStore::set_aside`) with `stopped_run`. That holds its latest calls and reports, read through
+  `trace_read::trace` with task.trace's own bounds, and a note on opening a call with `task.evidence task_id=<tree>
+  span_id=…`. Every new step gets it in `earlier_plan_results`; a one-step task started again gets it in its
+  saved-plan block (`worker_context::restarted_work`).
+- `run_tree`: a resumed (not restored) task whose plan's steps differ from the stored plan's replaces it first
+  (`PlanStore::replace` keeps done steps as earlier results). `create` keeps refreshing only the request for an
+  existing plan, which is what a running task's steer needs (control.rs `apply_steering`).
+- `restart_for_new_steps`: a continue whose task carries a plan with a different step graph (ids, kinds, dependencies)
+  than the task's own is taken as the retry. That holds for a running task, and for a same-result correction of an
+  ended one. A continue without a plan, or with the same graph, steers in place or resumes the saved plan as before.
+- supervisor.md (PRM-369): the retry line says what the code carries over: what the stopped work had read, never a
+  result.
+
+**The cases** (control × state, from `control()` and `resume_ended`).
+
+| Follow-up and state | Before | After | Evidence |
+|---|---|---|---|
+| retry, new plan, running one-step task (the live case) | "Stopped, as you asked."; the new attempt failed at once; nothing carried | restart line in place; parallel steps run; done; calls handed on | restart_by_follow_up 1-3 |
+| retry, no plan, running one-step task | "Stopped, as you asked."; nothing carried | restart line; the step runs again with the stopped run's calls | test 5 |
+| continue with a new step graph, running task | steered in place, "It keeps its current plan"; added steps never ran | restarts with the new plan | test 4 |
+| continue (rewrite) with steps, ended one-step task | failed at once on the stale plan | new steps run | test 6 |
+| retry with steps, ended one-step task | failed at once | new steps run | test 7 |
+| continue (same result) with steps, ended one-step task | saved one-step plan re-ran; steps ignored | new steps run | test 8 |
+| continue, no plan or same graph, running | steers in place | unchanged | replay steer_running_task |
+| stop; stop or pause plus a new task; pause | right | unchanged | replays stop_by_chat, stop_plus_new_task, pause_steer_resume |
+| retry or continue of an ended task that had a plan | right (replace or reopen) | unchanged | code read |
+| retry while a step waits on a question (a worker's, a plan's ask, keep trying, the check-in, after gaps) | the question was superseded (never a No) but the end said "Stopped, as you asked." | the restart's reason and line; the question set aside; the new plan runs | tests 9-13 (one per kind) |
+| stop while the after-gaps question waits | the step recorded "Not started: you said not to go on…", and a later attempt read it as its previous attempt | the stop's own reason (ORCH-684) | test 14 |
+| a second follow-up while a restart waits for its stop (over 10 s) | both turns resumed the same tree at once (a correction re-ran the old one-step plan beside the restart) | the second says "I'm still starting this task again from your last message; I'll apply this as soon as it has started.", lets the chat go, and steers the new run; one resume (ORCH-684) | test 15 |
+| a stop (chat or task.stop) while a restart waits | the restart still started after the stop; "Started again…" stayed false | the stop calls the restart off; the chat ends with one "Stopped, as you asked." (ORCH-684, ORCH-686) | tests 18-20 |
+| a restarted scheduled run's sends | the schedule's standing grant was revoked with the old run, so sends would ask | the grant and the recorded scope carry over (ORCH-686) | test 17 |
+| retry of a running scheduled run | the stopped run was counted and posted as a cancelled run; the new run ended as a plain chat task, never counted or posted by its schedule | the stopped run comes back `restarted` (not counted, not posted); the new run keeps the schedule and ends through `resumed_outcome` (ORCH-685) | test 16; ferb-daemon a_behavior |
+
+**Fixed against Python:** the retry of a running task ended as the owner's stop; the stored plan was kept over a new
+one when the earlier spec had none; the stopped run's work was dropped; a continue with a new step graph never ran its
+steps.
+
+**Named difference:** PRM-369 in engine/fixtures/catalog/prompt_changes.json.
+
+**Evidence.** ferb-supervisor tests/restart_by_follow_up.rs runs 8 cases through the real supervisor with stand-in
+models, on the recorded stop_by_chat scenario (a held worker, one recorded call of it, then the follow-up; or the
+owner's stop, then a third message). A temporary revert of the four points (no restart reason, no set-aside, no plan
+replace, no continue-as-retry) failed every test. In the live case's test, step a never started; the eighth test (the
+ended task's correction into steps) failed when only the continue-as-retry was reverted, re-running the one-step plan.
+They all pass after. The suites of ferb-supervisor, ferb-orchestrator and ferb-context pass.
+
+**Then (the same day, the coordinator's three left cases).**
+- **One resume per tree (ORCH-684).**
+  - `Live::restarts` marks a tree from the retry's stop until its new run is registered (`run_tree` clears it).
+  - A follow-up about a marked tree records `RESTART_QUEUED`, releases the chat and waits (`after_restart`). It is
+    then applied to the new run.
+  - A stop calls the restart off (`call_off_restart`; `task.stop` too). The waiting retry then doesn't resume, and
+    says "Stopped, as you asked." if it hadn't replied yet.
+- **After-gaps on a stop (ORCH-684).** `after_gaps` returns the stop's own reason when the wait ended by a stop or
+  restart. ORCH-653's "you said not to go on" stays for the owner's No.
+- **Scheduled runs (ORCH-685).**
+  - `scheduled_run` marks a run that ended with `RESTARTED` as `restarted`, and ferb-daemon's schedule runner returns
+    without counting or posting it.
+  - `resume_ended` reads the stored plan request's `schedule` into `Resumed`. `start_with` passes it, and its watch, to
+    `RunOpts`.
+  - `run_tree` hands a resumed (not restored) scheduled run's end to `resumed_outcome` (schedule bookkeeping and post),
+    as `restart.rs` does for a restored one, instead of the follow-up's stream.
+- **Harness** (support_control): steps `calls_from_here` (a test's model calls from a point on; `@TREE@` is the newest
+  tree), `in_flight`, `sleep` and `run_scheduled`; waits `model calls made: N` and `the scheduled run ended`;
+  `TestDaemon::resumed_outcome` takes a scheduled run's end; `Report.streams`.
+- **Evidence.** restart_by_follow_up.rs grew to 16 tests, plus ferb-daemon a_behavior's restarted-run test.
+  - With the change reverted: the race and scheduled tests failed, the stop-during-after-gaps test failed ("Not
+    started: you said not to go on…"), and the daemon test failed (the run was posted).
+  - The five question-kind restart tests passed before the change as well. The restart path already set those
+    questions aside, and the new plan replaced the false record. They stay as guards.
+
+**Then (the coordinator's last two gaps, ORCH-686).**
+- **Standing permissions carry over.** `finish_tree` no longer revokes a tree's standing permissions when its run
+  ended for a restart (stop `RESTARTED`), so the new run in place keeps the schedule's grant and any sends the owner
+  allowed. They are revoked at the task's end, or when the restart is called off (`control`) or never starts
+  (`clear_restart`).
+- **The schedule's recorded scope.** A restarted scheduled run takes its schedule's recorded scope again
+  (folders, identity, worker type: `apply_scope`, split out of `apply_run_scope`, fed from the stored
+  `schedule.facts.recorded_scope`).
+- **A stop while a restart waits.** The marker holds who tells the stop. A chat stop's own reply says "Stopped, as you
+  asked." and the waiting retry adds nothing. The Stop button's stop is said by the retry's turn. A stop inside the
+  first 10 s means the retry never says "I'll start again". The stopped run's line is now "Stopped here to start
+  again with your change.", true whether or not the restart then happens.
+- **Evidence.** restart_by_follow_up.rs now has 20 tests:
+  - the scheduled run's grant: logged grant then revoke only at the task's end, every new step started holding it,
+    the scope applied twice;
+  - the Stop button inside the first wait, and after the stopped run ended with its call in flight;
+  - a chat stop after the stopped run ended.
+  With the change reverted, the grant test and both Stop-button tests failed. The chat-stop test passed before and
+  stays as a guard.
+
+**Unverified.**
+- Live behaviour on FERB.app and the phones: the old turn's line filed in place, and the queued reply.
+- **A stop while the stopped run itself is still running.** In the stand-ins a cancelled worker ends at once, so only
+  the in-flight call holds the settle. The code turns that run's stop into the owner's (`call_off_restart`), but no
+  test reaches it.
+
+## 2026-11-21 · 156 · Why browser tasks moved the owner to a new Space; the desktop record reads the Space itself
+
+**The case** (owner, build 202611200450: "on evey browser task its openign with space shit … whats causing this?",
+then "this never haoppende before even if it was quit"). Traces 787e06d3, c252e651, ddfb4388, 25721593, 111d1ed8 list
+"frontmost_app, fullscreen, key_window near browser.open".
+
+**Cause, from the unified log (Dock's `WM space-change deltas`, read-only, retained from 2026-11-20 18:13), the
+daemon log and the spans.**
+- Only two Space changes in that window were FERB's. Both were a fullscreen Space added, made current, then
+  `becameCurrent(3)` and removed within 0.4 s: 07:50:37.473 (12443) and 07:57:22.104 (12447). Each came during
+  `browser.open` in a Chrome profile with no window: chrome/Default in ddfb4388, and chrome/Profile 3 in 25721593,
+  0.47 s after its windowless wake (`daemon.err.log` 07:57:21.638).
+- With no window, `open_reserved` sends `allow_foreground` (driver.rs). The extension then makes FERB's window with
+  `chrome.windows.create({state: "minimized", focused: false})`. Chrome on the Mac doesn't honor minimized at creation
+  (the extension's probe E5 note). The owner was on Space 12438, a split full-screen Space with Chrome in it, so the
+  window opened in full screen on its own Space and macOS took him there. FERB's follow-up minimize ended full screen
+  and left him on the desktop (Space 3; Finder in front in 25721593).
+- The same kind of creation moved nothing when Chrome wasn't full screen where he was. At 07:11:20 (task 7edd28c4)
+  chrome/Profile 2 was woken and opened while Brave was full screen. The baseline shows Brave full screen; there were
+  no space-change deltas and no disturbance change.
+- The other lines were not FERB's:
+  - 07:25:36 (787e06d3) and 07:50:47 were his own trackpad swipes (Dock `SpaceSwapSystemGesture … source=trackpad`).
+  - 07:50:41 was his Mission Control gesture.
+  - 07:13:24.567 (111d1ed8): FERB's notch took the keyboard after four flags-changed events (24.265–24.566), which is
+    his double-tap of right Option, and closed after another at 29.79–30.08. So he opened it himself: no notch fix.
+  - The FERB↔unreadable flapping in c252e651 lines up with his input.
+- Why now: on 2026-11-18 all 49 opens went to brave/Work, the pick, which has his windows, so a tab went into an
+  existing window. HAND-644 (2026-11-17) lets a call name any of his profiles, and today's tasks named windowless
+  Chrome profiles (Default, Profile 2, Profile 3). With Chrome quit, or not full screen where he is, there is no
+  full-screen window for the new one to follow. That fits "even if it was quit".
+- The record couldn't show any of this. `active_space_epoch` stayed 0 in every trace through dozens of Space changes:
+  MacDesktop's NSWorkspace Space notification never fires in the daemon. Python pumped the registration thread's run
+  loop, and the Rust port has no `pump`.
+
+**Removed at the owner's word (HAND-647).** A first fix asked him before FERB's window was made where it would
+move him (a refusal naming the ways on, and a `browser.open allow_foreground` question). He rejected it ("i didnt
+wanted you to create new questions for me. JSUT SOLVE THIS OPENING BEHAVIOUR…"); all of it was removed before any
+commit and browser opening is as before. A live test on his real profiles, with him as the verifier, looks for a way
+of making the window that doesn't move him (entry to follow).
+
+**Kept: the record tells the truth (HAND-648).** MacDesktop counts the Space epoch from the window server's active
+Space (`SLSGetActiveSpace`, read only, as FERB.app reads it) changing between reads. A disturbance.change with calls in
+flight records `owner_input_during_action`; ferb trace adds "(the owner's own input came during it too)" to that line.
+No behaviour changes.
+
+**Evidence.** ferb-daemon b_disturbance `a_change_says_whether_the_owners_own_input_came_during_the_calls`; the Python
+scenarios still match byte for byte (the new fact is only written when the input is monitored).
+`SLSGetActiveSpace` read from a terminal process returned the current Space (12335).
+
+**Ran on the owner's Mac (read-only).** `ferb trace` of the five tasks, read-only queries of `~/.ferb/ferb.db`,
+`daemon.err.log`, `log show` for 07:00–08:00, `ioreg` idle time, one ctypes read of the active Space id. Nothing was
+reproduced live: a full-screen test switches his Space and he was active (HIDIdleTime ≈ 0).
+
+**Unverified.** That the window server's Space read works in the daemon's launchd context; LIVE-1158.
+
+## 2026-11-21 · 157 · FERB's window made over full-screen Chrome ends minimized, and a restored one is found again (extension 0.19.13)
+
+**The case.** Entry 156's two Space changes (07:50:37, 07:57:22) had a second half that made them come back on
+every task. In both, the Dock log has no `MinimizeManyWindowsWithTitle`, while every creation that moved nothing
+(07:11:21, 07:13:25, 07:45:56, 07:57:44, 08:01:52) has one. In ddfb4388 the new window (1668338169, not full screen)
+became Chrome's key window. So the minimize only took the window out of full screen and left it showing on Space 3.
+The profile then lost it (Default disconnected at 07:55:26.9 with t19 open; Profile 3 needed waking again at 08:01:51,
+four minutes after its window was made), and the next task made a window again over full-screen Chrome. The owner
+also quit Chrome himself at 07:43:50 and 07:50:15 ("user quit prematurely"), and that clears the extension's session
+storage, which holds FERB's window id. I inferred, but didn't verify, that he closed the stray window each time.
+
+**Python vs now.** `getFerbWindow` hasn't changed since October, and the driver's fallback is Python's `_open_in`
+(`ext_bridge.py:1218-1231` at 9d3f84bc). The difference is where he works: in all 201 Python-era task starts Chrome
+was never in front (full-screen VS Code 81, full-screen Brave 53), and today it was in front for 2 of 19.
+
+**Changed (HAND-649; extension 0.19.13; no question, refusal or change to which profile or window an open uses).**
+- `getFerbWindow` (extension/background.js): the placeholder tab opens at `about:blank#ferb-window`. After `create`,
+  `minimizeNew` checks the state. A window that reports `fullscreen` is set to `normal`, waited for (≤ 3 s, polled
+  every 100 ms) until it leaves full screen, then minimized. The state is checked (≤ 1.5 s) and the minimize is tried
+  once more. When it wasn't plain, the open's reply carries `window_made {fullscreen, minimized, tries}`.
+- With no window id in session storage, `markedWindow` takes a normal, non-incognito window holding a tab at exactly
+  that address as FERB's own again (the browser restored it after a restart), used as it is, nothing changed on it.
+  This happens with or without `allow_foreground`. The address doesn't match the popup token pattern
+  (`about:blank#ferb-<32 hex>`) or the blank-tab check in `openedByInput`.
+- ferb-browser: `surfaced::window_made` keeps only the known fields; the Tab holds it and `browser.open` tells the
+  worker once (`window_made`, one line, so the trace shows it too). An older FERB ignores the field, and an older
+  extension never sends it. Protocol 21 and the minimum 0.19.0 stay.
+
+**Evidence.** ferb-browser tests/extension_background.rs:
+`ferbs_new_window_that_macos_made_full_screen_goes_back_to_normal_then_ends_minimized`,
+`a_minimize_that_doesnt_take_is_tried_once_more_then_reported`, `a_window_made_minimized_says_nothing_more` and
+`ferbs_window_the_browser_restored_is_found_by_its_placeholder_and_reused`. These run the extension's own code under
+node with a fake `windows.create` and an update hook that behaves as the full-screen case did. Also
+tests/background_first.rs `a_window_made_full_screen_is_the_opens_fact_once`, and extension_pairing's version test
+now takes 0.19.12 or later. `cargo test -p ferb-browser`, `./gate.sh fmt` and clippy for ferb-browser
+(`-D warnings`) pass; `node --check` passes.
+
+**Unverified.**
+- How Chrome 157 really answers `windows.update({state: "normal"})` and then `"minimized"` on a window macOS made
+  full screen. The fake models what the Dock log showed, not Chrome itself.
+- Whether Chrome restores FERB's minimized window after a restart at all. If it doesn't, the mark costs nothing.
+- The first window of a browser session made over full-screen Chrome still opens full screen for a moment. Nothing
+  here prevents that: the brief Space change remains (HAND-647's "if no way of opening it avoids the switch, the
+  behaviour stays as it was").
+- LIVE-1159. The extension reaches his profiles only once 0.19.13 is published or loaded.

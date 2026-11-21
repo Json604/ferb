@@ -72,6 +72,17 @@ public struct InsomniaStatus: Equatable, Sendable {
     /// The root helper for a closed Mac on battery (APP-986): "ready" (it answers), "absent" (not registered or not
     /// approved) or "unknown".
     public let closedLid: String
+    /// The daemon's one truthful sentence about a closed lid on battery, following the helper's real state (on and
+    /// off); nil from an older daemon.
+    public let lidLine: String?
+    /// The root helper as the daemon last heard of it (FERB.app's `helper` report): its state, the error's words, and
+    /// a plain sentence when something is wrong.
+    public struct Helper: Equatable, Sendable {
+        public let state: String
+        public let error: String?
+        public let problem: String?
+    }
+    public let helper: Helper?
 
     /// The grace FERB keeps the mode on after its work is done when the daemon hasn't said (its default).
     public static let defaultGraceMinutes = 10
@@ -109,6 +120,13 @@ public struct InsomniaStatus: Equatable, Sendable {
         }
         line = text(row["line"])
         closedLid = text(row["closed_lid"]).isEmpty ? "unknown" : text(row["closed_lid"])
+        lidLine = (row["lid_line"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        if let helper = row["helper"] as? [String: Any] {
+            func words(_ key: String) -> String? { (helper[key] as? String).flatMap { $0.isEmpty ? nil : $0 } }
+            self.helper = Helper(state: text(helper["state"]), error: words("error"), problem: words("problem"))
+        } else {
+            helper = nil
+        }
         taskAwake = flag(row["task_awake"])
         if let end = row["last_end"] as? [String: Any], !text(end["id"]).isEmpty {
             lastEnd = End(id: text(end["id"]), why: text(end["why"]), text: text(end["text"]), at: WindowTime.parse(end["at"]))

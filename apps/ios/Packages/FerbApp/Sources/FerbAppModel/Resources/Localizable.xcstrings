@@ -1102,13 +1102,24 @@
         }
       }
     },
-    "insomnia_body": {
+    "insomnia_body_closed": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "FERB keeps your Mac awake so it can finish your tasks. It's best to leave the lid open: your Mac stays cooler and FERB can do more. You can close it too: plugged in, FERB keeps working; on battery, your Mac sleeps and FERB waits until you open it."
+            "value": "With the lid closed, your Mac sleeps on battery until you open it or plug it in."
+          }
+        }
+      }
+    },
+    "insomnia_body_open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FERB keeps your Mac awake so it can finish your tasks. It's best to leave the lid open: your Mac stays cooler and FERB can do more."
           }
         }
       }
@@ -1417,6 +1428,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "https://ferb.kartikey.xyz"
+          }
+        }
+      }
+    },
+    "mac_asleep": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can't reach your Mac. It may be asleep: with the lid closed on battery it sleeps until you open it or plug it in."
           }
         }
       }
@@ -2121,6 +2143,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Not sent: %1$@"
+          }
+        }
+      }
+    },
+    "outbox_mac_asleep": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Mac is asleep; this goes when it wakes."
           }
         }
       }

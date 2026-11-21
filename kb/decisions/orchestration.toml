@@ -2199,3 +2199,54 @@ words_source = "Owner 2026-11-20 (relayed), to option B: where code refuses the 
 rule = "Refines ORCH-675's ending for one refusal: when code refuses the check's accept_with_gaps only because the worker reported not done, and the check gave progress and no unmet condition is one code's facts proved false, FERB asks ORCH-679's question (no earlier retry needed) instead of reading it as a plain accept that ends failed. Keep trying retries with the check's notes; go on ends done_with_gaps. ORCH-675's other limits and their endings are unchanged."
 why = "Sonnet's check chose a gapped accept on a not-done worker in Mailmeteor's check 2 and the visa rate-limit checks: code turned 3 of 3 runs each into a failure. With this, they ask (8 of 9 on the visa checks)."
 paths = ["engine/crates/ferb-supervisor/src/flow/attempt.rs::next", "engine/crates/ferb-supervisor/src/flow/attempt.rs::gapped"]
+
+[ORCH-682]
+title = "A follow-up that changes how a task is done re-plans and runs it; never told or ended as his stop"
+by = "owner"
+date = 2026-11-21
+status = "active"
+words = "so code deosnt allowed steerin even if its by me??? i think we need to patch this BUT first why did this even happen?? / ok good, make sure otehr edge cases like this are covered too, so users can use and do anytjhign with ferb they want"
+words_source = "Owner 2026-11-21 (relayed), on tree 111d1ed8: his re-plan follow-up was told 'Stopped, as you asked.' and the new plan failed in 170 ms; then, on the cause"
+rule = "An owner's message that changes how a running or ended task is done (a retry, a new plan, a correction into other steps) makes FERB plan it again inside the same task and run the new plan at once. The replaced work stops with its own reason, never 'stopped by you' or 'Stopped, as you asked' unless he asked to stop; the chat says one true thing; what was done or read is passed on; no result of the old plan counts as the new plan's."
+why = "The restart went through the owner's stop path and the new plan was never stored over a one-step plan, so he was told something false and his steer did nothing."
+
+[ORCH-683]
+title = "One restart path: the old run ends for the restart, the new plan is stored, what it read handed on"
+by = "agent"
+date = 2026-11-21
+status = "active"
+rule = "For ORCH-682. A retry of a running task stops it with RESTARTED (cancelled, its line filed on its own turn via told_in, no lines or cards). Each step it stopped is set aside as 'earlier plan: <step>' with its latest calls and reports (task.trace's bounds), given to every new step. A resumed task whose steps differ from the stored plan's replaces it before running. A continue whose plan has another step graph (ids, kinds, dependencies) than the task's own is the retry (running, or same-result correction of an ended task)."
+why = "Live tree 111d1ed8: the retry set 'stopped by you'; resume_ended replaced the stored plan only when the earlier spec had one and PlanStore::create kept the old one-step plan, so run_plan saw only the cancelled step and ended in 170 ms."
+rejected = ["Restarting on a continue whose plan differs in any field: corrections restate step goals", "Asking the stopped worker for a report first: slower, and he asked for speed"]
+evidence = "ferb-supervisor tests/restart_by_follow_up.rs: 8 cases through the real supervisor with stand-in models; each failed with the change reverted."
+paths = ["engine/crates/ferb-supervisor/src/flow/control.rs::keep_restarted_work", "engine/crates/ferb-supervisor/src/flow/control.rs::restart_for_new_steps", "engine/crates/ferb-supervisor/src/flow/tree.rs::run_tree", "engine/crates/ferb-orchestrator/src/plan_store.rs::set_aside", "engine/crates/ferb-supervisor/src/words.rs"]
+
+[ORCH-684]
+title = "One resume per tree; a stop or restart while a question waits is never the owner's answer"
+by = "agent"
+date = 2026-11-21
+status = "active"
+rule = "For ORCH-682. A retry that stops a running tree marks it restarting until its new run is registered (run_tree). A later follow-up about it says RESTART_QUEUED, lets the chat go, and is applied to the new run; a stop (chat or task.stop) calls the restart off instead. A question that waits when the task is stopped or restarted is set aside, never a No; ORCH-653's after-gaps step ends with the stop's reason, not 'you said not to go on'."
+why = "A stop that settled slower than 10 s let two follow-ups resume the same tree at once; a stop during the after-gaps question was recorded as the owner's No and a later attempt read it."
+evidence = "ferb-supervisor tests/restart_by_follow_up.rs: a restart while each question kind waits, the two follow-ups, a stop during the after-gaps question."
+paths = ["engine/crates/ferb-supervisor/src/flow/control.rs::after_restart", "engine/crates/ferb-supervisor/src/flow/control.rs::call_off_restart", "engine/crates/ferb-supervisor/src/flow/tree.rs::after_gaps"]
+
+[ORCH-685]
+title = "A scheduled run the owner's follow-up starts again stays its schedule's run"
+by = "agent"
+date = 2026-11-21
+status = "active"
+rule = "For ORCH-682. The stopped run returns to the daemon marked restarted: neither counted nor posted, no retry queued. The new run gets the stored schedule (its id, facts, watch; schedule_running sees it), and its end goes through resumed_outcome like a restored run's: counted, its watch, retry, ran-late and end lines, posted as the schedule's result rather than a plain chat result."
+why = "A retried scheduled run resumed as a plain chat task: its schedule never counted or posted it, and the stopped run was counted as a cancelled run."
+evidence = "ferb-supervisor tests/restart_by_follow_up.rs (a scheduled run restarted from chat); ferb-daemon tests/a_behavior.rs (a restarted run is not counted or posted)."
+paths = ["engine/crates/ferb-supervisor/src/flow/tree.rs::run_tree", "engine/crates/ferb-supervisor/src/flow/scheduled.rs", "engine/crates/ferb-daemon/src/areas_a/schedules.rs"]
+
+[ORCH-686]
+title = "A restart keeps the task's standing permissions; a stop while it waits ends the chat with the stop"
+by = "agent"
+date = 2026-11-21
+status = "active"
+rule = "For ORCH-682. A run ended for a restart keeps its tree's standing permissions (a schedule's grant, sends the owner allowed) for the new run in place; they end with the task, or when the restart is called off or never starts. A restarted scheduled run takes its schedule's recorded scope again (ORCH-313). A stop while a restart waits: a chat stop's reply says it and the retry adds nothing; the Stop button's stop is said by the retry's turn. The stopped run's line says only that it stopped to start again."
+why = "A restarted scheduled run lost its schedule's grant, so its sends would ask where the schedule's own run wouldn't; a stop after 'Started again…' left that line false."
+evidence = "ferb-supervisor tests/restart_by_follow_up.rs: the scheduled run's grant and scope across a restart; the Stop button inside and after the retry's first wait; a chat stop after the stopped run ended."
+paths = ["engine/crates/ferb-supervisor/src/flow/tree.rs::finish_tree", "engine/crates/ferb-supervisor/src/flow/control.rs::call_off_restart", "engine/crates/ferb-supervisor/src/flow/scheduled.rs::apply_scope"]

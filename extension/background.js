@@ -901,9 +901,63 @@ async function leaveChoice(tabId, choice) {
 // ---------- Reuse FERB's window; cold creation requires explicit foreground permission ----------
 
 let windowCreation = null;
+// HAND-649 (0.19.13): what making FERB's window took, when it wasn't plain (`window_made` on that open's reply)
+let windowMade = null;
 async function ferbWindow(allowForeground = false) {
   if (!windowCreation) windowCreation = getFerbWindow(allowForeground).finally(() => {windowCreation = null;});
   return windowCreation;
+}
+
+// HAND-649: FERB's window's placeholder tab carries this address, so the window is FERB's own again after the
+// browser restarts (session storage, which holds its id, is cleared then) when the browser restores it.
+const FERB_WINDOW_MARK = "about:blank#ferb-window";
+const FULLSCREEN_EXIT_MS = 3000, MINIMIZE_MS = 1500, WINDOW_POLL_MS = 100;
+
+async function markedWindow() {
+  let tabs = [];
+  try { tabs = await chrome.tabs.query({}); } catch (_) { return null; }
+  for (const t of tabs) {
+    if ((t.url || t.pendingUrl) !== FERB_WINDOW_MARK) continue;
+    try { const w = await chrome.windows.get(t.windowId); if (w.type === "normal" && !w.incognito) return w.id; }
+    catch (_) { /* gone */ }
+  }
+  return null;
+}
+
+async function windowState(id) {
+  try { return (await chrome.windows.get(id)).state; } catch (_) { return null; }
+}
+// The window's state once `done(state)` holds, or the last one seen when `ms` ran out (null: the window went)
+async function stateWithin(id, done, ms) {
+  let state = await windowState(id);
+  for (let waited = 0; state !== null && !done(state) && waited < ms; waited += WINDOW_POLL_MS) {
+    await sleep(WINDOW_POLL_MS);
+    state = await windowState(id);
+  }
+  return state;
+}
+
+// HAND-649: live 2026-11-21, while the owner's own window was full screen in the same browser, macOS put FERB's new
+// window into a full-screen Space of its own, and the minimize then only took it out of full screen: it stayed
+// shown on the desktop. A window macOS made full screen goes back to normal first (the browser can't minimize a
+// full-screen window), then is minimized; checked, and tried once more. The fact is returned when it wasn't plain.
+async function minimizeNew(id) {
+  let state = await windowState(id);                        // create() may report "normal" (probe E5): verify
+  const fullscreen = state === "fullscreen";
+  let tries = 0;
+  while (state !== null && state !== "minimized" && tries < 2) {
+    tries++;
+    try {
+      if (state === "fullscreen") {
+        await chrome.windows.update(id, { state: "normal" });
+        state = await stateWithin(id, (s) => s !== "fullscreen", FULLSCREEN_EXIT_MS);
+      }
+      await chrome.windows.update(id, { state: "minimized" });
+    } catch (e) { console.warn("FERB window:", String(e.message || e)); }
+    state = await stateWithin(id, (s) => s === "minimized", MINIMIZE_MS);
+  }
+  if (!fullscreen && (state === "minimized" || state === null)) return null;
+  return { fullscreen, minimized: state === "minimized", tries };
 }
 
 async function getFerbWindow(allowForeground = false) {
@@ -915,15 +969,21 @@ async function getFerbWindow(allowForeground = false) {
       return w.id;
     } catch (_) { /* gone: return choices unless creation is explicitly allowed */ }
   }
+  // HAND-649: FERB's window the browser restored after a restart, found by its placeholder's address; used as it is
+  const restored = await markedWindow();
+  if (restored !== null) {
+    await mutateSession(s => {s.windowId = restored;});
+    return restored;
+  }
   // Window creation may switch macOS Spaces before its requested minimized state takes effect.
   // Return all choices instead of guessing an owner window or creating one without foreground consent.
   if (!allowForeground) return null;
   // Requested minimized (probe E5, S10); focused:false on top (probe E1). A blank placeholder tab keeps the window
   // alive when FERB's last task tab closes, so a window is created once per browser session, not per task.
-  const w = await chrome.windows.create({ url: "about:blank", state: "minimized", focused: false });
+  const w = await chrome.windows.create({ url: FERB_WINDOW_MARK, state: "minimized", focused: false });
   await mutateSession(s => {s.windowId = w.id;});
-  const got = await chrome.windows.get(w.id);                // create() may report "normal" (probe E5): verify
-  if (got.state !== "minimized") await chrome.windows.update(w.id, { state: "minimized" });
+  const fact = await minimizeNew(w.id);
+  windowMade = fact ? { windowId: w.id, fact } : null;
   return w.id;
 }
 
@@ -2312,6 +2372,9 @@ const commands = {
   async open({ url, window_id = null, allow_foreground = false, group = null, muted = false }, id) {
     const windowId = window_id !== null ? (await chrome.windows.get(window_id)).id
                                         : (await taskWindow(group)) ?? await ferbWindow(allow_foreground);
+    // HAND-649: making FERB's window for this open wasn't plain (macOS made it full screen, or it didn't minimize)
+    const made = windowMade && windowMade.windowId === windowId ? windowMade.fact : null;
+    if (made) windowMade = null;
     if (windowId === null) {
       const windows = await chrome.windows.getAll({populate:false});
       return {opened:false, reason:'window_selection_required', needs_foreground:false,
@@ -2342,7 +2405,8 @@ const commands = {
     if (url !== "about:blank") await load(tab.id, url);   // FERB's daemon opens blank and navigates once the tab is its
     const t = await chrome.tabs.get(tab.id), status = url !== "about:blank" ? await pageStatus(tab.id) : null;
     return { tab_id: t.id, url: maskUrl(t.url || t.pendingUrl || ""), title: t.title || "", window_id: t.windowId,
-             group_id: groupId, muted: silent, ...(status ? { http_status: status } : {}) };
+             group_id: groupId, muted: silent, ...(status ? { http_status: status } : {}),
+             ...(made ? { window_made: made } : {}) };
   },
   // Protocol 19 (HAND-207): mute or unmute one tab FERB opened (its records hold it, never borrowed), through the
   // browser's own tab mute; the owner's tabs are never touched. Returns the tab's sound state afterwards.

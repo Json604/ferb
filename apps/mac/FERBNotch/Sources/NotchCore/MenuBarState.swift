@@ -251,7 +251,7 @@ public enum StatusMenu {
     /// daemon that doesn't have it, or none read yet: no item).
     public static func entries(state: MenuBarState, paused: Bool, stopped: Bool, appName: String, canSetUp: Bool,
                                hasWindow: Bool, updateOffer: String? = nil, updateAsks: Bool = false,
-                               keepingAwake: Bool? = nil) -> [MenuEntry] {
+                               keepingAwake: Bool? = nil, helperProblem: String? = nil) -> [MenuEntry] {
         var entries: [MenuEntry] = [.status(state.statusLine), .separator, .item("Open FERB", .openFERB, key: "")]
         if hasWindow { entries.append(.item("Open FERB Window", .openWindow, key: "")) }
         if state == .notRunning {
@@ -262,6 +262,7 @@ public enum StatusMenu {
             if let keepingAwake {             // APP-980: the warning first; on, the owner's end
                 entries.append(keepingAwake ? .item(InsomniaWords.menuEnd, .endKeepWorking, key: "")
                                             : .item(InsomniaWords.menuStart, .keepWorking, key: ""))
+                if let helperProblem { entries.append(.status(helperProblem)) }   // the root helper's problem, one line
             }
         }
         entries.append(.item("Settings…", .settings, key: ","))

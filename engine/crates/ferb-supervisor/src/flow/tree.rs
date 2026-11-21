@@ -235,6 +235,11 @@ impl Inner {
         // L34 Phase G: an update's hold (the shutdown ends the wait)
         self.work_opened().await;
         let tree_id = opts.resume_id.clone().unwrap_or_else(|| self.new_id());
+        // ORCH-685: a scheduled run carried on in place by the owner's follow-up (a restored one tells its end itself)
+        let carried_schedule = opts
+            .schedule
+            .clone()
+            .filter(|_| opts.resume_id.is_some() && !opts.restored);
         let conversation = opts.conversation.as_deref();
         let prior_task = opts.prior_task.as_deref();
         let origins = &opts.origins;
@@ -426,7 +431,19 @@ impl Inner {
         }
         let saved = Value::Object(saved);
         match &spec.plan {
-            Some(plan) => self.plans(|p| p.create(&tree_id, plan, &saved, conversation))?,
+            Some(plan) => {
+                if opts.resume_id.is_some() && !restored {
+                    // ORCH-683 (not Python's: its `create` kept the stored plan, so a task resumed with a new plan
+                    // over a one-step one ran the old step's ended record and failed at once, live 2026-11-21, tree
+                    // 111d1ed8): a resumed task whose steps changed runs the new steps; replace keeps done work as
+                    // earlier results
+                    let stored = self.plans(|p| p.load(&tree_id)).ok().map(|l| l.plan.steps);
+                    if stored.is_some_and(|old| old != plan.steps) {
+                        self.plans(|p| p.replace(&tree_id, plan))?;
+                    }
+                }
+                self.plans(|p| p.create(&tree_id, plan, &saved, conversation))?
+            }
             None => self
                 .plans(|p| p.create_single(&tree_id, &spec.goal, &saved, conversation, restored))?,
         }
@@ -450,6 +467,8 @@ impl Inner {
             let mut live = self.live();
             live.tree_of.insert(tree_id.clone(), tree.clone());
             live.tree_of.insert(worker.id.clone(), tree.clone());
+            // ORCH-684: a restart of this tree is over once its new run is here
+            live.restarts.remove(&tree_id);
         }
         self.runs.set_tree(&tree_id, tree.clone());
         self.runs.set_tree(&worker.id, tree.clone());
@@ -638,7 +657,24 @@ impl Inner {
             .finish_tree(&tree, &root_span, request_id, suspended, stored)
             .await?;
         if !suspended && completed {
-            let _ = emit.send(Value::Object(final_));
+            match carried_schedule {
+                // ORCH-685 (not Python's: it ended as a chat task and the schedule never counted or posted it): a
+                // scheduled run the owner's follow-up carried on ends through its schedule's bookkeeping (counted,
+                // its watch, retry, "ran late" and end lines, posted as the schedule's result), as a restored run's
+                // does; its result reaches this turn as that post
+                Some(schedule) => {
+                    let mut ev = final_.clone();
+                    ev.insert("at".into(), json!(self.now_iso()));
+                    ev.insert("schedule".into(), Value::Object(schedule));
+                    let ev = Value::Object(ev);
+                    if !self.deps.daemon.resumed_outcome(&ev).await {
+                        let _ = emit.send(Value::Object(final_));
+                    }
+                }
+                None => {
+                    let _ = emit.send(Value::Object(final_));
+                }
+            }
         }
         if !completed {
             return Err(Failure::Cancelled);
@@ -1188,7 +1224,9 @@ impl Inner {
 
     /// supervisor.py:1784 `_stop_status`.
     pub fn stop_status(&self, tree: &Arc<Tree>) -> String {
-        if tree.lock().stop == STOPPED_BY_YOU {
+        let stop = tree.lock().stop.clone();
+        // ORCH-683: a run the owner's follow-up started again is cancelled, as an owner's stop is; never a failure
+        if stop == STOPPED_BY_YOU || stop == RESTARTED {
             "cancelled".into()
         } else {
             "failed".into()
@@ -1519,6 +1557,17 @@ impl Inner {
         );
         if reply.kind == "answer" && reply.choice.as_deref() == Some(GAPS_GO_ON) {
             return Ok(());
+        }
+        let stop = tree.lock().stop.clone();
+        if reply.kind == "stopped" || !stop.is_empty() {
+            // ORCH-684 (not ORCH-653's "you said not to go on"): the task was stopped or started again while the
+            // question waited; the step ends with that reason, never as the owner's No
+            let why = if stop.is_empty() {
+                STOPPED_BY_YOU.to_string()
+            } else {
+                stop
+            };
+            return Err(obj(json!({"status": "cancelled", "summary": why})));
         }
         if reply.kind == "declined" {
             return Err(obj(json!({"status": "needs_user",
@@ -2781,7 +2830,9 @@ impl Inner {
         let mut final_ = obj(self.redact(&Value::Object(self.final_(tree)?)));
         let status = final_["status"].as_str().unwrap_or("").to_string();
         self.plans(|p| p.set_status(&tree_id, if suspended { "suspended" } else { &status }))?;
-        if !suspended {
+        // ORCH-686: a run the owner's follow-up started again hands its standing permissions (a schedule's grant, the
+        // sends the owner allowed) to the task's new run in place; they end with the task, or when the restart is off
+        if !suspended && tree.lock().stop != RESTARTED {
             self.deps.daemon.standing_revoke(&tree_id);
         }
         final_.insert("goal".into(), json!(spec.goal));
@@ -3238,6 +3289,11 @@ impl Inner {
                     ferb_orchestrator::answer_marks::WHERE_STOOD
                 ));
             }
+        } else if stop == RESTARTED {
+            // ORCH-683: the run the owner's follow-up started again; the task carries on in the follow-up's turn
+            status = self.stop_status(tree);
+            summary = RESTARTED.to_string();
+            answer = RESTARTED_SAID.to_string();
         } else if !stop.is_empty() {
             status = self.stop_status(tree);
             summary = stop.clone();
@@ -3390,6 +3446,10 @@ impl Inner {
                 lines.insert(0, crate::endings::unknown_line(&unknown));
             }
         }
+        if stop == RESTARTED {
+            // ORCH-683: the task's own end, in the follow-up's turn, tells its lines and cards for the whole task
+            lines.clear();
+        }
         if !lines.is_empty() {
             answer = format!("{answer}\n\n{}", lines.join("\n"));
         }
@@ -3418,7 +3478,11 @@ impl Inner {
         };
         let mut artifacts = out.artifacts.clone();
         artifacts.sort();
-        let cards = self.result_cards(tree, &artifacts, &sites);
+        let cards = if stop == RESTARTED {
+            Vec::new()
+        } else {
+            self.result_cards(tree, &artifacts, &sites)
+        };
         let resources = tree.lock().resources.clone();
         let mut final_ = obj(
             json!({"type": "outcome", "task_id": tree.id, "status": status, "summary": summary,

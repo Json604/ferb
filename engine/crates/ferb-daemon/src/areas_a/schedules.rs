@@ -479,6 +479,11 @@ async fn run_schedule(st: &Rc<State>, run: ClaimedRun) {
     if final_.get("suspended").is_some_and(ferb_py::value::truthy) {
         return; // FERB shut down during the run: it resumes, and reports, after the restart
     }
+    if final_.get("restarted").is_some_and(ferb_py::value::truthy) {
+        // ORCH-685: the owner's follow-up started this run again in place: the new run's end is the schedule's
+        // result (the supervisor hands it to `resumed_outcome`), so this one is neither counted nor posted
+        return;
+    }
     let _ = schedule_finished(st, &s, final_, run.overdue_s, run.retry, &now).await;
 }
 

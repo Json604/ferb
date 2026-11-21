@@ -102,6 +102,28 @@ pub trait PowerFacts: Send + Sync {
     fn read(&self) -> PowerReading;
 }
 
+/// What the Mac's power watch tells (DMN-613): the power source or the lid changed, the Mac is about to sleep, or it
+/// woke.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PowerEvent {
+    /// The power source (AC or battery), the battery level or the lid changed.
+    Changed,
+    /// The Mac is about to sleep (macOS asks; the watch answers after the handler's wait).
+    WillSleep,
+    /// The Mac woke.
+    Woke,
+}
+
+/// The handler of the power watch: answers how many milliseconds macOS's sleep should wait for it (only
+/// [`PowerEvent::WillSleep`]'s answer counts; macOS allows at most 30 s).
+pub type PowerHandler = std::sync::Arc<dyn Fn(PowerEvent) -> u64 + Send + Sync>;
+
+/// Tells the daemon at once when the power source, the lid or sleep changes, instead of at its next look.
+pub trait PowerWatch: Send + Sync {
+    /// Starts watching for this process's life; false when it couldn't.
+    fn start(&self, handler: PowerHandler) -> bool;
+}
+
 /// The owner's "Lock my Mac" (APP-983): FERB never locks by itself. Puts the display to sleep (`pmset displaysleepnow`,
 /// no root), which locks a Mac that asks for the password at once, and reads the lock back.
 pub trait LockMac: Send + Sync {

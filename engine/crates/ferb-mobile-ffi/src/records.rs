@@ -835,6 +835,16 @@ mirror! {
 }
 
 mirror! {
+    /// FERB's lid helper on the Mac: its `state`, a failed set-up's `error`, and `problem`: plain words for why it
+    /// isn't on (shown under the lid line), none when nothing is wrong.
+    InsomniaHelper from ferb_mobile::status::InsomniaHelper {
+        state: String,
+        error: Option<String>,
+        problem: Option<String>,
+    }
+}
+
+mirror! {
     /// Insomnia mode: FERB keeps the Mac working while the owner is away (APP-980). `line` is the Mac's own status line
     /// (empty while off); `notice` someone at the Mac; `warnings` battery, heat, the cover; `last_end` how it ended.
     Insomnia from ferb_mobile::status::Insomnia {
@@ -855,6 +865,15 @@ mirror! {
         line: String,
         task_awake: bool,
         last_end: Option<InsomniaLastEnd>,
+        /// The Mac's own words for closing the lid on battery (true to its helper's state); none from an older Mac.
+        #[uniffi(default = None)]
+        lid_line: Option<String>,
+        /// ready, absent or unknown: whether FERB can keep working with the lid closed on battery.
+        #[uniffi(default = None)]
+        closed_lid: Option<String>,
+        /// FERB's lid helper on the Mac; none from an older Mac.
+        #[uniffi(default = None)]
+        helper: Option<InsomniaHelper>,
     }
 }
 

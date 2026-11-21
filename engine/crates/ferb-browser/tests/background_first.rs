@@ -167,8 +167,9 @@ fn navigated(url: &str, first: bool) -> Value {
     v
 }
 
-/// One connected fake extension answering every command as the real one does when it succeeds.
-fn connect(hub: Arc<Hub>, sent: Arc<Mutex<Vec<(String, Value)>>>) {
+/// One connected fake extension answering every command as the real one does when it succeeds; `made`, when given,
+/// is the first open's `window_made` (HAND-649).
+fn connect(hub: Arc<Hub>, sent: Arc<Mutex<Vec<(String, Value)>>>, made: Option<Value>) {
     let (ext_w, hub_r) = tokio::io::duplex(1 << 20);
     let (hub_w, ext_r) = tokio::io::duplex(1 << 20);
     tokio::spawn(hub.serve(BufReader::new(hub_r), hub_w, Some(4242)));
@@ -191,6 +192,7 @@ fn connect(hub: Arc<Hub>, sent: Arc<Mutex<Vec<(String, Value)>>>) {
             .unwrap();
         let mut lines = BufReader::new(ext_r).lines();
         let mut navigations = 0;
+        let mut made = made;
         while let Ok(Some(line)) = lines.next_line().await {
             let v: Value = serde_json::from_str(&line).unwrap();
             if v["type"] != "cmd" {
@@ -200,8 +202,14 @@ fn connect(hub: Arc<Hub>, sent: Arc<Mutex<Vec<(String, Value)>>>) {
             let op = cmd["op"].as_str().unwrap().to_string();
             sent.lock().unwrap().push((op.clone(), cmd["args"].clone()));
             let value = match op.as_str() {
-                "open" => json!({"tab_id": 21, "url": "about:blank", "title": "", "window_id": 5,
-                                  "group_id": null, "muted": true}),
+                "open" => {
+                    let mut v = json!({"tab_id": 21, "url": "about:blank", "title": "", "window_id": 5,
+                                       "group_id": null, "muted": true});
+                    if let Some(m) = made.take() {
+                        v["window_made"] = m;
+                    }
+                    v
+                }
                 "navigate" => {
                     navigations += 1;
                     let url = cmd["args"]["url"].as_str().unwrap_or("").to_string();
@@ -297,7 +305,7 @@ async fn a_window_the_page_brought_forward_is_the_tabs_next_fact_once() {
         host: Arc::new(NoHost),
     };
     let sent: Arc<Mutex<Vec<(String, Value)>>> = Arc::default();
-    connect(hub, sent.clone());
+    connect(hub, sent.clone(), None);
     settle().await;
 
     // the task's tab: opened blank, then its address (the fake's first navigate carries nothing)
@@ -513,7 +521,7 @@ async fn the_owners_app_goes_back_when_the_fact_arrives() {
         host: answering.clone(),
     };
     let sent: Arc<Mutex<Vec<(String, Value)>>> = Arc::default();
-    connect(hub, sent.clone());
+    connect(hub, sent.clone(), None);
     settle().await;
 
     // the task's tab: opened blank, then its address (the fake's first navigate carries nothing)
@@ -554,4 +562,92 @@ async fn the_owners_app_goes_back_when_the_fact_arrives() {
     let args = json!({"tab": tab.tab_id, "url": "https://sign.example/next"});
     tools.run(nav, &args, &ctx()).await.expect("navigate");
     assert_eq!(answering.asked.lock().unwrap().len(), 1);
+}
+
+// Live 2026-11-21: macOS opened FERB's new window full screen on a Space of its own (the owner's Chrome window was
+// full screen); the extension's fact about it (0.19.13) is the open's line for the worker and the trace, once, and
+// only its known fields count.
+// decision: HAND-649
+#[tokio::test(start_paused = true)]
+async fn a_window_made_full_screen_is_the_opens_fact_once() {
+    use ferb_browser::surfaced::window_made;
+    let random = Arc::new(Counter::new());
+    let pairings = Arc::new(Pairings::new(
+        Arc::new(Installs),
+        Arc::new(Clocked),
+        random.clone(),
+    ));
+    let hub = Hub::new(
+        pairings,
+        Arc::new(NoLedger),
+        Arc::new(|_: &str, _: Map<String, Value>| {}),
+        Arc::new(|| "dev-1".to_string()),
+        random.clone(),
+        Arc::new(Apps),
+        Arc::new(|_| Some("com.google.Chrome".to_string())),
+    );
+    let tasks = Tasks {
+        running: Arc::new(|t: &str| t == "task-a"),
+        root: Arc::new(|t: &str| t.split('.').next().unwrap_or(t).to_string()),
+        ..Tasks::default()
+    };
+    let driver = ferb_browser::driver::Driver::new(
+        hub.clone(),
+        Kind::Owner {
+            choose: Arc::new(|_| Ok(("chrome".to_string(), "Default".to_string()))),
+            input: None,
+        },
+        tasks,
+        None,
+        random,
+    );
+    let tools = Tools {
+        family: OWNER_BROWSER,
+        driver: driver.clone(),
+        policy: Arc::new(Https),
+        host: Arc::new(NoHost),
+    };
+    let sent: Arc<Mutex<Vec<(String, Value)>>> = Arc::default();
+    let made = json!({"fullscreen": true, "minimized": true, "tries": 1, "window_id": 5});
+    connect(hub, sent.clone(), Some(made));
+    settle().await;
+
+    let open = verb("open").unwrap();
+    let args = json!({"url": "https://sign.example/start"});
+    let first = tools.run(open, &args, &ctx()).await.expect("open");
+    assert_eq!(
+        first.content["window_made"],
+        json!(
+            "this profile had no window, so FERB made its own minimized one; macOS first opened it full screen on a \
+             Space of its own (the owner's screen may have switched Space for a moment); it is minimized now, and later \
+             tabs in this profile open in it"
+        ),
+        "{:?}",
+        first.content
+    );
+    let second = tools.run(open, &args, &ctx()).await.expect("open");
+    assert!(
+        !second.content.contains_key("window_made"),
+        "{:?}",
+        second.content
+    );
+    // only the known fields of a known shape
+    assert_eq!(
+        window_made(Some(
+            &json!({"fullscreen": false, "minimized": false, "tries": 2, "x": 1})
+        )),
+        Some(
+            json!({"fullscreen": false, "minimized": false, "tries": 2})
+                .as_object()
+                .unwrap()
+                .clone()
+        )
+    );
+    for bad in [
+        json!({"fullscreen": true}),
+        json!("made"),
+        json!({"fullscreen": 1, "minimized": true}),
+    ] {
+        assert_eq!(window_made(Some(&bad)), None, "{bad}");
+    }
 }

@@ -218,4 +218,88 @@ final class InsomniaTests: XCTestCase {
         await watch.start().value
         XCTAssertEqual(watch.view?.ended, AppModel.errorNote(.NeedsBetterPath(detail: words, linkCode: "needs_better_path")))
     }
+
+    // ---- the lid line, the helper, the Mac asleep, the waiting messages (round 2) -----------------------------------
+
+    /// The warning's closed-lid sentence is the Mac's own (true to its helper's state); an older Mac's: the app's words.
+    // decision: APP-980, APP-981, PHN-777
+    func testTheWarningTakesTheLidLineFromTheMacAndFallsBackForAnOlderOne() {
+        let open = L.s("insomnia_body_open"), fallback = L.s("insomnia_body_closed")
+        var ready = phone.insomnia
+        ready.lidLine = "With the lid closed, FERB keeps your Mac running as if it were open, on battery too."
+        ready.closedLid = "ready"
+        XCTAssertEqual(MacAsleep.body(open: open, fallback: fallback, ready), "\(open) \(ready.lidLine!)")
+        XCTAssertEqual(MacAsleep.body(open: open, fallback: fallback, phone.insomnia), "\(open) \(fallback)", "an older Mac")
+        XCTAssertEqual(MacAsleep.body(open: open, fallback: fallback, nil), "\(open) \(fallback)")
+        // the helper's problem: the Mac's words, nothing when it is fine or the Mac doesn't say
+        var waiting = phone.insomnia
+        waiting.helper = InsomniaHelper(state: "requires_approval", error: nil,
+                                        problem: "FERB's helper is waiting for your OK in System Settings → General → Login Items.")
+        XCTAssertEqual(MacAsleep.helperProblem(waiting), waiting.helper?.problem)
+        waiting.helper = InsomniaHelper(state: "enabled", error: nil, problem: nil)
+        XCTAssertNil(MacAsleep.helperProblem(waiting))
+        XCTAssertNil(MacAsleep.helperProblem(phone.insomnia))
+    }
+
+    /// The lid-on-battery warning follows the helper: new words under the same id update it quietly, never twice.
+    // decision: APP-981, PHN-789
+    func testAWarningWithNewWordsUnderTheSameIdIsUpdatedQuietly() {
+        let planner = NotificationPlanner(prefs: rig.prefs)
+        func look(_ i: Insomnia?) -> [NotificationAction] {
+            planner.look(status: status(i), view: nil, front: false, unlocked: true, lockedNow: false)
+        }
+        let lid = InsomniaWarning(id: "w-lid", kind: "lid_closed_battery", text: "Your Mac's lid is closed on battery: it will sleep.", at: nil)
+        XCTAssertEqual(posted(look(on(warnings: [lid]))).map(\.quietly), [false])
+        var ready = lid
+        ready.text = "Your Mac's lid is closed on battery: FERB keeps it working."
+        let update = posted(look(on(warnings: [ready])))
+        XCTAssertEqual(update.map(\.body), [ready.text])
+        XCTAssertEqual(update.map(\.id), ["iw:w-lid"])
+        XCTAssertEqual(update.map(\.quietly), [true])
+        XCTAssertTrue(look(on(warnings: [ready])).isEmpty, "the same words: not posted again")
+    }
+
+    /// The Mac can't be reached while insomnia mode was on: one quiet notification, gone when the link is back; never
+    /// when the mode was off.
+    // decision: APP-981, PHN-778, PHN-779
+    func testTheMacAsleepIsSaidOnceQuietlyAndGoesWhenTheLinkIsBack() async {
+        var delivered: [NotificationAction] = []
+        phone.status = status(on())
+        let notifier = Notifier(api: phone, prefs: rig.prefs, session: rig.session, lockedNow: { false },
+                                deliver: { delivered += $0 }, lostAfter: 0.02)
+        notifier.start()
+        defer { notifier.stop() }
+        func asleepPosts() -> [PlannedNotification] { posted(delivered).filter { $0.id == "mac_asleep" } }
+        phone.link = FakePhone.status(.connecting)
+        await eventually("said") { asleepPosts().count == 1 }
+        XCTAssertEqual(asleepPosts().first?.body, L.s("mac_asleep"))
+        XCTAssertEqual(asleepPosts().first?.quietly, true)
+        phone.link = FakePhone.status(.waiting)
+        await settle()
+        XCTAssertEqual(asleepPosts().count, 1, "said once")
+        phone.link = FakePhone.status(.online)
+        await eventually("gone when the link is back") { removed(delivered).contains("mac_asleep") }
+        // the mode off: nothing
+        delivered = []
+        phone.status = status(phone.insomnia)
+        phone.link = FakePhone.status(.connecting)
+        await settle()
+        XCTAssertTrue(asleepPosts().isEmpty)
+    }
+
+    /// A message waiting for the Mac: "Your Mac is asleep; this goes when it wakes." once the link is lost while insomnia
+    /// mode was on; else today's "Waiting for your Mac" (and "Waiting for you to unlock").
+    // decision: APP-981, PHN-401
+    func testAWaitingMessageSaysTheMacIsAsleepOnlyWhileItMayBe() {
+        let lost = FakePhone.status(.connecting)
+        XCTAssertTrue(MacAsleep.shown(status(on()), lost, lost: true))
+        XCTAssertEqual(MacAsleep.waitingLine("link", asleep: true), "outbox_mac_asleep")
+        XCTAssertEqual(L.s("outbox_mac_asleep"), "Your Mac is asleep; this goes when it wakes.")
+        XCTAssertEqual(MacAsleep.waitingLine("unlock", asleep: true), "outbox_waiting_unlock")
+        XCTAssertEqual(MacAsleep.waitingLine("link", asleep: false), "outbox_waiting")
+        XCTAssertFalse(MacAsleep.shown(status(on()), lost, lost: false), "just connecting: not yet")
+        XCTAssertFalse(MacAsleep.shown(status(phone.insomnia), lost, lost: true), "insomnia mode off")
+        XCTAssertFalse(MacAsleep.shown(status(nil), lost, lost: true), "an older Mac")
+        XCTAssertFalse(MacAsleep.shown(status(on()), FakePhone.status(.stopped), lost: true), "removed: not asleep")
+    }
 }

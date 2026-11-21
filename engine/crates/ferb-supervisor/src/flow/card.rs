@@ -18,7 +18,8 @@ use serde_json::{json, Map, Value};
 use super::tree::step_task;
 use super::{Inner, Tree};
 use crate::words::{
-    COULDNT_DO, NOT_ACCEPTED, REPORT_SHORT_CHARS, STOPPED_BY_YOU, UNCONFIRMED_LINE,
+    COULDNT_DO, NOT_ACCEPTED, REPORT_SHORT_CHARS, RESTARTED, RESTARTED_SAID, STOPPED_BY_YOU,
+    UNCONFIRMED_LINE,
 };
 
 /// A card and the part events it emitted that are not yet told (its `emit` only queues them: Python's `emit` reads
@@ -525,6 +526,10 @@ impl Inner {
         if stop == STOPPED_BY_YOU {
             status = self.stop_status(tree);
             headline = "Stopped, as you asked.".into();
+        } else if stop == RESTARTED {
+            // ORCH-683: the owner's follow-up started the task again; it carries on in that turn
+            status = self.stop_status(tree);
+            headline = RESTARTED_SAID.into();
         } else if !stop.is_empty() {
             status = self.stop_status(tree);
             headline = format!("I couldn't finish that: {stop}");

@@ -124,6 +124,8 @@ pub fn build(server: &Server, p: Parts) -> Insomnia {
     let clock = p.clock.clone();
     let clock2 = p.clock.clone();
     let ids = p.ids.clone();
+    // the daemon's runtime, for a notice told from the power watch's own thread (DMN-614)
+    let runtime = tokio::runtime::Handle::try_current().ok();
     let seams = Seams {
         keep,
         root,
@@ -139,7 +141,10 @@ pub fn build(server: &Server, p: Parts) -> Insomnia {
         tell: Arc::new(move |ident: &str, text: &str| {
             let (n, ident, text) = (notifier.clone(), ident.to_owned(), text.to_owned());
             // the owner's notice, once per ident; off the caller's thread (a look runs anywhere)
-            if let Ok(rt) = tokio::runtime::Handle::try_current() {
+            if let Some(rt) = tokio::runtime::Handle::try_current()
+                .ok()
+                .or_else(|| runtime.clone())
+            {
                 rt.spawn(async move {
                     let _ = n
                         .tell_owner(
@@ -177,6 +182,17 @@ fn native_power(native: bool) -> (Arc<dyn KeepAwake>, Arc<dyn PowerFacts>, Arc<d
         );
     }
     (Arc::new(Absent), Arc::new(Absent), Arc::new(Absent))
+}
+
+#[cfg(target_os = "macos")]
+fn native_watch(handler: ferb_core::power::PowerHandler) -> bool {
+    use ferb_core::power::PowerWatch;
+    ferb_platform_macos::power::Watch.start(handler)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn native_watch(_handler: ferb_core::power::PowerHandler) -> bool {
+    false
 }
 
 /// APP-986: FERB's root helper (its socket answers only when the owner approved it and it runs); a test daemon has none.
@@ -250,6 +266,15 @@ pub fn start_loops(d: &Arc<super::Daemon>) {
         return;
     };
     ins.resume();
+    // DMN-613: the power source, the lid and sleep are told at once, not at the next look (the Mac's own parts only)
+    if d.opts.native {
+        let i = ins.clone();
+        let watching = native_watch(Arc::new(move |ev| i.power_event(ev)));
+        if !watching {
+            d.journal
+                .note("insomnia.watch_failed", serde_json::json!({}));
+        }
+    }
     let i = ins.clone();
     d.spawn_loop("insomnia", move |_| {
         let i = i.clone();

@@ -31,7 +31,8 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use ferb_core::power::{
-    HelperState, Hold, KeepAwake, LockMac, PowerFacts, PowerReading, RootHelper, Thermal,
+    HelperState, Hold, KeepAwake, LockMac, PowerEvent, PowerFacts, PowerReading, RootHelper,
+    Thermal,
 };
 use ferb_core::when::{self, DateTime};
 use ferb_rpc::server::HandlerError;
@@ -55,8 +56,11 @@ pub const CAMERA_TOPIC: &str = "insomnia.camera";
 pub const LEASE_S: u64 = 120;
 /// How often the daemon looks (renews, reads the power facts, counts the work, checks the grace).
 pub const TICK_S: u64 = 20;
+/// How long FERB holds macOS's sleep (at most) to tell the phone first (DMN-614): the link pushes the status every
+/// 1.5 s.
+pub const SLEEP_TELL_MS: u64 = 2000;
 /// A tick this much later than its period means the Mac slept in between (the tick's timer stops while it sleeps).
-pub const SLEPT_GAP_S: f64 = 60.0;
+pub const SLEPT_GAP_S: f64 = 10.0;
 /// FERB.app says its cover is up every 30 s; none for this long and the cover counts as down.
 pub const SHIELD_LOST_S: f64 = 90.0;
 /// How long after the start the cover may take to come up before the owner is told it isn't up.
@@ -292,6 +296,11 @@ struct Inner {
     /// APP-986: the helper's sleep lease is held; what the helper answered last.
     root_leased: bool,
     root_state: Option<HelperState>,
+    /// DMN-614: macOS said it is about to sleep (when, and the facts then); cleared by the wake's line.
+    sleep_at: Option<(DateTime, PowerReading)>,
+    going_to_sleep: bool,
+    /// DMN-616: FERB.app's last word on the helper's setup (state, error).
+    helper_setup: Option<(String, String)>,
     camera: Camera,
     steps: HashMap<String, oneshot::Sender<Result<(), String>>>,
 }
@@ -317,7 +326,7 @@ pub fn clock_time(t: &DateTime) -> String {
 }
 
 /// The warning words (APP-981): what is true and what FERB does, never that it stops.
-pub fn warning_text(kind: &str, battery: Option<i64>) -> String {
+pub fn warning_text(kind: &str, battery: Option<i64>, helper_ready: bool) -> String {
     let n = battery.unwrap_or(0);
     match kind {
         "battery_low" => format!("Your Mac's battery is at {n}%. FERB keeps working; plug it in if you can."),
@@ -328,9 +337,11 @@ pub fn warning_text(kind: &str, battery: Option<i64>) -> String {
         "hot" => "Your Mac is getting hot. FERB keeps working, but macOS may slow it down, or put it to sleep if it \
                   gets too hot."
             .to_owned(),
-        "lid_closed_battery" => "Your Mac's lid is closed and it's running on battery. FERB keeps it working; keep it \
-                                 somewhere it can stay cool, not in a bag."
+        // decision: DMN-615 — the words follow the helper's real state: without it the Mac sleeps
+        "lid_closed_battery" if helper_ready => "Your Mac's lid is closed and it's running on battery. FERB keeps it \
+                                                 working; keep it somewhere it can stay cool, not in a bag."
             .to_owned(),
+        "lid_closed_battery" => LID_SLEEPS_WARNING.to_owned(),
         "shield_down" => "The cover isn't showing on your Mac's screen, so anyone at your Mac could use it. FERB keeps \
                           working; you can lock your Mac from here."
             .to_owned(),
@@ -338,14 +349,57 @@ pub fn warning_text(kind: &str, battery: Option<i64>) -> String {
     }
 }
 
+/// DMN-615: the warning for a closed lid on battery while FERB's helper isn't on.
+pub const LID_SLEEPS_WARNING: &str = "Your Mac's lid is closed and it's on battery, so it will go to sleep until you \
+open it or plug it in; FERB's work waits until then. To keep it working with the lid closed on battery, turn on FERB \
+once in System Settings → General → Login Items on your Mac.";
+
+/// DMN-615: the one truthful sentence about a closed lid on battery, for every client's warning (status `lid_line`).
+pub fn lid_line(helper_ready: bool) -> &'static str {
+    if helper_ready {
+        "With the lid closed, FERB keeps your Mac running as if it were open, on battery too."
+    } else {
+        "With the lid closed, your Mac sleeps on battery until you open it or plug it in; plugged in it keeps working \
+         but locks and pauses what's playing. To keep it running as if open, turn on FERB once in System Settings → \
+         General → Login Items on your Mac."
+    }
+}
+
+/// DMN-616: what FERB.app said about setting up the helper, in plain words for the status (none when it is fine).
+pub fn helper_problem_line(state: &str, error: &str) -> Option<String> {
+    match state {
+        "failed" if !error.is_empty() => Some(format!("FERB couldn't set up its helper on your Mac: {error}")),
+        "failed" => Some("FERB couldn't set up its helper on your Mac.".to_owned()),
+        "requires_approval" => Some(
+            "FERB's helper is waiting for your OK in System Settings → General → Login Items on your Mac.".to_owned(),
+        ),
+        // set up (or allowed) but not answering: macOS didn't start it
+        "registered" | "enabled" => Some(
+            "FERB's helper is set up but macOS hasn't started it. Check FERB in System Settings → General → Login \
+             Items on your Mac, or restart your Mac."
+                .to_owned(),
+        ),
+        "not_in_bundle" => Some("This FERB doesn't carry its helper.".to_owned()),
+        _ => None,
+    }
+}
+
 /// What macOS forced while the mode was on (APP-981), said plainly once: the Mac slept from `from` to `to`.
-pub fn slept_text(from: &DateTime, to: &DateTime, before: &PowerReading) -> String {
+pub fn slept_text(
+    from: &DateTime,
+    to: &DateTime,
+    before: &PowerReading,
+    helper_ready: bool,
+) -> String {
     let (a, b) = (clock_time(from), clock_time(to));
-    if before.lid_closed == Some(true) && before.on_battery == Some(true) {
+    if before.lid_closed == Some(true) && before.on_battery == Some(true) && !helper_ready {
         format!(
-            "Your Mac slept from {a} to {b} because its lid was closed on battery. Plugged in, FERB can keep it \
-             working with the lid closed."
+            "Your Mac slept from {a} to {b} because its lid was closed on battery. To keep it working with the lid \
+             closed on battery, turn on FERB once in System Settings → General → Login Items on your Mac; plugged in, \
+             FERB keeps it working anyway."
         )
+    } else if before.lid_closed == Some(true) && before.on_battery == Some(true) {
+        format!("Your Mac slept from {a} to {b} with its lid closed on battery, though FERB asked it to stay awake.")
     } else if before.on_battery == Some(true) && before.battery.is_some_and(|p| p <= 3) {
         format!("Your Mac slept from {a} to {b} because its battery ran out.")
     } else if before.thermal == Some(Thermal::Critical) {
@@ -502,17 +556,46 @@ impl Insomnia {
             let since = lock(&self.inner).mode.as_ref().map(|m| m.since);
             since.is_some_and(|s| (self.seams.unlocked_after)(&s))
         };
+        // decision: APP-986 — the root helper's lease while the mode is on (a closed Mac on battery keeps working; it ends
+        // by itself when not renewed, and is let go at the end); with the mode off only its state is read, so every
+        // client's words follow whether it is on (DMN-615)
+        let helper_ready = {
+            let (mode_on, leased) = {
+                let i = lock(&self.inner);
+                (i.mode.is_some(), i.root_leased)
+            };
+            let ready = if mode_on {
+                let r = self.seams.root.lease(LEASE_S);
+                lock(&self.inner).root_leased = r.is_ok();
+                r.is_ok()
+            } else {
+                if leased {
+                    let _ = self.seams.root.release();
+                    lock(&self.inner).root_leased = false;
+                }
+                self.seams.root.state() == HelperState::Ready
+            };
+            lock(&self.inner).root_state = Some(if ready {
+                HelperState::Ready
+            } else {
+                HelperState::Absent
+            });
+            ready
+        };
         let wanted: HashSet<Hold>;
         {
             let mut i = lock(&self.inner);
-            // what macOS forced: a wall-clock gap the monotonic clock didn't see is sleep
+            // what macOS forced: a wall-clock gap the monotonic clock didn't see is sleep (the watch's wake says it first
+            // when it can, DMN-614)
             if let Some((wall, mono, at)) = i.last_look {
                 let gap = (now_wall - wall) - (now - mono);
                 if i.mode.is_some() && gap > SLEPT_GAP_S {
-                    let text = slept_text(&at, &now_dt, &i.reading);
+                    let (from, before) = i.sleep_at.take().unwrap_or((at, i.reading.clone()));
+                    i.going_to_sleep = false;
+                    let text = slept_text(&from, &now_dt, &before, helper_ready);
                     self.seams.persist.note(
                         "insomnia.slept",
-                        json!({"from": when::isoformat(&at), "to": when::isoformat(&now_dt)}),
+                        json!({"from": when::isoformat(&from), "to": when::isoformat(&now_dt)}),
                     );
                     tells.push((format!("insomnia-slept-{}", when::isoformat(&now_dt)), text));
                 }
@@ -530,7 +613,15 @@ impl Insomnia {
                         end = Some(Ended::Done);
                     }
                 }
-                let raised = Self::warnings(m, &reading, &settings, now, &now_dt, &self.seams);
+                let raised = Self::warnings(
+                    m,
+                    &reading,
+                    &settings,
+                    now,
+                    &now_dt,
+                    &self.seams,
+                    helper_ready,
+                );
                 for w in raised {
                     tells.push((format!("insomnia-warning-{}", w.id), w.text.clone()));
                 }
@@ -540,13 +631,13 @@ impl Insomnia {
             }
             wanted = match (&i.mode, end) {
                 (Some(m), None) => {
-                    let mut h = HashSet::from([Hold::IdleSleep]);
-                    if reading.on_battery == Some(false) {
-                        h.insert(Hold::SystemSleep);
-                    }
-                    // decision: APP-980 — the display only under the cover (and never under a closed lid): without it an
-                    // unlocked Mac must lock as usual
-                    if m.shield_up(now) && reading.lid_closed != Some(true) {
+                    // decision: DMN-613 — system sleep is held for the whole mode, whatever the power source: macOS honours it
+                    // only on AC, so power plugged in under a closed lid finds it already held (no race with a look)
+                    let mut h = HashSet::from([Hold::IdleSleep, Hold::SystemSleep]);
+                    // decision: APP-980 — the display only under the cover: without it an unlocked Mac must lock as usual.
+                    // decision: DMN-617 — under a closed lid too: with the helper's lease the Mac runs as if open, and the
+                    // display's idle sleep would lock it and pause what plays (the owner's Amphetamine behaviour)
+                    if m.shield_up(now) {
                         h.insert(Hold::Display);
                     }
                     i.task_awake = false;
@@ -581,23 +672,6 @@ impl Insomnia {
             }
         }
         lock(&self.inner).held = wanted;
-        // decision: APP-986 — the root helper's lease while the mode is on: a closed Mac on battery keeps working; it
-        // ends by itself when not renewed, and is let go at the mode's end
-        let on = lock(&self.inner).mode.is_some() && end.is_none();
-        let leased = lock(&self.inner).root_leased;
-        if on {
-            let r = self.seams.root.lease(LEASE_S);
-            let mut i = lock(&self.inner);
-            i.root_leased = r.is_ok();
-            i.root_state = Some(if r.is_ok() {
-                HelperState::Ready
-            } else {
-                HelperState::Absent
-            });
-        } else if leased {
-            let _ = self.seams.root.release();
-            lock(&self.inner).root_leased = false;
-        }
         for (ident, text) in tells {
             (self.seams.tell)(&ident, &text);
         }
@@ -617,6 +691,7 @@ impl Insomnia {
         now: f64,
         at: &DateTime,
         seams: &Seams,
+        helper_ready: bool,
     ) -> Vec<Warning> {
         let battery = r.battery.filter(|_| r.on_battery == Some(true));
         let urgent = battery.is_some_and(|b| b <= s.battery_urgent);
@@ -642,7 +717,7 @@ impl Insomnia {
                     let w = Warning {
                         id: (seams.new_id)(),
                         kind,
-                        text: warning_text(kind, r.battery),
+                        text: warning_text(kind, r.battery, helper_ready),
                         at: *at,
                     };
                     seams.persist.note(
@@ -654,6 +729,10 @@ impl Insomnia {
                 }
                 (false, Some(p)) => {
                     m.warnings.remove(p);
+                }
+                // the words follow the helper's state while the warning lasts (same id: the phone updates it)
+                (true, Some(p)) if kind == "lid_closed_battery" => {
+                    m.warnings[p].text = warning_text(kind, r.battery, helper_ready);
                 }
                 _ => {}
             }
@@ -677,6 +756,20 @@ impl Insomnia {
             json!({"id": id, "why": why.as_str(), "text": why.line(), "at": when::isoformat(at)})
         });
         let mut out = Map::new();
+        // decision: DMN-615 — whether the helper keeps a closed Mac working on battery, and the one sentence that says
+        // so truthfully, on and off (every client's warning shows it)
+        let ready = i.root_state == Some(HelperState::Ready);
+        out.insert(
+            "closed_lid".into(),
+            json!(i.root_state.map_or("unknown", HelperState::as_str)),
+        );
+        out.insert("lid_line".into(), json!(lid_line(ready)));
+        let setup = i.helper_setup.clone().unwrap_or_default();
+        out.insert(
+            "helper".into(),
+            json!({"state": setup.0, "error": setup.1,
+                   "problem": helper_problem_line(&setup.0, &setup.1).filter(|_| !ready)}),
+        );
         let Some(m) = &i.mode else {
             out.insert("on".into(), json!(false));
             out.insert("power".into(), power);
@@ -710,6 +803,9 @@ impl Insomnia {
         if let (Some(b), Some(true)) = (r.battery, r.on_battery) {
             parts.push(format!("battery {b}%"));
         }
+        if i.going_to_sleep {
+            parts.push("your Mac is going to sleep".into());
+        }
         out.insert("on".into(), json!(true));
         out.insert("variant".into(), json!(m.variant.as_str()));
         out.insert("since".into(), json!(when::isoformat(&m.since)));
@@ -722,11 +818,7 @@ impl Insomnia {
             ends_at.map_or(Value::Null, |t| json!(when::isoformat(&t))),
         );
         out.insert("shield_up".into(), json!(shield_up));
-        // APP-986: whether FERB's helper keeps a closed Mac working on battery ("ready") or isn't approved ("absent")
-        out.insert(
-            "closed_lid".into(),
-            json!(i.root_state.map_or("unknown", HelperState::as_str)),
-        );
+        out.insert("going_to_sleep".into(), json!(i.going_to_sleep));
         out.insert("mac_locked".into(), json!(r.screen_locked == Some(true)));
         out.insert(
             "camera".into(),
@@ -752,6 +844,59 @@ impl Insomnia {
         out.insert("line".into(), json!(parts.join(" · ")));
         out.insert("last_end".into(), Value::Null);
         out
+    }
+
+    /// The Mac's power watch (DMN-613, DMN-614): a power-source or lid change is looked at now, not at the next look;
+    /// macOS about to sleep is published first (the phone hears it; macOS waits [`SLEEP_TELL_MS`] for that while the mode
+    /// is on); the wake says once when the Mac slept and why. Answers how long macOS's sleep should wait.
+    pub fn power_event(&self, ev: PowerEvent) -> u64 {
+        match ev {
+            PowerEvent::Changed => {
+                self.look();
+                0
+            }
+            PowerEvent::WillSleep => {
+                let facts = self.seams.facts.read();
+                let on = {
+                    let mut i = lock(&self.inner);
+                    i.sleep_at = Some(((self.seams.now)(), facts));
+                    i.going_to_sleep = i.mode.is_some();
+                    i.going_to_sleep
+                };
+                if !on {
+                    return 0;
+                }
+                self.seams.persist.note("insomnia.sleeping", json!({}));
+                self.publish();
+                SLEEP_TELL_MS
+            }
+            PowerEvent::Woke => {
+                let now_dt = (self.seams.now)();
+                let said = {
+                    let mut i = lock(&self.inner);
+                    i.going_to_sleep = false;
+                    let slept = i.sleep_at.take().filter(|_| i.mode.is_some());
+                    // the gap this sleep made is this line's: the next look doesn't say it again
+                    i.last_look = Some((secs(&now_dt), self.mono(), now_dt));
+                    slept.map(|(from, before)| {
+                        let ready = i.root_state == Some(HelperState::Ready);
+                        (from, slept_text(&from, &now_dt, &before, ready))
+                    })
+                };
+                if let Some((from, text)) = said {
+                    self.seams.persist.note(
+                        "insomnia.slept",
+                        json!({"from": when::isoformat(&from), "to": when::isoformat(&now_dt)}),
+                    );
+                    (self.seams.tell)(
+                        &format!("insomnia-slept-{}", when::isoformat(&now_dt)),
+                        &text,
+                    );
+                }
+                self.look();
+                0
+            }
+        }
     }
 
     /// The session's since when the one Yes covers screen use now (APP-984): the gateway's standing answer.
@@ -863,6 +1008,25 @@ impl Insomnia {
             "camera" => {
                 let state = text("state");
                 lock(&self.inner).camera.state = state;
+                Ok(())
+            }
+            // decision: DMN-616 — the helper's setup is never silent: FERB.app's registration answer is kept, journaled and
+            // shown (status `helper`)
+            "helper" => {
+                let (state, error) = (text("state"), text("error"));
+                let changed = {
+                    let mut i = lock(&self.inner);
+                    let new = Some((state.clone(), error.clone()));
+                    let changed = i.helper_setup != new;
+                    i.helper_setup = new;
+                    changed
+                };
+                if changed {
+                    self.seams
+                        .persist
+                        .note("insomnia.helper", json!({"state": state, "error": error}));
+                    self.publish();
+                }
                 Ok(())
             }
             other => Err(format!("insomnia.report doesn't know the event {other:?}")),

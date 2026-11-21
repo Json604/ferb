@@ -2043,7 +2043,8 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         for entry in StatusMenu.entries(state: model.menuBarState, paused: model.daemonPaused,
                                         stopped: model.daemonStopped, appName: AppName.current,
                                         canSetUp: onSetUp != nil, hasWindow: hasWindow, updateOffer: updateOffer,
-                                        updateAsks: updateAsks, keepingAwake: model.insomniaStatus.map(\.on)) {
+                                        updateAsks: updateAsks, keepingAwake: model.insomniaStatus.map(\.on),
+                                        helperProblem: model.insomniaStatus?.helper?.problem) {
             switch entry {
             case .status(let text):
                 let line = NSMenuItem(title: text, action: nil, keyEquivalent: "")

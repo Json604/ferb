@@ -338,3 +338,127 @@ fn extension_0_19_11_and_later_keep_protocol_21_and_the_minimum() {
     )));
     assert_eq!(ferb_browser::protocol::MIN_EXTENSION_VERSION, "0.19.0");
 }
+
+/// FERB's window in a profile with none (HAND-649, extension 0.19.13): no FERB window yet; `open` runs one open
+/// command (letting the extension's waits run on the fake clock) and returns its result body.
+const NO_WINDOW: &str = r#"
+  gen = 1; port = {postMessage() {}, disconnect() {}};
+  const sent = [];
+  send = async (type, body) => { sent.push([type, body]); };
+  let n = 0;
+  const open = async (args) => {
+    const id = "c" + (++n);
+    const done = onCommand({gen: 1, id, op: "open", args: {url: "about:blank", ...args}, timeout_ms: 30000});
+    await advance(10000);
+    await done;
+    return sent.find(([t, b]) => t === "result" && b.id === id)[1].value;
+  };
+  const ferbId = async () => (await chrome.storage.session.get("s")).s.windowId;
+"#;
+
+fn no_window(scenario: &str) -> Option<Value> {
+    run("worker", &format!("{NO_WINDOW}\n{scenario}"))
+}
+
+// Live 2026-11-21 07:50:37 and 07:57:22: the owner's own Chrome window was full screen, macOS opened FERB's new
+// window full screen on a Space of its own, and the minimize only took it out of full screen (Dock: no minimize).
+// decision: HAND-649
+#[test]
+fn ferbs_new_window_that_macos_made_full_screen_goes_back_to_normal_then_ends_minimized() {
+    let Some(out) = no_window(
+        r#"
+        fake.createState = "fullscreen";
+        // the browser can't minimize a full-screen window: asked to, it only leaves full screen
+        fake.updateHook = (id, p, w) => {
+          if (p.state === "minimized" && w.state === "fullscreen") w.state = "normal"; else Object.assign(w, p);
+        };
+        const r = await open({allow_foreground: true});
+        return {made: fake.made, updates: fake.updates, state: fake.windows.get(500).state, window: r.window_id,
+                window_made: r.window_made ?? null, ferb: await ferbId()};
+    "#,
+    ) else {
+        return;
+    };
+    assert_eq!(
+        out["made"],
+        json!([{"url": "about:blank#ferb-window", "state": "minimized", "focused": false}])
+    );
+    assert_eq!(
+        out["updates"],
+        json!([[500, {"state": "normal"}], [500, {"state": "minimized"}]])
+    );
+    assert_eq!(out["state"], "minimized");
+    assert_eq!(out["window"], 500);
+    assert_eq!(out["ferb"], 500);
+    assert_eq!(
+        out["window_made"],
+        json!({"fullscreen": true, "minimized": true, "tries": 1})
+    );
+}
+
+// decision: HAND-649
+#[test]
+fn a_minimize_that_doesnt_take_is_tried_once_more_then_reported() {
+    let Some(out) = no_window(
+        r#"
+        fake.createState = "normal";                     // create() may report "normal" (probe E5)
+        fake.updateHook = (id, p, w) => { if (p.state !== "minimized") Object.assign(w, p); };
+        const r = await open({allow_foreground: true});
+        return {updates: fake.updates, window_made: r.window_made ?? null, opened: r.tab_id !== undefined};
+    "#,
+    ) else {
+        return;
+    };
+    assert_eq!(
+        out["updates"],
+        json!([[500, {"state": "minimized"}], [500, {"state": "minimized"}]])
+    );
+    assert_eq!(
+        out["window_made"],
+        json!({"fullscreen": false, "minimized": false, "tries": 2})
+    );
+    assert_eq!(out["opened"], true, "the tab still opens");
+}
+
+// decision: HAND-649
+#[test]
+fn a_window_made_minimized_says_nothing_more() {
+    let Some(out) = no_window(
+        r#"
+        const r = await open({allow_foreground: true});
+        return {updates: fake.updates, window_made: r.window_made ?? null, window: r.window_id};
+    "#,
+    ) else {
+        return;
+    };
+    assert_eq!(out["updates"], json!([]));
+    assert_eq!(out["window_made"], Value::Null);
+    assert_eq!(out["window"], 500);
+}
+
+// After a browser restart its session storage (FERB's window id) is empty; a window it restored is FERB's by its
+// placeholder's address, and is used as it is: no new window, nothing changed on it.
+// decision: HAND-649
+#[test]
+fn ferbs_window_the_browser_restored_is_found_by_its_placeholder_and_reused() {
+    let Some(out) = no_window(
+        r#"
+        fake.windows.set(7, {state: "minimized", type: "normal", focused: false});
+        fake.tabs.set(70, {id: 70, windowId: 7, url: "about:blank#ferb-window", active: true});
+        fake.windows.set(3, {state: "fullscreen", type: "normal", focused: true});   // the owner's
+        fake.tabs.set(30, {id: 30, windowId: 3, url: "about:blank", active: true});
+        const first = await open({});                   // as the daemon's first try: no foreground allowed
+        const second = await open({});
+        return {first: first.window_id, second: second.window_id, made: fake.made.length, updates: fake.updates,
+                ferb: await ferbId(), window_made: first.window_made ?? null};
+    "#,
+    ) else {
+        return;
+    };
+    assert_eq!(out["first"], 7, "{out}");
+    assert_eq!(out["second"], 7);
+    assert_eq!(out["made"], 0);
+    assert_eq!(out["updates"], json!([]));
+    assert_eq!(out["ferb"], 7);
+    assert_eq!(out["window_made"], Value::Null);
+}

@@ -170,6 +170,8 @@ final class NotchModel: ObservableObject {
     let insomnia: InsomniaController
     /// The daemon's insomnia status as last read (nil: none read, or a daemon without it): the notch's line, the menu.
     @Published var insomniaStatus: InsomniaStatus?
+    /// Insomnia mode's root helper (APP-986), the packaged FERB.app's only.
+    var powerHelper: PowerHelper?
     let preferences: UserDefaults
     @Published var connectionStatus = "Connecting to FERB…"
     /// L34 D: the daemon as the menu bar shows it.

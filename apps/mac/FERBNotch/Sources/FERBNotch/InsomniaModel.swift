@@ -18,6 +18,7 @@ extension NotchModel {
     func insomniaChanged(_ status: InsomniaStatus) {
         let showed = showsInsomniaLine
         changeIfNeeded(\.insomniaStatus, status)
+        if let powerHelper { Task { await powerHelper.modeChanged(status) } }   // a phone start registers it too
         // the end's words ("Welcome back. …"), said once here, quietly, as FERB's own line in the chat
         if !status.on, let end = status.lastEnd, !end.text.isEmpty {
             noteFromSetup(id: "insomnia-end-" + end.id, text: end.text)

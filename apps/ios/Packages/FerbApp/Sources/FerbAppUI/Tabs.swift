@@ -421,6 +421,8 @@ struct ChatView: View {
     /// the control's (PHN-751), and each message that waits says so in its own row ("Waiting for your Mac"), so the
     /// line never speaks of the link. Left: the Mac's unlock once connected, and screen use.
     private var statusLine: (String, StatusTone)? {
+        // the one thing about the link the control can't say: insomnia mode was on, so the Mac may be asleep (APP-981)
+        if MacAsleep.shown(model.ui.status, model.ui.link, lost: model.ui.linkLost) { return (L.s("mac_asleep"), .info) }
         // not connected: the control in the top bar says it, the waiting rows say they wait
         if model.ui.link?.phase != .online { return nil }
         // PHN-641: the Mac's side after the app opened: words only, it clears by itself
@@ -599,7 +601,8 @@ struct OutboxRow: View {
         let failed = item.state == "failed"
         let status: String = failed ? L.s("outbox_failed", item.reason ?? "")
             : item.state == "sending" ? L.s("outbox_sending")
-            : item.waitingFor == "unlock" ? L.s("outbox_waiting_unlock") : L.s("outbox_waiting")
+            // the Mac asleep while insomnia mode was on says so (APP-981); else what it waits for
+            : L.s(MacAsleep.waitingLine(item.waitingFor, asleep: MacAsleep.shown(model.ui.status, model.ui.link, lost: model.ui.linkLost)))
         VStack(alignment: .trailing, spacing: 4) {
             OwnerBubble(item.text).opacity(failed ? 1 : 0.7)
             HStack(spacing: 12) {
@@ -745,7 +748,8 @@ struct WithFilesRow: View {
             switch m.phase {
             case .uploading: return L.s("send_progress", Int(m.fraction * 100))
             case .sending: return L.s("outbox_sending")
-            case .waitingLink: return L.s("outbox_waiting")
+            case .waitingLink:
+                return L.s(MacAsleep.waitingLine(nil, asleep: MacAsleep.shown(model.ui.status, model.ui.link, lost: model.ui.linkLost)))
             case .waitingPath: return m.note.map(\.text) ?? L.s("send_waiting_path")
             case .stopped: return L.s("send_stopped")
             case .locked: return L.s("send_locked")

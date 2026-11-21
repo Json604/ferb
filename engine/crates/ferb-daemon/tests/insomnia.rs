@@ -4,7 +4,7 @@
 
 mod insomnia_support;
 
-use ferb_core::power::{Hold, Thermal};
+use ferb_core::power::{Hold, PowerEvent, Thermal};
 use ferb_daemon::insomnia::{
     Ended, Saved, Variant, CAMERA_KEEP_S, CAMERA_TOPIC, EPISODE_S, LEASE_S, REASON_MODE,
     REASON_TASK, SHIELD_LOST_S, STEP_TOPIC, TICK_S, TOPIC,
@@ -63,14 +63,17 @@ fn the_mode_holds_on_a_renewed_lease_and_the_display_only_under_the_cover() {
             "generic words only, never a task's title"
         );
     }
-    // on battery: no PreventSystemSleep (macOS ignores it there; phase 2's helper is for the closed lid on battery)
+    // on battery: system sleep stays held for the whole mode (macOS ignores it there; plugged in, it's already held)
     mac.set(|r| r.on_battery = Some(true));
     ins.look();
-    assert_eq!(mac.held_now(), vec![Hold::IdleSleep, Hold::Display]);
+    assert_eq!(
+        mac.held_now(),
+        vec![Hold::IdleSleep, Hold::SystemSleep, Hold::Display]
+    );
     // the cover stops saying it is up: the display hold goes, so an unlocked Mac sleeps and locks as usual
     mac.advance(SHIELD_LOST_S + 1.0);
     ins.look();
-    assert_eq!(mac.held_now(), vec![Hold::IdleSleep]);
+    assert_eq!(mac.held_now(), vec![Hold::IdleSleep, Hold::SystemSleep]);
     // the end: back to the task rule (a task runs, the lid is open: idle sleep only)
     assert!(ins.end(Ended::TurnedOff, "mac"));
     assert_eq!(mac.held_now(), vec![Hold::IdleSleep]);
@@ -581,10 +584,11 @@ fn changes_are_published() {
 
 /// With the helper approved, the mode holds its sleep lease (a closed Mac on battery keeps working), renewed at each
 /// look and let go at the end; without it the status says so and nothing else changes. A closed lid on battery is a
-/// warning, never an end, and the display isn't held under a closed lid.
+/// warning, never an end, and the cover's display hold stays under a closed lid.
 // decision: DMN-611
 // decision: APP-986
 // decision: APP-981
+// decision: DMN-617
 #[test]
 fn the_helper_s_lease_keeps_a_closed_mac_working_on_battery() {
     let (mac, ins) = insomnia();
@@ -609,10 +613,8 @@ fn the_helper_s_lease_keeps_a_closed_mac_working_on_battery() {
         .collect();
     assert_eq!(kinds, vec![json!("lid_closed_battery")]);
     assert_eq!(ins.status()["on"], true);
-    assert!(
-        !mac.held_now().contains(&Hold::Display),
-        "no lit panel held under a closed lid"
-    );
+    // the cover's display hold stays under a closed lid: no idle lock, what plays goes on (DMN-617)
+    assert!(mac.held_now().contains(&Hold::Display));
     let leases = mac
         .root
         .calls
@@ -659,4 +661,196 @@ fn wakes_follow_the_owner_s_schedules() {
     let many: Vec<i64> = (1..20).map(|h| now + h * 3600).collect();
     sync_wakes(&root, &many, now).unwrap();
     assert_eq!(root.wakes.lock().unwrap().len(), MAX_WAKES);
+}
+
+// ---- the owner's lid-closed test of 2026-11-20 ---------------------------------------------------------------------
+
+/// System sleep is held from the mode's first look on battery too, so AC arriving under a closed lid finds it held;
+/// a power-source or lid change is looked at at once (the watch), not at the next 20-second look.
+// decision: DMN-613
+#[test]
+fn system_sleep_is_held_from_the_start_and_changes_are_seen_at_once() {
+    let (mac, ins) = insomnia();
+    mac.set(|r| r.on_battery = Some(true));
+    ins.start(Variant::Shield, true, "phone-ep");
+    assert!(
+        mac.held_now().contains(&Hold::SystemSleep),
+        "held on battery already"
+    );
+    let looks = mac.holds.lock().unwrap().len();
+    // the lid closes: the watch's event looks now (no clock moved, no tick)
+    mac.set(|r| r.lid_closed = Some(true));
+    assert_eq!(ins.power_event(PowerEvent::Changed), 0);
+    assert!(mac.holds.lock().unwrap().len() > looks, "renewed at once");
+    let st = ins.status();
+    assert_eq!(st["warnings"][0]["kind"], "lid_closed_battery");
+    assert_eq!(st["closed_lid"], "absent");
+}
+
+/// The words follow the helper's real state: without it a closed lid on battery sleeps, and the status's lid_line
+/// (on and off) and the warning say so; with it, they say FERB keeps working.
+// decision: DMN-615
+#[test]
+fn the_lid_words_follow_the_helper() {
+    let (mac, ins) = insomnia();
+    ins.look();
+    let off = ins.status();
+    assert_eq!(off["closed_lid"], "absent");
+    let line = off["lid_line"].as_str().unwrap();
+    assert!(
+        line.contains("sleeps on battery") && line.contains("locks and pauses"),
+        "{line}"
+    );
+    *mac.root.ready.lock().unwrap() = true;
+    ins.look();
+    assert!(ins.status()["lid_line"]
+        .as_str()
+        .unwrap()
+        .contains("running as if it were open"));
+    *mac.root.ready.lock().unwrap() = false;
+    mac.set(|r| {
+        r.on_battery = Some(true);
+        r.lid_closed = Some(true);
+    });
+    ins.start(Variant::Locked, false, "phone-ep");
+    let w = ins.status()["warnings"][0].clone();
+    assert!(
+        w["text"].as_str().unwrap().contains("will go to sleep"),
+        "{w}"
+    );
+    assert!(w["text"].as_str().unwrap().contains("Login Items"), "{w}");
+    // approved while the warning lasts: same warning, the true words
+    *mac.root.ready.lock().unwrap() = true;
+    ins.look();
+    let w2 = ins.status()["warnings"][0].clone();
+    assert_eq!(w2["id"], w["id"]);
+    assert!(
+        w2["text"]
+            .as_str()
+            .unwrap()
+            .contains("FERB keeps it working"),
+        "{w2}"
+    );
+    for t in mac.told_texts() {
+        assert!(
+            !(t.contains("keeps it working") && t.contains("will go to sleep")),
+            "{t}"
+        );
+    }
+}
+
+/// macOS about to sleep during the mode is published first and waits a moment for the phone; the wake says once when
+/// and why it slept (the lid closed on battery, with the way to keep it working); the next look doesn't say it again.
+/// Off, nothing waits and nothing is said.
+// decision: DMN-614
+#[test]
+fn sleep_is_said_before_and_after() {
+    let (mac, ins) = insomnia();
+    assert_eq!(
+        ins.power_event(PowerEvent::WillSleep),
+        0,
+        "off: macOS doesn't wait"
+    );
+    ins.power_event(PowerEvent::Woke);
+    assert!(mac.told_texts().is_empty());
+    *mac.working.lock().unwrap() = 1;
+    ins.start(Variant::Shield, true, "phone-ep");
+    mac.set(|r| {
+        r.on_battery = Some(true);
+        r.lid_closed = Some(true);
+    });
+    assert_eq!(
+        ins.power_event(PowerEvent::WillSleep),
+        ferb_daemon::insomnia::SLEEP_TELL_MS
+    );
+    let st = mac.topics(TOPIC).last().cloned().unwrap();
+    assert_eq!(st["going_to_sleep"], true);
+    assert!(st["line"].as_str().unwrap().contains("going to sleep"));
+    mac.sleep(35.0);
+    mac.set(|r| r.on_battery = Some(false));
+    ins.power_event(PowerEvent::Woke);
+    let slept: Vec<String> = mac
+        .told_texts()
+        .into_iter()
+        .filter(|t| t.contains("slept"))
+        .collect();
+    assert_eq!(slept.len(), 1, "{slept:?}");
+    assert!(slept[0].contains("lid was closed on battery") && slept[0].contains("Login Items"));
+    assert_eq!(ins.status()["going_to_sleep"], false);
+    mac.advance(TICK_S as f64);
+    ins.look();
+    assert_eq!(
+        mac.told_texts()
+            .iter()
+            .filter(|t| t.contains("slept"))
+            .count(),
+        1,
+        "said once"
+    );
+}
+
+/// Without the watch, a short sleep (35 s, as the owner's) is still found by the wall clock's gap at the next look.
+// decision: DMN-614
+#[test]
+fn a_short_sleep_is_found_by_the_next_look() {
+    let (mac, ins) = insomnia();
+    *mac.working.lock().unwrap() = 1;
+    ins.start(Variant::Shield, true, "phone-ep");
+    mac.set(|r| {
+        r.on_battery = Some(true);
+        r.lid_closed = Some(true);
+    });
+    ins.look();
+    mac.sleep(35.0);
+    mac.advance(5.0);
+    ins.look();
+    assert_eq!(
+        mac.told_texts()
+            .iter()
+            .filter(|t| t.contains("slept"))
+            .count(),
+        1,
+        "{:?}",
+        mac.told_texts()
+    );
+}
+
+/// FERB.app's word on setting up the helper is kept, journaled once per change and shown: a failure with its error, a
+/// wait for the owner's OK; nothing once the helper answers.
+// decision: DMN-616
+#[test]
+fn the_helper_s_setup_is_never_silent() {
+    let (mac, ins) = insomnia();
+    ins.look();
+    let p = json!({"event": "helper", "state": "failed", "error": "Operation not permitted (SMAppServiceErrorDomain 1)"});
+    report(&ins, p.clone());
+    report(&ins, p);
+    let st = ins.status();
+    assert_eq!(st["helper"]["state"], "failed");
+    assert!(st["helper"]["problem"]
+        .as_str()
+        .unwrap()
+        .contains("Operation not permitted"));
+    assert_eq!(
+        mac.journal_kinds()
+            .iter()
+            .filter(|k| k.starts_with("insomnia.helper"))
+            .count(),
+        1,
+        "once per change"
+    );
+    report(
+        &ins,
+        json!({"event": "helper", "state": "requires_approval"}),
+    );
+    assert!(ins.status()["helper"]["problem"]
+        .as_str()
+        .unwrap()
+        .contains("Login Items"));
+    *mac.root.ready.lock().unwrap() = true;
+    ins.look();
+    assert!(
+        ins.status()["helper"]["problem"].is_null(),
+        "it answers: no problem"
+    );
 }
