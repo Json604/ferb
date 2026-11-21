@@ -482,6 +482,8 @@ extension AppWindowPresentation {
               file: "PanelCoordinator.swift", code: "NSAlert()"),
         .init(name: "Keep your Mac working while you're away? (insomnia mode's warning, APP-980)", mechanism: .opening,
               file: "InsomniaDialog.swift", code: "NSAlert()"),
+        .init(name: "FERB couldn't turn off (Settings › Turn off, APP-1110)", mechanism: .opening,
+              file: "Application.swift", code: "NSAlert()"),
         // File pickers
         .init(name: "The chat's file picker (notch and sticky window)", mechanism: .opening, file: "NotchModel.swift",
               code: "NSOpenPanel()"),

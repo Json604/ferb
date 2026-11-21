@@ -830,6 +830,18 @@ enum ChatWork {
     static var transcript = 0
     static var composer = 0
     static var textLayouts = 0
+    /// Typesets by the window the text view was in (measuring outside any window isn't counted here), so a test that
+    /// watches one window isn't moved by other windows' or offscreen work in the same process.
+    static var textLayoutsByWindow: [ObjectIdentifier: Int] = [:]
+
+    static func typeset(in window: NSWindow?) {
+        textLayouts += 1
+        if let window { textLayoutsByWindow[ObjectIdentifier(window), default: 0] += 1 }
+    }
+
+    static func typesets(in windows: [NSWindow]) -> Int {
+        windows.reduce(0) { $0 + textLayoutsByWindow[ObjectIdentifier($1), default: 0] }
+    }
 }
 
 /// The transcript list in SwiftUI (APP-815): its rows, how each is drawn, and the offset reports.

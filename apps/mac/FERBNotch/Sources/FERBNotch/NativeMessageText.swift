@@ -352,7 +352,7 @@ final class MessageTextView: NSTextView, NSTextViewDelegate {
     func measuredSize(width proposedWidth: CGFloat?) -> CGSize {
         let width = max(1, proposedWidth.flatMap { $0.isFinite ? $0 : nil } ?? 1_000_000)
         if let cached = measuredWidths[width] { return cached }
-        ChatWork.textLayouts += 1
+        ChatWork.typeset(in: window)
         if let pendingText {
             let (storage, manager, container) = pendingLayout
             if !storage.isEqual(to: pendingText) { storage.setAttributedString(pendingText) }
@@ -386,7 +386,7 @@ final class MessageTextView: NSTextView, NSTextViewDelegate {
         layoutFold()
         defer { if window != nil { updateTrackingAreas() } }   // the links' areas follow the laid-out text
         guard bounds.width > 0, let container = textContainer, container.containerSize.width != bounds.width else { return }
-        ChatWork.textLayouts += 1
+        ChatWork.typeset(in: window)
         container.containerSize = CGSize(width: bounds.width, height: CGFloat.greatestFiniteMagnitude)
         layoutManager?.ensureLayout(for: container)
         refreshGlyphDisplay()

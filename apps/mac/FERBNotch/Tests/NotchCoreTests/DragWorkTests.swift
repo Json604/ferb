@@ -51,6 +51,9 @@ final class DragWorkTests: XCTestCase {
         private let startPublishes: Int
         private let startMasks: Int
         private let windows: [NSWindow]
+        /// typesets by message views in these windows only (ChatWork.typesets): other windows' and offscreen measuring
+        /// in the same test process don't count (the gate's flake: "15" typesets from outside the watched window)
+        private let startTypesets: Int
 
         static func messageViews(in windows: [NSWindow]) -> Int {
             func walk(_ view: NSView) -> Int { (view is MessageTextView ? 1 : 0) + view.subviews.map(walk).reduce(0, +) }
@@ -60,6 +63,7 @@ final class DragWorkTests: XCTestCase {
         init(_ model: NotchModel, presentation: NotchPresentation?, windows: [NSWindow], defaults: UserDefaults) {
             self.presentation = presentation
             self.windows = windows
+            startTypesets = ChatWork.typesets(in: windows)
             work.textViews.0 = Self.messageViews(in: windows)
             startPublishes = presentation?.publishes ?? 0
             startMasks = presentation?.backdrop.maskImageBuilds ?? 0
@@ -82,7 +86,7 @@ final class DragWorkTests: XCTestCase {
             var out = work
             out.transcript = ChatWork.transcript - start.0
             out.composer = ChatWork.composer - start.1
-            out.textLayouts = ChatWork.textLayouts - start.2
+            out.textLayouts = ChatWork.typesets(in: windows) - startTypesets
             out.presentation = (presentation?.publishes ?? 0) - startPublishes
             out.maskImages = (presentation?.backdrop.maskImageBuilds ?? 0) - startMasks
             out.textViews.1 = Self.messageViews(in: windows)
