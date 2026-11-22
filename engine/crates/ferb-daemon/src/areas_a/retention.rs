@@ -363,12 +363,7 @@ pub fn downloads_cap(st: &State, purges: &dyn Purges) -> Result<(), String> {
             store: st.store.clone(),
         })
         .answered(&approval_id);
-        if st.questions.supersede(&approval_id) {
-            st.publish(
-                "approval.resolved",
-                json!({"approval_id": approval_id, "state": "superseded"}),
-            );
-        }
+        super::memory::set_aside(st, &approval_id);
     }
     let many = over.ids.len() != 1;
     let reason = format!(

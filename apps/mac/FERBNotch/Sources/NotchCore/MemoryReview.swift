@@ -88,6 +88,8 @@ public final class MemoryReviewModel: ObservableObject {
     @Published public private(set) var sending: Set<String> = []
     @Published public private(set) var problem: String?
     private let rpc: DaemonRPCTransport
+    /// Told when the daemon's list comes back with nothing left: the review's question is closed then (MEM-460).
+    public var emptied: (() -> Void)?
 
     public init(rpc: DaemonRPCTransport, review: MemoryReview = .empty) {
         self.rpc = rpc
@@ -98,6 +100,7 @@ public final class MemoryReviewModel: ObservableObject {
         do {
             review = MemoryReview(try await rpc.call("memory.review", params: [:]))
             problem = nil
+            if review.parts.isEmpty { emptied?() }
         } catch {
             problem = error.localizedDescription
         }
@@ -113,6 +116,7 @@ public final class MemoryReviewModel: ObservableObject {
                                            params: ["part": part.part, "item_ids": ids, "answer": button.answer])
             review = MemoryReview(reply)
             problem = nil
+            if review.parts.isEmpty { emptied?() }
         } catch {
             problem = error.localizedDescription
         }

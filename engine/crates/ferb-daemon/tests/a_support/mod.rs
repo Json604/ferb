@@ -155,6 +155,8 @@ pub struct Stand {
     pub asks: Arc<AtomicU64>,
     /// How many `create_scheduled` calls fail next (a crash before the run's task was recorded).
     pub fail_create: Arc<AtomicU64>,
+    /// When set, a question asked here is kept (`waiting`) as the gateway keeps it; otherwise none is.
+    pub keeps: Arc<Mutex<Option<BTreeSet<String>>>>,
 }
 
 impl Tasks for Stand {
@@ -284,14 +286,21 @@ impl Questions for Stand {
                                        "summary": ask.summary, "detail": ask.detail,
                                        "labels": [ask.labels.0, ask.labels.1]}}),
         );
+        if let Some(kept) = self.keeps.lock().unwrap().as_mut() {
+            kept.insert(id.clone());
+        }
         Ok(id)
     }
     fn supersede(&self, approval_id: &str) -> bool {
         self.calls.push(json!({"supersede": approval_id}));
         true
     }
-    fn waiting(&self, _approval_id: &str) -> bool {
-        false
+    fn waiting(&self, approval_id: &str) -> bool {
+        self.keeps
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|kept| kept.contains(approval_id))
     }
 }
 

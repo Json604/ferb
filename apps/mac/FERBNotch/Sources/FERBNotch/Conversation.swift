@@ -51,6 +51,11 @@ extension NotchModel {
     }
     /// The memory import's card at the end of today's chat (MEM-456): live state, after the open questions.
     var inlineMemoryImport: MemoryImportCard? { viewingToday ? memoryImport : nil }
+    /// Whether the chat draws its transcript (entries, open questions, the memory import's live card): the one test the
+    /// body's layout, its greeting and its height all read. A day sized as empty while it draws a transcript pushed the
+    /// chat's rows and the composer out of the panel (owner 2026-11-23: "its blank after i approved all the memory
+    /// messages": the import's card with nothing else to show).
+    var showsTranscript: Bool { !visibleEntries.isEmpty || !inlineQuestions.isEmpty || inlineMemoryImport != nil }
     /// The open questions shown inside this turn's card, by part (APP-300). Live state: only in today's chat.
     func rowQuestions(_ turn: ConversationTurn) -> [String: [DaemonApproval]] {
         guard viewingToday, turn.card != nil, !pendingApprovals.isEmpty else { return [:] }

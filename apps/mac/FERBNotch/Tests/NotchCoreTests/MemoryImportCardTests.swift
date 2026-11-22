@@ -27,11 +27,11 @@ final class MemoryImportCardTests: XCTestCase {
         "title": "Bringing in what ChatGPT and Claude know about you",
         "rows": [["key": "site:chatgpt", "source": "chatgpt", "name": "ChatGPT", "stage": "waiting_mail",
                   "line": "Waiting for ChatGPT's email — asked at 23:40",
-                  "detail": "I check your email every 15 minutes. It can take a day or two.", "done": 0, "total": 0,
+                  "detail": "I look in your email for it every 12 hours. It can take a day or two.", "done": 0, "total": 0,
                   "count": "", "found": 0, "found_line": "", "note": ""],
                  ["key": "site:claude", "source": "claude", "name": "Claude", "stage": "waiting_mail",
                   "line": "Waiting for Claude's email — asked yesterday at 23:41",
-                  "detail": "I check your email every 15 minutes. It can take a day or two.", "done": 0, "total": 0,
+                  "detail": "I look in your email for it every 12 hours. It can take a day or two.", "done": 0, "total": 0,
                   "count": "", "found": 0, "found_line": "",
                   "note": "The last try didn't go through. I'll try again at 00:25."]],
     ]

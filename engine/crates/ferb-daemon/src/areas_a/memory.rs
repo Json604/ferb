@@ -325,14 +325,23 @@ pub fn close_memory_questions(
         .collect();
     for approval_id in matching {
         st.followups.borrow_mut().remove(&approval_id);
-        if st.questions.supersede(&approval_id) {
-            st.publish(
-                "approval.resolved",
-                json!({"approval_id": approval_id, "state": "superseded"}),
-            );
-        }
+        set_aside(st, &approval_id);
     }
     questions(st).drop_about(targets, kinds)
+}
+
+/// One of FERB's own questions that stopped waiting is set aside (superseded, never a No) and, when it was still open,
+/// `approval.resolved` is published with state `superseded`, so every client's card goes and the chat's question entry
+/// closes. The one way an own question is closed without an answer. True when it was open.
+pub fn set_aside(st: &State, approval_id: &str) -> bool {
+    let open = st.questions.supersede(approval_id);
+    if open {
+        st.publish(
+            "approval.resolved",
+            json!({"approval_id": approval_id, "state": "superseded"}),
+        );
+    }
+    open
 }
 
 /// `_restore_memory_questions`: at start, a forget's Yes / No still waiting is asked again with its id; one whose

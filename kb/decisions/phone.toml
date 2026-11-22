@@ -4080,3 +4080,12 @@ words_source = "Owner 2026-11-23, relayed verbatim by the coordinator, picking o
 rule = "Both phones, identical: the chosen tab shows its icon and name in the white pill; the other four share what is left beside one round button, the lab's 46 at most and never under 36 (about 41 at 360 wide, 44 at 375, 46 from about 393). The connection's state is a badge on the profile button (no second round button). The profile page's first row is the connection: its mark, state and path, opening the connection sheet (Try again, the relay, the Mac tab); nothing of it is lost."
 supersedes = ["PHN-751"]
 live = ["LIVE-1186"]
+
+[PHN-802]
+title = "A task that waits for the owner is under Waiting for you, once"
+by = "agent"
+date = 2026-11-23
+status = "active"
+rule = "Both phones' Tasks tab and home list: a task that waits for the owner (its status needs_user, or its live state needs_you) is listed under Waiting for you, never under Running, from the chat's transcript and from the Mac's own list alike. A task whose open question is already listed there is not listed a second time."
+why = "The owner's phone on 2026-11-23 showed two ChatGPT watch tasks asking him under Running, with only the review's question under Waiting for you."
+paths = ["apps/android/app/src/main/kotlin/com/ferb/app/model/Work.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/Work.swift"]

@@ -20,9 +20,9 @@ final class MemoryImportCardTests: XCTestCase {
     /// C: two websites waiting for their emails.
     static let sites = [
         MemoryImportRow(key: "site:chatgpt", name: "ChatGPT", line: "Waiting for ChatGPT's email — asked at 23:40",
-                        detail: "I check your email every 15 minutes. It can take a day or two."),
+                        detail: "I look in your email for it every 12 hours. It can take a day or two."),
         MemoryImportRow(key: "site:claude", name: "Claude", line: "Waiting for Claude's email — asked yesterday at 23:41",
-                        detail: "I check your email every 15 minutes. It can take a day or two.",
+                        detail: "I look in your email for it every 12 hours. It can take a day or two.",
                         note: "The last try didn't go through. I'll try again at 00:25."),
     ]
     /// D: reading with a gap.

@@ -4671,3 +4671,12 @@ why = "APP-825 filed the told end on the task's turn with its answer, so FERB.ap
 evidence = "NotchCoreTests StopToldOnceTests; EntryFoldTests and the transcripts golden on the recorded stop scenarios; ferb-supervisor tests/chat_entries.rs and tests/stop_told_once.rs."
 paths = ["apps/mac/FERBNotch/Sources/NotchCore/ConversationArchive.swift::ConversationArchive.applyOutcome", "apps/mac/FERBNotch/Sources/NotchCore/ConversationArchive.swift::ConversationArchive.finish", "engine/crates/ferb-supervisor/src/flow/entries.rs"]
 live = ["LIVE-860"]
+
+[APP-1114]
+title = "A day's entries show when the turn they followed isn't in hand; one test sizes and draws the chat"
+by = "agent"
+date = 2026-11-23
+status = "active"
+rule = "For APP-806 and APP-814. A reply or notice said after a turn the app doesn't hold (an earlier day's, not read since FERB.app opened) is shown on its own day, in arrival order, before the turns the app holds. Whether the chat draws its transcript (entries, open questions, the memory import's live card) is one test (`NotchModel.showsTranscript`) that the body's layout, its greeting and its height all read; the empty day's height is used only when nothing is drawn."
+why = "Owner 2026-11-23: \"its blank after i approved all the memory messages\". His day held only notices after the previous day's turn, so none showed; with the review gone and the import's card up, the chat was sized as empty while drawing a transcript."
+paths = ["apps/mac/FERBNotch/Sources/NotchCore/ConversationArchive.swift", "apps/mac/FERBNotch/Sources/FERBNotch/Conversation.swift", "apps/mac/FERBNotch/Sources/FERBNotch/ChatBody.swift", "apps/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift"]

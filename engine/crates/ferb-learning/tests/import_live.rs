@@ -186,7 +186,7 @@ fn a_websites_watch_says_its_stage_with_its_time() {
     assert_eq!(row["line"], "Waiting for ChatGPT's email — asked at 23:40");
     assert_eq!(
         row["detail"],
-        "I check your email every 15 minutes. It can take a day or two."
+        "I look in your email for it every 12 hours. It can take a day or two."
     );
     w.running = true;
     let row = one(w.clone());

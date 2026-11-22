@@ -118,7 +118,7 @@ struct ChatBodyView: View {
                 }
             }
             Group {
-                if !model.visibleEntries.isEmpty || !model.inlineQuestions.isEmpty || model.inlineMemoryImport != nil {
+                if model.showsTranscript {
                     ConversationTranscript(entries: model.visibleEntries, earlier: model.earlierEntries,
                                            questions: model.inlineQuestions, memoryImport: model.inlineMemoryImport,
                                            model: model)
@@ -155,7 +155,7 @@ struct ChatBodyView: View {
 
     private var composer: some View {
         VStack(alignment: .leading, spacing: 7) {
-            if model.visibleEntries.isEmpty && model.inlineQuestions.isEmpty { Text("Go ahead. I’m here.")
+            if !model.showsTranscript { Text("Go ahead. I’m here.")
                 .font(.system(size: 14, weight: .medium))
                 .frame(maxWidth: .infinity)
                 .frame(height: 24) }

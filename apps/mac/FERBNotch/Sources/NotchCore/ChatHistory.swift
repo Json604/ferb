@@ -102,7 +102,12 @@ public struct HistoryEntry: Equatable {
             return .turn(turn)
         }
         case "reply": return (try? decoder.decode(ConversationReply.self, from: data)).map { .reply($0) }
-        case "notice": return (try? decoder.decode(ConversationNotice.self, from: data)).map { .notice($0) }
+        case "notice": return (try? decoder.decode(ConversationNotice.self, from: data)).map {
+            // MEM-461: the daemon marks a notice the engine folded away beside the entry as kept
+            var notice = $0
+            if let place = wire["folded"] as? String, !place.isEmpty { notice.folded = place }
+            return .notice(notice)
+        }
         default: return nil
         }
     }

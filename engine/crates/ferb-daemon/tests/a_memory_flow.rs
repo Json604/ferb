@@ -523,6 +523,62 @@ async fn a_start_folds_the_old_notices_into_one_review_and_answers_close_it() {
     assert_eq!(left, json!(1), "answered in parts, it stays until done");
 }
 
+// decision: MEM-460 — the last items answered by a button close the review's question for every client: the close is
+// published, so its card goes and the chat's question entry closes (it stayed open, and a phone kept a card with no
+// list; owner 2026-11-23: "its blank after i approved all the memory messages")
+#[tokio::test]
+async fn answering_the_last_items_closes_the_review_on_every_client() {
+    let tmp = tempfile::tempdir().unwrap();
+    let d = daemon(tmp.path()).await;
+    *d.stand.keeps.lock().unwrap() = Some(Default::default());
+    let ids = d
+        .on(|st| {
+            Box::pin(async move {
+                let a = imported_line(&st, "l1", "drink", "The owner prefers tea", 3, json!({"use": "follow"}));
+                let b = imported_line(&st, "l2", "browser", "The owner uses Arc", 3, json!({"use": "follow"}));
+                for id in [&a, &b] {
+                    st.store
+                        .exec(
+                            "INSERT INTO memory_profile (item_id, section, position, added_by, added_at) \
+                             VALUES (?, 'Recently said', 0, 'code', 'x')",
+                            ferb_learning::sql![id],
+                        )
+                        .unwrap();
+                }
+                memory_import::review_start(&st, false);
+                vec![a, b]
+            })
+        })
+        .await;
+    let asked = asks(&d);
+    assert_eq!(asked.len(), 1, "{asked:?}");
+    let id = asked[0]["id"].as_str().unwrap().to_owned();
+    d.published.lock().unwrap().clear();
+    d.on(move |st| {
+        Box::pin(async move {
+            memory_import::job(&st)
+                .answer_review(&st.profile, "always_on", &ids, "approve")
+                .unwrap();
+            memory_import::review_settled(&st);
+            assert_eq!(memory_import::job(&st).review().unwrap()["count"], json!(0));
+            assert!(memory::pending_own(&st, memory_import::REVIEW_KIND).is_none());
+        })
+    })
+    .await;
+    let resolved: Vec<Value> = d
+        .published
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|e| e["topic"] == "approval.resolved")
+        .map(|e| e["data"].clone())
+        .collect();
+    assert_eq!(
+        resolved,
+        vec![json!({"approval_id": id, "state": "superseded"})]
+    );
+}
+
 // decision: MEM-463
 #[tokio::test]
 async fn a_burst_of_joins_is_one_notice_with_a_list() {

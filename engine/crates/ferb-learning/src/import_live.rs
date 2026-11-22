@@ -33,6 +33,10 @@ pub const ASKING: &str = "asking";
 pub const WAITING_MAIL: &str = "waiting_mail";
 pub const CHECKING_MAIL: &str = "checking_mail";
 
+/// MEM-467, MEM-471: how often a website's watch looks in the owner's mail for the export while it waits (a model run;
+/// the 15-minute ticks between are code only and look at nothing). The owner's number; the card says it.
+pub const MAIL_CHECK_HOURS: i64 = 12;
+
 impl RunNow {
     pub fn new(run: &str, source: &str, name: &str, local: bool) -> RunNow {
         RunNow {
@@ -260,7 +264,7 @@ fn watch_row(w: &Watch, days: &Days) -> Value {
                 "Waiting for {name}'s email — asked {}",
                 at_words(asked, days)
             ),
-            "I check your email every 15 minutes. It can take a day or two.".into(),
+            format!("I look in your email for it every {MAIL_CHECK_HOURS} hours. It can take a day or two."),
         ),
     };
     let note = match (&w.next_run, w.trouble && !w.running) {

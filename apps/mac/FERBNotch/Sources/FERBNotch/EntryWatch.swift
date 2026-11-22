@@ -216,6 +216,14 @@ extension NotchModel {
     @discardableResult
     func applyEntryChange(_ entry: ChatEntry, live: Bool) async -> Bool {
         guard !entry.deleted else { return false }
+        // MEM-461: a notice the engine folded into another place is marked here too (by its id, the entry's ref) and
+        // not drawn again
+        if entry.kind == "notice", let ref = entry.ref, let place = entry.body["folded"] as? String, !place.isEmpty,
+           changeConversation({ $0.fold(noticeID: ref, into: place) }) {
+            saveConversation()
+            onBackgroundChange?(true)
+            return true
+        }
         if entry.kind == "message", let request = entry.requestID { entryWatch.positions[request] = entry.pos }
         entryWatch.newestPos = max(entryWatch.newestPos ?? entry.pos, entry.pos)
         guard let request = entry.requestID else { return false }

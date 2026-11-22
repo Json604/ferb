@@ -495,6 +495,8 @@ public struct ConversationNotice: Codable, Equatable {
     public var proposals: [LearningProposal]?
     /// Typed cards from FERB's own records (step 12c: a memory import's examples as note cards and its page button).
     public var cards: [ResultCard]?
+    /// Where the engine folded it (MEM-461: "memory-review", the review of what an import brought in): kept, never drawn.
+    public var folded: String?
 }
 
 /// One entry of the chat as shown, top to bottom.
@@ -527,7 +529,21 @@ public struct ConversationArchive: Codable, Equatable {
     public internal(set) var notices: [ConversationNotice] = []
     /// The notices the chat draws: FERB's alerts an earlier build saved here are kept but never drawn (APP-1105,
     /// APP-1107).
-    public var shownNotices: [ConversationNotice] { notices.filter { !OwnerAlerts.isAlert(id: $0.id) } }
+    public var shownNotices: [ConversationNotice] {
+        notices.filter { !OwnerAlerts.isAlert(id: $0.id) && ($0.folded ?? "").isEmpty }
+    }
+
+    /// MEM-461: the notices the engine folded into another place (by the engine's notice id) are marked, never deleted,
+    /// and not drawn again. Whether any changed.
+    @discardableResult
+    public mutating func fold(noticeID: String, into place: String) -> Bool {
+        var changed = false
+        for index in notices.indices where notices[index].id == noticeID && notices[index].folded != place {
+            notices[index].folded = place
+            changed = true
+        }
+        return changed
+    }
     /// Turns whose next answer is told elsewhere (ORCH-579: a task the owner stopped from a later message, whose reply
     /// tells the stop and what the task had found): that answer is filed on its own turn, never posted again below.
     private var toldElsewhere: Set<UUID> = []
@@ -604,7 +620,13 @@ public struct ConversationArchive: Codable, Equatable {
         let day = date.flatMap { calendar.dateInterval(of: .day, for: $0) }
         let shown: (Date) -> Bool = { when in day.map { $0.start <= when && when < $0.end } ?? true }
         var following: [UUID?: [TranscriptEntry]] = [:]
-        for (anchor, entry) in appended(where: shown) { following[anchor, default: []].append(entry) }
+        // A reply or notice said after a turn not in hand (an earlier day's, not read since FERB.app opened) still shows,
+        // before the turns in hand, in arrival order: it came before any of them. Left out, a day of notices only drew
+        // nothing (owner 2026-11-23: "its blank after i approved all the memory messages").
+        let held = Set(turns.map(\.id))
+        for (anchor, entry) in appended(where: shown) {
+            following[anchor.flatMap { held.contains($0) ? $0 : nil }, default: []].append(entry)
+        }
         // A later answer (APP-914) is said after the turn's own answer, which stays on the turn
         let answeredBelow = Set(replies.filter { $0.said == nil }.map(\.turnID))
         var entries = following[nil] ?? []

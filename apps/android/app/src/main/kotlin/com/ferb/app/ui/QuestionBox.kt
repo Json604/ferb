@@ -69,6 +69,12 @@ import com.ferb.mobile.AnswerInput
 fun QuestionBox(vm: FerbViewModel, approvalId: String, title: String?, reason: String?, modifier: Modifier = Modifier) {
     // read from the chat's locals: only the boxes recompose when a question or a sending changes (kb PHN-714)
     val q = LocalQuestions.current.firstOrNull { it.approvalId == approvalId }
+    // MEM-460: the review's question closes when nothing is left to answer: a list read empty takes its card away
+    // (never a question card with no list); it is read whenever the card would show
+    val isReview = q?.shown?.review == true
+    if (isReview) LaunchedEffect(approvalId) { vm.loadReview() }
+    val reviewNow by vm.review.collectAsState()
+    if (isReview && reviewNow?.parts?.isEmpty() == true) return
     val busy = "answer:$approvalId" in LocalBusy.current
     val ink = CardInk.ferb
     Column(
@@ -109,7 +115,6 @@ fun QuestionBox(vm: FerbViewModel, approvalId: String, title: String?, reason: S
 @Composable
 private fun ReviewIn(vm: FerbViewModel, ink: CardInk) {
     val review by vm.review.collectAsState()
-    LaunchedEffect(Unit) { vm.loadReview() }
     review?.let { r ->
         MemoryReviewList(r, LocalBusy.current, ink) { part, ids, answer, key -> vm.answerReview(part, ids, answer, key) }
     }

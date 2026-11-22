@@ -10130,3 +10130,80 @@ I'd check with you" / "{n} things I said I'd check with you" (the question's cou
 - A waiting question keeps the count line it was asked with until it is asked again (at start, or after a typed
   answer). Only its card shows the new items.
 - No app code changed: the apps draw the engine's note as text. No live check.
+
+## 2026-11-23 · 183 · The chat after the review: never blank, the review's card goes, the watch's card says 12 hours
+
+Owner 2026-11-23, on FERB.app 202611222206 after answering the import review with Approve all: "its blank after i
+approved all the memory messages". The notch showed its header over an empty black body: no messages, no greeting,
+no composer. Reopening and relaunching the app didn't help. On his phone the review stayed as a plain question card
+with no list. The website import's card said "I check your email every 15 minutes". Two ChatGPT watch tasks asking
+him were listed under Running.
+
+**What his store and logs show (read only).**
+- Today (2026-11-23) holds 47 notices in his chat history and no turns. 44 are "Now always on" notices the engine
+  folded into the review (MEM-461). Every notice was said after the previous day's last turn (`afterTurnID`).
+- After launch the app reads only today's page. I ran that page through `HistoryEntry.read`, `absorb` and
+  `transcript(on:)` in a throwaway test: 31 entries decoded, 0 failed, 0 shown.
+- A website watch waits for the export mail (journal 03:40:13 `schedule.waited`), so the import's live card is up.
+- At 03:40:49 Approve all approved all 65 lines (`memory_import_lines`: 65 `approved`). 21 joined the profile
+  (`memory.profile_changed`); the rest were on already. `review_settled` set the question aside: its
+  `memory_questions` row is gone. Nothing was published, so its chat entry stayed `open`.
+- The app log's panel frames read 406 and 619 pt before 03:40:49, and 177 pt after (40 cutout + 125 body + 12), also
+  at 03:45:45, when he took the screenshot.
+
+**Causes and fixes.**
+- **The day's notices were dropped (Mac).** `ConversationArchive.transcript` placed each reply or notice after its
+  `afterTurnID`. One whose turn the app doesn't hold was dropped. Now it shows on its own day, in arrival order,
+  before the turns the app holds (it came before them). APP-1114.
+- **The body was sized as an empty day while it drew a transcript (Mac).** ChatBody drew the transcript for entries,
+  open questions or the import's live card. `requestedBodyHeight` took the empty-day height unless there were
+  entries or questions. With only the live card left, a transcript of at least 260 pt sat in a 125 pt body. It was
+  centred and clipped, so the Today row and the composer were cut off. Now one test, `NotchModel.showsTranscript`,
+  is read by the body's layout, its greeting and its height. APP-1114.
+- **Folded notices on the Mac (MEM-461).** The engine marks only its own chat entries `folded`. FERB.app draws its
+  own saved copy, so with the first fix the 44 notices would have come back. Two changes:
+  - `chat.history.page` marks a notice whose engine entry (same `ref`) is folded with `folded` beside the saved entry,
+    never in it. The ferb-daemon handler does this; the store still doesn't interpret entries.
+  - FERB.app keeps the mark (`ConversationNotice.folded`, saved with it), never draws such a notice, and marks one the
+    engine folds while it runs (`applyEntryChange`).
+- **The review's question stayed open on other clients (engine).** `review_settled` called `supersede` without
+  publishing `approval.resolved`, which `close_memory_questions` and the downloads question do publish. Now one
+  helper, `memory::set_aside`, supersedes and publishes, and all three use it. The chat's question entry closes, so
+  the phones' card goes. His current open entry will expire at the next daemon start (the start-up pass).
+- **A review card with no list (Mac and both phones).** The engine closes the question once nothing is left. A
+  client that reads the list empty now takes the card away at once:
+  - the Mac drops the question (`MemoryReviewModel.emptied`);
+  - Android and iOS don't draw the box, and read the list again whenever it would show.
+- **The watch's card (MEM-467, MEM-471).** It said the mail is checked every 15 minutes, but those ticks are code only
+  and a model run looks in the mail at most every 12 hours. New string: "I look in your email for it every 12 hours.
+  It can take a day or two." The number is `import_live::MAIL_CHECK_HOURS`, and `WATCH_MODEL_EVERY_HOURS` is defined
+  from it.
+- **Tasks waiting on him (both phones).** A task that waits for the owner (needs_user, or needs_you live) is listed
+  under Waiting for you, never under Running, once even when its question is there too. PHN-802. The Mac's Tasks page
+  has no sections: such a task says "Needs your answer" (TaskList.swift:378). His two watch tasks are `needs_user`
+  with no open question: their last answer asks him in words.
+
+**New owner-facing string.** "I look in your email for it every 12 hours. It can take a day or two."
+
+**Evidence.**
+- FERB.app `BlankAfterReviewTests`, driving the real model and NotchView:
+  - Approve all until nothing is left: the card goes, today's 2 unfolded notices show, the body is the chat's height,
+    and the composer sits inside the body.
+  - The live card alone: the chat's height, with the composer in view.
+  - An empty day: the empty-day height, with the greeting and the composer.
+  - Folded notices are kept and not drawn, whether marked on the page or live.
+  - Entries said after a turn not in hand still show.
+- With the two Mac fixes reverted, the same tests reproduce his state: a 125 pt body, the composer at y 249.5 outside
+  the body's 40…165, and 0 entries.
+- ferb-daemon:
+  - `a_memory_flow::answering_the_last_items_closes_the_review_on_every_client` publishes exactly one
+    `approval.resolved` (superseded). The stand-in now keeps asked questions as waiting, only when a test asks it to.
+  - `a_history_folded` checks that only the folded notice is marked on the page and that the saved entry is untouched.
+- ferb-learning `import_live`: the new words.
+- Android `WorkWaitingTest`, iOS `WorkWaitingTests`.
+
+**Open / unverified.**
+- No live check, and his FERB.app is not rebuilt.
+- The phones' box hiding has no UI test.
+- A notice the app already holds is not re-marked by a later page (`absorb` keeps what it holds). Pages are read
+  once per launch.

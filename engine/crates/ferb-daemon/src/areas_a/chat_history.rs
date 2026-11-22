@@ -68,7 +68,44 @@ async fn page(st: Rc<State>, params: Params) -> HandlerResult {
     if is_true(&params, "open") {
         out["open"] = json!(store.open().map_err(store_error)?);
     }
+    mark_folded(&st, &mut out);
     ok(out)
+}
+
+/// MEM-461: a notice the engine folded into another place (the review of what an import brought in) is marked
+/// `folded` on the page as it goes out, beside the entry as the app kept it (never in it), so FERB.app doesn't draw it
+/// again whether or not it was running when the fold was made. Its saved copy names the notice by the engine's `ref`.
+fn mark_folded(st: &State, out: &mut Value) {
+    let Some(entries) = out.get_mut("entries").and_then(Value::as_array_mut) else {
+        return;
+    };
+    let refs: Vec<String> = entries
+        .iter()
+        .filter(|e| e["kind"] == "notice")
+        .filter_map(|e| e["ref"].as_str().map(str::to_owned))
+        .collect();
+    if refs.is_empty() {
+        return;
+    }
+    let folded = ferb_core::chat_entry::FOLDED;
+    let Ok(rows) = st.store.query(
+        &format!(
+            "SELECT ref, json_extract(body_json, '$.{folded}') FROM chat_entries WHERE kind = 'notice' \
+             AND deleted = 0 AND ref IN ({}) AND coalesce(json_extract(body_json, '$.{folded}'), '') != ''",
+            ferb_learning::store::marks(refs.len())
+        ),
+        refs.into_iter().map(ferb_learning::store::Sql::Text).collect(),
+    ) else {
+        return;
+    };
+    let into: std::collections::BTreeMap<String, String> =
+        rows.iter().map(|r| (r.s_at(0), r.s_at(1))).collect();
+    for entry in entries.iter_mut() {
+        let place = entry["ref"].as_str().and_then(|r| into.get(r)).cloned();
+        if let (Some(place), true) = (place, entry["kind"] == "notice") {
+            entry[folded] = json!(place);
+        }
+    }
 }
 
 /// `chat.history.days {}`: each day with an entry, newest first.

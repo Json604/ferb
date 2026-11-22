@@ -380,6 +380,13 @@ final class NotchModel: ObservableObject {
                 self.onBackgroundChange?(true)
             }
         }
+        // MEM-460: the review's question closes when nothing is left to answer (the daemon closes it then): a list read
+        // empty takes its card away at once, never a question card with no list
+        memoryReview.emptied = { [weak self] in
+            guard let self, self.pendingApprovals.contains(where: { $0.capability == MemoryReview.capability }) else { return }
+            self.pendingApprovals.removeAll { $0.capability == MemoryReview.capability }
+            self.onBackgroundChange?(true)
+        }
     }
 
     var onPresentationChange: ((Bool) -> Void)?
@@ -599,7 +606,7 @@ final class NotchModel: ObservableObject {
         if session.phase != .listening && !showingActivity {
             // A day whose first page is on its way keeps the chat's height and shows the loader in it, so the chat never
             // opens short and grows (owner 2026-11-09: "on opeening a new chat its height get short the first time")
-            let empty = visibleEntries.isEmpty && inlineQuestions.isEmpty && !shownDayLoading
+            let empty = !showsTranscript && !shownDayLoading
             return (empty ? min(31, chatTranscriptHeight) : chatTranscriptHeight) + conversationChromeHeight
         }
         if showingActivity { return 204 }

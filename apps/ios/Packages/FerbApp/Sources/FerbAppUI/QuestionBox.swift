@@ -39,6 +39,16 @@ struct QuestionBox: View {
 
     var body: some View {
         let q = questions.first { $0.approvalId == approvalId }
+        // MEM-460: the review's question closes when nothing is left to answer: a list read empty takes its card away
+        // (never a question card with no list); it is read again whenever the card would show
+        if q?.shown?.review == true, model.review.review?.parts.isEmpty == true {
+            Color.clear.frame(height: 0).onAppear { model.loadMemoryReview() }
+        } else {
+            card(q)
+        }
+    }
+
+    @ViewBuilder private func card(_ q: Question?) -> some View {
         let busy = busySet.contains("answer:\(approvalId)")
         VStack(alignment: .leading, spacing: 8) {
             if let q, !q.held {

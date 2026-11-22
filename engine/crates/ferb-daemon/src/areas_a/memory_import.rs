@@ -9,7 +9,8 @@
 //!   was learned stays). On No nothing is read, and it is not asked again.
 //! - **The websites** (ChatGPT, claude.ai): asked once after that, with the browser profiles FERB sees signed in to
 //!   choose from. On a choice FERB makes one quiet watch per site (the schedules' own machinery): it requests the
-//!   export there, checks the mail every 15 minutes (IMP-24), downloads only the parts it needs and gives them to
+//!   export there, checks the mail (a model run at most every 12 hours, MEM-467; the 15-minute ticks between are code
+//!   only), downloads only the parts it needs and gives them to
 //!   `memory.import`; the import deletes the file when done (IMP-32) and tells the owner once, warmly. On No: nothing
 //!   changes and it isn't asked again.
 //!
@@ -247,7 +248,9 @@ pub fn review_settled(st: &Rc<State>) {
         return;
     }
     while let Some(id) = super::memory::pending_own(st, REVIEW_KIND) {
-        let _ = st.questions.supersede(&id);
+        // published, so the card goes on every client and the chat's question entry closes (it stayed open: the
+        // phone kept a review card with no list, owner 2026-11-23)
+        super::memory::set_aside(st, &id);
         let _ = super::memory::close_own(st, &id);
     }
 }
@@ -971,7 +974,7 @@ pub fn watch_moved(st: &State, s: &ferb_clock::schedules::Schedule) {
 
 /// MEM-467: after the run that requests a website's export, a watch's model run comes at most this often while it
 /// waits for the mail (FERB's proposal; the owner's number to set). The 15-minute ticks in between are code only.
-pub const WATCH_MODEL_EVERY_HOURS: i64 = 12;
+pub const WATCH_MODEL_EVERY_HOURS: i64 = ferb_learning::import_live::MAIL_CHECK_HOURS;
 
 /// MEM-467 (the owner, on model calls he didn't ask for): whether a website watch's tick waits with no model run. The
 /// first run (it requests the export) always goes. After it, FERB has no code check of his mailbox yet (T-1293), so a

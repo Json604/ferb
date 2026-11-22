@@ -35,7 +35,7 @@ object WorkModel {
         val waiting = Questions.open(view.questions).map { q ->
             val turn = q.taskId?.let(byTask::get)
             WorkItem(MarkKind.ASKING, turn?.let(::title) ?: (q.title ?: asking), q.title ?: oneLine(q.reason), approvalId = q.approvalId, entry = turn?.entry, taskId = q.taskId)
-        }
+        }.toMutableList()
         val running = ArrayList<WorkItem>()
         val earlier = ArrayList<WorkItem>()
         for (t in turns.asReversed()) {
@@ -44,7 +44,7 @@ object WorkModel {
             val prog = progress(t)
             if (l != null || t.status == "working" || t.status == "needs_user") {
                 val detail = l?.line?.text ?: l?.activity ?: l?.rows?.firstOrNull { it.spinner }?.words ?: t.firstReply?.planLine ?: ""
-                running.add(WorkItem(if (l?.state == "needs_you" || t.status == "needs_user") MarkKind.ASKING else MarkKind.RUNNING, title(t), detail, prog, t.entry, taskId = t.taskId))
+                place(WorkItem(if (l?.state == "needs_you" || t.status == "needs_user") MarkKind.ASKING else MarkKind.RUNNING, title(t), detail, prog, t.entry, taskId = t.taskId), waiting, running)
             } else if (t.status != "merged") {
                 val said = t.answer?.let { ChatModel.plain(it.displayText ?: it.text) }?.let(::oneLine).orEmpty()
                 earlier.add(WorkItem(ChatModel.markOf(t.status), title(t), said, null, t.entry, taskId = t.taskId))
@@ -60,6 +60,7 @@ object WorkModel {
      */
     fun fromMac(rows: List<TaskRow>, waiting: List<WorkItem>, chat: Work): Work {
         val entries = (chat.running + chat.earlier).filter { it.taskId != null }.associate { it.taskId to it.entry }
+        val waiting = waiting.toMutableList()
         val running = ArrayList<WorkItem>()
         val earlier = ArrayList<WorkItem>()
         for (r in rows) {
@@ -69,12 +70,24 @@ object WorkModel {
             val finished = r.status in FINISHED || mark == MarkKind.DONE || mark == MarkKind.FAILED
             if (!finished) {
                 val kind = if (mark == MarkKind.ASKING) MarkKind.ASKING else MarkKind.RUNNING
-                running.add(WorkItem(kind, title, oneLine(r.goal.takeIf { it != title }.orEmpty()), progress, entries[r.taskId], taskId = r.taskId))
+                place(WorkItem(kind, title, oneLine(r.goal.takeIf { it != title }.orEmpty()), progress, entries[r.taskId], taskId = r.taskId), waiting, running)
             } else {
                 earlier.add(WorkItem(mark, title, oneLine(ChatModel.plain(r.answer)), null, entries[r.taskId], taskId = r.taskId))
             }
         }
         return Work(waiting, running, earlier)
+    }
+
+    /**
+     * A task that waits for the owner is listed under what waits for him, never as running; once only, so a task whose
+     * open question is listed there already isn't listed again (owner 2026-11-23: two ChatGPT watches asking him were
+     * under Running).
+     */
+    private fun place(item: WorkItem, waiting: MutableList<WorkItem>, running: MutableList<WorkItem>) {
+        when {
+            item.kind != MarkKind.ASKING -> running.add(item)
+            item.taskId == null || waiting.none { it.taskId == item.taskId } -> waiting.add(item)
+        }
     }
 
     private val FINISHED = setOf("done", "failed", "stopped", "cancelled", "interrupted", "done_with_gaps", "done_unverified", "merged")

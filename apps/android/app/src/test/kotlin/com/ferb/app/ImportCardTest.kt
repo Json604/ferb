@@ -66,7 +66,7 @@ class ImportCardTest {
     // decision: MEM-456
     @Test
     fun the_cards_words_are_the_macs_as_they_are() {
-        val mail = "I check your email every 15 minutes. It can take a day or two."
+        val mail = "I look in your email for it every 12 hours. It can take a day or two."
         val sites = ImportCard("Bringing in what ChatGPT and Claude know about you", listOf(
             row("site:chatgpt", "ChatGPT", "Waiting for ChatGPT's email — asked at 23:40", detail = mail, stage = "waiting_mail"),
             row("site:claude", "Claude", "Waiting for Claude's email — asked yesterday at 23:41", detail = mail, stage = "waiting_mail",
