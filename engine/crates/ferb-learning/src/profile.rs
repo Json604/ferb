@@ -461,19 +461,13 @@ impl CoreProfile {
         if item.origin == "observed" && self.memory.from_mac_scan(&item.id)? {
             return Ok(true);
         }
-        // decision: MEM-445 (the owner's IMP-47): an imported line said on two or more days or in two or more
-        // assistants, and at least once in the last 30 days, holds up at once
-        if item.origin == "inferred" {
-            let cutoff = py::shift(&now, -crate::import_profile::OLD_DAYS * 86_400_000_000);
-            let cutoff = times::astimezone(&cutoff, self.zone.as_ref())
-                .map_or_else(|| times::ymd(&cutoff), |d| times::ymd(&d));
-            if self.store.exists(
-                "SELECT 1 FROM memory_import_lines WHERE item_id = ? AND json_extract(data_json, '$.holds_up') = 1 \
-                 AND json_extract(data_json, '$.said') >= ?",
-                sql![item.id, cutoff],
-            )? {
-                return Ok(true);
-            }
+        // decision: MEM-460 (the owner, 2026-11-23; for imports it replaces the join at once): an import never puts anything
+        // in the always-on profile by itself. An imported item holds up only on the owner's Approve (or, MEM-461, while
+        // one an earlier build put there waits for his word); FERB's own suggestion (IMP-47's recent repeat) is
+        // listed for him (`import_review`), never joined
+        if item.origin == "inferred" && crate::import_review::imported(&self.store, &item.id)? {
+            let state = crate::import_review::always_on_state(&self.store, &item.id)?;
+            return Ok(state == crate::import_review::APPROVED || state == crate::import_review::ON);
         }
         let days = self.store.count(
             "SELECT COUNT(DISTINCT day) FROM memory_sources WHERE item_id = ?",
@@ -667,6 +661,19 @@ impl CoreProfile {
         }
         self.changed();
         Ok(())
+    }
+
+    /// The owner's Approve of an imported item (MEM-460): one already in the profile becomes his pin where it stands
+    /// (no move, so the settled part of the prompt stays as it is); one not in it is added as his.
+    pub fn keep(&self, item_id: &str, by: &str) -> Result<()> {
+        if self.ids()?.contains(item_id) {
+            self.store.exec(
+                "UPDATE memory_profile SET added_by = ? WHERE item_id = ?",
+                sql![by, item_id],
+            )?;
+            return Ok(());
+        }
+        self.add(item_id, "", by)
     }
 
     /// profile.py:388 `add`: the memory page's "Always remember".

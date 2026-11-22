@@ -368,6 +368,12 @@ class FerbViewModel(
     /** The pause between two reads of the sessions (tests give their own, to step the polling). */
     internal var sessionsWait: suspend (Long) -> Unit = { delay(it) }
 
+    // FERB's review of what an import brought in (kb MEM-460..457): read when its question's card shows, memory only
+    // (declared before `init`, whose lock collector clears it)
+    private val _review = MutableStateFlow<com.ferb.mobile.MemoryReview?>(null)
+    /** The review as the Mac last said it (null before the first read): its question's card draws it. */
+    val review: StateFlow<com.ferb.mobile.MemoryReview?> = _review.asStateFlow()
+
     /** Show me (APP-983): the Mac's camera, pulled only while its view shows. */
     val camera = com.ferb.app.model.CameraWatch(viewModelScope, api)
 
@@ -547,6 +553,7 @@ class FerbViewModel(
                     _sessions.value = SessionsUi()
                     _openSession.value = null
                     _newSession.value = null
+                    _review.value = null
                     transfers.locked()
                     outgoing.locked()
                     _ui.update { it.copy(files = FilesUi(), settings = null, macTasks = null) }
@@ -1617,6 +1624,33 @@ class FerbViewModel(
         e is FerbException.NotSigned -> Note(R.string.files_not_opened)
         else -> errorNote(e)
     }
+
+    // ---- FERB's review of what an import brought in (kb MEM-460..457) -------------------------------------------------
+
+    /** The review as the Mac has it now, read when its card shows (the Mac's unlock if its window closed). A failure keeps the list. */
+    fun loadReview() = busy(com.ferb.app.model.Review.LOAD) {
+        when (val r = unlocker.run { api.memoryReview() }) {
+            is Outcome.Ok -> _review.value = r.value
+            is Outcome.Failed -> AppLog.i("memory review not read: ${r.error.linkCode ?: r.error.javaClass.simpleName}")
+        }
+    }
+
+    /**
+     * The owner's answer to items of one part (one item, a group's or all of the part's), on its way under [key]
+     * ([com.ferb.app.model.Review.key]): the Mac's reply is the list from then on (an answered item leaves it). A failure
+     * leaves the list as it was and says why.
+     */
+    fun answerReview(part: String, ids: List<String>, answer: String, key: String = com.ferb.app.model.Review.key(part, ids.singleOrNull())) =
+        busy(key, tap = true) {
+            when (val r = unlocker.run { api.answerMemoryReview(part, ids, answer) }) {
+                is Outcome.Ok -> {
+                    _review.value = r.value
+                    // the last answer closes FERB's question on the Mac: the chat follows
+                    if (r.value.count == 0uL) refresh()
+                }
+                is Outcome.Failed -> if (r.error !is FerbException.NotSigned) failed(r.error)
+            }
+        }
 
     // ---- the owner's coding sessions (kb HAND-651..666) ------------------------------------------------------------------
 

@@ -205,6 +205,8 @@ final class NotchModel: ObservableObject {
     }
     /// GATE-579, APP-828: the payment questions' one-time pictures, in memory only.
     let paymentPictures: PaymentPictures
+    /// MEM-460: FERB's review of what an import brought in, one model for the chat's card and the Memory page.
+    let memoryReview: MemoryReviewModel
     @Published var questionFocus: QuestionFocus?
     @Published var promptError: String?
     /// FERB's alerts above the composer (APP-1105, APP-1107): shown for a while, never kept in the chat.
@@ -330,6 +332,7 @@ final class NotchModel: ObservableObject {
         self.insomnia = InsomniaController(rpc: rpc, clickThrough: clickThrough, ownBundle: Bundle.main.bundleIdentifier,
                                            ownPID: ProcessInfo.processInfo.processIdentifier)
         self.paymentPictures = PaymentPictures(rpc: rpc)
+        self.memoryReview = MemoryReviewModel(rpc: rpc)
         self.preferences = preferences
         feedback = SoundFeedback(defaults: preferences)
         preferredPanelWidth = max(360, CGFloat((preferences.object(forKey: "notch.panelWidth") as? NSNumber)?.doubleValue ?? 440))

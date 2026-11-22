@@ -126,6 +126,9 @@ pub struct State {
     /// Memory: `_forgetting` (the work forgets left behind), `_owner_followups`.
     pub(crate) forgetting: RefCell<Vec<tokio::task::JoinHandle<()>>>,
     pub(crate) followups: RefCell<std::collections::BTreeMap<String, (String, String)>>,
+    /// Facts that just joined the always-on profile, told together once the burst is over (`memory::now_always_on`).
+    pub(crate) joined: RefCell<Vec<ferb_learning::items::Item>>,
+    pub(crate) joined_telling: Cell<bool>,
     pub(crate) login_names: Rc<tokio::sync::Mutex<()>>,
     /// Import: `_import_task`, `_import_cancel`.
     pub(crate) import_task: RefCell<Option<tokio::task::JoinHandle<()>>>,
@@ -342,6 +345,8 @@ impl State {
             stopped: Cell::new(false),
             forgetting: RefCell::default(),
             followups: RefCell::default(),
+            joined: RefCell::default(),
+            joined_telling: Cell::new(false),
             login_names: Rc::new(tokio::sync::Mutex::new(())),
             import_task: RefCell::new(None),
             import_cancel: RefCell::new(String::new()),

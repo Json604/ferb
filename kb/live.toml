@@ -5147,4 +5147,21 @@ surface = "FERB.app with this build, Claude Code history older and newer than a 
 request = "In Settings → Privacy (or the Memory page), turn \"Bring in what your coding assistants know\" off, then on; turn \"Bring in what ChatGPT and Claude know\" on, pick the browser in the chat, then turn it off."
 pass = "On reads only the last month (nothing older on the Memory page, the notice says \"over the last month\"); off stops a run under way and no hourly update follows. The websites' on asks which browser, then two watches show on the Schedules page; off cancels them and nothing more is requested or downloaded. What was learned stays."
 decisions = ["MEM-458", "MEM-459"]
+
+[LIVE-1184]
+title = "After an import: nothing joins always on by itself; one list to approve, check and answer"
+area = "memory"
+surface = "FERB.app with this build on the owner's Mac (with his earlier import), its Memory page, and both phones"
+request = "Open the chat after the update. Look for FERB's one question \"Can you check a few things I brought in?\" and the Memory page's \"To check\". Keep or Remove a few of the items already always on, Approve or Decline a few new ones, answer one older fact and one offer, then answer the rest by typing (e.g. \"approve the rest\"). Open the same on a phone. Then run another import."
+pass = "The 42 separate \"Now always on\" notices are gone from the chat (kept, not drawn); the list is in plain sentences, grouped, facts under \"Are these still true?\" and things to do under \"Still want help with these?\"; Keep / Approve add or keep it in always on, Remove / Decline take it out and it is still on the Memory page; each answered item leaves the list on the Mac and the phone; the question goes when nothing is left; the new import puts nothing in always on by itself."
+decisions = ["MEM-460", "MEM-461", "MEM-462", "MEM-463", "MEM-464", "MEM-465"]
+sitting = "after this build is installed"
+
+[LIVE-1185]
+title = "No model reads your sessions unless you ask; a website watch waits without model calls"
+area = "memory"
+surface = "FERB.app with this build, a few hours of normal Claude Code / Codex use, and a website watch if one is set"
+request = "Use Claude Code or Codex for a few hours. Then ask FERB \"what was I working on in <a project>?\", then \"learn from my recent sessions\" (or press Bring in what's new on the Memory page). Look at FERB's model usage over those hours (ferb stats)."
+pass = "No model calls for your sessions until you ask; FERB still names the sessions you had; your ask reads only what's new and tells you once. A website watch shows no model runs between its rare checks."
+decisions = ["MEM-466", "MEM-467"]
 sitting = "after this build is installed"

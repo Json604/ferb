@@ -131,6 +131,9 @@ public enum EntryFold {
             // APP-1106: an alert (marked by the engine, or named so by its id) is never drawn in the chat
             case "notice" where isAlert(entry), "legacy" where isAlert(entry):
                 continue
+            // MEM-461: a notice folded into another place (the review of what an import brought in) is kept, not drawn
+            case "notice" where isFolded(entry):
+                continue
             case "notice":
                 archive.notices.append(notice(entry, createdAt: date(entry.createdAt), afterTurnID: archive.turns.last?.id))
             case "post":
@@ -222,6 +225,11 @@ public enum EntryFold {
     /// ref is an `alert:` id.
     static func isAlert(_ entry: ChatEntry) -> Bool {
         entry.body["alert"] as? Bool == true || (entry.kind == "notice" && entry.ref?.hasPrefix("alert:") == true)
+    }
+
+    /// A notice the engine folded into another place (`folded`, MEM-461), as ferb-mobile's fold reads it.
+    static func isFolded(_ entry: ChatEntry) -> Bool {
+        !((entry.body["folded"] as? String) ?? "").isEmpty
     }
 
     /// A notice as receiveNotices shows it.

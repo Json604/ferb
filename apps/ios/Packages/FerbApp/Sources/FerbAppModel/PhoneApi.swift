@@ -116,6 +116,11 @@ public protocol PhoneApi: AnyObject {
     func sessionDelegate(_ session: String, goal: String, signer: Signer) async -> Outcome<String>
     func watchSession(_ session: String, sink: PreviewSink) async -> Outcome<Live>
 
+    /// The owner's review of what an import brought in (kb MEM-460; both private: the Mac's unlock), and his answer to
+    /// items of one part: the review as it stands after it.
+    func memoryReview() async -> Outcome<MemoryReview>
+    func answerMemoryReview(part: String, itemIds: [String], answer: String) async -> Outcome<MemoryReview>
+
     /// Keys made after pairing the Mac doesn't hold (Face ID or Touch ID enrolled later), and registering them
     /// (PHN-133).
     func unregisteredKeys() async -> PublicKeys?
@@ -282,6 +287,10 @@ public final class LibraryPhone: PhoneApi {
             let p = try m.watchSession(session: session, sink: sink)
             return Live { p.stop() }
         }
+    }
+    public func memoryReview() async -> Outcome<MemoryReview> { await phone.call { try $0.memoryReview() } }
+    public func answerMemoryReview(part: String, itemIds: [String], answer: String) async -> Outcome<MemoryReview> {
+        await phone.call { try $0.answerMemoryReview(part: part, itemIds: itemIds, answer: answer) }
     }
     public func unregisteredKeys() async -> PublicKeys? { await phone.unregisteredKeys() }
     public func registerKeys(_ signer: @escaping @Sendable (KeyKind) -> Signer) async -> Outcome<Bool> { await phone.registerKeys(signer) }

@@ -8,6 +8,12 @@
 //! has finds it (`memory.learned`, by meaning and keywords, with `since`/`until` on the session's own day). A later
 //! update summarises only entries that are new or grew (their prompts' hash changed and their count did not shrink:
 //! a day the window's edge cuts into keeps its fuller summary). Kept until the owner deletes it (IMP-17).
+//!
+//! MEM-466 (the owner, 2026-11-23): no model reads his sessions unless he asks. The log is kept in step by code alone
+//! (`worklog_index`, run when something reads it): every session-day gets its entry with the tool, the folder, the day,
+//! the first and last time and the prompt count, and a plain title made from them; a summary (`worklog_update`, the
+//! model) is written only when he asks FERB to learn from his sessions. `hash` is the prompts' hash the summary was
+//! written for ("" for none yet); `seen` is the one code saw last.
 
 use std::collections::BTreeMap;
 
@@ -166,8 +172,109 @@ pub fn schema() -> Value {
                                                   "state": {"type": "string"}}}}}})
 }
 
+/// The title code gives an entry that has no summary yet: the tool and the folder ("Claude Code in ferb").
+pub fn plain_title(e: &Entry) -> String {
+    let tool = source_name(&e.tool).unwrap_or(&e.tool);
+    let folder = e
+        .folder
+        .trim_end_matches(['/', '\\'])
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or("");
+    if folder.is_empty() {
+        format!("{tool} session")
+    } else {
+        format!("{tool} in {folder}")
+    }
+}
+
 impl ImportJob<'_> {
+    /// The prompt-history files' sizes and times: what tells the index nothing changed (no read at all then).
+    fn history_mark(&self) -> String {
+        let home = self.home.clone().unwrap_or_default();
+        import_local::FILES
+            .iter()
+            .map(|f| {
+                let m = std::fs::metadata(home.join(f.1)).ok();
+                let len = m.as_ref().map_or(0, |m| m.len());
+                let at = m
+                    .and_then(|m| m.modified().ok())
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map_or(0, |d| d.as_micros());
+                format!("{}:{len}:{at}", f.0)
+            })
+            .collect::<Vec<_>>()
+            .join(";")
+    }
+
+    /// MEM-466: the work log kept in step with the prompt-history files by code alone, no model: a session-day not
+    /// in it yet gets its entry (a plain title, no summary); one that grew gets its new count and times, keeping any
+    /// summary he asked for earlier. Nothing is read when the files haven't changed since the last time. Counts.
+    pub fn worklog_index(&self, learning: &Learning) -> Result<Map<String, Value>> {
+        let mark = self.history_mark();
+        let mut out = Map::new();
+        if self.state("worklog_index_mark")? == mark {
+            out.insert("unchanged".into(), json!(true));
+            return Ok(out);
+        }
+        let now = self.memory.clock.now();
+        let since = window_start_months(&now, self.window_months)
+            .ok_or_else(|| Error::Value("year 0 is out of range".into()))?;
+        let home = self.home.clone().unwrap_or_default();
+        let mut lines = Vec::new();
+        for (source, ..) in import_local::FILES {
+            lines.extend(import_local::lines(&home, source, &since, &now));
+        }
+        let found = entries(&lines, self.memory.zone.as_ref(), &*self.redact);
+        let index = kept(learning)?;
+        let (mut added, mut grown) = (0, 0);
+        for e in &found {
+            let old = index.get(&e.key);
+            let field =
+                |o: &Value, k: &str| o.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
+            if old.is_some_and(|o| field(o, "seen") == e.hash || field(o, "hash") == e.hash) {
+                continue;
+            }
+            let mut said = old.and_then(Value::as_object).cloned().unwrap_or_default();
+            if said
+                .get("title")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .is_empty()
+            {
+                said.insert("title".into(), json!(plain_title(e)));
+            }
+            if old.is_some() {
+                grown += 1;
+            } else {
+                added += 1;
+            }
+            let summarised = said
+                .get("hash")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_owned();
+            self.put_entry_as(learning, e, &said, &summarised)?;
+        }
+        self.set_state("worklog_index_mark", &mark)?;
+        out.insert("session_days".into(), json!(found.len()));
+        out.insert("added".into(), json!(added));
+        out.insert("grown".into(), json!(grown));
+        Ok(out)
+    }
+
     fn put_entry(&self, learning: &Learning, e: &Entry, said: &Map<String, Value>) -> Result<()> {
+        self.put_entry_as(learning, e, said, &e.hash)
+    }
+
+    /// One entry written; `summarised`: the prompts' hash its summary was written for ("" when it has none yet).
+    fn put_entry_as(
+        &self,
+        learning: &Learning,
+        e: &Entry,
+        said: &Map<String, Value>,
+        summarised: &str,
+    ) -> Result<()> {
         let clip = |k: &str, n: usize| {
             pystr::prefix(
                 &(self.redact)(&said.get(k).map(py::py_str).unwrap_or_default()),
@@ -185,7 +292,8 @@ impl ImportJob<'_> {
             .map(|t| pystr::prefix(&(self.redact)(&py::py_str(t)), 30).to_owned())
             .collect();
         let body = json!({"tool": e.tool, "tool_name": source_name(&e.tool).unwrap_or(&e.tool), "thread_id": e.session,
-            "day": e.day, "folder": e.folder, "first": e.first, "last": e.last, "prompts": e.count, "hash": e.hash,
+            "day": e.day, "folder": e.folder, "first": e.first, "last": e.last, "prompts": e.count, "hash": summarised,
+            "seen": e.hash,
             "title": clip("title", 120), "summary": clip("summary", 500), "topics": topics,
             "state": if STATES.contains(&state.as_str()) { state } else { "unclear".into() },
             "reopen": reopen(&e.tool, &e.session)});
@@ -232,7 +340,17 @@ impl ImportJob<'_> {
         let (mut grown, mut named) = (0, 0);
         for e in &found {
             match index.get(&e.key) {
+                // MEM-466: an entry the code index made has no summary yet: new to the summary
                 None => todo.push(e),
+                Some(old)
+                    if old
+                        .get("hash")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .is_empty() =>
+                {
+                    todo.push(e)
+                }
                 Some(old)
                     if py::py_str_opt(old.get("hash")) != e.hash
                         && e.count >= num(old, "prompts") =>

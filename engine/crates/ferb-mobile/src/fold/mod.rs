@@ -567,6 +567,14 @@ fn saved_notice(m: &Map<String, Value>) -> Got<Notice> {
 }
 
 /// FERB's alerts (APP-1106): the engine marks them `"alert": true`; a notice made since names itself by its id.
+/// MEM-461: a notice folded into another place (the review of what an import brought in): kept, never drawn.
+fn is_folded(e: &ChatEntry) -> bool {
+    e.body
+        .get("folded")
+        .and_then(Value::as_str)
+        .is_some_and(|w| !w.is_empty())
+}
+
 fn is_alert(e: &ChatEntry) -> bool {
     e.body.get("alert").and_then(Value::as_bool) == Some(true)
         || (e.kind == "notice" && e.r#ref.as_deref().is_some_and(|r| r.starts_with("alert:")))
@@ -674,7 +682,7 @@ pub fn archive(newest: &[&ChatEntry]) -> Archive {
             }
             // decision: APP-1106 — an alert (marked by the engine, or named so by its id) is shown for a while, never
             // in the chat
-            "notice" | "legacy" if is_alert(e) => {}
+            "notice" | "legacy" if is_alert(e) || is_folded(e) => {}
             "notice" => {
                 let at = stamp(&e.created_at);
                 let after = a.turns.last().map(|t| t.id.clone());
@@ -1235,5 +1243,39 @@ mod alert_tests {
             .collect();
         assert_eq!(notices.len(), 1, "{:?}", t.items);
         assert_eq!(notices[0].entry, "e4");
+    }
+
+    // decision: MEM-461 — a notice the engine folded into the review of an import (the "Now always on" ones) is kept
+    // and never drawn; one not folded still is
+    #[test]
+    fn notices_folded_into_the_review_are_not_in_the_transcript() {
+        let entries = vec![
+            entry(
+                "e1",
+                1,
+                "notice",
+                Some("memory-always-on-i1"),
+                json!({"text": "Now always on: “tea” (FERB's understanding)", "quotes": [],
+                       "folded": "memory-review"}),
+            ),
+            entry(
+                "e2",
+                2,
+                "notice",
+                Some("memory-always-on-i2"),
+                json!({"text": "Now always on: 3 things (FERB's understanding)", "quotes": []}),
+            ),
+        ];
+        let t = transcript(&entries, 0);
+        let notices: Vec<&NoticeItem> = t
+            .items
+            .iter()
+            .filter_map(|i| match i {
+                Item::Notice(n) => Some(n),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(notices.len(), 1, "{:?}", t.items);
+        assert_eq!(notices[0].entry, "e2");
     }
 }

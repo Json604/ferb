@@ -110,7 +110,7 @@ impl Line {
         self.data.get(k).map(py::py_str).unwrap_or_default()
     }
 
-    fn b(&self, k: &str) -> bool {
+    pub fn b(&self, k: &str) -> bool {
         self.data.get(k).and_then(Value::as_bool).unwrap_or(false)
     }
 
@@ -274,14 +274,14 @@ fn scope_mark(content: &str, ev: &Value) -> String {
 }
 
 impl ImportJob<'_> {
-    fn today(&self) -> String {
+    pub(crate) fn today(&self) -> String {
         let now = self.memory.clock.now();
         times::astimezone(&now, self.memory.zone.as_ref())
             .map_or_else(|| times::ymd(&now), |d| times::ymd(&d))
     }
 
     /// The day `days` before today.
-    fn days_ago(&self, days: i64) -> String {
+    pub(crate) fn days_ago(&self, days: i64) -> String {
         let now = py::shift(&self.memory.clock.now(), -days * DAY);
         times::astimezone(&now, self.memory.zone.as_ref())
             .map_or_else(|| times::ymd(&now), |d| times::ymd(&d))
@@ -379,7 +379,7 @@ impl ImportJob<'_> {
         Ok(())
     }
 
-    fn write_line(&self, line: &Line, fresh: bool) -> Result<()> {
+    pub(crate) fn write_line(&self, line: &Line, fresh: bool) -> Result<()> {
         let now = py::iso(&self.memory.clock.now());
         let data = ferb_py::json::dumps(&Value::Object(line.data.clone()));
         if fresh {
@@ -636,7 +636,7 @@ impl ImportJob<'_> {
     }
 
     /// After a line changed: its dates on the item, the assistants it came from, its `about`.
-    fn settle(&self, line: &Line, rests: &[&Fact], run_id: &str) -> Result<()> {
+    pub(crate) fn settle(&self, line: &Line, rests: &[&Fact], run_id: &str) -> Result<()> {
         for f in rests {
             self.store.exec(
                 "INSERT INTO memory_import_items (item_id, source, run_id, said_at) VALUES (?, ?, ?, ?) \
@@ -742,7 +742,7 @@ impl ImportJob<'_> {
         Ok(())
     }
 
-    fn line_facts(&self, line_id: &str) -> Result<Vec<Fact>> {
+    pub(crate) fn line_facts(&self, line_id: &str) -> Result<Vec<Fact>> {
         Ok(self
             .store
             .query(
@@ -1495,7 +1495,7 @@ impl ImportJob<'_> {
         (still, aside)
     }
 
-    fn state(&self, key: &str) -> Result<String> {
+    pub(crate) fn state(&self, key: &str) -> Result<String> {
         Ok(self
             .store
             .one(
@@ -1506,7 +1506,7 @@ impl ImportJob<'_> {
             .unwrap_or_default())
     }
 
-    fn set_state(&self, key: &str, value: &str) -> Result<()> {
+    pub(crate) fn set_state(&self, key: &str, value: &str) -> Result<()> {
         self.store.exec(
             "INSERT INTO memory_import_state (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             sql![key, value],
@@ -1728,75 +1728,24 @@ impl ImportJob<'_> {
         Ok(fresh)
     }
 
-    /// Lines from a while ago asked about once, in the notice (IMP-41): never ones the owner corrected or gave an end
-    /// date, never one asked about before.
-    fn old_round(&self) -> Result<Vec<Line>> {
-        let mut out = Vec::new();
-        for mut l in self.lines()? {
-            if l.gone()
-                || l.over(&self.today())
-                || !self.old(&l)
-                || l.data.contains_key("asked_old")
-            {
-                continue;
-            }
-            l.data.insert("asked_old".into(), json!(self.today()));
-            self.write_line(&l, false)?;
-            out.push(l);
-        }
-        out.sort_by_key(|l| std::cmp::Reverse((l.said(), l.id.clone())));
-        Ok(out)
+    /// Lines from a while ago asked about once (IMP-41), those that steer FERB's work (MEM-462, `old_round_lines`).
+    pub(crate) fn old_round(&self) -> Result<Vec<Line>> {
+        self.old_round_lines()
     }
 
-    /// The one ask after an import (MEM-444, MEM-446): the lines from a while ago and the offers 30 to 60 days old, each
-    /// asked about once, in one numbered list: its question (title, then the list) and what it names (the ident a
-    /// FERB question keeps). `None` when there is nothing to ask.
-    pub fn ask_now(&self) -> Result<Option<(String, Value)>> {
-        // the offers first, in the shape the owner confirmed (IMP-50, IMP-51); then lines from a while ago that aren't
-        // already asked about as an offer
-        let mut items: Vec<(Line, &'static str)> = self
-            .ask_round()?
-            .into_iter()
-            .map(|l| (l, "offer"))
-            .collect();
-        let offered: HashSet<String> = items.iter().map(|(l, _)| l.id.clone()).collect();
-        items.extend(
-            self.old_round()?
-                .into_iter()
-                .filter(|l| !offered.contains(&l.id) && l.offer().is_empty())
-                .take(ASK_MOST)
-                .map(|l| (l, "line")),
-        );
-        if items.is_empty() {
-            return Ok(None);
-        }
-        let mut text = vec!["Are these still on?".to_owned()];
-        for (n, (l, what)) in items.iter().enumerate() {
-            let shown = if *what == "offer" {
-                object(&l.offer())
-            } else {
-                l.scoped(&l.s("you"))
-            };
-            text.push(format!("{}. {shown}", n + 1));
-        }
-        text.push("Just say which, like \"first one yes, the rest are done\".".into());
-        let ident = json!({"items": items.iter().enumerate().map(|(n, (l, what))| {
-            json!({"n": n + 1, "line": l.id, "what": what,
-                   "text": if *what == "offer" { l.offer() } else { l.s("you") }})
-        }).collect::<Vec<_>>()});
-        Ok(Some((text.join("\n"), ident)))
-    }
-
-    /// The owner's reply to the ask (MEM-444), read by the model (`memory/import_answer.md`: which numbered items he
-    /// says are still on, done or not wanted; never a word list in code), and applied by code: an offer's answer is
-    /// kept on its line (`answer_offer`); a line still on is current again (its `confirmed` day), one he says is over
-    /// is retired, kept as history. An item he didn't name stays as it is and is never asked about again.
-    pub async fn apply_answer(&self, ident: &Value, words: &str) -> Result<Map<String, Value>> {
-        let items: Vec<Value> = ident
-            .get("items")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
+    /// The owner's typed reply to the review (MEM-444, MEM-460), read by the model (`memory/import_answer.md`: which
+    /// numbered items he says yes or no to; never a word list in code) against the review as it stands now (an item
+    /// he answered with its button since is not asked again), and applied by code through the review's one path
+    /// (`answer_review`): always on, approve or decline; a line still on is current again, one he says is over is
+    /// retired, kept as history; an offer's answer is kept on its line. An item he didn't name stays on the list.
+    /// `_ident`: what the question named when asked (kept for an older build's question; the list now decides).
+    pub async fn apply_answer(
+        &self,
+        profile: &crate::profile::CoreProfile,
+        _ident: &Value,
+        words: &str,
+    ) -> Result<Map<String, Value>> {
+        let items = self.review_numbered()?;
         let mut text: Vec<String> = items
             .iter()
             .map(|i| {
@@ -1830,8 +1779,7 @@ impl ImportJob<'_> {
                 &mut counts,
             )
             .await?;
-        let (mut kept, mut done, mut unclear) = (0i64, 0i64, 0i64);
-        let now = py::iso(&self.memory.clock.now());
+        let (mut approved, mut declined, mut kept, mut aside, mut unclear) = (0, 0, 0, 0, 0);
         for v in answer
             .get("items")
             .and_then(Value::as_array)
@@ -1843,92 +1791,89 @@ impl ImportJob<'_> {
                 continue;
             };
             let state = py::py_str_opt(v.get("state"));
-            let line_id = py::py_str_opt(item.get("line"));
-            let Some(mut line) = self
-                .lines()?
-                .into_iter()
-                .find(|l| l.id == line_id && !l.gone())
-            else {
-                continue;
-            };
-            line.data.remove("asking");
-            match (py::py_str_opt(item.get("what")).as_str(), state.as_str()) {
-                ("offer", "still_on" | "done" | "not_wanted") => {
-                    let what = match state.as_str() {
-                        "still_on" => "open",
-                        "done" => "done",
-                        _ => "not interested",
-                    };
-                    line.data
-                        .insert("offer_answer".into(), json!({"what": what, "at": now}));
-                    self.write_line(&line, false)?;
-                    if what == "open" {
-                        kept += 1
-                    } else {
-                        done += 1
-                    }
+            let id = vec![py::py_str_opt(item.get("item"))];
+            let (part, said) = match (py::py_str_opt(item.get("what")).as_str(), state.as_str()) {
+                (crate::import_review::ALWAYS_ON, "still_on") => {
+                    (crate::import_review::ALWAYS_ON, "approve")
                 }
-                ("line", "still_on") => {
-                    line.data.insert("confirmed".into(), json!(now));
-                    self.write_line(&line, false)?;
-                    let rests = self.line_facts(&line.id)?;
-                    self.settle(&line, &rests.iter().collect::<Vec<_>>(), "")?;
-                    kept += 1;
+                (crate::import_review::ALWAYS_ON, "done" | "not_wanted") => {
+                    (crate::import_review::ALWAYS_ON, "decline")
                 }
-                ("line", "done" | "not_wanted") => {
-                    self.write_line(&line, false)?;
-                    if self
-                        .memory
-                        .get(&line.item_id)?
-                        .is_some_and(|i| i.valid_to.is_none() && i.status == "active")
-                    {
-                        self.memory
-                            .retire(&line.item_id, "the owner said it no longer holds")?;
-                    }
-                    done += 1;
-                }
+                ("line", "still_on") => (crate::import_review::STILL_TRUE, "yes"),
+                ("line", "done" | "not_wanted") => (crate::import_review::STILL_TRUE, "no"),
+                ("offer", "still_on") => (crate::import_review::OFFERS, "open"),
+                ("offer", "done") => (crate::import_review::OFFERS, "done"),
+                ("offer", "not_wanted") => (crate::import_review::OFFERS, "not interested"),
                 _ => {
-                    self.write_line(&line, false)?;
                     unclear += 1;
+                    continue;
                 }
+            };
+            if self.answer_review(profile, part, &id, said)? == 0 {
+                continue;
+            }
+            match said {
+                "approve" => approved += 1,
+                "decline" => declined += 1,
+                "yes" | "open" => kept += 1,
+                _ => aside += 1,
             }
         }
-        let mut out = Map::new();
-        out.insert("still_on".into(), json!(kept));
-        out.insert("set_aside".into(), json!(done));
-        out.insert("unclear".into(), json!(unclear));
-        Ok(out)
+        Ok(crate::import_review::counts(
+            approved, declined, kept, aside, unclear,
+        ))
     }
 
-    /// What FERB says once it applied the owner's answer (owner-facing).
+    /// What FERB says once it applied the owner's typed answer (owner-facing).
     pub fn answer_line(counts: &Map<String, Value>) -> String {
         let n = |k: &str| counts.get(k).and_then(Value::as_i64).unwrap_or(0);
-        let (kept, aside) = (n("still_on"), n("set_aside"));
-        match (kept, aside) {
-            (0, 0) => {
-                "I couldn't tell which ones you meant, so I've left them as they were.".into()
-            }
-            (k, 0) => format!(
-                "Got it, I'll keep {} as they are.",
-                if k == 1 {
-                    "that one".to_owned()
-                } else {
-                    format!("those {k}")
+        let (approved, declined, kept, aside) =
+            (n("approved"), n("declined"), n("still_on"), n("set_aside"));
+        if approved + declined == 0 {
+            return match (kept, aside) {
+                (0, 0) => {
+                    "I couldn't tell which ones you meant, so I've left them as they were.".into()
                 }
-            ),
-            (0, a) => format!(
-                "Got it, I've put {} aside.",
-                if a == 1 {
-                    "that one".to_owned()
-                } else {
-                    format!("those {a}")
-                }
-            ),
-            (k, a) => format!("Got it: I'll keep {k} and I've put {a} aside."),
+                (k, 0) => format!(
+                    "Got it, I'll keep {} as they are.",
+                    if k == 1 {
+                        "that one".to_owned()
+                    } else {
+                        format!("those {k}")
+                    }
+                ),
+                (0, a) => format!(
+                    "Got it, I've put {} aside.",
+                    if a == 1 {
+                        "that one".to_owned()
+                    } else {
+                        format!("those {a}")
+                    }
+                ),
+                (k, a) => format!("Got it: I'll keep {k} and I've put {a} aside."),
+            };
         }
+        let mut said = Vec::new();
+        if approved > 0 {
+            said.push(format!("{approved} always on now"));
+        }
+        if declined > 0 {
+            said.push(format!("{declined} remembered but not always on"));
+        }
+        if kept > 0 {
+            said.push(format!("{kept} kept as they are"));
+        }
+        if aside > 0 {
+            said.push(format!("{aside} put aside"));
+        }
+        let list = match said.len() {
+            1 => said[0].clone(),
+            k => format!("{} and {}", said[..k - 1].join(", "), said[k - 1]),
+        };
+        format!("Got it: {list}.")
     }
 
-    /// The one notice after an import (MEM-445): what FERB can now do because of it, a few examples, and the
+    /// The one notice after an import (MEM-460): what FERB can now do because of it, a few examples, and the
     /// one ask (lines from a while ago; offers 30 to 60 days old). Plain, friendly, said to the owner.
     pub fn report(
         &self,

@@ -732,6 +732,8 @@ pub fn tool_named(p: &Parts, name: &'static str) -> Arc<dyn Tool> {
             Box::pin(async move {
                 let ga = group_a(&p)?;
                 ga.call(move |st: Rc<ferb_daemon::areas_a::State>| async move {
+                    // MEM-466: the session index brought in step by code before it is read (no model)
+                    ferb_daemon::areas_a::memory_import::session_index(&st);
                     ferb_learning::tools::run(Some(&st.learning), &args, None)
                         .map_err(|e| ToolError::failed(e.class(), e.to_string()))
                 })

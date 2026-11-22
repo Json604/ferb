@@ -406,6 +406,8 @@
     <!-- FERB.app's own words for the same things (kb PHN-720..) -->
     <string name="show_all">Show all</string>
     <string name="show_less">Show less</string>
+    <!-- a group of FERB's review of an import with more than three items (kb MEM-460): the rest open; "Show less" closes them -->
+    <string name="review_show_all">Show all %1$d</string>
     <string name="show_more">Show more</string>
     <string name="answer_details">Details</string>
     <string name="question_needs_answer">FERB needs your answer</string>

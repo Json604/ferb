@@ -51,6 +51,9 @@ pub struct QuestionShown {
     /// your OK: <question>". None where the Mac posts none (the profile question at setup, the planner's question).
     pub banner_title: Option<String>,
     pub banner_text: Option<String>,
+    /// FERB's review of what an import brought in (kb MEM-460): the card is the review's list (`Mobile::memory_review`,
+    /// answered item by item), drawn in place of the question's words; the typed answer's box stays.
+    pub review: bool,
 }
 
 /// The planner's question that waits on the owner (ferb-daemon phone/asking.rs): FERB's own bubble, answered by a
@@ -209,5 +212,6 @@ pub fn shown(v: &Value) -> QuestionShown {
         banner_title: banner.then(|| crate::notify::QUESTION_TITLE.into()),
         banner_text: banner.then(|| format!("{} {question}", crate::notify::QUESTION_LEAD)),
         question,
+        review: capability.as_deref() == Some(crate::review::CAPABILITY),
     }
 }

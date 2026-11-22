@@ -242,8 +242,8 @@ pub fn settings() -> Vec<Setting> {
         check: Check::Profile,
         default: json!(""),
     });
-    // decision: MEM-447 — the owner's one Yes to bringing in Claude Code and Codex also keeps them up to date; off
-    // stops the updates and keeps what was learned. MEM-459: it is the one switch (off: nothing read, no updates), and
+    // decision: MEM-466 — the owner's one Yes to bringing in Claude Code and Codex reads them once and keeps their
+    // session index (code only); a model reads them again only when he asks; off stops it and keeps what was learned. MEM-459: it is the one switch (off: nothing read, no updates), and
     // the websites have theirs; both change only through `memory.import.switch` (SWITCHES)
     out.push(Setting {
         section: "memory",

@@ -114,6 +114,7 @@ pub const NOT_WAITED: &[&str] = &[
     "perception.batch",
     "security.alignment",
     "memory.import.progress",
+    "memory.import.live", // MEM-455: the import's progress card, what clients show
     "task.step",
     "task.progress",
     "cursor.point",

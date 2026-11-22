@@ -138,7 +138,8 @@ pub fn start(st: &Rc<State>) -> ferb_learning::Result<()> {
     st.profile.seed()?;
     st.profile.settle("start")?;
     ferb_learning::upgrade::close_fact_nodes(&st.store, &ferb_clock::py::iso(&st.now()), &record)?;
-    restore_memory_questions(st)?;
+    let converted = restore_memory_questions(st)?;
+    super::memory_import::review_start(st, converted);
     super::memory_import::resume(st);
     Ok(())
 }
@@ -336,12 +337,37 @@ pub fn close_memory_questions(
 
 /// `_restore_memory_questions`: at start, a forget's Yes / No still waiting is asked again with its id; one whose
 /// memory has gone is dropped; MEM-12's retired kinds are dropped.
-pub fn restore_memory_questions(st: &Rc<State>) -> ferb_learning::Result<()> {
+pub fn restore_memory_questions(st: &Rc<State>) -> ferb_learning::Result<bool> {
     let q = questions(st);
     q.drop_kinds(&GONE_QUESTIONS.map(String::from))?;
+    let mut converted = false;
     for row in q.waiting()? {
         let s = |n: usize| ferb_py::value::py_str(&row[n]);
         let (approval_id, kind, target, reason, request_id) = (s(0), s(1), s(2), s(3), s(4));
+        // MEM-460: an older build's offers question becomes the review (its items carried into it)
+        if kind == super::memory_import::OFFERS_KIND {
+            converted |= super::memory_import::convert_offers_question(st, &target);
+        }
+        // the review is asked again with the list as it stands now, or closed when nothing is left (MEM-460)
+        if kind == super::memory_import::REVIEW_KIND {
+            let _ = super::memory_import::job(st).suggest_always_on();
+            match super::memory_import::job(st).review_question()? {
+                Some(asked) if !st.questions.waiting(&approval_id) => {
+                    let _ = ask_owner(
+                        st,
+                        &kind,
+                        &target,
+                        &asked,
+                        &request_id,
+                        Some(&approval_id),
+                        None,
+                    );
+                }
+                Some(_) => {}
+                None => q.answered(&approval_id)?,
+            }
+            continue;
+        }
         // the browsing and memory-import questions are asked again by their own moment, with today's choices
         let gone = if kind == "browsing"
             || kind == super::memory_import::LOCAL_KIND
@@ -370,7 +396,13 @@ pub fn restore_memory_questions(st: &Rc<State>) -> ferb_learning::Result<()> {
             );
         }
     }
-    Ok(())
+    Ok(converted)
+}
+
+/// FERB's own question answered or closed by code: no longer kept to be asked again, nor followed up.
+pub fn close_own(st: &State, approval_id: &str) -> ferb_learning::Result<()> {
+    st.followups.borrow_mut().remove(approval_id);
+    questions(st).answered(approval_id)
 }
 
 /// `_ask_owner`: FERB's own question outside any task (a forget's Yes / No, the downloads cap, the browsing profile).
@@ -531,7 +563,7 @@ pub fn question_answered(st: &State, ap: &Answered<'_>) -> ferb_learning::Result
             ap.state == "granted" && ap.choice == Some("Yes"),
         ));
     }
-    if what == super::memory_import::OFFERS_KIND {
+    if what == super::memory_import::OFFERS_KIND || what == super::memory_import::REVIEW_KIND {
         return Ok(super::memory_import::offers_answered(
             &st.rc(),
             ap.state,
@@ -576,25 +608,87 @@ pub fn question_answered(st: &State, ap: &Answered<'_>) -> ferb_learning::Result
     })
 }
 
-/// `_now_always_on` (MEM-423): facts that just joined the core profile, each told once by a quiet notice
-/// with its note card.
+/// How long FERB gathers facts that join the always-on profile before telling them, so a burst (a learning pass, the
+/// weekly pass) is one notice (MEM-463).
+pub const JOINS_GATHER_MS: u64 = 1_500;
+
+/// `_now_always_on` (MEM-423): facts that just joined the core profile, told once. A burst is gathered and told as
+/// one notice (MEM-463), whichever path joined them.
 fn now_always_on(st: &Rc<State>, items: &[Item]) {
-    for it in items {
-        let text = it.content.split_whitespace().collect::<Vec<_>>().join(" ");
-        let line = format!("Now always on: “{text}” ({})", origin_label(&it.origin));
-        let mut card = ferb_orchestrator::cards::note(&it.id, &text, "saved", &line);
-        card["label"] = json!(origin_label(&it.origin));
-        card["origin"] = json!(it.origin);
-        card["always_on"] = json!(true);
-        let fut = st.owner.tell_owner(
-            &format!("memory-always-on-{}", it.id),
-            vec![format!("memory:{}", it.id)],
+    st.joined.borrow_mut().extend(items.iter().cloned());
+    if st.joined_telling.replace(true) {
+        return;
+    }
+    let me = st.clone();
+    tokio::task::spawn_local(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(JOINS_GATHER_MS)).await;
+        me.joined_telling.set(false);
+        let items = std::mem::take(&mut *me.joined.borrow_mut());
+        tell_always_on(&me, &items, "").await;
+    });
+}
+
+/// The one way FERB tells that facts joined the always-on profile (MEM-423, MEM-427, MEM-463): one quiet notice with
+/// a note card per fact (Correct / Forget on each). One fact: "Now always on: “…” (label)"; more: "Now always on: N
+/// things" and the cards, which FERB.app and the phones show as a list that opens. `ident`: the notice's id ("" for
+/// one made from the facts).
+pub async fn tell_always_on(st: &Rc<State>, items: &[Item], ident: &str) {
+    let mut seen = std::collections::BTreeSet::new();
+    let items: Vec<&Item> = items
+        .iter()
+        .filter(|it| seen.insert(it.id.clone()))
+        .collect();
+    let Some(first) = items.first() else {
+        return;
+    };
+    let texts: Vec<String> = items
+        .iter()
+        .map(|it| it.content.split_whitespace().collect::<Vec<_>>().join(" "))
+        .collect();
+    let same_origin = items.iter().all(|it| it.origin == first.origin);
+    let line = if items.len() == 1 {
+        format!(
+            "Now always on: “{}” ({})",
+            texts[0],
+            origin_label(&first.origin)
+        )
+    } else if same_origin {
+        format!(
+            "Now always on: {} things ({})",
+            items.len(),
+            origin_label(&first.origin)
+        )
+    } else {
+        format!("Now always on: {} things", items.len())
+    };
+    let cards: Vec<Value> = items
+        .iter()
+        .zip(&texts)
+        .map(|(it, text)| {
+            let one = format!("Now always on: “{text}” ({})", origin_label(&it.origin));
+            let mut card = ferb_orchestrator::cards::note(&it.id, text, "saved", &one);
+            card["label"] = json!(origin_label(&it.origin));
+            card["origin"] = json!(it.origin);
+            card["always_on"] = json!(true);
+            card
+        })
+        .collect();
+    let ident = if !ident.is_empty() {
+        ident.to_owned()
+    } else if items.len() == 1 {
+        format!("memory-always-on-{}", first.id)
+    } else {
+        format!("memory-always-on-{}", ferb_clock::py::iso(&st.now()))
+    };
+    st.owner
+        .tell_owner(
+            &ident,
+            items.iter().map(|it| format!("memory:{}", it.id)).collect(),
             &line,
             &ferb_sanitize::origin::join(["ferb", "inferred"]),
-            Some(json!([card])),
-        );
-        tokio::task::spawn_local(fut);
-    }
+            Some(Value::Array(cards)),
+        )
+        .await;
 }
 
 /// `_profile_pass`: the weekly core-profile pass (MEM-7) when due or forced; facts it found out of date are told once.
@@ -1074,11 +1168,14 @@ async fn memory_profile(st: Rc<State>, params: Params) -> HandlerResult {
     let ident = text(&params, "id");
     match op.as_str() {
         "add" => match st.profile.add(&ident, &text(&params, "section"), "owner") {
-            Ok(()) => {}
+            Ok(()) => super::memory_import::profile_word(&st, &ident, true),
             Err(e) if e.is_value_error() => return Err(refusal(e.to_string())),
             Err(e) => return Err(learning_error(e)),
         },
-        "remove" => le(st.profile.remove(&[ident], "owner"))?,
+        "remove" => {
+            le(st.profile.remove(std::slice::from_ref(&ident), "owner"))?;
+            super::memory_import::profile_word(&st, &ident, false);
+        }
         "pass" => {
             le(profile_pass(&st, true).await)?;
         }

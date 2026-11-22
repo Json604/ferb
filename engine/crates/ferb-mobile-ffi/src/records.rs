@@ -735,6 +735,9 @@ mirror! {
         send: Option<String>,
         banner_title: Option<String>,
         banner_text: Option<String>,
+        /// FERB's review of what an import brought in (MEM-460): drawn as the review's list (`Mobile.memory_review`).
+        #[uniffi(default = false)]
+        review: bool,
     }
 }
 
@@ -1582,5 +1585,57 @@ mirror! {
     SessionStartPlan from ferb_mobile::sessions::SessionStartPlan {
         folders: Vec<String>,
         needs_yes: Option<SessionYes>,
+    }
+}
+
+// ---- the owner's review of what an import brought in (kb MEM-460..457) --------------------------------------------------
+
+mirror! {
+    /// One answer a button of the review gives: what is sent and its words.
+    ReviewButton from ferb_mobile::review::ReviewButton {
+        answer: String,
+        label: String,
+    }
+}
+
+mirror! {
+    /// One item of the review: the memory's id, the line in plain words, a small note under it, and its own buttons
+    /// when they differ from its part's (already always on: Keep / Remove); empty: the part's `answers`.
+    ReviewItem from ferb_mobile::review::ReviewItem {
+        id: String,
+        text: String,
+        note: String,
+        answers: Vec<ReviewButton>,
+    }
+}
+
+mirror! {
+    /// A group of the review's items under its title ("" for none), and its own buttons for all of them at once
+    /// (Keep all / Remove all when all are already always on and the part has others); usually empty.
+    ReviewGroup from ferb_mobile::review::ReviewGroup {
+        title: String,
+        items: Vec<ReviewItem>,
+        all: Vec<ReviewButton>,
+    }
+}
+
+mirror! {
+    /// One part of the review (always_on, still_true, offers): its question, the line under it, its groups, the
+    /// answers each item takes and those for all at once.
+    ReviewPart from ferb_mobile::review::ReviewPart {
+        part: String,
+        title: String,
+        hint: String,
+        groups: Vec<ReviewGroup>,
+        answers: Vec<ReviewButton>,
+        all: Vec<ReviewButton>,
+    }
+}
+
+mirror! {
+    /// The review as it stands: its parts and how many items are left.
+    MemoryReview from ferb_mobile::review::MemoryReview {
+        parts: Vec<ReviewPart>,
+        count: u64,
     }
 }

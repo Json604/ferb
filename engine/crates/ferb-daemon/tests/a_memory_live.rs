@@ -49,7 +49,7 @@ async fn status(d: &Daemon) -> Value {
     reply["result"].clone()
 }
 
-// decision: MEM-455, MEM-456, MEM-445
+// decision: MEM-455, MEM-456, MEM-460
 #[tokio::test]
 async fn a_told_import_shows_its_card_until_its_one_notice_says_the_rest() {
     let tmp = tempfile::tempdir().unwrap();

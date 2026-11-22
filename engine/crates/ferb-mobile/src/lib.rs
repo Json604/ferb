@@ -21,6 +21,7 @@ pub mod live;
 pub mod notify;
 pub mod question;
 pub mod remote;
+pub mod review;
 pub mod rich;
 pub mod sessions;
 pub mod shown;

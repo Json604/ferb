@@ -24,6 +24,9 @@ pub const MEMORY_LOCAL_ASK: &str = "memory.local";
 pub const MEMORY_SITES_ASK: &str = "memory.sites";
 /// MEM-444: which of the imported offers and older lines are still on: answered in the owner's own words.
 pub const MEMORY_OFFERS_ASK: &str = "memory.offers";
+/// MEM-460: the owner's review of what an import brought in (always on, still true, offers), one list he answers
+/// item by item on its card or in his own words. Replaces the offers ask (an older build's waits are closed at start).
+pub const MEMORY_REVIEW_ASK: &str = "memory.review";
 
 /// steering.py:28 `MEMORY_QUESTIONS`: FERB's own questions outside any task, by kind: (capability, options).
 pub fn memory_questions(kind: &str) -> Option<(&'static str, &'static [&'static str])> {
@@ -35,6 +38,7 @@ pub fn memory_questions(kind: &str) -> Option<(&'static str, &'static [&'static 
         "memory_local" => Some((MEMORY_LOCAL_ASK, &["Yes", "No"])),
         "memory_sites" => Some((MEMORY_SITES_ASK, &[])),
         "memory_offers" => Some((MEMORY_OFFERS_ASK, &[])),
+        "memory_review" => Some((MEMORY_REVIEW_ASK, &[])),
         _ => None,
     }
 }
@@ -48,6 +52,7 @@ pub const OWN_KINDS: &[&str] = &[
     "memory_local",
     "memory_sites",
     "memory_offers",
+    "memory_review",
 ];
 
 /// steering.py:33 `MEMORY_ASKS` (and the memory import's, MEM-444, MEM-447, MEM-448).
@@ -58,6 +63,7 @@ pub const MEMORY_ASKS: &[&str] = &[
     MEMORY_LOCAL_ASK,
     MEMORY_SITES_ASK,
     MEMORY_OFFERS_ASK,
+    MEMORY_REVIEW_ASK,
 ];
 /// steering.py:36 `FERB_CHECKS` (and the memory import's two choices, MEM-447, MEM-448).
 pub const FERB_CHECKS: &[&str] = &[
@@ -72,7 +78,7 @@ pub const FERB_CHECKS: &[&str] = &[
 ];
 /// FERB's own questions outside a task the owner answers in his own words (MEM-444): the chat routes his reply to
 /// them as to a task's question, and FERB reads it.
-pub const OWN_WORDS_ASKS: &[&str] = &[MEMORY_OFFERS_ASK];
+pub const OWN_WORDS_ASKS: &[&str] = &[MEMORY_OFFERS_ASK, MEMORY_REVIEW_ASK];
 /// steering.py:39 `OPTION_ONLY`.
 pub const OPTION_ONLY: &[&str] = FERB_CHECKS;
 /// steering.py:42 `TASK_CHECKS`.

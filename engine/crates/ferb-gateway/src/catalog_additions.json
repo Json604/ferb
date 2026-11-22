@@ -438,7 +438,7 @@
    "decision": "MEM-448",
    "after": "browser.downloads",
    "name": "memory.import",
-   "description": "Bring a website's data export into FERB's memory: the file or folder you downloaded into FERB's downloads folder (browser.downloads gives its path) from ChatGPT's or Claude's data-export email (claude.ai: the folder holding the conversations, memories and projects parts and the list of links), or a Gemini Takeout. FERB reads only the last month of what the owner said there, keeps the facts that matter as its understanding (never the chats), deletes the export when the import is done, and tells the owner once with what it learned. It runs in the background; the answer is the import's id and its size. Only a file in FERB's downloads folder: an export the owner keeps elsewhere goes in from the Memory page.",
+   "description": "Bring something into FERB's memory. A website's data export: the file or folder you downloaded into FERB's downloads folder (browser.downloads gives its path) from ChatGPT's or Claude's data-export email (claude.ai: the folder holding the conversations, memories and projects parts and the list of links), or a Gemini Takeout; FERB reads only the last month of what the owner said there, keeps the facts that matter as its understanding (never the chats) and deletes the export when the import is done. Or, only when the owner asks you to learn from his coding sessions, source coding_assistants with an empty path: what's new in what he typed into Claude Code and Codex on this Mac. Either runs in the background and tells the owner once what it learned. An export the owner keeps elsewhere goes in from the Memory page.",
    "input_schema": {
     "additionalProperties": false,
     "properties": {
@@ -447,13 +447,14 @@
       "enum": [
        "chatgpt",
        "claude",
-       "gemini"
+       "gemini",
+       "coding_assistants"
       ],
       "title": "Source",
       "type": "string"
      },
      "path": {
-      "description": "the downloaded export: a zip, the folder of claude.ai's parts, or the JSON or HTML file, in FERB's downloads folder",
+      "description": "the downloaded export: a zip, the folder of claude.ai's parts, or the JSON or HTML file, in FERB's downloads folder; empty for coding_assistants",
       "title": "Path",
       "type": "string"
      },

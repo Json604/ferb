@@ -130,6 +130,11 @@ impl Supervisor {
         self.inner.chat_log.post(&self.inner, item);
     }
 
+    /// MEM-461: notices already in the chat folded into another place (the review of what an import brought in).
+    pub fn fold_notices(&self, refs: &[String], into: &str) -> usize {
+        self.inner.chat_log.fold_notices(&self.inner, refs, into)
+    }
+
     /// Stage 2: the chat's entries as kept (chat_log.rs).
     pub fn chat_log(&self) -> &super::chat_log::ChatLog {
         &self.inner.chat_log

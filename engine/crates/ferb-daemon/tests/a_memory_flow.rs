@@ -53,7 +53,7 @@ fn answer(st: &State, id: &str, state: &str, choice: &str) -> String {
     .unwrap()
 }
 
-// decision: MEM-447
+// decision: MEM-466
 #[tokio::test]
 async fn the_coding_assistants_are_asked_once_after_setup_and_no_reads_nothing() {
     let tmp = tempfile::tempdir().unwrap();
@@ -111,7 +111,7 @@ async fn the_coding_assistants_are_asked_once_after_setup_and_no_reads_nothing()
     assert_eq!(asks(&d).len(), 1);
 }
 
-// decision: MEM-448, MEM-449, MEM-451
+// decision: MEM-448, MEM-467, MEM-451
 #[tokio::test]
 async fn the_websites_question_makes_two_quiet_watches_in_the_chosen_profile() {
     let tmp = tempfile::tempdir().unwrap();
@@ -292,46 +292,100 @@ async fn memory_import_takes_only_an_export_in_ferbs_downloads_folder() {
     assert!(export.exists());
 }
 
-// decision: MEM-444
+/// A line as an import placed it: its memory item and its row, `days_ago` old, with `data` over the usual fields.
+fn imported_line(
+    st: &State,
+    id: &str,
+    key: &str,
+    content: &str,
+    days_ago: i64,
+    data: Value,
+) -> String {
+    let now = st.now();
+    let said = ferb_clock::py::plus_us(&now, -days_ago * 86_400_000_000).unwrap();
+    let day = ferb_clock::py::iso(&said)[..10].to_owned();
+    let entry = st
+        .journal(
+            ferb_learning::import_job::SOURCE_KIND,
+            json!({"run": "r1"}),
+            None,
+        )
+        .unwrap();
+    let item = st
+        .memory
+        .save(
+            "fact",
+            "owner",
+            key,
+            content,
+            "inferred",
+            &[("journal".into(), entry.id)],
+            0.6,
+            &[],
+            "imported from Claude Code",
+            Some(false),
+        )
+        .unwrap()
+        .item;
+    let mut row = json!({"you": content.replace("The owner", "You"), "offer": "", "said": day, "first_said": day,
+                         "days": 1, "sources": ["claude_code"], "ended": false, "until": "", "review_on": "",
+                         "use": "repeat", "holds_up": false});
+    for (k, v) in data.as_object().unwrap() {
+        row[k] = v.clone();
+    }
+    st.store
+        .exec(
+            "INSERT INTO memory_import_lines (id, item_id, kind, subject, key, data_json, created_at, updated_at) \
+             VALUES (?, ?, 'fact', 'owner', ?, ?, ?, ?)",
+            ferb_learning::sql![id, item.id, key, row.to_string(), day, day],
+        )
+        .unwrap();
+    item.id
+}
+
+fn told(d: &Daemon) -> Vec<Value> {
+    d.stand
+        .calls
+        .0
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|c| c.get("tell_owner").cloned())
+        .collect()
+}
+
+// decision: MEM-444, MEM-460
 #[tokio::test]
-async fn the_ask_after_an_import_is_a_question_answered_in_the_owners_words() {
+async fn the_review_after_an_import_is_one_question_answered_on_its_card_or_in_words() {
     let tmp = tempfile::tempdir().unwrap();
     let d = daemon(tmp.path()).await;
     // a line 45 days old carrying an offer, as an earlier import placed it
     d.on(|st| {
         Box::pin(async move {
-            let now = st.now();
-            let said = ferb_clock::py::plus_us(&now, -45 * 86_400_000_000).unwrap();
-            let day = ferb_clock::py::iso(&said)[..10].to_owned();
-            let item = st
-                .memory
-                .save("fact", "owner", "recurring_rent", "The owner pays rent every month", "inferred",
-                      &[("journal".into(), "j1".into())], 0.6, &[], "imported from Claude Code", Some(false))
-                .unwrap()
-                .item;
-            let data = json!({"you": "You pay rent every month", "offer": "Offer to help with recurring_rent",
-                              "said": day, "first_said": day, "days": 1, "sources": ["claude_code"], "ended": false,
-                              "until": "", "review_on": "", "use": "repeat", "holds_up": false});
-            st.store
-                .exec(
-                    "INSERT INTO memory_import_lines (id, item_id, kind, subject, key, data_json, created_at, updated_at) \
-                     VALUES ('l1', ?, 'fact', 'owner', 'recurring_rent', ?, ?, ?)",
-                    ferb_learning::sql![item.id, data.to_string(), day, day],
-                )
-                .unwrap();
+            imported_line(
+                &st,
+                "l1",
+                "recurring_rent",
+                "The owner pays rent every month",
+                45,
+                json!({"offer": "Offer to help with recurring_rent"}),
+            );
             memory_import::ask_offers(&st);
         })
     })
     .await;
     let asked = asks(&d);
     assert_eq!(asked.len(), 1);
-    assert_eq!(asked[0]["kind"], "memory_offers");
-    assert_eq!(asked[0]["summary"], "Are these still on?");
-    assert!(asked[0]["detail"]
-        .as_str()
-        .unwrap()
-        .contains("1. Offer to help with recurring_rent"));
-    // asked once
+    assert_eq!(asked[0]["kind"], "memory_review");
+    assert_eq!(
+        asked[0]["summary"],
+        "Can you check a few things I brought in?"
+    );
+    assert_eq!(
+        asked[0]["detail"],
+        "1 thing I could help with. Answer each one here, or just tell me."
+    );
+    // asked once: the next import's round asks it no more
     d.on(|st| Box::pin(async move { memory_import::ask_offers(&st) }))
         .await;
     assert_eq!(asks(&d).len(), 1);
@@ -355,30 +409,318 @@ async fn the_ask_after_an_import_is_a_question_answered_in_the_owners_words() {
         })
         .await;
     assert_eq!(said, "Thanks, I'll update them.");
-    let mut told = String::new();
+    let mut last = String::new();
     for _ in 0..50 {
-        told = d
-            .stand
-            .calls
-            .0
-            .lock()
-            .unwrap()
-            .iter()
-            .rev()
-            .filter_map(|c| {
-                c.get("tell_owner")
-                    .map(|t| t["text"].as_str().unwrap_or("").to_owned())
-            })
-            .next()
+        last = told(&d)
+            .last()
+            .map(|t| t["text"].as_str().unwrap_or("").to_owned())
             .unwrap_or_default();
-        if !told.is_empty() {
+        if !last.is_empty() {
             break;
         }
         d.on(|_st| Box::pin(async move { tokio::task::yield_now().await }))
             .await;
     }
     assert_eq!(
-        told,
+        last,
         "I couldn't apply that just now; nothing was changed. Tell me again in a moment."
     );
+}
+
+// decision: MEM-460, MEM-461, MEM-465
+#[tokio::test]
+async fn a_start_folds_the_old_notices_into_one_review_and_answers_close_it() {
+    let tmp = tempfile::tempdir().unwrap();
+    let d = daemon(tmp.path()).await;
+    // what an earlier build left: two imported lines it put in always on by itself, and its offers question waiting
+    let (rent, tea) = d
+        .on(|st| {
+            Box::pin(async move {
+                let rent = imported_line(&st, "l1", "recurring_rent", "The owner pays rent every month", 3,
+                                         json!({"use": "repeat"}));
+                let tea = imported_line(&st, "l2", "drink", "The owner prefers tea", 3, json!({"use": "follow"}));
+                for id in [&rent, &tea] {
+                    st.store
+                        .exec(
+                            "INSERT INTO memory_profile (item_id, section, position, added_by, added_at) \
+                             VALUES (?, 'Recently said', 0, 'code', 'x')",
+                            ferb_learning::sql![id],
+                        )
+                        .unwrap();
+                }
+                st.store
+                    .exec(
+                        "INSERT INTO memory_questions (approval_id, kind, target, reason, request_id, at) \
+                         VALUES ('ap-old', 'memory_offers', '{\"items\": []}', 'Are these still on?', 'k', 'x')",
+                        ferb_learning::sql![],
+                    )
+                    .unwrap();
+                let converted = memory::restore_memory_questions(&st).unwrap();
+                memory_import::review_start(&st, converted);
+                (rent, tea)
+            })
+        })
+        .await;
+    // one review asked; the "Now always on" notices about imported lines are folded into it
+    let asked = asks(&d);
+    assert_eq!(asked.len(), 1, "{asked:?}");
+    assert_eq!(asked[0]["kind"], "memory_review");
+    assert!(asked[0]["detail"]
+        .as_str()
+        .unwrap()
+        .starts_with("2 things to keep in mind all the time"));
+    let folds: Vec<Value> = d
+        .stand
+        .calls
+        .0
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|c| c.get("fold_notices").cloned())
+        .collect();
+    let refs = folds.last().unwrap()["refs"].as_array().unwrap().clone();
+    assert!(refs.contains(&json!(format!("memory-always-on-{rent}"))));
+    assert!(refs.contains(&json!(format!("memory-always-on-{tea}"))));
+    assert_eq!(folds.last().unwrap()["into"], "memory-review");
+    // they stay on until he answers; one declined leaves always on, one approved stays as his pin
+    let (r2, t2) = (rent.clone(), tea.clone());
+    let left = d
+        .on(move |st| {
+            Box::pin(async move {
+                let j = memory_import::job(&st);
+                let ids = st.profile.ids().unwrap();
+                assert!(ids.contains(&r2) && ids.contains(&t2));
+                j.answer_review(
+                    &st.profile,
+                    "always_on",
+                    std::slice::from_ref(&r2),
+                    "decline",
+                )
+                .unwrap();
+                memory_import::review_settled(&st);
+                let left = j.review().unwrap()["count"].clone();
+                j.answer_review(
+                    &st.profile,
+                    "always_on",
+                    std::slice::from_ref(&t2),
+                    "approve",
+                )
+                .unwrap();
+                memory_import::review_settled(&st);
+                let ids = st.profile.ids().unwrap();
+                assert!(!ids.contains(&r2) && ids.contains(&t2));
+                assert!(
+                    st.memory
+                        .get(&r2)
+                        .unwrap()
+                        .is_some_and(|i| i.status == "active"),
+                    "still remembered"
+                );
+                left
+            })
+        })
+        .await;
+    assert_eq!(left, json!(1), "answered in parts, it stays until done");
+}
+
+// decision: MEM-463
+#[tokio::test]
+async fn a_burst_of_joins_is_one_notice_with_a_list() {
+    let tmp = tempfile::tempdir().unwrap();
+    let d = daemon(tmp.path()).await;
+    d.on(|st| {
+        Box::pin(async move {
+            let mut items = Vec::new();
+            for (k, c) in [
+                ("a", "The owner likes tea"),
+                ("b", "The owner runs daily"),
+                ("c", "The owner uses Arc"),
+            ] {
+                items.push(
+                    st.memory
+                        .save(
+                            "fact",
+                            "owner",
+                            k,
+                            c,
+                            "inferred",
+                            &[("journal".into(), "j1".into())],
+                            0.6,
+                            &[],
+                            "",
+                            Some(false),
+                        )
+                        .unwrap()
+                        .item,
+                );
+            }
+            // three joins a pass makes one after another
+            for it in &items {
+                (st.profile.on_joined.borrow())(std::slice::from_ref(it));
+            }
+        })
+    })
+    .await;
+    tokio::time::sleep(std::time::Duration::from_millis(
+        memory::JOINS_GATHER_MS + 700,
+    ))
+    .await;
+    d.on(|_st| Box::pin(async move { tokio::task::yield_now().await }))
+        .await;
+    let notices: Vec<Value> = told(&d)
+        .into_iter()
+        .filter(|t| {
+            t["ident"]
+                .as_str()
+                .unwrap()
+                .starts_with("memory-always-on-")
+        })
+        .collect();
+    assert_eq!(notices.len(), 1, "{notices:?}");
+    assert_eq!(
+        notices[0]["text"],
+        "Now always on: 3 things (FERB's understanding)"
+    );
+    let cards = notices[0]["cards"].as_array().unwrap();
+    assert_eq!(cards.len(), 3);
+    assert_eq!(cards[0]["type"], "note");
+    assert_eq!(cards[0]["always_on"], true);
+    // one alone reads as before
+    d.on(|st| {
+        Box::pin(async move {
+            let it = st
+                .memory
+                .save(
+                    "fact",
+                    "owner",
+                    "d",
+                    "The owner sails",
+                    "inferred",
+                    &[("journal".into(), "j2".into())],
+                    0.6,
+                    &[],
+                    "",
+                    Some(false),
+                )
+                .unwrap()
+                .item;
+            (st.profile.on_joined.borrow())(std::slice::from_ref(&it));
+        })
+    })
+    .await;
+    tokio::time::sleep(std::time::Duration::from_millis(
+        memory::JOINS_GATHER_MS + 700,
+    ))
+    .await;
+    d.on(|_st| Box::pin(async move { tokio::task::yield_now().await }))
+        .await;
+    let last = told(&d).last().cloned().unwrap();
+    assert_eq!(
+        last["text"],
+        "Now always on: “The owner sails” (FERB's understanding)"
+    );
+}
+
+fn runs(st: &State) -> i64 {
+    st.store
+        .count(
+            "SELECT COUNT(*) FROM memory_import_runs",
+            ferb_learning::sql![],
+        )
+        .unwrap()
+}
+
+// decision: MEM-466 (the owner, 2026-11-23: "not keep looking at my session eveyr hour if ive not said it - adn that
+// tooo the model") — an hour with new sessions passes with no import run and no model call; the index knows them
+#[tokio::test]
+async fn an_hour_with_new_sessions_reads_nothing_with_a_model_and_the_index_knows_them() {
+    let tmp = tempfile::tempdir().unwrap();
+    let d = daemon(tmp.path()).await;
+    let path = d.user.join(".claude/history.jsonl");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let now_ms = d
+        .on(|st| Box::pin(async move { st.now().timestamp_millis() }))
+        .await;
+    std::fs::write(
+        &path,
+        format!(
+            "{{\"display\": \"I keep bees on my roof\", \"timestamp\": {}, \"sessionId\": \"1a2b3c4d-5e6f-4a1b-8c9d-0e1f2a3b4c5d\", \"project\": \"/Users/me/hive\"}}\n",
+            now_ms - 3_600_000
+        ),
+    )
+    .unwrap();
+    let (made, index) = d
+        .on(|st| {
+            Box::pin(async move {
+                st.config
+                    .set("memory", "local_import", &json!(true))
+                    .unwrap();
+                memory_import::hourly(&st).await;
+                let made = runs(&st);
+                memory_import::session_index(&st);
+                (made, ferb_learning::worklog::kept(&st.learning).unwrap())
+            })
+        })
+        .await;
+    assert_eq!(made, 0, "the hourly pass starts no import");
+    assert_eq!(index.len(), 1);
+    let entry = index.values().next().unwrap();
+    assert_eq!(entry["folder"], json!("hive"));
+    assert_eq!(entry["title"], json!("Claude Code in hive"));
+    assert_eq!(
+        entry["hash"],
+        json!(""),
+        "no summary written without his ask"
+    );
+    // his ask from chat (the workers' memory.import, coding_assistants) starts the read now
+    let said = d
+        .on(|st| {
+            Box::pin(async move { memory_import::start_fetched(&st, memory_import::CODING, "") })
+        })
+        .await
+        .unwrap();
+    assert_eq!(said["started"], json!(true));
+    assert!(said["said"]
+        .as_str()
+        .unwrap()
+        .starts_with("I'm reading what's new in Claude Code now"));
+}
+
+// decision: MEM-467 — a website watch waits for its export mail by code: after its first run, no model run comes
+// before WATCH_MODEL_EVERY_HOURS
+#[tokio::test]
+async fn a_website_watch_waits_by_code_between_its_rare_model_runs() {
+    let tmp = tempfile::tempdir().unwrap();
+    let d = daemon(tmp.path()).await;
+    let waits = d
+        .on(|st| {
+            Box::pin(async move {
+                let sid = memory_import::make_site_job(&st, "chatgpt", "chrome/Default").unwrap();
+                let s = st.schedules().get(&sid).unwrap().unwrap();
+                let first = memory_import::watch_waits(&st, &s);
+                st.journal(
+                    "schedule.quiet",
+                    json!({"schedule_id": sid, "status": "done_with_gaps"}),
+                    None,
+                )
+                .unwrap();
+                // 47 ticks of 15 minutes after it: every one waits, no model run
+                let all_wait = memory_import::watch_waits(&st, &s);
+                (first, all_wait, sid)
+            })
+        })
+        .await;
+    assert!(!waits.0, "the first run requests the export");
+    assert!(waits.1, "a tick right after waits by code");
+    let sid = waits.2;
+    d.on(move |st| {
+        Box::pin(async move {
+            let s = st.schedules().get(&sid).unwrap().unwrap();
+            // the owner's schedules are never held
+            let mut mine = s.clone();
+            mine.targets = serde_json::Map::new();
+            assert!(!memory_import::watch_waits(&st, &mine));
+        })
+    })
+    .await;
 }

@@ -399,6 +399,17 @@ pub fn is_alert_body(body: &Value) -> bool {
     body.get("alert").and_then(Value::as_bool) == Some(true)
 }
 
+/// MEM-461: a notice folded into another place (`"folded": "<where>"`, e.g. the review of what an import brought in):
+/// kept, never drawn in the transcript again.
+pub const FOLDED: &str = "folded";
+
+/// A notice entry's body folded into another place: clients don't draw it in the transcript.
+pub fn is_folded_body(body: &Value) -> bool {
+    body.get(FOLDED)
+        .and_then(Value::as_str)
+        .is_some_and(|w| !w.is_empty())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

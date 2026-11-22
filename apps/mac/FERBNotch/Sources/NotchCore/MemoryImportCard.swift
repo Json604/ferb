@@ -148,6 +148,10 @@ public enum MemoryImportSwitch: String, CaseIterable, Identifiable {
 
     public var setting: String { self == .local ? "memory.local_import" : "memory.sites_import" }
 
+    /// MEM-466: what the Memory page's "Bring in what's new" asks `memory.import.start` for.
+    public static let codingAssistants = "coding_assistants"
+    public static let bringInWhatsNew = "Bring in what's new"
+
     public var title: String {
         switch self {
         case .local: return "Bring in what your coding assistants know"
@@ -158,9 +162,10 @@ public enum MemoryImportSwitch: String, CaseIterable, Identifiable {
     public var detail: String {
         switch self {
         case .local:
-            return "FERB reads what you've typed into Claude Code and Codex on this Mac over the last month, and keeps "
-                + "up with it every hour. Turn it off and FERB reads nothing more; what it already learned stays on the "
-                + "Memory page."
+            // MEM-466: read once on his Yes, again only when he asks; the session list is kept by code
+            return "FERB reads what you've typed into Claude Code and Codex on this Mac over the last month once, when "
+                + "you say yes, and again only when you ask. It always knows which sessions you have. Turn it off and "
+                + "FERB reads nothing more; what it already learned stays on the Memory page."
         case .sites:
             return "FERB asks each for a copy of your data in your browser, waits for their email, reads your last "
                 + "month of chats and then deletes the file. Turn it off and FERB asks for nothing and downloads "

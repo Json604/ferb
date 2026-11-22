@@ -3,9 +3,10 @@
 //! (MEM-447, MEM-448, his words of 2026-11-22):
 //!
 //! - **The coding assistants on this Mac** (Claude Code, Codex): asked once at setup's end ("Bring in what …
-//!   know about you?"); on Yes the last month is read and placed into the profile, the work log is written, and
-//!   both are kept up to date by the hourly memory pass, quietly. One Yes covers the updates; Settings turns them off
-//!   (what was learned stays). On No nothing is read, and it is not asked again.
+//!   know about you?"); on Yes the last month is read once and placed into the profile and the work log is written.
+//!   After that no model reads them unless he asks (MEM-466: "learn from my recent sessions", or "Bring in what's
+//!   new"); the session index is kept in step by code alone when something reads it. Settings turns them off (what
+//!   was learned stays). On No nothing is read, and it is not asked again.
 //! - **The websites** (ChatGPT, claude.ai): asked once after that, with the browser profiles FERB sees signed in to
 //!   choose from. On a choice FERB makes one quiet watch per site (the schedules' own machinery): it requests the
 //!   export there, checks the mail every 15 minutes (IMP-24), downloads only the parts it needs and gives them to
@@ -175,38 +176,94 @@ async fn run_import(st: &Rc<State>, run_id: &str, tell: Tell) {
     }
 }
 
-/// The one ask after an import (MEM-444): FERB's own question, answered in the owner's own words, asked once.
+/// The review after an import (MEM-444, MEM-460, MEM-462): this import's round is marked (the offers and older
+/// lines asked once, the always-on suggestions) and FERB's own question is asked when anything is to answer and none
+/// waits. The card is its face; the owner answers item by item there, or in his own words.
 pub fn ask_offers(st: &Rc<State>) {
-    if super::memory::pending_own(st, OFFERS_KIND).is_some() {
+    let _ = job(st).review_round();
+    ask_review(st);
+}
+
+/// FERB's review question, asked when the review has anything to answer and none waits (MEM-460): earlier "Now always
+/// on" notices about imported lines are folded into it first (MEM-461).
+pub fn ask_review(st: &Rc<State>) {
+    fold_imported_notices(st);
+    if super::memory::pending_own(st, REVIEW_KIND).is_some() {
         return;
     }
-    if let Ok(Some((question, ident))) = job(st).ask_now() {
-        let key = format!("memory-offers-{}", ferb_clock::py::iso(&st.now()));
-        let _ = super::memory::ask_owner(
-            st,
-            OFFERS_KIND,
-            &ferb_py::json::dumps(&ident),
-            &question,
-            &key,
-            None,
-            None,
-        );
+    if let Ok(Some(question)) = job(st).review_question() {
+        let key = format!("memory-review-{}", ferb_clock::py::iso(&st.now()));
+        let _ = super::memory::ask_owner(st, REVIEW_KIND, "{}", &question, &key, None, None);
     }
 }
 
-/// The owner's reply to the ask (MEM-444): the model reads which items he meant (`apply_answer`), code applies it,
-/// and FERB says what it did in one line.
+/// The review's start step (MEM-461): the lines an earlier build put in the profile by themselves are marked for the
+/// owner's word (they stay on until he declines each), the "Now always on" notices about imported lines are folded
+/// into the one list, and the question is asked when the marking found new ones or an older build's offers question
+/// was waiting (`converted`). A review question that waits is asked again by `restore_memory_questions`.
+pub fn review_start(st: &Rc<State>, converted: bool) {
+    let marked = job(st).suggest_always_on().unwrap_or(0);
+    fold_imported_notices(st);
+    if marked > 0 || converted {
+        ask_review(st);
+    }
+}
+
+/// An older build's offers question waiting at start (MEM-444's numbered list): its older lines that steer FERB's work
+/// and its offers go into the review (MEM-462); the rest stay remembered, marked "last said …". True when it had any.
+pub fn convert_offers_question(st: &Rc<State>, ident: &str) -> bool {
+    let Ok(ident) = ferb_py::json::loads(ident) else {
+        return false;
+    };
+    job(st).carry_asked(&ident).unwrap_or(0) > 0
+}
+
+/// The "Now always on" notices about imported lines (any version of their item), folded into the review (MEM-461):
+/// marked, never deleted, so no client draws them in the chat again.
+pub fn fold_imported_notices(st: &Rc<State>) {
+    let refs: Vec<String> = st
+        .store
+        .query(
+            "SELECT DISTINCT i.id FROM memory_items i JOIN memory_import_lines l \
+             ON l.kind = i.kind AND l.subject = i.subject AND l.key = i.key",
+            ferb_learning::sql![],
+        )
+        .unwrap_or_default()
+        .iter()
+        .map(|r| format!("memory-always-on-{}", r.s_at(0)))
+        .collect();
+    if !refs.is_empty() {
+        st.owner.fold_notices(refs, REVIEW_FOLD);
+    }
+}
+
+/// After an answer by a button: the review's question closes once nothing is left to answer.
+pub fn review_settled(st: &Rc<State>) {
+    let empty = job(st)
+        .review()
+        .map(|r| r["count"].as_u64() == Some(0))
+        .unwrap_or(false);
+    if !empty {
+        return;
+    }
+    while let Some(id) = super::memory::pending_own(st, REVIEW_KIND) {
+        let _ = st.questions.supersede(&id);
+        let _ = super::memory::close_own(st, &id);
+    }
+}
+
+/// The owner's reply in his own words to the review (MEM-444, MEM-460): the model reads which items he meant
+/// (`apply_answer`, against the list as it stands now), code applies it through the review's one path, FERB says what
+/// it did in one line, and asks again about what is left.
 pub fn offers_answered(st: &Rc<State>, state: &str, words: &str, ident: &str) -> String {
     if state != "granted" || ferb_py::value::strip(words).is_empty() {
         return String::new();
     }
-    let Ok(ident) = ferb_py::json::loads(ident) else {
-        return String::new();
-    };
+    let ident = ferb_py::json::loads(ident).unwrap_or(Value::Null);
     let (me, words) = (st.clone(), words.to_owned());
     tokio::task::spawn_local(async move {
         let j = job(&me);
-        let text = match j.apply_answer(&ident, &words).await {
+        let text = match j.apply_answer(&me.profile, &ident, &words).await {
             Ok(counts) => ferb_learning::import_job::ImportJob::answer_line(&counts),
             Err(e) => {
                 let why: String = me.redact_text(&e.described()).chars().take(300).collect();
@@ -226,8 +283,20 @@ pub fn offers_answered(st: &Rc<State>, state: &str, words: &str, ident: &str) ->
             None,
         );
         fut.await;
+        ask_review(&me);
     });
     "Thanks, I'll update them.".into()
+}
+
+/// The owner's "Always on" / "Not always on" on the Memory page for an imported line (MEM-460): his word on it, so it
+/// leaves the review.
+pub fn profile_word(st: &Rc<State>, item_id: &str, approve: bool) {
+    if job(st)
+        .owner_word_always_on(item_id, approve)
+        .unwrap_or(false)
+    {
+        review_settled(st);
+    }
 }
 
 /// Said after a website's import when FERB deleted the export it had downloaded (IMP-32).
@@ -250,7 +319,41 @@ pub(crate) fn handlers() -> Vec<(&'static str, Handler)> {
         ("memory.import.lines", |s, p| Box::pin(lines(s, p))),
         ("memory.import.offer", |s, p| Box::pin(offer_answer(s, p))),
         ("memory.import.switch", |s, p| Box::pin(switch(s, p))),
+        ("memory.review", |s, p| Box::pin(review(s, p))),
+        ("memory.review.answer", |s, p| Box::pin(review_answer(s, p))),
     ]
+}
+
+/// `memory.review {}`: the review of what imports brought in, as every client draws it (MEM-460): its parts (keep in
+/// mind all the time, still true, still want help), their groups and items, and the answers each takes.
+async fn review(st: Rc<State>, _params: Params) -> HandlerResult {
+    ok(job(&st).review().map_err(learning_error)?)
+}
+
+/// `memory.review.answer {part, item_ids, answer}`: the owner's answer to items of one part, one or all at once
+/// (MEM-460): always_on approve | decline, still_true yes | no | unsure, offers open | done | not interested. Answers
+/// with the review as it stands now; the question closes when nothing is left.
+async fn review_answer(st: Rc<State>, params: Params) -> HandlerResult {
+    let ids: Vec<String> = params
+        .get("item_ids")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|v| v.as_str().map(str::to_owned))
+        .collect();
+    let j = job(&st);
+    let answered = j
+        .answer_review(
+            &st.profile,
+            &text(&params, "part"),
+            &ids,
+            &text(&params, "answer"),
+        )
+        .map_err(unreadable)?;
+    review_settled(&st);
+    let mut out = j.review().map_err(learning_error)?;
+    out["answered"] = json!(answered);
+    ok(out)
 }
 
 /// `memory.import.lines {}`: what FERB brought in from other assistants, by memory item: where it applies and the
@@ -307,6 +410,10 @@ async fn estimate(st: Rc<State>, params: Params) -> HandlerResult {
 
 /// `memory.import.start {source, path?}`: the import in the background; the answer carries the estimate.
 async fn start(st: Rc<State>, params: Params) -> HandlerResult {
+    // MEM-466: the Memory page's "Bring in what's new": what's new in his coding sessions, read now because he asked
+    if text(&params, "source") == CODING {
+        return ok(json!({"started": true, "said": learn_now(&st).map_err(refusal)?}));
+    }
     let (source, path) = import_params(&params)?;
     let j = job(&st);
     let estimate = j.estimate(&source, &path).map_err(unreadable)?;
@@ -352,8 +459,13 @@ async fn cancel(st: Rc<State>, _params: Params) -> HandlerResult {
 /// FERB's own question about the coding assistants on this Mac, and about the websites.
 pub const LOCAL_KIND: &str = "memory_local";
 pub const SITES_KIND: &str = "memory_sites";
-/// The one ask after an import: which older offers and lines are still on, answered in the owner's words (MEM-444).
+/// An older build's one ask after an import (MEM-444): closed at start, its items carried into the review.
 pub const OFFERS_KIND: &str = "memory_offers";
+/// The review of what an import brought in (MEM-460): FERB's own question, its card the list, answered item by item
+/// or in the owner's own words.
+pub const REVIEW_KIND: &str = "memory_review";
+/// What the "Now always on" notices about imported lines are folded into (MEM-461).
+pub const REVIEW_FOLD: &str = "memory-review";
 /// The owner's answer about the coding assistants: true keeps them read and up to date; false: never read. Unset:
 /// not asked yet. Shown in Settings (Memory), where turning it off stops the updates and keeps what was learned.
 pub const LOCAL_SETTING: (&str, &str) = ("memory", "local_import");
@@ -386,9 +498,9 @@ pub fn names(sources: &[&str]) -> String {
 /// The question about the coding assistants: its title and detail (owner-facing, plain).
 pub fn local_question(found: &[&str]) -> String {
     format!(
-        "Bring in what {} know{} about you?\nI'd read what you've typed into {} on this Mac over the last month and \
-         keep a short log of your sessions, so I know how you like to work and what you're working on. I'll keep it \
-         up to date as you use {}. What I keep stays on this Mac, and you can turn this off in Settings.",
+        "Bring in what {} know{} about you?\nI'd read what you've typed into {} on this Mac over the last month, once, \
+         so I know how you like to work and what you're working on, and I'd always know which sessions you have. \
+         I'll read {} again only when you ask. What I keep stays on this Mac, and you can turn this off in Settings.",
         names(found),
         if found.len() == 1 { "s" } else { "" },
         if found.len() == 1 { "it" } else { "them" },
@@ -521,10 +633,20 @@ pub fn local_answered(st: &Rc<State>, yes: bool) -> String {
 /// places it into the profile and brings the work log up to date (MEM-433, MEM-441). Skipped while another import
 /// runs; each run waits for the owner's chat turn like every import call.
 pub async fn local_update(st: &Rc<State>, tell: Tell) {
+    read_local(st, tell, false).await;
+}
+
+/// The owner's own ask (MEM-466): read even with the switch off; his words are the Yes for this read.
+async fn local_update_asked(st: &Rc<State>) {
+    read_local(st, Tell::Always, true).await;
+}
+
+async fn read_local(st: &Rc<State>, tell: Tell, asked: bool) {
+    let allowed = |st: &State| asked || local_on(st);
     let j = job(st);
     for source in ferb_memory::import_local::found(&st.user_home) {
         // MEM-459: the switch turned off stops it between sources too
-        if !local_on(st) || !j.running().map(|r| r.is_empty()).unwrap_or(false) {
+        if !allowed(st) || !j.running().map(|r| r.is_empty()).unwrap_or(false) {
             return;
         }
         let Ok(run_id) = j.create(source, "") else {
@@ -537,7 +659,7 @@ pub async fn local_update(st: &Rc<State>, tell: Tell) {
         let _ = handle.await;
         *st.local_abort.borrow_mut() = None;
     }
-    if !local_on(st) {
+    if !allowed(st) {
         return;
     }
     if let Err(e) = j.worklog_update(&st.learning).await {
@@ -685,19 +807,55 @@ pub async fn hourly(st: &Rc<State>) {
             tokio::task::spawn_local(fut);
         }
     }
-    let on = st
-        .config_get(LOCAL_SETTING.0, LOCAL_SETTING.1)
-        .is_some_and(|v| v == json!(true));
-    if on && !st.tasks.running() {
-        local_update(st, Tell::Never).await;
-    }
+    // decision: MEM-466 — no model reads his sessions unless he asks: the hourly pass no longer brings in what's new
+    // or writes the work log's summaries; the session index is kept by code when something reads it (`session_index`)
     let _ = j.refresh_abouts();
+}
+
+/// MEM-466: the index of his coding sessions brought in step with the prompt-history files by code alone (no model),
+/// when something reads it (memory.learned); only while his Yes to the coding assistants stands. Nothing is read when
+/// the files haven't changed.
+pub fn session_index(st: &Rc<State>) {
+    if !local_on(st) {
+        return;
+    }
+    if let Err(e) = job(st).worklog_index(&st.learning) {
+        let why: String = st.redact_text(&e.described()).chars().take(300).collect();
+        let _ = st.journal("memory.worklog_index_failed", json!({"error": why}), None);
+    }
+}
+
+/// What the owner's ask to learn from his coding sessions is called by (the workers' `memory.import`, the Memory
+/// page's "Bring in what's new", `memory.import.start`): MEM-466.
+pub const CODING: &str = "coding_assistants";
+
+/// MEM-466: the owner asked FERB to learn from his coding sessions (in chat, or "Bring in what's new"): what's new in
+/// them is read now (the import reads only parts it hasn't), placed into the profile, and the work log's new and grown
+/// entries summarised, then he is told once. His ask is the Yes for this read, whatever the switch says.
+pub fn learn_now(st: &Rc<State>) -> Result<String, String> {
+    let found = ferb_memory::import_local::found(&st.user_home);
+    if found.is_empty() {
+        return Err("I don't see Claude Code or Codex on this Mac.".into());
+    }
+    if !job(st).running().map(|r| r.is_empty()).unwrap_or(false) {
+        return Ok("I'm already reading them; I'll tell you what I learned.".into());
+    }
+    let me = st.clone();
+    tokio::task::spawn_local(async move { local_update_asked(&me).await });
+    Ok(format!(
+        "I'm reading what's new in {} now and I'll tell you what I learned.",
+        names(&found)
+    ))
 }
 
 /// `memory.import` (the workers' tool, MEM-448): an export FERB downloaded into its own downloads folder, imported in
 /// the background; deleted when the import is done (IMP-32). Only a file or folder under FERB's downloads folder: an
 /// export the owner gives goes in from the Memory page and is never deleted.
 pub fn start_fetched(st: &Rc<State>, source: &str, path: &str) -> Result<Value, String> {
+    // MEM-466: the owner asked FERB to learn from his coding sessions (no file: they are read where they live)
+    if source == CODING {
+        return learn_now(st).map(|said| json!({"started": true, "said": said}));
+    }
     if !SITES.contains(&source) && source != "gemini" {
         return Err(format!(
             "memory.import takes a website's export: one of chatgpt, claude, gemini, not {source}"
@@ -805,6 +963,34 @@ pub fn watch_moved(st: &State, s: &ferb_clock::schedules::Schedule) {
     }
 }
 
+/// MEM-467: after the run that requests a website's export, a watch's model run comes at most this often while it
+/// waits for the mail (FERB's proposal; the owner's number to set). The 15-minute ticks in between are code only.
+pub const WATCH_MODEL_EVERY_HOURS: i64 = 12;
+
+/// MEM-467 (the owner, on model calls he didn't ask for): whether a website watch's tick waits with no model run. The
+/// first run (it requests the export) always goes. After it, FERB has no code check of his mailbox yet (T-1293), so a
+/// model run checks the mail at most every `WATCH_MODEL_EVERY_HOURS`; every other tick is skipped by code. Not a
+/// watch: false.
+pub fn watch_waits(st: &State, s: &ferb_clock::schedules::Schedule) -> bool {
+    if site_of(s).is_none() {
+        return false;
+    }
+    let last = st
+        .store
+        .one(
+            "SELECT at FROM journal WHERE kind IN ('schedule.posted', 'schedule.quiet') \
+             AND json_extract(data_json, '$.schedule_id') = ? ORDER BY seq DESC LIMIT 1",
+            ferb_learning::sql![s.id],
+        )
+        .ok()
+        .flatten()
+        .and_then(|r| ferb_clock::py::parse(&r.s_at(0)));
+    let Some(last) = last else {
+        return false; // the run that requests the export
+    };
+    ferb_clock::py::total_seconds(&st.now(), &last) < (WATCH_MODEL_EVERY_HOURS * 3600) as f64
+}
+
 /// The website a schedule watches for the import, when it is one of FERB's own watches (MEM-451).
 fn site_of(s: &ferb_clock::schedules::Schedule) -> Option<String> {
     s.targets
@@ -889,7 +1075,7 @@ pub fn refresh(st: &Rc<State>) -> Option<Value> {
 
 // ---------- the owner's two switches (MEM-459) ----------
 
-/// The coding assistants' switch is on: FERB reads them and keeps up with them.
+/// The coding assistants' switch is on: FERB read them once and keeps their session index (MEM-466).
 pub fn local_on(st: &State) -> bool {
     st.config_get(LOCAL_SETTING.0, LOCAL_SETTING.1) == Some(json!(true))
 }
@@ -971,7 +1157,7 @@ fn switch_local(st: &Rc<State>, on: bool) -> String {
         };
     }
     if local_on(st) {
-        return "I'm already keeping up with your coding assistants.".into();
+        return "That's already on: I know which sessions you have, and I'll read them again whenever you ask.".into();
     }
     set_config(st, LOCAL_SETTING, json!(true));
     let _ = st.journal(

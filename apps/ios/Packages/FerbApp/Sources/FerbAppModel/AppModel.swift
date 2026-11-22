@@ -317,6 +317,8 @@ public final class AppModel {
     public let live: LiveWatch
     /// The owner's coding sessions (kb HAND-651): the list, the one open, what waits for his Yes.
     public let coding = CodingSessions()
+    /// The owner's review of what an import brought in (kb MEM-460): the list on its question's card.
+    public let review = ImportReview()
     /// Show me (APP-983): the Mac's camera, pulled only while its view shows.
     public let camera: CameraWatch
     /// The work row's round live pictures (kb PHN-725), only while it shows, unlocked, in front and not on the shared relay.
@@ -630,6 +632,7 @@ public final class AppModel {
                 default: break
                 }
                 coding.locked()
+                review.locked()
                 transfers.locked()
                 outgoing.locked()
                 ui.files = FilesUi()
@@ -2098,6 +2101,7 @@ public final class AppModel {
                 ui.settings = nil
                 ui.status = nil
                 coding.locked()
+                review.locked()
                 refreshProfile()
             case .failed(let e):
                 failed(e)

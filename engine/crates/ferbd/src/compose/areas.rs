@@ -214,6 +214,10 @@ impl Owner for OwnerSide {
             }
         })
     }
+
+    fn fold_notices(&self, refs: Vec<String>, into: &str) {
+        self.chat.fold_notices(&refs, into);
+    }
 }
 
 /// FERB's own questions outside a task (group A's `_ask_owner`), as the browser area asks its one question (APP-777).

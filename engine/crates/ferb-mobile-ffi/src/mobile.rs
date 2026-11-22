@@ -14,9 +14,9 @@ use crate::link::{Link, LinkInner};
 use crate::records::{
     Attachment, CameraFrame, Cancelled, Conv, ConversationInfo, DeviceReport, Fetched, Folder,
     FoundFiles, GroupStarted, Insomnia, InsomniaEnded, InsomniaStarted, LinkState, LocationFix,
-    MacInfo, MacLocked, OlderState, OutboxItem, PhoneStatus, PreviewFrame, RecentFiles, ScreenUse,
-    ScreenUseEnd, SessionSent, SessionStartPlan, SessionTimeline, SessionsList, SettingValue,
-    TaskPage, TranscriptView, Tree, Uploaded,
+    MacInfo, MacLocked, MemoryReview, OlderState, OutboxItem, PhoneStatus, PreviewFrame,
+    RecentFiles, ScreenUse, ScreenUseEnd, SessionSent, SessionStartPlan, SessionTimeline,
+    SessionsList, SettingValue, TaskPage, TranscriptView, Tree, Uploaded,
 };
 
 fn signer_of(s: Arc<dyn Signer>) -> Arc<dyn ferb_mobile::Signer> {
@@ -639,6 +639,29 @@ impl Mobile {
             Ok(self
                 .core()?
                 .start_insomnia(&variant, screen_yes, signer_of(signer))?
+                .conv())
+        })
+    }
+
+    // ---- the owner's review of what an import brought in (kb MEM-460..457) --------------------------------------------
+
+    /// The review of what an import brought in (`memory.review`; needs the unlock). Network.
+    pub fn memory_review(&self) -> Result<MemoryReview, FerbError> {
+        guard(|| Ok(self.core()?.memory_review()?.conv()))
+    }
+
+    /// The owner's answer to items of one part (`always_on`: approve / decline; `still_true`: yes / no / unsure;
+    /// `offers`: open / done / not interested), one or all at once; the review as it stands after it. Network.
+    pub fn answer_memory_review(
+        &self,
+        part: String,
+        item_ids: Vec<String>,
+        answer: String,
+    ) -> Result<MemoryReview, FerbError> {
+        guard(|| {
+            Ok(self
+                .core()?
+                .answer_memory_review(&part, &item_ids, &answer)?
                 .conv())
         })
     }

@@ -91,7 +91,7 @@ fn journal(w: &World, kind: &str) -> Vec<Value> {
         .collect()
 }
 
-// decision: MEM-448, MEM-449, MEM-451
+// decision: MEM-448, MEM-467, MEM-451
 #[test]
 fn the_watch_runs_in_the_chosen_profile_and_its_request_says_each_stage() {
     let w = one_run("Requested the data export on chatgpt.com at 10:00 in the Chrome Work profile; ChatGPT says the \

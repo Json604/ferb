@@ -86,6 +86,9 @@ pub trait Owner: Send + Sync {
         origin: &str,
         cards: Option<Value>,
     ) -> LocalFuture<()>;
+    /// Notices already in the owner's chat, by their ids, folded into `into` (MEM-461): kept, marked, never drawn
+    /// in the chat again (as an alert's mark, APP-1106). A stand-in without a chat does nothing.
+    fn fold_notices(&self, _refs: Vec<String>, _into: &str) {}
 }
 
 /// FERB's own questions outside tasks (the gateway's approvals, ferb-gateway in progress).

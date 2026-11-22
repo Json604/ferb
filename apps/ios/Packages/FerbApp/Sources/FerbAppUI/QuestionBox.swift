@@ -45,8 +45,11 @@ struct QuestionBox: View {
                 let m = q.shown
                 let detail: String? = m.map { [$0.pictureProblem, $0.detail].compactMap { $0 }.joined(separator: "\n\n") }.flatMap { $0.isEmpty ? nil : $0 }
                     ?? (q.title != nil && !q.reason.isEmpty ? q.reason : nil)
+                // FERB's review of an import (kb MEM-460): its list in place of the detail; the typed answer's box stays
+                let review = m?.review == true
                 head(header: m.flatMap { $0.header.isEmpty ? nil : $0.header } ?? L.s(q.hidden ? "question_private_title" : "question_needs_answer"),
-                     question: m?.question ?? q.title ?? q.reason, detail: detail, fromTask: m?.fromTask == true)
+                     question: m?.question ?? q.title ?? q.reason, detail: review ? nil : detail, fromTask: m?.fromTask == true)
+                if review { ReviewList(model: model, ink: ink) }
                 if let e = m?.exact ?? q.exact {
                     Text(e).font(.system(size: 14.5, design: .monospaced)).foregroundStyle(ink.primary)
                         .frame(maxWidth: .infinity, alignment: .leading).padding(12)

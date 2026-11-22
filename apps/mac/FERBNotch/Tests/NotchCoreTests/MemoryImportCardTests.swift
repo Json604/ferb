@@ -69,7 +69,7 @@ final class MemoryImportCardTests: XCTestCase {
         XCTAssertEqual(MemoryImportCard.Row(key: "k", line: "", done: 9, total: 4).fraction, 1)
     }
 
-    // decision: MEM-456, MEM-445
+    // decision: MEM-456, MEM-460
     func testTheCardIsLiveStateAtTheEndOfTodayAndLeavesWithTheNotice() async throws {
         let rpc = ScriptedRPC()
         rpc.replies["memory.import.status"] = ["current": NSNull(), "runs": [], "live": Self.reading]

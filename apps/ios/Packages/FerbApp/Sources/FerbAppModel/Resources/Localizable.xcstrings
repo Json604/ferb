@@ -2885,6 +2885,17 @@
         }
       }
     },
+    "review_show_all": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show all %1$lld"
+          }
+        }
+      }
+    },
     "scan_allow": {
       "extractionState": "manual",
       "localizations": {

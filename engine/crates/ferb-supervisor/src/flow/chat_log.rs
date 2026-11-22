@@ -460,6 +460,46 @@ impl ChatLog {
         });
     }
 
+    // ---- notices folded into another place (MEM-461) ----
+
+    /// The notices whose ids are `refs`, folded into `into` (`"folded": into` on the body, a revision every client
+    /// receives and stops drawing, as an alert's mark, APP-1106): nothing is deleted, the words are kept, and a notice
+    /// folded already is left as it is. The number folded now.
+    pub fn fold_notices(&self, inner: &Inner, refs: &[String], into: &str) -> usize {
+        let wanted: BTreeSet<&str> = refs.iter().map(String::as_str).collect();
+        self.rewrite(inner, |conn| {
+            let rows: Vec<(String, String)> = {
+                let mut q = conn.prepare(
+                    "SELECT id, ref FROM chat_entries WHERE kind = 'notice' AND deleted = 0 AND ref IS NOT NULL \
+                     ORDER BY seq",
+                )?;
+                let rows = q
+                    .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                    .collect::<Result<Vec<_>, _>>()?;
+                rows
+            };
+            let mut revised = Vec::new();
+            for (id, reference) in rows {
+                if !wanted.contains(reference.as_str()) {
+                    continue;
+                }
+                let Some(mut e) = store::get(conn, &id)? else {
+                    continue;
+                };
+                if ferb_core::chat_entry::is_folded_body(&e.body) {
+                    continue;
+                }
+                let Value::Object(body) = &mut e.body else {
+                    continue;
+                };
+                body.insert(ferb_core::chat_entry::FOLDED.into(), Value::String(into.into()));
+                revised.push(store::revise(conn, e, &inner.now_iso())?);
+            }
+            Ok((revised.len(), revised))
+        })
+        .unwrap_or(0)
+    }
+
     // ---- the owner's delete (STORE-424) ----
 
     /// Whether a stream is still open for this message (FERB is still answering it).

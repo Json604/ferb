@@ -52,7 +52,7 @@ fn arguments(text: &str, marker: &str, index: usize) -> Vec<String> {
     out
 }
 
-// decision: MEM-447, MEM-448, MEM-444
+// decision: MEM-466, MEM-448, MEM-444, MEM-462
 #[test]
 fn every_own_question_kind_the_daemon_raises_is_in_the_real_table() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
@@ -94,7 +94,7 @@ fn every_own_question_kind_the_daemon_raises_is_in_the_real_table() {
     for h in [
         "memory_local",
         "memory_sites",
-        "memory_offers",
+        "memory_review",
         "downloads",
         "forget",
         "browsing",

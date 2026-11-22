@@ -187,6 +187,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
             let store = FERBWindowStore(rpc: coordinator.model.rpc)
             store.previewAccess = coordinator.model.previewAccess        // Sessions → Watch: the notch's gate (APP-407)
+            store.memoryReview = coordinator.model.memoryReview          // MEM-460: one review, chat and Memory page
             store.sessions.clientID = { [weak model = coordinator.model] in model?.clientID }
             let window = FERBWindowController(store: store, actions: actions)
             coordinator.hasWindow = true                      // plan D's menu shows Open FERB Window

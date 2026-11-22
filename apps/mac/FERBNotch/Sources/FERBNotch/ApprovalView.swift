@@ -45,7 +45,10 @@ struct ApprovalView: View {
                 if approval.hasPicture || approval.pictureProblem != nil {   // GATE-579: the payment page, once
                     PaymentPictureView(model: model, pictures: model.paymentPictures, approval: approval)
                 }
-                if let detail = approval.detail {
+                if approval.capability == MemoryReview.capability {
+                    // MEM-460: FERB's review of what an import brought in: its list, answered item by item here
+                    MemoryReviewList(model: model.memoryReview)
+                } else if let detail = approval.detail {
                     ApprovalText(text: detail, size: 11.5, secondary: true)
                 }
                 if let exact = approval.exact { ExactBox(text: exact) }

@@ -158,6 +158,8 @@ pub const METHODS: &[Method] = &[
     m("memory.repeats", &[Role::Cli], false),
     m("memory.restore", &[Role::Cli], false),
     m("memory.retract", &[Role::Cli], false),
+    m("memory.review", &[Role::Cli], false),
+    m("memory.review.answer", &[Role::Cli], false),
     m("memory.show", &[Role::Cli], false),
     m("notices.list", &[Role::Cli], false),
     m("notifications.categories", &[Role::Cli], false),
@@ -365,12 +367,16 @@ pub const INSOMNIA_ADDITIONS: [&str; 8] = [
 
 /// MEM-442, MEM-444: the owner's word on an imported memory: where it applies (`memory.import.scope`) and his
 /// answer to its offer (`memory.import.offer`), sensitive; and what the Memory page shows of them
-/// (`memory.import.lines`, private). MEM-459: the owner's two switches (`memory.import.switch`), sensitive.
-pub const MEMORY_IMPORT_ADDITIONS: [&str; 4] = [
+/// (`memory.import.lines`, private). MEM-459: the owner's two switches (`memory.import.switch`), sensitive. MEM-460:
+/// the owner's review of what an import brought in (`memory.review`) and his answers to it item by item
+/// (`memory.review.answer`), both private: an answer to FERB's own question, as `chat.answer` is.
+pub const MEMORY_IMPORT_ADDITIONS: [&str; 6] = [
     "memory.import.lines",
     "memory.import.offer",
     "memory.import.scope",
     "memory.import.switch",
+    "memory.review",
+    "memory.review.answer",
 ];
 
 /// PHN-797: the owner's coding-agent sessions, FERB.app's own (`app_only`); from a phone by their classes (reads and

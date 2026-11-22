@@ -305,48 +305,15 @@ pub async fn refresh(st: &Rc<State>) -> Result<bool, String> {
     Ok(true)
 }
 
-/// `_tell_mac_joins` (MEM-427): a re-check's facts newly in the core profile, told as one quiet notice.
+/// `_tell_mac_joins` (MEM-427): a re-check's facts newly in the core profile, told as one quiet notice through the
+/// one path every join is told by (MEM-463).
 async fn tell_mac_joins(st: &Rc<State>, ids: &[String]) {
     let items: Vec<ferb_learning::items::Item> = ids
         .iter()
         .filter_map(|i| st.memory.get(i).ok().flatten())
         .collect();
-    let Some(first) = items.first() else {
-        return;
-    };
-    let texts: Vec<String> = items
-        .iter()
-        .map(|it| it.content.split_whitespace().collect::<Vec<_>>().join(" "))
-        .collect();
-    let line = format!(
-        "Now always on: {} ({})",
-        texts
-            .iter()
-            .map(|t| format!("“{t}”"))
-            .collect::<Vec<_>>()
-            .join(", "),
-        ferb_learning::items::origin_label(&first.origin)
-    );
-    let made: Vec<Value> = items
-        .iter()
-        .zip(&texts)
-        .map(|(it, t)| {
-            let mut c = ferb_orchestrator::cards::note(&it.id, t, "saved", &line);
-            c["label"] = json!(ferb_learning::items::origin_label(&it.origin));
-            c["origin"] = json!(it.origin);
-            c["always_on"] = json!(true);
-            c
-        })
-        .collect();
-    st.owner
-        .tell_owner(
-            &format!("memory-always-on-scan-{}", ferb_clock::py::iso(&st.now())),
-            items.iter().map(|it| format!("memory:{}", it.id)).collect(),
-            &line,
-            &ferb_sanitize::origin::join(["ferb", "inferred"]),
-            Some(Value::Array(made)),
-        )
-        .await;
+    let ident = format!("memory-always-on-scan-{}", ferb_clock::py::iso(&st.now()));
+    super::memory::tell_always_on(st, &items, &ident).await;
 }
 
 /// `_tell_mac_profile`: shown once in chat when the setup step didn't show it.

@@ -259,6 +259,10 @@ pub const PHONE_METHODS: &[PhoneMethod] = &[
     sensitive("memory.import.offer", "answers an imported memory's offer"),
     // decision: MEM-459 — the owner's switches for bringing in what other assistants know: his fingerprint on a phone
     sensitive("memory.import.switch", "turns bringing in what other assistants know on or off"),
+    // MEM-460: the review of what an import brought in, and the owner's answers to it item by item: his answer to
+    // FERB's own question (chat.answer's class is plain), shown with his data, so private
+    private("memory.review", "what FERB asks the owner to check after an import"),
+    private("memory.review.answer", "the owner's answer to FERB's review of an import"),
     // ---- perception
     plain("sense.status", "whether FERB watches the Mac"),
     plain("sense.pause", "stops FERB watching: only ever less"),

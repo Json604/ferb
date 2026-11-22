@@ -246,7 +246,7 @@ fn fixes(request: &str, python: &str) -> Option<String> {
                 .last()
                 .and_then(|r| r.get("where").cloned())
                 .unwrap_or(Value::Null);
-            // decision: MEM-447: the owner's answer about the coding assistants on this Mac, off until asked
+            // decision: MEM-466: the owner's answer about the coding assistants on this Mac, off until asked
             settings.push(json!({"key": "memory.local_import", "value": false, "where": place}));
             // decision: MEM-459: the owner\'s switch for ChatGPT and Claude, off until he chooses a browser
             settings.push(json!({"key": "memory.sites_import", "value": false, "where": place}));

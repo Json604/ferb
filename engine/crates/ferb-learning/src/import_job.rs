@@ -973,6 +973,8 @@ impl ImportJob<'_> {
     /// Places the run's facts into the profile (IMP-31) and keeps what changed on the run, for its notice.
     pub async fn place_run(&self, run_id: &str) -> Result<Map<String, Value>> {
         let change = self.place(run_id).await?;
+        // MEM-460: what holds up is listed for the owner's word, never joined by itself
+        self.suggest_always_on()?;
         if let Some(row) = self.row(run_id)? {
             let mut counts = row["counts"].as_object().cloned().unwrap_or_default();
             counts.insert("profile".into(), Value::Object(change.clone()));
@@ -989,7 +991,7 @@ impl ImportJob<'_> {
         Ok(change)
     }
 
-    /// The one notice after an import (MEM-445): the profile's report (`report`), said to the owner; a run that
+    /// The one notice after an import (MEM-460): the profile's report (`report`), said to the owner; a run that
     /// stopped says so, and an older export too. `closing`: a line the caller adds (the export file deleted).
     pub fn tell_done(&self, run_id: &str) -> Result<()> {
         self.tell_done_with(run_id, "")

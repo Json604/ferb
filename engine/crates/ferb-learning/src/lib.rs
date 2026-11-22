@@ -36,6 +36,9 @@ pub mod import_live;
 #[cfg(feature = "store")]
 pub mod import_profile;
 #[cfg(feature = "store")]
+/// The owner's review of what an import brought in (MEM-460..457).
+pub mod import_review;
+#[cfg(feature = "store")]
 pub mod items;
 pub mod journal;
 #[cfg(feature = "store")]

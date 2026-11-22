@@ -61,6 +61,8 @@ final class FERBWindowStore: ObservableObject {
     /// What FERB brought in from other assistants, by memory id: scope and offer (MEM-442..444).
     @Published var importedLines: [String: ImportedLine] = [:]
     @Published var importEstimate: MemoryImportEstimate?
+    /// MEM-460: FERB's review of what an import brought in (the chat's card shares it: Application sets the notch's).
+    lazy var memoryReview = MemoryReviewModel(rpc: rpc)
     /// The Memory page shows only facts imported from this source (a memory import notice's page card); nil: all.
     @Published var memoryFilter: String?
     // Step 12c: Settings → About and Settings → Data.
@@ -252,6 +254,15 @@ final class FERBWindowStore: ObservableObject {
         guard await ask("memory.import.start", ["source": estimate.source, "path": estimate.path],
                         wait: Self.runtimeWait) != nil else { return }
         importEstimate = nil
+        await loadImportStatus()
+    }
+
+    /// MEM-466: "Bring in what's new": FERB reads what's new in Claude Code and Codex now, because the owner asked
+    /// (no model reads them otherwise); its line goes under the page.
+    func bringInWhatsNew() async {
+        guard let reply = await ask("memory.import.start", ["source": MemoryImportSwitch.codingAssistants],
+                                    wait: Self.runtimeWait) else { return }
+        note = reply["said"] as? String
         await loadImportStatus()
     }
 

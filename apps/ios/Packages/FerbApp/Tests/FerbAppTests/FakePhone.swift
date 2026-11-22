@@ -437,6 +437,29 @@ final class FakePhone: PhoneApi {
         return .ok(Live { [weak self] in Task { @MainActor in self?.previewStopped += 1 } })
     }
 
+    /// The review of an import as the Mac holds it; an answer takes its items out. `reviewRefusal` refuses the next call.
+    @ObservationIgnored var review = MemoryReview(parts: [], count: 0)
+    @ObservationIgnored var reviewRefusal: FerbError?
+    @ObservationIgnored var reviewAnswers: [(part: String, ids: [String], answer: String)] = []
+    func memoryReview() async -> Outcome<MemoryReview> {
+        calls.append("review")
+        if let e = reviewRefusal { reviewRefusal = nil; return .failed(e) }
+        return .ok(review)
+    }
+    func answerMemoryReview(part: String, itemIds: [String], answer: String) async -> Outcome<MemoryReview> {
+        calls.append("review-answer:\(part):\(itemIds.joined(separator: ",")):\(answer)")
+        if let e = reviewRefusal { reviewRefusal = nil; return .failed(e) }
+        reviewAnswers.append((part, itemIds, answer))
+        let gone = Set(itemIds)
+        review.parts = review.parts.compactMap { p in
+            var p = p
+            if p.part == part { p.groups = p.groups.map { g in var g = g; g.items.removeAll { gone.contains($0.id) }; return g }.filter { !$0.items.isEmpty } }
+            return p.groups.isEmpty ? nil : p
+        }
+        review.count = UInt64(review.parts.flatMap(\.groups).flatMap(\.items).count)
+        return .ok(review)
+    }
+
     func unregisteredKeys() async -> PublicKeys? { newKeys }
     func registerKeys(_ signer: @escaping @Sendable (KeyKind) -> Signer) async -> Outcome<Bool> {
         guard let k = newKeys else { return .ok(false) }

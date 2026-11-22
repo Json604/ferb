@@ -267,6 +267,10 @@ impl Owner for Stand {
         );
         Box::pin(async {})
     }
+    fn fold_notices(&self, refs: Vec<String>, into: &str) {
+        self.calls
+            .push(json!({"fold_notices": {"refs": refs, "into": into}}));
+    }
 }
 
 impl Questions for Stand {

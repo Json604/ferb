@@ -9782,3 +9782,126 @@ progress on memory transfer it is gettigb??? i think it should show in a good as
 - The switches have no phone screen; a phone could call `memory.import.switch` only with its fingerprint.
 - FERB.app's full `swift test` passes (943 tests). The whole workspace gate (`./gate.sh`) and `./gate.sh portable`
   were not run.
+
+## 2026-11-23 · 178 · An import puts nothing in always on by itself: one review list, on the Mac and both phones
+
+**What.** On 2026-11-22/23 the owner's Claude Code import put 42 of his imported lines in always on by itself, each
+told by its own "Now always on: “…” (FERB's understanding)" notice with a Remembered card (read-only, his
+`~/.ferb/ferb.db`: 42 `memory_profile` rows added by code, 42 `memory-always-on-*` notices). He said "also have to do
+somethign about this ling list of memory cards. also it added toooo manyu things in always on". He chose: "None by
+themselves; it gives me an easy to read list of thing s it thinks shoudn be added in always on and i apprive/decline"
+(MEM-460) and, for those already in: "Show me one list to review" (MEM-461). He then saw the old ask's screenshot
+("Are these still on?" over five facts in one paragraph): "also this is broken ig, tehse are not things to do, these
+are facts" (MEM-462). On the screenshots he said "approve", with Keep / Remove for items already on (MEM-464).
+- **No join by itself** (ferb-learning `profile.rs` `holds_up`). An item that came in by an import (it rests on a
+  `memory.import` journal row, or is an import line's item) holds up only when its line says `approved` (his word) or
+  `on` (an earlier build's join waiting for his word). So neither `saved`'s join at once nor the weekly pass can place
+  it. IMP-47's recent repeat now only makes a line `suggested`. `CoreProfile::keep` makes an Approve his pin where the
+  entry stands (no move, so the settled prompt stays).
+- **The review** (new `ferb-learning/src/import_review.rs`). One list in three parts, each its own question and
+  buttons: keep in mind all the time (grouped: how you like me to work, about you, your setup), are these still true,
+  still want help with these. `review()` is what every client draws; `answer_review(profile, part, ids, answer)` is
+  the one path the buttons, the Memory page's Always on / Not always on (`profile_word`) and his typed words
+  (`apply_answer`, now read against the list as it stands) all go through. `suggest_always_on` marks lines after every
+  placement and at the start; an earlier build's joins become `on`, his own pins `approved`. Older lines asked about
+  are only those that steer FERB's work (follow, choose, repeat, projects; `steers`), at most five, once (MEM-462).
+- **The question** (ferb-daemon `memory_import.rs`). FERB's own question `memory_review` (capability
+  `memory.review`, routable in his words like `memory.offers`, which is kept only to close an older build's waiting
+  ask at the start, its items carried in, `convert_offers_question`). Its words: "Can you check a few things I brought
+  in?" and what is in it. It is asked after a told import, at the start when the marking found new `on` lines or an old
+  ask was converted, and again after a typed answer that leaves items; restored with its id at a restart; closed
+  (superseded) when nothing is left.
+- **The old notices folded** (MEM-461). `Owner::fold_notices` (a seam with a no-op default) → `Supervisor::fold_notices`
+  → `ChatLog::fold_notices`: every notice whose ref is `memory-always-on-<id>` for any version of an imported line's
+  item gets `"folded": "memory-review"` in a revision every client receives, as alerts are marked (APP-1106). Nothing
+  is deleted and the words are kept. FERB.app's `EntryFold` and ferb-mobile's fold don't draw a folded notice.
+- **One notice per burst** (MEM-463). `memory::now_always_on` gathers joins for 1.5 s and tells them through
+  `tell_always_on`, which the Mac scan's re-check (`persona::tell_mac_joins`) now uses too. One fact reads as before;
+  more read "Now always on: N things (label)" with a note card each. FERB.app shows several note cards in a notice as a
+  list that opens (`NoticeNotes`), which also folds the import report's three example cards.
+- **RPCs** (MEM-465). `memory.review` and `memory.review.answer` (MEMORY_IMPORT_ADDITIONS, cli role), private from a
+  phone; `engine/fixtures/phone/classes.json` written again (private 46 → 48).
+- **FERB.app.** `NotchCore/MemoryReview.swift` (the model, one `MemoryReviewModel` shared by the notch's question card
+  and the Memory page), `FERBNotch/MemoryReviewList.swift` (the list, and the Memory page's "To check" section).
+  `ApprovalView` draws the list in place of the detail for capability `memory.review`; the typed answer box stays.
+- **Phones.** ferb-mobile `review.rs` (`Mobile::memory_review`, `answer_memory_review`, `QuestionShown.review`) and
+  the FFI records; Android and iPhone draw the same list in their question card.
+- **The prompt.** `import_answer.md` names a third kind, "always_on" (still_on = approved, not_wanted = declined).
+
+**Owner-facing words (new).** Question: "Can you check a few things I brought in?"; under it, from "1 thing / N
+things to keep in mind all the time", "1 older thing / N older things that may not be true any more", "1 thing / N
+things I could help with", joined ", " and " and ", then ". Answer each one here, or just tell me." Parts: "Keep these
+in mind all the time?" / "I'll remember all of them either way. The ones you approve, I'll keep in mind in everything
+I do."; "Are these still true?" / "You told me these a while ago."; "Still want help with these?" / "I won't start any
+of them on my own." Groups: "How you like me to work", "About you", "Your setup". Notes: "Already always on", "Last
+said 20 Sep 2026". Buttons: "Approve", "Decline", "Approve all", "Decline all", "Keep", "Remove", "Keep all", "Remove
+all", "Yes", "No, not any more", "Not sure", "Yes to all", "No to all", "Done already", "No thanks". After typed
+words: "Got it: N always on now, N remembered but not always on, N kept as they are and N put aside." (only the parts
+that apply; the older lines alone keep their earlier words). Notice: "Now always on: N things (FERB's understanding)".
+Apps: "Show all N", "Show less"; the Mac's Memory page: "To check".
+
+**Named differences.** None against Python: MEM-445's join at once and the ask were Rust-only (journal 166). ferb-rpc
+golden: 165 cli methods (MEMORY_IMPORT_ADDITIONS 3 → 5).
+
+**Evidence.**
+- ferb-learning `tests/import_profile.rs`: `an_import_never_puts_anything_in_always_on_it_lists_what_it_suggests_for_his_word`,
+  `lines_an_earlier_build_put_in_always_on_stay_on_until_he_declines_each` (Keep / Remove),
+  `older_offers_and_lines_are_asked_once_each_under_its_own_question`, `his_words_approve_or_decline_what_is_suggested`.
+- ferb-daemon `tests/a_memory_flow.rs`: the review question asked and answered in words; the start folding the old
+  notices, closing the old ask and answers in parts; a burst of three joins as one notice.
+- ferb-supervisor `tests/alerts_hidden.rs`: `notices_folded_into_the_review_are_marked_and_nothing_else_changes`.
+- ferb-mobile: the fold leaves a folded notice out; `review.rs` reads the list. ferb-rpc golden and phone classes.
+- FERB.app `MemoryReviewTests` (6): the list read, an answer for one item and for all, folded notices not drawn, and
+  the pictures.
+- Screenshots, looked at: the Mac's chat card, Memory page and grouped notice; Android's and iPhone's question card
+  (see the report).
+
+**Unverified.** No real model read a typed answer to the review (the stand-in did). Not run on his real store: how many
+of his 219 lines are suggested now (58 hold up by IMP-47, 42 are on) and how the folded chat looks on his phones after
+the update. The phones' list refreshes on its own answers and when the card shows. An answer given on the Mac shows on
+a phone the next time its card is drawn (no event). LIVE-1184.
+
+## 2026-11-23 · 179 · No model reads his sessions unless he asks; a website watch waits without model runs
+
+**What.** The owner saw FERB read his new Claude Code and Codex history with the model every hour (00:35: 2 model
+calls) and said: "but why??? by being on pace with my sessions was a thign that whenever i ask it shoidln know whch
+sessions are there n all. not keep looking at my session eveyr hour if ive not said it - adn that tooo the model. this
+is a bad decision" (MEM-466, superseding MEM-447). The coordinator applied the same words to the website watches,
+which ran a worker every 15 minutes while waiting for the export mail (00:37 to 01:22: 3 to 6 model calls a run)
+(MEM-467, superseding MEM-449).
+- **The hourly pass reads nothing** (`memory_import::hourly`): no incremental import, no work-log summaries.
+- **The session index by code** (ferb-learning `worklog_index`). Every session-day in the prompt-history files gets
+  its work-log entry with the tool, folder, day, first and last time, prompt count and a plain title ("Claude Code in
+  hive"); no prompt text, no model. It runs when something reads the log (`memory.learned`, through
+  `memory_import::session_index`, while his Yes stands), and reads nothing when the files' sizes and times are
+  unchanged. An entry keeps the summary he asked for earlier: `hash` is what its summary was written for, `seen` what
+  code saw last.
+- **Only his ask uses the model** (`learn_now`): "learn from my recent sessions" in chat (the workers' `memory.import`,
+  source `coding_assistants`, no path), or the Memory page's new "Bring in what's new" (`memory.import.start`, the
+  same source). It reads only what is new (the import's part hashes) and summarises the entries without a summary or
+  that grew. His ask is the Yes for that read even with the switch off. The first Yes still reads once.
+- **A website watch waits by code** (`watch_waits`, at the top of `run_schedule`). Its first run requests the export.
+  After that the 15-minute ticks are recorded as `schedule.waited` with no task and no model; a model run checks the
+  mail at most every 12 hours (`WATCH_MODEL_EVERY_HOURS`: FERB's proposal, the owner's number). A code check of the
+  mailbox (so only the found mail starts a model run) is not built: T-1293.
+- **Words.** The coding assistants' question: "…I'd read what you've typed into … on this Mac over the last month,
+  once, so I know how you like to work and what you're working on, and I'd always know which sessions you have. I'll
+  read them again only when you ask. What I keep stays on this Mac, and you can turn this off in Settings." The switch:
+  "FERB reads what you've typed into Claude Code and Codex on this Mac over the last month once, when you say yes, and
+  again only when you ask. It always knows which sessions you have. Turn it off and FERB reads nothing more; what it
+  already learned stays on the Memory page." Already on: "That's already on: I know which sessions you have, and I'll
+  read them again whenever you ask." The ask: "I'm reading what's new in … now and I'll tell you what I learned." ·
+  "I'm already reading them; I'll tell you what I learned." · "I don't see Claude Code or Codex on this Mac." The
+  Memory page's button: "Bring in what's new". The index's titles: "<tool> in <folder>", "<tool> session".
+- **Catalog.** `memory.import`'s description and its source enum (`coding_assistants`) changed
+  (`catalog_additions.json`).
+- **Also fixed.** `memory.import.live` (added to the bus by journal 177) is named in the orchestrator's NOT_WAITED,
+  which its test asked for.
+
+**Evidence.** ferb-learning `the_session_index_is_kept_by_code_and_only_his_ask_summarises` (no model call for the
+index, found by the one search, unchanged files read nothing, his ask summarises once). ferb-daemon
+`an_hour_with_new_sessions_reads_nothing_with_a_model_and_the_index_knows_them` (an hour's pass starts no import run;
+the index has the session; his ask starts the read), `a_website_watch_waits_by_code_between_its_rare_model_runs`.
+
+**Unverified.** The real index on his history (its size and speed), whether the planner calls `memory.import` with
+`coding_assistants` when he asks in his own words, and how often the export mail is caught at 12 hours. LIVE-1185.

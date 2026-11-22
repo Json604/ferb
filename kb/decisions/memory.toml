@@ -838,7 +838,8 @@ live = ["LIVE-1164"]
 title = "Imported facts: no questions, one notice; a recent repeat joins the always-on profile at once"
 by = "owner"
 date = 2026-11-10
-status = "active"
+status = "superseded"
+superseded_by = "MEM-460"
 words = "1. rec  2. rec  3. all 3monts  yes to all tohers EXCEPT on model. dont cap on that, taht is what the settings default or if user changes. THIS SHUODL ONLY TAKE Teh MEMORY AND do its thing / no not join so right away"
 words_source = "Twelve answers: question 4 accepted (repeats join at once; the notice is the grouped report, lab IMP-19); then 'no not join so right away' (lab IMP-47); lab kb/decisions/import.toml."
 rule = "Supersedes MEM-406. No Keep questions and no batch review: imported lines show on the Memory page (filterable by source) and in one notice after an import, the grouped report. They join the always-on profile once they hold up; a line said on two or more separate days or in two or more assistants, at least once in the last 30 days, holds up at once. An older repeat waits the normal way."
@@ -861,7 +862,8 @@ live = ["LIVE-1164"]
 title = "The coding assistants on this Mac: asked in setup; one Yes brings them in and keeps them up to date"
 by = "owner"
 date = 2026-11-22
-status = "active"
+status = "superseded"
+superseded_by = "MEM-466"
 words = "oh its built, i thougt it wasnt, that why iwas testing ferb-memory-import-lab(in desktop) separetely. basically what i came to after that tests is that, local agent session memory tranfer adn lookup is easy and we'll do right away. / this has to be asked too in setup imo. also to be updated with them"
 words_source = "Verbatim, 2026-11-22, relayed by the coordinating agent: his first message (its first sentences), then his answer on the local part."
 rule = "FERB asks once, when the app first attaches after setup, whether to bring in what the coding assistants it finds on this Mac (Claude Code, Codex) know about the owner. On Yes it reads them now (MEM-432), places what it learns into the profile, writes the work log (MEM-441), tells him once, and keeps both up to date as new sessions appear, quietly. The same Yes covers the updates; Settings turns them off and keeps what was learned. On No nothing is read, and it is offered again only if he asks."
@@ -883,7 +885,8 @@ live = ["LIVE-1165"]
 title = "FERB requests the export, checks mail every 15 minutes, tells the owner of a verification"
 by = "owner"
 date = 2026-11-10
-status = "active"
+status = "superseded"
+superseded_by = "MEM-467"
 words = "yeah i like this better, ferb can send the export and keep checking mail at intervals until it finds it. if after the limit of the provider it doesnt find, it asks me to do it cause it couldnt find. / 1. rec  2. rec  3. all 3monts  yes to all tohers EXCEPT on model. dont cap on that, taht is what the settings default or if user changes. THIS SHUODL ONLY TAKE Teh MEMORY AND do its thing / btw this happened on chatgpt, so ferb should notify me, anyways ferb does ask question when it needs to so it will cover this."
 words_source = "Lab IMP-10 verbatim; the twelve answers' questions 9 and 10 accepted (lab IMP-24, IMP-25); lab IMP-30 after OpenAI stopped his export at a verification page."
 rule = "For the websites FERB itself requests each site's export, checks the owner's mail every 15 minutes until it arrives, and if it hasn't by the provider's own stated time tells him so he can request it or give the file. Starting the import covers requesting the export: no separate Yes; the one thing it may ask is which mailbox, when it can't find it. When a site asks him to confirm the request (on his phone, a code by email), FERB tells him and waits; it never tries another way."
@@ -992,3 +995,88 @@ words_source = "His message, relayed verbatim by the coordinator on 2026-11-22, 
 rule = "Settings and the Memory page each have two switches. The coding assistants': off reads nothing, no updates, a run under way ends; on reads them now and keeps up. ChatGPT and Claude's: off requests and fetches nothing, cancels both watches and ends a run; on asks which browser profile, as at setup. What was learned stays. Only through memory.import.switch, sensitive on a phone."
 paths = ["engine/crates/ferb-daemon/src/areas_a/memory_import.rs::switch", "engine/crates/ferb-daemon/src/areas_a/settings.rs::SWITCHES", "engine/crates/ferb-rpc/src/classes.rs", "apps/mac/FERBNotch/Sources/FERBNotch/MemoryImportCardView.swift"]
 live = ["LIVE-1183"]
+
+[MEM-460]
+title = "An import never puts anything in always on by itself: FERB lists suggestions, he approves them"
+by = "owner"
+date = 2026-11-23
+status = "active"
+words = "None by themselves; it gives me an easy to read list of thing s it thinks shoudn be added in always on and i apprive/decline"
+words_source = "His answer, relayed by the coordinator, to \"Which should become always on from an import?\" after a Claude Code import put 34 items in always on, each with its own notice."
+rule = "Supersedes MEM-445. An import never adds anything to always on by itself, at once or by the weekly pass; its lines stay remembered and searchable, on the Memory page and in the import's one notice. What FERB thinks should be always on (a recent repeat, IMP-47) is listed in one easy-to-read list of plain sentences, grouped (how you like FERB to work, about you, your setup), each with Approve / Decline and Approve all / Decline all: Approve adds it as his pin, Decline keeps it remembered only. Answered items leave; it stays until done. One card in chat, on the Memory page and both phones."
+paths = ["engine/crates/ferb-learning/src/profile.rs", "engine/crates/ferb-learning/src/import_review.rs", "engine/crates/ferb-learning/src/import_job.rs", "engine/crates/ferb-daemon/src/areas_a/memory_import.rs", "apps/mac/FERBNotch/Sources/FERBNotch/MemoryReviewList.swift", "apps/mac/FERBNotch/Sources/NotchCore/MemoryReview.swift", "engine/crates/ferb-mobile/src/review.rs"]
+supersedes = ["MEM-445"]
+live = ["LIVE-1184"]
+
+[MEM-461]
+title = "What an import already put in always on joins that list and stays on until he declines each"
+by = "owner"
+date = 2026-11-23
+status = "active"
+words = "Show me one list to review"
+words_source = "His answer, relayed by the coordinator, to \"For the 34 already added, what should happen?\" (on his Mac 42 imported items had joined always on, each with its own notice)."
+rule = "For MEM-460. Imported lines an earlier build put in always on by itself are in the same review list, marked \"Already always on\"; they stay always on until he answers each (nothing changes behind his back). One he pinned himself on the Memory page counts as approved. Their \"Now always on\" notices in the chat are folded into the one list: marked (`folded`), never deleted, no client draws them again (as alerts are marked, APP-1106). Done at the start (once per line), with the review asked then."
+paths = ["engine/crates/ferb-learning/src/import_review.rs", "engine/crates/ferb-daemon/src/areas_a/memory_import.rs", "engine/crates/ferb-supervisor/src/flow/chat_log.rs", "engine/crates/ferb-core/src/chat_entry.rs", "engine/crates/ferb-mobile/src/fold/mod.rs", "apps/mac/FERBNotch/Sources/NotchCore/EntryFold.swift"]
+live = ["LIVE-1184"]
+
+[MEM-462]
+title = "The review asks each kind its own question; older facts are asked only when they steer FERB's work"
+by = "agent"
+date = 2026-11-23
+status = "active"
+rule = "For MEM-444, IMP-41, refining MEM-452. The review is one card of three parts, each its own question and buttons, never mixed: keep in mind all the time (MEM-460); \"Are these still true?\" for older lines (Yes / No, not any more / Not sure); \"Still want help with these?\" for offers 30 to 60 days old (Yes / Done already / No thanks). Item by item, all at once, or in his words (question memory_review). Older lines asked are only those steering FERB's work (preferences, setup, recurring things, projects), five at most, once; other facts stay, marked 'last said'."
+why = "The owner, on the old one numbered ask: \"also this is broken ig, tehse are not things to do, these are facts\". It showed facts under the offers' question, and its list was one run-on paragraph."
+paths = ["engine/crates/ferb-learning/src/import_review.rs", "engine/crates/ferb-learning/src/import_profile.rs", "engine/runtime/memory/import_answer.md", "engine/crates/ferb-orchestrator/src/steering.rs", "engine/crates/ferb-daemon/src/areas_a/memory.rs"]
+live = ["LIVE-1184"]
+
+[MEM-463]
+title = "Facts that join always on together are told in one notice with a list that opens"
+by = "agent"
+date = 2026-11-23
+status = "active"
+rule = "Every \"Now always on\" notice goes through one path (`memory::tell_always_on`): joins within 1.5 s of each other (a learning pass, the weekly pass, the Mac scan's re-check) are one notice, \"Now always on: N things (label)\", with a note card per fact that FERB.app and the phones show as a list that opens (\"Show all N\" / \"Show less\"). One fact alone reads as before. A notice with more than one note card shows them that way."
+why = "The owner, on the import's burst of 34 notices: \"also have to do somethign about this ling list of memory cards\"."
+paths = ["engine/crates/ferb-daemon/src/areas_a/memory.rs", "engine/crates/ferb-daemon/src/areas_a/persona.rs", "apps/mac/FERBNotch/Sources/FERBNotch/ConversationTranscript.swift"]
+
+[MEM-464]
+title = "The review UI as shown is approved; one already always on is kept or removed"
+by = "owner"
+date = 2026-11-23
+status = "active"
+words = "approve"
+words_source = "His word on the review's screenshots, relayed by the coordinator with one change before landing: items already always on show Keep / Remove instead of Approve / Decline."
+rule = "For MEM-460 and MEM-461. The review is drawn as shown, the same on the Mac and both phones. An item already always on has Keep (it stays on, his pin) and Remove (it leaves always on and stays remembered); a group whose items are all already on has Keep all / Remove all; a part all already on has them in place of Approve all / Decline all. The words and buttons come from the engine; the apps only lay them out."
+paths = ["engine/crates/ferb-learning/src/import_review.rs", "engine/crates/ferb-mobile/src/review.rs", "apps/mac/FERBNotch/Sources/FERBNotch/MemoryReviewList.swift"]
+live = ["LIVE-1184"]
+
+[MEM-465]
+title = "The review's two RPCs are private from a phone; the Memory page's Always on toggle answers it too"
+by = "agent"
+date = 2026-11-23
+status = "active"
+rule = "For MEM-460. `memory.review {}` answers the list as every client draws it (parts, groups, items, each item's and group's own buttons, all-at-once buttons, count); `memory.review.answer {part, item_ids, answer}` applies the owner's answer and answers the list as it stands; the question closes when nothing is left. From a phone both are private (the unlock window): an answer to FERB's own question, as chat.answer is, shown with his data. The Memory page's Always on / Not always on on an imported line is his answer to it as well (one path)."
+paths = ["engine/crates/ferb-rpc/src/auth.rs", "engine/crates/ferb-rpc/src/classes.rs", "engine/fixtures/phone/classes.json", "engine/crates/ferb-daemon/src/areas_a/memory_import.rs", "engine/crates/ferb-daemon/src/areas_a/memory.rs", "engine/crates/ferb-mobile-ffi/src/records.rs"]
+
+[MEM-466]
+title = "No model reads his coding sessions unless he asks; FERB always knows which sessions he has"
+by = "owner"
+date = 2026-11-23
+status = "active"
+words = "but why??? by being on pace with my sessions was a thign that whenever i ask it shoidln know whch sessions are there n all. not keep looking at my session eveyr hour if ive not said it - adn that tooo the model. this is a bad decision"
+words_source = "His reply, relayed by the coordinator, on seeing FERB re-read his new Claude Code and Codex history with the model every hour (e.g. 00:35, 2 model calls)."
+rule = "Supersedes MEM-447. FERB asks once after setup; on Yes it reads the coding assistants' last month once, places what it learns, writes the work log and tells him once. After that no model reads them unless he asks (in chat, or Bring in what's new on the Memory page), and then only what is new. Which sessions he has is kept by code alone (tool, folder, session, days, prompt counts), brought in step when something reads it. Settings turns it off; what was learned stays. On No nothing is read; offered again only if he asks."
+paths = ["engine/crates/ferb-daemon/src/areas_a/memory_import.rs", "engine/crates/ferb-learning/src/worklog.rs", "engine/crates/ferbd/src/compose/tools/context.rs", "apps/mac/FERBNotch/Sources/NotchCore/MemoryImportCard.swift"]
+supersedes = ["MEM-447"]
+live = ["LIVE-1185"]
+
+[MEM-467]
+title = "A website's watch waits for the export mail by code; a model run only rarely"
+by = "owner"
+date = 2026-11-23
+status = "active"
+words = "but why??? by being on pace with my sessions was a thign that whenever i ask it shoidln know whch sessions are there n all. not keep looking at my session eveyr hour if ive not said it - adn that tooo the model. this is a bad decision"
+words_source = "His words on the hourly reads, which the coordinator applied to the website watches (00:37 to 01:22 tonight: 3 to 6 model calls a run, every 15 minutes, about 400 calls a day while waiting)."
+rule = "Supersedes MEM-449. FERB requests each site's export itself (starting covers it; it may ask only which mailbox) and tells him when a site wants a confirmation, then waits. Waiting runs no model each time: the 15-minute ticks are code only; a model run checks the mail at most every 12 hours (FERB's proposal, his number to set) until a code check of the mailbox exists (T-1293). Past the provider's own stated time, FERB tells him so he can request it again or give the file."
+paths = ["engine/crates/ferb-daemon/src/areas_a/memory_import.rs", "engine/crates/ferb-daemon/src/areas_a/schedules.rs"]
+supersedes = ["MEM-449"]
+live = ["LIVE-1185"]

@@ -22,6 +22,7 @@ import com.ferb.mobile.FoundFiles
 import com.ferb.mobile.LocationFix
 import com.ferb.mobile.LinkStatus
 import com.ferb.mobile.MacInfo
+import com.ferb.mobile.MemoryReview
 import com.ferb.mobile.OlderState
 import com.ferb.mobile.OutboxItem
 import com.ferb.mobile.PhoneStatus
@@ -194,6 +195,13 @@ interface PhoneApi {
     suspend fun sessionStart(agent: String, folder: String, text: String, signer: Signer): Outcome<String>
     suspend fun sessionDelegate(session: String, goal: String, signer: Signer): Outcome<String>
     suspend fun watchSession(session: String, sink: PreviewSink): Outcome<Live>
+
+    /**
+     * FERB's review of what an import brought in (kb MEM-460..457; ferb-mobile `review.rs`): the list as it stands, and
+     * the owner's answer to items of one part (one or all at once), which gives the list after it. Both in the unlock window.
+     */
+    suspend fun memoryReview(): Outcome<MemoryReview>
+    suspend fun answerMemoryReview(part: String, itemIds: List<String>, answer: String): Outcome<MemoryReview>
 }
 
 /** A live preview under way. */
@@ -296,4 +304,8 @@ class LibraryPhone(private val phone: FerbPhone) : PhoneApi {
     override suspend fun sessionDelegate(session: String, goal: String, signer: Signer) = phone.call { it.sessionDelegate(session, goal, signer) }
     override suspend fun watchSession(session: String, sink: PreviewSink): Outcome<Live> =
         phone.call { m -> m.watchSession(session, sink).let { p -> Live { runCatching { p.stop() } } } }
+
+    override suspend fun memoryReview() = phone.call { it.memoryReview() }
+    override suspend fun answerMemoryReview(part: String, itemIds: List<String>, answer: String) =
+        phone.call { it.answerMemoryReview(part, itemIds, answer) }
 }

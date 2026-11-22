@@ -504,10 +504,9 @@ private struct NoticeView: View {
                         .padding(.top, 2)
                     }
                 }
-                // Step 12c: its cards (an import's examples as note cards) and a button for each page it names.
-                ForEach(Array((notice.cards ?? []).filter { $0.type == "note" }.enumerated()), id: \.offset) { _, card in
-                    NoteCard(card: card, model: model)
-                }
+                // Step 12c: its cards (an import's examples as note cards) and a button for each page it names. More than
+                // one (a burst told as one notice, MEM-463) is a list that opens.
+                NoticeNotes(cards: (notice.cards ?? []).filter { $0.type == "note" }, model: model)
                 ForEach(Array(CardLayout.pages(notice.cards ?? []).enumerated()), id: \.offset) { _, card in
                     if card.page == "memory" {
                         Button(card.line ?? "Open the Memory page") { model.onOpenMemory?(card.importedFrom) }
@@ -729,5 +728,37 @@ private struct SitesContactedParts {
         sites = line.replacingOccurrences(of: #"^Sites contacted:\s*"#, with: "",
                                           options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines)
         answer = String(source[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+/// A notice's note cards (MEM-463): one shows as it is; more are a list that opens ("Show all N" / "Show less"), so a
+/// burst of facts told as one notice stays one line in the chat.
+struct NoticeNotes: View {
+    let cards: [ResultCard]
+    @ObservedObject var model: NotchModel
+    @State private var open: Bool
+
+    init(cards: [ResultCard], model: NotchModel, open: Bool = false) {
+        self.cards = cards
+        self.model = model
+        _open = State(initialValue: open)
+    }
+
+    var body: some View {
+        if cards.count == 1, let card = cards.first {
+            NoteCard(card: card, model: model)
+        } else if cards.count > 1 {
+            VStack(alignment: .leading, spacing: 6) {
+                if open {
+                    ForEach(Array(cards.enumerated()), id: \.offset) { _, card in
+                        NoteCard(card: card, model: model)
+                    }
+                }
+                Button(open ? MemoryReview.showLess : MemoryReview.showAll(cards.count)) { open.toggle() }
+                    .buttonStyle(.plain).font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.8))
+                    .pointingHand("button")
+            }
+        }
     }
 }

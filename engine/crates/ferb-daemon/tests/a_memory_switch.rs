@@ -112,7 +112,7 @@ async fn an_import_reads_only_the_last_month() {
     );
 }
 
-// decision: MEM-459, MEM-447
+// decision: MEM-459, MEM-466
 #[tokio::test]
 async fn the_coding_assistants_switch_reads_them_and_off_stops_reading_and_updates() {
     let tmp = tempfile::tempdir().unwrap();

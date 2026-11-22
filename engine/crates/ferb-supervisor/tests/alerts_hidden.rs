@@ -119,3 +119,68 @@ fn alerts_saved_earlier_are_marked_at_the_start_and_nothing_else_changes() {
     let db = w.db.lock().unwrap();
     assert_eq!(store::get(db.conn(), "n-hot").unwrap().unwrap().rev, 2);
 }
+
+// decision: MEM-461 — the "Now always on" notices about imported lines are folded into the one review: marked, never
+// deleted, words kept; other notices are left as they were, and folding again changes nothing
+#[test]
+fn notices_folded_into_the_review_are_marked_and_nothing_else_changes() {
+    let mut w = support_control::world("plain_reply");
+    support_control::run(&mut w, "plain_reply");
+    w.sup.chat_log().flush(w.sup.inner());
+    {
+        let db = w.db.lock().unwrap();
+        let c = db.conn();
+        for (id, r, text) in [
+            (
+                "n-1",
+                "memory-always-on-i1",
+                "Now always on: “tea” (FERB's understanding)",
+            ),
+            (
+                "n-2",
+                "memory-always-on-i2",
+                "Now always on: “runs” (FERB's understanding)",
+            ),
+            (
+                "n-3",
+                "memory-always-on-i3",
+                "Now always on: “sails” (your words)",
+            ),
+        ] {
+            store::create(
+                c,
+                notice(
+                    id,
+                    EntryKind::Notice,
+                    Some(r),
+                    json!({"text": text, "quotes": [], "cards": null, "at": "x"}),
+                ),
+            )
+            .unwrap();
+        }
+    }
+    let kept = store::get(w.db.lock().unwrap().conn(), "n-3")
+        .unwrap()
+        .unwrap();
+    let refs = vec![
+        "memory-always-on-i1".to_string(),
+        "memory-always-on-i2".to_string(),
+    ];
+    assert_eq!(w.sup.fold_notices(&refs, "memory-review"), 2);
+    {
+        let db = w.db.lock().unwrap();
+        for id in ["n-1", "n-2"] {
+            let e = store::get(db.conn(), id).unwrap().unwrap();
+            assert_eq!(e.body["folded"], json!("memory-review"), "{id}");
+            assert_eq!(e.rev, 2, "{id}");
+            assert!(!e.deleted, "{id}");
+            assert!(ferb_core::chat_entry::is_folded_body(&e.body));
+        }
+        assert_eq!(
+            store::get(db.conn(), "n-1").unwrap().unwrap().body["text"],
+            json!("Now always on: “tea” (FERB's understanding)")
+        );
+        assert_eq!(store::get(db.conn(), "n-3").unwrap().unwrap(), kept);
+    }
+    assert_eq!(w.sup.fold_notices(&refs, "memory-review"), 0, "once");
+}

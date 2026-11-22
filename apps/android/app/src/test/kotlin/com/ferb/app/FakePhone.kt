@@ -425,6 +425,27 @@ class FakePhone : PhoneApi {
         return Outcome.Ok(Live { previewStopped++ })
     }
 
+    // ---- FERB's review of what an import brought in (kb MEM-460..457): the Mac's list, the answers it got, a refusal ----
+    var memoryReview = com.ferb.mobile.MemoryReview(emptyList(), 0uL)
+    var reviewRefusal: Outcome.Failed? = null
+    /** Each answer as (part, item ids, answer). */
+    val reviewAnswers = ArrayList<Triple<String, List<String>, String>>()
+    override suspend fun memoryReview(): Outcome<com.ferb.mobile.MemoryReview> {
+        calls += "memory-review"
+        return Outcome.Ok(memoryReview)
+    }
+    /** As the Mac does: the answered items leave the list, an emptied group and part with them. */
+    override suspend fun answerMemoryReview(part: String, itemIds: List<String>, answer: String): Outcome<com.ferb.mobile.MemoryReview> {
+        calls += "memory-review-answer:$part:${itemIds.joinToString(",")}:$answer"
+        reviewRefusal?.let { return it }
+        reviewAnswers += Triple(part, itemIds, answer)
+        val parts = memoryReview.parts.map { p ->
+            if (p.part != part) p else p.copy(groups = p.groups.map { g -> g.copy(items = g.items.filter { it.id !in itemIds }) }.filter { it.items.isNotEmpty() })
+        }.filter { it.groups.isNotEmpty() }
+        memoryReview = com.ferb.mobile.MemoryReview(parts, parts.sumOf { p -> p.groups.sumOf { it.items.size } }.toULong())
+        return Outcome.Ok(memoryReview)
+    }
+
     companion object {
         /** One session as the library reads it (kb HAND-651..666). */
         fun agentSession(id: String = "claude:s1", title: String = "Fix the flaky login test", status: String = "working", host: String = "Terminal",

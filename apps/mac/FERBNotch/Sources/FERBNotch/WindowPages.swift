@@ -239,6 +239,7 @@ struct MemoryPage: View {
             }
             Text("Correct a memory by telling FERB in chat. “Not right” stops using it and keeps its history; “Forget” deletes it permanently.")
                 .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            MemoryReviewSection(model: store.memoryReview) { await store.loadMemory() }
             WindowSectionLabel(title: "Always on")
             Text("Core profile · \(store.coreProfile.usedTokens) of \(store.coreProfile.budgetTokens) tokens")
                 .font(.system(size: 11)).foregroundStyle(.secondary)
@@ -301,6 +302,9 @@ struct MemoryPage: View {
                     }
                 }
                 .disabled(store.importStatus?.running ?? false)
+                // MEM-466: his coding sessions are read again only when he asks
+                Button(MemoryImportSwitch.bringInWhatsNew) { Task { await store.bringInWhatsNew() } }
+                    .disabled(store.importStatus?.running ?? false)
                 Spacer()
             }
             if let estimate = store.importEstimate {

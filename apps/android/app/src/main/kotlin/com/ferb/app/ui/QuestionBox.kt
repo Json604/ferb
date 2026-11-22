@@ -17,6 +17,8 @@ import androidx.compose.foundation.text.input.TextObfuscationMode
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -80,13 +82,17 @@ fun QuestionBox(vm: FerbViewModel, approvalId: String, title: String?, reason: S
             return@Column
         }
         val m = live.shown
+        // FERB's review of what an import brought in (kb MEM-460): its list stands where the detail line would
+        val review = m?.review == true
         Words(
             ink,
             header = m?.header?.ifEmpty { null } ?: stringResource(if (live.hidden) R.string.question_private_title else R.string.question_needs_answer),
             question = m?.question ?: live.title ?: live.reason,
-            detail = if (m != null) listOfNotNull(m.pictureProblem, m.detail).joinToString("\n\n").ifEmpty { null } else live.reason.takeIf { live.title != null },
+            detail = if (review) null
+                else if (m != null) listOfNotNull(m.pictureProblem, m.detail).joinToString("\n\n").ifEmpty { null } else live.reason.takeIf { live.title != null },
             fromTask = m?.fromTask == true,
         )
+        if (review) ReviewIn(vm, ink)
         (m?.exact ?: live.exact)?.let { ExactBox(it, ink) }
         m?.why?.let { PhoneText(it, 13.5f, color = ink.secondary) }
         if (m != null && m.evidence.isNotEmpty()) Evidence(m.evidence, ink)
@@ -96,6 +102,16 @@ fun QuestionBox(vm: FerbViewModel, approvalId: String, title: String?, reason: S
             else -> Answers(vm, live, busy, ink)
         }
         if (busy) PhoneText("Sending your answer…", 13f, color = ink.secondary)
+    }
+}
+
+/** The review's list in its question's box: read from the Mac when the box first shows, answered in place. */
+@Composable
+private fun ReviewIn(vm: FerbViewModel, ink: CardInk) {
+    val review by vm.review.collectAsState()
+    LaunchedEffect(Unit) { vm.loadReview() }
+    review?.let { r ->
+        MemoryReviewList(r, LocalBusy.current, ink) { part, ids, answer, key -> vm.answerReview(part, ids, answer, key) }
     }
 }
 
