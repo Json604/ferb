@@ -176,10 +176,16 @@ fun ProfileSheet(
      *  does nothing, and a tap on the row says why. Null: the lab's switch. */
     lockAlways: String? = null,
     onLockInfo: (() -> Unit)? = null,
+    /** PHN-801: the connection's row, first (its state as the top bar's badge shows it; its sheet on a tap). */
+    connection: (@Composable () -> Unit)? = null,
 ) {
     Sheet(title = "This phone", bottomInset = insets.bottom, onDismiss = onClose) {
         SheetTitle("This phone", onClose)
         Column(Modifier.padding(top = 8.dp).outset(14.dp)) {
+            if (connection != null) {
+                connection()
+                Divide()
+            }
             if (lockAlways != null) {
                 CardRow("Fingerprint to open", "Every time FERB opens", onClick = onLockInfo, leading = { RowIcon(FerbIcons.lock) },
                     trailing = { PhoneText(lockAlways, 15f, FerbType.Medium, Ink.detail) })
@@ -196,6 +202,19 @@ fun ProfileSheet(
             CardRow("Forget this Mac", danger = true, onClick = onForget, leading = { RowIcon(FerbIcons.link, danger = true) })
         }
     }
+}
+
+/**
+ * The connection's row on the profile page (PHN-801): the link's mark in a black round, the state, the path, and the
+ * connection sheet on a tap (Try again, the relay, the Mac tab).
+ */
+@Composable
+fun ConnectionRow(mark: com.ferb.design.components.LinkMark, state: String, path: String?, onClick: (() -> Unit)?) {
+    com.ferb.design.components.CardRow(state, path, onClick = onClick, leading = {
+        Box(Modifier.size(28.dp).background(Ink.black, androidx.compose.foundation.shape.CircleShape), contentAlignment = Alignment.Center) {
+            com.ferb.design.components.LinkMarkView(mark, 9.dp)
+        }
+    }, trailing = { com.ferb.design.components.Opens() })
 }
 
 /**

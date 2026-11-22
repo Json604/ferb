@@ -73,10 +73,12 @@ pub const REFUSALS: &[(i64, &str, &str)] = &[
     (-32046, "card_gone", ""),
     (-32047, "owners_only", ""),
     (-32048, "send_failed", ""),
+    // HAND-683: the session lists the terminals FERB can see, for the owner to choose
+    (-32049, "choose_terminal", "Choose the session's terminal"),
 ];
 
 /// How many of [`REFUSALS`] are the coding sessions' (PHN-797), beside the phone gate's.
-pub const SESSION_REFUSALS: usize = 9;
+pub const SESSION_REFUSALS: usize = 10;
 /// The daemon does not know this phone (it was restarted, or the phone was removed): never shown to a phone as is.
 pub const UNKNOWN_PHONE: &str = "unknown_phone";
 

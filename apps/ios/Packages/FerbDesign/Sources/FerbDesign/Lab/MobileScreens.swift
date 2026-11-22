@@ -831,12 +831,15 @@ public struct ProfileSheet: View {
     /// does nothing, and a tap on the row says why. Nil: the lab's switch.
     var lockAlways: String?
     var onLockInfo: (() -> Void)?
+    /// PHN-801: the connection's row, first (its state as the top bar's badge shows it; its sheet on a tap).
+    var connection: AnyView?
 
     public init(macName: String = "MacBook Pro", pairedSince: String = "10 November", insets: PhoneInsets = .lab,
                 lockOn: Bool = true, stayConnected: Bool = true, onClose: (() -> Void)? = nil, onLock: ((Bool) -> Void)? = nil,
                 onStayConnected: ((Bool) -> Void)? = nil, onForget: (() -> Void)? = nil, more: AnyView? = nil,
                 lockTitle: String = "Face ID to open", instead: (title: String, detail: String, onClick: (() -> Void)?)? = nil,
-                lockAlways: String? = nil, onLockInfo: (() -> Void)? = nil) {
+                lockAlways: String? = nil, onLockInfo: (() -> Void)? = nil, connection: AnyView? = nil) {
+        self.connection = connection
         self.lockAlways = lockAlways
         self.onLockInfo = onLockInfo
         self.lockTitle = lockTitle
@@ -857,6 +860,10 @@ public struct ProfileSheet: View {
         Sheet(bottomInset: insets.bottom, onDismiss: onClose) {
             SheetTitle("This phone", onClose: onClose)
             VStack(spacing: 0) {
+                if let connection {
+                    connection
+                    Divide()
+                }
                 if let lockAlways {
                     CardRow(title: lockTitle, detail: "Every time FERB opens", onClick: onLockInfo) { RowIcon(symbol: "lock") } trailing: {
                         Text(lockAlways).type(15, .medium, Ink.detail)

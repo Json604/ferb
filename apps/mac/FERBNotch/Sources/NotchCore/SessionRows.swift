@@ -52,6 +52,9 @@ public struct AgentSessionRow: Identifiable, Equatable {
     public let goal: String?
     /// The caller (this app) controls it: Stop controlling shows.
     public let yours: Bool
+    /// HAND-683: FERB couldn't tell which terminal in its app is this session's: the ones it can see, for the owner to
+    /// choose (empty otherwise).
+    public let terminals: [SessionChoice]
 
     public init?(_ row: [String: Any]) {
         guard let id = row["id"] as? String, !id.isEmpty else { return nil }
@@ -70,6 +73,10 @@ public struct AgentSessionRow: Identifiable, Equatable {
         delegate = words(row["delegate"])
         goal = words(row["goal"])
         yours = (row["yours"] as? NSNumber)?.boolValue ?? false
+        terminals = (row["terminals"] as? [[String: Any]] ?? []).compactMap { t in
+            guard let id = t["id"] as? String, !id.isEmpty else { return nil }
+            return SessionChoice(id: id, label: string(t["label"]))
+        }
     }
 
     /// The agent as the owner calls it.
@@ -149,6 +156,10 @@ public struct SessionItem: Identifiable, Equatable {
 public struct SessionChoice: Identifiable, Equatable {
     public let id: String
     public let label: String
+    public init(id: String, label: String) {
+        self.id = id
+        self.label = label
+    }
 }
 
 /// The agent's open permission prompt or question (`sessions.timeline` `cards`).
@@ -237,4 +248,6 @@ public enum SessionRefusal {
     public static let cardGone = -32046
     public static let ownersOnly = -32047
     public static let sendFailed = -32048
+    /// HAND-683: FERB can't tell which terminal is the session's: the session lists them for the owner to choose.
+    public static let chooseTerminal = -32049
 }

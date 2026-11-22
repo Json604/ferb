@@ -19,6 +19,9 @@ pub const CARD_GONE: i64 = -32046;
 pub const OWNERS_ONLY: i64 = -32047;
 /// The input couldn't be sent (the app or the agent's interface refused it).
 pub const SEND_FAILED: i64 = -32048;
+/// FERB can't tell which terminal in the app is the session's: the session lists them for the owner to choose
+/// (HAND-683).
+pub const CHOOSE_TERMINAL: i64 = -32049;
 
 /// The codes by name.
 pub const CODES: &[(&str, i64)] = &[
@@ -31,6 +34,7 @@ pub const CODES: &[(&str, i64)] = &[
     ("card_gone", CARD_GONE),
     ("owners_only", OWNERS_ONLY),
     ("send_failed", SEND_FAILED),
+    ("choose_terminal", CHOOSE_TERMINAL),
 ];
 
 /// A code's name ("" when it isn't one of these).

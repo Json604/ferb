@@ -74,6 +74,11 @@ fn terminal_app(bid: &str) -> bool {
     DEFAULT_TERMINAL_APPS.iter().any(|b| py::casefold(b) == bid)
 }
 
+/// Whether the whole app is a terminal (Terminal, iTerm, …): its window's title is the terminal's own (HAND-682).
+pub fn is_terminal_app(bundle_id: &str) -> bool {
+    terminal_app(&py::casefold(bundle_id))
+}
+
 fn code_runner(bid: &str) -> Option<&'static str> {
     CODE_RUNNERS
         .iter()

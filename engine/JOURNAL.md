@@ -9957,3 +9957,116 @@ does `DISTILL_SCHEMA` in ferb-context's catalog. The `review_in_days` dates the 
 only by the distill's model half: T-1294 asks the owner what checks them now. The `trail.days` tool's description
 still mentions narratives (true of stored days; catalog-frozen). No live check: nothing shows on the owner's Mac
 until a build with this is installed.
+
+## 2026-11-23 · 181 · Sending into an editor's terminal, a refused send said, roomier tabs, a calm session screen
+
+**What failed (the owner's verdict, PHN-800).** On FERB.app 202611221757 he sent from his Moto to a Claude Code session
+running in VS Code's integrated terminal (this checkout, `claude --resume 0060c0a4-…`). Read only: `phone_audit`
+in `~/.ferb/ferb.db`, 2026-11-22 23:43 to 23:45:
+- `sessions.send` at 23:43:55 answered ok. It was the Mac's question (`needs_yes`, GATE-622), not a delivery, so
+  nothing was typed then.
+- `sessions.control` at 23:44:01 and 23:44:08 were refused -32045 (NOT_THE_SESSION). The journal's
+  `sessions.control` rows show his control was taken both times (`take_control`). The refusal came from the send
+  inside it: `deliver` maps any foreground error to NOT_THE_SESSION (ferb-daemon sessions/mod.rs, the
+  `.map_err(|e| no(codes::NOT_THE_SESSION, e))` after `foreground`).
+- Every later `sessions.send` (23:44:12 to 23:44:37) was refused -32045 the same way.
+
+**Why: which proof, and what VS Code shows.**
+- The proof list was `[title, folder]`, but `foreground` in ferbd compose/sessions.rs used only `f.proof.first()`:
+  the session's title, "FERB Rust migration research review" (its `ai-title`).
+- I read VS Code's Accessibility tree read only (AXUIElementCopyAttributeValue, nothing set, focused or pressed),
+  with VS Code in front because the owner was working in it. The focused element is xterm.js's input: an AXTextField
+  with DOM class `xterm-helper-textarea` and description "Terminal 1, 2.1.330 Run the command: Toggle Screen Reader
+  Accessibility Mode…". Its containers carry the classes `terminal xterm`, `integrated-terminal` and id `terminal`,
+  in a window titled "FERB-site-signin-setup.md — FERB". The session's title is nowhere.
+- "2.1.330" is the agent's program as macOS names it. Claude Code's own installer runs
+  `~/.local/share/claude/versions/2.1.330`, and VS Code's tab title is `${process}`.
+- So the proof failed every time. VS Code was brought forward, then the app that was in front was put back. Nothing
+  was typed anywhere: the proof comes before any typing, and `phone_audit` has no successful send.
+
+**Fix (HAND-682).**
+- Typing needs a terminal by structure (ferb-policy's `surface`: a terminal app, or xterm.js's classes) that is
+  provably the session's. Either its title is in the element's or window's words, or its program is in the terminal's
+  own words (below the window; the window's title too in a terminal app) with its folder in the window's.
+  `ferb-sessions::proof` (portable) decides this.
+- The daemon offers program and folder only when no other running session in the same app shares both
+  (`proof_of`); two alike are proven by the title alone.
+- When the focus isn't proven (say the cursor is in the editor), ferbd finds the one window of the app whose title
+  names the folder and raises it. In that window, the one text input whose own words name the program gets the
+  cursor (`ax.focus`), and the proof is read again. Several inputs naming it: no cursor moved, refused.
+- The refusal says why: not in a terminal, or not this session's.
+
+**When no terminal proves itself the session's (HAND-683, the owner: "ok go without it. with a fallbakc so that
+user can chose themselves").** One shared path for every host:
+- FERB types nothing. The session lists the terminals FERB can see in that app: the one in front now (when the focus
+  is a terminal), then every terminal in its windows by structure, by the app's own words ("config.toml — blog ·
+  Terminal 2, zsh"). The refusal is `choose_terminal` (-32049).
+- The phones and FERB.app show "Which terminal is this session in?", the Mac's reason, those terminals, and
+  Don't send. His pick goes with `sessions.control` (`terminal`, signed by the fingerprint on a phone).
+- The daemon keeps it for that session's process while he controls it. ferbd finds it again (that window's n-th
+  terminal with the same words), focuses it, proves the focus is that element, and checks again right before
+  typing. If it changed, FERB types nothing and asks again.
+
+**Every kind of session: what identifies its terminal (asked by the owner, read only on his Mac).** The identity
+every terminal session has is the agent's tty and pid. What each host shows of it:
+
+| Host | Handle | Proof | Cost |
+|---|---|---|---|
+| Terminal | `tty of tab` | built: AppleScript by tty | Automation |
+| iTerm2 | `tty`, `unique id` | AppleScript, `write text` | a small bridge |
+| tmux | `pane_tty` | built | none |
+| WezTerm, kitty | CLI lists | `cli send-text` | kitty needs remote control on |
+| VS Code family | none from outside (no pid or tty in Accessibility; the pid only in a hover tooltip; `state.vscdb` holds VS Code's own terminal ids, not OS pids) | HAND-682, else HAND-683 | an extension for exact background sends (T-1295) |
+| JetBrains | none from outside | the same | a plugin (T-1295) |
+| Ghostty, Warp, Alacritty, Zed, others | none | the same | none |
+| Chat apps | the window id | built (HAND-672) | none |
+| Codex | its thread id | built (app-server) | none |
+
+**A refused send on the phones (PHN-800).** Both phones: a refused send, or a refused control after the Yes,
+closes the question (before, it stayed open: "im stuck"). The words leave the box into a dimmed bubble after the
+last line, with "Not sent." and the Mac's own reason, and Try again, which sends the same words the same way. A
+send that goes through removes the bubble. Nothing optimistic is shown: a message appears as sent only when the
+agent's record has it.
+
+**Tabs (PHN-800, then PHN-801).** The owner found the 36-wide tabs too close, then said "i want teh names" of the
+icon-only bar. Three layouts were drawn on both phones at 360/375 and normal widths: the link dot inside the bar,
+one round button, and a bar that scrolls. He picked "b".
+- The chosen tab shows its icon and name. The other four share what is left beside one round button: the lab's 46
+  at most, never under 36 (about 41 at 360 wide, 44 at 375, 46 from about 393).
+- The connection's state is a badge on the profile button. Its sheet is now the profile page's first row: the mark,
+  the state and the path, opening the same connection sheet (Try again, the relay's list, the Mac tab). PHN-751's
+  separate control is superseded; nothing it did is lost.
+
+**Session screen (PHN-800).**
+- The header is the title on one line and the state chip (with FERB is on it), then "…" and Close.
+- The "…" menu is a white card. It shows where the session runs, then Watch, Hand to FERB, Stop its turn (while it
+  works) and Stop controlling (while this phone controls it), each with its icon.
+- The session's screen, its Yes and Hand to FERB now follow the Block screenshots switch. Watch (PHN-454) and
+  hidden-answer boxes stay always secure.
+
+**Tests.**
+- ferb-sessions `tests/proof.rs` (3, on VS Code's real words: proven by program and folder; the old title-only
+  proof refused; a shell terminal, a program named only in a file's title, another version, another folder and
+  the editor all refused; one input naming the program, not two).
+- ferb-daemon `tests/sessions.rs` (17: the proof's three parts, and only the title when a second session in the
+  same app shares folder and program).
+- Android `SessionsTest` (a refused Yes and a refused direct send show as not sent, Try again sends; the session's
+  screen follows the switch), `SessionShotsTest` (+2 goldens: session-menu, session-not-sent).
+- iPhone `SessionsTests` (the same), design snapshots session-menu-noon and session-not-sent-noon.
+- HAND-683: ferb-daemon `when_no_terminal_proves_itself_the_owner_chooses_one_and_ferb_keeps_to_it` (offered,
+  refused unless offered, kept, asked again when it changed, gone when he lets go); ferb-mobile reads a session's
+  terminals; Android `SessionsTest`, iPhone `SessionsTests` and FERB.app `SessionsTests` (choose signed, Don't send);
+  goldens session-pick-terminal on both phones.
+- PHN-801: Android `ConnectionTest` (the profile button says the link; its page's row opens the connection sheet);
+  every top-bar golden recorded again on both phones.
+- Every golden with the top bar was recorded again on both phones.
+
+**Unverified.**
+- Nothing here ran against the real VS Code. The words are the ones I read there; finding and focusing the
+  terminal input (`prove_terminal`) is compiled, not run (LIVE-1170).
+- Cursor, Windsurf and other editors with xterm.js are expected to show the same structure. I didn't check them.
+- A Claude Code installed through npm runs as `node`: its program word would be "node", which an editor's other
+  terminal could also show. It is proven only when it is the one session of its app in that folder.
+- The menu's and the chooser's look are the owner's to judge on the goldens.
+- Finding the terminals in a window (`terminal_choices`, `window_terminals`) and finding a chosen one again are
+  compiled, not run against a real app. Terminals on another Space may not be listed.

@@ -19,6 +19,7 @@ import com.ferb.app.model.ChatRow
 import com.ferb.app.model.LocalFiles
 import com.ferb.app.ui.Host
 import com.ferb.app.ui.Main
+import com.ferb.app.ui.Sheets
 import com.ferb.app.ui.linkMark
 import com.ferb.app.ui.rememberConnection
 import com.ferb.core.KeyHealth
@@ -164,27 +165,35 @@ class ConnectionTest {
         assertTrue("stopped for good: at once", vm.ui.value.linkLost)
     }
 
-    // decision: PHN-751, PHN-752
+    // decision: PHN-801, PHN-752
     @Test
-    fun the_control_says_each_state_and_opens_its_sheet() {
+    fun the_profile_button_carries_the_link_and_its_page_opens_the_connection_sheet() {
         phone.link.value = FakePhone.status(LinkPhase.CONNECTING)
         val vm = vm()
         open()
         var ui by mutableStateOf(vm.ui.value)
+        var sheet by mutableStateOf<Sheet?>(null)
         compose.setContent {
             Box(Modifier.size(Phone.frameWidth, Phone.frameHeight)) {
-                PhoneScreen(labMoment(12.5), insets = PhoneInsets.Lab, glide = false) {
+                PhoneScreen(labMoment(12.5), insets = PhoneInsets.Lab, glide = false, sheet = { Sheets(vm, ui, sheet, PhoneInsets.Lab, host) }) {
                     CompositionLocalProvider(LocalConnection provides rememberConnection(vm, ui)) {
                         Main(vm, ui, PhoneTab.CHAT, home = true, PhoneInsets.Lab, labMoment(12.5), host)
                     }
                 }
             }
         }
-        compose.onNodeWithContentDescription("Your Mac: Connecting to your Mac…").assertExists()
+        // one round button: the profile's, with the link's state in what TalkBack says (no second control)
+        compose.onNodeWithContentDescription("This phone. Your Mac: Connecting to your Mac…").assertExists()
         ui = ui.copy(link = FakePhone.status(path = LinkPath.OWN_RELAY))
-        compose.onNodeWithContentDescription("Your Mac: Connected, Through your own relay").assertExists()
+        compose.onNodeWithContentDescription("This phone. Your Mac: Connected, Through your own relay").assertExists()
         ui = ui.copy(link = FakePhone.status(LinkPhase.WAITING), linkLost = true)
-        compose.onNodeWithContentDescription("Your Mac: Can't reach your Mac").assertExists().performClick()
+        compose.onNodeWithContentDescription("This phone. Your Mac: Can't reach your Mac").assertExists().performClick()
+        compose.waitForIdle()
+        assertEquals(Sheet.Profile, vm.sheet.value)
+        // the profile page's first row is the connection; its sheet keeps Try again, the relay and the Mac tab
+        sheet = Sheet.Profile
+        compose.waitForIdle()
+        compose.onNodeWithText("Can't reach your Mac").assertExists().performClick()
         compose.waitForIdle()
         assertEquals(Sheet.Connection, vm.sheet.value)
     }

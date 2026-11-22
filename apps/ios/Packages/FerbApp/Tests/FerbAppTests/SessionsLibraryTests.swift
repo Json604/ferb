@@ -157,7 +157,7 @@ final class SessionsLibraryTests: XCTestCase {
         XCTAssertFalse(sent.sent, "nothing was sent")
         XCTAssertEqual(sent.needsYes?.detail, "Run the tests")
         let signer = Signs()
-        let r = try mobile.sessionControl(session: "claude:abc", text: "Run the tests", signer: signer)
+        let r = try mobile.sessionControl(session: "claude:abc", text: "Run the tests", terminal: "", signer: signer)
         XCTAssertTrue(r.sent)
         XCTAssertFalse(r.delivered, "said: not seen arriving yet")
         let control = try XCTUnwrap(mac.calls.last { $0.method == "sessions.control" })

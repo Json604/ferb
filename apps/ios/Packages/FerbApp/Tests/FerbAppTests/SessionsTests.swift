@@ -33,7 +33,7 @@ final class SessionsTests: XCTestCase {
                      title: title, folder: folder, folderName: (folder as NSString).lastPathComponent, status: status,
                      waiting: status == "waiting_for_you" ? "permission" : "none", host: host, canSend: canSend,
                      noSend: canSend ? "" : "No app on your Mac shows this session.", foreground: host == "Terminal",
-                     lastAt: "2026-01-02T10:00:00Z", lastText: "", controlledHere: false, control: "", withFerb: withFerb, goal: "")
+                     lastAt: "2026-01-02T10:00:00Z", lastText: "", controlledHere: false, control: "", withFerb: withFerb, goal: "", terminals: [])
     }
 
     private func items(_ range: ClosedRange<UInt64>) -> [SessionItem] {
@@ -156,6 +156,67 @@ final class SessionsTests: XCTestCase {
         XCTAssertEqual(vm.ui.note, Note("sessions_not_seen"))
     }
 
+    // decision: PHN-800
+    func testASendTheMacRefusesAfterTheYesShowsAsNotSentWithWhyAndGoesOnTryAgain() async {
+        let why = "FERB couldn't tell that the terminal in front in Code is this session's, so it typed nothing."
+        let vm = rig.model()
+        await opened(vm)
+        vm.sessionTyped("Run the login test ten times")
+        await vm.sendToSession().value
+        phone.codingControlRefusal = .Refused(detail: why, linkCode: "not_the_session")
+        await vm.sessionYes().value
+        XCTAssertNil(vm.coding.asking, "the question closes: never stuck on the Yes")
+        XCTAssertEqual(vm.sheet, .session(id: id))
+        XCTAssertEqual(vm.coding.open?.unsent?.text, "Run the login test ten times")
+        XCTAssertEqual(vm.coding.open?.unsent?.reason.text, why)
+        XCTAssertEqual(vm.coding.draft, "", "the words left the box for the not-sent bubble")
+        XCTAssertTrue(phone.codingSent.isEmpty, "nothing shows as sent")
+        // Try again once the Mac can send: it goes, and the not-sent bubble leaves
+        await vm.retrySessionSend().value
+        XCTAssertEqual(phone.codingSent.map(\.1), ["Run the login test ten times"])
+        XCTAssertNil(vm.coding.open?.unsent)
+        // controlled now: a direct send the Mac refuses shows as not sent too
+        phone.codingRefusal = .Refused(detail: why, linkCode: "not_the_session")
+        vm.sessionTyped("And then commit")
+        await vm.sendToSession().value
+        XCTAssertEqual(vm.coding.open?.unsent?.text, "And then commit")
+    }
+
+    // decision: HAND-683
+    func testWhenTheMacCantTellTheTerminalHeChoosesOneSignedOrDoesntSend() async {
+        let why = "FERB couldn't tell which terminal in Code is this session's, so it typed nothing. Choose it, and FERB types only there."
+        let offered = [SessionChoice(id: "front", label: "The terminal in front in Code now (Terminal 1, 2.1.330)"),
+                       SessionChoice(id: "w7:1:Terminal 2, 2.1.330", label: "main.rs — app · Terminal 2, 2.1.330")]
+        if let i = phone.codingList.sessions.firstIndex(where: { $0.id == id }) { phone.codingList.sessions[i].terminals = offered }
+        let vm = rig.model()
+        await opened(vm)
+        vm.sessionTyped("Run the login test ten times")
+        await vm.sendToSession().value
+        phone.codingControlRefusal = .Refused(detail: why, linkCode: "choose_terminal")
+        await vm.sessionYes().value
+        XCTAssertNil(vm.coding.asking, "the Yes closes")
+        XCTAssertEqual(vm.sheet, .sessionPick, "the terminals to choose from")
+        XCTAssertEqual(vm.coding.open?.pick?.terminals, offered)
+        XCTAssertEqual(vm.coding.open?.pick?.why, why)
+        XCTAssertEqual(vm.coding.open?.unsent?.text, "Run the login test ten times")
+        XCTAssertTrue(phone.codingSent.isEmpty, "nothing typed")
+        // Don't send: back to the session, the words stay as not sent
+        vm.pickNoTerminal()
+        XCTAssertEqual(vm.sheet, .session(id: id))
+        XCTAssertNil(vm.coding.open?.pick)
+        // Try again: the Mac still can't tell, so he is asked again; his choice, signed as control is: the words go there
+        phone.codingRefusal = .Refused(detail: why, linkCode: "choose_terminal")
+        await vm.retrySessionSend().value
+        XCTAssertEqual(vm.sheet, .sessionPick)
+        let prompts = rig.prompts.signers.count
+        await vm.pickTerminal("w7:1:Terminal 2, 2.1.330").value
+        XCTAssertTrue(phone.calls.contains("session-control:\(id):Run the login test ten times:terminal=w7:1:Terminal 2, 2.1.330"))
+        XCTAssertEqual(rig.prompts.signers.count, prompts + 1)
+        XCTAssertEqual(phone.codingSent.map(\.1), ["Run the login test ten times"])
+        XCTAssertEqual(vm.sheet, .session(id: id))
+        XCTAssertNil(vm.coding.open?.unsent)
+    }
+
     // decision: GATE-622
     func testCancelSendsNothingAndKeepsTheWords() async {
         let vm = rig.model()
@@ -271,7 +332,8 @@ final class SessionsTests: XCTestCase {
     func testTheWindowIsNeverAskedForOnThePublicRelayAndIsKeptOutOfCaptures() async {
         let vm = rig.model()
         await opened(vm)
-        XCTAssertTrue(vm.mustSecure, "the session's conversation is kept out of captures")
+        // PHN-800: the session's conversation follows the owner's switch; only its window live is kept out always
+        XCTAssertFalse(vm.mustSecure, "the session's conversation follows the owner's switch")
         phone.link = FakePhone.status(path: .publicRelay)
         vm.watchCodingSession()
         XCTAssertEqual(vm.ui.note, Note("not_on_shared_relay"), "Watch live's words")
@@ -311,7 +373,8 @@ final class SessionsCatalogTests: XCTestCase {
                     "sessions_not_seen", "sessions_interrupted", "sessions_hand_title", "sessions_hand_label", "sessions_hand_hint",
                     "sessions_hand_note", "sessions_hand_go", "sessions_handed", "sessions_new_agent", "sessions_new_folder",
                     "sessions_new_first", "sessions_start", "sessions_started", "sessions_watch_title", "live_close", "live_again",
-                    "live_waiting", "err_try_again"]
+                    "live_waiting", "err_try_again", "sessions_more", "sessions_not_sent", "sessions_try_again", "sessions_pick_title", "sessions_pick_note",
+                    "sessions_pick_no"]
         XCTAssertEqual(keys.filter { !L.has($0) }, [], "keys the sessions' screens name but the catalog lacks")
     }
 }

@@ -53,16 +53,20 @@ object Phone {
     val rowGap = 14.dp
 
     /**
-     * TopBar: a black pill of tabs, each 42 high and at least 36 wide, inside a 4 margin; the profile button 42. Five
-     * tabs since the coding sessions (PHN-798): the lab's 46-wide tabs (padding 15/12, gap 7) left no room for the
-     * chosen tab's name beside the connection control, so every tab is a little narrower, the same on iPhone.
+     * TopBar (PHN-801, the owner: "i want teh names", "i like b"): a black pill of five tabs, 42 high inside a 4 margin.
+     * The chosen tab shows its icon and name (padding 12, gap 6); the others share what is left beside the profile
+     * button, the lab's 46 at most and never under 36: about 41 on a 360-wide phone, 44 at 375, 46 from about 393. The
+     * connection's state is a badge on the profile button (no second round button). The same on iPhone.
      */
     val tabHeight = 42.dp
-    val tabMinWidth = 36.dp
-    val tabPaddingOn = 12.dp
-    val tabPaddingOff = 7.dp
-    val tabGap = 6.dp
+    val tabMinWidth = 46.dp
+    val tabNarrowest = 36.dp
+    val tabPadding = 12.dp
+    val tabNameGap = 6.dp
+    val tabSpacing = 0.dp
     val tabBarPadding = 4.dp
+    val barButtonGap = 8.dp
+    val linkBadge = 14.dp
     val profileButton = 42.dp
 
     /** Bubbles: 22 corners with a 6 tail corner, 16 by 11 inside, at most 310 (owner) and 320 (FERB) wide. */

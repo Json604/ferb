@@ -697,17 +697,19 @@ impl Mobile {
     }
 
     /// The owner's Yes to typing into a session (rule 6, GATE-622): this phone controls it from now on and `text` (may be
-    /// empty) is sent. Signed by `signer` (the fingerprint key where registered). Network and the prompt.
+    /// empty) is sent; `terminal` is the one he chose of those the session offers (HAND-683; "" for none). Signed by
+    /// `signer` (the fingerprint key where registered). Network and the prompt.
     pub fn session_control(
         &self,
         session: String,
         text: String,
+        terminal: String,
         signer: Arc<dyn Signer>,
     ) -> Result<SessionSent, FerbError> {
         guard(|| {
             Ok(self
                 .core()?
-                .session_control(&session, &text, signer_of(signer))?
+                .session_control(&session, &text, &terminal, signer_of(signer))?
                 .conv())
         })
     }

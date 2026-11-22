@@ -10,11 +10,17 @@ use std::sync::Arc;
 
 use ferb_core::interfaces::{BoxFuture, Clock, IdSource};
 use ferb_daemon::sessions::{
-    Ask, AskFn, ChatWindow, Foreground, Mac, Seams, Sessions, KEY, SECTION,
+    Ask, AskFn, ChatWindow, Foreground, Mac, NotTyped, Seams, Sessions, KEY, SECTION,
 };
 use ferb_gateway::gateway::Gateway;
 use ferb_rpc::Server;
 use ferb_sessions::host::{Proc, Table};
+#[cfg(target_os = "macos")]
+use ferb_sessions::proof::{has_token, proven, terminal_input, Focus, Unproven};
+#[cfg(target_os = "macos")]
+use ferb_sessions::TerminalChoice;
+#[cfg(target_os = "macos")]
+type WinInfo = ferb_mac_hands::driver::Window;
 use serde_json::{json, Value};
 
 use crate::basics::{Events, Journal};
@@ -82,8 +88,12 @@ impl Mac for AbsentMac {
     fn tmux_send(&self, _: i32, _: &str, _: &str, _: &str, _: bool) -> Result<(), String> {
         Err("this FERB runs without the Mac's own parts".into())
     }
-    fn foreground(&self, _f: Foreground) -> BoxFuture<'static, Result<(), String>> {
-        Box::pin(async { Err("this FERB runs without the Mac's own parts".to_string()) })
+    fn foreground(&self, _f: Foreground) -> BoxFuture<'static, Result<(), NotTyped>> {
+        Box::pin(async {
+            Err("this FERB runs without the Mac's own parts"
+                .to_string()
+                .into())
+        })
     }
 }
 
@@ -159,14 +169,14 @@ impl Mac for NativeMac {
             &program, &self.home, server, tty, text, key, enter,
         )
     }
-    fn foreground(&self, f: Foreground) -> BoxFuture<'static, Result<(), String>> {
+    fn foreground(&self, f: Foreground) -> BoxFuture<'static, Result<(), NotTyped>> {
         let driver = self
             .tools
             .upgrade()
             .and_then(|p| p.mac().map(|m| m.tools.driver.clone()));
         Box::pin(async move {
             let Some(driver) = driver else {
-                return Err("FERB's Mac hands aren't running".to_string());
+                return Err("FERB's Mac hands aren't running".to_string().into());
             };
             foreground(driver, f).await
         })
@@ -345,7 +355,7 @@ fn node_of(
 async fn foreground(
     driver: Arc<ferb_mac_hands::driver::MacDriver>,
     f: Foreground,
-) -> Result<(), String> {
+) -> Result<(), NotTyped> {
     use ferb_core::types::{
         ComputerAction, ComputerActionKind, Mechanism, TerminalGrant, TerminalInput,
     };
@@ -371,7 +381,7 @@ async fn foreground(
                 app: f2.app.clone(),
                 pid: f2.pid,
                 window: f2.window,
-                title: f2.proof.first().cloned().unwrap_or_default(),
+                title: f2.proof.title.clone(),
                 on_space: true,
             };
             if let Some(win) = d.shots.window(w.window) {
@@ -395,37 +405,25 @@ async fn foreground(
             return Err(format!(
                 "FERB couldn't put the cursor in {}'s message box, so it typed nothing.",
                 if f.app.is_empty() { "the app" } else { &f.app }
-            ));
+            )
+            .into());
         }
     }
-    // the proof: the session's own words around the focused element
-    let d = driver.clone();
-    let words = tokio::task::spawn_blocking(move || {
-        let el = d.ax.focused_element(pid)?;
-        let chain = d.ax.surface_facts(&el).unwrap_or_default();
-        Some(
-            chain
-                .iter()
-                .flat_map(|m| m.values())
-                .filter_map(Value::as_str)
-                .collect::<Vec<_>>()
-                .join("\n")
-                .to_lowercase(),
-        )
-    })
-    .await
-    .map_err(|e| e.to_string())?;
-    let proven = f.composer
-        || match (&words, f.proof.first()) {
-            (Some(w), Some(p)) => w.contains(&p.to_lowercase()),
-            _ => false,
-        };
-    if !proven {
-        restore(&driver);
-        return Err(format!(
-            "FERB couldn't tell that the terminal in front in {} is this session's, so it typed nothing. Click into the session's terminal once, then send again.",
-            if f.app.is_empty() { "its app" } else { &f.app }
-        ));
+    // decision: HAND-682 — the proof: a terminal by structure, the session's by its title or by its program and folder;
+    // decision: HAND-683 — else the terminal the owner chose, still the same element; else the ones he may choose from
+    let mut chosen_el = None;
+    if !f.composer {
+        let (d, f2) = (driver.clone(), f.clone());
+        let found = tokio::task::spawn_blocking(move || terminal_for(&d, &f2))
+            .await
+            .map_err(|e| e.to_string())?;
+        match found {
+            Ok(el) => chosen_el = el,
+            Err(e) => {
+                restore(&driver);
+                return Err(e);
+            }
+        }
     }
     let confirmation = format!("sessions:{}:{}", f.bundle_id, f.pid);
     let grant_for =
@@ -453,6 +451,24 @@ async fn foreground(
         mechanism: Some(Mechanism::Foreground),
         name: None,
     };
+    // HAND-683: the chosen terminal is still the element in front, right before typing
+    if let Some(el) = &chosen_el {
+        let still = driver
+            .ax
+            .focused_element(f.pid)
+            .is_some_and(|now| driver.ax.same(&now, el));
+        if !still {
+            restore(&driver);
+            let (d, f2) = (driver.clone(), f.clone());
+            let terminals = tokio::task::spawn_blocking(move || terminal_choices(&d, &f2))
+                .await
+                .unwrap_or_default();
+            return Err(NotTyped::Choose {
+                why: changed_words(&f.app),
+                terminals,
+            });
+        }
+    }
     let out = if !f.key.is_empty() {
         let g = grant_for(None, Some(f.key.clone()), false, false);
         driver
@@ -494,9 +510,279 @@ async fn foreground(
     restore(&driver);
     match out {
         Ok(r) if r.ok => Ok(()),
-        Ok(r) => Err(r.detail),
-        Err(e) => Err(e.to_string()),
+        Ok(r) => Err(r.detail.into()),
+        Err(e) => Err(e.to_string().into()),
     }
+}
+
+/// What the Mac shows of the focused element in `pid`: its own words, its chain's, and whether it is a terminal.
+#[cfg(target_os = "macos")]
+fn focus_of(driver: &Arc<ferb_mac_hands::driver::MacDriver>, bundle: &str, pid: i32) -> Focus {
+    let Some(el) = driver.ax.focused_element(pid) else {
+        return Focus::default();
+    };
+    let chain = driver.ax.surface_facts(&el).unwrap_or_default();
+    let words = |facts: &[&serde_json::Map<String, Value>]| {
+        facts
+            .iter()
+            .flat_map(|m| {
+                ["title", "description"]
+                    .into_iter()
+                    .filter_map(|k| m.get(k))
+            })
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    // the terminal's own words: the focused element and its containers below the window (not the window's title)
+    let own: Vec<_> = chain
+        .iter()
+        .take_while(|m| {
+            !matches!(
+                m.get("role").and_then(Value::as_str),
+                Some("AXWebArea" | "AXWindow" | "AXApplication")
+            )
+        })
+        .collect();
+    let all: Vec<_> = chain.iter().collect();
+    Focus {
+        own: words(&own),
+        around: words(&all),
+        terminal: ferb_policy::terminal::surface(bundle, &chain, &[], false, false).is_some(),
+        terminal_app: ferb_policy::terminal::is_terminal_app(bundle),
+    }
+}
+
+fn app_words(app: &str) -> &str {
+    if app.is_empty() {
+        "its app"
+    } else {
+        app
+    }
+}
+
+fn changed_words(app: &str) -> String {
+    format!(
+        "The terminal you chose for this session in {} isn't there as it was, so FERB typed nothing. Choose it again.",
+        app_words(app)
+    )
+}
+
+/// The words of one choice: at most `n` characters of its first line.
+fn short(text: &str, n: usize) -> String {
+    let line = text.lines().next().unwrap_or("").trim();
+    if line.chars().count() <= n {
+        line.to_owned()
+    } else {
+        format!(
+            "{}…",
+            line.chars().take(n - 1).collect::<String>().trim_end()
+        )
+    }
+}
+
+/// The app's normal titled windows (its own, by pid).
+#[cfg(target_os = "macos")]
+fn app_windows(pid: i32) -> Vec<WinInfo> {
+    ferb_mac_hands::native::windows::NativeWindows
+        .listed(true)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|l| l.window)
+        .filter(|w| w.pid == pid && w.normal_layer() && !w.title.trim().is_empty())
+        .collect()
+}
+
+/// The terminals in one window, by structure (ferb-policy's surface), in reading order: each with its element and
+/// the app's own words for it.
+#[cfg(target_os = "macos")]
+fn window_terminals(
+    driver: &Arc<ferb_mac_hands::driver::MacDriver>,
+    bundle: &str,
+    app: &str,
+    w: &WinInfo,
+) -> Vec<(ferb_mac_hands::ax::El, String)> {
+    let place = ChatWindow {
+        bundle_id: bundle.to_owned(),
+        app: app.to_owned(),
+        pid: w.pid,
+        window: w.id,
+        title: w.title.clone(),
+        on_space: true,
+    };
+    let Some((_, nodes)) = ax_nodes(driver, &place) else {
+        return Vec::new();
+    };
+    nodes
+        .into_iter()
+        .filter(|n| matches!(n.ax_role.as_str(), "AXTextField" | "AXTextArea") && !n.secret)
+        .filter(|n| {
+            let chain = driver.ax.surface_facts(&n.r#ref).unwrap_or_default();
+            ferb_policy::terminal::surface(bundle, &chain, &[], false, false).is_some()
+        })
+        .map(|n| (n.r#ref, n.label))
+        .collect()
+}
+
+/// HAND-683: the terminals the owner may choose from in the session's app: the one in front now (when the focus is a
+/// terminal), and every terminal in its windows, by the app's own words (its window's title and the terminal's name).
+#[cfg(target_os = "macos")]
+fn terminal_choices(
+    driver: &Arc<ferb_mac_hands::driver::MacDriver>,
+    f: &Foreground,
+) -> Vec<TerminalChoice> {
+    let mut out = Vec::new();
+    let focus = focus_of(driver, &f.bundle_id, f.pid);
+    if focus.terminal {
+        out.push(TerminalChoice {
+            id: "front".into(),
+            label: format!(
+                "The terminal in front in {} now ({})",
+                app_words(&f.app),
+                short(&focus.own, 40)
+            ),
+        });
+    }
+    for w in app_windows(f.pid).iter().take(6) {
+        for (n, (_, label)) in window_terminals(driver, &f.bundle_id, &f.app, w)
+            .into_iter()
+            .enumerate()
+        {
+            out.push(TerminalChoice {
+                id: format!("w{}:{}:{}", w.id, n, label),
+                label: format!("{} · {}", short(&w.title, 40), short(&label, 40)),
+            });
+        }
+    }
+    out.truncate(12);
+    out
+}
+
+/// HAND-682, HAND-683: the terminal to type into, in front and focused. Proven: the session's by its words (None).
+/// Chosen by the owner: found again as it was and focused (its element, for the check right before typing). Else
+/// the ones he may choose from.
+#[cfg(target_os = "macos")]
+fn terminal_for(
+    driver: &Arc<ferb_mac_hands::driver::MacDriver>,
+    f: &Foreground,
+) -> Result<Option<ferb_mac_hands::ax::El>, NotTyped> {
+    let app = app_words(&f.app);
+    if !f.chosen.is_empty() {
+        let again = || NotTyped::Choose {
+            why: changed_words(&f.app),
+            terminals: terminal_choices(driver, f),
+        };
+        if f.chosen == "front" {
+            let focus = focus_of(driver, &f.bundle_id, f.pid);
+            return match driver.ax.focused_element(f.pid) {
+                Some(el) if focus.terminal => Ok(Some(el)),
+                _ => Err(again()),
+            };
+        }
+        // "w<window>:<n>:<its words>": that window's n-th terminal, with the same words
+        let mut parts = f.chosen.splitn(3, ':');
+        let (w, n, label) = (
+            parts.next().unwrap_or(""),
+            parts.next().unwrap_or(""),
+            parts.next().unwrap_or(""),
+        );
+        let (Some(wid), Ok(n)) = (
+            w.strip_prefix('w').and_then(|x| x.parse::<i64>().ok()),
+            n.parse::<usize>(),
+        ) else {
+            return Err(again());
+        };
+        let Some(win) = app_windows(f.pid).into_iter().find(|x| x.id == wid) else {
+            return Err(again());
+        };
+        driver.ax.raise_window(f.pid, win.bounds);
+        let terms = window_terminals(driver, &f.bundle_id, &f.app, &win);
+        let Some((el, _)) = terms.get(n).filter(|(_, l)| l == label) else {
+            return Err(again());
+        };
+        if !driver.ax.focus(el) {
+            return Err(again());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        return match driver.ax.focused_element(f.pid) {
+            Some(now) if driver.ax.same(&now, el) => Ok(Some(el.clone())),
+            _ => Err(again()),
+        };
+    }
+    match prove_terminal(driver, f) {
+        Ok(()) => Ok(None),
+        Err(why) => {
+            let words = match why {
+                Unproven::NotATerminal => format!(
+                    "The cursor in {app} isn't in a terminal, and FERB couldn't tell which terminal there is this \
+                     session's, so it typed nothing."
+                ),
+                Unproven::NotTheSession => {
+                    format!("FERB couldn't tell which terminal in {app} is this session's, so it typed nothing.")
+                }
+            };
+            let terminals = terminal_choices(driver, f);
+            if terminals.is_empty() {
+                Err(NotTyped::Failed(format!(
+                    "{words} Open the session's terminal in {app}, then send again."
+                )))
+            } else {
+                Err(NotTyped::Choose {
+                    why: format!("{words} Choose it, and FERB types only there."),
+                    terminals,
+                })
+            }
+        }
+    }
+}
+
+/// HAND-660, HAND-682: the focused terminal must be the session's. When it isn't, and the session's program and folder
+/// are offered: in the one window of the app that names the folder, the one text input whose own words name the
+/// program (xterm.js's, in an editor) gets the cursor, and the proof is read again. Nothing is typed here.
+#[cfg(target_os = "macos")]
+fn prove_terminal(
+    driver: &Arc<ferb_mac_hands::driver::MacDriver>,
+    f: &Foreground,
+) -> Result<(), Unproven> {
+    let first = proven(&f.proof, &focus_of(driver, &f.bundle_id, f.pid));
+    if first.is_ok() || f.proof.program.is_empty() || f.proof.folder.is_empty() {
+        return first;
+    }
+    let windows: Vec<_> = ferb_mac_hands::native::windows::NativeWindows
+        .listed(true)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|l| l.window)
+        .filter(|w| w.pid == f.pid && w.normal_layer() && has_token(&w.title, &f.proof.folder))
+        .collect();
+    let [w] = windows.as_slice() else {
+        return first;
+    };
+    driver.ax.raise_window(f.pid, w.bounds);
+    let place = ChatWindow {
+        bundle_id: f.bundle_id.clone(),
+        app: f.app.clone(),
+        pid: f.pid,
+        window: w.id,
+        title: w.title.clone(),
+        on_space: true,
+    };
+    let Some((_, nodes)) = ax_nodes(driver, &place) else {
+        return first;
+    };
+    let inputs: Vec<_> = nodes
+        .iter()
+        .filter(|n| matches!(n.ax_role.as_str(), "AXTextField" | "AXTextArea") && !n.secret)
+        .collect();
+    let labels: Vec<&str> = inputs.iter().map(|n| n.label.as_str()).collect();
+    let Some(i) = terminal_input(&labels, &f.proof.program) else {
+        return first;
+    };
+    if !driver.ax.focus(&inputs[i].r#ref) {
+        return first;
+    }
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    proven(&f.proof, &focus_of(driver, &f.bundle_id, f.pid))
 }
 
 /// The own question's answer, through the gateway's one store (GATE-613's pattern): set aside if the area drops it.

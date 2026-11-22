@@ -1509,6 +1509,7 @@ mirror! {
         control: String,
         with_ferb: bool,
         goal: String,
+        terminals: Vec<SessionChoice>,
     }
 }
 

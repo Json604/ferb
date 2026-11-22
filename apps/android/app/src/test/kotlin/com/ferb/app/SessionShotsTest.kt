@@ -11,10 +11,13 @@ import androidx.compose.ui.test.onNodeWithTag
 import com.ferb.app.model.LiveView
 import com.ferb.app.model.NewSessionUi
 import com.ferb.app.model.SessionUi
+import com.ferb.app.model.Unsent
+import com.ferb.app.model.TerminalPick
 import com.ferb.app.model.SessionsUi
 import com.ferb.app.ui.HandOverSheet
 import com.ferb.app.ui.LivePage
 import com.ferb.app.ui.NewSessionPage
+import com.ferb.app.ui.PickTerminalSheet
 import com.ferb.app.ui.SessionScreenPage
 import com.ferb.app.ui.SessionYesSheet
 import com.ferb.app.ui.SessionsTabPage
@@ -99,7 +102,7 @@ class SessionShotsTest {
     @Composable
     private fun tab(ui: SessionsUi) = SessionsTabPage(ui, PhoneInsets.Lab, null, {}, {})
 
-    // decision: PHN-751
+    // decision: PHN-801
     @Test
     fun the_sessions_tab_lists_each_with_its_place_and_state() {
         compose.setContent { Phone { tab(SessionsUi(true, true, sessions)) } }
@@ -123,6 +126,52 @@ class SessionShotsTest {
     fun one_session_its_conversation_question_and_message_box() {
         compose.setContent { Phone(sheet = { SessionScreenPage(open, emptySet(), PhoneInsets.Lab) }) { tab(SessionsUi(true, true, sessions)) } }
         shoot("session-open.png")
+    }
+
+    // decision: PHN-800
+    @Test
+    fun a_session_s_menu_holds_where_it_runs_and_its_actions() {
+        compose.setContent {
+            Phone(sheet = { SessionScreenPage(open.copy(session = sessions[1].copy(controlledHere = true), menu = true), emptySet(), PhoneInsets.Lab) }) {
+                tab(SessionsUi(true, true, sessions))
+            }
+        }
+        shoot("session-menu.png")
+    }
+
+    // decision: PHN-800
+    @Test
+    fun a_message_the_mac_refused_shows_as_not_sent_with_why_and_try_again() {
+        val why = "FERB couldn't tell that the terminal in front in Visual Studio Code is this session's, so it typed nothing. " +
+            "Click into the session's terminal once, then send again."
+        compose.setContent {
+            Phone(sheet = {
+                SessionScreenPage(open.copy(cards = emptyList(), draft = "", unsent = Unsent("Then deploy it to staging", Note(R.string.err_mac_said, why))),
+                    emptySet(), PhoneInsets.Lab)
+            }) { tab(SessionsUi(true, true, sessions)) }
+        }
+        shoot("session-not-sent.png")
+    }
+
+    // decision: HAND-683
+    @Test
+    fun when_the_mac_cant_tell_the_terminal_he_chooses_one() {
+        val pick = TerminalPick(
+            "Then deploy it to staging",
+            "FERB couldn't tell which terminal in Visual Studio Code is this session's, so it typed nothing. Choose it, and FERB types only there.",
+            listOf(
+                SessionChoice("front", "The terminal in front in Visual Studio Code now (Terminal 1, 2.1.330)"),
+                SessionChoice("w7:0:Terminal 1, 2.1.330", "config.toml — blog · Terminal 1, 2.1.330"),
+                SessionChoice("w7:1:Terminal 2, zsh", "config.toml — blog · Terminal 2, zsh"),
+            ),
+        )
+        compose.setContent {
+            Phone(sheet = {
+                SessionScreenPage(open.copy(cards = emptyList(), draft = ""), emptySet(), PhoneInsets.Lab)
+                PickTerminalSheet(pick, PhoneInsets.Lab, busy = false, onPick = {}, onNo = {})
+            }) { tab(SessionsUi(true, true, sessions)) }
+        }
+        shoot("session-pick-terminal.png")
     }
 
     @Test

@@ -1042,6 +1042,14 @@ kind = "build"
 status = "open"
 why = "MEM-467: a watch waits by code and checks with a model at most every 12 hours. A code check (sender's address, arrival after the request, read through the extension in his profile, e.g. Gmail's feed) would let only the found mail start a model run. Open: which mailbox, reading it reliably."
 decisions = ["MEM-467"]
+
+[T-1295]
+title = "VS Code-family extension and per-host bridges for exact, background session sends"
+area = "hands"
+kind = "build"
+status = "open"
+why = "Later, if HAND-682's proof or HAND-683's choosing bother the owner (he shipped without it, 2026-11-23). The identity is the agent's tty/pid; hosts that map a tty to their terminal send in the background. Matrix: journal 181."
+decisions = ["HAND-682", "HAND-683", "HAND-660"]
 after = []
 
 [T-1294]

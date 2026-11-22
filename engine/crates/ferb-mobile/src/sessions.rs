@@ -68,6 +68,9 @@ pub struct AgentSession {
     pub with_ferb: bool,
     /// The owner's goal for FERB ("" for none).
     pub goal: String,
+    /// HAND-683: FERB couldn't tell which terminal in its app is this session's: the ones it can see, for the owner to
+    /// choose (his pick goes with `session_control`). Empty otherwise.
+    pub terminals: Vec<SessionChoice>,
 }
 
 impl AgentSession {
@@ -106,6 +109,18 @@ impl AgentSession {
             control,
             with_ferb: !text(&v["delegate"]).is_empty() || !text(&v["goal"]).is_empty(),
             goal: text(&v["goal"]),
+            terminals: v["terminals"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .map(|t| SessionChoice {
+                            id: text(&t["id"]),
+                            label: text(&t["label"]),
+                        })
+                        .filter(|t| !t.id.is_empty())
+                        .collect()
+                })
+                .unwrap_or_default(),
         }
     }
 }
@@ -309,21 +324,22 @@ impl Mobile {
     }
 
     /// The owner's Yes (GATE-622): this phone controls the session from now on, and `words` (may be empty) are sent.
-    /// Signed over the exact session and words by `signer` (the fingerprint key where registered).
+    /// `terminal`: the one he chose of those the session offers (HAND-683; "" for none). Signed over the exact
+    /// session, words and choice by `signer` (the fingerprint key where registered).
     pub fn session_control(
         &self,
         session: &str,
         words: &str,
+        terminal: &str,
         signer: Arc<dyn Signer>,
     ) -> MobileResult<SessionSent> {
         need(session)?;
         let t = self.shared.transport_online()?;
-        let v = Shared::call_signed(
-            &t,
-            "sessions.control",
-            json!({"session": session, "text": words}),
-            Some(&signer),
-        )?;
+        let mut params = json!({"session": session, "text": words});
+        if !terminal.is_empty() {
+            params["terminal"] = json!(terminal);
+        }
+        let v = Shared::call_signed(&t, "sessions.control", params, Some(&signer))?;
         Ok(sent_of(&v))
     }
 
@@ -463,5 +479,29 @@ impl Mobile {
                 .filter(|s| !s.is_empty())
                 .map(str::to_string),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // decision: HAND-683
+    #[test]
+    fn a_session_carries_the_terminals_the_owner_may_choose_from() {
+        let v = json!({"id": "claude:s1", "agent": "claude_code", "send_paths": ["foreground"],
+            "terminals": [{"id": "front", "label": "The terminal in front in Code now (Terminal 1, 2.1.330)"},
+                          {"id": "w7:1:Terminal 2, 2.1.330", "label": "main.rs — app · Terminal 2, 2.1.330"}, {"label": "no id"}]});
+        let s = AgentSession::read(&v);
+        assert_eq!(
+            s.terminals
+                .iter()
+                .map(|t| t.id.as_str())
+                .collect::<Vec<_>>(),
+            ["front", "w7:1:Terminal 2, 2.1.330"]
+        );
+        assert!(AgentSession::read(&json!({"id": "claude:s2"}))
+            .terminals
+            .is_empty());
     }
 }

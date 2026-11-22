@@ -201,6 +201,19 @@ pub struct Session {
     /// The owner's goal for that task.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub goal: String,
+    /// HAND-683: FERB couldn't tell which terminal in its app is this session's: the ones it can see, for the owner to
+    /// choose (empty otherwise).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub terminals: Vec<TerminalChoice>,
+}
+
+/// HAND-683: a terminal the owner may choose as a session's, as its app shows it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TerminalChoice {
+    /// What FERB finds it by again ("front": the terminal in front when FERB sends).
+    pub id: String,
+    /// The app's own words for it (its window's title and the terminal's name).
+    pub label: String,
 }
 
 /// What a timeline item is.

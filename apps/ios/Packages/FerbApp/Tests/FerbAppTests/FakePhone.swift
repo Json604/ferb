@@ -340,6 +340,8 @@ final class FakePhone: PhoneApi {
     @ObservationIgnored var codingCards: [String: [SessionCard]] = [:]
     @ObservationIgnored var controlled: Set<String> = []
     @ObservationIgnored var codingSent: [(String, String)] = []
+    /// The Mac's refusal of a control with words, once (the foreground proof failing, PHN-800).
+    @ObservationIgnored var codingControlRefusal: FerbError?
     @ObservationIgnored var codingRefusal: FerbError?
     @ObservationIgnored var codingDelivered = true
     @ObservationIgnored var codingFolders = ["/Users/owner/code/garden-app", "/Users/owner/code/recipes"]
@@ -385,12 +387,13 @@ final class FakePhone: PhoneApi {
         if !controlled.contains(session) { return .ok(SessionSent(needsYes: yes(session, text), sent: false, delivered: false, path: "")) }
         return .ok(deliver(session, text))
     }
-    func sessionControl(_ session: String, text: String, signer: Signer) async -> Outcome<SessionSent> {
-        calls.append("session-control:\(session):\(text)")
+    func sessionControl(_ session: String, text: String, terminal: String, signer: Signer) async -> Outcome<SessionSent> {
+        calls.append(terminal.isEmpty ? "session-control:\(session):\(text)" : "session-control:\(session):\(text):terminal=\(terminal)")
         guard let sig = signer.sign(payload: "sessions.control") else { return .failed(.NotSigned(detail: "Nothing was sent.", linkCode: nil)) }
         signed.append(sig)
         controlled.insert(session)
         if text.isEmpty { return .ok(SessionSent(needsYes: nil, sent: false, delivered: false, path: "")) }
+        if let e = codingControlRefusal { codingControlRefusal = nil; return .failed(e) }
         return .ok(deliver(session, text))
     }
     func sessionRelease(_ session: String) async -> Outcome<UInt32> {

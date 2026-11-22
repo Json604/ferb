@@ -100,8 +100,9 @@ pub struct Foreground {
     pub bundle_id: String,
     pub app: String,
     pub pid: i32,
-    /// What proves the focused window or terminal is the session's: its title, else its folder's name.
-    pub proof: Vec<String>,
+    /// What proves the focused terminal is the session's (HAND-660, HAND-682): its title, or its program in the
+    /// terminal's own words with its folder in the window's (offered only when no other session there shares them).
+    pub proof: ferb_sessions::proof::Proof,
     /// The text to type ("" for a key alone); Return follows when `enter`.
     pub text: String,
     pub enter: bool,
@@ -111,6 +112,28 @@ pub struct Foreground {
     pub composer: bool,
     /// The window server's id of the session's window (0: the app's front window).
     pub window: i64,
+    /// HAND-683: the terminal the owner chose as this session's (a `TerminalChoice` id; "" when he chose none): FERB
+    /// types only there, after checking right before typing that it is still that same element.
+    pub chosen: String,
+}
+
+/// Why the foreground path typed nothing.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum NotTyped {
+    /// It couldn't (the words say why).
+    Failed(String),
+    /// HAND-683: it can't tell which terminal is the session's (or the chosen one changed): these are the ones it can
+    /// see, for the owner to choose; `why` says so.
+    Choose {
+        why: String,
+        terminals: Vec<TerminalChoice>,
+    },
+}
+
+impl From<String> for NotTyped {
+    fn from(s: String) -> Self {
+        NotTyped::Failed(s)
+    }
 }
 
 /// The Mac's own parts (`ferbd` gives the real ones; tests give stand-ins).
@@ -140,7 +163,7 @@ pub trait Mac: Send + Sync {
         enter: bool,
     ) -> Result<(), String>;
     /// The generic foreground path (HAND-660).
-    fn foreground(&self, f: Foreground) -> BoxFuture<'static, Result<(), String>>;
+    fn foreground(&self, f: Foreground) -> BoxFuture<'static, Result<(), NotTyped>>;
     /// HAND-668: the windows of these apps (bundle ids) that could hold a chat.
     fn chat_windows(&self, _bundles: &[String]) -> Vec<ChatWindow> {
         Vec::new()
@@ -249,6 +272,7 @@ impl Entry {
                 control: String::new(),
                 delegate: String::new(),
                 goal: String::new(),
+                terminals: Vec::new(),
             },
             transcript: None,
             offset: 0,
@@ -292,6 +316,9 @@ struct State {
     hooks_installed: Option<bool>,
     asked_enable: bool,
     chats: appchats::Chats,
+    /// HAND-683: session → (its agent's process, the terminal the owner chose for it): until it ends (a new process,
+    /// even under the same id, isn't it) or he stops controlling it.
+    chosen: HashMap<String, (i32, String)>,
 }
 
 /// The area. Cheap to clone.
@@ -572,6 +599,7 @@ impl Sessions {
                 control: String::new(),
                 delegate: String::new(),
                 goal: String::new(),
+                terminals: Vec::new(),
             },
             transcript: None,
             offset: 0,
@@ -1170,8 +1198,18 @@ impl Sessions {
         let key = by.key();
         let mut st = lock(&self.state);
         let before = st.control.len();
+        let gone: Vec<String> = st
+            .control
+            .iter()
+            .filter(|(s, k)| *k == &key && id.is_none_or(|i| i == s.as_str()))
+            .map(|(s, _)| s.clone())
+            .collect();
         st.control
             .retain(|s, k| !(k == &key && id.is_none_or(|i| i == s)));
+        // HAND-683: his choice of terminal lasts while he controls the session
+        for s in &gone {
+            st.chosen.remove(s);
+        }
         let n = before - st.control.len();
         drop(st);
         if n > 0 {
@@ -1326,15 +1364,15 @@ impl Sessions {
                 let chat = (s.agent == Agent::AppChat)
                     .then(|| self.chat_window(&s.id))
                     .flatten();
-                let mut proof = Vec::new();
-                if !s.title.is_empty() {
-                    proof.push(s.title.clone());
-                }
-                let folder = folder_name(&s.cwd);
-                if !folder.is_empty() {
-                    proof.push(folder);
-                }
-                self.seams
+                let proof = self.proof_of(s, &host);
+                let chosen = lock(&self.state)
+                    .chosen
+                    .get(&s.id)
+                    .filter(|(pid, _)| *pid == s.pid)
+                    .map(|(_, t)| t.clone())
+                    .unwrap_or_default();
+                let typed = self
+                    .seams
                     .mac
                     .foreground(Foreground {
                         bundle_id: host.bundle_id.clone(),
@@ -1350,11 +1388,94 @@ impl Sessions {
                         key: key.to_owned(),
                         composer: chat.is_some(),
                         window: chat.as_ref().map_or(0, |w| w.window),
+                        chosen,
                     })
-                    .await
-                    .map_err(|e| no(codes::NOT_THE_SESSION, e))
+                    .await;
+                self.typed(&s.id, typed)
             }
         }
+    }
+
+    /// HAND-682: what proves a terminal is this session's. Its program and folder are offered only when no other
+    /// running session in the same app shares both: then a terminal showing them can only be this one's.
+    fn proof_of(&self, s: &Session, host: &Host) -> ferb_sessions::proof::Proof {
+        use ferb_sessions::proof::{program_name, Proof};
+        let table = self.seams.mac.processes();
+        let program_of = |pid: i32| {
+            table
+                .get(&pid)
+                .map(|p| program_name(&p.exe))
+                .unwrap_or_default()
+        };
+        let (program, folder) = (program_of(s.pid), folder_name(&s.cwd));
+        let shared = !program.is_empty()
+            && !folder.is_empty()
+            && self.list().iter().any(|o| {
+                o.id != s.id
+                    && o.status != Status::Ended
+                    && o.host.as_ref().is_some_and(|h| h.pid == host.pid)
+                    && folder_name(&o.cwd) == folder
+                    && program_of(o.pid) == program
+            });
+        Proof {
+            title: s.title.clone(),
+            program: if shared { String::new() } else { program },
+            folder: if shared { String::new() } else { folder },
+        }
+    }
+
+    /// HAND-683: what the foreground path's answer means for the session. Typed: any choice of terminals offered
+    /// goes. Couldn't tell which terminal: the ones FERB can see go on the session for the owner to choose, and a
+    /// choice that no longer holds is forgotten (he is asked again).
+    fn typed(&self, id: &str, r: Result<(), NotTyped>) -> Result<(), Refused> {
+        let mut st = lock(&self.state);
+        match r {
+            Ok(()) => {
+                if let Some(e) = st.sessions.get_mut(id) {
+                    e.s.terminals.clear();
+                }
+                Ok(())
+            }
+            Err(NotTyped::Failed(why)) => Err(no(codes::NOT_THE_SESSION, why)),
+            Err(NotTyped::Choose { why, terminals }) => {
+                st.chosen.remove(id);
+                let offered = !terminals.is_empty();
+                if let Some(e) = st.sessions.get_mut(id) {
+                    e.s.terminals = terminals;
+                }
+                drop(st);
+                self.changed();
+                Err(no(
+                    if offered {
+                        codes::CHOOSE_TERMINAL
+                    } else {
+                        codes::NOT_THE_SESSION
+                    },
+                    why,
+                ))
+            }
+        }
+    }
+
+    /// HAND-683: the owner's choice of terminal for a session, one of those it offers; it lasts until the session
+    /// ends or he stops controlling it.
+    pub fn choose_terminal(&self, id: &str, terminal: &str) -> Result<(), Refused> {
+        let mut st = lock(&self.state);
+        let pid = st.sessions.get(id).map_or(0, |e| e.s.pid);
+        let offered = st
+            .sessions
+            .get(id)
+            .is_some_and(|e| e.s.terminals.iter().any(|t| t.id == terminal));
+        if !offered {
+            return Err(no(
+                codes::NOT_THE_SESSION,
+                "That terminal isn't one FERB offered for this session. Send again to see them.",
+            ));
+        }
+        st.chosen.insert(id.to_owned(), (pid, terminal.to_owned()));
+        drop(st);
+        (self.seams.journal)("sessions.terminal_chosen", json!({"session": id}));
+        Ok(())
     }
 
     fn tmux_server(&self, pid: i32) -> i32 {
@@ -1722,6 +1843,7 @@ impl Sessions {
                     control: String::new(),
                     delegate: String::new(),
                     goal: String::new(),
+                    terminals: Vec::new(),
                 },
                 transcript: None,
                 offset: 0,

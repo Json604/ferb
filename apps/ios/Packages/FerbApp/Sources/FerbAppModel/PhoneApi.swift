@@ -106,7 +106,8 @@ public protocol PhoneApi: AnyObject {
     /// The newest `limit` (`after` and `before` 0), those after `after` (the open session's poll), or before `before`.
     func sessionTimeline(_ session: String, after: UInt64, before: UInt64, limit: UInt32) async -> Outcome<SessionTimeline>
     func sessionSend(_ session: String, text: String) async -> Outcome<SessionSent>
-    func sessionControl(_ session: String, text: String, signer: Signer) async -> Outcome<SessionSent>
+    /// `terminal`: the one he chose of those the session offers (HAND-683; "" for none).
+    func sessionControl(_ session: String, text: String, terminal: String, signer: Signer) async -> Outcome<SessionSent>
     func sessionRelease(_ session: String) async -> Outcome<UInt32>
     func sessionAnswer(_ session: String, card: String, choice: String, signer: Signer) async -> Outcome<Bool>
     func sessionInterrupt(_ session: String) async -> Outcome<Bool>
@@ -265,8 +266,8 @@ public final class LibraryPhone: PhoneApi {
     public func sessionSend(_ session: String, text: String) async -> Outcome<SessionSent> {
         await phone.call { try $0.sessionSend(session: session, text: text) }
     }
-    public func sessionControl(_ session: String, text: String, signer: Signer) async -> Outcome<SessionSent> {
-        await phone.call { try $0.sessionControl(session: session, text: text, signer: signer) }
+    public func sessionControl(_ session: String, text: String, terminal: String, signer: Signer) async -> Outcome<SessionSent> {
+        await phone.call { try $0.sessionControl(session: session, text: text, terminal: terminal, signer: signer) }
     }
     public func sessionRelease(_ session: String) async -> Outcome<UInt32> { await phone.call { try $0.sessionRelease(session: session) } }
     public func sessionAnswer(_ session: String, card: String, choice: String, signer: Signer) async -> Outcome<Bool> {

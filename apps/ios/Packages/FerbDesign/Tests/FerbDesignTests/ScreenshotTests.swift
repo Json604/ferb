@@ -61,6 +61,21 @@ final class ScreenshotTests: XCTestCase {
         }
         shot("screens/sessions-off-noon.png", sheet: { EmptyView() }, page: { SessionSample.page(off: true) })
         shot("screens/session-noon.png", sheet: { SessionSample.session(scrolls: false) }, page: { SessionSample.page() })
+        // PHN-800: the session's menu, and a message the Mac refused shown as not sent
+        shot("screens/session-menu-noon.png", sheet: { SessionSample.session(scrolls: false, menuOpen: true) }, page: { SessionSample.page() })
+        shot("screens/session-not-sent-noon.png", sheet: { SessionSample.session(scrolls: false, unsent: SessionSample.unsent) },
+             page: { SessionSample.page() })
+        // HAND-683: FERB can't tell which terminal is the session's; he chooses one or doesn't send
+        shot("screens/session-pick-terminal-noon.png", sheet: {
+            ZStack {
+                SessionSample.session(scrolls: false)
+                PickTerminalSheet(title: "Which terminal is this session in?",
+                                  why: "FERB couldn't tell which terminal in Visual Studio Code is this session's, so it typed nothing. Choose it, and FERB types only there.",
+                                  terminals: SessionSample.terminals,
+                                  note: "FERB types only into the one you choose, and asks again if it changes.", no: "Don't send",
+                                  yesSymbol: "faceid", onPick: { _ in }, onNo: {})
+            }
+        }, page: { SessionSample.page() })
         shot("screens/session-yes-noon.png", sheet: {
             ZStack {
                 SessionSample.session(typed: "Run it once more and tell me", scrolls: false)
@@ -94,5 +109,35 @@ final class ScreenshotTests: XCTestCase {
         .stillMotion()
         Snapshot.assert(view, size: PhoneInsets.labSize, path: "screens/chat-noon.png")
     }
+}
+#endif
+
+#if canImport(UIKit)
+/// The top bar (PHN-801) with every tab chosen in turn, at the smallest current iPhone width (375 points) and the lab's
+/// (402): the chosen tab's name fits, the other icons keep their room, the link's state is the profile button's badge.
+/// Android's TopBarWidthsShotsTest draws the same.
+@MainActor
+final class TopBarWidthsTests: XCTestCase {
+    private func shoot(width: CGFloat, _ name: String) {
+        let size = CGSize(width: width, height: 560)
+        let view = PhoneScreen(moment: .lab(12.5), glide: false, sheet: { EmptyView() }, page: {
+            VStack(spacing: 18) {
+                ForEach(PhoneTab.allCases, id: \.self) { t in
+                    TopBar(chosen: t, waiting: t == .tasks ? nil : .tasks, onTab: { _ in }, onProfile: {})
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.top, 20)
+            .environment(\.connection, Connection(mark: .direct, label: "Your Mac: Connected", onClick: {}))
+        })
+        .frame(width: size.width, height: size.height)
+        .stillMotion()
+        Snapshot.assert(view, size: size, path: "components/\(name).png")
+    }
+
+    // decision: PHN-801
+    func testEveryTabAt375() { shoot(width: 375, "topbar-375") }
+    // decision: PHN-801
+    func testEveryTabAt402() { shoot(width: 402, "topbar-402") }
 }
 #endif

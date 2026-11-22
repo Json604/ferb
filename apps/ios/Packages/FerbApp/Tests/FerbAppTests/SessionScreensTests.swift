@@ -42,7 +42,7 @@ final class SessionScreensTests: XCTestCase {
         AgentSession(id: id, agent: id.hasPrefix("codex") ? "codex" : "claude_code", agentName: id.hasPrefix("codex") ? "Codex" : "Claude Code",
                      title: title, folder: "/Users/owner/code/\(folder)", folderName: folder, status: status,
                      waiting: status == "waiting_for_you" ? "permission" : "none", host: host, canSend: true, noSend: "",
-                     foreground: true, lastAt: "", lastText: "", controlledHere: false, control: "", withFerb: withFerb, goal: "")
+                     foreground: true, lastAt: "", lastText: "", controlledHere: false, control: "", withFerb: withFerb, goal: "", terminals: [])
     }
 
     private func item(_ seq: UInt64, _ kind: String, _ text: String) -> SessionItem {

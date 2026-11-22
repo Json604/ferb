@@ -3392,6 +3392,17 @@
         }
       }
     },
+    "sessions_more": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More"
+          }
+        }
+      }
+    },
     "sessions_new": {
       "extractionState": "manual",
       "localizations": {
@@ -3458,6 +3469,17 @@
         }
       }
     },
+    "sessions_not_sent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not sent."
+          }
+        }
+      }
+    },
     "sessions_off": {
       "extractionState": "manual",
       "localizations": {
@@ -3487,6 +3509,39 @@
           "stringUnit": {
             "state": "translated",
             "value": "Show earlier"
+          }
+        }
+      }
+    },
+    "sessions_pick_no": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don't send"
+          }
+        }
+      }
+    },
+    "sessions_pick_note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FERB types only into the one you choose, and asks again if it changes."
+          }
+        }
+      }
+    },
+    "sessions_pick_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Which terminal is this session in?"
           }
         }
       }
@@ -3553,6 +3608,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Your coding sessions"
+          }
+        }
+      }
+    },
+    "sessions_try_again": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try again"
           }
         }
       }

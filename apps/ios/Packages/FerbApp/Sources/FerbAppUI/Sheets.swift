@@ -55,6 +55,8 @@ struct SheetsView: View {
             SessionScreen(model: model, insets: insets)
         case .sessionYes:
             SessionYesView(model: model, insets: insets)
+        case .sessionPick:
+            PickTerminalView(model: model, insets: insets)
         case .sessionHand:
             SessionHandSheet(model: model, insets: insets)
         case .sessionNew:
@@ -261,7 +263,12 @@ struct Profile: View {
                      lockTitle: L.s("profile_lock").replacingOccurrences(of: "%@", with: Words.bioTitle),
                      instead: (title: L.s("background_title"), detail: L.s("background_detail"), onClick: { model.show(.background) }),
                      // PHN-656: no switch that does nothing: "Always on", and a tap says why
-                     lockAlways: L.s("profile_lock_always"), onLockInfo: { model.note(Note("profile_lock_why")) })
+                     lockAlways: L.s("profile_lock_always"), onLockInfo: { model.note(Note("profile_lock_why")) },
+                     // PHN-801: the connection's row (the top bar's badge); its sheet keeps Try again, the relay and the Mac tab
+                     connection: AnyView(ConnectionRow(mark: linkMark(model.ui.link, lost: model.ui.linkLost),
+                                                       state: linkStateWords(linkMark(model.ui.link, lost: model.ui.linkLost)),
+                                                       path: linkPathWords(linkMark(model.ui.link, lost: model.ui.linkLost)),
+                                                       onClick: { model.show(.connection) })))
     }
 }
 

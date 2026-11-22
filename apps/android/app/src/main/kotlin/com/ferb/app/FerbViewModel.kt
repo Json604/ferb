@@ -21,6 +21,8 @@ import com.ferb.app.model.MacSettings
 import com.ferb.app.model.Moment
 import com.ferb.app.model.NewSessionUi
 import com.ferb.app.model.SessionConfirm
+import com.ferb.app.model.Unsent
+import com.ferb.app.model.TerminalPick
 import com.ferb.app.model.SessionUi
 import com.ferb.app.model.Sessions
 import com.ferb.app.model.SessionsUi
@@ -140,7 +142,7 @@ sealed interface Sheet {
     /** Show me (APP-983): the Mac's camera while this shows, always out of screenshots. */
     data object Camera : Sheet
 
-    /** One of the owner's coding sessions (kb HAND-651..666), full screen: its conversation, always out of screenshots. */
+    /** One of the owner's coding sessions (kb HAND-651..666), full screen: its conversation; screenshots as his switch says (PHN-800). */
     data class Session(val id: String) : Sheet
 
     /** A coding session's window live (Watch, kb HAND-651..666; PHN-454's rules), always out of screenshots. */
@@ -419,7 +421,7 @@ class FerbViewModel(
         }
         viewModelScope.launch {
             combine(_sheet, hiddenBoxes) { s, hidden ->
-                s is Sheet.Live || s is Sheet.Task || s is Sheet.Camera || s is Sheet.Session || s is Sheet.SessionLive || hidden.isNotEmpty()
+                s is Sheet.Live || s is Sheet.Task || s is Sheet.Camera || s is Sheet.SessionLive || hidden.isNotEmpty()
             // the views that show the Mac's screen readably force the block (Watch live, a task's or step's short view);
             // the small round pictures in the chat follow the owner's switch (owner 2026-11-18, kb PHN-732, PHN-727)
             }.collect { _mustSecure.value = it }
@@ -1724,21 +1726,71 @@ class FerbViewModel(
      */
     fun sessionSend() = busy("session-send", tap = true) {
         val o = _openSession.value ?: return@busy
-        val text = o.draft
-        if (text.isBlank()) return@busy
-        when (val r = unlocker.run { api.sessionSend(o.id, text) }) {
+        sendWords(o.id, o.draft)
+    }
+
+    /** Try again on a message the Mac refused (PHN-800): the same words, the same way (asked first if not controlled). */
+    fun sessionRetry() = busy("session-send", tap = true) {
+        val o = _openSession.value ?: return@busy
+        val u = o.unsent ?: return@busy
+        sendWords(o.id, u.text)
+    }
+
+    private suspend fun sendWords(id: String, text: String) {
+        if (text.isBlank()) return
+        when (val r = unlocker.run { api.sessionSend(id, text) }) {
             is Outcome.Ok -> {
                 val yes = r.value.needsYes
-                if (yes != null) _openSession.update { it?.copy(ask = SessionConfirm(text, yes)) } else sessionSent(o.id, text, r.value)
+                if (yes != null) _openSession.update { it?.copy(ask = SessionConfirm(text, yes)) } else sessionSent(id, text, r.value)
             }
-            is Outcome.Failed -> failed(r.error)
+            is Outcome.Failed -> notSent(id, text, r.error)
         }
     }
+
+    /**
+     * PHN-800: a send the Mac refused (or that never reached it) never looks sent: the words leave the box into a
+     * dimmed bubble with why, in the Mac's plain words, and Try again; the question, if one was open, closes.
+     */
+    private suspend fun notSent(id: String, text: String, e: FerbException) {
+        if (e is FerbException.NotSigned) return
+        _openSession.update { u ->
+            if (u?.id != id) u
+            else u.copy(ask = null, pick = null, unsent = Unsent(text, errorNote(e)), draft = if (u.draft == text) "" else u.draft)
+        }
+        // HAND-683: FERB can't tell which terminal is the session's: the ones it can see, for him to choose
+        if (e is FerbException.Refused && e.linkCode == "choose_terminal") {
+            readSession(id)
+            val terminals = _openSession.value?.takeIf { it.id == id }?.session?.terminals.orEmpty()
+            if (terminals.isNotEmpty()) _openSession.update { it?.copy(pick = TerminalPick(text, e.detail, terminals)) }
+        }
+    }
+
+    /**
+     * HAND-683: his choice of terminal for these words, signed with the fingerprint as control is (GATE-622): the Mac
+     * types only there, keeps it for the session while he controls it, and asks again if it changes.
+     */
+    fun sessionPickTerminal(terminal: String) = busy("session-pick", tap = true) {
+        val o = _openSession.value ?: return@busy
+        val pick = o.pick ?: return@busy
+        val signer = freshSigner(Why.YES) ?: return@busy
+        when (val r = unlocker.run { api.sessionControl(o.id, pick.text, terminal, signer()) }) {
+            is Outcome.Ok -> {
+                _openSession.update { it?.copy(pick = null) }
+                sessionSent(o.id, pick.text, r.value)
+            }
+            is Outcome.Failed -> notSent(o.id, pick.text, r.error)
+        }
+    }
+
+    /** Don't send: nothing is typed; his words stay as not sent, with Try again. */
+    fun sessionPickNo() = _openSession.update { it?.copy(pick = null) }
 
     /** What was sent leaves the box (unless he typed on meanwhile); a send the Mac couldn't see arrive yet is said. */
     private suspend fun sessionSent(id: String, text: String, sent: com.ferb.mobile.SessionSent) {
         if (!sent.sent) return
-        _openSession.update { u -> if (u?.id == id && u.draft == text) u.copy(draft = "") else u }
+        _openSession.update { u ->
+            if (u?.id == id) u.copy(draft = if (u.draft == text) "" else u.draft, unsent = u.unsent?.takeIf { it.text != text }) else u
+        }
         if (!sent.delivered) note(Note(R.string.sessions_not_seen))
         readSession(id)
     }
@@ -1752,17 +1804,25 @@ class FerbViewModel(
         val o = _openSession.value ?: return@busy
         val ask = o.ask ?: return@busy
         val signer = freshSigner(Why.YES) ?: return@busy
-        when (val r = unlocker.run { api.sessionControl(o.id, ask.text, signer()) }) {
+        when (val r = unlocker.run { api.sessionControl(o.id, ask.text, "", signer()) }) {
             is Outcome.Ok -> {
                 _openSession.update { it?.copy(ask = null) }
                 if (ask.thenInterrupt) interruptNow(o.id, asked = true) else sessionSent(o.id, ask.text, r.value)
             }
-            is Outcome.Failed -> if (r.error !is FerbException.NotSigned) failed(r.error)
+            // PHN-800: refused after his Yes: the question closes and the words show as not sent, never stuck open
+            is Outcome.Failed -> when {
+                r.error is FerbException.NotSigned -> {}
+                ask.thenInterrupt -> { _openSession.update { it?.copy(ask = null) }; failed(r.error) }
+                else -> notSent(o.id, ask.text, r.error)
+            }
         }
     }
 
     /** Cancel on the Mac's question: nothing is sent; the words stay in the box. */
     fun sessionNo() = _openSession.update { it?.copy(ask = null) }
+
+    /** The session's menu (PHN-800). */
+    fun sessionMenu(open: Boolean) = _openSession.update { it?.copy(menu = open) }
 
     /** Stop its turn (needs control of the session: the same question with no words first, then the stop). */
     fun sessionInterrupt() = busy("session-interrupt", tap = true) {

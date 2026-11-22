@@ -41,7 +41,6 @@ import com.ferb.design.components.PhoneText
 import com.ferb.design.components.Pill
 import com.ferb.design.components.PillKind
 import com.ferb.design.components.SessionAction
-import com.ferb.design.components.SessionActions
 import com.ferb.design.components.SessionAsk
 import com.ferb.design.components.SessionAskCard
 import com.ferb.design.components.SessionChip
@@ -51,6 +50,12 @@ import com.ferb.design.components.SessionRow
 import com.ferb.design.components.SessionRowData
 import com.ferb.design.components.SkyLabel
 import com.ferb.design.components.TopBar
+import androidx.compose.ui.platform.testTag
+import com.ferb.design.components.pressable
+import com.ferb.design.components.MoreButton
+import com.ferb.design.components.SessionMenu
+import com.ferb.design.components.SessionUnsentView
+import com.ferb.design.components.SessionUnsent
 
 // The Sessions tab and one session's screen (kb HAND-651..666): the owner's Claude Code and Codex sessions on his Mac. The
 // phones show what FERB.app's Sessions place shows, in the phone's own look.
@@ -108,9 +113,10 @@ fun SessionsPage(
 }
 
 /**
- * One session, full screen on black (it holds the owner's conversation: the app keeps it out of screenshots): its
- * title, place and state, its buttons, the conversation with "Show earlier" at its top and the agent's open questions
- * at its end, and the message box ([composer], or why nothing can be sent).
+ * One session, full screen on black: its title and state on one header with its menu (where it runs and its actions,
+ * PHN-800) and Close; the conversation with "Show earlier" at its top, a refused message ([unsent]) after its last
+ * line, and the agent's open questions at its end; the message box ([composer], or why nothing can be sent). The app
+ * follows the owner's screenshot switch here (PHN-800); only Watch is kept out of screenshots always.
  */
 @Composable
 fun SessionPage(
@@ -123,45 +129,62 @@ fun SessionPage(
     onOlder: (() -> Unit)? = null,
     onClose: (() -> Unit)? = null,
     onChoice: ((ask: Int, choice: Int) -> Unit)? = null,
+    unsent: SessionUnsent? = null,
+    onRetry: (() -> Unit)? = null,
+    moreLabel: String = "More",
+    menuOpen: Boolean = false,
+    onMenu: ((Boolean) -> Unit)? = null,
     list: LazyListState = rememberLazyListState(),
     composer: @Composable (Modifier) -> Unit,
 ) {
-    Column(Modifier.fillMaxSize().background(Ink.black).paddingOverBottom(insets, 8.dp, top = insets.top + 8.dp)) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.Top) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                PhoneText(header.title, 20f, FerbType.Semibold, Ink.white, Modifier.semantics { heading() }, maxLines = 2)
-                PhoneText(header.subtitle, 14f, color = Ink.onDark, maxLines = 1)
-                FerbSurface {
-                    Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        SessionChip(header.state, header.stateText)
-                        header.ferb?.let { FerbBadge(it) }
+    Box(Modifier.fillMaxSize().background(Ink.black)) {
+        Column(Modifier.fillMaxSize().paddingOverBottom(insets, 8.dp, top = insets.top + 8.dp)) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    PhoneText(header.title, 19f, FerbType.Semibold, Ink.white, Modifier.semantics { heading() }, maxLines = 1)
+                    FerbSurface {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            SessionChip(header.state, header.stateText)
+                            header.ferb?.let { FerbBadge(it) }
+                        }
                     }
                 }
+                if (actions.isNotEmpty()) MoreButton(moreLabel, menuOpen, Modifier.testTag("session-more"), onClick = onMenu?.let { { it(!menuOpen) } })
+                CloseButton(onClose)
             }
-            CloseButton(onClose)
-        }
-        if (actions.isNotEmpty()) SessionActions(actions, Modifier.padding(top = 12.dp))
-        // the end followed: a new line or question comes into view when he was at the end (or on the first page)
-        val count = lines.size + asks.size + (if (older != null) 1 else 0)
-        val atEnd by remember(list) {
-            derivedStateOf { list.layoutInfo.visibleItemsInfo.lastOrNull()?.index?.let { it >= list.layoutInfo.totalItemsCount - 3 } ?: true }
-        }
-        val lastKey = lines.lastOrNull()?.key to asks.size
-        LaunchedEffect(lastKey) { if (count > 0 && atEnd) list.scrollToItem(count - 1) }
-        LazyColumn(
-            Modifier.weight(1f).fillMaxWidth(),
-            state = list,
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            if (older != null) item(key = "older") {
-                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    FerbSurface { Pill(older, kind = PillKind.GREY, height = 36.dp, fill = false, onClick = onOlder) }
+            // the end followed: a new line or question comes into view when he was at the end (or on the first page)
+            val count = lines.size + asks.size + (if (older != null) 1 else 0) + (if (unsent != null) 1 else 0)
+            val atEnd by remember(list) {
+                derivedStateOf { list.layoutInfo.visibleItemsInfo.lastOrNull()?.index?.let { it >= list.layoutInfo.totalItemsCount - 3 } ?: true }
+            }
+            val lastKey = Triple(lines.lastOrNull()?.key, asks.size, unsent)
+            LaunchedEffect(lastKey) { if (count > 0 && atEnd) list.scrollToItem(count - 1) }
+            LazyColumn(
+                Modifier.weight(1f).fillMaxWidth(),
+                state = list,
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                if (older != null) item(key = "older") {
+                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        FerbSurface { Pill(older, kind = PillKind.GREY, height = 36.dp, fill = false, onClick = onOlder) }
+                    }
                 }
+                items(lines, key = { "l:" + it.key }) { SessionLineView(it) }
+                if (unsent != null) item(key = "unsent") { SessionUnsentView(unsent, Modifier.testTag("session-unsent"), onRetry) }
+                itemsIndexed(asks, key = { _, a -> "ask:" + a.key }) { i, a -> SessionAskCard(a, onChoice = onChoice?.let { { c -> it(i, c) } }) }
             }
-            items(lines, key = { "l:" + it.key }) { SessionLineView(it) }
-            itemsIndexed(asks, key = { _, a -> "ask:" + a.key }) { i, a -> SessionAskCard(a, onChoice = onChoice?.let { { c -> it(i, c) } }) }
+            composer(Modifier.padding(horizontal = 16.dp))
         }
-        composer(Modifier.padding(horizontal = 16.dp))
+        if (menuOpen && actions.isNotEmpty()) {
+            // a tap anywhere else closes the menu
+            Box(Modifier.fillMaxSize().pressable(onMenu?.let { { it(false) } }, label = moreLabel))
+            SessionMenu(
+                header.subtitle, actions,
+                Modifier.align(Alignment.TopEnd).padding(top = insets.top + 8.dp + 52.dp, end = 16.dp).testTag("session-menu"),
+                onPicked = { onMenu?.invoke(false) },
+            )
+        }
     }
 }

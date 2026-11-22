@@ -21,6 +21,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
@@ -183,8 +184,58 @@ fun SessionAskCard(ask: SessionAsk, modifier: Modifier = Modifier, onChoice: ((I
     }
 }
 
-/** One of the session screen's buttons under its title (Watch, Hand to FERB, Stop its turn, Stop controlling). */
+/** One of the session screen's actions, in its menu (Watch, Hand to FERB, Stop its turn, Stop controlling). */
 data class SessionAction(val label: String, val icon: ImageVector?, val onClick: (() -> Unit)?)
+
+/**
+ * A message the Mac refused (PHN-800): the owner's words, dimmed, never as sent; why, in the Mac's plain words; and
+ * [retry] to send them again.
+ */
+data class SessionUnsent(val text: String, val reason: String, val retry: String, val notSent: String)
+
+@Composable
+fun SessionUnsentView(u: SessionUnsent, modifier: Modifier = Modifier, onRetry: (() -> Unit)? = null) {
+    Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        OwnerBubble(u.text, Modifier.alpha(0.5f))
+        Row(Modifier.padding(start = 40.dp, end = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
+            LampDot(Lamp.red, 7.dp, Modifier.padding(top = 6.dp))
+            PhoneText("${u.notSent} ${u.reason}", 14f, color = Ink.onDark, lineSpacing = 2f)
+        }
+        FerbSurface { Pill(u.retry, Modifier.padding(end = 2.dp), PillKind.GREY, height = 36.dp, fill = false, onClick = onRetry) }
+    }
+}
+
+/** The session's menu (PHN-800): where it runs, then its actions, one per row, in a white card. */
+@Composable
+fun SessionMenu(place: String, actions: List<SessionAction>, modifier: Modifier = Modifier, onPicked: () -> Unit = {}) {
+    Card(modifier.widthIn(min = 220.dp, max = 280.dp), padding = 6.dp) {
+        if (place.isNotBlank()) PhoneText(place, 13.5f, color = Ink.detail, maxLines = 2, modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 6.dp))
+        actions.forEachIndexed { i, a ->
+            if (i > 0 || place.isNotBlank()) Divide()
+            Row(
+                Modifier.fillMaxWidth().pressable(a.onClick?.let { f -> { onPicked(); f() } }, label = a.label)
+                    .heightIn(min = 48.dp).padding(horizontal = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                val ink = if (a.onClick != null) Ink.black else Ink.detail
+                Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) { a.icon?.let { FerbIcon(it, 17f, ink) } }
+                PhoneText(a.label, 16f, FerbType.Medium, ink, maxLines = 1)
+            }
+        }
+    }
+}
+
+/** The session header's round buttons: its menu (an ellipsis) beside Close, the same grey round. */
+@Composable
+fun MoreButton(label: String, open: Boolean, modifier: Modifier = Modifier, onClick: (() -> Unit)?) {
+    Box(
+        modifier.pressable(onClick, label = label).size(Phone.closeButton)
+            .background(if (open) Ink.white else Ink.fill, CircleShape)
+            .semantics { contentDescription = label },
+        contentAlignment = Alignment.Center,
+    ) { FerbIcon(FerbIcons.more, 18f, Ink.black) }
+}
 
 /** The session screen's buttons: small dark pills in one row that scrolls sideways when they don't fit. */
 @Composable

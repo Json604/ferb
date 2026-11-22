@@ -15,7 +15,9 @@ use ferb_daemon::sessions::*;
 use ferb_sessions::codes;
 use ferb_sessions::host::{Proc, Table};
 use ferb_sessions::model::*;
+use ferb_sessions::proof::Proof;
 use ferb_sessions::ws;
+use ferb_sessions::TerminalChoice;
 use serde_json::{json, Value};
 use tokio::sync::oneshot;
 
@@ -32,6 +34,10 @@ struct FakeMac {
     typed: Mutex<Vec<(String, String)>>,
     opened: Mutex<Vec<String>>,
     foreground: Mutex<Vec<Foreground>>,
+    /// HAND-683: no terminal proves itself the session's: these are the ones the app shows (empty: proven).
+    unproven: Mutex<Vec<TerminalChoice>>,
+    /// HAND-683: the chosen terminal isn't there as it was any more.
+    chosen_gone: Mutex<bool>,
     /// Where a typed message lands (the agent writes it to its transcript, as Claude Code does).
     echo_to: Mutex<Option<PathBuf>>,
     /// HAND-668: the chat apps' windows and their trees (by window id); the trees read, with `front`; presses.
@@ -80,7 +86,24 @@ impl Mac for FakeMac {
     fn tmux_send(&self, _: i32, _: &str, _: &str, _: &str, _: bool) -> Result<(), String> {
         Err("no tmux here".into())
     }
-    fn foreground(&self, f: Foreground) -> BoxFuture<'static, Result<(), String>> {
+    fn foreground(&self, f: Foreground) -> BoxFuture<'static, Result<(), NotTyped>> {
+        let offered = self.unproven.lock().unwrap().clone();
+        let gone = *self.chosen_gone.lock().unwrap();
+        let refused = if !f.chosen.is_empty() {
+            (gone || !offered.iter().any(|t| t.id == f.chosen)).then(|| NotTyped::Choose {
+                why: "The terminal you chose isn't there as it was.".into(),
+                terminals: offered.clone(),
+            })
+        } else {
+            (!f.composer && !offered.is_empty()).then(|| NotTyped::Choose {
+                why: "FERB couldn't tell which terminal is this session's.".into(),
+                terminals: offered.clone(),
+            })
+        };
+        if let Some(r) = refused {
+            self.foreground.lock().unwrap().push(f);
+            return Box::pin(async move { Err(r) });
+        }
         if f.composer {
             if let Some(echo) = self.chat_echo.lock().unwrap().as_ref() {
                 let tree = echo(&f.text);
@@ -674,7 +697,7 @@ async fn typing_is_refused_when_the_agent_is_not_in_front_and_unproven_delivery_
     );
 }
 
-// decision: HAND-660
+// decision: HAND-660, HAND-682
 #[tokio::test]
 async fn any_other_app_gets_the_foreground_path_with_the_session_s_proof() {
     let w = world(50.0);
@@ -703,10 +726,124 @@ async fn any_other_app_gets_the_foreground_path_with_the_session_s_proof() {
         (f.bundle_id.as_str(), f.pid, f.text.as_str(), f.enter),
         ("com.microsoft.VSCode", 100, "go", true)
     );
-    assert_eq!(f.proof, ["Fix login", "app"]);
+    // HAND-682: its title, or its program (as the Mac names it) with its folder: VS Code's terminal shows those
+    assert_eq!(
+        f.proof,
+        Proof {
+            title: "Fix login".into(),
+            program: "claude".into(),
+            folder: "app".into()
+        }
+    );
     // its interrupt is Esc into the same proven terminal
     w.s.interrupt(&id(), &Caller::Mac).await.unwrap();
     assert_eq!(w.mac.foreground.lock().unwrap()[1].key, "escape");
+    // a second session in the same app, the same folder and the same program: a terminal showing those could be
+    // either, so only the title proves it
+    w.mac.table.lock().unwrap().extend([
+        proc(140, 110, 140, 150, "/dev/ttys005", "/bin/zsh"),
+        proc(150, 140, 150, 150, "/dev/ttys005", "/u/claude"),
+    ]);
+    *w.mac.agents.lock().unwrap() = Some(
+        json!([
+            {"pid": 130, "cwd": "/p/app", "sessionId": SID, "name": "", "kind": "interactive", "status": "idle"},
+            {"pid": 150, "cwd": "/q/app", "sessionId": "0f0f0f0f-0000-4bcf-a44f-de50b0d1c1fe", "name": "", "kind": "interactive", "status": "idle"}
+        ])
+        .to_string(),
+    );
+    let other = w.home.join(".claude/projects/-q-app");
+    std::fs::create_dir_all(&other).unwrap();
+    std::fs::write(other.join("0f0f0f0f-0000-4bcf-a44f-de50b0d1c1fe.jsonl"), "").unwrap();
+    // the agents' list is read again after its interval (this world runs 50 times faster)
+    tokio::time::sleep(Duration::from_secs_f64(
+        ferb_daemon::sessions::AGENTS_EVERY_S / 50.0 + 0.05,
+    ))
+    .await;
+    w.s.look();
+    assert_eq!(w.s.list().len(), 2);
+    w.s.send(&id(), "again", &Caller::Mac).await.unwrap();
+    let f = w.mac.foreground.lock().unwrap()[2].clone();
+    assert_eq!(
+        f.proof,
+        Proof {
+            title: "Fix login".into(),
+            ..Proof::default()
+        }
+    );
+}
+
+// decision: HAND-683
+#[tokio::test]
+async fn when_no_terminal_proves_itself_the_owner_chooses_one_and_ferb_keeps_to_it() {
+    let w = world(50.0);
+    {
+        let mut t = w.mac.table.lock().unwrap();
+        t.extend([
+            proc(100, 1, 100, 0, "", "/Applications/Visual Studio Code.app/Contents/MacOS/Code"),
+            proc(110, 100, 110, 0, "", "/Applications/Visual Studio Code.app/Contents/Frameworks/Code Helper.app/Contents/MacOS/Code Helper"),
+            proc(120, 110, 120, 130, "/dev/ttys004", "/bin/zsh"),
+            proc(130, 120, 130, 130, "/dev/ttys004", "/u/claude"),
+        ]);
+    }
+    listed(&w);
+    w.s.take_control(&id(), &Caller::Mac).unwrap();
+    let offered = vec![
+        TerminalChoice {
+            id: "front".into(),
+            label: "The terminal in front in Code now (Terminal 1, 2.1.330)".into(),
+        },
+        TerminalChoice {
+            id: "w7:1:Terminal 2, 2.1.330".into(),
+            label: "main.rs — app · Terminal 2, 2.1.330".into(),
+        },
+    ];
+    *w.mac.unproven.lock().unwrap() = offered.clone();
+    // FERB can't tell: nothing typed, and the session lists what he may choose from
+    let r = w.s.send(&id(), "go", &Caller::Mac).await.unwrap_err();
+    assert_eq!(r.code, codes::CHOOSE_TERMINAL);
+    assert_eq!(w.s.session(&id()).unwrap().terminals, offered);
+    assert_eq!(w.mac.foreground.lock().unwrap().last().unwrap().chosen, "");
+    // only one it offered
+    assert_eq!(
+        w.s.choose_terminal(&id(), "w9:0:something else")
+            .unwrap_err()
+            .code,
+        codes::NOT_THE_SESSION
+    );
+    // his choice is used for the send, and kept for the next one
+    w.s.choose_terminal(&id(), "w7:1:Terminal 2, 2.1.330")
+        .unwrap();
+    w.s.send(&id(), "go", &Caller::Mac).await.unwrap();
+    assert_eq!(
+        w.mac.foreground.lock().unwrap().last().unwrap().chosen,
+        "w7:1:Terminal 2, 2.1.330"
+    );
+    assert!(
+        w.s.session(&id()).unwrap().terminals.is_empty(),
+        "sent: nothing left to choose"
+    );
+    w.s.send(&id(), "and again", &Caller::Mac).await.unwrap();
+    assert_eq!(
+        w.mac.foreground.lock().unwrap().last().unwrap().chosen,
+        "w7:1:Terminal 2, 2.1.330"
+    );
+    // the chosen terminal changed: nothing typed, he is asked again, and the old choice is gone
+    *w.mac.chosen_gone.lock().unwrap() = true;
+    let r = w.s.send(&id(), "go", &Caller::Mac).await.unwrap_err();
+    assert_eq!(r.code, codes::CHOOSE_TERMINAL);
+    *w.mac.chosen_gone.lock().unwrap() = false;
+    let _ = w.s.send(&id(), "go", &Caller::Mac).await;
+    assert_eq!(
+        w.mac.foreground.lock().unwrap().last().unwrap().chosen,
+        "",
+        "asked again, not reused"
+    );
+    // a choice lasts only while he controls the session
+    w.s.choose_terminal(&id(), "front").unwrap();
+    w.s.release_control(Some(&id()), &Caller::Mac);
+    w.s.take_control(&id(), &Caller::Mac).unwrap();
+    let _ = w.s.send(&id(), "go", &Caller::Mac).await;
+    assert_eq!(w.mac.foreground.lock().unwrap().last().unwrap().chosen, "");
 }
 
 // decision: HAND-663

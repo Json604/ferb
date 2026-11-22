@@ -193,6 +193,37 @@ final class SessionsTests: XCTestCase {
         XCTAssertNotNil(model.note)
     }
 
+    // decision: HAND-683
+    func testWhenTheDaemonCantTellTheTerminalTheOwnerChoosesOneOrDoesntSend() async throws {
+        let rpc = ScriptedRPC()
+        let model = try await listed(rpc)
+        let why = "FERB couldn't tell which terminal in Code is this session's, so it typed nothing. Choose it, and FERB types only there."
+        rpc.failures["sessions.send"] = DaemonRPCError.remote(why, code: SessionRefusal.chooseTerminal)
+        var offered = Self.claude
+        offered["terminals"] = [["id": "front", "label": "The terminal in front in Code now (Terminal 1, 2.1.330)"],
+                                ["id": "w7:1:Terminal 2, 2.1.330", "label": "main.rs — app · Terminal 2, 2.1.330"]]
+        rpc.replies["sessions.list"] = ["enabled": true, "sessions": [offered, Self.codex]]
+        rpc.replies["sessions.timeline"] = ["session": offered, "more": false, "cards": [] as [Any], "items": [] as [Any]]
+        model.draft = "go on"
+        await model.send()
+        let pick = try XCTUnwrap(model.pick)
+        XCTAssertEqual(pick.terminals.map(\.id), ["front", "w7:1:Terminal 2, 2.1.330"])
+        XCTAssertEqual(pick.why, why)
+        XCTAssertTrue(rpc.params(of: "sessions.control").isEmpty, "nothing typed before his choice")
+        // Don't send: nothing goes, his words stay in the box
+        model.cancelPick()
+        XCTAssertNil(model.pick)
+        XCTAssertEqual(model.draft, "go on")
+        await model.send()
+        rpc.replies["sessions.control"] = ["sent": true, "path": "foreground", "delivered": true, "seconds": 1, "control": "mac"]
+        await model.choose(try XCTUnwrap(model.pick?.terminals.last))
+        let control = try XCTUnwrap(rpc.params(of: "sessions.control").last)
+        XCTAssertEqual(control["terminal"] as? String, "w7:1:Terminal 2, 2.1.330")
+        XCTAssertEqual(control["text"] as? String, "go on")
+        XCTAssertNil(model.pick)
+        XCTAssertEqual(model.draft, "")
+    }
+
     func testARefusalShowsTheDaemonsWords() async throws {
         let rpc = ScriptedRPC()
         let model = try await listed(rpc)

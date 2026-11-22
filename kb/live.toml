@@ -5028,8 +5028,8 @@ title = "Sending into VS Code's terminal and into Codex"
 area = "hands"
 surface = "FERB.app and the phone; Claude Code in VS Code's integrated terminal (its terminal focused in its window); a Codex session in Terminal"
 request = "From the phone send a message to the VS Code session, then to the Codex session; then press Stop its turn on each while it works."
-pass = "VS Code comes forward, the words land in that session's terminal (never in an editor or another terminal), VS Code goes back behind what was in front; when the focused terminal isn't the session's FERB types nothing and says to click into it once; Codex gets the message without any app coming forward; Stop its turn interrupts both."
-decisions = ["HAND-652", "HAND-656", "HAND-657", "HAND-658", "HAND-660", "GATE-622"]
+pass = "VS Code comes forward, the words land in that session's terminal (never in an editor or another terminal), VS Code goes back behind what was in front; with the cursor left in VS Code's editor, FERB puts it into the session's terminal first; when no terminal is provably the session's FERB types nothing and offers the terminals it sees: your pick (fingerprint) gets the words and the next sends; Codex gets the message without any app coming forward; Stop its turn interrupts both."
+decisions = ["HAND-652", "HAND-656", "HAND-657", "HAND-658", "HAND-660", "GATE-622", "HAND-682", "PHN-800", "HAND-683"]
 sitting = "after this build is installed"
 
 [LIVE-1171]
@@ -5164,4 +5164,12 @@ surface = "FERB.app with this build, a few hours of normal Claude Code / Codex u
 request = "Use Claude Code or Codex for a few hours. Then ask FERB \"what was I working on in <a project>?\", then \"learn from my recent sessions\" (or press Bring in what's new on the Memory page). Look at FERB's model usage over those hours (ferb stats)."
 pass = "No model calls for your sessions until you ask; FERB still names the sessions you had; your ask reads only what's new and tells you once. A website watch shows no model runs between its rare checks."
 decisions = ["MEM-466", "MEM-467"]
+
+[LIVE-1186]
+title = "The phones' tabs, a session's header and menu, a refused send, and screenshots there"
+area = "phone"
+surface = "The Android phone and the iPhone, paired; a Claude Code session on the Mac"
+request = "Look at the top bar on each tab. Open a session; open its menu (\u2026). Send a message with the session's terminal hidden in its app (say Yes). Then show the terminal and press Try again. With Block screenshots off, take a screenshot of the session; with it on, again."
+pass = "The chosen tab shows its name, the other icons have room, the same on both phones; the profile button's badge shows the link and its page's first row opens the connection sheet; the session's header is its title and state with \u2026 and Close, its menu holds where it runs and its actions; a refused send shows your words dimmed with \"Not sent.\" and why, and Try again sends them; the screenshot shows the session with the switch off, black with it on."
+decisions = ["PHN-800", "PHN-798", "PHN-801"]
 sitting = "after this build is installed"

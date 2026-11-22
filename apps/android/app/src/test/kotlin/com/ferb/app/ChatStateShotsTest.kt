@@ -309,21 +309,21 @@ class ChatStateShotsTest {
         }
     }
 
-    // decision: PHN-751
+    // decision: PHN-801
     @Test
     fun the_connection_control_at_dawn() {
         compose.setContent { Controls(6.1) }
         shoot("connection-dawn.png")
     }
 
-    // decision: PHN-751
+    // decision: PHN-801
     @Test
     fun the_connection_control_at_noon() {
         compose.setContent { Controls(12.5) }
         shoot("connection-noon.png")
     }
 
-    // decision: PHN-751
+    // decision: PHN-801
     @Test
     fun the_connection_control_at_night() {
         compose.setContent { Controls(22.5) }

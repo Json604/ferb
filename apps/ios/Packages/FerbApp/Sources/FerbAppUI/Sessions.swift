@@ -48,7 +48,7 @@ struct SessionsTabPage: View {
     }
 }
 
-/// One session's screen (always out of captures: it holds the owner's conversation), with its poll.
+/// One session's screen (captures as the owner's switch says, PHN-800), with its poll.
 struct SessionScreen: View {
     @Bindable var model: AppModel
     let insets: PhoneInsets
@@ -84,13 +84,14 @@ struct SessionScreenPage: View {
         let header = s.map(SessionWords.row) ?? SessionRowData(title: "", subtitle: "", state: .idle, stateText: "")
         let agent = s?.agentName ?? ""
         var actions = [SessionAction(L.s("sessions_watch"), symbol: "eye", onClick: { model.watchCodingSession() }),
-                       SessionAction(L.s("sessions_hand_over"), symbol: nil, onClick: { model.askHandToFerb() })]
+                       SessionAction(L.s("sessions_hand_over"), symbol: "hand.raised", onClick: { model.askHandToFerb() })]
         if let s, s.status != "idle" {
             actions.append(SessionAction(L.s("sessions_stop_turn"), symbol: "stop.fill",
                                          onClick: busy.contains("session-stop") ? nil : { model.stopSessionTurn() }))
         }
         if s?.controlledHere == true {
-            actions.append(SessionAction(L.s("sessions_let_go"), symbol: nil, onClick: busy.contains("session-release") ? nil : { model.releaseSession() }))
+            actions.append(SessionAction(L.s("sessions_let_go"), symbol: "rectangle.portrait.and.arrow.right",
+                                         onClick: busy.contains("session-release") ? nil : { model.releaseSession() }))
         }
         let cards = open.cards
         return SessionPage(header: header, lines: open.items.map(SessionWords.line), asks: cards.map { SessionWords.ask($0, agent: agent) },
@@ -100,7 +101,13 @@ struct SessionScreenPage: View {
                            onChoice: { a, c in
                                guard a < cards.count, c < cards[a].choices.count, !busy.contains("session-answer:\(cards[a].id)") else { return }
                                model.answerSession(card: cards[a].id, choice: cards[a].choices[c].id)
-                           }, scrolls: !still) {
+                           },
+                           unsent: open.unsent.map {
+                               SessionUnsent(text: $0.text, reason: $0.reason.text, retry: L.s("sessions_try_again"), notSent: L.s("sessions_not_sent"))
+                           },
+                           onRetry: busy.contains("session-send") ? nil : { model.retrySessionSend() },
+                           moreLabel: L.s("sessions_more"), menuOpen: open.menu, onMenu: { model.sessionMenu($0) },
+                           scrolls: !still) {
             if s == nil || s?.canSend == true {
                 SessionComposer(value: model.coding.draft, placeholder: L.s("sessions_message_hint", agent.isEmpty ? header.title : agent),
                                 sendLabel: L.s("sessions_send"),
@@ -126,6 +133,22 @@ struct SessionYesView: View {
                             yes: L.s(starting ? "sessions_start" : "sessions_yes_send"), cancel: L.s("sessions_cancel"), yesSymbol: Words.bioSymbol,
                             insets: insets, onYes: model.ui.busy.contains("session-yes") ? nil : { model.sessionYes() },
                             onCancel: { model.sessionNo() })
+        }
+    }
+}
+
+/// HAND-683: FERB can't tell which terminal is the session's: the Mac's reason, the terminals it can see in the app by
+/// the app's own words (the one in front now first), each a choice signed as control is, and Don't send.
+struct PickTerminalView: View {
+    @Bindable var model: AppModel
+    let insets: PhoneInsets
+
+    var body: some View {
+        if let pick = model.coding.open?.pick {
+            PickTerminalSheet(title: L.s("sessions_pick_title"), why: pick.why, terminals: pick.terminals.map { ($0.id, $0.label) },
+                              note: L.s("sessions_pick_note"), no: L.s("sessions_pick_no"), yesSymbol: Words.bioSymbol, insets: insets,
+                              onPick: model.ui.busy.contains("session-pick") ? nil : { model.pickTerminal($0) },
+                              onNo: { model.pickNoTerminal() })
         }
     }
 }

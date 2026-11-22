@@ -155,7 +155,7 @@ final class ChatPiecesTests: XCTestCase {
         .stillMotion()
     }
 
-    // decision: PHN-751
+    // decision: PHN-801
     func testTheConnectionControlAtDawnNoonAndNight() {
         Snapshot.assert(controls(6.1), size: PhoneInsets.labSize, path: "components/connection-dawn.png")
         Snapshot.assert(controls(12.5), size: PhoneInsets.labSize, path: "components/connection-noon.png")

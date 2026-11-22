@@ -97,11 +97,14 @@ final class AppScreensTests: XCTestCase {
         shot(UnlockPage(insets: .lab, bio: L.bioWord(.touchID), symbol: "touchid"), app: "unlock-touch-id-noon")
     }
 
-    // decision: PHN-566, PHN-416
+    // decision: PHN-566, PHN-416, PHN-801
     func testThisPhoneSaysWhatArrivesWhileFERBIsClosed() async {
         let sheet = ProfileSheet(macName: "MacBook Pro", pairedSince: "10 November", insets: .lab, lockOn: true,
                                  lockTitle: L.s("profile_lock").replacingOccurrences(of: "%@", with: "Face ID"),
-                                 instead: (title: L.s("background_title"), detail: L.s("background_detail"), onClick: nil))
+                                 instead: (title: L.s("background_title"), detail: L.s("background_detail"), onClick: nil),
+                                 // PHN-801: the connection's row first (the top bar's badge; its sheet on a tap)
+                                 connection: AnyView(ConnectionRow(mark: .direct, state: L.s("conn_connected"),
+                                                                   path: L.s("conn_direct"), onClick: nil)))
         AppSnapshot.assert(PhoneScreen(moment: .lab(12.5), glide: false, sheet: { sheet }, page: { HomePage(insets: .lab) })
             .frame(width: PhoneInsets.labSize.width, height: PhoneInsets.labSize.height).stillMotion(),
                            size: PhoneInsets.labSize, path: "app/profile-noon.png")

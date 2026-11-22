@@ -36,6 +36,12 @@ data class SessionUi(
     val ask: SessionConfirm? = null,
     val handOver: Boolean = false,
     val problem: Note? = null,
+    /** A message the Mac refused (PHN-800): shown as not sent, with why and Try again; never as sent. */
+    val unsent: Unsent? = null,
+    /** The session's menu is open (PHN-800). */
+    val menu: Boolean = false,
+    /** HAND-683: FERB can't tell which terminal is the session's: he chooses one for these words, or doesn't send. */
+    val pick: TerminalPick? = null,
 ) {
     /** The newest item's `seq` (0: none yet): the next poll asks for what came after it. */
     val last: Long get() = items.lastOrNull()?.seq?.toLong() ?: 0L
@@ -48,6 +54,11 @@ data class SessionUi(
  * The Mac's question before FERB types into a session for the owner (GATE-622): [text] exactly as it will be sent (empty
  * when he only takes control, to stop its turn: [thenInterrupt]).
  */
+data class Unsent(val text: String, val reason: Note)
+
+/** HAND-683: the words waiting for his choice of terminal, the Mac's reason, and the terminals it can see. */
+data class TerminalPick(val text: String, val why: String, val terminals: List<com.ferb.mobile.SessionChoice>)
+
 data class SessionConfirm(val text: String, val yes: SessionYes, val thenInterrupt: Boolean = false)
 
 /** The New session sheet: the agent, the folders the Mac offers, the first words, and the exact command once chosen. */

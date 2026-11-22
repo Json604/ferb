@@ -13,6 +13,7 @@
 //! - [`codex`]: Codex's app-server messages (threads, items, status, approval requests) and the requests FERB sends.
 //! - [`host`]: the app that shows an agent, from a process table (HAND-654).
 //! - [`paths`]: which send paths a session has, in order (HAND-656).
+//! - [`proof`]: whether the terminal FERB would type into is the session's (HAND-660, HAND-682).
 //! - [`hooks`]: FERB's entries in Claude Code's settings, added and removed without touching anything else.
 //! - [`ws`]: the WebSocket frames Codex's local socket speaks.
 //! - [`codes`]: the stable refusal codes of the `sessions.*` calls.
@@ -25,11 +26,12 @@ pub mod hooks;
 pub mod host;
 pub mod model;
 pub mod paths;
+pub mod proof;
 pub mod ws;
 
 pub use model::{
-    Agent, Card, CardKind, Choice, Host, Item, ItemKind, SendPath, Session, Source, Status, Via,
-    Waiting,
+    Agent, Card, CardKind, Choice, Host, Item, ItemKind, SendPath, Session, Source, Status,
+    TerminalChoice, Via, Waiting,
 };
 
 /// Cuts `text` to at most `n` characters on a character boundary, adding "…" when it was cut.

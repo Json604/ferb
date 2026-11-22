@@ -2249,7 +2249,7 @@ title = "The foreground path types only into a terminal proven to be the session
 by = "agent"
 date = 2026-11-22
 status = "active"
-rule = "For HAND-651, HAND-652 (the lab's IN-4, IN-5). FERB brings the host forward and reads the focused element's Accessibility chain: it must name the session's title (before it has one, its folder), else FERB types nothing, puts the front app back and says to click into that terminal once. Then the Mac hands' foreground typing types the whole text as a terminal input the owner said Yes to (HAND-519's path: its quiet wait, cover, own-focus stop), Return follows as its armed key, and the app that was in front comes back."
+rule = "For HAND-651, HAND-652 (the lab's IN-4, IN-5). FERB brings the host forward and reads the focused element's Accessibility chain: it must be a terminal and the session's (HAND-682), else FERB types nothing, puts the front app back and says why. Then the Mac hands' foreground typing types the whole text as a terminal input the owner said Yes to (HAND-519's path: its quiet wait, cover, own-focus stop), Return follows as its armed key, and the app that was in front comes back."
 evidence = "ferb-daemon tests/sessions.rs any_other_app_gets_the_foreground_path_with_the_session_s_proof (the proof words and the call); the Mac's own part is LIVE-1170."
 paths = ["engine/crates/ferbd/src/compose/sessions.rs::foreground"]
 live = ["LIVE-1170"]
@@ -2455,3 +2455,26 @@ rule = "For HAND-676. mac.snapshot takes an optional full: true listing every el
 evidence = "ferb-mac-hands tests/element_actions.rs full_lists_what_the_default_leaves_out_and_the_default_says_what_it_left; ferb-gateway tests/catalog.rs the_deliberate_changes_are_the_only_ones."
 live = ["LIVE-1177"]
 paths = ["engine/crates/ferb-mac-hands/src/driver/mod.rs", "engine/crates/ferb-mac-hands/src/tools.rs", "engine/fixtures/catalog/tool_changes.json"]
+
+[HAND-682]
+title = "A terminal is the session's by its title, or by its program and folder; FERB finds it in an editor"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For HAND-660, PHN-800. Typing needs the focused element to be a terminal by structure (ferb-policy's surface: a terminal app, or xterm.js in an editor) and the session's: its title in its words or its window's, or its program as the Mac names it (the executable's file name, e.g. 2.1.330) in the terminal's own words with its folder in the window's. The second is offered only when no other running session in that app shares both. Not proven: in the one window naming the folder, the one text input naming the program gets the cursor, and the proof is read again."
+why = "Every send into the owner's VS Code session was refused: VS Code shows \"Terminal 1, 2.1.330\" in a window titled \"… — FERB\", never the session's title, and the old proof tried only the title (ferbd compose/sessions.rs, the first proof word)."
+evidence = "ferb-sessions tests/proof.rs (VS Code's real words, read 2026-11-22); ferb-daemon tests/sessions.rs any_other_app_gets_the_foreground_path_with_the_session_s_proof (the proof, and two sessions alike)."
+paths = ["engine/crates/ferb-sessions/src/proof.rs", "engine/crates/ferbd/src/compose/sessions.rs::prove_terminal", "engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.proof_of"]
+live = ["LIVE-1170"]
+
+[HAND-683]
+title = "When FERB can't tell a session's terminal, the owner picks one of those it sees; FERB keeps to it"
+by = "owner"
+date = 2026-11-23
+status = "active"
+words = "ok go without it. with a fallbakc so that user can chose themselves if that works, idk."
+words_source = "Owner 2026-11-23, relayed verbatim by the coordinator, on shipping HAND-682's proof without a VS Code extension (T-1295)."
+rule = "One shared path for every host. When no terminal proves itself the session's (HAND-682), or a chosen one changed, FERB types nothing and offers the terminals it can see in that app, by the app's own words (its window's title and the terminal's name; the one in front now first), and Don't send. His pick (fingerprint on a phone, as control) is used for that send and kept for the session until it ends or he stops controlling it; FERB types only there and checks it is the same element right before typing, else asks again."
+evidence = "ferb-daemon tests/sessions.rs when_no_terminal_proves_itself_the_owner_chooses_one_and_ferb_keeps_to_it; Android SessionsTest, iPhone SessionsTests, FERB.app SessionsTests (choose, Don't send); ferb-mobile sessions tests."
+paths = ["engine/crates/ferbd/src/compose/sessions.rs::terminal_for", "engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.choose_terminal"]
+live = ["LIVE-1170"]

@@ -344,6 +344,8 @@ class FakePhone : PhoneApi {
     /** Sessions this phone controls (its sends go without asking). */
     val controlled = HashSet<String>()
     var delivered = true
+    /** The Mac's refusal of a send or a control with words (the foreground proof failing, PHN-800); null: delivered. */
+    var sendRefusal: Outcome.Failed? = null
     var interruptRefusal: Outcome.Failed? = null
     var startFolders = listOf("~/code/web-app", "~/code/blog")
     val timelineAsks = ArrayList<Triple<String, Long, Long>>()
@@ -372,13 +374,16 @@ class FakePhone : PhoneApi {
         calls += "session-send:$session:$text"
         if (session !in controlled) return Outcome.Ok(com.ferb.mobile.SessionSent(yes(text), false, false, ""))
         if (text.isBlank()) return Outcome.Failed(FerbException.Refused("There's nothing to send.", "ferb_error"))
+        sendRefusal?.let { return it }
         return Outcome.Ok(com.ferb.mobile.SessionSent(null, true, delivered, "agent_api"))
     }
-    override suspend fun sessionControl(session: String, text: String, signer: Signer): Outcome<com.ferb.mobile.SessionSent> {
-        calls += "session-control:$session:$text"
+    override suspend fun sessionControl(session: String, text: String, terminal: String, signer: Signer): Outcome<com.ferb.mobile.SessionSent> {
+        calls += if (terminal.isEmpty()) "session-control:$session:$text" else "session-control:$session:$text:terminal=$terminal"
         val sig = signer.sign("sessions.control") ?: return Outcome.Failed(FerbException.NotSigned("Nothing was sent.", null))
         signed += sig
         controlled += session
+        // HAND-683: until he chooses a terminal the session offers, the Mac can't tell which is the session's
+        if (text.isNotBlank() && terminal.isEmpty()) sendRefusal?.let { return it }
         return Outcome.Ok(com.ferb.mobile.SessionSent(null, text.isNotBlank(), text.isNotBlank() && delivered, "agent_api"))
     }
     override suspend fun sessionRelease(session: String): Outcome<Int> {
@@ -449,10 +454,11 @@ class FakePhone : PhoneApi {
     companion object {
         /** One session as the library reads it (kb HAND-651..666). */
         fun agentSession(id: String = "claude:s1", title: String = "Fix the flaky login test", status: String = "working", host: String = "Terminal",
-                         canSend: Boolean = true, noSend: String = "", withFerb: Boolean = false, controlledHere: Boolean = false) =
+                         canSend: Boolean = true, noSend: String = "", withFerb: Boolean = false, controlledHere: Boolean = false,
+                         terminals: List<com.ferb.mobile.SessionChoice> = emptyList()) =
             com.ferb.mobile.AgentSession(id, if (id.startsWith("codex")) "codex" else "claude_code", if (id.startsWith("codex")) "Codex" else "Claude Code",
                 title, "/Users/owner/code/web-app", "web-app", status, if (status == "waiting_for_you") "permission" else "none", host, canSend, noSend,
-                false, "2026-11-22T10:00:00Z", "", controlledHere, if (controlledHere) "phone:p1" else "", withFerb, "")
+                false, "2026-11-22T10:00:00Z", "", controlledHere, if (controlledHere) "phone:p1" else "", withFerb, "", terminals)
 
         fun item(seq: Int, kind: String, text: String, tool: String = "") = com.ferb.mobile.SessionItem(seq.toULong(), "2026-11-22T10:00:00Z", kind, text, tool)
 

@@ -472,6 +472,12 @@
     <string name="sessions_hand_over">Hand to FERB</string>
     <string name="sessions_stop_turn">Stop its turn</string>
     <string name="sessions_let_go">Stop controlling</string>
+    <string name="sessions_more">More</string>
+    <string name="sessions_not_sent">Not sent.</string>
+    <string name="sessions_try_again">Try again</string>
+    <string name="sessions_pick_title">Which terminal is this session in?</string>
+    <string name="sessions_pick_note">FERB types only into the one you choose, and asks again if it changes.</string>
+    <string name="sessions_pick_no">Don\'t send</string>
     <string name="sessions_older">Show earlier</string>
     <string name="sessions_wants_tool">%1$s wants to use %2$s</string>
     <string name="sessions_asks">%1$s asks</string>

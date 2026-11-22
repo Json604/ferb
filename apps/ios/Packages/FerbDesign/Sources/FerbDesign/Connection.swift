@@ -44,6 +44,26 @@ public struct ConnectionButton: View {
     }
 }
 
+/// The connection's row on the profile page (PHN-801): the link's mark in a black round, the state, the path, and the
+/// connection sheet on a tap (Try again, the relay, the Mac tab). Android's ConnectionRow.
+public struct ConnectionRow: View {
+    let mark: LinkMark
+    let state: String
+    let path: String?
+    let onClick: (() -> Void)?
+    public init(mark: LinkMark, state: String, path: String?, onClick: (() -> Void)?) {
+        self.mark = mark
+        self.state = state
+        self.path = path
+        self.onClick = onClick
+    }
+    public var body: some View {
+        CardRow(title: state, detail: path, onClick: onClick) {
+            LinkMarkView(mark, size: 9).frame(width: 28, height: 28).background(Ink.black, in: Circle())
+        } trailing: { Opens() }
+    }
+}
+
 /// The link's mark at `size` (the dot's size): the arc, a dot, a dot in a ring, or the amber lamp.
 public struct LinkMarkView: View {
     let mark: LinkMark

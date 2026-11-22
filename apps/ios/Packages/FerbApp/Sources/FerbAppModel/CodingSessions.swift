@@ -14,6 +14,12 @@ public struct OpenSession: Equatable {
     public var cards: [SessionCard] = []
     /// The first page came back (until then the screen shows the row's words only).
     public var loaded = false
+    /// A message the Mac refused (PHN-800): shown as not sent, with why and Try again; never as sent.
+    public var unsent: Unsent?
+    /// The session's menu is open (PHN-800).
+    public var menu = false
+    /// HAND-683: FERB can't tell which terminal is the session's: he chooses one for these words, or doesn't send.
+    public var pick: TerminalPick?
 
     public init(id: String, session: AgentSession?) {
         self.id = id
@@ -24,6 +30,21 @@ public struct OpenSession: Equatable {
     public var last: UInt64 { items.last?.seq ?? 0 }
     /// The oldest item's number: Show earlier asks for what came before it.
     public var first: UInt64 { items.first?.seq ?? 0 }
+}
+
+/// A message the Mac refused (PHN-800): his words and why, in the Mac's plain words.
+public struct Unsent: Equatable {
+    public let text: String
+    public let reason: Note
+    public init(text: String, reason: Note) { self.text = text; self.reason = reason }
+}
+
+/// HAND-683: the words waiting for his choice of terminal, the Mac's reason, and the terminals it can see.
+public struct TerminalPick: Equatable {
+    public let text: String
+    public let why: String
+    public let terminals: [SessionChoice]
+    public init(text: String, why: String, terminals: [SessionChoice]) { self.text = text; self.why = why; self.terminals = terminals }
 }
 
 /// What waits for the owner's Yes before FERB types for him (rule 6, GATE-622, HAND-665): his words into a session, a stop
@@ -105,7 +126,7 @@ extension AppModel {
     /// A coding session's sheets (the session, its Yes, the hand-over, its window).
     static func isSessionSheet(_ s: AppSheet?) -> Bool {
         switch s {
-        case .session, .sessionYes, .sessionHand, .sessionWatch: true
+        case .session, .sessionYes, .sessionPick, .sessionHand, .sessionWatch: true
         default: false
         }
     }
@@ -114,7 +135,7 @@ extension AppModel {
     var openSessionId: String? {
         switch sheet {
         case .session(let id), .sessionHand(let id), .sessionWatch(let id): id
-        case .sessionYes: coding.open?.id
+        case .sessionYes, .sessionPick: coding.open?.id
         default: nil
         }
     }
@@ -254,29 +275,92 @@ extension AppModel {
     public func sendToSession() -> Task<Void, Never> {
         busy("session-send", tap: true) { [self] in
             guard let id = coding.open?.id else { return }
-            let text = coding.draft
-            if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return }
-            switch await unlocker.run({ await api.sessionSend(id, text: text) }) {
-            case .ok(let r):
-                if let yes = r.needsYes {
-                    coding.asking = .send(session: id, text: text, yes: yes)
-                    show(.sessionYes)
-                } else {
-                    sent(r, text)
-                    await readTimeline(earlier: false)
-                }
-            case .failed(let e): failed(e)
+            await sendWords(id, coding.draft)
+        }
+    }
+
+    /// Try again on a message the Mac refused (PHN-800): the same words, the same way (asked first if not controlled).
+    @discardableResult
+    public func retrySessionSend() -> Task<Void, Never> {
+        busy("session-send", tap: true) { [self] in
+            guard let o = coding.open, let u = o.unsent else { return }
+            await sendWords(o.id, u.text)
+        }
+    }
+
+    private func sendWords(_ id: String, _ text: String) async {
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return }
+        switch await unlocker.run({ await api.sessionSend(id, text: text) }) {
+        case .ok(let r):
+            if let yes = r.needsYes {
+                coding.asking = .send(session: id, text: text, yes: yes)
+                show(.sessionYes)
+            } else {
+                sent(r, text)
+                await readTimeline(earlier: false)
+            }
+        case .failed(let e): await notSent(id, text, e)
+        }
+    }
+
+    /// PHN-800: a send the Mac refused (or that never reached it) never looks sent: the words leave the box into a dimmed
+    /// bubble with why, in the Mac's plain words, and Try again; the question, if one was open, closes.
+    private func notSent(_ id: String, _ text: String, _ e: FerbError) async {
+        if case .NotSigned = e { return }
+        if coding.asking != nil || coding.open?.pick != nil {
+            coding.asking = nil
+            coding.open?.pick = nil
+            show(.session(id: id))
+        }
+        guard coding.open?.id == id else { return }
+        coding.open?.unsent = Unsent(text: text, reason: Self.errorNote(e))
+        if coding.draft == text { coding.draft = "" }
+        // HAND-683: FERB can't tell which terminal is the session's: the ones it can see, for him to choose
+        if case .Refused(let why, let code) = e, code == "choose_terminal" {
+            await readTimeline(earlier: false)
+            let terminals = coding.open?.session?.terminals ?? []
+            if !terminals.isEmpty, coding.open?.id == id {
+                coding.open?.pick = TerminalPick(text: text, why: why, terminals: terminals)
+                show(.sessionPick)
             }
         }
     }
 
-    /// What a send did: what was sent leaves the box (unless he typed on meanwhile); the Mac couldn't see it arrive yet:
-    /// said.
+    /// HAND-683: his choice of terminal for these words, signed as control is (GATE-622): the Mac types only there,
+    /// keeps it for the session while he controls it, and asks again if it changes.
+    @discardableResult
+    public func pickTerminal(_ terminal: String) -> Task<Void, Never> {
+        busy("session-pick", tap: true) { [self] in
+            guard let o = coding.open, let pick = o.pick else { return }
+            guard let signer = await freshSigner(.yes) else { return }
+            switch await unlocker.run({ await api.sessionControl(o.id, text: pick.text, terminal: terminal, signer: signer) }) {
+            case .ok(let r):
+                coding.open?.pick = nil
+                show(.session(id: o.id))
+                sent(r, pick.text)
+                await readTimeline(earlier: false)
+            case .failed(let e): await notSent(o.id, pick.text, e)
+            }
+        }
+    }
+
+    /// Don't send: nothing is typed; his words stay as not sent, with Try again.
+    public func pickNoTerminal() {
+        coding.open?.pick = nil
+        if let id = coding.open?.id { show(.session(id: id)) }
+    }
+
+    /// What a send did: what was sent leaves the box (unless he typed on meanwhile), and a not-sent bubble of the same
+    /// words goes; the Mac couldn't see it arrive yet: said.
     private func sent(_ r: SessionSent, _ text: String) {
         guard r.sent else { return }
         if coding.draft == text { coding.draft = "" }
+        if coding.open?.unsent?.text == text { coding.open?.unsent = nil }
         if !r.delivered { note(Note("sessions_not_seen")) }
     }
+
+    /// The session's menu (PHN-800).
+    public func sessionMenu(_ open: Bool) { coding.open?.menu = open }
 
     /// Stop its turn: the agent's own interrupt. A session this phone doesn't control yet asks first (the same Yes as a
     /// send, with nothing to type), then stops it.
@@ -306,16 +390,17 @@ extension AppModel {
             guard let signer = await freshSigner(.yes) else { return }
             switch ask {
             case .send(let id, let text, _):
-                switch await unlocker.run({ await api.sessionControl(id, text: text, signer: signer) }) {
+                switch await unlocker.run({ await api.sessionControl(id, text: text, terminal: "", signer: signer) }) {
                 case .ok(let r):
                     coding.asking = nil
                     show(.session(id: id))
                     sent(r, text)
                     await readTimeline(earlier: false)
-                case .failed(let e): if case .NotSigned = e {} else { failed(e) }
+                // PHN-800: refused after his Yes: the question closes and the words show as not sent, never stuck open
+                case .failed(let e): await notSent(id, text, e)
                 }
             case .interrupt(let id, _):
-                switch await unlocker.run({ await api.sessionControl(id, text: "", signer: signer) }) {
+                switch await unlocker.run({ await api.sessionControl(id, text: "", terminal: "", signer: signer) }) {
                 case .ok:
                     coding.asking = nil
                     show(.session(id: id))
@@ -324,7 +409,12 @@ extension AppModel {
                     case .failed(let e): failed(e)
                     }
                     await readTimeline(earlier: false)
-                case .failed(let e): if case .NotSigned = e {} else { failed(e) }
+                case .failed(let e):
+                    if case .NotSigned = e { break }
+                    // PHN-800: never stuck on the question
+                    coding.asking = nil
+                    show(.session(id: id))
+                    failed(e)
                 }
             case .start(let agent, let folder, let text, _):
                 switch await unlocker.run({ await api.sessionStart(agent: agent, folder: folder, text: text, signer: signer) }) {

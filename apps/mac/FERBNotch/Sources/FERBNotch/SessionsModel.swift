@@ -14,6 +14,16 @@ final class SessionsModel: ObservableObject {
         case start(agent: String, folder: String, text: String)
     }
 
+    /// HAND-683: the words FERB couldn't type because it can't tell which terminal is the session's, the daemon's
+    /// reason, and the terminals it can see, for the owner to choose (or not send).
+    struct Pick: Identifiable, Equatable {
+        let id = UUID()
+        let session: String
+        let text: String
+        let why: String
+        let terminals: [SessionChoice]
+    }
+
     struct Confirm: Identifiable, Equatable {
         let id = UUID()
         let yes: SessionYes
@@ -39,6 +49,7 @@ final class SessionsModel: ObservableObject {
     /// The composer's text for the open session.
     @Published var draft = ""
     @Published var confirm: Confirm?
+    @Published var pick: Pick?
     /// New session: the folders to choose from and the agents, from `sessions.prepare {}`.
     @Published private(set) var folders: [String] = []
     @Published private(set) var agents: [String] = ["claude_code", "codex"]
@@ -142,7 +153,7 @@ final class SessionsModel: ObservableObject {
         guard !text.isEmpty, !busy else { return }
         busy = true
         defer { busy = false }
-        guard let reply = await ask("sessions.send", ["session": id, "text": text]) else { return }
+        guard let reply = await sending("sessions.send", ["session": id, "text": text], session: id, text: text) else { return }
         if let yes = SessionYes(reply) {
             confirm = Confirm(yes: yes, action: .send(session: id, text: text))
             return
@@ -166,7 +177,7 @@ final class SessionsModel: ObservableObject {
         defer { busy = false }
         switch pending.action {
         case .send(let id, let text):
-            guard let reply = await ask("sessions.control", ["session": id, "text": text]) else { return }
+            guard let reply = await sending("sessions.control", ["session": id, "text": text], session: id, text: text) else { return }
             sent(reply, text: text)
             await load(quiet: true)
             await poll()
@@ -184,6 +195,45 @@ final class SessionsModel: ObservableObject {
     }
 
     func cancelConfirm() { confirm = nil }
+
+    /// A send's call; when the daemon can't tell which terminal is the session's (HAND-683), the terminals it can see
+    /// come from the session, for the owner to choose.
+    private func sending(_ method: String, _ params: [String: Any], session: String, text: String) async -> [String: Any]? {
+        do {
+            let reply = try await rpc.call(method, params: params)
+            problem = nil
+            return reply
+        } catch let error as DaemonRPCError where error.code == SessionRefusal.chooseTerminal {
+            problem = error.localizedDescription
+            await load(quiet: true)
+            await poll()
+            let terminals = (openSession?.id == session ? openSession : sessions.first { $0.id == session })?.terminals ?? []
+            if !terminals.isEmpty {
+                pick = Pick(session: session, text: text, why: error.localizedDescription, terminals: terminals)
+            }
+            return nil
+        } catch {
+            problem = error.localizedDescription
+            return nil
+        }
+    }
+
+    /// HAND-683: the owner's choice of terminal for these words: FERB types only there, keeps it for the session while
+    /// he controls it from here, and asks again if it changes.
+    func choose(_ terminal: SessionChoice) async {
+        guard let p = pick else { return }
+        pick = nil
+        busy = true
+        defer { busy = false }
+        guard let reply = await sending("sessions.control", ["session": p.session, "text": p.text, "terminal": terminal.id],
+                                        session: p.session, text: p.text) else { return }
+        sent(reply, text: p.text)
+        await load(quiet: true)
+        await poll()
+    }
+
+    /// Don't send: nothing is typed; the words stay in the box.
+    func cancelPick() { pick = nil }
 
     /// A card's button: the agent gets that choice.
     func answer(_ card: SessionCard, _ choice: SessionChoice) async {

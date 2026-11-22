@@ -45,6 +45,9 @@ public enum AppSheet: Equatable, Sendable {
     /// The Yes before FERB types into a session or starts one (rule 6, GATE-622): the Mac's question with the exact text;
     /// what is asked is `coding.asking`.
     case sessionYes
+    /// HAND-683: FERB can't tell which terminal is the session's: the ones it can see, for the owner to choose
+    /// (`coding.open?.pick`).
+    case sessionPick
     /// Hand a session to FERB with a goal (ORCH-687).
     case sessionHand(id: String)
     /// A new session: which agent, the folder, the first message (HAND-665).
@@ -414,8 +417,9 @@ public final class AppModel {
         case .live, .task: return true
         // the Mac's camera (APP-983)
         case .camera: return true
-        // a coding session's conversation, what FERB would type into it, and its window (kb HAND-651)
-        case .session, .sessionYes, .sessionHand, .sessionWatch: return true
+        // a coding session's window live (kb HAND-651, PHN-454); its conversation, the Yes before a send and Hand to
+        // FERB follow the owner's switch (owner 2026-11-22, PHN-800)
+        case .sessionWatch: return true
         // a hidden input's field in a question's box (kb PHN-770)
         default: return !hiddenBoxes.isEmpty
         }
@@ -628,7 +632,7 @@ public final class AppModel {
                 switch sheet {
                 case .live, .task, .settings, .days, .location, .camera, .insomnia: sheet = nil
                 // a coding session's conversation and its list are private (kb HAND-651)
-                case .session, .sessionYes, .sessionHand, .sessionNew, .sessionWatch: sheet = nil
+                case .session, .sessionYes, .sessionPick, .sessionHand, .sessionNew, .sessionWatch: sheet = nil
                 default: break
                 }
                 coding.locked()

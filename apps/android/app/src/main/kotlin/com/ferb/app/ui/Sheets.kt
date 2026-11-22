@@ -256,6 +256,11 @@ private fun Profile(vm: FerbViewModel, ui: UiState, insets: PhoneInsets, host: H
         onClose = close,
         onStayConnected = host::stayConnected,
         onForget = { vm.show(Sheet.Forget) },
+        // PHN-801: the connection's row (the top bar's badge); its sheet keeps Try again, the relay and the Mac tab
+        connection = {
+            val mark = linkMark(ui.link, ui.linkLost)
+            com.ferb.design.screens.ConnectionRow(mark, linkStateWords(mark), linkPathWords(mark)) { vm.show(Sheet.Connection) }
+        },
         more = {
             // kb PHN-765: what keeps FERB's questions from reaching this phone, said where he looks, with its fix
             blocker?.let { b ->

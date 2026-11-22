@@ -1,6 +1,10 @@
 package com.ferb.design.components
 
 import androidx.compose.ui.unit.Dp
+import com.ferb.design.FerbType
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.foundation.layout.BoxWithConstraints
 
 import androidx.compose.foundation.layout.width
 
@@ -57,7 +61,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.ferb.design.FerbIcon
 import com.ferb.design.FerbIcons
-import com.ferb.design.FerbType
 import com.ferb.design.Ink
 import com.ferb.design.LocalMotionPresence
 import com.ferb.design.Motion
@@ -122,8 +125,8 @@ fun TabBarHost(
 }
 
 /**
- * Mobile.swift TopBar: the top of every page, a short black pill of tabs (only the chosen one shows its name) and the
- * profile button. [waiting] puts an amber dot on a tab that is not chosen. Inside a [TabBarHost] it only keeps its
+ * Mobile.swift TopBar: the top of every page, a short black pill of tabs (the chosen one shows its name, PHN-801) and
+ * the profile button with the link's state as its badge. [waiting] puts an amber dot on a tab that is not chosen. Inside a [TabBarHost] it only keeps its
  * room and gives its tabs to the host's bar.
  */
 @Composable
@@ -175,55 +178,73 @@ private fun Bar(
             }
         }
     }
-    Row(modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        Row(
-            Modifier.background(Ink.black, CircleShape).drawBehind { drawPill(pill, chosen) }.padding(Phone.tabBarPadding).selectableGroup(),
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            for (tab in PhoneTab.entries) {
-                val on = tab == chosen
-                val dot = waiting == tab && !on
-                val ink by animateColorAsState(if (on) Ink.black else Ink.white, Motion.enter(), label = "tab ink")
-                Box(Modifier.onPlaced { c ->
-                    val r = c.boundsInParent()
-                    if (pill.cells[tab.ordinal] != r) pill.cells[tab.ordinal] = r
-                }) {
-                    Row(
-                        Modifier
-                            .pressable(onTab?.let { { it(tab) } }, role = Role.Tab)
-                            .semantics(mergeDescendants = true) {
-                                selected = on
-                                contentDescription = if (dot) "${tab.title}, something is waiting" else tab.title
-                            }
-                            .animateContentSize(Motion.enter())
-                            .widthIn(min = Phone.tabMinWidth).heightIn(min = Phone.tabHeight)
-                            .padding(horizontal = if (on) Phone.tabPaddingOn else Phone.tabPaddingOff),
-                        horizontalArrangement = Arrangement.spacedBy(Phone.tabGap, Alignment.CenterHorizontally),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        FerbIcon(if (on) tab.chosenIcon else tab.icon, 17f, ink)
-                        if (on) PhoneText(tab.title, 15f, FerbType.Semibold, ink, maxLines = 1)
-                    }
-                    if (dot) {
-                        // An 8 amber dot with a 2-wide black ring centred on its edge, offset (-8, 8) from the corner.
-                        Box(
-                            Modifier.align(Alignment.TopEnd).offset((-7).dp, 7.dp).size(10.dp)
-                                .background(Ink.black, CircleShape).padding(2.dp).background(Ink.amber, CircleShape),
-                        )
+    // decision: PHN-801 — the chosen tab's name in the pill; the tabs share what is left (the lab's 46 at most); the
+    // link's state is a badge on the profile button, whose page holds the connection
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val conn = LocalConnection.current
+    BoxWithConstraints(modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 6.dp)) {
+        val name = with(density) { measurer.measure(chosen.title, FerbType.style(15f, FerbType.Semibold)).size.width.toDp() }
+        val chosenW = Phone.tabPadding * 2 + 17.dp + Phone.tabNameGap + name
+        val room = maxWidth - Phone.barButtonGap - Phone.profileButton - Phone.tabBarPadding * 2
+        val tabW = ((room - chosenW) / (PhoneTab.entries.size - 1)).coerceIn(Phone.tabNarrowest, Phone.tabMinWidth)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.background(Ink.black, CircleShape).drawBehind { drawPill(pill, chosen) }.padding(Phone.tabBarPadding).selectableGroup(),
+                horizontalArrangement = Arrangement.spacedBy(Phone.tabSpacing),
+            ) {
+                for (tab in PhoneTab.entries) {
+                    val on = tab == chosen
+                    val dot = waiting == tab && !on
+                    val ink by animateColorAsState(if (on) Ink.black else Ink.white, Motion.enter(), label = "tab ink")
+                    Box(Modifier.onPlaced { c ->
+                        val r = c.boundsInParent()
+                        if (pill.cells[tab.ordinal] != r) pill.cells[tab.ordinal] = r
+                    }) {
+                        Row(
+                            Modifier
+                                .pressable(onTab?.let { { it(tab) } }, role = Role.Tab)
+                                .semantics(mergeDescendants = true) {
+                                    selected = on
+                                    contentDescription = if (dot) "${tab.title}, something is waiting" else tab.title
+                                }
+                                .animateContentSize(Motion.enter())
+                                .then(if (on) Modifier.padding(horizontal = Phone.tabPadding) else Modifier.width(tabW))
+                                .heightIn(min = Phone.tabHeight),
+                            horizontalArrangement = Arrangement.spacedBy(Phone.tabNameGap, Alignment.CenterHorizontally),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            FerbIcon(if (on) tab.chosenIcon else tab.icon, 17f, ink)
+                            if (on) PhoneText(tab.title, 15f, FerbType.Semibold, ink, maxLines = 1)
+                        }
+                        if (dot) {
+                            // An 8 amber dot with a 2-wide black ring centred on its edge, offset (-8, 8) from the corner.
+                            Box(
+                                Modifier.align(Alignment.TopEnd).offset((-7).dp, 7.dp).size(10.dp)
+                                    .background(Ink.black, CircleShape).padding(2.dp).background(Ink.amber, CircleShape),
+                            )
+                        }
                     }
                 }
             }
+            Spacer(Modifier.weight(1f))
+            val label = if (conn != null) "This phone. ${conn.label}" else "This phone"
+            Box(
+                Modifier.pressable(onProfile, label = label).semantics { contentDescription = label }
+                    .size(Phone.profileButton).background(Ink.darkFill, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                FerbIcon(FerbIcons.person, 17f, Ink.white)
+                // the link's state as a badge on the profile button (PHN-801; its sheet is a row on the profile page)
+                if (conn != null) {
+                    Box(
+                        Modifier.align(Alignment.BottomEnd).offset((-2).dp, (-2).dp).size(Phone.linkBadge)
+                            .background(Ink.darkFill, CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) { LinkMarkView(conn.mark, 7.dp) }
+                }
+            }
         }
-        Spacer(Modifier.weight(1f))
-        LocalConnection.current?.let { c ->
-            ConnectionButton(c)
-            Spacer(Modifier.width(8.dp))
-        }
-        Box(
-            Modifier.pressable(onProfile, label = "This phone").semantics { contentDescription = "This phone" }
-                .size(Phone.profileButton).background(Ink.darkFill, CircleShape),
-            contentAlignment = Alignment.Center,
-        ) { FerbIcon(FerbIcons.person, 17f, Ink.white) }
     }
 }
 

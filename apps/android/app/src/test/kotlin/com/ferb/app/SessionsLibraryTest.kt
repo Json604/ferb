@@ -132,7 +132,7 @@ class SessionsLibraryTest {
             assertNotNull("the Mac asked: nothing was sent", yes)
             assertFalse(sent.sent)
             assertEquals("Run the tests again", yes!!.detail)
-            val controlled = m.sessionControl("claude:abc", yes.detail, signer)
+            val controlled = m.sessionControl("claude:abc", yes.detail, "", signer)
             assertTrue(controlled.sent)
             assertFalse("not seen arriving yet", controlled.delivered)
             val proof = Json.parse(mac.proofs[mac.calls.lastIndexOf("sessions.control")]!!) as Map<*, *>

@@ -186,7 +186,8 @@ interface PhoneApi {
     /** The newest [limit] items ([after] and [before] 0), those after [after], or those before [before]. */
     suspend fun sessionTimeline(session: String, after: Long, before: Long, limit: Int): Outcome<SessionTimeline>
     suspend fun sessionSend(session: String, text: String): Outcome<SessionSent>
-    suspend fun sessionControl(session: String, text: String, signer: Signer): Outcome<SessionSent>
+    /** [terminal]: the one he chose of those the session offers (HAND-683; "" for none). */
+    suspend fun sessionControl(session: String, text: String, terminal: String, signer: Signer): Outcome<SessionSent>
     suspend fun sessionRelease(session: String): Outcome<Int>
     suspend fun sessionAnswer(session: String, card: String, choice: String, signer: Signer): Outcome<Boolean>
     suspend fun sessionInterrupt(session: String): Outcome<Boolean>
@@ -293,7 +294,8 @@ class LibraryPhone(private val phone: FerbPhone) : PhoneApi {
     override suspend fun sessionTimeline(session: String, after: Long, before: Long, limit: Int) =
         phone.call { it.sessionTimeline(session, after.toULong(), before.toULong(), limit.toUInt()) }
     override suspend fun sessionSend(session: String, text: String) = phone.call { it.sessionSend(session, text) }
-    override suspend fun sessionControl(session: String, text: String, signer: Signer) = phone.call { it.sessionControl(session, text, signer) }
+    override suspend fun sessionControl(session: String, text: String, terminal: String, signer: Signer) =
+        phone.call { it.sessionControl(session, text, terminal, signer) }
     override suspend fun sessionRelease(session: String) = phone.call { it.sessionRelease(session).toInt() }
     override suspend fun sessionAnswer(session: String, card: String, choice: String, signer: Signer) =
         phone.call { it.sessionAnswer(session, card, choice, signer) }

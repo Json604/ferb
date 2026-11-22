@@ -106,6 +106,11 @@ pub fn register(me: &Sessions, server: &Server) {
             let words = text(&p, "text");
             let by = caller(&s);
             m.take_control(&id, &by).map_err(err)?;
+            // HAND-683: the terminal he chose for it, signed with his Yes (one the session offered)
+            let terminal = text(&p, "terminal");
+            if !terminal.is_empty() {
+                m.choose_terminal(&id, &terminal).map_err(err)?;
+            }
             if words.trim().is_empty() {
                 return Ok(obj(json!({"control": by.key()})));
             }

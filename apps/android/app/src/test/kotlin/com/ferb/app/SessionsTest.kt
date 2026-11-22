@@ -1,5 +1,8 @@
 package com.ferb.app
 
+import com.ferb.core.Outcome
+import com.ferb.mobile.FerbException
+
 import android.app.Application
 import android.content.Context
 import androidx.lifecycle.SavedStateHandle
@@ -141,7 +144,8 @@ class SessionsTest {
     fun an_open_session_reads_its_newest_page_then_what_came_after_while_it_shows() {
         val vm = opened()
         assertEquals(Sheet.Session("claude:s1"), vm.sheet.value)
-        assertTrue("its conversation is kept out of screenshots", vm.mustSecure.value)
+        // PHN-800: the owner's screenshot switch decides here (only Watch is kept out always)
+        assertFalse("its conversation follows the owner's switch", vm.mustSecure.value)
         val o = vm.openSession.value!!
         assertEquals(listOf(1uL, 2uL, 3uL), o.items.map { it.seq })
         assertEquals(Triple("claude:s1", 0L, 0L), phone.timelineAsks.first())
@@ -198,6 +202,67 @@ class SessionsTest {
         assertTrue("session-send:claude:s1:And commit" in phone.calls)
         assertEquals("no second question", controls, count("session-control"))
         assertEquals("", vm.openSession.value!!.draft)
+    }
+
+    // decision: PHN-800
+    @Test
+    fun a_send_the_mac_refuses_after_the_yes_shows_as_not_sent_with_why_and_goes_on_try_again() {
+        val why = "FERB couldn't tell that the terminal in front in Code is this session's, so it typed nothing."
+        phone.sendRefusal = Outcome.Failed(FerbException.Refused(why, "not_the_session"))
+        val vm = opened()
+        vm.sessionTyped("Run the tests again")
+        vm.sessionSend()
+        vm.sessionYes()
+        val o = vm.openSession.value!!
+        assertNull("the question closes: never stuck on the fingerprint", o.ask)
+        assertEquals("Run the tests again", o.unsent!!.text)
+        assertEquals(why, o.unsent!!.reason.words)
+        assertEquals("the words left the box for the not-sent bubble", "", o.draft)
+        assertTrue("nothing shows as sent", o.items.none { it.text == "Run the tests again" })
+        // controlling it now: a direct send the Mac refuses is not sent either
+        vm.sessionTyped("And commit")
+        vm.sessionSend()
+        assertEquals("And commit", vm.openSession.value!!.unsent!!.text)
+        // Try again, once the Mac can send: it goes, and the not-sent bubble leaves
+        phone.sendRefusal = null
+        vm.sessionRetry()
+        assertTrue("session-send:claude:s1:And commit" in phone.calls)
+        assertNull(vm.openSession.value!!.unsent)
+    }
+
+    // decision: HAND-683
+    @Test
+    fun when_the_mac_cant_tell_the_terminal_he_chooses_one_signed_or_doesnt_send() {
+        val why = "FERB couldn't tell which terminal in Code is this session's, so it typed nothing. Choose it, and FERB types only there."
+        val offered = listOf(
+            com.ferb.mobile.SessionChoice("front", "The terminal in front in Code now (Terminal 1, 2.1.330)"),
+            com.ferb.mobile.SessionChoice("w7:1:Terminal 2, 2.1.330", "main.rs — app · Terminal 2, 2.1.330"),
+        )
+        phone.sessions[0] = FakePhone.agentSession(terminals = offered)
+        phone.sendRefusal = Outcome.Failed(FerbException.Refused(why, "choose_terminal"))
+        val vm = opened()
+        vm.sessionTyped("Run the tests again")
+        vm.sessionSend()
+        vm.sessionYes()
+        val o = vm.openSession.value!!
+        assertNull(o.ask)
+        assertEquals("the terminals the Mac can see, to choose from", offered, o.pick!!.terminals)
+        assertEquals(why, o.pick!!.why)
+        assertEquals("Run the tests again", o.unsent!!.text)
+        // Don't send: nothing typed, the words stay as not sent
+        vm.sessionPickNo()
+        assertNull(vm.openSession.value!!.pick)
+        assertEquals("Run the tests again", vm.openSession.value!!.unsent!!.text)
+        // Try again asks to choose again; his choice is signed as control is, and the words go there
+        vm.sessionRetry()
+        assertNotNull(vm.openSession.value!!.pick)
+        val signed = phone.signed.size
+        vm.sessionPickTerminal("w7:1:Terminal 2, 2.1.330")
+        assertTrue("session-control:claude:s1:Run the tests again:terminal=w7:1:Terminal 2, 2.1.330" in phone.calls)
+        assertEquals(signed + 1, phone.signed.size)
+        assertEquals(KeyKind.STRONG to Why.YES, signers.last().let { it.first.kind to it.second })
+        assertNull(vm.openSession.value!!.pick)
+        assertNull("sent: the not-sent bubble leaves", vm.openSession.value!!.unsent)
     }
 
     @Test

@@ -297,7 +297,7 @@ public struct SessionAskCard: View {
     }
 }
 
-/// One of the session screen's buttons under its title (Watch, Hand to FERB, Stop its turn, Stop controlling).
+/// One of the session screen's actions, in its menu (Watch, Hand to FERB, Stop its turn, Stop controlling).
 public struct SessionAction {
     public let label: String
     public let symbol: String?
@@ -329,6 +329,90 @@ public struct SessionActions: View {
             }
             Spacer(minLength: 0)
         }
+    }
+}
+
+/// A message the Mac refused (PHN-800): the owner's words, dimmed, never as sent; why, in the Mac's plain words; and
+/// `retry` to send them again.
+public struct SessionUnsent: Equatable, Sendable {
+    public var text: String
+    public var reason: String
+    public var retry: String
+    public var notSent: String
+    public init(text: String, reason: String, retry: String, notSent: String) {
+        self.text = text
+        self.reason = reason
+        self.retry = retry
+        self.notSent = notSent
+    }
+}
+
+public struct SessionUnsentView: View {
+    let unsent: SessionUnsent
+    var onRetry: (() -> Void)?
+    public init(_ unsent: SessionUnsent, onRetry: (() -> Void)? = nil) { self.unsent = unsent; self.onRetry = onRetry }
+    public var body: some View {
+        VStack(alignment: .trailing, spacing: 8) {
+            OwnerBubble(unsent.text).opacity(0.5)
+            HStack(alignment: .top, spacing: 8) {
+                LampDot(color: Lamp.red, size: 7).padding(.top, 6)
+                Text("\(unsent.notSent) \(unsent.reason)").type(14, .regular, Ink.onDark).lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.leading, 40).padding(.trailing, 6)
+            Pill(title: unsent.retry, kind: .grey, height: 36, fill: false, onClick: onRetry).ferbSurface().padding(.trailing, 2)
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+}
+
+/// The session's menu (PHN-800): where it runs, then its actions, one per row, in a white card.
+public struct SessionMenu: View {
+    let place: String
+    let actions: [SessionAction]
+    var onPicked: () -> Void
+    public init(place: String, actions: [SessionAction], onPicked: @escaping () -> Void = {}) {
+        self.place = place
+        self.actions = actions
+        self.onPicked = onPicked
+    }
+    public var body: some View {
+        Card(padding: 6) {
+            if !place.trimmingCharacters(in: .whitespaces).isEmpty {
+                Text(place).type(13.5, .regular, Ink.detail).lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 14).padding(.top, 10).padding(.bottom, 6)
+            }
+            ForEach(Array(actions.enumerated()), id: \.offset) { i, a in
+                if i > 0 || !place.trimmingCharacters(in: .whitespaces).isEmpty { Divide() }
+                let ink = a.onClick == nil ? Ink.detail : Ink.black
+                HStack(spacing: 12) {
+                    ZStack { if let s = a.symbol { Image(systemName: s).font(.system(size: 16, weight: .medium)) } }
+                        .frame(width: 20)
+                    Text(a.label).type(16, .medium, ink).lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+                .foregroundStyle(ink)
+                .padding(.horizontal, 14)
+                .frame(minHeight: 48)
+                .contentShape(Rectangle())
+                .pressable(a.onClick.map { f in { onPicked(); f() } }, label: a.label)
+            }
+        }
+        .frame(minWidth: 220, maxWidth: 280)
+    }
+}
+
+/// The session header's menu button: an ellipsis in Close's grey round, white while its menu is open.
+public struct MoreButton: View {
+    let label: String
+    let open: Bool
+    var onClick: (() -> Void)?
+    public init(label: String, open: Bool, onClick: (() -> Void)?) { self.label = label; self.open = open; self.onClick = onClick }
+    public var body: some View {
+        Image(systemName: "ellipsis").font(.system(size: 16, weight: .bold)).foregroundStyle(.black)
+            .frame(width: 36, height: 36).background(open ? Ink.white : Ink.fill, in: Circle())
+            .pressable(onClick, label: label)
     }
 }
 
@@ -371,9 +455,10 @@ public struct SessionComposer: View {
     }
 }
 
-/// One session, full screen on black (it holds the owner's conversation: the app keeps it out of captures): its title,
-/// place and state, its buttons, the conversation with "Show earlier" at its top and the agent's open questions at its
-/// end, and the message box (`composer`, or why nothing can be sent).
+/// One session, full screen on black: its title and state on one header with its menu (where it runs and its actions,
+/// PHN-800) and Close; the conversation with "Show earlier" at its top, a refused message (`unsent`) after its last
+/// line and the agent's open questions at its end; the message box (`foot`, or why nothing can be sent). The app follows
+/// the owner's screenshot switch here (PHN-800); only Watch is kept out of captures always.
 public struct SessionPage<Foot: View>: View {
     var header: SessionRowData
     var lines: [SessionLine]
@@ -384,13 +469,19 @@ public struct SessionPage<Foot: View>: View {
     var onOlder: (() -> Void)?
     var onClose: (() -> Void)?
     var onChoice: ((Int, Int) -> Void)?
+    var unsent: SessionUnsent?
+    var onRetry: (() -> Void)?
+    var moreLabel: String
+    var menuOpen: Bool
+    var onMenu: ((Bool) -> Void)?
     /// False draws the conversation's end without a scroll view (a still picture: the screenshots cannot draw one).
     var scrolls: Bool
     var foot: Foot
 
     public init(header: SessionRowData, lines: [SessionLine], asks: [SessionAsk], actions: [SessionAction], insets: PhoneInsets = .lab,
                 older: String? = nil, onOlder: (() -> Void)? = nil, onClose: (() -> Void)? = nil, onChoice: ((Int, Int) -> Void)? = nil,
-                scrolls: Bool = true, @ViewBuilder foot: () -> Foot) {
+                unsent: SessionUnsent? = nil, onRetry: (() -> Void)? = nil, moreLabel: String = "More", menuOpen: Bool = false,
+                onMenu: ((Bool) -> Void)? = nil, scrolls: Bool = true, @ViewBuilder foot: () -> Foot) {
         self.header = header
         self.lines = lines
         self.asks = asks
@@ -400,34 +491,38 @@ public struct SessionPage<Foot: View>: View {
         self.onOlder = onOlder
         self.onClose = onClose
         self.onChoice = onChoice
+        self.unsent = unsent
+        self.onRetry = onRetry
+        self.moreLabel = moreLabel
+        self.menuOpen = menuOpen
+        self.onMenu = onMenu
         self.scrolls = scrolls
         self.foot = foot()
     }
 
     public var body: some View {
         VStack(spacing: 0) {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(header.title).type(20, .semibold, Ink.white).lineLimit(2).accessibilityAddTraits(.isHeader)
-                    Text(header.subtitle).type(14, .regular, Ink.onDark).lineLimit(1)
+            HStack(alignment: .center, spacing: 8) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(header.title).type(19, .semibold, Ink.white).lineLimit(1).accessibilityAddTraits(.isHeader)
                     HStack(spacing: 6) {
                         SessionChip(header.state, header.stateText)
                         if let f = header.ferb { FerbBadge(f) }
                     }
-                    .padding(.top, 6)
                     .ferbSurface()
                 }
                 Spacer(minLength: 0)
+                if !actions.isEmpty { MoreButton(label: moreLabel, open: menuOpen, onClick: onMenu.map { f in { f(!menuOpen) } }) }
                 CloseButton(onClick: onClose)
             }
             .padding(.horizontal, 16)
-            if !actions.isEmpty { SessionActions(actions).padding(.top, 12) }
-            BottomFitOrScroll(end: (lines.last?.key ?? "") + ":\(asks.count)", scrolls: scrolls) {
+            BottomFitOrScroll(end: (lines.last?.key ?? "") + ":\(asks.count):\(unsent?.text ?? "")", scrolls: scrolls) {
                 VStack(spacing: 10) {
                     if let older {
                         Pill(title: older, kind: .grey, height: 36, fill: false, onClick: onOlder).ferbSurface()
                     }
                     ForEach(Array(lines.enumerated()), id: \.offset) { _, l in SessionLineView(l) }
+                    if let unsent { SessionUnsentView(unsent, onRetry: onRetry) }
                     ForEach(Array(asks.enumerated()), id: \.offset) { a, ask in
                         SessionAskCard(ask, onChoice: onChoice.map { f in { f(a, $0) } })
                     }
@@ -441,6 +536,16 @@ public struct SessionPage<Foot: View>: View {
         .padding(.top, insets.top + 8)
         .padding(.bottom, insets.bottom + 8)
         .background(Ink.black)
+        .overlay(alignment: .topTrailing) {
+            if menuOpen, !actions.isEmpty {
+                ZStack(alignment: .topTrailing) {
+                    // a tap anywhere else closes the menu
+                    Color.black.opacity(0.001).contentShape(Rectangle()).onTapGesture { onMenu?(false) }
+                    SessionMenu(place: header.subtitle, actions: actions, onPicked: { onMenu?(false) })
+                        .padding(.top, insets.top + 8 + 52).padding(.trailing, 16)
+                }
+            }
+        }
         .ignoresSafeArea()
     }
 }
@@ -522,6 +627,52 @@ public struct SessionYesSheet: View {
     }
 }
 
+/// HAND-683: FERB can't tell which terminal is the session's: the Mac's reason, the terminals it can see (id, the
+/// app's own words), each a choice with the phone's own prompt mark, the note, and Don't send. Android's PickTerminalSheet.
+public struct PickTerminalSheet: View {
+    let title: String
+    let why: String
+    let terminals: [(id: String, label: String)]
+    let note: String
+    let no: String
+    let yesSymbol: String
+    let insets: PhoneInsets
+    let onPick: ((String) -> Void)?
+    let onNo: () -> Void
+    public init(title: String, why: String, terminals: [(id: String, label: String)], note: String, no: String, yesSymbol: String,
+                insets: PhoneInsets = .lab, onPick: ((String) -> Void)?, onNo: @escaping () -> Void) {
+        self.title = title
+        self.why = why
+        self.terminals = terminals
+        self.note = note
+        self.no = no
+        self.yesSymbol = yesSymbol
+        self.insets = insets
+        self.onPick = onPick
+        self.onNo = onNo
+    }
+    public var body: some View {
+        Sheet(bottomInset: insets.bottom, onDismiss: onNo) {
+            SheetTitle(title, onClose: onNo)
+            if !why.isEmpty {
+                Text(why).type(14.5, .regular, Ink.detail).lineSpacing(2).fixedSize(horizontal: false, vertical: true).padding(.top, 10)
+            }
+            VStack(spacing: 0) {
+                ForEach(Array(terminals.enumerated()), id: \.offset) { i, t in
+                    if i > 0 { Divide() }
+                    CardRow(title: t.label, onClick: onPick.map { f in { f(t.id) } }) { RowIcon(symbol: "terminal") } trailing: {
+                        Image(systemName: yesSymbol).font(.system(size: 16)).foregroundStyle(Ink.detail)
+                    }
+                }
+            }
+            .background(Ink.fill, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .padding(.top, 14)
+            Text(note).type(14, .regular, Ink.detail).lineSpacing(2).fixedSize(horizontal: false, vertical: true).padding(.top, 12)
+            Pill(title: no, kind: .plain, height: 44, onClick: onNo).padding(.top, 12)
+        }
+    }
+}
+
 /// Invented sessions for the gallery and the screenshots (no real folder, title or command; Android's labSessions).
 public enum SessionSample {
     public static let label = "Your coding sessions"
@@ -551,11 +702,25 @@ public enum SessionSample {
     }
 
     /// `scrolls` false for a still picture (the screenshots).
-    public static func session(insets: PhoneInsets = .lab, typed: String = "", scrolls: Bool = true) -> some View {
-        SessionPage(header: rows[1], lines: lines, asks: [ask],
-                    actions: [SessionAction("Watch", symbol: "eye", onClick: {}), SessionAction("Hand to FERB", symbol: nil, onClick: {}),
+    public static let unsent = SessionUnsent(
+        text: "Then deploy it to staging",
+        reason: "FERB couldn't tell that the terminal in front in Visual Studio Code is this session's, so it typed nothing. Click into the session's terminal once, then send again.",
+        retry: "Try again", notSent: "Not sent.")
+
+    /// HAND-683: the terminals a session's app shows, when FERB can't tell which is the session's.
+    public static let terminals: [(id: String, label: String)] = [
+        ("front", "The terminal in front in Visual Studio Code now (Terminal 1, 2.1.330)"),
+        ("w7:0:Terminal 1, 2.1.330", "config.toml — blog · Terminal 1, 2.1.330"),
+        ("w7:1:Terminal 2, zsh", "config.toml — blog · Terminal 2, zsh"),
+    ]
+
+    public static func session(insets: PhoneInsets = .lab, typed: String = "", scrolls: Bool = true, menuOpen: Bool = false,
+                               unsent: SessionUnsent? = nil) -> some View {
+        SessionPage(header: rows[1], lines: lines, asks: unsent == nil ? [ask] : [],
+                    actions: [SessionAction("Watch", symbol: "eye", onClick: {}), SessionAction("Hand to FERB", symbol: "hand.raised", onClick: {}),
                               SessionAction("Stop its turn", symbol: "stop.fill", onClick: {})],
-                    insets: insets, older: "Show earlier", onClose: {}, scrolls: scrolls) {
+                    insets: insets, older: "Show earlier", onClose: {}, unsent: unsent, onRetry: {}, menuOpen: menuOpen, onMenu: { _ in },
+                    scrolls: scrolls) {
             SessionComposer(value: typed, placeholder: "Message Claude Code…", sendLabel: "Send")
         }
     }

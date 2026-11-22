@@ -34,8 +34,8 @@ struct SessionsPage: View {
                     if named == nil || named == sessions.openID { await sessions.poll() }
                 }
             }
-            .sheet(isPresented: Binding(get: { sheet != nil || sessions.confirm != nil },
-                                        set: { if !$0 { sheet = nil; sessions.cancelConfirm() } })) {
+            .sheet(isPresented: Binding(get: { sheet != nil || sessions.confirm != nil || sessions.pick != nil },
+                                        set: { if !$0 { sheet = nil; sessions.cancelConfirm(); sessions.cancelPick() } })) {
                 SessionsSheetView(sessions: sessions, previewAccess: store.previewAccess, sheet: $sheet)
             }
     }
@@ -312,7 +312,9 @@ struct SessionsSheetView: View {
 
     var body: some View {
         Group {
-            if let confirm = sessions.confirm {
+            if let pick = sessions.pick {
+                PickTerminalView(pick: pick, choose: { t in Task { await sessions.choose(t) } }, cancel: { sessions.cancelPick() })
+            } else if let confirm = sessions.confirm {
                 SessionConfirmView(confirm: confirm,
                                    yes: { Task { sheet = nil; await sessions.confirmYes() } },
                                    cancel: { sessions.cancelConfirm() })
@@ -369,6 +371,35 @@ struct SessionConfirmView: View {
     private var isStart: Bool {
         if case .start = confirm.action { return true }
         return false
+    }
+}
+
+/// HAND-683: FERB can't tell which terminal is the session's: the daemon's reason, the terminals it can see by the
+/// app's own words (the one in front now first), and Don't send.
+struct PickTerminalView: View {
+    let pick: SessionsModel.Pick
+    let choose: (SessionChoice) -> Void
+    let cancel: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Which terminal is this session in?").font(.system(size: 15, weight: .semibold))
+            Text(pick.why).font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(pick.terminals) { t in
+                    Button { choose(t) } label: {
+                        Label(t.label, systemImage: "terminal").frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
+            Text("FERB types only into the one you choose, and asks again if it changes.")
+                .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Spacer()
+                Button("Don't send", action: cancel).keyboardShortcut(.cancelAction)
+            }
+        }
+        .padding(24).frame(width: 480)
     }
 }
 

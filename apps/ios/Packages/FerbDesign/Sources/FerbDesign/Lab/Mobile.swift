@@ -8,6 +8,9 @@
 // and colour is the lab's.
 
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 // The phone app: one design, drawn on an iPhone and on an Android phone. Only the hardware differs (the island or
 // the camera hole, the status bar); everything inside is the same, so Android can copy the iOS version exactly.
@@ -134,7 +137,8 @@ public enum PhoneTab: CaseIterable, Hashable, Sendable {
     public var symbol: String { ["bubble.left", "checklist", "terminal", "folder", "laptopcomputer"][PhoneTab.allCases.firstIndex(of: self)!] }
 }
 
-/// The top of every page: a short black pill of tabs (only the chosen one shows its name) and the profile button.
+/// The top of every page: a short black pill of tabs (the chosen one shows its name, PHN-801) and the profile button
+/// with the link's state as its badge.
 public struct TopBar: View {
     let chosen: PhoneTab
     var waiting: PhoneTab? = .tasks
@@ -166,19 +170,42 @@ public struct TopBar: View {
     /// The bar: the white pill slides between tabs on PairIt's tab spring (overshoot cut by the bar's round ends, as
     /// PairIt's iPhone bar); the tabs' widths, names and colours follow on the enter curve (kb PHN-622).
     private func bar(onTab: ((PhoneTab) -> Void)?, onProfile: (() -> Void)?) -> some View {
-        HStack {
-            HStack(spacing: 2) {
+        GeometryReader { geo in
+            barRow(width: geo.size.width - 32, onTab: onTab, onProfile: onProfile).padding(.horizontal, 16)
+        }
+        .frame(height: 42)
+        .padding(.top, 6)
+    }
+
+    /// The chosen tab's name, as wide as it draws (15 semibold).
+    private func nameWidth(_ t: PhoneTab) -> CGFloat {
+        #if canImport(UIKit)
+        let font = UIFont.systemFont(ofSize: 15, weight: .semibold)
+        return ceil((t.title as NSString).size(withAttributes: [.font: font]).width)
+        #else
+        return CGFloat(t.title.count) * 8.5
+        #endif
+    }
+
+    // decision: PHN-801 — the chosen tab's name in the pill; the tabs share what is left (the lab's 46 at most, never
+    // under 36); the link's state is a badge on the profile button, whose page holds the connection. As Android's.
+    private func barRow(width: CGFloat, onTab: ((PhoneTab) -> Void)?, onProfile: (() -> Void)?) -> some View {
+        let chosenW = 12 * 2 + 17 + 6 + nameWidth(chosen)
+        let room = width - 8 - 42 - 8
+        let tabW = min(46, max(36, ((room - chosenW) / CGFloat(PhoneTab.allCases.count - 1)).rounded(.down)))
+        let label = connection.map { "This phone. \($0.label)" } ?? "This phone"
+        return HStack(spacing: 0) {
+            HStack(spacing: 0) {
                 ForEach(PhoneTab.allCases, id: \.self) { tab in
                     let on = tab == chosen
-                    // PHN-798: five tabs, a little narrower than the lab's (36 wide, padding 12/7, gap 6), as Android's
                     HStack(spacing: 6) {
                         Image(systemName: tab.symbol + (on && tab != .tasks && tab != .mac && tab != .sessions ? ".fill" : ""))
                             .font(.system(size: 17, weight: .medium))
                         if on { Text(tab.title).font(.system(size: 15, weight: .semibold)).lineLimit(1).fixedSize() }
                     }
                     .foregroundStyle(on ? Ink.black : Ink.white)
-                    .padding(.horizontal, on ? 12 : 7)
-                    .frame(minWidth: 36)
+                    .padding(.horizontal, on ? 12 : 0)
+                    .frame(width: on ? nil : tabW)
                     .frame(height: 42)
                     .animation(reduce ? FerbMotion.reduced.animation : FerbMotion.enter.animation, value: on)
                     .background { if on { Capsule().fill(Ink.white).matchedGeometryEffect(id: "pill", in: pill) } }
@@ -199,19 +226,23 @@ public struct TopBar: View {
             // an overshooting pill is cut at the bar's round ends; a point outside them, so the bar's own edge is untouched
             .clipShape(Capsule().inset(by: -1))
             .animation(reduce ? nil : FerbMotion.tab.animation, value: chosen)
-            // as Android's weight: the bar's room goes to the tabs first
             Spacer(minLength: 0)
-            if let connection { ConnectionButton(connection).padding(.trailing, 8) }
-            Image(systemName: "person.fill")
-                .font(.system(size: 17))
-                .foregroundStyle(Ink.white)
-                .frame(width: 42, height: 42)
-                .background(Ink.darkFill, in: Circle())
-                .pressable(onProfile)
-                .accessibilityLabel(Text("This phone"))
+            ZStack(alignment: .bottomTrailing) {
+                Image(systemName: "person.fill")
+                    .font(.system(size: 17))
+                    .foregroundStyle(Ink.white)
+                    .frame(width: 42, height: 42)
+                // the link's state as a badge on the profile button (PHN-801; its sheet is a row on the profile page)
+                if let connection {
+                    LinkMarkView(connection.mark, size: 7).frame(width: 14, height: 14).background(Ink.darkFill, in: Circle())
+                        .offset(x: -2, y: -2)
+                }
+            }
+            .background(Ink.darkFill, in: Circle())
+            .pressable(onProfile)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(label))
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 6)
     }
 }
 

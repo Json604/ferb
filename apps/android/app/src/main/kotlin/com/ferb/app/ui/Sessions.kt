@@ -44,6 +44,7 @@ import com.ferb.design.components.Pill
 import com.ferb.design.components.PillKind
 import com.ferb.design.components.RowIcon
 import com.ferb.design.components.SessionAction
+import com.ferb.design.components.SessionUnsent
 import com.ferb.design.components.SessionAsk
 import com.ferb.design.components.SessionComposer
 import com.ferb.design.components.SessionRowData
@@ -104,7 +105,7 @@ fun SessionsTabPage(
 }
 
 /**
- * One session's screen (always out of screenshots: it holds the owner's conversation). Over it, as sheets of their own:
+ * One session's screen (screenshots as the owner's switch says, PHN-800). Over it, as sheets of their own:
  * the Mac's question before FERB types for him, and Hand to FERB. Back closes what is over it first.
  */
 @Composable
@@ -113,6 +114,8 @@ fun SessionScreen(vm: FerbViewModel, busy: Set<String>, insets: PhoneInsets) {
     val ui = o ?: return
     BackHandler {
         when {
+            ui.menu -> vm.sessionMenu(false)
+            ui.pick != null -> vm.sessionPickNo()
             ui.ask != null -> vm.sessionNo()
             ui.handOver -> vm.askHandOver(false)
             else -> vm.closeSession()
@@ -123,9 +126,10 @@ fun SessionScreen(vm: FerbViewModel, busy: Set<String>, insets: PhoneInsets) {
         onClose = vm::closeSession, onOlder = { vm.sessionOlder() }, onTyped = vm::sessionTyped, onSend = { vm.sessionSend() },
         onChoice = { card, choice -> vm.sessionAnswer(card, choice) },
         onWatch = vm::watchSession, onHand = { vm.askHandOver() }, onInterrupt = { vm.sessionInterrupt() }, onRelease = { vm.sessionRelease() },
+        onRetry = { vm.sessionRetry() }, onMenu = vm::sessionMenu,
     )
     // over the screen: one at a time, up from below like every sheet
-    val over: Any? = ui.ask ?: if (ui.handOver) HandOver else null
+    val over: Any? = ui.pick ?: ui.ask ?: if (ui.handOver) HandOver else null
     MotionSwitch(over, Modifier.fillMaxSize(), MotionKind.SHEET) { what ->
         when (what) {
             is com.ferb.app.model.SessionConfirm -> SessionYesSheet(
@@ -133,6 +137,8 @@ fun SessionScreen(vm: FerbViewModel, busy: Set<String>, insets: PhoneInsets) {
                 onYes = { vm.sessionYes() }, onCancel = vm::sessionNo,
             )
             HandOver -> HandOverSheet(insets, busy = "session-hand" in busy, onGo = { vm.handOver(it) }, onClose = { vm.askHandOver(false) })
+            is com.ferb.app.model.TerminalPick -> PickTerminalSheet(what, insets, busy = "session-pick" in busy,
+                onPick = { vm.sessionPickTerminal(it) }, onNo = vm::sessionPickNo)
         }
     }
 }
@@ -145,7 +151,7 @@ fun SessionScreenPage(
     ui: SessionUi, busy: Set<String>, insets: PhoneInsets,
     onClose: () -> Unit = {}, onOlder: () -> Unit = {}, onTyped: ((String) -> Unit)? = null, onSend: () -> Unit = {},
     onChoice: (card: String, choice: String) -> Unit = { _, _ -> }, onWatch: () -> Unit = {}, onHand: () -> Unit = {},
-    onInterrupt: () -> Unit = {}, onRelease: () -> Unit = {},
+    onInterrupt: () -> Unit = {}, onRelease: () -> Unit = {}, onRetry: () -> Unit = {}, onMenu: (Boolean) -> Unit = {},
 ) {
     val s = ui.session
     val header = s?.let { sessionRow(it) } ?: SessionRowData("", "", com.ferb.design.components.SessionState.IDLE, "")
@@ -160,11 +166,11 @@ fun SessionScreenPage(
     }
     val actions = buildList {
         add(SessionAction(stringResource(R.string.sessions_watch), FerbIcons.eye, onWatch))
-        add(SessionAction(stringResource(R.string.sessions_hand_over), null, onHand))
+        add(SessionAction(stringResource(R.string.sessions_hand_over), FerbIcons.handOver, onHand))
         if (s != null && s.status != "idle") {
             add(SessionAction(stringResource(R.string.sessions_stop_turn), FerbIcons.stop, onInterrupt.takeIf { "session-interrupt" !in busy }))
         }
-        if (s?.controlledHere == true) add(SessionAction(stringResource(R.string.sessions_let_go), null, onRelease.takeIf { "session-release" !in busy }))
+        if (s?.controlledHere == true) add(SessionAction(stringResource(R.string.sessions_let_go), FerbIcons.letGo, onRelease.takeIf { "session-release" !in busy }))
     }
     SessionPage(
         header, lines, asks, actions, insets,
@@ -176,6 +182,13 @@ fun SessionScreenPage(
             val choice = card?.choices?.getOrNull(c)
             if (card != null && choice != null && "session-answer:${card.id}" !in busy) onChoice(card.id, choice.id)
         },
+        unsent = ui.unsent?.let {
+            SessionUnsent(it.text, noteText(it.reason), stringResource(R.string.sessions_try_again), stringResource(R.string.sessions_not_sent))
+        },
+        onRetry = onRetry.takeIf { "session-send" !in busy },
+        moreLabel = stringResource(R.string.sessions_more),
+        menuOpen = ui.menu,
+        onMenu = onMenu,
     ) { m ->
         Column(m.testTag("session-foot")) {
             ui.problem?.let { PhoneText(noteText(it), 13.5f, color = Ink.onDark, modifier = Modifier.padding(start = 6.dp, end = 6.dp, bottom = 8.dp)) }
@@ -205,6 +218,29 @@ internal fun SessionYesSheet(yes: SessionYes, yesLabel: String, insets: PhoneIns
         if (yes.covers.isNotBlank()) PhoneText(yes.covers, 14f, color = Ink.detail, lineSpacing = 2f, modifier = Modifier.padding(top = 12.dp))
         Pill(yesLabel, Modifier.padding(top = 18.dp).testTag("session-yes"), icon = FerbIcons.fingerprint, onClick = if (busy) null else onYes)
         Pill(stringResource(R.string.sessions_cancel), Modifier.padding(top = 4.dp), PillKind.PLAIN, height = 44.dp, onClick = onCancel)
+    }
+}
+
+/**
+ * HAND-683: FERB can't tell which terminal is the session's: the Mac's reason, the terminals it can see in the app by
+ * the app's own words (the one in front now first), each a choice signed with the fingerprint, and Don't send.
+ */
+@Composable
+internal fun PickTerminalSheet(pick: com.ferb.app.model.TerminalPick, insets: PhoneInsets, busy: Boolean, onPick: (String) -> Unit, onNo: () -> Unit) {
+    val title = stringResource(R.string.sessions_pick_title)
+    SheetFrame(title = title, bottomInset = insets.bottom, onDismiss = onNo) {
+        SheetTitle(title, onNo)
+        if (pick.why.isNotBlank()) PhoneText(pick.why, 14.5f, color = Ink.detail, lineSpacing = 2f, modifier = Modifier.padding(top = 10.dp))
+        Column(Modifier.padding(top = 14.dp).fillMaxWidth().heightIn(max = 340.dp).verticalScroll(rememberScrollState())
+            .background(Ink.fill, RoundedCornerShape(18.dp)).testTag("pick-terminals")) {
+            pick.terminals.forEachIndexed { i, t ->
+                if (i > 0) Divide()
+                CardRow(t.label, onClick = if (busy) null else ({ onPick(t.id) }), leading = { RowIcon(FerbIcons.terminal) },
+                    trailing = { com.ferb.design.FerbIcon(FerbIcons.fingerprint, 17f, Ink.detail) })
+            }
+        }
+        PhoneText(stringResource(R.string.sessions_pick_note), 14f, color = Ink.detail, lineSpacing = 2f, modifier = Modifier.padding(top = 12.dp))
+        Pill(stringResource(R.string.sessions_pick_no), Modifier.padding(top = 12.dp), PillKind.PLAIN, height = 44.dp, onClick = onNo)
     }
 }
 
