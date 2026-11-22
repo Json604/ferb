@@ -9211,3 +9211,90 @@ real Codex), T-1289 (the desktop apps' composers and Cursor's chat).
   Automation prompt for Terminal at first use.
 - `ferb agent-hook`'s ancestors on a real Claude Code (the hook's shell, then Claude Code leading its group).
 - The phone apps against a real Mac; the phones' refusal names for the new codes (they show the Mac's words).
+
+## 2026-11-22 · 171 · A stop's end shows once in the chat: the task's turn reads Cancelled
+
+**The owner (ORCH-688):** "didnt you said you fixed this redundant response???" Read-only evidence in his
+`~/.ferb/ferb.db` `chat_entries`: at 14:56:07 "stop" (request f65ce9b7…) got an answer from "reply" at 14:56:23.122
+and the stopped task's own turn (request f8977104…, task a843aa54…) an answer from "task" at .139, both inline, both
+"Stopped, as you asked. I'm not sure whether my last step on com.google.Chrome went through: …"; at 15:21:04 the same
+for "ok lets call this assingmnt here. whats done is good rest lets not do" (requests ade21800… and afba3bbc…, task
+0a59cf47…). His screenshot of the 15:21 case: the bubble, the seek.onlinedegree.iitm.ac.in "Sent / From …" card and
+the sites chip, once under the task's turn (with "Cancelled") and again under his stop message.
+
+**Why both were filed (code at a2c30951).** ORCH-579's chat stop: control.rs:936-939 sets the tree's
+`stop_told_in` to the stop's request; the task's end is composed with `told_in` (control.rs:636-641 `told_in`, from
+tree.rs:3537 and card.rs:579) and sent on the task's own stream (tree.rs:671/675); then the stop's reply is that same
+recorded end, words and cards (control.rs:991-1013, `stop_told`). On the clients `told_in` only kept the end from also
+being posted *below* (APP-825): FERB.app ConversationArchive.applyOutcome still put the end's lines and cards on the
+task's turn and `finish` its answer (ConversationArchive.swift:1165; `guard toldElsewhere.remove(id)` at :1178 stops
+only the reply below), and ChatProjector the same (entries.rs apply_outcome; finish's `turn.text = end.said` at
+entries.rs:1340, `told_elsewhere` only in `placement`). So the words, the card and the chip were drawn twice, once on
+each turn, on the Mac and on the phones (their fold reads the same entries). LIVE-860's pass said the opposite ("the
+task's own message up the chat shows it stopped").
+
+**The ruling (ORCH-689, APP-1113; APP-825 superseded).** One behaviour, the one LIVE-860 describes: the stop's reply
+under his message carries the end (words, cards, sites); the task's own turn shows only that it ended (Cancelled, its
+card or checklist). Shared path: `told_in` now means "that request's reply says this end". Both reducers
+(ConversationArchive and ChatProjector, which mirror each other) note the end's words (`saidElsewhere` /
+`said_elsewhere`) when an outcome carries `told_in`, skip its lines, note, cards and later answer, and `finish` files
+those words on that turn as an empty answer with the end's status (no files, not verified); a turn that already
+showed an answer gets nothing more. Either order of the reply and the end works. The fold, EntryFold and the phones
+need nothing new: they draw an answer entry with no text as its status words.
+
+`told_in` was also how a restart's first run is filed in place (ORCH-683), whose line no reply repeats: such an end
+now carries `keeps_words: true` (TreeState `stop_keeps_words`), and the clients keep its words. The recorded Python
+stop scenarios carry no new key (their bytes are unchanged).
+
+Two edges where words could be left unsaid or said twice, closed in control.rs:
+- A chat stop past its 10 s wait cleared `stop_told_in` while the end might already have been composed naming the
+  reply. Composing an end with `told_in` now claims the reply (`stop_told_claimed`); the stop clears `told_in` only
+  while unclaimed, under the tree's lock, else waits for that end and says it. `stop_told` refuses an end with
+  `keeps_words`.
+- A stop while a restart waits (ORCH-684) with the stopped run still finishing: its end, now the owner's stop, was
+  filed in place with "Stopped, as you asked. This is where things stood: …" and the stop said "Stopped, as you
+  asked." again. `call_off_restart` now points the end at one teller without `keeps_words`: a chat stop goes the chat
+  stop's way (its reply waits for the end and says it; the retry's turn adds nothing); for the Stop button the
+  retry's turn says the end (`stop_told`), else "Stopped, as you asked." as before.
+
+**Routes checked.** A chat stop, a stop beside new work (ORCH-638: the stop's words in the new task's plan receipt,
+the task's turn Cancelled), the Stop button and the phone's Stop (both `task.stop`: no reply tells it, the task's own
+end says it once), a restart's first turn, the Stop button and a chat stop while a restart waits. A stop of one
+part: the planner's control can only name a task this chat was shown (turn.rs:989-997 refuses another id as
+"Unknown task_id"), so a step is never stopped alone by chat; dropping a part by a correction is a steer, its row
+reads stopped and no end is told.
+
+**Tests.** ferb-supervisor tests/stop_told_once.rs (new): the recorded stop_by_chat, stop_plus_new_task and
+stop_by_task_stop through the real supervisor with stand-in models and its own ChatLog (traced, flushed, read from the
+store): exactly one entry says "Stopped, as you asked." (answer text or plan receipt), under the right message; the
+task's turn is a cancelled answer with no words, lines, cards or files; ENG-15's rules hold (support_entries).
+tests/restart_by_follow_up.rs: a restart's first turn says its line once and nothing says the stop; the Stop button
+and a chat stop while the restart waits (1 s and 15 s) say the stop once; ENG-15 holds. chat_entries.rs: the
+projector's told_in case says it once, a `keeps_words` end keeps its line, the two-turn live case of 2026-11-15 now
+has the end once (in the stop message's plan) and the saved-history case builds its old row by hand.
+StopToldOnceTests (Swift): the end and its card once under the stop in both orders; a restart's line kept.
+EntryFoldTests' two-turn case: the second turn reads Cancelled with no words or files. With the projector's change
+switched off, stop_told_once's chat stop and stop-beside-new-work cases fail with the live shape (a "task" answer on
+the task's turn and a "reply" answer, both "Stopped, as you asked.").
+Goldens rewritten as this named change: chat-entries/scenarios.json (stop_by_chat, stop_plus_new_task,
+stop_chat_while_paused, the invented two-turn stop: the task's answer has no words), transcripts.json (those turns'
+`answer` null, status cancelled), engine_chat.json (the wired run's entries).
+Ran: ferb-supervisor stop_told_once, restart_by_follow_up, control_scenarios (all 14: the recorded stops replay
+fully), chat_entries, clippy --all-targets -D warnings; ferbd chat_replay the recorded scenarios (with UPDATE_GOLDEN,
+which compares each against scenarios.json) and correct_pending_check alone (the full "more" run failed it once on a
+span id order under the Mac's load; alone it passes; nothing of this change touches it); ferb-mobile golden (the
+phone fold equals the new transcripts); Swift StopToldOnceTests, EntryFoldTests, EntryFoldTranscriptTests,
+EntryWatchTests, ConversationTests, ChatFlowTests.
+
+**Unverified.**
+- Live: LIVE-860 on an installed build (the owner's own stop, his screenshot's case).
+- The whole workspace's gate, the whole Swift suite and ferb-mobile-ffi's ffi test (it needs the patched iroh under
+  engine/target/patched, absent in a fresh worktree) were not run.
+- The call-off edge with the stopped run still live when the stop arrives is reasoned from the code; the scripted
+  restart tests end the stopped run before the stop (its call held in flight), so they don't reach it.
+- A card task's card footer still reads its headline ("Stopped, as you asked.") as the card's own state line, as
+  before; its result cards moved to the reply.
+- After a daemon restart the projectors don't remember `said_elsewhere`; an end delivered again then would revise
+  the task's turn with its words (as before this change).
+- This entry's number (171) and ORCH-688, ORCH-689, APP-1113 were the next free when written; other agents work at
+  the same time.

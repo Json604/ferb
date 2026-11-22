@@ -2261,3 +2261,25 @@ why = "Existing task machinery covers stopping, asking when unsure and the compl
 evidence = "ferb-daemon tests/sessions.rs a_hand_over_is_the_owner_s_message_and_a_start_types_the_exact_command; ferbd every_tool_through_the_program (the four tools wired); ferb-gateway catalog tests. The real planner's use of them is LIVE-1172."
 paths = ["engine/crates/ferbd/src/compose/tools/sessions.rs", "engine/crates/ferb-gateway/src/catalog_additions.json", "engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.delegate"]
 live = ["LIVE-1172"]
+
+[ORCH-688]
+title = "A stop's end shows once in the chat: one answer with its words, cards and sites"
+by = "owner"
+date = 2026-11-22
+status = "active"
+words = "didnt you said you fixed this redundant response???"
+words_source = "Owner 2026-11-22 (relayed), with a screenshot of the 15:21 stop: its end, sent card and sites chip drawn twice, under the task's turn and under his stop message (journal 170)"
+rule = "When the owner stops a task, the chat shows the task's end once: one answer with its words ('Stopped, as you asked.' and 'This is where things stood: …' when there is one), its cards and its sites. The task's own turn shows only that it ended (its status, its card or checklist), never the same end again. On every route (a chat stop, a stop beside new work, the Stop button, the phone's stop, a stop while a restart waits) and on every client that mirrors the Mac."
+why = "ORCH-579 kept the stop's reply from also being posted below, but the task's own turn still filed the same end in place with its words, cards and sites: the owner saw it twice."
+live = ["LIVE-860"]
+
+[ORCH-689]
+title = "told_in: the reply says the end; a restart's end keeps its words; a claimed end is waited for"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For ORCH-688; refines ORCH-579, ORCH-684. An end with told_in names the reply that says its words, cards and sites; the clients file it on the task's turn as its state only (APP-1113). A restart's first run (ORCH-683) adds keeps_words and keeps them. Composing an end with told_in claims the reply: a chat stop past its 10 s wait clears told_in only while unclaimed (under the tree's lock), else waits for that end and says it; stop_told refuses keeps_words. A stop while a restart waits and the stopped run still ends: a chat stop's reply says the end; for the Stop button the retry's turn does."
+why = "Live 2026-11-22 14:56 and 15:21: the stop's reply and the task's turn each held the end (ORCH-688). told_in also files a restart's first run in place, whose words no reply repeats; and an end that named the reply after the stop's wait gave up would lose its words."
+rejected = ["The reply only saying 'Stopped, as you asked.' and the task's turn keeping the rest: the owner reads the stop's answer under his own message", "A new key for the restart's in-place filing instead of keeps_words: told_in also feeds the planner's history (ORCH-596), and the Python-recorded stop scenarios keep their bytes this way", "Clearing the task's turn when the reply arrives: it would show the end for a moment and needs the reply to name the task"]
+evidence = "ferb-supervisor tests/stop_told_once.rs (chat stop, stop beside new work, the Stop button) and tests/restart_by_follow_up.rs (a restart's first turn; the Stop button and a chat stop while the restart waits), through the real supervisor with stand-in models and its ChatLog, with ENG-15's order rules."
+paths = ["engine/crates/ferb-supervisor/src/flow/control.rs::told_in", "engine/crates/ferb-supervisor/src/flow/control.rs::stop_told", "engine/crates/ferb-supervisor/src/flow/control.rs::control", "engine/crates/ferb-supervisor/src/flow/control.rs::call_off_restart", "engine/crates/ferb-supervisor/src/flow/entries.rs", "engine/crates/ferb-supervisor/src/flow/mod.rs"]

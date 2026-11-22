@@ -1814,6 +1814,57 @@ fn a_stop_told_in_another_reply_is_filed_on_its_own_turn() {
     assert!(answers
         .iter()
         .all(|a| a.placement == Some(Placement::Inline)));
+    // ORCH-688, APP-1113: said once, by the stop's reply; the task's turn shows that it ended
+    assert_eq!(
+        answers
+            .iter()
+            .filter(|a| answer_text(a) == "Stopped.")
+            .count(),
+        1
+    );
+    let own = answers
+        .iter()
+        .find(|a| a.request_id.as_deref() == Some("r1"))
+        .unwrap();
+    assert_eq!(
+        (answer_text(own).as_str(), own.state),
+        ("", EntryState::Cancelled)
+    );
+}
+
+/// A restart's first run (ORCH-683) is filed in place with its own line: `keeps_words`.
+// decision: ORCH-683, APP-1113
+#[test]
+fn a_restarts_first_run_keeps_its_line_on_its_own_turn() {
+    let (mut p, mut c) = (ChatProjector::new("s1", 1), Clock { n: 0, seq: 0 });
+    for (r, text) in [("r1", "watch the build"), ("r2", "check both at once")] {
+        frame(
+            &mut p,
+            &mut c,
+            r,
+            json!({"type": "ack", "request_id": r, "message": text}),
+        );
+        if r == "r1" {
+            frame(
+                &mut p,
+                &mut c,
+                "r1",
+                json!({"type": "plan", "task_id": "t1", "text": "Watching.", "request_id": "r1"}),
+            );
+        }
+    }
+    let line = "Stopped here to start again with your change.";
+    frame(
+        &mut p,
+        &mut c,
+        "r1",
+        json!({"type": "outcome", "task_id": "t1", "status": "cancelled", "answer": line, "told_in": "r2",
+               "keeps_words": true, "request_id": "r1"}),
+    );
+    let answers = by_kind(&p, EntryKind::Answer);
+    assert_eq!(answers.len(), 1);
+    assert_eq!(answer_text(&answers[0]), line);
+    assert_eq!(answers[0].placement, Some(Placement::Inline));
 }
 
 // decision: ORCH-529
@@ -2186,7 +2237,7 @@ fn follows(e: &Entry) -> Option<String> {
 /// the new task's plan and the stopped task's end.
 // decision: APP-919
 // decision: ORCH-638
-// decision: APP-825
+// decision: APP-1113
 #[test]
 fn a_stopped_task_two_turns_ran_tells_its_end_once_on_the_turn_that_ran_it() {
     for plan_first in [true, false] {
@@ -2198,18 +2249,26 @@ fn a_stopped_task_two_turns_ran_tells_its_end_once_on_the_turn_that_ran_it() {
                 .filter(|e| e.kind == kind && e.request_id.as_deref() == Some(request))
                 .collect()
         };
+        // ORCH-688, APP-1113: the stop message's plan says the end (ORCH-638's receipt); the turn that ran it shows
+        // only that it ended
         let told: Vec<&Entry> = entries
             .iter()
             .filter(|e| e.kind == EntryKind::Answer && answer_text(e) == STOPPED_SUMMARY)
             .collect();
-        assert_eq!(
-            told.len(),
-            1,
-            "plan_first {plan_first}: the stopped end is one answer"
+        assert!(
+            told.is_empty(),
+            "plan_first {plan_first}: no answer repeats the stopped end: {told:?}"
         );
-        assert_eq!(told[0].request_id.as_deref(), Some("r2"));
-        assert_eq!(told[0].placement, Some(Placement::Inline));
-        assert_eq!(told[0].state, EntryState::Cancelled);
+        let ran = of(EntryKind::Answer, "r2");
+        assert_eq!(ran.len(), 1, "plan_first {plan_first}");
+        assert_eq!(answer_text(ran[0]), "");
+        assert_eq!(ran[0].placement, Some(Placement::Inline));
+        assert_eq!(ran[0].state, EntryState::Cancelled);
+        let ran_body: AnswerBody = ran[0].body_as().unwrap();
+        assert!(
+            ran_body.artifacts.is_empty() && ran_body.lines.is_none(),
+            "{ran_body:?}"
+        );
         assert!(
             entries.iter().all(|e| follows(e).is_none()),
             "no later answer"
@@ -2245,12 +2304,14 @@ fn a_history_saved_with_the_extra_answer_is_read_back_and_the_end_again_adds_not
         .find(|e| e.kind == EntryKind::Answer && e.request_id.as_deref() == Some("r1"))
         .cloned()
         .unwrap();
+    // (the stopped end as that night's engine stored it: with its words, ORCH-688 not yet in place)
     let mut extra = stored
         .iter()
-        .find(|e| e.kind == EntryKind::Answer && answer_text(e) == STOPPED_SUMMARY)
+        .find(|e| e.kind == EntryKind::Answer && e.request_id.as_deref() == Some("r2"))
         .cloned()
         .unwrap();
     let mut body: AnswerBody = extra.body_as().unwrap();
+    body.text = STOPPED_SUMMARY.into();
     body.follows = Some(first.id.clone());
     extra.id = "old-extra".into();
     extra.request_id = Some("r1".into());

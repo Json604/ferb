@@ -3316,7 +3316,8 @@ paths = ["ui/mac/FERBNotch/Sources/NotchCore/ResultCard.swift::CardLayout.lines"
 title = "A task's end that the stop's reply tells is filed on its own turn"
 by = "agent"
 date = 2026-11-10
-status = "active"
+status = "superseded"
+superseded_by = "APP-1113"
 rule = "For ORCH-579. An outcome carrying told_in (the request of the owner's stop message whose reply tells this end) is filed on the task's own turn: its status and answer there, no late reply below. Without told_in a late end posts below as before (L6)."
 paths = ["ui/mac/FERBNotch/Sources/NotchCore/ConversationArchive.swift::ConversationArchive.applyOutcome", "ui/mac/FERBNotch/Sources/NotchCore/ConversationArchive.swift::ConversationArchive.finish"]
 live = ["LIVE-860"]
@@ -4658,3 +4659,15 @@ rule = "For HAND-651. A Sessions section in FERB's window (after Tasks): off wor
 evidence = "NotchCoreTests SessionsTests (16) and PlaygroundWorkspaceTests' sessions flow, on ScriptedRPC; the page's layout in every state."
 paths = ["apps/mac/FERBNotch/Sources/FERBNotch/SessionsPage.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SessionsModel.swift", "apps/mac/FERBNotch/Sources/NotchCore/SessionRows.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift"]
 live = ["LIVE-1168", "LIVE-1170", "LIVE-1172"]
+
+[APP-1113]
+title = "A stop's end that another message's reply says is the task's turn's state only"
+by = "agent"
+date = 2026-11-22
+status = "active"
+supersedes = ["APP-825"]
+rule = "For ORCH-688, ORCH-689; replaces APP-825. An outcome with told_in and without keeps_words is filed on the task's own turn as its state: its status (Cancelled), its card or checklist; not its words, lines, note, cards, files or offer, and no later answer or reply below. The reply of told_in's request shows them, once. With keeps_words (a restart's first run) the end is filed in place with its words, as APP-825 did. ConversationArchive (FERB.app's own turns) and ChatProjector (the entries the phones and the Mac's watch read) do the same, in either order of the reply and the end."
+why = "APP-825 filed the told end on the task's turn with its answer, so FERB.app drew it twice (ORCH-688)."
+evidence = "NotchCoreTests StopToldOnceTests; EntryFoldTests and the transcripts golden on the recorded stop scenarios; ferb-supervisor tests/chat_entries.rs and tests/stop_told_once.rs."
+paths = ["apps/mac/FERBNotch/Sources/NotchCore/ConversationArchive.swift::ConversationArchive.applyOutcome", "apps/mac/FERBNotch/Sources/NotchCore/ConversationArchive.swift::ConversationArchive.finish", "engine/crates/ferb-supervisor/src/flow/entries.rs"]
+live = ["LIVE-860"]

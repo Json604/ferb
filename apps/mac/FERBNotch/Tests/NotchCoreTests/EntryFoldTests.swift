@@ -163,10 +163,11 @@ final class EntryFoldTests: XCTestCase {
     /// for new work, showed the stopped task's summary three times: the stop message's receipt (ORCH-638), the task's
     /// own turn (APP-825), and a later answer of the task's FIRST turn at the bottom, because recordAnswer took the first
     /// turn bound to the task. The invented scenario through the app's own reducer, in both orders the engine can send
-    /// the new task's plan and the stopped task's end: the summary is the second turn's answer and the stop message's
-    /// receipt, and no reply says it again.
+    /// the new task's plan and the stopped task's end: the summary is the stop message's receipt, the second turn
+    /// reads Cancelled without it (ORCH-688, APP-1113), and no reply says it again.
     // decision: APP-919
     // decision: ENG-18
+    // decision: APP-1113
     func testAStoppedTaskTwoTurnsRanTellsItsEndOnceOnTheTurnThatRanIt() async throws {
         let scenarios = try Self.golden()
         let scenario = try XCTUnwrap(scenarios.first { $0["name"] as? String == "stop_beside_new_work_two_turns" })
@@ -186,7 +187,8 @@ final class EntryFoldTests: XCTestCase {
             let archive = await appArchive(order)
             XCTAssertEqual(archive.turns.count, 3)
             XCTAssertEqual(archive.turns[0].answer, "Stopped, as you asked.\n\nSites contacted: 1 site")
-            XCTAssertEqual(archive.turns[1].answer, summary)
+            XCTAssertEqual(archive.turns[1].answer, "")
+            XCTAssertTrue(archive.turns[1].artifacts.isEmpty)
             XCTAssertEqual(archive.turns[1].status, "cancelled")
             XCTAssertEqual(archive.turns[2].receipts, [summary].compactMap { $0 })
             XCTAssertEqual(archive.turns[2].planLine, "I'm listing every file the assignment workers made.")

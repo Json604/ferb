@@ -531,6 +531,10 @@ public struct ConversationArchive: Codable, Equatable {
     /// Turns whose next answer is told elsewhere (ORCH-579: a task the owner stopped from a later message, whose reply
     /// tells the stop and what the task had found): that answer is filed on its own turn, never posted again below.
     private var toldElsewhere: Set<UUID> = []
+    /// The words of a turn's task end that another message's reply says (ORCH-688, APP-1113: `told_in` without
+    /// `keeps_words`): that end is filed on its turn as its state only (status, card, checklist), never its words,
+    /// cards or sites again.
+    private var saidElsewhere: [UUID: String] = [:]
     public init() {}
 
     private enum CodingKeys: String, CodingKey { case turns, replies, notices }
@@ -1010,7 +1014,11 @@ public struct ConversationArchive: Codable, Equatable {
         let codeLines = (event["lines"] as? [String]).flatMap { $0.isEmpty ? nil : $0 }
         let offer = RuntimeSwitch(event["runtime_switch"])
         let answer = event["answer"] as? String ?? event["summary"] as? String
-        if isLaterAnswer(at: index, answer), let answer {
+        // ORCH-688, APP-1113: another message's reply says this end: its words, lines and cards are that reply's
+        let elsewhere = words("told_in") != nil && (event["keeps_words"] as? Bool) != true
+        if elsewhere {
+            if let answer, !answer.isEmpty { saidElsewhere[turns[index].id] = answer }
+        } else if isLaterAnswer(at: index, answer), let answer {
             // APP-914: the task's end after the turn's answer (a reply while it ran) is said after it, with its own
             // lines and cards; the turn keeps its answer
             let artifacts = (event["artifacts"] as? [String] ?? []).filter { $0.hasPrefix("/") }.map { URL(fileURLWithPath: $0) }
@@ -1152,6 +1160,16 @@ public struct ConversationArchive: Codable, Equatable {
     public mutating func finish(id: UUID, answer: String, status: String, artifacts: [URL], displayText: String? = nil,
                                 verified: Bool = false, inferred: Bool = false, at date: Date = Date()) {
         guard let index = turns.firstIndex(where: { $0.id == id }) else { return }
+        var answer = answer, artifacts = artifacts, displayText = displayText, verified = verified
+        if !answer.isEmpty, saidElsewhere[id] == answer {
+            // ORCH-688, APP-1113: the end another message's reply says: here only its state, and nothing after an
+            // answer the turn already shows
+            if isLaterAnswer(at: index, answer) { return }
+            answer = ""
+            artifacts = []
+            displayText = nil
+            verified = false
+        }
         // APP-914: other words after the turn's answer are a later answer, said after it; the turn keeps its own
         if !inferred, isLaterAnswer(at: index, answer) {
             answerLater(id: id, LaterAnswer(answer: answer, displayText: displayText, status: status, verified: verified,

@@ -3831,7 +3831,7 @@ area = "orchestration"
 surface = "FERB.app with this build"
 request = "Start a task that takes a few minutes, then send \"cancel the task\" in chat."
 pass = "One reply under the message says \"Stopped, as you asked.\" with what the task had found; the task's own message up the chat shows it stopped, and no second \"Stopped\" reply appears below."
-decisions = ["ORCH-579", "APP-825"]
+decisions = ["ORCH-579", "APP-825", "ORCH-688", "APP-1113"]
 sitting = "after this change is installed"
 
 [LIVE-865]

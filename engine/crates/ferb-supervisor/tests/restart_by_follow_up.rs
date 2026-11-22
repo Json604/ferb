@@ -7,6 +7,9 @@
 
 mod common;
 mod support_control;
+mod support_entries;
+#[path = "common/told.rs"]
+mod told;
 
 use ferb_orchestrator::answer_marks::STOPPED;
 use ferb_supervisor::words::{RESTARTED, RESTARTED_SAID, RESTART_QUEUED, STOPPED_BY_YOU};
@@ -102,6 +105,7 @@ fn while_running(answer: String, then: Vec<Value>) -> (World, Report) {
         planner["events"] = call("supervisor", &answer)["events"].clone();
         calls.extend(then);
     });
+    told::traced(&w.sup);
     let report = run_with(&mut w, name, |steps| {
         // a call the held worker made before the follow-up: what it had read
         let at = steps.iter().position(|st| st["do"] == "wait").unwrap();
@@ -983,6 +987,7 @@ fn stop_during_restart(wait_s: f64, then: Vec<Value>, extra_calls: Vec<Value>) -
         let last = q.last().cloned().unwrap();
         q.push(last);
     }
+    told::traced(&w.sup);
     let r = run_with(&mut w, name, |steps| {
         let at = steps.iter().position(|st| st["do"] == "wait").unwrap();
         steps.insert(at + 1, json!({"do": "in_flight", "on": true}));
@@ -1099,4 +1104,74 @@ fn a_stop_in_chat_after_the_stopped_run_ended_with_its_call_in_flight() {
         !follow.iter().any(|t| t == STOPPED),
         "the retry's turn doesn't say it again: {follow:?}"
     );
+}
+
+// ---- said once in the chat (ORCH-688, ORCH-689) ----
+
+/// The chat as the supervisor's log kept it, checked against ENG-15's order rules; the entries that say `words`.
+fn said_in_chat(w: &World, name: &str, words: &str) -> Vec<String> {
+    let entries = told::stored(&w.sup, &w.db);
+    let broken = support_entries::check(
+        name,
+        &support_entries::read(&told::last_trace().lock().unwrap()),
+        &entries,
+    );
+    assert!(broken.is_empty(), "{}", broken.join("\n"));
+    told::saying(&entries, words)
+        .iter()
+        .map(|e| e.request_id.clone().unwrap_or_default())
+        .collect()
+}
+
+/// A restart's first turn keeps its own line in the chat, once, and nothing says the owner's stop (ORCH-683: its
+/// `told_in` carries `keeps_words`).
+// decision: ORCH-683, ORCH-689
+#[test]
+fn a_restarts_first_turn_says_its_line_once_in_the_chat() {
+    let (w, _) = restarted();
+    assert!(said_in_chat(&w, "restart", STOPPED).is_empty());
+    assert_eq!(said_in_chat(&w, "restart", RESTARTED_SAID).len(), 1);
+    let old_end = journal(&w, "task.answer");
+    assert_eq!(old_end[0]["told_in"], FOLLOW_UP);
+}
+
+/// The Stop button while the restart waits: the stop is said once in the chat (the retry's turn), and the first
+/// turn's line once.
+// decision: ORCH-684, ORCH-688, ORCH-689
+#[test]
+fn the_stop_button_while_the_restart_waits_is_said_once() {
+    for wait_s in [1.0, 15.0] {
+        let (w, _) = stop_during_restart(wait_s, vec![task_stop_call()], vec![]);
+        let said = said_in_chat(&w, "stop button in a restart", STOPPED);
+        assert_eq!(said.len(), 1, "wait {wait_s}: {said:?}");
+        assert_eq!(
+            said_in_chat(&w, "stop button in a restart", RESTARTED_SAID).len(),
+            1
+        );
+    }
+}
+
+/// "no, stop it" in chat while the restart waits: said once, by that message's reply.
+// decision: ORCH-684, ORCH-688, ORCH-689
+#[test]
+fn a_stop_in_chat_while_the_restart_waits_is_said_once() {
+    for wait_s in [1.0, 15.0] {
+        let (w, _) = stop_during_restart(
+            wait_s,
+            vec![
+                json!({"do": "connect", "conn": "second"}),
+                json!({"do": "stream", "conn": "second", "lines": [{"send": json!({"jsonrpc": "2.0", "id": 9,
+                    "method": "chat.send", "params": {"session_id": "s1", "text": "no, stop it"}}).to_string()}]}),
+                json!({"do": "wait", "until": "model calls made: 4"}),
+                json!({"do": "stream_end", "conn": "second", "lines": []}),
+            ],
+            vec![call("supervisor", &stop_answer())],
+        );
+        let said = said_in_chat(&w, "chat stop in a restart", STOPPED);
+        assert_eq!(said.len(), 1, "wait {wait_s}: {said:?}");
+        assert_eq!(
+            said_in_chat(&w, "chat stop in a restart", RESTARTED_SAID).len(),
+            1
+        );
+    }
 }

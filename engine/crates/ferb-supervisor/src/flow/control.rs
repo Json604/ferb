@@ -154,7 +154,7 @@ impl Inner {
         let stopped: Vec<String> = ids
             .into_iter()
             .filter(|t| {
-                let off = self.call_off_restart(t, false);
+                let off = self.call_off_restart(t, None);
                 self.stop_tree(t) || off
             })
             .collect();
@@ -618,6 +618,9 @@ impl Inner {
             answer
         };
         if recorded.get("told_in").and_then(Value::as_str) != Some(request_id)
+            || recorded
+                .get("keeps_words")
+                .is_some_and(ferb_py::value::truthy)
             || ferb_orchestrator::py::strip(&answer).is_empty()
         {
             return None;
@@ -633,10 +636,20 @@ impl Inner {
     /// supervisor.py:7539 `_told_in` (ORCH-579): the request whose reply tells the owner's stop of this task, so
     /// FERB.app files this end on the task's own turn instead of posting it again; ORCH-683: likewise the request whose
     /// follow-up started the running task again.
+    ///
+    /// ORCH-688, ORCH-689: that reply says the end's words, cards and sites, so the task's own turn shows only
+    /// its ended state (its status, its card or checklist), never the same end a second time. An end whose request's
+    /// reply doesn't say it (a restart's first run, ORCH-683) keeps its words on its own turn: `keeps_words`. Composing an end that names the reply claims it: the stop then
+    /// waits for this end and says it, however long the end takes (`stop_told_claimed`).
     pub fn told_in(&self, tree: &Tree) -> Map<String, Value> {
-        let st = tree.lock();
+        let mut st = tree.lock();
         if (st.stop == STOPPED_BY_YOU || st.stop == RESTARTED) && !st.stop_told_in.is_empty() {
-            return obj(json!({"told_in": st.stop_told_in}));
+            st.stop_told_claimed = true;
+            let mut told = obj(json!({"told_in": st.stop_told_in}));
+            if st.stop_keeps_words {
+                told.insert("keeps_words".into(), json!(true));
+            }
+            return told;
         }
         Map::new()
     }
@@ -777,19 +790,25 @@ impl Inner {
         if self.restart_pending(&control.task_id) {
             // ORCH-684: one resume per tree: a stop calls the restart off; anything else waits for the new run
             if control.action == "stop" {
-                self.call_off_restart(&control.task_id, true);
-                let stopped = ferb_orchestrator::answer_marks::STOPPED;
-                let ferb = origin_set(&[origin::FERB]);
-                if let Some(spec) = then {
+                let rid = turn.lock().unwrap().request_id.clone();
+                self.call_off_restart(&control.task_id, Some(&rid));
+                // ORCH-689: a stopped run still finishing is told by this reply as any chat stop's is (below): its
+                // end, said once here; the restart's turn says nothing more
+                if !self.live().tree_of.contains_key(&control.task_id) {
+                    let stopped = ferb_orchestrator::answer_marks::STOPPED;
+                    let ferb = origin_set(&[origin::FERB]);
+                    if let Some(spec) = then {
+                        return self
+                            .then_start(turn, &out, spec, stopped, &ferb, Vec::new(), None, emit)
+                            .await;
+                    }
                     return self
-                        .then_start(turn, &out, spec, stopped, &ferb, Vec::new(), None, emit)
+                        .exit_as(turn, &out, "reply", stopped, ExitAs::by(origin::FERB), emit)
                         .await;
                 }
-                return self
-                    .exit_as(turn, &out, "reply", stopped, ExitAs::by(origin::FERB), emit)
-                    .await;
+            } else {
+                self.after_restart(turn, &control.task_id, emit).await;
             }
-            self.after_restart(turn, &control.task_id, emit).await;
         }
         let conversation = self.control_chat(&control.task_id, &session);
         let prior = conversation.as_ref().and_then(|c| {
@@ -934,17 +953,21 @@ impl Inner {
             let rid = turn.lock().unwrap().request_id.clone();
             if control.action == "stop" {
                 if let Some(t) = &tree {
-                    // ORCH-579: this reply tells the stop, if its end comes in time
-                    t.lock().stop_told_in = rid.clone();
+                    // ORCH-579: this reply tells the stop, if its end comes in time; ORCH-688: its words only here
+                    let mut st = t.lock();
+                    st.stop_told_in = rid.clone();
+                    st.stop_keeps_words = false;
                 }
             } else if let Some(t) = tree.as_ref().filter(|_| !finished) {
                 // ORCH-683: a retry of a running task ends its run in flight for the restart, never as the owner's
-                // stop: its end is filed on its own turn in place (told_in) and this turn carries the task on
+                // stop: its end is filed on its own turn in place (told_in), with its words (keeps_words), and this
+                // turn carries the task on
                 {
                     let mut st = t.lock();
                     if st.stop.is_empty() {
                         st.stop = RESTARTED.into();
                         st.stop_told_in = rid.clone();
+                        st.stop_keeps_words = true;
                     }
                 }
                 // ORCH-684: until the new run is registered, this restart is the tree's one resume
@@ -953,8 +976,23 @@ impl Inner {
                     .insert(control.task_id.clone(), (rid.clone(), None));
             }
             let was_running = self.stop_tree(&control.task_id);
-            let settled = self.settled(&control.task_id, &ids, Some(10.0)).await;
+            let mut settled = self.settled(&control.task_id, &ids, Some(10.0)).await;
             if control.action == "stop" {
+                if !settled {
+                    // ORCH-689: still finishing after the wait: its own end, when it comes, tells it, unless that end
+                    // already named this reply (`told_in`, without its words on its own turn): then this reply waits
+                    // for it and says it. Decided under the tree's lock, as the end reads it.
+                    let claimed = tree.as_ref().is_some_and(|t| {
+                        let mut st = t.lock();
+                        if !st.stop_told_claimed {
+                            st.stop_told_in.clear();
+                        }
+                        st.stop_told_claimed
+                    });
+                    if claimed {
+                        settled = self.settled(&control.task_id, &ids, None).await;
+                    }
+                }
                 let told = if was_running {
                     self.stop_told(&control.task_id, &rid)
                 } else {
@@ -1065,6 +1103,18 @@ impl Inner {
                 // own reply told it (a chat stop), else this turn says it (the Stop button)
                 self.live().restarts.remove(&control.task_id);
                 self.deps.daemon.standing_revoke(&control.task_id);
+                if let Some((answer, cards, made)) = self.stop_told(&control.task_id, &rid) {
+                    // ORCH-689: the stopped run ended naming this turn as the one that says it (the Stop button, or a
+                    // chat stop that came as it ended): said once, here; its own turn shows its state
+                    let mut opts = ExitAs::by(origin::INFERRED);
+                    opts.ready = true;
+                    opts.made = Some(made);
+                    if !cards.is_empty() {
+                        opts.extra = Some(obj(json!({"cards": cards})));
+                    }
+                    opts.told = Some((control.task_id.clone(), answer.clone()));
+                    return self.exit_as(turn, &out, "reply", &answer, opts, emit).await;
+                }
                 if told {
                     return Ok(());
                 }
@@ -1099,10 +1149,13 @@ impl Inner {
     /// ORCH-684: the owner's stop of a tree whose restart is under way calls the restart off (the stopped run, if it
     /// is still finishing, ends as the owner's stop). `told`: the stop's own reply says so (a chat stop); else the
     /// waiting restart's turn does (the Stop button). True when one was called off.
-    pub(crate) fn call_off_restart(&self, tree_id: &str, told: bool) -> bool {
+    ///
+    /// ORCH-689: a stopped run still finishing ends as the owner's stop told by one reply, without its words on its own
+    /// turn: the chat stop's (`told_by`, its request), else the waiting restart's turn's (already its `stop_told_in`).
+    pub(crate) fn call_off_restart(&self, tree_id: &str, told_by: Option<&str>) -> bool {
         let found = match self.live().restarts.get_mut(tree_id) {
             Some(entry) => {
-                entry.1 = Some(told);
+                entry.1 = Some(told_by.is_some());
                 true
             }
             None => false,
@@ -1113,6 +1166,10 @@ impl Inner {
                 if st.stop == RESTARTED {
                     st.stop = STOPPED_BY_YOU.into();
                 }
+                if let Some(rid) = told_by {
+                    st.stop_told_in = rid.to_string();
+                }
+                st.stop_keeps_words = false;
             }
         }
         found

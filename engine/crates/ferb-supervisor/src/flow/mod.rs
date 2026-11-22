@@ -878,6 +878,12 @@ pub struct TreeState {
     pub single_ran: Option<Outcome>,
     /// ORCH-579: the request whose reply tells the owner's stop of this task (`stop_told_in`, control.rs).
     pub stop_told_in: String,
+    /// ORCH-683, ORCH-689: that request's reply doesn't say this end's words (a restart's first run): the end keeps
+    /// them on its own turn (`keeps_words`, control.rs `told_in`).
+    pub stop_keeps_words: bool,
+    /// ORCH-579 (ORCH-689): an end was composed naming `stop_told_in`'s reply as the one that says it; that
+    /// reply then waits for the end and says it, whatever the stop's wait (control.rs).
+    pub stop_told_claimed: bool,
     /// The wait a restart asks again as itself (`restored_wait`: a check-in or a runtime switch, owner_wait.rs).
     pub restored_wait: Map<String, Value>,
     /// A restart came during the step's fix round (ORCH-545): what the plan row kept (`restored_fix`).

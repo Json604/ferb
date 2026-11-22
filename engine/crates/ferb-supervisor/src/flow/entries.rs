@@ -168,6 +168,10 @@ struct Turn {
     later: Vec<String>,
     /// ORCH-579: its next answer is told in another message's reply.
     told_elsewhere: bool,
+    /// ORCH-688, APP-1113: the words of its task's end that another message's reply says (`told_in` without
+    /// `keeps_words`): that end is filed here as its state only (status, card, checklist), never its words, cards or
+    /// sites again.
+    said_elsewhere: Option<String>,
     /// Its task was cut by a restart and did not resume: its plan closes as `interrupted` (the start-up pass).
     cut: bool,
     /// The client that sent the message and its id for the submission (the engine adds them to the ack it feeds).
@@ -793,7 +797,14 @@ impl ChatProjector {
         let code_lines = strings(event, "lines").filter(|l| !l.is_empty());
         let offer = runtime_switch(event.get("runtime_switch"));
         let said = text(event, "answer").or_else(|| text(event, "summary"));
-        if self.is_later(t, said.as_deref()) {
+        // ORCH-688, APP-1113: another message's reply says this end: its words, lines and cards are that reply's
+        let elsewhere =
+            words(event, "told_in").is_some() && flag(event, "keeps_words") != Some(true);
+        if elsewhere {
+            if let Some(said) = said.filter(|s| !s.is_empty()) {
+                self.turns[t].said_elsewhere = Some(said);
+            }
+        } else if self.is_later(t, said.as_deref()) {
             let answer = AnswerBody {
                 from: "task".into(),
                 text: said.unwrap_or_default(),
@@ -1310,7 +1321,24 @@ impl ChatProjector {
     /// a stop's end told in another message's reply is filed on its own turn (ORCH-579). The turn's answer entry is a
     /// new one when it is the first, posted below, or from another source than the one shown; otherwise it is revised.
     /// Other words after the turn's answer are a later answer (APP-914); the turn keeps its own.
-    fn finish(&mut self, t: usize, end: End, seams: &mut dyn Seams) {
+    fn finish(&mut self, t: usize, mut end: End, seams: &mut dyn Seams) {
+        if !end.said.is_empty()
+            && self.turns[t].said_elsewhere.as_deref() == Some(end.said.as_str())
+        {
+            // ORCH-688, APP-1113: the end another message's reply says: here only its state, and nothing after an
+            // answer the turn already shows
+            if self.is_later(t, Some(&end.said)) {
+                if end.from == "task" {
+                    self.turns[t].ended = true;
+                    self.dirty.insert(t);
+                }
+                return;
+            }
+            end.said = String::new();
+            end.display = None;
+            end.artifacts = Vec::new();
+            end.verified = false;
+        }
         if self.is_later(t, Some(&end.said)) {
             if end.from == "task" {
                 self.turns[t].ended = true;
