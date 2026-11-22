@@ -56,6 +56,20 @@
       "part": "description",
       "old": "each with its actions, value and state (disabled / selected / expanded). ",
       "new": "each with its actions, value and state (disabled / selected / expanded). Text that only repeats a nearby element's name, unnamed groups and images, and the generic menu and scroll_to_visible of plain web text are left out of the list (their ids still work). "
+    },
+    {
+      "decision": "HAND-681",
+      "tool": "mac.snapshot",
+      "part": "description",
+      "old": "\"windows\" lists the app's windows; ",
+      "new": "The list says what it left out and why (\"left_out\"); pass full: true to list every element, including plain text and groups the default leaves out, when you need them (for this read only; the next one is the default again). \"windows\" lists the app's windows; "
+    },
+    {
+      "decision": "HAND-681",
+      "tool": "mac.snapshot",
+      "part": "input_schema",
+      "old": "\"offset\": {\"default\": 0, \"description\": \"Node page offset",
+      "new": "\"full\": {\"default\": false, \"description\": \"true lists every element, including plain text and groups the default leaves out\", \"title\": \"Full\", \"type\": \"boolean\"}, \"offset\": {\"default\": 0, \"description\": \"Node page offset"
     }
   ]
 }

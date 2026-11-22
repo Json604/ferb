@@ -1783,3 +1783,61 @@ async fn a_snapshot_leaves_out_what_only_repeats_and_keeps_every_control() {
         .collect();
     assert!(numbers.windows(2).any(|w| w[1] > w[0] + 1), "{numbers:?}");
 }
+
+// decision: HAND-681
+#[tokio::test]
+async fn full_lists_what_the_default_leaves_out_and_the_default_says_what_it_left() {
+    let m = mac();
+    let snap = m.snapshot().await;
+    // the default: the same listing, and one short note of what it left out, with counts and why
+    let note = snap["left_out"].as_object().expect("a left_out note");
+    assert!(note["repeated_text"].as_u64().unwrap() >= 1, "{note:?}");
+    assert!(note["unnamed_groups"].as_u64().unwrap() >= 1, "{note:?}");
+    assert!(
+        note["generic_actions_dropped"].as_u64().unwrap() >= 1,
+        "{note:?}"
+    );
+    assert!(note["why"].as_str().unwrap().contains("full: true"));
+    // full: true lists everything, with no note
+    let full = Value::Object(
+        m.run("mac.snapshot", json!({"app": "Chat", "full": true}))
+            .await
+            .content,
+    );
+    assert!(full.get("left_out").is_none(), "{full}");
+    let shown = full["elements"].as_array().unwrap();
+    assert!(shown.iter().any(|e| e["value"] == "See more"), "{shown:#?}");
+    assert!(shown.iter().any(|e| e["role"] == "image"), "{shown:#?}");
+    assert!(
+        shown
+            .iter()
+            .any(|e| e["role"] == "group" && e["label"] == ""),
+        "{shown:#?}"
+    );
+    assert!(
+        shown
+            .iter()
+            .any(|e| e["role"] == "heading" && e["actions"] == json!(["menu", "scroll_to_visible"])),
+        "{shown:#?}"
+    );
+    assert!(shown.len() > snap["elements"].as_array().unwrap().len());
+    // full is for that one read: the next plain read of the same window is the smaller listing again, with its note
+    let again = m.snapshot().await;
+    assert_eq!(
+        again["elements"].as_array().unwrap().len(),
+        snap["elements"].as_array().unwrap().len()
+    );
+    assert_eq!(again["left_out"], snap["left_out"]);
+    // every listed element of the default is in the full listing too (each snapshot has its own ids)
+    for e in snap["elements"].as_array().unwrap() {
+        if e["role"] == "statictext" || e["role"] == "heading" {
+            continue; // these may lose generic actions or "expanded" in the default
+        }
+        assert!(
+            shown.iter().any(|f| f["role"] == e["role"]
+                && f["label"] == e["label"]
+                && f["value"] == e["value"]),
+            "{e}"
+        );
+    }
+}

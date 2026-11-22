@@ -60,25 +60,35 @@ pub const NEVER_EXPAND: [&str; 10] = [
     "searchbox",
     "webarea",
 ];
+/// HAND-681: what a snapshot's `left_out` note says.
+const LEFT_OUT_WHY: &str = "the default leaves out plain text and groups that only repeat a name or have none, generic actions, and windows FERB can't reach; pass full: true to list them";
 /// HAND-676: how many of the elements listed just before a text are compared with it.
 pub const RECENT_NAMES: usize = 3;
 
 /// HAND-676: a passive element (text, group, image) with nothing but a name is left out of a snapshot's listing when
 /// it has no name, or its name only repeats one of the last few listed (a link's own text, a card's title again).
-fn quiet(role: &str, d: &Map<String, Value>, name: &str, recent: &[String]) -> bool {
+fn quiet(
+    role: &str,
+    d: &Map<String, Value>,
+    name: &str,
+    recent: &[String],
+) -> Option<&'static str> {
     if !matches!(role, "statictext" | "group" | "image") {
-        return false;
+        return None;
     }
     if d.keys()
         .any(|k| !matches!(k.as_str(), "id" | "role" | "label" | "value" | "in"))
     {
-        return false;
+        return None;
     }
     if name.is_empty() {
-        return true;
+        return Some("unnamed");
     }
     let name = ferb_py::text::lower(name);
-    recent.iter().any(|r| r.contains(name.as_str()))
+    recent
+        .iter()
+        .any(|r| r.contains(name.as_str()))
+        .then_some("repeated_text")
 }
 pub const WINDOW_WALK_S: f64 = 0.2;
 pub const SETTLE_S: f64 = 0.4;
@@ -1247,6 +1257,7 @@ impl MacDriver {
         window: Option<&str>,
         subtree: Option<&str>,
         offset: usize,
+        full: bool,
     ) -> Result<(A, Map<String, Value>)> {
         let a = self.resolve(name).await?;
         let b = a.bundle_id.clone();
@@ -1307,7 +1318,15 @@ substituted or brought forward",
             subtree_node = Some(n);
         }
         let tree = self.walk(&a, win, offset, true, None, false).await;
-        let out = self.listed(&a, &tree, subtree_node.as_ref(), window, offset, false);
+        let out = self.listed(
+            &a,
+            &tree,
+            subtree_node.as_ref(),
+            window,
+            offset,
+            false,
+            full,
+        );
         Ok((a, out))
     }
 
@@ -1322,6 +1341,7 @@ substituted or brought forward",
         window: Option<&str>,
         offset: usize,
         keep_window_id: bool,
+        full: bool,
     ) -> Map<String, Value> {
         let profile = self.profiles.as_dict(&a.bundle_id);
         let mut st = self.state.lock().expect("lock");
@@ -1352,6 +1372,7 @@ substituted or brought forward",
             .collect();
         let mut els = vec![];
         let mut recent: Vec<String> = vec![];
+        let (mut repeated, mut unnamed, mut generic_dropped) = (0u32, 0u32, 0u32);
         for (eid, n) in &s.nodes {
             let mut d = Map::new();
             d.insert("id".into(), json!(eid));
@@ -1363,8 +1384,12 @@ substituted or brought forward",
                 .actions
                 .iter()
                 .all(|a| GENERIC_ACTIONS.contains(&a.as_str()));
-            if !n.actions.is_empty() && !(passive && generic) {
-                d.insert("actions".into(), json!(n.actions));
+            if !n.actions.is_empty() {
+                if full || !(passive && generic) {
+                    d.insert("actions".into(), json!(n.actions));
+                } else {
+                    generic_dropped += 1;
+                }
             }
             if n.secret {
                 d.insert("sensitive".into(), json!(true));
@@ -1380,7 +1405,7 @@ substituted or brought forward",
             }
             if let Some(e) = n.expanded {
                 // HAND-676: "not expanded" on an element that never expands is noise
-                if e || !NEVER_EXPAND.contains(&n.role.as_str()) {
+                if full || e || !NEVER_EXPAND.contains(&n.role.as_str()) {
                     d.insert("expanded".into(), json!(e));
                 }
             }
@@ -1392,8 +1417,14 @@ substituted or brought forward",
             } else {
                 n.label.trim().to_string()
             };
-            if quiet(&n.role, &d, &name, &recent) {
-                continue; // HAND-676: its id still works; the listing leaves it out
+            if let Some(why) = quiet(&n.role, &d, &name, &recent).filter(|_| !full) {
+                // HAND-676: its id still works; the listing leaves it out (HAND-681: and says so, `full` lists it)
+                if why == "unnamed" {
+                    unnamed += 1;
+                } else {
+                    repeated += 1;
+                }
+                continue;
             }
             if !name.is_empty() {
                 recent.push(ferb_py::text::lower(&name));
@@ -1431,11 +1462,28 @@ substituted or brought forward",
             .windows
             .iter()
             .filter(|w| {
-                ["title", "reachable", "onscreen", "current"]
+                full || ["title", "reachable", "onscreen", "current"]
                     .iter()
                     .any(|k| w.get(*k).is_some_and(ferb_py::value::truthy))
             })
             .collect();
+        let hidden_windows = tree.windows.len() - windows.len();
+        // HAND-681: the default says what it left out and why, so the worker knows `full` has more
+        let mut left = Map::new();
+        for (k, n) in [
+            ("repeated_text", repeated),
+            ("unnamed_groups", unnamed),
+            ("generic_actions_dropped", generic_dropped),
+            ("hidden_windows", hidden_windows as u32),
+        ] {
+            if n > 0 {
+                left.insert(k.into(), json!(n));
+            }
+        }
+        if !left.is_empty() {
+            left.insert("why".into(), json!(LEFT_OUT_WHY));
+            out.insert("left_out".into(), Value::Object(left));
+        }
         if !windows.is_empty() {
             out.insert("windows".into(), json!(windows));
         }

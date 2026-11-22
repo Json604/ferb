@@ -694,7 +694,7 @@ that is open takes the keyboard; action cancel on it closes it)",
         };
         self.profiles.record(&a.bundle_id, "ax_menu", true);
         let tree = self.walk(a, Some(menu), 0, true, None, false).await;
-        let listed = self.listed(a, &tree, None, None, 0, true);
+        let listed = self.listed(a, &tree, None, None, 0, true, false);
         let elements = listed.get("elements").cloned().unwrap_or(json!([]));
         let items = elements
             .as_array()

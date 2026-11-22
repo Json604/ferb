@@ -2443,3 +2443,15 @@ why = "In task a843aa54 pair.html typed into a profile's only window closed itse
 evidence = "ferb-browser tests/extension_pair_page.rs (node, a fake page)."
 paths = ["extension/pair.js", "extension/manifest.json"]
 live = ["LIVE-1178"]
+
+[HAND-681]
+title = "mac.snapshot has full: true, and the default says what it left out and why"
+by = "owner"
+date = 2026-11-22
+status = "active"
+words = "ok good, but what if it needs a page??? is it not allowed for ferb to read ro what is it??/ cause i want it to be able to look all these if theres a need, jsut not ussually / as in it knows what its not being shown and why / ok good. jsut make sure this full:true isnt kept tru forever adn resets or somwthign too"
+words_source = "Owner 2026-11-22, three messages relayed verbatim by the coordinator (joined with /), about HAND-676's smaller screen reads."
+rule = "For HAND-676. mac.snapshot takes an optional full: true listing every element as before HAND-676; the default is unchanged. A default read that left something out carries one short left_out note (counts of repeated_text, unnamed_groups, generic_actions_dropped, hidden_windows, and why, and how to list them); none when nothing was left out. full applies only to the call that passes it and is stored nowhere, so the next read is the default again. Named catalog differences."
+evidence = "ferb-mac-hands tests/element_actions.rs full_lists_what_the_default_leaves_out_and_the_default_says_what_it_left; ferb-gateway tests/catalog.rs the_deliberate_changes_are_the_only_ones."
+live = ["LIVE-1177"]
+paths = ["engine/crates/ferb-mac-hands/src/driver/mod.rs", "engine/crates/ferb-mac-hands/src/tools.rs", "engine/fixtures/catalog/tool_changes.json"]

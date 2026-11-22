@@ -335,6 +335,7 @@ fn descriptions_that_read_live_facts_are_composed_as_python_does() {
 // decision: GATE-621
 // decision: MEM-441
 // decision: HAND-676
+// decision: HAND-681
 #[test]
 fn the_deliberate_changes_are_the_only_ones() {
     let raw = catalog::catalog().raw();
@@ -352,6 +353,8 @@ fn the_deliberate_changes_are_the_only_ones() {
             ("GATE-621", "mac.act", "input_schema"),
             ("MEM-441", "memory.learned", "description"),
             ("HAND-676", "mac.snapshot", "description"),
+            ("HAND-681", "mac.snapshot", "description"),
+            ("HAND-681", "mac.snapshot", "input_schema"),
         ]
     );
     for c in c.iter().filter(|c| c.part != "validation") {

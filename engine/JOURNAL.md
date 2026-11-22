@@ -9538,3 +9538,25 @@ needs_user; an owner label asks at once); ferb-policy tests/browser_menu.rs (the
 **Unverified (added).** The guard's numbers on a live run; whether a stuck worker that keeps taking new snapshots
 of an app (each a new observation) is slowed enough by the 4 minutes; the owner_step reading end to end through the
 supervisor (its pure part and the rule are tested; the span query isn't).
+
+## 2026-11-22 · 175 · mac.snapshot `full: true`, and the default says what it left out
+
+**What.** The owner, on HAND-676's smaller listing: "ok good, but what if it needs a page??? ... i want it to be able to
+look all these if theres a need, jsut not ussually"; then "as in it knows what its not being shown and why"; then "make
+sure this full:true isnt kept tru forever adn resets" (HAND-681). `mac.snapshot` takes an optional `full: true`
+(`ferb-mac-hands` `tools.rs` to `driver::snapshot` to `listed`): nothing is left out, as before HAND-676 (plain text,
+groups and images, generic actions, `expanded: false`, untitled unreachable windows). It is a parameter of that one call
+and stored nowhere (not the app's state, profile, session or a setting), so the next call without it is the default.
+A default snapshot that left something out carries `left_out` (`repeated_text`, `unnamed_groups`,
+`generic_actions_dropped`, `hidden_windows`, each only when above 0, and one `why`); no note when nothing was left out.
+The internal context-menu listing (`act.rs`) passes `full: false`.
+
+**Named differences.** `fixtures/catalog/tool_changes.json` HAND-681: mac.snapshot's description (a sentence before
+"\"windows\" lists", "for this read only") and its input schema (`full`), listed in ferb-gateway's change list.
+
+**Evidence.** ferb-mac-hands `element_actions.rs` `full_lists_what_the_default_leaves_out_and_the_default_says_what_it_left`
+(the note and its counts; full lists the left-out nodes and has no note; a plain read after a full one is the smaller
+listing again with the same note); ferb-gateway `catalog.rs` `the_deliberate_changes_are_the_only_ones`.
+
+**Unverified.** No real model used `full`; `expanded` suppression is not counted in `left_out` (it only restates a
+negative); the note's wording was not read on a real Chrome page.

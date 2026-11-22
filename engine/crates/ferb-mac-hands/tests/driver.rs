@@ -895,7 +895,7 @@ async fn run_step(env: &Env, tools: &MacTools, op: &str, args: &Value) -> Value 
     let f = |k: &str| args.get(k).and_then(Value::as_f64).unwrap_or(0.0);
     match op {
         "snapshot" => out_of(
-            d.snapshot(&s("app").unwrap(), None, None, 0).await,
+            d.snapshot(&s("app").unwrap(), None, None, 0, false).await,
             |(_, o)| Value::Object(o),
         ),
         "act" => {
