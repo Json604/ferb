@@ -856,12 +856,12 @@ why = "Review 2026-11-17 found PHN-222's patch correct but untested across a net
 decisions = ["PHN-222"]
 
 [T-1267]
-title = "The rest of the move to the owner's domain: the report relay, REL-414's text, a first release"
+title = "The rest of the move to the owner's domain: the report relay, a first release"
 area = "release"
 kind = "question"
 status = "open"
-why = "REL-431, REL-432 left over: the report relay's address (reports.rs:33, a workers.dev name) behind the owner's domain (a Cloudflare custom domain or a site rewrite, never a redirect: the upload's body); REL-414's text; a first release on ferb-update; his and the friend's copies updated by hand once."
-decisions = ["REL-430", "REL-431", "REL-432", "REL-414"]
+why = "REL-431, REL-432 left over: the report relay's address (reports.rs:33, a workers.dev name) behind the owner's domain (a Cloudflare custom domain or a site rewrite, never a redirect: the upload's body); a first release on ferb-update; his and the friend's copies updated by hand once."
+decisions = ["REL-430", "REL-431", "REL-432"]
 ask = "Failure reports still go to a workers.dev address. Put them behind your domain as reports.ferb.kartikey.xyz (a Cloudflare custom domain on the worker, recommended) or as ferb.kartikey.xyz/reports through the site?"
 
 [T-1268]

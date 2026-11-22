@@ -2849,7 +2849,7 @@ area = "release"
 surface = "https://ferb.kartikey.xyz and https://ferb.kartikey.xyz/privacy, after the owner deploys site/ on Vercel, on a Mac and a phone"
 request = "Open the home page and the privacy page on a Mac and on a phone; follow the download, github and privacy links; open the first-open note; try the links with the keyboard."
 pass = "One calm light page in the manner of kartikey.xyz with the FERB logo as before; no sideways scroll on the phone; the download stays inactive until its URL is given; /privacy shows the full policy in the same style; every link works and shows a focus ring."
-decisions = ["REL-412", "REL-413", "REL-1"]
+decisions = ["REL-412", "REL-434", "REL-1"]
 sitting = "website review after deployment"
 waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
@@ -4995,3 +4995,12 @@ request = "Ask FERB: 'reopen the Claude Code session where I worked on <somethin
 pass = "FERB finds the session (memory.learned) and asks first before typing 'claude --resume <id>' into a terminal, showing the exact command; Yes opens that session."
 decisions = ["MEM-441"]
 sitting = "after this build is installed"
+
+[LIVE-1167]
+title = "Google sign-in before the download; the owner's list, the unsubscribe and updates still work"
+area = "release"
+surface = "https://ferb.kartikey.xyz after the owner follows the setup guide and deploys site/, on a Mac and a phone, with a second Google account"
+request = "Press Continue with Google with the second account and download; open /api/admin with your own account, then the CSV; send yourself a test update with send-update.mjs --test-to, unsubscribe from it once by its link and once by the mail app's button; open /api/admin with the second account; in FERB.app, Check for Updates."
+pass = "The DMG downloads after sign-in and the notice line shows before it; the list shows the account with its first sign-in and last download; CSV opens; the email arrives with an unsubscribe link and Gmail's unsubscribe button, both mark it unsubscribed; the second account is refused the list; updates are found without signing in."
+decisions = ["REL-433", "REL-434", "REL-432"]
+sitting = "website review after deployment"

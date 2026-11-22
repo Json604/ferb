@@ -1,0 +1,16 @@
+{
+  "name": "ferb-site",
+  "private": true,
+  "type": "module",
+  "description": "ferb.kartikey.xyz: the static pages, and the functions for Google sign-in before the download, the unsubscribe link and the owner's user list.",
+  "engines": {
+    "node": "24.x"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.mjs"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "1.2.0",
+    "openid-client": "6.8.9"
+  }
+}

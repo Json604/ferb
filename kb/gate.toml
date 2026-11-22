@@ -69,6 +69,12 @@ when = ["scripts/**", "assets/**", "THIRD_PARTY_NOTICES.md", "package.json", "pa
 timeout = 600
 
 [[check]]
+name = "Site tests (sign-in, download link, unsubscribe, admin gate, public update feed)"   # under 1 s, no install
+level = "commit"
+run = "node --test site/tests/*.test.mjs"
+when = ["site/**"]
+
+[[check]]
 name = "Swift tests (FERB.app)"              # ~20 s warm, minutes cold
 level = "push"
 run = "scripts/swift-test-gate.sh"   # names the failing tests last, where the gate shows them

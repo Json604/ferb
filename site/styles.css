@@ -268,6 +268,64 @@ a.download:active {
   margin-bottom: 0.2rem;
 }
 
+/* Sign-in before the download: Google's own light button (white, grey outline, the four-colour G). */
+.google {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0.25rem 0 0.9rem;
+  padding: 0.55rem 1.1rem 0.55rem 0.9rem;
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: #1f1f1f;
+  background: #fff;
+  border: 1px solid #747775;
+  border-radius: 10px;
+  transition: background-color 160ms ease, box-shadow 160ms ease;
+}
+
+a.google:hover {
+  border-color: #747775;
+  background: #f8f8f8;
+  box-shadow: 0 1px 3px #0000001f;
+}
+
+.google svg {
+  width: 1.15rem;
+  height: 1.15rem;
+  flex: none;
+}
+
+/* The owner's user list: a quiet table that scrolls sideways on its own, never the page. */
+main.wide {
+  max-width: 960px;
+}
+
+.users {
+  overflow-x: auto;
+  margin: 1.5rem 0;
+}
+
+.users table {
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.users th,
+.users td {
+  text-align: left;
+  padding: 0.35rem 1rem 0.35rem 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.users th {
+  font-family: var(--mono);
+  font-weight: 400;
+  color: var(--muted);
+}
+
 details {
   margin-top: 1.25rem;
   border-top: 1px solid var(--rule);

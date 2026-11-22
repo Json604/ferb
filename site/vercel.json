@@ -16,11 +16,12 @@
       "source": "/updates/notes/:tag",
       "destination": "https://github.com/Json604/ferb-update/releases/tag/:tag",
       "permanent": false
-    },
+    }
+  ],
+  "rewrites": [
     {
       "source": "/download/:file",
-      "destination": "https://github.com/Json604/ferb-update/releases/latest/download/:file",
-      "permanent": false
+      "destination": "/api/download?file=:file"
     }
   ]
 }

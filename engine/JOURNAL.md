@@ -8971,3 +8971,56 @@ branch the site shows is read (`shown_branch`).
 - Whether the real planner routes the owner's reply to the memory.offers question (the routing is the code's, the
   choice the planner's; the stand-in test drives `question_answered` directly).
 - The kb paths to the new files pass once they are tracked.
+
+## 2026-11-22 · 167 · The site asks for Google sign-in before the download; the owner's user list, unsubscribe and update mail
+
+**What.** On the owner's word (REL-433) the site's download now starts with Continue with Google; the how is REL-434,
+which supersedes REL-413 (the site is no longer static only) while keeping its look and its script-free pages.
+- `site/index.html`: the download section's button is Continue with Google (`/api/auth/google?file=…`), with one line
+  under it: "Signing in means FERB may email you about important updates, each with a one-click unsubscribe." The
+  "your data" line now says FERB has no server for your tasks, history and memory (the site now keeps a sign-in list).
+- `site/api` (Vercel Functions, Node, ESM, no build step; shared code in `api/_lib`, which Vercel doesn't serve as
+  functions): `auth/google` (state, nonce, PKCE in a signed 10-minute HttpOnly cookie), `auth/callback` (openid-client
+  checks Google's answer; a download sign-in records email, name and first sign-in and shows a page whose meta
+  refresh starts the download through a 10-minute signed link), `download` (behind `/download/:file`, now a rewrite
+  instead of a redirect; records the last download and sends 302 to the release file), `unsubscribe` (GET from the
+  email's link, POST from the mail app's one-click button), `admin` (only a verified Google account in ADMIN_EMAILS,
+  8-hour cookie; list, counts and CSV with formula cells defused).
+- The list: one Neon Postgres table `ferb_users` (email, name, first_signin_at, last_download_at, unsubscribed), made
+  on first use. Signing in again changes only the name, so an unsubscribe is never undone.
+- Mail: `site/scripts/send-update.mjs` (Resend's REST API, one email at a time, idempotency key per person and
+  update, List-Unsubscribe and List-Unsubscribe-Post headers). A dry run unless `--send`; `--test-to` sends to one
+  address. Nothing was sent.
+- `site/privacy.html`: a section on what the website keeps, why, where (Neon for Vercel, Resend) and its two cookies.
+- `site/env.example` names the settings (not `.env.example`: the commit gate refuses `.env.*` files). The setup guide
+  for the owner is outside the repo, at `~/Desktop/FERB-site-signin-setup.md`.
+- Pins: openid-client 6.8.9, @neondatabase/serverless 1.2.0, locked in `site/package-lock.json`; node_modules is not
+  committed. Node 24 on Vercel.
+
+**Why the DMG link is not a lock.** Sparkle downloads the same DMG from `/updates/files/…` and GitHub's public release
+(REL-430, REL-432), and that must stay public so updates never need a sign-in. So the sign-in is the site's front door:
+the site never hands out a lasting file address, but someone who digs out the release's GitHub address can still
+download without signing in. Making the file itself private would mean hosting the DMG elsewhere; that is the
+owner's call.
+
+**Tests** (`node --test site/tests/*.test.mjs`, no install needed: every service is a stand-in; a new commit-level
+gate check in `kb/gate.toml`, which needs a `Gate-change:` trailer). 29 pass:
+- tokens: tampering, another secret, another purpose and expiry are refused;
+- sign-in and download: the full flow with a stand-in Google; no download without a fresh link for that file; an
+  expired, cancelled or unconfirmed sign-in records nobody; a database outage never blocks the download and nothing
+  personal is logged;
+- unsubscribe by link and by RFC 8058 POST; forged or other-purpose tokens change nothing;
+- the admin gate: no cookie, a forged, expired, other-purpose or no-longer-listed cookie, an unverified or other
+  account; escaping and CSV;
+- the update feed: vercel.json still redirects `/updates/*` straight to the public releases, with no middleware or
+  rewrite in front of it; the pages link no DMG directly.
+openid-client 6.8.9 was also run offline against a stand-in token endpoint: the redirect_uri sent matches, the
+claims come back, and a wrong state is refused.
+
+**Unverified.** Nothing was deployed, and Google, Neon, Resend and Vercel were never called. Still to check live
+(LIVE-1167): that Vercel runs `api/*.js` with named GET/POST exports and keeps `api/_lib` from becoming functions;
+that the `/download/:file` rewrite passes `?t=` through; that Google accepts the redirect URIs; the Neon driver
+against a real database; that Resend accepts the headers and Gmail shows its unsubscribe button. Whether a mail
+scanner that opens links unsubscribes people by itself (the GET link acts in one click, as the owner asked). Before
+the owner sets the variables, the deployed download answers "Sign-in isn't set up on this site yet", so deploy
+after the setup guide.

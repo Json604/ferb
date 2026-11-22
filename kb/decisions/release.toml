@@ -187,7 +187,8 @@ live = ["LIVE-754"]
 title = "How the simple site is made: static HTML and one stylesheet, light like kartikey.xyz"
 by = "agent"
 date = 2026-11-04
-status = "active"
+status = "superseded"
+superseded_by = "REL-434"
 rule = "site/ is index.html, privacy.html and styles.css with the logo files; no JavaScript, build step, web fonts or third-party requests. Light only, as kartikey.xyz is (#fafafa, #333, 520px column, 1.7 line height). Its pixel-font headings become the system monospace, so no font is fetched. The policy keeps its words; only its frame and style changed. vercel.json cleanUrls serves /privacy."
 why = "A privacy page that fetches nothing from others is easier to trust, and the personal site has no dark theme to match."
 paths = ["site/"]
@@ -197,7 +198,8 @@ live = ["LIVE-754"]
 title = "The site's download is the latest GitHub release's DMG"
 by = "owner"
 date = 2026-11-04
-status = "active"
+status = "superseded"
+superseded_by = "REL-433"
 words = "ok this is the last fix, cause i need het dmg to submit teh first1000 application, so im gonna attach the ferbs ite hwere hte dmg link shoudl be."
 words_source = "The owner asked for the site's download link to work, after FERB's updates were shown to be served from GitHub Releases (SUFeedURL, build-app.sh:120)."
 rule = "The site's Download for Mac link is https://github.com/Json604/ferb/releases/latest/download/FERB-AppleSilicon.dmg: GitHub's permanent link to the newest release's Apple Silicon DMG, the same release that carries the Sparkle appcast. Publishing a release stays the owner's go (it also offers the update to every installed FERB). Replaces REL-412's \"inactive until the owner gives its URL\"; the rest of REL-412 holds."
@@ -394,3 +396,27 @@ rule = "For REL-431. Every address a shipped build contacts for FERB's own servi
 why = "Sparkle follows redirects and trusts the signature, not the host; a path under the owner's domain moves by changing the site's redirect, with nothing to rebuild or reinstall."
 evidence = "FERBNotch UpdatePlanTests testABuildAsksTheOwnersDomainFirstThenTheReleasesOwnAddressAndNothingElse; scripts/tests test_packaging; the deployed redirects answered 307 (coordinator, 2026-11-17). The report relay's address is still T-1267."
 paths = ["site/vercel.json", "apps/mac/FERBNotch/Sources/NotchCore/UpdatePlan.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SparkleUpdater.swift", "scripts/build-app-rust.sh", "scripts/make_appcast.py"]
+
+[REL-433]
+title = "The site's download needs Google sign-in; signing in means FERB may email about updates"
+by = "owner"
+date = 2026-11-22
+status = "active"
+supersedes = ["REL-414"]
+words = "just to know user count ig, any works for me but whats future safe? … i jsut remeberered i wanted singins so that i can mail teh users updating on the updates having calls with them (if needed) etcetc … yes to google sigin, clean box no clcik to recieve updates n all cause we are not spamming"
+words_source = "Owner 2026-11-22, relayed verbatim by the coordinator: how to count users; why sign-ins; his answer to the proposal (Google or email link, an opt-in box, a list on his Vercel, Resend)."
+rule = "The site's download needs Continue with Google first; no email-link sign-in, no checkbox, nothing else asked. One line under the button says signing in means FERB may email you about important updates, each with a one-click unsubscribe (every email carries one). The list keeps only the Google email, name, first sign-in, last download and an unsubscribed flag. The owner sees it on an admin page only his Google account opens. Update feed and update downloads stay public."
+why = "To know how many people use FERB and to email them about updates (and, if needed, ask for a call), without spamming: the notice is plain and leaving takes one click."
+paths = ["site/index.html", "site/privacy.html", "site/vercel.json", "site/api", "site/scripts/send-update.mjs"]
+live = ["LIVE-1167"]
+
+[REL-434]
+title = "How the site signs people in: Vercel Functions, openid-client, Neon, signed tokens, Resend"
+by = "agent"
+date = 2026-11-22
+status = "active"
+supersedes = ["REL-413"]
+rule = "For REL-433. Pages stay static HTML with one stylesheet, light, no script, web fonts or third-party requests. Server code is Vercel Functions in site/api (Node, ESM, no build step); shared code in site/api/_lib. Google sign-in: openid-client (code flow, PKCE, state, nonce). Tokens are HMAC-SHA256 with AUTH_SECRET, each naming its purpose: sign-in cookie 10 min, download link 10 min, admin cookie 8 h, unsubscribe link no expiry. List: one Neon Postgres table (ferb_users), made on first use. Mail: scripts/send-update.mjs, by hand, dry run unless --send."
+why = "Neon via Vercel: free, plain Postgres he can move, DATABASE_URL set by Vercel. openid-client: the maintained, certified OIDC client under Auth.js; the smallest sound choice with no framework. The DMG stays on the public releases Sparkle needs (REL-430): the sign-in is a front door, not a lock."
+paths = ["site/api", "site/scripts", "site/tests", "site/package.json", "site/package-lock.json", "site/env.example", "site/.vercelignore", "site/styles.css", "site/vercel.json"]
+live = ["LIVE-1167"]
