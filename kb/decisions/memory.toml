@@ -84,6 +84,7 @@ words_source = "notes/memory.md owner decision 11: an agent's paraphrase; the ru
 rule = "The planner's remember rule and the daily distill's chat pass capture durable facts about the owner said in passing, not only after \"remember ...\". A fact FERB paraphrases is saved as FERB's understanding (MEM-12)."
 evidence = "2026-10-30: \"what are some easy piano pieces? I'm a beginner\" stored nothing; the distills of 10-12 and 10-14, which also mentioned piano, proposed nothing about it."
 paths = ["ferb/orchestrator/prompts/supervisor.md", "ferb/memory/distill.md", "ferb/memory/distill.py"]
+untestable = "Since MEM-468 only the planner captures facts said in passing, by its prompt (supervisor.md); TEST-500 rules out prompt-text tests."
 legacy = "notes/memory.md decision 11"
 
 [MEM-9]
@@ -224,7 +225,8 @@ legacy = "notes/memory.md Rulings (step 9a): replacement"
 title = "The daily distill stays and never asks"
 by = "agent"
 date = 2026-10-31
-status = "active"
+status = "superseded"
+superseded_by = "MEM-468"
 rule = "The daily distill stays (one call a day). Its retire on the owner's words (passing `_may_end`) or on its own check is applied and told once, no Retire/Keep question; words older than the item are refused. A stored key is skipped unless the owner's quote replaces it. Items due for a check (`review_at`) are listed to it; one it doesn't retire has its date cleared."
 paths = ["ferb/memory/distill.py", "ferb/memory/distill.md"]
 legacy = "notes/memory.md target design 5; Rulings (step 9a): the distill, review_in_days"
@@ -584,7 +586,8 @@ paths = ["ferb/memory/items.py::owner_clauses"]
 title = "A day whose learning pass failed is tried again every hour until it is done"
 by = "agent"
 date = 2026-11-04
-status = "active"
+status = "superseded"
+superseded_by = "MEM-468"
 words_source = "Owner approved the audit fix batch 2026-11-04: \"i approve all fixes\" (findings M1, S2)."
 rule = "A day whose distillation failed stays in `pending_days`, so each hourly memory pass tries it again until it is distilled; no count limits the tries. Each failure is journaled `memory.distill_failed` with the day, the error and the attempts so far, and `doctor.check` lists the failed days (`learning.undistilled`), which `ferb doctor` shows. Replaces the old rule that parked a failed day until its summary changed or a `ferb memory distill DAY` that no longer exists."
 why = "Live 2026-11-01: one \"Codex isn't signed in\" parked the day for good with no journal row; the retry command the code named didn't exist."
@@ -639,7 +642,8 @@ live = ["LIVE-736", "LIVE-737"]
 title = "How the Mac profile is gathered and refreshed (its facts join Tier 1 at once)"
 by = "agent"
 date = 2026-11-04
-status = "active"
+status = "superseded"
+superseded_by = "MEM-469"
 supersedes = ["MEM-24"]
 rule = "Code gathers the 25 most-used apps (TOP_APPS), installed/used counts, browsers and Chromium profiles; one model call (mac_profile.md) writes the summary and facts, stored observed and active at once, and in Tier 1 at once within its budget (MEM-423). Shown once (setup step, else one chat notice). Re-checked weekly with the profile pass; re-interpreted only when the 10 most-used apps, browsers or profiles changed (facts_fingerprint); a key not given again ends. A re-interpretation's facts are scan facts too: a new version takes its entry's place at once (MEM-7); a new key joins (told: MEM-427)."
 why = "MEM-423 (owner, 2026-11-04)."
@@ -1080,3 +1084,46 @@ rule = "Supersedes MEM-449. FERB requests each site's export itself (starting co
 paths = ["engine/crates/ferb-daemon/src/areas_a/memory_import.rs", "engine/crates/ferb-daemon/src/areas_a/schedules.rs"]
 supersedes = ["MEM-449"]
 live = ["LIVE-1185"]
+
+
+[MEM-468]
+title = "The day narrative and the weekly Mac re-check are off; episodes, playbooks, profile pass stay"
+by = "owner"
+date = 2026-11-23
+status = "active"
+words = "where are they even useful?? / yes"
+words_source = "Verbatim, 2026-11-23, relayed by the coordinator: his question on the background learning passes, then his answer to \"Turn off the day narrative and the Mac re-check, and keep the other three?\""
+rule = "Supersedes MEM-22 and MEM-421; refines MEM-8 (only the planner captures facts said in passing) and MEM-13 (the Mac scan isn't refreshed as usage changes). The hourly pass writes each past day's summary by code (`trail.day_summary`, which retention needs) and runs no model for it: no day narrative, no facts proposed or retired, no review dates checked. Stored narratives stay and are read as before. The weekly Mac re-check is off (MEM-469); the setup scan stays. Episodes, playbook merges and the weekly core-profile pass stay."
+evidence = "Shown to him from his tasks: day narratives and the distill's facts changed no task's outcome; no task used the Mac re-check and it contradicted itself across installs; episodes are used daily; playbooks pay off on repeats; the weekly profile pass is always-on's only cleanup."
+supersedes = ["MEM-22", "MEM-421"]
+paths = ["engine/crates/ferb-learning/src/distill.rs", "engine/crates/ferbd/src/compose/memory_loops.rs"]
+
+[MEM-469]
+title = "How the Mac profile is gathered (its facts join Tier 1 at once; no weekly re-check)"
+by = "agent"
+date = 2026-11-23
+status = "active"
+supersedes = ["MEM-426"]
+rule = "For MEM-468. Code gathers the 25 most-used apps (TOP_APPS), installed/used counts, browsers and Chromium profiles; one model call (mac_profile.md) writes the summary and facts, stored observed and active, in Tier 1 at once within its budget (MEM-423). Shown once. Gathered again only for the browser part a scan before Full Disk Access lacked (DMN-507), with no date gate; re-interpreted then only when facts_fingerprint changed (a new version takes its entry's place, a new key joins: MEM-7, MEM-427). No weekly re-check."
+why = "MEM-468. Python's `PersonaReview.refresh` had no date gate (the weekly one was `_refresh_mac_profile`'s); the port had put it inside `refresh`, so the DMN-507 browser part waited a week after the scan: fixed with this."
+paths = ["engine/crates/ferb-daemon/src/areas_a/persona.rs", "engine/crates/ferb-learning/src/mac_profile.rs"]
+
+[MEM-470]
+title = "A day whose code summary fails is tried at most 3 times and never holds up later days"
+by = "agent"
+date = 2026-11-23
+status = "active"
+rule = "For MEM-468. A day whose summary fails is recorded `failed`, journaled `memory.distill_failed` with its tries, and tried again on the next hourly passes, at most 3 times in all (`distill::SUMMARY_TRIES`, FERB's proposal: T-1044 asks the owner). One day's failure never holds up the days after it; a day left unsummarized keeps its activity in the trail (retention purges only summarized days), and `ferb doctor` lists it."
+why = "The audit: `pending_days` retried a failing day every hour with no cap, and a summary error stopped the whole catch-up. With no model in it, only code can fail, nearly always the same way each time."
+paths = ["engine/crates/ferb-learning/src/distill.rs", "engine/crates/ferbd/src/areas_c/setup.rs", "engine/crates/ferb-device/src/cli/setup.rs"]
+
+[MEM-471]
+title = "The owner confirms three of FERB's proposals for the import review and the website watches"
+by = "owner"
+date = 2026-11-23
+status = "active"
+words = "yeah its recommended are good"
+words_source = "His answer, relayed by the coordinator, to three proposals: the 12-hour mail check (MEM-467), no fingerprint for review answers (MEM-465), at most 5 older facts asked (MEM-462)."
+rule = "Confirms, as his: the website watch's model check of the mail runs at most every 12 hours (`WATCH_MODEL_EVERY_HOURS`, MEM-467) until a code mailbox check exists (T-1293); `memory.review` and `memory.review.answer` are private from a phone, not sensitive (MEM-465); the review asks only about older lines that steer FERB's work, five at most, once, and keeps the others marked 'last said' (MEM-462)."
+paths = ["engine/crates/ferb-daemon/src/areas_a/memory_import.rs", "engine/crates/ferb-rpc/src/classes.rs", "engine/crates/ferb-learning/src/import_review.rs"]
+live = ["LIVE-1184", "LIVE-1185"]

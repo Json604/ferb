@@ -1,11 +1,11 @@
 //! The memory's background work (`areas/memory.py`): the search re-index asked at every start, the background
 //! embedder (`_embed_loop`: the local model once, then new text every EMBED_EVERY_S), and the hourly memory pass
-//! (`_distill_loop` / `_memory_pass`: distill the past days, refresh the episode cards, merge playbooks, the weekly
-//! core-profile pass), each job in its own error scope, journaled when it fails and tried again next hour. The
-//! learners' model calls go through the runtimes area's factory ([`learning_runtime`]).
+//! (`_distill_loop` / `_memory_pass`: the past days' summaries by code, refresh the episode cards, merge playbooks,
+//! the weekly core-profile pass), each job in its own error scope, journaled when it fails and tried again next hour.
+//! The learners' model calls go through the runtimes area's factory ([`learning_runtime`]). The day narrative and the
+//! weekly re-check of what FERB saw on this Mac are off (MEM-468).
 //!
-//! The weekly re-check of what FERB saw on this Mac (`_refresh_mac_profile`) is group A's `persona::refresh`. Not
-//! composed here: downloading the embedding model for a checkout (FERB.app ships it; a daemon without it searches by
+//! Not composed here: downloading the embedding model for a checkout (FERB.app ships it; a daemon without it searches by
 //! keywords and recency, as Python's does until it is there).
 
 use std::rc::Rc;
@@ -323,33 +323,18 @@ pub async fn memory_pass(
     // the learners' model calls as spans, their usage as `model.usage` spans naming each learner's role
     // (memory.py:66-68, 763-769, 805-808)
     let spans = Rc::new(areas_a::memory::LearningSpans::new(st));
-    // distill: every past day not done yet, then the summarized days purged
+    // the day summaries: every past day not summarized yet, by code; the summarized days are purged by the hourly
+    // retention pass. The day narrative (the distill's model half) is off (MEM-468).
     {
-        let w = Rc::downgrade(st);
-        let usage = spans.clone();
         let distiller = ferb_learning::distill::Distiller {
             store: st.store.clone(),
             journal: st.journal.clone(),
-            memory: st.memory.clone(),
-            make_runtime: Box::new(make_rt.clone()),
             clock: st.learning.clock.clone(),
             zone: st.learning.zone.clone(),
-            prompts: st.prompts.clone(),
             summary: Rc::new(SummarySeams),
             // memory.py:66-68 builds the Distiller with distill.py's default `purge` (it does nothing): the trail's
             // summarized days go in the hourly retention pass
             purge: crate::off::off("memory.distill_purge", Box::new(|| {})),
-            device_id: device.to_string(),
-            record_usage: Box::new(move |runtime, data| usage.usage("distill", runtime, data)),
-            spans: Some(spans.clone() as Rc<dyn ferb_learning::calls::Spans>),
-            tell: Box::new(move |n| {
-                if let Some(st) = w.upgrade() {
-                    let fut = st
-                        .owner
-                        .tell_owner(&n.id, n.refs, &n.text, &n.origin, n.cards);
-                    tokio::task::spawn_local(fut);
-                }
-            }),
         };
         if let Err(e) = distiller.catch_up().await {
             fail("memory.distill_failed", e);
@@ -386,11 +371,8 @@ pub async fn memory_pass(
     if let Err(e) = areas_a::memory::profile_pass(st, false).await {
         fail("memory.profile_failed", e);
     }
-    // `_refresh_mac_profile` (MEM-13): weekly, with the profile pass's cadence, what FERB saw on this Mac is gathered
-    // again and interpreted again only when it changed; quiet
-    if let Err(e) = areas_a::persona::refresh(st).await {
-        journal.note("memory.mac_profile_failed", json!({"error": e}));
-    }
+    // what FERB saw on this Mac is not re-checked weekly (MEM-468): the setup scan stays, and its browser part is
+    // filled in once Full Disk Access comes (DMN-507, compose/mod.rs)
     // MEM-447, IMP-32: the coding assistants' history and work log kept up to date when the owner said Yes; exports
     // FERB fetched whose import didn't finish deleted a day later
     areas_a::memory_import::hourly(st).await;

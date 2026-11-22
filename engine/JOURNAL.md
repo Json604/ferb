@@ -9905,3 +9905,55 @@ the index has the session; his ask starts the read), `a_website_watch_waits_by_c
 
 **Unverified.** The real index on his history (its size and speed), whether the planner calls `memory.import` with
 `coding_assistants` when he asks in his own words, and how often the export mail is caught at 12 hours. LIVE-1185.
+
+## 2026-11-23 · 180 · The day narrative and the weekly Mac re-check are off; a failing day summary stops after 3 tries
+
+**What.** The owner asked of the background learning passes "where are they even useful??", was shown evidence from
+his tasks (the day narratives and the distill's facts changed no task's outcome; no task used the Mac profile
+re-check and it contradicted itself across installs; episodes are used daily; playbooks pay off on repeats; the
+weekly profile pass is the only cleanup of always-on), was asked "Turn off the day narrative and the Mac re-check, and
+keep the other three?" and answered "yes" (MEM-468, superseding MEM-22 and MEM-421; MEM-469 supersedes MEM-426).
+- **The daily distill is its code half only** (ferb-learning `distill.rs`). `Distiller` lost its model seams
+  (`make_runtime`, `prompts`, `memory`, `record_usage`, `spans`, `tell`, `device_id`); `run_day` writes the day's
+  `trail.day_summary` by code and marks the day `distilled` with the detail `summary only: the day narrative is off
+  (MEM-468)`. No `trail.day_narrative`, no proposed facts, no retirements, no review-date clearing, no notices. Gone
+  with it: `distill_schema`, `check`, `owner_said`, the proposal and notice code. Stored narratives stay and every
+  reader still reads them (`trail.days`, `index_summaries`' `activity_summary` nodes, `summary::rebuild`).
+- **A failing summary is tried at most 3 times** (MEM-470, `SUMMARY_TRIES`, FERB's proposal; T-1044 now asks the
+  owner for 3 and the cards' 2). A day's summary error is recorded (`failed`, one more try) and journaled
+  `memory.distill_failed` with its tries; the pass goes on to the next day (before, the error stopped `catch_up` and so
+  every later day, every hour). A day left after 3 failures keeps its trail (retention purges only summarized days)
+  and stays in `ferb doctor`'s list, whose words now say so. A day the old model half had failed on already has its
+  summary and is finished on the next pass whatever its tries.
+- **The Mac re-check is off** (`memory_loops.rs`: the call is gone). `persona::refresh` is now run only by the start's
+  DMN-507 path (the browser part of a scan made before Full Disk Access), and lost its weekly date gate.
+- **Composition.** `spawns.txt` loses the distill note's spawn; `memory_loops.rs` builds the smaller `Distiller`.
+
+**Fixed against Python (or rather against the port).** Python's `PersonaReview.refresh` had no date gate; the weekly
+one was `_refresh_mac_profile`'s (memory.py:861-874). The port had put it inside `refresh`, so DMN-507's browser part
+(main.py:485-493) waited until a week after the scan. Now it runs at the first start with access, as in Python.
+
+**Owner-decided differences (MEM-468) against the fixtures.** `engine/fixtures/learning` is unchanged.
+- `distill_runs_the_code_half_only` replaces the `distill` half of `daily_summary_and_distill` (the `summary` half is
+  still replayed strictly as `daily_summary`): the scenario is replayed strictly up to its first `run_day` (18
+  steps); after it every step makes no model call and tells nothing, each day's summary row equals Python's byte for
+  byte (time, kind, data, origin), except that Python's 21 October digest lists in `security.outside_origin_memory`
+  the third-party item its distill had saved on the 19th, which is never saved here; both days end `distilled` with
+  the new detail; no narrative or `memory.distill_failed`; no memory or learning table changes. Python's failure on
+  "model down", narrative, 5 saved and 3 retired items and their notices are the difference.
+- `distill_restart_at_every_write_ends_as_the_clean_run` replaces `distill_restart_at_every_write_matches_python`:
+  Python's runs hold the model half's writes, so they are not compared; the clean run's summary equals Python's clean
+  summary row, and a fault at each of the pass's 2 writes, then the next pass, ends as the clean run.
+
+**Evidence.** ferb-learning `distill_runs_the_code_half_only` (25 steps, 0 differ), `distill_restart_at_every_write_ends_as_the_clean_run`
+(2 writes), `a_failing_summary_is_tried_three_times_and_never_blocks_later_days`, and the rest of its tests; ferbd
+`the_hourly_pass_never_rechecks_the_mac_scan` (a scan checked in 2020 is left untouched by the pass; it fails when the
+old call is put back), `the_memory_loops_run_on_a_temp_home`, `chat_attach_starts_the_mac_scan` (the setup scan),
+`loops_supervised`, `seams_wired`; ferb-sense's `trail.days` fixture already holds a day with a summary and no
+narrative (2026-03-02). `cargo clippy -D warnings` on ferb-learning, ferb-daemon, ferb-device and ferbd.
+
+**Open.** `engine/runtime/memory/distill.md` is read by nothing now; it stays until a prompts decision removes it, as
+does `DISTILL_SCHEMA` in ferb-context's catalog. The `review_in_days` dates the planner and the import set were read
+only by the distill's model half: T-1294 asks the owner what checks them now. The `trail.days` tool's description
+still mentions narratives (true of stored days; catalog-frozen). No live check: nothing shows on the owner's Mac
+until a build with this is installed.

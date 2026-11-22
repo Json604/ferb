@@ -2555,8 +2555,8 @@ title = "An update restart is no return to the Mac, and 1 November's learning pa
 area = "memory"
 surface = "FERB.app updated to this build on the owner's Mac (the database as it is now)"
 request = "Install this build while logged in, with a reminder set for \"when I'm back at my Mac\". After the update, wait an hour and a half without restarting the Mac. Then run `ferb doctor` and look at the Memory page."
-pass = "The reminder doesn't fire at the update (the journal has no mac.back_in_use \"login\" row at that time, and daemon.started rows show mac_login, not \"[redacted]\"). Within the hour distill_runs for 2026-11-01 is distilled (or each try is a memory.distill_failed row with its reason, and doctor lists the day); a day narrative for 2026-11-01 exists."
-decisions = ["SENSE-407", "MEM-421"]
+pass = "The reminder doesn't fire at the update (the journal has no mac.back_in_use \"login\" row at that time, and daemon.started rows show mac_login, not \"[redacted]\"). Within the hour distill_runs for 2026-11-01 is distilled (or each try is a memory.distill_failed row with its reason, and doctor lists the day); a day summary for 2026-11-01 exists (the day narrative is off, MEM-468)."
+decisions = ["SENSE-407", "MEM-468"]
 waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-710]

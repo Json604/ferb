@@ -945,22 +945,13 @@ impl Env {
 
     pub fn distiller(&self) -> Distiller<'static> {
         let e = self.events.clone();
-        let e2 = self.events.clone();
-        let e3 = self.events.clone();
         Distiller {
             store: self.store.clone(),
             journal: self.journal.clone(),
-            memory: self.memory.clone(),
-            make_runtime: Box::new(make_runtime_for(self.events.clone(), self.answers.clone())),
             clock: self.clock.clone(),
             zone: self.memory.zone.clone(),
-            prompts: self.prompts.clone(),
             summary: Rc::new(SummarySeams),
             purge: Box::new(move || ev(&e, "purge", json!({}))),
-            device_id: "dev-1".into(),
-            record_usage: Box::new(move |n, d| ev(&e2, "usage", json!({"runtime": n, "data": d}))),
-            spans: Some(self.spans.clone()),
-            tell: Box::new(move |n: Notice| ev(&e3, "tell", notice_json(&n))),
         }
     }
 

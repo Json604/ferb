@@ -29,8 +29,8 @@ meaning = "The paid outside service that decided which perception events matter 
 see = ["SENSE-2", "SENSE-3"]
 
 ["daily distill"]
-meaning = "The once-a-day model pass over the day's chat and activity that saves durable facts and retires stale ones."
-see = ["MEM-8", "MEM-22"]
+meaning = "The hourly memory pass's work on each past day: the day's summary written by code. Its model half (the day narrative, the durable facts it saved and the stale ones it retired) is off since MEM-468."
+see = ["MEM-8", "MEM-468"]
 
 ["APP_ONLY"]
 meaning = "The daemon methods only FERB.app's own process may call, checked by code signature (auth.APP_ONLY); any other program running as the owner gets \"FERB.app only\"."

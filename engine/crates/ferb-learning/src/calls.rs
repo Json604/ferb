@@ -1,4 +1,4 @@
-//! `calls.py`: one learning model call (distill, profile pass, playbook merge, Mac profile, import recall and
+//! `calls.py`: one learning model call (profile pass, playbook merge, Mac profile, import recall and
 //! verify) through the runtime trait, with its record: one `model.learning` span holding its role, call id, runtime
 //! and model; its outcome, the input's size and the runtime's documented limits; the error as the runtime reported
 //! it. The context is one protected block within the runtime's limits (over its character cap it is refused, never

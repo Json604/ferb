@@ -134,6 +134,55 @@ fn the_memory_loops_run_on_a_temp_home() {
     );
 }
 
+/// The weekly re-check of what FERB saw on this Mac is off: a scan last checked long ago is left as it is by the
+/// hourly pass (nothing gathered again, no model asked, nothing journaled), whatever its date.
+// decision: MEM-469
+#[test]
+fn the_hourly_pass_never_rechecks_the_mac_scan() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = root();
+    let (home, _) = Run::paths(tmp.path(), "65");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let seen = json!({"seen": {"summary": "s", "shown": "s", "facts": [], "at": "2020-01-01T00:00:00+00:00",
+                               "checked_at": "2020-01-01T00:00:00+00:00", "fingerprint": "old",
+                               "profiles_read": true, "shown_by": "setup"}, "reviewed": true});
+    let file = home.join("persona.json");
+    std::fs::write(&file, seen.to_string()).unwrap();
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let mut run = Run::start(
+        tmp.path(),
+        "65",
+        json!({"group_a": true, "memory_loops": true, "persona_scan": true}),
+    );
+    // the hourly pass ran through to the weekly profile pass, where the re-check came next
+    let kinds = |run: &Run| -> Vec<String> {
+        run.table("journal")
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r[3].as_str().unwrap_or("").to_string())
+            .collect()
+    };
+    let until = Instant::now() + Duration::from_secs(60);
+    while !kinds(&run).iter().any(|k| k == "memory.profile_pass") {
+        assert!(Instant::now() < until, "the hourly pass didn't run");
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    std::thread::sleep(Duration::from_secs(2));
+    let after = kinds(&run);
+    run.stop();
+    for kind in [
+        "memory.mac_profile_seen",
+        "memory.mac_profile_failed",
+        "setup.persona_scanned",
+    ] {
+        assert!(!after.iter().any(|k| k == kind), "{kind}: {after:?}");
+    }
+    let now: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(now, seen, "the scan's record is untouched");
+}
+
 #[test]
 fn the_claude_relay_forwards_nothing_without_a_live_runs_prefix() {
     use std::io::Write;

@@ -258,8 +258,10 @@ async fn store_seen(
     Ok(())
 }
 
-/// `PersonaReview.refresh` via `_refresh_mac_profile` (MEM-13): weekly, gather again; interpret and store again only
-/// when the facts changed. True when it changed what FERB remembers.
+/// `PersonaReview.refresh`, only for the setup scan's browser part (DMN-507, `_with_full_disk_access`): gather again;
+/// interpret and store again only when the facts changed. True when it changed what FERB remembers. Nothing runs it
+/// weekly any more (MEM-468, the owner turned the weekly re-check off), so it has no date gate: Python's `refresh`
+/// had none (the weekly one was `_refresh_mac_profile`'s), and with it the browser part waited a week after the scan.
 pub async fn refresh(st: &Rc<State>) -> Result<bool, String> {
     if st.shutting_down.get() {
         return Ok(false);
@@ -273,18 +275,6 @@ pub async fn refresh(st: &Rc<State>) -> Result<bool, String> {
     };
     if seen.is_empty() {
         return Ok(false);
-    }
-    let checked = seen
-        .get("checked_at")
-        .filter(|v| ferb_py::value::truthy(v))
-        .or(seen.get("at"))
-        .map(ferb_py::value::py_str)
-        .unwrap_or_default();
-    if let Some(at) = ferb_clock::py::parse(&checked) {
-        let days = ferb_learning::profile::PASS_DAYS as f64 * 86400.0;
-        if ferb_clock::py::total_seconds(&st.now(), &at) < days {
-            return Ok(false);
-        }
     }
     let facts = gather(st)?;
     if json!(facts_fingerprint(&facts)) == seen.get("fingerprint").cloned().unwrap_or(Value::Null) {

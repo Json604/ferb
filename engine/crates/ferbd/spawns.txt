@@ -16,7 +16,6 @@ src/compose/loops.rs | d.a.spawn(move |st| async move { st.set_presence(presence
 src/compose/loops.rs | let _ = a.spawn(move |st| async move { | the Mac's return, once per return (`_owner_back`)
 src/compose/loops.rs | thread "ferb-automation-check" | one Automation check per app, kept 60 s
 src/compose/loops.rs | thread "ferb-device-profile" | one app install's profile update per event
-src/compose/memory_loops.rs | tokio::task::spawn_local(fut); | a distill note told to the owner, per note
 src/compose/consumers.rs | rt.spawn(async move { n.notify(banner, urgent).await }); | a question's banner, per question (Python's `_spawn`)
 src/compose/consumers.rs | rt.spawn(async move { | per event: browser.window_shown's line, secret.refused's notice (Python's `_spawn`)
 src/compose/desktop_seams.rs | let _ = a.spawn(move |st| async move { | one schedule change, per call

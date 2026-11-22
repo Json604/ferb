@@ -1901,11 +1901,12 @@ fn doctor_report(
             format!("learning {}", get_str(&day, "day")),
             "warn",
             format!(
-                "not learned from yet ({} tries): {}",
+                "not summarized yet ({} tries): {}",
                 get_str(&day, "attempts"),
                 get_str(&day, "error")
             ),
-            "FERB tries that day again every hour; sign in again in Settings → Thinking if it says signed out",
+            // MEM-470: the day's pass is the code summary alone, tried at most 3 times; its activity is kept
+            "FERB tries a day's summary up to 3 times, an hour apart; the day's activity is kept until it is summarized",
         ));
     }
     for card in learning

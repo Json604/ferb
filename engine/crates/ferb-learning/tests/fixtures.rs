@@ -168,7 +168,7 @@ fn memory_items_and_forget() {
     run_scenarios(&["items", "forget", "journal", "upgrade"]);
 }
 
-// decision: MEM-5, MEM-7, MEM-17, MEM-20, MEM-35, MEM-423, MEM-424, MEM-425, MEM-426, MEM-427, MEM-429
+// decision: MEM-5, MEM-7, MEM-17, MEM-20, MEM-35, MEM-423, MEM-424, MEM-425, MEM-469, MEM-427, MEM-429
 #[test]
 fn core_profile_and_mac_scan() {
     run_scenarios(&["profile", "profile_seed", "mac"]);
@@ -186,10 +186,197 @@ fn learned_nodes_cards_and_playbooks() {
     ]);
 }
 
-// decision: MEM-8, MEM-22, MEM-421
+// decision: MEM-468
 #[test]
-fn daily_summary_and_distill() {
-    run_scenarios(&["summary", "distill"]);
+fn daily_summary() {
+    run_scenarios(&["summary"]);
+}
+
+/// The journal rows of one kind, without `seq` and `id` (ids follow from what ran before them).
+fn rows_of(journal: &Value, kind: &str) -> Vec<Value> {
+    journal
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|r| r[3] == kind)
+        .map(|r| json!([r[2], r[3], r[4], r[5]]))
+        .collect()
+}
+
+/// decision: MEM-468 (named difference, the owner's: the day narrative is off). The `distill` scenario is replayed
+/// strictly up to its first `run_day`. From there no model runs: every step makes no model call and tells nothing;
+/// each day's code summary is the row Python wrote, byte for byte; the day is done (`distilled`, [`SUMMARY_ONLY`])
+/// at once, so it is not pending again; no narrative, no `memory.distill_failed`, and memory is left as it was.
+/// Python's model half (the failure on "model down", the narrative, the 5 saved and 3 retired items, their notices)
+/// is what differs.
+#[test]
+fn distill_runs_the_code_half_only() {
+    use ferb_learning::distill::SUMMARY_ONLY;
+    let data = fixture("scenarios.json");
+    let sc = data["scenarios"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["name"] == "distill")
+        .unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    let env = Env::new("distill", Some(root));
+    let runtime = rt();
+    let steps = sc["steps"].as_array().unwrap();
+    let first_run = steps
+        .iter()
+        .position(|s| s["op"] == "distill.run_day")
+        .unwrap();
+    let mut cut = sc.clone();
+    cut["steps"] = Value::Array(steps[..first_run].to_vec());
+    let (strict, mut diffs) = replay_on(&env, &cut, root, &runtime);
+    let memory_before = dump(&env);
+    let mut python_summaries = Vec::new();
+    let mut runs_left = Vec::new();
+    for (n, step) in steps.iter().enumerate().skip(first_run) {
+        let op_name = step["op"].as_str().unwrap();
+        env.events.lock().unwrap().clear();
+        let got = outcome(runtime.block_on(op(&env, op_name, &step["args"])));
+        let events = env.events.lock().unwrap().clone();
+        let at = format!("distill step {n} ({op_name})");
+        let told: Vec<&Value> = events.iter().filter(|e| e[0] != "purge").collect();
+        if !told.is_empty() {
+            diffs.push(format!(
+                "{at}: no model call and nothing told, got {told:?}"
+            ));
+        }
+        if let Some(t) = step["tables"].get("journal") {
+            python_summaries.extend(rows_of(t, "trail.day_summary"));
+        }
+        let want = match op_name {
+            "distill.run_day" => {
+                Some(json!({"ok": {"day": step["args"]["day"], "status": "distilled"}}))
+            }
+            "distill.pending_days" => Some(json!({"ok": []})),
+            "distill.catch_up" => {
+                Some(json!({"ok": [{"day": "2026-10-21", "status": "distilled"}]}))
+            }
+            _ => None,
+        };
+        if let Some(want) = want {
+            if !same(&got, &want) {
+                diffs.push(format!("{at}: returned {got}, want {want}"));
+            }
+        }
+        if op_name.starts_with("distill.") {
+            runs_left.push(op_name);
+        }
+    }
+    let after = dump(&env);
+    // every summary Python wrote, the same bytes; nothing else in the journal from the pass. The one part that
+    // follows from the model half: the 21st's security digest lists the third-party item Python's distill saved on
+    // the 19th (`outside_origin_memory`), an item that is never saved here
+    python_summaries.dedup();
+    for row in &mut python_summaries {
+        let mut digest = ferb_py::json::loads(row[2].as_str().unwrap()).unwrap();
+        let listed = &mut digest["security"]["outside_origin_memory"];
+        let saved_by_distill = listed
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|m| env.memory.get(m["id"].as_str().unwrap()).unwrap().is_none());
+        if saved_by_distill {
+            *listed = json!([]);
+        }
+        row[2] = json!(ferb_py::json::dumps(&digest));
+    }
+    let ours = rows_of(&after["journal"], "trail.day_summary");
+    if ours != python_summaries || ours.len() != 2 {
+        diffs.push(format!(
+            "summaries\n  rust:   {}\n  python: {}",
+            short(&json!(ours)),
+            short(&json!(python_summaries))
+        ));
+    }
+    for kind in ["trail.day_narrative", "memory.distill_failed"] {
+        if !rows_of(&after["journal"], kind).is_empty() {
+            diffs.push(format!("a {kind} row was written"));
+        }
+    }
+    let runs: Vec<Value> = after["distill_runs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| json!([r[0], r[2], r[4]]))
+        .collect();
+    let want_runs = json!([
+        ["2026-10-19", "distilled", SUMMARY_ONLY],
+        ["2026-10-21", "distilled", SUMMARY_ONLY]
+    ]);
+    if json!(runs) != want_runs {
+        diffs.push(format!("distill_runs {runs:?}"));
+    }
+    for t in TABLES
+        .iter()
+        .filter(|t| t.starts_with("memory_") || t.starts_with("learning_"))
+    {
+        if after[*t] != memory_before[*t] {
+            diffs.push(format!("table {t} changed: {}", short(&after[*t])));
+        }
+    }
+    report("distill (code half)", strict + runs_left.len(), &diffs);
+    assert!(diffs.is_empty());
+}
+
+/// decision: MEM-470. A day whose code summary fails is recorded `failed`, journaled with its tries, and tried again
+/// on the next passes; after [`SUMMARY_TRIES`] it is no longer pending, and it never stops the days after it.
+#[test]
+fn a_failing_summary_is_tried_three_times_and_never_blocks_later_days() {
+    use ferb_learning::distill::SUMMARY_TRIES;
+    let data = fixture("restarts.json");
+    let d = &data["distill"];
+    let tmp = tempfile::tempdir().unwrap();
+    let runtime = rt();
+    let env = Env::new("dr-cap", Some(tmp.path()));
+    for step in d["setup"].as_array().unwrap() {
+        runtime
+            .block_on(op(&env, step["op"].as_str().unwrap(), &step["args"]))
+            .unwrap();
+    }
+    // a later day with activity of its own
+    env.store
+        .exec(
+            "INSERT INTO trail (id, at, day, device_id, actor, task_id, source, data_json) VALUES \
+             ('t-20', '2026-10-20T10:00:00+05:30', '2026-10-20', 'dev', 'owner', NULL, 'app_focus', '{}')",
+            sql![],
+        )
+        .unwrap();
+    let dist = env.distiller();
+    assert_eq!(dist.pending_days().unwrap(), ["2026-10-19", "2026-10-20"]);
+    // a fault on each pass's first write, the 19th's summary: every pass fails on it and still summarizes the 20th
+    for pass in 1..=SUMMARY_TRIES {
+        let before = env.writes.get();
+        env.fail_at.set(Some(before + 1));
+        let out = runtime.block_on(dist.catch_up()).unwrap();
+        env.fail_at.set(None);
+        assert_eq!(out[0]["status"], "failed", "pass {pass}: {out:?}");
+        let failed = env
+            .store
+            .query(
+                "SELECT data_json FROM journal WHERE kind = 'memory.distill_failed'",
+                sql![],
+            )
+            .unwrap();
+        assert_eq!(failed.len() as i64, pass);
+        let last: Value = serde_json::from_str(&failed.last().unwrap().s("data_json")).unwrap();
+        assert_eq!(last["attempts"], json!(pass));
+        assert!(
+            ferb_learning::summary::summarized(&env.store, "2026-10-20").unwrap(),
+            "pass {pass}: the 20th is summarized whatever the 19th does"
+        );
+    }
+    assert!(dist.pending_days().unwrap().is_empty());
+    let before = env.writes.get();
+    assert!(runtime.block_on(dist.catch_up()).unwrap().is_empty());
+    assert_eq!(env.writes.get(), before, "nothing is tried a fourth time");
+    // the day the trail keeps: not summarized, so retention keeps its activity
+    assert!(!ferb_learning::summary::summarized(&env.store, "2026-10-19").unwrap());
 }
 
 /// decision: MEM-400, MEM-402, MEM-410, MEM-411, MEM-412; MEM-439 (named difference, the owner's IMP-20 and IMP-31):
@@ -572,10 +759,13 @@ fn import_restart_at_every_write_neither_loses_nor_doubles() {
     assert!(diffs.is_empty());
 }
 
-/// decision: MEM-421. The day's distill failing at each of its writes, then run again on the next hourly pass:
-/// the same outcome, events and tables as Python (no fix here; T-1044's retry rules are unchanged).
+/// decision: MEM-468 (named difference, the owner's: the day narrative is off). The day's pass failing at each of its
+/// writes, then run again on the next hourly pass, ends as the clean run: its summary once, the row Python's clean run
+/// wrote byte for byte, and the day done. Python's runs are not compared: they hold the model half (its narrative,
+/// items and their writes), which no longer runs.
 #[test]
-fn distill_restart_at_every_write_matches_python() {
+fn distill_restart_at_every_write_ends_as_the_clean_run() {
+    use ferb_learning::distill::SUMMARY_ONLY;
     let data = fixture("restarts.json");
     let d = &data["distill"];
     let tmp = tempfile::tempdir().unwrap();
@@ -589,63 +779,57 @@ fn distill_restart_at_every_write_matches_python() {
         }
         env
     };
+    let end = |env: &Env| {
+        let t = dump(env);
+        let runs: Vec<Value> = t["distill_runs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| json!([r[0], r[2], r[4]]))
+            .collect();
+        json!({"summaries": rows_of(&t["journal"], "trail.day_summary"),
+               "failed": rows_of(&t["journal"], "memory.distill_failed").len(),
+               "narratives": rows_of(&t["journal"], "trail.day_narrative").len(), "runs": runs})
+    };
     let clean_env = setup("dr-count");
-    *clean_env.answers.borrow_mut() = vec![d["answer"].clone()].into();
     let before = clean_env.writes.get();
     runtime
         .block_on(clean_env.distiller().run_day("2026-10-19"))
         .unwrap();
     let total = clean_env.writes.get() - before;
-    let clean = dump(&clean_env);
+    let clean = end(&clean_env);
     let mut diffs = Vec::new();
-    if total != d["writes"].as_u64().unwrap() {
-        diffs.push(format!("writes: rust {total}, python {}", d["writes"]));
+    let python = rows_of(&d["clean"]["journal"], "trail.day_summary");
+    if clean["summaries"] != json!(python) {
+        diffs.push(format!(
+            "clean summary\n  rust:   {}\n  python: {}",
+            clean["summaries"],
+            json!(python)
+        ));
     }
-    for (t, rows) in &clean {
-        if !same(rows, &d["clean"][t]) {
+    if clean["runs"] != json!([["2026-10-19", "distilled", SUMMARY_ONLY]])
+        || clean["narratives"] != 0
+    {
+        diffs.push(format!("clean run {clean}"));
+    }
+    for k in 1..=total {
+        let env = setup(&format!("dr-{k}"));
+        env.fail_at.set(Some(env.writes.get() + k));
+        let first = runtime.block_on(env.distiller().run_day("2026-10-19"));
+        env.fail_at.set(None);
+        let again = env.distiller();
+        let second = runtime.block_on(again.catch_up());
+        let mut got = end(&env);
+        // the failure the first try recorded, when its own record could be written
+        let failed = got["failed"].as_u64().unwrap();
+        got["failed"] = json!(0);
+        if got != clean || failed > 1 || second.is_err() {
             diffs.push(format!(
-                "clean table {t}\n  rust:   {}\n  python: {}",
-                short(rows),
-                short(&d["clean"][t])
+                "fail at {k} ({first:?}, then {second:?})\n  rust:  {got}\n  clean: {clean}"
             ));
         }
     }
-    for run in d["runs"].as_array().unwrap() {
-        let k = run["fail_at"].as_u64().unwrap();
-        let env = setup(&format!("dr-{k}"));
-        *env.answers.borrow_mut() = vec![d["answer"].clone(), d["answer"].clone()].into();
-        env.fail_at.set(Some(env.writes.get() + k));
-        for (n, want) in run["attempts"].as_array().unwrap().iter().enumerate() {
-            env.events.lock().unwrap().clear();
-            let got = outcome(runtime.block_on(env.distiller().run_day("2026-10-19")));
-            env.fail_at.set(None);
-            let events = Value::Array(env.events.lock().unwrap().clone());
-            if !same(&got, &want["out"]) || !same(&events, &want["events"]) {
-                diffs.push(format!(
-                    "fail at {k}, attempt {n}\n  rust:   {}\n  python: {}",
-                    short(&got),
-                    short(&want["out"])
-                ));
-            }
-        }
-        let tables = dump(&env);
-        let want = run["tables"].as_object().unwrap();
-        for (t, rows) in &tables {
-            let expected = want.get(t).unwrap_or(&d["clean"][t]);
-            if !same(rows, expected) {
-                diffs.push(format!(
-                    "fail at {k}: table {t}\n  rust:   {}\n  python: {}",
-                    short(rows),
-                    short(expected)
-                ));
-            }
-        }
-    }
-    report(
-        "distill restarts",
-        d["runs"].as_array().unwrap().len(),
-        &diffs,
-    );
+    report("distill restarts", total as usize, &diffs);
     assert!(diffs.is_empty());
 }
 

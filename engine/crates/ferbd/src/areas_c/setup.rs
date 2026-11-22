@@ -120,8 +120,8 @@ pub async fn doctor_check(
         "database".into(),
         json!({"bytes": bytes, "cleanup_pending": pending}),
     );
-    // MEM-421: days whose learning pass failed and wait for the next hourly try; MEM-422: cards stuck on the same
-    // inputs
+    // MEM-470: days whose code summary failed (tried again hourly, at most 3 times; the day narrative is off);
+    // MEM-422: cards stuck on the same inputs
     let undistilled: Vec<Value> = {
         let db = lock(&d.db);
         let mut rows = Vec::new();
