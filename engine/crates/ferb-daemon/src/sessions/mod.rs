@@ -16,6 +16,7 @@
 //!   HAND-662). FERB never answers a permission prompt itself (HAND-663).
 //! - Text that leaves the Mac goes through the daemon's redactor (rule 7): the timeline, cards, last lines.
 
+mod appchats;
 mod codex_link;
 mod rpc;
 
@@ -32,6 +33,7 @@ use ferb_sessions::{clip, codex, one_line, paths};
 use serde_json::{json, Map, Value};
 use tokio::sync::oneshot;
 
+pub use appchats::ChatWindow;
 pub use codex_link::CodexLink;
 pub use rpc::register;
 
@@ -105,6 +107,10 @@ pub struct Foreground {
     pub enter: bool,
     /// A key instead of text ("escape").
     pub key: String,
+    /// An app chat (HAND-672): focus the window's own composer first; the proof is that focus, in that window.
+    pub composer: bool,
+    /// The window server's id of the session's window (0: the app's front window).
+    pub window: i64,
 }
 
 /// The Mac's own parts (`ferbd` gives the real ones; tests give stand-ins).
@@ -135,6 +141,23 @@ pub trait Mac: Send + Sync {
     ) -> Result<(), String>;
     /// The generic foreground path (HAND-660).
     fn foreground(&self, f: Foreground) -> BoxFuture<'static, Result<(), String>>;
+    /// HAND-668: the windows of these apps (bundle ids) that could hold a chat.
+    fn chat_windows(&self, _bundles: &[String]) -> Vec<ChatWindow> {
+        Vec::new()
+    }
+    /// HAND-669: a chat window's Accessibility tree (`front`: the app may be brought forward to read it, then put
+    /// back). None: unreadable.
+    fn chat_tree(
+        &self,
+        _w: &ChatWindow,
+        _front: bool,
+    ) -> Option<Vec<ferb_sessions::appchat::Node>> {
+        None
+    }
+    /// HAND-672: presses the app's own stop control (a button with one of these labels) in the window.
+    fn chat_press(&self, _w: &ChatWindow, _labels: &[String]) -> Result<(), String> {
+        Err("this app has no stop control FERB can press".into())
+    }
 }
 
 /// FERB's own question to the owner (the gateway's store): (capability, summary, detail, options). Answers the
@@ -184,6 +207,10 @@ pub struct Seams {
     pub mono: Arc<dyn Fn() -> f64 + Send + Sync>,
     pub new_id: Arc<dyn Fn() -> String + Send + Sync>,
     pub version: String,
+    /// HAND-668: the chat apps the owner added (bundle ids), beside the known ones.
+    pub chat_apps: Arc<dyn Fn() -> Vec<String> + Send + Sync>,
+    /// HAND-669: FERB may bring an app forward to read its chat now (the owner is away from the Mac).
+    pub may_take_front: Arc<dyn Fn() -> bool + Send + Sync>,
 }
 
 /// One held card.
@@ -195,6 +222,46 @@ struct Held {
     reply: Option<oneshot::Sender<String>>,
     /// Codex: the daemon's request id.
     codex: Option<Value>,
+}
+
+impl Entry {
+    /// A new entry for a session first seen now.
+    fn new(id: &str, agent: Agent, now: &str) -> Entry {
+        let own = Agent::split(id)
+            .map(|(_, o)| o.to_owned())
+            .unwrap_or_default();
+        Entry {
+            s: Session {
+                id: id.to_owned(),
+                agent,
+                agent_session: own,
+                source: Source::Attached,
+                pid: 0,
+                cwd: String::new(),
+                title: String::new(),
+                status: Status::Idle,
+                waiting: Waiting::None,
+                host: None,
+                send_paths: Vec::new(),
+                no_send: String::new(),
+                last_at: now.to_owned(),
+                last_text: String::new(),
+                control: String::new(),
+                delegate: String::new(),
+                goal: String::new(),
+            },
+            transcript: None,
+            offset: 0,
+            partial: Vec::new(),
+            items: Vec::new(),
+            owners_title: false,
+            cards: Vec::new(),
+            via_ferb: false,
+            turn: String::new(),
+            host_key: (0, String::new()),
+            exe: String::new(),
+        }
+    }
 }
 
 /// One session's state.
@@ -224,6 +291,7 @@ struct State {
     last_published: String,
     hooks_installed: Option<bool>,
     asked_enable: bool,
+    chats: appchats::Chats,
 }
 
 /// The area. Cheap to clone.
@@ -307,8 +375,10 @@ impl Sessions {
         after: u64,
         limit: usize,
     ) -> Result<(Vec<Item>, bool, Vec<Card>), Refused> {
-        if Agent::split(id).map(|(a, _)| a) == Some(Agent::Codex) {
-            self.codex_refresh(id);
+        match Agent::split(id).map(|(a, _)| a) {
+            Some(Agent::Codex) => self.codex_refresh(id),
+            Some(Agent::AppChat) => self.chat_viewed(id),
+            _ => {}
         }
         let st = lock(&self.state);
         let e = st
@@ -411,6 +481,8 @@ impl Sessions {
         for id in ids {
             self.refresh(&id, &table);
         }
+        // HAND-668: the chat apps' windows
+        self.chats_look();
         self.changed();
     }
 
@@ -539,6 +611,9 @@ impl Sessions {
         let (agent, pid, transcript_known, sid) = {
             let st = lock(&self.state);
             let Some(e) = st.sessions.get(id) else { return };
+            if e.s.agent == Agent::AppChat {
+                return;
+            }
             (
                 e.s.agent,
                 e.s.pid,
@@ -1014,7 +1089,12 @@ impl Sessions {
             let Some(e) = st.sessions.get(session) else {
                 return;
             };
-            (e.s.agent, folder_name(&e.s.cwd), e.s.last_text.clone())
+            let where_ = match (e.s.agent, e.s.host.as_ref()) {
+                // an app chat is named by its app alone
+                (Agent::AppChat, Some(h)) => h.name.clone(),
+                _ => format!("{} in {}", e.s.agent.name(), folder_name(&e.s.cwd)),
+            };
+            (e.s.agent, where_, e.s.last_text.clone())
         };
         (self.seams.publish)(
             "sessions.finished",
@@ -1022,10 +1102,7 @@ impl Sessions {
         );
         // FERB's own words only: the agent's reply is in the session, never in FERB's notice (rule 9)
         let ident = format!("sessions.finished:{session}:{}", (self.seams.new_id)());
-        (self.seams.tell)(
-            &ident,
-            &format!("{} in {folder} is done and waiting for you.", agent.name()),
-        );
+        (self.seams.tell)(&ident, &format!("{folder} is done and waiting for you."));
     }
 
     // ---------- sending ----------
@@ -1050,6 +1127,7 @@ impl Sessions {
             .map(|h| h.name.clone())
             .filter(|n| !n.is_empty());
         let place = match (path, &app) {
+            (_, Some(a)) if s.agent == Agent::AppChat => a.clone(),
             (SendPath::AgentApi, _) => format!("{} in {}", s.agent.name(), folder_name(&s.cwd)),
             (_, Some(a)) => format!("{} in {a}", s.agent.name()),
             (_, None) => s.agent.name().to_owned(),
@@ -1116,6 +1194,7 @@ impl Sessions {
         if text.chars().count() > MAX_TEXT {
             return Err(no(codes::SEND_FAILED, "That message is too long to send."));
         }
+        self.prime(id).await;
         let s = self.session(id).ok_or_else(gone)?;
         if !by.is_task() && s.control != by.key() {
             return Err(no(
@@ -1136,6 +1215,9 @@ impl Sessions {
         let before = self.last_seq(id);
         let started = (self.seams.mono)();
         self.deliver(&s, path, &text, "").await?;
+        if s.agent == Agent::AppChat {
+            self.chat_sent(id, &text);
+        }
         if let Some(e) = lock(&self.state).sessions.get_mut(id) {
             e.via_ferb = true;
             e.s.status = Status::Working;
@@ -1162,7 +1244,7 @@ impl Sessions {
         key: &str,
     ) -> Result<(), Refused> {
         let failed = |e: String| no(codes::SEND_FAILED, e);
-        if path.types() {
+        if path.types() && s.agent != Agent::AppChat {
             // decision: HAND-658 — typed text reaches the agent only when it is its terminal's foreground program
             let table = self.seams.mac.processes();
             if !host::in_front(&table, s.pid) {
@@ -1229,7 +1311,21 @@ impl Sessions {
                     .map_err(|e| failed(e.to_string()))?
                     .map_err(failed)
             }
+            // HAND-672: an app chat's stop is its own stop control
+            SendPath::Foreground if s.agent == Agent::AppChat && key == "escape" => {
+                let (win, labels) = self
+                    .chat_stop(&s.id)
+                    .ok_or_else(|| no(codes::SEND_FAILED, "It isn't replying now."))?;
+                let mac = self.seams.mac.clone();
+                tokio::task::spawn_blocking(move || mac.chat_press(&win, &labels))
+                    .await
+                    .map_err(|e| failed(e.to_string()))?
+                    .map_err(failed)
+            }
             SendPath::TerminalScript | SendPath::Foreground => {
+                let chat = (s.agent == Agent::AppChat)
+                    .then(|| self.chat_window(&s.id))
+                    .flatten();
                 let mut proof = Vec::new();
                 if !s.title.is_empty() {
                     proof.push(s.title.clone());
@@ -1252,6 +1348,8 @@ impl Sessions {
                         },
                         enter: key.is_empty(),
                         key: key.to_owned(),
+                        composer: chat.is_some(),
+                        window: chat.as_ref().map_or(0, |w| w.window),
                     })
                     .await
                     .map_err(|e| no(codes::NOT_THE_SESSION, e))
@@ -1283,12 +1381,10 @@ impl Sessions {
         loop {
             // a read of Codex's thread waits on its daemon: off the async thread
             let (me, i) = (self.clone(), id.to_owned());
-            let _ = tokio::task::spawn_blocking(move || {
-                if Agent::split(&i).map(|(a, _)| a) == Some(Agent::Codex) {
-                    me.codex_refresh(&i);
-                } else {
-                    me.tail(&i);
-                }
+            let _ = tokio::task::spawn_blocking(move || match Agent::split(&i).map(|(a, _)| a) {
+                Some(Agent::Codex) => me.codex_refresh(&i),
+                Some(Agent::AppChat) => me.chat_look(&i, true),
+                _ => me.tail(&i),
             })
             .await;
             let found = lock(&self.state).sessions.get(id).is_some_and(|e| {
@@ -1311,6 +1407,7 @@ impl Sessions {
         if !self.enabled() {
             return Err(off());
         }
+        self.prime(id).await;
         let s = self.session(id).ok_or_else(gone)?;
         if !by.is_task() && s.control != by.key() {
             return Err(no(
@@ -1372,6 +1469,12 @@ impl Sessions {
         let program = match agent {
             Agent::ClaudeCode => "claude",
             Agent::Codex => "codex",
+            Agent::AppChat => {
+                return Err(no(
+                    codes::SEND_FAILED,
+                    "Start a new chat in the app itself.",
+                ));
+            }
         };
         let mut cmd = format!("cd {} && {program}", shell_quote(folder));
         if !text.trim().is_empty() {
@@ -1460,12 +1563,17 @@ impl Sessions {
         } else {
             format!(" \"{}\"", s.title)
         };
-        let text = format!(
-            "Take over my {} session{title} ({}{where_}, session {}) and keep it going until this is done: {goal}",
-            s.agent.name(),
-            s.cwd,
-            s.id
-        );
+        let text = if s.agent == Agent::AppChat {
+            let app = s.host.as_ref().map(|h| h.name.clone()).unwrap_or_default();
+            format!("Take over my {app} chat{title} (session {}) and keep it going until this is done: {goal}", s.id)
+        } else {
+            format!(
+                "Take over my {} session{title} ({}{where_}, session {}) and keep it going until this is done: {goal}",
+                s.agent.name(),
+                s.cwd,
+                s.id
+            )
+        };
         (self.seams.hand_over)(text.clone(), client).map_err(|e| no(codes::SEND_FAILED, e))?;
         if let Some(e) = lock(&self.state).sessions.get_mut(id) {
             e.s.goal = self.redact(goal);
@@ -1504,14 +1612,25 @@ impl Sessions {
         let deadline = (self.seams.mono)() + limit_s;
         // a turn just sent may not have started yet: give the agent a moment to begin
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        let chat = Agent::split(id).map(|(a, _)| a) == Some(Agent::AppChat);
         loop {
+            if chat {
+                // HAND-671: the app's reply is watched by code, a look every LOOK_REPLYING_S until it settles
+                let (me, i) = (self.clone(), id.to_owned());
+                let _ = tokio::task::spawn_blocking(move || me.chat_look(&i, true)).await;
+            }
             match self.session(id) {
                 None => return None,
                 Some(s) if s.status != Status::Working => return Some(s),
                 Some(s) if (self.seams.mono)() >= deadline => return Some(s),
                 _ => {}
             }
-            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            tokio::time::sleep(std::time::Duration::from_millis(if chat {
+                (ferb_sessions::appchat::LOOK_REPLYING_S * 1000.0) as u64
+            } else {
+                500
+            }))
+            .await;
         }
     }
 

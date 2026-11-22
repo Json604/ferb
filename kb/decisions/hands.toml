@@ -2310,3 +2310,82 @@ rule = "For HAND-667. The setting sessions.enabled (off until set). Once setup i
 evidence = "ferb-sessions ferb_s_hooks_go_in_and_out_of_claude_code_s_settings_touching_nothing_else; ferb-daemon off_reads_nothing_and_its_switch_puts_ferb_s_hook_in_and_takes_it_out."
 paths = ["engine/crates/ferb-sessions/src/hooks.rs", "engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.reconcile_hooks", "engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.offer", "engine/crates/ferb-daemon/src/areas_a/settings.rs"]
 live = ["LIVE-1168"]
+
+[HAND-668]
+title = "The desktop chat apps' conversations are sessions too, watched smartly: no model calls to look"
+by = "owner"
+date = 2026-11-22
+status = "active"
+words = "no ferb can already do it, and those are anyways needed when im away so taking focus on it is not a problem BUT hte thingi is how smartly does it do. cause if you remeber a few days ago i did try ferb controlling a session BUT onle a few minutes in it did so many model clals looking at eht esession"
+words_source = "Owner 2026-11-22, relayed verbatim by the coordinator, asking for T-1289 in the release. His earlier run (task 38f4a1ef) made 9 model calls in 7m41s only watching."
+rule = "The chats open in the desktop chat apps (the Claude app, ChatGPT, the Codex app's own threads, Cursor's agent pane, any chat app he adds) are sessions in the same Sessions list: read, sent to and handed to FERB in one generic way. Taking the foreground for them is fine while he's away. Watching and waiting cost no model call: FERB's model runs only when a reply has finished and there is something to decide."
+live = ["LIVE-1174", "LIVE-1175", "LIVE-1176"]
+
+[HAND-669]
+title = "An app chat is read from its window's Accessibility tree by code, and only while someone watches"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For HAND-668. The known chat apps (data: ferb-sessions appchat.json) and the ones he adds (config sessions.chat_apps) are listed by their normal titled windows. A chat is read only while watched (a client read it in the last 30 s, FERB's task holds it, or a send awaits its reply): every 2 s while it replies, 10 s otherwise (HAND-674). A window on another Space is read by bringing its app forward only while the owner is away (presence, no recent input, unlocked), every 30 s (HAND-674), the front app put back; else the session says when FERB can read it."
+evidence = "ferb-daemon tests/sessions.rs an_app_chat_is_listed_read_only_while_watched_and_his_own_typing_is_his, a_chat_on_another_space_is_read_by_bringing_it_forward_only_while_the_owner_is_away."
+paths = ["engine/crates/ferb-daemon/src/sessions/appchats.rs", "engine/crates/ferbd/src/compose/sessions.rs::chat_tree", "engine/crates/ferb-sessions/src/appchat.json"]
+
+[HAND-670]
+title = "Who said what in an app chat comes from its layout; FERB's own sent text only confirms it"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For HAND-668. Messages are the text runs above the composer in reading order, grouped by gaps. A message is the owner's by the app's own structure first, kept as data per app (which side its owner's messages sit on, a label it puts on them), else by alignment: set in and flush right within the transcript's column. Text FERB typed into that chat only confirms a message is his. What he typed in the app himself is his."
+evidence = "ferb-sessions tests/appchat.rs (the owner typing in the app, an added app read by alignment, an agent pane marked by its label, FERB's text confirming); ferb-daemon an_app_chat_is_listed_read_only_while_watched_and_his_own_typing_is_his."
+paths = ["engine/crates/ferb-sessions/src/appchat.rs::read"]
+
+[HAND-671]
+title = "An app is replying while its stop control is up; finished once it is gone, or, with none, when still"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For HAND-668. An app whose data names a stop control (its label): replying while it is there and enabled; finished once it has been gone STOP_GONE_S (counted from the last look that saw it, a send or a change in the chat). An app with none: replying while the last message's text or the number of messages changed within STILL_S; finished once still that long. What was there before FERB first looked counts as settled. The numbers are the owner's (HAND-674)."
+evidence = "ferb-sessions tests/appchat.rs replying_until_the_stop_control_goes_and_the_last_message_holds_still."
+paths = ["engine/crates/ferb-sessions/src/appchat.rs::Watch"]
+
+[HAND-672]
+title = "Typing into an app chat goes into its own message box, proven by focus; its stop is its stop control"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For HAND-668, HAND-660. The composer is the window's focused editable text element, else its lowest one (the lab's x4). FERB brings the app forward (the owner-quiet wait of the Mac hands' foreground typing), raises the window, focuses that element, and types only when the focus is provably it; Return follows; the front app comes back. Asked once as every session send is (GATE-622; GATE-585 for FERB's task). Delivery is the text showing as his message (HAND-655). Stop presses the app's own stop control."
+evidence = "ferb-daemon tests/sessions.rs a_send_types_into_the_app_s_own_box_and_its_reply_is_awaited_by_code_with_no_model_call, an_app_chat_s_stop_is_its_own_stop_control_and_a_hand_over_names_the_app."
+paths = ["engine/crates/ferbd/src/compose/sessions.rs::foreground", "engine/crates/ferb-sessions/src/appchat.rs::composer"]
+live = ["LIVE-1175"]
+
+[HAND-673]
+title = "Handing an app chat to FERB: one model call per finished reply, none while it waits"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For HAND-668, ORCH-687. A hand-over of an app chat is the owner's message naming it; FERB's task reads it and sends with agent_session.read and .send, whose wait looks at the window by code until the reply has finished (HAND-671) and then returns the new messages. So the task's model runs once per finished reply; no planner, worker or checker call watches the chat."
+evidence = "ferb-daemon tests/sessions.rs a_send_types_into_the_app_s_own_box_and_its_reply_is_awaited_by_code_with_no_model_call (no question, no hand-over, no call while waiting)."
+paths = ["engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.wait_turn", "engine/crates/ferbd/src/compose/tools/sessions.rs"]
+live = ["LIVE-1176"]
+
+[HAND-674]
+title = "App chats' timing: done 3 s after the stop control goes, else 10 s still; looks 2 s or 10 s; 30 s"
+by = "owner"
+date = 2026-11-22
+status = "active"
+words = "go with your picks"
+words_source = "Owner 2026-11-22, relayed verbatim by the coordinator, answering the proposal for the app chats' timing (HAND-671, HAND-669) quoted in the rule; its question task is closed."
+rule = "The proposal he answered, verbatim: \"finished once the Stop button has been gone for 3 seconds, or, for an app with no Stop button, no change for 10 seconds; looks every 2 seconds while the app is replying, every 10 seconds otherwise; a window on another Space looked at every 30 seconds, only while he's away\". In code: STOP_GONE_S 3, STILL_S 10, LOOK_REPLYING_S 2, LOOK_IDLE_S 10, FOREGROUND_LOOK_S 30."
+evidence = "ferb-sessions tests/appchat.rs replying_until_the_stop_control_has_been_gone_3_s_or_a_chat_without_one_holds_still_10_s."
+paths = ["engine/crates/ferb-sessions/src/appchat.rs"]
+live = ["LIVE-1176"]
+
+[HAND-675]
+title = "Typing into an app chat asks naming the app's chat and message box, never a terminal"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For HAND-672, GATE-585. FERB's first typing into a desktop chat app in a task still asks once (one Yes per app per task, as GATE-586 keys it), but the question, its summary and its trace line name the app's chat and its message box, not a terminal: the input says it is a chat's (TerminalInput.chat, set by agent_session.send for an app chat) and the shared terminal wording reads it. A terminal's question is unchanged."
+evidence = "ferb-policy tests/chat_card.rs a_chat_app_s_question_names_its_chat_never_a_terminal; tests/parity.rs terminal_input_matches_python unchanged."
+paths = ["engine/crates/ferb-policy/src/wording.rs", "engine/crates/ferb-policy/src/terminal.rs", "engine/crates/ferbd/src/compose/tools/sessions.rs"]
+live = ["LIVE-1176"]

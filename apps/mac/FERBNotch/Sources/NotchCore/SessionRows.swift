@@ -73,12 +73,17 @@ public struct AgentSessionRow: Identifiable, Equatable {
     }
 
     /// The agent as the owner calls it.
-    public var agentName: String { Self.agentName(agent) }
+    public var agentName: String {
+        // HAND-668: an app chat is named by its app
+        if agent == "app_chat", let name = host?.name, !name.isEmpty { return name }
+        return Self.agentName(agent)
+    }
 
     public static func agentName(_ agent: String) -> String {
         switch agent {
         case "claude_code": return "Claude Code"
         case "codex": return "Codex"
+        case "app_chat": return "App chat"
         default: return agent.replacingOccurrences(of: "_", with: " ")
         }
     }

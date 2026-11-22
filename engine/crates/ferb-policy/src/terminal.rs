@@ -442,7 +442,7 @@ pub fn need(inp: &TerminalInput) -> Need {
             .map(|p| format!("{} (can't run)", visible(p, false))),
     );
     let yes = |b: bool| if b { "yes" } else { "" };
-    let values = Values::of(&[
+    let mut values = Values::of(&[
         ("app", &visible(&inp.app, false)),
         ("surface", &visible(&inp.surface, false)),
         ("text", &shown),
@@ -497,6 +497,10 @@ pub fn need(inp: &TerminalInput) -> Need {
         ("opens", yes(inp.opens)),
         ("wide", yes(wide)),
     ]);
+    // decision: HAND-675 — an app chat's message box, named as such (only then: a terminal's values stay Python's)
+    if inp.chat {
+        values.set("chat", "yes");
+    }
     let o = |x: &Option<String>| x.as_ref().map_or(Value::Null, |v| json!(v));
     let files_key: Vec<Value> = inp.files.iter().map(|(p, h, _)| json!([p, h])).collect();
     let mut n = Need::new(

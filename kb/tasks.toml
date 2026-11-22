@@ -1006,12 +1006,3 @@ status = "open"
 why = "HAND-657 rests on Codex's schema for these (the lab's turns all hit a usage limit, lab T-2); tested only against a stand-in daemon."
 decisions = ["HAND-657"]
 after = []
-
-[T-1289]
-title = "The agents' desktop apps and Cursor: their sessions and composers"
-area = "hands"
-kind = "build"
-status = "open"
-why = "HAND-652: Claude.app's Code tab reads as Claude Code (its hooks unverified), the Codex app through its daemon; their composers and Cursor's agent chat (state.vscdb) need the lab's Accessibility send and reading (x4), not built. Until then the foreground path types only where focus names the session."
-decisions = ["HAND-652", "HAND-660"]
-after = []

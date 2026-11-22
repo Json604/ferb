@@ -5058,3 +5058,30 @@ request = "Open a session → Watch, on each path; take a screenshot on the phon
 pass = "On the direct path or the owner's relay the session's app window shows live (Terminal's or VS Code's), unmasked; the screenshot comes out blank; on the public relay it is refused with the usual words; locking the phone ends it."
 decisions = ["PHN-797", "PHN-454"]
 sitting = "after this build is installed"
+
+[LIVE-1174]
+title = "The Claude app's and ChatGPT's chats in the Sessions list, read right"
+area = "hands"
+surface = "FERB.app with this build and the phone; the Claude app and ChatGPT each with one chat open on the Mac"
+request = "Open Sessions on the phone, then each app chat. In one of them type a message yourself at the Mac, in the app."
+pass = "Both chats are listed by their app and title; each reads as the app shows it, your own messages (the one you typed yourself too) as yours and the app's as its; the state shows replying while it answers and idle once it's done; nothing comes forward on the Mac while you're at it."
+decisions = ["HAND-668", "HAND-669", "HAND-670", "HAND-671"]
+sitting = "after this build is installed"
+
+[LIVE-1175]
+title = "Send to an app chat from the phone while away; stop it"
+area = "hands"
+surface = "The phone away from the Mac; the Claude app, ChatGPT and Cursor's agent pane open on the Mac (one on another Space)"
+request = "From the phone send a short message to each chat; say Yes to the first; then Stop its turn on one while it replies."
+pass = "Each app comes forward only while you're away, the words land in its own message box (never elsewhere), the app you had in front comes back; the message shows as yours; Stop presses the app's stop; a chat on another Space is read after it comes forward."
+decisions = ["HAND-672", "HAND-669"]
+sitting = "after this build is installed"
+
+[LIVE-1176]
+title = "Hand an app chat to FERB: it answers as replies finish, without watching with the model"
+area = "hands"
+surface = "The phone; a ChatGPT chat on the Mac; FERB's trace afterwards"
+request = "Hand the chat to FERB: \"keep asking until it gives me three options, then stop\". Go away for ten minutes."
+pass = "FERB's first typing asks once, naming the app's chat, never a terminal; FERB answers each finished reply once, waits by code meanwhile, stops when the goal is met or asks you; ferb trace shows about one model call per reply and none while the app was replying or idle (the old run: 9 calls in 7.7 min only watching)."
+decisions = ["HAND-673", "HAND-668", "HAND-674", "HAND-675"]
+sitting = "after this build is installed"

@@ -123,7 +123,13 @@ impl Tool for SessionTool {
                     host.name
                 },
                 bundle_id: host.bundle_id,
-                surface: "terminal".into(),
+                // HAND-675: an app chat's own message box is said as the app's chat, not a terminal
+                surface: if s.agent == ferb_sessions::Agent::AppChat {
+                    "its message box".into()
+                } else {
+                    "terminal".into()
+                },
+                chat: s.agent == ferb_sessions::Agent::AppChat,
                 text: Some(
                     args.get("text")
                         .and_then(Value::as_str)

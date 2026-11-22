@@ -22,6 +22,9 @@ use tokio::sync::oneshot;
 const SID: &str = "bce22ef4-0000-4bcf-a44f-de50b0d1c1fe";
 const OWN_PID: i32 = 7;
 
+/// What a chat app does with typed words: its window's tree after them.
+type Echo = Box<dyn Fn(&str) -> Vec<ferb_sessions::appchat::Node> + Send>;
+
 #[derive(Default)]
 struct FakeMac {
     table: Mutex<Table>,
@@ -31,6 +34,13 @@ struct FakeMac {
     foreground: Mutex<Vec<Foreground>>,
     /// Where a typed message lands (the agent writes it to its transcript, as Claude Code does).
     echo_to: Mutex<Option<PathBuf>>,
+    /// HAND-668: the chat apps' windows and their trees (by window id); the trees read, with `front`; presses.
+    chat_windows: Mutex<Vec<ChatWindow>>,
+    chat_trees: Mutex<HashMap<i64, Vec<ferb_sessions::appchat::Node>>>,
+    chat_reads: Mutex<Vec<(i64, bool)>>,
+    chat_pressed: Mutex<Vec<String>>,
+    /// What a chat does when FERB types into it (the app answering): the window's tree after the send.
+    chat_echo: Mutex<Option<Echo>>,
 }
 
 impl Mac for FakeMac {
@@ -71,8 +81,31 @@ impl Mac for FakeMac {
         Err("no tmux here".into())
     }
     fn foreground(&self, f: Foreground) -> BoxFuture<'static, Result<(), String>> {
+        if f.composer {
+            if let Some(echo) = self.chat_echo.lock().unwrap().as_ref() {
+                let tree = echo(&f.text);
+                self.chat_trees.lock().unwrap().insert(f.window, tree);
+            }
+        }
         self.foreground.lock().unwrap().push(f);
         Box::pin(async { Ok(()) })
+    }
+    fn chat_windows(&self, bundles: &[String]) -> Vec<ChatWindow> {
+        self.chat_windows
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|w| bundles.contains(&w.bundle_id))
+            .cloned()
+            .collect()
+    }
+    fn chat_tree(&self, w: &ChatWindow, front: bool) -> Option<Vec<ferb_sessions::appchat::Node>> {
+        self.chat_reads.lock().unwrap().push((w.window, front));
+        self.chat_trees.lock().unwrap().get(&w.window).cloned()
+    }
+    fn chat_press(&self, _w: &ChatWindow, labels: &[String]) -> Result<(), String> {
+        self.chat_pressed.lock().unwrap().push(labels.join("|"));
+        Ok(())
     }
 }
 
@@ -89,6 +122,7 @@ struct Seen {
 
 struct World {
     s: Sessions,
+    away: Arc<Mutex<bool>>,
     mac: Arc<FakeMac>,
     seen: Arc<Seen>,
     enabled: Arc<Mutex<Option<bool>>>,
@@ -118,6 +152,8 @@ fn world(speed: f64) -> World {
     let seen = Arc::new(Seen::default());
     let enabled = Arc::new(Mutex::new(Some(true)));
     let ids = Arc::new(Mutex::new(0u32));
+    let away = Arc::new(Mutex::new(false));
+    let away2 = away.clone();
     let start = Instant::now();
     let (e1, e2) = (enabled.clone(), enabled.clone());
     let (s1, s2, s3, s4, s5, s6) = (
@@ -168,9 +204,12 @@ fn world(speed: f64) -> World {
             format!("id{n}")
         }),
         version: "0.28.0".into(),
+        chat_apps: Arc::new(|| vec!["com.example.notes-chat".to_string()]),
+        may_take_front: Arc::new(move || *away2.lock().unwrap()),
     };
     World {
         s: Sessions::new(seams),
+        away,
         mac,
         seen,
         enabled,
@@ -979,4 +1018,263 @@ async fn codex_is_read_sent_and_answered_through_its_own_daemon() {
         .unwrap()
         .push(json!({"method": "thread/closed", "params": {"threadId": "T1"}}));
     until("the end", || w.s.session(cid).is_none()).await;
+}
+
+// ---------- app chats (HAND-668..673) ----------
+
+use ferb_sessions::appchat::Node;
+
+const CLAUDE_APP: &str = "com.anthropic.claudefordesktop";
+
+fn chat_text(x: f64, y: f64, w: f64, words: &str) -> Node {
+    Node {
+        role: "AXStaticText".into(),
+        value: words.into(),
+        x,
+        y,
+        w,
+        h: 18.0,
+        enabled: true,
+        ..Node::default()
+    }
+}
+
+fn chat_box() -> Node {
+    Node {
+        role: "AXTextArea".into(),
+        label: "Prompt".into(),
+        x: 40.0,
+        y: 880.0,
+        w: 600.0,
+        h: 40.0,
+        enabled: true,
+        editable: true,
+        ..Node::default()
+    }
+}
+
+/// The Claude app's window: the owner typed his first message in the app himself (FERB sent nothing).
+fn claude_chat(extra: &[Node]) -> Vec<Node> {
+    let mut v = vec![
+        chat_text(400.0, 100.0, 300.0, "Draft a reply to the landlord"),
+        chat_text(
+            40.0,
+            150.0,
+            660.0,
+            "Here's a short, polite reply you can send.",
+        ),
+    ];
+    v.extend_from_slice(extra);
+    v.push(chat_box());
+    v
+}
+
+fn chat_window(on_space: bool) -> ChatWindow {
+    ChatWindow {
+        bundle_id: CLAUDE_APP.into(),
+        app: "Claude".into(),
+        pid: 900,
+        window: 77,
+        title: "Landlord reply".into(),
+        on_space,
+    }
+}
+
+fn chat_id() -> String {
+    format!("app:{CLAUDE_APP}:77")
+}
+
+// decision: HAND-668
+// decision: HAND-670
+#[test]
+fn an_app_chat_is_listed_read_only_while_watched_and_his_own_typing_is_his() {
+    let w = world(1.0);
+    w.mac.chat_windows.lock().unwrap().push(chat_window(true));
+    w.mac
+        .chat_trees
+        .lock()
+        .unwrap()
+        .insert(77, claude_chat(&[]));
+    // an app nobody watches is listed, never read
+    w.s.look();
+    let s = w.s.session(&chat_id()).expect("listed");
+    assert_eq!(
+        (s.agent, s.title.as_str()),
+        (Agent::AppChat, "Landlord reply")
+    );
+    assert_eq!(s.host.as_ref().unwrap().name, "Claude");
+    assert!(
+        w.mac.chat_reads.lock().unwrap().is_empty(),
+        "not read until someone watches"
+    );
+    // the owner opens it: read by code, his own words his by the app's layout
+    let (items, _, _) = w.s.timeline(&chat_id(), 0, 50).unwrap();
+    let said: Vec<(ItemKind, &str)> = items.iter().map(|i| (i.kind, i.text.as_str())).collect();
+    assert_eq!(
+        said,
+        [
+            (ItemKind::User, "Draft a reply to the landlord"),
+            (
+                ItemKind::Assistant,
+                "Here's a short, polite reply you can send."
+            )
+        ]
+    );
+    assert_eq!(
+        w.s.session(&chat_id()).unwrap().send_paths,
+        [SendPath::Foreground]
+    );
+    // an app the owner added is looked for too; a closed window leaves the list
+    w.mac.chat_windows.lock().unwrap().clear();
+    w.s.look();
+    assert!(w.s.session(&chat_id()).is_none());
+    assert!(w.seen.asks.lock().unwrap().is_empty() && w.seen.handed.lock().unwrap().is_empty());
+}
+
+// decision: HAND-669, HAND-674
+#[test]
+fn a_chat_on_another_space_is_read_by_bringing_it_forward_only_while_the_owner_is_away() {
+    let w = world(1.0);
+    w.mac.chat_windows.lock().unwrap().push(chat_window(false));
+    w.mac
+        .chat_trees
+        .lock()
+        .unwrap()
+        .insert(77, claude_chat(&[]));
+    w.s.look();
+    let _ = w.s.timeline(&chat_id(), 0, 50).unwrap();
+    assert!(
+        w.mac.chat_reads.lock().unwrap().is_empty(),
+        "the owner is here: nothing brought forward"
+    );
+    assert!(!w.s.session(&chat_id()).unwrap().no_send.is_empty());
+    *w.away.lock().unwrap() = true;
+    let _ = w.s.timeline(&chat_id(), 0, 50).unwrap();
+    assert_eq!(*w.mac.chat_reads.lock().unwrap(), [(77, true)]);
+    // and at most once per FOREGROUND_LOOK_S (30 s, HAND-674)
+    let _ = w.s.timeline(&chat_id(), 0, 50).unwrap();
+    assert_eq!(w.mac.chat_reads.lock().unwrap().len(), 1);
+}
+
+// decision: HAND-671
+// decision: HAND-672
+// decision: HAND-673
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_send_types_into_the_app_s_own_box_and_its_reply_is_awaited_by_code_with_no_model_call() {
+    let w = world(20.0);
+    w.mac.chat_windows.lock().unwrap().push(chat_window(true));
+    w.mac
+        .chat_trees
+        .lock()
+        .unwrap()
+        .insert(77, claude_chat(&[]));
+    // the app takes the words and starts answering, its stop control up
+    *w.mac.chat_echo.lock().unwrap() = Some(Box::new(|t: &str| {
+        let mut stop = Node {
+            role: "AXButton".into(),
+            label: "Stop response".into(),
+            x: 650.0,
+            y: 885.0,
+            w: 30.0,
+            h: 30.0,
+            enabled: true,
+            ..Node::default()
+        };
+        stop.focused = false;
+        claude_chat(&[
+            chat_text(450.0, 200.0, 250.0, t),
+            chat_text(40.0, 250.0, 660.0, "Writing"),
+            stop,
+        ])
+    }));
+    let s2 = w.s.clone();
+    tokio::task::spawn_blocking(move || s2.look())
+        .await
+        .unwrap();
+    let id = chat_id();
+    w.s.prime(&id).await;
+    let yes =
+        w.s.needs_yes(&id, "make it shorter", &Caller::Mac)
+            .unwrap()
+            .unwrap();
+    assert!(
+        yes.question.contains("Claude") && !yes.question.contains("The app"),
+        "{}",
+        yes.question
+    );
+    w.s.take_control(&id, &Caller::Mac).unwrap();
+    let sent =
+        w.s.send(&id, "make it shorter", &Caller::Mac)
+            .await
+            .unwrap();
+    assert!(
+        sent.delivered,
+        "the words show as his message in the app's own window"
+    );
+    let f = w.mac.foreground.lock().unwrap()[0].clone();
+    assert!(f.composer && f.window == 77 && f.text == "make it shorter" && f.enter);
+    assert_eq!(w.s.session(&id).unwrap().status, Status::Working);
+    // the reply finishes: the stop control goes and the text settles
+    let mac = w.mac.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        mac.chat_trees.lock().unwrap().insert(
+            77,
+            claude_chat(&[
+                chat_text(450.0, 200.0, 250.0, "make it shorter"),
+                chat_text(40.0, 250.0, 660.0, "Sure: thanks, I'll pay on Friday."),
+            ]),
+        );
+    });
+    let t = Instant::now();
+    let done = w.s.wait_turn(&id, 120.0).await.unwrap();
+    assert_eq!(done.status, Status::Idle);
+    assert_eq!(done.last_text, "Sure: thanks, I'll pay on Friday.");
+    assert!(t.elapsed() < Duration::from_secs(30));
+    let (items, _, _) = w.s.timeline(&id, 0, 50).unwrap();
+    assert_eq!(items.iter().filter(|i| i.kind == ItemKind::User).count(), 2);
+    // watching and waiting asked no model anything
+    assert!(w.seen.asks.lock().unwrap().is_empty() && w.seen.handed.lock().unwrap().is_empty());
+}
+
+// decision: HAND-672
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_app_chat_s_stop_is_its_own_stop_control_and_a_hand_over_names_the_app() {
+    let w = world(1.0);
+    w.mac.chat_windows.lock().unwrap().push(chat_window(true));
+    let stop = Node {
+        role: "AXButton".into(),
+        label: "Stop response".into(),
+        x: 650.0,
+        y: 885.0,
+        w: 30.0,
+        h: 30.0,
+        enabled: true,
+        ..Node::default()
+    };
+    w.mac
+        .chat_trees
+        .lock()
+        .unwrap()
+        .insert(77, claude_chat(&[stop]));
+    let s2 = w.s.clone();
+    tokio::task::spawn_blocking(move || s2.look())
+        .await
+        .unwrap();
+    let s2 = w.s.clone();
+    tokio::task::spawn_blocking(move || s2.timeline(&chat_id(), 0, 10))
+        .await
+        .unwrap()
+        .unwrap();
+    w.s.take_control(&chat_id(), &Caller::Mac).unwrap();
+    w.s.interrupt(&chat_id(), &Caller::Mac).await.unwrap();
+    assert_eq!(w.mac.chat_pressed.lock().unwrap().len(), 1);
+    let msg =
+        w.s.delegate(&chat_id(), "get a reply I can send", None)
+            .unwrap();
+    assert!(
+        msg.contains("my Claude chat") && msg.contains(&chat_id()),
+        "{msg}"
+    );
+    assert!(w.s.start_command(Agent::AppChat, "/tmp", "").is_err());
 }

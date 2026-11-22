@@ -9,7 +9,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use ferb_core::interfaces::{BoxFuture, Clock, IdSource};
-use ferb_daemon::sessions::{Ask, AskFn, Foreground, Mac, Seams, Sessions, KEY, SECTION};
+use ferb_daemon::sessions::{
+    Ask, AskFn, ChatWindow, Foreground, Mac, Seams, Sessions, KEY, SECTION,
+};
 use ferb_gateway::gateway::Gateway;
 use ferb_rpc::Server;
 use ferb_sessions::host::{Proc, Table};
@@ -169,6 +171,170 @@ impl Mac for NativeMac {
             foreground(driver, f).await
         })
     }
+    fn chat_windows(&self, bundles: &[String]) -> Vec<ChatWindow> {
+        let Some(driver) = self.driver() else {
+            return Vec::new();
+        };
+        chat_windows(&driver, bundles)
+    }
+    fn chat_tree(&self, w: &ChatWindow, front: bool) -> Option<Vec<ferb_sessions::appchat::Node>> {
+        let driver = self.driver()?;
+        chat_tree(&driver, w, front)
+    }
+    fn chat_press(&self, w: &ChatWindow, labels: &[String]) -> Result<(), String> {
+        let driver = self.driver().ok_or("FERB's Mac hands aren't running")?;
+        let (win, nodes) = ax_nodes(&driver, w).ok_or("FERB can't read that window now")?;
+        let _ = win;
+        let button = nodes
+            .iter()
+            .find(|n| {
+                n.ax_role == "AXButton"
+                    && n.enabled
+                    && labels
+                        .iter()
+                        .any(|l| l.eq_ignore_ascii_case(n.label.trim()))
+            })
+            .ok_or("Its stop control isn't there now")?;
+        driver
+            .ax
+            .press(&button.r#ref)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl NativeMac {
+    fn driver(&self) -> Option<Arc<ferb_mac_hands::driver::MacDriver>> {
+        self.tools
+            .upgrade()
+            .and_then(|p| p.mac().map(|m| m.tools.driver.clone()))
+    }
+}
+
+/// HAND-668: the windows of the chat apps that run now (normal windows with a title).
+#[cfg(target_os = "macos")]
+fn chat_windows(
+    driver: &Arc<ferb_mac_hands::driver::MacDriver>,
+    bundles: &[String],
+) -> Vec<ChatWindow> {
+    let apps: Vec<_> = driver
+        .apps
+        .running()
+        .into_iter()
+        .filter(|a| bundles.contains(&a.bundle_id))
+        .collect();
+    if apps.is_empty() {
+        return Vec::new();
+    }
+    let listed = ferb_mac_hands::native::windows::NativeWindows
+        .listed(true)
+        .unwrap_or_default();
+    let mut out = Vec::new();
+    for l in listed {
+        let w = &l.window;
+        let Some(app) = apps.iter().find(|a| a.pid == w.pid) else {
+            continue;
+        };
+        if !w.normal_layer()
+            || w.title.trim().is_empty()
+            || w.bounds.2 < 300.0
+            || w.bounds.3 < 200.0
+        {
+            continue;
+        }
+        out.push(ChatWindow {
+            bundle_id: app.bundle_id.clone(),
+            app: app.name.clone(),
+            pid: w.pid,
+            window: w.id,
+            title: w.title.clone(),
+            on_space: driver.shots.on_screen(w.id),
+        });
+    }
+    out
+}
+
+/// The window's Accessibility element and its nodes (Electron apps build their tree when asked: `expose_tree`),
+/// page by page up to CHAT_TREE_NODES.
+#[cfg(target_os = "macos")]
+fn ax_nodes(
+    driver: &Arc<ferb_mac_hands::driver::MacDriver>,
+    w: &ChatWindow,
+) -> Option<(ferb_mac_hands::ax::El, Vec<ferb_mac_hands::ax::AxNode>)> {
+    let window = driver.shots.window(w.window)?;
+    let _ = driver.ax.expose_tree(w.pid);
+    let el = driver
+        .ax
+        .window_with_frame(w.pid, window.bounds, Some(&w.title), None)?;
+    let mut nodes = Vec::new();
+    let mut offset = 0;
+    loop {
+        let tree = driver
+            .ax
+            .read_tree(w.pid, false, Some(&el), offset, Some(3.0), false);
+        nodes.extend(tree.nodes);
+        match tree.next_offset {
+            Some(n) if n > offset && nodes.len() < CHAT_TREE_NODES => offset = n,
+            _ => break,
+        }
+    }
+    Some((el, nodes))
+}
+
+/// The most elements FERB reads of one chat window.
+pub const CHAT_TREE_NODES: usize = 20_000;
+
+/// HAND-669: a chat window's tree as the reader takes it; `front`: brought forward first (the owner is away), then the
+/// app that was in front comes back.
+#[cfg(target_os = "macos")]
+fn chat_tree(
+    driver: &Arc<ferb_mac_hands::driver::MacDriver>,
+    w: &ChatWindow,
+    front: bool,
+) -> Option<Vec<ferb_sessions::appchat::Node>> {
+    let before = front.then(|| driver.apps.frontmost()).flatten();
+    if front {
+        driver.apps.activate(&w.bundle_id, Some(w.pid));
+        if let Some(win) = driver.shots.window(w.window) {
+            driver.ax.raise_window(w.pid, win.bounds);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+    let read = ax_nodes(driver, w).map(|(_, nodes)| {
+        let focused = driver.ax.focused_element(w.pid);
+        nodes
+            .iter()
+            .map(|n| node_of(driver, n, focused.as_ref()))
+            .collect()
+    });
+    if let Some(b) = before.filter(|b| b.pid != w.pid) {
+        driver.apps.activate(&b.bundle_id, Some(b.pid));
+    }
+    read
+}
+
+#[cfg(target_os = "macos")]
+fn node_of(
+    driver: &Arc<ferb_mac_hands::driver::MacDriver>,
+    n: &ferb_mac_hands::ax::AxNode,
+    focused: Option<&ferb_mac_hands::ax::El>,
+) -> ferb_sessions::appchat::Node {
+    ferb_sessions::appchat::Node {
+        role: n.ax_role.clone(),
+        label: n.label.clone(),
+        value: n.value.clone().unwrap_or_default(),
+        x: n.rect.0,
+        y: n.rect.1,
+        w: n.rect.2,
+        h: n.rect.3,
+        enabled: n.enabled,
+        focused: focused.is_some_and(|f| driver.ax.same(f, &n.r#ref)),
+        editable: matches!(
+            n.ax_role.as_str(),
+            "AXTextArea" | "AXTextField" | "AXComboBox"
+        ) && !n.secret,
+    }
 }
 
 /// HAND-660: the generic foreground path. The host comes to the front; the focused terminal must show the session's
@@ -196,6 +362,42 @@ async fn foreground(
             }
         }
     };
+    // HAND-672: an app chat: its window raised and its own composer focused; the proof is that focus, in that window
+    if f.composer {
+        let (d, f2) = (driver.clone(), f.clone());
+        let focused = tokio::task::spawn_blocking(move || {
+            let w = ChatWindow {
+                bundle_id: f2.bundle_id.clone(),
+                app: f2.app.clone(),
+                pid: f2.pid,
+                window: f2.window,
+                title: f2.proof.first().cloned().unwrap_or_default(),
+                on_space: true,
+            };
+            if let Some(win) = d.shots.window(w.window) {
+                d.ax.raise_window(w.pid, win.bounds);
+            }
+            let (_, nodes) = ax_nodes(&d, &w)?;
+            let plain: Vec<_> = nodes.iter().map(|n| node_of(&d, n, None)).collect();
+            let i = ferb_sessions::appchat::composer(&plain)?;
+            let el = nodes[i].r#ref.clone();
+            if !d.ax.focus(&el) {
+                return None;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(150));
+            let now = d.ax.focused_element(w.pid)?;
+            d.ax.same(&now, &el).then_some(())
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+        if focused.is_none() {
+            restore(&driver);
+            return Err(format!(
+                "FERB couldn't put the cursor in {}'s message box, so it typed nothing.",
+                if f.app.is_empty() { "the app" } else { &f.app }
+            ));
+        }
+    }
     // the proof: the session's own words around the focused element
     let d = driver.clone();
     let words = tokio::task::spawn_blocking(move || {
@@ -213,10 +415,11 @@ async fn foreground(
     })
     .await
     .map_err(|e| e.to_string())?;
-    let proven = match (&words, f.proof.first()) {
-        (Some(w), Some(p)) => w.contains(&p.to_lowercase()),
-        _ => false,
-    };
+    let proven = f.composer
+        || match (&words, f.proof.first()) {
+            (Some(w), Some(p)) => w.contains(&p.to_lowercase()),
+            _ => false,
+        };
     if !proven {
         restore(&driver);
         return Err(format!(
@@ -341,6 +544,8 @@ pub fn build(server: &Server, p: Parts) -> Sessions {
     let mac: Arc<dyn Mac> = native_mac(&p);
     let config = p.config.clone();
     let config2 = p.config.clone();
+    let config3 = p.config.clone();
+    let tools2 = p.tools.clone();
     let journal = p.journal.clone();
     let journal2 = p.journal.clone();
     let events = p.events.clone();
@@ -420,6 +625,29 @@ pub fn build(server: &Server, p: Parts) -> Sessions {
         mono: Arc::new(move || clock2.monotonic()),
         new_id: Arc::new(move || ids.new_id()),
         version: super::VERSION.to_owned(),
+        // HAND-668: the chat apps the owner added (config [sessions] chat_apps, bundle ids)
+        chat_apps: Arc::new(move || match config3.get(SECTION, "chat_apps") {
+            Ok(Some(Value::Array(a))) => a
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect(),
+            _ => Vec::new(),
+        }),
+        // HAND-669: the owner is away (presence), hasn't touched the Mac lately, and the screen isn't locked
+        may_take_front: Arc::new(move || {
+            let Some(parts) = tools2.upgrade() else {
+                return false;
+            };
+            let Some(o) = parts.owner() else {
+                return false;
+            };
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs_f64())
+                .unwrap_or(0.0);
+            o.presence.away() && o.input_near(now) == Some(false) && !locked()
+        }),
     };
     let s = Sessions::new(seams);
     ferb_daemon::sessions::register(&s, server);
@@ -550,4 +778,14 @@ pub async fn watch_frame(
     );
     fields.insert("fresh".into(), json!(true));
     Ok((fields, frame))
+}
+
+#[cfg(target_os = "macos")]
+fn locked() -> bool {
+    ferb_platform_macos::power::screen_locked() == Some(true)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn locked() -> bool {
+    true
 }

@@ -1,0 +1,6 @@
+[
+  {"bundle_id": "com.anthropic.claudefordesktop", "name": "Claude", "stop_labels": ["Stop response", "Stop"], "owner_side": "right"},
+  {"bundle_id": "com.openai.codex", "name": "ChatGPT", "stop_labels": ["Stop streaming", "Stop generating", "Stop"], "owner_side": "right"},
+  {"bundle_id": "com.openai.chat", "name": "ChatGPT", "stop_labels": ["Stop streaming", "Stop generating", "Stop"], "owner_side": "right"},
+  {"bundle_id": "com.todesktop.230313mzl4w4u92", "name": "Cursor", "stop_labels": ["Stop", "Cancel generation"], "owner_side": "layout"}
+]

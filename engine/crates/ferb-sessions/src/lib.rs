@@ -8,6 +8,7 @@
 //! write is data, never instructions (rule 9).
 //!
 //! - [`model`]: a session, its host, its state, a timeline item, a question card, the send paths.
+//! - [`appchat`]: the desktop chat apps' conversations read from their windows (HAND-668..673).
 //! - [`claude`]: Claude Code's transcript (an allowlist), its hook events and replies, `claude agents --json`.
 //! - [`codex`]: Codex's app-server messages (threads, items, status, approval requests) and the requests FERB sends.
 //! - [`host`]: the app that shows an agent, from a process table (HAND-654).
@@ -16,6 +17,7 @@
 //! - [`ws`]: the WebSocket frames Codex's local socket speaks.
 //! - [`codes`]: the stable refusal codes of the `sessions.*` calls.
 
+pub mod appchat;
 pub mod claude;
 pub mod codes;
 pub mod codex;

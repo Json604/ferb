@@ -84,6 +84,10 @@ impl AgentSession {
             id: text(&v["id"]),
             agent_name: match agent.as_str() {
                 "codex" => "Codex".into(),
+                // HAND-668: an app chat is named by its app
+                "app_chat" => Some(text(&v["host"]["name"]))
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or_else(|| "App chat".into()),
                 _ => "Claude Code".into(),
             },
             agent,

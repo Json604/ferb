@@ -9,6 +9,9 @@ use serde::{Deserialize, Serialize};
 pub enum Agent {
     ClaudeCode,
     Codex,
+    /// A desktop chat app's conversation, read from its window (the Claude app, ChatGPT, Cursor's agent pane, any chat
+    /// app the owner adds: HAND-668).
+    AppChat,
 }
 
 impl Agent {
@@ -16,12 +19,14 @@ impl Agent {
         match self {
             Agent::ClaudeCode => "claude_code",
             Agent::Codex => "codex",
+            Agent::AppChat => "app_chat",
         }
     }
     pub fn parse(s: &str) -> Option<Agent> {
         match s {
             "claude_code" | "claude" => Some(Agent::ClaudeCode),
             "codex" => Some(Agent::Codex),
+            "app_chat" => Some(Agent::AppChat),
             _ => None,
         }
     }
@@ -30,6 +35,7 @@ impl Agent {
         match self {
             Agent::ClaudeCode => "Claude Code",
             Agent::Codex => "Codex",
+            Agent::AppChat => "The app",
         }
     }
     /// The id prefix of its sessions (`claude:<sessionId>`, `codex:<threadId>`).
@@ -37,6 +43,7 @@ impl Agent {
         match self {
             Agent::ClaudeCode => "claude",
             Agent::Codex => "codex",
+            Agent::AppChat => "app",
         }
     }
     /// The session id FERB uses for the agent's own id.
@@ -49,6 +56,7 @@ impl Agent {
         let a = match p {
             "claude" => Agent::ClaudeCode,
             "codex" => Agent::Codex,
+            "app" => Agent::AppChat,
             _ => return None,
         };
         (!own.is_empty()).then_some((a, own))

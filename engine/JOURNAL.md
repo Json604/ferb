@@ -9298,3 +9298,68 @@ EntryWatchTests, ConversationTests, ChatFlowTests.
   the task's turn with its words (as before this change).
 - This entry's number (171) and ORCH-688, ORCH-689, APP-1113 were the next free when written; other agents work at
   the same time.
+
+## 2026-11-22 · 172 · App chats: the desktop chat apps' conversations as sessions, watched by code
+
+**What.** T-1289, wanted for the release (HAND-668). The chats open in the Claude app, ChatGPT and the Codex app,
+Cursor's agent pane and any chat app the owner adds now appear in the same Sessions list, as agent `app_chat`. They
+are read, sent to and handed to FERB in one generic way.
+- **ferb-sessions `appchat`** (portable). One look at a window's Accessibility tree, as flat nodes, gives:
+  - the composer: the focused editable text element, else the lowest one (the lab's x4);
+  - the messages: the text above the composer in reading order, grouped by gaps;
+  - who said each one, from structure (HAND-670): the app's own side or label, kept as data in `appchat.json`, else
+    alignment within the transcript's column. FERB's own sent text only confirms a message is the owner's;
+  - the app's stop control.
+  - `Watch` tells replying from finished (HAND-671), with the owner's numbers (HAND-674): an app with a stop control
+    has finished once it has been gone 3 s; an app with none, once nothing changed for 10 s.
+- **ferb-daemon `sessions/appchats.rs`** (HAND-669).
+  - The chat windows of the known and added apps are listed.
+  - A chat is read only while watched: a client read it in the last 30 s, FERB's task holds it, or a send waits for
+    its reply. It is read every 2 s while the app replies and every 10 s otherwise (HAND-674).
+  - A window on another Space is read by bringing its app forward only while the owner is away, every 30 s
+    (HAND-674), and the app that was in front is put back.
+  - A send goes through the one send path (HAND-672). It asks the same once-per-session question (GATE-622) or
+    GATE-585's question, focuses the window's own message box, and types only when focus is provably there. The text
+    showing as his message is the delivery. GATE-585's question for an app chat names the app's chat and message box,
+    never a terminal (HAND-675): the input carries `chat`, and the shared terminal wording reads it.
+  - Stop presses the app's own stop control.
+  - `wait_turn` looks every 2 s until the reply has finished (HAND-673).
+- **ferbd**. `NativeMac` lists the chat windows through the window server and runs the apps; it reads their trees with
+  the Mac hands' `read_tree` (`expose_tree` first, for Electron apps), page by page up to 20,000 elements. The
+  foreground path's `composer` mode raises the window, focuses the composer, and takes that focus as the proof.
+  `may_take_front` is the presence watcher's "away", with no recent input and the screen unlocked.
+- **Clients**. An app chat is named by its app: ferb-mobile's `agent_name`, and FERB.app's `agentName`. The tools'
+  descriptions mention the chats.
+
+**Why.** The owner's words HAND-668. His earlier run, task 38f4a1ef, made 9 model calls in 7m41s just watching a
+session. The coordinator asked that speakers come from structure, with FERB's sent text only as a confirmation. The
+timing numbers were put to the owner as a proposal; he answered "go with your picks" (HAND-674, the proposal quoted
+in its rule, since words_source holds 200 characters).
+
+**Evidence.**
+- ferb-sessions `tests/appchat.rs` (4), on stand-in trees:
+  - the owner typing in the app himself;
+  - an added app read by alignment;
+  - an agent pane whose label marks his messages;
+  - FERB's text confirming;
+  - replying until the stop control has been gone 3 s, or, for an app without one, the chat held still 10 s;
+  - no composer.
+- ferb-daemon `tests/sessions.rs` (4 more, 17 in all):
+  - listed, and read only while watched, with his own typing his;
+  - another Space read only while he's away, at most once per 30 s;
+  - a send typed into the box, delivered, then waited for by code until finished, with no question, hand-over or
+    model call;
+  - the stop control pressed, and a hand-over naming the app.
+- ferb-policy `tests/chat_card.rs`: an app chat's question, summary and Yes name the app's chat, never a terminal,
+  still one Yes per app per task; a terminal's input writes the same bytes as before, and the Python parity of the
+  terminal question (`tests/parity.rs`) is unchanged.
+
+**Unverified.**
+- No real Claude app, ChatGPT or Cursor window was read.
+- `appchat.json`'s bundle ids and stop labels are best knowledge: the lab saw ChatGPT.app as `com.openai.codex`, and
+  the stop labels are unchecked.
+- Whether each app exposes its messages as AXStaticText (the lab counted text elements, not roles).
+- Whether right-alignment marks the owner's messages in each app.
+- Whether focusing the composer through AX works in each app (the lab saw Cursor ignore an AXValue set; typing is
+  used here, not a set).
+- The read cost on a long chat, at up to 20,000 elements.

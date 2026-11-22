@@ -562,6 +562,10 @@ pub struct TerminalInput {
     pub label: String,
     pub opens: bool,
     pub named: Vec<String>,
+    /// HAND-675: the input goes into a desktop chat app's own message box (an app chat, HAND-672), not a terminal:
+    /// the question names the app's chat. Not Python's: absent unless set.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub chat: bool,
 }
 
 /// The owner's Yes covering one TerminalInput for this call (types.py:330).
