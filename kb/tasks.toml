@@ -319,13 +319,13 @@ why = "Live 2026-11-04 (Codex, v0.27.0 run): five planner turns in a row read ex
 decisions = ["RUN-416", "ORCH-325"]
 
 [T-1044]
-title = "Should failed learning days and episode cards stop retrying after some tries?"
+title = "Should episode cards stop retrying after 2 failures?"
 area = "memory"
 kind = "question"
 status = "open"
-why = "MEM-468 made a day's pass the code summary alone (no model call) and gave a failing summary FERB's proposed cap of 3 tries, an hour apart (MEM-470); MEM-422 parks a card after two failures. Caps are the owner's (rule 18)."
-decisions = ["MEM-470", "MEM-422"]
-ask = "When a day's summary can't be written (it no longer uses the AI), FERB now tries it 3 times, an hour apart, then leaves it and keeps that day's activity. Episode cards stop after 2 failures. Are 3 and 2 right?"
+why = "MEM-422 parks an episode card that can't be built after two failures, until its inputs change. Caps are the owner's (rule 18). The days' 3 tries are his (MEM-473)."
+decisions = ["MEM-422"]
+ask = "When FERB can't write up a finished task for later (an episode card), it tries once more, then waits until that task changes. Is 2 tries right?"
 
 [T-1045]
 title = "Offer another service with one tap when the plan doesn't include the model"
@@ -1052,12 +1052,12 @@ why = "Later, if HAND-682's proof or HAND-683's choosing bother the owner (he sh
 decisions = ["HAND-682", "HAND-683", "HAND-660"]
 after = []
 
-[T-1294]
-title = "Nothing checks a fact's review date since the day narrative is off"
+[T-1296]
+title = "Ask again in 7 days when the owner is not sure a dated fact still holds?"
 area = "memory"
 kind = "question"
 status = "open"
-why = "The planner (`review_in_days`, supervisor.md) and the import set a review date on a fact tied to a period, and their prompts say FERB checks it then. Its only reader was the distill's model half (`due_for_review`), off since MEM-468; the weekly pass ends only always-on facts."
-decisions = ["MEM-468"]
-ask = "Some facts FERB saves are tied to a period (a course, a trip) and get a date to check they still hold. That check was part of the day narrative you turned off. Should the weekly pass check those facts on their date, or should FERB stop setting the dates?"
+why = "MEM-472: Not sure on a fact whose check date came asks again in 7 days (`import_review::UNSURE_AGAIN_DAYS`, FERB's proposal). Numbers that change FERB's behavior are the owner's (rule 18)."
+decisions = ["MEM-472"]
+ask = "When you answer Not sure about something FERB said it would check (a trip, a course), FERB asks again in a week. Is a week right?"
 after = []

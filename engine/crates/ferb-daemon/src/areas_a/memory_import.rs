@@ -780,9 +780,15 @@ pub fn site_request(site: &str, profile: &str) -> (String, String) {
 }
 
 /// What the hourly memory pass does here: the coding assistants' history and work log kept up to date when the owner
-/// said Yes (quietly), and exports FERB fetched whose import failed or was cancelled deleted a day later, told once.
+/// said Yes (quietly), exports FERB fetched whose import failed or was cancelled deleted a day later, told once, and
+/// the review asked when a remembered fact's check date has come (MEM-472).
 pub async fn hourly(st: &Rc<State>) {
     let j = job(st);
+    // decision: MEM-472 — a fact whose check date has come joins the review's "Are these still true?", by code alone:
+    // the question is asked when none waits; one that waits shows it, as its card reads the list as it stands
+    if j.due_checks().is_ok_and(|due| !due.is_empty()) {
+        ask_review(st);
+    }
     if let Ok(gone) = j.delete_fetched(None) {
         for (source, _) in gone {
             let name = ferb_memory::import_sources::source_name(&source)

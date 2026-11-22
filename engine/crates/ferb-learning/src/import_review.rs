@@ -9,6 +9,9 @@
 //! - **Are these still true?** Lines from a while ago that steer FERB's work (how he likes it to work, his setup, his
 //!   recurring things and projects) are asked once (MEM-462, for IMP-41); a fact about him that steers nothing is kept,
 //!   marked "last said …" on the Memory page, and not asked.
+//!   A fact whose check date came (the planner's `review_in_days`, an import's) is asked there too, whatever that
+//!   limit says, found by code from its date alone (MEM-472): Yes keeps it and clears the date, No ends it, Not sure
+//!   asks again in a week.
 //! - **Still want help with these?** Offers 30 to 60 days old, at most five, newest first (MEM-444, IMP-51).
 //!
 //! An answered item leaves the list; the list stays until every item is answered. A line's state is on the line
@@ -25,6 +28,7 @@ use crate::profile::CoreProfile;
 use crate::py;
 use crate::sql;
 use crate::{Error, Result};
+use ferb_memory::pystr;
 
 /// A line FERB suggests for the always-on profile, waiting for the owner's word.
 pub const SUGGESTED: &str = "suggested";
@@ -53,6 +57,25 @@ pub const ON_NOTE: &str = "Already always on";
 /// The question's first line and what it says under it (the card is its face; this is what the planner reads).
 pub const ASK_TITLE: &str = "Can you check a few things I brought in?";
 pub const ASK_ANSWER_HOW: &str = "Answer each one here, or just tell me.";
+/// Under a fact whose check date came (MEM-472): `{day}` is that date, "5 Dec 2026".
+pub const DUE_NOTE: &str = "I said I'd check this on {day}";
+/// How many days a fact the owner answered "Not sure" about waits before it is asked again (MEM-472, FERB's
+/// proposal: T-1296 asks the owner).
+pub const UNSURE_AGAIN_DAYS: i64 = 7;
+const DAY: i64 = 86_400_000_000;
+
+/// A remembered fact whose check date has come (MEM-472): any fact with a review date, the planner's
+/// (`review_in_days`) or an import's, current and in use. Found by code from the date alone, no model.
+#[derive(Clone, Debug)]
+pub struct Dated {
+    pub item_id: String,
+    /// The fact's own words as the review shows them (an imported line's as it shows its lines).
+    pub text: String,
+    /// Its check day, on this Mac's calendar ("2026-12-05").
+    pub day: String,
+    /// The import line the fact is, when it is one.
+    pub line: Option<Line>,
+}
 
 /// Whether this item came in by an import: it rests on an import's journal row, or is the item of an import line.
 pub fn imported(store: &crate::store::Store, item_id: &str) -> Result<bool> {
@@ -124,13 +147,65 @@ impl ImportJob<'_> {
         Ok(marked)
     }
 
-    /// The lines each part lists now, in the order shown.
+    /// The lines each part lists now, in the order shown. The older lines leave out a fact whose check date came:
+    /// it is asked once, as one (`due_checks`).
     pub fn review_lines(&self) -> Result<(Vec<Line>, Vec<Line>, Vec<Line>)> {
-        let today = self.today();
-        let lines: Vec<Line> = self
-            .lines()?
+        let (on, _, old, offers) = self.review_all()?;
+        Ok((on, old, offers))
+    }
+
+    /// The facts whose check date has come (MEM-472), the earliest date first: listed under "Are these still true?"
+    /// because their date came, whatever MEM-462's limit on older lines says. One the always-on part lists waits
+    /// for that answer (the parts are never mixed); one set aside is out of use and not asked.
+    pub fn due_checks(&self) -> Result<Vec<Dated>> {
+        Ok(self.review_all()?.1)
+    }
+
+    fn dated_among(&self, lines: &[Line], on: &[Line]) -> Result<Vec<Dated>> {
+        let listed: BTreeSet<&str> = on.iter().map(|l| l.item_id.as_str()).collect();
+        let mut out = Vec::new();
+        for it in self.memory.due_for_review()? {
+            let Some(at) = it.review_at else { continue };
+            if it.set_aside || listed.contains(it.id.as_str()) {
+                continue;
+            }
+            let line = lines
+                .iter()
+                .find(|l| l.item_id == it.id && !l.gone())
+                .cloned();
+            let text = match &line {
+                Some(l) => l.scoped(&self.said_as(l)),
+                None => pystr::split_ws(&it.content).collect::<Vec<_>>().join(" "),
+            };
+            out.push(Dated {
+                item_id: it.id.clone(),
+                text,
+                day: self.day_of(&py::iso(&at)),
+                line,
+            });
+        }
+        Ok(out)
+    }
+
+    /// Every list the review shows: always on, the facts whose date came, the older lines, the offers.
+    fn review_all(&self) -> Result<(Vec<Line>, Vec<Dated>, Vec<Line>, Vec<Line>)> {
+        let all = self.lines()?;
+        let (on, old, offers) = self.review_lists(&all)?;
+        let dated = self.dated_among(&all, &on)?;
+        let due: BTreeSet<&str> = dated.iter().map(|d| d.item_id.as_str()).collect();
+        let old = old
             .into_iter()
+            .filter(|l| !due.contains(l.item_id.as_str()))
+            .collect();
+        Ok((on, dated, old, offers))
+    }
+
+    fn review_lists(&self, all: &[Line]) -> Result<(Vec<Line>, Vec<Line>, Vec<Line>)> {
+        let today = self.today();
+        let lines: Vec<Line> = all
+            .iter()
             .filter(|l| !l.gone() && !l.over(&today))
+            .cloned()
             .collect();
         let order = |g: &str| {
             [GROUP_WORK, GROUP_YOU, GROUP_SETUP]
@@ -168,7 +243,7 @@ impl ImportJob<'_> {
     /// The review as every client draws it (`memory.review`): its parts, each with its title, a line under it, its
     /// groups of items, the answers each item takes and the answers for all at once. Empty parts are left out.
     pub fn review(&self) -> Result<Value> {
-        let (on, old, offers) = self.review_lines()?;
+        let (on, dated, old, offers) = self.review_all()?;
         let profile = self.in_profile()?;
         let item = |l: &Line, text: String, note: String| json!({"id": l.item_id, "text": text, "note": note});
         let mut parts = Vec::new();
@@ -218,16 +293,18 @@ impl ImportJob<'_> {
                     vec![button("approve", "Approve all"), button("decline", "Decline all")] }}),
             );
         }
-        if !old.is_empty() {
-            let items: Vec<Value> = old
+        if !dated.is_empty() || !old.is_empty() {
+            // MEM-472: the facts whose check date came first, each with that date
+            let items: Vec<Value> = dated
                 .iter()
-                .map(|l| {
+                .map(|d| json!({"id": d.item_id, "text": d.text, "note": due_note(&d.day)}))
+                .chain(old.iter().map(|l| {
                     item(
                         l,
                         l.scoped(&self.said_as(l)),
                         format!("Last said {}", py_day(&l.said())),
                     )
-                })
+                }))
                 .collect();
             parts.push(json!({"part": STILL_TRUE, "title": STILL_TRUE_TITLE, "hint": STILL_TRUE_HINT,
                 "groups": [{"title": "", "items": items, "all": []}],
@@ -247,7 +324,7 @@ impl ImportJob<'_> {
                 "all": [button("open", "Yes to all"), button("not interested", "No to all")]}),
             );
         }
-        let count: usize = on.len() + old.len() + offers.len();
+        let count: usize = on.len() + dated.len() + old.len() + offers.len();
         Ok(json!({"parts": parts, "count": count}))
     }
 
@@ -271,7 +348,7 @@ impl ImportJob<'_> {
         item_ids: &[String],
         answer: &str,
     ) -> Result<usize> {
-        let (on, old, offers) = self.review_lines()?;
+        let (on, dated, old, offers) = self.review_all()?;
         let (listed, answers): (&[Line], &[&str]) = match part {
             ALWAYS_ON => (&on, &["approve", "decline"]),
             STILL_TRUE => (&old, &["yes", "no", "unsure"]),
@@ -283,6 +360,12 @@ impl ImportJob<'_> {
         }
         let wanted: BTreeSet<&str> = item_ids.iter().map(String::as_str).collect();
         let mut n = 0;
+        if part == STILL_TRUE {
+            for d in dated.iter().filter(|d| wanted.contains(d.item_id.as_str())) {
+                self.answer_dated(d, answer)?;
+                n += 1;
+            }
+        }
         for l in listed
             .iter()
             .filter(|l| wanted.contains(l.item_id.as_str()))
@@ -341,6 +424,49 @@ impl ImportJob<'_> {
         Ok(n)
     }
 
+    /// The owner's answer about a fact whose check date came (MEM-472), by code: Yes keeps it and clears the date
+    /// (an import line made current again, as Yes to an older line does, and the same facts never set that date
+    /// again); No ends it as No to an older line does; Not sure asks again in `UNSURE_AGAIN_DAYS`.
+    fn answer_dated(&self, d: &Dated, answer: &str) -> Result<()> {
+        let now = self.memory.clock.now();
+        let again = py::shift(&now, UNSURE_AGAIN_DAYS * DAY);
+        if let Some(l) = &d.line {
+            let mut l = l.clone();
+            l.data.remove("asking_old");
+            l.data.insert("review_checked".into(), json!(d.day));
+            let next = if answer == "unsure" {
+                self.day_of(&py::iso(&again))
+            } else {
+                String::new()
+            };
+            l.data.insert("review_on".into(), json!(next));
+            if answer == "yes" {
+                l.data.insert("confirmed".into(), json!(py::iso(&now)));
+            }
+            self.write_line(&l, false)?;
+            if answer == "yes" {
+                let rests = self.line_facts(&l.id)?;
+                self.settle(&l, &rests.iter().collect::<Vec<_>>(), "")?;
+            }
+        }
+        match answer {
+            "unsure" => self.memory.set_review(&d.item_id, Some(&again))?,
+            "no" => {
+                self.memory.set_review(&d.item_id, None)?;
+                if self
+                    .memory
+                    .get(&d.item_id)?
+                    .is_some_and(|i| i.valid_to.is_none() && i.status == "active")
+                {
+                    self.memory
+                        .retire(&d.item_id, "the owner said it no longer holds")?;
+                }
+            }
+            _ => self.memory.set_review(&d.item_id, None)?,
+        }
+        Ok(())
+    }
+
     /// What the review asks after an import (MEM-444, MEM-460, MEM-462): the offers 30 to 60 days old (`ask_round`)
     /// and the older lines that steer FERB's work (`old_round`), each asked about once; the always-on suggestions are
     /// marked (`suggest_always_on`). Whether anything is to answer.
@@ -354,7 +480,7 @@ impl ImportJob<'_> {
     /// The question FERB asks for the review: its first line and the line under it (`None` when nothing is to
     /// answer). The card is its face; these words are what the planner and a client without the card read.
     pub fn review_question(&self) -> Result<Option<String>> {
-        let (on, old, offers) = self.review_lines()?;
+        let (on, dated, old, offers) = self.review_all()?;
         let mut what = Vec::new();
         let n = |k: usize, one: &str, many: &str| {
             if k == 1 {
@@ -368,6 +494,13 @@ impl ImportJob<'_> {
                 on.len(),
                 "1 thing to keep in mind all the time",
                 "{n} things to keep in mind all the time",
+            ));
+        }
+        if !dated.is_empty() {
+            what.push(n(
+                dated.len(),
+                "1 thing I said I'd check with you",
+                "{n} things I said I'd check with you",
             ));
         }
         if !old.is_empty() {
@@ -387,10 +520,10 @@ impl ImportJob<'_> {
         if what.is_empty() {
             return Ok(None);
         }
-        let list = match what.len() {
-            1 => what[0].clone(),
-            2 => format!("{} and {}", what[0], what[1]),
-            _ => format!("{}, {} and {}", what[0], what[1], what[2]),
+        let list = match what.split_last() {
+            Some((last, [])) => last.clone(),
+            Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
+            None => String::new(),
         };
         Ok(Some(format!(
             "{ASK_TITLE}\n{}. {ASK_ANSWER_HOW}",
@@ -401,19 +534,26 @@ impl ImportJob<'_> {
     /// The review's items numbered as shown, each `(n, part, line, text)`: what the owner's typed answer is read
     /// against (`apply_answer`).
     pub fn review_numbered(&self) -> Result<Vec<Value>> {
-        let (on, old, offers) = self.review_lines()?;
+        let (on, dated, old, offers) = self.review_all()?;
         let mut out = Vec::new();
-        let mut push = |what: &str, l: &Line, text: String| {
-            out.push(json!({"n": out.len() + 1, "what": what, "line": l.id, "item": l.item_id, "text": text}));
+        let mut push = |what: &str, line: &str, item: &str, text: String| {
+            out.push(
+                json!({"n": out.len() + 1, "what": what, "line": line, "item": item, "text": text}),
+            );
         };
         for l in &on {
-            push(ALWAYS_ON, l, l.scoped(&self.said_as(l)));
+            push(ALWAYS_ON, &l.id, &l.item_id, l.scoped(&self.said_as(l)));
+        }
+        // MEM-472: a fact whose check date came is answered as an older line is (still true, or not any more)
+        for d in &dated {
+            let line = d.line.as_ref().map_or("", |l| l.id.as_str());
+            push("line", line, &d.item_id, d.text.clone());
         }
         for l in &old {
-            push("line", l, l.scoped(&self.said_as(l)));
+            push("line", &l.id, &l.item_id, l.scoped(&self.said_as(l)));
         }
         for l in &offers {
-            push("offer", l, l.offer());
+            push("offer", &l.id, &l.item_id, l.offer());
         }
         Ok(out)
     }
@@ -513,6 +653,11 @@ impl ImportJob<'_> {
 /// (`GUIDES`), or a project of his. A fact about him that steers nothing is not asked about when it gets old.
 pub fn steers(l: &Line) -> bool {
     GUIDES.contains(&l.s("use").as_str()) || l.kind == "project"
+}
+
+/// The note under a fact whose check date came: "I said I'd check this on 5 Dec 2026".
+fn due_note(day: &str) -> String {
+    DUE_NOTE.replace("{day}", &py_day(day))
 }
 
 /// "2026-09-30" as "30 Sep 2026" (owner-facing).

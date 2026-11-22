@@ -4,7 +4,7 @@
 //! narratives already stored stay and are read as before.
 //!
 //! A day whose summary fails is journaled `memory.distill_failed` and tried again on the next hourly passes, at most
-//! [`SUMMARY_TRIES`] times in all (MEM-470; the number is FERB's proposal, T-1044); one day's failure never stops the
+//! [`SUMMARY_TRIES`] times in all (MEM-470; the owner's number, MEM-473); one day's failure never stops the
 //! days after it.
 
 use std::collections::BTreeSet;
@@ -21,8 +21,8 @@ use crate::store::Store;
 use crate::summary;
 use crate::{Clock, Result};
 
-/// How many times a day's code summary is tried before the hourly pass leaves it (MEM-470: FERB's proposal, the
-/// owner's number to set, T-1044). Its activity stays in the trail until it is summarized.
+/// How many times a day's code summary is tried before the hourly pass leaves it (MEM-470; the owner's number,
+/// MEM-473). Its activity stays in the trail until it is summarized.
 pub const SUMMARY_TRIES: i64 = 3;
 
 /// What `distill_runs.detail` says for a day done by the code half alone.

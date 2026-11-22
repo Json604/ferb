@@ -10070,3 +10070,63 @@ one round button, and a bar that scrolls. He picked "b".
 - The menu's and the chooser's look are the owner's to judge on the goldens.
 - Finding the terminals in a window (`terminal_choices`, `window_terminals`) and finding a chosen one again are
   compiled, not run against a real app. Terminals on another Space may not be listed.
+
+## 2026-11-23 · 182 · On a fact's check date FERB asks the owner in the review; the days' 3 tries are his
+
+**What.** MEM-468 turned off the distill's model half, which was the only reader of a fact's review date (T-1294).
+The planner (`review_in_days`, supervisor.md) and the import (import_verify.md, import_place.md) still set those
+dates, and their prompts say FERB checks the fact then. The owner was shown "(a) Leave it… (b) Ask you on the date:
+on 5 Dec, 'In Goa until 5 Dec' shows up in your review list under 'Are these still true?' with Yes / No, not any
+more. It's plain code with no model call; you tap once." He answered "b" (MEM-472).
+- **Found by code** (ferb-learning `import_review.rs`, `due_checks`). The check uses `Memory::due_for_review`, the
+  same reader the distill used: an active, current fact whose `memory_context.review_at` has come. A fact set aside
+  is not asked. A fact the always-on part lists waits for that answer, because the parts are never mixed. An import
+  line shows in its own words (`you`, scoped); any other fact shows its content.
+- **Shown under "Are these still true?"** These facts come first, before MEM-462's older lines, and each one's note
+  is "I said I'd check this on 5 Dec 2026". MEM-462's five-at-most and once-only limits don't apply: a fact is asked
+  because its date came. When many are due together they are still one part of one question. A fact that is both
+  dated and an older line is listed once, as dated. The question counts them as "1 thing I said I'd check with you" /
+  "{n} things I said I'd check with you", and its count list now joins any number of parts.
+- **Answers** (`answer_review`, part `still_true`, so the buttons, all-at-once and the typed answer all go one way;
+  `review_numbered` gives them as `line`):
+  - Yes keeps the fact and clears its date. An import line is also made current again (`confirmed`, `settle`), as Yes
+    to an older line does.
+  - No, not any more ends the fact as the older lines' No does (`retire`, "the owner said it no longer holds"), and
+    clears the date.
+  - Not sure sets the date 7 days on (`UNSURE_AGAIN_DAYS`, FERB's proposal; T-1296 asks the owner).
+  - On an import line the answered day is kept as `review_checked`. `timed` (import_profile.rs) never brings back a
+    check date on or before it from the same facts; a later one from a new fact does, and a Not sure date stays.
+- **Asked by the hourly pass** (ferb-daemon `memory_import::hourly`, code only). When anything is due it calls
+  `ask_review`, which asks `memory_review` when none waits. A question already waiting shows the new items through
+  its card, which reads `memory.review` live. `review_settled` closes the question when nothing is left, and
+  `restore_memory_questions` asks it again at start with the list as it stands, now including these facts.
+- **Prompts unchanged.** supervisor.md ("the days after which FERB checks it still holds") and import_verify.md
+  ("the days after which FERB should check it still holds") describe what now happens. No prompt names the mechanism.
+- **SUMMARY_TRIES = 3 is his** (MEM-473). He was shown "A day whose summary fails is now tried at most 3 times… 3
+  tries for a failing day: fine as the number?" and answered "yes". T-1044 now asks only about the episode cards' 2.
+
+**New owner-facing strings.** "I said I'd check this on {day}" (`DUE_NOTE`, day as "5 Dec 2026"); "1 thing I said
+I'd check with you" / "{n} things I said I'd check with you" (the question's count line).
+
+**Evidence.**
+- ferb-learning `tests/review_dates.rs`:
+  - `a_fact_joins_the_review_on_its_check_date_by_code_and_each_answer_does_what_it_says`: a planner-style fact, an
+    import line and a third fact, all dated 30 days on. None is asked on day 29. All three are asked on day 30, with
+    their notes and the question's words. Yes keeps and clears; No ends it, and the line keeps `review_checked`; Not
+    sure is absent 6 days later and back on day 7, with the new date. The kept one is never asked again. Zero
+    `model.start` events.
+  - `every_fact_whose_date_came_is_asked_past_the_five_older_lines_limit_and_in_words_too`: 7 at once; the typed
+    answer's numbering; Yes to all; zero model calls.
+- ferb-daemon `a_memory_flow::the_hourly_pass_asks_about_a_fact_on_its_check_date_with_no_model`: nothing is asked
+  before the date. On the date the hourly pass asks `memory_review` with the count line. Not sure by its button
+  closes it, the next hour asks nothing, and 7 days later it is asked again. The daemon has no model runtime.
+- ferb-learning `a_failing_summary_is_tried_three_times_and_never_blocks_later_days` now carries MEM-473.
+- `cargo clippy -D warnings` and the tests of ferb-learning and ferb-daemon pass.
+
+**Open / unverified.**
+- `timed`'s guard runs only when an import places new facts on a line. It is not exercised by a test.
+- The daemon test's stand-in never reports a question as waiting, so the rule that a waiting question is not asked
+  twice (`pending_own`) is not shown there. It is the existing path's.
+- A waiting question keeps the count line it was asked with until it is asked again (at start, or after a typed
+  answer). Only its card shows the new items.
+- No app code changed: the apps draw the engine's note as text. No live check.

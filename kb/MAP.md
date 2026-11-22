@@ -11,7 +11,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | engine | Rust engine (the rewrite) | `engine/*`, `engine/crates`, `engine/fixtures`, `engine/packaging` | 23 | 4 | 0 |
 | gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `engine/runtime/identity` | 132 | 9 | 62 |
 | hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extension`, `extension-store` | 231 | 14 | 52 |
-| memory | Memory and memory import | `engine/runtime/memory` | 91 | 9 | 9 |
+| memory | Memory and memory import | `engine/runtime/memory` | 93 | 9 | 9 |
 | orchestration | Orchestration | `ferb/orchestrator/*.py`, `engine/runtime/decide`, `ferb/clock` | 184 | 10 | 42 |
 | perception | Perception | `ferb/sense` | 27 | 4 | 2 |
 | phone | Phone role, link and phone apps | `apps/android`, `apps/ios`, `engine/patches` | 382 | 13 | 20 |
@@ -27,7 +27,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 
 - T-408 (app): With the preview open, the same task used this much more of FERB's CPU than with it closed (LIVE-420's figures). Should the preview's frame rate be capped, and if so at how many frames per second?
 - T-1020 (gateway): To show the Keychain's exact reason when a saved secret can't be read (for example "user interaction is not allowed"), the small secrets helper has to be rebuilt. After that update, macOS asks once more for your login password for each saved secret on each Mac. Rebuild it now, or keep today's shorter reasons?
-- T-1044 (memory): When a day's summary can't be written (it no longer uses the AI), FERB now tries it 3 times, an hour apart, then leaves it and keeps that day's activity. Episode cards stop after 2 failures. Are 3 and 2 right?
+- T-1044 (memory): When FERB can't write up a finished task for later (an episode card), it tries once more, then waits until that task changes. Is 2 tries right?
 - T-1045 (orchestration): When your ChatGPT plan doesn't include FERB's model, should FERB offer to switch to another signed-in service with one tap (it never switches by itself), like it does for usage limits?
 - T-1050 (project): Should every build that changes setup go through one fresh-install run (on a second macOS user account you create once) before it ships, with setup changes made one at a time?
 - T-1057 (project): Go through the agent-set and code-only limits (highlighted rows in the FERB Limits page) and say, for each you care about, keep, change (to what) or remove; the rest stay as they are and get recorded as your decision.
@@ -51,7 +51,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 - T-1278 (tests): 1. A fast push check (under 8 minutes) plus a heavy run at night or before installs? 2. Keep one Python-parity replay per scenario and compare prompts by structure? 3. Which 20-30 live checks to run again on Rust (payments, new recipients, terminal typing, Stop and No, background, secrets)? 4. A spare Mac as a test runner?
 - T-1280 (app): Which moments should FERB check in on (stuck on something, a deadline near, a repeated task, end of day), how often at most, and where (notch, phone, both)?
 - T-1286 (hands): Should a phone's control of a session also end after some idle time (30 minutes was suggested), or only when you lock the phone or let go?
-- T-1294 (memory): Some facts FERB saves are tied to a period (a course, a trip) and get a date to check they still hold. That check was part of the day narrative you turned off. Should the weekly pass check those facts on their date, or should FERB stop setting the dates?
+- T-1296 (memory): When you answer Not sure about something FERB said it would check (a trip, a course), FERB asks again in a week. Is a week right?
 
 ## Terms
 

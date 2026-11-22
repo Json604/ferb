@@ -724,3 +724,77 @@ async fn a_website_watch_waits_by_code_between_its_rare_model_runs() {
     })
     .await;
 }
+
+// decision: MEM-472
+#[tokio::test]
+async fn the_hourly_pass_asks_about_a_fact_on_its_check_date_with_no_model() {
+    let tmp = tempfile::tempdir().unwrap();
+    let d = daemon(tmp.path()).await;
+    // a fact the planner saved with review_in_days 30 (remember.rs)
+    let id = d
+        .on(|st| {
+            Box::pin(async move {
+                let item = st
+                    .memory
+                    .save(
+                        "fact",
+                        "owner",
+                        "trip",
+                        "The owner is in Goa",
+                        "inferred",
+                        &[("journal".into(), "j1".into())],
+                        0.6,
+                        &[],
+                        "",
+                        Some(false),
+                    )
+                    .unwrap()
+                    .item;
+                let at = ferb_learning::py::shift(&st.memory.clock.now(), 30 * 86_400_000_000);
+                st.memory.set_review(&item.id, Some(&at)).unwrap();
+                memory_import::hourly(&st).await;
+                item.id
+            })
+        })
+        .await;
+    assert!(asks(&d).is_empty(), "nothing before the date");
+    d.clock.advance(30.0 * 86_400.0);
+    // (one that waits is not asked twice: `pending_own`, which this stand-in's questions never report)
+    hourly(&d).await;
+    let asked = asks(&d);
+    assert_eq!(asked.len(), 1, "{asked:?}");
+    assert_eq!(asked[0]["kind"], "memory_review");
+    assert_eq!(
+        asked[0]["detail"],
+        "1 thing I said I'd check with you. Answer each one here, or just tell me."
+    );
+    // "Not sure" by its button: the question closes, and it is asked again a week later
+    let again = id.clone();
+    d.on(move |st| {
+        Box::pin(async move {
+            let j = memory_import::job(&st);
+            assert_eq!(
+                j.answer_review(&st.profile, "still_true", &[again], "unsure")
+                    .unwrap(),
+                1
+            );
+            memory_import::review_settled(&st);
+        })
+    })
+    .await;
+    hourly(&d).await;
+    assert_eq!(asks(&d).len(), 1);
+    d.clock.advance(7.0 * 86_400.0);
+    hourly(&d).await;
+    assert_eq!(asks(&d).len(), 2);
+    // no model is set up in this daemon: a model call would have failed the pass's steps, none was tried
+    assert!(
+        d.on(|st| Box::pin(async move { st.make_runtime.is_none() }))
+            .await
+    );
+}
+
+async fn hourly(d: &Daemon) {
+    d.on(|st| Box::pin(async move { memory_import::hourly(&st).await }))
+        .await;
+}

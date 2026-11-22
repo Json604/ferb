@@ -1127,3 +1127,25 @@ words_source = "His answer, relayed by the coordinator, to three proposals: the 
 rule = "Confirms, as his: the website watch's model check of the mail runs at most every 12 hours (`WATCH_MODEL_EVERY_HOURS`, MEM-467) until a code mailbox check exists (T-1293); `memory.review` and `memory.review.answer` are private from a phone, not sensitive (MEM-465); the review asks only about older lines that steer FERB's work, five at most, once, and keeps the others marked 'last said' (MEM-462)."
 paths = ["engine/crates/ferb-daemon/src/areas_a/memory_import.rs", "engine/crates/ferb-rpc/src/classes.rs", "engine/crates/ferb-learning/src/import_review.rs"]
 live = ["LIVE-1184", "LIVE-1185"]
+
+
+[MEM-472]
+title = "On a fact's check date FERB asks him in the review, by code: Yes, No, not any more, or Not sure"
+by = "owner"
+date = 2026-11-23
+status = "active"
+words = "b"
+words_source = "His answer to: \"(a) Leave it… (b) Ask you on the date: on 5 Dec, 'In Goa until 5 Dec' shows up in your review list under 'Are these still true?' with Yes / No, not any more.\""
+rule = "For MEM-34, refining MEM-462. A remembered fact's review date (the planner's review_in_days, an import's) is checked by code in the hourly pass, with no model: from that date the fact is in the review's \"Are these still true?\" (question memory_review, asked when none waits), past MEM-462's five-at-most, with its text and \"I said I'd check this on 5 Dec 2026\". Yes keeps it and clears the date (its facts never set it again); No, not any more ends it as No to an older line does; Not sure asks again in 7 days (UNSURE_AGAIN_DAYS, FERB's proposal: T-1296)."
+why = "MEM-468 turned off the distill's model half, the only reader of review dates (T-1294), while the planner's and the import's prompts say FERB checks the fact then."
+paths = ["engine/crates/ferb-learning/src/import_review.rs", "engine/crates/ferb-learning/src/import_profile.rs", "engine/crates/ferb-daemon/src/areas_a/memory_import.rs::hourly"]
+
+[MEM-473]
+title = "A day whose summary fails is tried 3 times: the owner's number"
+by = "owner"
+date = 2026-11-23
+status = "active"
+words = "yes"
+words_source = "His \"yes\" (his message: \"my claude code signin. yes. whats 3 mean???\") to \"A day whose summary fails is now tried at most 3 times… 3 tries for a failing day: fine as the number?\""
+rule = "Confirms, as his, MEM-470's cap: a day whose code summary fails is tried at most 3 times in all, an hour apart (`distill::SUMMARY_TRIES`), then left with its activity kept in the trail. The episode cards' 2 (MEM-422) is still asked in T-1044."
+paths = ["engine/crates/ferb-learning/src/distill.rs"]

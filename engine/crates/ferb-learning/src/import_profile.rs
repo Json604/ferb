@@ -288,7 +288,7 @@ impl ImportJob<'_> {
     }
 
     /// The local day a fact was said.
-    fn day_of(&self, said: &str) -> String {
+    pub(crate) fn day_of(&self, said: &str) -> String {
         match py::parse(said) {
             Ok(at) => times::astimezone(&at, self.memory.zone.as_ref())
                 .map_or_else(|| pystr::prefix(said, 10).to_owned(), |d| times::ymd(&d)),
@@ -427,6 +427,16 @@ impl ImportJob<'_> {
                 .map(|t| self.day_of(&py::iso(&py::shift(&t, suggested * DAY))))
                 .unwrap_or_default(),
             None => String::new(),
+        };
+        // MEM-472: a check date the owner already answered never comes back from the same facts; a later one (a new
+        // fact with a new period) does, and his "Not sure" date stays until then
+        let checked = line.s("review_checked");
+        let review_on = if checked.is_empty() || review_on > checked {
+            review_on
+        } else if line.s("review_on") > checked {
+            line.s("review_on")
+        } else {
+            String::new()
         };
         let until = rests
             .iter()

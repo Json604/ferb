@@ -324,11 +324,12 @@ fn distill_runs_the_code_half_only() {
     assert!(diffs.is_empty());
 }
 
-/// decision: MEM-470. A day whose code summary fails is recorded `failed`, journaled with its tries, and tried again
+/// decision: MEM-470, MEM-473. A day whose code summary fails is recorded `failed`, journaled with its tries, and tried again
 /// on the next passes; after [`SUMMARY_TRIES`] it is no longer pending, and it never stops the days after it.
 #[test]
 fn a_failing_summary_is_tried_three_times_and_never_blocks_later_days() {
     use ferb_learning::distill::SUMMARY_TRIES;
+    assert_eq!(SUMMARY_TRIES, 3, "the owner's number (MEM-473)");
     let data = fixture("restarts.json");
     let d = &data["distill"];
     let tmp = tempfile::tempdir().unwrap();
