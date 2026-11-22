@@ -1,8 +1,8 @@
 {
   "counts": {
     "plain": 57,
-    "private": 40,
-    "sensitive": 49,
+    "private": 41,
+    "sensitive": 51,
     "never": 28
   },
   "methods": {
@@ -620,6 +620,33 @@
       "refused_params": [],
       "owner_to_confirm": false,
       "why": "the size of an import"
+    },
+    "memory.import.lines": {
+      "class": "private",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "where imported memories apply and their offers"
+    },
+    "memory.import.offer": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "answers an imported memory's offer"
+    },
+    "memory.import.scope": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "changes where an imported memory applies"
     },
     "memory.import.start": {
       "class": "sensitive",

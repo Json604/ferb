@@ -740,6 +740,21 @@ pub fn tool_named(p: &Parts, name: &'static str) -> Arc<dyn Tool> {
                 .map(|o| answer(o.content, o.is_error, o.read_sources).into())
             })
         }),
+        // MEM-448: a website's export FERB downloaded, imported in the background and deleted when done
+        "memory.import" => Arc::new(move |a, _c| {
+            let p = parts.clone();
+            let (source, path) = (s_or(a, "source"), s_or(a, "path"));
+            Box::pin(async move {
+                let ga = group_a(&p)?;
+                ga.call(move |st: Rc<ferb_daemon::areas_a::State>| async move {
+                    ferb_daemon::areas_a::memory_import::start_fetched(&st, &source, &path)
+                        .map_err(ToolError::refused)
+                })
+                .await
+                .map_err(gone)?
+                .map(|v| answer(v, false, Vec::new()).into())
+            })
+        }),
         "secrets.list" => Arc::new(move |a, c| {
             let p = parts.clone();
             let place = s_or(a, "place");

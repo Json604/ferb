@@ -29,6 +29,8 @@ pub fn own_labels(kind: &str) -> (&'static str, &'static str) {
     match kind {
         "forget" => ("Forget it", "Keep it"),
         "downloads" => ("Delete them", "Keep them"),
+        // MEM-447: the coding assistants on this Mac
+        "memory_local" => ("Yes, bring it in", "No, thanks"),
         _ => ("", ""),
     }
 }
@@ -340,7 +342,12 @@ pub fn restore_memory_questions(st: &Rc<State>) -> ferb_learning::Result<()> {
     for row in q.waiting()? {
         let s = |n: usize| ferb_py::value::py_str(&row[n]);
         let (approval_id, kind, target, reason, request_id) = (s(0), s(1), s(2), s(3), s(4));
-        let gone = if kind == "browsing" {
+        // the browsing and memory-import questions are asked again by their own moment, with today's choices
+        let gone = if kind == "browsing"
+            || kind == super::memory_import::LOCAL_KIND
+            || kind == super::memory_import::SITES_KIND
+            || kind == super::memory_import::OFFERS_KIND
+        {
             true
         } else if kind.starts_with("downloads:") {
             false
@@ -378,6 +385,11 @@ pub fn ask_owner(
     options: Option<&[String]>,
 ) -> Result<String, String> {
     let head = kind.split(':').next().unwrap_or(kind);
+    // the real table every question goes through (the gateway's capability for each kind): a kind it doesn't know is
+    // refused here, whatever answers the seam (a stand-in once let one through, journal 166)
+    if ferb_orchestrator::steering::memory_questions(head).is_none() {
+        return Err(format!("KeyError: '{head}'"));
+    }
     let (title, rest) = reason.split_once('\n').unwrap_or((reason, ""));
     let (summary, detail) = if ferb_py::value::strip(rest).is_empty() {
         (None, None)
@@ -492,6 +504,8 @@ pub struct Answered<'a> {
     pub approval_id: &'a str,
     pub state: &'a str,
     pub choice: Option<&'a str>,
+    /// The owner's words, for a question he answers in them (MEM-444).
+    pub answer: Option<&'a str>,
 }
 
 /// `_question_answered`: FERB's own follow-up to an answered question (a chat forget on its Yes). A line, or "".
@@ -510,6 +524,28 @@ pub fn question_answered(st: &State, ap: &Answered<'_>) -> ferb_learning::Result
             Some(f) => f(ap.state, ap.choice.unwrap_or(""), &ident),
             None => String::new(),
         });
+    }
+    if what == super::memory_import::LOCAL_KIND {
+        return Ok(super::memory_import::local_answered(
+            &st.rc(),
+            ap.state == "granted" && ap.choice == Some("Yes"),
+        ));
+    }
+    if what == super::memory_import::OFFERS_KIND {
+        return Ok(super::memory_import::offers_answered(
+            &st.rc(),
+            ap.state,
+            ap.answer.unwrap_or(""),
+            &ident,
+        ));
+    }
+    if what == super::memory_import::SITES_KIND {
+        return Ok(super::memory_import::sites_answered(
+            &st.rc(),
+            ap.state,
+            ap.choice.unwrap_or(""),
+            &ident,
+        ));
     }
     if !(ap.state == "granted" && ap.choice == Some("Yes")) {
         return Ok("Kept: nothing was forgotten.".into());

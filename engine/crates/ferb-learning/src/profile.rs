@@ -461,6 +461,20 @@ impl CoreProfile {
         if item.origin == "observed" && self.memory.from_mac_scan(&item.id)? {
             return Ok(true);
         }
+        // decision: MEM-445 (the owner's IMP-47): an imported line said on two or more days or in two or more
+        // assistants, and at least once in the last 30 days, holds up at once
+        if item.origin == "inferred" {
+            let cutoff = py::shift(&now, -crate::import_profile::OLD_DAYS * 86_400_000_000);
+            let cutoff = times::astimezone(&cutoff, self.zone.as_ref())
+                .map_or_else(|| times::ymd(&cutoff), |d| times::ymd(&d));
+            if self.store.exists(
+                "SELECT 1 FROM memory_import_lines WHERE item_id = ? AND json_extract(data_json, '$.holds_up') = 1 \
+                 AND json_extract(data_json, '$.said') >= ?",
+                sql![item.id, cutoff],
+            )? {
+                return Ok(true);
+            }
+        }
         let days = self.store.count(
             "SELECT COUNT(DISTINCT day) FROM memory_sources WHERE item_id = ?",
             sql![item.id],

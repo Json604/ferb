@@ -52,6 +52,8 @@ final class FERBWindowStore: ObservableObject {
     @Published var activeMemory: [MemoryRow] = []
     @Published var coreProfile = CoreProfileView()
     @Published var importStatus: MemoryImportStatus?
+    /// What FERB brought in from other assistants, by memory id: scope and offer (MEM-442..444).
+    @Published var importedLines: [String: ImportedLine] = [:]
     @Published var importEstimate: MemoryImportEstimate?
     /// The Memory page shows only facts imported from this source (a memory import notice's page card); nil: all.
     @Published var memoryFilter: String?
@@ -195,7 +197,23 @@ final class FERBWindowStore: ObservableObject {
             activeMemory = (reply["items"] as? [[String: Any]] ?? []).compactMap(MemoryRow.init)
         }
         if let reply = await ask("memory.profile", [:]) { coreProfile = CoreProfileView(reply) }
+        if let reply = await ask("memory.import.lines", [:]) {
+            let lines = (reply["lines"] as? [[String: Any]] ?? []).compactMap(ImportedLine.init)
+            importedLines = Dictionary(lines.map { ($0.itemId, $0) }, uniquingKeysWith: { _, new in new })
+        }
         await loadImportStatus()
+    }
+
+    /// The owner's word on where an imported memory applies: "general" or a project's name (MEM-443).
+    func setScope(_ item: MemoryRow, _ scope: String) async {
+        guard await ask("memory.import.scope", ["item_id": item.id, "scope": scope]) != nil else { return }
+        await loadMemory()
+    }
+
+    /// The owner's answer to an imported memory's offer: done, not interested, or open (MEM-444).
+    func answerOffer(_ item: MemoryRow, _ answer: String) async {
+        guard await ask("memory.import.offer", ["item_id": item.id, "answer": answer]) != nil else { return }
+        await loadMemory()
     }
 
     // MARK: Memory import (kb area memory)

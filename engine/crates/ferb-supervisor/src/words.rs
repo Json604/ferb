@@ -379,11 +379,14 @@ pub const ENTRY: &str = "entry:";
 pub const TASK: &str = "task:";
 
 /// steering.py:36 `FERB_CHECKS`: FERB's own consequential checks (answered only by one of their options, L3).
-pub const FERB_CHECKS: [&str; 6] = [
+pub const FERB_CHECKS: [&str; 8] = [
     ferb_orchestrator::steering::CONFIRM_ASK,
     ferb_orchestrator::steering::RETRY_ASK,
     ferb_orchestrator::steering::CONVERSATION_ASK,
     ferb_orchestrator::steering::FORGET_ASK,
     ferb_orchestrator::steering::DOWNLOADS_ASK,
     ferb_orchestrator::browsing::BROWSING_ASK,
+    // MEM-447, MEM-448: the memory import's two choices
+    ferb_orchestrator::steering::MEMORY_LOCAL_ASK,
+    ferb_orchestrator::steering::MEMORY_SITES_ASK,
 ];

@@ -8817,3 +8817,157 @@ none.
 - The phone apps' tests weren't run here (see the report). The `kb check` paths to the new files pass once they are
   tracked.
 - `kb lock` also locked DMN-618, PHN-793 and PROJ-514: another agent's new owner decisions.
+
+## 2026-11-22 · 166 · The memory-import lab ported: what was typed, one profile kept in place, the work log, and the owner's new flow
+
+**What.** The owner's memory-import lab (`~/Desktop/ferb-memory-import-lab`, 2026-11-10, read only) is ported into the
+Rust engine, with his flow of 2026-11-22 (MEM-447, MEM-448).
+- **Readers** (ferb-memory). Claude Code and Codex are read from what the owner typed: `~/.claude/history.jsonl`
+  and `~/.codex/history.jsonl` (`import_local`, MEM-432). There is one conversation per session-day, so a later
+  read pays only for new days (MEM-433). Codex's folder comes from its session file's first 64 KB. Claude Code's
+  saved notes are still read, as claims. claude.ai's manifest export is read from exactly the parts it names, and
+  exports get plain checks (`import_exports`, MEM-438).
+- **Reading and placing** (ferb-learning).
+  - A run reads three chunks at once (MEM-434). It keeps checked facts with where each was said
+    (`memory_import_facts`, migration 0067, MEM-436) and places them into the profile afterwards (`place`, MEM-439,
+    MEM-450). A line is a memory item whose name and id never change. A join credits the day; an update is a new
+    version only when it is newer and different. The owner's corrections are read from the item (MEM-442).
+  - Scope is set by the line's words (MEM-443) and shown in the item's about, as is "last said …" for old lines.
+    Offers are checked against the work log and newer lines (MEM-446). Offers 30-60 days old are asked about once,
+    at most five (MEM-444). A recent repeat holds up at once (`CoreProfile::holds_up`, MEM-445).
+  - The one notice is the profile's report (`tell_done_with`). An export FERB fetched is deleted when its import is
+    done, or a day after a failure (MEM-440). An older export sends nothing (MEM-438).
+- **Work log** (`worklog.rs`, MEM-441). Entries are learned nodes of kind `work_log` (key `tool/session/day`, the id
+  as `thread_id`), dated by the session's day, written by `memory/worklog.md` and found by `memory.learned`.
+- **Daemon.**
+  - At chat.attach after `setup.finished`, FERB asks about the coding assistants it finds (`memory_local`). On Yes it
+    imports, tells the owner and keeps up hourly, quietly; the Settings switch is `memory.local_import`. Then it asks
+    about the websites (`memory_sites`), offering the browsing profiles.
+  - Choosing a profile makes two quiet watches. Each is a schedule every 15 minutes until met, with the profile in its
+    recorded scope and the `job` target. A watch posts only a failed run or one with gaps, once (MEM-451).
+  - The workers' `memory.import` tool (a catalog addition after `browser.downloads`) takes only paths under FERB's
+    downloads folder. `memory.import.scope` and `memory.import.offer` record the owner's word.
+- **The ask (MEM-452).** After an import's notice, the offers 30-60 days old and the lines from a while ago go in one
+  numbered list. It is FERB's own question (`memory_offers`, capability `memory.offers`), routed like a task's
+  question, so the owner's next message answers it. `import_answer.md` reads which numbers his words mean; code applies
+  that to the offers and lines; FERB says what it did in one line.
+- **Every own question goes through the real table (MEM-453).** `memory_local` and `memory_sites` were missing from
+  `steering::memory_questions`, so the real gateway would have refused them (KeyError), while group A's stand-in let
+  them through. They are in it now, as is `memory_offers`. `ask_owner` itself refuses a kind the table doesn't take.
+  The contract test `ferb-daemon/tests/own_question_kinds.rs` reads every own-question call site from the code.
+- **FERB.app.** Settings → Privacy → "Your coding assistants" switch. On the Memory page each imported line shows where
+  it applies (with Change: Everywhere / Only in a project…) and its offer (Still on / Done / No thanks), through the new
+  `memory.import.lines` RPC (private on a phone) and `.scope`/`.offer` (sensitive).
+- **memory.learned** names the work log in its description (`tool_changes.json`, MEM-441).
+
+**Why.** The owner's words of 2026-11-22: "local agent session memory tranfer adn lookup is easy and we'll do right
+away", "this has to be asked too in setup imo. also to be updated with them". On the websites: "asks … if yes then it
+does the days long process itself and notifies witha good personla message after its done". He also said "check the
+ferb-memory-import-lab once for the memory port". The coordinator asked for the profile, scope, offers and three
+chunks at once (the lab's owner decisions) in this pass.
+
+**Fixed against Python (MEM-437).** A claude.ai starter project (`is_starter_project`) was read as the owner's
+words. A conversation's every branch was read flat, so a prompt the owner edited away still counted as his. Now the
+branch the site shows is read (`shown_branch`).
+
+**Named differences.**
+- ferb-memory `import.rs`: the two homes read with no folder (`claude_code_home`, `codex_home`) take the
+  prompt-history route (MEM-432).
+- ferb-learning `memory_import_runs`: replayed strictly up to the first run. That run sends Python's recall calls and
+  as many verify calls (verify's "already remembers" list differs, because no fact is saved mid-run). It marks
+  Python's parts done, ends as Python's did, and keeps every fact Python saved among its checked facts (MEM-439).
+- ferb-learning restart test: each restart ends as the clean Rust run does. Calls and their counts are left out,
+  because chunks in flight are read again after a crash.
+- ferb-daemon `a_replay`: the two coding-assistant estimates, and `memory.local_import` among the settings.
+  `b_small`'s about.get shows the same setting.
+- ferb-rpc golden: 3 methods (`MEMORY_IMPORT_ADDITIONS`). engine/fixtures/phone/classes.json gains them (lines
+  private, scope and offer sensitive).
+- ferb-gateway `the_deliberate_changes_are_the_only_ones`: memory.learned's description (MEM-441).
+- ferb-gateway catalog: `memory.import` is an addition (MEM-448). `offered_beside` keeps an addition that neither
+  acts nor only observes off a listing with no acting tool in its scopes.
+
+**Owner-facing words (new).**
+- Questions:
+  - "Bring in what Claude Code and Codex know about you?" / "I'd read what you've typed into them on this Mac over
+    the last 3 months and keep a short log of your sessions, so I know how you like to work and what you're working
+    on. I'll keep it up to date as you use them. What I keep stays on this Mac, and you can turn this off in
+    Settings." Buttons: "Yes, bring it in" / "No, thanks".
+  - "Want me to bring in what ChatGPT and Claude know about you?" / "I'd ask each for a copy of your data in the
+    browser you're signed in to them on, wait for their email (it can take a day or two), read what matters about
+    you and then delete the file. Which browser are you signed in on?" Options: the profiles, and "No, thanks".
+- Answers: "Thanks! I'm reading through … now and I'll tell you what I learned." · "Okay, I won't read them." ·
+  "Great, I'll ask ChatGPT and Claude for your data in … and tell you once it's in. It can take a day or two." ·
+  "Okay, I'll leave them be. If you change your mind, just ask me."
+- The notice:
+  - Openings: "I read what you've typed into … on this Mac over the last 3 months, and learned N things about you and
+    how you like to work." · "I've brought in what … knew about you from your last 3 months of chats: N things I
+    didn't know before." · "… Nothing new to remember this time."
+  - Body: "I'll work the way you like (N things), for example …" · "I know N things about your setup, so I can pick
+    the right account, app or device." · "I know N of your projects and M people you've mentioned." · "Things I could
+    help with, whenever you want (I won't start any of them on my own):" · "A few of these are from a while ago. Are
+    they still true?"
+  - The ask, now FERB's question: "Are these still on?" then the numbered list, then "Just say which, like "first one
+    yes, the rest are done"."
+  - After his answer: "Thanks, I'll update them." · "Got it: I'll keep N and I've put M aside." · "Got it, I'll keep
+    those N as they are." · "Got it, I've put those N aside." · "I couldn't tell which ones you meant, so I've left
+    them as they were." · "I couldn't apply that just now; nothing was changed. Tell me again in a moment."
+  - A run with parts left unread: "I couldn't finish bringing in what … knows about you: part of it couldn't be read
+    just now. Ask me again any time and I'll go on from where I stopped."
+  - Closing: "It's all on the Memory page as my understanding, not your words. If anything's wrong or out of date,
+    just tell me and I'll fix it."
+  - Other endings: "I deleted the export file once I'd read it, so nothing of it is left on your Mac." · "This …
+    export is older than the one I brought in on …, so there was nothing new in it." · "I couldn't finish bringing in
+    what … knows about you: …. Ask me again any time and I'll go on from where I stopped." · "I deleted the … export
+    I'd downloaded, since bringing it in didn't finish. Ask me again any time."
+- Memory page: "Applies everywhere" / "Only in the … project", the "Change" menu ("Everywhere", "Only in a project…"),
+  the alert "Only in which project?" ("Project name", "Save", "Cancel"; "FERB will use this only when you're working on
+  that project."), "FERB could offer: …" ("(you said it's done)", "(you said no thanks)"), buttons "Still on",
+  "Done", "No thanks".
+- Settings: "Your coding assistants" / "Keep up with what you type into Claude Code and Codex" / "When this is on,
+  FERB reads what's new in them every hour, so it knows how you like to work and what you're working on. Turning it
+  off stops the updates; what FERB already learned stays on the Memory page."
+- Export checks: the lab's messages, in `import_exports.rs`.
+- The watches: their names are "Bring in what ChatGPT knows" and "Bring in what Claude knows". Their requests, which
+  the planner and worker read, are in `site_request`.
+
+**Evidence.**
+- ferb-memory `tests/import_local.rs` (8 tests, the lab's invented shapes): session-days, noise and repeats, a later
+  day reading only itself, Codex's folder from the header, notes within the window, no history, the manifest read by
+  its named parts, missing and expired parts (no link shown), an edited-away prompt, and the plain export checks.
+  `tests/import.rs` passes with its two named cases.
+- ferb-learning `tests/import_profile.rs` (7 tests, the lab's stand-in model `support::stand_in_answer`, through the
+  real job, memory items and learned nodes):
+  - typed lines become lines, and a later run reads only the new day;
+  - the owner's words, a retract and a retire each outrank later imports;
+  - scope by words, and the owner's scope is final;
+  - joins at once only for recent repeats;
+  - five offers 30-60 days old asked once, newest first, never 'AI', and an answered offer stays answered;
+  - the work log is found by search and by month, holds no prompt text, and is kept up to date with 0 or 1 calls;
+  - a fetched export is deleted, the owner's own is left alone, an older one sends nothing, and a failed one is
+    deleted a day later.
+- Fixtures: ferb-learning's fixture tests pass, including the two renamed above.
+- ferb-daemon `tests/a_memory_flow.rs` (5) and `tests/own_question_kinds.rs` (the contract).
+- ferb-supervisor `tests/memory_site_watch.rs` (2), through the real supervisor with stand-in models: the watch's run
+  gets the daemon's request (each stage in its words) and its recorded scope puts the task back in the owner's
+  identity; a run that finds no mail yet and one that hands the export to memory.import both end done.
+- ferbd `tests/memory_import_tool.rs`, through the binary: memory.import refuses a path outside FERB's downloads
+  folder; on FERB's own download it starts the real import, records the file, and keeps it while a part is unread.
+- Swift: `MemoryImportRowsTests` (where a line applies and its offer).
+- Crates: see the report for the last runs.
+
+**Not done, recorded as tasks.**
+- T-1281: the lab's recall and verify prompts wait for the owner's yes. The coordinator is asking him.
+- T-1283: the single chain (request, mail, download, import and notice in one run through the program) waits for
+  T-1277's lifecycle harness; it is tested in parts.
+- T-1284: the lab's work-log roll-up and explicit profile rebuild aren't ported.
+
+**Unverified.**
+- No real model was run, so the prompts' quality on real history comes from the lab's measurements.
+- No live site export was requested and no real mail was read.
+- Whether the real redactor masks parts of real session ids or folder names. A probe of four id shapes kept the ids
+  and masked a day after a colon, which is why the work-log key uses slashes.
+- Whether a worker in an unattended scheduled run requests the export and finds the mail as `site_request` asks
+  (LIVE-1165).
+- Whether the real planner routes the owner's reply to the memory.offers question (the routing is the code's, the
+  choice the planner's; the stand-in test drives `question_answered` directly).
+- The kb paths to the new files pass once they are tracked.

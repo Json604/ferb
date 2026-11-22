@@ -433,6 +433,59 @@
     "observation": true,
     "origin": "private"
    }
+  },
+  {
+   "decision": "MEM-448",
+   "after": "browser.downloads",
+   "name": "memory.import",
+   "description": "Bring a website's data export into FERB's memory: the file or folder you downloaded into FERB's downloads folder (browser.downloads gives its path) from ChatGPT's or Claude's data-export email (claude.ai: the folder holding the conversations, memories and projects parts and the list of links), or a Gemini Takeout. FERB reads only the last 3 months of what the owner said there, keeps the facts that matter as its understanding (never the chats), deletes the export when the import is done, and tells the owner once with what it learned. It runs in the background; the answer is the import's id and its size. Only a file in FERB's downloads folder: an export the owner keeps elsewhere goes in from the Memory page.",
+   "input_schema": {
+    "additionalProperties": false,
+    "properties": {
+     "source": {
+      "description": "whose export it is",
+      "enum": [
+       "chatgpt",
+       "claude",
+       "gemini"
+      ],
+      "title": "Source",
+      "type": "string"
+     },
+     "path": {
+      "description": "the downloaded export: a zip, the folder of claude.ai's parts, or the JSON or HTML file, in FERB's downloads folder",
+      "title": "Path",
+      "type": "string"
+     },
+     "why": {
+      "type": "string",
+      "description": "Optional short explanation of what this action does toward the owner's request."
+     }
+    },
+    "required": [
+     "source",
+     "path"
+    ],
+    "title": "Input",
+    "type": "object"
+   },
+   "added_by_gateway": [
+    "why"
+   ],
+   "acts": false,
+   "scopes": [
+    "browser:read",
+    "browser:act"
+   ],
+   "identities": [
+    "owner"
+   ],
+   "facts": {
+    "risk": 1,
+    "reversible": true,
+    "observation": false,
+    "origin": "ferb"
+   }
   }
  ]
 }

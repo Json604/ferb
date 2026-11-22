@@ -18,6 +18,12 @@ pub const RETRY_ASK: &str = "ferb.retry";
 pub const CONVERSATION_ASK: &str = "conversation.approve";
 pub const FORGET_ASK: &str = "memory.forget";
 pub const DOWNLOADS_ASK: &str = "downloads.delete";
+/// MEM-447: bring in the coding assistants on this Mac (Yes / No).
+pub const MEMORY_LOCAL_ASK: &str = "memory.local";
+/// MEM-448: bring in ChatGPT and Claude, in which browser profile (the profiles, or No).
+pub const MEMORY_SITES_ASK: &str = "memory.sites";
+/// MEM-444: which of the imported offers and older lines are still on: answered in the owner's own words.
+pub const MEMORY_OFFERS_ASK: &str = "memory.offers";
 
 /// steering.py:28 `MEMORY_QUESTIONS`: FERB's own questions outside any task, by kind: (capability, options).
 pub fn memory_questions(kind: &str) -> Option<(&'static str, &'static [&'static str])> {
@@ -25,13 +31,35 @@ pub fn memory_questions(kind: &str) -> Option<(&'static str, &'static [&'static 
         "forget" => Some((FORGET_ASK, &["Yes", "No"])),
         "downloads" => Some((DOWNLOADS_ASK, &["Yes", "No"])),
         crate::browsing::KIND => Some((crate::browsing::BROWSING_ASK, &[])),
+        // MEM-447, MEM-448, MEM-444: the memory import's questions
+        "memory_local" => Some((MEMORY_LOCAL_ASK, &["Yes", "No"])),
+        "memory_sites" => Some((MEMORY_SITES_ASK, &[])),
+        "memory_offers" => Some((MEMORY_OFFERS_ASK, &[])),
         _ => None,
     }
 }
 
-/// steering.py:33 `MEMORY_ASKS`.
-pub const MEMORY_ASKS: &[&str] = &[FORGET_ASK, DOWNLOADS_ASK, crate::browsing::BROWSING_ASK];
-/// steering.py:36 `FERB_CHECKS`.
+/// Every kind of FERB's own question outside a task that [`memory_questions`] takes: the one list a daemon asks from
+/// (a contract test checks every kind the daemon names is here).
+pub const OWN_KINDS: &[&str] = &[
+    "forget",
+    "downloads",
+    crate::browsing::KIND,
+    "memory_local",
+    "memory_sites",
+    "memory_offers",
+];
+
+/// steering.py:33 `MEMORY_ASKS` (and the memory import's, MEM-444, MEM-447, MEM-448).
+pub const MEMORY_ASKS: &[&str] = &[
+    FORGET_ASK,
+    DOWNLOADS_ASK,
+    crate::browsing::BROWSING_ASK,
+    MEMORY_LOCAL_ASK,
+    MEMORY_SITES_ASK,
+    MEMORY_OFFERS_ASK,
+];
+/// steering.py:36 `FERB_CHECKS` (and the memory import's two choices, MEM-447, MEM-448).
 pub const FERB_CHECKS: &[&str] = &[
     CONFIRM_ASK,
     RETRY_ASK,
@@ -39,7 +67,12 @@ pub const FERB_CHECKS: &[&str] = &[
     FORGET_ASK,
     DOWNLOADS_ASK,
     crate::browsing::BROWSING_ASK,
+    MEMORY_LOCAL_ASK,
+    MEMORY_SITES_ASK,
 ];
+/// FERB's own questions outside a task the owner answers in his own words (MEM-444): the chat routes his reply to
+/// them as to a task's question, and FERB reads it.
+pub const OWN_WORDS_ASKS: &[&str] = &[MEMORY_OFFERS_ASK];
 /// steering.py:39 `OPTION_ONLY`.
 pub const OPTION_ONLY: &[&str] = FERB_CHECKS;
 /// steering.py:42 `TASK_CHECKS`.

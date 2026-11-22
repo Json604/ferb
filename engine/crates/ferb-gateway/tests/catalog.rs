@@ -91,10 +91,15 @@ fn every_listing_is_python_s_byte_for_byte() {
                 "ferb"
             };
             let as_whom = r.get(&a.name).unwrap().identities().contains(who);
-            // an observing grant (the checker's) is offered no tool that acts
-            let observing =
-                grant.observe_only && ferb_gateway::listing::acts(r.get(&a.name).unwrap().as_ref());
-            let want = all_names.contains(&a.after.as_str()) && named && as_whom && !observing;
+            // an observing grant (the checker's) is offered no tool that acts, nor one that only FERB's own work
+            // does (MEM-448: memory.import fills FERB's memory)
+            let tool = r.get(&a.name).unwrap();
+            let observing = grant.observe_only
+                && (ferb_gateway::listing::acts(tool.as_ref()) || !tool.facts().observation);
+            // MEM-448: memory.import follows browser.downloads, where the grant reads the browser its downloads come from
+            let scoped = tool.scopes().is_subset(&grant.scopes);
+            let want =
+                all_names.contains(&a.after.as_str()) && named && as_whom && !observing && scoped;
             match all_names.iter().position(|n| *n == a.name) {
                 Some(i) => {
                     assert!(want, "{label}: {} listed", a.name);
@@ -182,7 +187,8 @@ fn the_rust_additions_are_listed_as_written() {
             ("ORCH-663", "task.trace"),
             ("HAND-623", "project.publish"),
             ("HAND-642", "project.fetch"),
-            ("SENSE-422", "device.facts")
+            ("SENSE-422", "device.facts"),
+            ("MEM-448", "memory.import")
         ]
     );
     for a in a {
@@ -203,10 +209,13 @@ fn the_rust_additions_are_listed_as_written() {
             a.row["acts"].as_bool().unwrap()
         );
         let f = tool.facts();
-        // the read-only additions observe; project.publish (HAND-623) acts and can't be undone
+        // the read-only additions observe; project.publish (HAND-623) acts and can't be undone; memory.import
+        // (MEM-448) neither acts on the world nor only observes: it fills FERB's own memory, reversibly, as
+        // time.remind_at sets FERB's own timer
         let acting = a.row["acts"].as_bool().unwrap();
+        let internal = a.name == "memory.import";
         assert!(
-            f.observation != acting && f.reversible != acting && !f.generic_input,
+            (f.observation != acting || internal) && f.reversible != acting && !f.generic_input,
             "{}",
             a.name
         );
@@ -320,6 +329,7 @@ fn descriptions_that_read_live_facts_are_composed_as_python_does() {
 
 // decision: HAND-551
 // decision: GATE-621
+// decision: MEM-441
 #[test]
 fn the_deliberate_changes_are_the_only_ones() {
     let raw = catalog::catalog().raw();
@@ -335,6 +345,7 @@ fn the_deliberate_changes_are_the_only_ones() {
             ("GATE-621", "browser.act", "input_schema"),
             ("GATE-621", "ferb_browser.act", "input_schema"),
             ("GATE-621", "mac.act", "input_schema"),
+            ("MEM-441", "memory.learned", "description"),
         ]
     );
     for c in c.iter().filter(|c| c.part != "validation") {

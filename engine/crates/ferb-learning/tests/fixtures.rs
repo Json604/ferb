@@ -66,8 +66,18 @@ fn replay(sc: &Value, root: &std::path::Path) -> (usize, Vec<String>) {
     }
     let env = Env::new(name, Some(root));
     let runtime = rt();
+    replay_on(&env, sc, root, &runtime)
+}
+
+fn replay_on(
+    env: &Env,
+    sc: &Value,
+    root: &std::path::Path,
+    runtime: &tokio::runtime::Runtime,
+) -> (usize, Vec<String>) {
+    let name = sc["name"].as_str().unwrap();
     let mut diffs = Vec::new();
-    let mut before = hide_root(Value::Object(dump(&env)), root)
+    let mut before = hide_root(Value::Object(dump(env)), root)
         .as_object()
         .unwrap()
         .clone();
@@ -95,9 +105,9 @@ fn replay(sc: &Value, root: &std::path::Path) -> (usize, Vec<String>) {
         }
         *env.answers.borrow_mut() = answers.into();
         env.events.lock().unwrap().clear();
-        let got = hide_root(outcome(runtime.block_on(op(&env, op_name, &args))), root);
+        let got = hide_root(outcome(runtime.block_on(op(env, op_name, &args))), root);
         let events = hide_root(Value::Array(env.events.lock().unwrap().clone()), root);
-        let after = hide_root(Value::Object(dump(&env)), root)
+        let after = hide_root(Value::Object(dump(env)), root)
             .as_object()
             .unwrap()
             .clone();
@@ -182,19 +192,145 @@ fn daily_summary_and_distill() {
     run_scenarios(&["summary", "distill"]);
 }
 
-// decision: MEM-400, MEM-402, MEM-406, MEM-409, MEM-410, MEM-411, MEM-412
+/// decision: MEM-400, MEM-402, MEM-410, MEM-411, MEM-412; MEM-439 (named difference, the owner's IMP-20 and IMP-31):
+/// Python saved each chunk's checked facts as memory items at once; FERB keeps them as the import's checked facts and
+/// places them into the profile after the run (`place`), so the items, their sources and every id after them differ.
+/// The reading is Python's: each scenario is replayed strictly up to its first run, and that run sends every model
+/// call Python sent (the same system prompt and text, in order), marks the same parts done, ends the same way, and
+/// keeps every fact Python saved among its checked facts.
 #[test]
 fn memory_import_runs() {
     let data = fixture("scenarios.json");
     let tmp = tempfile::tempdir().unwrap();
-    let (mut total, mut all) = (0, Vec::new());
+    let runtime = rt();
+    let mut diffs = Vec::new();
+    let mut runs = 0;
     for sc in data["imports"].as_array().unwrap() {
-        let (n, d) = replay(sc, tmp.path());
-        total += n;
-        all.extend(d);
+        let name = sc["name"].as_str().unwrap();
+        let root = tmp.path();
+        let folder = root.join(name).join("export");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("conversations.json"), sc["export"].to_string()).unwrap();
+        let env = Env::new(name, Some(root));
+        let mut cut = sc.clone();
+        let steps = sc["steps"].as_array().unwrap();
+        let first_run = steps.iter().position(|s| s["op"] == "import.run").unwrap();
+        cut["steps"] = Value::Array(steps[..first_run].to_vec());
+        let (_, before) = replay_on(&env, &cut, root, &runtime);
+        diffs.extend(before);
+        let step = &steps[first_run];
+        let answers: Vec<Value> = step["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|e| e[0] == "model.start")
+            .map(|e| e[1]["answer"].clone())
+            .collect();
+        *env.answers.borrow_mut() = answers.into();
+        env.events.lock().unwrap().clear();
+        let args: Value = serde_json::from_str(
+            &step["args"]
+                .to_string()
+                .replace("/FX", &root.to_string_lossy()),
+        )
+        .unwrap();
+        let got = runtime.block_on(op(&env, "import.run", &args)).unwrap();
+        runs += 1;
+        // three chunks at once (IMP-21): the same calls, in the order the waits let them go
+        let calls = |evs: &[Value]| -> Vec<String> {
+            let mut v: Vec<String> = evs
+                .iter()
+                .filter(|e| e[0] == "model.start")
+                .map(|e| {
+                    json!([
+                        e[1]["system_sha"],
+                        e[1]["parts"],
+                        e[1]["goal"],
+                        e[1]["role"]
+                    ])
+                    .to_string()
+                })
+                .collect();
+            v.sort();
+            v
+        };
+        let mine = hide_root(Value::Array(env.events.lock().unwrap().clone()), root);
+        // recall reads exactly what Python's did; verify is shown the held facts that look alike, and Python's run
+        // held the facts its earlier chunks had saved, so only the number of verify calls compares
+        let (ours, theirs) = (
+            calls(mine.as_array().unwrap()),
+            calls(step["events"].as_array().unwrap()),
+        );
+        let recall = |v: &[String]| -> Vec<String> {
+            v.iter()
+                .filter(|c| !c.contains("What FERB already remembers"))
+                .cloned()
+                .collect()
+        };
+        if recall(&ours) != recall(&theirs) || ours.len() != theirs.len() {
+            let first = recall(&ours)
+                .into_iter()
+                .zip(recall(&theirs))
+                .find(|(a, b)| a != b);
+            diffs.push(format!("{name}: the run's model calls differ from Python's ({} rust, {} python): {first:?}", ours.len(), theirs.len()));
+        }
+        if got["status"] != step["out"]["ok"]["status"] {
+            diffs.push(format!(
+                "{name}: ended {} where Python ended {}",
+                got["status"], step["out"]["ok"]["status"]
+            ));
+        }
+        let done = hide_root(
+            Value::Array(
+                env.store
+                    .query("SELECT * FROM memory_import_done ORDER BY rowid", sql![])
+                    .unwrap()
+                    .iter()
+                    .map(|r| Value::Array(r.json()))
+                    .collect(),
+            ),
+            root,
+        );
+        if let Some(want) = step["tables"].get("memory_import_done") {
+            if !same(&done, want) {
+                diffs.push(format!(
+                    "{name}: done marks\n  rust:   {}\n  python: {}",
+                    short(&done),
+                    short(want)
+                ));
+            }
+        }
+        let kept: BTreeSet<(String, String, String, String)> = env
+            .store
+            .query(
+                "SELECT kind, subject, key, content FROM memory_import_facts",
+                sql![],
+            )
+            .unwrap()
+            .iter()
+            .map(|r| (r.s("kind"), r.s("subject"), r.s("key"), r.s("content")))
+            .collect();
+        for row in step["tables"]
+            .get("memory_items")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let fact = (
+                py::py_str(&row[2]),
+                py::py_str(&row[3]),
+                py::py_str(&row[4]),
+                py::py_str(&row[5]),
+            );
+            if !kept.contains(&fact) {
+                diffs.push(format!(
+                    "{name}: Python saved {fact:?}, not among the checked facts"
+                ));
+            }
+        }
     }
-    report("imports", total, &all);
-    assert!(all.is_empty());
+    report("imports (to the first run)", runs, &diffs);
+    assert!(runs == 2 && diffs.is_empty());
 }
 
 fn run_scenarios(names: &[&str]) {
@@ -221,10 +357,13 @@ fn sorted_rows(v: Vec<Value>) -> Vec<Value> {
 /// make.py's `normalized`: what a restart run must end with, ids aside.
 fn normalized(env: &Env) -> Value {
     let q = |s: &str| env.store.query(s, sql![]).unwrap();
-    let facts = sorted_rows(q("SELECT kind, subject, key, content, origin, status, valid_to IS NULL FROM memory_items")
-        .iter()
-        .map(|r| Value::Array(r.json()))
-        .collect());
+    // MEM-439: the run keeps checked facts; the profile's items come after it
+    let facts = sorted_rows(
+        q("SELECT kind, subject, key, content, said_at FROM memory_import_facts")
+            .iter()
+            .map(|r| Value::Array(r.json()))
+            .collect(),
+    );
     let done = sorted_rows(
         q("SELECT source, part FROM memory_import_done")
             .iter()
@@ -236,13 +375,15 @@ fn normalized(env: &Env) -> Value {
         .map(|r| {
             let mut c: Value = serde_json::from_str(&r.s_at(1)).unwrap();
             c.as_object_mut().unwrap().remove("saved_ids");
+            // MEM-439: chunks read at once (IMP-21) that a crash cut short are read again, so the calls and what they
+            // proposed are counted again; the work kept (facts, done marks, chunks done) is not
+            for k in ["model_calls", "candidates", "dropped", "verified"] {
+                c.as_object_mut().unwrap().remove(k);
+            }
             json!([r.s_at(0), c])
         })
         .collect();
-    let said = sorted_rows(q("SELECT m.content, i.source, i.said_at FROM memory_import_items i JOIN memory_items m ON m.id = i.item_id")
-        .iter()
-        .map(|r| Value::Array(r.json()))
-        .collect());
+    let said: Vec<Value> = Vec::new();
     let mut kinds: Vec<String> = q("SELECT kind FROM journal")
         .iter()
         .map(|r| r.s_at(0))
@@ -264,7 +405,7 @@ fn normalize_fixture(v: &Value) -> Value {
     v
 }
 
-/// decision: MEM-410. Fixed against Python (ENG-6, `import_job.py:186-190`): a chunk's facts, its source row, its
+/// decision: MEM-410, MEM-439. Fixed against Python (ENG-6, `import_job.py:186-190`): a chunk's facts, its source row, its
 /// done marks and the run's progress commit together, and a run's closing writes too. Python's own runs, failing at
 /// each write and started again, are recorded beside the clean run (`restarts.json` `runs`); most end with work
 /// lost or counted twice. The Rust run, failing at each of its writes and started again, must end exactly as the
@@ -299,7 +440,25 @@ fn import_restart_at_every_write_neither_loses_nor_doubles() {
     let total = env.writes.get() - before;
     let clean = normalized(&env);
     let mut diffs = Vec::new();
-    if !same(&clean, &clean_py) {
+    // MEM-439 (named difference): the clean run marks Python's parts done, ends as Python's did, and keeps every
+    // fact Python saved among its checked facts; each restarted run must then end exactly as the clean Rust run
+    let facts_of = |v: &Value, n: usize| -> BTreeSet<String> {
+        v["facts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| Value::Array(r.as_array().unwrap()[..n].to_vec()).to_string())
+            .collect()
+    };
+    if !same(&clean["done"], &clean_py["done"])
+        || clean["runs"]
+            .as_array()
+            .map(|r| r.iter().map(|x| x[0].clone()).collect::<Vec<_>>())
+            != clean_py["runs"]
+                .as_array()
+                .map(|r| r.iter().map(|x| x[0].clone()).collect::<Vec<_>>())
+        || !facts_of(&clean_py, 4).is_subset(&facts_of(&clean, 4))
+    {
         diffs.push(format!(
             "clean run\n  rust:   {}\n  python: {}",
             short(&clean),
@@ -320,17 +479,17 @@ fn import_restart_at_every_write_neither_loses_nor_doubles() {
         *env.answers.borrow_mut() = vec![json!({"dynamic": "import"}); 400].into();
         let second = runtime.block_on(importer(&env).run("id-000001"));
         let state = normalized(&env);
-        if first.is_ok() || second.is_err() || !same(&state, &clean_py) {
+        if first.is_ok() || second.is_err() || !same(&state, &clean) {
             let keys: Vec<String> = state
                 .as_object()
                 .unwrap()
                 .iter()
-                .filter(|(k, v)| !same(v, &clean_py[k.as_str()]))
+                .filter(|(k, v)| !same(v, &clean[k.as_str()]))
                 .map(|(k, v)| {
                     format!(
-                        "{k}: rust {} / python {}",
+                        "{k}: restarted {} / clean {}",
                         short(v),
-                        short(&clean_py[k.as_str()])
+                        short(&clean[k.as_str()])
                     )
                 })
                 .collect();

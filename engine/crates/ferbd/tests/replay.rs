@@ -78,7 +78,7 @@ const GROUP_A: [&str; 26] = [
 // decision: APP-926, APP-941
 /// A recorded answer with the named differences applied (and insomnia mode's settings, T-1274): the owner-facing words that spoke of AI
 /// (`named_diffs::APP_926`), and Jev's days, which FERB no longer lists as a setting (in `settings.get`'s values and in
-/// the settings `about.get` shows). Nothing else of a recording changes.
+/// the settings `about.get` shows), with `memory.local_import` (MEM-447). Nothing else of a recording changes.
 fn as_named(line: String) -> String {
     let line = named_diffs::APP_926
         .iter()
@@ -100,6 +100,8 @@ fn as_named(line: String) -> String {
     ];
     if let Some(values) = result.get_mut("values").and_then(Value::as_object_mut) {
         values.shift_remove("retention.decision_days");
+        // MEM-447: the owner's answer about the coding assistants on this Mac, off until asked
+        values.insert("memory.local_import".into(), json!(false));
         for (k, n) in added {
             values.insert(k.into(), json!(n));
         }
@@ -110,6 +112,7 @@ fn as_named(line: String) -> String {
             .last()
             .and_then(|r| r.get("where").cloned())
             .unwrap_or(Value::Null);
+        settings.push(json!({"key": "memory.local_import", "value": false, "where": place}));
         for (k, n) in added {
             settings.push(json!({"key": k, "value": n, "where": place}));
         }
@@ -199,6 +202,20 @@ fn replay_a_with(
                             );
                             assert_eq!(got.as_bytes(), &rust[..rust.len() - 1], "{name} {id:?}");
                             run.control(json!({"do": "ids_bump"})); // the id Python's internal-error row took
+                            named += 1;
+                        }
+                        None if method == "memory.import.estimate"
+                            && (sent.contains("\"claude_code\"") || sent.contains("\"codex\"")) =>
+                        {
+                            // MEM-432 (named difference): with no folder given, Claude Code and Codex are read from
+                            // their prompt-history files, which the recorded home doesn't hold
+                            let rust: Value = serde_json::from_str(&got).unwrap();
+                            assert_eq!(rust["error"]["code"], -32004, "{name} {id:?}");
+                            let m = rust["error"]["message"].as_str().unwrap();
+                            assert!(
+                                m.contains(" prompt history at ") && m.ends_with("/history.jsonl"),
+                                "{m}"
+                            );
                             named += 1;
                         }
                         None => {
@@ -406,7 +423,8 @@ fn settings_import_timeline_persona_through_the_binary() {
         &[],
         Some((75, json!({"do": "sql", "statements": seed}))),
     );
-    assert_eq!((same, named), (15, 1));
+    // MEM-432: the two coding assistants' estimates are named differences
+    assert_eq!((same, named), (13, 3));
 }
 
 // ---------------------------------------------------------------------------------------------------------------

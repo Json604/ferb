@@ -146,6 +146,9 @@ pub const METHODS: &[Method] = &[
     m("memory.forget", &[Role::Cli], false),
     m("memory.import.cancel", &[Role::Cli], false),
     m("memory.import.estimate", &[Role::Cli], false),
+    m("memory.import.lines", &[Role::Cli], false),
+    m("memory.import.offer", &[Role::Cli], false),
+    m("memory.import.scope", &[Role::Cli], false),
     m("memory.import.start", &[Role::Cli], false),
     m("memory.import.status", &[Role::Cli], false),
     m("memory.learning", &[Role::Cli], false),
@@ -343,6 +346,15 @@ pub const INSOMNIA_ADDITIONS: [&str; 8] = [
     "insomnia.report",
     "insomnia.start",
     "insomnia.status",
+];
+
+/// MEM-442, MEM-444: the owner's word on an imported memory: where it applies (`memory.import.scope`) and his
+/// answer to its offer (`memory.import.offer`), sensitive; and what the Memory page shows of them
+/// (`memory.import.lines`, private).
+pub const MEMORY_IMPORT_ADDITIONS: [&str; 3] = [
+    "memory.import.lines",
+    "memory.import.offer",
+    "memory.import.scope",
 ];
 
 /// Stage 3 (T-1202): a phone session's own calls: a challenge, the unlock and lock, the device key's proof, keys

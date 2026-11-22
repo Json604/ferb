@@ -534,6 +534,14 @@ struct PrivacySettingsPage: View {
                 let watchers = store.watchers.filter { $0 != "jev_batches" }
                 LabeledContent("Recording now", value: watchers.isEmpty ? "nothing" : watchers.joined(separator: ", "))
             }
+            // MEM-447: the owner's one Yes to Claude Code and Codex also keeps them up to date; off stops the updates
+            WindowSettingsSection(title: "Your coding assistants") {
+                KnownToggle(title: "Keep up with what you type into Claude Code and Codex",
+                            isOn: store.toggle("memory.local_import"),
+                            known: store.settingsKnown && store.settings.has("memory.local_import"))
+                Text("When this is on, FERB reads what's new in them every hour, so it knows how you like to work and what you're working on. Turning it off stops the updates; what FERB already learned stays on the Memory page.")
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
+            }
             WindowSettingsSection(title: "Apps FERB ignores") {
                 StringListEditor(key: "privacy.exclude_apps", placeholder: "Bundle id or app name, e.g. com.1password.1password",
                                  store: store, draft: draft.apps)

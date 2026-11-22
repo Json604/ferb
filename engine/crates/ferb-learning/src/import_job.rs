@@ -1,7 +1,10 @@
 //! `import_job.py` (MEM-400..415): one memory import as a background job: its estimate, run record, progress,
 //! resume, cancel and the one summary notice. A run reads its source again each start, skips the conversation parts
-//! already read (`memory_import_done`), and works chunk by chunk: wait while the owner's chat turn runs, recall,
-//! verify, save, then record the chunk's parts done.
+//! already read (`memory_import_done`), and works chunk by chunk, three at once (IMP-21): wait while the owner's chat
+//! turn runs, recall, verify, keep the checked facts with where each was said (`memory_import_facts`), then record the
+//! chunk's parts done. The facts are then placed into the profile (`import_profile`, IMP-20, IMP-31): only the
+//! profile's lines become memory items. An export is checked around the reader and an older one sends nothing
+//! (MEM-438); an export FERB fetched itself is deleted once its import is done (IMP-32).
 //!
 //! Fixed against Python (ENG-6): `import_job.py:186-190` saved a chunk's facts, its source journal row, its done
 //! marks and the run's progress as separate writes, so a crash between them lost or doubled work (a resumed run
@@ -19,7 +22,7 @@ use ferb_core::interfaces::BoxFuture;
 use ferb_memory::import_extract::{self as ex, Candidate, Chunk, OwnerIndex, Part, Verified};
 use ferb_memory::import_sources::{self, source_name, Conversation, Unzstd, EXPORTS, SOURCES};
 use ferb_memory::pystr;
-use ferb_memory::terms::{label, slug, subject_key, Fact};
+use ferb_memory::terms::{slug, subject_key, Fact};
 use ferb_memory::times::{self, Date, LocalZone};
 use ferb_sanitize::origin;
 
@@ -396,6 +399,47 @@ pub struct ImportJob<'a> {
     pub unzstd: Option<Box<dyn Unzstd + 'a>>,
     pub idle_poll: f64,
     pub chunk_chars: usize,
+    /// Chunks read at once (the owner allowed three, IMP-21); each still waits for the owner's chat turn.
+    pub at_once: usize,
+}
+
+/// Chunks read at once by default (IMP-21).
+pub const AT_ONCE: usize = 3;
+
+/// Where a verified fact was said: the conversation or session it came from, and its place.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Said {
+    pub conversation: String,
+    pub place_kind: String,
+    pub place: String,
+    pub claim: bool,
+}
+
+/// Polls every future to its end on this task (they are not `Send`; a few at once).
+async fn join_all<T>(
+    mut futs: Vec<std::pin::Pin<Box<dyn std::future::Future<Output = T> + '_>>>,
+) -> Vec<T> {
+    let mut out: Vec<Option<T>> = futs.iter().map(|_| None).collect();
+    std::future::poll_fn(|cx| {
+        let mut pending = false;
+        for (i, f) in futs.iter_mut().enumerate() {
+            if out[i].is_none() {
+                match f.as_mut().poll(cx) {
+                    std::task::Poll::Ready(v) => out[i] = Some(v),
+                    std::task::Poll::Pending => pending = true,
+                }
+            }
+        }
+        if pending {
+            std::task::Poll::Pending
+        } else {
+            std::task::Poll::Ready(())
+        }
+    })
+    .await;
+    out.into_iter()
+        .map(|v| v.expect("polled to its end"))
+        .collect()
 }
 
 impl ImportJob<'_> {
@@ -413,6 +457,16 @@ impl ImportJob<'_> {
             unzstd: self.unzstd.as_deref(),
         };
         let p = (!path.is_empty()).then(|| Path::new(path));
+        // an export's plain checks around the reader (MEM-438)
+        if let Some(p) = p.filter(|_| EXPORTS.contains(&source)) {
+            ferb_memory::import_exports::check(source, p)?;
+            let got = import_sources::read(source, Some(p), &opts)
+                .map_err(|e| ferb_memory::import_exports::read_error(source, p, e))?;
+            if got.is_empty() {
+                return Err(ferb_memory::import_exports::nothing(source, p).into());
+            }
+            return Ok(got);
+        }
         Ok(import_sources::read(source, p, &opts)?)
     }
 
@@ -576,7 +630,9 @@ impl ImportJob<'_> {
         Ok(())
     }
 
-    /// import_job.py:146 `run`.
+    /// import_job.py:146 `run`, reading only: the chunks' checked facts are kept with where each was said
+    /// (`memory_import_facts`) and placed into the profile afterwards (`place`, IMP-20, IMP-31). Three chunks are
+    /// read at once (IMP-21); each chunk's facts, done marks and progress still land together, in order.
     pub async fn run(&self, run_id: &str) -> Result<Value> {
         let row = match self.row(run_id)? {
             Some(r) if r["status"] == json!("running") => r,
@@ -600,6 +656,23 @@ impl ImportJob<'_> {
             }
             Err(e) => return Err(e),
         };
+        // an export older than the newest one imported sends nothing (MEM-438)
+        let newest = ferb_memory::import_exports::newest(&conversations);
+        if EXPORTS.contains(&source.as_str()) {
+            if let (Some(n), Some(before)) = (
+                newest,
+                self.store.one(
+                    "SELECT newest, at FROM memory_import_exports WHERE source = ?",
+                    sql![source],
+                )?,
+            ) {
+                let was = py::parse(&before.s("newest"))?;
+                if times::instant(&n) < times::instant(&was) {
+                    counts.insert("older_export".into(), json!(before.s("at")));
+                    return self.finish(run_id, &source, &mut counts, "done", "");
+                }
+            }
+        }
         let index = OwnerIndex::new(&conversations);
         let plan = self.plan(&source, conversations)?;
         for (k, v) in plan.counts() {
@@ -624,62 +697,98 @@ impl ImportJob<'_> {
         counts.entry("saved_ids").or_insert(json!([]));
         self.set(run_id, &counts, "running", "")?;
         self.progress(run_id, &counts, "reading");
-        let mut entry: Option<String> = None;
         let mut failures = 0;
-        for chunk in &plan.chunks {
-            let facts = match self.chunk(run_id, chunk, &index, &mut counts).await {
-                Ok(f) => f,
-                Err(e) => {
-                    failures += 1;
-                    let last = pystr::prefix(&(self.redact)(&e.described()), 300).to_owned();
-                    add(&mut counts, "failed_chunks", 1);
-                    self.journal.append(
-                        "memory.import_chunk_failed",
-                        Some(json!({"run": run_id, "source": source, "error": last})),
-                        None,
-                    )?;
-                    if failures >= FAILURES_IN_A_ROW {
-                        return self.finish(run_id, &source, &mut counts, "failed", &last);
+        for window in plan.chunks.chunks(self.at_once.max(1)) {
+            let shared = std::cell::RefCell::new(Map::new());
+            let base = counts.clone();
+            let futs: Vec<
+                std::pin::Pin<
+                    Box<dyn std::future::Future<Output = Result<Vec<(Verified, Said)>>> + '_>,
+                >,
+            > = window
+                .iter()
+                .map(|chunk| {
+                    let shared = &shared;
+                    let index = &index;
+                    let base = &base;
+                    Box::pin(async move {
+                        // the run's counts as they stood, so a progress line while waiting shows them
+                        let mut mine = base.clone();
+                        let got = self.chunk(run_id, chunk, index, &mut mine).await;
+                        let mut all = shared.borrow_mut();
+                        for (k, v) in mine {
+                            let was = base.get(&k).and_then(Value::as_i64).unwrap_or(0);
+                            let n = all.get(&k).and_then(Value::as_i64).unwrap_or(0)
+                                + v.as_i64().unwrap_or(0)
+                                - was;
+                            all.insert(k, json!(n));
+                        }
+                        got
+                    })
+                        as std::pin::Pin<Box<dyn std::future::Future<Output = _> + '_>>
+                })
+                .collect();
+            let results = join_all(futs).await;
+            for (k, v) in shared.into_inner() {
+                add(&mut counts, &k, v.as_i64().unwrap_or(0));
+            }
+            for (chunk, got) in window.iter().zip(results) {
+                let facts = match got {
+                    Ok(f) => f,
+                    Err(e) => {
+                        failures += 1;
+                        let last = pystr::prefix(&(self.redact)(&e.described()), 300).to_owned();
+                        add(&mut counts, "failed_chunks", 1);
+                        self.journal.append(
+                            "memory.import_chunk_failed",
+                            Some(json!({"run": run_id, "source": source, "error": last})),
+                            None,
+                        )?;
+                        if failures >= FAILURES_IN_A_ROW {
+                            return self.finish(run_id, &source, &mut counts, "failed", &last);
+                        }
+                        continue;
                     }
-                    continue;
-                }
-            };
-            failures = 0;
-            // the chunk's source row, facts, done marks and progress land together (the fix, see the module doc)
-            let done = self.together(|| {
-                if !facts.is_empty() && entry.is_none() {
-                    entry = Some(self.source_entry(run_id, &source)?);
-                }
-                let now = self.memory.clock.now();
-                let got = if facts.is_empty() {
-                    SaveCounts::default()
-                } else {
-                    save(&self.memory, &facts, run_id, entry.as_deref().unwrap_or(""), &now)?
                 };
-                let stamp = py::iso(&self.memory.clock.now());
-                for part in &chunk.parts {
-                    self.store.exec(
-                        "INSERT OR IGNORE INTO memory_import_done (source, part, run_id, at) VALUES (?, ?, ?, ?)",
-                        sql![source, part.key, run_id, stamp],
-                    )?;
-                }
-                let current = self.memory.current_ids(Some("inferred"))?;
-                let mut ids: Vec<Value> = counts["saved_ids"].as_array().cloned().unwrap_or_default();
-                ids.extend(got.saved.iter().map(|s| json!(s)));
-                ids.retain(|i| current.contains(&py::py_str(i)));
-                counts.insert("facts_saved".into(), json!(ids.len()));
-                counts.insert("saved_ids".into(), Value::Array(ids));
-                add(&mut counts, "credited", got.credited);
-                add(&mut counts, "kept_owner", got.kept_owner);
-                add(&mut counts, "older", got.older);
-                add(&mut counts, "history", got.history);
-                add(&mut counts, "refused", got.refused.len() as i64);
-                add(&mut counts, "chunks_done", 1);
-                add(&mut counts, "chunks_left", -1);
-                self.set(run_id, &counts, "running", "")
-            });
-            done?;
-            self.progress(run_id, &counts, "reading");
+                failures = 0;
+                // the chunk's facts, done marks and progress land together (the fix, see the module doc)
+                self.together(|| {
+                    let stamp = py::iso(&self.memory.clock.now());
+                    let mut kept = 0;
+                    for (f, said) in &facts {
+                        let said_at = py::iso(&f.said_at);
+                        let id = crate::import_profile::fact_id(&source, &f.kind, &f.subject, &f.key, &f.content, &said_at);
+                        kept += self.store.exec(
+                            "INSERT OR IGNORE INTO memory_import_facts (id, source, run_id, kind, subject, key, content, \
+                             said_at, conversation, place_kind, place, claim, ended, until, review_days, at) \
+                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            sql![id, source, run_id, f.kind, (self.redact)(&f.subject), (self.redact)(&f.key),
+                                 (self.redact)(&f.content), said_at, said.conversation, said.place_kind,
+                                 (self.redact)(&said.place), said.claim, f.ended,
+                                 f.until.map(|u| u.isoformat()).unwrap_or_default(), f.review_in_days, stamp],
+                        )?;
+                    }
+                    for part in &chunk.parts {
+                        self.store.exec(
+                            "INSERT OR IGNORE INTO memory_import_done (source, part, run_id, at) VALUES (?, ?, ?, ?)",
+                            sql![source, part.key, run_id, stamp],
+                        )?;
+                    }
+                    add(&mut counts, "facts_saved", kept as i64);
+                    add(&mut counts, "chunks_done", 1);
+                    add(&mut counts, "chunks_left", -1);
+                    self.set(run_id, &counts, "running", "")
+                })?;
+                self.progress(run_id, &counts, "reading");
+            }
+        }
+        if let (Some(n), true) = (newest, EXPORTS.contains(&source.as_str())) {
+            let at = py::iso(&self.memory.clock.now());
+            self.store.exec(
+                "INSERT INTO memory_import_exports (source, newest, at) VALUES (?, ?, ?) ON CONFLICT(source) DO UPDATE \
+                 SET newest = excluded.newest, at = excluded.at WHERE excluded.newest > memory_import_exports.newest",
+                sql![source, py::iso(&n), at],
+            )?;
         }
         self.finish(run_id, &source, &mut counts, "done", "")
     }
@@ -701,7 +810,7 @@ impl ImportJob<'_> {
         chunk: &Chunk,
         index: &OwnerIndex,
         counts: &mut Map<String, Value>,
-    ) -> Result<Vec<Verified>> {
+    ) -> Result<Vec<(Verified, Said)>> {
         let keys: Vec<&str> = std::iter::once(chunk.source.as_str())
             .chain(chunk.parts.iter().map(|p| p.key.as_str()))
             .collect();
@@ -731,6 +840,30 @@ impl ImportJob<'_> {
             (candidates.len() + dropped.len()) as i64,
         );
         add(counts, "dropped", dropped.len() as i64);
+        // where each candidate was said, by the reader that knows it, never a model (MEM-436)
+        let refs = chunk.refs();
+        let said_of: std::collections::HashMap<String, Said> = candidates
+            .iter()
+            .filter_map(|c| {
+                let (_, _, conv) = refs.iter().find(|(r, _, _)| *r == c.message)?;
+                let (place_kind, place) = if conv.claims {
+                    (String::new(), String::new())
+                } else if !conv.place.is_empty() {
+                    ("folder".to_owned(), conv.place.clone())
+                } else {
+                    ("chat".to_owned(), conv.title.clone())
+                };
+                Some((
+                    c.id.clone(),
+                    Said {
+                        conversation: conv.id.clone(),
+                        place_kind,
+                        place,
+                        claim: c.claim,
+                    },
+                ))
+            })
+            .collect();
         let mut facts = Vec::new();
         for batch in batches(candidates) {
             let lookup = |id: &str| -> std::result::Result<Option<Fact>, ferb_memory::Error> {
@@ -758,13 +891,16 @@ impl ImportJob<'_> {
                 ex::check_verify(&Value::Object(answer), &batch, &held_ids, &chunk.source)?;
             add(counts, "dropped", (batch.len() - kept.len()) as i64);
             add(counts, "verified", kept.len() as i64);
-            facts.extend(kept);
+            facts.extend(kept.into_iter().map(|v| {
+                let said = said_of.get(&v.id).cloned().unwrap_or_default();
+                (v, said)
+            }));
         }
         Ok(facts)
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn call(
+    pub(crate) async fn call(
         &self,
         run_id: &str,
         task: &ferb_core::types::Task,
@@ -795,17 +931,6 @@ impl ImportJob<'_> {
         )
         .await?;
         Ok(ex::as_json(&Value::String(text))?)
-    }
-
-    fn source_entry(&self, run_id: &str, source: &str) -> Result<String> {
-        Ok(self
-            .journal
-            .append(
-                SOURCE_KIND,
-                Some(json!({"run": run_id, "source": source, "name": source_name(source)})),
-                None,
-            )?
-            .id)
     }
 
     fn progress(&self, run_id: &str, counts: &Map<String, Value>, stage: &str) {
@@ -840,45 +965,87 @@ impl ImportJob<'_> {
         Ok(self.row(run_id)?.unwrap_or_else(|| json!({})))
     }
 
-    /// import_job.py:264 `tell_done`: the one summary notice (MEM-406).
+    /// Places the run's facts into the profile (IMP-31) and keeps what changed on the run, for its notice.
+    pub async fn place_run(&self, run_id: &str) -> Result<Map<String, Value>> {
+        let change = self.place(run_id).await?;
+        if let Some(row) = self.row(run_id)? {
+            let mut counts = row["counts"].as_object().cloned().unwrap_or_default();
+            counts.insert("profile".into(), Value::Object(change.clone()));
+            let n = |k: &str| change.get(k).and_then(Value::as_i64).unwrap_or(0);
+            counts.insert(
+                "facts_saved".into(),
+                json!(n("new lines") + n("lines reworded by a newer fact")),
+            );
+            self.store.exec(
+                "UPDATE memory_import_runs SET counts_json = ? WHERE id = ?",
+                sql![ferb_py::json::dumps(&Value::Object(counts)), run_id],
+            )?;
+        }
+        Ok(change)
+    }
+
+    /// The one notice after an import (MEM-445): the profile's report (`report`), said to the owner; a run that
+    /// stopped says so, and an older export too. `closing`: a line the caller adds (the export file deleted).
     pub fn tell_done(&self, run_id: &str) -> Result<()> {
+        self.tell_done_with(run_id, "")
+    }
+
+    pub fn tell_done_with(&self, run_id: &str, closing: &str) -> Result<()> {
         let Some(row) = self.row(run_id)? else {
             return Ok(());
         };
         let counts = &row["counts"];
         let name = py::py_str(&row["name"]);
-        let mut items = Vec::new();
-        for i in counts
-            .get("saved_ids")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-        {
-            if let Some(it) = self.memory.get(&py::py_str(i))? {
-                if it.status == "active" && it.valid_to.is_none() {
-                    items.push(it);
-                }
-            }
-        }
-        let n = counts
-            .get("facts_saved")
+        let source = py::py_str(&row["source"]);
+        let local = !EXPORTS.contains(&source.as_str());
+        let change = counts
+            .get("profile")
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default();
+        let n = |k: &str| change.get(k).and_then(Value::as_i64).unwrap_or(0);
+        let learned = n("new lines") + n("lines reworded by a newer fact");
+        // a run that read to its end, every chunk of it; one that left parts unread says so (they are read next time)
+        let unread = counts
+            .get("failed_chunks")
             .and_then(Value::as_i64)
             .unwrap_or(0);
-        let examples: Vec<&Item> = items.iter().take(EXAMPLES).collect();
-        let plural = if n != 1 { "s" } else { "" };
-        let squeeze = |s: &str| pystr::split_ws(s).collect::<Vec<_>>().join(" ");
-        let text = if row["status"] == json!("done") && n > 0 {
-            let quoted: Vec<String> = examples
-                .iter()
-                .map(|it| format!("“{}”", squeeze(&it.content)))
-                .collect();
-            format!(
-                "Imported {n} fact{plural} from {name} as my understanding, for example {}. They're on the Memory \
-                 page (imported from {name}); tell me if any is wrong.",
-                quoted.join(", ")
+        let (text, cards) = if row["status"] == json!("done") && unread > 0 && learned == 0 {
+            (
+                format!(
+                    "I couldn't finish bringing in what {name} knows about you: part of it couldn't be read just now. \
+                     Ask me again any time and I'll go on from where I stopped."
+                ),
+                Vec::new(),
             )
         } else if row["status"] == json!("done") {
-            format!("Imported nothing new from {name}: I found nothing more to remember there.")
+            let older = counts
+                .get("older_export")
+                .map(py::py_str)
+                .unwrap_or_default();
+            if !older.is_empty() {
+                (
+                    format!(
+                        "This {name} export is older than the one I brought in on {}, so there was nothing new in it.",
+                        pystr::prefix(&older, 10)
+                    ),
+                    Vec::new(),
+                )
+            } else {
+                let opening = match (local, learned) {
+                    (true, 0) => format!("I read what you've typed into {name} on this Mac. Nothing new to remember this time."),
+                    (true, k) => format!(
+                        "I read what you've typed into {name} on this Mac over the last 3 months, and learned {k} thing{} about you and how you like to work.",
+                        if k == 1 { "" } else { "s" }
+                    ),
+                    (false, 0) => format!("I've gone through what {name} knew about you. Nothing new to remember this time."),
+                    (false, k) => format!(
+                        "I've brought in what {name} knew about you from your last 3 months of chats: {k} thing{} I didn't know before.",
+                        if k == 1 { "" } else { "s" }
+                    ),
+                };
+                self.report(&opening, &change)?
+            }
         } else {
             let error = py::py_str(&row["error"]);
             let why = if error.is_empty() {
@@ -886,31 +1053,80 @@ impl ImportJob<'_> {
             } else {
                 error
             };
-            format!("The import from {name} stopped ({why}) after {n} fact{plural}. Start it again to go on from there.")
+            (
+                format!("I couldn't finish bringing in what {name} knows about you: {why}. Ask me again any time and I'll go on from where I stopped."),
+                Vec::new(),
+            )
         };
-        let line = format!("Imported from {name}");
-        let mut cards: Vec<Value> = examples
-            .iter()
-            .map(|it| {
-                json!({"type": "note", "item_id": it.id, "text": squeeze(&it.content), "state": "saved", "line": line,
-                       "label": label(&it.origin), "origin": it.origin})
-            })
-            .collect();
-        cards.push(
-            json!({"type": "page", "page": "memory", "filter": {"imported_from": row["source"]},
-                          "line": "Open the Memory page"}),
-        );
+        let text = if closing.is_empty() {
+            text
+        } else {
+            format!("{text}\n\n{closing}")
+        };
         (self.tell)(Notice {
             id: format!("memory-import-{run_id}"),
-            refs: examples
+            refs: cards
                 .iter()
-                .map(|it| format!("memory:{}", it.id))
+                .filter_map(|c| {
+                    c.get("item_id")
+                        .map(|i| format!("memory:{}", py::py_str(i)))
+                })
                 .collect(),
             text,
             origin: origin::join([origin::FERB, origin::INFERRED]),
             cards: Some(Value::Array(cards)),
         });
         Ok(())
+    }
+
+    /// An export FERB fetched itself, to delete once its import is done (IMP-32).
+    pub fn fetched(&self, path: &str, source: &str, run_id: &str) -> Result<()> {
+        self.store.exec(
+            "INSERT INTO memory_import_files (path, source, run_id, fetched_at) VALUES (?, ?, ?, ?) \
+             ON CONFLICT(path) DO UPDATE SET run_id = excluded.run_id",
+            sql![path, source, run_id, py::iso(&self.memory.clock.now())],
+        )?;
+        Ok(())
+    }
+
+    /// Deletes the exports FERB fetched for this run once it has read them to the end (done, no chunk failed), or
+    /// every one whose run failed, was cancelled or left a chunk unread a day ago or more (IMP-32). Never a file the owner gave (only fetched ones are recorded). Returns what was
+    /// deleted, by source.
+    pub fn delete_fetched(&self, run_id: Option<&str>) -> Result<Vec<(String, String)>> {
+        let now = self.memory.clock.now();
+        let mut gone = Vec::new();
+        for r in self.store.query(
+            "SELECT f.path, f.source, f.run_id, f.fetched_at, r.status, r.finished_at, r.counts_json \
+             FROM memory_import_files f LEFT JOIN memory_import_runs r ON r.id = f.run_id",
+            sql![],
+        )? {
+            let (path, status) = (r.s("path"), r.opt("status").unwrap_or_default());
+            // read to its end: done with no chunk left unread (a failed chunk's parts would be lost with the file)
+            let counts = ferb_py::json::loads(&r.opt("counts_json").unwrap_or_else(|| "{}".into())).unwrap_or_default();
+            let read_all = status == "done" && counts.get("failed_chunks").and_then(Value::as_i64).unwrap_or(0) == 0;
+            let this = run_id.is_some_and(|id| id == r.s("run_id")) && read_all;
+            let since = r.opt("finished_at").filter(|s| !s.is_empty()).unwrap_or_else(|| r.s("fetched_at"));
+            let stale = !read_all
+                && status != "running"
+                && py::parse(&since).is_ok_and(|t| times::instant(&now) - times::instant(&t) >= 86_400_000_000);
+            if !(this || stale) {
+                continue;
+            }
+            let p = Path::new(&path);
+            let removed = if p.is_dir() {
+                std::fs::remove_dir_all(p)
+            } else {
+                std::fs::remove_file(p)
+            };
+            match removed {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(Error::Crash("OSError", e.to_string())),
+            }
+            self.store.exec("DELETE FROM memory_import_files WHERE path = ?", sql![path])?;
+            gone.push((r.s("source"), status));
+        }
+        Ok(gone)
     }
 }
 

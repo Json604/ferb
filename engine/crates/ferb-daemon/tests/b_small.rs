@@ -246,6 +246,8 @@ fn fixes(request: &str, python: &str) -> Option<String> {
                 .last()
                 .and_then(|r| r.get("where").cloned())
                 .unwrap_or(Value::Null);
+            // decision: MEM-447: the owner's answer about the coding assistants on this Mac, off until asked
+            settings.push(json!({"key": "memory.local_import", "value": false, "where": place}));
             for (key, value) in [
                 ("insomnia.grace_minutes", 10),
                 ("insomnia.battery_warn_percent", 20),

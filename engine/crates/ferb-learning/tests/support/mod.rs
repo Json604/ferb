@@ -131,6 +131,8 @@ impl AgentRuntime for FakeRuntime {
             let mut a = self.answer.lock().unwrap();
             if a.get("dynamic").is_some() {
                 *a = json!({"answer": dynamic_answer(&request.parts[0])});
+            } else if a.get("stand_in").is_some() {
+                *a = json!({"answer": stand_in_answer(&request.parts[0])});
             }
             a.clone()
         };
@@ -321,6 +323,239 @@ pub fn dynamic_answer(ctx: &str) -> Value {
         }
     }
     out.push(json!({"kind": "fact", "subject": "owner", "key": "x", "content": "y", "message": "zz.1", "quote": "q"}));
+    json!({"candidates": out})
+}
+
+/// The memory-import lab's stand-in model (its tests/fakes.py `Model`), for the profile and the work log: it reads
+/// the request's shape and answers the way the lab's tests expect. Recall proposes a fact from every owner line that
+/// starts "I " and every saved-memory line ("prefer" makes a preference, "every " a recurring task, "project" a
+/// project); verify keeps a candidate when an owner line shown holds its quote; placement drops a fact saying "once",
+/// makes a new line where none shares its subject and key, updates one when it says "now", else joins it; scope
+/// reads "for the X project" as tied to X; the offers check calls an offer done when evidence names its last word;
+/// the work log titles each entry by its session.
+pub fn stand_in_answer(ctx: &str) -> Value {
+    let rows: Vec<Vec<String>> = ctx
+        .lines()
+        .map(|l| l.split(" | ").map(|x| x.trim().to_owned()).collect())
+        .collect();
+    let blank = json!({"line": "", "why": "", "kind": "", "subject": "", "key": "", "content": "", "you": "",
+                       "ferb": "", "offer": "", "review_in_days": 0, "over": false});
+    if rows.iter().any(|r| r[0] == "N") {
+        let lines: Vec<&Vec<String>> = rows.iter().filter(|r| r[0] == "L").collect();
+        let mut out = Vec::new();
+        for r in rows.iter().filter(|r| r[0] == "N") {
+            let (id, kind, subject, key) = (&r[1], &r[2], &r[3], &r[4]);
+            let content = r[7].trim_end_matches(" (over)").to_owned();
+            let there = lines.iter().find(|l| l[3] == *subject && l[4] == *key);
+            let mut a = blank.clone();
+            a["facts"] = json!([id]);
+            if content.contains("once") {
+                a["action"] = json!("drop");
+                a["why"] = json!("one-off");
+            } else if let Some(l) = there.filter(|_| !content.contains(" now")) {
+                a["action"] = json!("join");
+                a["line"] = json!(l[1]);
+            } else {
+                a["action"] = json!(if there.is_some() { "update" } else { "new" });
+                a["line"] = json!(there.map(|l| l[1].clone()).unwrap_or_default());
+                a["kind"] = json!(kind);
+                a["subject"] = json!(subject);
+                a["key"] = json!(key);
+                a["content"] = json!(content);
+                a["you"] = json!(content.replace("The owner", "You"));
+                a["ferb"] = json!(if kind == "preference" {
+                    format!("Do: {content}")
+                } else {
+                    String::new()
+                });
+                a["offer"] = json!(if key.starts_with("recurring") {
+                    format!("Offer to help with {key}")
+                } else {
+                    String::new()
+                });
+            }
+            out.push(a);
+        }
+        return json!({"placements": out});
+    }
+    if rows.iter().any(|r| r[0] == "REPLY") {
+        // the owner's reply to the ask: "first one yes" keeps item 1; "the rest are done" ends the others
+        let reply = rows
+            .iter()
+            .find(|r| r[0] == "REPLY")
+            .map(|r| r[1].to_lowercase())
+            .unwrap_or_default();
+        let items: Vec<Value> = rows
+            .iter()
+            .filter(|r| r[0] == "ASKED")
+            .map(|r| {
+                let n: i64 = r[1].parse().unwrap_or(0);
+                let state = if n == 1 && reply.contains("first one yes") {
+                    "still_on"
+                } else if reply.contains("the rest are done") {
+                    "done"
+                } else {
+                    "unclear"
+                };
+                json!({"n": n, "state": state})
+            })
+            .collect();
+        return json!({"items": items});
+    }
+    if rows.iter().any(|r| r[0] == "TODAY") {
+        let shown: Vec<(&String, &String)> = rows
+            .iter()
+            .filter(|r| r[0] == "E")
+            .map(|r| (&r[1], &r[4]))
+            .collect();
+        let mut out = Vec::new();
+        for r in rows.iter().filter(|r| r[0] == "O") {
+            let last = r[4].split_whitespace().last().unwrap_or("").to_owned();
+            let because = shown
+                .iter()
+                .find(|(e, said)| said.contains(&last) && **e != r[1])
+                .map(|(e, _)| (*e).clone());
+            let state = if because.is_some() {
+                "done"
+            } else if r[3].contains("one time") {
+                "past"
+            } else {
+                "open"
+            };
+            out.push(json!({"id": r[1], "state": state, "because": because.unwrap_or_default()}));
+        }
+        return json!({"offers": out});
+    }
+    if rows
+        .iter()
+        .any(|r| r[0] == "P" || (r[0] == "L" && r.len() == 6))
+    {
+        let about = |words: &str| -> String {
+            for lead in ["About ", "for the "] {
+                if let Some(i) = words.find(lead) {
+                    return words[i + lead.len()..]
+                        .split_whitespace()
+                        .next()
+                        .unwrap_or("")
+                        .to_owned();
+                }
+            }
+            String::new()
+        };
+        let chats: Vec<Value> = rows
+            .iter()
+            .filter(|r| r[0] == "P" && r[2] == "chat")
+            .map(|r| json!({"id": r[1], "about": if r[3].starts_with("About ") { about(&r[3]) } else { String::new() }}))
+            .collect();
+        let lines: Vec<Value> = rows
+            .iter()
+            .filter(|r| r[0] == "L")
+            .map(|r| {
+                let tied = r[4].contains("for the ");
+                json!({"id": r[1], "scope": if tied { "project" } else if r[2] == "follow" { "rule" } else { "owner" },
+                       "name": if tied { about(&r[4]) } else { String::new() }})
+            })
+            .collect();
+        return json!({"chats": chats, "lines": lines});
+    }
+    if ctx.contains("] folder: ") {
+        // the summary names what the entry's first prompt was about
+        let lines: Vec<&str> = ctx.lines().collect();
+        let entries: Vec<Value> = lines
+            .iter()
+            .enumerate()
+            .filter_map(|(i, l)| {
+                let r = l.strip_prefix('[')?.split_once("] folder: ")?.0.to_owned();
+                let first = lines.get(i + 1).and_then(|p| p.strip_prefix("- ")).unwrap_or("");
+                Some((r, first.to_owned()))
+            })
+            .map(|(r, first)| {
+                let session = r.split(':').nth(1).unwrap_or("").chars().take(6).collect::<String>();
+                json!({"ref": r, "title": format!("Worked on {session}"), "summary": format!("About: {first}."),
+                       "topics": ["testing"], "state": "in progress"})
+            })
+            .collect();
+        return json!({"entries": entries});
+    }
+    if ctx.contains("\nCandidate ") {
+        let mut verdicts = Vec::new();
+        for block in ctx.split("\nCandidate ").skip(1) {
+            let mut lines = block.lines();
+            let head = lines.next().unwrap_or("");
+            let (id, rest) = head.split_once(": kind=").unwrap_or(("", ""));
+            let (kind, rest) = rest.split_once(" subject=").unwrap_or(("", ""));
+            let (subject, key) = rest.split_once(" key=").unwrap_or(("", ""));
+            let says = block
+                .lines()
+                .find_map(|l| l.strip_prefix("  says: "))
+                .unwrap_or("");
+            let quoted = block
+                .lines()
+                .find_map(|l| l.strip_prefix("  quoted: “"))
+                .unwrap_or("");
+            let quote = quoted.rsplit_once("” (from ").map_or("", |x| x.0);
+            let holds = block.lines().find_map(|l| {
+                let rest = l.trim_start().strip_prefix('[')?;
+                let (head, text) = rest.split_once("] ")?;
+                let parts: Vec<&str> = head.split(" · ").collect();
+                (parts.len() == 3 && parts[1] == "owner" && text.contains(quote))
+                    .then(|| parts[0].to_owned())
+            });
+            verdicts.push(json!({"id": id, "supported": holds.is_some(), "kind": kind, "subject": subject, "key": key,
+                "content": says, "message": holds.clone().unwrap_or_default(), "quote": quote, "same_as": "",
+                "ended": false, "until": if says.contains("until January") { "2027-01-01" } else { "" },
+                "review_in_days": if says.contains("this month") { 30 } else { 0 }}));
+        }
+        return json!({"verdicts": verdicts});
+    }
+    let mut out = Vec::new();
+    for line in ctx.lines() {
+        let Some(rest) = line.strip_prefix('[') else {
+            continue;
+        };
+        let Some((head, said)) = rest.split_once("] ") else {
+            continue;
+        };
+        let parts: Vec<&str> = head.split(" · ").collect();
+        if parts.len() != 3 {
+            continue;
+        }
+        let claim = parts[1].starts_with("saved memory");
+        if !(claim || (parts[1] == "owner" && said.starts_with("I "))) {
+            continue;
+        }
+        let words: Vec<String> = said
+            .to_lowercase()
+            .split(|c: char| !c.is_ascii_alphabetic())
+            .filter(|w| !w.is_empty())
+            .map(str::to_owned)
+            .collect();
+        let mut key = words
+            .iter()
+            .skip(1)
+            .take(2)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("_");
+        let kind = if said.contains("project") {
+            "project"
+        } else if said.contains("prefer") {
+            "preference"
+        } else {
+            "fact"
+        };
+        if said.contains("every ") {
+            key = format!("recurring_{key}");
+        }
+        let subject = if kind == "project" {
+            "project:kite".to_owned()
+        } else {
+            "owner".to_owned()
+        };
+        out.push(json!({"kind": kind, "subject": subject, "key": key,
+                        "content": format!("The owner {}", &said[2.min(said.len())..]),
+                        "message": parts[0], "quote": said}));
+    }
     json!({"candidates": out})
 }
 
@@ -520,6 +755,9 @@ pub fn make_runtime_for(
         let tight = answer.get("tight") == Some(&json!(true));
         if answer.get("dynamic").is_some() {
             answer = json!({"dynamic": "import"});
+        }
+        if answer.get("stand_in").is_some() {
+            answer = json!({"stand_in": true});
         }
         Ok(Made {
             rt: Box::new(FakeRuntime {
@@ -731,6 +969,7 @@ impl Env {
             unzstd: None,
             idle_poll: 0.0,
             chunk_chars: ferb_memory::import_extract::CHUNK_CHARS,
+            at_once: ferb_learning::import_job::AT_ONCE,
         }
     }
 }

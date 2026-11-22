@@ -275,6 +275,19 @@ pub fn search_text(kind: &str, key: &str, body: &Value) -> String {
         "playbook" => words(&[get(body, "title"), get(body, "text")]),
         "episode_annotation" => words(&[get(body, "reflection"), get(body, "narrative")]),
         "activity_summary" => words(&[get(body, "text")]),
+        // the work log (MEM-441): found by what was worked on, its topics and its folder
+        "work_log" => {
+            let topics = s(get(body, "topics")
+                .and_then(Value::as_array)
+                .map(|t| t.iter().map(py::py_str).collect::<Vec<_>>().join(" "))
+                .unwrap_or_default());
+            words(&[
+                get(body, "title"),
+                get(body, "summary"),
+                Some(&topics),
+                get(body, "folder"),
+            ])
+        }
         _ => String::new(),
     }
 }
@@ -334,6 +347,25 @@ pub fn shown_text(kind: &str, key: &str, body: &Value, recorded_at: &str) -> Str
             )
         }
         "episode_annotation" => format!("about task {key}: {}", one_line(body.get("reflection"))),
+        // one coding session on one day: what was worked on, how it ended, and how to find the session (MEM-441)
+        "work_log" => format!(
+            "{} {} ({}): {} [{} session {}, folder {}; reopen: {}]",
+            or_empty(body.get("day")),
+            one_line(body.get("title")),
+            or_empty(body.get("state")),
+            one_line(body.get("summary")),
+            or_empty(body.get("tool_name")),
+            or_empty(body.get("thread_id")),
+            {
+                let f = or_empty(body.get("folder"));
+                if f.is_empty() {
+                    "not recorded".to_owned()
+                } else {
+                    f
+                }
+            },
+            or_empty(body.get("reopen"))
+        ),
         _ => {
             let text = one_line(body.get("text"));
             if text.is_empty() {

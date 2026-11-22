@@ -42,6 +42,13 @@
       "part": "input_schema",
       "old": "\"title\": \"Text\"}, \"contact\": {",
       "new": "\"title\": \"Text\"}, \"entering\": {\"anyOf\": [{\"items\": {\"type\": \"string\"}, \"type\": \"array\"}, {\"type\": \"null\"}], \"default\": null, \"description\": \"type and set_value: before typing several email addresses or phone numbers you found in what you read (not in the owner's words), list them all here with the first one; FERB asks the owner once for the list, not before each\", \"title\": \"Entering\"}, \"contact\": {"
+    },
+    {
+      "decision": "MEM-441",
+      "tool": "memory.learned",
+      "part": "description",
+      "old": "Retrieve past tasks (with how they were done), playbooks and activity summaries by meaning and keywords,",
+      "new": "Retrieve past tasks (with how they were done), playbooks, activity summaries and the work log of the owner's Claude Code and Codex sessions (kind work_log: one session on one day, what was worked on, its folder and the session's id; since/until on the session's day) by meaning and keywords,"
     }
   ]
 }

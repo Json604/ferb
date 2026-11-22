@@ -33,6 +33,8 @@ pub mod export;
 #[cfg(feature = "store")]
 pub mod import_job;
 #[cfg(feature = "store")]
+pub mod import_profile;
+#[cfg(feature = "store")]
 pub mod items;
 pub mod journal;
 #[cfg(feature = "store")]
@@ -52,6 +54,8 @@ pub mod summary;
 pub mod tools;
 #[cfg(feature = "store")]
 pub mod upgrade;
+#[cfg(feature = "store")]
+pub mod worklog;
 
 pub use ferb_py::time::DateTime;
 

@@ -226,6 +226,9 @@ struct MemoryPage: View {
     var correctMemory: ((String) -> Void)? = nil
     @State private var forgetting: MemoryRow?
     @State private var willDelete: [String] = []
+    /// The memory whose project the owner is naming (MEM-443), and the name typed.
+    @State private var scoping: MemoryRow?
+    @State private var projectName = ""
 
     var body: some View {
         WindowPage {
@@ -264,6 +267,18 @@ struct MemoryPage: View {
             Button("Cancel", role: .cancel) { forgetting = nil }
         } message: { _ in
             Text(willDelete.isEmpty ? "FERB deletes this memory." : "FERB deletes: " + willDelete.joined(separator: "; "))
+        }
+        .alert("Only in which project?", isPresented: Binding(get: { scoping != nil },
+                                                             set: { if !$0 { scoping = nil } }),
+               presenting: scoping) { item in
+            TextField("Project name", text: $projectName)
+            Button("Save") {
+                let name = projectName.trimmingCharacters(in: .whitespacesAndNewlines)
+                Task { if !name.isEmpty { await store.setScope(item, name) }; scoping = nil; projectName = "" }
+            }
+            Button("Cancel", role: .cancel) { scoping = nil; projectName = "" }
+        } message: { _ in
+            Text("FERB will use this only when you're working on that project.")
         }
     }
 
@@ -329,6 +344,26 @@ struct MemoryPage: View {
                     correctMemory(item.content)
                 }
                 .buttonStyle(.plain).font(.system(size: 12, weight: .medium))
+            }
+            // MEM-443, MEM-444: what FERB brought in from another assistant: where it applies, and its offer
+            if let line = store.importedLines[item.id] {
+                HStack(spacing: 8) {
+                    Text(line.whereLine).font(.caption).foregroundStyle(.secondary)
+                    Menu("Change") {
+                        Button("Everywhere") { Task { await store.setScope(item, "general") } }
+                        Button("Only in a project…") { projectName = line.scope; scoping = item }
+                    }
+                    .menuStyle(.borderlessButton).fixedSize()
+                }
+                if !line.offerLine.isEmpty {
+                    Text(line.offerLine).font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 8) {
+                        Button("Still on") { Task { await store.answerOffer(item, "open") } }
+                        Button("Done") { Task { await store.answerOffer(item, "done") } }
+                        Button("No thanks") { Task { await store.answerOffer(item, "not interested") } }
+                    }
+                }
             }
             HStack(spacing: 8) {
                 Button(item.inProfile ? "Not always on" : "Always on") {

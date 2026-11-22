@@ -145,6 +145,8 @@ async fn replay(name: &str, d: &Daemon, only: &[&str]) -> (usize, usize) {
                             let mut python: Value = serde_json::from_str(want).unwrap();
                             let values = python["result"]["values"].as_object_mut().unwrap();
                             values.shift_remove("retention.decision_days");
+                            // MEM-447: the owner's answer about the coding assistants on this Mac, off until asked
+                            values.insert("memory.local_import".into(), json!(false));
                             values.insert("insomnia.grace_minutes".into(), json!(10));
                             values.insert("insomnia.battery_warn_percent".into(), json!(20));
                             values.insert("insomnia.battery_urgent_percent".into(), json!(10));
@@ -152,6 +154,21 @@ async fn replay(name: &str, d: &Daemon, only: &[&str]) -> (usize, usize) {
                                 got,
                                 ferb_py::json::dumps(&python),
                                 "{name}: {method} (id {id:?})"
+                            );
+                            named += 1;
+                        }
+                        None if method == "memory.import.estimate"
+                            && (sent.contains("\"claude_code\"") || sent.contains("\"codex\"")) =>
+                        {
+                            // MEM-432 (named difference): with no folder given, Claude Code and Codex are read from
+                            // their prompt-history files, which the recorded home doesn't hold (it holds a transcript)
+                            let rust: Value = serde_json::from_str(&got).unwrap();
+                            assert_eq!(rust["error"]["code"], -32004, "{name} {id:?}");
+                            let m = rust["error"]["message"].as_str().unwrap();
+                            assert!(
+                                m.contains(" prompt history at /FX/")
+                                    && m.ends_with("/history.jsonl"),
+                                "{m}"
                             );
                             named += 1;
                         }
@@ -394,8 +411,9 @@ async fn settings_import_timeline_persona() {
     }
     d.sql(seed).await;
     let (same, named) = replay("settings_setup_about", &d, &[]).await;
-    // named: Python's internal error, and the two settings.get without Jev's days (APP-941)
-    assert_eq!((same, named), (13, 3));
+    // named: Python's internal error, the two settings.get without Jev's days (APP-941), and the two coding
+    // assistants' estimates read from their prompt history (MEM-432)
+    assert_eq!((same, named), (11, 5));
     d.close().await;
 }
 

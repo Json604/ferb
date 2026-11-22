@@ -80,6 +80,9 @@ pub struct Conversation {
     pub title: String,
     pub messages: Vec<Message>,
     pub claims: bool,
+    /// Where it was said, when its reader knows: a coding session's folder (MEM-436). A conversation with an
+    /// assistant is placed by its title instead; a saved memory has no one place.
+    pub place: String,
 }
 
 impl Conversation {
@@ -90,6 +93,7 @@ impl Conversation {
             title: title.into(),
             messages: Vec::new(),
             claims: false,
+            place: String::new(),
         }
     }
 
@@ -282,6 +286,7 @@ pub fn finish(
             title: redact(&cut(&conv.title, 200)),
             messages: kept,
             claims: conv.claims,
+            place: conv.place,
         });
     }
     let key = |c: &Conversation| times::instant(c.last().unwrap_or(since));
@@ -294,7 +299,8 @@ fn unreadable(msg: String) -> Error {
 }
 
 /// `read`: the source's conversations in the window, normalized and redacted. `path`: the export the owner gave
-/// (a zip, its folder or the JSON/HTML file), or for the local sources a folder in place of the usual one.
+/// (a zip, its folder, claude.ai's manifest or the JSON/HTML file), or for the local sources a transcripts folder;
+/// with none, Claude Code and Codex are read from their prompt-history files (`import_local`).
 pub fn read(
     source: &str,
     path: Option<&Path>,
@@ -322,14 +328,23 @@ pub fn read(
             )?,
             &opts.now,
         )?,
-        "claude" => claude(
-            &files(
-                path.unwrap_or(Path::new("")),
-                &["conversations", "projects", "memories", "memory"],
-                &[".json"],
-            )?,
-            &opts.now,
-        )?,
+        "claude" => {
+            let path = path.unwrap_or(Path::new(""));
+            let stems = ["conversations", "projects", "memories", "memory"];
+            // claude.ai's export since late 2026: a manifest of part zips; exactly the parts it names are read
+            // (MEM-438)
+            let found = match crate::import_exports::claude_parts(path, &opts.now)? {
+                Some(parts) => {
+                    let mut all = Vec::new();
+                    for part in parts {
+                        all.extend(files(&part, &stems, &[".json"])?);
+                    }
+                    all
+                }
+                None => files(path, &stems, &[".json"])?,
+            };
+            claude(&found, &opts.now)?
+        }
         "gemini" => gemini(
             &files(
                 path.unwrap_or(Path::new("")),
@@ -338,13 +353,20 @@ pub fn read(
             )?,
             opts.zone,
         )?,
-        "claude_code" => claude_code(
-            &path.map_or_else(|| home.join(".claude").join("projects"), Path::to_path_buf),
-        )?,
-        "codex" => codex(
-            &path.map_or_else(|| home.join(".codex"), Path::to_path_buf),
-            opts.unzstd,
-        )?,
+        // decision: MEM-432: with no folder given, the coding assistants are read from what the owner typed (their
+        // prompt-history files); a folder given is still read as transcripts
+        "claude_code" | "codex" if path.is_none() => {
+            return crate::import_local::read(
+                source,
+                &home,
+                &opts.now,
+                &since,
+                opts.zone,
+                opts.redact,
+            )
+        }
+        "claude_code" => claude_code(path.unwrap_or(Path::new("")))?,
+        "codex" => codex(path.unwrap_or(Path::new("")), opts.unzstd)?,
         _ => {
             return Err(unreadable(format!(
                 "unknown source {}: one of {}",
@@ -362,7 +384,7 @@ pub fn read(
 
 // ---------- files ----------
 
-fn name_of(path: &Path) -> String {
+pub(crate) fn name_of(path: &Path) -> String {
     path.file_name()
         .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
 }
@@ -380,7 +402,7 @@ fn expanduser(path: &Path) -> PathBuf {
 }
 
 /// `str(path)`.
-fn display(path: &Path) -> String {
+pub(crate) fn display(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
@@ -438,7 +460,7 @@ fn fnmatch(name: &str, pattern: &str) -> bool {
 }
 
 /// `Path.glob(pattern)` for patterns of literal parts, `*` parts and `**` (Python 3.12's selectors).
-fn glob(root: &Path, pattern: &str) -> Vec<PathBuf> {
+pub(crate) fn glob(root: &Path, pattern: &str) -> Vec<PathBuf> {
     fn select(dir: &Path, parts: &[&str], out: &mut Vec<PathBuf>) {
         let Some((part, rest)) = parts.split_first() else {
             out.push(dir.to_path_buf());
@@ -475,7 +497,7 @@ fn glob(root: &Path, pattern: &str) -> Vec<PathBuf> {
     out
 }
 
-fn sorted(mut paths: Vec<PathBuf>) -> Vec<PathBuf> {
+pub(crate) fn sorted(mut paths: Vec<PathBuf>) -> Vec<PathBuf> {
     paths.sort_by(|a, b| path_cmp(a, b));
     paths
 }
@@ -859,6 +881,7 @@ pub fn chatgpt(files: &[(String, Vec<u8>)], now: &DateTime) -> Result<Vec<Conver
             title: "ChatGPT's saved memory".into(),
             messages: msgs,
             claims: true,
+            place: String::new(),
         });
     }
     if !instructions.is_empty() {
@@ -870,6 +893,7 @@ pub fn chatgpt(files: &[(String, Vec<u8>)], now: &DateTime) -> Result<Vec<Conver
             title: "ChatGPT custom instructions (about you)".into(),
             messages: msgs,
             claims: false,
+            place: String::new(),
         });
     }
     Ok(out)
@@ -937,6 +961,47 @@ fn dict_values(value: Option<&Value>) -> Result<Vec<Value>, Error> {
     }
 }
 
+/// The messages of the branch claude.ai shows (fixed against Python, MEM-437): a prompt the owner edited away, or
+/// a retried answer, sits on another branch and is not the owner's last word. The branch runs back from the
+/// conversation's current leaf (`current_leaf_message_uuid`, else the newest message) along `parent_message_uuid`.
+/// `None` (every message read, as before) when the export carries no parent links.
+fn shown_branch(
+    messages: &[Value],
+    current: Option<&str>,
+) -> Option<std::collections::HashSet<usize>> {
+    let uuid = |m: &Value| m.get("uuid").and_then(Value::as_str).map(str::to_owned);
+    let parent = |m: &Value| {
+        m.get("parent_message_uuid")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    };
+    if !messages.iter().any(|m| parent(m).is_some()) {
+        return None;
+    }
+    let named = current.and_then(|c| messages.iter().position(|m| uuid(m).as_deref() == Some(c)));
+    let leaf = named.or_else(|| {
+        messages
+            .iter()
+            .enumerate()
+            .filter(|(_, m)| uuid(m).is_some())
+            .max_by_key(|(n, m)| (iso(m.get("created_at")).map(|t| times::instant(&t)), *n))
+            .map(|(n, _)| n)
+    })?;
+    let mut keep = std::collections::HashSet::new();
+    let mut at = Some(leaf);
+    while let Some(n) = at {
+        if !keep.insert(n) {
+            break;
+        }
+        at = parent(&messages[n]).and_then(|p| {
+            messages
+                .iter()
+                .position(|m| uuid(m).as_deref() == Some(p.as_str()))
+        });
+    }
+    Some(keep)
+}
+
 /// The claude.ai reader (`claude`).
 pub fn claude(files: &[(String, Vec<u8>)], now: &DateTime) -> Result<Vec<Conversation>, Error> {
     let mut out = Vec::new();
@@ -959,8 +1024,14 @@ pub fn claude(files: &[(String, Vec<u8>)], now: &DateTime) -> Result<Vec<Convers
                     pyval::str_or_empty(conv.get("uuid")),
                     pyval::str_or_empty(conv.get("name")),
                 );
-                for msg in pyval::iter_or_empty(conv.get("chat_messages"))? {
-                    if !msg.is_object() {
+                let all = pyval::iter_or_empty(conv.get("chat_messages"))?;
+                let shown = shown_branch(
+                    &all,
+                    conv.get("current_leaf_message_uuid")
+                        .and_then(Value::as_str),
+                );
+                for (n, msg) in all.iter().enumerate() {
+                    if !msg.is_object() || shown.as_ref().is_some_and(|b| !b.contains(&n)) {
                         continue;
                     }
                     let sender = msg.get("sender").map_or("None".to_owned(), pyval::to_str);
@@ -969,7 +1040,7 @@ pub fn claude(files: &[(String, Vec<u8>)], now: &DateTime) -> Result<Vec<Convers
                         "assistant" => "assistant",
                         _ => continue,
                     };
-                    let mut text = claude_text(&msg)?;
+                    let mut text = claude_text(msg)?;
                     let attached = msg.get("attachments").is_some_and(pyval::truthy)
                         || msg.get("files").is_some_and(pyval::truthy);
                     if role == "owner" && attached {
@@ -988,7 +1059,10 @@ pub fn claude(files: &[(String, Vec<u8>)], now: &DateTime) -> Result<Vec<Convers
                 v => vec![v.clone()],
             };
             for project in &projects {
-                if !project.is_object() {
+                // decision: MEM-437 (fixed against Python): the site's own sample project was written by the site
+                if !project.is_object()
+                    || project.get("is_starter_project") == Some(&Value::Bool(true))
+                {
                     continue;
                 }
                 let at = iso(project.get("updated_at")).or_else(|| iso(project.get("created_at")));
@@ -1049,6 +1123,7 @@ pub fn claude(files: &[(String, Vec<u8>)], now: &DateTime) -> Result<Vec<Convers
                     title: "Claude's saved memory".into(),
                     messages: claims,
                     claims: true,
+                    place: String::new(),
                 });
             }
         }
@@ -1645,6 +1720,14 @@ pub fn claude_code(root: &Path) -> Result<Vec<Conversation>, Error> {
             out.push(c);
         }
     }
+    out.extend(claude_code_notes(root));
+    Ok(out)
+}
+
+/// Claude Code's saved-memory notes under `root` (`*/memory/*.md`), dated by when each was last changed: the
+/// assistant's claims, never the owner's words (MEM-408, IMP-29).
+pub fn claude_code_notes(root: &Path) -> Vec<Conversation> {
+    let mut out = Vec::new();
     for note in sorted(glob(root, "*/memory/*.md")) {
         let Ok(meta) = fs::metadata(&note) else {
             continue;
@@ -1680,9 +1763,10 @@ pub fn claude_code(root: &Path) -> Result<Vec<Conversation>, Error> {
                 Some(at),
             )],
             claims: true,
+            place: String::new(),
         });
     }
-    Ok(out)
+    out
 }
 
 // ---------- Codex CLI ----------

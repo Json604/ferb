@@ -60,7 +60,8 @@ pub fn routable(kind: &str, capability: &str, ferb_checks: &[&str]) -> bool {
     kind == "owner_question"
         && (capability == "owner.ask"
             || capability == "plan.ask"
-            || ferb_checks.contains(&capability))
+            || ferb_checks.contains(&capability)
+            || ferb_orchestrator::steering::OWN_WORDS_ASKS.contains(&capability))
 }
 
 /// supervisor.py:3742 `_card_row` (ORCH-595): the card's kind, its first line, when it was asked (`asked_at`: the

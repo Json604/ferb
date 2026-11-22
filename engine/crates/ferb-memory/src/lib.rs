@@ -5,6 +5,8 @@
 //! - [`tokenizer`], [`embeddings`]: WordPiece, the static table read by mmap, int8 and sign-bit vectors, ranking.
 //! - [`search`]: the pure helpers, and (feature `store`) [`search::MemorySearch`] over the store's connection.
 //! - [`import_sources`]: the five readers (ChatGPT, claude.ai, Gemini, Claude Code, Codex), in memory only.
+//! - [`import_local`]: what the owner typed into Claude Code and Codex (their prompt-history files).
+//! - [`import_exports`]: a site export's plain checks and claude.ai's manifest of part zips.
 //! - [`import_extract`]: parts, chunks, the owner index, the checks of the model's recall and verify answers.
 //!
 //! Seams (other parts' code, passed in): the clock and [`search::FactLookup`] (items), the learned nodes' text
@@ -19,7 +21,9 @@ mod generated;
 
 pub mod embeddings;
 pub mod html;
+pub mod import_exports;
 pub mod import_extract;
+pub mod import_local;
 pub mod import_sources;
 pub mod pymath;
 pub mod pystr;

@@ -254,6 +254,9 @@ pub const PHONE_METHODS: &[PhoneMethod] = &[
     sensitive("memory.import.start", "fills FERB's memory from another assistant's export"),
     plain("memory.import.status", "an import's progress"),
     plain("memory.import.cancel", "stops an import"),
+    sensitive("memory.import.scope", "changes where an imported memory applies"),
+    private("memory.import.lines", "where imported memories apply and their offers"),
+    sensitive("memory.import.offer", "answers an imported memory's offer"),
     // ---- perception
     plain("sense.status", "whether FERB watches the Mac"),
     plain("sense.pause", "stops FERB watching: only ever less"),

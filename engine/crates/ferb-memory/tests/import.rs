@@ -47,6 +47,7 @@ fn conv_from(v: &Value) -> Conversation {
                 )
             })
             .collect(),
+        place: String::new(),
     }
 }
 
@@ -88,7 +89,7 @@ fn write_files(root: &Path, files: &Value) {
     }
 }
 
-// decision: MEM-400, MEM-401, MEM-403, MEM-404, MEM-405, MEM-407, MEM-413, MEM-414
+// decision: MEM-400, MEM-401, MEM-432, MEM-404, MEM-405, MEM-407, MEM-413, MEM-414
 #[test]
 fn every_reader_gives_pythons_conversations() {
     let fx = fixture("import.json");
@@ -113,6 +114,7 @@ fn every_reader_gives_pythons_conversations() {
     );
     let mut n = 0;
     let mut fixed_differs = 0;
+    let mut history_route = 0;
     for case in fx["cases"].as_array().unwrap() {
         let name = s(&case["name"]);
         let root = dir.path().join("imports").join(name);
@@ -129,6 +131,19 @@ fn every_reader_gives_pythons_conversations() {
         };
         let path = case["path"].as_str().map(|p| root.join(p));
         let got = sources::read(s(&case["source"]), path.as_deref(), &opts);
+        // decision: MEM-432 (named difference): with no folder given, Claude Code and Codex are read from their
+        // prompt-history files, not the transcripts Python read; these homes hold transcripts only
+        if path.is_none() && ["claude_code", "codex"].contains(&s(&case["source"])) {
+            match got {
+                Err(Error::Unreadable(m)) => {
+                    assert!(m.contains("prompt history at"), "{name}: {m}")
+                }
+                other => panic!("{name}: {other:?}"),
+            }
+            history_route += 1;
+            n += 1;
+            continue;
+        }
         // decision: MEM-414 (deliberate difference): the Gemini parsers are closed after feeding
         let want = case.get("fixed").unwrap_or(case);
         if case.get("fixed").is_some_and(|f| f["out"] != case["out"]) {
@@ -152,6 +167,10 @@ fn every_reader_gives_pythons_conversations() {
     }
     assert!(n >= 30, "{n}");
     assert!(fixed_differs >= 1, "the HTML fix must show in a case");
+    assert_eq!(
+        history_route, 2,
+        "the two homes read by the prompt-history route"
+    );
 }
 
 // decision: MEM-401, MEM-407, MEM-413

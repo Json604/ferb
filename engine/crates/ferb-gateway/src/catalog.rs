@@ -278,7 +278,8 @@ pub fn is_addition(name: &str) -> bool {
 /// the listing alone, for the tests that compare recorded listings (the grant itself isn't recorded there): an
 /// addition that acts only where the listing holds a catalog tool that acts in one of its scopes (an observing grant,
 /// the checker's, holds none); one not offered to FERB's own identity only where the listing holds no tool that is
-/// FERB's identity's alone (HAND-623: project.publish pushes with the owner's login). Its `after` and
+/// FERB's identity's alone (HAND-623: project.publish pushes with the owner's login); one that neither acts nor only
+/// observes (MEM-448: memory.import) only where the listing holds a tool that acts in its scopes. Its `after` and
 /// `named_only` are the caller's.
 pub fn offered_beside(addition: &Addition, listed: &[String]) -> bool {
     let rows = catalog().raw()["tools"]
@@ -289,6 +290,18 @@ pub fn offered_beside(addition: &Addition, listed: &[String]) -> bool {
     let scopes = strings(&addition.row["scopes"]);
     let identities = strings(&addition.row["identities"]);
     if addition.row["acts"].as_bool().unwrap_or(false) {
+        let acting = listed.iter().filter_map(|n| row_of(n)).any(|t| {
+            t["acts"].as_bool().unwrap_or(false) && !strings(&t["scopes"]).is_disjoint(&scopes)
+        });
+        if !acting {
+            return false;
+        }
+    } else if !addition.row["facts"]["observation"]
+        .as_bool()
+        .unwrap_or(true)
+    {
+        // MEM-448: one that only does FERB's own work (memory.import) is never an observing grant's: offered only
+        // where the listing holds a tool that acts in one of its scopes
         let acting = listed.iter().filter_map(|n| row_of(n)).any(|t| {
             t["acts"].as_bool().unwrap_or(false) && !strings(&t["scopes"]).is_disjoint(&scopes)
         });

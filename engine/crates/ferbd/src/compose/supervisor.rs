@@ -598,8 +598,8 @@ impl SupDaemon {
                     "browsing.choose" => "browsing",
                     "loop.ask" => "loop",
                     "runtime.switch" => "runtime_switch",
-                    // steering.py MEMORY_ASKS (a forget asked in chat)
-                    "memory.forget" => "memory",
+                    // steering.py MEMORY_ASKS (a forget asked in chat; the memory import's, MEM-444, MEM-447)
+                    c if ferb_orchestrator::steering::MEMORY_ASKS.contains(&c) => "memory",
                     other => other,
                 }
                 .to_string()
@@ -1707,10 +1707,11 @@ impl Daemon for SupDaemon {
         .ok()
     }
     fn question_answered(&self, approval: &Approval) -> String {
-        let (id, state, choice) = (
+        let (id, state, choice, answer) = (
             approval.id.clone(),
             approval.state.as_str().to_string(),
             approval.choice.clone(),
+            approval.answer.clone(),
         );
         let Some(a) = self.a.get() else {
             return String::new();
@@ -1722,6 +1723,7 @@ impl Daemon for SupDaemon {
                     approval_id: &id,
                     state: &state,
                     choice: choice.as_deref(),
+                    answer: answer.as_deref(),
                 },
             )
             .unwrap_or_default()
@@ -2066,10 +2068,27 @@ pub fn build(daemon: Arc<SupDaemon>, p: BuildParts) -> Built {
             prepare_persona: {
                 let d = daemon.clone();
                 Arc::new(move || {
+                    // MEM-447, MEM-448: the profiles the websites' question offers, read here (the browser area's)
+                    let profiles: Vec<(String, String)> = d
+                        .tools
+                        .browsers()
+                        .and_then(|b| b.area())
+                        .and_then(|cx| cx.browsing_profiles().ok())
+                        .unwrap_or_default()
+                        .iter()
+                        .map(|p| {
+                            (
+                                ferb_browser::profiles::shown(p, None),
+                                format!("{}/{}", p.browser, p.folder),
+                            )
+                        })
+                        .collect();
                     if let Some(a) = d.a.get() {
                         let _ = a.spawn(|st| async move {
                             if !st.shutting_down.get() {
                                 ferb_daemon::areas_a::persona::start(&st, false, "chat");
+                                // the memory import's questions, once setup is done (MEM-447, MEM-448)
+                                ferb_daemon::areas_a::memory_import::offer(&st, profiles);
                             }
                         });
                     }

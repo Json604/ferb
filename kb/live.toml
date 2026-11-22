@@ -519,13 +519,13 @@ sitting = "step 13, sitting 8"
 waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-419]
-title = "Import each real assistant once and judge the facts"
+title = "Import each real assistant once from the Memory page and judge the facts"
 area = "memory"
-surface = "FERB.app Memory page → Import from other assistants, the owner's own exports and local transcripts"
-request = "Import each source once (ChatGPT, claude.ai, Claude Code, Codex CLI, Gemini); read the estimate first, then the summary notice, the Memory page's source filter and a sample of facts. Also `uv run pytest -m real tests/test_memory_import.py::test_quality_live`."
-pass = "The estimate states model calls before starting; each run ends with one notice whose Open the Memory page button filters by source; the sampled facts are true to the owner's memory, saved as FERB's understanding, none older than 3 months; the live quality test passes."
-decisions = ["MEM-400", "MEM-401", "MEM-402", "MEM-403", "MEM-406"]
-sitting = "step 13, sitting 7"
+surface = "FERB.app Memory page → Import from other assistants, the owner's own exports (a ChatGPT zip, claude.ai's parts with their manifest, a Gemini Takeout) and this Mac's Claude Code and Codex"
+request = "Import each source once (ChatGPT, claude.ai, Claude Code, Codex CLI, Gemini); read the estimate first, then the one notice, the Memory page's source filter and a sample of facts. Then import the same claude.ai export again, and an older one if you have one, and a wrong file (any other zip)."
+pass = "The estimate states model calls first; each run ends with one notice saying what FERB can now do, its button filtering the Memory page by source; sampled facts are true, FERB's understanding, none older than 3 months; Claude Code and Codex need no transcripts; the same export again costs no model calls; an older one says so; the wrong file says plainly what it isn't; your own files are left as they were."
+decisions = ["MEM-400", "MEM-401", "MEM-402", "MEM-432", "MEM-438", "MEM-445"]
+sitting = "after this build is installed"
 waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-420]
@@ -4949,4 +4949,49 @@ surface = "FERB.app with this build (installed by the owner), Power Nap on (Syst
 request = "Turn Keep my Mac working off, plug the Mac in and close the lid. After a few minutes, from the phone ask: 'is my Mac awake? why can you answer?'. Open the lid. The next day, from the phone ask: 'yesterday my Mac was on power with the lid closed and keep my Mac working was off, but I could still chat with you, how?'"
 pass = "While closed, the phone's line under the tabs says the Mac is asleep with its lid closed and wakes for a moment now and then; FERB's answer says the Mac is asleep and macOS's Power Nap wakes it briefly, that FERB itself isn't keeping it awake and Keep my Mac working is off. The next day's answer calls device.facts with since/until (ferb trace TASK) and names the sleep's times, the brief wakes and Power Nap, never that FERB held the Mac awake."
 decisions = ["SENSE-426", "SENSE-427", "SENSE-428", "SENSE-429", "SENSE-430"]
+sitting = "after this build is installed"
+
+[LIVE-1162]
+title = "Setup asks about Claude Code and Codex once; Yes brings them in now and keeps them up to date"
+area = "memory"
+surface = "A fresh FERB.app install of this build (installed by the owner) on a Mac with Claude Code and/or Codex used in the last 3 months"
+request = "Finish the setup tour. When FERB asks 'Bring in what Claude Code and Codex know about you?', say Yes. Wait for its message. Ask FERB: 'what was I working on in Claude Code last week?' and 'what did I do about <something you did last month>?'. Open Settings → Privacy → Your coding assistants. The next day, after a new Claude Code session, ask again what you were working on today. Then turn the switch off."
+pass = "Asked once at setup's end, naming what FERB found, before anything is read; after Yes one warm message (never 'AI') says what it learned with examples; both answers name the right sessions, days and folders (memory.learned in the trace); the next day's session is found with no new message; the switch is on, and off stops the hourly reads while what was learned stays. No (in another fresh install) reads nothing and isn't asked again."
+decisions = ["MEM-447", "MEM-432", "MEM-433", "MEM-434", "MEM-441"]
+sitting = "after this build is installed"
+
+[LIVE-1163]
+title = "claude.ai's manifest export is read from its parts; missing parts and expired links said plainly"
+area = "memory"
+surface = "FERB.app Memory page → Import from other assistants → Claude (data export), the owner's real claude.ai export mail"
+request = "Download only the conversations, memories and projects links of your claude.ai export into one folder with its manifest; import the manifest. Then try a folder with the manifest but without memories-000.zip, and a part zip cut short."
+pass = "The full set imports your chats, memory and projects (not the starter project, not frames, feedback or login history); the missing part is named with how long its link still works (or that it has expired) and no link is shown; the cut zip says it isn't a complete zip file."
+decisions = ["MEM-438", "MEM-437"]
+sitting = "after this build is installed"
+
+[LIVE-1164]
+title = "The imported profile: true lines, project rules tied, corrections stick, older offers asked once"
+area = "memory"
+surface = "FERB.app after LIVE-1162 (or an import from the Memory page), the Memory page and chat"
+request = "Read the import's message and the Memory page's imported lines. Correct one line in your own words, say another is wrong (Forget), and say one is over. On a later day, after typing the same things again in Claude Code, let the hourly update run, then check those three lines. Answer the 'Are these still on?' list if FERB asked one."
+pass = "Lines are one plain fact each; a rule you follow only in one project shows 'only in the X project' on its entry; lines last said more than 30 days ago say 'last said …' and are asked about once; your corrected line keeps your words, the forgotten one doesn't come back, and the one you said is over stays over until you say it again; offers are only things still open, and the 'Are these still on?' list has at most five, newest first, and is never asked twice."
+decisions = ["MEM-436", "MEM-439", "MEM-442", "MEM-443", "MEM-444", "MEM-445", "MEM-446", "MEM-450"]
+sitting = "after this build is installed"
+
+[LIVE-1165]
+title = "Yes to the websites: FERB requests the exports, waits quietly, imports, deletes, tells you warmly"
+area = "memory"
+surface = "FERB.app with this build, a paired browser profile signed in to chatgpt.com and claude.ai and to the mail those accounts use; the owner watching over a few days"
+request = "After the coding assistants' question, FERB asks whether to bring in what ChatGPT and Claude know about you: pick the profile you're signed in on. Leave FERB alone; look at Settings → Schedules once. If a site asks you to confirm the request, do it when FERB tells you. Wait for the exports to arrive by mail."
+pass = "Each export is requested in that profile (the first run's trace shows the site's confirmation); the 15-minute checks post nothing while waiting and show as two stoppable schedules; a site's confirmation is told once; on the mail FERB downloads only the needed parts, imports them, leaves nothing under ~/.ferb/workspace/downloads and sends one warm message per site (never 'AI'); the mails stay in your inbox; the schedules end. 'No, thanks' changes nothing."
+decisions = ["MEM-448", "MEM-449", "MEM-440", "MEM-451"]
+sitting = "after this build is installed"
+
+[LIVE-1166]
+title = "The work log reopens a session only when asked, and asks before typing it"
+area = "memory"
+surface = "FERB.app after LIVE-1162"
+request = "Ask FERB: 'reopen the Claude Code session where I worked on <something from last week>'."
+pass = "FERB finds the session (memory.learned) and asks first before typing 'claude --resume <id>' into a terminal, showing the exact command; Yes opens that session."
+decisions = ["MEM-441"]
 sitting = "after this build is installed"

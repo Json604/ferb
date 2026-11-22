@@ -135,6 +135,8 @@ fn calls() -> Vec<(&'static str, Value, Expect, &'static str)> {
         ("about.diagnostics", json!({}), Works, "read"),
         ("conversation.read", json!({}), Works, "read"),
         ("memory.learned", json!({}), Works, "read"),
+        // MEM-448: an export path outside FERB's downloads folder, or none, is refused by the tool itself
+        ("memory.import", json!({"source": "chatgpt", "path": "/nonexistent-ferb-export.zip"}), Reaches("doesn't exist"), "read"),
         ("ferb_browser.open", json!({"url": "https://example.com/"}), Reaches("isn't paired yet"), "open_tab"),
         ("ferb_browser.navigate", json!({"tab": "t1", "url": "https://example.com/"}), Reaches(no_tab), "navigate"),
         ("ferb_browser.snapshot", json!({"tab": "t1"}), Reaches(no_tab), "read"),

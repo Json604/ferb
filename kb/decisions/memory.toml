@@ -402,7 +402,8 @@ legacy = "notes/memory-import.md decision 2"
 title = "Import sources: ChatGPT, claude.ai, Claude Code, Codex CLI, Gemini"
 by = "owner"
 date = 2026-10-31
-status = "active"
+status = "superseded"
+superseded_by = "MEM-432"
 words_source = "notes/memory-import.md owner decision 3: an agent's summary; no verbatim quote recorded"
 rule = "The import reads ChatGPT and claude.ai from their data exports (web and Mac app, saved memories and projects where the export has them), Claude Code and Codex CLI from local transcripts on this Mac, and Gemini from Google Takeout."
 paths = ["ferb/memory/import_sources.py"]
@@ -433,7 +434,8 @@ legacy = "notes/memory-import.md decision 5"
 title = "Imported facts are reviewed like other FERB understanding: no questions, one notice"
 by = "owner"
 date = 2026-10-31
-status = "active"
+status = "superseded"
+superseded_by = "MEM-445"
 words_source = "notes/memory-import.md owner decision 6 (pointing to memory decisions 15/18, here MEM-12/MEM-15): an agent's summary; no verbatim quote"
 rule = "No Keep questions and no batch review: imported facts show on the Memory page (filterable by source) and in one summary notice, and join the core profile only once they hold up. Since they rest on the import day's journal row, in practice that is after a week uncorrected or when the owner says it again."
 paths = ["ferb/memory/import_job.py"]
@@ -692,3 +694,235 @@ rule = "Refines MEM-420 (its \"never a period\" guarded \"Dr.\" and \"prof.\"): 
 why = "MEM-419 saves the span that states the fact; a fact quoted from one sentence must never carry the sentences after it into always-on memory."
 evidence = "Live 2026-11-15 23:04 (tree 3a0cc55b): quote and content \"roll no: 2024eb02238\"; saved \"roll no: 2024eb02238 . THEY SHOULNT MENTION AI or anuytign tthere. they are dpoing this assingment as me\" (memory_items seq 7)."
 paths = ["rust/crates/ferb-learning/src/text.rs::sentence_end", "rust/crates/ferb-learning/src/text.rs::clause_span"]
+
+[MEM-432]
+title = "Claude Code and Codex are read from what the owner typed; the rest of MEM-403 stands"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "1. rec  2. rec  3. all 3monts  yes to all tohers EXCEPT on model. dont cap on that, taht is what the settings default or if user changes. THIS SHUODL ONLY TAKE Teh MEMORY AND do its thing / yes"
+words_source = "Twelve numbered answers, question 1 'rec' (lab IMP-16), then 'yes' on Claude Code's saved notes (lab IMP-29), lab kb/decisions/import.toml; ported on his 2026-11-22 word."
+rule = "Supersedes MEM-403. The import reads ChatGPT and claude.ai from their data exports (web and Mac app, saved memories and projects where the export has them) and Gemini from Google Takeout. Claude Code and Codex CLI are read from what the owner typed into them on this Mac (~/.claude/history.jsonl and ~/.codex/history.jsonl), not from session transcripts; Claude Code's own saved-memory notes are still read, as claims the owner's own typed words must back. A transcripts folder the owner names is still read as transcripts."
+paths = ["engine/crates/ferb-memory/src/import_local.rs", "engine/crates/ferb-memory/src/import_sources.rs::read"]
+supersedes = ["MEM-403"]
+live = ["LIVE-1162"]
+
+[MEM-433]
+title = "The prompt history is read one session-day at a time, so a later read costs only what is new"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For MEM-432. What was typed becomes one conversation per session per local day (id `<session>@<day>`, titled by its folder), so a session that grows only changes today's conversation and the import's progress by part hash (MEM-410) stays incremental with no new state. Lines that say nothing by their shape alone are dropped (empty once injected tags are dropped, a bare slash command, the tool's interrupted-turn marker), and so is an exact repeat of a line typed earlier in the window. No word list. Codex's folder is read from the first 64 KB of its session file's header, never the whole rollout."
+why = "The lab kept a hash per line in a JSON file (lab IMP-48); FERB already keeps part hashes, and the lab's own porting note named this second way. The structural filter replaces the lab's NOISE pattern, which also matched the words continue/ok/yes (AGENTS.md rule 4)."
+paths = ["engine/crates/ferb-memory/src/import_local.rs"]
+live = ["LIVE-1162"]
+
+[MEM-434]
+title = "No cap on facts per import; three chunks are read at once; the import uses FERB's configured model"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "1. rec  2. rec  3. all 3monts  yes to all tohers EXCEPT on model. dont cap on that, taht is what the settings default or if user changes. THIS SHUODL ONLY TAKE Teh MEMORY AND do its thing"
+words_source = "Twelve numbered answers: question 6 accepted (lab IMP-21), question 7 the model refused (IMP-22), his last sentence (IMP-28); lab kb/decisions/import.toml."
+rule = "An import adds as many facts as it finds; three chunks are read at once, each call still waiting for the owner's chat turn (MEM-411). The import runs on the model FERB's settings give and never picks, names or caps one; nothing beyond which browser or export to use is put in front of the owner."
+paths = ["engine/crates/ferb-learning/src/import_job.rs"]
+live = ["LIVE-1162"]
+
+[MEM-435]
+title = "The import has to be good on the default mid-tier models"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "see the default models are not these smart astra or fable they will be 5.6sol or sonnet5.5 so we have to make it better generally mostly irrespective of the model"
+words_source = "Lab IMP-52: his reply when told the same chunks gave 8 verified facts on gpt-6-astra at low effort against 32 on Claude Fable."
+rule = "The models real users have by default are the mid-tier ones; the import's yield and precision have to hold up on them, mostly irrespective of the model, and the import still never picks a model (MEM-434). The lab's recall and verify prompts, measured for this, wait for the owner's yes before FERB's are changed (T-1281)."
+paths = ["engine/runtime/memory/import_recall.md", "engine/runtime/memory/import_verify.md"]
+untestable = "A direction for the prompts; their change waits on T-1281."
+
+[MEM-436]
+title = "Where each imported fact was said is kept by its reader, never a model"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "Each checked fact is kept (memory_import_facts, migration 0067) with the conversation or session it came from and its place: a coding session's folder, or a chat's title; a saved memory has none. The place is the evidence scope reads (MEM-443) and is shown, never written into a line. Nothing of the chats is kept (MEM-404)."
+paths = ["engine/crates/ferb-learning/src/import_job.rs", "engine/runtime/store/migrations/0067_memory_import_profile.sql"]
+live = ["LIVE-1164"]
+
+[MEM-437]
+title = "claude.ai: the site's sample project and the branches the owner edited away are not his words"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "Fixed against Python (found in the lab on a real export). A claude.ai project marked is_starter_project was written by the site and is not read. A conversation with parent links is read along the branch the site shows: back from current_leaf_message_uuid, else the newest message; a prompt the owner edited away, or a retried answer, is left out. An export with no parent links is read as before."
+paths = ["engine/crates/ferb-memory/src/import_sources.rs::claude", "engine/crates/ferb-memory/src/import_sources.rs::shown_branch"]
+live = ["LIVE-1163"]
+
+[MEM-438]
+title = "Exports checked in plain words; claude.ai's manifest read by parts; an older export sends nothing"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "Before FERB's reader: a missing path, an unfinished download, an empty file, a web page saved as .zip (an expired link) or a damaged zip says so plainly with where to get a new one; after it, an export with nothing recent says whether it is another site's. claude.ai's manifest (or its loose part zips) is read from exactly the conversations, memories and projects parts it names; a missing part is named with whether its 24-hour link expired, never the link. Each source's newest export is kept: an older one sends nothing and says so."
+why = "The lab's exports.py; FERB's reader took any single file as the export and read every matching member of every zip in a folder."
+paths = ["engine/crates/ferb-memory/src/import_exports.rs", "engine/crates/ferb-learning/src/import_job.rs"]
+live = ["LIVE-1163"]
+
+[MEM-439]
+title = "Only the merged profile is saved: facts are placed into lines, the left-out shown on request"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "1. rec  2. rec  3. all 3monts  yes to all tohers EXCEPT on model. dont cap on that, taht is what the settings default or if user changes. THIS SHUODL ONLY TAKE Teh MEMORY AND do its thing"
+words_source = "Twelve numbered answers: question 5 accepted ('only the merged profile is saved; the left-out list is shown on request only', lab IMP-20); lab kb/decisions/import.toml."
+rule = "An import keeps its checked facts as evidence and saves only the profile's lines as memory items: each fact joins a line, changes it, becomes a new line, or is left out with a reason, which is kept and shown only when the owner asks."
+paths = ["engine/crates/ferb-learning/src/import_profile.rs"]
+live = ["LIVE-1164"]
+
+[MEM-440]
+title = "FERB fetches only the export parts it needs into its own folder and deletes them when done"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "also is the claude/gpt/gemini exported data gets deleted???? since ferb will do all these export and shit / agreed / both works"
+words_source = "Lab IMP-32: three replies joined by ' / ': his question; 'agreed' to the proposal quoted in the rule; 'both works' to 'delete when the import finishes, or after 24 hours if it fails?'."
+rule = "FERB downloads only the parts it needs (conversations, memories, projects) into its own private folder, never the owner's Downloads, and never fetches the large artifacts part or the part holding login history and invoices. It deletes them as soon as the import has read every part (not earlier: an import can stop and resume). If the import fails or is cancelled it deletes them anyway after 24 hours and tells the owner. It never deletes an export file the owner gave it himself, and leaves the export mail in his inbox alone."
+paths = ["engine/crates/ferb-learning/src/import_job.rs", "engine/crates/ferb-daemon/src/areas_a/memory_import.rs"]
+live = ["LIVE-1165"]
+
+[MEM-441]
+title = "A work log of the coding sessions, kept until the owner deletes it, found by the one search"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "i wanted to gather facts from all the major AIs people use and what they've been doing with it. and that perfectly fits the website data extractions and they for sure should be extracted… we can extract just summary or something from local sessions, hold their IDs (so ferb can look them up), get updated with new sessions too. so ferb knows what you've worked on, what you're working on etc. the website memory extraction is to know the person more and all too / 1. rec  2. rec"
+words_source = "Lab IMP-1 verbatim, then question 2 of the twelve accepted ('FERB keeps the work log ... until the owner deletes it; searchable', lab IMP-17)."
+rule = "From what the owner typed into Claude Code and Codex FERB keeps a work log: one entry per session per day with the session's id, folder, day, prompt count and a short title, summary, topics and state, no prompt text. It is kept up to date as new sessions appear, kept until the owner deletes it, and searchable; a session is opened again only when asked. Entries are learned nodes of kind work_log found by memory.learned (with since/until on the session's day); reopening a session is typing into a terminal, which asks first (AGENTS.md rule 6)."
+paths = ["engine/crates/ferb-learning/src/worklog.rs", "engine/runtime/memory/worklog.md", "engine/crates/ferb-learning/src/notes.rs::shown_text"]
+live = ["LIVE-1166"]
+
+[MEM-442]
+title = "The import is an outside memory FERB weighs; the owner's corrections always count"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "and the rest is pretty amazing too. i would keep it. BUT ofc some are old, might not be true, ive already filled etc BUT a good outside memory store. some are fully true some are not, so ferb should consider them but yeah always consider corrections"
+words_source = "Lab IMP-35: his overall verdict on the lab's report."
+rule = "The imported profile is kept as a memory from outside: FERB considers it, never takes it as certain or as the owner's instruction (MEM-402), and his corrections outrank every fact, at once and through every later import: his own words on a line are never replaced or repeated by an import; a line he removed is gone and the same thing said again is left out; a line he ended stays ended until he says it again after that; his scope is final."
+paths = ["engine/crates/ferb-learning/src/import_profile.rs"]
+live = ["LIVE-1164"]
+
+[MEM-443]
+title = "A line is general unless its own words tie it to a project or tool, or the owner scopes it"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "this is good except the point 2 is what i was following for ferb only not general. but ok 1 out of 4 miss / works except the 3rd point is for ferb repo only again. so 1/4 miss / also i agree with your rec: A"
+words_source = "Lab IMP-33 (his verdict on the report, two replies) and lab IMP-42 (option A, recommended: general unless its words name a project or tool, or he scopes it)."
+rule = "A preference or setup rule the owner stated inside one project is not used as a general rule about him when its words tie it there. A line is general unless its own words tie it to a project or a tool, or he scopes it himself; where it was said is kept as evidence and shown, but ties nothing. A tied line is applied only there, and every role reads its scope on the entry (the memory item's about)."
+paths = ["engine/crates/ferb-learning/src/import_profile.rs", "engine/runtime/memory/import_scope.md"]
+live = ["LIVE-1164"]
+
+[MEM-444]
+title = "Older offers are confirmed with him once: 30 to 60 days old, at most five, one short question"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "yeah but they should confirm with me about the 30 old offers / idk how good UX this would be, have to make the a very good question or to the point things or one more date range. / yes 60 days and 5 works."
+words_source = "Lab IMP-46 (two replies joined by ' / ') and lab IMP-51, his confirmation of the shape."
+rule = "An offer whose newest evidence is up to 30 days old is offered; 30 to 60 days old, it is asked about once, in one short 'Are these still on?' of at most five, the newest first, inside the import's one notice; older than 60 days it is only listed. An offer is never asked about twice; with no answer it is not offered or acted on. His answer (done, not interested, or still open) is kept on the line."
+paths = ["engine/crates/ferb-learning/src/import_profile.rs", "engine/crates/ferb-learning/src/import_profile.rs::ask_text"]
+live = ["LIVE-1164"]
+
+[MEM-445]
+title = "Imported facts: no questions, one notice; a recent repeat joins the always-on profile at once"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "1. rec  2. rec  3. all 3monts  yes to all tohers EXCEPT on model. dont cap on that, taht is what the settings default or if user changes. THIS SHUODL ONLY TAKE Teh MEMORY AND do its thing / no not join so right away"
+words_source = "Twelve answers: question 4 accepted (repeats join at once; the notice is the grouped report, lab IMP-19); then 'no not join so right away' (lab IMP-47); lab kb/decisions/import.toml."
+rule = "Supersedes MEM-406. No Keep questions and no batch review: imported lines show on the Memory page (filterable by source) and in one notice after an import, the grouped report. They join the always-on profile once they hold up; a line said on two or more separate days or in two or more assistants, at least once in the last 30 days, holds up at once. An older repeat waits the normal way."
+paths = ["engine/crates/ferb-learning/src/profile.rs", "engine/crates/ferb-learning/src/import_profile.rs"]
+supersedes = ["MEM-406"]
+live = ["LIVE-1164"]
+
+[MEM-446]
+title = "Offers are suggestions still open, never done unasked; what is old is said to be old and asked about"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "this list is really good, although most is done and in the past and i would decline but great observation / this is good too with ofc some prev and old memories but yeah a good start, if it considers something wrongly i can correct / yeah i like this 30-7 rule BUT some things i talked about 30 days ago might revisit, so its good that ferb asks them."
+words_source = "Lab IMP-34 (his verdict on the offers and 'About you', joined by ' / ') and lab IMP-41 (30 and 7 days)."
+rule = "What FERB could offer is shown after an import and kept as candidates for its suggestions, never done unasked (lab IMP-27, his 'yes to all others'); an offer is made only while its line is recent (30 days), not over, and nothing since shows it done. A line last said more than 30 days ago is kept, marked 'last said …' on its entry, and asked about once in the import's notice; nothing old is hidden or dropped. 7 days: an offer said that lately is never called past on its words alone."
+paths = ["engine/crates/ferb-learning/src/import_profile.rs", "engine/runtime/memory/import_offers.md"]
+live = ["LIVE-1164"]
+
+[MEM-447]
+title = "The coding assistants on this Mac: asked in setup; one Yes brings them in and keeps them up to date"
+by = "owner"
+date = 2026-11-22
+status = "active"
+words = "oh its built, i thougt it wasnt, that why iwas testing ferb-memory-import-lab(in desktop) separetely. basically what i came to after that tests is that, local agent session memory tranfer adn lookup is easy and we'll do right away. / this has to be asked too in setup imo. also to be updated with them"
+words_source = "Verbatim, 2026-11-22, relayed by the coordinating agent: his first message (its first sentences), then his answer on the local part."
+rule = "FERB asks once, when the app first attaches after setup, whether to bring in what the coding assistants it finds on this Mac (Claude Code, Codex) know about the owner. On Yes it reads them now (MEM-432), places what it learns into the profile, writes the work log (MEM-441), tells him once, and keeps both up to date as new sessions appear, quietly. The same Yes covers the updates; Settings turns them off and keeps what was learned. On No nothing is read, and it is offered again only if he asks."
+paths = ["engine/crates/ferb-daemon/src/areas_a/memory_import.rs::offer", "engine/crates/ferb-daemon/src/areas_a/memory_import.rs::local_answered", "engine/crates/ferb-daemon/src/areas_a/memory_import.rs::hourly", "apps/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift"]
+live = ["LIVE-1162"]
+
+[MEM-448]
+title = "The websites: after setup FERB asks once, then runs the days-long export itself and tells him warmly"
+by = "owner"
+date = 2026-11-22
+status = "active"
+words = "teh weboste memory export and trasnfer will tajke some time cause it openai,caldue give the data after sometime adn that too on mail, so taht transfer is to be done after ferb has initialzed and asks for better knowledge ferb wouldb like to take the memory of their chatgpt/claude and on whihc browser acc its on, if yes then it does the days long process itself and notifies witha  good personla message after its done., if no tehn normal behaviour. check the ferb-memory-import-lab once for the memory port"
+words_source = "Verbatim, 2026-11-22, relayed by the coordinating agent: the rest of his first message."
+rule = "After setup (once the coding assistants' question is settled) FERB asks once whether to bring in what ChatGPT and Claude know about him and which browser profile he is signed in on. On a profile FERB runs the process itself, one quiet watch per site: it requests the export there, checks his mail in that profile every 15 minutes, downloads only the parts it needs, imports them (MEM-439), deletes the file (MEM-440) and tells him once, warmly, what it learned. A site's confirmation is told to him and FERB waits. On No nothing changes and it isn't asked again."
+paths = ["engine/crates/ferb-daemon/src/areas_a/memory_import.rs::sites_answered", "engine/crates/ferb-daemon/src/areas_a/memory_import.rs::site_request", "engine/crates/ferb-daemon/src/areas_a/schedules.rs::schedule_finished"]
+live = ["LIVE-1165"]
+
+[MEM-449]
+title = "FERB requests the export, checks mail every 15 minutes, tells the owner of a verification"
+by = "owner"
+date = 2026-11-10
+status = "active"
+words = "yeah i like this better, ferb can send the export and keep checking mail at intervals until it finds it. if after the limit of the provider it doesnt find, it asks me to do it cause it couldnt find. / 1. rec  2. rec  3. all 3monts  yes to all tohers EXCEPT on model. dont cap on that, taht is what the settings default or if user changes. THIS SHUODL ONLY TAKE Teh MEMORY AND do its thing / btw this happened on chatgpt, so ferb should notify me, anyways ferb does ask question when it needs to so it will cover this."
+words_source = "Lab IMP-10 verbatim; the twelve answers' questions 9 and 10 accepted (lab IMP-24, IMP-25); lab IMP-30 after OpenAI stopped his export at a verification page."
+rule = "For the websites FERB itself requests each site's export, checks the owner's mail every 15 minutes until it arrives, and if it hasn't by the provider's own stated time tells him so he can request it or give the file. Starting the import covers requesting the export: no separate Yes; the one thing it may ask is which mailbox, when it can't find it. When a site asks him to confirm the request (on his phone, a code by email), FERB tells him and waits; it never tries another way."
+paths = ["engine/crates/ferb-daemon/src/areas_a/memory_import.rs::site_request"]
+live = ["LIVE-1165"]
+
+[MEM-450]
+title = "The profile is updated in place: lines are memory items with ids that never change"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For MEM-439, porting lab IMP-31, IMP-37, IMP-38, IMP-43, IMP-50. A line is a memory item's name fixed when made, with an id that never changes. Only facts no line holds go to import_place.md, each with the lines sharing its rarest words; a join credits the day, an update is a new version only when newer and different (old words kept); saves go through Memory::save. Corrections are read from the item (owner-stated, retracted or forgotten, retired). Scope is asked only when words or places change, shown in the item's about with 'last said' for old lines."
+paths = ["engine/crates/ferb-learning/src/import_profile.rs", "engine/runtime/memory/import_place.md", "engine/runtime/memory/import_scope.md", "engine/runtime/memory/import_offers.md"]
+live = ["LIVE-1164"]
+
+[MEM-451]
+title = "A job FERB made for itself posts only when it needs the owner; memory.import takes FERB's downloads"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For MEM-448. A website's watch is an ordinary schedule (every 15 minutes, until met, the chosen profile in its scope, a `job` target naming it) the owner sees and can stop; unlike his schedules (ORCH-590) its runs are journaled and posted only when one fails or ends with gaps, once until a run goes well. The workers' memory.import (after browser.downloads, owner identity, never the checker's) takes only a path under FERB's downloads folder and starts the import, which deletes it when done."
+paths = ["engine/crates/ferb-daemon/src/areas_a/schedules.rs::schedule_finished", "engine/crates/ferb-daemon/src/areas_a/memory_import.rs::start_fetched", "engine/crates/ferb-gateway/src/catalog_additions.json", "engine/crates/ferbd/src/compose/supervisor.rs"]
+why = "The owner's 'does the days long process itself and notifies with a good personal message after its done' (MEM-448): a watch posting every 15 minutes for days would bury that message."
+live = ["LIVE-1165"]
+
+[MEM-452]
+title = "The ask after an import is FERB's question answered in his words: the model reads it, code applies"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For MEM-444. The import's one ask (offers 30 to 60 days old, then lines from a while ago, one numbered list) is FERB's own question (memory.offers), routed like a task's question: the owner's next message answers it. A model reads which numbers his words mean (import_answer.md); code applies it: an offer's answer is kept on its line, a line still on is current again, one he says is over is retired. The Memory page shows each imported line's scope and offer with buttons (memory.import.lines, .scope, .offer)."
+paths = ["engine/crates/ferb-learning/src/import_profile.rs", "engine/crates/ferb-daemon/src/areas_a/memory_import.rs", "engine/runtime/memory/import_answer.md", "apps/mac/FERBNotch/Sources/FERBNotch/WindowPages.swift"]
+live = ["LIVE-1164"]
+
+[MEM-453]
+title = "Every kind of FERB's own question goes through the real table, checked against the code's call sites"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "ask_owner refuses a kind ferb_orchestrator::steering::memory_questions doesn't take, whatever answers the seam, and a contract test reads every own-question call site in ferb-daemon and ferbd (literals, formats, constants) and checks each kind is in that table and in OWN_KINDS. A test stand-in skipping the table can't let a new kind through again."
+why = "Journal 166: memory_local and memory_sites passed every test on group A's stand-in while the real gateway would have refused them (KeyError)."
+paths = ["engine/crates/ferb-daemon/src/areas_a/memory.rs", "engine/crates/ferb-orchestrator/src/steering.rs"]
+untestable = "The contract itself is the test (ferb-daemon tests/own_question_kinds.rs)."

@@ -391,6 +391,9 @@ pub async fn memory_pass(
     if let Err(e) = areas_a::persona::refresh(st).await {
         journal.note("memory.mac_profile_failed", json!({"error": e}));
     }
+    // MEM-447, IMP-32: the coding assistants' history and work log kept up to date when the owner said Yes; exports
+    // FERB fetched whose import didn't finish deleted a day later
+    areas_a::memory_import::hourly(st).await;
 }
 
 /// intro.py:107-119 `_suggest`'s model call, on group A's thread: one tool-less call on the orchestrator's runtime

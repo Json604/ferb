@@ -242,6 +242,14 @@ pub fn settings() -> Vec<Setting> {
         check: Check::Profile,
         default: json!(""),
     });
+    // decision: MEM-447 — the owner's one Yes to bringing in Claude Code and Codex also keeps them up to date; off
+    // stops the updates and keeps what was learned
+    out.push(Setting {
+        section: "memory",
+        key: "local_import",
+        check: Check::Bool,
+        default: json!(false),
+    });
     // decision: APP-981 — insomnia mode's numbers are the owner's (rule 18): how long it stays on after FERB's work is
     // done, and the battery levels it warns at (it never ends or slows itself for them)
     for (key, check, default) in [

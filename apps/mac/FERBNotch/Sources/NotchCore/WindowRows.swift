@@ -195,6 +195,40 @@ public struct MemoryRow: Identifiable, Equatable {
     }
 }
 
+/// What FERB brought in from another assistant about one memory (`memory.import.lines`, MEM-442..444): where it
+/// applies (empty: everywhere) and who said so, and the offer it carries with the owner's answer.
+public struct ImportedLine: Equatable {
+    public let itemId: String
+    public let scope: String
+    public let scopeByOwner: Bool
+    public let offer: String
+    public let offerAnswer: String
+
+    public init?(_ row: [String: Any]) {
+        guard let id = row["item_id"] as? String, !id.isEmpty else { return nil }
+        itemId = id
+        scope = text(row["scope"])
+        scopeByOwner = text(row["scope_by"]) == "owner"
+        offer = text(row["offer"])
+        offerAnswer = text(row["offer_answer"])
+    }
+
+    /// Where it applies, in plain words.
+    public var whereLine: String {
+        scope.isEmpty ? "Applies everywhere" : "Only in the \(scope) project"
+    }
+
+    /// The offer and what the owner said about it, in plain words ("" when it carries none).
+    public var offerLine: String {
+        guard !offer.isEmpty else { return "" }
+        switch offerAnswer {
+        case "done": return "FERB could offer: \(offer) (you said it's done)"
+        case "not interested": return "FERB could offer: \(offer) (you said no thanks)"
+        default: return "FERB could offer: \(offer)"
+        }
+    }
+}
+
 /// The core profile (`memory.profile`): its sections of memory ids in order, and its budget.
 public struct CoreProfileView: Equatable {
     public struct Section: Equatable {
@@ -285,8 +319,8 @@ public struct HealthLine: Identifiable, Equatable {
     }
 }
 
-/// Where a memory import reads from (`memory.import.*`, MEM-403): three account exports the
-/// owner chooses as a file or folder, and two local transcript folders FERB reads on this Mac.
+/// Where a memory import reads from (`memory.import.*`, MEM-432): three account exports the
+/// owner chooses as a file or folder, and what the owner typed into Claude Code and Codex on this Mac.
 public enum MemoryImportSource: String, CaseIterable, Identifiable {
     case chatgpt, claude, gemini, claude_code, codex
 

@@ -130,6 +130,9 @@ pub struct State {
     /// Import: `_import_task`, `_import_cancel`.
     pub(crate) import_task: RefCell<Option<tokio::task::JoinHandle<()>>>,
     pub(crate) import_cancel: RefCell<String>,
+    /// The browser profiles FERB saw at the last chat.attach, (label, "browser/folder"): the websites' question offers
+    /// them (MEM-448).
+    pub(crate) import_profiles: RefCell<Vec<(String, String)>>,
     /// Schedules: `_runs`, `_schedule_runs`, `_last_runs`, and the timer loop's wake (`Timers.wake`).
     pub(crate) schedule_runs: RefCell<BTreeSet<String>>,
     pub(crate) last_runs: RefCell<BTreeSet<String>>,
@@ -338,6 +341,7 @@ impl State {
             login_names: Rc::new(tokio::sync::Mutex::new(())),
             import_task: RefCell::new(None),
             import_cancel: RefCell::new(String::new()),
+            import_profiles: RefCell::new(Vec::new()),
             schedule_runs: RefCell::default(),
             last_runs: RefCell::default(),
             timer_wake: Rc::new(tokio::sync::Notify::new()),

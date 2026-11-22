@@ -131,6 +131,8 @@ final class PlaygroundWorkspace {
         case "memory.import.estimate": return ["name": "Sample assistant export", "conversations": 12, "model_calls_estimate": 3]
         case "memory.import.start": importFinished = true; return ["ok": true]
         case "memory.import.cancel": importFinished = false; return ["ok": true]
+        case "memory.import.lines": return ["lines": []]
+        case "memory.import.scope", "memory.import.offer": return ["ok": true]
         case "memory.import.status":
             return importFinished ? ["current": ["run": "sample-import", "name": "Sample assistant export", "status": "done",
                                                 "counts": ["chunks_done": 12, "facts_saved": 3, "model_calls": 3]]] : [:]

@@ -624,6 +624,35 @@ pub async fn schedule_finished(
             .filter(|c| c.is_object())
             .cloned(),
     );
+    // decision: MEM-448: a job FERB made for itself (the memory import's watch on a website) is quiet: each run is
+    // journaled, and only a run that needs the owner (failed, or done with gaps) is posted, once, until a run goes
+    // well again; the job's end is told by the import's own notice. Every schedule the owner makes posts (ORCH-590).
+    if s.targets
+        .get(super::memory_import::JOB)
+        .is_some_and(|j| ferb_py::value::py_str(j).starts_with(super::memory_import::JOB_PREFIX))
+    {
+        let trouble = matches!(status.as_str(), "failed" | "done_with_gaps");
+        let last = st
+            .store
+            .one(
+                "SELECT json_extract(data_json, '$.status') FROM journal WHERE kind IN ('schedule.posted', \
+                 'schedule.quiet') AND json_extract(data_json, '$.schedule_id') = ? ORDER BY rowid DESC LIMIT 1",
+                ferb_learning::sql![sid],
+            )
+            .ok()
+            .flatten()
+            .map(|r| r.s_at(0))
+            .unwrap_or_default();
+        if !trouble || last == status {
+            st.journal(
+                "schedule.quiet",
+                json!({"schedule_id": sid, "task_id": task_id, "name": label(s), "status": status,
+                       "text": st.redact_text(&answer)}),
+                None,
+            )?;
+            return Ok(());
+        }
+    }
     let mut result = final_.clone();
     result.insert("goal".into(), json!(s.request));
     result.insert("name".into(), json!(label(s)));

@@ -24,7 +24,10 @@ pub const NOT_APPLIED: &str = "Nothing was applied: this check takes only one of
 
 /// supervisor.py:216 `ROUTABLE_QUESTIONS`.
 pub fn routable(capability: &str) -> bool {
-    capability == "owner.ask" || capability == "plan.ask" || FERB_CHECKS.contains(&capability)
+    capability == "owner.ask"
+        || capability == "plan.ask"
+        || FERB_CHECKS.contains(&capability)
+        || ferb_orchestrator::steering::OWN_WORDS_ASKS.contains(&capability)
 }
 
 /// supervisor.py:386 `_Focus`: what FERB itself just asked a chat about an answer, for that chat's next message only.

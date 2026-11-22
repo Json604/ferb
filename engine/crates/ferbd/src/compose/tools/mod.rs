@@ -671,7 +671,13 @@ pub fn registry(p: &Parts) -> Registry {
     // _build_browsers: the owner's browsers
     if let Some(b) = p.browsers() {
         for t in b.owner_tools() {
+            let downloads = t.name() == "browser.downloads";
             add(t);
+            // MEM-448: a website's export the browser downloaded, into FERB's memory (right after browser.downloads,
+            // catalog_additions.json)
+            if downloads {
+                add(context::tool_named(p, "memory.import"));
+            }
         }
     }
     // _build_mac_and_shell: Mac tools, hearing, the shell
