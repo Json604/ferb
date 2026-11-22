@@ -149,7 +149,8 @@ fn the_method_table_is_python_s_plus_the_stage_2_additions() {
         assert!(!row.app_only, "{name}");
     }
     // the numbers the port was told to expect, and the six of stage 2 (then 8: insomnia mode, T-1274; the last 3:
-    // the owner's word on an imported memory and what the Memory page shows of it, MEM-442, not FERB.app's alone)
+    // the owner's word on an imported memory and what the Memory page shows of it, MEM-442, not FERB.app's alone;
+    // then 4 with his two switches, MEM-459)
     let count = |role| METHODS.iter().filter(|m| m.roles.contains(&role)).count();
     assert_eq!(
         (
@@ -159,7 +160,7 @@ fn the_method_table_is_python_s_plus_the_stage_2_additions() {
             METHODS.iter().filter(|m| m.app_only).count()
         ),
         (
-            106 + 6 + 2 + 7 + 1 + 2 + 1 + 5 + 7 + 1 + 2 + 8 + 3 + 11 + 1,
+            106 + 6 + 2 + 7 + 1 + 2 + 1 + 5 + 7 + 1 + 2 + 8 + 4 + 11 + 1,
             3,
             0,
             20 + 6 + 2 + 7 + 4 + 1 + 2 + 1 + 5 + 7 + 1 + 2 + 8 + 11

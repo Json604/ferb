@@ -85,7 +85,7 @@ async fn the_coding_assistants_are_asked_once_after_setup_and_no_reads_nothing()
     );
     let detail = asked[0]["detail"].as_str().unwrap();
     assert!(
-        detail.contains("over the last 3 months") && !detail.contains(" AI"),
+        detail.contains("over the last month") && !detail.contains(" AI"),
         "{detail}"
     );
     let id = asked[0]["id"].as_str().unwrap().to_owned();

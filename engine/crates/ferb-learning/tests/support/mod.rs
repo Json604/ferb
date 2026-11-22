@@ -992,6 +992,8 @@ impl Env {
             idle_poll: 0.0,
             chunk_chars: ferb_memory::import_extract::CHUNK_CHARS,
             at_once: ferb_learning::import_job::AT_ONCE,
+            // named difference (MEM-458): the recordings and the lab's shapes were read with Python's three months
+            window_months: ferb_memory::import_sources::PYTHON_WINDOW_MONTHS,
         }
     }
 }

@@ -81,6 +81,8 @@ struct ConversationTranscript: View {
     var earlier = EarlierEntries()
     /// Open questions, shown after the newest entry; they are live state and never enter history.
     var questions: [DaemonApproval] = []
+    /// The memory import's live card (MEM-456), after the questions: live state, never history.
+    var memoryImport: MemoryImportCard?
     @ObservedObject var model: NotchModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Shown by the sticky window rather than the notch (ChatWindowView sets it).
@@ -95,7 +97,7 @@ struct ConversationTranscript: View {
         let moved = CardBoxes.moved(entries)
         return [.top] + (earlier.loading ? [.loader] : [])
             + entries.map { .entry($0, hidden: moved[$0.id] ?? []) }
-            + questions.map { .question($0) } + [.bottom]
+            + questions.map { .question($0) } + (memoryImport.map { [.memoryImport($0)] } ?? []) + [.bottom]
     }
 
     var body: some View {
@@ -151,6 +153,7 @@ struct ConversationTranscript: View {
                 followNewest()
             }
             .onChange(of: questions) { _, _ in followNewest() }
+            .onChange(of: memoryImport == nil) { _, gone in if !gone { followNewest() } }
             .onAppear {
                 // The chat moved to the other host (APP-745): back where the owner left it.
                 let resume = model.transcriptResume
@@ -206,6 +209,10 @@ struct ConversationTranscript: View {
             return AnyView(ApprovalView(model: model, approval: question)
                 .frame(maxWidth: ChatSide.width, alignment: .leading)
                 .transcriptAnchor(TranscriptTarget.question(question.id)))
+        case let .memoryImport(card):
+            return AnyView(MemoryImportCardView(card: card)
+                .frame(maxWidth: ChatSide.width, alignment: .leading)
+                .transcriptAnchor(MemoryImportCardView.anchor))
         case let .entry(entry, hidden):
             let shown: AnyView
             switch entry {

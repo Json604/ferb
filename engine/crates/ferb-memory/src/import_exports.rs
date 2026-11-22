@@ -265,9 +265,8 @@ pub fn nothing(source: &str, path: &Path) -> Error {
         ));
     }
     unusable(format!(
-        "{name} holds nothing from the last {} months that {l}'s export would hold. Is it {l}'s export, and a recent \
+        "{name} holds nothing from the last month that {l}'s export would hold. Is it {l}'s export, and a recent \
          one? ({})",
-        import_sources::WINDOW_MONTHS,
         where_(source)
     ))
 }

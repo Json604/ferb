@@ -381,7 +381,8 @@ legacy = "notes/memory-import.md opening paragraph"
 title = "Memory import reads only the last 3 months"
 by = "owner"
 date = 2026-10-30
-status = "active"
+status = "superseded"
+superseded_by = "MEM-458"
 words_source = "notes/memory-import.md owner decision 1: an agent's summary; no verbatim quote recorded"
 rule = "The import reads only the last 3 months of each assistant's transcripts, usage and saved memory; anything older is not read."
 paths = ["ferb/memory/import_sources.py::window_start"]
@@ -936,3 +937,58 @@ words = "yes"
 words_source = "His answer, relayed by the coordinator, to: \"May FERB's import_recall.md and import_verify.md take the memory-import lab's measured text?\" (T-1281: the lab's PORTING.md section 3a, its question T-24)."
 rule = "For MEM-435. import_recall.md and import_verify.md are the lab's text: one recall for every source, five short tests with examples. Verify names one reading per candidate (`reading` replaces `supported` and `kind` in VERIFY_SCHEMA); code (import_extract::verdicts) turns it into kept or not and the kind; a project's key is \"identity\"; a person or project keeps that subject shape, else the owner's. Quote checks (MEM-408), redaction and facts only (MEM-404) are unchanged. The prompt leaves out the lab's cut-line note (T-1285)."
 paths = ["engine/runtime/memory/import_recall.md", "engine/runtime/memory/import_verify.md", "engine/crates/ferb-memory/src/import_extract.rs::verdicts", "engine/crates/ferb-memory/src/import_extract.rs::verify_schema", "engine/crates/ferb-context/src/schemas.rs::verify_schema", "engine/crates/ferb-learning/src/import_job.rs", "engine/fixtures/catalog/prompt_replacements.json"]
+
+[MEM-455]
+title = "An import shows its progress while it goes, in a good UI"
+by = "owner"
+date = 2026-11-22
+status = "active"
+words = "does ferb not show the progress on memory transfer it is gettigb??? i think it should show in a good ass UI"
+words_source = "His message to the coordinator on 2026-11-22, while his Claude Code import ran (memory_import_runs: claude_code, running) and FERB.app showed nothing of it; relayed verbatim."
+rule = "While a memory import FERB tells the owner about goes on (his Yes to the coding assistants, a website's export, one he starts on the Memory page), FERB shows its progress in the chat on FERB.app and both phones, with the same look and words, and at the top of FERB.app's Memory page: the source, the stage, real progress, and what it has found so far; it ends as the import's one notice (MEM-445), never a second message."
+paths = ["engine/crates/ferb-learning/src/import_live.rs", "apps/mac/FERBNotch/Sources/FERBNotch/MemoryImportCardView.swift"]
+live = ["LIVE-1182"]
+
+[MEM-456]
+title = "The import's live card: one engine fold from code facts, drawn by every client, gone with its notice"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For MEM-455. One fold, ferb-learning import_live::card, from code facts only: a told run's own progress events (parts read of parts planned, then batches placed; facts kept so far; parts left unread) and each website watch's records (a run under way; asked when its first good run ended; its last run's trouble; its next run). The daemon keeps it in memory, publishes it on memory.import.live, gives it as memory.import.status live and the phone's chat.status memory_import (held while locked). It ends when the run's notice is said or it is cancelled; quiet hourly updates never show it."
+why = "One set of words for every client, as the phones mirror FERB.app's presentation; code facts only (AGENTS.md rule 4). 'Found so far' counts checked facts while reading; the notice's 'learned' counts profile lines after facts are joined, which is why placing says it is joining them up."
+paths = ["engine/crates/ferb-learning/src/import_live.rs", "engine/crates/ferb-learning/src/import_profile.rs::placing", "engine/crates/ferb-daemon/src/areas_a/memory_import.rs::refresh", "engine/crates/ferb-daemon/src/areas_a/schedules.rs", "engine/crates/ferb-daemon/src/phone/gate.rs", "engine/crates/ferb-core/src/bus.rs", "engine/crates/ferbd/src/compose/mod.rs", "engine/crates/ferb-mobile/src/status.rs::ImportCard", "engine/crates/ferb-mobile-ffi/src/records.rs", "apps/mac/FERBNotch/Sources/NotchCore/MemoryImportCard.swift", "apps/mac/FERBNotch/Sources/FERBNotch/MemoryImportCardView.swift", "apps/mac/FERBNotch/Sources/FERBNotch/WindowPages.swift"]
+live = ["LIVE-1182"]
+
+[MEM-457]
+title = "The import's live card shows on the phones' home page too"
+by = "owner"
+date = 2026-11-22
+status = "active"
+words = "approved, yes show it on the home page too"
+words_source = "His answer, relayed verbatim by the coordinator, to the UI screenshots and two questions: the card's 'found so far' wording, and the card on the phones' empty-day home page."
+rule = "For MEM-455. While an import runs, the phones' Chat home page (PHN-626) shows the live card too, above the message box, identical on Android and iPhone; the card's 'N things found so far' wording stays."
+paths = ["apps/android/app/src/main/kotlin/com/ferb/app/ui/Main.kt", "apps/android/design/src/main/kotlin/com/ferb/design/screens/Pages.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppUI/Tabs.swift", "apps/ios/Packages/FerbDesign/Sources/FerbDesign/Lab/MobileScreens.swift"]
+live = ["LIVE-1182"]
+
+[MEM-458]
+title = "An import reads the last month of every source, local and website"
+by = "owner"
+date = 2026-11-22
+status = "active"
+words = "btw i want a switch of this memeory trnasfer of both local and website. since it will take a lottt of usage - i thik i wont ship it in the real app, OR im thinking to cap it at 1 month for both local and website - i thikn this is better"
+words_source = "His message, relayed verbatim by the coordinator on 2026-11-22."
+rule = "Supersedes MEM-401. Every import (Claude Code, Codex, ChatGPT, claude.ai, Gemini) and the work log read only the last calendar month; anything older is not read. Every owner-facing line about the window says the last month."
+supersedes = ["MEM-401"]
+paths = ["engine/crates/ferb-memory/src/import_sources.rs::WINDOW_MONTHS", "engine/crates/ferb-learning/src/import_job.rs", "engine/crates/ferb-learning/src/worklog.rs"]
+live = ["LIVE-1183"]
+
+[MEM-459]
+title = "Two switches: bring in what the coding assistants know, and what ChatGPT and Claude know"
+by = "owner"
+date = 2026-11-22
+status = "active"
+words = "btw i want a switch of this memeory trnasfer of both local and website. since it will take a lottt of usage - i thik i wont ship it in the real app, OR im thinking to cap it at 1 month for both local and website - i thikn this is better"
+words_source = "His message, relayed verbatim by the coordinator on 2026-11-22, with the coordinator's brief: one switch each in Settings and on the Memory page; off stops it, on starts it."
+rule = "Settings and the Memory page each have two switches. The coding assistants': off reads nothing, no updates, a run under way ends; on reads them now and keeps up. ChatGPT and Claude's: off requests and fetches nothing, cancels both watches and ends a run; on asks which browser profile, as at setup. What was learned stays. Only through memory.import.switch, sensitive on a phone."
+paths = ["engine/crates/ferb-daemon/src/areas_a/memory_import.rs::switch", "engine/crates/ferb-daemon/src/areas_a/settings.rs::SWITCHES", "engine/crates/ferb-rpc/src/classes.rs", "apps/mac/FERBNotch/Sources/FERBNotch/MemoryImportCardView.swift"]
+live = ["LIVE-1183"]

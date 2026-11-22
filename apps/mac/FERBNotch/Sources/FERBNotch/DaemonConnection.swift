@@ -19,6 +19,7 @@ extension NotchModel {
                     await self.catchUpEntries()         // and the turns other devices sent (ENG-10)
                     await self.refreshDaemonStatus()
                     await self.refreshInsomnia()        // APP-980: a restarted FERB.app raises its cover again
+                    await self.refreshMemoryImport()    // MEM-456: an import already going on shows its card
                     await self.refreshTimers()
                     // subscribed first, so a pause or resume after the paused tasks are read comes after it (APP-901)
                     let events = self.rpc.stream("logs.subscribe", params: [:])
@@ -602,6 +603,8 @@ extension NotchModel {
         // camera for the phone's Show me
         case "insomnia.changed", "insomnia.step", "insomnia.expect", "insomnia.camera":
             insomnia.receive(topic: event["topic"] as? String ?? "", data: data)
+        case "memory.import.live":                       // MEM-456: the import's card as it stands, or gone
+            receiveMemoryImport(data["card"])
         case "device.location_wanted":                   // GATE-613: the owner said Yes; one precise fix, read now
             if let id = data["request_id"] as? String, let device = deviceLocation {
                 Task { await device.answer(requestID: id) }
@@ -694,7 +697,10 @@ extension NotchModel {
             if !gone.isEmpty { changeAlerts { $0.removeAll { gone.contains($0.id) } } }
         case "bus.overflow", "bus.dropped":
             // Events were lost; re-read the state they would have changed.
-            Task { await refreshDaemonStatus() }
+            Task {
+                await refreshDaemonStatus()
+                await refreshMemoryImport()
+            }
         default: break
         }
     }
@@ -1191,4 +1197,22 @@ extension Notification.Name {
     static let ferbRuntimesChanged = Notification.Name("FERBRuntimesChanged")
     /// A timer or reminder changed or fired, or a task ended: Schedules & Reminders read again (APP-884).
     static let ferbSchedulesChanged = Notification.Name("FERBSchedulesChanged")
+}
+
+// MEM-455, MEM-456: the memory import's live card, drawn at the end of today's chat while an import goes on
+@MainActor
+extension NotchModel {
+    /// The card as the daemon has it now (`memory.import.status`'s `live`; none while nothing goes on).
+    func refreshMemoryImport() async {
+        guard let reply = try? await rpc.call("memory.import.status", params: [:]) else { return }
+        receiveMemoryImport(reply["live"])
+    }
+
+    /// The bus's card (or its `null`: the import ended, its notice comes in as an entry).
+    func receiveMemoryImport(_ card: Any?) {
+        let now = MemoryImportCard(card)
+        guard now != memoryImport else { return }
+        memoryImport = now
+        onBackgroundChange?(true)
+    }
 }

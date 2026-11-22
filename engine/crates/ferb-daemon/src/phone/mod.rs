@@ -219,7 +219,13 @@ pub(crate) struct Inner {
     devices: Mutex<device::Devices>,
     /// Insomnia mode's status for `chat.status` (T-1274), once `Phones::set_insomnia` put it in place.
     insomnia: std::sync::OnceLock<InsomniaStatus>,
+    /// The memory import's live card for `chat.status` (MEM-456), once `Phones::set_memory_import` put it in place.
+    memory_import: std::sync::OnceLock<MemoryImportCard>,
 }
+
+/// The memory import's live card as last published (`areas_a::memory_import::refresh`), for the phone's `chat.status`
+/// (MEM-456); None while nothing is under way.
+pub type MemoryImportCard = Arc<dyn Fn() -> Option<Value> + Send + Sync>;
 
 /// Insomnia mode's status now (`crate::insomnia::Insomnia::status`), for the phone's `chat.status` (T-1274).
 pub type InsomniaStatus = Arc<dyn Fn() -> Map<String, Value> + Send + Sync>;
@@ -284,6 +290,7 @@ impl Phones {
                 mac_name: std::sync::OnceLock::new(),
                 devices: Mutex::new(device::Devices::default()),
                 insomnia: std::sync::OnceLock::new(),
+                memory_import: std::sync::OnceLock::new(),
             }),
         }
     }
@@ -327,6 +334,11 @@ impl Phones {
     /// Where insomnia mode's status comes from, for the phone's `chat.status` (T-1274). Set once.
     pub fn set_insomnia(&self, status: InsomniaStatus) {
         let _ = self.inner.insomnia.set(status);
+    }
+
+    /// Where the memory import's live card comes from, for the phone's `chat.status` (MEM-456). Set once.
+    pub fn set_memory_import(&self, card: MemoryImportCard) {
+        let _ = self.inner.memory_import.set(card);
     }
 
     /// The phone gate the server asks about phone sessions (`Server::set_phone_gate`).

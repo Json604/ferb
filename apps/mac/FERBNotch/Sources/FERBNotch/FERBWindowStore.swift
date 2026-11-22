@@ -54,6 +54,10 @@ final class FERBWindowStore: ObservableObject {
     @Published var activeMemory: [MemoryRow] = []
     @Published var coreProfile = CoreProfileView()
     @Published var importStatus: MemoryImportStatus?
+    /// The memory import's live card at the top of the Memory page while an import goes on (MEM-456).
+    @Published var importLive: MemoryImportCard?
+    /// Each source's last import, for the Memory page (MEM-456).
+    @Published var importRuns: [MemoryImportLastRun] = []
     /// What FERB brought in from other assistants, by memory id: scope and offer (MEM-442..444).
     @Published var importedLines: [String: ImportedLine] = [:]
     @Published var importEstimate: MemoryImportEstimate?
@@ -256,11 +260,33 @@ final class FERBWindowStore: ObservableObject {
         await loadImportStatus()
     }
 
+    /// What FERB said about the last switch the owner turned (MEM-459).
+    @Published var importSwitchSaid: String?
+
+    /// The owner's switch for bringing in what his coding assistants know (`local`) or what ChatGPT and Claude know
+    /// (`sites`) (MEM-459): on starts it, off stops it; the daemon changes the setting with what it does.
+    func importSwitch(_ which: MemoryImportSwitch) -> Binding<Bool> {
+        Binding(get: { self.settings.bool(which.setting) }, set: { on in Task { await self.setImportSwitch(which, on) } })
+    }
+
+    func setImportSwitch(_ which: MemoryImportSwitch, _ on: Bool) async {
+        let before = settings.values[which.setting]
+        settings.values[which.setting] = .bool(on)
+        guard let reply = await ask("memory.import.switch", ["which": which.rawValue, "on": on]) else {
+            settings.values[which.setting] = before
+            return
+        }
+        importSwitchSaid = reply["said"] as? String
+        await loadImportStatus()
+    }
+
     func loadImportStatus() async {
         guard let reply = await ask("memory.import.status") else { return }
-        let wasRunning = importStatus?.running ?? false
+        let wasRunning = (importStatus?.running ?? false) || importLive != nil
         importStatus = MemoryImportStatus(reply["current"] as? [String: Any])
-        if wasRunning && !(importStatus?.running ?? false) { await loadMemory() }
+        importLive = MemoryImportCard(reply["live"])
+        importRuns = MemoryImportLastRun.lines(reply["runs"] as? [[String: Any]] ?? [])
+        if wasRunning && !(importStatus?.running ?? false) && importLive == nil { await loadMemory() }
     }
 
     /// The core profile (always in FERB's prompts): add an item to it or take one out; the memory itself stays.

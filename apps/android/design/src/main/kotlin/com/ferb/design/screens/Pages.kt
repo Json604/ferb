@@ -96,6 +96,11 @@ fun HomePage(
     /** Not from the lab: the way back to earlier days' messages on a new day (kb PHN-626); none by default. */
     earlier: String? = null,
     onEarlier: (() -> Unit)? = null,
+    /**
+     * Not from the lab: a card FERB keeps live above the box (the memory import's progress while one runs, kb MEM-457),
+     * drawn with the modifier given; none by default.
+     */
+    live: (@Composable (Modifier) -> Unit)? = null,
 ) {
     val ink = LocalSkyInk.current
     Column(Modifier.fillMaxSize()) {
@@ -110,6 +115,7 @@ fun HomePage(
         }
         Spacer(Modifier.weight(1f))
         Column(Modifier.paddingOverBottom(insets, 8.dp, start = 16.dp, end = 16.dp)) {
+            live?.invoke(Modifier.padding(bottom = 12.dp))
             if (away.isNotEmpty()) {
                 SkyLabel(texts.away)
                 Card {

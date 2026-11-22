@@ -118,9 +118,10 @@ struct ChatBodyView: View {
                 }
             }
             Group {
-                if !model.visibleEntries.isEmpty || !model.inlineQuestions.isEmpty {
+                if !model.visibleEntries.isEmpty || !model.inlineQuestions.isEmpty || model.inlineMemoryImport != nil {
                     ConversationTranscript(entries: model.visibleEntries, earlier: model.earlierEntries,
-                                           questions: model.inlineQuestions, model: model)
+                                           questions: model.inlineQuestions, memoryImport: model.inlineMemoryImport,
+                                           model: model)
                 } else if model.shownDayLoading {
                     // its first page on its way: the loader, in the chat's own height (APP-806)
                     ProgressView().controlSize(.small).accessibilityLabel("Loading messages")

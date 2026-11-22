@@ -262,6 +262,8 @@ final class NotchModel: ObservableObject {
     @Published var standingWork: [String: StandingWork] = [:] {
         didSet { if standingWork != oldValue { taskListCache.invalidate() } }
     }
+    /// The memory import's live card (MEM-456): the daemon's words, at the end of today's chat while an import goes on.
+    @Published var memoryImport: MemoryImportCard?
     var conversationID: String?
     var supportsAttachments = false
     var eventsTask: Task<Void, Never>?

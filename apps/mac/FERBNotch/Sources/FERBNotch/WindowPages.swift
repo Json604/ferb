@@ -232,6 +232,11 @@ struct MemoryPage: View {
 
     var body: some View {
         WindowPage {
+            // MEM-456: the import going on now, as the chat shows it
+            if let live = store.importLive {
+                WindowCard { MemoryImportCardView(card: live, onPage: true).padding(.horizontal, -12).padding(.vertical, -10) }
+                    .transition(.opacity)
+            }
             Text("Correct a memory by telling FERB in chat. “Not right” stops using it and keeps its history; “Forget” deletes it permanently.")
                 .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             WindowSectionLabel(title: "Always on")
@@ -287,6 +292,8 @@ struct MemoryPage: View {
     @ViewBuilder private var importSection: some View {
         WindowCard { VStack(alignment: .leading, spacing: 12) {
             WindowSectionLabel(title: "Import from other assistants")
+            // MEM-459: the same two switches as in Settings
+            MemoryImportSwitches(store: store)
             HStack {
                 Menu("Import from…") {
                     ForEach(MemoryImportSource.allCases) { source in
@@ -303,18 +310,27 @@ struct MemoryPage: View {
                     Button("Cancel") { store.importEstimate = nil }
                 }
             }
-            if let status = store.importStatus {
+            // MEM-456: each source's last import, in plain words; the one going on now is the card at the top
+            ForEach(store.importRuns) { run in
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(run.name).font(.caption.weight(.semibold))
+                    Text(run.line).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                }
+            }
+            if store.importStatus?.running ?? false {
                 HStack {
-                    Text(status.line).font(.caption).foregroundStyle(.secondary)
                     Spacer()
-                    if status.running { Button("Cancel import") { Task { await store.cancelImport() } } }
+                    Button("Cancel import") { Task { await store.cancelImport() } }
                 }
             }
         } }
         .task {
+            await store.loadSettings()
+            await store.loadImportStatus()
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
-                if store.importStatus?.running ?? false { await store.loadImportStatus() }
+                if (store.importStatus?.running ?? false) || store.importLive != nil { await store.loadImportStatus() }
             }
         }
     }

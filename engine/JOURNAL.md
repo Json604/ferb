@@ -9614,3 +9614,171 @@ If the app is open it sends its active presence at once, as the per-session proo
   is unchanged).
 - A new connection now goes online after two more round trips (the challenge and the proof), plus the app's
   signature on a phone. It is not measured on a real relay.
+
+## 2026-11-22 · 177 · A memory import shows its progress everywhere, reads the last month, and has two switches
+
+**What.** The owner, while his Claude Code import ran and FERB.app showed nothing (MEM-455): "does ferb not show the
+progress on memory transfer it is gettigb??? i think it should show in a good ass UI". Now a live card shows it
+(MEM-456), from the moment an import FERB tells him about starts until its one notice comes in.
+- **One fold** (ferb-learning `import_live`, portable). A told run's own `memory.import.progress` events become its
+  row (`RunNow::progress`). While reading, the bar is chunks_done of chunks_done + chunks_left, so parts read before a
+  restart count; model calls are never used, since they ran past their estimate (86 of 80) on the owner's run. Beside
+  the bar is "33 of 40", and under it "N things found so far" (checked facts kept). While placing, the bar counts
+  batches placed of batches: `import_profile::place` now publishes one `placing` event per batch, and one at the end.
+  Parts left unread are said with what happens next. Each active website watch becomes a row from its records: a run
+  under way now (the daemon's `schedule_runs`); when it asked (the first `schedule.quiet`/`posted` with status done:
+  the request has the first run ask, so a run that went well first is when the export was asked for); whether its last
+  run needed him; its next run. Times are "at 23:40", "yesterday at …", "tomorrow at …" or "on Nov 3 at …". When an
+  import of a watched site runs, its row replaces the watch's. Code facts only; no model's words decide a stage.
+- **Daemon** (`areas_a::memory_import`). A `Tell::Always` run registers at its start (`begin`), turns to placing
+  before `place_run`, and leaves when its notice is said (`ended`), so the notice is the one message. A cancel ends it
+  on its own event. The hourly pass's quiet updates never show. `refresh` publishes the card on the new telemetry
+  topic `memory.import.live` (`{"card": … | null}`) when it changes. `memory.import.status` gains `live` only while
+  there is a card, so the recorded transcript (`{"current": null, "runs": []}`) is unchanged. A watch's run start and
+  end (`schedules::run_schedule`), the websites' answer and the daemon's start (`resume`) refresh it.
+- **Phones.** ferbd keeps the last card published (its group A publish wrapper) and hands it to the phone gate
+  (`Phones::set_memory_import`). The phone's `chat.status` carries it as `memory_import`, removed with the other
+  words while a phone is locked without words. The bridge's status poll pushes it on change. ferb-mobile reads it as
+  `PhoneStatus.memory_import: Option<ImportCard>` (`ImportRow::fraction`, `names_rows`), and the FFI mirrors
+  `ImportCard`, `ImportRow` and `PhoneStatus.memoryImport` (default none).
+- **FERB.app.** `MemoryImportCard` (NotchCore) is read from the bus event, from `memory.import.status` at attach,
+  and again on `bus.dropped`. It is drawn as a transcript row (`TranscriptRow.memoryImport`) after the open questions,
+  today only (`inlineMemoryImport`). `MemoryImportCardView` is a sibling of the turn card on the black glass: the
+  caption, the stage line, a 5 pt capsule bar that eases out over 0.7 s (and is set at once under Reduce Motion), the
+  count, "found so far", a quieter detail, and an amber note. There is no spinner. The Memory page shows the same card
+  at its top, and under "Import from other assistants" each source's last run (`MemoryImportLastRun`). It polls every
+  2 s while a card or run is live.
+- **Android and iPhone** (one design). The card is a stateless component in `:design` (`components/ImportCard.kt`)
+  and in FerbDesign (`MemoryImport.swift`). It is a sibling of the parts card: radius 22, a 6 pt bar, and a 650 ms
+  ease-out `progress` curve, added to the shared motion table (`motion.json`, `Motion.kt`, `Motion.swift`). It snaps
+  under reduced motion. Each app's chat model now decides its rows in one place (`ChatModel.shown`: the earlier
+  link, today's rows, the open-question boxes, then the card, keyed `memory-import`). It is never in the earlier days
+  and never a stored row.
+
+- **The phones' home page (MEM-457).** The owner approved the screenshots: "approved, yes show it on the home page
+  too". On a new day with nothing said yet the Chat tab is the home page (PHN-626); it now shows the same card above
+  the message box while an import runs, through a `live` slot on the design's `HomePage` (Android `Pages.kt`, iPhone
+  `MobileScreens.swift`; none by default, so the design's goldens are unchanged). The phone goldens' FERB reply is now
+  the real line ("Thanks! I'm reading through Claude Code now and I'll tell you what I learned.").
+- **The last month (MEM-458, superseding MEM-401).** The owner: "btw i want a switch of this memeory trnasfer of both
+  local and website. since it will take a lottt of usage - i thik i wont ship it in the real app, OR im thinking to
+  cap it at 1 month for both local and website - i thikn this is better". `import_sources::WINDOW_MONTHS` is 1.
+  `ReadOptions.months` and `ImportJob.window_months` carry it, so the import, its estimate and the work log all read
+  the last calendar month. Python's three (`PYTHON_WINDOW_MONTHS`) are kept only for the recordings.
+- **Two switches (MEM-459).** The new RPC `memory.import.switch {which: local | sites, on}` is group A's, the CLI
+  role's, and sensitive on a phone (the fingerprint):
+  - The coding assistants (`memory.local_import`, now the one switch). On reads them now and keeps up hourly. Off
+    reads nothing and stops the update: a run under way is aborted through its abort handle (`State.local_abort`) and
+    ended as cancelled, and `local_update` checks the switch between sources and before the work log.
+  - ChatGPT and Claude (`memory.sites_import`, a new setting). On asks which browser profile, as at setup:
+    `memory.sites_asked` becomes `to_ask` until the question can be asked (`ask_sites_now`). Off cancels both watches
+    through `schedule_change` and ends a run of those sources; the 24-hour deletion of a fetched file (MEM-440) still
+    applies. The setup answer sets the switch: a profile turns it on, "No, thanks" turns it off.
+  - Both are listed with the settings, but `settings.set` refuses them (`settings::SWITCHES`): only the switch, which
+    acts with the value, changes them. FERB.app has both switches in Settings → Privacy ("What other assistants
+    know", replacing "Your coding assistants") and on the Memory page (`MemoryImportSwitches`), with FERB's answer
+    shown under them.
+
+**Owner-facing words (new; all composed in the engine, the clients add none).**
+- Title: "Bringing in what {names} know(s) about you".
+- While reading: "Looking through your sessions" or "Opening your chats" before the plan; then "Reading what you've
+  typed" or "Reading your chats". Beside the bar: "{done} of {total}". Under it: "{n} thing(s) found so far".
+- While placing: "Putting together what I found", "Many things come up more than once, so I'm joining them up.",
+  "{n} things found".
+- Gaps: "{n} part(s) couldn't be read just now. I'll go back to it/them next time."
+- Websites:
+  - "I'll ask {site} for a copy of your data at {time}" and "Asking {site} for a copy of your data".
+  - "Waiting for {site}'s email — asked {when}", with "I check your email every 15 minutes. It can take a day or two."
+  - "Checking your email for {site}'s copy", with "Asked {when}".
+  - "The last try didn't go through. I'll try again {when}."
+- Memory page, each source's last run:
+  - "Bringing it in now".
+  - "Last read {when}: {n} new thing(s) learned", or "Last read {when}: nothing new".
+  - "Last read {when}. Part of it couldn't be read; I'll go on from there next time."
+  - "Stopped {when}. Start it again to go on from there."
+  - "Didn't finish {when}. I'll go on from where I stopped next time."
+
+- The last month, changed: "…on this Mac over the last month and keep a short log…" (the setup question); "I read
+  what you've typed into … on this Mac over the last month, and learned N things…"; "I've brought in what … knew about
+  you from your last month of chats: …"; "… holds nothing from the last month that …'s export would hold…"; the Memory
+  page's estimate "N conversations from the last month, …"; and the workers' `memory.import` description ("FERB reads
+  only the last month of what the owner said there").
+- The switches (FERB.app): "Bring in what your coding assistants know", with "FERB reads what you've typed into
+  Claude Code and Codex on this Mac over the last month, and keeps up with it every hour. Turn it off and FERB reads
+  nothing more; what it already learned stays on the Memory page." And "Bring in what ChatGPT and Claude know", with
+  "FERB asks each for a copy of your data in your browser, waits for their email, reads your last month of chats and
+  then deletes the file. Turn it off and FERB asks for nothing and downloads nothing; what it already learned stays on
+  the Memory page." The Settings section is "What other assistants know".
+- The switches' answers (daemon):
+  - "Okay, I've stopped reading your coding assistants. What I already learned stays on the Memory page." /
+    "Okay, I won't read your coding assistants."
+  - "I'm already keeping up with your coding assistants."
+  - "I don't see Claude Code or Codex on this Mac yet. I'll read them once they're here."
+  - "Okay, I won't ask ChatGPT or Claude for your data. What I already learned stays on the Memory page."
+  - "I'm already bringing in what ChatGPT and Claude know."
+  - "Which browser are you signed in to ChatGPT and Claude on? I've asked in the chat." / "I'll ask which browser
+    you're signed in on as soon as I can see your browsers and nothing else is being brought in."
+
+**Named differences.**
+- ferb-core `the_topic_lists_are_pythons`: one more telemetry topic added after Python, `memory.import.live`.
+- ferb-memory `tests/import.rs`: the recordings are read, and `window_start` compared, with Python's three months
+  (`PYTHON_WINDOW_MONTHS`). ferb-learning's test importer reads with them too, for the recordings and the lab's
+  shapes (MEM-458).
+- ferb-daemon `a_replay`, `b_small` and ferbd `replay`: `memory.sites_import` among the settings, after
+  `memory.local_import`.
+- ferb-rpc golden: `memory.import.switch` joins `MEMORY_IMPORT_ADDITIONS` (4). `engine/fixtures/phone/classes.json`
+  was regenerated from classes.rs (`UPDATE_GOLDEN=1`; sensitive).
+- ferb-gateway catalog: `memory.import`'s description says "the last month".
+- `import_profile::place` publishes `placing` progress. That is new code, not a Python port, and no fixture records
+  its events.
+- The Memory page no longer shows `MemoryImportStatus.line` (the "N facts so far" wording); it shows each source's
+  last run.
+
+**Evidence.**
+- ferb-learning `tests/import_live.rs` (7). These cover the bar from parts, with resume counting parts done before; the
+  wait and the end keeping counts; gaps, singular and plural; placing batches; each website stage with its time; two
+  sources on one card, with a run replacing its watch; and no "AI" in any of it.
+- ferb-daemon `tests/a_memory_live.rs` (2), through group A:
+  - A Yes to the coding assistants publishes the card at the run's start, then "0 of 1", then placing with the unread
+    part's note, then null. Exactly one `tell_owner` (`memory-import-…`) follows. `memory.import.status` has no
+    `live` afterwards, and the hourly `Tell::Never` update publishes nothing.
+  - The websites' answer shows two "I'll ask … at 09:01" rows, which `memory.import.status` also returns. A watch run
+    that went well turns ChatGPT's row to "Waiting for ChatGPT's email — asked at 09:00", and a failed one adds the
+    next try's note.
+- ferb-mobile `the_memory_import_card_reads_as_the_mac_sent_it`.
+- ferb-daemon `tests/a_memory_switch.rs` (3):
+  - Only the last month is read: a session 45 days old isn't, one 11 days old is.
+  - The coding assistants' switch reads them on, and off stops the hourly update.
+  - The websites' switch asks the browser, its answer makes the two watches, off cancels them and the card, and on
+    again asks again.
+  - Neither switch's key is a bare setting.
+- FERB.app: `testTheSwitchesTurnTheImportOnAndOffThroughTheDaemon` (the switch goes to the daemon, never
+  `settings.set`; FERB's answer shows; it goes back if FERB doesn't answer) and `testTheSwitchesDraw`.
+- Phones, home page: Android `ImportCardShotsTest` gained three tests (home noon and night, none without an import),
+  with goldens `home-import-{noon,night}.png`; iPhone `testGoldenTheCardOnTheHomePage`, with goldens
+  `memory-import-home-{noon,night}.png`, drawn with the lab's still box because the app's own text field can't draw
+  offscreen.
+- The ferb-learning, ferb-core and ferb-daemon suites, ferb-mobile, and ferbd `memory_import_tool` pass. Clippy with
+  `-D warnings` is clean on ferb-learning, ferb-daemon, ferb-core, ferbd and ferb-mobile-ffi. ferb-learning builds
+  without its store feature.
+- FERB.app `MemoryImportCardTests` (4): the card from the daemon's words; live state at the end of today, leaving with
+  the notice and never an entry; the Memory page's last runs; and every state drawn. With `FERB_MEMORY_SHOTS`, the PNGs
+  are written out for review.
+- Android: `:design:test` and `:app:testDebugUnitTest` pass (430 tests, after the home page), with new goldens
+  `components/import-card*.png` and `app/.../chat-import-{noon,night}.png`; no existing golden changed.
+- iPhone: FerbDesign (69) passes, with new goldens `components/memory-import-{noon,night}.png`. FerbApp has three new
+  tests and the golden `app/memory-import-chat-noon.png`. One existing test fails between 00:00 and about 01:23 local
+  time whatever the change: `FrameWorkTests.testAStreamedWordInALongChatChangesOnlyTheRows`, whose entries are 50 to
+  83 minutes old. It passes with `TEST_RUNNER_TZ=UTC`.
+
+**Unverified.**
+- Nothing ran against the real daemon, the owner's import, a real phone or a real website watch.
+- The bar's motion, and its jump under Reduce Motion, were read in the code, not seen (the goldens are at rest).
+- The phone gate holding the card back while locked is in the code (`status_for`) and has no test of its own.
+- "Asked at" is inferred from the watch's first run that went well, by its request's order. A first run that was
+  "done" without having asked would say asked too early.
+- Turning the coding assistants' switch off while a run is mid-chunk was not tested with a real model: the abort is
+  the same as `memory.import.cancel`'s, but here it reaches the run through `local_abort`.
+- The switches have no phone screen; a phone could call `memory.import.switch` only with its fingerprint.
+- FERB.app's full `swift test` passes (943 tests). The whole workspace gate (`./gate.sh`) and `./gate.sh portable`
+  were not run.

@@ -151,6 +151,7 @@ pub const METHODS: &[Method] = &[
     m("memory.import.scope", &[Role::Cli], false),
     m("memory.import.start", &[Role::Cli], false),
     m("memory.import.status", &[Role::Cli], false),
+    m("memory.import.switch", &[Role::Cli], false),
     m("memory.learning", &[Role::Cli], false),
     m("memory.list", &[Role::Cli], false),
     m("memory.profile", &[Role::Cli], false),
@@ -364,11 +365,12 @@ pub const INSOMNIA_ADDITIONS: [&str; 8] = [
 
 /// MEM-442, MEM-444: the owner's word on an imported memory: where it applies (`memory.import.scope`) and his
 /// answer to its offer (`memory.import.offer`), sensitive; and what the Memory page shows of them
-/// (`memory.import.lines`, private).
-pub const MEMORY_IMPORT_ADDITIONS: [&str; 3] = [
+/// (`memory.import.lines`, private). MEM-459: the owner's two switches (`memory.import.switch`), sensitive.
+pub const MEMORY_IMPORT_ADDITIONS: [&str; 4] = [
     "memory.import.lines",
     "memory.import.offer",
     "memory.import.scope",
+    "memory.import.switch",
 ];
 
 /// PHN-797: the owner's coding-agent sessions, FERB.app's own (`app_only`); from a phone by their classes (reads and

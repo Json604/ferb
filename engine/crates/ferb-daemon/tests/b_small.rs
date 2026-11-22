@@ -248,6 +248,8 @@ fn fixes(request: &str, python: &str) -> Option<String> {
                 .unwrap_or(Value::Null);
             // decision: MEM-447: the owner's answer about the coding assistants on this Mac, off until asked
             settings.push(json!({"key": "memory.local_import", "value": false, "where": place}));
+            // decision: MEM-459: the owner\'s switch for ChatGPT and Claude, off until he chooses a browser
+            settings.push(json!({"key": "memory.sites_import", "value": false, "where": place}));
             // decision: HAND-666: the owner's answer about his coding sessions, off until asked
             settings.push(json!({"key": "sessions.enabled", "value": false, "where": place}));
             for (key, value) in [

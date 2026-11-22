@@ -32,6 +32,7 @@ pub mod distill;
 pub mod export;
 #[cfg(feature = "store")]
 pub mod import_job;
+pub mod import_live;
 #[cfg(feature = "store")]
 pub mod import_profile;
 #[cfg(feature = "store")]

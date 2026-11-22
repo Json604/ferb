@@ -3,7 +3,7 @@
 //! (MEM-447, MEM-448, his words of 2026-11-22):
 //!
 //! - **The coding assistants on this Mac** (Claude Code, Codex): asked once at setup's end ("Bring in what …
-//!   know about you?"); on Yes the last 3 months are read and placed into the profile, the work log is written, and
+//!   know about you?"); on Yes the last month is read and placed into the profile, the work log is written, and
 //!   both are kept up to date by the hourly memory pass, quietly. One Yes covers the updates; Settings turns them off
 //!   (what was learned stays). On No nothing is read, and it is not asked again.
 //! - **The websites** (ChatGPT, claude.ai): asked once after that, with the browser profiles FERB sees signed in to
@@ -71,6 +71,9 @@ pub fn job(st: &Rc<State>) -> ImportJob<'static> {
         redact: Box::new(move |t: &str| redactor.text(t)),
         publish: Box::new(move |topic: &str, data: Value| {
             if let Some(st) = w1.upgrade() {
+                if topic == "memory.import.progress" {
+                    progressed(&st, &data);
+                }
                 st.publish(topic, data);
             }
         }),
@@ -92,11 +95,14 @@ pub fn job(st: &Rc<State>) -> ImportJob<'static> {
         idle_poll: import_job::IDLE_POLL_S,
         chunk_chars: ferb_memory::import_extract::CHUNK_CHARS,
         at_once: import_job::AT_ONCE,
+        // decision: MEM-458 — the last month, for every source
+        window_months: ferb_memory::import_sources::WINDOW_MONTHS,
     }
 }
 
 /// `_resume_imports`: at start, a run a restart interrupted goes on from its last finished chunk; one job at a time.
 pub fn resume(st: &Rc<State>) {
+    refresh(st);
     let j = job(st);
     for run_id in j.running().unwrap_or_default() {
         let busy = st
@@ -134,6 +140,9 @@ fn spawn_told(st: &Rc<State>, run_id: String, tell: Tell) {
 /// placed into the profile (IMP-31); an export FERB fetched for it is deleted (IMP-32).
 async fn run_import(st: &Rc<State>, run_id: &str, tell: Tell) {
     let j = job(st);
+    if tell == Tell::Always {
+        begin(st, &j, run_id);
+    }
     if let Err(e) = j.run(run_id).await {
         let why: String = st.redact_text(&e.described()).chars().take(300).collect();
         let _ = j.end(run_id, "failed", &why);
@@ -144,6 +153,7 @@ async fn run_import(st: &Rc<State>, run_id: &str, tell: Tell) {
         .flatten()
         .is_some_and(|r| r["status"] == json!("done"));
     if done {
+        placing(st, run_id);
         if let Err(e) = j.place_run(run_id).await {
             let why: String = st.redact_text(&e.described()).chars().take(300).collect();
             let _ = st.journal(
@@ -157,6 +167,8 @@ async fn run_import(st: &Rc<State>, run_id: &str, tell: Tell) {
     if tell == Tell::Always {
         let closing = if gone.is_empty() { "" } else { DELETED_LINE };
         let _ = j.tell_done_with(run_id, closing);
+        // the card leaves as the notice comes in: the notice is the import's one message (MEM-445, MEM-456)
+        ended(st, run_id);
         if done {
             ask_offers(st);
         }
@@ -237,6 +249,7 @@ pub(crate) fn handlers() -> Vec<(&'static str, Handler)> {
         ("memory.import.scope", |s, p| Box::pin(scope(s, p))),
         ("memory.import.lines", |s, p| Box::pin(lines(s, p))),
         ("memory.import.offer", |s, p| Box::pin(offer_answer(s, p))),
+        ("memory.import.switch", |s, p| Box::pin(switch(s, p))),
     ]
 }
 
@@ -305,7 +318,12 @@ async fn start(st: Rc<State>, params: Params) -> HandlerResult {
 
 /// `memory.import.status {}`.
 async fn status(st: Rc<State>, _params: Params) -> HandlerResult {
-    ok(job(&st).status().map_err(learning_error)?)
+    let mut out = job(&st).status().map_err(learning_error)?;
+    // MEM-456: the live card, while an import the owner is told about goes on (left out when there is none)
+    if let Some(card) = refresh(&st) {
+        out["live"] = card;
+    }
+    ok(out)
 }
 
 /// `memory.import.cancel {}`: stops the running import after its current call; what it saved stays.
@@ -341,6 +359,9 @@ pub const OFFERS_KIND: &str = "memory_offers";
 pub const LOCAL_SETTING: (&str, &str) = ("memory", "local_import");
 /// The websites' question was answered (the profile chosen, or "declined"): it is not asked again.
 pub const SITES_ASKED: (&str, &str) = ("memory", "sites_asked");
+/// The owner's switch for the websites (MEM-459): on while FERB brings in what ChatGPT and Claude know (his profile
+/// chosen); off: nothing is requested or fetched and the watches are cancelled. Changed only through the switch.
+pub const SITES_SETTING: (&str, &str) = ("memory", "sites_import");
 /// The websites FERB brings in by their data export (the owner named ChatGPT and Claude, 2026-11-22).
 pub const SITES: [&str; 2] = ["chatgpt", "claude"];
 /// How often a website's watch checks the mail (IMP-24, the owner's number).
@@ -365,7 +386,7 @@ pub fn names(sources: &[&str]) -> String {
 /// The question about the coding assistants: its title and detail (owner-facing, plain).
 pub fn local_question(found: &[&str]) -> String {
     format!(
-        "Bring in what {} know{} about you?\nI'd read what you've typed into {} on this Mac over the last 3 months and \
+        "Bring in what {} know{} about you?\nI'd read what you've typed into {} on this Mac over the last month and \
          keep a short log of your sessions, so I know how you like to work and what you're working on. I'll keep it \
          up to date as you use {}. What I keep stays on this Mac, and you can turn this off in Settings.",
         names(found),
@@ -426,15 +447,30 @@ pub fn offer(st: &Rc<State>, profiles: Vec<(String, String)>) {
 
 /// The websites' question, when it is due: not asked before, the coding assistants settled, no import running.
 fn ask_sites(st: &Rc<State>) {
-    if st.config_get(SITES_ASKED.0, SITES_ASKED.1).is_some()
-        || super::memory::pending_own(st, SITES_KIND).is_some()
-        || job(st).running().map(|r| !r.is_empty()).unwrap_or(true)
-    {
-        return;
+    // not asked yet, or the owner turned the switch on and the question is still to be asked (MEM-459)
+    match st.config_get(SITES_ASKED.0, SITES_ASKED.1) {
+        None => {}
+        Some(v) if v == json!(SITES_TO_ASK) => {}
+        Some(_) => return,
+    }
+    ask_sites_now(st);
+}
+
+/// `memory.sites_asked` while the owner turned the websites' switch on and his browser profile is still to be asked.
+pub const SITES_TO_ASK: &str = "to_ask";
+
+/// The websites' question now (the setup's, or the switch turned on): not while it waits or an import runs; false when
+/// it couldn't be asked (no browser profile seen yet, or an import under way).
+fn ask_sites_now(st: &Rc<State>) -> bool {
+    if super::memory::pending_own(st, SITES_KIND).is_some() {
+        return true;
+    }
+    if job(st).running().map(|r| !r.is_empty()).unwrap_or(true) {
+        return false;
     }
     let profiles = st.import_profiles.borrow().clone();
     if profiles.is_empty() {
-        return;
+        return false;
     }
     let mut map = serde_json::Map::new();
     for (label, value) in &profiles {
@@ -444,7 +480,7 @@ fn ask_sites(st: &Rc<State>) {
     labels.push(SITES_NO.into());
     let ident = ferb_py::json::dumps(&json!({"options": map}));
     let key = format!("memory-sites-{}", ferb_clock::py::iso(&st.now()));
-    let _ = super::memory::ask_owner(
+    super::memory::ask_owner(
         st,
         SITES_KIND,
         &ident,
@@ -452,7 +488,8 @@ fn ask_sites(st: &Rc<State>) {
         &key,
         None,
         Some(&labels),
-    );
+    )
+    .is_ok()
 }
 
 /// The owner's answer about the coding assistants (MEM-447): Yes reads them now and keeps them up to date; No reads
@@ -486,7 +523,8 @@ pub fn local_answered(st: &Rc<State>, yes: bool) -> String {
 pub async fn local_update(st: &Rc<State>, tell: Tell) {
     let j = job(st);
     for source in ferb_memory::import_local::found(&st.user_home) {
-        if !j.running().map(|r| r.is_empty()).unwrap_or(false) {
+        // MEM-459: the switch turned off stops it between sources too
+        if !local_on(st) || !j.running().map(|r| r.is_empty()).unwrap_or(false) {
             return;
         }
         let Ok(run_id) = j.create(source, "") else {
@@ -495,7 +533,12 @@ pub async fn local_update(st: &Rc<State>, tell: Tell) {
         let me = st.clone();
         let handle = tokio::task::spawn_local(async move { run_import(&me, &run_id, tell).await });
         *st.import_task.borrow_mut() = None;
+        *st.local_abort.borrow_mut() = Some(handle.abort_handle());
         let _ = handle.await;
+        *st.local_abort.borrow_mut() = None;
+    }
+    if !local_on(st) {
+        return;
     }
     if let Err(e) = j.worklog_update(&st.learning).await {
         let why: String = st.redact_text(&e.described()).chars().take(300).collect();
@@ -516,10 +559,12 @@ pub fn sites_answered(st: &Rc<State>, state: &str, choice: &str, ident: &str) ->
         .filter(|_| state == "granted");
     let Some(value) = value else {
         set_config(st, SITES_ASKED, json!("declined"));
+        set_config(st, SITES_SETTING, json!(false));
         let _ = st.journal("memory.sites", json!({"chosen": false}), None);
         return "Okay, I'll leave them be. If you change your mind, just ask me.".into();
     };
     set_config(st, SITES_ASKED, json!(value));
+    set_config(st, SITES_SETTING, json!(true));
     let made: Vec<String> = SITES
         .iter()
         .filter_map(|site| make_site_job(st, site, choice).ok())
@@ -529,6 +574,7 @@ pub fn sites_answered(st: &Rc<State>, state: &str, choice: &str, ident: &str) ->
         json!({"chosen": true, "profile": value, "schedules": made}),
         None,
     );
+    refresh(st);
     format!(
         "Great, I'll ask ChatGPT and Claude for your data in {choice} and tell you once it's in. It can take a day or two."
     )
@@ -678,4 +724,302 @@ pub fn start_fetched(st: &Rc<State>, source: &str, path: &str) -> Result<Value, 
     spawn_run(st, run_id.clone());
     Ok(json!({"run": run_id, "estimate": estimate,
               "note": "the import runs in the background; FERB tells the owner when it is done and deletes the export"}))
+}
+
+// ---------- the live card (MEM-456) ----------
+
+/// The bus topic every client draws the card from: `{"card": <the card> | null}`, published when it changes.
+pub const LIVE_TOPIC: &str = "memory.import.live";
+
+/// The imports the owner is told about while they go (`Tell::Always`; the hourly pass's quiet updates never show),
+/// and the card last published. Memory only.
+#[derive(Default)]
+pub struct ImportNow {
+    runs: Vec<ferb_learning::import_live::RunNow>,
+    shown: Option<Value>,
+}
+
+/// A told run starts: its row shows at once (before its plan is known).
+fn begin(st: &Rc<State>, j: &ImportJob<'_>, run_id: &str) {
+    let Some(row) = j.row(run_id).ok().flatten() else {
+        return;
+    };
+    let source = ferb_py::value::py_str(&row["source"]);
+    {
+        let mut now = st.import_now.borrow_mut();
+        now.runs.retain(|r| r.run != run_id);
+        now.runs.push(ferb_learning::import_live::RunNow::new(
+            run_id,
+            &source,
+            &names(&[source.as_str()]),
+            !ferb_memory::import_sources::EXPORTS.contains(&source.as_str()),
+        ));
+    }
+    refresh(st);
+}
+
+/// One of the job's progress events: a told run's counts or placing batch; a cancelled run leaves (no notice follows).
+fn progressed(st: &Rc<State>, data: &Value) {
+    let run = data
+        .get("run")
+        .map(ferb_py::value::py_str)
+        .unwrap_or_default();
+    {
+        let mut now = st.import_now.borrow_mut();
+        if data.get("status").and_then(Value::as_str) == Some("cancelled") {
+            now.runs.retain(|r| r.run != run);
+        } else if let Some(r) = now.runs.iter_mut().find(|r| r.run == run) {
+            r.progress(data);
+        } else {
+            return;
+        }
+    }
+    refresh(st);
+}
+
+fn placing(st: &Rc<State>, run_id: &str) {
+    if let Some(r) = st
+        .import_now
+        .borrow_mut()
+        .runs
+        .iter_mut()
+        .find(|r| r.run == run_id)
+    {
+        r.placing();
+    }
+    refresh(st);
+}
+
+/// The run's notice was said: its row leaves.
+fn ended(st: &Rc<State>, run_id: &str) {
+    st.import_now.borrow_mut().runs.retain(|r| r.run != run_id);
+    refresh(st);
+}
+
+/// A run of one of FERB's own website watches started or ended (schedules): its row moves on.
+pub fn watch_moved(st: &State, s: &ferb_clock::schedules::Schedule) {
+    if site_of(s).is_some() {
+        if let Some(me) = st.me.borrow().upgrade() {
+            refresh(&me);
+        }
+    }
+}
+
+/// The website a schedule watches for the import, when it is one of FERB's own watches (MEM-451).
+fn site_of(s: &ferb_clock::schedules::Schedule) -> Option<String> {
+    s.targets
+        .get(JOB)
+        .map(ferb_py::value::py_str)
+        .and_then(|j| j.strip_prefix(JOB_PREFIX).map(str::to_owned))
+}
+
+/// Each active website watch as its records stand: a run under way now (the daemon's own), when its first run that
+/// went well ended (the export was asked for then), whether its last run needed the owner, its next run.
+fn watches(st: &State) -> Vec<ferb_learning::import_live::Watch> {
+    let local =
+        |t: &ferb_clock::py::Time| ferb_clock::py::fmt(&st.clock.zone().local(t), "%Y-%m-%dT%H:%M");
+    let Ok(all) = st.schedules().all(&["active"]) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for s in all {
+        let Some(site) = site_of(&s) else { continue };
+        let ends = st
+            .store
+            .query(
+                "SELECT at, json_extract(data_json, '$.status') AS status FROM journal WHERE kind IN \
+                 ('schedule.posted', 'schedule.quiet') AND json_extract(data_json, '$.schedule_id') = ? ORDER BY rowid",
+                ferb_learning::sql![s.id],
+            )
+            .unwrap_or_default();
+        let at =
+            |r: &ferb_learning::store::Row| ferb_clock::py::parse(&r.s("at")).map(|t| local(&t));
+        let asked_at = ends
+            .iter()
+            .find(|r| r.opt("status").as_deref() == Some("done"))
+            .and_then(at);
+        let trouble = ends.last().is_some_and(|r| {
+            matches!(
+                r.opt("status").as_deref(),
+                Some("failed" | "done_with_gaps")
+            )
+        });
+        out.push(ferb_learning::import_live::Watch {
+            name: names(&[site.as_str()]),
+            running: st.schedule_runs.borrow().contains(&s.id),
+            asked_at,
+            trouble,
+            next_run: s.next_run.as_ref().map(local),
+            source: site,
+        });
+    }
+    out
+}
+
+/// The card as it stands now, published on [`LIVE_TOPIC`] when it changed (every client follows it there; a phone
+/// reads it in its `chat.status`, through ferbd's copy of the last one published).
+pub fn refresh(st: &Rc<State>) -> Option<Value> {
+    let now = st.clock.zone().local(&st.now());
+    let day = |us: i64| {
+        ferb_clock::py::plus_us(&now, us)
+            .map(|d| ferb_clock::py::fmt(&d, "%Y-%m-%d"))
+            .unwrap_or_default()
+    };
+    let days = ferb_learning::import_live::Days {
+        yesterday: day(-86_400_000_000),
+        today: day(0),
+        tomorrow: day(86_400_000_000),
+    };
+    let watches = watches(st);
+    let card = {
+        let now = st.import_now.borrow();
+        ferb_learning::import_live::card(&now.runs, &watches, &days)
+    };
+    let changed = {
+        let mut now = st.import_now.borrow_mut();
+        let changed = now.shown != card;
+        now.shown = card.clone();
+        changed
+    };
+    if changed {
+        st.publish(LIVE_TOPIC, json!({"card": card}));
+    }
+    card
+}
+
+// ---------- the owner's two switches (MEM-459) ----------
+
+/// The coding assistants' switch is on: FERB reads them and keeps up with them.
+pub fn local_on(st: &State) -> bool {
+    st.config_get(LOCAL_SETTING.0, LOCAL_SETTING.1) == Some(json!(true))
+}
+
+/// The websites' switch is on.
+pub fn sites_on(st: &State) -> bool {
+    st.config_get(SITES_SETTING.0, SITES_SETTING.1) == Some(json!(true))
+}
+
+/// FERB's own website watches still active (MEM-451), by id.
+fn site_watches(st: &State) -> Vec<String> {
+    st.schedules()
+        .all(&["active", "paused"])
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|s| site_of(s).is_some())
+        .map(|s| s.id)
+        .collect()
+}
+
+/// Ends the running imports of these sources (the owner's off): what they saved stays, no notice follows.
+fn stop_runs(st: &Rc<State>, sources: &[&str]) -> Vec<String> {
+    let j = job(st);
+    let mut stopped = Vec::new();
+    for run in j.running().unwrap_or_default() {
+        let source = j
+            .row(&run)
+            .ok()
+            .flatten()
+            .map(|r| ferb_py::value::py_str(&r["source"]))
+            .unwrap_or_default();
+        if !sources.contains(&source.as_str()) {
+            continue;
+        }
+        if let Some(a) = st.local_abort.borrow_mut().take() {
+            a.abort();
+        }
+        if let Some(t) = st.import_task.borrow_mut().take() {
+            t.abort();
+        }
+        let _ = j.end(&run, "cancelled", "");
+        stopped.push(run);
+    }
+    stopped
+}
+
+/// `memory.import.switch {which: "local" | "sites", on}` (MEM-459): the owner's switch for bringing in what his
+/// coding assistants know, or what ChatGPT and Claude know. On starts it (the websites ask which browser profile first,
+/// as at setup); off stops it: nothing more is read, requested or fetched, a run under way ends, the website watches
+/// are cancelled. What FERB already learned stays. The answer says what happened, in plain words.
+async fn switch(st: Rc<State>, params: Params) -> HandlerResult {
+    let which = text(&params, "which");
+    let Some(on) = params.get("on").and_then(Value::as_bool) else {
+        return Err(refusal("on must be true or false"));
+    };
+    let said = match which.as_str() {
+        "local" => switch_local(&st, on),
+        "sites" => switch_sites(&st, on),
+        _ => return Err(refusal("which must be local or sites")),
+    };
+    refresh(&st);
+    ok(json!({"which": which, "on": on, "said": said}))
+}
+
+fn switch_local(st: &Rc<State>, on: bool) -> String {
+    if !on {
+        let was = local_on(st);
+        set_config(st, LOCAL_SETTING, json!(false));
+        let stopped = stop_runs(st, &["claude_code", "codex"]);
+        let _ = st.journal(
+            "memory.local_import",
+            json!({"on": false, "by": "owner", "stopped": stopped}),
+            None,
+        );
+        return if was || !stopped.is_empty() {
+            "Okay, I've stopped reading your coding assistants. What I already learned stays on the Memory page.".into()
+        } else {
+            "Okay, I won't read your coding assistants.".into()
+        };
+    }
+    if local_on(st) {
+        return "I'm already keeping up with your coding assistants.".into();
+    }
+    set_config(st, LOCAL_SETTING, json!(true));
+    let _ = st.journal(
+        "memory.local_import",
+        json!({"on": true, "by": "owner"}),
+        None,
+    );
+    let found = ferb_memory::import_local::found(&st.user_home);
+    if found.is_empty() {
+        return "I don't see Claude Code or Codex on this Mac yet. I'll read them once they're here.".into();
+    }
+    let me = st.clone();
+    tokio::task::spawn_local(async move { local_update(&me, Tell::Always).await });
+    format!(
+        "Thanks! I'm reading through {} now and I'll tell you what I learned.",
+        names(&found)
+    )
+}
+
+fn switch_sites(st: &Rc<State>, on: bool) -> String {
+    if !on {
+        set_config(st, SITES_SETTING, json!(false));
+        let mut cancelled = Vec::new();
+        for sid in site_watches(st) {
+            if super::schedules::schedule_change(st, &sid, "cancel", "").is_ok() {
+                cancelled.push(sid);
+            }
+        }
+        let stopped = stop_runs(st, &SITES);
+        let _ = st.journal(
+            "memory.sites",
+            json!({"on": false, "by": "owner", "cancelled": cancelled, "stopped": stopped}),
+            None,
+        );
+        return "Okay, I won't ask ChatGPT or Claude for your data. What I already learned stays on the Memory page."
+            .into();
+    }
+    if !site_watches(st).is_empty() {
+        set_config(st, SITES_SETTING, json!(true));
+        return "I'm already bringing in what ChatGPT and Claude know.".into();
+    }
+    set_config(st, SITES_SETTING, json!(true));
+    set_config(st, SITES_ASKED, json!(SITES_TO_ASK));
+    let _ = st.journal("memory.sites", json!({"on": true, "by": "owner"}), None);
+    if ask_sites_now(st) {
+        "Which browser are you signed in to ChatGPT and Claude on? I've asked in the chat.".into()
+    } else {
+        "I'll ask which browser you're signed in on as soon as I can see your browsers and nothing else is being brought in."
+            .into()
+    }
 }

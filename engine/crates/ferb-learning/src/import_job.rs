@@ -401,6 +401,9 @@ pub struct ImportJob<'a> {
     pub chunk_chars: usize,
     /// Chunks read at once (the owner allowed three, IMP-21); each still waits for the owner's chat turn.
     pub at_once: usize,
+    /// How many months back the import and the work log read: `import_sources::WINDOW_MONTHS`, the last month
+    /// (MEM-458); the recordings were made with Python's three (`PYTHON_WINDOW_MONTHS`).
+    pub window_months: u32,
 }
 
 /// Chunks read at once by default (IMP-21).
@@ -455,6 +458,7 @@ impl ImportJob<'_> {
             home: self.home.as_deref(),
             zone: self.zone(),
             unzstd: self.unzstd.as_deref(),
+            months: self.window_months,
         };
         let p = (!path.is_empty()).then(|| Path::new(path));
         // an export's plain checks around the reader (MEM-438)
@@ -498,7 +502,7 @@ impl ImportJob<'_> {
         check(source, path)?;
         let conversations = self.read(source, path)?;
         let now = self.memory.clock.now();
-        let since = import_sources::window_start(&now)
+        let since = import_sources::window_start_months(&now, self.window_months)
             .ok_or_else(|| Error::Value("year 0 is out of range".into()))?;
         let mut out = Map::new();
         out.insert("source".into(), json!(source));
@@ -1036,12 +1040,12 @@ impl ImportJob<'_> {
                 let opening = match (local, learned) {
                     (true, 0) => format!("I read what you've typed into {name} on this Mac. Nothing new to remember this time."),
                     (true, k) => format!(
-                        "I read what you've typed into {name} on this Mac over the last 3 months, and learned {k} thing{} about you and how you like to work.",
+                        "I read what you've typed into {name} on this Mac over the last month, and learned {k} thing{} about you and how you like to work.",
                         if k == 1 { "" } else { "s" }
                     ),
                     (false, 0) => format!("I've gone through what {name} knew about you. Nothing new to remember this time."),
                     (false, k) => format!(
-                        "I've brought in what {name} knew about you from your last 3 months of chats: {k} thing{} I didn't know before.",
+                        "I've brought in what {name} knew about you from your last month of chats: {k} thing{} I didn't know before.",
                         if k == 1 { "" } else { "s" }
                     ),
                 };

@@ -96,12 +96,15 @@ public enum ChatRow: Equatable, Identifiable {
     case withFiles(key: String, item: Sending)
     /// At the top of today's chat: the way to earlier days, as the home page has it (kb PHN-698).
     case earlierLink(key: String)
+    /// The memory import's live card at the end of today's chat while one runs (kb MEM-456): live state from the Mac's
+    /// status, never an entry of the chat; its notice takes its place when it ends.
+    case importProgress(key: String, card: ImportCard)
 
     public var key: String {
         switch self {
         case .owner(let k, _, _, _), .ferb(let k, _), .line(let k, _, _, _), .small(let k, _, _), .cards(let k, _), .typing(let k),
              .asking(let k, _, _, _, _), .outbox(let k, _), .older(let k, _), .day(let k, _), .withFiles(let k, _), .earlierLink(let k),
-             .rich(let k, _, _, _, _), .answer(let k, _), .notice(let k, _, _, _), .results(let k, _):
+             .rich(let k, _, _, _, _), .answer(let k, _), .notice(let k, _, _, _), .results(let k, _), .importProgress(let k, _):
             return k
         case .task(let t):
             return t.key
@@ -180,6 +183,21 @@ public enum ChatModel {
             }
         }
         return Places(today: today + asked, earlier: earlier)
+    }
+
+    /// The memory import card's one key: it stays while the import runs, so its bar moves in place (kb MEM-456).
+    public static let importKey = "memory-import"
+
+    /// What the chat draws (kb PHN-696): the earlier days as they are; or today's rows with the way to earlier days at
+    /// their top when there are some, then the questions the chat doesn't hold yet (`loose`, kb PHN-770), then the
+    /// memory import's card while the Mac's status has one (kb MEM-456; FERB.app's ConversationTranscript rows,
+    /// Android's Chat()). The card is never in the earlier days.
+    public static func shown(_ places: Places, earlier: Bool, loose: [ChatRow], importing: ImportCard?) -> [ChatRow] {
+        if earlier { return places.earlier }
+        let hasEarlier = places.earlier.contains { if case .day = $0 { return false } else { return true } }
+        let card: [ChatRow] = importing.map { [.importProgress(key: importKey, card: $0)] } ?? []
+        let today = places.today + loose + card
+        return hasEarlier && !places.today.isEmpty ? [.earlierLink(key: "earlier-link")] + today : today
     }
 
     /// Something was said on `day` or after (kb PHN-696): one of its rows, or a message of his still in the outbox.
@@ -377,6 +395,9 @@ public enum ChatModel {
                 .filter { !$0.isEmpty }.joined(separator: "\n")
         case .notice(_, let text, _, _): return text
         case .task(let t): return t.headline + "\n" + t.parts.map(\.title).joined(separator: "\n")
+        case .importProgress(_, let c):
+            return ([c.title] + c.rows.flatMap { r in [c.rows.count > 1 ? r.name : "", r.line, r.count, r.foundLine, r.detail, r.note] })
+                .filter { !$0.isEmpty }.joined(separator: "\n")
         default: return ""
         }
     }

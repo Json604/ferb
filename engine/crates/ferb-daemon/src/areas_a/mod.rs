@@ -133,6 +133,10 @@ pub struct State {
     /// The browser profiles FERB saw at the last chat.attach, (label, "browser/folder"): the websites' question offers
     /// them (MEM-448).
     pub(crate) import_profiles: RefCell<Vec<(String, String)>>,
+    /// The imports the owner is told about, as they go, and the live card last published (MEM-456; never stored).
+    pub(crate) import_now: RefCell<memory_import::ImportNow>,
+    /// The coding assistants' run under way (its task is awaited by the update), so the switch's off stops it (MEM-459).
+    pub(crate) local_abort: RefCell<Option<tokio::task::AbortHandle>>,
     /// Schedules: `_runs`, `_schedule_runs`, `_last_runs`, and the timer loop's wake (`Timers.wake`).
     pub(crate) schedule_runs: RefCell<BTreeSet<String>>,
     pub(crate) last_runs: RefCell<BTreeSet<String>>,
@@ -342,6 +346,8 @@ impl State {
             import_task: RefCell::new(None),
             import_cancel: RefCell::new(String::new()),
             import_profiles: RefCell::new(Vec::new()),
+            import_now: RefCell::default(),
+            local_abort: RefCell::new(None),
             schedule_runs: RefCell::default(),
             last_runs: RefCell::default(),
             timer_wake: Rc::new(tokio::sync::Notify::new()),

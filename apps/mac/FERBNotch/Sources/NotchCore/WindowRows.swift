@@ -388,7 +388,7 @@ public struct MemoryImportEstimate: Equatable {
         let name = text(reply["name"])
         let conversations = reply["conversations"] as? Int ?? 0
         let calls = reply["model_calls_estimate"] as? Int ?? 0
-        line = "\(name): \(conversations) conversations from the last 3 months, about \(calls) model calls. "
+        line = "\(name): \(conversations) conversations from the last month, about \(calls) model calls. "
             + "Only redacted text is sent; FERB keeps the facts, not the chats."
     }
 }

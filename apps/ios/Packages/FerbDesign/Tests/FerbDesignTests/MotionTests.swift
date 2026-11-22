@@ -28,7 +28,8 @@ final class MotionTests: XCTestCase {
             XCTAssertEqual(try num(row, "response"), s.response, accuracy: 1e-6, name)
             XCTAssertEqual(try num(row, "damping"), s.damping, accuracy: 1e-9, name)
         }
-        for (name, c) in [("enter", FerbMotion.enter), ("exit", FerbMotion.exit), ("item", FerbMotion.item), ("reduced", FerbMotion.reduced)] {
+        for (name, c) in [("enter", FerbMotion.enter), ("exit", FerbMotion.exit), ("item", FerbMotion.item), ("reduced", FerbMotion.reduced),
+                          ("progress", FerbMotion.progress)] {
             let row = try obj(t, "curves", name)
             XCTAssertEqual(Int(try num(row, "ms")), c.ms, name)
             let b = try XCTUnwrap(row["bezier"] as? [NSNumber]).map(\.doubleValue)

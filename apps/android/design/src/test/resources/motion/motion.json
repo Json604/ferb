@@ -44,6 +44,11 @@
       "ms": 120,
       "bezier": [0, 0, 1, 1],
       "from": "PairIt iPhone RelayStyle.swift:35: under Reduce Motion a change is a 0.12 s linear fade and nothing moves; Android with animations off: instant (GlassUI.java:27-31, MainActivity.java:184)"
+    },
+    "progress": {
+      "ms": 650,
+      "bezier": [0, 0, 0.58, 1],
+      "from": "not from PairIt: the memory import card's bar (kb MEM-456) fills to its new share easing out (SwiftUI's easeOut) within one row; under Reduce Motion or with animations off it is there at once"
     }
   },
   "press": {

@@ -87,14 +87,15 @@ fn the_topic_lists_are_pythons() {
         .collect();
     assert_eq!(CRITICAL.len(), python.len() + ADDED.len());
     assert_eq!(sorted(&python), strs(&fx["critical"]));
-    // Python's telemetry topics, and exactly one added after it: a browser window that came up during a task, for the
-    // owner's line (decision: HAND-546)
+    // Python's telemetry topics, and the ones added after it: a browser window that came up during a task, for the
+    // owner's line (decision: HAND-546); the memory import's live card (decision: MEM-456)
+    const ADDED_TELEMETRY: [&str; 2] = ["browser.window_shown", "memory.import.live"];
     let python: Vec<&str> = TELEMETRY
         .iter()
         .copied()
-        .filter(|t| *t != "browser.window_shown")
+        .filter(|t| !ADDED_TELEMETRY.contains(t))
         .collect();
-    assert_eq!(TELEMETRY.len(), python.len() + 1);
+    assert_eq!(TELEMETRY.len(), python.len() + ADDED_TELEMETRY.len());
     assert_eq!(sorted(&python), strs(&fx["telemetry"]));
     assert_eq!(DROPPED, fx["dropped"].as_str().unwrap());
     assert!(CRITICAL.iter().all(|t| !TELEMETRY.contains(t)));

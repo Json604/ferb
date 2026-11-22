@@ -788,6 +788,38 @@ mirror! {
         /// FERB's alerts not yet put away (APP-1106, PHN-791): shown above the chat, never in it; empty while held.
         #[uniffi(default = [])]
         alerts: Vec<StatusAlert>,
+        /// The memory import's live card (MEM-456), drawn at the end of today's chat; none while nothing goes on, while
+        /// the words are held back, or from an older Mac.
+        #[uniffi(default = None)]
+        memory_import: Option<ImportCard>,
+    }
+}
+
+mirror! {
+    /// One source on the memory import's card: a bar from `done` of `total` (none while `total` is 0) with `count`
+    /// beside it, `found_line` under it, `detail` quieter, `note` set apart. `key` is stable while the row lives.
+    ImportRow from ferb_mobile::status::ImportRow {
+        key: String,
+        source: String,
+        name: String,
+        stage: String,
+        line: String,
+        detail: String,
+        done: u32,
+        total: u32,
+        count: String,
+        found: u32,
+        found_line: String,
+        note: String,
+    }
+}
+
+mirror! {
+    /// The memory import's live card (MEM-456), in the Mac's words; each row names its source only when there are
+    /// more than one.
+    ImportCard from ferb_mobile::status::ImportCard {
+        title: String,
+        rows: Vec<ImportRow>,
     }
 }
 

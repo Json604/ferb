@@ -101,6 +101,9 @@ public enum FerbMotion {
     public static let itemShift: CGFloat = 6
     /// Under Reduce Motion nothing moves; a change is this linear fade (PairIt's RelayMotion.navigation).
     public static let reduced = Curve(ms: 120, bezier: (0, 0, 1, 1))
+    /// A bar filling as work is counted (the memory import's card, kb MEM-456): to its new share over 650 ms, easing
+    /// out (SwiftUI's easeOut); under Reduce Motion it is there at once.
+    public static let progress = Curve(ms: 650, bezier: (0, 0, 0.58, 1))
 
     /// A press sinks to this and dims to this (the lab's FerbButton).
     public static let pressScale: CGFloat = 0.97

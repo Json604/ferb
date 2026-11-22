@@ -257,6 +257,8 @@ pub const PHONE_METHODS: &[PhoneMethod] = &[
     sensitive("memory.import.scope", "changes where an imported memory applies"),
     private("memory.import.lines", "where imported memories apply and their offers"),
     sensitive("memory.import.offer", "answers an imported memory's offer"),
+    // decision: MEM-459 — the owner's switches for bringing in what other assistants know: his fingerprint on a phone
+    sensitive("memory.import.switch", "turns bringing in what other assistants know on or off"),
     // ---- perception
     plain("sense.status", "whether FERB watches the Mac"),
     plain("sense.pause", "stops FERB watching: only ever less"),

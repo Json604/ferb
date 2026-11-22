@@ -536,13 +536,9 @@ struct PrivacySettingsPage: View {
                 let watchers = store.watchers.filter { $0 != "jev_batches" }
                 LabeledContent("Recording now", value: watchers.isEmpty ? "nothing" : watchers.joined(separator: ", "))
             }
-            // MEM-447: the owner's one Yes to Claude Code and Codex also keeps them up to date; off stops the updates
-            WindowSettingsSection(title: "Your coding assistants") {
-                KnownToggle(title: "Keep up with what you type into Claude Code and Codex",
-                            isOn: store.toggle("memory.local_import"),
-                            known: store.settingsKnown && store.settings.has("memory.local_import"))
-                Text("When this is on, FERB reads what's new in them every hour, so it knows how you like to work and what you're working on. Turning it off stops the updates; what FERB already learned stays on the Memory page.")
-                    .font(.system(size: 12)).foregroundStyle(.secondary)
+            // MEM-459 (MEM-447): the owner's two switches for bringing in what other assistants know, as on the Memory page
+            WindowSettingsSection(title: "What other assistants know") {
+                MemoryImportSwitches(store: store)
             }
             // Sessions: the daemon's `sessions.enabled`; on adds FERB's hook to Claude Code's settings, off removes it
             WindowSettingsSection(title: "Your coding sessions") {

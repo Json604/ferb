@@ -101,6 +101,14 @@ object Motion {
     fun <T> enter(): FiniteAnimationSpec<T> = tween(ENTER_MS, easing = EnterEasing)
     fun <T> exit(): FiniteAnimationSpec<T> = tween(EXIT_MS, easing = androidx.compose.animation.core.LinearEasing)
     fun <T> item(): FiniteAnimationSpec<T> = tween(ITEM_MS, easing = ItemEasing)
+
+    /**
+     * A bar filling as work is counted (the memory import's card, kb MEM-456): to its new share over 650 ms, easing out
+     * (SwiftUI's easeOut); with the system's motion off it is there at once.
+     */
+    const val PROGRESS_MS = 650
+
+    fun <T> progress(): FiniteAnimationSpec<T> = tween(PROGRESS_MS, easing = EaseOut)
 }
 
 /**

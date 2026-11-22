@@ -1,6 +1,7 @@
 package com.ferb.app.model
 
 import com.ferb.design.components.Fold
+import com.ferb.design.components.ImportCardRow
 import com.ferb.design.components.MarkKind
 import com.ferb.design.components.PlanPart
 import com.ferb.design.components.ResultShown
@@ -9,6 +10,7 @@ import com.ferb.design.components.plainBlocks
 import com.ferb.mobile.AnswerView
 import com.ferb.mobile.ChecklistView
 import com.ferb.mobile.CardView
+import com.ferb.mobile.ImportCard
 import com.ferb.mobile.Item
 import com.ferb.mobile.LiveRow
 import com.ferb.mobile.LiveView
@@ -110,6 +112,13 @@ sealed interface ChatRow {
 
     /** A day's start in the one continuous chat (kb PHN-627): "Today", "Yesterday", or the date; [day] in epoch days. */
     data class Day(override val key: String, val day: Long) : ChatRow
+
+    /**
+     * The memory import's live card (kb MEM-456; the owner, MEM-455): what the Mac's status says while FERB brings in
+     * what he said in other assistants, in the Mac's words. Live state, never a chat entry: at the end of today's chat
+     * while the status has it, gone when it doesn't (FERB's notice then says how it went).
+     */
+    data class ImportProgress(override val key: String, val title: String, val rows: List<ImportCardRow>) : ChatRow
 }
 
 /**
@@ -165,6 +174,32 @@ object ChatModel {
             }
         }
         return Places(today + asked, earlier)
+    }
+
+    /** The one key of the memory import's card: one card at a time, whatever its rows (kb MEM-456). */
+    const val IMPORT_KEY = "memory-import"
+
+    /** The memory import's card from the Mac's status (kb MEM-456), or null when no import is under way. */
+    fun importRow(card: ImportCard?): ChatRow.ImportProgress? = card?.takeIf { it.rows.isNotEmpty() }?.let { c ->
+        ChatRow.ImportProgress(IMPORT_KEY, c.title, c.rows.map { r ->
+            ImportCardRow(r.key, r.name, r.line, r.detail, int(r.done), int(r.total), r.count, r.foundLine, r.note)
+        })
+    }
+
+    private fun int(n: UInt): Int = minOf(n, Int.MAX_VALUE.toUInt()).toInt()
+
+    /**
+     * What the chat draws (kb PHN-696, PHN-698): the earlier days alone, or today's rows (the way to earlier days at
+     * their top when there are any), then [loose] (open questions the chat doesn't hold yet, PHN-770) and, last, the
+     * memory import's card while one runs ([card], kb MEM-456). The card and the questions are live: never in the
+     * earlier days.
+     */
+    fun shown(places: Places, earlier: Boolean, loose: List<ChatRow>, card: ChatRow.ImportProgress?): List<ChatRow> {
+        if (earlier) return places.earlier
+        val end = if (card == null) loose else loose + card
+        return if (places.today.isNotEmpty() && places.earlier.any { it !is ChatRow.Day }) {
+            listOf<ChatRow>(ChatRow.EarlierLink("earlier-link")) + places.today + end
+        } else places.today + end
     }
 
     /**
@@ -467,6 +502,8 @@ object ChatModel {
             .filter { it.isNotEmpty() }.joinToString("\n")
         is ChatRow.Notice -> row.text
         is ChatRow.Task -> row.headline + "\n" + row.parts.joinToString("\n") { it.title }
+        is ChatRow.ImportProgress -> (listOf(row.title) + row.rows.flatMap { listOf(if (row.rows.size > 1) it.name else "", it.line, it.count, it.foundLine, it.detail, it.note) })
+            .filter { it.isNotEmpty() }.joinToString("\n")
         else -> ""
     }
 

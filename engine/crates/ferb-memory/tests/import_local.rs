@@ -68,6 +68,7 @@ fn read(
         home: Some(home),
         zone: &ZONE,
         unzstd: None,
+        months: ferb_memory::import_sources::WINDOW_MONTHS,
     };
     sources::read(source, path, &opts)
 }
@@ -197,7 +198,7 @@ fn codex_folder_comes_from_the_session_files_first_line_only() {
     assert_eq!(local::found(home), vec!["codex"]);
 }
 
-// decision: MEM-432, MEM-401
+// decision: MEM-432, MEM-458
 #[test]
 fn claude_codes_saved_notes_are_claims_within_the_window() {
     let dir = tempfile::tempdir().unwrap();
@@ -564,5 +565,5 @@ fn a_file_that_isnt_a_usable_export_is_said_plainly() {
     let Error::Unreadable(m) = exports::nothing("chatgpt", &d.join("good.zip")) else {
         panic!()
     };
-    assert!(m.contains("holds nothing from the last 3 months"), "{m}");
+    assert!(m.contains("holds nothing from the last month"), "{m}");
 }

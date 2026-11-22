@@ -366,6 +366,85 @@ pub struct PhoneStatus {
     pub insomnia: Option<Insomnia>,
     /// FERB's alerts not yet put away (APP-1106); empty while the words are held back.
     pub alerts: Vec<StatusAlert>,
+    /// The memory import's live card (MEM-456) while one goes on; none otherwise, while the words are held back, or
+    /// from a Mac that doesn't say.
+    pub memory_import: Option<ImportCard>,
+}
+
+/// The memory import's live card (MEM-456), in the Mac's own words: drawn at the end of today's chat, as FERB.app
+/// draws it, from the moment an import FERB tells the owner about starts until its one notice comes in (the card is
+/// live state, never a chat entry). Each row's bar is `done` of `total` (none while `total` is 0), with `count` beside
+/// it; `found_line` under it, `detail` quieter, `note` set apart (a gap, or a try that didn't go through, with what
+/// happens next). A row's `name` is shown only when the card has more than one row ([`ImportCard::names_rows`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ImportCard {
+    pub title: String,
+    pub rows: Vec<ImportRow>,
+}
+
+/// One source on the card: a run reading or placing, or a website's watch waiting for its export.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ImportRow {
+    /// Stable while the row lives ("run:<id>", "site:<source>"): the bar animates within one key.
+    pub key: String,
+    pub source: String,
+    pub name: String,
+    /// reading, placing, asking, waiting_mail, checking_mail.
+    pub stage: String,
+    pub line: String,
+    pub detail: String,
+    pub done: u32,
+    pub total: u32,
+    pub count: String,
+    pub found: u32,
+    pub found_line: String,
+    pub note: String,
+}
+
+impl ImportRow {
+    /// How full the bar is, 0 to 1; None: no bar (nothing planned to count yet, or a website's waiting stage).
+    pub fn fraction(&self) -> Option<f32> {
+        (self.total > 0).then(|| self.done.min(self.total) as f32 / self.total as f32)
+    }
+}
+
+impl ImportCard {
+    /// From the Mac's card (`chat.status`'s `memory_import`, the bus's `memory.import.live` `card`); None for anything
+    /// that isn't one with a row.
+    pub fn read(v: &Value) -> Option<ImportCard> {
+        let n = |x: &Value| {
+            x.as_u64()
+                .map(|n| n.min(u32::MAX as u64) as u32)
+                .unwrap_or(0)
+        };
+        let rows: Vec<ImportRow> = list(&v["rows"])
+            .iter()
+            .map(|r| ImportRow {
+                key: text(&r["key"]),
+                source: text(&r["source"]),
+                name: text(&r["name"]),
+                stage: text(&r["stage"]),
+                line: text(&r["line"]),
+                detail: text(&r["detail"]),
+                done: n(&r["done"]),
+                total: n(&r["total"]),
+                count: text(&r["count"]),
+                found: n(&r["found"]),
+                found_line: text(&r["found_line"]),
+                note: text(&r["note"]),
+            })
+            .filter(|r| !r.key.is_empty())
+            .collect();
+        (!rows.is_empty()).then(|| ImportCard {
+            title: text(&v["title"]),
+            rows,
+        })
+    }
+
+    /// Each row says its source's name (more than one source on the card).
+    pub fn names_rows(&self) -> bool {
+        self.rows.len() > 1
+    }
 }
 
 fn text(v: &Value) -> String {
@@ -447,6 +526,10 @@ impl PhoneStatus {
                 .filter(|s| s.is_object())
                 .map(Insomnia::read),
             alerts: StatusAlert::of(&v["notices"]),
+            memory_import: v
+                .get("memory_import")
+                .filter(|c| c.is_object())
+                .and_then(ImportCard::read),
         }
     }
 
@@ -463,6 +546,38 @@ impl PhoneStatus {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// The memory import's card reads as the Mac sent it; the bar is parts done of parts planned; none without rows.
+    // decision: MEM-456
+    #[test]
+    fn the_memory_import_card_reads_as_the_mac_sent_it() {
+        let v = json!({"memory_import": {"title": "Bringing in what Claude Code knows about you", "rows": [
+            {"key": "run:r1", "source": "claude_code", "name": "Claude Code", "stage": "reading",
+             "line": "Reading what you've typed", "detail": "", "done": 33, "total": 40, "count": "33 of 40",
+             "found": 221, "found_line": "221 things found so far", "note": ""}]}});
+        let card = PhoneStatus::read(&v).memory_import.expect("a card");
+        assert_eq!(card.title, "Bringing in what Claude Code knows about you");
+        assert!(!card.names_rows());
+        assert_eq!(card.rows[0].count, "33 of 40");
+        assert_eq!(card.rows[0].fraction(), Some(33.0 / 40.0));
+        assert_eq!(card.rows[0].found_line, "221 things found so far");
+        let waiting =
+            ImportCard::read(&json!({"title": "t", "rows": [{"key": "site:chatgpt", "total": 0}]}));
+        assert_eq!(
+            waiting.unwrap().rows[0].fraction(),
+            None,
+            "a website waiting for its mail has no bar"
+        );
+        assert_eq!(
+            PhoneStatus::read(&json!({"memory_import": {"title": "t", "rows": []}})).memory_import,
+            None
+        );
+        assert_eq!(
+            PhoneStatus::read(&json!({"memory_import": null})).memory_import,
+            None
+        );
+        assert_eq!(PhoneStatus::read(&json!({})).memory_import, None);
+    }
 
     /// A locked status from the gate (as ferb-daemon's `status_for` writes it) reads as held, with each question's needs.
     // decision: PHN-126

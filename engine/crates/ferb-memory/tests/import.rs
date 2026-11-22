@@ -89,7 +89,7 @@ fn write_files(root: &Path, files: &Value) {
     }
 }
 
-// decision: MEM-400, MEM-401, MEM-432, MEM-404, MEM-405, MEM-407, MEM-413, MEM-414
+// decision: MEM-400, MEM-458, MEM-432, MEM-404, MEM-405, MEM-407, MEM-413, MEM-414
 #[test]
 fn every_reader_gives_pythons_conversations() {
     let fx = fixture("import.json");
@@ -128,6 +128,8 @@ fn every_reader_gives_pythons_conversations() {
             home: Some(&home),
             zone: &ZONE,
             unzstd: Some(&zstd),
+            // named difference (MEM-458): the recordings were read with Python's three months
+            months: sources::PYTHON_WINDOW_MONTHS,
         };
         let path = case["path"].as_str().map(|p| root.join(p));
         let got = sources::read(s(&case["source"]), path.as_deref(), &opts);
@@ -173,7 +175,7 @@ fn every_reader_gives_pythons_conversations() {
     );
 }
 
-// decision: MEM-401, MEM-407, MEM-413
+// decision: MEM-458, MEM-407, MEM-413
 #[test]
 fn the_reader_helpers_match_python() {
     let fx = fixture("import.json");
@@ -186,8 +188,12 @@ fn the_reader_helpers_match_python() {
             "cut" => json!(sources::cut(s(&a[0]), a[1].as_u64().unwrap() as usize)),
             "owner_words" => json!(sources::owner_words(s(&a[0]))),
             "window_start" => {
-                json!(sources::window_start(&times::parse_iso(s(&a[0])).unwrap())
-                    .map(|d| times::iso(&d)))
+                // named difference (MEM-458): FERB reads the last month; Python's three are what was recorded
+                json!(sources::window_start_months(
+                    &times::parse_iso(s(&a[0])).unwrap(),
+                    sources::PYTHON_WINDOW_MONTHS
+                )
+                .map(|d| times::iso(&d)))
             }
             "prompt" => json!(sources::prompt(s(&a[0]))),
             "unescape" => json!(html::unescape(s(&a[0]))),

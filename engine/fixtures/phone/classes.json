@@ -2,7 +2,7 @@
   "counts": {
     "plain": 58,
     "private": 46,
-    "sensitive": 55,
+    "sensitive": 56,
     "never": 30
   },
   "methods": {
@@ -665,6 +665,15 @@
       "refused_params": [],
       "owner_to_confirm": false,
       "why": "an import's progress"
+    },
+    "memory.import.switch": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "turns bringing in what other assistants know on or off"
     },
     "memory.learning": {
       "class": "plain",

@@ -49,6 +49,8 @@ extension NotchModel {
         })
         return pendingApprovals.filter { approval in placed[approval.id].map { !shown.contains($0.turnID) } ?? true }
     }
+    /// The memory import's card at the end of today's chat (MEM-456): live state, after the open questions.
+    var inlineMemoryImport: MemoryImportCard? { viewingToday ? memoryImport : nil }
     /// The open questions shown inside this turn's card, by part (APP-300). Live state: only in today's chat.
     func rowQuestions(_ turn: ConversationTurn) -> [String: [DaemonApproval]] {
         guard viewingToday, turn.card != nil, !pendingApprovals.isEmpty else { return [:] }

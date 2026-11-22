@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 use serde_json::{json, Map, Value};
 
 use ferb_memory::import_local::{self, Line};
-use ferb_memory::import_sources::{cut, owner_words, source_name, window_start};
+use ferb_memory::import_sources::{cut, owner_words, source_name, window_start_months};
 use ferb_memory::pystr;
 use ferb_memory::times;
 use ferb_sanitize::origin;
@@ -218,8 +218,8 @@ impl ImportJob<'_> {
     /// the model; a folder learned since (Codex) is filled in with no model call. Returns counts.
     pub async fn worklog_update(&self, learning: &Learning) -> Result<Map<String, Value>> {
         let now = self.memory.clock.now();
-        let since =
-            window_start(&now).ok_or_else(|| Error::Value("year 0 is out of range".into()))?;
+        let since = window_start_months(&now, self.window_months)
+            .ok_or_else(|| Error::Value("year 0 is out of range".into()))?;
         let home = self.home.clone().unwrap_or_default();
         let mut lines = Vec::new();
         for (source, ..) in import_local::FILES {

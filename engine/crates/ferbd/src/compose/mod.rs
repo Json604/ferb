@@ -791,9 +791,12 @@ impl Daemon {
                 json!({"at": "start", "paths": stuck.len()}),
             );
         }
+        // MEM-456: the memory import's live card as group A last published it, for the phones' `chat.status`
+        let import_card: Arc<std::sync::Mutex<Option<Value>>> = Arc::default();
         // group A's areas, on their loop thread
         let a = {
             let ev = events.clone();
+            let card = import_card.clone();
             let deps = areas_a::Deps {
                 home: home.clone(),
                 user_home: opts.user_home.clone(),
@@ -805,6 +808,10 @@ impl Daemon {
                 config: config.clone(),
                 redactor: redactor.clone(),
                 publish: Arc::new(move |topic: &str, data: Map<String, Value>| {
+                    if topic == areas_a::memory_import::LIVE_TOPIC {
+                        *card.lock().unwrap_or_else(|e| e.into_inner()) =
+                            data.get("card").filter(|c| c.is_object()).cloned();
+                    }
                     ev.publish(topic, data)
                 }),
                 timer_tokens: opts.timer_tokens.clone(),
@@ -1041,6 +1048,12 @@ impl Daemon {
             },
         );
         let _ = phone_slot.set(phones.clone());
+        phones.set_memory_import(Arc::new(move || {
+            import_card
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone()
+        }));
         // GATE-615: what the gateway sees of the owner at the Mac, for the phone's "until I'm back at my Mac" (the Mac's
         // parts off: never offered)
         if tool_parts.owner().is_some() {

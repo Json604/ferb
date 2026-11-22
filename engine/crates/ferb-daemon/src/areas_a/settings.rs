@@ -243,10 +243,17 @@ pub fn settings() -> Vec<Setting> {
         default: json!(""),
     });
     // decision: MEM-447 — the owner's one Yes to bringing in Claude Code and Codex also keeps them up to date; off
-    // stops the updates and keeps what was learned
+    // stops the updates and keeps what was learned. MEM-459: it is the one switch (off: nothing read, no updates), and
+    // the websites have theirs; both change only through `memory.import.switch` (SWITCHES)
     out.push(Setting {
         section: "memory",
         key: "local_import",
+        check: Check::Bool,
+        default: json!(false),
+    });
+    out.push(Setting {
+        section: "memory",
+        key: "sites_import",
         check: Check::Bool,
         default: json!(false),
     });
@@ -324,6 +331,10 @@ pub fn read(config: &Config) -> Result<Map<String, Value>, ConfigError> {
     Ok(values)
 }
 
+/// The memory import's switches (MEM-459): listed with the settings, changed only by `memory.import.switch`, which
+/// starts or stops the import with the value.
+pub const SWITCHES: [&str; 2] = ["memory.local_import", "memory.sites_import"];
+
 /// Why a write failed: the value, or the config file.
 #[derive(Debug)]
 pub enum WriteError {
@@ -333,6 +344,12 @@ pub enum WriteError {
 
 /// `write`: check one value and write it in one atomic save; returns what was stored.
 pub fn write(config: &Config, name: &str, value: &Value) -> Result<Value, WriteError> {
+    // decision: MEM-459 — a switch that starts or stops an import is changed where that happens, never as a bare value
+    if SWITCHES.contains(&name) {
+        return Err(WriteError::Bad(BadSetting(format!(
+            "{name} is turned on and off with memory.import.switch"
+        ))));
+    }
     let Some(setting) = settings().into_iter().find(|s| s.name() == name) else {
         let shown = if name.is_empty() { "(no key)" } else { name };
         return Err(WriteError::Bad(BadSetting(format!(

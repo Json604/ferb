@@ -5130,3 +5130,21 @@ request = "Use FERB as usual, including long tasks in apps and web pages (forms,
 pass = "FERB asks \"Keep trying, or go on with what I have?\" only when it really isn't getting anywhere; a healthy long task isn't interrupted at its 40th action. If it is, tell FERB's developer: the cap is on trial and gets rolled back (ORCH-693, T-1292)."
 decisions = ["ORCH-693", "ORCH-691"]
 sitting = "over the next weeks of real use"
+
+[LIVE-1182]
+title = "An import's progress shows in the chat and on the Memory page, and ends as its one message"
+area = "memory"
+surface = "FERB.app with this build and a paired phone (Android or iPhone) with its build; Claude Code or Codex history on this Mac (or a website's watch from LIVE-1165)"
+request = "Turn \"Your coding assistants\" off and on in Settings → Privacy, or say Yes to the coding assistants' question, so an import starts. Watch the chat on the Mac and the phone, and open FERB.app's Memory page while it runs."
+pass = "A card at the end of today's chat says 'Bringing in what Claude Code knows about you', a stage line, a bar that fills smoothly with '33 of 40' and 'N things found so far', then 'Putting together what I found'; the phone shows the same card; the Memory page shows it at the top and each source's last run; at the end the card is gone and FERB's one notice is there, no second message. With Reduce Motion the bar jumps instead of gliding."
+decisions = ["MEM-455", "MEM-456"]
+sitting = "after this build is installed"
+
+[LIVE-1183]
+title = "The import reads the last month, and its two switches start and stop it"
+area = "memory"
+surface = "FERB.app with this build, Claude Code history older and newer than a month, a browser signed in to chatgpt.com and claude.ai"
+request = "In Settings → Privacy (or the Memory page), turn \"Bring in what your coding assistants know\" off, then on; turn \"Bring in what ChatGPT and Claude know\" on, pick the browser in the chat, then turn it off."
+pass = "On reads only the last month (nothing older on the Memory page, the notice says \"over the last month\"); off stops a run under way and no hourly update follows. The websites' on asks which browser, then two watches show on the Schedules page; off cancels them and nothing more is requested or downloaded. What was learned stays."
+decisions = ["MEM-458", "MEM-459"]
+sitting = "after this build is installed"

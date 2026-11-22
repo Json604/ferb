@@ -45,6 +45,7 @@ class MotionTableTest {
         assertCurve("exit", Motion.EXIT_MS, null)
         assertCurve("item", Motion.ITEM_MS, Motion.ItemEasing)
         assertCurve("reduced", Motion.REDUCED_MS, null)
+        assertCurve("progress", Motion.PROGRESS_MS, Motion.EaseOut)
         assertEquals(num(obj("curves", "enter"), "shift"), Motion.ENTER_SHIFT_DP.toDouble(), 0.0)
         assertEquals(num(obj("curves", "item"), "shift"), Motion.ITEM_SHIFT_DP.toDouble(), 0.0)
         assertEquals(num(obj("press"), "scale"), Motion.PRESS_SCALE.toDouble(), 1e-6)

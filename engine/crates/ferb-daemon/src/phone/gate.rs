@@ -496,6 +496,8 @@ impl State {
                     status.insert(key.into(), Value::Array(items));
                 }
             }
+            // MEM-456: the memory import's card is words too: held with the rest
+            status.remove("memory_import");
         }
         status.insert("locked".into(), json!(true));
         status.insert("words".into(), json!(words));
@@ -1016,6 +1018,10 @@ impl PhoneGate for Gate {
                     } else {
                         out.insert("approvals".into(), Value::Array(vec![q]));
                     }
+                }
+                // decision: MEM-456 — the memory import's live card, as FERB.app draws it (held while words are)
+                if let Some(card) = inner.memory_import.get().and_then(|f| f()) {
+                    out.insert("memory_import".into(), card);
                 }
                 if let Ok(dev) = inner.live(&phone.device) {
                     let mut st = lock(&inner.state);

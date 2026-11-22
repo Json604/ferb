@@ -120,6 +120,8 @@ pub const TELEMETRY: &[&str] = &[
     "task.progress", // APP-893: a lost one is replaced by the next
     "cursor.point",
     "browser.window_shown", // HAND-546: the owner's notice is written by the daemon's own consumer, not the bus
+    // MEM-456: the memory import's live card as it stands (a lost one is re-read: bus.dropped -> memory.import.status)
+    "memory.import.live",
 ];
 
 /// The synthetic notice to a subscriber: `{"count": n}` telemetry events were dropped.

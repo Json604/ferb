@@ -712,6 +712,16 @@ impl ImportJob<'_> {
         Ok(changed)
     }
 
+    /// Where placing stands, for the live card (MEM-456): `placed` batches of `to_place`. Published like the reading
+    /// steps (the job's `memory.import.progress`), never stored.
+    fn placing(&self, run_id: &str, placed: i64, to_place: i64) {
+        (self.publish)(
+            "memory.import.progress",
+            json!({"run": run_id, "status": "running", "stage": "placing",
+                   "counts": {"placed": placed, "to_place": to_place}}),
+        );
+    }
+
     fn leave(&self, ids: &[String], why: &str) -> Result<()> {
         for i in ids {
             self.store.exec(
@@ -767,7 +777,10 @@ impl ImportJob<'_> {
         let mut counts = Map::new();
         let mut taken: HashSet<String> = lines.iter().map(|l| l.id.clone()).collect();
         let by_id: HashMap<String, Fact> = new.iter().map(|f| (f.id.clone(), f.clone())).collect();
-        for batch in new.chunks(PLACE_FACTS) {
+        let batches = new.len().div_ceil(PLACE_FACTS) as i64;
+        for (i, batch) in new.chunks(PLACE_FACTS).enumerate() {
+            // the live card's bar while placing (MEM-456): batches placed of batches
+            self.placing(run_id, i as i64, batches);
             let refs: Vec<&Fact> = batch.iter().collect();
             let shown: Vec<Line> = self.near(&refs, &lines).into_iter().cloned().collect();
             let mut text: Vec<String> = batch
@@ -1109,6 +1122,9 @@ impl ImportJob<'_> {
             if unplaced > 0 {
                 *change.entry("left for the next update".into()).or_default() += unplaced;
             }
+        }
+        if batches > 0 {
+            self.placing(run_id, batches, batches);
         }
         change.insert("new facts".into(), new.len() as i64);
         let moved = self.judge_scope(run_id).await?;

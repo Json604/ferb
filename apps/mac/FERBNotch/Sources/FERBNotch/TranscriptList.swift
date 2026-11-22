@@ -3,12 +3,13 @@ import SwiftUI
 import NotchCore
 
 /// One row of the chat's transcript list (APP-815): the space under the top fade, the loader while an earlier page comes,
-/// an entry, an open question, the end.
+/// an entry, an open question, the memory import's live card (MEM-456), the end.
 enum TranscriptRow: Equatable {
     case top
     case loader
     case entry(TranscriptEntry, hidden: Set<String>)
     case question(DaemonApproval)
+    case memoryImport(MemoryImportCard)
     case bottom
 
     var key: String {
@@ -17,6 +18,7 @@ enum TranscriptRow: Equatable {
         case .loader: return "transcript-earlier"
         case let .entry(entry, _): return TranscriptTarget.entry(entry.id)
         case let .question(question): return TranscriptTarget.question(question.id)
+        case .memoryImport: return MemoryImportCardView.anchor
         case .bottom: return "transcript-bottom"
         }
     }
@@ -272,6 +274,7 @@ final class TranscriptList: NSObject, NSTableViewDataSource, NSTableViewDelegate
         case .bottom: return Self.endSpace
         case .loader: return 24 + Self.spacing
         case .question: return 150 + Self.spacing
+        case let .memoryImport(card): return MemoryImportCardView.estimate(card) + Self.spacing
         case let .entry(entry, _):
             switch entry {
             case let .turn(turn, _):

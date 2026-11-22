@@ -135,11 +135,15 @@ public struct HomePage: View {
     /// Not from the lab: the way back to earlier days' messages on a new day (kb PHN-626); none by default.
     var earlier: String?
     var onEarlier: (() -> Void)?
+    /// Not from the lab: a card FERB keeps live above the box (the memory import's progress while one runs, kb MEM-457);
+    /// none by default.
+    var live: AnyView?
 
     public init(texts: HomeTexts? = nil, away: [WorkRow] = LabSample.away, insets: PhoneInsets = .lab, typed: String? = nil,
                 onTab: ((PhoneTab) -> Void)? = nil, onProfile: (() -> Void)? = nil, onRow: ((Int) -> Void)? = nil,
                 onMore: (() -> Void)? = nil, more: @escaping (Int) -> String = { "\($0) more in Tasks" }, composer: AnyView? = nil,
-                earlier: String? = nil, onEarlier: (() -> Void)? = nil) {
+                earlier: String? = nil, onEarlier: (() -> Void)? = nil, live: AnyView? = nil) {
+        self.live = live
         self.earlier = earlier
         self.onEarlier = onEarlier
         self.texts = texts
@@ -173,6 +177,7 @@ public struct HomePage: View {
             }
             Spacer()
             VStack(spacing: 0) {
+                if let live { live.padding(.bottom, 12) }
                 // Nothing happened: no list and no box, only the sky and the message box.
                 if !away.isEmpty {
                     SkyLabel(text: words.away)

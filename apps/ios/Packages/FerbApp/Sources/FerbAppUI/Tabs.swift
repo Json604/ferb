@@ -247,8 +247,22 @@ struct HomeView: View {
                  composer: AnyView(Composer(model: model, placeholder: texts.placeholder, picking: picking, toast: true)),
                  // a new day with nothing said yet: earlier days are one tap away (kb PHN-626)
                  earlier: model.rows.contains { if case .older = $0 { return false }; return true } ? L.s("older_available") : nil,
-                 onEarlier: { model.openChat() })
+                 onEarlier: { model.openChat() },
+                 // the memory import's live card shows on the home page too while one runs (the owner, kb MEM-457)
+                 live: homeImportCard(model.ui.status?.memoryImport))
     }
+}
+
+/// The memory import's card above the home page's box while one runs (kb MEM-457), on FERB's dark surface as in the
+/// chat; nil when there is none.
+func homeImportCard(_ card: ImportCard?) -> AnyView? {
+    guard let card, !card.rows.isEmpty else { return nil }
+    return AnyView(MemoryImportCard(title: card.title, rows: card.rows.map {
+        MemoryImportRow(key: $0.key, name: $0.name, line: $0.line, detail: $0.detail, done: Int($0.done), total: Int($0.total),
+                        count: $0.count, foundLine: $0.foundLine, note: $0.note)
+    })
+    .environment(\.onFerb, true)
+    .accessibilityIdentifier("memory-import"))
 }
 
 /// What happened while the owner was away: questions first, then failures, then what finished (HomePage).
@@ -311,15 +325,14 @@ struct ChatView: View {
             // messages he sent with files go at the end, after the outbox, until their files are on the Mac (PHN-691)
             // made by the model when the rows change, off the main actor for a long chat (kb PHN-714)
             let places = model.places
-            // earlier days exist: rows of them, or older pages the Mac still has (or has when the path allows)
-            let hasEarlier = places.earlier.contains { !Self.isDay($0) }
             // a question the chat doesn't hold yet (the Mac's status brought it first) is a box at the end of today's
             // chat, as FERB.app draws its open questions (ConversationTranscript.swift:205-208; kb PHN-770)
             let placed = Set(model.rows.compactMap { if case .asking(_, let id, _, _, _) = $0 { return id } else { return nil } })
             let loose: [ChatRow] = model.ui.questions.filter { !placed.contains($0.approvalId) }
                 .map { .asking(key: "q:\($0.approvalId)", approvalId: $0.approvalId, title: $0.title, reason: nil, hidden: $0.hidden) }
-            let rows: [ChatRow] = earlier ? places.earlier
-                : (hasEarlier && !places.today.isEmpty ? [.earlierLink(key: "earlier-link")] + places.today + loose : places.today + loose)
+            // the way to earlier days at the top when there are some (rows of them, or older pages the Mac still has),
+            // and the memory import's card last while one runs, never in the earlier days (kb MEM-456)
+            let rows = ChatModel.shown(places, earlier: earlier, loose: loose, importing: model.ui.status?.memoryImport)
             // the day he is looking at and the latest messages' day: the sticky label and the way back (PHN-662, 663)
             let top = topKey.flatMap { k in rows.firstIndex { $0.key == k } }
             let shownDay = top.flatMap { ChatModel.dayAt(rows, $0) }
@@ -549,6 +562,13 @@ struct ChatRowView: View {
             WithFilesRow(model: model, m: m)
         case .earlierLink:
             EarlierLink(L.s("older_available")) { model.openChat() }.accessibilityIdentifier("earlier-link")
+        // the memory import's live card (kb MEM-456): every word is the Mac's
+        case .importProgress(_, let card):
+            MemoryImportCard(title: card.title, rows: card.rows.map {
+                MemoryImportRow(key: $0.key, name: $0.name, line: $0.line, detail: $0.detail, done: Int($0.done), total: Int($0.total),
+                                count: $0.count, foundLine: $0.foundLine, note: $0.note)
+            })
+            .accessibilityIdentifier("memory-import")
         case .older(_, let state):
             if case .needsBetterPath = state {
                 Text(L.s("older_needs_better_path")).type(14, .medium, ink.low).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 6)

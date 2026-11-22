@@ -262,6 +262,9 @@ private fun Home(vm: FerbViewModel, ui: UiState, draft: String, insets: PhoneIns
     val texts = words?.let { HomeTexts(it.greeting, it.subline, it.away, it.placeholder, it.chat) } ?: HomeTexts("Hello", "")
     val away = awayRows(ui)
     val asking = stringResource(R.string.question_default_title)
+    // the memory import's live card shows on the home page too while one runs (the owner, kb MEM-457), as in the chat
+    val memoryImport = ui.status?.memoryImport
+    val importCard = remember(memoryImport) { ChatModel.importRow(memoryImport) }
     HomePage(
         texts, away.map { WorkRow(it.kind, it.title.ifEmpty { asking }, it.detail) }, insets,
         onTab = onTab, onProfile = onProfile,
@@ -271,6 +274,12 @@ private fun Home(vm: FerbViewModel, ui: UiState, draft: String, insets: PhoneIns
         // a new day with nothing said yet: earlier days are one tap away (kb PHN-626)
         earlier = if (ui.rows.any { it !is ChatRow.Older }) stringResource(R.string.older_available) else null,
         onEarlier = { vm.openChat() },
+        live = importCard?.let { card -> { m ->
+            // on FERB's dark surface, as everything FERB says (kb PHN-734)
+            androidx.compose.runtime.CompositionLocalProvider(com.ferb.design.components.LocalOnFerb provides true) {
+                com.ferb.design.components.ImportCard(card.title, card.rows, m.testTag("memory-import"))
+            }
+        } },
     )
 }
 
@@ -389,21 +398,17 @@ private fun Chat(vm: FerbViewModel, ui: UiState, draft: String, insets: PhoneIns
     val places = remember(ui.rows, ui.days, today, withFiles) {
         ChatModel.split(ChatModel.withDays(ui.rows + withFiles.map { ChatRow.WithFiles("send:${it.id}", it) }, ui.days, today), today)
     }
-    // earlier days exist: rows of them, or older pages the Mac still has (or has when the path allows)
-    val hasEarlier = places.earlier.any { it !is ChatRow.Day }
     // a question the chat doesn't hold yet (the Mac's status brought it first) is a box at the end of today's chat, as
     // FERB.app draws its open questions (ConversationTranscript.swift:205-208; kb PHN-770)
     val loose = remember(ui.questions, ui.rows) {
         val placed = ui.rows.mapNotNullTo(HashSet()) { (it as? ChatRow.Asking)?.approvalId }
         ui.questions.filter { it.approvalId !in placed }.map { ChatRow.Asking("q:${it.approvalId}", it.approvalId, it.title, null, it.hidden) }
     }
-    val rows = remember(places, earlier, hasEarlier, loose) {
-        when {
-            earlier -> places.earlier
-            hasEarlier && places.today.isNotEmpty() -> listOf<ChatRow>(ChatRow.EarlierLink("earlier-link")) + places.today + loose
-            else -> places.today + loose
-        }
-    }
+    // the memory import's live card, last in today's chat while the Mac's status has one (kb MEM-456)
+    val memoryImport = ui.status?.memoryImport
+    val importCard = remember(memoryImport) { ChatModel.importRow(memoryImport) }
+    // today's chat (the way to earlier days at its top when there are any) or the earlier days (kb PHN-696, PHN-698)
+    val rows = remember(places, earlier, loose, importCard) { ChatModel.shown(places, earlier, loose, importCard) }
     // its end followed while he is at it: a new row, a reply growing as it streams, the keyboard; his own message
     // always; a pill when he scrolled up (kb PHN-628). Before, only a change in the number of rows scrolled, to the
     // top of the last row: a reply that replaced "typing" or grew never moved the list.
@@ -626,6 +631,8 @@ private fun ChatRowContent(vm: FerbViewModel, today: Long, olderLoading: Boolean
             for (q in row.quotes) PhoneText(q, 14f, color = ink.low)
         }
         is ChatRow.Task -> TaskRow(vm, row)
+        // while FERB brings in what he said in other assistants: the Mac's words, its bars (kb MEM-456)
+        is ChatRow.ImportProgress -> com.ferb.design.components.ImportCard(row.title, row.rows, Modifier.testTag("memory-import"))
         is ChatRow.Rich -> FerbRichBubble(copy = row.copy) {
             val tail = remember(row.tail) { row.tail.map { it to false } }
             com.ferb.design.components.RichBlocks(row.blocks, onBlack, row.key, row.fold, more = stringResource(R.string.show_all),

@@ -456,12 +456,15 @@ async fn run_schedule(st: &Rc<State>, run: ClaimedRun) {
         st.last_runs.borrow_mut().insert(sid.clone());
     }
     st.schedule_runs.borrow_mut().insert(sid.clone());
+    // MEM-456: a website watch's run shows on the memory import's live card while it goes
+    super::memory_import::watch_moved(st, &s);
     let out = st
         .tasks
         .run_scheduled(s.clone(), created, late, run.overdue_s, run.retry)
         .await;
     st.last_runs.borrow_mut().remove(&sid);
     st.schedule_runs.borrow_mut().remove(&sid);
+    super::memory_import::watch_moved(st, &s);
     let final_ = match out {
         Ok(f) => f,
         Err(RunFailed { described, reason }) => {
@@ -485,6 +488,7 @@ async fn run_schedule(st: &Rc<State>, run: ClaimedRun) {
         return;
     }
     let _ = schedule_finished(st, &s, final_, run.overdue_s, run.retry, &now).await;
+    super::memory_import::watch_moved(st, &s);
 }
 
 /// What a run's start failed with (its records are rolled back and its timer stays claimed).

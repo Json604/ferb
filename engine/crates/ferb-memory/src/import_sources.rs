@@ -30,7 +30,11 @@ pub const SOURCES: [(&str, &str); 5] = [
 ];
 /// Read from a file the owner gives; the other two from this Mac.
 pub const EXPORTS: [&str; 3] = ["chatgpt", "claude", "gemini"];
-pub const WINDOW_MONTHS: u32 = 3;
+/// How far back an import reads: the last month, for every source (the owner, MEM-458; supersedes MEM-401's three).
+// decision: MEM-458
+pub const WINDOW_MONTHS: u32 = 1;
+/// Python's window (MEM-401), which the recorded fixtures were read with (`window_start_months`).
+pub const PYTHON_WINDOW_MONTHS: u32 = 3;
 pub const OWNER_CHARS: usize = 6000;
 pub const ASSISTANT_CHARS: usize = 700;
 pub const CLAIM_CHARS: usize = 6000;
@@ -109,10 +113,15 @@ impl Conversation {
     }
 }
 
-/// `window_start`: three calendar months before `now` (the same day, or the month's last day). `None` before
-/// year 1 (Python loops forever there).
+/// `window_start`: [`WINDOW_MONTHS`] calendar months before `now` (the same day, or the month's last day). `None`
+/// before year 1 (Python loops forever there).
 pub fn window_start(now: &DateTime) -> Option<DateTime> {
-    let mut month = now.month as i64 - i64::from(WINDOW_MONTHS);
+    window_start_months(now, WINDOW_MONTHS)
+}
+
+/// `months` calendar months before `now` (Python's `window_start` with its three: [`PYTHON_WINDOW_MONTHS`]).
+pub fn window_start_months(now: &DateTime, months: u32) -> Option<DateTime> {
+    let mut month = now.month as i64 - i64::from(months);
     let mut year = i64::from(now.year);
     while month < 1 {
         month += 12;
@@ -240,6 +249,9 @@ pub struct ReadOptions<'a> {
     pub zone: &'a dyn LocalZone,
     /// A Zstandard decoder for compressed Codex rollouts.
     pub unzstd: Option<&'a dyn Unzstd>,
+    /// How many months back to read: [`WINDOW_MONTHS`] (the owner's, MEM-458); the recorded fixtures were read with
+    /// Python's [`PYTHON_WINDOW_MONTHS`].
+    pub months: u32,
 }
 
 /// Decompresses a `.jsonl.zst` rollout: what could be read, and whether the stream was damaged after it.
@@ -306,7 +318,7 @@ pub fn read(
     path: Option<&Path>,
     opts: &ReadOptions<'_>,
 ) -> Result<Vec<Conversation>, Error> {
-    let since = window_start(&opts.now).ok_or(Crash("ValueError"))?;
+    let since = window_start_months(&opts.now, opts.months).ok_or(Crash("ValueError"))?;
     if EXPORTS.contains(&source) && path.is_none() {
         return Err(unreadable(format!(
             "{} is imported from its data export: choose the file",

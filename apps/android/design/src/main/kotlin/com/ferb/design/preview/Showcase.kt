@@ -360,6 +360,39 @@ private fun RadiusSample(name: String, r: Dp) {
     }
 }
 
+/**
+ * The memory import's card (kb MEM-456) in the Mac's own words: one source reading, the same placing, two websites
+ * waiting for their email (one try didn't go through), and a read with a gap.
+ */
+val labImportCards: List<Pair<String, List<com.ferb.design.components.ImportCardRow>>> = run {
+    val claudeCode = "Bringing in what Claude Code knows about you"
+    val reading = com.ferb.design.components.ImportCardRow("run:r1", "Claude Code", "Reading what you've typed", done = 33, total = 40,
+        count = "33 of 40", foundLine = "221 things found so far")
+    val mail = "I check your email every 15 minutes. It can take a day or two."
+    listOf(
+        claudeCode to listOf(reading),
+        claudeCode to listOf(com.ferb.design.components.ImportCardRow("run:r1", "Claude Code", "Putting together what I found",
+            detail = "Many things come up more than once, so I'm joining them up.", done = 3, total = 7, count = "3 of 7",
+            foundLine = "274 things found")),
+        "Bringing in what ChatGPT and Claude know about you" to listOf(
+            com.ferb.design.components.ImportCardRow("site:chatgpt", "ChatGPT", "Waiting for ChatGPT's email — asked at 23:40", detail = mail),
+            com.ferb.design.components.ImportCardRow("site:claude", "Claude", "Waiting for Claude's email — asked yesterday at 23:41", detail = mail,
+                note = "The last try didn't go through. I'll try again at 00:25."),
+        ),
+        claudeCode to listOf(reading.copy(note = "1 part couldn't be read just now. I'll go back to it next time.")),
+    )
+}
+
+/** The import cards on FERB's dark surface over the sky, as the chat shows them. */
+@Composable
+fun ShowImportCards(moment: SkyMoment) = OnSky(moment, Modifier.width(412.dp)) {
+    com.ferb.design.components.FerbSurface {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            for ((title, rows) in labImportCards) com.ferb.design.components.ImportCard(title, rows)
+        }
+    }
+}
+
 /** The showcases by name, as the gallery lists them and the screenshot tests take them. */
 val SHOWCASES: List<Pair<String, @Composable () -> Unit>> = listOf(
     "tokens" to { ShowTokens() },
@@ -380,4 +413,6 @@ val SHOWCASES: List<Pair<String, @Composable () -> Unit>> = listOf(
     "seasons" to { ShowSeasons() },
     "astra-presets" to { ShowAstraPresets() },
     "moons" to { ShowMoons() },
+    "import-card" to { ShowImportCards(labMoment(12.5)) },
+    "import-card-night" to { ShowImportCards(labMoment(22.5)) },
 )
