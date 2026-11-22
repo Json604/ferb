@@ -50,7 +50,9 @@ fn a_store_at_0064_upgrades_with_its_rows_kept_and_no_phones() {
         db.migrate().unwrap(),
         vec![
             phones::SCHEMA_VERSION,
-            ferb_store::chat_history::REPAIR_VERSION
+            ferb_store::chat_history::REPAIR_VERSION,
+            // 0067 (MEM-436): the memory import's profile
+            ferb_store::chat_history::REPAIR_VERSION + 1
         ]
     );
     assert_eq!(journal(&db), before);

@@ -121,6 +121,25 @@ const STAGE_3_OBJECTS: [&str; 4] = [
     "phone_devices_live",
 ];
 
+/// The schema objects migration 0067 adds (the memory import's profile, MEM-436): exactly these.
+// decision: MEM-436
+const MEMORY_IMPORT_OBJECTS: [&str; 14] = [
+    "memory_import_chats",
+    "memory_import_exports",
+    "memory_import_facts",
+    "memory_import_facts_line",
+    "memory_import_files",
+    "memory_import_lines",
+    "memory_import_lines_item",
+    "memory_import_state",
+    "sqlite_autoindex_memory_import_chats_1",
+    "sqlite_autoindex_memory_import_exports_1",
+    "sqlite_autoindex_memory_import_facts_1",
+    "sqlite_autoindex_memory_import_files_1",
+    "sqlite_autoindex_memory_import_lines_1",
+    "sqlite_autoindex_memory_import_state_1",
+];
+
 /// ORCH-651's named difference (migration 0064): Python's `tasks` table as 0064 rebuilds it, its CHECK naming
 /// done_with_gaps; any other object as recorded.
 fn tasks_with_gaps(object: &Value) -> Value {
@@ -160,20 +179,23 @@ fn a_fresh_store_is_the_one_python_makes() {
     // 0066 (APP-979): a data repair of chat_history, no schema object of its own
     let repair = ferb_store::chat_history::REPAIR_VERSION;
     assert_eq!(repair, phones + 1);
+    // 0067 (MEM-436): the memory import's profile
+    let memory = repair + 1;
 
     assert_eq!(
-        applied[applied.len() - 4..],
-        [stage_2, gaps, phones, repair]
+        applied[applied.len() - 5..],
+        [stage_2, gaps, phones, repair, memory]
     );
-    assert_eq!(json!(applied[..applied.len() - 4]), python["applied"]);
-    assert_eq!(known_schema(), repair);
+    assert_eq!(json!(applied[..applied.len() - 5]), python["applied"]);
+    assert_eq!(known_schema(), memory);
     assert_eq!(json!(stage_2 - 1), python["known_schema"]);
     let versions = rust["schema_version"].as_array().unwrap();
-    let (before, last) = versions.split_at(versions.len() - 4);
+    let (before, last) = versions.split_at(versions.len() - 5);
     assert_eq!(last[0][0], json!(stage_2));
     assert_eq!(last[1][0], json!(gaps));
     assert_eq!(last[2][0], json!(phones));
     assert_eq!(last[3][0], json!(repair));
+    assert_eq!(last[4][0], json!(memory));
     assert_eq!(
         json!(before),
         python["schema_version"],
@@ -181,10 +203,22 @@ fn a_fresh_store_is_the_one_python_makes() {
     );
     assert_eq!(rust["pragmas"], python["pragmas"]);
     assert_eq!(rust["mode"], python["mode"]);
-    let (phones_added, rest): (Vec<&Value>, Vec<&Value>) = rust["sqlite_master"]
+    let (memory_added, all): (Vec<&Value>, Vec<&Value>) = rust["sqlite_master"]
         .as_array()
         .unwrap()
         .iter()
+        .partition(|o| MEMORY_IMPORT_OBJECTS.contains(&o["name"].as_str().unwrap()));
+    let mut memory_names: Vec<&str> = memory_added
+        .iter()
+        .map(|o| o["name"].as_str().unwrap())
+        .collect();
+    memory_names.sort_unstable();
+    assert_eq!(
+        memory_names, MEMORY_IMPORT_OBJECTS,
+        "0067 adds exactly the named objects"
+    );
+    let (phones_added, rest): (Vec<&Value>, Vec<&Value>) = all
+        .into_iter()
         .partition(|o| STAGE_3_OBJECTS.contains(&o["name"].as_str().unwrap()));
     let mut phone_names: Vec<&str> = phones_added
         .iter()
@@ -683,8 +717,8 @@ fn a_populated_store_at_0063_upgrades_to_take_done_with_gaps() {
     let tasks_before = dump(c, "SELECT rowid, * FROM tasks ORDER BY rowid");
     let context_before = dump(c, "SELECT rowid, * FROM task_context ORDER BY rowid");
 
-    // 0065 (T-1202, the paired phones) and 0066 (APP-979, chat_history's copies) follow
-    assert_eq!(db.migrate().unwrap(), vec![64, 65, 66]);
+    // 0065 (T-1202, the paired phones), 0066 (APP-979, chat_history's copies) and 0067 (MEM-436) follow
+    assert_eq!(db.migrate().unwrap(), vec![64, 65, 66, 67]);
     let c = db.conn();
     assert_eq!(
         dump(c, "SELECT rowid, * FROM tasks ORDER BY rowid"),

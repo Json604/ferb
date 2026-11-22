@@ -153,7 +153,11 @@ fn only_the_copies_of_a_shown_task_go_and_a_second_run_changes_nothing() {
     );
     let before = rows(conn);
 
-    assert_eq!(db.migrate().unwrap(), vec![REPAIR_VERSION]);
+    assert_eq!(
+        db.migrate().unwrap().first(),
+        Some(&REPAIR_VERSION),
+        "the repair runs first; later migrations may follow"
+    );
     assert_eq!(
         ids(conn),
         ["ORIGINAL", "RECOVERED", "UNRELATED", "REPLY", "LATER"],
@@ -196,7 +200,11 @@ fn only_the_copies_of_a_shown_task_go_and_a_second_run_changes_nothing() {
 fn a_store_without_copies_or_without_history_upgrades_unchanged() {
     let tmp = TempDir::new().unwrap();
     let db = store_before_repair(&tmp.path().join("ferb.db"));
-    assert_eq!(db.migrate().unwrap(), vec![REPAIR_VERSION]);
+    assert_eq!(
+        db.migrate().unwrap().first(),
+        Some(&REPAIR_VERSION),
+        "the repair runs first; later migrations may follow"
+    );
     assert!(ids(db.conn()).is_empty());
 
     let tmp = TempDir::new().unwrap();
@@ -229,6 +237,10 @@ fn a_store_without_copies_or_without_history_upgrades_unchanged() {
         ("t-1", "done_with_gaps", ANSWER),
     );
     let before = rows(conn);
-    assert_eq!(db.migrate().unwrap(), vec![REPAIR_VERSION]);
+    assert_eq!(
+        db.migrate().unwrap().first(),
+        Some(&REPAIR_VERSION),
+        "the repair runs first; later migrations may follow"
+    );
     assert_eq!(rows(conn), before);
 }
