@@ -50,7 +50,7 @@ case "${1:-}" in
     IPHONEOS_DEPLOYMENT_TARGET=13.0 cargo build --manifest-path crates/ferb-mobile-ffi/Cargo.toml --target-dir "$PT" --locked --lib --target aarch64-apple-ios
     python3 -I crates/ferb-link/tools/ios_api_check.py \
       "$PT/aarch64-apple-ios/debug/libferb_mobile_ffi.dylib" --min-ios 13.0
-    cargo check -p ferb-py -p ferb-core -p ferb-sanitize -p ferb-rpc -p ferb-identity -p ferb-context --target aarch64-apple-ios
-    exec cargo check -p ferb-py -p ferb-core -p ferb-sanitize -p ferb-rpc -p ferb-identity -p ferb-context --target aarch64-linux-android ;;
+    cargo check -p ferb-py -p ferb-core -p ferb-sanitize -p ferb-rpc -p ferb-identity -p ferb-context -p ferb-sessions --target aarch64-apple-ios
+    exec cargo check -p ferb-py -p ferb-core -p ferb-sanitize -p ferb-rpc -p ferb-identity -p ferb-context -p ferb-sessions --target aarch64-linux-android ;;
   *) echo "usage: engine/gate.sh fmt|lint|test|portable" >&2; exit 2 ;;
 esac

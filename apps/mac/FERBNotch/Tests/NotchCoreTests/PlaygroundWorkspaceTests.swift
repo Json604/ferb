@@ -130,6 +130,49 @@ final class PlaygroundWorkspaceTests: XCTestCase {
     }
 
     // decision: APP-619
+    func testSessionsAreTwoSampleSessionsAnsweredInMemory() async throws {
+        let services = try make()
+        try services.daemon.workspace.prepare()
+        let store = FERBWindowStore(rpc: services.daemon)
+        await store.refresh(.sessions)
+        let model = store.sessions
+        XCTAssertEqual(model.enabled, true)
+        XCTAssertEqual(model.sessions.map(\.agent), ["claude_code", "codex"])
+        let codex = try XCTUnwrap(model.sessions.last)
+        await model.open(codex)
+        let card = try XCTUnwrap(model.cards.first)
+        await model.answer(card, try XCTUnwrap(card.choices.first))
+        XCTAssertTrue(model.cards.isEmpty)
+        model.draft = "Thanks, carry on"
+        await model.send()
+        XCTAssertEqual(model.confirm?.yes.detail, "Thanks, carry on")
+        await model.confirmYes()
+        XCTAssertEqual(model.items.last?.text, "Thanks, carry on")
+        XCTAssertEqual(model.openSession?.yours, true)
+        await model.interrupt()
+        XCTAssertEqual(model.items.last?.kind, "interrupted")
+        await model.release()
+        XCTAssertEqual(model.openSession?.yours, false)
+        let handed = await model.delegate(goal: "Keep going until the tests pass")
+        XCTAssertTrue(handed)
+        XCTAssertEqual(model.openSession?.withFerb, true)
+        await model.prepareNew()
+        XCTAssertFalse(model.folders.isEmpty)
+        let planned = await model.planStart(agent: "codex", folder: model.folders[0], text: "")
+        XCTAssertTrue(planned)
+        await model.confirmYes()
+        XCTAssertEqual(model.sessions.count, 3)
+        let watch = try await services.daemon.call("tasks.preview", params: ["session": codex.id])
+        XCTAssertFalse((watch["image"] as? String ?? "").isEmpty)
+        let removed = await SessionsModel.removeHooks(rpc: services.daemon)
+        XCTAssertTrue(removed)
+        await store.set("sessions.enabled", .bool(false))
+        await model.load()
+        XCTAssertEqual(model.enabled, false)
+        XCTAssertNil(model.problem)
+    }
+
+    // decision: APP-619
     func testUnknownCallsNeverReportSuccess() async throws {
         let services = try make()
         do {

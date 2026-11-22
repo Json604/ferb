@@ -344,10 +344,11 @@ final class FerbOutput: ObservableObject {
 
     /// DMN-598: first the background service, which holds Full Disk Access, removes FERB's files from the browsers'
     /// folders (`removeBrowserFiles`); then the service is turned off (`beforeUninstall`, APP-5); then `ferb uninstall`,
-    /// told to leave the browsers' folders alone when the service already removed everything there. Each step's lines
+    /// told to leave the browsers' folders alone when the service already removed everything there. Before the service
+    /// is turned off it also takes FERB's hook out of Claude Code's settings (`removeSessionHooks`). Each step's lines
     /// stay shown.
     func uninstall(with actions: FERBAppActions, purge: Bool = false) {
-        guard actions.beforeUninstall != nil || actions.removeBrowserFiles != nil else {
+        guard actions.beforeUninstall != nil || actions.removeBrowserFiles != nil || actions.removeSessionHooks != nil else {
             run(Self.uninstallArguments(purge: purge), with: actions)
             return
         }
@@ -362,6 +363,7 @@ final class FerbOutput: ObservableObject {
                 lines = removal.lines
                 skipBrowserFiles = removal.done
             }
+            await actions.removeSessionHooks?()               // Claude Code's hook, while the service still runs
             let refused = await actions.beforeUninstall?()   // the background service off, waited for
             running = false
             if let refused { lines += [refused]; return }
@@ -540,6 +542,14 @@ struct PrivacySettingsPage: View {
                             isOn: store.toggle("memory.local_import"),
                             known: store.settingsKnown && store.settings.has("memory.local_import"))
                 Text("When this is on, FERB reads what's new in them every hour, so it knows how you like to work and what you're working on. Turning it off stops the updates; what FERB already learned stays on the Memory page.")
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
+            }
+            // Sessions: the daemon's `sessions.enabled`; on adds FERB's hook to Claude Code's settings, off removes it
+            WindowSettingsSection(title: "Your coding sessions") {
+                KnownToggle(title: "Let FERB see your Claude Code and Codex sessions",
+                            isOn: store.toggle("sessions.enabled"),
+                            known: store.settingsKnown && store.settings.has("sessions.enabled"))
+                Text("When this is on, you can follow and answer your sessions from your phone or this window, start new ones and hand one to FERB. FERB adds a small hook to Claude Code's settings and removes it when you turn this off.")
                     .font(.system(size: 12)).foregroundStyle(.secondary)
             }
             WindowSettingsSection(title: "Apps FERB ignores") {

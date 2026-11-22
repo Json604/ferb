@@ -1450,3 +1450,105 @@ mirror! {
         next: Option<String>,
     }
 }
+
+// ---- the owner's coding-agent sessions (kb HAND-651..666) ----------------------------------------------------------------
+
+mirror! {
+    /// One of the owner's coding sessions on the Mac (Claude Code or Codex, whatever app shows it).
+    AgentSession from ferb_mobile::sessions::AgentSession {
+        id: String,
+        agent: String,
+        agent_name: String,
+        title: String,
+        folder: String,
+        folder_name: String,
+        status: String,
+        waiting: String,
+        host: String,
+        can_send: bool,
+        no_send: String,
+        foreground: bool,
+        last_at: String,
+        last_text: String,
+        controlled_here: bool,
+        control: String,
+        with_ferb: bool,
+        goal: String,
+    }
+}
+
+mirror! {
+    /// The sessions, and whether the owner turned them on.
+    SessionsList from ferb_mobile::sessions::SessionsList {
+        enabled: bool,
+        sessions: Vec<AgentSession>,
+    }
+}
+
+mirror! {
+    /// One item of a session's conversation (user, assistant, tool, interrupted, error).
+    SessionItem from ferb_mobile::sessions::SessionItem {
+        seq: u64,
+        at: String,
+        kind: String,
+        text: String,
+        tool: String,
+    }
+}
+
+mirror! {
+    /// One answer a session's card offers.
+    SessionChoice from ferb_mobile::sessions::SessionChoice {
+        id: String,
+        label: String,
+    }
+}
+
+mirror! {
+    /// The agent waits for the owner: a permission prompt or a question (no choices: answered on the Mac).
+    SessionCard from ferb_mobile::sessions::SessionCard {
+        id: String,
+        kind: String,
+        tool: String,
+        detail: String,
+        question: String,
+        choices: Vec<SessionChoice>,
+    }
+}
+
+mirror! {
+    /// One page of a session's conversation, with its open cards.
+    SessionTimeline from ferb_mobile::sessions::SessionTimeline {
+        session: Option<AgentSession>,
+        items: Vec<SessionItem>,
+        more: bool,
+        cards: Vec<SessionCard>,
+    }
+}
+
+mirror! {
+    /// What the owner is asked before FERB types for him: the exact text and what the Yes covers.
+    SessionYes from ferb_mobile::sessions::SessionYes {
+        question: String,
+        detail: String,
+        covers: String,
+    }
+}
+
+mirror! {
+    /// What a send did (`needs_yes`: nothing was sent; ask, then `session_control`).
+    SessionSent from ferb_mobile::sessions::SessionSent {
+        needs_yes: Option<SessionYes>,
+        sent: bool,
+        delivered: bool,
+        path: String,
+    }
+}
+
+mirror! {
+    /// The folders a new session may start in; with one chosen, the exact command and its question.
+    SessionStartPlan from ferb_mobile::sessions::SessionStartPlan {
+        folders: Vec<String>,
+        needs_yes: Option<SessionYes>,
+    }
+}

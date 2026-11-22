@@ -51,6 +51,10 @@ pub fn cli(args: &[String]) -> i32 {
     {
         return ferb_mac_hands::native::vision::serve_main();
     }
+    // HAND-662: Claude Code's hook (FERB.app's `bin/ferb agent-hook claude <Event>`): before anything else, quick
+    if args.first().map(String::as_str) == Some(crate::agent_hook::COMMAND) {
+        return crate::agent_hook::main(args);
+    }
     crate::device::run(args)
 }
 

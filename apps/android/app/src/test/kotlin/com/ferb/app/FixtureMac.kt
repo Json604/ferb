@@ -58,6 +58,10 @@ class FixtureMac(private val c: FixtureConversation) : Transport {
     val calls = java.util.concurrent.CopyOnWriteArrayList<String>()
     val proofs = java.util.concurrent.CopyOnWriteArrayList<String?>()
     val refuse = java.util.concurrent.ConcurrentHashMap<String, String>()
+    /** A method's answer as the Mac's daemon would give it, from its params (the coding sessions' calls, kb HAND-651..666). */
+    val answers = java.util.concurrent.ConcurrentHashMap<String, (Map<String, Any?>) -> String>()
+    /** Each call's params, in order (method to its JSON). */
+    val params = java.util.concurrent.CopyOnWriteArrayList<Pair<String, String>>()
     private val byPos = c.entries.sortedBy { (it["pos"] as Double) }
     private val head = c.entries.maxOf { it["seq"] as Double }.toLong()
 
@@ -67,6 +71,8 @@ class FixtureMac(private val c: FixtureConversation) : Transport {
         refuse[method]?.let { code -> throw TransportException.Failed(code, "refused by the test", null, null) }
         @Suppress("UNCHECKED_CAST")
         val p = Json.parse(paramsJson) as Map<String, Any?>
+        params.add(method to paramsJson)
+        answers[method]?.let { return it(p) }
         return when (method) {
             "chat.entries.page" -> {
                 val before = (p["before_pos"] as? Double)

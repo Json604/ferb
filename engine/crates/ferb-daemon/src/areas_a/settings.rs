@@ -250,6 +250,14 @@ pub fn settings() -> Vec<Setting> {
         check: Check::Bool,
         default: json!(false),
     });
+    // decision: HAND-666 — FERB sees the owner's coding sessions (and has its hook in Claude Code's settings) only after
+    // his Yes; off until asked
+    out.push(Setting {
+        section: "sessions",
+        key: "enabled",
+        check: Check::Bool,
+        default: json!(false),
+    });
     // decision: APP-981 — insomnia mode's numbers are the owner's (rule 18): how long it stays on after FERB's work is
     // done, and the battery levels it warns at (it never ends or slows itself for them)
     for (key, check, default) in [

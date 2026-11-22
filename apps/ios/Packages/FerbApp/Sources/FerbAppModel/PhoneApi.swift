@@ -99,6 +99,23 @@ public protocol PhoneApi: AnyObject {
     func macInfo() async -> Outcome<MacInfo>
     func cachedMacInfo() async -> Outcome<MacInfo?>
 
+    // the owner's coding sessions on the Mac (kb HAND-651; Android: PhoneApi.kt's sessions): reads and sends plain, his
+    // first send to a session asks (`needsYes`) and his Yes is `sessionControl`, signed; answers, starts and hand-overs
+    // signed each time; letting go works while locked; the window's picture is Watch live's (never on the public relay)
+    func sessionsList() async -> Outcome<SessionsList>
+    /// The newest `limit` (`after` and `before` 0), those after `after` (the open session's poll), or before `before`.
+    func sessionTimeline(_ session: String, after: UInt64, before: UInt64, limit: UInt32) async -> Outcome<SessionTimeline>
+    func sessionSend(_ session: String, text: String) async -> Outcome<SessionSent>
+    func sessionControl(_ session: String, text: String, signer: Signer) async -> Outcome<SessionSent>
+    func sessionRelease(_ session: String) async -> Outcome<UInt32>
+    func sessionAnswer(_ session: String, card: String, choice: String, signer: Signer) async -> Outcome<Bool>
+    func sessionInterrupt(_ session: String) async -> Outcome<Bool>
+    /// The folders a new session may start in (agent and folder ""), or with them the exact command and its question.
+    func sessionPrepare(agent: String, folder: String, text: String) async -> Outcome<SessionStartPlan>
+    func sessionStart(agent: String, folder: String, text: String, signer: Signer) async -> Outcome<String>
+    func sessionDelegate(_ session: String, goal: String, signer: Signer) async -> Outcome<String>
+    func watchSession(_ session: String, sink: PreviewSink) async -> Outcome<Live>
+
     /// Keys made after pairing the Mac doesn't hold (Face ID or Touch ID enrolled later), and registering them
     /// (PHN-133).
     func unregisteredKeys() async -> PublicKeys?
@@ -236,6 +253,36 @@ public final class LibraryPhone: PhoneApi {
     public func dismissAlert(id: String) async -> Outcome<Void> { await phone.call { try $0.dismissAlert(id: id) } }
     public func macInfo() async -> Outcome<MacInfo> { await phone.call { try $0.macInfo() } }
     public func cachedMacInfo() async -> Outcome<MacInfo?> { await phone.call { try $0.cachedMacInfo() } }
+    public func sessionsList() async -> Outcome<SessionsList> { await phone.call { try $0.sessionsList() } }
+    public func sessionTimeline(_ session: String, after: UInt64, before: UInt64, limit: UInt32) async -> Outcome<SessionTimeline> {
+        await phone.call { try $0.sessionTimeline(session: session, after: after, before: before, limit: limit) }
+    }
+    public func sessionSend(_ session: String, text: String) async -> Outcome<SessionSent> {
+        await phone.call { try $0.sessionSend(session: session, text: text) }
+    }
+    public func sessionControl(_ session: String, text: String, signer: Signer) async -> Outcome<SessionSent> {
+        await phone.call { try $0.sessionControl(session: session, text: text, signer: signer) }
+    }
+    public func sessionRelease(_ session: String) async -> Outcome<UInt32> { await phone.call { try $0.sessionRelease(session: session) } }
+    public func sessionAnswer(_ session: String, card: String, choice: String, signer: Signer) async -> Outcome<Bool> {
+        await phone.call { try $0.sessionAnswer(session: session, card: card, choice: choice, signer: signer) }
+    }
+    public func sessionInterrupt(_ session: String) async -> Outcome<Bool> { await phone.call { try $0.sessionInterrupt(session: session) } }
+    public func sessionPrepare(agent: String, folder: String, text: String) async -> Outcome<SessionStartPlan> {
+        await phone.call { try $0.sessionPrepare(agent: agent, folder: folder, text: text) }
+    }
+    public func sessionStart(agent: String, folder: String, text: String, signer: Signer) async -> Outcome<String> {
+        await phone.call { try $0.sessionStart(agent: agent, folder: folder, text: text, signer: signer) }
+    }
+    public func sessionDelegate(_ session: String, goal: String, signer: Signer) async -> Outcome<String> {
+        await phone.call { try $0.sessionDelegate(session: session, goal: goal, signer: signer) }
+    }
+    public func watchSession(_ session: String, sink: PreviewSink) async -> Outcome<Live> {
+        await phone.call { m in
+            let p = try m.watchSession(session: session, sink: sink)
+            return Live { p.stop() }
+        }
+    }
     public func unregisteredKeys() async -> PublicKeys? { await phone.unregisteredKeys() }
     public func registerKeys(_ signer: @escaping @Sendable (KeyKind) -> Signer) async -> Outcome<Bool> { await phone.registerKeys(signer) }
 }

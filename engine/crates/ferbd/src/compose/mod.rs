@@ -26,6 +26,7 @@ pub mod presence;
 pub mod previews;
 pub mod rpc;
 pub mod runtimes;
+pub mod sessions;
 pub mod supervisor;
 pub mod tools;
 
@@ -1070,6 +1071,26 @@ impl Daemon {
             gw.set_standing_screen(Arc::new(move || i.screen_yes_since()));
         }
         tool_parts.set_insomnia(ins);
+        // HAND-651..666: the owner's coding sessions: their RPCs; their hook's report; their agents' questions as FERB's own
+        let sessions_area = sessions::build(
+            &server,
+            sessions::Parts {
+                journal: journal.clone(),
+                events: events.clone(),
+                clock: clock.clone(),
+                ids: opts.ids.clone(),
+                config: config.clone(),
+                redactor: redactor.clone(),
+                gateway: gw.clone(),
+                supervisor: sup.supervisor.clone(),
+                notifier: b.notifier.clone(),
+                tools: tool_parts.downgrade(),
+                user_home: opts.user_home.clone(),
+                app_bundle: opts.app_bundle.clone(),
+                native: opts.native,
+            },
+        );
+        tool_parts.set_sessions(sessions_area);
 
         // DMN-510: serve before the slow part; every call but `ping` waits for the start to finish
         server.set_starting();

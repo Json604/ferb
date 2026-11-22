@@ -47,13 +47,26 @@ final class TaskPreview: ObservableObject {
     private let rpc: any DaemonRPCTransport
     let taskID: String
     let worker: String?
+    /// A coding session's window instead of a task's (Sessions → Watch): `tasks.preview {session}`.
+    let session: String?
     let access: PreviewAccess
 
     init(rpc: any DaemonRPCTransport, taskID: String, worker: String? = nil, access: PreviewAccess) {
         self.rpc = rpc
         self.taskID = taskID
         self.worker = worker
+        self.session = nil
         self.access = access
+    }
+
+    /// Watches one of the owner's coding sessions: its window, live, while someone looks (memory only, never stored).
+    init(rpc: any DaemonRPCTransport, session: String, access: PreviewAccess) {
+        self.rpc = rpc
+        self.taskID = session
+        self.worker = nil
+        self.session = session
+        self.access = access
+        status = "Waiting for its window…"
     }
 
     /// The line over the frame (APP-404), or why there is no live picture.
@@ -74,7 +87,7 @@ final class TaskPreview: ObservableObject {
                     do { try await Task.sleep(for: .seconds(1)) } catch { return }
                     continue
                 }
-                var params: [String: Any] = ["task_id": self.taskID]
+                var params: [String: Any] = self.session.map { ["session": $0] } ?? ["task_id": self.taskID]
                 if let worker = self.worker { params["worker"] = worker }
                 if self.image != nil, let shown = self.shownSeq { params["have"] = shown }
                 do {

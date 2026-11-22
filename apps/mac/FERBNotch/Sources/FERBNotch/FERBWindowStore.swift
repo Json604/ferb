@@ -4,13 +4,14 @@ import NotchCore
 
 /// The FERB window's sections (L34 Phase E). The notch stays the quick interface; this window holds the detail.
 enum FERBSection: Hashable, CaseIterable, Identifiable {
-    case tasks, schedules, noticed, memory, settings
+    case tasks, sessions, schedules, noticed, memory, settings
 
     var id: FERBSection { self }
 
     var title: String {
         switch self {
         case .tasks: return "Tasks"
+        case .sessions: return "Sessions"
         case .schedules: return "Schedules & Reminders"
         case .noticed: return "Noticed"
         case .memory: return "Memory"
@@ -21,6 +22,7 @@ enum FERBSection: Hashable, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .tasks: return "checklist"
+        case .sessions: return "terminal"
         case .schedules: return "calendar"
         case .noticed: return "eye"
         case .memory: return "brain"
@@ -86,8 +88,14 @@ final class FERBWindowStore: ObservableObject {
     @Published private(set) var checkingHealth = false
     @Published private(set) var healthProblem: String?
 
+    /// Sessions: the owner's Claude Code and Codex sessions (its own model: the page observes it).
+    let sessions: SessionsModel
+    /// Sessions → Watch shares the app's preview gate (APP-407); FERB.app sets the notch's.
+    lazy var previewAccess = PreviewAccess()
+
     init(rpc: DaemonRPCTransport) {
         self.rpc = rpc
+        sessions = SessionsModel(rpc: rpc)
     }
 
     /// One RPC. A failure becomes the problem line and nil; never a crash or an empty list that reads as "nothing".
@@ -109,6 +117,7 @@ final class FERBWindowStore: ObservableObject {
         note = nil
         switch section {
         case .tasks: await loadTasks(); await loadStopState()
+        case .sessions: await sessions.load()
         case .schedules: await loadSchedules()
         case .noticed: await loadNotices()
         case .memory: await loadMemory()
@@ -157,6 +166,14 @@ final class FERBWindowStore: ObservableObject {
     func inspect(_ row: TaskHistoryRow) async {
         guard let trace = await ask("trace.get", ["task_id": row.id]) else { return }
         do { open(try await records.write(trace)) } catch { problem = error.localizedDescription }
+    }
+
+    // MARK: Sessions
+
+    /// The Sessions page's Turn on: the same switch as Settings → Privacy (the daemon adds Claude Code's hook).
+    func turnOnSessions() async {
+        guard await set("sessions.enabled", .bool(true)) else { return }
+        await sessions.load()
     }
 
     // MARK: Schedules & Reminders

@@ -2250,3 +2250,14 @@ rule = "For ORCH-682. A run ended for a restart keeps its tree's standing permis
 why = "A restarted scheduled run lost its schedule's grant, so its sends would ask where the schedule's own run wouldn't; a stop after 'Started again…' left that line false."
 evidence = "ferb-supervisor tests/restart_by_follow_up.rs: the scheduled run's grant and scope across a restart; the Stop button inside and after the retry's first wait; a chat stop after the stopped run ended."
 paths = ["engine/crates/ferb-supervisor/src/flow/tree.rs::finish_tree", "engine/crates/ferb-supervisor/src/flow/control.rs::call_off_restart", "engine/crates/ferb-supervisor/src/flow/scheduled.rs::apply_scope"]
+
+[ORCH-687]
+title = "Handing a session to FERB is the owner's message; the task drives it with agent_session tools"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For HAND-651. sessions.delegate posts the owner's goal as his own chat message naming the session (a normal FERB task: Stop, questions, the completion check). The task's tools (catalog additions after mac.clipboard): agent_session.list, .read, .send (typed paths ask GATE-585's question; then it waits in code until the agent's turn ends, 30 min at most by default) and .answer (questions only, HAND-663). The session shows \"FERB is on it\" until that task ends."
+why = "Existing task machinery covers stopping, asking when unsure and the completion check; waiting in the tool keeps model calls to one per agent turn (T-1272's lesson)."
+evidence = "ferb-daemon tests/sessions.rs a_hand_over_is_the_owner_s_message_and_a_start_types_the_exact_command; ferbd every_tool_through_the_program (the four tools wired); ferb-gateway catalog tests. The real planner's use of them is LIVE-1172."
+paths = ["engine/crates/ferbd/src/compose/tools/sessions.rs", "engine/crates/ferb-gateway/src/catalog_additions.json", "engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.delegate"]
+live = ["LIVE-1172"]

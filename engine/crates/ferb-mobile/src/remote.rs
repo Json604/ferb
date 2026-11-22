@@ -347,7 +347,7 @@ impl Shared {
 
     /// The transport, when the link is up and its path carries files and pictures (PHN-444): else refused here, before
     /// anything is asked.
-    fn transport_bulk(&self, what: &str) -> MobileResult<Arc<dyn Transport>> {
+    pub(crate) fn transport_bulk(&self, what: &str) -> MobileResult<Arc<dyn Transport>> {
         let t = self.transport_online()?;
         if !self.state.lock().link.bulk_allowed {
             return Err(MobileError::new(
@@ -383,7 +383,7 @@ impl Shared {
     }
 
     /// A call with its proof, when a signer is given.
-    fn call_signed(
+    pub(crate) fn call_signed(
         t: &Arc<dyn Transport>,
         method: &str,
         params: Value,

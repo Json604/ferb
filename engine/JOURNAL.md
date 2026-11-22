@@ -9136,3 +9136,78 @@ run again.
   results don't say which is an alert (results always carry a shown name, so this needs a nameless alert).
 - PHN-795, PHN-796 and this entry's number (169: 167 and 168 were taken while this was written) were the next free when written; other agents were working at the same
   time.
+
+## 2026-11-22 · 170 · The owner's coding sessions: found in any app, read, answered, sent to, handed to FERB, watched
+
+**What.** The agent-remote lab (`~/Desktop/ferb-agent-remote`, read only: its S0 spikes and x4) is built into FERB
+(HAND-651, HAND-653): every Claude Code and Codex session on the Mac, whatever app shows it, in FERB.app and on both
+phones.
+- **ferb-sessions** (new, portable: `gate.sh portable` checks it): the session model; Claude Code's transcript by an
+  allowlist (`api-request*` never read), its hook events, cards and hook replies, `claude agents --json`; Codex's
+  app-server messages; the host from a process table (HAND-654); the send paths' order (HAND-656); FERB's entries in
+  Claude Code's settings in and out (HAND-666); the WebSocket frames; the stable refusal codes (-32040..-32048).
+- **ferb-platform-macos `sessions`**: the owner's process table with each terminal and its foreground group (libproc),
+  a process's folder, an app's id and name, Terminal's `do script` and new windows, tmux's input, `claude agents`, all
+  with a clean environment (HAND-659).
+- **ferb-daemon `sessions`**: the area. A look every 2 s by code only (HAND-664): the setting and the hook, the
+  process table, Claude Code's list, the transcripts' new lines (redacted), Codex's own daemon over its socket
+  (HAND-657). The hook's events (`sessions.hook`): states, cards held only for PermissionRequest beside Claude Code's
+  own dialog, withdrawn on PostToolUse, a prompt or Stop, dropped with the hook's process (`CANCEL_WHEN_LEFT`,
+  HAND-662). Cards are FERB's own questions in the gateway's store (HAND-663; a permission's Yes on a phone takes the
+  fingerprint: OWN_CHECKS). Sends by one path for everyone: the owner's first typed send to a session asks once with
+  the exact text (`needs_yes`, then `sessions.control`, GATE-622), the agent must lead its terminal (HAND-658), no
+  typed text while it asks, delivery proven in its own record (HAND-655). Start in a new Terminal window with the
+  exact command (HAND-665); the hand-over is the owner's chat message (ORCH-687).
+- **ferbd**: `ferb agent-hook claude <Event>` (HAND-662: 2 s at most unless a permission is held; no output when FERB
+  is off, missing, hung or stopping); `compose/sessions.rs` (the Mac's parts, the own questions through `ask_own`,
+  the hand-over through `chat_send_params`, the notice when a turn sent through FERB ends, the foreground path through
+  the Mac hands' foreground typing after the focused terminal names the session: HAND-660); `tasks.preview` with
+  `session` (the host's window under PHN-454's rules, read in records.rs only); the four task tools
+  `agent_session.list/read/send/answer` (catalog additions; send waits in code for the agent's turn).
+- **RPC**: 12 `sessions.*` methods (SESSIONS_ADDITIONS app_only, SESSIONS_HOOK the hook's cli), phone classes
+  (PHN-797), bus topics `sessions.changed/card/card_gone/finished` and `phone.locked` (a phone's control ends with
+  its lock), the setting `sessions.enabled`.
+- **Phones**: ferb-mobile `sessions` and the UniFFI calls (`sessionsList`, `sessionTimeline`, `sessionSend`,
+  `sessionControl`, `sessionRelease`, `sessionAnswer`, `sessionInterrupt`, `sessionPrepare`, `sessionStart`,
+  `sessionDelegate`, `watchSession`); the link forwards `session` on a preview. Android and iPhone: a Sessions tab
+  mirroring FERB.app's page (PHN-798). Both top bars keep one pattern with five tabs: the chosen tab's icon and name
+  in the white pill, every other tab its icon; the tabs are a little narrower than the lab's (36 wide, padding 12/7,
+  gap 6, from 46, 15/12, 7) so the chosen name fits beside the connection control; every golden with a bar is new.
+- **FERB.app**: the Sessions page, the Privacy switch, the uninstall step (APP-1112).
+
+**Why.** The owner's words HAND-651, HAND-652, HAND-653, HAND-667. The coordinator added: the hook must never slow
+Claude Code (a short stated bound, Claude Code's own dialog when FERB restarts or no answer comes).
+
+**Named differences** (from the recorded Python): ferb-rpc golden (the 12 methods; `CANCEL_WHEN_LEFT` gains
+`sessions.hook`); phone classes and `classes.json`; ferb-core bus (5 topics); ferb-orchestrator waits (`NOT_WAITED`);
+ferb-gateway catalog (4 additions; OWN_CHECKS gains `agent_session.permission`, `agent_session.enable`); the settings
+listing (`sessions.enabled` after `memory.local_import`) in b_small, a_replay and ferbd replay.
+
+**Evidence.**
+- ferb-sessions `tests/sessions.rs` (10): the allowlist and the never-read request, interrupts and titles, hooks and
+  cards and replies, `claude agents`, Codex threads and events, the host from the process tree, IN-2, the send paths,
+  the settings in and out touching nothing else, the frames.
+- ferb-daemon `tests/sessions.rs` (13), on a temporary home with a stand-in Mac and a stand-in Codex daemon on a Unix
+  socket: off reads nothing and the switch puts the hook in and out; listed, hosted and read redacted; a held
+  permission is the owner's question and answers the hook; answered at the Mac first; the hook's process ended; quick
+  when off and FERB's own ignored; asked once then typed and delivered, a phone's own Yes ended by its lock; not in
+  front and unproven delivery; the foreground path's proof; the task never answers a permission; hand-over and start;
+  watching is code only; Codex read, sent and answered through its daemon.
+- ferbd `tests/sessions_hook.rs` (2), the real `ferb` and `ferbd`: quick reports, a held permission answered through
+  `sessions.answer`, FERB stopped while one is held, a hung FERB costing at most the bound; every_method_answers and
+  every_tool_through_the_program cover the new calls and tools.
+- ferb-rpc, ferb-core bus, ferb-gateway catalog, ferb-orchestrator waits pass with the named differences.
+
+**Not done, recorded as tasks.** T-1286 (a control's idle end is the owner's number), T-1287 (other start hosts; the
+session's tab in a VS Code window with several terminals), T-1288 (Codex's steer, approvals and agentMessage on a
+real Codex), T-1289 (the desktop apps' composers and Cursor's chat).
+
+**Unverified.**
+- Nothing ran against a real Claude Code, Codex, Terminal or VS Code, and no model was called: the formats are the
+  lab's observations (Claude Code 2.1.328, codex-cli 0.170) and Codex's schema.
+- The foreground path's Return as an armed key and multi-line text typed as Ctrl-J into Claude Code's input; whether
+  VS Code's focused terminal names the session's title in its Accessibility chain (the lab saw it, once).
+- Terminal's `do script` into a full-screen agent from a daemon's osascript (the lab ran it from a shell); the
+  Automation prompt for Terminal at first use.
+- `ferb agent-hook`'s ancestors on a real Claude Code (the hook's shell, then Claude Code leading its group).
+- The phone apps against a real Mac; the phones' refusal names for the new codes (they show the Mac's words).

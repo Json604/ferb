@@ -13,6 +13,7 @@ members = [
     "crates/ferb-power-helper",
     "crates/ferb-native-host",
     "crates/ferb-context",
+    "crates/ferb-sessions",
     "crates/ferb-fs",
     "crates/ferb-clock",
     "crates/ferb-shell",

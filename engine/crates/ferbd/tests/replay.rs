@@ -102,6 +102,8 @@ fn as_named(line: String) -> String {
         values.shift_remove("retention.decision_days");
         // MEM-447: the owner's answer about the coding assistants on this Mac, off until asked
         values.insert("memory.local_import".into(), json!(false));
+        // HAND-666: the owner's answer about his coding sessions, off until asked
+        values.insert("sessions.enabled".into(), json!(false));
         for (k, n) in added {
             values.insert(k.into(), json!(n));
         }
@@ -113,6 +115,7 @@ fn as_named(line: String) -> String {
             .and_then(|r| r.get("where").cloned())
             .unwrap_or(Value::Null);
         settings.push(json!({"key": "memory.local_import", "value": false, "where": place}));
+        settings.push(json!({"key": "sessions.enabled", "value": false, "where": place}));
         for (k, n) in added {
             settings.push(json!({"key": k, "value": n, "where": place}));
         }

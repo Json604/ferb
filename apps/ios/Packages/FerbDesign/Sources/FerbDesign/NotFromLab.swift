@@ -149,10 +149,12 @@ public struct LivePage: View {
     var onStop: (() -> Void)?
     /// The app's screenshot shield around the frame (kb PHN-597); nil draws it plainly (the default).
     var shieldFrame: ((AnyView) -> AnyView)?
+    /// Not from the lab: false leaves Stop out (a coding session's window, kb HAND-651; Android's LivePage onStop = null).
+    var stops: Bool
 
     public init(title: String = "Watch live", frame: Image? = nil, placeholder: String? = nil, line: String? = nil,
                 closeTitle: String, stopTitle: String = "Stop", insets: PhoneInsets = .lab,
-                onClose: (() -> Void)? = nil, onStop: (() -> Void)? = nil, shieldFrame: ((AnyView) -> AnyView)? = nil) {
+                onClose: (() -> Void)? = nil, onStop: (() -> Void)? = nil, shieldFrame: ((AnyView) -> AnyView)? = nil, stops: Bool = true) {
         self.title = title
         self.frame = frame
         self.placeholder = placeholder
@@ -163,6 +165,7 @@ public struct LivePage: View {
         self.onClose = onClose
         self.onStop = onStop
         self.shieldFrame = shieldFrame
+        self.stops = stops
     }
 
     public var body: some View {
@@ -191,7 +194,7 @@ public struct LivePage: View {
             }
             HStack(spacing: 8) {
                 Pill(title: closeTitle, kind: .grey, height: 46, onClick: onClose)
-                Pill(title: stopTitle, kind: .grey, symbol: "stop.fill", height: 46, onClick: onStop)
+                if stops { Pill(title: stopTitle, kind: .grey, symbol: "stop.fill", height: 46, onClick: onStop) }
             }
             .padding(.horizontal, 16)
         }

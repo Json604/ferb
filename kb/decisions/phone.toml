@@ -4028,3 +4028,23 @@ rule = "For PHN-795; one mapping for both phones (task_end_words, question_words
 why = "Each phone wrote its own status word over the short name (\"Couldn't finish\" for any failed, cancelled or interrupted end); a restart's first turn used the task's key so its real end never notified; iPhone's question read the question and reason, not the Mac's banner (PHN-767)."
 evidence = "ferb-mobile tests/notify.rs (each end against the engine's constants, read from their files; every end in transcripts.json); Android NotifierTest; iPhone NotificationTests."
 paths = ["engine/crates/ferb-mobile/src/notify.rs", "engine/crates/ferb-mobile-ffi/src/shown.rs", "apps/android/app/src/main/kotlin/com/ferb/app/Notifier.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/Notifications.swift"]
+
+[PHN-797]
+title = "The sessions calls' phone classes, and a session's window as a live preview"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For HAND-651, GATE-622. sessions.list, .timeline, .prepare private; .control, .answer, .start, .delegate sensitive (signed over the exact call); .send and .interrupt private and also need that phone's control (GATE-622); .release plain, allowed locked; .hook and .remove_hooks never. Watching a session is tasks.preview with `session` (the link forwards it): the host's window as captured, under PHN-454 (direct or own relay only, unlocked, memory only, screenshot-blocked), refused on the public relay as Watch live is. Refusals carry codes -32040..-32048 with the owner's words."
+evidence = "ferb-rpc tests/phone_classes.rs and golden.rs (the rows, engine/fixtures/phone/classes.json); ferb-mobile and ferb-mobile-ffi sessions calls; the phone apps' tests."
+paths = ["engine/crates/ferb-rpc/src/classes.rs", "engine/crates/ferb-sessions/src/codes.rs", "engine/crates/ferb-mobile/src/sessions.rs", "engine/crates/ferbd/src/areas_c/records.rs", "engine/crates/ferb-link/src/bridge.rs"]
+live = ["LIVE-1173"]
+
+[PHN-798]
+title = "The phones' Sessions tab mirrors FERB.app's Sessions page"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For HAND-651, APP-1112. Android and iPhone gain a Sessions tab after Tasks: the off state with Turn on (a signed settings change), the list, New session; a session's full screen (in mustSecure) with its conversation, cards, composer and actions; the Mac's question before a send, signed control; Hand to FERB; Watch as Watch live's page (public relay refused). Polling only while shown; nothing kept on the phone. One top bar on both phones: the chosen tab's icon and name in the white pill, the others icons; tabs 36 wide (padding 12/7, gap 6) so a name fits by the connection control."
+evidence = "Android SessionsTest (13, FakePhone), SessionsLibraryTest (the real library over FixtureMac), SessionShotsTest (10 goldens); iPhone SessionsTests and snapshots."
+paths = ["apps/android/app/src/main/kotlin/com/ferb/app/ui/Sessions.kt", "apps/android/app/src/main/kotlin/com/ferb/app/model/Sessions.kt", "apps/android/design/src/main/kotlin/com/ferb/design/components/TopBar.kt", "apps/android/design/src/main/kotlin/com/ferb/design/Metrics.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppUI/Sessions.swift", "apps/ios/Packages/FerbDesign/Sources/FerbDesign/Lab/Mobile.swift"]
+live = ["LIVE-1169", "LIVE-1171", "LIVE-1173"]

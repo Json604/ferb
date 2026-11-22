@@ -5,6 +5,7 @@
 //! - [`peer`]: a socket peer's pid and audit token from the kernel, for `ferb_rpc::Server::set_peer_lookup`.
 //! - [`rpc`]: both of those put in place on a server.
 //! - [`power`]: `ferb_core::power` on IOKit's power assertions, the battery, the lid, the heat and the lock (T-1274).
+//! - [`sessions`]: the owner's coding-agent sessions: the process table with terminals, Terminal's and tmux's input (HAND-651..666).
 //! - [`identity`]: `ferb_identity::helper::Launcher` on `/usr/bin/codesign` and a child process (the signed
 //!   helper that keeps values in the login Keychain), and where Chrome keeps its profiles.
 //!
@@ -17,3 +18,4 @@ pub mod peer;
 pub mod power;
 pub mod rpc;
 pub mod security;
+pub mod sessions;

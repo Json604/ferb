@@ -19,6 +19,9 @@ pub const OWN_CHECKS: &[&str] = &[
     "memory.forget",
     "downloads.delete",
     "browsing.choose",
+    // HAND-663: a coding agent's permission prompt, and turning on FERB's sight of the sessions (its hook)
+    "agent_session.permission",
+    "agent_session.enable",
 ];
 
 pub const SECRET_KINDS: &[&str] = &["owner_login_code", "owner_admin_password", "owner_secret"];

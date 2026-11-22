@@ -65,10 +65,11 @@ import com.ferb.design.rememberReducedMotion
 import kotlinx.coroutines.launch
 import com.ferb.design.Phone
 
-/** Mobile.swift Tab: the four pages. */
+/** Mobile.swift Tab: the pages, with the owner's coding sessions after Tasks (kb HAND-651, PHN-798). */
 enum class PhoneTab(val title: String, val icon: ImageVector, val chosenIcon: ImageVector) {
     CHAT("Chat", FerbIcons.bubble, FerbIcons.bubbleFill),
     TASKS("Tasks", FerbIcons.checklist, FerbIcons.checklist),
+    SESSIONS("Sessions", FerbIcons.terminal, FerbIcons.terminal),
     FILES("Files", FerbIcons.folder, FerbIcons.folderFill),
     MAC("Mac", FerbIcons.laptop, FerbIcons.laptop),
 }
@@ -144,7 +145,7 @@ fun TopBar(
 
 /** Where the white pill is (MotionHosts' tab spring): the chosen tab's place, reached by a spring that may overshoot. */
 private class Pill {
-    val cells = mutableStateListOf<Rect?>(null, null, null, null)
+    val cells = mutableStateListOf<Rect?>().apply { repeat(PhoneTab.entries.size) { add(null) } }
     val x = Animatable(0f)
     val w = Animatable(0f)
     var placed by mutableStateOf(false)
@@ -197,7 +198,7 @@ private fun Bar(
                             .animateContentSize(Motion.enter())
                             .widthIn(min = Phone.tabMinWidth).heightIn(min = Phone.tabHeight)
                             .padding(horizontal = if (on) Phone.tabPaddingOn else Phone.tabPaddingOff),
-                        horizontalArrangement = Arrangement.spacedBy(7.dp, Alignment.CenterHorizontally),
+                        horizontalArrangement = Arrangement.spacedBy(Phone.tabGap, Alignment.CenterHorizontally),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         FerbIcon(if (on) tab.chosenIcon else tab.icon, 17f, ink)

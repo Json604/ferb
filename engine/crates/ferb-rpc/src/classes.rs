@@ -289,6 +289,33 @@ pub const PHONE_METHODS: &[PhoneMethod] = &[
         "insomnia.camera_frame",
         "is FERB.app's own picture from the Mac's camera; a phone only watches it",
     ),
+    // ---- the owner's coding-agent sessions (PHN-797): reads private; typing into one needs his control of it, which
+    //      his fingerprint gives once per session (`sessions.control`, GATE-622), then sends and interrupts are private
+    private("sessions.list", "the owner's coding sessions on the Mac: names, folders, states"),
+    private("sessions.timeline", "a coding session's conversation, redacted (HAND-661)"),
+    private("sessions.prepare", "the folders a new session may start in, and the exact command it would run"),
+    sensitive(
+        "sessions.control",
+        "types the owner's words into one of his coding sessions from now on (rule 6: one Yes per session, GATE-622)",
+    ),
+    private(
+        "sessions.send",
+        "the owner's words into a session he controls from this phone (its control took the fingerprint)",
+    ),
+    private("sessions.interrupt", "stops the agent's turn in a session he controls from this phone"),
+    plain("sessions.release", "ends this phone's control of a session: it only takes something away")
+        .locked(Locked::Allowed),
+    sensitive("sessions.answer", "answers a coding agent's permission prompt or question for the owner (HAND-663)"),
+    sensitive("sessions.start", "types a command into a new Terminal window to start a coding session (HAND-665)"),
+    sensitive("sessions.delegate", "hands a coding session to FERB to keep going (ORCH-687)"),
+    never(
+        "sessions.remove_hooks",
+        "is a step of FERB.app's Uninstall; from a phone, the Settings switch turns sessions off",
+    ),
+    never(
+        "sessions.hook",
+        "is Claude Code's own report through FERB's hook on the Mac; a phone never speaks for the agent",
+    ),
     // ---- settings, keys and model runtimes
     private("settings.get", "the owner's settings (PHN-404)"),
     sensitive("settings.set", "changes FERB's settings (PHN-404)"),

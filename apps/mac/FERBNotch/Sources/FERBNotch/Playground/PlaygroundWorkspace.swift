@@ -38,6 +38,12 @@ final class PlaygroundWorkspace {
     let storedData = PlaygroundStoredData()
     /// Settings → Phone's invented phones, pairing and relay (T-1205).
     let phone = PlaygroundPhone()
+    /// Sessions' two invented coding sessions.
+    lazy var sessions: PlaygroundSessions = {
+        let sessions = PlaygroundSessions()
+        sessions.emit = { [weak self] topic, data in self?.emit(topic, data) }
+        return sessions
+    }()
     lazy var sampleImage = PlaygroundSamples.image()
     var artifact: URL { state.home.appendingPathComponent("Afternoon brief.txt") }
 
@@ -168,6 +174,9 @@ final class PlaygroundWorkspace {
         case "trace.get":
             let row = tasks.first { $0["task_id"] as? String == params["task_id"] as? String } ?? [:]
             return ["task": row, "events": [["kind": "sample", "text": "A simulated task for UI review; no tools ran."]]]
+        case "tasks.preview" where params["session"] != nil:     // Sessions → Watch: the sample frame, never a capture
+            return ["state": "working", "fresh": false, "image": sampleImage, "seq": 1,
+                    "line": sessions.watchLine(params["session"] as? String ?? "")]
         case "tasks.preview": return ["state": "working", "fresh": false, "image": sampleImage, "line": "Reviewing the sample brief", "worker": "sample-worker"]
         case "seen.list": return ["days": 7, "total": 1, "captures": [["id": "sample-capture", "at": PlaygroundSamples.time(-900),
             "kind": "screen", "task_id": "sample-brief", "app": "Sample workspace", "title": "Afternoon brief", "tool": "Sample preview"]]]
@@ -200,6 +209,8 @@ final class PlaygroundWorkspace {
         case "ping" where enabled: return ["pid": 0, "role": "app", "stopped": stopped]
         case let data where data.hasPrefix("data."): return storedData.answer(data, params)
         case let call where call.hasPrefix("phone.") || call.hasPrefix("link."): return phone.answer(call, params)
+        case let call where call.hasPrefix("sessions."):
+            return try sessions.answer(call, params, enabled: settings["sessions.enabled"] as? Bool ?? false)
         default: return nil
         }
     }

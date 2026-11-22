@@ -242,6 +242,20 @@ pub const METHODS: &[Method] = &[
     m("sense.pause", &[Role::Cli], false),
     m("sense.resume", &[Role::Cli], false),
     m("sense.status", &[Role::Cli], false),
+    // PHN-797: the owner's coding-agent sessions: FERB.app's own (SESSIONS_ADDITIONS; a phone by class), and the hook
+    // program Claude Code runs (`ferb agent-hook`, the owner's uid: SESSIONS_HOOK, not FERB.app's alone)
+    m("sessions.answer", &[Role::Cli], true),
+    m("sessions.control", &[Role::Cli], true),
+    m("sessions.delegate", &[Role::Cli], true),
+    m("sessions.hook", &[Role::Cli], false),
+    m("sessions.interrupt", &[Role::Cli], true),
+    m("sessions.list", &[Role::Cli], true),
+    m("sessions.prepare", &[Role::Cli], true),
+    m("sessions.release", &[Role::Cli], true),
+    m("sessions.remove_hooks", &[Role::Cli], true),
+    m("sessions.send", &[Role::Cli], true),
+    m("sessions.start", &[Role::Cli], true),
+    m("sessions.timeline", &[Role::Cli], true),
     m("settings.get", &[Role::Cli], false),
     m("settings.set", &[Role::Cli], false),
     m("setup.browser_open", &[Role::Cli], false),
@@ -356,6 +370,26 @@ pub const MEMORY_IMPORT_ADDITIONS: [&str; 3] = [
     "memory.import.offer",
     "memory.import.scope",
 ];
+
+/// PHN-797: the owner's coding-agent sessions, FERB.app's own (`app_only`); from a phone by their classes (reads and
+/// sends inside a control private, the control itself, answers, starts and hand-overs sensitive, letting go plain).
+pub const SESSIONS_ADDITIONS: [&str; 11] = [
+    "sessions.answer",
+    "sessions.control",
+    "sessions.delegate",
+    "sessions.interrupt",
+    "sessions.list",
+    "sessions.prepare",
+    "sessions.release",
+    "sessions.remove_hooks",
+    "sessions.send",
+    "sessions.start",
+    "sessions.timeline",
+];
+
+/// HAND-662: the hook Claude Code runs (`ferb agent-hook claude`, FERB.app's `bin/ferb`) reports to the daemon as the
+/// owner's uid (`cli`), not FERB.app's process: it only reports, and answers only what the owner chose.
+pub const SESSIONS_HOOK: [&str; 1] = ["sessions.hook"];
 
 /// Stage 3 (T-1202): a phone session's own calls: a challenge, the unlock and lock, the device key's proof, keys
 /// registered late, the session's end. No local role may call them; on a phone session the phone gate answers each,

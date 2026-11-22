@@ -978,3 +978,40 @@ status = "open"
 why = "MEM-454 took PORTING.md 3a parts 1-3. Part 4 isn't ported: verify reads the quoted line cut to 500 characters each side and its neighbours to 300, batched by what is shown (one lab chunk took 13 verify calls). Then the verify prompt takes back the lab's cut-line note."
 decisions = ["MEM-454", "MEM-435"]
 after = []
+
+[T-1286]
+title = "How long a phone's control of a coding session lasts with no activity"
+area = "hands"
+kind = "question"
+status = "open"
+why = "GATE-622: control ends on letting go, the session's end, the phone's lock or a restart. The lab suggested ending it after 30 minutes idle too (LAB-6, T-4); that number is the owner's (rule 18), so none is built."
+decisions = ["GATE-622"]
+ask = "Should a phone's control of a session also end after some idle time (30 minutes was suggested), or only when you lock the phone or let go?"
+after = []
+
+[T-1287]
+title = "Start new sessions in other apps, and pick the session's tab in a multi-terminal VS Code window"
+area = "hands"
+kind = "build"
+status = "open"
+why = "HAND-665 starts only in Terminal. HAND-660 refuses when the focused terminal isn't the session's; the lab found VS Code's tab by its 'Terminal tabs' list (AXPress by the session's title) and its window by VSCODE_GIT_IPC_HANDLE; not built."
+decisions = ["HAND-665", "HAND-660"]
+after = []
+
+[T-1288]
+title = "Codex live: turn/steer mid-turn, the approval round trip and agentMessage's text"
+area = "hands"
+kind = "live"
+status = "open"
+why = "HAND-657 rests on Codex's schema for these (the lab's turns all hit a usage limit, lab T-2); tested only against a stand-in daemon."
+decisions = ["HAND-657"]
+after = []
+
+[T-1289]
+title = "The agents' desktop apps and Cursor: their sessions and composers"
+area = "hands"
+kind = "build"
+status = "open"
+why = "HAND-652: Claude.app's Code tab reads as Claude Code (its hooks unverified), the Codex app through its daemon; their composers and Cursor's agent chat (state.vscdb) need the lab's Accessibility send and reading (x4), not built. Until then the foreground path types only where focus names the session."
+decisions = ["HAND-652", "HAND-660"]
+after = []

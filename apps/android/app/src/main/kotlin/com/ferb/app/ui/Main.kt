@@ -147,7 +147,7 @@ fun noteText(n: Note): String = stringResource(n.res, n.words.orEmpty())
 /** The chat tab's pages (kb PHN-696): today with nothing said yet, today's chat, the earlier days. */
 private enum class ChatPage { HOME, TODAY, EARLIER }
 
-/** The four tabs (Mobile.swift TopBar): chat (the home screen until a chat starts), tasks, files, the Mac. */
+/** The tabs (Mobile.swift TopBar): chat (the home screen until a chat starts), tasks, coding sessions, files, the Mac. */
 @Composable
 fun Main(vm: FerbViewModel, ui: UiState, tab: PhoneTab, home: Boolean, insets: PhoneInsets, moment: SkyMoment, host: Host) {
     val waiting = if (ui.questions.isNotEmpty() && tab != PhoneTab.TASKS) PhoneTab.TASKS else null
@@ -170,6 +170,7 @@ fun Main(vm: FerbViewModel, ui: UiState, tab: PhoneTab, home: Boolean, insets: P
                     PhoneTab.CHAT -> if (p == ChatPage.HOME) Home(vm, ui, draft, insets, moment, onTab, onProfile, host)
                     else Chat(vm, ui, draft, insets, waiting, onTab, onProfile, host)
                     PhoneTab.TASKS -> Tasks(vm, ui, onTab, onProfile)
+                    PhoneTab.SESSIONS -> SessionsTab(vm, insets, waiting, onTab, onProfile)
                     PhoneTab.FILES -> Files(vm, ui, insets, waiting, onTab, onProfile, host)
                     PhoneTab.MAC -> Mac(vm, ui, waiting, onTab, onProfile)
                 }

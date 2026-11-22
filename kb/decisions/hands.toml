@@ -2147,3 +2147,166 @@ why = "Asking a sandbox (denies ~/.ferb/run, allows the workspace) was met by th
 evidence = "ferb-shell live.rs: foreign sandboxes that Python's question calls FERB's or kills stay outside, unsignalled; a command's child, and a server whose helper ended after 1.5 s, stay contained. Helper lifetimes caught: 0 and 0.2 s 0/6, 0.5 s 4/6, 0.8 s 6/6. Journal 163."
 rejected = ["An audit session per command: setaudit_addr needs root (EPERM, measured 2026-11-21)", "Process group or session ids: setsid leaves them, and an emptied group's id can be reused by another program", "A disclaimed spawn's responsible process: a private API that changes whose privacy grants a command runs under", "Asking the sandbox only of processes FERB launched: an unknown process is still asked before FERB knows", "Only the walk through living parents, with no watch: a server whose helper ended (pg_ctl) was outside unless something asked while the helper lived"]
 paths = ["engine/crates/ferb-shell/src/listeners.rs", "engine/crates/ferb-shell/src/pty.rs", "engine/crates/ferb-shell/src/local.rs", "engine/crates/ferb-shell/src/manager.rs", "engine/crates/ferb-shell/src/sandbox.rs"]
+
+[HAND-651]
+title = "FERB controls the owner's coding-agent sessions in any app, from his phone and the Mac"
+by = "owner"
+date = 2026-11-18
+status = "active"
+words = "so an agent session can be in terminal, in cursor app, in claude/codex offical apps or any other app too. taking foreground ocntrol is ok in this case, no biggie ... what i want is easy way to message myself, let ferb control the convo, let me see the screen(acc to our relay permission ofc), and jsut control any ongoing or start a new one too. o also used zedra, it was shit to typr in the terminla from phone ... lets try this as a separte thing first to validate and when finalized, we adopt it in ferb"
+words_source = "Owner 2026-11-18..19, relayed verbatim by the coordinator (the ... are the coordinator's cuts); the lab ~/Desktop/ferb-agent-remote validated it."
+rule = "FERB lists the owner's Claude Code and Codex sessions wherever they run, shows each as a chat, lets him message any running session or start a new one from his phones and FERB.app with a composer (never a terminal keyboard), hands one to FERB to keep going, and shows its window live under the relay rules (PHN-454). Taking the foreground is acceptable for this feature; it is still asked once (GATE-622), never silent."
+live = ["LIVE-1168", "LIVE-1169", "LIVE-1170", "LIVE-1171", "LIVE-1172", "LIVE-1173"]
+
+[HAND-652]
+title = "Sessions are found and driven through the agent, whatever app hosts it: no host list"
+by = "owner"
+date = 2026-11-19
+status = "active"
+words = "i agree with all but why are you focusung on VS code or a set of things only??? there can be any IDE, external terminla app etcetc. so jsut make sure that / i use vs and termnial only, with claude/codex. otehr might use other ide ore model providers"
+words_source = "Owner 2026-11-19 (the lab's CORE-1) and 2026-11-20..22, both relayed verbatim by the coordinator."
+rule = "A session is found, read and signalled through the agent itself (its process, its transcript or daemon, its hooks), whatever app shows it: any terminal, any IDE, the agents' desktop apps, tmux inside any of them. Sending uses a host's background adapter where one exists and the generic foreground path for every other app (HAND-656, HAND-660). No part of the code assumes one host; Terminal and VS Code are the hosts tested first."
+live = ["LIVE-1168", "LIVE-1170"]
+
+[HAND-653]
+title = "The agent remote is built into FERB as the release prototype"
+by = "owner"
+date = 2026-11-22
+status = "active"
+words = "why not build that and we call it a final ready prototype of ferb taht i'll release after 14 days"
+words_source = "Owner 2026-11-22, relayed verbatim by the coordinator, after the lab's spikes."
+rule = "The lab's agent remote (sessions list, conversation, send, answers, hand to FERB, watch, start) is built into FERB itself (engine, FERB.app, both phones) on branch rust, from the lab's findings, not as a separate program."
+untestable = "A product decision on what is built where; HAND-651's live checks judge the result."
+
+[HAND-667]
+title = "FERB may put its hook in the owner's coding agents' settings after his Yes"
+by = "owner"
+date = 2026-11-22
+status = "active"
+words = "didnt i said yes to hooks??"
+words_source = "Owner 2026-11-22, relayed verbatim by the coordinator, on whether FERB may install its hooks into his Claude Code and Codex settings (lab LAB-4)."
+rule = "FERB adds its own hook to the owner's coding agents' settings (Claude Code's ~/.claude/settings.json; Codex's where one is needed) once he says Yes, keeps everything else in the file as it was, and removes it again on No, the Settings switch or FERB's uninstall. Nobody edits the settings by hand. On the owner's Mac the Yes is given; other users are asked once (HAND-666)."
+live = ["LIVE-1168"]
+
+[HAND-654]
+title = "A session's host is a fact of the process tree, never configured per app"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For HAND-652 (the lab's CORE-2). From the agent's process: its tty, then its ancestors up to the first whose program is inside an .app bundle; the host's main process is the highest ancestor in that outermost bundle (an IDE's terminal runs under a helper inside it). Through tmux, the pane's server has no app above it: tmux's own client list gives the client's tty and its app; a detached tmux has no window (input by tmux alone). No list of hosts finds a session."
+evidence = "ferb-sessions tests/sessions.rs the_host_is_found_from_the_process_tree_with_no_list_of_hosts (VS Code's helper chain, Terminal, tmux attached and detached, none)."
+paths = ["engine/crates/ferb-sessions/src/host.rs", "engine/crates/ferb-platform-macos/src/sessions.rs"]
+
+[HAND-655]
+title = "A send is proven in the agent's own record, never on the screen"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For HAND-652 (the lab's CORE-3). After any send, by any path, FERB waits up to DELIVERY_WAIT_S (10 s; the lab measured 0.15-1.7 s) for the exact words as the owner's message in the agent's own record (Claude Code's transcript, Codex's thread) and says delivered or not. Not seen is said plainly, never retried by itself."
+evidence = "ferb-daemon tests/sessions.rs the_owner_s_first_send_asks_once_then_types_and_proves_delivery, typing_is_refused_when_the_agent_is_not_in_front_and_unproven_delivery_is_said, codex_is_read_sent_and_answered_through_its_own_daemon."
+paths = ["engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.delivered"]
+
+[HAND-656]
+title = "Send paths in order: the agent's own interface, a host's background adapter, the foreground"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For HAND-652 (the lab's IN-1). Code lists a session's paths; the phone never picks one: 1 Codex's own daemon (turn/start, turn/steer, turn/interrupt); 2 tmux (send-keys -l, paste-buffer -p for several lines); 3 Terminal's do script in the tab on the agent's tty (bracketed paste for several lines; background); 4 the generic foreground path (HAND-660) for every other app. No app showing it: no path, said why. Interrupt is the agent's own: Esc (Terminal's goes by the foreground path), turn/interrupt."
+evidence = "ferb-sessions tests send_paths_go_agent_first_then_an_adapter_then_the_foreground; ferb-daemon tests/sessions.rs (Terminal, the foreground with VS Code, Codex's daemon)."
+paths = ["engine/crates/ferb-sessions/src/paths.rs", "engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.deliver"]
+
+[HAND-657]
+title = "Codex is read and driven through its own daemon; nothing is written into Codex's settings"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For HAND-667, HAND-656. FERB is one more client of Codex's shared app-server (~/.codex/app-server-control/app-server-control.sock, JSON-RPC over WebSocket): thread/loaded/list and thread/read for the list and conversation, its notifications for states, turn/start or turn/steer to send, its approval requests as the owner's questions (accept, acceptForSession, decline). That daemon already gives every event a hook would, so FERB adds nothing to ~/.codex. Retried at most every 10 s while Codex isn't there."
+why = "A Codex notify program is one per config (FERB's would replace the owner's), and its hooks file's format wasn't verified in the lab; the daemon is Codex's documented local API and was verified."
+evidence = "ferb-daemon tests/sessions.rs codex_is_read_sent_and_answered_through_its_own_daemon (a stand-in daemon on a Unix socket); ferb-sessions codex_threads_items_and_events."
+paths = ["engine/crates/ferb-sessions/src/codex.rs", "engine/crates/ferb-daemon/src/sessions/codex_link.rs"]
+
+[HAND-658]
+title = "Typed text goes in only when the agent leads its terminal and asks nothing"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For HAND-652 (the lab's IN-2). Right before any typed path the agent's process must be its terminal's foreground group (pgid == tpgid; never its name: Claude Code titles itself with its version), else not_in_front and nothing is typed (it would reach a shell). While the agent asks a permission or question, typed text is refused (card_open): Return would answer its dialog."
+evidence = "ferb-sessions typed_text_is_allowed_only_when_the_agent_leads_its_terminal; ferb-daemon tests/sessions.rs (not_in_front, card_open; nothing typed in either)."
+paths = ["engine/crates/ferb-sessions/src/host.rs::in_front", "engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.send"]
+
+[HAND-659]
+title = "What FERB runs for sessions gets a clean environment"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For HAND-652 (the lab's IN-3). osascript (Terminal's adapter and new windows), tmux and claude agents --json run with an environment built from scratch (HOME, a PATH of the usual install places, USER, LOGNAME, LANG, SHELL, TMPDIR), never the daemon's."
+why = "In the lab a Claude Code that inherited another agent's variables saved no transcript and was missing from claude agents."
+paths = ["engine/crates/ferb-platform-macos/src/sessions.rs::clean_command"]
+untestable = "The environment of programs run on a real Mac; LIVE-1171 (start a new session) shows a transcript is saved."
+
+[HAND-660]
+title = "The foreground path types only into a terminal proven to be the session's"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For HAND-651, HAND-652 (the lab's IN-4, IN-5). FERB brings the host forward and reads the focused element's Accessibility chain: it must name the session's title (before it has one, its folder), else FERB types nothing, puts the front app back and says to click into that terminal once. Then the Mac hands' foreground typing types the whole text as a terminal input the owner said Yes to (HAND-519's path: its quiet wait, cover, own-focus stop), Return follows as its armed key, and the app that was in front comes back."
+evidence = "ferb-daemon tests/sessions.rs any_other_app_gets_the_foreground_path_with_the_session_s_proof (the proof words and the call); the Mac's own part is LIVE-1170."
+paths = ["engine/crates/ferbd/src/compose/sessions.rs::foreground"]
+live = ["LIVE-1170"]
+
+[HAND-661]
+title = "A session's conversation is its agent's own record, read by an allowlist and redacted"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For HAND-651 (the lab's SIG-3, LAB-5). Claude Code's transcript gives the owner's messages, the agent's text, one line per tool call (from its input's own command, path, pattern, url, query or description), interrupts, API errors and its title; thinking, subagents' turns, Claude Code's notes and unknown kinds are skipped. api-request records (the whole request, the owner's account in it) are never read. Codex's thread items likewise. Every text that leaves the Mac goes through FERB's redactor."
+evidence = "ferb-sessions the_transcript_is_read_by_an_allowlist_and_requests_never, interrupts_commands_errors_and_titles; ferb-daemon a_session_is_listed_with_its_host_and_read_from_its_own_transcript_redacted."
+paths = ["engine/crates/ferb-sessions/src/claude.rs::parse_line", "engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.tail"]
+
+[HAND-662]
+title = "Claude Code's hook reports in a moment; only a permission request is held, beside its own dialog"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For HAND-667 (the lab's SIG-1, SIG-2). `ferb agent-hook claude <Event>` (FERB.app's bin/ferb) hands each event to the daemon and exits 0 with no output within 2 s when FERB is off, absent, starting, busy or failing. Only PermissionRequest (permissions and AskUserQuestion) waits, for the owner, while Claude Code's own dialog stays up; the first answer wins. A PostToolUse, prompt or Stop withdraws it (no decision); FERB stopping or Claude Code's hook timeout ends the call, leaving its dialog to decide. PreToolUse is never used. A session FERB itself runs is ignored."
+evidence = "ferbd tests/sessions_hook.rs (the real hook and daemon: quick, held then answered, FERB stopped while held, a hung FERB); ferb-daemon tests/sessions.rs (held, withdrawn, dropped, FERB's own)."
+paths = ["engine/crates/ferbd/src/agent_hook.rs", "engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.hook", "engine/crates/ferb-rpc/src/server.rs::CANCEL_WHEN_LEFT"]
+
+[HAND-663]
+title = "An agent's permission prompts and questions are the owner's; FERB never answers a permission"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For HAND-651. A held permission or question becomes one of FERB's own questions in the gateway's store (FERB.app's notch, chat and the phones' notifications), with the agent's exact request and its choices; the session's screens answer the same card (sessions.answer). A permission's Yes from a phone takes the fingerprint (OWN_CHECKS). \"Allow for this session\" is the agent's own rule from its own suggestions. FERB's own task may answer the agent's questions, never its permission prompts (owners_only)."
+evidence = "ferb-daemon tests/sessions.rs a_held_permission_is_the_owner_s_question_and_his_answer_answers_the_hook, ferb_s_task_never_answers_a_permission_but_may_answer_a_question."
+paths = ["engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.ask_card", "engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.resolve", "engine/crates/ferb-gateway/src/questions.rs::OWN_CHECKS"]
+live = ["LIVE-1169"]
+
+[HAND-664]
+title = "Watching sessions is code only: no model call while nothing is asked of FERB"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For HAND-651 (lab LAB-5, the owner's T-1272 test). The list, states, conversations and cards come from hooks, the transcripts' new lines, Codex's daemon and the process table, read every 2 s by code. A model runs only when the owner hands a session to FERB (a FERB task) or writes to FERB; a task waiting on an agent waits in code (ORCH-687)."
+evidence = "ferb-daemon tests/sessions.rs watching_is_code_only (50 looks: no question, no hand-over)."
+paths = ["engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.look", "engine/crates/ferbd/src/compose/sessions.rs::start_loops"]
+
+[HAND-665]
+title = "A new session starts in a new Terminal window with the exact command shown first"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For HAND-651. sessions.prepare shows the exact command (cd '<folder>' && claude|codex '<first message>', shell-quoted) and its question; on the owner's Yes (a phone's fingerprint) sessions.start types it into a new Terminal window in the background, and the session that appears in that folder gets his control. Other hosts for new sessions are T-1287."
+evidence = "ferb-daemon tests/sessions.rs a_hand_over_is_the_owner_s_message_and_a_start_types_the_exact_command."
+paths = ["engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.start_command", "engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.start"]
+live = ["LIVE-1171"]
+
+[HAND-666]
+title = "Seeing the sessions is off until the owner's Yes, asked once after setup, with a Settings switch"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For HAND-667. The setting sessions.enabled (off until set). Once setup is done and ~/.claude or ~/.codex exists, FERB asks once (its own question: \"Let FERB see your Claude Code and Codex sessions?\"). Yes turns it on; FERB then reads sessions and keeps its hook in Claude Code's settings (FERB's entries only, any FERB.app's found by `ferb agent-hook claude`); off or No removes them, and FERB.app's uninstall calls sessions.remove_hooks. A settings file that isn't JSON is left alone and journaled."
+evidence = "ferb-sessions ferb_s_hooks_go_in_and_out_of_claude_code_s_settings_touching_nothing_else; ferb-daemon off_reads_nothing_and_its_switch_puts_ferb_s_hook_in_and_takes_it_out."
+paths = ["engine/crates/ferb-sessions/src/hooks.rs", "engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.reconcile_hooks", "engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.offer", "engine/crates/ferb-daemon/src/areas_a/settings.rs"]
+live = ["LIVE-1168"]

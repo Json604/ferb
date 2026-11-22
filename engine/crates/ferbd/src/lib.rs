@@ -11,6 +11,7 @@
 //! - [`off`]: the seams deliberately left off, each named in `seams-off.txt` with why (the wiring guard).
 //! - [`run`]: the program's modes (`daemon`, `mcp`, the internal commands).
 
+pub mod agent_hook;
 pub mod areas_c;
 pub mod basics;
 pub mod cleanup_cards;

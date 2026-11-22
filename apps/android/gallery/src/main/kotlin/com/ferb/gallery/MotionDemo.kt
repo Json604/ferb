@@ -65,6 +65,8 @@ fun MotionDemo(moment: SkyMoment, insets: PhoneInsets) {
                             onRow = { sheet = "question" }, onMore = { tab = PhoneTab.TASKS })
                         else ChatPage(labChat, insets)
                         PhoneTab.TASKS -> TasksPage(labTasks, onTab = choose, onProfile = { sheet = "profile" }, onRow = { _, _ -> sheet = "question" })
+                        PhoneTab.SESSIONS -> com.ferb.design.screens.SessionsPage("Your coding sessions", com.ferb.design.preview.labSessions, "New session", insets,
+                            onTab = choose, onProfile = { sheet = "profile" })
                         PhoneTab.FILES -> FilesPage(labPlaces, labRecent, Transfer("Sending 2 photos to your Mac", 0.64f), insets)
                         PhoneTab.MAC -> MacPage(LinkKind.RELAY, onTab = choose, onProfile = { sheet = "profile" }, onLink = { sheet = "relay" })
                     }

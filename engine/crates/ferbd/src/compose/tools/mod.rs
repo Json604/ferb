@@ -14,6 +14,7 @@ pub mod diagnostics;
 pub mod mac;
 pub mod misc;
 pub mod project;
+pub mod sessions;
 pub mod shell;
 pub mod waits;
 pub mod wrap;
@@ -118,6 +119,7 @@ struct Inner {
     mac: OnceLock<mac::Mac>,
     /// T-1274: insomnia mode, once the composition built it (the Mac hands' cover and expected apps read it).
     insomnia: OnceLock<ferb_daemon::insomnia::Insomnia>,
+    sessions: OnceLock<ferb_daemon::sessions::Sessions>,
     snapshots: OnceLock<Arc<ferb_fs::recovery::Snapshots>>,
     /// L39's change record (`self.changes`): the gateway's hooks write it before a file call, the checker reads it.
     changes: Arc<ferb_fs::changes::Changes>,
@@ -319,6 +321,7 @@ impl Parts {
             shutting_down: std::sync::atomic::AtomicBool::new(false),
             mac: OnceLock::new(),
             insomnia: OnceLock::new(),
+            sessions: OnceLock::new(),
             snapshots: OnceLock::new(),
             changes: Arc::new(ferb_fs::changes::Changes::new(
                 &opts.home.join("changes").to_string_lossy(),
@@ -364,6 +367,16 @@ impl Parts {
     /// T-1274: insomnia mode (None before the composition built it).
     pub fn insomnia(&self) -> Option<ferb_daemon::insomnia::Insomnia> {
         self.0.insomnia.get().cloned()
+    }
+
+    /// HAND-651..666: the owner's coding sessions (None before the composition built them).
+    pub fn sessions(&self) -> Option<ferb_daemon::sessions::Sessions> {
+        self.0.sessions.get().cloned()
+    }
+
+    /// Puts the sessions area in place, once.
+    pub fn set_sessions(&self, s: ferb_daemon::sessions::Sessions) {
+        let _ = self.0.sessions.set(s);
     }
 
     /// Puts insomnia mode in place, once.
@@ -681,8 +694,17 @@ pub fn registry(p: &Parts) -> Registry {
         }
     }
     // _build_mac_and_shell: Mac tools, hearing, the shell
+    // ORCH-687: the owner's coding sessions, for a task he handed one to (catalog additions: list and read after
+    // mac.snapshot, send and answer after mac.clipboard)
+    let mut session_tools = sessions::tools(p).into_iter();
     for t in mac::mac_tools(p) {
+        let name = t.name().to_owned();
         add(t);
+        if name == "mac.snapshot" || name == "mac.clipboard" {
+            for s in session_tools.by_ref().take(2) {
+                add(s);
+            }
+        }
     }
     add(mac::listen_tool(p));
     for t in shell::tools(p) {

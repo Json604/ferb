@@ -188,7 +188,11 @@ fn the_rust_additions_are_listed_as_written() {
             ("HAND-623", "project.publish"),
             ("HAND-642", "project.fetch"),
             ("SENSE-422", "device.facts"),
-            ("MEM-448", "memory.import")
+            ("MEM-448", "memory.import"),
+            ("ORCH-687", "agent_session.list"),
+            ("ORCH-687", "agent_session.read"),
+            ("ORCH-687", "agent_session.send"),
+            ("ORCH-687", "agent_session.answer")
         ]
     );
     for a in a {

@@ -4648,3 +4648,13 @@ rule = "For APP-1110, DMN-619. Settings → General → Turn off: \"Turn FERB of
 why = "A stop marker naming one pid would not survive a login, where launchd's RunAtLoad starts the daemon again; the file keeps the owner's off until he opens FERB.app. The phone link's helper (kill_on_drop) and the browsers' relays (socket closed) end with the daemon."
 evidence = "ferbd lifecycle.rs turned_off_in_settings_it_stays_off_until_the_app_opens; NotchCoreTests TurnOffPlanTests."
 paths = ["apps/mac/FERBNotch/Sources/NotchCore/TurnOff.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SetupServices.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift", "apps/mac/FERBNotch/Sources/FERBNotch/Application.swift", "engine/crates/ferbd/src/run.rs"]
+
+[APP-1112]
+title = "FERB.app's Sessions page: the owner's coding sessions, read, answered, sent to, handed over, watched"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For HAND-651. A Sessions section in FERB's window (after Tasks): off words and Turn on; each session's agent, title or folder, \"<folder> · in <app>\", state and \"FERB is on it\"; one session's conversation (his bubbles right, the agent left, tool rows monospace), cards with their choices, a composer (or why nothing can deliver), Watch, Hand to FERB, Stop its turn, Stop controlling, New session. Every Yes shows the daemon's needs_yes words and exact text. Settings → Privacy: \"Your coding sessions\" switch. Uninstall calls sessions.remove_hooks."
+evidence = "NotchCoreTests SessionsTests (16) and PlaygroundWorkspaceTests' sessions flow, on ScriptedRPC; the page's layout in every state."
+paths = ["apps/mac/FERBNotch/Sources/FERBNotch/SessionsPage.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SessionsModel.swift", "apps/mac/FERBNotch/Sources/NotchCore/SessionRows.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift"]
+live = ["LIVE-1168", "LIVE-1170", "LIVE-1172"]

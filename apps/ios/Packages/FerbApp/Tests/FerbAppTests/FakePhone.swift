@@ -332,6 +332,111 @@ final class FakePhone: PhoneApi {
     func dismissAlert(id: String) async -> Outcome<Void> { calls.append("dismissAlert"); dismissed.append(id); return .ok(()) }
     func macInfo() async -> Outcome<MacInfo> { calls.append("mac"); return mac.map { .ok($0) } ?? .failed(.Offline(detail: "no", linkCode: nil)) }
     func cachedMacInfo() async -> Outcome<MacInfo?> { .ok(mac) }
+    // ---- the owner's coding sessions (kb HAND-651) --------------------------------------------------------------------
+    /// What the Mac says: the list, each session's conversation and open cards, what each call gets; `controlled`: the
+    /// sessions this phone controls (a send to any other asks first).
+    @ObservationIgnored var codingList = SessionsList(enabled: true, sessions: [])
+    @ObservationIgnored var codingItems: [String: [SessionItem]] = [:]
+    @ObservationIgnored var codingCards: [String: [SessionCard]] = [:]
+    @ObservationIgnored var controlled: Set<String> = []
+    @ObservationIgnored var codingSent: [(String, String)] = []
+    @ObservationIgnored var codingRefusal: FerbError?
+    @ObservationIgnored var codingDelivered = true
+    @ObservationIgnored var codingFolders = ["/Users/owner/code/garden-app", "/Users/owner/code/recipes"]
+    @ObservationIgnored var sessionPreview: PreviewSink?
+    private func row(_ id: String) -> AgentSession? {
+        guard var s = codingList.sessions.first(where: { $0.id == id }) else { return nil }
+        s.controlledHere = controlled.contains(id)
+        return s
+    }
+    private func yes(_ id: String, _ text: String) -> SessionYes {
+        SessionYes(question: "Type this into Claude Code in Terminal? FERB will bring Terminal to the front to do it.", detail: text,
+                   covers: "Yes lets you send to this session from here until you stop controlling it.")
+    }
+    private func deliver(_ id: String, _ text: String) -> SessionSent {
+        codingSent.append((id, text))
+        let n = UInt64((codingItems[id]?.last?.seq ?? 0) + 1)
+        codingItems[id, default: []].append(SessionItem(seq: n, at: "2026-01-02T10:00:00Z", kind: "user", text: text, tool: ""))
+        return SessionSent(needsYes: nil, sent: true, delivered: codingDelivered, path: "terminal_script")
+    }
+    func sessionsList() async -> Outcome<SessionsList> {
+        calls.append("sessions")
+        if let e = codingRefusal { codingRefusal = nil; return .failed(e) }
+        var l = codingList
+        l.sessions = l.sessions.map { s in var s = s; s.controlledHere = controlled.contains(s.id); return s }
+        return .ok(l)
+    }
+    func sessionTimeline(_ session: String, after: UInt64, before: UInt64, limit: UInt32) async -> Outcome<SessionTimeline> {
+        calls.append("timeline:\(session):\(after):\(before)")
+        let all = codingItems[session] ?? []
+        if before > 0 {
+            let older = all.filter { $0.seq < before }
+            let page = Array(older.suffix(Int(limit)))
+            return .ok(SessionTimeline(session: row(session), items: page, more: older.count > page.count, cards: []))
+        }
+        let shown = all.filter { $0.seq > after }
+        let page = after > 0 ? shown : Array(shown.suffix(Int(limit)))
+        return .ok(SessionTimeline(session: row(session), items: page, more: after == 0 && shown.count > page.count,
+                                   cards: codingCards[session] ?? []))
+    }
+    func sessionSend(_ session: String, text: String) async -> Outcome<SessionSent> {
+        calls.append("session-send:\(session):\(text)")
+        if let e = codingRefusal { codingRefusal = nil; return .failed(e) }
+        if !controlled.contains(session) { return .ok(SessionSent(needsYes: yes(session, text), sent: false, delivered: false, path: "")) }
+        return .ok(deliver(session, text))
+    }
+    func sessionControl(_ session: String, text: String, signer: Signer) async -> Outcome<SessionSent> {
+        calls.append("session-control:\(session):\(text)")
+        guard let sig = signer.sign(payload: "sessions.control") else { return .failed(.NotSigned(detail: "Nothing was sent.", linkCode: nil)) }
+        signed.append(sig)
+        controlled.insert(session)
+        if text.isEmpty { return .ok(SessionSent(needsYes: nil, sent: false, delivered: false, path: "")) }
+        return .ok(deliver(session, text))
+    }
+    func sessionRelease(_ session: String) async -> Outcome<UInt32> {
+        calls.append("session-release:\(session)")
+        return .ok(controlled.remove(session) == nil ? 0 : 1)
+    }
+    func sessionAnswer(_ session: String, card: String, choice: String, signer: Signer) async -> Outcome<Bool> {
+        calls.append("session-answer:\(session):\(card):\(choice)")
+        guard let sig = signer.sign(payload: "sessions.answer") else { return .failed(.NotSigned(detail: "Nothing was sent.", linkCode: nil)) }
+        signed.append(sig)
+        codingCards[session]?.removeAll { $0.id == card }
+        return .ok(true)
+    }
+    func sessionInterrupt(_ session: String) async -> Outcome<Bool> {
+        calls.append("session-interrupt:\(session)")
+        if !controlled.contains(session) {
+            // the link carries the daemon's -32045 as a refusal with the Mac's words
+            return .failed(.Refused(detail: "Say Yes to sending to this session first.", linkCode: "ferb_error"))
+        }
+        return .ok(true)
+    }
+    func sessionPrepare(agent: String, folder: String, text: String) async -> Outcome<SessionStartPlan> {
+        calls.append("session-prepare:\(agent):\(folder):\(text)")
+        if folder.isEmpty { return .ok(SessionStartPlan(folders: codingFolders, needsYes: nil)) }
+        let command = "cd '\(folder)' && \(agent == "codex" ? "codex" : "claude")" + (text.isEmpty ? "" : " '\(text)'")
+        return .ok(SessionStartPlan(folders: codingFolders, needsYes: SessionYes(question: "Start this in a new Terminal window?", detail: command,
+                                                                                    covers: "FERB types this command and nothing else.")))
+    }
+    func sessionStart(agent: String, folder: String, text: String, signer: Signer) async -> Outcome<String> {
+        calls.append("session-start:\(agent):\(folder):\(text)")
+        guard let sig = signer.sign(payload: "sessions.start") else { return .failed(.NotSigned(detail: "Nothing was sent.", linkCode: nil)) }
+        signed.append(sig)
+        return .ok("cd '\(folder)' && claude")
+    }
+    func sessionDelegate(_ session: String, goal: String, signer: Signer) async -> Outcome<String> {
+        calls.append("session-delegate:\(session):\(goal)")
+        guard let sig = signer.sign(payload: "sessions.delegate") else { return .failed(.NotSigned(detail: "Nothing was sent.", linkCode: nil)) }
+        signed.append(sig)
+        return .ok("FERB is on it.")
+    }
+    func watchSession(_ session: String, sink: PreviewSink) async -> Outcome<Live> {
+        calls.append("watch-session:\(session)")
+        sessionPreview = sink
+        return .ok(Live { [weak self] in Task { @MainActor in self?.previewStopped += 1 } })
+    }
+
     func unregisteredKeys() async -> PublicKeys? { newKeys }
     func registerKeys(_ signer: @escaping @Sendable (KeyKind) -> Signer) async -> Outcome<Bool> {
         guard let k = newKeys else { return .ok(false) }

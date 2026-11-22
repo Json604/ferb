@@ -44,13 +44,14 @@ fn names(value: &Value) -> Vec<String> {
 // decision: GATE-615
 // decision: PHN-581
 // decision: MEM-442
+// decision: PHN-797
 #[test]
 fn the_method_table_is_python_s_plus_the_stage_2_additions() {
     use ferb_rpc::auth::{
         DATA_ADDITIONS, DEVICE_ADDITIONS, IDENTIFIER_ADDITIONS, INSOMNIA_ADDITIONS, LINK_ADDITIONS,
         MEMORY_IMPORT_ADDITIONS, OWNER_APP_ONLY, PHONE_ADDITIONS, PHONE_FILES,
         PHONE_LINK_ADDITIONS, PHONE_OWN, PHONE_SESSION, PROJECT_ADDITIONS, SCREEN_USE_ADDITIONS,
-        STAGE2_ADDITIONS, UNINSTALL_ADDITIONS,
+        SESSIONS_ADDITIONS, SESSIONS_HOOK, STAGE2_ADDITIONS, UNINSTALL_ADDITIONS,
     };
     let table = fixture("table.json");
     let added = |name: &str| {
@@ -69,6 +70,8 @@ fn the_method_table_is_python_s_plus_the_stage_2_additions() {
             || SCREEN_USE_ADDITIONS.contains(&name)
             || INSOMNIA_ADDITIONS.contains(&name)
             || MEMORY_IMPORT_ADDITIONS.contains(&name)
+            || SESSIONS_ADDITIONS.contains(&name)
+            || SESSIONS_HOOK.contains(&name)
     };
     for role in Role::ALL {
         let ours: Vec<String> = METHODS
@@ -117,6 +120,7 @@ fn the_method_table_is_python_s_plus_the_stage_2_additions() {
         .chain(&PHONE_LINK_ADDITIONS)
         .chain(&SCREEN_USE_ADDITIONS)
         .chain(&INSOMNIA_ADDITIONS)
+        .chain(&SESSIONS_ADDITIONS)
     {
         let name = *name;
         let rows: Vec<_> = METHODS.iter().filter(|m| m.name == name).collect();
@@ -132,6 +136,12 @@ fn the_method_table_is_python_s_plus_the_stage_2_additions() {
     for name in PHONE_SESSION.iter().chain(&PHONE_FILES).chain(&PHONE_OWN) {
         let row = METHODS.iter().find(|m| m.name == *name).unwrap();
         assert!(row.roles.is_empty() && !row.app_only, "{name}");
+    }
+    // HAND-662: the hook program's report is the owner's uid's (cli), not FERB.app's alone
+    for name in SESSIONS_HOOK {
+        let row = METHODS.iter().find(|m| m.name == name).unwrap();
+        assert_eq!(row.roles, &[Role::Cli], "{name}");
+        assert!(!row.app_only, "{name}");
     }
     for name in LINK_ADDITIONS {
         let row = METHODS.iter().find(|m| m.name == name).unwrap();
@@ -149,10 +159,10 @@ fn the_method_table_is_python_s_plus_the_stage_2_additions() {
             METHODS.iter().filter(|m| m.app_only).count()
         ),
         (
-            106 + 6 + 2 + 7 + 1 + 2 + 1 + 5 + 7 + 1 + 2 + 8 + 3,
+            106 + 6 + 2 + 7 + 1 + 2 + 1 + 5 + 7 + 1 + 2 + 8 + 3 + 11 + 1,
             3,
             0,
-            20 + 6 + 2 + 7 + 4 + 1 + 2 + 1 + 5 + 7 + 1 + 2 + 8
+            20 + 6 + 2 + 7 + 4 + 1 + 2 + 1 + 5 + 7 + 1 + 2 + 8 + 11
         )
     );
     let mut sorted: Vec<&str> = METHODS.iter().map(|m| m.name).collect();
@@ -182,7 +192,14 @@ fn the_constants_are_python_s() {
     let waits: BTreeMap<&str, f64> = server::LONG_WAITS.iter().copied().collect();
     assert_eq!(waits.len(), server::LONG_WAITS.len());
     assert_eq!(serde_json::to_value(&waits).unwrap(), table["long_waits"]);
-    assert_eq!(server::CANCEL_WHEN_LEFT, names(&table["cancel_when_left"]));
+    // decision: HAND-662 — the one named difference: a held hook ends with its process
+    let python: Vec<&str> = server::CANCEL_WHEN_LEFT
+        .iter()
+        .copied()
+        .filter(|m| *m != "sessions.hook")
+        .collect();
+    assert_eq!(python, names(&table["cancel_when_left"]));
+    assert!(server::CANCEL_WHEN_LEFT.contains(&"sessions.hook"));
     assert_eq!(
         server::ANSWERED_WHILE_STARTING,
         names(&table["answered_while_starting"])

@@ -39,6 +39,18 @@ public enum AppSheet: Equatable, Sendable {
     case insomnia
     /// Show me (APP-983): the Mac's camera while this shows, out of screenshots and captures.
     case camera
+    /// One of the owner's coding sessions on the Mac (kb HAND-651): its conversation, the agent's questions, the message
+    /// box and its buttons; out of captures (his conversation).
+    case session(id: String)
+    /// The Yes before FERB types into a session or starts one (rule 6, GATE-622): the Mac's question with the exact text;
+    /// what is asked is `coding.asking`.
+    case sessionYes
+    /// Hand a session to FERB with a goal (ORCH-687).
+    case sessionHand(id: String)
+    /// A new session: which agent, the folder, the first message (HAND-665).
+    case sessionNew
+    /// A session's window on the Mac, live (Watch live's rules, PHN-454).
+    case sessionWatch(id: String)
 }
 
 /// A short line for the owner: a catalog key (Android's string name) and its arguments (the Mac's own words, when
@@ -303,14 +315,16 @@ public final class AppModel {
     /// The message box's files and the messages that carry files (kb PHN-690, PHN-691); kept on the phone, off main.
     public let outgoing: Outgoing
     public let live: LiveWatch
+    /// The owner's coding sessions (kb HAND-651): the list, the one open, what waits for his Yes.
+    public let coding = CodingSessions()
     /// Show me (APP-983): the Mac's camera, pulled only while its view shows.
     public let camera: CameraWatch
     /// The work row's round live pictures (kb PHN-725), only while it shows, unlocked, in front and not on the shared relay.
     public let thumbnails: Thumbnails
     @ObservationIgnored private var workRowIds: [String] = []
 
-    @ObservationIgnored private let api: PhoneApi
-    @ObservationIgnored private let session: Session
+    @ObservationIgnored let api: PhoneApi
+    @ObservationIgnored let session: Session
     @ObservationIgnored private let prefs: Prefs
     @ObservationIgnored private let local: LocalFiles
     @ObservationIgnored private let screenLock: () -> Bool
@@ -334,7 +348,7 @@ public final class AppModel {
     @ObservationIgnored private var released = false
     @ObservationIgnored private var voiceStarted = Date.distantPast
     @ObservationIgnored private let box = PromptBox()
-    @ObservationIgnored private let unlocker: Unlocker
+    @ObservationIgnored let unlocker: Unlocker
     @ObservationIgnored private var follows: [AnyObject] = []
     /// The count towards "can't reach the Mac" (kb PHN-753).
     @ObservationIgnored private var lostTask: Task<Void, Never>?
@@ -398,6 +412,8 @@ public final class AppModel {
         case .live, .task: return true
         // the Mac's camera (APP-983)
         case .camera: return true
+        // a coding session's conversation, what FERB would type into it, and its window (kb HAND-651)
+        case .session, .sessionYes, .sessionHand, .sessionWatch: return true
         // a hidden input's field in a question's box (kb PHN-770)
         default: return !hiddenBoxes.isEmpty
         }
@@ -609,8 +625,11 @@ public final class AppModel {
                 thumbnails.show([])
                 switch sheet {
                 case .live, .task, .settings, .days, .location, .camera, .insomnia: sheet = nil
+                // a coding session's conversation and its list are private (kb HAND-651)
+                case .session, .sessionYes, .sessionHand, .sessionNew, .sessionWatch: sheet = nil
                 default: break
                 }
+                coding.locked()
                 transfers.locked()
                 outgoing.locked()
                 ui.files = FilesUi()
@@ -1123,7 +1142,7 @@ public final class AppModel {
     /// (`timing.rechecks` times): right after a reconnect the phone proves itself on the new connection and the window
     /// is open again; a statement on its way settles it too. Still locked: the card asks once (PHN-649). Nothing asks
     /// by itself.
-    private func macLocked() {
+    func macLocked() {
         if macRunning || ui.busy.contains("unlock-mac") || ui.busy.contains("unlock") { return }
         if session.locked || api.link?.paired != true { return }
         if statement != nil { handStatement(); return }
@@ -1909,6 +1928,8 @@ public final class AppModel {
     public func closeLive() {
         live.stop()
         if case .live = sheet { sheet = nil }
+        // a session's window goes back to the session (kb HAND-651)
+        if case .sessionWatch(let id) = sheet { sheet = .session(id: id) }
     }
 
     // ---- FERB's settings (PHN-404, PHN-112, PHN-133) ----------------------------------------------------------------
@@ -1946,7 +1967,7 @@ public final class AppModel {
     /// The signer for one sensitive call (PHN-112, PHN-133): the Face ID / Touch ID key where the phone has one, else
     /// the lock key. A key made after the pairing that the Mac doesn't know yet is registered first (its one prompt, kb
     /// PHN-656). Nil when there is none (said) or the owner cancelled.
-    private func freshSigner(_ why: Why) async -> Signer? {
+    func freshSigner(_ why: Why) async -> Signer? {
         guard let p = prompts else { note(Note("err_try_again")); return nil }
         if await api.unregisteredKeys()?.strong != nil {
             AppLog.i("\(why): registering the Face ID key first")
@@ -1989,6 +2010,7 @@ public final class AppModel {
         switch t {
         case .tasks: loadTasks()
         case .files: filesOpened()
+        case .sessions: loadSessions()
         case .chat: markRead()
         default: break
         }
@@ -2020,9 +2042,11 @@ public final class AppModel {
     }
 
     public func show(_ s: AppSheet?) {
-        func watching(_ x: AppSheet?) -> Bool { switch x { case .live, .task: return true; default: return false } }
+        func watching(_ x: AppSheet?) -> Bool { switch x { case .live, .task, .sessionWatch: return true; default: return false } }
         if watching(sheet) && !watching(s) { live.stop() }
         if sheet == .camera && s != .camera { camera.stop() }
+        // leaving a coding session's sheets: its conversation goes (nothing polls it any more)
+        if !Self.isSessionSheet(s) { coding.closed() }
         sheet = s
         if s == nil && pendingLocation != nil { showPending() }
     }
@@ -2073,6 +2097,7 @@ public final class AppModel {
                 ui.files = FilesUi()
                 ui.settings = nil
                 ui.status = nil
+                coding.locked()
                 refreshProfile()
             case .failed(let e):
                 failed(e)
@@ -2143,13 +2168,13 @@ public final class AppModel {
 
     // ---- helpers ---------------------------------------------------------------------------------------------------
 
-    private func failed(_ e: FerbError) { note(Self.errorNote(e)) }
+    func failed(_ e: FerbError) { note(Self.errorNote(e)) }
 
     /// Runs `block` once at a time per `what` (the screen greys the control while `ui.busy` holds it).
     @discardableResult
     /// One job of `what` at a time. A tap (`tap`) that comes while it still runs is never a silent no-op: it says FERB
     /// is still on it (kb PHN-656).
-    private func busy(_ what: String, tap: Bool = false, _ block: @escaping @MainActor () async -> Void) -> Task<Void, Never> {
+    func busy(_ what: String, tap: Bool = false, _ block: @escaping @MainActor () async -> Void) -> Task<Void, Never> {
         Task { [self] in
             if ui.busy.contains(what) {
                 if tap { note(Note("still_working")) }
@@ -2194,6 +2219,7 @@ public final class AppModel {
         case .chat: "chat"
         case .tasks: "tasks"
         case .files: "files"
+        case .sessions: "sessions"
         case .mac: "mac"
         }
     }

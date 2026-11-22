@@ -43,10 +43,17 @@ class LiveWatch(
     @Volatile private var live: Live? = null
     @Volatile private var generation = 0
 
-    fun start(taskId: String, worker: String? = null) {
+    fun start(taskId: String, worker: String? = null) =
+        // a step's own picture (a card row's short view, kb PHN-726) comes at the row's pace
+        begin(taskId) { sink -> if (worker != null) api.watchStepThumbnail(taskId, worker, Thumbnails.EVERY_MS, sink) else api.watchLive(taskId, sink) }
+
+    /** A coding session's window on the Mac (kb HAND-651..666): the same preview, its rules and its screen ([LiveView.taskId] holds the session's id). */
+    fun startSession(sessionId: String) = begin(sessionId) { sink -> api.watchSession(sessionId, sink) }
+
+    private fun begin(id: String, ask: suspend (PreviewSink) -> Outcome<Live>) {
         stop(keepView = true)
         val gen = ++generation
-        _view.value = LiveView(taskId)
+        _view.value = LiveView(id)
         scope.launch {
             val sink = object : PreviewSink {
                 override fun frame(frame: PreviewFrame) {
@@ -80,9 +87,7 @@ class LiveWatch(
                     }
                 }
             }
-            // a step's own picture (a card row's short view, kb PHN-726) comes at the row's pace
-            val asked = if (worker != null) api.watchStepThumbnail(taskId, worker, Thumbnails.EVERY_MS, sink) else api.watchLive(taskId, sink)
-            when (val r = asked) {
+            when (val r = ask(sink)) {
                 is Outcome.Ok -> if (gen == generation) live = r.value else r.value.stop()
                 is Outcome.Failed -> if (gen == generation) _view.update { it?.copy(ended = FerbViewModel.errorNote(r.error)) }
             }

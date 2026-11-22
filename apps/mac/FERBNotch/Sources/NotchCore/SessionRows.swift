@@ -1,0 +1,235 @@
+import Foundation
+
+/// The owner's coding sessions (Claude Code, Codex) as the daemon's `sessions.*` calls describe them. A row the daemon
+/// sent without its id is dropped; every other missing field reads as empty, so an older or newer daemon still shows
+/// what it has. Nothing here decides anything: the words shown are the daemon's facts in the contract's plain words.
+
+private func string(_ value: Any?) -> String { value as? String ?? "" }
+private func words(_ value: Any?) -> String? { (value as? String).flatMap { $0.isEmpty ? nil : $0 } }
+private func number(_ value: Any?) -> Int? { (value as? NSNumber)?.intValue }
+
+/// The app that shows a session: a fact from the Mac's process tree.
+public struct SessionHost: Equatable {
+    public let bundleID: String
+    public let name: String
+    public let pid: Int?
+    public let via: String
+    public let tty: String
+
+    public init?(_ row: [String: Any]?) {
+        guard let row else { return nil }
+        bundleID = string(row["bundle_id"])
+        name = string(row["name"])
+        pid = number(row["pid"])
+        via = string(row["via"])
+        tty = string(row["tty"])
+    }
+}
+
+/// One session (`sessions.list` `sessions`, or `sessions.timeline` `session`).
+public struct AgentSessionRow: Identifiable, Equatable {
+    public let id: String
+    /// "claude_code" or "codex".
+    public let agent: String
+    public let cwd: String
+    /// "" before the agent named it.
+    public let title: String
+    /// "working", "waiting_for_you" or "idle".
+    public let status: String
+    /// "none", "permission" or "question".
+    public let waiting: String
+    public let host: SessionHost?
+    /// The ways FERB can deliver the owner's text, in order; empty: nothing can.
+    public let sendPaths: [String]
+    /// Why nothing can deliver, in the owner's words.
+    public let noSend: String?
+    public let lastAt: Date?
+    public let lastText: String
+    /// "mac", "phone:<id>" or nil.
+    public let control: String?
+    /// The FERB task working on it, when it was handed to FERB.
+    public let delegate: String?
+    public let goal: String?
+    /// The caller (this app) controls it: Stop controlling shows.
+    public let yours: Bool
+
+    public init?(_ row: [String: Any]) {
+        guard let id = row["id"] as? String, !id.isEmpty else { return nil }
+        self.id = id
+        agent = string(row["agent"])
+        cwd = string(row["cwd"])
+        title = string(row["title"])
+        status = string(row["status"])
+        waiting = words(row["waiting"]) ?? "none"
+        host = SessionHost(row["host"] as? [String: Any])
+        sendPaths = (row["send_paths"] as? [Any] ?? []).compactMap { $0 as? String }
+        noSend = words(row["no_send"])
+        lastAt = WindowTime.parse(row["last_at"])
+        lastText = string(row["last_text"])
+        control = words(row["control"])
+        delegate = words(row["delegate"])
+        goal = words(row["goal"])
+        yours = (row["yours"] as? NSNumber)?.boolValue ?? false
+    }
+
+    /// The agent as the owner calls it.
+    public var agentName: String { Self.agentName(agent) }
+
+    public static func agentName(_ agent: String) -> String {
+        switch agent {
+        case "claude_code": return "Claude Code"
+        case "codex": return "Codex"
+        default: return agent.replacingOccurrences(of: "_", with: " ")
+        }
+    }
+
+    /// The folder's last part ("site" for /Users/o/code/site); the whole path when it has none.
+    public var folderName: String {
+        let name = (cwd as NSString).lastPathComponent
+        return name.isEmpty || name == "/" ? cwd : name
+    }
+
+    /// The row's heading: the session's title, else its folder's name.
+    public var heading: String { title.isEmpty ? folderName : title }
+
+    /// Where it runs: "<folder> · in <app>", or "in the background" when no app shows it.
+    public var whereLine: String {
+        let app = host?.name ?? ""
+        return folderName + " · " + (app.isEmpty ? "in the background" : "in \(app)")
+    }
+
+    public var canSend: Bool { !sendPaths.isEmpty }
+    /// Sending brings its app forward on the Mac.
+    public var foreground: Bool { sendPaths.first == "foreground" }
+    /// Handed to FERB: the "FERB is on it" badge.
+    public var withFerb: Bool { delegate != nil }
+
+    /// The state chip's words.
+    public var stateWords: String {
+        switch status {
+        case "working": return "Working"
+        case "waiting_for_you": return "Waiting for you"
+        default: return "Idle"
+        }
+    }
+}
+
+/// One line of a session's conversation (`sessions.timeline` `items`).
+public struct SessionItem: Identifiable, Equatable {
+    public var id: Int { seq }
+    public let seq: Int
+    public let at: Date?
+    /// "user", "assistant", "tool", "interrupted" or "error".
+    public let kind: String
+    public let text: String
+    public let tool: String?
+
+    public init?(_ row: [String: Any]) {
+        guard let seq = number(row["seq"]) else { return nil }
+        self.seq = seq
+        at = WindowTime.parse(row["at"])
+        kind = string(row["kind"])
+        self.text = string(row["text"])
+        tool = words(row["tool"])
+    }
+
+    /// A tool row as one line: "Bash: npm test".
+    public var line: String {
+        guard let tool else { return text }
+        return text.isEmpty ? tool : "\(tool): \(text)"
+    }
+}
+
+/// One answer a card offers.
+public struct SessionChoice: Identifiable, Equatable {
+    public let id: String
+    public let label: String
+}
+
+/// The agent's open permission prompt or question (`sessions.timeline` `cards`).
+public struct SessionCard: Identifiable, Equatable {
+    public let id: String
+    public let session: String
+    /// "permission" or "question".
+    public let kind: String
+    public let tool: String?
+    /// The exact thing asked about (a command, a file), shown in monospace.
+    public let detail: String
+    public let question: String?
+    public let choices: [SessionChoice]
+    public let askedAt: Date?
+    public let approvalID: String?
+
+    public init?(_ row: [String: Any]) {
+        guard let id = row["id"] as? String, !id.isEmpty else { return nil }
+        self.id = id
+        session = string(row["session"])
+        kind = string(row["kind"])
+        tool = words(row["tool"])
+        detail = string(row["detail"])
+        question = words(row["question"])
+        choices = (row["choices"] as? [[String: Any]] ?? []).compactMap { choice in
+            guard let id = choice["id"] as? String, !id.isEmpty else { return nil }
+            return SessionChoice(id: id, label: string(choice["label"]))
+        }
+        askedAt = WindowTime.parse(row["asked_at"])
+        approvalID = words(row["approval_id"])
+    }
+
+    /// The card's heading: "Claude Code wants to use Bash", or "Codex asks".
+    public func heading(agentName: String) -> String {
+        if kind == "permission" { return "\(agentName) wants to use \(tool ?? "a tool")" }
+        return "\(agentName) asks"
+    }
+}
+
+/// One `sessions.timeline` answer.
+public struct SessionTimeline: Equatable {
+    public let session: AgentSessionRow?
+    public let items: [SessionItem]
+    /// There are earlier items (page back with `before` = the first seq held).
+    public let more: Bool
+    public let cards: [SessionCard]
+
+    public init(_ reply: [String: Any]) {
+        session = (reply["session"] as? [String: Any]).flatMap(AgentSessionRow.init)
+        items = (reply["items"] as? [[String: Any]] ?? []).compactMap(SessionItem.init).sorted { $0.seq < $1.seq }
+        more = (reply["more"] as? NSNumber)?.boolValue ?? false
+        cards = (reply["cards"] as? [[String: Any]] ?? []).compactMap(SessionCard.init)
+    }
+}
+
+/// What a send, a start or an interrupt asks first (`needs_yes`): the question, the exact text in monospace, and what
+/// the Yes covers. Nothing was sent or run yet.
+public struct SessionYes: Equatable {
+    public let question: String
+    public let detail: String
+    public let covers: String
+
+    public init(question: String, detail: String, covers: String) {
+        self.question = question
+        self.detail = detail
+        self.covers = covers
+    }
+
+    public init?(_ reply: [String: Any]?) {
+        guard let row = reply?["needs_yes"] as? [String: Any] else { return nil }
+        question = string(row["question"])
+        detail = string(row["detail"])
+        covers = string(row["covers"])
+    }
+}
+
+/// The daemon's refusal codes for `sessions.*` (the message is the owner's words and is shown as it is).
+public enum SessionRefusal {
+    public static let sessionGone = -32040
+    public static let notInFront = -32041
+    public static let noSendPath = -32042
+    public static let cardOpen = -32043
+    public static let sessionsOff = -32044
+    /// The caller doesn't control the session: the owner's Yes (`sessions.control`) first.
+    public static let notTheSession = -32045
+    public static let cardGone = -32046
+    public static let ownersOnly = -32047
+    public static let sendFailed = -32048
+}

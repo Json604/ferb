@@ -63,7 +63,20 @@ pub const REFUSALS: &[(i64, &str, &str)] = &[
     ),
     (-32024, errors::FILE_CHANGED, "Fetch it again"),
     (-32600, errors::BAD_REQUEST, ""),
+    // PHN-797: the owner's coding sessions (ferb-sessions `codes`, the same numbers and names), the Mac's words kept
+    (-32040, "session_gone", ""),
+    (-32041, "not_in_front", ""),
+    (-32042, "no_send_path", ""),
+    (-32043, "card_open", "Answer its question first"),
+    (-32044, "sessions_off", "Turn it on in FERB's Settings"),
+    (-32045, "not_the_session", ""),
+    (-32046, "card_gone", ""),
+    (-32047, "owners_only", ""),
+    (-32048, "send_failed", ""),
 ];
+
+/// How many of [`REFUSALS`] are the coding sessions' (PHN-797), beside the phone gate's.
+pub const SESSION_REFUSALS: usize = 9;
 /// The daemon does not know this phone (it was restarted, or the phone was removed): never shown to a phone as is.
 pub const UNKNOWN_PHONE: &str = "unknown_phone";
 
@@ -367,7 +380,10 @@ mod tests {
             let ours = REFUSALS.iter().find(|(c, _, _)| c == code);
             assert_eq!(ours.map(|(_, n, _)| *n), Some(*name), "{name} {code}");
         }
-        assert_eq!(REFUSALS.len(), ferb_rpc::phone_gate::CODES.len());
+        assert_eq!(
+            REFUSALS.len(),
+            ferb_rpc::phone_gate::CODES.len() + SESSION_REFUSALS
+        );
         let e = rpc_error(
             "link.pair_request",
             &json!({"code": -32023, "message": "full"}),

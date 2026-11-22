@@ -46,6 +46,32 @@ final class ScreenshotTests: XCTestCase {
     // decision: PHN-416
     func testCodes() { shoot(.codes) }
 
+    /// The Sessions tab at dawn, noon and night, off at noon, and one session with its question over the tab, and the
+    /// Yes before FERB types for the owner (not from the lab, kb HAND-651; Android's LabScreen SESSIONS and SESSION).
+    // decision: PHN-416, GATE-622, PHN-797
+    func testSessions() {
+        func shot<P: View, S: View>(_ path: String, hour: Double = 12.5, @ViewBuilder sheet: () -> S, @ViewBuilder page: () -> P) {
+            let view = PhoneScreen(moment: .lab(hour), glide: false, sheet: sheet, page: page)
+                .frame(width: PhoneInsets.labSize.width, height: PhoneInsets.labSize.height)
+                .stillMotion()
+            Snapshot.assert(view, size: PhoneInsets.labSize, path: path)
+        }
+        for (name, hour) in Self.times {
+            shot("screens/sessions-\(name).png", hour: hour, sheet: { EmptyView() }, page: { SessionSample.page() })
+        }
+        shot("screens/sessions-off-noon.png", sheet: { EmptyView() }, page: { SessionSample.page(off: true) })
+        shot("screens/session-noon.png", sheet: { SessionSample.session(scrolls: false) }, page: { SessionSample.page() })
+        shot("screens/session-yes-noon.png", sheet: {
+            ZStack {
+                SessionSample.session(typed: "Run it once more and tell me", scrolls: false)
+                SessionYesSheet(question: "Type this into Claude Code in Terminal? FERB will bring Terminal to the front to do it.",
+                                detail: "Run it once more and tell me",
+                                covers: "Yes lets you send to this session from here until you stop controlling it.",
+                                yes: "Yes, send it", cancel: "Cancel", yesSymbol: "faceid")
+            }
+        }, page: { SessionSample.page() })
+    }
+
     /// A few of the gallery's showcases, at their own size.
     // decision: PHN-416, PHN-450
     func testComponents() {

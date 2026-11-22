@@ -1087,6 +1087,7 @@ dependencies = [
  "ferb-runtimes",
  "ferb-sanitize",
  "ferb-sense",
+ "ferb-sessions",
  "ferb-shell",
  "ferb-store",
  "ferb-trace",
@@ -1381,6 +1382,15 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "tokio",
+]
+
+[[package]]
+name = "ferb-sessions"
+version = "0.28.0"
+dependencies = [
+ "getrandom 0.3.4",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

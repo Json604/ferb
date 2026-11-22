@@ -126,11 +126,12 @@ public extension View {
 
 // MARK: Pieces
 
-/// Mobile.swift `Tab`: the four pages.
+/// Mobile.swift `Tab`: the pages, with the owner's coding sessions after Tasks (not from the lab, kb HAND-651, PHN-798;
+/// Android's PhoneTab.SESSIONS).
 public enum PhoneTab: CaseIterable, Hashable, Sendable {
-    case chat, tasks, files, mac
-    public var title: String { ["Chat", "Tasks", "Files", "Mac"][PhoneTab.allCases.firstIndex(of: self)!] }
-    public var symbol: String { ["bubble.left", "checklist", "folder", "laptopcomputer"][PhoneTab.allCases.firstIndex(of: self)!] }
+    case chat, tasks, sessions, files, mac
+    public var title: String { ["Chat", "Tasks", "Sessions", "Files", "Mac"][PhoneTab.allCases.firstIndex(of: self)!] }
+    public var symbol: String { ["bubble.left", "checklist", "terminal", "folder", "laptopcomputer"][PhoneTab.allCases.firstIndex(of: self)!] }
 }
 
 /// The top of every page: a short black pill of tabs (only the chosen one shows its name) and the profile button.
@@ -169,14 +170,15 @@ public struct TopBar: View {
             HStack(spacing: 2) {
                 ForEach(PhoneTab.allCases, id: \.self) { tab in
                     let on = tab == chosen
-                    HStack(spacing: 7) {
-                        Image(systemName: tab.symbol + (on && tab != .tasks && tab != .mac ? ".fill" : ""))
+                    // PHN-798: five tabs, a little narrower than the lab's (36 wide, padding 12/7, gap 6), as Android's
+                    HStack(spacing: 6) {
+                        Image(systemName: tab.symbol + (on && tab != .tasks && tab != .mac && tab != .sessions ? ".fill" : ""))
                             .font(.system(size: 17, weight: .medium))
-                        if on { Text(tab.title).font(.system(size: 15, weight: .semibold)) }
+                        if on { Text(tab.title).font(.system(size: 15, weight: .semibold)).lineLimit(1).fixedSize() }
                     }
                     .foregroundStyle(on ? Ink.black : Ink.white)
-                    .padding(.horizontal, on ? 15 : 12)
-                    .frame(minWidth: 46)
+                    .padding(.horizontal, on ? 12 : 7)
+                    .frame(minWidth: 36)
                     .frame(height: 42)
                     .animation(reduce ? FerbMotion.reduced.animation : FerbMotion.enter.animation, value: on)
                     .background { if on { Capsule().fill(Ink.white).matchedGeometryEffect(id: "pill", in: pill) } }
@@ -197,7 +199,8 @@ public struct TopBar: View {
             // an overshooting pill is cut at the bar's round ends; a point outside them, so the bar's own edge is untouched
             .clipShape(Capsule().inset(by: -1))
             .animation(reduce ? nil : FerbMotion.tab.animation, value: chosen)
-            Spacer()
+            // as Android's weight: the bar's room goes to the tabs first
+            Spacer(minLength: 0)
             if let connection { ConnectionButton(connection).padding(.trailing, 8) }
             Image(systemName: "person.fill")
                 .font(.system(size: 17))

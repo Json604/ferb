@@ -50,6 +50,17 @@ struct SheetsView: View {
             InsomniaSheet(model: model, insets: insets)
         case .camera:
             CameraView(model: model, insets: insets)
+        // the owner's coding sessions (kb HAND-651)
+        case .session:
+            SessionScreen(model: model, insets: insets)
+        case .sessionYes:
+            SessionYesView(model: model, insets: insets)
+        case .sessionHand:
+            SessionHandSheet(model: model, insets: insets)
+        case .sessionNew:
+            NewSessionSheet(model: model, insets: insets)
+        case .sessionWatch:
+            SessionWatchView(model: model, insets: insets)
         // a running task's short view (kb PHN-725; FERB.app's TaskShortView): its picture, title, line, Watch live, Stop
         case .task(let taskId, _):
             let r = model.ui.running?.tasks.first { $0.taskId == taskId }

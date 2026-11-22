@@ -52,11 +52,16 @@ object Phone {
     val rowLeading = 28.dp
     val rowGap = 14.dp
 
-    /** TopBar: a black pill of tabs, each 42 high and at least 46 wide, inside a 4 margin; the profile button 42. */
+    /**
+     * TopBar: a black pill of tabs, each 42 high and at least 36 wide, inside a 4 margin; the profile button 42. Five
+     * tabs since the coding sessions (PHN-798): the lab's 46-wide tabs (padding 15/12, gap 7) left no room for the
+     * chosen tab's name beside the connection control, so every tab is a little narrower, the same on iPhone.
+     */
     val tabHeight = 42.dp
-    val tabMinWidth = 46.dp
-    val tabPaddingOn = 15.dp
-    val tabPaddingOff = 12.dp
+    val tabMinWidth = 36.dp
+    val tabPaddingOn = 12.dp
+    val tabPaddingOff = 7.dp
+    val tabGap = 6.dp
     val tabBarPadding = 4.dp
     val profileButton = 42.dp
 

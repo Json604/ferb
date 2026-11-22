@@ -5004,3 +5004,57 @@ request = "Press Continue with Google with the second account and download; open
 pass = "The DMG downloads after sign-in and the notice line shows before it; the list shows the account with its first sign-in and last download; CSV opens; the email arrives with an unsubscribe link and Gmail's unsubscribe button, both mark it unsubscribed; the second account is refused the list; updates are found without signing in."
 decisions = ["REL-433", "REL-434", "REL-432"]
 sitting = "website review after deployment"
+
+[LIVE-1168]
+title = "Coding sessions: the one question, the hook in Claude Code's settings, and the list"
+area = "hands"
+surface = "FERB.app with this build on the owner's Mac, a Claude Code session in Terminal and one in VS Code's terminal, a Codex session in Terminal"
+request = "After setup, answer FERB's \"Let FERB see your Claude Code and Codex sessions?\" with Yes. Open ~/.claude/settings.json; open FERB.app's window → Sessions; then turn the switch off in Settings → Privacy and on again."
+pass = "The question comes once; Yes adds FERB's seven agent-hook entries and nothing else changes in the file; all three sessions are listed with their folder, app (Terminal, Visual Studio Code) and state, and change state within a few seconds of the agents working or stopping; off removes the entries and empties the list; FERB's own work never shows as a session; Claude Code feels no slower."
+decisions = ["HAND-666", "HAND-667", "HAND-652", "HAND-654", "HAND-664"]
+sitting = "after this build is installed"
+
+[LIVE-1169]
+title = "From the phone: read a session, answer its permission prompt, send to it"
+area = "hands"
+surface = "The paired Android phone (and later the iPhone) away from the Mac, over the owner's relay or a direct path; a Claude Code session in Terminal in default permission mode"
+request = "On the phone open Sessions → the Terminal session. Ask it at the Mac beforehand to run a command that needs permission. Answer the card from the phone (Allow). Then type a short message in the composer and send it; say Yes to the question."
+pass = "The conversation shows his messages, the agent's replies and one line per tool call, with no thinking and no secrets; the permission card shows the exact command; Allow takes the fingerprint and the command runs, the Mac's own dialog goes away; the first send asks once showing the exact words, later sends don't; the message appears in the session and the phone shows it as delivered."
+decisions = ["HAND-661", "HAND-662", "HAND-663", "GATE-622", "HAND-655", "HAND-656"]
+sitting = "after this build is installed"
+
+[LIVE-1170]
+title = "Sending into VS Code's terminal and into Codex"
+area = "hands"
+surface = "FERB.app and the phone; Claude Code in VS Code's integrated terminal (its terminal focused in its window); a Codex session in Terminal"
+request = "From the phone send a message to the VS Code session, then to the Codex session; then press Stop its turn on each while it works."
+pass = "VS Code comes forward, the words land in that session's terminal (never in an editor or another terminal), VS Code goes back behind what was in front; when the focused terminal isn't the session's FERB types nothing and says to click into it once; Codex gets the message without any app coming forward; Stop its turn interrupts both."
+decisions = ["HAND-652", "HAND-656", "HAND-657", "HAND-658", "HAND-660", "GATE-622"]
+sitting = "after this build is installed"
+
+[LIVE-1171]
+title = "Start a new session from the phone"
+area = "hands"
+surface = "The paired phone; the Mac with Terminal"
+request = "Sessions → New session: Claude Code, a project folder, first message \"say hello\"; Start."
+pass = "The exact command is shown before the Yes; after the fingerprint a new Terminal window opens on the Mac without taking the front, Claude Code starts in that folder with the message, saves its transcript (it appears in the list with its replies) and the phone controls it without asking again."
+decisions = ["HAND-665", "HAND-659"]
+sitting = "after this build is installed"
+
+[LIVE-1172]
+title = "Hand a session to FERB with a goal"
+area = "hands"
+surface = "FERB.app or the phone; a Claude Code session in VS Code with a small failing test in a throwaway project"
+request = "Hand to FERB: \"keep going until the tests pass\". Watch the chat; when Claude Code asks for permission, answer it yourself."
+pass = "The hand-over shows as your message and a FERB task; FERB asks once before typing into VS Code's terminal (the exact text), then answers the agent's turns itself, waits without model calls while the agent works, never answers its permission prompt, stops on Stop and ends when the tests pass or asks you when unsure; the session shows FERB is on it until the task ends."
+decisions = ["ORCH-687", "HAND-663", "HAND-664"]
+sitting = "after this build is installed"
+
+[LIVE-1173]
+title = "Watch a session's window on the phone"
+area = "phone"
+surface = "The paired phone over a direct path or the owner's relay, then over the public relay"
+request = "Open a session → Watch, on each path; take a screenshot on the phone while it shows."
+pass = "On the direct path or the owner's relay the session's app window shows live (Terminal's or VS Code's), unmasked; the screenshot comes out blank; on the public relay it is refused with the usual words; locking the phone ends it."
+decisions = ["PHN-797", "PHN-454"]
+sitting = "after this build is installed"

@@ -11,4 +11,6 @@ pub mod insomnia;
 pub mod mac_now;
 /// Stage 3 S3 (T-1202): the daemon's phone area: paired phones, challenges, the unlock window, proofs, the audit.
 pub mod phone;
+/// The owner's coding-agent sessions (kb SES-*): found, read, answered, sent to and handed to FERB.
+pub mod sessions;
 pub mod shared;

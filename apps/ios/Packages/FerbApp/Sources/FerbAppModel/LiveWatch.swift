@@ -48,15 +48,30 @@ public final class LiveWatch {
 
     @discardableResult
     public func start(_ taskId: String, worker: String? = nil) -> Task<Void, Never> {
+        let api = self.api
+        // a step's own picture (a card row's short view, kb PHN-726) comes at the row's pace
+        return begin(taskId) { sink in
+            if let worker { await api.watchStepThumbnail(taskId: taskId, worker: worker, everyMs: Thumbnails.everyMs, sink: sink) }
+            else { await api.watchLive(taskId: taskId, sink: sink) }
+        }
+    }
+
+    /// A coding session's window on the Mac (kb HAND-651): the same preview, rules and screen as a task's; `taskId` holds
+    /// the session's id.
+    @discardableResult
+    public func startSession(_ session: String) -> Task<Void, Never> {
+        let api = self.api
+        return begin(session) { sink in await api.watchSession(session, sink: sink) }
+    }
+
+    private func begin(_ id: String, _ ask: @escaping @MainActor (PreviewSink) async -> Outcome<Live>) -> Task<Void, Never> {
         stop(keepView: true)
         generation += 1
         let gen = generation
-        view = LiveScreen(taskId: taskId)
+        view = LiveScreen(taskId: id)
         let sink = Sink(self, generation: gen)
         return Task {
-            // a step's own picture (a card row's short view, kb PHN-726) comes at the row's pace
-            let asked = if let worker { await api.watchStepThumbnail(taskId: taskId, worker: worker, everyMs: Thumbnails.everyMs, sink: sink) }
-                else { await api.watchLive(taskId: taskId, sink: sink) }
+            let asked = await ask(sink)
             switch asked {
             case .ok(let l):
                 if gen == generation { live = l } else { l.stop() }

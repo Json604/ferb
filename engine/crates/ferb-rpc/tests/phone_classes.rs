@@ -75,6 +75,7 @@ fn every_method_of_the_engine_has_exactly_one_phone_class() {
 // decision: PHN-117
 // decision: PHN-466
 // decision: PHN-581
+// decision: PHN-797
 #[test]
 fn the_phone_reaches_everything_but_the_never_rows() {
     let never = names(|row| row.class == Class::Never);
@@ -107,6 +108,9 @@ fn the_phone_reaches_everything_but_the_never_rows() {
             "phone.relay_test",
             "phone.rename",
             "phone.upload_folder",
+            // PHN-797: Claude Code's own report through FERB's hook, and a step of FERB.app's Uninstall
+            "sessions.hook",
+            "sessions.remove_hooks",
             "setup.uninstall_browser_files",
             "tools.call",
             "tools.list",
@@ -194,6 +198,8 @@ fn a_locked_phone_reaches_only_status_stop_and_self_proving_answers() {
     // and insomnia mode's end, Lock my Mac and It's fine, from the notification: each only takes something away
     // (APP-980, APP-983)
     allowed_locked.extend(["insomnia.end", "insomnia.lock", "insomnia.dismiss"]);
+    // and letting go of a coding session, which only takes something away (GATE-622)
+    allowed_locked.extend(["sessions.release"]);
     assert_eq!(names(|row| row.locked == Locked::Allowed), allowed_locked);
     assert_eq!(
         names(|row| row.locked == Locked::Answer),

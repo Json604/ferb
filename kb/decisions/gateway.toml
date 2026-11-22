@@ -1519,3 +1519,14 @@ rule = "For GATE-620. browser.act, ferb_browser.act and mac.act take `entering` 
 why = "The worker can name its list, never vouch for it: code checks each origin. Recording each value's key lets later steps type one at a time; keeping them out of known destinations keeps a draft's Yes from becoming a Yes to send."
 evidence = "ferb-gateway tests/outside_destinations.rs (8 GATE-620 tests on the real Gateway with stand-in tools; one prints the card), catalog.rs (the three schema changes, once each). `entering` is left out of the ledger's hash (hashed_args): a declaration, not the action."
 paths = ["engine/crates/ferb-policy/src/confirm.rs::listed_values", "engine/crates/ferb-policy/src/confirm.rs::outside_list", "engine/crates/ferb-policy/src/confirm.rs::listed_key", "engine/crates/ferb-gateway/src/gateway.rs::Gateway.outside_list", "engine/crates/ferb-gateway/src/gateway.rs::Gateway.authorize_held", "engine/crates/ferb-policy/src/wording.rs", "engine/fixtures/catalog/tool_changes.json"]
+
+[GATE-622]
+title = "The owner's typing into a session asks once with the exact text; the Yes covers it from there"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "Rule 6 and GATE-585 for HAND-651. The owner's first send to a session from FERB.app or a phone shows his exact words and asks once (sessions.send answers needs_yes); his Yes (sessions.control, a phone's fingerprint signed over the session and text, lab LAB-6) lets that surface send, answer and interrupt there until he lets go, the session ends, that phone locks (phone.locked) or FERB restarts. Each surface asks for itself. FERB's own task asks by the gateway's terminal question (GATE-585)."
+why = "His own words typed from his surface are his input (rule 9); the one Yes keeps the composer usable while typing into a terminal is never silent. No idle timer: that number is the owner's (rule 18, T-1286)."
+evidence = "ferb-daemon tests/sessions.rs the_owner_s_first_send_asks_once_then_types_and_proves_delivery (asked, refused before, sent after, the phone's own, ended by the lock)."
+paths = ["engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.needs_yes", "engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.take_control", "engine/crates/ferb-daemon/src/phone/gate.rs::lock_phone"]
+live = ["LIVE-1169", "LIVE-1170"]

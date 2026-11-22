@@ -553,6 +553,35 @@ async fn tasks_preview(d: Deps, s: Session, p: Params) -> Result<Map<String, Val
             )
         }
     };
+    // PHN-797: a coding session's window (its Watch view), under the same rules as a task's preview
+    #[cfg(target_os = "macos")]
+    if let Some(session) = p
+        .get("session")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+    {
+        return match crate::compose::sessions::watch_frame(&d.tools, session).await {
+            Ok((fields, image)) => {
+                use base64::Engine;
+                let mut out = match d.redactor.value(&Value::Object(fields)) {
+                    Value::Object(m) => m,
+                    _ => Map::new(),
+                };
+                let bytes = match &phone_link {
+                    Some(link) => image.for_paired_phone(link),
+                    None => image.for_owner_app(),
+                };
+                out.insert(
+                    "image".into(),
+                    base64::engine::general_purpose::STANDARD
+                        .encode(bytes)
+                        .into(),
+                );
+                ok(Value::Object(out))
+            }
+            Err(why) => ok(json!({"state": "none", "line": why})),
+        };
+    }
     let task_id = p
         .get("task_id")
         .filter(|v| ferb_py::value::truthy(v))

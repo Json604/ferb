@@ -334,7 +334,107 @@ class FakePhone : PhoneApi {
         return Outcome.Ok(true)
     }
 
+    // ---- the owner's coding sessions (kb HAND-651..666): what the Mac says, what each call got, the refusals it scripts ----
+    var sessionsEnabled = true
+    val sessions = ArrayList<com.ferb.mobile.AgentSession>()
+    var sessionsRefusal: Outcome.Failed? = null
+    /** Each session's items on the Mac, oldest first, and its open cards. */
+    val sessionItems = HashMap<String, MutableList<com.ferb.mobile.SessionItem>>()
+    val sessionCards = HashMap<String, MutableList<com.ferb.mobile.SessionCard>>()
+    /** Sessions this phone controls (its sends go without asking). */
+    val controlled = HashSet<String>()
+    var delivered = true
+    var interruptRefusal: Outcome.Failed? = null
+    var startFolders = listOf("~/code/web-app", "~/code/blog")
+    val timelineAsks = ArrayList<Triple<String, Long, Long>>()
+
+    private fun yes(text: String) = com.ferb.mobile.SessionYes("Send this to Claude Code in Terminal?", text,
+        "Yes lets you send to this session from here until you stop controlling it.")
+
+    override suspend fun sessionsList(): Outcome<com.ferb.mobile.SessionsList> {
+        calls += "sessions"
+        sessionsRefusal?.let { return it }
+        return Outcome.Ok(com.ferb.mobile.SessionsList(sessionsEnabled, if (sessionsEnabled) sessions.map { it.copy(controlledHere = it.id in controlled) } else emptyList()))
+    }
+    override suspend fun sessionTimeline(session: String, after: Long, before: Long, limit: Int): Outcome<com.ferb.mobile.SessionTimeline> {
+        calls += "timeline:$session:$after:$before"
+        timelineAsks += Triple(session, after, before)
+        val all = sessionItems[session].orEmpty()
+        val (page, more) = when {
+            after > 0 -> all.filter { it.seq.toLong() > after }.let { a -> a.take(limit) to (a.size > limit) }
+            before > 0 -> all.filter { it.seq.toLong() < before }.let { b -> b.takeLast(limit) to (b.size > limit) }
+            else -> all.takeLast(limit) to (all.size > limit)
+        }
+        val s = sessions.firstOrNull { it.id == session }?.copy(controlledHere = session in controlled)
+        return Outcome.Ok(com.ferb.mobile.SessionTimeline(s, page, more, sessionCards[session].orEmpty().toList()))
+    }
+    override suspend fun sessionSend(session: String, text: String): Outcome<com.ferb.mobile.SessionSent> {
+        calls += "session-send:$session:$text"
+        if (session !in controlled) return Outcome.Ok(com.ferb.mobile.SessionSent(yes(text), false, false, ""))
+        if (text.isBlank()) return Outcome.Failed(FerbException.Refused("There's nothing to send.", "ferb_error"))
+        return Outcome.Ok(com.ferb.mobile.SessionSent(null, true, delivered, "agent_api"))
+    }
+    override suspend fun sessionControl(session: String, text: String, signer: Signer): Outcome<com.ferb.mobile.SessionSent> {
+        calls += "session-control:$session:$text"
+        val sig = signer.sign("sessions.control") ?: return Outcome.Failed(FerbException.NotSigned("Nothing was sent.", null))
+        signed += sig
+        controlled += session
+        return Outcome.Ok(com.ferb.mobile.SessionSent(null, text.isNotBlank(), text.isNotBlank() && delivered, "agent_api"))
+    }
+    override suspend fun sessionRelease(session: String): Outcome<Int> {
+        calls += "session-release:$session"
+        return Outcome.Ok(if (controlled.remove(session)) 1 else 0)
+    }
+    override suspend fun sessionAnswer(session: String, card: String, choice: String, signer: Signer): Outcome<Boolean> {
+        calls += "session-answer:$session:$card:$choice"
+        val sig = signer.sign("sessions.answer") ?: return Outcome.Failed(FerbException.NotSigned("Nothing was sent.", null))
+        signed += sig
+        sessionCards[session]?.removeAll { it.id == card }
+        return Outcome.Ok(true)
+    }
+    override suspend fun sessionInterrupt(session: String): Outcome<Boolean> {
+        calls += "session-interrupt:$session"
+        interruptRefusal?.let { return it }
+        if (session !in controlled) return Outcome.Failed(FerbException.Refused("Say Yes to sending to this session first.", "ferb_error"))
+        return Outcome.Ok(true)
+    }
+    override suspend fun sessionPrepare(agent: String, folder: String, text: String): Outcome<com.ferb.mobile.SessionStartPlan> {
+        calls += "session-prepare:$agent:$folder:$text"
+        if (folder.isEmpty()) return Outcome.Ok(com.ferb.mobile.SessionStartPlan(startFolders, null))
+        val cmd = "cd $folder && ${if (agent == "codex") "codex" else "claude"}" + if (text.isNotEmpty()) " '$text'" else ""
+        return Outcome.Ok(com.ferb.mobile.SessionStartPlan(startFolders, com.ferb.mobile.SessionYes("Open Terminal on your Mac and run this?", cmd,
+            "FERB types this one command in a new Terminal window.")))
+    }
+    override suspend fun sessionStart(agent: String, folder: String, text: String, signer: Signer): Outcome<String> {
+        calls += "session-start:$agent:$folder:$text"
+        val sig = signer.sign("sessions.start") ?: return Outcome.Failed(FerbException.NotSigned("Nothing was sent.", null))
+        signed += sig
+        return Outcome.Ok("cd $folder && claude")
+    }
+    override suspend fun sessionDelegate(session: String, goal: String, signer: Signer): Outcome<String> {
+        calls += "session-delegate:$session:$goal"
+        val sig = signer.sign("sessions.delegate") ?: return Outcome.Failed(FerbException.NotSigned("Nothing was sent.", null))
+        signed += sig
+        return Outcome.Ok("FERB is on it.")
+    }
+    var sessionLiveRefusal: Outcome.Failed? = null
+    override suspend fun watchSession(session: String, sink: PreviewSink): Outcome<Live> {
+        calls += "session-live:$session"
+        sessionLiveRefusal?.let { return it }
+        preview = sink
+        return Outcome.Ok(Live { previewStopped++ })
+    }
+
     companion object {
+        /** One session as the library reads it (kb HAND-651..666). */
+        fun agentSession(id: String = "claude:s1", title: String = "Fix the flaky login test", status: String = "working", host: String = "Terminal",
+                         canSend: Boolean = true, noSend: String = "", withFerb: Boolean = false, controlledHere: Boolean = false) =
+            com.ferb.mobile.AgentSession(id, if (id.startsWith("codex")) "codex" else "claude_code", if (id.startsWith("codex")) "Codex" else "Claude Code",
+                title, "/Users/owner/code/web-app", "web-app", status, if (status == "waiting_for_you") "permission" else "none", host, canSend, noSend,
+                false, "2026-11-22T10:00:00Z", "", controlledHere, if (controlledHere) "phone:p1" else "", withFerb, "")
+
+        fun item(seq: Int, kind: String, text: String, tool: String = "") = com.ferb.mobile.SessionItem(seq.toULong(), "2026-11-22T10:00:00Z", kind, text, tool)
+
         fun status(phase: LinkPhase = LinkPhase.ONLINE, paired: Boolean = true, path: LinkPath = LinkPath.DIRECT, code: String? = null, problem: com.ferb.mobile.LinkProblem? = null) =
             LinkStatus(phase, path, null, code, paired, path != LinkPath.PUBLIC_RELAY, false, null, false, null, problem, null, false, false)
 

@@ -15,7 +15,8 @@ use crate::records::{
     Attachment, CameraFrame, Cancelled, Conv, ConversationInfo, DeviceReport, Fetched, Folder,
     FoundFiles, GroupStarted, Insomnia, InsomniaEnded, InsomniaStarted, LinkState, LocationFix,
     MacInfo, MacLocked, OlderState, OutboxItem, PhoneStatus, PreviewFrame, RecentFiles, ScreenUse,
-    ScreenUseEnd, SettingValue, TaskPage, TranscriptView, Tree, Uploaded,
+    ScreenUseEnd, SessionSent, SessionStartPlan, SessionTimeline, SessionsList, SettingValue,
+    TaskPage, TranscriptView, Tree, Uploaded,
 };
 
 fn signer_of(s: Arc<dyn Signer>) -> Arc<dyn ferb_mobile::Signer> {
@@ -642,6 +643,129 @@ impl Mobile {
         })
     }
 
+    // ---- the owner's coding-agent sessions (kb HAND-651..666) ------------------------------------------------------------
+
+    /// The owner's coding sessions on the Mac (`sessions.list`; needs the unlock). Network.
+    pub fn sessions_list(&self) -> Result<SessionsList, FerbError> {
+        guard(|| Ok(self.core()?.sessions_list()?.conv()))
+    }
+
+    /// One session's conversation: the newest `limit` (`after` and `before` 0), those after `after`, or those before
+    /// `before`, with the agent's open cards. Network.
+    pub fn session_timeline(
+        &self,
+        session: String,
+        after: u64,
+        before: u64,
+        limit: u32,
+    ) -> Result<SessionTimeline, FerbError> {
+        guard(|| {
+            Ok(self
+                .core()?
+                .session_timeline(&session, after, before, limit)?
+                .conv())
+        })
+    }
+
+    /// The owner's words into a session: sent when this phone controls it, else `needs_yes` (nothing sent): show the
+    /// question with the exact text, then `session_control` on his Yes. Network.
+    pub fn session_send(&self, session: String, text: String) -> Result<SessionSent, FerbError> {
+        guard(|| Ok(self.core()?.session_send(&session, &text)?.conv()))
+    }
+
+    /// The owner's Yes to typing into a session (rule 6, GATE-622): this phone controls it from now on and `text` (may be
+    /// empty) is sent. Signed by `signer` (the fingerprint key where registered). Network and the prompt.
+    pub fn session_control(
+        &self,
+        session: String,
+        text: String,
+        signer: Arc<dyn Signer>,
+    ) -> Result<SessionSent, FerbError> {
+        guard(|| {
+            Ok(self
+                .core()?
+                .session_control(&session, &text, signer_of(signer))?
+                .conv())
+        })
+    }
+
+    /// Lets go of a session ("" for all of this phone's); allowed while locked. Network.
+    pub fn session_release(&self, session: String) -> Result<u32, FerbError> {
+        guard(|| Ok(self.core()?.session_release(&session)?))
+    }
+
+    /// Answers the agent's permission prompt or question (`choice`: a card choice's id); signed each time. Network
+    /// and the prompt.
+    pub fn session_answer(
+        &self,
+        session: String,
+        card: String,
+        choice: String,
+        signer: Arc<dyn Signer>,
+    ) -> Result<bool, FerbError> {
+        guard(|| {
+            Ok(self
+                .core()?
+                .session_answer(&session, &card, &choice, signer_of(signer))?)
+        })
+    }
+
+    /// Stops the agent's turn (this phone must control the session). Network.
+    pub fn session_interrupt(&self, session: String) -> Result<bool, FerbError> {
+        guard(|| Ok(self.core()?.session_interrupt(&session)?))
+    }
+
+    /// The folders a new session may start in; with `folder`, the exact command and its question. Network.
+    pub fn session_prepare(
+        &self,
+        agent: String,
+        folder: String,
+        text: String,
+    ) -> Result<SessionStartPlan, FerbError> {
+        guard(|| Ok(self.core()?.session_prepare(&agent, &folder, &text)?.conv()))
+    }
+
+    /// Starts a session in a new Terminal window on the Mac (signed: it types the command `session_prepare` showed).
+    /// Answers the command. Network and the prompt.
+    pub fn session_start(
+        &self,
+        agent: String,
+        folder: String,
+        text: String,
+        signer: Arc<dyn Signer>,
+    ) -> Result<String, FerbError> {
+        guard(|| {
+            Ok(self
+                .core()?
+                .session_start(&agent, &folder, &text, signer_of(signer))?)
+        })
+    }
+
+    /// Hands a session to FERB with the owner's goal (signed): his words become a FERB task in the chat. Answers the
+    /// message. Network and the prompt.
+    pub fn session_delegate(
+        &self,
+        session: String,
+        goal: String,
+        signer: Arc<dyn Signer>,
+    ) -> Result<String, FerbError> {
+        guard(|| {
+            Ok(self
+                .core()?
+                .session_delegate(&session, &goal, signer_of(signer))?)
+        })
+    }
+
+    /// A session's window, live (PHN-454: a direct path or the owner's relay only, in memory only, ended by the lock),
+    /// at Watch live's pace. Safe on the UI thread (it only starts the thread).
+    pub fn watch_session(
+        &self,
+        session: String,
+        sink: Arc<dyn PreviewSink>,
+    ) -> Result<Arc<LivePreview>, FerbError> {
+        watch_paced_target(self, Target::Session(session), PREVIEW_LEAST_MS, sink)
+    }
+
     /// Ends insomnia mode now (`insomnia.end`; allowed while locked, no unlock; never queued). Network.
     pub fn end_insomnia(&self) -> Result<InsomniaEnded, FerbError> {
         guard(|| Ok(self.core()?.end_insomnia()?.conv()))
@@ -1032,10 +1156,25 @@ impl Drop for Mobile {
 }
 
 /// A live preview at `least_ms` at most (`watch_live`, `watch_thumbnail`).
+/// What a live preview shows: a task's work (and one step of it), or a coding session's window (PHN-797).
+enum Target {
+    Task(String, Option<String>),
+    Session(String),
+}
+
 fn watch_paced(
     m: &Mobile,
     task_id: String,
     worker: Option<String>,
+    least_ms: u64,
+    sink: Arc<dyn PreviewSink>,
+) -> Result<Arc<LivePreview>, FerbError> {
+    watch_paced_target(m, Target::Task(task_id, worker), least_ms, sink)
+}
+
+fn watch_paced_target(
+    m: &Mobile,
+    target: Target,
     least_ms: u64,
     sink: Arc<dyn PreviewSink>,
 ) -> Result<Arc<LivePreview>, FerbError> {
@@ -1049,7 +1188,7 @@ fn watch_paced(
             .name("ferb-preview".into())
             .spawn(move || {
                 let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    live_loop(weak, task_id, worker, sink, flag, least_ms)
+                    live_loop(weak, target, sink, flag, least_ms)
                 }));
             })
             .map_err(|_| FerbError::internal())?;
@@ -1061,8 +1200,7 @@ fn watch_paced(
 /// closes, or the path or the lock refuses it.
 fn live_loop(
     core: std::sync::Weak<ferb_mobile::Mobile>,
-    task_id: String,
-    worker: Option<String>,
+    target: Target,
     sink: Arc<dyn PreviewSink>,
     stop: Arc<std::sync::atomic::AtomicBool>,
     least_ms: u64,
@@ -1086,7 +1224,10 @@ fn live_loop(
                 Some("Unlock to watch live.".into()),
             );
         }
-        let answer = c.preview_of(&task_id, worker.as_deref(), have);
+        let answer = match &target {
+            Target::Task(task_id, worker) => c.preview_of(task_id, worker.as_deref(), have),
+            Target::Session(session) => c.session_preview(session, have),
+        };
         drop(c);
         let wait = match answer {
             Ok(f) => {

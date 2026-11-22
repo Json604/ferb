@@ -490,6 +490,8 @@ extension AppWindowPresentation {
         .init(name: "Memory → Import from… file", mechanism: .opening, file: "WindowPages.swift", code: "NSOpenPanel()"),
         .init(name: "Settings → Phone → Files from your phone → Choose…", mechanism: .opening, file: "PhonePage.swift",
               code: "NSOpenPanel()"),
+        .init(name: "Sessions → New session → Folder → Choose…", mechanism: .opening, file: "SessionsPage.swift",
+              code: "NSOpenPanel()"),
         // Quick Look and the update window
         .init(name: "Quick Look of an artifact", mechanism: .opening, file: "PanelCoordinator.swift",
               code: "QLPreviewPanel.shared()"),
@@ -505,6 +507,8 @@ extension AppWindowPresentation {
         .init(name: "Settings' pickers", mechanism: .menu, file: "SettingsPages.swift", code: "Picker("),
         .init(name: "Settings → Thinking and setup pickers", mechanism: .menu, file: "SetupView.swift", code: "Picker("),
         .init(name: "Memory → Import from…", mechanism: .menu, file: "WindowPages.swift", code: "Menu("),
+        .init(name: "Sessions → New session's folder menu", mechanism: .menu, file: "SessionsPage.swift", code: "Menu("),
+        .init(name: "Sessions → New session's agent picker", mechanism: .menu, file: "SessionsPage.swift", code: "Picker("),
         // On every Space by construction
         .init(name: "The notch", mechanism: .everySpace, file: "PanelCoordinator.swift", code: "class NotchPanel: NSPanel"),
         .init(name: "The notch's light (trace)", mechanism: .everySpace, file: "PanelCoordinator.swift",
@@ -541,6 +545,8 @@ extension AppWindowPresentation {
               file: "StoredDataPage.swift", code: ".alert("),
         .init(name: "Settings → Phone's Remove confirmation", mechanism: .withParent, file: "PhonePage.swift",
               code: ".alert("),
+        .init(name: "Sessions' sheet (a send's or a start's Yes, Hand to FERB, New session, Watch)", mechanism: .withParent,
+              file: "SessionsPage.swift", code: ".sheet("),
     ]
     // What counts as a presenter in the sources is listed by the build's scan (Tools/SettingsKeyScan, SourcePresenters).
 }

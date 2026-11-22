@@ -572,6 +572,7 @@ dependencies = [
  "ferb-runtimes",
  "ferb-sanitize",
  "ferb-sense",
+ "ferb-sessions",
  "ferb-shell",
  "ferb-store",
  "ferb-trace",
@@ -780,6 +781,7 @@ dependencies = [
  "ferb-identity",
  "ferb-rpc",
  "libc",
+ "plist",
  "serde_json",
  "tempfile",
  "tokio",
@@ -915,6 +917,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ferb-sessions"
+version = "0.28.0"
+dependencies = [
+ "getrandom 0.3.4",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "ferb-shell"
 version = "0.28.0"
 dependencies = [
@@ -1047,6 +1058,7 @@ dependencies = [
  "ferb-runtimes",
  "ferb-sanitize",
  "ferb-sense",
+ "ferb-sessions",
  "ferb-shell",
  "ferb-store",
  "ferb-supervisor",

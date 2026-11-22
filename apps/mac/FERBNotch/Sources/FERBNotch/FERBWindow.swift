@@ -77,6 +77,9 @@ struct FERBAppActions {
     /// Runs before `ferb uninstall` (plan F removes FERB.app's login item and unregisters the background service
     /// here): nil to go on, else why not, and the uninstall doesn't run.
     var beforeUninstall: (@MainActor () async -> String?)?
+    /// At Uninstall, while the background service still runs: it takes FERB's hook out of Claude Code's settings
+    /// (`sessions.remove_hooks`). Its failure never stops the uninstall.
+    var removeSessionHooks: (@MainActor () async -> Void)?
     /// Runs first of all at Uninstall (DMN-598): the background service removes FERB's files from the browsers'
     /// folders while it still runs (it holds Full Disk Access; FERB.app doesn't).
     var removeBrowserFiles: (@MainActor () async -> BrowserFilesRemoval)?
@@ -271,6 +274,7 @@ struct FERBWindowView: View {
     private var subtitle: String {
         switch selection.section ?? .tasks {
         case .tasks: return "What FERB is working on, and what’s done."
+        case .sessions: return "Your coding sessions"
         case .schedules: return "The things you want to happen, right on time."
         case .noticed: return "The little things FERB picked up along the way."
         case .memory: return "What FERB knows about you. Yours to change."
@@ -281,6 +285,7 @@ struct FERBWindowView: View {
     @ViewBuilder private var page: some View {
         switch selection.section ?? .tasks {
         case .tasks: TasksPage(store: store)
+        case .sessions: SessionsPage(store: store, sessions: store.sessions)
         case .schedules: SchedulesPage(store: store)
         case .noticed: NoticedPage(store: store)
         case .memory: MemoryPage(store: store, correctMemory: actions.correctMemory)
