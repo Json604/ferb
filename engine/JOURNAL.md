@@ -9560,3 +9560,57 @@ listing again with the same note); ferb-gateway `catalog.rs` `the_deliberate_cha
 
 **Unverified.** No real model used `full`; `expanded` suppression is not counted in `left_out` (it only restates a
 negative); the note's wording was not read on a real Chrome page.
+
+## 2026-11-22 · 176 · A new phone session proves the phone before it says online: no call meets a locked Mac
+
+**What failed.** ferb-link's `tests/relay.rs` failed in the push gate today and on earlier pushes; the gate keeps 30
+lines, so it named no test. Journal 161 had seen `own_relay_down_falls_back_to_the_shared_relay_and_comes_back` fail
+once in 14 runs: `chat.send` answered `locked` at relay.rs:296, just after the own relay came back. That is the
+only relay failure on record. My own runs below caught no relay failure: the Mac's load was 2 to 15 then, against
+the gate's 133 and more.
+
+**Why (a race in the product, not in the test).** `Phone::serve` (ferb-link client.rs) set the phase online and only
+then spawned the presence proof (`link.challenge`, the device key's signature, `link.present`) for a new connection
+that had not moved (`moved != Some(true)`). The Mac (the stand-in, as the daemon's gate) gives a connection the
+phone's unlock only once it proved the device key (SEC-26: `open_window` needs `present` for the device's window).
+A call made the moment the phase said online raced that spawned task. Under load the task ran late, and the call
+was refused `locked`. The test waits for `phase == online && tier == own_relay` and calls `chat.send` at once, so it
+lost the race now and then. A start-over (PHN-225) already proved the key on the new connection before the session
+moved ("so no call ever meets a locked Mac in between"); a fresh connection after a drop did not. The phones have
+the same gap: ferb-mobile-ffi proved presence on a thread of its own after it heard online, and the core syncs on
+coming online. PHN-684 made only the unlock statement wait for that proof. I infer, without a phone, that a phone
+back from a relay change could have its first sync or a waiting message refused as locked until the next sync.
+
+**Fix (PHN-799).** `Phone::online` calls `prove_on` on the welcomed connection before `serve`, the same function a
+start-over uses: with an in-process signer by itself, otherwise through the app's `prove` event (3 s at most; no
+answer: online unproved, as before). `serve` takes `moved` and `proved` apart. The phase's `proved` is now true for
+every proven session, and the old spawned proof runs only for a session that came online unproved.
+ferb-mobile-ffi `present` sends no second proof for a proved session. It marks that session as presented and
+settled, so `wait_presented` (PHN-684) has nothing to wait for and the open-app presence loop (PHN-648) keeps going.
+If the app is open it sends its active presence at once, as the per-session proof used to carry it.
+
+**Tests.**
+- New `tests/link.rs a_call_made_the_moment_a_new_session_is_online_meets_the_phones_unlock`: the stand-in answers
+  `phone.present` 1.5 s late (new `Standin::set_present_delay`). Three times the phone goes to the background and
+  back, and a `tasks.list` is made the moment the phase says online with a new session number. Built against the
+  old client.rs, it fails every run in round 1 with `locked` (0.39 s). With the fix it passes (4.9 s).
+- relay.rs fallback test: the session that comes back on the own relay says `proved` before its `chat.send`.
+- The relay binary the gate's way (ferb-test-guard, `--test-threads 3`, `--nocapture`), one run after another at
+  nice 19 with no extra load. The Mac's load average was 2 to 15 then; the gate's was 133 and more. Fixed: 10
+  consecutive passes on a2c30951 (two from a first build, then eight from the final one). One more pass came inside
+  the whole ferb-link suite, which passed entirely.
+  Without the fix (the binary built from a2c30951 as it was), 9 runs in turn with those passed too: at this load the
+  race was not caught that way. The new link test above catches it on every run.
+- ferb-mobile-ffi's whole suite and ferb-link's whole suite pass under the guard. fmt and clippy are clean (ferb-link
+  with devrelay, ferb-mobile-ffi, -D warnings).
+- After rebasing on 01b9622b, which touched ferb-link and ferb-mobile-ffi: fmt and clippy are clean again, both whole
+  suites pass again (relay included), and the relay binary passed 3 more runs in a row. That makes 15 passes of the
+  relay binary with the fix and no failure.
+
+**Unverified.**
+- No real phone ran this. The app path (the `prove` event before online, the active presence on a proved session)
+  is covered only by ferb-mobile-ffi's own tests.
+- The whole workspace gate (fmt, lint, test, portable) was not run, and neither were ferb-mobile's tests (that crate
+  is unchanged).
+- A new connection now goes online after two more round trips (the challenge and the proof), plus the app's
+  signature on a phone. It is not measured on a real relay.

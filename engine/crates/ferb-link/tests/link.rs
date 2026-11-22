@@ -31,6 +31,38 @@ async fn shared_world() -> (Relay, World) {
     (relay, w)
 }
 
+// decision: PHN-799, PHN-225
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_made_the_moment_a_new_session_is_online_meets_the_phones_unlock() {
+    let (_relay, w) = shared_world().await;
+    let p = w.paired_phone("phone").await;
+    p.call("tasks.list", json!({})).await.expect("unlocked");
+    // a Mac slow to answer the phone's presence proof: a session that went online before its proof was taken would
+    // meet a locked Mac for this whole second and a half
+    w.standin.set_present_delay(Duration::from_millis(1500));
+    for round in 1..=3 {
+        let session = p.phone.phase()["session"].as_u64().unwrap();
+        p.phone.set_active(false);
+        p.phone.set_active(true);
+        let fresh = || p.phase() == "online" && p.phone.phase()["session"].as_u64() > Some(session);
+        let end = Instant::now() + Duration::from_secs(30);
+        while !fresh() && Instant::now() < end {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert!(fresh(), "round {round}: {}", p.phone.phase());
+        // at once: the unlock is there, because the new connection proved the phone before it said online
+        p.call("tasks.list", json!({}))
+            .await
+            .unwrap_or_else(|e| panic!("round {round}: a call right after online met {e}"));
+        assert_eq!(
+            p.phone.phase()["proved"],
+            true,
+            "round {round}: {}",
+            p.phone.phase()
+        );
+    }
+}
+
 // decision: PHN-301, PHN-304
 #[tokio::test(flavor = "multi_thread")]
 async fn basics_work_on_the_shared_relay() {

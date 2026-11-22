@@ -1049,7 +1049,7 @@ impl Phone {
                 // the session goes on over the connection a start-over made: no dial, and the phase stays online
                 let (conn, started) = (p.conn.clone(), p.started);
                 let e = self
-                    .serve(p.conn, p.tx, p.rx, p.welcome, Some(p.proved))
+                    .serve(p.conn, p.tx, p.rx, p.welcome, true, p.proved)
                     .await;
                 ended(&conn, started, &e);
                 if started.elapsed().as_secs() >= self.limits().healthy_reset_s {
@@ -1242,7 +1242,12 @@ impl Phone {
     /// Hello, (pairing), welcome, then the event stream until the connection ends. Returns why it ended.
     async fn online(&self, conn: Connection) -> LinkError {
         match self.greet(&conn, true).await {
-            Ok((tx, rx, welcome)) => self.serve(conn, tx, rx, welcome, None).await,
+            Ok((tx, rx, welcome)) => {
+                // the phone's presence is proved on this connection before the session goes online, as before a
+                // session moves: no call ever meets a locked Mac between "online" and the proof (kb PHN-799)
+                let proved = self.prove_on(&conn).await;
+                self.serve(conn, tx, rx, welcome, false, proved).await
+            }
             Err(e) => e,
         }
     }
@@ -1304,14 +1309,15 @@ impl Phone {
         Ok((tx, rx, welcome))
     }
     /// The session on a welcomed connection: the event stream until the connection ends. `moved`: this connection
-    /// takes a running session over from another endpoint (and whether it proved the phone's presence already).
+    /// takes a running session over from another endpoint; `proved`: it proved the phone's presence already.
     async fn serve(
         &self,
         conn: Connection,
         _tx: SendStream,
         mut rx: RecvStream,
         welcome: Value,
-        moved: Option<bool>,
+        moved: bool,
+        proved: bool,
     ) -> LinkError {
         let l = self.limits();
         let stall = Duration::from_secs(l.stall_s);
@@ -1339,19 +1345,13 @@ impl Phone {
             + 1;
         self.set_phase(json!({"phase": "online", "tier": welcome["tier"], "tier_words": welcome["tier_words"], "device": welcome["device"],
                               "mac": {"level": mac_level, "build": welcome["build"], "older": mac_level < self.inner.cfg.level, "newer": mac_level > self.inner.cfg.level},
-                              "relay": welcome["relay"]["state"], "own_relay": welcome["relay"]["own"]["url"], "session": session, "proved": moved == Some(true)}));
-        if moved.is_some() {
+                              "relay": welcome["relay"]["state"], "own_relay": welcome["relay"]["own"]["url"], "session": session, "proved": proved}));
+        if moved {
             // calls that waited for the move go out now, on this connection
             self.inner.swap.send_replace(false);
         }
 
-        if let Some(sign) = self
-            .inner
-            .cfg
-            .device_sign
-            .clone()
-            .filter(|_| moved != Some(true))
-        {
+        if let Some(sign) = self.inner.cfg.device_sign.clone().filter(|_| !proved) {
             let me = self.clone();
             tokio::spawn(async move {
                 let _ = me.present(|payload| sign(payload)).await;

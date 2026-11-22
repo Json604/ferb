@@ -189,7 +189,7 @@ async fn the_relay_test_says_exactly_what_is_wrong() {
     assert!(w.bridge.status()["own_relay"].is_null());
 }
 
-// decision: PHN-208, PHN-203, PHN-425, PHN-462
+// decision: PHN-208, PHN-203, PHN-425, PHN-462, PHN-799
 #[tokio::test(flavor = "multi_thread")]
 async fn own_relay_down_falls_back_to_the_shared_relay_and_comes_back() {
     let shared = Relay::start(None, None).await;
@@ -270,6 +270,9 @@ async fn own_relay_down_falls_back_to_the_shared_relay_and_comes_back() {
         "{}",
         p.phone.phase()
     );
+    // the new session proved the phone before it went online, so the unlock carried over before any call: the
+    // `chat.send` below never meets a locked Mac, however late this test's thread runs (kb PHN-799)
+    assert_eq!(p.phone.phase()["proved"], true, "{}", p.phone.phase());
     // decision: PHN-425 (the app heard the phone's own fall back to the public relay and its return, as events)
     let states: Vec<String> = p
         .seen

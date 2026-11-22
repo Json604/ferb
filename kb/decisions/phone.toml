@@ -4048,3 +4048,13 @@ rule = "For HAND-651, APP-1112. Android and iPhone gain a Sessions tab after Tas
 evidence = "Android SessionsTest (13, FakePhone), SessionsLibraryTest (the real library over FixtureMac), SessionShotsTest (10 goldens); iPhone SessionsTests and snapshots."
 paths = ["apps/android/app/src/main/kotlin/com/ferb/app/ui/Sessions.kt", "apps/android/app/src/main/kotlin/com/ferb/app/model/Sessions.kt", "apps/android/design/src/main/kotlin/com/ferb/design/components/TopBar.kt", "apps/android/design/src/main/kotlin/com/ferb/design/Metrics.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppUI/Sessions.swift", "apps/ios/Packages/FerbDesign/Sources/FerbDesign/Lab/Mobile.swift"]
 live = ["LIVE-1169", "LIVE-1171", "LIVE-1173"]
+
+[PHN-799]
+title = "A new session proves the phone's presence before it goes online"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For PHN-225, PHN-493, SEC-26. ferb-link proves the device key on every new connection (link.challenge, the signature, link.present) after the welcome and before the phase says online, as before a move: with an in-process signer itself, else through the app's `prove` event (3 s at most; no answer: online unproved). The phase then says proved; ferb-mobile-ffi proves only a session online unproved, and an open app's active presence (PHN-648) goes at once either way. A call made the moment the phone is online meets the unlock it had, never `locked`."
+why = "The proof went out after online, on its own task or the app's thread, so a call made at once raced it and was refused as locked: relay.rs:296's chat.send in the fallback test, and on a phone back from a relay change its first sync or a waiting message (inferred from the code)."
+evidence = "tests/relay.rs own_relay_down_falls_back_to_the_shared_relay_and_comes_back: the session back on the own relay says proved at once (fails on the old client every run), then chat.send goes through. Run counts: journal 176."
+paths = ["engine/crates/ferb-link/src/client.rs", "engine/crates/ferb-mobile-ffi/src/link.rs"]

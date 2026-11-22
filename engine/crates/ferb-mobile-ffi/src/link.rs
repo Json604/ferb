@@ -159,7 +159,7 @@ impl LinkDoor for ClientDoor {
 #[derive(Default)]
 struct Seen {
     paired: bool,
-    /// The last session whose presence the device key set out to prove.
+    /// The last session whose presence the device key set out to prove (or the link proved before it went online).
     presented: Option<u64>,
     /// The last session whose presence proof was answered (taken or not): [`LinkInner::wait_presented`].
     settled: Option<u64>,
@@ -381,26 +381,36 @@ impl LinkInner {
         }
     }
 
-    /// A new session that has not proved this phone's presence yet (`proved` false): the device key signs the Mac's
-    /// fresh challenge for `link.present`, as the app's side does (ferb-link `Phone::present`, whose in-process signer
-    /// an app can't hand over; the link asks the app itself only during a start-over, the `prove` event). Then the
-    /// Mac lets the phone's unlock carry over a reconnect. On a thread of its own, once per session.
+    /// A new session. The link proves this phone's presence before a session goes online (it asks the app with the
+    /// `prove` event, kb PHN-799), so the Mac lets the phone's unlock carry over a reconnect before any call: then
+    /// nothing is on its way, and only an app that is open says so at once (PHN-648). A session that went online
+    /// without that proof (`proved` false: the signature didn't come in time, an older link) is proved here: the
+    /// device key signs the Mac's fresh challenge for `link.present`, on a thread of its own, once per session.
     fn present(self: &Arc<Self>, ev: &Value) {
         let (Some(signer), Some(session)) = (self.device_signer.clone(), ev["session"].as_u64())
         else {
             return;
         };
-        if ev["phase"] != "online" || ev["proved"] == json!(true) {
+        if ev["phase"] != "online" {
             return;
         }
+        let proved = ev["proved"] == json!(true);
         {
             let mut seen = lock(&self.seen);
             if seen.presented == Some(session) {
                 return;
             }
             seen.presented = Some(session);
+            if proved {
+                seen.settled = Some(session);
+                self.settled.notify_all();
+            }
         }
-        self.send_presence(signer, Some(session));
+        if !proved {
+            self.send_presence(signer, Some(session));
+        } else if self.open.load(Ordering::SeqCst) {
+            self.send_presence(signer, None);
+        }
     }
 
     /// Waits, at most [`PRESENCE_WAIT`], for the presence proof of the newest session to be answered, when one is on

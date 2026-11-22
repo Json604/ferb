@@ -258,6 +258,8 @@ struct St {
     never: Vec<PathBuf>,
     /// What the free disk is said to be (tests of the free-disk floor); None: the real one is not asked, enough.
     free_disk: Option<u64>,
+    /// How long the stand-in takes to answer a phone's presence proof (`phone.present`): a slow or busy Mac.
+    present_delay: Duration,
 }
 
 type Shared = Arc<Mutex<St>>;
@@ -824,6 +826,7 @@ impl Standin {
             files,
             never: vec![std::fs::canonicalize(dir).unwrap().join("mac")],
             free_disk: None,
+            present_delay: Duration::ZERO,
         }));
         let _ = std::fs::remove_file(&socket);
         let listener = UnixListener::bind(&socket).unwrap();
@@ -838,6 +841,10 @@ impl Standin {
     /// The free disk the stand-in reports to the upload floor check (None: plenty).
     pub fn set_free_disk(&self, bytes: Option<u64>) {
         self.st.lock().unwrap().free_disk = bytes;
+    }
+    /// How long the stand-in takes to answer a phone's presence proof (a slow or busy Mac).
+    pub fn set_present_delay(&self, d: Duration) {
+        self.st.lock().unwrap().present_delay = d;
     }
     /// A call as role `role` straight to the stand-in (the owner's side of a test, or an attack on the daemon).
     pub async fn call_as(&self, role: &str, method: &str, params: Value) -> Result<Value, Value> {
@@ -1256,6 +1263,10 @@ async fn connection(st: Shared, stream: tokio::net::UnixStream) {
                 }
             }
             continue;
+        }
+        if method == "phone.present" {
+            let d = st.lock().unwrap().present_delay;
+            tokio::time::sleep(d).await;
         }
         let reply = unary(&st, sess, &method, &params, &proof).await;
         let _ = out.send(match reply {
