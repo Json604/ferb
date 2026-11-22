@@ -1530,3 +1530,15 @@ why = "His own words typed from his surface are his input (rule 9); the one Yes 
 evidence = "ferb-daemon tests/sessions.rs the_owner_s_first_send_asks_once_then_types_and_proves_delivery (asked, refused before, sent after, the phone's own, ended by the lock)."
 paths = ["engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.needs_yes", "engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.take_control", "engine/crates/ferb-daemon/src/phone/gate.rs::lock_phone"]
 live = ["LIVE-1169", "LIVE-1170"]
+
+[GATE-623]
+title = "The 30-minute don't-ask window never covers taking the owner's screen or keyboard"
+by = "owner"
+date = 2026-11-22
+status = "active"
+words = "No, always ask for screen input"
+words_source = "Owner 2026-11-22, answering: \"Your 'don't ask for 30 minutes' Yes also covered FERB taking your keyboard on screen and pressing Chrome's menus. Should that window keep covering on-screen input?\""
+rule = "Changes GATE-207: the foreground question (floor:foreground: Mac input that brings an app forward or uses the screen, raw input to an app that comes forward, and a script for his browser, which shares its key per GATE-222) is no longer routine: a don't-ask window never answers it or offers itself on it. The window still covers a browser's own pages, new recipients, profile pairing and protected-folder reads. One Yes still covers that app for the task; terminal typing (GATE-585) is unchanged."
+why = "Task a843aa54: his 30-minute answer to the pairing question answered a script question for Chrome whose key then covered menu presses and a foreground cmd+L at 14:25 that took his screen."
+paths = ["engine/crates/ferb-policy/src/confirm.rs::ROUTINE"]
+live = ["LIVE-1180"]

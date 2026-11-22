@@ -844,6 +844,7 @@ fn build(sc: &Value, root: &Root) -> Run {
         journal_problem: Box::new(move |kind, data| jr.lock().unwrap().push(json!([kind, data]))),
         profile_name: Box::new(|_b, f| f.to_string()),
         profile_account: Box::new(|_b, _f| String::new()),
+        profile_turned_off: Box::new(|_b, _f| false),
         owner_contacts: Box::new(move || own.clone()),
         pay_same_site_forms: Box::new(move || pay_same),
         on_path: Box::new(|_p, _t| {}),
@@ -1796,6 +1797,83 @@ fn fixture() -> Value {
     support::app_926(serde_json::from_str(&text).unwrap())
 }
 
+/// The named difference of GATE-623 (owner, 2026-11-22: "No, always ask for screen input"): the foreground
+/// question (floor:foreground) is no longer routine, so a question that holds it no longer offers "Yes, and don't ask
+/// for 30 min". Python offered it; every other byte replays as recorded. The recorded question is known by its own
+/// record: an owner.ask whose `confirm` holds that rule, and the pending question with the same `reason`.
+fn screen_asks(sc: &Value) -> Value {
+    const WINDOW: &str = "Yes, and don't ask for 30 min";
+    let text = sc.to_string();
+    let mut reasons: Vec<String> = Vec::new();
+    fn find(v: &Value, out: &mut Vec<String>) {
+        match v {
+            Value::String(t)
+                if t.contains("\"floor:foreground\"") && t.contains("\"owner.ask\"") =>
+            {
+                if let Ok(row) = serde_json::from_str::<Value>(t) {
+                    if let Some(q) = row["args"]["question"].as_str() {
+                        out.push(q.to_string());
+                    }
+                }
+            }
+            Value::Object(m) => m.values().for_each(|x| find(x, out)),
+            Value::Array(a) => a.iter().for_each(|x| find(x, out)),
+            _ => {}
+        }
+    }
+    find(sc, &mut reasons);
+    if reasons.is_empty() || !text.contains(WINDOW) {
+        let mut out = sc.clone();
+        note(&mut out);
+        return out;
+    }
+    fn walk(v: &mut Value, reasons: &[String]) {
+        match v {
+            Value::Object(m) => {
+                let held = m
+                    .get("reason")
+                    .and_then(Value::as_str)
+                    .is_some_and(|r| reasons.iter().any(|q| q == r));
+                if held {
+                    if let Some(Value::Array(o)) = m.get_mut("options") {
+                        o.retain(|x| x != WINDOW);
+                    }
+                }
+                m.values_mut().for_each(|x| walk(x, reasons));
+            }
+            Value::Array(a) => a.iter_mut().for_each(|x| walk(x, reasons)),
+            Value::String(t)
+                if t.contains("\"floor:foreground\"") && t.contains("\"owner.ask\"") =>
+            {
+                *t = t.replace(&format!(", \"{WINDOW}\"]"), "]");
+            }
+            _ => {}
+        }
+    }
+    let mut out = sc.clone();
+    walk(&mut out, &reasons);
+    note(&mut out);
+    out
+}
+
+/// GATE-623: the window's note no longer lists screen use.
+fn note(v: &mut Value) {
+    use ferb_gateway::words::{ALLOW_WINDOW_NOTE, ALLOW_WINDOW_NOTE_BEFORE};
+    // as written, and as Python's json.dumps escaped it inside a recorded row
+    let esc = |t: &str| t.replace('—', "\\u2014");
+    match v {
+        Value::String(t) if t.contains(ALLOW_WINDOW_NOTE_BEFORE) => {
+            *t = t.replace(ALLOW_WINDOW_NOTE_BEFORE, ALLOW_WINDOW_NOTE);
+        }
+        Value::String(t) if t.contains(&esc(ALLOW_WINDOW_NOTE_BEFORE)) => {
+            *t = t.replace(&esc(ALLOW_WINDOW_NOTE_BEFORE), &esc(ALLOW_WINDOW_NOTE));
+        }
+        Value::Object(m) => m.values_mut().for_each(note),
+        Value::Array(a) => a.iter_mut().for_each(note),
+        _ => {}
+    }
+}
+
 /// The one named difference in the hidden input's card (GATE-603, GATE-605): a value saved for a web page is kept for
 /// any site when it is an ID number, which the card says after "only" ("… usable only at this destination (or any
 /// site, if it's an ID number)." and "… for x.test only (or any site, if it's an ID number), as “login”."). Python's
@@ -1857,7 +1935,7 @@ fn every_scenario_replays_as_python_ran_it() {
             continue;
         }
         count += 1;
-        let problems = rt.block_on(replay(&any_site_clause(sc), &root));
+        let problems = rt.block_on(replay(&screen_asks(&any_site_clause(sc)), &root));
         if !problems.is_empty() {
             failed.push(format!("{}\n{}", sc["name"], problems.join("\n")));
         }
@@ -2279,6 +2357,7 @@ fn the_daemon_recordings_file_calls_get_the_same_replies() {
             journal_problem: Box::new(|_k, _d| {}),
             profile_name: Box::new(|_b, f| f.to_string()),
             profile_account: Box::new(|_b, _f| String::new()),
+            profile_turned_off: Box::new(|_b, _f| false),
             owner_contacts: Box::new(Vec::new),
             pay_same_site_forms: Box::new(|| true),
             on_path: Box::new(|_p, _t| {}),
@@ -2423,6 +2502,7 @@ fn bare_gateway(events: Arc<Mutex<Vec<(String, Value)>>>) -> (Gateway, tempfile:
         journal_problem: Box::new(|_k, _d| {}),
         profile_name: Box::new(|_b, f| f.to_string()),
         profile_account: Box::new(|_b, _f| String::new()),
+        profile_turned_off: Box::new(|_b, _f| false),
         owner_contacts: Box::new(Vec::new),
         pay_same_site_forms: Box::new(|| true),
         on_path: Box::new(|_p, _t| {}),

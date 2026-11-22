@@ -119,6 +119,9 @@ pub enum MissingKind {
     ToolLoop {
         count: u64,
     },
+    /// ORCH-691: FERB's guard stopped the attempt (8 failed or unchanged on-screen actions on one app, or 4 minutes
+    /// of the step without progress); the supervisor asks the owner whether to keep trying.
+    Stuck,
 }
 
 /// answer_rules.py `AnswerMissing` (a `FerbError`): a run that ended without an answer by the shared rules.
@@ -137,6 +140,17 @@ impl AnswerMissing {
             message: format!(
                 "the service FERB thinks with ({runtime}) kept calling tools it wasn't given, or lookups after its limit ({count} such calls), so FERB stopped this call"
             ),
+            runtime: runtime.to_string(),
+        }
+    }
+}
+
+impl AnswerMissing {
+    /// ORCH-691: the guard's stop, in its plain words (`ferb_gateway::stuck::words`).
+    pub fn stuck(runtime: &str, words: &str) -> Self {
+        AnswerMissing {
+            kind: MissingKind::Stuck,
+            message: words.to_string(),
             runtime: runtime.to_string(),
         }
     }
@@ -294,6 +308,7 @@ impl Error {
                 MissingKind::Missing => "AnswerMissing".into(),
                 MissingKind::Empty => "EmptyAnswer".into(),
                 MissingKind::ToolLoop { .. } => "ToolLoop".into(),
+                MissingKind::Stuck => "StuckAttempt".into(),
             },
             Error::Violation(_) => "RuntimeViolation".into(),
             Error::Invalid(_) => "InvalidAnswer".into(),

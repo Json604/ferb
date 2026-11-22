@@ -401,6 +401,9 @@ pub struct TestDaemon {
     pub questions: Mutex<Arc<TestQuestions>>,
     pub stopped: AtomicBool,
     pub unattended: Mutex<BTreeSet<String>>,
+    /// ORCH-691: how many of the next checks find the attempt stopped by FERB's guard; the owner's "keep trying"s.
+    pub stuck: Mutex<usize>,
+    pub kept: Mutex<Vec<String>>,
     sinks: Mutex<Sinks>,
     next_sink: AtomicUsize,
     pub published: Mutex<Vec<(String, Value)>>,
@@ -760,6 +763,15 @@ impl Daemon for TestDaemon {
     fn forget_calls(&self, _worker_id: &str) {}
     fn calls_refused(&self, _watch_id: &str) -> u64 {
         0
+    }
+    fn take_stuck(&self, _task_id: &str) -> bool {
+        let mut n = self.stuck.lock().unwrap();
+        let was = *n > 0;
+        *n = n.saturating_sub(1);
+        was
+    }
+    fn keep_trying(&self, task_id: &str) {
+        self.kept.lock().unwrap().push(task_id.to_string());
     }
     fn lookups_made(&self, _holder: &str) -> usize {
         0
@@ -1816,6 +1828,8 @@ pub fn world_with(name: &str, edit: impl FnOnce(&mut Vec<Value>)) -> World {
         sup: Mutex::new(None),
         stopped: AtomicBool::new(false),
         unattended: Mutex::default(),
+        stuck: Mutex::default(),
+        kept: Mutex::default(),
         sinks: Mutex::default(),
         next_sink: AtomicUsize::new(0),
         published: Mutex::default(),

@@ -306,6 +306,15 @@ fn part(n: &Need, alongside: &[&str]) -> R<String> {
             v.req("app")?,
             v.req("page")?
         ),
+        // decision: HAND-678
+        PAIR if v.has("off") => format!(
+            "this opens the extensions page of your {0} profile “{1}”{2} ({0} comes to the front), where FERB is \
+             added but turned off and {0} lets only you turn it on: switch FERB on there, and FERB pairs the profile \
+             and carries on",
+            v.req("browser")?,
+            v.req("name")?,
+            account(v)
+        ),
         PAIR => format!(
             "this pairs your {} profile “{}”{} with FERB, so FERB can open tabs and work in that profile's signed-in \
              accounts; its pairing page opens there and closes itself",
@@ -503,6 +512,12 @@ fn short(n: &Need, alongside: &[&str]) -> R<Option<String>> {
             "change something on {}'s own page {} (its settings or extensions)",
             v.req("app")?,
             v.req("page")?
+        ),
+        PAIR if v.has("off") => format!(
+            "turn FERB on in your {} profile “{}”{} (FERB opens its extensions page there), then pair it",
+            v.req("browser")?,
+            v.req("name")?,
+            account(v)
         ),
         PAIR => format!(
             "pair your {} profile “{}”{} with FERB, so it can work in that profile",
@@ -1568,6 +1583,22 @@ fn card_of(n: &Need, alongside: &[&str]) -> Option<Card> {
                 page.to_string(),
                 "Allow",
                 "Don't",
+            ))
+        }
+        // decision: HAND-678
+        PAIR if v.has("off") => {
+            let (browser, name, account) = (v.opt("browser"), v.opt("name"), v.opt("email"));
+            let exact: Vec<&str> = [browser, name, account].into_iter().filter(|p| !p.is_empty()).collect();
+            Some(c(
+                format!("Turn FERB on in your {browser} “{name}” profile?"),
+                format!(
+                    "FERB is added there but turned off, and {browser} lets only you turn it on. FERB opens that \
+                     profile's extensions page ({browser} comes to the front): switch FERB on, and FERB pairs it and \
+                     carries on."
+                ),
+                exact.join(" · "),
+                "Open it",
+                "Not now",
             ))
         }
         PAIR => {

@@ -59,8 +59,10 @@ pub const BROWSER_SCHEMES: &[&str] = &[
 ];
 pub const NOT_BROWSER_PAGES: &[&str] = &["about:blank", "about:srcdoc"];
 pub const PAIR: &str = "floor:pair_profile";
-/// GATE-207: the routine questions a "don't ask for 30 minutes" window may answer Yes to.
-pub const ROUTINE: &[&str] = &[FOREGROUND, BROWSER_PAGE, "floor:new_recipient", PAIR];
+/// GATE-207: the routine questions a "don't ask for 30 minutes" window may answer Yes to. GATE-623 (owner,
+/// 2026-11-22) took the foreground question out: taking the owner's screen or keyboard, and a script for his browser
+/// that shares its key (GATE-222), always asks.
+pub const ROUTINE: &[&str] = &[BROWSER_PAGE, "floor:new_recipient", PAIR];
 pub const ALLOW_WINDOW_S: f64 = 1800.0;
 pub const TYPING_ACTIONS: &[&str] = &["type", "set_value", "edit", "key", "select"];
 pub const SHOWN: usize = 3;
@@ -275,8 +277,24 @@ pub fn read_lift_key(rule: &str) -> String {
     format!("lift:read:{rule}")
 }
 
-/// `routine`: whether a window of "don't ask" may answer this need (GATE-207).
+/// HAND-678: the pairing question for a profile whose FERB extension is added but turned off. Turning it on is the
+/// owner's own step (Chrome lets only the person turn an extension on), so FERB asks every time it would open that
+/// profile's extensions page (`always`), even for a profile the owner named, and a "don't ask" window never answers it
+/// ([`routine`]): a Yes nobody saw would leave the page waiting for a click nobody knows about. Same key as
+/// [`pair_need`]: the Yes is also the pairing's.
+pub fn pair_enable_need(name: &str, browser: &str, folder: &str, email: &str) -> Need {
+    let mut n = pair_need(name, browser, folder, email);
+    n.values.set("off", "yes");
+    n.always = true;
+    n
+}
+
+/// `routine`: whether a window of "don't ask" may answer this need (GATE-207). HAND-678: never the question that asks
+/// the owner to turn FERB on in a profile.
 pub fn routine(n: &Need) -> bool {
+    if n.rule == PAIR && n.values.has("off") {
+        return false;
+    }
     ROUTINE.contains(&n.rule.as_str())
         || (n.rule.starts_with("escape:") && n.values.get("lift") == Some("read"))
 }

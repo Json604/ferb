@@ -9434,3 +9434,107 @@ ferb-mac-hands, ferb-gateway, ferb-supervisor `prompts`, ferbd `catalog_mcp`, `t
 
 **Unverified.** No real model or provider went through any of this (LIVE-1177). Whether a model re-takes a screenshot
 it needs after its older one became a line is unmeasured. Claude's per-call sizes are modelled.
+
+## 2026-11-22 · 174 · A turned-off profile pairs with one question and his switch; FERB asks instead of digging; the window leaves the screen alone
+
+**The case (task a843aa54, read from `ferb trace --json`).** A new Chrome profile ("ds.study.iitm.ac.in", Profile 30)
+had FERB's extension added by FERB and, as Chrome does with an externally added extension, turned off. browser.open:
+"isn't paired". The owner answered the pairing question at 14:19:10; the answer opened his 30-minute window (every
+later Yes in the trace carries `allowed_until` 14:49:10 and took 2 ms). browser.pair then said `needs_enable`, reason
+off, why "turn FERB on in Google Chrome's extensions (chrome://extensions in that profile)". Attempt 1 (Codex
+gpt-5.6-sol, not Opus) stopped not_done with a question for him; the check labelled the condition `left: fix, none`
+and chose retry with "Use macOS app controls in Chrome Profile 30 to open chrome://extensions and turn FERB on, then
+pair the profile". ORCH-679 keeps a `fix` (and an `owner`) label as the checker's retry. Attempt 2 ran 8 minutes, 86
+model calls and 93 tool calls (8.5M input tokens) with no check in between: a script question for Chrome (window-Yes,
+key `floor:foreground com.google.chrome`, GATE-222's one key) that then covered every mac.menu "Profiles > …" press,
+mac.act and mac.click into Chrome, and the foreground cmd+L at 14:25:23-49 (`allow_foreground`, PointerInterrupted:
+the 2:25 shift); six browser-page questions for chrome://extensions, the new-tab page and pair.html, each window-Yes;
+an AX press on FERB's switch at 14:20:56 when the page already read "On, extension enabled" at 14:20:48 (the files
+still said off at 14:20:52: whether he had just switched it on and the press turned it off is not known); and
+pair.html typed into the address bar three times: `pair.js` closed itself with no token, and as the window's only tab
+the window went ("the browser closes"). The screen changes logged between FERB's calls (before-samples of the next
+call) can't be attributed from the samples alone; the ones inside calls are the AXShowMenu at 14:22:51, the
+foreground cmd+L, and two presses/ENTERs at 14:27.
+
+**Changed (HAND-677 owner; HAND-678 the question, HAND-679 the wait, HAND-680 pair.html).**
+- ferb-policy: `confirm::pair_enable_need` (the pairing key, `off`, always) and `routine` never true for it; the
+  question, the short line and the card say what he does (wording.rs).
+- ferb-gateway: `Deps::profile_turned_off`; `pair_need` returns the enable need for a turned-off profile, even one
+  his words named. ferbd wires it to the browser area (`OwnerFacts::profile_turned_off`).
+- ferb-daemon: `Cx::profile_turned_off`; `pair_for_task` sends a turned-off profile (not FERB's own) to
+  `enable_then_pair`: opens `chrome://extensions/?id=<id>` there, waits `pair_timeout_s` for a new unpaired hello in
+  that browser or the files saying on (every 5th 0.2 s round), then `pair_one_as(off_lags = hello)` (the files may
+  still say off: that no longer ends the pairing), `turned_on: true`. A wait that ends: needs_enable, reason off,
+  `opened`, `why` (STILL_OFF), `owner_step` (OWNER_STEP), nothing more opened. RPC pairing and Pair all unchanged.
+- Extension 0.19.14: pair.html without a token shows one line and closes nothing. Protocol and minimums unchanged.
+
+**Owner-facing strings (new).** Question: "FERB: this opens the extensions page of your Chrome profile “X” (acct)
+(Chrome comes to the front), where FERB is added but turned off and Chrome lets only you turn it on: switch FERB on
+there, and FERB pairs the profile and carries on. …" Card: "Turn FERB on in your Chrome “X” profile?" / "FERB is added
+there but turned off, and Chrome lets only you turn it on. FERB opens that profile's extensions page (Chrome comes to
+the front): switch FERB on, and FERB pairs it and carries on." / "Open it" / "Not now". Short line: "turn FERB on in
+your Chrome profile “X” (FERB opens its extensions page there), then pair it". Reply why: "FERB is still turned off in
+Chrome's profile “X”. Its extensions page is open there: switch FERB on, and FERB can pair the profile". pair.html:
+"This is FERB's pairing page. FERB opens it by itself when it pairs this profile, so there's nothing to do here. You
+can close this tab." Worker-facing: OWNER_STEP (browsers/mod.rs).
+
+**Not changed.** GATE-222 (a script for his browser shares the screen question's key) stands; with
+GATE-623 below, a window no longer answers that key.
+
+**Evidence.** ferb-gateway `pair_turned_off` (asked inside a window, window not offered, asked again on a second call,
+asked for a named profile, a No runs nothing, a named on-profile still needs no question); ferb-daemon b_browsers
+`a_turned_off_profile_opens_its_extensions_page_waits_for_ferb_then_pairs` (files, hello, never); ferb-browser
+`extension_pair_page` (node: no token closes nothing and shows the line; a token is sent and the page closes).
+
+**Unverified.** No live run: that `chrome://extensions/?id=` opens FERB's entry from the command line on current
+Chrome (FERB already opens chrome://extensions this way for a missing copy), that an unpaired copy says hello within a
+second of the switch, and whether the managed profile ("managed by study.iitm.ac.in") lets FERB's native host run
+there at all: its copy never said hello in the trace (`extension_version` "") even while its page read On. A hello
+from another profile of the same browser during the wait would open the pairing page in this one while FERB is still
+off there; that pairing then ends at its own timeout. LIVE-1178.
+
+**The owner's three answers (2026-11-22, relayed), built in the same change.**
+- ORCH-690 ("Yes, always ask me"): `rabbit_holes::rule` asks at once, with no retry first, when a condition is
+  labelled `owner` or a tool's `owner_step` fact still stands in the attempt (`owner_step_stands`: the latest call of
+  each tool since the step began; the supervisor reads the spans' `output_json`). An earlier "keep trying" in the step
+  still holds this back. Named change: ferb-orchestrator `the_rule_on_the_measured_shapes` now expects Ask for
+  `unmet(Owner, Most, true)`, and ferb-supervisor's `an_owner_label_leaves_the_checks_own_path` became
+  `an_owner_label_is_asked_about_at_once` (one attempt, then the question, then done_with_gaps).
+- ORCH-691 ("8 failed actions or 4 min"), how in ORCH-692: ferb-gateway `stuck::Steps` counts per step
+  (task id) in `call_as`. An on-screen call into one app counts when it erred, says ok or performed false, or read the
+  app afterwards and saw no change; 8 in a row on one app stop the attempt, and progress on that app (a change shown,
+  or a new observation of it) starts its count again (the coordinator's change: no adding up over a long healthy
+  task). Progress is a call that went through and showed a change on screen, acted off
+  screen, or observed something new in the step. Only the worker's thinking time counts (not time inside calls, not
+  between attempts). The worker's run asks `host.stuck(watch_id)` after each runtime event, as RUN-445's cap does; a stop is
+  `AnswerMissing::stuck` ("This attempt was stopped: 8 of FERB's actions in Google Chrome failed or changed nothing,
+  so FERB stopped to ask you" / "4 minutes went by on this step without progress, so FERB stopped to ask you"),
+  latched once for the step's check. `next()` reads it (`take_stuck`) and the check's retry or refused gapped accept
+  becomes ORCH-679's question, each time, after a keep trying too. Keep trying calls `keep_trying` (fresh counts).
+  Unattended runs end needs_user through the existing path. On a843aa54's calls neither limit would have fired: Chrome's failures came in
+  runs broken by visible changes and new snapshots, and visible changes kept the 4 minutes from running out (counted
+  without the reset, the 8th came at 14:24:21). What stops that run is ORCH-690 (the owner's step) and HAND-678/679.
+- ORCH-693 (owner's option C, "go with C. just note this while fix as a test and can be roll bakcedwhen i face issue
+  with my real tasks i do with it"; on trial, T-1292 and LIVE-1181 to revisit): a worker attempt also stops at its 40th
+  call of a Mac or browser tool that names an app window or a page (`app`, `tab` or `url`), whatever the call did, and
+  asks the same question. Keep trying or a new attempt counts afresh. The three numbers sit together in
+  `ferb-gateway/src/stuck.rs` (FAILED_ON_ONE_APP, NO_PROGRESS_S, WINDOW_CALLS_PER_ATTEMPT), each with its decision;
+  rolling the trial back is that one constant. On a843aa54 it would have stopped the second attempt at its 40th Chrome
+  call (a menu press at 14:23:50), before the 2:25 screen shift. New words: "FERB worked in your apps and pages 40 times in this attempt without finishing, so it
+  stopped to ask you".
+- GATE-623 ("No, always ask for screen input"): `confirm::ROUTINE` no longer holds `floor:foreground`, so a
+  don't-ask window neither answers nor offers itself on Mac input that uses the screen, raw input to an app that
+  comes forward, or a script for his browser (GATE-222's shared key). One Yes per app per task stays; browser pages,
+  new recipients, pairing and protected-folder reads stay routine; terminal typing (GATE-585) is untouched.
+  Named differences: ferb-policy parity's `routine` cases and the `ROUTINE` constant drop `floor:foreground`
+  (`as_decided`); ferb-gateway scenarios whose foreground question offered the window lose that option.
+
+**Evidence (added).** ferb-gateway tests/stuck.rs (both limits, the latch, keep trying, time in calls and between
+attempts), tests/pair_turned_off.rs (eight unchanged clicks through the real Gateway; a foreground click inside an
+open window still asks and offers no window); ferb-orchestrator tests/rabbit_holes.rs (the invariant widened, owner
+step, guard); ferb-supervisor tests/rabbit_holes.rs (the guard asks each time, keep trying counts afresh, unattended
+needs_user; an owner label asks at once); ferb-policy tests/browser_menu.rs (the foreground question isn't routine).
+
+**Unverified (added).** The guard's numbers on a live run; whether a stuck worker that keeps taking new snapshots
+of an app (each a new observation) is slowed enough by the 4 minutes; the owner_step reading end to end through the
+supervisor (its pure part and the rule are tested; the span query isn't).

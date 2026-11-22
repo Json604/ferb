@@ -5,7 +5,7 @@
 
 use ferb_context::pyvalue::loads;
 use ferb_orchestrator::rabbit_holes::{
-    question, rule, Checked, Kind, Reached, Rule, Unmet, ASK_TAIL,
+    owner_step_stands, question, rule, Checked, Kind, Reached, Rule, Unmet, ASK_TAIL,
 };
 use ferb_orchestrator::validate::{checker_outcome_validate, dump_checker_outcome};
 
@@ -67,12 +67,16 @@ fn the_rule_only_ever_keeps_the_checkers_choice_or_asks() {
     for next in NEXTS {
         for refused_not_done in [false, true] {
             for said in [false, true] {
-                for owner_kept in [false, true] {
+                for (owner_kept, owner_step, stuck) in
+                    (0..8).map(|b| (b & 1 == 1, b & 2 == 2, b & 4 == 4))
+                {
                     let checked = Checked {
                         next,
                         refused_not_done,
                         said,
                         owner_kept,
+                        owner_step,
+                        stuck,
                     };
                     for unmet in &sets {
                         match rule(&checked, unmet) {
@@ -81,13 +85,17 @@ fn the_rule_only_ever_keeps_the_checkers_choice_or_asks() {
                                 asked += 1;
                                 let gapped = next == "accept_with_gaps" && refused_not_done;
                                 assert!(next == "retry" || gapped, "{next}: {unmet:?}");
-                                assert!(said && !owner_kept, "{checked:?}");
+                                // ORCH-691: the guard asks after a "keep trying" too
+                                assert!(said && (!owner_kept || stuck), "{checked:?}");
                                 assert!(!unmet.is_empty(), "{checked:?}");
                                 assert!(
                                     unmet.iter().all(|u| !u.proved_false),
                                     "{checked:?} {unmet:?}"
                                 );
-                                if !gapped {
+                                let owners = owner_step
+                                    || stuck
+                                    || unmet.iter().any(|u| u.kind == Some(Kind::Owner));
+                                if !gapped && !owners {
                                     // a retry is asked about only on whole labels and a dig already retried
                                     assert!(
                                         unmet
@@ -126,12 +134,15 @@ const RETRY: Checked = Checked {
     refused_not_done: false,
     said: true,
     owner_kept: false,
+    owner_step: false,
+    stuck: false,
 };
 
 /// ORCH-679: the first retry is the checker's; after it a guess, a search or a stuck block with some of it reached is
-/// asked about; a fix, an owner's input or nothing reached is the checker's retry; a fix on another condition doesn't
-/// hold the question back.
-// decision: ORCH-679
+/// asked about; a fix or nothing reached is the checker's retry; a fix on another condition doesn't hold the question
+/// back. Named change (ORCH-690, owner 2026-11-22): an owner's input is asked about at once, no longer the
+/// checker's retry.
+// decision: ORCH-679, ORCH-690
 #[test]
 fn the_rule_on_the_measured_shapes() {
     use Kind::*;
@@ -142,7 +153,8 @@ fn the_rule_on_the_measured_shapes() {
         assert_eq!(rule(&RETRY, &[unmet(k, None, true)]), Rule::AsChecked);
     }
     assert_eq!(rule(&RETRY, &[unmet(Fix, Most, true)]), Rule::AsChecked);
-    assert_eq!(rule(&RETRY, &[unmet(Owner, Most, true)]), Rule::AsChecked);
+    assert_eq!(rule(&RETRY, &[unmet(Owner, Most, true)]), Rule::Ask);
+    assert_eq!(rule(&RETRY, &[unmet(Owner, None, false)]), Rule::Ask);
     assert_eq!(
         rule(&RETRY, &[unmet(Search, Some, true), unmet(Fix, Some, true)]),
         Rule::Ask
@@ -210,4 +222,84 @@ fn a_malformed_label_never_fails_the_check() {
         !dumped.contains("left") && !dumped.contains("progress"),
         "{dumped}"
     );
+}
+
+/// ORCH-690 (owner, 2026-11-22: "Yes, always ask me"): a tool's owner_step fact standing in the attempt makes
+/// the check's retry the question, whatever the check labelled (task a843aa54's check said `fix`, none reached).
+/// ORCH-691 (owner, 2026-11-22: "8 failed actions or 4 min"): an attempt the guard stopped asks at once, also after
+/// an earlier "keep trying"; a check that accepts, asks or fails keeps its own choice.
+// decision: ORCH-690, ORCH-691
+#[test]
+fn the_owners_step_and_a_stopped_attempt_are_asked_about_at_once() {
+    use Kind::*;
+    use Reached::*;
+    let fix = [unmet(Fix, None, false)];
+    assert_eq!(rule(&RETRY, &fix), Rule::AsChecked);
+    let owner_step = Checked {
+        owner_step: true,
+        ..RETRY
+    };
+    assert_eq!(rule(&owner_step, &fix), Rule::Ask);
+    let stuck = Checked {
+        stuck: true,
+        ..RETRY
+    };
+    assert_eq!(rule(&stuck, &fix), Rule::Ask);
+    let kept = Checked {
+        owner_kept: true,
+        ..RETRY
+    };
+    assert_eq!(
+        rule(
+            &Checked {
+                stuck: true,
+                ..kept
+            },
+            &fix
+        ),
+        Rule::Ask
+    );
+    assert_eq!(
+        rule(
+            &Checked {
+                owner_step: true,
+                ..kept
+            },
+            &fix
+        ),
+        Rule::AsChecked
+    );
+    for next in ["accept", "accept_unconfirmed", "ask", "fail"] {
+        let c = Checked {
+            next,
+            owner_step: true,
+            stuck: true,
+            ..RETRY
+        };
+        assert_eq!(rule(&c, &fix), Rule::AsChecked, "{next}");
+    }
+    let proved = [Unmet {
+        proved_false: true,
+        ..unmet(Fix, Most, true)
+    }];
+    assert_eq!(rule(&stuck, &proved), Rule::AsChecked);
+}
+
+/// ORCH-690: the latest call of each tool in the attempt decides whether its owner_step fact stands.
+// decision: ORCH-690
+#[test]
+fn an_owner_step_stands_until_the_same_tool_says_otherwise() {
+    assert!(!owner_step_stands([]));
+    assert!(owner_step_stands([
+        ("browser.pair", true),
+        ("mac.menu", false)
+    ]));
+    assert!(!owner_step_stands([
+        ("browser.pair", true),
+        ("browser.pair", false)
+    ]));
+    assert!(owner_step_stands([
+        ("browser.pair", false),
+        ("browser.pair", true)
+    ]));
 }

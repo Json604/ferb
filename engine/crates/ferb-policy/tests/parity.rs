@@ -409,7 +409,13 @@ fn confirm_shapes_and_words_match_python() {
     }
     for c in fx["routine"].as_array().unwrap() {
         let n = confirm::Need::new(&s(&c["rule"]), "k".into(), values(&c["values"]));
-        d.check("routine", c, &c["out"], &json!(confirm::routine(&n)));
+        // named difference (GATE-623, owner 2026-11-22): the foreground question is no longer routine
+        let want = if c["rule"] == confirm::FOREGROUND {
+            json!(false)
+        } else {
+            c["out"].clone()
+        };
+        d.check("routine", c, &want, &json!(confirm::routine(&n)));
     }
     for c in fx["pages"].as_array().unwrap() {
         let a = c["address"].as_str();
@@ -1255,6 +1261,11 @@ fn constants_and_bulk_deletes_match_python() {
         "SCHEDULE_GRANT": standing::SCHEDULE_GRANT, "NEW_DEFAULTS": p::NEW_DEFAULTS, "PROVENANCE": carried::PROVENANCE,
         "MIN_LEN": provenance::MIN_LEN, "MIN_PHONE_DIGITS": provenance::MIN_PHONE_DIGITS,
         "DESTINATION_PHONE_DIGITS": provenance::DESTINATION_PHONE_DIGITS});
-    d.check("constants", &Value::Null, &fx["constants"], &got);
+    // named difference (GATE-623, owner 2026-11-22): ROUTINE no longer holds the foreground question
+    let mut want = fx["constants"].clone();
+    if let Some(r) = want["ROUTINE"].as_array_mut() {
+        r.retain(|x| x != confirm::FOREGROUND);
+    }
+    d.check("constants", &Value::Null, &want, &got);
     d.finish("constants and bulk deletes");
 }

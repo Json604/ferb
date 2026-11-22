@@ -65,7 +65,12 @@ pub const YES: &str = "Yes";
 pub const NO: &str = "No";
 pub const ALLOW_WINDOW: &str = "Yes, and don't ask for 30 min";
 pub const ALLOW_WINDOW_LABEL: &str = "Allow, and don't ask again for 30 min";
+/// GATE-623 (owner, 2026-11-22): screen use left the list.
 pub const ALLOW_WINDOW_NOTE: &str =
+    "Covers only browser settings pages, private-folder reads, new people and profile \
+pairing — never your screen, money, deleting, terminals or sending your data.";
+/// The note as Python wrote it, before GATE-623 (the scenarios' named difference).
+pub const ALLOW_WINDOW_NOTE_BEFORE: &str =
     "Covers only screen use, browser settings pages, private-folder reads, new people \
 and profile pairing — never money, deleting, terminals or sending your data.";
 pub const SAID_NO: &str = "the owner said no to this: {line}";

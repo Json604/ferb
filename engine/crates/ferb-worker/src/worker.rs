@@ -1427,6 +1427,21 @@ impl Worker {
                         made_up + refused,
                     )));
                 }
+                // ORCH-691: the step isn't getting anywhere (8 failed or unchanged on-screen actions on one app,
+                // or 4 minutes without progress): the attempt stops and the supervisor asks the owner
+                if kind != RuntimeEventKind::Final && task.role == TaskRole::Worker {
+                    if let Some(words) = host.stuck(&watch_id) {
+                        let s = host.span_start(
+                            "model.stuck",
+                            span_task(task),
+                            Some(call.parent_span),
+                            None,
+                            obj(json!({"runtime": name})),
+                        );
+                        host.span_finish(&s, Some(obj(json!({"why": words}))), Some("stopped by FERB's guard"), None);
+                        return Err(Error::AnswerMissing(AnswerMissing::stuck(&name, &words)));
+                    }
+                }
             }
             Ok(())
         }

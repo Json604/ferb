@@ -7,11 +7,17 @@
 //! - an `accept_with_gaps` that code refuses only because the worker reported not done (ORCH-675's limit, ORCH-681)
 //!   becomes the question, where today's code ended it failed.
 //!
+//! - ORCH-690 (owner, 2026-11-22: "Yes, always ask me"): a retry, or a refused gapped accept, while what is left is
+//!   the owner's own step becomes the question at once: a condition the check labelled `owner`, or a tool's
+//!   `owner_step` fact still standing in the attempt (code's own fact, whatever the check labelled);
+//! - ORCH-691 (owner, 2026-11-22: "8 failed actions or 4 min"): a retry, or a refused gapped accept, after FERB's
+//!   in-attempt guard stopped the attempt (`stuck`) becomes the question at once.
+//!
 //! ORCH-680: the rule never reads words, and its only outcomes are the checker's own choice, unchanged, or the
 //! question. A missing or malformed label, no `progress` to ask with, a condition code's own facts proved false, or
 //! the owner having said "keep trying" in this step leaves the checker's choice as it is.
 //!
-//! decision: ORCH-679, ORCH-680, ORCH-681
+//! decision: ORCH-679, ORCH-680, ORCH-681, ORCH-690, ORCH-691
 
 /// FERB's fixed words after the check's own two sentences (the owner's phrasing, ORCH-679).
 pub const ASK_TAIL: &str = "Keep trying, or go on with what I have?";
@@ -100,6 +106,11 @@ pub struct Checked<'a> {
     pub said: bool,
     /// The owner already said "keep trying" to this question in this step.
     pub owner_kept: bool,
+    /// ORCH-690: a tool's `owner_step` fact stands in this attempt (the last call of that tool reported it).
+    pub owner_step: bool,
+    /// ORCH-691: FERB's in-attempt guard stopped this attempt (8 failed or unchanged on-screen actions on one app,
+    /// or 4 minutes on the step without progress).
+    pub stuck: bool,
 }
 
 /// What code does with the check's choice. There is no other outcome (ORCH-680).
@@ -114,7 +125,9 @@ pub enum Rule {
 /// The rule.
 pub fn rule(checked: &Checked, unmet: &[Unmet]) -> Rule {
     let gapped = checked.next == "accept_with_gaps" && checked.refused_not_done;
-    if !(checked.next == "retry" || gapped) || checked.owner_kept || !checked.said {
+    // ORCH-691: each time the guard stops an attempt it asks, an earlier "keep trying" in the step included
+    let kept = checked.owner_kept && !checked.stuck;
+    if !(checked.next == "retry" || gapped) || kept || !checked.said {
         return Rule::AsChecked;
     }
     if unmet.is_empty() || unmet.iter().any(|u| u.proved_false) {
@@ -122,6 +135,10 @@ pub fn rule(checked: &Checked, unmet: &[Unmet]) -> Rule {
     }
     if gapped {
         // the check itself judged that more work can't meet it: the owner decides instead of code failing it
+        return Rule::Ask;
+    }
+    // ORCH-690, ORCH-691: the owner's step, or an attempt the guard stopped: asked at once, no retry first
+    if checked.owner_step || checked.stuck || unmet.iter().any(|u| u.kind == Some(Kind::Owner)) {
         return Rule::Ask;
     }
     if unmet
@@ -138,6 +155,17 @@ pub fn rule(checked: &Checked, unmet: &[Unmet]) -> Rule {
     } else {
         Rule::AsChecked
     }
+}
+
+/// ORCH-690: whether a tool's `owner_step` fact stands after these calls of the attempt, in order: (tool, its
+/// output's `owner_step` was set). The latest call of each tool decides: a later call of the same tool without it (the
+/// pairing that went through once the owner switched FERB on) takes it back.
+pub fn owner_step_stands<'a>(calls: impl IntoIterator<Item = (&'a str, bool)>) -> bool {
+    let mut last: std::collections::BTreeMap<&str, bool> = std::collections::BTreeMap::new();
+    for (tool, stands) in calls {
+        last.insert(tool, stands);
+    }
+    last.values().any(|s| *s)
 }
 
 /// The question: the check's two sentences, then FERB's fixed words. Each sentence ends with its stop.

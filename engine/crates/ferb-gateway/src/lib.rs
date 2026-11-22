@@ -23,6 +23,7 @@ pub mod reply;
 pub mod screen_use;
 pub mod seams;
 pub mod stop;
+pub mod stuck;
 pub mod tool;
 pub mod validators;
 pub mod words;

@@ -75,6 +75,9 @@ impl WorkerHost for Host {
     fn calls_refused(&self, watch_id: &str) -> u64 {
         self.sup().deps.daemon.calls_refused(watch_id)
     }
+    fn stuck(&self, watch_id: &str) -> Option<String> {
+        self.sup().deps.daemon.stuck(watch_id)
+    }
     fn paused(&self, tree_id: &str) -> Option<String> {
         let wait = self.sup().live().pauses.get(tree_id).cloned()?;
         // RUN-465: the owner's pause asks nothing; FERB's own (a closed tab) carries its question

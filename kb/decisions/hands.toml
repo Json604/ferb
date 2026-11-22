@@ -2399,3 +2399,47 @@ rule = "For RUN-468. A mac.snapshot's elements leave out a plain text, group or 
 why = "Owner 2026-11-22 asked what was done to lessen 14 Chrome snapshots of 4,000-9,000 tokens each: on task a843aa54 their 334,410 characters become 133,030 (-60%), no control or its actions lost."
 live = ["LIVE-1177"]
 paths = ["engine/crates/ferb-mac-hands/src/driver/mod.rs", "engine/crates/ferb-mac-hands/src/tools.rs", "engine/fixtures/catalog/tool_changes.json"]
+
+[HAND-677]
+title = "A turned-off FERB extension is the owner's one switch: one question, then FERB waits and pairs"
+by = "owner"
+date = 2026-11-22
+status = "active"
+words = "why did ferb spend ~3 mins getting the profile paired??? its a new chrom profile i added and told it to do a task in it. it did ask permissiona dn i allowed but idk why does it taked so longg??? also it shifted my screen fir now reason at 2:25, whereas just befire a few minutes it didnt and was openign normally. ... also when it types the pairing line inhcrome and pressese neter, the browser clsoes. why?????"
+words_source = "Owner 2026-11-22 about task a843aa54 (a new Chrome profile, FERB's extension added by FERB and turned off by Chrome), relayed verbatim by the coordinator with the middle elided as shown."
+rule = "When a task needs a browser profile whose FERB extension is added but turned off, FERB asks the owner once, plainly, what he does (FERB opens that profile's extensions page; only he can switch FERB on), opens the page on his Yes, waits for FERB to come on, pairs, and carries on. The worker never drives the browser's menus, its own pages or FERB's extension pages to turn FERB on or pair; a pairing page opened without its link closes no window."
+why = "Task a843aa54: after needs_enable the check sent a retry to turn FERB on through Chrome's UI: 8 minutes, 93 calls under his 30-minute window (menu presses, chrome://extensions, a foreground cmd+L at 14:25:23), and pair.html typed by hand closed the window."
+live = ["LIVE-1178"]
+
+[HAND-678]
+title = "browser_pair's question for a turned-off profile is its own: every call, never routine"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For HAND-677. When the profile's files say FERB is added but off (extension_stands reason off, new permissions included), the gateway's browser_pair need is pair_enable_need: the pairing key, value off, always (asked on each call), asked even for a profile the owner's words named, and never routine, so a don't-ask window neither answers nor offers itself. Its words say FERB opens that profile's extensions page, the browser comes to the front, and only he can switch FERB on."
+why = "His 30-minute answer to the pairing question at 14:19:10 answered every later routine question of task a843aa54 in 2 ms; a Yes nobody sees would leave the page waiting for a switch nobody knows about."
+rejected = ["Refusing Mac input into a browser's own pages or menus: a new block where ask-then-do fits; mac.menu with a path into a browser is already the foreground question (confirm.rs foreground_need)", "FERB flipping its own extension's switch through Mac input: Chrome reserves it for the person, and it widens FERB's own access"]
+paths = ["engine/crates/ferb-policy/src/confirm.rs::pair_enable_need", "engine/crates/ferb-policy/src/confirm.rs::routine", "engine/crates/ferb-policy/src/wording.rs", "engine/crates/ferb-gateway/src/gateway.rs::pair_need", "engine/crates/ferbd/src/compose/gateway.rs"]
+live = ["LIVE-1178"]
+
+[HAND-679]
+title = "On that Yes FERB opens the profile's extensions page, waits for FERB's hello, then pairs"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For HAND-677. pair_for_task on a turned-off profile (not FERB's own) opens chrome://extensions/?id=<FERB's id> there, touches nothing, and waits pair_timeout_s for a new unpaired hello in that browser (then files still saying off no longer end the pairing) or the files saying on (read each second). Then the usual pairing, turned_on true. If the wait ends nothing more opens; the reply has needs_enable, reason off, opened, a plain why and owner_step: his step, already asked, never drive the browser's UI or open pair.html, call browser_pair once he says it's on."
+why = "Chrome installs an externally added extension off and lets only the person turn it on; it writes Preferences seconds after a change, while the extension says hello at once. The pairing's 60 s timeout is reused: a new wait length would be the owner's cap."
+evidence = "ferb-daemon b_browsers a_turned_off_profile_opens_its_extensions_page_waits_for_ferb_then_pairs (files, hello, never); ferb-gateway pair_turned_off; ferb-policy browser_menu."
+paths = ["engine/crates/ferb-daemon/src/areas_b/browsers/mod.rs::enable_then_pair", "engine/crates/ferb-daemon/src/areas_b/browsers/mod.rs::pair_one_as", "engine/crates/ferb-daemon/src/areas_b/browsers/mod.rs::OWNER_STEP"]
+live = ["LIVE-1178"]
+
+[HAND-680]
+title = "pair.html opened without its one-time link says what it is and closes nothing (extension 0.19.14)"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For HAND-677. Extension 0.19.14, pair.js: with a token it hands it over and closes itself as before; without one it shows one line (FERB's pairing page, nothing to do, the tab can be closed) and closes nothing. Protocol and minimum versions unchanged."
+why = "In task a843aa54 pair.html typed into a profile's only window closed itself at once, and the window with it, three times."
+evidence = "ferb-browser tests/extension_pair_page.rs (node, a fake page)."
+paths = ["extension/pair.js", "extension/manifest.json"]
+live = ["LIVE-1178"]

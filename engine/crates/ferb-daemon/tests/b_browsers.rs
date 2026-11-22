@@ -171,7 +171,7 @@ struct FakeBridge {
 struct FakeHub {
     pairings: Mutex<Option<Arc<Pairings>>>,
     bridges: Mutex<Vec<FakeBridge>>,
-    unpaired: Vec<(String, String, String)>,
+    unpaired: Mutex<Vec<(String, String, String)>>,
     next: AtomicUsize,
     calls: Mutex<Vec<Value>>,
     /// The open tabs of each profile ("chrome/Profile 1"), as the browsers would hold them.
@@ -313,11 +313,16 @@ impl Extensions for FakeHub {
             .collect()
     }
     fn unpaired(&self) -> Vec<String> {
-        self.unpaired.iter().map(|u| u.1.clone()).collect()
+        self.unpaired
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|u| u.1.clone())
+            .collect()
     }
     fn unpaired_copies(&self) -> BTreeMap<String, String> {
         let mut out: BTreeMap<String, String> = BTreeMap::new();
-        for (_, browser, version) in &self.unpaired {
+        for (_, browser, version) in self.unpaired.lock().unwrap().iter() {
             let same = out.get(browser).is_none_or(|v| v == version);
             out.insert(
                 browser.clone(),
@@ -516,15 +521,17 @@ fn world(setup: &Value, access: bool) -> World {
     let hub = Arc::new(FakeHub {
         pairings: Mutex::new(Some(pairings.clone())),
         bridges: Mutex::new(vec![]),
-        unpaired: setup["unpaired"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(|u| {
-                let s = |i: usize| u[i].as_str().unwrap().to_string();
-                (s(0), s(1), s(2))
-            })
-            .collect(),
+        unpaired: Mutex::new(
+            setup["unpaired"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|u| {
+                    let s = |i: usize| u[i].as_str().unwrap().to_string();
+                    (s(0), s(1), s(2))
+                })
+                .collect(),
+        ),
         next: AtomicUsize::new(0),
         calls: Mutex::new(vec![]),
         tabs: OpenTabs::default(),
@@ -1522,6 +1529,136 @@ async fn an_unanswered_pairing_page_is_opened_again_inside_the_wait() {
             assert_eq!(left, owners, "{what}");
         } else {
             assert!(w.hub.calls.lock().unwrap().is_empty(), "{what}");
+        }
+    }
+}
+
+/// HAND-677 (owner, 2026-11-22), HAND-679: a task's pairing of a profile whose FERB extension is added but turned off. After the
+/// owner's Yes (browser_pair's question said what he does), FERB opens FERB's entry on that profile's extensions page,
+/// touches nothing on it and waits for FERB to come on: the profile's files saying so, or the extension's own hello
+/// (an unpaired copy connecting in that browser; the files may still say off for a few seconds). Then it pairs as any
+/// pairing does. A wait that ends with FERB still off says plainly that the step is the owner's and opens nothing more.
+// decision: HAND-677, HAND-679
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_turned_off_profile_opens_its_extensions_page_waits_for_ferb_then_pairs() {
+    const ID: &str = "plbfkifcmgkgnlfgikdeaaglgncdhkma";
+    let prefs = |reasons: &str, state: i64| {
+        format!(
+            r#"{{"extensions": {{"settings": {{"{ID}": {{"location": 1, "path": "{ID}/0.19.5_0", "state": {state}, "disable_reasons": {reasons}}}}}}}, "account_info": [{{"email": "work@example.test"}}]}}"#
+        )
+    };
+    let file = fixture("daemon-b/browsers.json");
+    let sc = scenario(&file, "with_access");
+    for seen in ["files", "hello", "never"] {
+        let mut w = world(&sc["setup"], true);
+        w.deps.pair_timeout_s = 5.0;
+        w.answer.store(true, Ordering::SeqCst);
+        let path = w.support.join("Google/Chrome/Profile 1/Preferences");
+        std::fs::write(&path, prefs("[1024]", 0)).unwrap();
+        {
+            let (hub, path, on) = (w.hub.clone(), path.clone(), prefs("[]", 1));
+            *w.hook.lock().unwrap() = Some(Box::new(move |argv: &[String]| {
+                if argv
+                    .last()
+                    .is_some_and(|u| u.starts_with("chrome://extensions/?id="))
+                {
+                    // the owner switches FERB on there
+                    match seen {
+                        "files" => std::fs::write(&path, &on).unwrap(),
+                        "hello" => hub.unpaired.lock().unwrap().push((
+                            "inst-new".into(),
+                            "chrome".into(),
+                            "0.19.14".into(),
+                        )),
+                        _ => {}
+                    }
+                }
+            }));
+        }
+        let done = Arc::new(AtomicBool::new(false));
+        if seen == "never" {
+            // the wait's clock runs on its own; nothing else does
+            let (clock, done) = (w.home.clock.clone(), done.clone());
+            tokio::spawn(async move {
+                while !done.load(Ordering::SeqCst) {
+                    *clock.mono.lock().unwrap() += 0.5;
+                    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                }
+            });
+        }
+        let cx = Cx::new(&w.home.host, &w.deps);
+        let reply = cx.pair_for_task("chrome", "Profile 1").await.unwrap();
+        done.store(true, Ordering::SeqCst);
+        let launched: Vec<String> = w
+            .launched
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|a| {
+                let a: Vec<String> = serde_json::from_value(a.clone()).unwrap();
+                assert_eq!(launched_profile(&a), "chrome/Profile 1", "{seen}");
+                a.last().unwrap().clone()
+            })
+            .collect();
+        assert_eq!(
+            launched[0],
+            format!("chrome://extensions/?id={ID}"),
+            "{seen}"
+        );
+        let rows: Vec<Value> = w
+            .home
+            .journal_rows()
+            .into_iter()
+            .filter(|r| r[0].as_str().unwrap().starts_with("browsers."))
+            .map(|r| json!([r[0], r[1]]))
+            .collect();
+        let profile = json!({"browser": "chrome", "folder": "Profile 1"});
+        if seen == "never" {
+            assert_eq!(launched.len(), 1, "nothing more opens: {launched:?}");
+            assert_eq!(reply["paired"], json!(false), "{reply:?}");
+            assert_eq!(reply["needs_enable"], json!(true), "{reply:?}");
+            assert_eq!(reply["reason"], json!("off"), "{reply:?}");
+            assert_eq!(reply["opened"], json!(launched[0]), "{reply:?}");
+            assert!(
+                reply["owner_step"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with("Turning FERB on in Google Chrome is the owner's own step"),
+                "{reply:?}"
+            );
+            assert!(
+                reply["why"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with("FERB is still turned off"),
+                "{reply:?}"
+            );
+            assert_eq!(
+                rows,
+                vec![
+                    json!(["browsers.enable_opened", profile]),
+                    json!(["browsers.pair_failed", {"browser": "chrome", "folder": "Profile 1", "reason": "off"}]),
+                ]
+            );
+        } else {
+            // then the pairing as always: its wake page, its page with the one-time token
+            assert!(launched[1].contains("/wake/"), "{seen}: {launched:?}");
+            assert!(
+                launched[2].contains("/pair.html#token="),
+                "{seen}: {launched:?}"
+            );
+            assert_eq!(launched.len(), 3, "{seen}: {launched:?}");
+            assert_eq!(reply["paired"], json!(true), "{seen}: {reply:?}");
+            assert_eq!(reply["turned_on"], json!(true), "{seen}: {reply:?}");
+            assert_eq!(
+                rows,
+                vec![
+                    json!(["browsers.enable_opened", profile]),
+                    json!(["browsers.turned_on", {"browser": "chrome", "folder": "Profile 1", "seen": seen}]),
+                    json!(["browsers.paired", profile]),
+                ],
+                "{seen}"
+            );
         }
     }
 }

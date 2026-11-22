@@ -1025,3 +1025,12 @@ kind = "build"
 status = "blocked"
 why = "RUN-472 leaves Codex out for now. Codex keeps a worker's history in its own thread, so it needs a relay to the ChatGPT backend with request compression off; the pinned 0.166.0 ran through one to a stand-in (journal 173). Build when the owner says, check it live with him."
 decisions = ["RUN-468", "RUN-472"]
+
+[T-1292]
+title = "Revisit the trial 40-call cap per attempt (ORCH-693) when the owner reports a problem on real tasks"
+area = "orchestration"
+kind = "live"
+status = "open"
+why = "The owner chose the cap as a trial on 2026-11-22, to be rolled back if it interrupts his real tasks. Roll back: WINDOW_CALLS_PER_ATTEMPT in ferb-gateway stuck.rs (and ORCH-693 superseded on his word)."
+decisions = ["ORCH-693"]
+after = []

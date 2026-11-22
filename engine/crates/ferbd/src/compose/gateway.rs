@@ -427,6 +427,12 @@ impl OwnerFacts {
             .unwrap_or_default()
     }
 
+    /// HAND-678: FERB's extension is added to that profile but turned off, as its files say now.
+    pub fn profile_turned_off(&self, browser: &str, folder: &str) -> bool {
+        self.area()
+            .is_some_and(|cx| cx.profile_turned_off(browser, folder))
+    }
+
     /// Group A's answer on its loop thread (directly when already there); None while it isn't running.
     fn on_a<T: Send + 'static>(
         &self,
@@ -641,6 +647,11 @@ pub fn build(registry: Registry, p: GatewayParts) -> Arc<Gateway> {
         profile_account: {
             let f = facts.clone();
             Box::new(move |b, folder| f.profile_account(b, folder))
+        },
+        // HAND-678: an added but turned-off extension makes browser_pair's question the owner's step
+        profile_turned_off: {
+            let f = facts.clone();
+            Box::new(move |b, folder| f.profile_turned_off(b, folder))
         },
         // GATE-538 (compose.py:124)
         owner_contacts: {

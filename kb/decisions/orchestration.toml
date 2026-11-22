@@ -2283,3 +2283,51 @@ why = "Live 2026-11-22 14:56 and 15:21: the stop's reply and the task's turn eac
 rejected = ["The reply only saying 'Stopped, as you asked.' and the task's turn keeping the rest: the owner reads the stop's answer under his own message", "A new key for the restart's in-place filing instead of keeps_words: told_in also feeds the planner's history (ORCH-596), and the Python-recorded stop scenarios keep their bytes this way", "Clearing the task's turn when the reply arrives: it would show the end for a moment and needs the reply to name the task"]
 evidence = "ferb-supervisor tests/stop_told_once.rs (chat stop, stop beside new work, the Stop button) and tests/restart_by_follow_up.rs (a restart's first turn; the Stop button and a chat stop while the restart waits), through the real supervisor with stand-in models and its ChatLog, with ENG-15's order rules."
 paths = ["engine/crates/ferb-supervisor/src/flow/control.rs::told_in", "engine/crates/ferb-supervisor/src/flow/control.rs::stop_told", "engine/crates/ferb-supervisor/src/flow/control.rs::control", "engine/crates/ferb-supervisor/src/flow/control.rs::call_off_restart", "engine/crates/ferb-supervisor/src/flow/entries.rs", "engine/crates/ferb-supervisor/src/flow/mod.rs"]
+
+[ORCH-690]
+title = "What only the owner can do is asked about at once, never retried"
+by = "owner"
+date = 2026-11-22
+status = "active"
+words = "Yes, always ask me"
+words_source = "Owner 2026-11-22, relayed by the coordinator, answering: \"Should FERB always turn 'this is the owner's step' into your question ('Keep trying, or go on with what I have?') instead of retrying?\""
+rule = "Refines ORCH-679 (which kept an owner-labelled condition as the check's retry). When the check chooses a retry, or code refuses its gapped accept because the worker reported not done (ORCH-681), and what is left is the owner's own step, FERB asks ORCH-679's question at once, no retry first: a condition the check labelled `owner`, or a tool's `owner_step` fact still standing in the attempt (the latest call of that tool reported it), whatever the check labelled. ORCH-680's other limits stand (progress to ask with, nothing code proved false, the check's other choices kept)."
+why = "Task a843aa54: browser_pair said turning FERB on was his step; the check labelled it `fix` and sent a retry to do it through Chrome's own pages, which ran 8 minutes."
+paths = ["engine/crates/ferb-orchestrator/src/rabbit_holes.rs::rule", "engine/crates/ferb-orchestrator/src/rabbit_holes.rs::owner_step_stands", "engine/crates/ferb-supervisor/src/flow/attempt.rs::owner_step_stands"]
+live = ["LIVE-1179"]
+
+[ORCH-691]
+title = "Inside one step FERB stops and asks after 8 failed actions on one app or 4 minutes without progress"
+by = "owner"
+date = 2026-11-22
+status = "active"
+words = "8 failed actions or 4 min"
+words_source = "Owner 2026-11-22 (relayed), answering: \"There's no limit inside one worker attempt today. When should FERB stop and ask you 'Keep trying, or …?'\""
+rule = "A worker attempt stops when 8 on-screen actions into one app in a row failed or changed nothing, with no progress on that app in between, or 4 minutes of its step went by without progress. The step's check then runs, and its retry (or a gapped accept refused because the worker reported not done) becomes ORCH-679's question \"Keep trying, or go on with what I have?\", each time the guard stops an attempt, an earlier \"keep trying\" included. Keep trying counts afresh; go on ends the step with its gaps; an unattended run ends needs_user. Structure only, no word lists."
+why = "Task a843aa54's second attempt ran 8 minutes and 93 calls in Chrome's UI with no check. His option read: \"After 8 failing/unchanged on-screen actions on one app, or 4 minutes on one step without progress, FERB asks.\""
+paths = ["engine/crates/ferb-gateway/src/stuck.rs", "engine/crates/ferb-worker/src/worker.rs", "engine/crates/ferb-orchestrator/src/rabbit_holes.rs::rule", "engine/crates/ferb-supervisor/src/flow/attempt.rs::next"]
+live = ["LIVE-1179"]
+
+[ORCH-692]
+title = "The guard's facts: failed or unchanged on-screen calls per app, progress, and the worker's own time"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For ORCH-691. Per step in the gateway: an on-screen call into an app (one key by app_key) fails when it erred or was refused, says ok or performed false, or read the app after and saw no change (after.read not none, after.changed not true); progress on that app (a change shown, or a new observation of it) restarts its count. Progress: a call that went through and showed a change, acted off screen, or observed something new in the step. Only thinking time counts: not inside calls, not between attempts. A stop is said once, latched for the check, and counts restart."
+why = "Calls that look at the app say whether it changed; a call that wasn't looked at (after.read none) is neither. Excluding time inside calls keeps waits and long commands out; excluding the check keeps the 4 minutes the worker's."
+evidence = "ferb-gateway tests/stuck.rs (both limits, latch, keep trying), tests/pair_turned_off.rs (eight unchanged clicks through the real Gateway); ferb-orchestrator tests/rabbit_holes.rs; ferb-supervisor tests/rabbit_holes.rs (asked each time, keep trying counts afresh, unattended needs_user)."
+paths = ["engine/crates/ferb-gateway/src/stuck.rs", "engine/crates/ferb-gateway/src/gateway.rs::note_step", "engine/crates/ferb-worker/src/errors.rs", "engine/crates/ferbd/src/compose/supervisor.rs"]
+live = ["LIVE-1179"]
+
+[ORCH-693]
+title = "On trial: after 40 calls into windows or pages in one attempt, FERB stops and asks"
+by = "owner"
+date = 2026-11-22
+status = "active"
+words = "go with C. just note this while fix as a test and can be roll bakcedwhen i face issue with my real tasks i do with it"
+words_source = "Owner 2026-11-22 (relayed), choosing option C: ORCH-691's limits plus a cap of 40 on-screen actions per worker attempt, then the same question."
+rule = "On trial from 2026-11-22; to be revisited when the owner reports a problem on real tasks (T-1292), and rolled back on his word. Adds to ORCH-691: a worker attempt whose Mac or browser tool calls naming an app window or a page (an app, tab or url argument) reach 40 stops, and its check's retry becomes ORCH-679's question \"Keep trying, or go on with what I have?\"; Keep trying, or a new attempt, counts afresh. The 8-in-a-row and 4-minute limits stay. The three numbers are named constants in ferb-gateway stuck.rs."
+why = "Task a843aa54's second attempt made 93 calls into Chrome; failures came in runs broken by visible changes and new snapshots, so neither ORCH-691 limit would have stopped it."
+evidence = "ferb-gateway tests/stuck.rs: a 93-call attempt shaped as a843aa54's stops at its 40th window call; 39 never ask; keep trying and a new attempt count afresh."
+paths = ["engine/crates/ferb-gateway/src/stuck.rs::WINDOW_CALLS_PER_ATTEMPT", "engine/crates/ferb-gateway/src/gateway.rs::note_step"]
+live = ["LIVE-1181"]

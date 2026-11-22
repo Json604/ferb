@@ -722,6 +722,8 @@ impl Inner {
                 );
                 match asked {
                     super::owner_wait::KeepOrGoOn::Keep(more) => {
+                        // ORCH-691: a fresh 8 actions and 4 minutes
+                        self.deps.daemon.keep_trying(&task.id);
                         {
                             let mut st = tree.lock();
                             st.owner_question.clear();
@@ -853,6 +855,47 @@ impl Inner {
             },
             Vec::new(),
         ))
+    }
+
+    /// ORCH-690: a tool's `owner_step` fact stands in this attempt: the latest call of some tool since the
+    /// attempt began reported it (a later call of the same tool without it, e.g. the pairing that went through after
+    /// the owner switched FERB on, takes it back). Code's own fact; never the check's words.
+    fn owner_step_stands(&self, tree: &Arc<Tree>) -> bool {
+        let since = tree.lock().calls_since;
+        let task_id = tree.worker_task().id;
+        let rows = {
+            let db = self.db();
+            ferb_orchestrator::sql::rows(
+                db.conn(),
+                "SELECT input_json, output_json FROM spans WHERE task_id = ? AND kind = 'tool.call' AND rowid > ? \
+                 ORDER BY rowid",
+                &[
+                    rusqlite::types::Value::Text(task_id),
+                    rusqlite::types::Value::Integer(since),
+                ],
+            )
+            .unwrap_or_default()
+        };
+        let mut calls: Vec<(String, bool)> = Vec::new();
+        for row in rows {
+            let load = |k: &str| {
+                row.get(k)
+                    .and_then(Value::as_str)
+                    .and_then(|t| ferb_py::json::loads(t).ok())
+                    .unwrap_or(Value::Null)
+            };
+            let tool = load("input_json")
+                .get("tool")
+                .map(ferb_py::value::py_str)
+                .unwrap_or_default();
+            let stands = load("output_json")
+                .get("owner_step")
+                .is_some_and(ferb_py::value::truthy);
+            calls.push((tool, stands));
+        }
+        ferb_orchestrator::rabbit_holes::owner_step_stands(
+            calls.iter().map(|(t, s)| (t.as_str(), *s)),
+        )
     }
 
     /// ORCH-679: the step takes a retry: each condition unmet on this check counts as retried.
@@ -1176,6 +1219,8 @@ impl Inner {
             .filter(|r| r.index < planned)
             .collect();
         let mut action = checked.next.clone();
+        // ORCH-691: whether FERB's guard stopped this attempt (read once, whatever the check chose)
+        let stuck = self.deps.daemon.take_stuck(&tree.worker_task().id);
         let verified = planned > 0
             && outcomes.len() as i64 == planned
             && outcomes.iter().all(|r| r.met == Some(true));
@@ -1201,7 +1246,7 @@ impl Inner {
         }
         if action == "retry" {
             // ORCH-679: the owner's no-rabbit-holes rule, from the check's labels only (ORCH-680)
-            if let Some(asked) = self.rabbit_hole(tree, &outcomes, checked, false) {
+            if let Some(asked) = self.rabbit_hole(tree, &outcomes, checked, false, stuck) {
                 return asked;
             }
         }
@@ -1229,7 +1274,8 @@ impl Inner {
                     // ORCH-681: refused only because the worker reported not done: the owner is asked instead of
                     // code failing the step
                     if why == NOT_REPORTED_DONE {
-                        if let Some(asked) = self.rabbit_hole(tree, &outcomes, checked, true) {
+                        if let Some(asked) = self.rabbit_hole(tree, &outcomes, checked, true, stuck)
+                        {
                             return asked;
                         }
                     }
@@ -1379,6 +1425,7 @@ impl Inner {
         outcomes: &[ConditionResult],
         checked: &CheckerOutcome,
         refused_not_done: bool,
+        stuck: bool,
     ) -> Option<Next> {
         use ferb_orchestrator::rabbit_holes::{self, Kind, Reached, Rule, Unmet};
         let (retried, kept) = {
@@ -1421,6 +1468,8 @@ impl Inner {
                 refused_not_done,
                 said: !missing.is_empty(),
                 owner_kept: kept,
+                owner_step: self.owner_step_stands(tree),
+                stuck,
             },
             &labels,
         );

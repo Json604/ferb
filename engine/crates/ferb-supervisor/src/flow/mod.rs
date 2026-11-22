@@ -165,6 +165,17 @@ pub trait Daemon: Send + Sync {
     fn revoke_worker(&self, worker_id: &str);
     fn forget_calls(&self, worker_id: &str);
     fn calls_refused(&self, watch_id: &str) -> u64;
+    /// ORCH-691 `gateway.stuck(watch_id)`: the guard's stop for this run in plain words, once; None while it may
+    /// go on.
+    fn stuck(&self, _watch_id: &str) -> Option<String> {
+        None
+    }
+    /// ORCH-691 `gateway.take_stuck(task_id)`: the guard stopped this step's attempt (read once per check).
+    fn take_stuck(&self, _task_id: &str) -> bool {
+        false
+    }
+    /// ORCH-691 `gateway.keep_trying(task_id)`: the owner said "keep trying": the step's counts start again.
+    fn keep_trying(&self, _task_id: &str) {}
     fn lookups_made(&self, holder: &str) -> usize;
     fn initial_image_given(&self, task_id: &str);
     /// `gateway.ledger.unresolved(root)`.

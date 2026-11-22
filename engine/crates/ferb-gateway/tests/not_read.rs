@@ -242,6 +242,7 @@ fn task(declared: bool) -> Run {
         journal_problem: Box::new(|_k, _d| {}),
         profile_name: Box::new(|_b, f| f.to_string()),
         profile_account: Box::new(|_b, _f| String::new()),
+        profile_turned_off: Box::new(|_b, _f| false),
         owner_contacts: Box::new(Vec::new),
         pay_same_site_forms: Box::new(|| true),
         on_path: Box::new(|_p, _t| {}),

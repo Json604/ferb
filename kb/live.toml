@@ -5094,3 +5094,39 @@ request = "Ask FERB for a task that keeps looking at the same window, e.g. \"ope
 pass = "Both tasks finish as before; `ferb trace TASK --full` shows model.compacted spans with by \"ferb\" once requests pass about 40,000 tokens, and model.usage input stops growing step by step; the Chrome mac.snapshot results list no unnamed groups or repeated texts; no new question or failure."
 decisions = ["RUN-468", "RUN-470", "RUN-471", "HAND-676"]
 sitting = "after this engine is installed"
+
+[LIVE-1178]
+title = "A new Chrome profile with FERB turned off: one question, his switch, and the task carries on"
+area = "hands"
+surface = "FERB.app with this build and extension 0.19.14; a Chrome profile FERB has added its extension to that Chrome turned off (a new profile, or FERB switched off on chrome://extensions in a test profile)"
+request = "Ask FERB to read a page in that profile (\"in my <that profile> Chrome, open example.com and tell me its heading\"). Answer the question, switch FERB on in the page it opens. Then, once, open chrome-extension://plbfkifcmgkgnlfgikdeaaglgncdhkma/pair.html by hand in a window with one tab."
+pass = "One question that says FERB opens the profile's extensions page and that you switch FERB on; no 'don't ask for 30 min' on it; only that page comes forward; within about 15 s of the switch FERB pairs and the task finishes. No Profiles menu, chrome:// page or pair.html typed by FERB. The hand-opened pair.html shows one line and the window stays."
+decisions = ["HAND-677", "HAND-678", "HAND-679", "HAND-680"]
+sitting = "after this engine and extension are installed"
+
+[LIVE-1179]
+title = "FERB stops and asks when it isn't getting anywhere, and when the next step is yours"
+area = "orchestration"
+surface = "FERB.app with this build"
+request = "Ask FERB for something in an app it can't do by clicking (e.g. \"in Notes, turn on the setting that doesn't exist: Sync to Mars\"), and watch; separately, the turned-off-profile task of LIVE-1178, leaving FERB off when it asks."
+pass = "Within 8 failed or unchanged clicks in that app, or 4 minutes, FERB asks \"Keep trying, or go on with what I have?\" with what it found and what's missing; Keep trying goes on for another round, Go on ends with what it has. With FERB left off, the same question comes after the first attempt instead of a retry."
+decisions = ["ORCH-690", "ORCH-691", "ORCH-692"]
+sitting = "after this build is installed"
+
+[LIVE-1180]
+title = "The 30-minute don't-ask answer doesn't cover FERB taking your screen"
+area = "gateway"
+surface = "FERB.app with this build"
+request = "Answer one FERB question with \"Yes, and don't ask for 30 min\", then ask FERB for a task that needs to click in an app in front (e.g. a native app with no background route)."
+pass = "FERB still asks before it uses your screen in that app, and that question has no 30-minute option; after your Yes it doesn't ask again for that app in the task."
+decisions = ["GATE-623"]
+sitting = "after this build is installed"
+
+[LIVE-1181]
+title = "Trial: the 40-call stop doesn't interrupt the owner's real tasks"
+area = "orchestration"
+surface = "FERB.app with this build, over the owner's own everyday tasks for a week or two"
+request = "Use FERB as usual, including long tasks in apps and web pages (forms, several pages of a site, a Mac app with many steps)."
+pass = "FERB asks \"Keep trying, or go on with what I have?\" only when it really isn't getting anywhere; a healthy long task isn't interrupted at its 40th action. If it is, tell FERB's developer: the cap is on trial and gets rolled back (ORCH-693, T-1292)."
+decisions = ["ORCH-693", "ORCH-691"]
+sitting = "over the next weeks of real use"

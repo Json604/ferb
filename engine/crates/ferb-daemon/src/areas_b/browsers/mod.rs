@@ -63,6 +63,19 @@ FERB can't use it yet. Pair all pairs it again";
 /// starting then (the extension retries its link to FERB after 1, 2, 4 and 8 s), and leaves 35 s of a 60 s wait for the
 /// last page. Fixed against Python (ENG-6): one page, and a page missed meant waiting out the whole timeout.
 pub const PAIR_REOPEN_AT_S: [f64; 2] = [10.0, 25.0];
+/// HAND-679: what a task's worker reads when a profile's FERB extension is still off after FERB asked the owner,
+/// opened that profile's extensions page and waited. A tool's fact, said plainly: the step is the owner's.
+pub const OWNER_STEP: &str = "Turning FERB on in {label} is the owner's own step: {label} lets only the person turn \
+an extension on. FERB already asked the owner and opened that profile's extensions page for it. Don't drive {label}'s \
+menus, its chrome:// pages or FERB's extension pages to do it, and never open FERB's pair.html yourself: only \
+browser_pair makes the pairing link. When the owner says FERB is on there, call browser_pair again; until then, report \
+that this profile waits for the owner to turn FERB on";
+/// HAND-679: the plain line when FERB is still off in that profile after the wait.
+pub const STILL_OFF: &str =
+    "FERB is still turned off in {label}'s profile “{name}”. Its extensions page is open \
+there: switch FERB on, and FERB can pair the profile";
+/// HAND-679: how many of the enable wait's 0.2 s rounds pass between two readings of the profile's files.
+const ENABLE_FILES_EVERY: u32 = 5;
 /// The refusal for a `timeout_s` Python's `float()` refuses (fixed against Python: it was an internal error).
 pub const BAD_TIMEOUT: &str = "timeout_s must be a number of seconds";
 
@@ -696,6 +709,19 @@ impl Cx {
         ))
     }
 
+    /// HAND-679: FERB's extension is added to that profile but turned off there, as its files say now (Chromium's
+    /// disable reasons, the one for new permissions included): only the owner can turn it on. Blocking.
+    pub fn profile_turned_off(&self, browser: &str, folder: &str) -> bool {
+        self.profiles()
+            .into_iter()
+            .find(|p| p.browser == browser && p.folder == folder)
+            .is_some_and(|p| self.turned_off(&p))
+    }
+
+    fn turned_off(&self, p: &BrowserProfile) -> bool {
+        matches!(self.extension_stands(p), Ok(Some((reason, _))) if reason == "off")
+    }
+
     /// `_profile_display_name`.
     pub fn profile_display_name(&self, browser: &str, folder: &str) -> String {
         self.profiles()
@@ -932,6 +958,20 @@ impl Cx {
         p: BrowserProfile,
         timeout: f64,
     ) -> Result<Map<String, Value>, HandlerError> {
+        self.pair_one_as(p, timeout, false).await
+    }
+
+    /// [`Cx::pair_one`]; `off_lags`: the extension's own hello said it is on there (HAND-679) while the profile's files
+    /// may still say off (Chromium writes them a few seconds later), so "off" read from them doesn't end the pairing.
+    async fn pair_one_as(
+        &self,
+        p: BrowserProfile,
+        timeout: f64,
+        off_lags: bool,
+    ) -> Result<Map<String, Value>, HandlerError> {
+        let lagging = move |why: &Option<(String, String)>| {
+            off_lags && why.as_ref().is_some_and(|(reason, _)| reason == "off")
+        };
         let base = object(
             json!({"browser": p.browser, "folder": p.folder, "name": p.display_name,
                                  "email": p.email}),
@@ -942,14 +982,19 @@ impl Cx {
                 json!({"paired": false, "why": "FERB's own profile is paired as FERB"}),
             ));
         }
-        let state = self.profile_state(&p, None)?;
+        let mut state = self.profile_state(&p, None)?;
+        if off_lags && state == "off" {
+            state = "installed";
+        }
         let flag = match state {
             "missing" => json!({"needs_install": true}),
             "off" => json!({"needs_enable": true}),
             _ => json!({}),
         };
         let q = p.clone();
-        if let Some((reason, why)) = self.blocking(move |c| c.extension_stands(&q)).await? {
+        let stands = self.blocking(move |c| c.extension_stands(&q)).await?;
+        let stands = if lagging(&stands) { None } else { stands };
+        if let Some((reason, why)) = stands {
             return Ok(merge(
                 merge(base, flag),
                 json!({"paired": false, "reason": reason, "why": why}),
@@ -1005,6 +1050,9 @@ impl Cx {
                 recheck = clock.monotonic() + self.deps.pair_load_wait_s;
                 let q = p.clone();
                 why = self.blocking(move |c| c.extension_stands(&q)).await?;
+                if lagging(&why) {
+                    why = None;
+                }
             }
             if let Some((reason, text)) = why {
                 self.deps.pairings.revoke(&token);
@@ -1071,7 +1119,85 @@ impl Cx {
         let found = self.exact_profile(&params)?;
         // Python passed None on to `_pair_one` (AttributeError) when no folder was named
         let p = found.ok_or_else(|| refusal("name the profile's browser and folder"))?;
+        let own = Some((p.browser.clone(), p.folder.clone())) == self.identity_profile()?;
+        let q = p.clone();
+        if !own && self.blocking(move |c| c.turned_off(&q)).await {
+            return self.enable_then_pair(p).await;
+        }
         self.pair_one(p, self.deps.pair_timeout_s).await
+    }
+
+    /// HAND-677 (owner, 2026-11-22), HAND-679: a task's pairing of a profile whose FERB extension is added but turned off. The
+    /// owner's Yes to browser_pair's question, which said that only he can turn it on and that FERB opens the page, is
+    /// the go-ahead: FERB opens FERB's own entry on that profile's extensions page (Chrome's place for that switch;
+    /// Chrome comes to the front, as the question said) and touches nothing on it. It waits for FERB to come on there:
+    /// a new hello from an unpaired copy in that browser (the extension starts the moment it is on), or the profile's
+    /// files saying it is on. Then it pairs as every pairing does and the task carries on. The wait is the pairing's
+    /// own (`pair_timeout_s`); if it ends with FERB still off, the reply says plainly that the step is the owner's
+    /// (`owner_step`), and that the page is open.
+    async fn enable_then_pair(
+        &self,
+        p: BrowserProfile,
+    ) -> Result<Map<String, Value>, HandlerError> {
+        let base = object(
+            json!({"browser": p.browser, "folder": p.folder, "name": p.display_name, "email": p.email}),
+        );
+        let ids = self.accepted_ids()?;
+        let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
+        let id = profiles::extension_entry(&self.data_dir_of(&p.browser).join(&p.folder), &refs)
+            .map_or_else(|| ids[0].clone(), |f| f.0);
+        let page = format!("chrome://extensions/?id={id}");
+        let hellos = |c: &Cx| {
+            c.deps
+                .hub
+                .unpaired()
+                .iter()
+                .filter(|b| **b == p.browser)
+                .count()
+        };
+        let before = hellos(self);
+        let known = self.profiles();
+        self.open_known(&p.browser, &p.folder, Some(&page), &known, false)?
+            .map_err(value_error)?;
+        self.host.journal(
+            "browsers.enable_opened",
+            json!({"browser": p.browser, "folder": p.folder}),
+            None,
+        )?;
+        let clock = self.host.clock.clone();
+        let end = clock.monotonic() + self.deps.pair_timeout_s;
+        let mut round: u32 = 0;
+        while clock.monotonic() < end {
+            let hello = hellos(self) > before;
+            let on = !hello && round.is_multiple_of(ENABLE_FILES_EVERY) && {
+                let q = p.clone();
+                !self.blocking(move |c| c.turned_off(&q)).await
+            };
+            if hello || on {
+                self.host.journal(
+                    "browsers.turned_on",
+                    json!({"browser": p.browser, "folder": p.folder,
+                           "seen": if hello { "hello" } else { "files" }}),
+                    None,
+                )?;
+                let out = self.pair_one_as(p, self.deps.pair_timeout_s, hello).await?;
+                return Ok(merge(out, json!({"turned_on": true})));
+            }
+            round = round.wrapping_add(1);
+            sleep_s(0.2).await;
+        }
+        self.host.journal(
+            "browsers.pair_failed",
+            json!({"browser": p.browser, "folder": p.folder, "reason": "off"}),
+            None,
+        )?;
+        let label = label_of(&p.browser);
+        Ok(merge(
+            base,
+            json!({"paired": false, "needs_enable": true, "reason": "off", "opened": page,
+                   "owner_step": OWNER_STEP.replace("{label}", &label),
+                   "why": STILL_OFF.replace("{label}", &label).replace("{name}", &p.display_name)}),
+        ))
     }
 
     /// `setup.uninstall_browser_files` (DMN-598): FERB.app's Uninstall, before it unregisters this service, has this

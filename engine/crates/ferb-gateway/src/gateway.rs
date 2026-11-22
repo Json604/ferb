@@ -283,6 +283,8 @@ pub type PathNote = Box<dyn Fn(&str, &str) + Send + Sync>;
 pub type ProcTask = Box<dyn Fn(&str) -> Option<String> + Send + Sync>;
 /// GATE-539: whether a tree made a path: (root, real path).
 pub type MadeHere = Box<dyn Fn(&str, &str) -> bool + Send + Sync>;
+/// A fact about one browser profile: (browser, folder).
+pub type ProfileTest = Box<dyn Fn(&str, &str) -> bool + Send + Sync>;
 /// The owner's exclusion list for hosts.
 pub type HostTest = Box<dyn Fn(&str) -> bool + Send + Sync>;
 
@@ -304,6 +306,8 @@ pub struct Deps {
     pub journal_problem: Sink,
     pub profile_name: Names,
     pub profile_account: Names,
+    /// HAND-678: whether FERB's extension is added to that profile but turned off (only the owner can turn it on).
+    pub profile_turned_off: ProfileTest,
     pub owner_contacts: Box<dyn Fn() -> Vec<String> + Send + Sync>,
     pub pay_same_site_forms: Box<dyn Fn() -> bool + Send + Sync>,
     pub on_path: PathNote,
@@ -391,6 +395,8 @@ struct Inner {
     undelivered: HashMap<(String, String, String), (String, Reply)>,
     calls_made: HashMap<String, u64>,
     refused_over: HashMap<String, u64>,
+    /// ORCH-691: each running step's failed on-screen actions and time without progress.
+    steps: crate::stuck::Steps,
     lookup_answers: HashMap<(String, String, String), Reply>,
     last_act: HashMap<String, (String, Option<Map<String, Value>>)>,
     allow_until: Option<DateTime>,
@@ -1267,10 +1273,15 @@ impl Gateway {
             cancel.clone(),
             caller_left.clone(),
         ));
+        let started = self.d.clock.monotonic();
+        lock(&self.inner)
+            .steps
+            .started(&grant.task_id, &grant.worker_id, started);
         let r = self
             .inner_call(grant, name, arguments, cancel, caller_left)
             .await;
         lock(&self.inner).in_flight.retain(|(j, _, _, _)| *j != job);
+        self.note_step(grant, name, arguments, r.as_ref().ok());
         let r = r?;
         let tool = self.registry().get(name).cloned();
         if let Some(t) = tool {
@@ -1327,6 +1338,7 @@ impl Gateway {
         lock(&self.payments).forget(&ids);
         let mut i = lock(&self.inner);
         i.pictures.forget(&ids);
+        i.steps.forget(task_ids);
         for t in task_ids {
             i.cancelled.remove(t);
             i.outside.remove(t);
@@ -1372,9 +1384,75 @@ impl Gateway {
             .unwrap_or(0)
     }
 
+    /// ORCH-691: what a finished call says about its step (crate::stuck).
+    fn note_step(
+        &self,
+        grant: &RunGrant,
+        name: &str,
+        args: &Map<String, Value>,
+        r: Option<&Reply>,
+    ) {
+        let facts = self
+            .registry()
+            .get(name)
+            .map(|t| t.facts())
+            .unwrap_or_default();
+        let app_arg = args
+            .get("app")
+            .filter(|v| ferb_py::value::truthy(v))
+            .map(ferb_py::value::py_str)
+            .unwrap_or_default();
+        let (app, label) = if !app_arg.is_empty() {
+            (
+                confirm::app_key(&app_arg, self.d.apps.as_ref()),
+                confirm::app_label(&app_arg, self.d.apps.as_ref()),
+            )
+        } else {
+            (String::new(), String::new())
+        };
+        let none = Value::Null;
+        let done = crate::stuck::Done {
+            tool: name,
+            on_screen: facts.on_screen,
+            observation: facts.observation,
+            app: &app,
+            app_label: &label,
+            args,
+            content: r.map_or(&none, |r| &r.content),
+            is_error: r.is_none_or(|r| r.is_error),
+            // ORCH-693: a Mac or browser tool's call that names an app window or a page
+            window: (name.starts_with("mac.") || name.starts_with("browser."))
+                && ["app", "tab", "url"]
+                    .iter()
+                    .any(|k| args.get(*k).is_some_and(ferb_py::value::truthy)),
+        };
+        let now = self.d.clock.monotonic();
+        lock(&self.inner)
+            .steps
+            .ended(&grant.task_id, &grant.worker_id, &done, now);
+    }
+
+    /// ORCH-691: whether this worker's attempt should stop now (8 failed or unchanged on-screen actions on one app,
+    /// or 4 minutes of the step without progress): the stop's facts once, then None.
+    pub fn stuck(&self, worker_id: &str) -> Option<Value> {
+        let now = self.d.clock.monotonic();
+        lock(&self.inner).steps.check(worker_id, now)
+    }
+
+    /// ORCH-691: the stop the guard made in this step, once.
+    pub fn take_stuck(&self, task_id: &str) -> Option<Value> {
+        lock(&self.inner).steps.take_tripped(task_id)
+    }
+
+    /// ORCH-691: the owner said "keep trying": the step's counts start again.
+    pub fn keep_trying(&self, task_id: &str) {
+        lock(&self.inner).steps.keep_trying(task_id);
+    }
+
     /// `forget_calls(worker)`: a run ended (its token revoked).
     pub fn forget_calls(&self, worker_id: &str) {
         let mut i = lock(&self.inner);
+        i.steps.forget_worker(worker_id);
         i.calls_made.remove(worker_id);
         i.refused_over.remove(worker_id);
         i.last_act.remove(worker_id);
@@ -4170,6 +4248,16 @@ impl Gateway {
             .unwrap_or_default();
         let (browser, folder) = profile.split_once('/').unwrap_or((&profile, ""));
         let shown = (self.d.profile_name)(browser, folder);
+        // decision: HAND-678 — FERB's extension is there but off: turning it on is the owner's own step, so FERB asks
+        // (and says what he does) even for a profile he named; browser.pair then opens the page and waits for him
+        if (self.d.profile_turned_off)(browser, folder) {
+            return Ok(Some(confirm::pair_enable_need(
+                &shown,
+                browser,
+                folder,
+                &(self.d.profile_account)(browser, folder),
+            )));
+        }
         let request = self.request(&c.rec.request_id);
         let said = provenance::sources(
             &shown,

@@ -219,18 +219,66 @@ fn keep_trying_retries_with_the_checks_notes_and_isnt_asked_again() {
     );
 }
 
-/// ORCH-679: an input only the owner has stays the check's own business (its question, or its retry): code asks
-/// nothing of its own.
-// decision: ORCH-679
+/// ORCH-690 (owner, 2026-11-22: "Yes, always ask me"; a named change to ORCH-679, which kept this the check's
+/// retry): an input only the owner has is asked about at once, after the first attempt, and "go on" ends the step with
+/// its gap.
+// decision: ORCH-679, ORCH-690
 #[test]
-fn an_owner_label_leaves_the_checks_own_path() {
+fn an_owner_label_is_asked_about_at_once() {
     let name = "check_in_after_five";
     let mut w = world_with(name, labelled("owner", "most"));
     let _ = run_with(&mut w, name, |steps| {
         approve(steps, &[("ap-a00000000001", 2)])
     });
-    assert_eq!(count(&w, "task.rabbit_hole_asked"), 0);
-    assert_eq!(workers(&w, ".worker").len(), 5);
+    assert_eq!(count(&w, "task.rabbit_hole_asked"), 1);
+    assert_eq!(workers(&w, ".worker").len(), 1, "no retry first");
+    let (row, out) = root_outcome(&w);
+    assert_eq!(row, "done_with_gaps", "{out}");
+}
+
+/// ORCH-691 (owner, 2026-11-22: "8 failed actions or 4 min"): an attempt FERB's guard stopped is asked about at
+/// once, even when the check labelled what is left a `fix` and chose a retry; "keep trying" gives the step fresh counts
+/// (the gateway's keep_trying) and the retry goes on; the guard asks again the next time it stops an attempt.
+// decision: ORCH-691, ORCH-679
+#[test]
+fn an_attempt_the_guard_stopped_is_asked_about_and_keep_trying_counts_afresh() {
+    let name = "check_in_after_five";
+    let mut w = world_with(name, labelled("fix", "none"));
+    *w.daemon.stuck.lock().unwrap() = 2;
+    let _ = run_with(&mut w, name, |steps| {
+        approve(steps, &[("ap-a00000000001", 1), ("ap-a00000000002", 2)])
+    });
+    assert_eq!(
+        count(&w, "task.rabbit_hole_asked"),
+        2,
+        "asked each time the guard stopped it"
+    );
+    assert_eq!(workers(&w, ".worker").len(), 2);
+    assert_eq!(
+        w.daemon.kept.lock().unwrap().len(),
+        1,
+        "keep trying: fresh counts"
+    );
+    let (row, out) = root_outcome(&w);
+    assert_eq!(row, "done_with_gaps", "{out}");
+}
+
+/// ORCH-691: unattended, the guard's question can't be answered: the step waits on the owner (needs_user).
+// decision: ORCH-691, ORCH-681
+#[test]
+fn unattended_the_guards_question_ends_the_step_waiting_on_the_owner() {
+    let name = "check_in_after_five";
+    let mut w = world_with(name, labelled("fix", "none"));
+    *w.daemon.stuck.lock().unwrap() = 1;
+    w.daemon
+        .unattended
+        .lock()
+        .unwrap()
+        .insert("id-000015".into());
+    let _ = run_with(&mut w, name, |steps| approve(steps, &[]));
+    assert_eq!(workers(&w, ".worker").len(), 1);
+    let (row, _) = root_outcome(&w);
+    assert_eq!(row, "needs_user");
 }
 
 /// ORCH-680: a malformed label (a kind no prompt names, a check with no progress) changes nothing: today's path.

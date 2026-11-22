@@ -778,6 +778,17 @@ impl Daemon for SupDaemon {
     fn calls_refused(&self, watch_id: &str) -> u64 {
         self.gateway.calls_refused(watch_id)
     }
+    fn stuck(&self, watch_id: &str) -> Option<String> {
+        self.gateway
+            .stuck(watch_id)
+            .map(|why| ferb_gateway::stuck::words(&why))
+    }
+    fn take_stuck(&self, task_id: &str) -> bool {
+        self.gateway.take_stuck(task_id).is_some()
+    }
+    fn keep_trying(&self, task_id: &str) {
+        self.gateway.keep_trying(task_id)
+    }
     fn lookups_made(&self, holder: &str) -> usize {
         self.gateway.lookups_made(holder) as usize
     }
