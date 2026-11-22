@@ -37,3 +37,5 @@ src/compose/tools/mac.rs | thread "ferb-mac-call" | one Mac call on a thread of 
 src/compose/link.rs | .spawn() | the phone link's helper process, owned by the supervised loop "phone link" (compose/link.rs Runner::start)
 src/compose/link.rs | tokio::spawn(async move { | copies one helper run's standard error to FERB's log, ending with that run
 src/compose/insomnia.rs | rt.spawn(async move { | one insomnia notice for the owner (a warning, an end, a sleep macOS forced), per notice
+src/compose/sessions.rs | rt.spawn(async move { while rx.recv().await.is_some() {} }); | drains one hand-over's chat.send events (the turn's entries reach the clients); ends when that turn's stream closes
+src/compose/sessions.rs | rt.spawn(async move { | one session notice told to the owner through the notifier; ends when that one notice is posted
