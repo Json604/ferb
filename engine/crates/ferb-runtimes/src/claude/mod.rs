@@ -130,6 +130,12 @@ pub trait ToolProxy: Send + Sync {
     /// The tool names the run's requests carried.
     fn seen(&self, run_id: &str) -> BTreeSet<String>;
     fn forget(&self, run_id: &str);
+    /// RUN-470: the run's requests are compacted by `policy` from now on (until `forget`).
+    fn compact(&self, _run_id: &str, _policy: crate::compact::Policy) {}
+    /// RUN-470: the compactions made on the run's requests since the last call.
+    fn compactions(&self, _run_id: &str) -> Vec<crate::compact::Compaction> {
+        Vec::new()
+    }
 }
 
 /// What the daemon lends every Claude run: how programs start, the daemon's environment, random ids, the date.
@@ -190,6 +196,8 @@ pub struct ClaudeRuntime {
     pub format_key: String,
     pub allowed: BTreeSet<String>,
     pub host: Host,
+    /// RUN-470: a worker's requests compacted through the relay; None sends every result again on every call.
+    pub compaction: Option<crate::compact::Policy>,
 }
 
 impl ClaudeRuntime {
@@ -251,11 +259,21 @@ impl ClaudeRuntime {
             format_key,
             allowed,
             host,
+            compaction: None,
         }
     }
 
     pub fn limits(&self) -> Result<ModelLimits, FerbError> {
         limits_for(self.model.as_deref())
+    }
+
+    /// The run's base URL on the relay; a worker's requests compacted there when the runtime has a policy (RUN-470).
+    fn relay_url(&self, run_id: &str) -> String {
+        let url = self.proxy.base_url(run_id);
+        if let (Mode::Worker, Some(p)) = (self.mode, self.compaction) {
+            self.proxy.compact(run_id, p);
+        }
+        url
     }
 
     fn now(&self) -> ferb_core::timing::Now {
@@ -282,7 +300,7 @@ impl ClaudeRuntime {
         };
         let mut env = BTreeMap::new();
         for (k, v) in [
-            ("ANTHROPIC_BASE_URL", self.proxy.base_url(run_id)),
+            ("ANTHROPIC_BASE_URL", self.relay_url(run_id)),
             ("DISABLE_TELEMETRY", "1".into()),
             ("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1".into()),
             ("DISABLE_ERROR_REPORTING", "1".into()),
@@ -953,6 +971,9 @@ async fn result_message(
     );
     if !follow.is_empty() {
         data.insert("follow_up".into(), json!(follow));
+    }
+    for made in rt.proxy.compactions(&run.id) {
+        y.emit(event(K::Compacted, made.as_event())).await?;
     }
     y.emit(event(K::Usage, Value::Object(data))).await?;
     if is_error {

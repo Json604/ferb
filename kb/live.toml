@@ -5085,3 +5085,12 @@ request = "Hand the chat to FERB: \"keep asking until it gives me three options,
 pass = "FERB's first typing asks once, naming the app's chat, never a terminal; FERB answers each finished reply once, waits by code meanwhile, stops when the goal is met or asks you; ferb trace shows about one model call per reply and none while the app was replying or idle (the old run: 9 calls in 7.7 min only watching)."
 decisions = ["HAND-673", "HAND-668", "HAND-674", "HAND-675"]
 sitting = "after this build is installed"
+
+[LIVE-1177]
+title = "A long worker task stops re-sending old screens, and a Chrome snapshot is smaller"
+area = "runtimes"
+surface = "FERB.app with this engine; Claude as the worker's runtime (then an API key's model); a disposable Desktop folder and a Chrome window"
+request = "Ask FERB for a task that keeps looking at the same window, e.g. \"open ~/Desktop/compact-test in Finder, make 12 folders named a1 to a12 one by one, checking the window after each\"; then one that reads a Chrome window with mac tools (an unpaired profile's chrome://extensions)."
+pass = "Both tasks finish as before; `ferb trace TASK --full` shows model.compacted spans with by \"ferb\" once requests pass about 40,000 tokens, and model.usage input stops growing step by step; the Chrome mac.snapshot results list no unnamed groups or repeated texts; no new question or failure."
+decisions = ["RUN-468", "RUN-470", "RUN-471", "HAND-676"]
+sitting = "after this engine is installed"

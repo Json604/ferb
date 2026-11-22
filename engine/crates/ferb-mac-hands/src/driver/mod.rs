@@ -42,6 +42,44 @@ pub const CANT_CONFIRM: &str =
     "FERB can't confirm what is under this point, so it didn't click: one of its own \
 windows could be there (rule 8, rule 9)";
 pub const WINDOW_WALK_NODES: usize = 2000;
+
+/// HAND-676: roles that show content but take no action of their own.
+pub const PASSIVE_ROLES: [&str; 4] = ["statictext", "group", "image", "heading"];
+/// HAND-676: the actions web content gives every node (the page's context menu, scrolling it into view).
+pub const GENERIC_ACTIONS: [&str; 2] = ["menu", "scroll_to_visible"];
+/// HAND-676: roles whose "expanded": false says nothing (they never expand).
+pub const NEVER_EXPAND: [&str; 10] = [
+    "statictext",
+    "group",
+    "image",
+    "heading",
+    "link",
+    "checkbox",
+    "radiobutton",
+    "textbox",
+    "searchbox",
+    "webarea",
+];
+/// HAND-676: how many of the elements listed just before a text are compared with it.
+pub const RECENT_NAMES: usize = 3;
+
+/// HAND-676: a passive element (text, group, image) with nothing but a name is left out of a snapshot's listing when
+/// it has no name, or its name only repeats one of the last few listed (a link's own text, a card's title again).
+fn quiet(role: &str, d: &Map<String, Value>, name: &str, recent: &[String]) -> bool {
+    if !matches!(role, "statictext" | "group" | "image") {
+        return false;
+    }
+    if d.keys()
+        .any(|k| !matches!(k.as_str(), "id" | "role" | "label" | "value" | "in"))
+    {
+        return false;
+    }
+    if name.is_empty() {
+        return true;
+    }
+    let name = ferb_py::text::lower(name);
+    recent.iter().any(|r| r.contains(name.as_str()))
+}
 pub const WINDOW_WALK_S: f64 = 0.2;
 pub const SETTLE_S: f64 = 0.4;
 pub const TYPE_CHUNK: usize = 8;
@@ -1313,12 +1351,19 @@ substituted or brought forward",
             .map(|(i, n)| (format!("s{gen}e{}", i + 1), n))
             .collect();
         let mut els = vec![];
+        let mut recent: Vec<String> = vec![];
         for (eid, n) in &s.nodes {
             let mut d = Map::new();
             d.insert("id".into(), json!(eid));
             d.insert("role".into(), json!(n.role));
             d.insert("label".into(), json!(n.label));
-            if !n.actions.is_empty() {
+            let passive = PASSIVE_ROLES.contains(&n.role.as_str());
+            // HAND-676: web content gives every node the page's context menu and scroll; on plain text they say nothing
+            let generic = n
+                .actions
+                .iter()
+                .all(|a| GENERIC_ACTIONS.contains(&a.as_str()));
+            if !n.actions.is_empty() && !(passive && generic) {
                 d.insert("actions".into(), json!(n.actions));
             }
             if n.secret {
@@ -1334,10 +1379,27 @@ substituted or brought forward",
                 d.insert("selected".into(), json!(true));
             }
             if let Some(e) = n.expanded {
-                d.insert("expanded".into(), json!(e));
+                // HAND-676: "not expanded" on an element that never expands is noise
+                if e || !NEVER_EXPAND.contains(&n.role.as_str()) {
+                    d.insert("expanded".into(), json!(e));
+                }
             }
             if let Some(c) = n.container.as_ref().filter(|c| !c.is_empty()) {
                 d.insert("in".into(), json!(c));
+            }
+            let name = if n.label.trim().is_empty() {
+                n.value.as_deref().unwrap_or_default().trim().to_string()
+            } else {
+                n.label.trim().to_string()
+            };
+            if quiet(&n.role, &d, &name, &recent) {
+                continue; // HAND-676: its id still works; the listing leaves it out
+            }
+            if !name.is_empty() {
+                recent.push(ferb_py::text::lower(&name));
+                if recent.len() > RECENT_NAMES {
+                    recent.remove(0);
+                }
             }
             els.push(Value::Object(d));
         }
@@ -1363,8 +1425,19 @@ substituted or brought forward",
             }
             out.insert("continuation".into(), Value::Object(c));
         }
-        if !tree.windows.is_empty() {
-            out.insert("windows".into(), json!(tree.windows));
+        // HAND-676: a window with no title that can't be reached and isn't on screen (a browser's helper windows) is
+        // left out of the list; the window read stays in it
+        let windows: Vec<&Map<String, Value>> = tree
+            .windows
+            .iter()
+            .filter(|w| {
+                ["title", "reachable", "onscreen", "current"]
+                    .iter()
+                    .any(|k| w.get(*k).is_some_and(ferb_py::value::truthy))
+            })
+            .collect();
+        if !windows.is_empty() {
+            out.insert("windows".into(), json!(windows));
         }
         if !tree.headings.is_empty() {
             out.insert("headings".into(), json!(tree.headings));

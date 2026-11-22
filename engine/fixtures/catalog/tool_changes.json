@@ -49,6 +49,13 @@
       "part": "description",
       "old": "Retrieve past tasks (with how they were done), playbooks and activity summaries by meaning and keywords,",
       "new": "Retrieve past tasks (with how they were done), playbooks, activity summaries and the work log of the owner's Claude Code and Codex sessions (kind work_log: one session on one day, what was worked on, its folder and the session's id; since/until on the session's day) by meaning and keywords,"
+    },
+    {
+      "decision": "HAND-676",
+      "tool": "mac.snapshot",
+      "part": "description",
+      "old": "each with its actions, value and state (disabled / selected / expanded). ",
+      "new": "each with its actions, value and state (disabled / selected / expanded). Text that only repeats a nearby element's name, unnamed groups and images, and the generic menu and scroll_to_visible of plain web text are left out of the list (their ids still work). "
     }
   ]
 }

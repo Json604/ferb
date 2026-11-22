@@ -2389,3 +2389,13 @@ rule = "For HAND-672, GATE-585. FERB's first typing into a desktop chat app in a
 evidence = "ferb-policy tests/chat_card.rs a_chat_app_s_question_names_its_chat_never_a_terminal; tests/parity.rs terminal_input_matches_python unchanged."
 paths = ["engine/crates/ferb-policy/src/wording.rs", "engine/crates/ferb-policy/src/terminal.rs", "engine/crates/ferbd/src/compose/tools/sessions.rs"]
 live = ["LIVE-1176"]
+
+[HAND-676]
+title = "A snapshot lists what the worker can use, not what only repeats"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For RUN-468. A mac.snapshot's elements leave out a plain text, group or image with nothing but a name when it has no name or its name only repeats one of the last 3 listed (a link's own text); plain text, groups, images and headings don't list web content's generic menu and scroll_to_visible; elements that never expand don't say expanded false; untitled windows that can't be reached and aren't on screen leave the windows list. Ids are the walk's, so a left-out element's id still works."
+why = "Owner 2026-11-22 asked what was done to lessen 14 Chrome snapshots of 4,000-9,000 tokens each: on task a843aa54 their 334,410 characters become 133,030 (-60%), no control or its actions lost."
+live = ["LIVE-1177"]
+paths = ["engine/crates/ferb-mac-hands/src/driver/mod.rs", "engine/crates/ferb-mac-hands/src/tools.rs", "engine/fixtures/catalog/tool_changes.json"]

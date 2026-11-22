@@ -355,6 +355,18 @@ impl Provider for AnthropicProvider {
         true
     }
 
+    fn results(&self, state: &Value) -> Vec<crate::compact::Seen> {
+        results(&state["body"])
+    }
+
+    fn rewrite(
+        &self,
+        state: &mut Value,
+        plan: &std::collections::BTreeMap<String, String>,
+    ) -> usize {
+        rewrite(&mut state["body"], plan)
+    }
+
     fn add_results(&self, state: &mut Value, _turn: &Turn, results: &[ToolOutcome]) {
         let blocks: Vec<Value> = results
             .iter()
@@ -567,4 +579,111 @@ impl StreamParser for AnthropicStream {
         );
         Ok(Value::Object(out))
     }
+}
+
+/// The tool results a Messages body carries, in order (FERB's API loop and Claude Code's requests through FERB's
+/// relay; RUN-468): each `tool_result` with its `tool_use`'s name and input.
+pub fn results(body: &Value) -> Vec<crate::compact::Seen> {
+    let mut calls: BTreeMap<String, (String, Value)> = BTreeMap::new();
+    let mut out = Vec::new();
+    let Some(messages) = body.get("messages").and_then(Value::as_array) else {
+        return out;
+    };
+    for m in messages {
+        let Some(blocks) = m.get("content").and_then(Value::as_array) else {
+            continue;
+        };
+        for b in blocks {
+            match b.get("type").and_then(Value::as_str) {
+                Some("tool_use") => {
+                    let id = ferb_py::value::py_str(b.get("id").unwrap_or(&Value::Null));
+                    let name = b.get("name").and_then(Value::as_str).unwrap_or_default();
+                    calls.insert(
+                        id,
+                        (
+                            crate::compact::tool_name(name, None),
+                            b.get("input").cloned().unwrap_or(Value::Null),
+                        ),
+                    );
+                }
+                Some("tool_result") => {
+                    let id = ferb_py::value::py_str(b.get("tool_use_id").unwrap_or(&Value::Null));
+                    let (tool, args) = calls.get(&id).cloned().unwrap_or_default();
+                    let (mut text, mut images) = (String::new(), 0);
+                    match b.get("content") {
+                        Some(Value::String(s)) => text.push_str(s),
+                        Some(Value::Array(parts)) => {
+                            for p in parts {
+                                match p.get("type").and_then(Value::as_str) {
+                                    Some("text") => {
+                                        if !text.is_empty() {
+                                            text.push('\n');
+                                        }
+                                        text.push_str(
+                                            p.get("text")
+                                                .and_then(Value::as_str)
+                                                .unwrap_or_default(),
+                                        )
+                                    }
+                                    Some("image") => images += 1,
+                                    _ => {}
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                    out.push(crate::compact::Seen {
+                        call_id: id,
+                        tool,
+                        args,
+                        text,
+                        images,
+                    });
+                }
+                _ => {}
+            }
+        }
+    }
+    out
+}
+
+/// Replaces the planned results' content with their line; the block's other keys (`is_error`, a cache marker) stay,
+/// and a marker on the content's last part moves to the line. Returns how many it changed.
+pub fn rewrite(body: &mut Value, plan: &BTreeMap<String, String>) -> usize {
+    let mut changed = 0;
+    let Some(messages) = body.get_mut("messages").and_then(Value::as_array_mut) else {
+        return 0;
+    };
+    for m in messages {
+        let Some(blocks) = m.get_mut("content").and_then(Value::as_array_mut) else {
+            continue;
+        };
+        for b in blocks {
+            if b.get("type").and_then(Value::as_str) != Some("tool_result") {
+                continue;
+            }
+            let id = ferb_py::value::py_str(b.get("tool_use_id").unwrap_or(&Value::Null));
+            let Some(line) = plan.get(&id) else { continue };
+            let new = match b.get("content") {
+                Some(Value::String(s)) if s == line => continue,
+                Some(Value::String(_)) => json!(line),
+                Some(Value::Array(parts)) => {
+                    if parts.len() == 1
+                        && parts[0].get("text").and_then(Value::as_str) == Some(line)
+                    {
+                        continue;
+                    }
+                    let mut text = json!({"type": "text", "text": line});
+                    if let Some(marker) = parts.last().and_then(|p| p.get("cache_control")) {
+                        text["cache_control"] = marker.clone();
+                    }
+                    json!([text])
+                }
+                _ => continue,
+            };
+            b["content"] = new;
+            changed += 1;
+        }
+    }
+    changed
 }

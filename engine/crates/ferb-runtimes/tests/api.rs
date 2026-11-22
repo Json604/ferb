@@ -371,3 +371,98 @@ async fn api_matches_python() {
         failures.join("\n")
     );
 }
+
+// decision: RUN-468
+#[tokio::test]
+async fn a_worker_loops_earlier_looks_at_a_window_are_compacted_in_its_own_requests() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let call = |i: usize| {
+        json!({"json": {"status": "completed", "output": [{"type": "function_call", "id": format!("fc_{i}"),
+            "call_id": format!("call_{i}"), "name": "mac_snapshot", "arguments": "{\"app\": \"pid:1\"}"}],
+            "usage": {"input_tokens": 10, "output_tokens": 2}}})
+    };
+    let mut responses: Vec<Value> = (1..=4).map(call).collect();
+    responses.push(json!({"json": {"status": "completed", "output": [{"type": "message", "content": [
+        {"type": "output_text", "text": "done"}]}], "usage": {"input_tokens": 10, "output_tokens": 2}}}));
+    let srv = tokio::spawn(server(listener, responses, requests.clone(), "k".into()));
+    let look = |i: usize| {
+        json!({"content": {"app": "X", "bundle_id": "com.x", "window": "Inbox", "elements": ["e".repeat(3000)],
+            "n": i, "windows": [{"id": 7, "current": true}]}, "footer": "[mac]", "is_error": false, "image": null})
+    };
+    let bridge = Arc::new(FakeBridge {
+        tools: vec![
+            json!({"name": "mac.snapshot", "description": "Look.", "input_schema": {"type": "object"}}),
+        ],
+        results: Mutex::new((1..=4).map(look).collect()),
+        log: Arc::new(Mutex::new(Vec::new())),
+    });
+    let mut rt = ApiRuntime::new(
+        Arc::new(openai::OpenAIProvider::new(None)),
+        false,
+        "worker",
+        &["mac.snapshot".to_string()],
+        None,
+        Some(bridge),
+        Arc::new(|_name: String| Box::pin(async { Some(Secret::from("k")) })),
+        Arc::new(ferb_runtimes::forms::ContextForms),
+        Arc::new(Refusals::new(Box::new(|| 0.0))),
+    )
+    .expect("a runtime");
+    rt.origin = Some(origin);
+    rt.token_hex = counter();
+    rt.compaction = Some(ferb_runtimes::compact::Policy {
+        start_tokens: 0,
+        gain_tokens: 1,
+        keep_steps: 1,
+        read_chars: 100_000,
+        read_age: 100,
+    });
+    rt.clock = Arc::new(|| "10:00:00".to_string());
+    let request =
+        request_of(&json!({"system": "FERB", "parts": ["the owner's words"], "cacheable": 1}));
+    let mut started = rt.start(&task(), &request, "tok").await.expect("started");
+    let mut kinds = Vec::new();
+    while let Some(ev) = tokio::time::timeout(Duration::from_secs(5), started.events.next())
+        .await
+        .expect("no stall")
+    {
+        let ev = ev.expect("an event");
+        if ev.kind == ferb_core::types::RuntimeEventKind::Compacted {
+            assert_eq!(ev.data["by"], json!("ferb"));
+            kinds.push(format!("compacted {}", ev.data["screens_replaced"]));
+        }
+    }
+    let bodies: Vec<Value> = requests
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|r| serde_json::from_str(r["body"].as_str().unwrap()).unwrap())
+        .collect();
+    assert_eq!(bodies.len(), 5);
+    let outputs = |b: &Value| -> Vec<String> {
+        b["input"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|i| i["type"] == "function_call_output")
+            .map(|i| i["output"].as_str().unwrap().chars().take(40).collect())
+            .collect()
+    };
+    let line = "FERB: an earlier snapshot of X (window 7";
+    // request 3 is the first with a superseded look a call old; each later one adds the look before the newest
+    assert_eq!(kinds, ["compacted 1", "compacted 1", "compacted 1"]);
+    let last = outputs(&bodies[4]);
+    assert_eq!(last.len(), 4);
+    assert!(last[..3].iter().all(|o| o == line), "{last:?}");
+    assert!(
+        last[3].starts_with("{\"app\": \"X\""),
+        "the newest look stays whole: {last:?}"
+    );
+    assert_eq!(
+        bodies[4]["input"][0], bodies[0]["input"][0],
+        "the owner's words are as sent"
+    );
+    srv.abort();
+}

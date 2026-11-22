@@ -55,7 +55,7 @@ fn spec() -> Value {
     add(
         "win",
         at(0.0, 0.0, 800.0, 600.0),
-        json!({"AXRole": "AXWindow", "AXTitle": "Chat", "AXChildren": {"els": ["doc", "send", "msg"]}}),
+        json!({"AXRole": "AXWindow", "AXTitle": "Chat", "AXChildren": {"els": ["doc", "send", "msg", "web"]}}),
         vec![],
     );
     let inside = json!({"AXWindow": {"el": "win"}, "AXParent": {"el": "win"}});
@@ -83,6 +83,67 @@ fn spec() -> Value {
             "Name:Download\nTarget:0x0\nSelector:(null)",
             "AXShowAlternateUI",
         ],
+    );
+    // HAND-676: web content as Chrome gives it, every node with the page's menu and scroll, "not expanded" everywhere
+    let web = |role: &str, extra: Value, parent: &str| {
+        let mut a = json!({"AXRole": role, "AXWindow": {"el": "win"}, "AXParent": {"el": parent}, "AXExpanded": false});
+        for (k, v) in extra.as_object().unwrap() {
+            a[k] = v.clone();
+        }
+        a
+    };
+    let generic = || vec!["AXShowMenu", "AXScrollToVisible"];
+    add(
+        "web",
+        at(10.0, 200.0, 400.0, 200.0),
+        web(
+            "AXGroup",
+            json!({"AXChildren": {"els": ["card", "link", "linktext", "blank", "pic", "more", "note"]}}),
+            "win",
+        ),
+        generic(),
+    );
+    add(
+        "card",
+        at(10.0, 200.0, 400.0, 20.0),
+        web("AXHeading", json!({"AXTitle": "Calendar"}), "web"),
+        generic(),
+    );
+    add(
+        "link",
+        at(10.0, 220.0, 400.0, 20.0),
+        web("AXLink", json!({"AXTitle": "See more in Calendar"}), "web"),
+        generic(),
+    );
+    add(
+        "linktext",
+        at(10.0, 220.0, 80.0, 20.0),
+        web("AXStaticText", json!({"AXValue": "See more"}), "web"),
+        generic(),
+    );
+    add(
+        "blank",
+        at(10.0, 240.0, 400.0, 20.0),
+        web("AXGroup", json!({}), "web"),
+        generic(),
+    );
+    add(
+        "pic",
+        at(10.0, 260.0, 20.0, 20.0),
+        web("AXImage", json!({}), "web"),
+        generic(),
+    );
+    add(
+        "more",
+        at(10.0, 280.0, 80.0, 20.0),
+        web("AXButton", json!({"AXTitle": "More actions"}), "web"),
+        vec!["AXPress", "AXShowMenu", "AXScrollToVisible"],
+    );
+    add(
+        "note",
+        at(10.0, 300.0, 300.0, 20.0),
+        web("AXStaticText", json!({"AXValue": "Opens at nine"}), "web"),
+        generic(),
     );
     add(
         "ctx",
@@ -1653,4 +1714,72 @@ fn a_locked_screen_refuses_system_wide_input_only() {
         3,
         "the refused one never reached the stream"
     );
+}
+
+// ---------- HAND-676: what a snapshot lists ----------
+
+// decision: HAND-676
+#[tokio::test]
+async fn a_snapshot_leaves_out_what_only_repeats_and_keeps_every_control() {
+    let m = mac();
+    let snap = m.snapshot().await;
+    let shown: Vec<Value> = snap["elements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| {
+            let mut e = e.clone();
+            e.as_object_mut().unwrap().remove("id");
+            e
+        })
+        .collect();
+    // web content: the heading, the link and the button stay with what they say; the link's own text again, the
+    // unnamed group and image go; plain text keeps its words without the page's generic actions
+    for want in [
+        json!({"role": "heading", "label": "Calendar"}),
+        json!({"role": "link", "label": "See more in Calendar", "actions": ["menu", "scroll_to_visible"]}),
+        json!({"role": "button", "label": "More actions", "actions": ["press", "menu", "scroll_to_visible"], "expanded": false}),
+        json!({"role": "statictext", "label": "", "value": "Opens at nine"}),
+    ] {
+        assert!(shown.contains(&want), "{want} not in {shown:#?}");
+    }
+    assert!(
+        !shown.iter().any(|e| e["value"] == "See more"),
+        "{shown:#?}"
+    );
+    assert!(!shown.iter().any(|e| e["role"] == "image"), "{shown:#?}");
+    assert_eq!(
+        shown
+            .iter()
+            .filter(|e| e["role"] == "group" && e["label"] == "")
+            .count(),
+        0,
+        "{shown:#?}"
+    );
+    // the native controls are as before: the bubble keeps every action it lists, the menu among them
+    let doc = shown
+        .iter()
+        .find(|e| e["label"] == "Document bubble")
+        .unwrap();
+    assert_eq!(
+        doc["actions"],
+        json!(["press", "scroll_to_visible", "cancel", "menu"])
+    );
+    // the ids are the walk's: the ones left out leave gaps, so every listed id names the element it named before
+    let numbers: Vec<u32> = snap["elements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| {
+            e["id"]
+                .as_str()
+                .unwrap()
+                .rsplit('e')
+                .next()
+                .unwrap()
+                .parse()
+                .unwrap()
+        })
+        .collect();
+    assert!(numbers.windows(2).any(|w| w[1] > w[0] + 1), "{numbers:?}");
 }

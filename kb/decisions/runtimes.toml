@@ -613,3 +613,55 @@ rule = "For RUN-466. In worker mode a cached run always resumes with empty devel
 why = "Checked on the pinned Codex 0.166.0 against a loopback server: the thread id is prompt_cache_key; a resumed worker thread sends the same request as an ephemeral one but for ids; the template's effort never reaches the request."
 live = ["LIVE-959"]
 paths = ["engine/crates/ferb-runtimes/src/codex/stream.rs", "engine/crates/ferb-runtimes/src/codex/mod.rs::write_template", "engine/crates/ferbd/src/compose/runtimes.rs"]
+
+[RUN-468]
+title = "A screen FERB looked at is seen, not sent again on every step once a newer one replaces it"
+by = "owner"
+date = 2026-11-22
+status = "active"
+words = "i didnt knew eveyr screenshot is sent eveyr turn, i thougth they are taken and seen, just that adn retaken when needed. shoudlny we hcange this??? how doe sthis affect btw?? is it a big token value?"
+words_source = "Owner 2026-11-22, shown task a843aa54 (Codex): 93 worker calls, input 28k to 187k tokens each, 8.59M in all, as every earlier tool result is sent again each step"
+rule = "A worker's tool loop stops sending every earlier screenshot and screen read with every step: a look at a window or tab is seen when taken, and once a newer look at the same window or tab exists the older one is sent only as a line saying so; the model takes a new one when it needs it. The numbers that decide when are the owner's (T-1290)."
+live = ["LIVE-1177"]
+paths = ["engine/crates/ferb-runtimes/src/compact.rs"]
+
+[RUN-469]
+title = "What a compaction replaces, from structural facts, and what it never touches"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For RUN-468. A newer mac_snapshot or mac_screenshot of the same app window, or browser/ferb_browser snapshot or screenshot of the same tab (same kind), replaces the older with one line; a result over read_chars and read_age calls old, or the last look at a window or tab that is gone, shrinks to a line with its start and how to read it again. Never: the last keep_steps calls, the newest look per window or tab, owner_ask, chat_history, conversation_read, abilities_read, skills_read, memory_read, memory_learned, request_user_input, the answer tool, any message."
+why = "The gateway's checks use FERB's own records (shot ids, snapshots, the ledger), never the model's history, so no confirmation or check loses what it relies on."
+live = ["LIVE-1177"]
+paths = ["engine/crates/ferb-runtimes/src/compact.rs"]
+
+[RUN-470]
+title = "Compaction keeps the cache: the plan grows only in batches, the same bytes after"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For RUN-468. A run's plan grows only when the request is past start_tokens and the new lines remove at least gain_tokens; a line once made is sent with the same bytes on every later request, so each compaction breaks the provider's cache once. The API loop edits its own request; Claude Code's requests are edited in FERB's relay they already pass through. Each compaction is a model.compacted span with by \"ferb\". Planner runs are never compacted."
+why = "Providers cache the unchanged start of a request: replacing early results on every step would make every step a cache miss."
+live = ["LIVE-1177"]
+paths = ["engine/crates/ferb-runtimes/src/compact.rs", "engine/crates/ferb-runtimes/src/api/mod.rs", "engine/crates/ferb-runtimes/src/claude/proxy.rs", "engine/crates/ferb-runtimes/src/claude/mod.rs"]
+
+[RUN-471]
+title = "Compaction's numbers: from 40,000 tokens, batches of 10,000, last 2 steps whole, reads 2,000 after 4"
+by = "owner"
+date = 2026-11-22
+status = "active"
+words = "numbers ok, leave codex out for now"
+words_source = "Owner 2026-11-22, answering whether to use the proposed compaction numbers (measured on task a843aa54: -43% input tokens, 7 cache re-reads) or batches of 20,000"
+rule = "For RUN-468. Compaction starts once a step's request is about 40,000 tokens, replaces in batches that save at least 10,000, always keeps the last 2 steps whole, and shortens other results over 2,000 characters once they are 4 steps old."
+live = ["LIVE-1177"]
+paths = ["engine/crates/ferb-runtimes/src/compact.rs", "engine/crates/ferbd/src/compose/runtimes.rs"]
+
+[RUN-472]
+title = "Codex runs are left out of compaction for now"
+by = "owner"
+date = 2026-11-22
+status = "active"
+words = "numbers ok, leave codex out for now"
+words_source = "Owner 2026-11-22, shown that compacting Codex runs needs their requests to the ChatGPT backend routed through a FERB relay"
+rule = "For RUN-468. Only Claude Code runs and FERB's API loop are compacted; a Codex run is started, and talks to its backend, exactly as before. Codex compaction comes later, checked live with the owner (T-1291)."
+paths = ["engine/crates/ferbd/src/compose/runtimes.rs"]

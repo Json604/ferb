@@ -341,6 +341,18 @@ impl Provider for OpenAIProvider {
         true
     }
 
+    fn results(&self, state: &Value) -> Vec<crate::compact::Seen> {
+        results(&state["body"])
+    }
+
+    fn rewrite(
+        &self,
+        state: &mut Value,
+        plan: &std::collections::BTreeMap<String, String>,
+    ) -> usize {
+        rewrite(&mut state["body"], plan)
+    }
+
     fn add_results(&self, state: &mut Value, _turn: &Turn, results: &[ToolOutcome]) {
         let Some(input) = state["body"]["input"].as_array_mut() else {
             return;
@@ -423,4 +435,88 @@ impl StreamParser for OpenAIStream {
             )),
         }
     }
+}
+
+/// The tool results a Responses body carries, in order (FERB's API loop and Codex's requests through FERB's relay;
+/// RUN-468): each `function_call_output` with its `function_call`'s name (and namespace) and arguments.
+pub fn results(body: &Value) -> Vec<crate::compact::Seen> {
+    let mut calls: std::collections::BTreeMap<String, (String, Value)> = Default::default();
+    let mut out = Vec::new();
+    let Some(items) = body.get("input").and_then(Value::as_array) else {
+        return out;
+    };
+    for item in items {
+        let id = ferb_py::value::py_str(item.get("call_id").unwrap_or(&Value::Null));
+        match item.get("type").and_then(Value::as_str) {
+            Some("function_call") => {
+                let name = item.get("name").and_then(Value::as_str).unwrap_or_default();
+                let ns = item.get("namespace").and_then(Value::as_str);
+                let args = match item.get("arguments") {
+                    Some(Value::String(s)) => ferb_py::json::loads(s).unwrap_or(Value::Null),
+                    Some(v) => v.clone(),
+                    None => Value::Null,
+                };
+                calls.insert(id, (crate::compact::tool_name(name, ns), args));
+            }
+            Some("function_call_output") => {
+                let (tool, args) = calls.get(&id).cloned().unwrap_or_default();
+                let (mut text, mut images) = (String::new(), 0);
+                match item.get("output") {
+                    Some(Value::String(s)) => text.push_str(s),
+                    Some(Value::Array(parts)) => {
+                        for p in parts {
+                            match p.get("type").and_then(Value::as_str) {
+                                Some("input_text" | "text" | "output_text") => {
+                                    if !text.is_empty() {
+                                        text.push('\n');
+                                    }
+                                    text.push_str(
+                                        p.get("text").and_then(Value::as_str).unwrap_or_default(),
+                                    )
+                                }
+                                Some("input_image" | "image") => images += 1,
+                                _ => {}
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+                // the API loop writes an error as "Tool error: <text>"
+                let text = text
+                    .strip_prefix("Tool error: ")
+                    .map(str::to_string)
+                    .unwrap_or(text);
+                out.push(crate::compact::Seen {
+                    call_id: id,
+                    tool,
+                    args,
+                    text,
+                    images,
+                });
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// Replaces the planned results' `output` with their line. Returns how many it changed.
+pub fn rewrite(body: &mut Value, plan: &std::collections::BTreeMap<String, String>) -> usize {
+    let mut changed = 0;
+    let Some(items) = body.get_mut("input").and_then(Value::as_array_mut) else {
+        return 0;
+    };
+    for item in items {
+        if item.get("type").and_then(Value::as_str) != Some("function_call_output") {
+            continue;
+        }
+        let id = ferb_py::value::py_str(item.get("call_id").unwrap_or(&Value::Null));
+        let Some(line) = plan.get(&id) else { continue };
+        if item.get("output").and_then(Value::as_str) == Some(line) {
+            continue;
+        }
+        item["output"] = json!(line);
+        changed += 1;
+    }
+    changed
 }

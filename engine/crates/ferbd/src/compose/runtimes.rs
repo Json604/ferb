@@ -224,6 +224,12 @@ pub struct RealFactory {
     pub proxy: Option<Arc<dyn ferb_runtimes::claude::ToolProxy>>,
 }
 
+/// RUN-468: how a tool loop's earlier screens and large reads are compacted, by the owner's numbers (RUN-471). Claude
+/// Code and the API loop only: Codex runs are left out for now (RUN-472).
+pub fn compaction() -> Option<ferb_runtimes::compact::Policy> {
+    Some(ferb_runtimes::compact::Policy::OWNERS)
+}
+
 impl Factory for RealFactory {
     fn build(&self, b: &Build) -> Result<Built, RuntimeError> {
         let r = self.redactor.clone();
@@ -295,6 +301,7 @@ impl Factory for RealFactory {
                 rt.effort = b.effort.clone();
                 rt.limit_s = b.limit_s;
                 rt.cli = self.claude_cli.clone();
+                rt.compaction = compaction();
                 Ok(Built {
                     adapter: Arc::new(rt),
                     retried: none(),
@@ -331,6 +338,7 @@ impl Factory for RealFactory {
                 rt.planner = b.planner;
                 // journal 24: the daemon runs its redactor on a provider's words too (rule 7)
                 rt.redact = Some(redact);
+                rt.compaction = compaction();
                 let retried = rt.retried.clone();
                 Ok(Built {
                     adapter: Arc::new(rt),

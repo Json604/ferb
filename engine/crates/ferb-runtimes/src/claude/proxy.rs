@@ -2,7 +2,10 @@
 //! ANTHROPIC_BASE_URL of runs FERB starts. It forwards only for a live run (the `/run/<id>/<secret>` prefix FERB
 //! issued, compared in constant time; anything else gets 403, so a command in FERB's shell can't use it to reach
 //! the API host), records ONLY the tool names of each request (never headers, prompts or replies; nothing logged
-//! or written), and forwards everything else unchanged.
+//! or written), and forwards everything else unchanged, except one thing (RUN-470): for a run that asked for it
+//! ([`ToolProxy::compact`], a worker's tool loop), the request's earlier screens and large reads are replaced by the
+//! run's compaction plan before it goes on (crate::compact), the same bytes on every request until the next
+//! compaction.
 
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex};
@@ -13,8 +16,16 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinHandle;
 
 use super::ToolProxy;
+use crate::compact::{Clock, Compaction, Compactor, Policy};
 
 pub const UPSTREAM: &str = "https://api.anthropic.com";
+
+/// A request for the model's next step (a query string allowed; `count_tokens` is not a step, so it neither counts nor
+/// changes).
+fn model_step(path: &str) -> bool {
+    path.split('?').next().unwrap_or_default() == "v1/messages"
+}
+
 const HOP: [&str; 6] = [
     "host",
     "content-length",
@@ -53,10 +64,14 @@ pub fn tool_names(body: &[u8]) -> BTreeSet<String> {
 struct Book {
     seen: HashMap<String, BTreeSet<String>>,
     live: HashMap<String, String>,
+    /// RUN-470: the runs whose requests are compacted, and the compactions not yet reported.
+    compactors: HashMap<String, Compactor>,
+    made: HashMap<String, Vec<Compaction>>,
 }
 
 pub struct ToolListProxy {
     upstream: String,
+    clock: Clock,
     port: u16,
     book: Arc<Mutex<Book>>,
     server: JoinHandle<()>,
@@ -68,6 +83,15 @@ impl ToolListProxy {
     pub async fn start(
         upstream: &str,
         secret: Arc<dyn Fn() -> String + Send + Sync>,
+    ) -> std::io::Result<ToolListProxy> {
+        Self::start_with_clock(upstream, secret, crate::compact::local_clock()).await
+    }
+
+    /// `start` with the clock that names the time in a compaction's lines.
+    pub async fn start_with_clock(
+        upstream: &str,
+        secret: Arc<dyn Fn() -> String + Send + Sync>,
+        clock: Clock,
     ) -> std::io::Result<ToolListProxy> {
         let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
         let port = listener.local_addr()?.port();
@@ -92,6 +116,7 @@ impl ToolListProxy {
         });
         Ok(ToolListProxy {
             upstream: upstream_url,
+            clock,
             port,
             book,
             server,
@@ -134,6 +159,20 @@ impl ToolProxy for ToolListProxy {
         let mut book = self.book.lock().unwrap_or_else(|e| e.into_inner());
         book.seen.remove(run_id);
         book.live.remove(run_id);
+        book.compactors.remove(run_id);
+        book.made.remove(run_id);
+    }
+
+    fn compact(&self, run_id: &str, policy: Policy) {
+        let mut book = self.book.lock().unwrap_or_else(|e| e.into_inner());
+        book.compactors
+            .entry(run_id.to_string())
+            .or_insert_with(|| Compactor::new(policy, self.clock.clone()));
+    }
+
+    fn compactions(&self, run_id: &str) -> Vec<Compaction> {
+        let mut book = self.book.lock().unwrap_or_else(|e| e.into_inner());
+        book.made.remove(run_id).unwrap_or_default()
     }
 }
 
@@ -157,6 +196,28 @@ fn constant_eq(a: &[u8], b: &[u8]) -> bool {
         return false;
     }
     a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
+/// RUN-470: the run's plan applied to one request body; `None` keeps the body's own bytes (no plan yet, a body that
+/// isn't JSON, or one the client compressed).
+fn compacted(book: &Mutex<Book>, run_id: &str, body: &[u8]) -> Option<Vec<u8>> {
+    let mut book = book.lock().unwrap_or_else(|e| e.into_inner());
+    let Book {
+        compactors, made, ..
+    } = &mut *book;
+    let c = compactors.get_mut(run_id)?;
+    let mut value: Value = serde_json::from_slice(body).ok()?;
+    let results = crate::api::anthropic::results(&value);
+    crate::api::anthropic::rewrite(&mut value, c.plan());
+    let tokens = crate::compact::estimate(&value);
+    if let Some(m) = c.step(&results, tokens) {
+        crate::api::anthropic::rewrite(&mut value, c.plan());
+        made.entry(run_id.to_string()).or_default().push(m);
+    }
+    if c.plan().is_empty() {
+        return None;
+    }
+    serde_json::to_vec(&value).ok()
 }
 
 async fn serve(
@@ -237,6 +298,15 @@ async fn serve(
                 .or_default()
                 .extend(names);
         }
+        let encoding = headers
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case("content-encoding"))
+            .map(|(_, v)| v.clone());
+        if !body.is_empty() && encoding.is_none() && model_step(upstream_path) {
+            if let Some(new) = compacted(&book, run_id, &body) {
+                body = new;
+            }
+        }
         let mut req = client.request(
             if method == "GET" {
                 reqwest::Method::GET
@@ -249,6 +319,10 @@ async fn serve(
             if !HOP.contains(&k.to_lowercase().as_str()) {
                 req = req.header(k, v);
             }
+        }
+        if let Some(e) = &encoding {
+            // a body the client compressed goes on as it came, so its encoding goes with it
+            req = req.header("content-encoding", e);
         }
         let resp = match req.body(body).send().await {
             Ok(r) => r,

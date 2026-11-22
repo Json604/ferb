@@ -18,6 +18,7 @@ pub mod api;
 pub mod catalog;
 pub mod claude;
 pub mod codex;
+pub mod compact;
 pub mod error;
 pub mod forms;
 pub mod gen;

@@ -297,6 +297,18 @@ impl Provider for GoogleProvider {
         true
     }
 
+    fn results(&self, state: &Value) -> Vec<crate::compact::Seen> {
+        results(&state["body"])
+    }
+
+    fn rewrite(
+        &self,
+        state: &mut Value,
+        plan: &std::collections::BTreeMap<String, String>,
+    ) -> usize {
+        rewrite(&mut state["body"], plan)
+    }
+
     fn add_results(&self, state: &mut Value, _turn: &Turn, results: &[ToolOutcome]) {
         let parts: Vec<Value> = results
             .iter()
@@ -423,4 +435,97 @@ impl StreamParser for GoogleStream {
         out.insert("candidates".into(), json!([candidate]));
         Ok(Value::Object(out))
     }
+}
+
+/// The tool results a generateContent body carries, in order (RUN-468): each `functionResponse` with the matching
+/// `functionCall` (by Gemini's id, else by name in order). A response without Gemini's id is named by its place,
+/// which never changes as contents are only appended.
+pub fn results(body: &Value) -> Vec<crate::compact::Seen> {
+    let mut out = Vec::new();
+    let Some(contents) = body.get("contents").and_then(Value::as_array) else {
+        return out;
+    };
+    let mut pending: Vec<(String, String, Value)> = Vec::new();
+    for (ci, c) in contents.iter().enumerate() {
+        let Some(parts) = c.get("parts").and_then(Value::as_array) else {
+            continue;
+        };
+        for (pi, p) in parts.iter().enumerate() {
+            if let Some(fc) = p.get("functionCall") {
+                pending.push((
+                    ferb_py::value::py_str(fc.get("id").unwrap_or(&json!(""))),
+                    ferb_py::value::py_str(fc.get("name").unwrap_or(&Value::Null)),
+                    fc.get("args").cloned().unwrap_or(Value::Null),
+                ));
+            }
+            let Some(fr) = p.get("functionResponse") else {
+                continue;
+            };
+            let name = ferb_py::value::py_str(fr.get("name").unwrap_or(&Value::Null));
+            let id = fr.get("id").and_then(Value::as_str).unwrap_or_default();
+            let at = pending
+                .iter()
+                .position(|(i, n, _)| if id.is_empty() { *n == name } else { i == id });
+            let args = at.map(|k| pending.remove(k).2).unwrap_or(Value::Null);
+            let response = fr.get("response");
+            let text = response
+                .and_then(|r| r.get("result").or_else(|| r.get("error")))
+                .map(ferb_py::value::py_str)
+                .unwrap_or_default();
+            let images = fr
+                .get("parts")
+                .and_then(Value::as_array)
+                .map_or(0, Vec::len);
+            out.push(crate::compact::Seen {
+                call_id: response_key(id, ci, pi),
+                tool: crate::compact::tool_name(&name, None),
+                args,
+                text,
+                images,
+            });
+        }
+    }
+    out
+}
+
+fn response_key(id: &str, content: usize, part: usize) -> String {
+    if id.is_empty() {
+        format!("{LOCAL_ID}{content}:{part}")
+    } else {
+        id.to_string()
+    }
+}
+
+/// Replaces the planned results' response with their line and drops their images. Returns how many it changed.
+pub fn rewrite(body: &mut Value, plan: &std::collections::BTreeMap<String, String>) -> usize {
+    let mut changed = 0;
+    let Some(contents) = body.get_mut("contents").and_then(Value::as_array_mut) else {
+        return 0;
+    };
+    for (ci, c) in contents.iter_mut().enumerate() {
+        let Some(parts) = c.get_mut("parts").and_then(Value::as_array_mut) else {
+            continue;
+        };
+        for (pi, p) in parts.iter_mut().enumerate() {
+            let Some(fr) = p.get_mut("functionResponse").and_then(Value::as_object_mut) else {
+                continue;
+            };
+            let id = fr
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let Some(line) = plan.get(&response_key(&id, ci, pi)) else {
+                continue;
+            };
+            let new = json!({"result": line});
+            if fr.get("response") == Some(&new) && !fr.contains_key("parts") {
+                continue;
+            }
+            fr.insert("response".into(), new);
+            fr.shift_remove("parts");
+            changed += 1;
+        }
+    }
+    changed
 }

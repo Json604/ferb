@@ -9363,3 +9363,74 @@ in its rule, since words_source holds 200 characters).
 - Whether focusing the composer through AX works in each app (the lab saw Cursor ignore an AXValue set; typing is
   used here, not a set).
 - The read cost on a long chat, at up to 20,000 elements.
+
+## 2026-11-22 · 173 · Old screens aren't sent again on every step (Claude Code, API loop), and a Chrome snapshot is 60% smaller
+
+**What.** The owner saw that every earlier tool result, screenshots included, is sent again with every step
+(RUN-468: task a843aa54, 93 Codex worker calls, input 28k to 187k tokens each, 8.59M in all), then decided the numbers
+and left Codex out for now (RUN-471, RUN-472: "numbers ok, leave codex out for now"), and asked what was done to
+lessen the 14 Chrome snapshots of 4,000 to 9,000 tokens each (HAND-676).
+
+How each runtime builds a worker's input: **Codex** runs the whole tool loop inside one app-server turn and keeps the
+thread itself (`codex/stream.rs` `turn/start`); every model call is a full Responses request with all earlier items,
+FERB's results arriving through the MCP bridge (`mcp_bridge.rs` `call`). **Claude Code** keeps its session the same
+way, its full Messages requests already passing FERB's 127.0.0.1 relay (`claude/proxy.rs`). **The API loop**
+(`api/mod.rs` `event_loop`) owns its request state and appends each result (`add_results`). Measured on a843aa54 (the
+lagged deltas of its `model.usage` spans): a Chrome mac_snapshot 2.9 to 3.1 characters per token, 4,000 to 9,400
+tokens; a screenshot about 2,050; small results about 170.
+
+New `ferb-runtimes::compact` (RUN-469, RUN-470): one `Compactor` per run. A newer look (mac_snapshot at offset 0,
+mac_screenshot with its image, browser/ferb_browser snapshot or screenshot) of the same kind and window or tab replaces
+the older with `FERB: an earlier <label> taken at <time>; a newer one is below.`; a result over 2,000 characters and
+4 calls old, or the last look at a window the app no longer lists or a tab a successful close took away, becomes a
+line with its first 200 characters, its size and how to read it again. Never replaced: the last 2 calls, the newest
+look per window or tab, the owner's words, questions and answers and FERB's instructions (`KEPT_TOOLS`), any message,
+a result a line wouldn't shorten. The plan grows only past 40,000 estimated tokens and when the new lines remove at
+least 10,000 (`Policy::OWNERS`, RUN-471); a line once made keeps its bytes, so the cached prefix holds between
+compactions. Each wire's reading and rewriting is in its adapter (`api::anthropic`, `api::openai`, `api::google`). The
+API loop applies the plan to its state before each call; the Claude relay applies it to a worker run's `v1/messages`
+requests and forwards anything else, or a body it can't read, unchanged. Each compaction is a `Compacted` event,
+recorded as `model.compacted` with `by: "ferb"`. ferbd gives Claude and the API runtimes `compaction()`; Codex runs are
+built exactly as before (RUN-472). For the later Codex work (T-1291): Codex's history can't be edited mid-turn
+(thread/compact/start and auto-compaction summarise everything; inject_items only appends), and the pinned 0.166.0 ran
+through a FERB relay to a stand-in Responses server and MCP server (no provider), its turn finishing with the earlier
+snapshots arriving as FERB's line; that relay is not in this change.
+
+HAND-676, in ferb-mac-hands' one listing every snapshot goes through (`driver::listed`): a plain text, group or image
+with nothing but a name is left out when it has no name or its name repeats one of the last 3 listed; text, groups,
+images and headings don't list web content's generic `menu` and `scroll_to_visible`; roles that never expand don't
+say `expanded: false`; untitled windows that can't be reached and aren't on screen leave `windows`. Ids are the walk's,
+so a left-out element's id still works. On a843aa54's 16 Chrome snapshots: 334,410 characters to 133,030 (-60%), the
+largest 28,596 to 10,572; every control with its actions is still listed. The paging (5,000 elements a page) and the
+walk are unchanged: a smaller page or controls-first order would make the worker page for what it needs.
+
+**Measured** (offline, read-only from the trace copy and the store; the Rust `Compactor` replayed by a scratch tool,
+the listing rule mirrored in Python; cost units = uncached + 0.1 x cached, uncached at 2x on Claude):
+
+| Run | As recorded | Smaller snapshots | Compaction | Both |
+|---|---|---|---|---|
+| a843aa54, Codex, 86 calls | 8,371,903 | 6,147,990 (-27%), largest 118,333 | 4,764,870 (-43%), 7 breaks | 4,304,706 (-49%), cost -42% |
+| 4a2e41ce, Claude Code, 40 calls modelled | 3,476,225 | -4% | -28%, cost -7%, 6 breaks | -29%, cost -10% |
+| 25721593, Claude Code, 33 calls modelled | 2,235,750 | 0% | -15%, 2 breaks | -15% |
+| 49176d60, Codex, 18 calls | 899,804 | 0% | 0% (a new tab per look) | 0% |
+
+With Codex left out, a Codex task like a843aa54 gets the smaller snapshots only: -27%. Claude Code reports one usage
+per turn, so its per-call sizes are modelled (one call per tool result, the base fitted to the total).
+
+**Named differences.** `fixtures/catalog/tool_changes.json` HAND-676: mac.snapshot's description says what the list
+leaves out (ferb-gateway's change list, ferb-mac-hands' declarations). No recorded fixture listing has an element or
+window the rule leaves out, so every driver, gateway and runtime fixture compares as recorded. Against proxy.py the
+relay forwards a request's own `content-encoding` with its body (it dropped it with the hop headers) and, for a
+registered run only, rewrites the body.
+
+**Evidence.** ferb-runtimes `tests/compact.rs` (12: supersession per window, kind and tab; pages and errors untouched;
+every kept tool kept; a large read only when old, its exact line; a gone window and a closed tab; the batch cadence; each
+wire's reading and rewriting; the relay against a stand-in upstream: an unregistered run byte for byte, a compressed
+body and count_tokens unchanged, consecutive requests sharing their prefix bytes, compactions reported once, tool names
+still recorded) and `tests/api.rs` (the OpenAI loop against its scripted server). ferb-mac-hands `element_actions.rs`
+`a_snapshot_leaves_out_what_only_repeats_and_keeps_every_control` (web content as Chrome gives it). ferb-runtimes,
+ferb-mac-hands, ferb-gateway, ferb-supervisor `prompts`, ferbd `catalog_mcp`, `tools_mac`,
+`every_tool_through_the_program` pass; clippy and fmt clean.
+
+**Unverified.** No real model or provider went through any of this (LIVE-1177). Whether a model re-takes a screenshot
+it needs after its older one became a line is unmeasured. Claude's per-call sizes are modelled.

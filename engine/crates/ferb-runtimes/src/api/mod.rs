@@ -207,6 +207,18 @@ pub trait Provider: Send + Sync {
     }
     fn auth(&self, key: &str) -> Vec<(String, String)>;
     fn parse(&self, state: &mut Value, data: &Value, today: &str) -> Result<Turn, RuntimeError>;
+    /// The tool results the request carries (RUN-468); none for a provider without a reader.
+    fn results(&self, _state: &Value) -> Vec<crate::compact::Seen> {
+        Vec::new()
+    }
+    /// Applies a compaction plan to the request; how many results it changed.
+    fn rewrite(
+        &self,
+        _state: &mut Value,
+        _plan: &std::collections::BTreeMap<String, String>,
+    ) -> usize {
+        0
+    }
     fn add_results(&self, state: &mut Value, turn: &Turn, results: &[ToolOutcome]);
     fn window_exceeded(&self, status: u16, error: &Map<String, Value>) -> bool;
     fn image_refused(&self, status: u16, error: &Map<String, Value>) -> bool;
@@ -321,6 +333,11 @@ pub struct ApiRuntime {
     /// FERB's redactor for a provider's error words, after the key is taken out. Python's loop passes none (only
     /// the key is removed); `None` keeps that. The daemon should give its redactor (see the journal entry).
     pub redact: Option<crate::codex::Redact>,
+    /// RUN-468: a tool loop's earlier screens and large reads shortened in batches; None sends every result again
+    /// on every call (as Python did).
+    pub compaction: Option<crate::compact::Policy>,
+    /// The time the compaction's lines name.
+    pub clock: crate::compact::Clock,
 }
 
 impl ApiRuntime {
@@ -381,6 +398,8 @@ impl ApiRuntime {
             token_hex: Arc::new(crate::codex::token_hex),
             today: Arc::new(crate::usage::today),
             redact: None,
+            compaction: None,
+            clock: crate::compact::local_clock(),
         })
     }
 
@@ -432,6 +451,7 @@ struct Run {
     repaired: bool,
     follow_up: String,
     answer_tool: bool,
+    compactor: Option<crate::compact::Compactor>,
 }
 
 /// One live direct-API run.
@@ -555,6 +575,10 @@ pub async fn start(
             repaired: false,
             follow_up: String::new(),
             answer_tool,
+            compactor: rt
+                .compaction
+                .filter(|_| !rt.supervisor)
+                .map(|p| crate::compact::Compactor::new(p, rt.clock.clone())),
         }),
         deadline,
         client,
@@ -656,6 +680,9 @@ async fn event_loop(run: &Arc<ApiRun>, y: &mut Yielder) -> Result<(), Exit> {
             return Ok(());
         }
         apply_updates(run);
+        if let Some(made) = compact_request(run) {
+            y.emit(event(K::Compacted, made.as_event())).await?;
+        }
         let (tx, mut rx) = mpsc::unbounded_channel::<Fragment>();
         let (turn_tx, turn_rx) = tokio::sync::oneshot::channel();
         let call_run = run.clone();
@@ -913,6 +940,22 @@ fn check(rt: &ApiRuntime, text: &str) -> Result<(), String> {
         Some(schema) if ferb_py::value::truthy(schema) => rt.forms.check_final(text, schema),
         _ => Ok(()),
     }
+}
+
+/// RUN-468: the run's compaction plan applied to the next request, and a new compaction made when it is due.
+fn compact_request(run: &ApiRun) -> Option<crate::compact::Compaction> {
+    let mut r = run.lock();
+    let Run {
+        state, compactor, ..
+    } = &mut *r;
+    let c = compactor.as_mut()?;
+    let provider = &run.rt.provider;
+    let results = provider.results(state);
+    provider.rewrite(state, c.plan());
+    let tokens = crate::compact::estimate(&state["body"]);
+    let made = c.step(&results, tokens)?;
+    provider.rewrite(state, c.plan());
+    Some(made)
 }
 
 fn apply_updates(run: &ApiRun) {

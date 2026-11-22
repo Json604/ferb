@@ -10,7 +10,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 110 | 9 | 8 |
 | engine | Rust engine (the rewrite) | `engine/*`, `engine/crates`, `engine/fixtures`, `engine/packaging` | 23 | 4 | 0 |
 | gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `engine/runtime/identity` | 131 | 9 | 61 |
-| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extension`, `extension-store` | 223 | 12 | 51 |
+| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extension`, `extension-store` | 224 | 13 | 51 |
 | memory | Memory and memory import | `engine/runtime/memory` | 81 | 7 | 5 |
 | orchestration | Orchestration | `ferb/orchestrator/*.py`, `engine/runtime/decide`, `ferb/clock` | 180 | 9 | 40 |
 | perception | Perception | `ferb/sense` | 27 | 4 | 2 |
@@ -18,7 +18,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `HANDOFF.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `kb`, `tools`, `spikes` | 14 | 8 | 0 |
 | prompts | Prompts and abilities | `engine/runtime/orchestrator/prompts`, `engine/runtime/abilities` | 59 | 5 | 10 |
 | release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 28 | 6 | 5 |
-| runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 58 | 6 | 6 |
+| runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 63 | 7 | 7 |
 | storage | Storage | `engine/runtime/store` | 36 | 5 | 4 |
 | tests | Tests | `tests` | 15 | 9 | 0 |
 | voice | Voice | `ferb/voice` | 3 | 0 | 0 |
