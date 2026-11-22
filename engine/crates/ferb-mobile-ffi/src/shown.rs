@@ -247,3 +247,27 @@ pub fn question_shown(body_json: String) -> crate::records::QuestionShown {
     let v: serde_json::Value = serde_json::from_str(&body_json).unwrap_or(serde_json::Value::Null);
     ferb_mobile::question::shown(&v).conv()
 }
+
+/// A task's end as FERB.app's banner says it (ferb-mobile `notify::task_ended`, kb PHN-795): the task's short name
+/// ("FERB finished" or "FERB" without one) and the answer in the chat's words (`display_text` when FERB shortened it).
+/// `held`: the words were held back, the text is empty for the app's own line. None: an end the Mac posts no banner for
+/// (cancelled: the owner's own stop, a question he declined, a restart's first turn).
+#[uniffi::export]
+pub fn task_end_words(
+    status: String,
+    name: String,
+    answer: String,
+    display_text: Option<String>,
+    held: bool,
+) -> Option<crate::records::NotificationWords> {
+    ferb_mobile::notify::task_ended(&status, &name, &answer, display_text.as_deref(), held)
+        .map(Conv::conv)
+}
+
+/// A question as FERB.app's banner says it (ferb-mobile `notify::question`, kb PHN-795): "FERB needs you" and "FERB
+/// needs your OK: …"; the planner's question "FERB needs you" and its own words.
+#[uniffi::export]
+pub fn question_words(shown: crate::records::QuestionShown) -> crate::records::NotificationWords {
+    let core: ferb_mobile::question::QuestionShown = shown.conv();
+    ferb_mobile::notify::question(&core).conv()
+}

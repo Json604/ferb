@@ -209,14 +209,15 @@ public final class NotificationPlanner {
         for r in status?.results ?? [] {
             let key = "t:\(r.taskId)"
             if announced.contains(key) { continue }
+            // the Mac's banner for it: the task's short name and the answer (none: cancelled, no banner on the Mac, kb PHN-795)
+            guard let words = taskEndWords(status: r.status, name: r.name, answer: r.answer, displayText: nil, held: r.held) else { continue }
             announced.insert(key)
             if front { continue }
             if r.held {
-                out.append(.post(done(key, title: L.s("n_done_held"), body: L.s("n_held_text"), tap: .app, wordless: true)))
+                // the words held back (PHN-126): the Mac's title, and only that it can be seen in FERB
+                out.append(.post(done(key, title: words.title, body: L.s("n_held_text"), tap: .app, wordless: true)))
             } else {
-                let failed = ChatModel.markOf(r.status) == .failed
-                let line = WorkModel.oneLine(r.name.isEmpty ? ChatModel.plain(r.answer) : r.name)
-                out.append(.post(done(key, title: L.s(failed ? "n_task_failed" : "n_task_done"), body: line, tap: .app, wordless: false)))
+                out.append(.post(done(key, title: words.title, body: words.text, tap: .app, wordless: false)))
             }
         }
         for t in terminal {
@@ -383,11 +384,19 @@ public final class NotificationPlanner {
     }
 
     /// A notification's title and words for a question (Android's Notifier.headline and detail): the Mac's own banner
-    /// words (`QuestionShown.bannerTitle`/`bannerText`, ferb-daemon notify.rs `approval_notice`) once the iPhone's
-    /// bindings carry them; the planner's question, which has no banner on the Mac, "FERB needs you" and its own words.
-    /// The one place a notification reads a question's words; the lock-screen and held-words rules apply on top.
-    static func headline(_ q: Question) -> String? { q.clarify ? L.s("n_needs_you") : q.title }
-    static func detail(_ q: Question) -> String? { q.reason.isEmpty ? nil : q.reason }
+    /// words from the library both phones share (`questionWords`, ferb-mobile notify.rs, kb PHN-795; ferb-daemon
+    /// notify.rs `approval_notice`: "FERB needs you", "FERB needs your OK: …"); the planner's question, which has no
+    /// banner on the Mac, "FERB needs you" and its own words. Without the Mac's presentation (an older Mac) the
+    /// question's title and reason. The one place a notification reads a question's words; the lock-screen and
+    /// held-words rules apply on top.
+    static func headline(_ q: Question) -> String? {
+        if let shown = q.shown { return questionWords(shown: shown).title }
+        return q.clarify ? L.s("n_needs_you") : q.title
+    }
+    static func detail(_ q: Question) -> String? {
+        let words = q.shown.map { questionWords(shown: $0).text } ?? q.reason
+        return words.isEmpty ? nil : words
+    }
 
     /// After an answer from the notification: gone, or replaced by what stopped it (PHN-302).
     public func answered(_ approvalId: String, problem: String?, needsApp: Bool) -> NotificationAction {
@@ -410,15 +419,17 @@ public final class NotificationPlanner {
 
     private struct Finished { let task: String; let title: String; let line: String }
 
-    /// The turns that finished, failed or were stopped, by task id, with their title and first line.
+    /// The turns that finished or failed, by task id, each as the Mac's banner says it (kb PHN-795): the task's short
+    /// name and the answer in the chat's words, never a status word of the phone's own. A cancelled end has no banner on
+    /// the Mac and no notification here (his own stop, a question he declined, a restart's first turn): left out
+    /// unannounced, so a restarted task's real end is still news.
     private func finished(_ view: TranscriptView) -> [Finished] {
         view.items.compactMap { item -> Finished? in
             guard case .turn(let t) = item, let task = t.taskId, let answer = t.answer,
-                  !["working", "needs_user", "merged"].contains(t.status) else { return nil }
-            let failed = ChatModel.markOf(t.status) == .failed
-            let title = WorkModel.title(t)
-            return Finished(task: task, title: L.s(failed ? "n_task_failed" : "n_task_done"),
-                            line: title.isEmpty ? WorkModel.oneLine(ChatModel.plain(answer.text)) : title)
+                  !["working", "needs_user", "merged"].contains(t.status),
+                  let words = taskEndWords(status: t.status, name: t.taskName ?? "", answer: answer.text,
+                                           displayText: answer.displayText, held: false) else { return nil }
+            return Finished(task: task, title: words.title, line: words.text)
         }
     }
 }

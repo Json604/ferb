@@ -12,20 +12,20 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
-import com.ferb.app.model.ChatModel
 import com.ferb.app.model.PhoneApi
 import com.ferb.app.model.Question
 import com.ferb.app.model.QuestionAlerts
 import com.ferb.app.model.Questions
-import com.ferb.app.model.WorkModel
 import com.ferb.core.Outcome
-import com.ferb.design.components.MarkKind
 import com.ferb.mobile.Change
 import com.ferb.mobile.Insomnia
 import com.ferb.mobile.Item
 import com.ferb.mobile.LinkPhase
+import com.ferb.mobile.NotificationWords
 import com.ferb.mobile.PhoneStatus
 import com.ferb.mobile.TranscriptView
+import com.ferb.mobile.questionWords
+import com.ferb.mobile.taskEndWords
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.collectLatest
@@ -149,7 +149,7 @@ class Notifier(
         for (id in plan.cancel) cancel(id)
         // insomnia mode's notice, warnings and how it ended (APP-981, APP-983), from the same status
         if (status != null) insomnia(status.insomnia, announced)
-        // what finished: from the status (held words while locked) and the transcript (its title and first line)
+        // what finished: from the status (held words while locked) and the transcript, in the Mac's words (kb PHN-795)
         val terminal = view?.let(::finished).orEmpty()
         // the first status and the first transcript this process reads: what had finished is not news
         if (!primedStatus && status != null) { primedStatus = true; announced += status.results.map { "t:${it.taskId}" } }
@@ -157,22 +157,19 @@ class Notifier(
         for (r in status?.results.orEmpty()) {
             val key = "t:${r.taskId}"
             if (key in announced) continue
+            // the Mac's banner for it: the task's short name and the answer (none: cancelled, no banner on the Mac)
+            val words = taskEndWords(r.status, r.name, r.answer, null, r.held) ?: continue
             announced += key
             if (quiet) continue
-            val failed = ChatModel.markOf(r.status) == MarkKind.FAILED
-            if (r.held) {
-                post(key, CH_DONE, context.getString(R.string.n_done_held), context.getString(R.string.n_held_text), open(null))
-            } else {
-                val title = context.getString(if (failed) R.string.n_task_failed else R.string.n_task_done)
-                val line = WorkModel.oneLine(r.name.ifEmpty { ChatModel.plain(r.answer) })
-                post(key, CH_DONE, title, line, open(null))
-            }
+            // the words held back (PHN-126): the Mac's title, and only that it can be seen in FERB
+            val text = if (r.held) context.getString(R.string.n_held_text) else words.text
+            post(key, CH_DONE, words.title, text, open(null))
         }
         for ((task, words) in terminal) {
             val key = "t:$task"
             if (key in announced) continue
             announced += key
-            if (!quiet) post(key, CH_DONE, words.first, words.second, open(task))
+            if (!quiet) post(key, CH_DONE, words.title, words.text, open(task))
         }
         prefs.announced = announced
     }
@@ -295,15 +292,18 @@ class Notifier(
         posted.remove(approvalId)
     }
 
-    /** The turns that finished, failed or were stopped, by task id, with their title and first line. */
-    private fun finished(view: TranscriptView): List<Pair<String, Pair<String, String>>> =
+    /**
+     * The turns that finished or failed, by task id, each as the Mac's banner says it (kb PHN-795): the task's short
+     * name and the answer in the chat's words, never a status word of the phone's own. A cancelled end has no banner on
+     * the Mac and no notification here (his own stop, a question he declined, a restart's first turn): left out
+     * unannounced, so a restarted task's real end is still news.
+     */
+    private fun finished(view: TranscriptView): List<Pair<String, NotificationWords>> =
         view.items.mapNotNull { (it as? Item.Turn)?.turn }
             .filter { it.taskId != null && it.answer != null && it.status !in setOf("working", "needs_user", "merged") }
-            .map { t ->
-                val failed = ChatModel.markOf(t.status) == MarkKind.FAILED
-                val title = context.getString(if (failed) R.string.n_task_failed else R.string.n_task_done)
-                val line = WorkModel.title(t).ifEmpty { WorkModel.oneLine(ChatModel.plain(t.answer!!.text)) }
-                t.taskId!! to (title to line)
+            .mapNotNull { t ->
+                val a = t.answer!!
+                taskEndWords(t.status, t.taskName.orEmpty(), a.text, a.displayText, false)?.let { t.taskId!! to it }
             }
 
     /** A question's notification, worded and with buttons as its needs allow (the class comment). */
@@ -357,17 +357,17 @@ class Notifier(
     }
 
     /**
-     * A notification's title and words for a question: the Mac's own banner words (`QuestionShown.bannerTitle` and
-     * `bannerText`, ferb-daemon notify.rs `approval_notice`: "FERB needs you", "FERB needs your OK: …"), so a question
-     * reads the same in the Mac's banner and here. The planner's question has no banner on the Mac (the notch opens):
-     * the same title and its own words. Without the Mac's presentation (an older Mac) the question's title and reason.
-     * The one place a notification reads a question's words; the lock-screen and held-words rules apply on top.
+     * A notification's title and words for a question: the Mac's own banner words, from the library both phones share
+     * (`questionWords`, ferb-mobile notify.rs, kb PHN-795; ferb-daemon notify.rs `approval_notice`: "FERB needs you",
+     * "FERB needs your OK: …"), so a question reads the same in the Mac's banner and here. The planner's question has
+     * no banner on the Mac (the notch opens): the same title and its own words. Without the Mac's presentation (an older
+     * Mac) the question's title and reason. The one place a notification reads a question's words; the lock-screen and
+     * held-words rules apply on top.
      */
     private fun headline(q: Question): String? =
-        if (q.clarify) context.getString(R.string.n_needs_you) else q.shown?.bannerTitle ?: q.title
+        q.shown?.let { questionWords(it).title } ?: if (q.clarify) context.getString(R.string.n_needs_you) else q.title
 
-    private fun detail(q: Question): String? =
-        (if (q.clarify) q.shown?.question ?: q.reason else q.shown?.bannerText ?: q.reason).ifEmpty { null }
+    private fun detail(q: Question): String? = (q.shown?.let { questionWords(it).text } ?: q.reason).ifEmpty { null }
 
     /** The Mac's request for this phone's exact location: words and a tap that opens the app's sheet; no buttons. */
     fun location(requestId: String) {

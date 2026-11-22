@@ -8,6 +8,7 @@
 //! - `transport`: how the core reaches the Mac (a trait; the real link plugs in through `door`).
 //! - `device`: the phone's own record for FERB (T-1214) and finding the Mac's files (recent, search).
 //! - `rich`, `shown`: FERB's words and answers laid out as FERB.app draws them (Markdown, the sites row, cards).
+//! - `notify`: what a phone notification says, in FERB.app's words (a task's end, a question).
 //! - `api`: `Mobile`, the object the apps use: sync, watch, outbox (PHN-401), answers, stop, older pages.
 
 pub mod api;
@@ -17,6 +18,7 @@ pub mod entries;
 pub mod entry;
 pub mod fold;
 pub mod live;
+pub mod notify;
 pub mod question;
 pub mod remote;
 pub mod rich;

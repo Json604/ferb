@@ -206,8 +206,8 @@ pub fn shown(v: &Value) -> QuestionShown {
         field,
         decline,
         send,
-        banner_title: banner.then(|| "FERB needs you".into()),
-        banner_text: banner.then(|| format!("FERB needs your OK: {question}")),
+        banner_title: banner.then(|| crate::notify::QUESTION_TITLE.into()),
+        banner_text: banner.then(|| format!("{} {question}", crate::notify::QUESTION_LEAD)),
         question,
     }
 }

@@ -9067,3 +9067,72 @@ suites pass; clippy -D warnings and fmt clean.
 **Unverified.** No real model was run: the gain on mid-tier models (about half again to twice as many facts, 30 to
 60% more per chunk) is the lab's measurement, made with part 4 in place. Facts already imported were read with the
 earlier prompts and are kept; reading them again is not part of this.
+
+## 2026-11-22 · 169 · The phones' notifications say what FERB.app says
+
+**The owner (PHN-795), with two screenshots:** "i think phone's wording is still not on teh same page as the mac's. i
+liek teh mac working now. just take the phoen to the same level too". He had written "cancel teh coursera task"; the
+Mac's chat ended the task "Stopped, as you asked." with its sites chip, the Android notification said "Couldn't
+finish" / "Coursera BITS check"; others read "Done" / "Google AI Pro perks and trial end", "Done" / "IIT Madras Chrome
+profile", "Done" / "Scaler dashboard check".
+
+**What each side said.** Both phones built a task's end from their own words: the title "Done" or "Couldn't finish"
+(`ChatModel.markOf`: failed, cancelled, stopped, interrupted all FAILED; needs_user "Done"), the text the task's short
+name (Android Notifier.kt `look`/`finished`, iPhone Notifications.swift `look`/`finished`). FERB.app's banner for a
+task's end (ferb-daemon areas_b/notify.rs `task_result`, ferb-supervisor flow/daemon_seams.rs
+`ResultsOwner::task_result`, posted as is by FERB.app NotificationPoster.swift:180) is the task's short name, else
+"FERB finished" for done, else "FERB", over the answer; a stop the owner asked for posts none ("they know"). The chat
+shows the answer, whose own first lines are code's marks (ferb-orchestrator answer_marks.rs: "Stopped, as you
+asked.", "I couldn't finish this task.", "Not done, as you asked."; ferb-supervisor words.rs "Not done:" lines). A
+question: Android already read the Mac's banner (PHN-767, "FERB needs you" / "FERB needs your OK: …"); iPhone read
+the question and its reason.
+
+**Ruling (PHN-796).** ferb-mobile `notify` (FFI `task_end_words`, `question_words`, record `NotificationWords`) is
+the one mapping: a task's end is the Mac's banner (title as above), its text the answer as the chat draws it
+(`display_text` when FERB shortened it, Markdown's marks out through `rich`, the "Sites contacted:" line left to the
+chat's sites row), and with no answer the chat's status words (`shown::status_words`). A task that ended
+cancelled posts nothing (the coordinator's ruling, recorded in PHN-796), exactly as both Mac banner paths skip
+`status == "cancelled"`: a stop he asked for ("Stopped, as you asked."), a question he declined ("Not done, as you
+asked."), and a restart's first turn (`stop_status` makes it cancelled too); the chat still shows them. Held words: the Mac's title and the app's "Open FERB to see
+it.". A question: the Mac's banner; the planner's question "FERB needs you" and its words; no presentation (an older
+Mac): its title and reason, as before.
+
+**A bug found on the way.** A follow-up that starts a running task again (ORCH-683) ends the first turn "Stopped here
+to start again with your change." with status cancelled under the same task id; the phones announced it as the
+task's end ("Couldn't finish") and so used the `t:<task>` key, and the task's real end never notified. It is now no
+end (below), nothing is posted and the key stays free.
+
+**Engine.** The Mac's banner titles became constants in ferb-daemon notify.rs (`TASK_DONE_TITLE`,
+`TASK_ENDED_TITLE`, `ALERT_TITLE`, `QUESTION_TITLE`, `QUESTION_LEAD`), used by both banner paths (notify.rs and
+daemon_seams.rs); the banners' words are unchanged. ferb-mobile can't link the Mac's crates (its SQLCipher), so its
+test reads those constants, answer_marks.rs's and words.rs's from their files (`include_str!`).
+
+**Strings.** Android's `n_task_done` ("Done"), `n_task_failed` ("Couldn't finish") and `n_done_held` ("FERB finished
+something") are removed; the iPhone catalog rewritten by apps/ios/tools/strings.py. The screen reader's "Couldn't
+finish" for a failed mark (design MarkKind.spoken) is not a notification and is unchanged.
+
+**Tests.** ferb-mobile tests/notify.rs: the library's words equal the engine's constants and both banner paths use
+them; a table of every end (done with and without a name, done_with_gaps, failed, cancelled, where things stood,
+declined and the restart give none, needs_user, interrupted, no answer) against the Mac's words; the skip condition
+read from both banner paths; Markdown and the sites line;
+held; every ended turn of FERB.app's transcripts.json; a question and the planner's question. Android NotifierTest
+`a_task_s_end_reads_as_the_mac_says_it`, `a_result_from_the_mac_s_status_reads_as_its_banner_and_held_words_stay_home`;
+iPhone NotificationTests `testATasksEndReadsAsTheMacSaysIt`, `testAHeldResultTakesTheMacsTitleAndNoWords`,
+`testAQuestionReadsAsTheMacsBanner`, and the failed result's words in
+`testAWaitingQuestionIsNewsEvenAtStartAndIsAnnouncedOnce`. Ran: ferb-mobile all (its clippy with -D warnings),
+ferb-mobile-ffi clippy, `cargo check -p ferb-supervisor --features daemon --tests`, ferb-daemon
+b_small and b_browsers (the banners' words); Android `:app:testDebugUnitTest` (281 tests); iPhone FerbApp-Package on
+a simulator (181 tests) after `tools/build-rust.sh`. After the cancelled ruling, on f1cb2388: ferb-mobile notify and
+clippy, Android NotifierTest (12), iPhone NotificationTests and FilesAndDeviceTests (10); the full suites were not
+run again.
+
+**Unverified.**
+- The whole workspace's gate (fmt, lint, test, portable) was not run; rustfmt on the changed files only.
+- On a phone: the notifications as the shade and the lock screen draw them (a long answer collapsed to its first
+  line; Android's BigTextStyle shows it whole).
+- Reminders, schedules' own notices, replies without a task and FERB's notices are not phone notifications today
+  (the phones post questions, task ends, insomnia, the link and the location request); nothing added for them.
+- A watch's alert result reads "FERB finished" without a short name where the Mac says "FERB alert": the status's
+  results don't say which is an alert (results always carry a shown name, so this needs a nameless alert).
+- PHN-795, PHN-796 and this entry's number (169: 167 and 168 were taken while this was written) were the next free when written; other agents were working at the same
+  time.

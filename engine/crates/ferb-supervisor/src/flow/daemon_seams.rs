@@ -18,6 +18,7 @@ use ferb_clock::schedule_store::ClaimedRun;
 use ferb_clock::schedules::Schedule;
 use ferb_daemon::areas_a::seams::{Ask, RunFailed};
 use ferb_daemon::areas_a::{LocalFuture, Owner, Questions, State, Tasks};
+use ferb_daemon::areas_b::notify;
 use ferb_daemon::shared::Local;
 use ferb_orchestrator::models::{ReminderCancel, ScheduleChange, ScheduleRequest};
 use ferb_orchestrator::ports::BoxFuture;
@@ -284,7 +285,7 @@ impl Owner for ResultsOwner {
         let banner = if alert {
             Some(Banner {
                 title: if name.is_empty() {
-                    "FERB alert".into()
+                    notify::ALERT_TITLE.into()
                 } else {
                     name.clone()
                 },
@@ -300,9 +301,9 @@ impl Owner for ResultsOwner {
                 title: if !name.is_empty() {
                     name.clone()
                 } else if status == "done" {
-                    "FERB finished".into()
+                    notify::TASK_DONE_TITLE.into()
                 } else {
-                    "FERB".into()
+                    notify::TASK_ENDED_TITLE.into()
                 },
                 text: answer.clone(),
                 category: "task_finished".into(),

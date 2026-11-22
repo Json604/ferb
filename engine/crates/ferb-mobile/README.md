@@ -18,6 +18,7 @@ fetched until "Forget this Mac" (PHN-408). FERB.app's own fold is the golden for
 | `transport` | How the core reaches the Mac: the `Transport` trait (JSON as text), the link's codes and what each means. |
 | `door` | `DoorTransport`: the real link through ferb-link's JSON door (`LinkClient::command`/`poll`), without depending on ferb-link. |
 | `api` | `Mobile`, the object the apps use. |
+| `notify` | What a phone notification says, in FERB.app's words: a task's end as the Mac's banner (its short name, the answer as the chat draws it), a question as the Mac's banner (kb PHN-795, PHN-796). |
 | `device` | The phone's own record for FERB and the Mac's request for one precise fix (T-1214); recent files and the name search (T-1211). |
 
 ## The API (for S8)

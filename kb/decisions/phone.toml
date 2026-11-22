@@ -4009,3 +4009,22 @@ rule = "For PHN-793; PHN-505's rule with one change. AppLock as PHN-505 (locked 
 why = "The lock page holds nothing a screenshot could leak; forcing it secure only kept the owner from capturing it with his switch off. MainActivity sets FLAG_SECURE before the first frame, so a cold start shows nothing until the switch is read."
 evidence = "app ScreenGuardTest (Robolectric, the window's flags); FerbAppTests AppModelTests testTheLockPageFollowsTheScreenshotSwitch; OnPhoneTest's Watch live check unchanged."
 paths = ["apps/android/app/src/main/kotlin/com/ferb/app/ScreenGuard.kt", "apps/android/app/src/main/kotlin/com/ferb/app/MainActivity.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppUI/Privacy.swift"]
+
+[PHN-795]
+title = "The phone's notifications say what FERB.app says"
+by = "owner"
+date = 2026-11-22
+status = "active"
+words = "i think phone's wording is still not on teh same page as the mac's. i liek teh mac working now. just take the phoen to the same level too"
+words_source = "Owner 2026-11-22, two screenshots: the Mac's chat said \"Stopped, as you asked.\" for a task he stopped; Android said \"Couldn't finish\", others \"Done\" over a short name."
+rule = "Every notification the phones post for something FERB.app also shows reads as FERB.app says it: a task's end and a question in the Mac's words, never a status word of the phone's own that the Mac doesn't say (a stop he asked for is never \"Couldn't finish\"). The phone keeps only what it alone has (held words, a hidden input, the fingerprint line, the lock screen)."
+
+[PHN-796]
+title = "Phone notification words come from ferb-mobile notify, as the Mac's banner"
+by = "agent"
+date = 2026-11-22
+status = "active"
+rule = "For PHN-795; one mapping for both phones (task_end_words, question_words). A task's end: the Mac's banner title (its short name, else \"FERB finished\" for done, else \"FERB\"), and the answer as the chat draws it (display_text, Markdown's marks and the sites line out); no answer: the chat's status words. A cancelled end posts nothing, as the Mac posts no banner for it (his own stop, a declined question, a restart's first turn, ORCH-683); the task's key stays free. Held words: the Mac's title, \"Open FERB to see it.\". A question: the Mac's banner."
+why = "Each phone wrote its own status word over the short name (\"Couldn't finish\" for any failed, cancelled or interrupted end); a restart's first turn used the task's key so its real end never notified; iPhone's question read the question and reason, not the Mac's banner (PHN-767)."
+evidence = "ferb-mobile tests/notify.rs (each end against the engine's constants, read from their files; every end in transcripts.json); Android NotifierTest; iPhone NotificationTests."
+paths = ["engine/crates/ferb-mobile/src/notify.rs", "engine/crates/ferb-mobile-ffi/src/shown.rs", "apps/android/app/src/main/kotlin/com/ferb/app/Notifier.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/Notifications.swift"]

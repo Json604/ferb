@@ -163,6 +163,86 @@ class NotifierTest {
         assertTrue(q.text().startsWith("Which email account should I use?"))
     }
 
+    /** A turn that ended, as the library hands it. */
+    private fun ended(entry: String, task: String, name: String?, status: String, answer: String, display: String? = null) =
+        com.ferb.mobile.Item.Turn(com.ferb.mobile.TurnItem(
+            entry = entry, at = 0.0, legacy = false, clientId = null, requestId = "r-$entry", taskId = task, from = "owner",
+            taskName = name, status = status, statusInferred = false, notice = null, mergedInto = null, question = null,
+            answeredBelow = false,
+            answer = com.ferb.mobile.AnswerView(answer, display, null, false, emptyList(), null, null, null, null),
+            card = null, checklist = null, firstReply = null, parts = emptyList(), goal = null, words = null))
+
+    private fun finished(task: String): Notification? = shadowOf(nm).getNotification(Notifier.keyOf("t:$task"))
+
+    /**
+     * The owner, 2026-11-22: the phone said "Couldn't finish" / "Coursera BITS check" for a task he had stopped, where
+     * FERB.app's chat said "Stopped, as you asked.", and "Done" / a short name where the Mac shows the answer. Each end
+     * now reads as the Mac's banner: the task's short name and the answer in the chat's words; his own stop, which the
+     * Mac posts no banner for, posts nothing.
+     */
+    // decision: PHN-795, PHN-796
+    @Test
+    fun a_task_s_end_reads_as_the_mac_says_it() {
+        allow()
+        session.unlocked()
+        session.foreground(false)
+        started()
+        idle()
+        phone.view = TranscriptView("c1", listOf(
+            ended("e1", "t-stop", "Coursera BITS check", "cancelled", "Stopped, as you asked."),
+            ended("e2", "t-done", "Scaler dashboard check", "done", "Your dashboard shows **2** new classes.\n\nSites contacted: scaler.com"),
+            ended("e3", "t-fail", null, "failed", "I couldn't finish this task. The site kept refusing the card."),
+            ended("e4", "t-gaps", "Table booking", "done_with_gaps", "I booked the table for two at 8.\n\nNot done: the window seat — they had none left."),
+            ended("e5", "t-again", "Google AI Pro perks", "cancelled", "Stopped here to start again with your change."),
+            ended("e6", "t-short", "IIT Madras Chrome profile", "done", "The whole long answer.", display = "Your IIT Madras profile is set up."),
+        ), emptyList(), emptyList(), emptyList(), OlderState.Complete)
+        phone.changes.tryEmit(Change.Transcript("c1"))
+        idle()
+        assertNull("his own stop: no banner on the Mac, nothing here (the chat says it)", finished("t-stop"))
+        val done = finished("t-done")!!
+        assertEquals("Scaler dashboard check", done.title())
+        assertEquals("the answer in the chat's words, the sites row left to the chat", "Your dashboard shows 2 new classes.", done.text())
+        val failed = finished("t-fail")!!
+        assertEquals("no short name: the Mac's own title", "FERB", failed.title())
+        assertEquals("I couldn't finish this task. The site kept refusing the card.", failed.text())
+        assertEquals("I booked the table for two at 8.\n\nNot done: the window seat — they had none left.", finished("t-gaps")!!.text())
+        assertEquals("Your IIT Madras profile is set up.", finished("t-short")!!.text())
+        for (n in shade) assertFalse(n.title() in setOf("Done", "Couldn't finish"))
+        // the run his follow-up started again is not the task's end: nothing, and the task's real end is still news
+        assertNull(finished("t-again"))
+        phone.view = phone.view!!.copy(items = phone.view!!.items +
+            ended("e7", "t-again", "Google AI Pro perks", "done", "Your trial ends on 3 December."))
+        phone.changes.tryEmit(Change.Transcript("c1"))
+        idle()
+        val again = finished("t-again")!!
+        assertEquals("Google AI Pro perks", again.title())
+        assertEquals("Your trial ends on 3 December.", again.text())
+    }
+
+    /** From the Mac's status (the words held while locked): the Mac's title and the answer, or only that it's there. */
+    // decision: PHN-795, PHN-126
+    @Test
+    fun a_result_from_the_mac_s_status_reads_as_its_banner_and_held_words_stay_home() {
+        allow()
+        session.unlocked()
+        session.foreground(false)
+        phone.status = PhoneStatus(false, true, false, emptyList(), emptyList(), emptyList(), null)
+        started()
+        idle()
+        phone.status = PhoneStatus(false, true, false, emptyList(), emptyList(), listOf(
+            com.ferb.mobile.StatusResult("t-1", null, null, "failed", "Invoice", "I couldn't finish this task. The site was down.", false),
+            com.ferb.mobile.StatusResult("t-2", null, null, "done", "", "", true),
+        ), null)
+        phone.changes.tryEmit(Change.Status)
+        idle()
+        val failed = finished("t-1")!!
+        assertEquals("Invoice", failed.title())
+        assertEquals("I couldn't finish this task. The site was down.", failed.text())
+        val held = finished("t-2")!!
+        assertEquals("FERB finished", held.title())
+        assertEquals(context.getString(R.string.n_held_text), held.text())
+    }
+
     // decision: PHN-760, PHN-764
     @Test
     fun in_the_app_nothing_is_posted_and_one_he_saw_goes_to_the_shade_quietly_when_he_leaves() {

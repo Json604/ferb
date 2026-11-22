@@ -358,8 +358,6 @@
     <string name="n_private_text">Open FERB to answer.</string>
     <string name="n_public_question">FERB has a question</string>
     <string name="n_public_done">FERB has news</string>
-    <string name="n_task_done">Done</string>
-    <string name="n_task_failed">Couldn\'t finish</string>
     <string name="n_answer">Answer</string>
     <string name="n_answer_hint">Your answer</string>
     <string name="n_held_text">Open FERB to see it.</string>
@@ -376,7 +374,6 @@
     <string name="cant_notify_battery">Android is holding FERB back in the background, so Stay connected can\'t keep it in touch with your Mac.</string>
     <string name="cant_notify_turn_on">Turn on</string>
     <string name="cant_notify_open_settings">Open settings</string>
-    <string name="n_done_held">FERB finished something</string>
     <!-- the lab's own line (QuestionSheet), shown only where the Mac says the Yes takes the fingerprint-only key -->
     <string name="question_yes_fingerprint">Yes asks for your fingerprint.</string>
     <string name="question_on_mac">This one can be answered only in FERB on your Mac.</string>

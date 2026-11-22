@@ -14,7 +14,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | memory | Memory and memory import | `engine/runtime/memory` | 81 | 7 | 5 |
 | orchestration | Orchestration | `ferb/orchestrator/*.py`, `engine/runtime/decide`, `ferb/clock` | 177 | 9 | 40 |
 | perception | Perception | `ferb/sense` | 27 | 4 | 2 |
-| phone | Phone role, link and phone apps | `apps/android`, `apps/ios`, `engine/patches` | 376 | 13 | 18 |
+| phone | Phone role, link and phone apps | `apps/android`, `apps/ios`, `engine/patches` | 378 | 13 | 18 |
 | project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `HANDOFF.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `kb`, `tools`, `spikes` | 14 | 8 | 0 |
 | prompts | Prompts and abilities | `engine/runtime/orchestrator/prompts`, `engine/runtime/abilities` | 59 | 5 | 10 |
 | release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 28 | 6 | 5 |

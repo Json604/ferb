@@ -19,6 +19,18 @@ use super::core::{ok, refusal, Host, P};
 /// `osascript -e 'display notification …'` posts under Script Editor's bundle id.
 pub const OSASCRIPT_POSTER: &str = "com.apple.ScriptEditor2";
 
+/// A task's banner title when it has no short name: ended done (`_task_result`). The phones' notifications take the
+/// same words (ferb-mobile notify.rs, kb PHN-796).
+pub const TASK_DONE_TITLE: &str = "FERB finished";
+/// A task's banner title when it has no short name: any other end.
+pub const TASK_ENDED_TITLE: &str = "FERB";
+/// A watch's alert banner title when it has no short name.
+pub const ALERT_TITLE: &str = "FERB alert";
+/// A question's banner title (`_approval_notice`).
+pub const QUESTION_TITLE: &str = "FERB needs you";
+/// What a question's banner text starts with, before the question.
+pub const QUESTION_LEAD: &str = "FERB needs your OK:";
+
 /// The daemon's store connection the notices live in (`attention_notices`).
 pub type SharedDb = Arc<Mutex<Db>>;
 
@@ -812,7 +824,7 @@ impl Notifier {
         if alert {
             let banner = Banner {
                 title: if name.is_empty() {
-                    "FERB alert".into()
+                    ALERT_TITLE.into()
                 } else {
                     name
                 },
@@ -828,9 +840,9 @@ impl Notifier {
             let title = if !name.is_empty() {
                 name
             } else if status == "done" {
-                "FERB finished".into()
+                TASK_DONE_TITLE.into()
             } else {
-                "FERB".into()
+                TASK_ENDED_TITLE.into()
             };
             let banner = Banner {
                 title,
@@ -870,7 +882,7 @@ impl Notifier {
         } else {
             s("summary")
         };
-        let text = format!("FERB needs your OK: {line}");
+        let text = format!("{QUESTION_LEAD} {line}");
         let root = tid.split('.').next().unwrap_or("").to_owned();
         if self.posters.connected() {
             let approval = s("approval_id");
@@ -880,7 +892,7 @@ impl Notifier {
             target.insert("task_id".into(), json!(root));
             return Some((
                 Banner {
-                    title: "FERB needs you".into(),
+                    title: QUESTION_TITLE.into(),
                     text,
                     category: "question".into(),
                     target,
@@ -896,7 +908,7 @@ impl Notifier {
         }
         Some((
             Banner {
-                title: "FERB needs you".into(),
+                title: QUESTION_TITLE.into(),
                 text,
                 category: "question".into(),
                 ..Banner::default()

@@ -1762,17 +1762,6 @@
         }
       }
     },
-    "n_done_held": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "FERB finished something"
-          }
-        }
-      }
-    },
     "n_exact_text": {
       "extractionState": "manual",
       "localizations": {
@@ -2000,28 +1989,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "FERB has a question"
-          }
-        }
-      }
-    },
-    "n_task_done": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Done"
-          }
-        }
-      }
-    },
-    "n_task_failed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couldn't finish"
           }
         }
       }

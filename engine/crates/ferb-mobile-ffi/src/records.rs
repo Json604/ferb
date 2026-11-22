@@ -739,6 +739,14 @@ mirror! {
 }
 
 mirror! {
+    /// A notification's title and text in FERB.app's words (ferb-mobile `notify`, kb PHN-795).
+    NotificationWords from ferb_mobile::notify::NotificationWords {
+        title: String,
+        text: String,
+    }
+}
+
+mirror! {
     /// A task that runs now.
     StatusTask from ferb_mobile::status::StatusTask {
         task_id: String,

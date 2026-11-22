@@ -85,7 +85,8 @@ final class NotificationTests: XCTestCase {
         let a = posted(look(second))
         XCTAssertEqual(a.map(\.id), ["q:ap-2", "t:t-9"])
         XCTAssertFalse(a[0].quietly, "a new one: sound and banner")
-        XCTAssertEqual(a[1].title, L.s("n_task_failed"))
+        XCTAssertEqual(a[1].title, "Invoice", "the Mac's banner: the task's short name (kb PHN-795)")
+        XCTAssertEqual(a[1].body, "Failed", "no answer: the chat's status words")
         XCTAssertTrue(look(second).isEmpty, "once")
         // its needs changed: re-posted quietly; gone from the Mac: removed
         let changed = phoneStatus(asked("ap-2", needs(unlock: false)))
@@ -125,6 +126,78 @@ final class NotificationTests: XCTestCase {
         // never a question sheet or a task: not in the app's own list
         XCTAssertTrue(Questions.merged([], phoneStatus(clarify)).isEmpty)
         XCTAssertFalse(Questions.waiting([], phoneStatus(clarify))[0].routine)
+    }
+
+    /// A turn that ended, as the library hands it.
+    private func ended(_ entry: String, task: String, name: String?, status: String, answer: String, display: String? = nil) -> Item {
+        .turn(turn: TurnItem(entry: entry, at: 0, legacy: false, clientId: nil, requestId: "r-\(entry)", taskId: task, from: "owner",
+                       taskName: name, status: status, statusInferred: false, notice: nil, mergedInto: nil, question: nil,
+                       answeredBelow: false,
+                       answer: AnswerView(text: answer, displayText: display, status: nil, verified: false, artifacts: [], note: nil,
+                                          lines: nil, cards: nil, runtimeSwitch: nil),
+                       card: nil, checklist: nil, firstReply: nil, parts: [], goal: nil, words: nil))
+    }
+
+    private func transcript(_ items: [Item]) -> TranscriptView {
+        TranscriptView(conversation: "c1", items: items, questions: [], live: [], outbox: [], older: .complete)
+    }
+
+    /// The owner, 2026-11-22: the phone said "Couldn't finish" / "Coursera BITS check" for a task he had stopped, where
+    /// FERB.app's chat said "Stopped, as you asked.", and "Done" / a short name where the Mac shows the answer. Each end
+    /// now reads as the Mac's banner: the task's short name and the answer in the chat's words; his own stop, which the
+    /// Mac posts no banner for, posts nothing.
+    // decision: PHN-795, PHN-796
+    func testATasksEndReadsAsTheMacSaysIt() {
+        XCTAssertTrue(planner.look(status: nil, view: transcript([]), front: false, unlocked: true, lockedNow: false).isEmpty)
+        var items = [
+            ended("e1", task: "t-stop", name: "Coursera BITS check", status: "cancelled", answer: "Stopped, as you asked."),
+            ended("e2", task: "t-done", name: "Scaler dashboard check", status: "done",
+                  answer: "Your dashboard shows **2** new classes.\n\nSites contacted: scaler.com"),
+            ended("e3", task: "t-fail", name: nil, status: "failed", answer: "I couldn't finish this task. The site kept refusing the card."),
+            ended("e4", task: "t-again", name: "Google AI Pro perks", status: "cancelled",
+                  answer: "Stopped here to start again with your change."),
+            ended("e5", task: "t-short", name: "IIT Madras Chrome profile", status: "done", answer: "The whole long answer.",
+                  display: "Your IIT Madras profile is set up."),
+        ]
+        let a = posted(planner.look(status: nil, view: transcript(items), front: false, unlocked: true, lockedNow: false))
+        let by = Dictionary(uniqueKeysWithValues: a.map { ($0.id, $0) })
+        XCTAssertNil(by["t:t-stop"], "his own stop: no banner on the Mac, nothing here (the chat says it)")
+        XCTAssertEqual(by["t:t-done"]?.title, "Scaler dashboard check")
+        XCTAssertEqual(by["t:t-done"]?.body, "Your dashboard shows 2 new classes.", "the chat's words; the sites row is the chat's")
+        XCTAssertEqual(by["t:t-fail"]?.title, "FERB", "no short name: the Mac's own title")
+        XCTAssertEqual(by["t:t-fail"]?.body, "I couldn't finish this task. The site kept refusing the card.")
+        XCTAssertEqual(by["t:t-short"]?.body, "Your IIT Madras profile is set up.")
+        XCTAssertTrue(a.allSatisfy { !["Done", "Couldn't finish"].contains($0.title) })
+        // the run his follow-up started again is not the task's end: nothing, and the task's real end is still news
+        XCTAssertNil(by["t:t-again"])
+        items.append(ended("e6", task: "t-again", name: "Google AI Pro perks", status: "done", answer: "Your trial ends on 3 December."))
+        let b = posted(planner.look(status: nil, view: transcript(items), front: false, unlocked: true, lockedNow: false))
+        XCTAssertEqual(b.map(\.id), ["t:t-again"])
+        XCTAssertEqual(b[0].title, "Google AI Pro perks")
+        XCTAssertEqual(b[0].body, "Your trial ends on 3 December.")
+    }
+
+    /// From the Mac's status with the words held back (PHN-126): the Mac's title, and only that it can be seen in FERB.
+    // decision: PHN-795, PHN-126
+    func testAHeldResultTakesTheMacsTitleAndNoWords() {
+        XCTAssertTrue(look(phoneStatus()).isEmpty)
+        let a = posted(look(phoneStatus(results: [StatusResult(taskId: "t-2", requestId: nil, at: nil, status: "done", name: "", answer: "", held: true)])))
+        XCTAssertEqual(a.map(\.id), ["t:t-2"])
+        XCTAssertEqual(a[0].title, "FERB finished")
+        XCTAssertEqual(a[0].body, L.s("n_held_text"))
+        XCTAssertTrue(a[0].wordless)
+    }
+
+    /// A question with the Mac's presentation reads as the Mac's banner, as on Android (kb PHN-767).
+    // decision: PHN-795, PHN-767
+    func testAQuestionReadsAsTheMacsBanner() {
+        let shown = questionShown(bodyJson: #"{"kind": "owner_question", "capability": "owner.ask", "reason": "FERB: this types into the page. The step: browser.act action=type", "summary": "Send the draft to Ajay?", "options": ["Yes", "No"]}"#)
+        var asked = q(needs(unlock: false))
+        asked.shown = shown
+        let n = planner.question(asked, lockedNow: false, quietly: false)
+        XCTAssertEqual(n.title, "FERB needs you")
+        XCTAssertEqual(n.body, "FERB needs your OK: Send the draft to Ajay?")
+        XCTAssertFalse(n.body.contains("browser.act"), "never the raw reason or a tool call")
     }
 
     // decision: PHN-421, PHN-302

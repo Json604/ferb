@@ -101,7 +101,7 @@ final class CatalogTests: XCTestCase {
             "voice_failed", "voice_title", "voice_text_device", "voice_text_service", "voice_ask_next", "voice_continue",
             "voice_listening", "voice_speak", "tr_place", "attach_place", "tr_place_default", "files_load_more",
             "files_loading_more", "profile_screenshots_detail_shield", "profile_screenshots_detail_no_shield",
-            "n_done_held", "n_held_text", "n_task_failed", "n_task_done", "n_link_removed_title", "n_link_removed_text",
+            "n_held_text", "n_link_removed_title", "n_link_removed_text",
             "n_public_question", "n_public_done", "n_question_title", "n_private_title", "n_private_text", "n_check_title",
             "n_check_text", "n_on_mac", "n_needs_fingerprint_text", "n_needs_fingerprint", "n_needs_unlock", "n_answer",
             "n_answer_hint", "n_needs_fingerprint_title", "n_not_answered_title",
