@@ -11,7 +11,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | engine | Rust engine (the rewrite) | `engine/*`, `engine/crates`, `engine/fixtures`, `engine/packaging` | 23 | 4 | 0 |
 | gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `engine/runtime/identity` | 130 | 9 | 61 |
 | hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extension`, `extension-store` | 198 | 9 | 43 |
-| memory | Memory and memory import | `engine/runtime/memory` | 80 | 7 | 5 |
+| memory | Memory and memory import | `engine/runtime/memory` | 81 | 7 | 5 |
 | orchestration | Orchestration | `ferb/orchestrator/*.py`, `engine/runtime/decide`, `ferb/clock` | 177 | 9 | 40 |
 | perception | Perception | `ferb/sense` | 27 | 4 | 2 |
 | phone | Phone role, link and phone apps | `apps/android`, `apps/ios`, `engine/patches` | 376 | 13 | 18 |
@@ -50,7 +50,6 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 - T-1275 (app): Here are all of insomnia mode's words on the Mac and the phones (journal 153). Which would you change, and to what? Also confirm the numbers: 10 minutes of grace after the work, battery warnings at 20 % and 10 %, at most 8 scheduled wakes.
 - T-1278 (tests): 1. A fast push check (under 8 minutes) plus a heavy run at night or before installs? 2. Keep one Python-parity replay per scenario and compare prompts by structure? 3. Which 20-30 live checks to run again on Rust (payments, new recipients, terminal typing, Stop and No, background, secrets)? 4. A spare Mac as a test runner?
 - T-1280 (app): Which moments should FERB check in on (stuck on something, a deadline near, a repeated task, end of day), how often at most, and where (notch, phone, both)?
-- T-1281 (memory): May FERB's import_recall.md and import_verify.md take the text in the lab's PORTING.md section 3a (one prompt for every source, five short tests with examples; verify names a reading and code decides kept and kind)? On the default mid-tier models it found about half again to twice as many facts (lab FINDINGS.md, ninth note); a chunk costs 30 to 60% more.
 
 ## Terms
 

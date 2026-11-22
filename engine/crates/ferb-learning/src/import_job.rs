@@ -887,8 +887,9 @@ impl ImportJob<'_> {
                 )
                 .await?;
             let held_ids: HashSet<String> = held.iter().map(|h| h.id.clone()).collect();
-            let (kept, _) =
-                ex::check_verify(&Value::Object(answer), &batch, &held_ids, &chunk.source)?;
+            // the reading verify names becomes kept or not and the fact's kind in code (MEM-454)
+            let answer = ex::verdicts(&Value::Object(answer), &batch)?;
+            let (kept, _) = ex::check_verify(&answer, &batch, &held_ids, &chunk.source)?;
             add(counts, "dropped", (batch.len() - kept.len()) as i64);
             add(counts, "verified", kept.len() as i64);
             facts.extend(kept.into_iter().map(|v| {

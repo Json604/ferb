@@ -419,3 +419,93 @@ fn extraction_matches_python() {
         sh["out"]
     );
 }
+
+/// Verify names what a candidate is and code decides kept and kind (the lab's
+/// `test_verify_names_what_a_candidate_is_and_code_decides_kept_and_kind`): a working style is kept as a preference, a
+/// project's detail is not kept, and a project's identity becomes a project with its subject's shape and the key
+/// "identity"; a person keeps "person:<name>", an owner fact whose subject has no such shape is the owner's, a reading
+/// verify doesn't know and a verdict about no candidate of the batch keep nothing.
+// decision: MEM-454, MEM-408
+#[test]
+fn verify_names_a_reading_and_code_decides_kept_and_kind() {
+    let said = Message {
+        role: "owner".into(),
+        text: "just do it and tell me after. also the app should retry three times. my sister Mira bakes".into(),
+        at: times::parse_iso("2026-11-01T10:00:00+00:00"),
+    };
+    let c = |n: usize, kind: &str, quote: &str| Candidate {
+        id: format!("v{n}"),
+        kind: kind.into(),
+        subject: "owner".into(),
+        key: "k".into(),
+        content: "The owner says so.".into(),
+        message: "c1.1".into(),
+        quote: quote.into(),
+        claim: false,
+        evidence: vec![("c1.1".into(), said.clone(), "owner".into())],
+    };
+    let batch = [
+        c(1, "fact", "just do it and tell me after"),
+        c(2, "preference", "the app should retry three times"),
+        c(3, "fact", "tell me after"),
+        c(4, "fact", "my sister Mira bakes"),
+        c(5, "preference", "just do it"),
+        c(6, "fact", "tell me after"),
+    ];
+    let v = |n: usize, reading: &str, subject: &str| {
+        json!({"id": format!("v{n}"), "reading": reading, "message": "c1.1", "quote": batch[(n - 1) % 6].quote,
+               "content": "The owner says so.", "subject": subject, "key": "k", "same_as": "", "ended": false,
+               "until": "", "review_in_days": 0})
+    };
+    let answer = json!({"verdicts": [
+        v(1, "working_style", "owner"),
+        v(2, "project_detail", "owner"),
+        v(3, "project_identity", "Relay"),
+        v(4, "person", "Mira"),
+        v(5, "about_owner", "someone"),
+        v(6, "kept", "owner"),
+        v(9, "about_owner", "owner"),
+    ]});
+    let readings = extract::verdicts(&answer, &batch).unwrap();
+    let (kept, gone) = extract::check_verify(&readings, &batch, &HashSet::new(), "claude").unwrap();
+    let got: Vec<(&str, &str, &str, &str)> = kept
+        .iter()
+        .map(|k| {
+            (
+                k.id.as_str(),
+                k.kind.as_str(),
+                k.subject.as_str(),
+                k.key.as_str(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        got,
+        [
+            ("v1", "preference", "owner", "k"),
+            ("v3", "project", "project:Relay", "identity"),
+            ("v4", "person", "person:Mira", "k"),
+            ("v5", "fact", "owner", "k"),
+        ]
+    );
+    assert_eq!(
+        gone,
+        [
+            "not supported by the owner's words",
+            "not supported by the owner's words",
+            "names no candidate"
+        ]
+    );
+    // every reading the schema offers is one code knows, kept or not
+    let offered = &extract::verify_schema()["properties"]["verdicts"]["items"]["properties"]
+        ["reading"]["enum"];
+    let known: Vec<&str> = extract::READINGS
+        .iter()
+        .map(|(r, _)| *r)
+        .chain(extract::NOT_KEPT)
+        .collect();
+    assert_eq!(offered, &json!(known));
+    assert!(extract::READINGS
+        .iter()
+        .all(|(_, kind)| ferb_memory::terms::KINDS.contains(kind)));
+}

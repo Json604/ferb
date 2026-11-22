@@ -952,16 +952,6 @@ status = "open"
 why = "Owner 2026-11-21/22: \"later: Proactive checkins from FERB based on what im doing/activity\" and \"the proactive codebased checkins from FERB based on my activity??? likechatogt dots does\". APP-940 kept FERB's capture for this. Not designed yet."
 ask = "Which moments should FERB check in on (stuck on something, a deadline near, a repeated task, end of day), how often at most, and where (notch, phone, both)?"
 
-[T-1281]
-title = "May the import's recall and verify prompts take the memory-import lab's measured text?"
-area = "memory"
-kind = "question"
-status = "open"
-ask = "May FERB's import_recall.md and import_verify.md take the text in the lab's PORTING.md section 3a (one prompt for every source, five short tests with examples; verify names a reading and code decides kept and kind)? On the default mid-tier models it found about half again to twice as many facts (lab FINDINGS.md, ninth note); a chunk costs 30 to 60% more."
-why = "MEM-435 (the owner's IMP-52) asks for an import that is good on mid-tier models; the lab's own question T-24 was never answered. Runtime Markdown changes only on the owner's word, and the change turns the import fixtures' verify answers into a named difference."
-decisions = ["MEM-435"]
-after = []
-
 [T-1283]
 title = "The website watch's single chain through the real program waits for T-1277's lifecycle harness"
 area = "memory"
@@ -978,4 +968,13 @@ kind = "build"
 status = "open"
 why = "MEM-441, MEM-450: not ported: the lab's per-folder roll-up of 'what am I working on' (lab IMP-13) and its explicit profile rebuild for a changed merge prompt (lab IMP-31)."
 decisions = ["MEM-441", "MEM-450"]
+after = []
+
+[T-1285]
+title = "The lab's verify context (the quoted line cut around its quote) and batching by what's shown"
+area = "memory"
+kind = "build"
+status = "open"
+why = "MEM-454 took PORTING.md 3a parts 1-3. Part 4 isn't ported: verify reads the quoted line cut to 500 characters each side and its neighbours to 300, batched by what is shown (one lab chunk took 13 verify calls). Then the verify prompt takes back the lab's cut-line note."
+decisions = ["MEM-454", "MEM-435"]
 after = []

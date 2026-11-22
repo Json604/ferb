@@ -9024,3 +9024,46 @@ against a real database; that Resend accepts the headers and Gmail shows its uns
 scanner that opens links unsubscribes people by itself (the GET link acts in one click, as the owner asked). Before
 the owner sets the variables, the deployed download answers "Sign-in isn't set up on this site yet", so deploy
 after the setup guide.
+
+## 2026-11-22 · 168 · The import reads with the memory-import lab's measured prompts; verify names a reading and code decides
+
+**What.** On the owner's yes (MEM-454, T-1281), `engine/runtime/memory/import_recall.md` and `import_verify.md` are the
+memory-import lab's text (`aiimport/prompts/`, PORTING.md section 3a, the lab's T-24, IMP-52/IMP-53). Recall is one
+prompt for every source, five short tests with synthetic examples and counter-examples; a preference counts wherever
+it is said. Verify names one `reading` per candidate from a fixed list, the rejections first. `VERIFY_SCHEMA`
+(ferb-memory `import_extract::verify_schema` and ferb-context's catalog copy, now checked equal) takes the lab's
+fields in its order: `reading` (the lab's nine names, in its order) replaces `supported` and `kind`. The new
+`import_extract::verdicts` turns readings into what `check_verify` takes, as the lab's `extract.verdicts` does:
+supported when the reading is one of the five kept ones about a candidate of the batch; the kind from the reading
+(about_owner fact, working_style preference, setup env, person, project_identity project); a project's key is
+"identity"; a person or project keeps a subject of that shape (the candidate's, or the shape added to the name); any
+other kept fact whose subject is neither shape is the owner's. The import job calls it before `check_verify`
+(`import_job.rs`). `check_verify`, `check_recall`, redaction and facts only (MEM-404, MEM-408) are unchanged.
+
+**Adapted, and why.** The lab's verify says the evidence lines are shown "(a long line is cut around the quoted
+words, marked "…")". FERB's verify shows the quoted line whole (only a claim's owner lines are cut at 1,500
+characters, from the end), so that parenthesis is left out and the sentence rewrapped; every other word is the lab's.
+The lab's part 4 (the cut evidence, batching by what is shown) is not ported: T-1285. The lab's verify context header
+("proposed as") belongs to that part and is not taken either.
+
+**Named differences.**
+- ferb-context `load_prompt_reads_as_python_does`: the two prompts are replaced whole. Python's text is kept in the new
+  hand-written `engine/fixtures/catalog/prompt_replacements.json` (taken from the commit before this one and checked
+  to hash to the recorded `prompts.json` `real` sha256); the test checks that and that the file now differs.
+- ferb-context `as_recorded` takes out MEM-454 (`before_reading`: the verify schema as Python built it,
+  `verify_schema_before_reading`), so every comparison with `answer_schemas.json` / `structured.json` stays strict.
+- ferb-learning `memory_import_runs`: Python's recorded verify answers are given as readings (`as_reading`: kept with
+  the reading of its kind, else "not_said"), and a call made with a replaced prompt is compared as made with Python's
+  text (`as_python_call`: its system's hash, and the budget line's `reserved_tokens` moved by the tokens the new text
+  adds). Every other byte of the calls is compared as recorded.
+- ferb-learning stand-ins: make.py's dynamic verify (`dynamic_answer`) and the lab's stand-in (`stand_in_answer`, as
+  the lab's tests/fakes.py now does) answer with readings (`reading_of`).
+
+**Evidence.** ferb-memory `verify_names_a_reading_and_code_decides_kept_and_kind` (the lab's test, widened: person,
+owner subject, unknown reading, unknown id; the schema's readings are the ones code knows).
+ferb-learning `the_import_sends_the_catalogs_verify_schema`. ferb-memory, ferb-context, ferb-learning and ferb-daemon
+suites pass; clippy -D warnings and fmt clean.
+
+**Unverified.** No real model was run: the gain on mid-tier models (about half again to twice as many facts, 30 to
+60% more per chunk) is the lab's measurement, made with part 4 in place. Facts already imported were read with the
+earlier prompts and are kept; reading them again is not part of this.

@@ -828,8 +828,57 @@ pub fn recall_schema() -> Value {
     raw_obj(&["candidates"], vec![("candidates", array_of(item))])
 }
 
-/// ferb/memory/import_extract.py:56 `VERIFY_SCHEMA`.
+/// The readings verify names a candidate by (MEM-454; ferb-memory's `import_extract::READINGS` then `NOT_KEPT`, the
+/// lab's order): five kept, four not.
+pub const VERIFY_READINGS: [&str; 9] = [
+    "about_owner",
+    "working_style",
+    "setup",
+    "person",
+    "project_identity",
+    "project_detail",
+    "one_off",
+    "not_owner",
+    "not_said",
+];
+
+/// ferb/memory/import_extract.py:56 `VERIFY_SCHEMA`, with MEM-454's deliberate change (the memory-import lab's
+/// measured verify): one `reading` in place of `supported` and `kind`, the fields in the lab's order. The recorded
+/// schema is [`verify_schema_before_reading`].
 pub fn verify_schema() -> Value {
+    let item = raw_obj(
+        &[
+            "id",
+            "reading",
+            "message",
+            "quote",
+            "content",
+            "subject",
+            "key",
+            "same_as",
+            "ended",
+            "until",
+            "review_in_days",
+        ],
+        vec![
+            ("id", string()),
+            ("reading", s_enum(&VERIFY_READINGS)),
+            ("message", string()),
+            ("quote", string()),
+            ("content", string()),
+            ("subject", string()),
+            ("key", string()),
+            ("same_as", string()),
+            ("ended", json!({"type": "boolean"})),
+            ("until", string()),
+            ("review_in_days", json!({"type": "integer"})),
+        ],
+    );
+    raw_obj(&["verdicts"], vec![("verdicts", array_of(item))])
+}
+
+/// `VERIFY_SCHEMA` as Python built it, before MEM-454: `supported` and `kind` per verdict.
+pub fn verify_schema_before_reading() -> Value {
     let item = raw_obj(
         &[
             "id",
@@ -861,6 +910,16 @@ pub fn verify_schema() -> Value {
         ],
     );
     raw_obj(&["verdicts"], vec![("verdicts", array_of(item))])
+}
+
+/// MEM-454's deliberate change taken out: the verify schema as Python recorded it; any other schema comes back as it
+/// is.
+pub fn before_reading(schema: &Value) -> Value {
+    if *schema == verify_schema() {
+        verify_schema_before_reading()
+    } else {
+        schema.clone()
+    }
 }
 
 /// ferb/memory/mac_profile.py:21 `MAC_SCHEMA`.
@@ -1249,10 +1308,13 @@ pub fn new_task(answer: &Value) -> Option<&Value> {
 }
 
 /// The answer schemas as Python recorded them (engine/fixtures/catalog/answer_schemas.json): FERB's schema with its
-/// named changes taken out, ORCH-679's `left` and `progress` ([`before_left`]), ORCH-652's `gaps` ([`before_gaps`])
-/// and HAND-580's task `profiles` ([`before_profiles`]). For the tests that compare FERB's schemas with the recorded ones.
+/// named changes taken out, ORCH-679's `left` and `progress` ([`before_left`]), ORCH-652's `gaps` ([`before_gaps`]),
+/// HAND-580's task `profiles` ([`before_profiles`]) and MEM-454's verify `reading` ([`before_reading`]). For the tests
+/// that compare FERB's schemas with the recorded ones.
 pub fn as_recorded(schema: &Value) -> Value {
-    before_uploaded(&before_profiles(&before_gaps(&before_left(schema))))
+    before_reading(&before_uploaded(&before_profiles(&before_gaps(
+        &before_left(schema),
+    ))))
 }
 
 /// ORCH-679's deliberate change (ENG-6): a check's `results[].left` and `progress` taken out, as Python built the

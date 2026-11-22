@@ -161,6 +161,16 @@ compares a model call's budget line also moves its `reserved_tokens` by the byte
 `the_deliberate_prompt_changes_are_the_only_ones` checks each change is in its file now and the old text is what
 the recording holds. Every other byte is compared as recorded.
 
+## prompt_replacements.json
+
+Written by hand, never by make.py: runtime prompts outside `ferb/orchestrator/prompts` replaced whole after these
+recordings, each with its decision (MEM-454 the first: `memory/import_recall.md` and `memory/import_verify.md`, the
+memory-import lab's measured text) and the text Python read (`load_prompt`: the file, stripped). ferb-context's
+`load_prompt_reads_as_python_does` checks that text hashes to the recorded one (`engine/fixtures/context/prompts.json`
+`real`) and that the file holds another now; ferb-learning's `memory_import_runs` compares a call made with the new
+text as made with the old one (its system's hash, and the `reserved_tokens` of its budget line moved by the tokens the
+new text adds). Every other byte is compared as recorded.
+
 ## tool_changes.json
 
 Written by hand, never by make.py: the deliberate changes to tools of Python's catalog (tools.json) made after it was

@@ -236,6 +236,14 @@ impl Spans for FakeSpans {
     }
 }
 
+/// The reading verify names a candidate of this kind by (MEM-454; ferb-memory's `READINGS` read backwards).
+pub fn reading_of(kind: &str) -> &'static str {
+    ferb_memory::import_extract::READINGS
+        .iter()
+        .find(|(_, k)| *k == kind)
+        .map_or("not_said", |(r, _)| *r)
+}
+
 /// make.py's dynamic import answers: the recall answer from the chunk's lines, the verify answer from its context.
 pub fn dynamic_answer(ctx: &str) -> Value {
     if ctx.contains("\nCandidate v") {
@@ -266,7 +274,15 @@ pub fn dynamic_answer(ctx: &str) -> Value {
                     let message = rest.strip_suffix(')').unwrap();
                     let key = c["key"].as_str().unwrap().to_owned();
                     let id = c["id"].as_str().unwrap().to_owned();
-                    c.insert("supported".into(), json!(key != "work" || id != "v2"));
+                    // MEM-454 (named difference): make.py's verdict as a reading, from the kind it kept or
+                    // "not_said" where it said `supported: false`
+                    let kind = c.shift_remove("kind").unwrap();
+                    let reading = if key != "work" || id != "v2" {
+                        reading_of(kind.as_str().unwrap())
+                    } else {
+                        "not_said"
+                    };
+                    c.insert("reading".into(), json!(reading));
                     c.insert("message".into(), json!(message));
                     c.insert("quote".into(), json!(quote));
                     c.insert("same_as".into(), json!(""));
@@ -501,7 +517,13 @@ pub fn stand_in_answer(ctx: &str) -> Value {
                 (parts.len() == 3 && parts[1] == "owner" && text.contains(quote))
                     .then(|| parts[0].to_owned())
             });
-            verdicts.push(json!({"id": id, "supported": holds.is_some(), "kind": kind, "subject": subject, "key": key,
+            // the lab's fakes.py since MEM-454: a reading from the kind, "not_owner" when no owner line holds it
+            let reading = if holds.is_some() {
+                reading_of(kind)
+            } else {
+                "not_owner"
+            };
+            verdicts.push(json!({"id": id, "reading": reading, "subject": subject, "key": key,
                 "content": says, "message": holds.clone().unwrap_or_default(), "quote": quote, "same_as": "",
                 "ended": false, "until": if says.contains("until January") { "2027-01-01" } else { "" },
                 "review_in_days": if says.contains("this month") { 30 } else { 0 }}));

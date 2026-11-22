@@ -40,19 +40,94 @@ pub fn recall_schema() -> Value {
                            "quote": {"type": "string"}}}}}})
 }
 
-/// `VERIFY_SCHEMA`.
+/// What verify may name a candidate (MEM-454, the lab's IMP-53 `READINGS`): the kept readings with the kind each
+/// gives the fact, in the lab's order (the schema's enum lists these first).
+pub const READINGS: [(&str, &str); 5] = [
+    ("about_owner", "fact"),
+    ("working_style", "preference"),
+    ("setup", "env"),
+    ("person", "person"),
+    ("project_identity", "project"),
+];
+/// The readings that keep nothing (the lab's `NOT_KEPT`, in its order).
+pub const NOT_KEPT: [&str; 4] = ["project_detail", "one_off", "not_owner", "not_said"];
+
+/// `VERIFY_SCHEMA`: MEM-454 (the lab's measured verify, IMP-53): one `reading` per candidate from a fixed list in
+/// place of `supported` and `kind`; code turns it into both ([`verdicts`]).
 pub fn verify_schema() -> Value {
+    let readings: Vec<&str> = READINGS.iter().map(|(r, _)| *r).chain(NOT_KEPT).collect();
     json!({
         "type": "object", "additionalProperties": false, "required": ["verdicts"],
         "properties": {"verdicts": {"type": "array", "items": {
             "type": "object", "additionalProperties": false,
-            "required": ["id", "supported", "kind", "subject", "key", "content", "message", "quote", "same_as",
-                         "ended", "until", "review_in_days"],
-            "properties": {"id": {"type": "string"}, "supported": {"type": "boolean"},
-                           "kind": {"type": "string", "enum": terms::KINDS}, "subject": {"type": "string"},
-                           "key": {"type": "string"}, "content": {"type": "string"}, "message": {"type": "string"},
-                           "quote": {"type": "string"}, "same_as": {"type": "string"}, "ended": {"type": "boolean"},
+            "required": ["id", "reading", "message", "quote", "content", "subject", "key", "same_as", "ended",
+                         "until", "review_in_days"],
+            "properties": {"id": {"type": "string"}, "reading": {"type": "string", "enum": readings},
+                           "message": {"type": "string"}, "quote": {"type": "string"},
+                           "content": {"type": "string"}, "subject": {"type": "string"},
+                           "key": {"type": "string"}, "same_as": {"type": "string"}, "ended": {"type": "boolean"},
                            "until": {"type": "string"}, "review_in_days": {"type": "integer"}}}}}})
+}
+
+/// `verdicts` (the lab's `extract.verdicts`, MEM-454): verify's readings as the answer [`check_verify`] takes. Code
+/// decides what the model no longer does: a verdict is supported when its reading is a kept one about a candidate of
+/// this batch, and the fact's kind follows from the reading; a project's key is "identity"; a person or project keeps
+/// a subject of that shape ("person:<name>", "project:<name>"), and any other kept fact whose subject isn't one of
+/// those is the owner's.
+pub fn verdicts(answer: &Value, batch: &[Candidate]) -> Result<Value, Error> {
+    let by_id: HashMap<&str, &Candidate> = batch.iter().map(|c| (c.id.as_str(), c)).collect();
+    let mut out = Vec::new();
+    for v in pyval::iter_or_empty(pyval::get(answer, "verdicts")?)? {
+        let mut row = match &v {
+            Value::Object(m) => m.clone(),
+            _ => return Err(Crash("TypeError").into()),
+        };
+        let id = pyval::get(&v, "id")?.map_or_else(|| "None".to_owned(), pyval::to_str);
+        let c = by_id.get(id.as_str()).copied();
+        let reading = pyval::get(&v, "reading")?.map_or_else(|| "None".to_owned(), pyval::to_str);
+        let kind = READINGS
+            .iter()
+            .find(|(r, _)| *r == reading)
+            .map(|(_, k)| *k);
+        row.insert("supported".into(), json!(kind.is_some() && c.is_some()));
+        row.insert(
+            "kind".into(),
+            json!(kind.unwrap_or_else(|| c.map_or("fact", |c| c.kind.as_str()))),
+        );
+        if let (Some(kind), Some(c)) = (kind, c) {
+            let field = |k: &str, default: &str| -> Result<String, Error> {
+                Ok(match pyval::get(&v, k)? {
+                    Some(x) if pyval::truthy(x) => pyval::to_str(x),
+                    _ => default.to_owned(),
+                })
+            };
+            let mut subject = field("subject", &c.subject)?;
+            let key = field("key", &c.key)?;
+            if kind == "person" || kind == "project" {
+                let shape = format!("{kind}:");
+                if !subject.starts_with(&shape) {
+                    subject = if c.subject.starts_with(&shape) {
+                        c.subject.clone()
+                    } else {
+                        format!("{shape}{subject}")
+                    };
+                }
+            } else if !(subject.starts_with("person:") || subject.starts_with("project:")) {
+                subject = "owner".to_owned();
+            }
+            row.insert("subject".into(), json!(subject));
+            row.insert(
+                "key".into(),
+                json!(if kind == "project" {
+                    "identity"
+                } else {
+                    key.as_str()
+                }),
+            );
+        }
+        out.push(Value::Object(row));
+    }
+    Ok(json!({ "verdicts": out }))
 }
 
 /// `digest(*parts)`: SHA-256 of the parts joined by U+001F.

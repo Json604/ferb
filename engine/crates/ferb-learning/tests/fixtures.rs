@@ -198,6 +198,10 @@ fn daily_summary_and_distill() {
 /// The reading is Python's: each scenario is replayed strictly up to its first run, and that run sends every model
 /// call Python sent (the same system prompt and text, in order), marks the same parts done, ends the same way, and
 /// keeps every fact Python saved among its checked facts.
+/// MEM-454 (named difference, the owner's yes to the memory-import lab's measured prompts): recall and verify read
+/// the new import_recall.md and import_verify.md, and verify names a reading where Python's said `supported` and
+/// `kind`. Python's recorded verify answers are given as readings ([`as_reading`]), and each call made with a new
+/// prompt is compared as made with the one Python read ([`as_python_call`]); every other byte is compared as is.
 #[test]
 fn memory_import_runs() {
     let data = fixture("scenarios.json");
@@ -224,7 +228,7 @@ fn memory_import_runs() {
             .unwrap()
             .iter()
             .filter(|e| e[0] == "model.start")
-            .map(|e| e[1]["answer"].clone())
+            .map(|e| as_reading(&e[1]["answer"]))
             .collect();
         *env.answers.borrow_mut() = answers.into();
         env.events.lock().unwrap().clear();
@@ -241,15 +245,8 @@ fn memory_import_runs() {
             let mut v: Vec<String> = evs
                 .iter()
                 .filter(|e| e[0] == "model.start")
-                .map(|e| {
-                    json!([
-                        e[1]["system_sha"],
-                        e[1]["parts"],
-                        e[1]["goal"],
-                        e[1]["role"]
-                    ])
-                    .to_string()
-                })
+                .map(|e| as_python_call(&e[1]))
+                .map(|e| json!([e["system_sha"], e["parts"], e["goal"], e["role"]]).to_string())
                 .collect();
             v.sort();
             v
@@ -331,6 +328,68 @@ fn memory_import_runs() {
     }
     report("imports (to the first run)", runs, &diffs);
     assert!(runs == 2 && diffs.is_empty());
+}
+
+/// The verify schema the import sends (ferb-memory's) is the one the catalog names (ferb-context's `VERIFY_SCHEMA`).
+// decision: MEM-454
+#[test]
+fn the_import_sends_the_catalogs_verify_schema() {
+    assert_eq!(
+        ferb_memory::import_extract::verify_schema(),
+        ferb_context::schemas::verify_schema()
+    );
+}
+
+/// MEM-454: a recorded verify answer as the verify FERB asks now gives it: `supported` and `kind` become the reading
+/// that keeps that kind, or "not_said" where Python's verifier didn't support the candidate.
+fn as_reading(answer: &Value) -> Value {
+    let mut answer = answer.clone();
+    let verdicts = answer
+        .get_mut("answer")
+        .and_then(|a| a.get_mut("verdicts"))
+        .and_then(Value::as_array_mut);
+    for v in verdicts.into_iter().flatten() {
+        let v = v.as_object_mut().unwrap();
+        let kind = v.shift_remove("kind").unwrap();
+        let reading = if v.shift_remove("supported") == Some(json!(true)) {
+            reading_of(kind.as_str().unwrap())
+        } else {
+            "not_said"
+        };
+        v.insert("reading".into(), json!(reading));
+    }
+    answer
+}
+
+/// MEM-454: a call made with one of the prompts replaced whole since the recording, as made with the text Python
+/// read (engine/fixtures/catalog/prompt_replacements.json): its system named by that text's hash, and the budget line
+/// in its parts reserving that text's tokens; any other call as it is.
+fn as_python_call(call: &Value) -> Value {
+    let all: Value = serde_json::from_str(
+        &std::fs::read_to_string(repo().join("engine/fixtures/catalog/prompt_replacements.json"))
+            .unwrap(),
+    )
+    .unwrap();
+    let prompts = ferb_context::PromptRoot::new(repo().join("engine/runtime")).unwrap();
+    let mut call = call.clone();
+    for r in all["replacements"].as_array().unwrap() {
+        let new = prompts.load(r["prompt"].as_str().unwrap(), &[]).unwrap();
+        let old = r["old"].as_str().unwrap();
+        if call["system_sha"] != json!(py::sha256_hex(&new)) {
+            continue;
+        }
+        call["system_sha"] = json!(py::sha256_hex(old));
+        let reserved =
+            |text: &str| format!("\"reserved_tokens\": {},", ferb_context::count_tokens(text));
+        for part in call["parts"].as_array_mut().unwrap() {
+            let moved = part
+                .as_str()
+                .unwrap()
+                .replace(&reserved(&new), &reserved(old));
+            *part = json!(moved);
+        }
+    }
+    call
 }
 
 fn run_scenarios(names: &[&str]) {

@@ -703,6 +703,7 @@ fn answer_readers_match_schemas_py() {
 
 // ---------------------------------------------------------------------------------------------------------------
 
+// decision: MEM-454 (named difference: the prompts replaced whole, `replaced`)
 #[test]
 fn load_prompt_reads_as_python_does() {
     let fixture = context("prompts.json");
@@ -750,6 +751,13 @@ fn load_prompt_reads_as_python_does() {
     let real = PromptRoot::new(repo().join("engine/runtime")).unwrap();
     for case in list(&fixture, "real") {
         let path = s(&case["path"]);
+        if let Some(old) = replaced(path) {
+            // replaced whole since the recording (MEM-454): the text kept as Python read it is the recorded one, and
+            // the file holds another now
+            assert_eq!(sha(&old), s(&case["sha256"]), "{path}");
+            assert_ne!(real.load(path, &[]).unwrap(), old, "{path}");
+            continue;
+        }
         let text = as_recorded(path, real.load(path, &[]).unwrap());
         assert_eq!(sha(&text), s(&case["sha256"]), "{path}");
         assert_eq!(text.chars().count() as u64, case["chars"].as_u64().unwrap());
@@ -768,6 +776,20 @@ fn load_prompt_reads_as_python_does() {
             s(&case["replaced_sha256"])
         );
     }
+}
+
+/// A prompt file replaced whole since the fixture was recorded (engine/fixtures/catalog/prompt_replacements.json, each
+/// naming its decision: MEM-454): the text Python read.
+fn replaced(path: &str) -> Option<String> {
+    let all: Value = serde_json::from_str(
+        &std::fs::read_to_string(repo().join("engine/fixtures/catalog/prompt_replacements.json"))
+            .unwrap(),
+    )
+    .unwrap();
+    list(&all, "replacements")
+        .iter()
+        .find(|r| r["prompt"] == path)
+        .map(|r| s(&r["old"]).to_string())
 }
 
 /// A prompt file's text as Python read it when the fixture was recorded: the deliberate changes made since

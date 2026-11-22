@@ -926,3 +926,13 @@ rule = "ask_owner refuses a kind ferb_orchestrator::steering::memory_questions d
 why = "Journal 166: memory_local and memory_sites passed every test on group A's stand-in while the real gateway would have refused them (KeyError)."
 paths = ["engine/crates/ferb-daemon/src/areas_a/memory.rs", "engine/crates/ferb-orchestrator/src/steering.rs"]
 untestable = "The contract itself is the test (ferb-daemon tests/own_question_kinds.rs)."
+
+[MEM-454]
+title = "The import's prompts are the lab's measured text; verify names a reading, code decides kept and kind"
+by = "owner"
+date = 2026-11-22
+status = "active"
+words = "yes"
+words_source = "His answer, relayed by the coordinator, to: \"May FERB's import_recall.md and import_verify.md take the memory-import lab's measured text?\" (T-1281: the lab's PORTING.md section 3a, its question T-24)."
+rule = "For MEM-435. import_recall.md and import_verify.md are the lab's text: one recall for every source, five short tests with examples. Verify names one reading per candidate (`reading` replaces `supported` and `kind` in VERIFY_SCHEMA); code (import_extract::verdicts) turns it into kept or not and the kind; a project's key is \"identity\"; a person or project keeps that subject shape, else the owner's. Quote checks (MEM-408), redaction and facts only (MEM-404) are unchanged. The prompt leaves out the lab's cut-line note (T-1285)."
+paths = ["engine/runtime/memory/import_recall.md", "engine/runtime/memory/import_verify.md", "engine/crates/ferb-memory/src/import_extract.rs::verdicts", "engine/crates/ferb-memory/src/import_extract.rs::verify_schema", "engine/crates/ferb-context/src/schemas.rs::verify_schema", "engine/crates/ferb-learning/src/import_job.rs", "engine/fixtures/catalog/prompt_replacements.json"]
