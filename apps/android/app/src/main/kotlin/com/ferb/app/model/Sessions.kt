@@ -237,12 +237,19 @@ object Sessions {
      * reply (HAND-703): its parts when the Mac sent them, else its words as Markdown ([rich], the phone library's
      * reading, kept by [prepare]), except a terminal's output ([terminal]), shown as it is. The owner's words stay plain.
      */
-    fun line(i: SessionItem, stopped: String, terminal: Boolean = false, rich: (String) -> List<RichBlock> = Present::rich): SessionLine {
+    fun line(
+        i: SessionItem, stopped: String, terminal: Boolean = false, rich: (String) -> List<RichBlock> = Present::rich,
+        sentByFerb: String = "",
+    ): SessionLine {
         val kind = lineKind(i.kind)
         val text = when (kind) {
             SessionLineKind.TOOL -> i.text.ifBlank { i.tool }
             SessionLineKind.INTERRUPTED -> i.text.ifBlank { stopped }
             else -> i.text
+        }
+        // HAND-709: a message FERB sent while it kept the session going is marked as FERB's
+        if (kind == SessionLineKind.OWNER && i.ferb && sentByFerb.isNotEmpty()) {
+            return SessionLine(i.seq.toString(), kind, text, by = sentByFerb)
         }
         if (kind != SessionLineKind.AGENT) return SessionLine(i.seq.toString(), kind, text)
         if (i.parts.isNotEmpty()) {

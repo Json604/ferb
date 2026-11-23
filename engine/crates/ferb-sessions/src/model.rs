@@ -271,6 +271,14 @@ pub struct Item {
     /// the item is its text alone (a transcript's item: its text is Markdown, drawn as such).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub parts: Vec<Part>,
+    /// HAND-709: an owner's message FERB's session driver sent (its words, seen in the agent's own record): the
+    /// clients mark it as FERB's.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub ferb: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 /// HAND-703: what one part of a reply is.
@@ -312,6 +320,9 @@ pub enum CardKind {
     Permission,
     /// The agent asks the owner a question with options.
     Question,
+    /// HAND-708: FERB's own question about its drive of the session (keep going after the rounds the owner set); never
+    /// the agent's, answered with `sessions.answer` like the agent's.
+    Ferb,
 }
 
 /// One answer a card offers.

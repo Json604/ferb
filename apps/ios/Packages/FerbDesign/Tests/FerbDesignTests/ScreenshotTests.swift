@@ -120,6 +120,7 @@ final class ScreenshotTests: XCTestCase {
     /// code, "Just now"); the menu of a session FERB has, with Take it back and with it on its way; FERB's word above the
     /// message box; New session starting and refused; the folder picker inside a folder and at the top.
     // decision: HAND-702, HAND-703, PHN-821, PHN-822, PHN-416
+    // decision: HAND-708, HAND-709
     func testTheSessionsLiveFixes() {
         for width: CGFloat in [375, 402] {
             let size = CGSize(width: width, height: PhoneInsets.labSize.height)
@@ -134,6 +135,8 @@ final class ScreenshotTests: XCTestCase {
             shot("menu-taking-back") { SessionSample.ferbSession(menuOpen: true, taking: true) }
             shot("menu-ferb-starting") { SessionSample.ferbSession(menuOpen: true, starting: true, note: "Handed to FERB: “Keep going until the tests pass”") }
             shot("ferb-note") { SessionSample.ferbSession() }
+            // HAND-708, HAND-709: FERB's keep-going question after 20 rounds, and a message it sent marked as FERB's
+            shot("keep-going") { SessionSample.keepGoing() }
             shot("new-starting") { SessionSample.newSession(starting: true) }
             shot("new-refused") { SessionSample.newSession(refused: "There's no folder named web-app on your Mac any more.") }
             shot("folder-picker") { SessionSample.folderPicker() }

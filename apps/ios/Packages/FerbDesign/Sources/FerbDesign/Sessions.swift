@@ -239,8 +239,10 @@ public struct SessionLine: Equatable, Sendable {
     public var kind: SessionLineKind
     public var text: String
     public var parts: [SessionPartShown]
-    public init(_ key: String, _ kind: SessionLineKind, _ text: String, parts: [SessionPartShown] = []) {
-        self.key = key; self.kind = kind; self.text = text; self.parts = parts
+    /// HAND-709: an owner's-side line FERB sent while it kept the session going: its small label ("Sent by FERB").
+    public var by: String?
+    public init(_ key: String, _ kind: SessionLineKind, _ text: String, parts: [SessionPartShown] = [], by: String? = nil) {
+        self.key = key; self.kind = kind; self.text = text; self.parts = parts; self.by = by
     }
 }
 
@@ -251,7 +253,18 @@ public struct SessionLineView: View {
     public init(_ line: SessionLine) { self.line = line }
     public var body: some View {
         switch line.kind {
-        case .owner: OwnerBubble(line.text)
+        case .owner:
+            if let by = line.by {
+                // HAND-709: what FERB sent for the owner, on his side, marked as FERB's
+                VStack(alignment: .trailing, spacing: 3) {
+                    Text(by).type(12, .medium, Ink.onDark).padding(.trailing, 6)
+                    OwnerBubble(line.text)
+                }
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .accessibilityElement(children: .combine)
+            } else {
+                OwnerBubble(line.text)
+            }
         // HAND-703: one reply block, the main chat's FERB-reply look on the black page (no bubble per line)
         case .reply: SessionReplyView(key: line.key, parts: line.parts)
         case .agent:
@@ -907,16 +920,31 @@ public enum SessionSample {
 
     /// The session FERB has: Take it back in place of Hand to FERB (`taking`: on its way), FERB's word above the box.
     public static func ferbSession(insets: PhoneInsets = .lab, menuOpen: Bool = false, taking: Bool = false, starting: Bool = false,
-                                   note: String? = ferbNote, lines: [SessionLine] = lines) -> some View {
+                                   note: String? = ferbNote, lines: [SessionLine] = lines, asks: [SessionAsk] = []) -> some View {
         let hand: SessionAction = starting
             ? SessionAction("FERB is starting…", symbol: nil, busy: true, onClick: nil)
             : taking ? SessionAction("Taking it back…", symbol: "arrow.uturn.backward", busy: true, stays: true, onClick: nil)
             : SessionAction("Take it back", symbol: "arrow.uturn.backward", stays: true, onClick: {})
-        return SessionPage(header: withFerb, lines: lines, asks: [],
+        return SessionPage(header: withFerb, lines: lines, asks: asks,
                            actions: [SessionAction("Watch", symbol: "eye", onClick: {}), hand, SessionAction("Stop its turn", symbol: "stop.fill", onClick: {})],
                            insets: insets, older: nil, onClose: {}, menuOpen: menuOpen, onMenu: { _ in }, scrolls: false, note: note) {
             SessionComposer(value: "", placeholder: "Message Claude Code…", sendLabel: "Send")
         }
+    }
+
+    /// HAND-708, HAND-709: after 20 rounds FERB asks in the session whether to keep going (the owner's words); what it
+    /// sent while it kept the session going is on his side, marked as FERB's.
+    public static let keepGoingQuestion = "I've gone 20 rounds on “Keep going until the tests pass”. Keep going?"
+    public static let keepGoingNote = "FERB is waiting for your answer."
+    public static let keepGoingLines: [SessionLine] = [
+        SessionLine("1", .agent, "The tests build. Two of them still fail on the login form."),
+        SessionLine("2", .owner, "Fix those two and run the tests again", by: "Sent by FERB"),
+        SessionLine("3", .agent, "Done: both pass now, and the whole suite is green."),
+    ]
+    public static let keepGoingAsk = SessionAsk(title: "FERB asks", question: keepGoingQuestion, detail: "",
+                                                choices: ["Keep going", "Stop"], onMac: "Answer this one on your Mac.")
+    public static func keepGoing(insets: PhoneInsets = .lab) -> some View {
+        ferbSession(insets: insets, note: keepGoingNote, lines: keepGoingLines, asks: [keepGoingAsk])
     }
 
     public static let newWords = NewSessionWords(title: "New session", folder: "Folder", other: "Another folder…", command: "Command (optional)",

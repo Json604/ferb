@@ -37,4 +37,4 @@ src/compose/link.rs | .spawn() | the phone link's helper process, owned by the s
 src/compose/link.rs | tokio::spawn(async move { | copies one helper run's standard error to FERB's log, ending with that run
 src/compose/insomnia.rs | rt.spawn(async move { | one insomnia notice for the owner (a warning, an end, a sleep macOS forced), per notice
 src/compose/sessions.rs | rt.spawn(async move { n.notify(banner, false).await }); | one session notice told to the owner through the notifier; ends when that one notice is posted
-src/compose/sessions.rs | rt.spawn(async move { | reads one hand-over turn's chat.send events to say what became of it (HAND-702); ends when that turn's stream closes
+src/compose/sessions.rs | rt.spawn(async move { | one line in FERB's chat when a session drive ends by itself (HAND-709), through the notifier; ends when that one notice is posted

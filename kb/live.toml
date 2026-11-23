@@ -5261,3 +5261,12 @@ request = "Sessions, New session, Another folder…: browse into a folder on the
 pass = "The folder browser shows only folders and the path; the picked folder is selected at the top; Start turns into \"Opening a terminal…\" at once, then the sheet closes and the new terminal's session opens (or the list says it will show in a moment); the new Terminal window is listed."
 decisions = ["PHN-821", "PHN-822"]
 sitting = "one sitting, about 5 minutes"
+
+[LIVE-1199]
+title = "Hand a session to FERB: it drives it round by round, looks things up, asks after 20 rounds"
+area = "hands"
+surface = "FERB.app with this build and a paired phone with its build; a Claude Code or Codex session in Terminal in a disposable folder"
+request = "In a disposable folder start `claude` (or `codex`). On the phone open it in Sessions, \"…\", Hand to FERB, goal: \"get it to write a hello.py that prints the date, run it, and stop when it works\". Watch the session screen, answer the terminal question FERB asks once. Then hand it over again with a goal that names an earlier FERB chat (\"do what we decided in chat about the greeting\") after telling FERB in its chat what you decided. Once it is on it, tap Take it back."
+pass = "No chat turn or plan card in FERB's chat while it drives; the note says each round (n of 20); what FERB typed shows as Sent by FERB; one step per reply (ferb trace: a session_driver.step per round, no planner or checker; ferb stats counts them); the second goal uses what you decided; permission prompts stay yours; Take it back stops it at once; ending by itself, one plain chat line. After 20 rounds: \"I've gone 20 rounds on “…”. Keep going?\""
+decisions = ["HAND-707", "HAND-708", "HAND-709", "ORCH-705", "APP-1124", "PHN-823"]
+sitting = "one sitting, about 15 minutes"

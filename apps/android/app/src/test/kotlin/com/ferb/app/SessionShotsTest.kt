@@ -555,6 +555,55 @@ class SessionShotsTest {
     // decision: HAND-702
     @Test @Config(qualifiers = "w412dp-h860dp-port-mdpi") fun ferbs_word_on_the_hand_over_at_412() = noteAt("session-ferb-note-412.png")
 
+    /** HAND-708: FERB kept the session going for 20 rounds and asks in the session whether to keep going; what it sent is marked as FERB's. */
+    private val driving = handed.copy(ferbNote = "FERB is waiting for your answer.")
+    private val asking = open.copy(
+        session = driving,
+        items = listOf(
+            FakePhone.item(51, "assistant", "The redirects build. Two old post URLs still return 404."),
+            FakePhone.item(52, "user", "Add redirects for those two and run the build again", ferb = true),
+            FakePhone.item(53, "assistant", "Done: both redirect now and the build passes."),
+        ),
+        more = false,
+        cards = listOf(SessionCard("ferb-task-9-20", "ferb", "", "", "I\u2019ve gone 20 rounds on \u201cKeep going until the build passes\u201d. Keep going?",
+            listOf(SessionChoice("keep_going", "Keep going"), SessionChoice("stop", "Stop")))),
+        draft = "",
+    )
+
+    private fun keepGoingAt(path: String) {
+        compose.setContent {
+            Sized(sheet = { SessionScreenPage(asking, emptySet(), PhoneInsets.Lab) }) { tab(SessionsUi(true, true, sessions)) }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithText("FERB asks").assertExists()
+        compose.onNodeWithText("Keep going").assertExists()
+        compose.onNodeWithText("Sent by FERB").assertExists()
+        shoot(path)
+    }
+
+    // decision: HAND-708
+    // decision: HAND-709
+    @Test @Config(qualifiers = "w360dp-h740dp-port-mdpi") fun ferbs_keep_going_question_at_360() = keepGoingAt("session-keep-going-360.png")
+
+    // decision: HAND-708
+    // decision: HAND-709
+    @Test @Config(qualifiers = "w412dp-h860dp-port-mdpi") fun ferbs_keep_going_question_at_412() = keepGoingAt("session-keep-going-412.png")
+
+    // decision: HAND-708
+    @Test
+    fun keep_going_answers_ferbs_question_with_its_choice() {
+        var picked: Pair<String, String>? = null
+        compose.setContent {
+            Phone(sheet = { SessionScreenPage(asking, emptySet(), PhoneInsets.Lab, onChoice = { c, ch -> picked = c to ch }) }) {
+                tab(SessionsUi(true, true, sessions))
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithText("Keep going").performClick()
+        compose.waitForIdle()
+        org.junit.Assert.assertEquals("ferb-task-9-20" to "keep_going", picked)
+    }
+
     // decision: HAND-702
     @Test
     fun ferbs_word_sits_under_the_header_when_there_is_no_message_box() {

@@ -99,12 +99,19 @@ impl WorkerHost for Host {
         let sup = self.sup();
         // decision: ORCH-699 — a temporary chat's run: every tool but the ones that read what FERB knows, on the token
         // itself (the gateway refuses the rest)
-        let only: Option<Vec<String>> = sup.fresh_for(&task.request_id).map(|_| {
+        // decision: ORCH-705 — a session driver's step keeps those lookups; only typing into the session and answering
+        // its questions are left to code
+        let only: Option<Vec<String>> = sup.fresh_for(&task.request_id).map(|fresh| {
+            let hidden: &[&str] = if fresh.driver {
+                &super::temporary::DRIVER_HIDDEN_TOOLS
+            } else {
+                &super::temporary::HIDDEN_TOOLS
+            };
             sup.deps
                 .daemon
                 .tool_names()
                 .into_iter()
-                .filter(|n| !super::temporary::HIDDEN_TOOLS.contains(&n.as_str()))
+                .filter(|n| !hidden.contains(&n.as_str()))
                 .filter(|n| !sup.deps.daemon.named_only(n))
                 .collect()
         });
@@ -316,6 +323,9 @@ impl Inner {
     /// on (MEM-429), as before.
     pub fn context_final(&self, request_id: &str, ctx: Vec<ContextBlock>) -> Vec<ContextBlock> {
         match self.fresh_for(request_id) {
+            // decision: ORCH-705 — a session driver's step: nothing newly always on, and no temporary chat's fact (its
+            // own prompt says what it is)
+            Some(fresh) if fresh.driver => ctx,
             Some(fresh) => {
                 let mut out = vec![self.fresh_block(&fresh)];
                 out.extend(ctx);

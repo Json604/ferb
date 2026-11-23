@@ -3304,6 +3304,17 @@
         }
       }
     },
+    "sessions_ferb_asks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FERB asks"
+          }
+        }
+      }
+    },
     "sessions_ferb_starting": {
       "extractionState": "manual",
       "localizations": {
@@ -3674,6 +3685,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Send"
+          }
+        }
+      }
+    },
+    "sessions_sent_by_ferb": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sent by FERB"
           }
         }
       }

@@ -176,11 +176,18 @@ fun SessionScreenPage(
     val labels = days.mapValues { (_, d) -> dayLabel(d, today) }
     // an agent's reply drawn by its parts or its Markdown (HAND-703); a terminal's output as it is
     val terminal = Sessions.terminal(s)
-    val lines = remember(ui.items, stopped, labels, terminal) { ui.items.map { Sessions.line(it, stopped, terminal).copy(day = labels[it.seq]) } }
+    val sentByFerb = stringResource(R.string.sessions_sent_by_ferb)
+    val lines = remember(ui.items, stopped, labels, terminal, sentByFerb) {
+        ui.items.map { Sessions.line(it, stopped, terminal, sentByFerb = sentByFerb).copy(day = labels[it.seq]) }
+    }
     val onMac = stringResource(R.string.sessions_answer_on_mac)
     val asks = ui.cards.map { c ->
-        val title = if (c.kind == "permission" && c.tool.isNotBlank()) stringResource(R.string.sessions_wants_tool, agent, c.tool)
-            else stringResource(R.string.sessions_asks, agent)
+        val title = when {
+            // HAND-709: FERB's own question about its drive of the session (keep going?)
+            c.kind == "ferb" -> stringResource(R.string.sessions_ferb_asks)
+            c.kind == "permission" && c.tool.isNotBlank() -> stringResource(R.string.sessions_wants_tool, agent, c.tool)
+            else -> stringResource(R.string.sessions_asks, agent)
+        }
         SessionAsk(title, c.question, c.detail, c.choices.map { it.label }, onMac, key = c.id)
     }
     val actions = buildList {

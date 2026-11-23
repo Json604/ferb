@@ -673,6 +673,15 @@ class SessionsTest {
         assertEquals(listOf("| a | b |"), read)
     }
 
+    // decision: HAND-709
+    @Test
+    fun a_message_ferb_sent_is_marked_as_ferbs_and_the_owners_own_is_not() {
+        val sent = com.ferb.app.model.Sessions.line(FakePhone.item(20, "user", "run the tests", ferb = true), "", sentByFerb = "Sent by FERB")
+        assertEquals(com.ferb.design.components.SessionLineKind.OWNER, sent.kind)
+        assertEquals("Sent by FERB", sent.by)
+        assertNull(com.ferb.app.model.Sessions.line(FakePhone.item(21, "user", "hi"), "", sentByFerb = "Sent by FERB").by)
+    }
+
     // decision: PHN-797, PHN-454, PHN-444
     // decision: PHN-810
     @Test

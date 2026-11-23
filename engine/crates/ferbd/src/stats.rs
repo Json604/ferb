@@ -312,6 +312,24 @@ fn run(db: &Path, out: &mut dyn Write, days: i64, now: &Now) -> Res<()> {
         )?;
     }
 
+    // decision: HAND-709 — a session driver's steps (each one worker run, counted with the worker runs above); said
+    // only when there were some, so a store without one reads as before
+    let r = one(
+        &c,
+        "SELECT COUNT(*), COUNT(DISTINCT task_id) FROM spans WHERE kind = 'session_driver.step' AND started_at >= ?",
+        std::slice::from_ref(&s),
+    )?;
+    if int(&r[0]) > 0 {
+        say(
+            out,
+            &format!(
+                "Session driver steps: {}, in {} hand-over(s)",
+                or0(&r[0]),
+                or0(&r[1])
+            ),
+        )?;
+    }
+
     // each learning model call is one model.learning span (memory/calls.py): consolidation and distillation
     let r = one(
         &c,

@@ -18,6 +18,7 @@
 
 mod appchats;
 mod codex_link;
+mod driver;
 mod rpc;
 mod terminals;
 
@@ -36,6 +37,10 @@ use tokio::sync::oneshot;
 
 pub use appchats::{ChatRead, ChatWindow, Locate, CHECK_EVERY_S, MODEL_ASKS_PER_APP_PER_DAY};
 pub use codex_link::CodexLink;
+pub use driver::{
+    Act, Decision, Driver, DriverRef, Step, DECIDED_KEPT, ITEM_CHARS, KEEP_GOING, NEWEST_CHARS,
+    RECENT_ITEMS, ROUNDS_PER_ASK, STOP,
+};
 pub use rpc::register;
 pub use terminals::{OPENERS, START_WAIT_S, WORKING_S};
 
@@ -264,26 +269,6 @@ pub type Tell = Arc<dyn Fn(&str, &str) + Send + Sync>;
 /// A bus topic or journal kind with its data.
 pub type Note = Arc<dyn Fn(&str, Value) + Send + Sync>;
 
-/// HAND-702: what became of the owner's hand-over message (the chat turn's own events).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Hand {
-    /// FERB started a task for it (its id).
-    Started(String),
-    /// FERB asked him something in its chat before starting (its words).
-    Asked(String),
-    /// FERB answered in its chat and started nothing (its words).
-    Said(String),
-    /// FERB couldn't start it (its words in the chat).
-    Failed(String),
-}
-
-/// HAND-702: where the hand-over's news goes.
-pub type HandNews = Arc<dyn Fn(Hand) + Send + Sync>;
-
-/// The owner's hand-over as a chat message: (text, client id, where the turn's news goes).
-pub type HandOver =
-    Arc<dyn Fn(String, Option<String>, HandNews) -> Result<(), String> + Send + Sync>;
-
 /// One own question.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Ask {
@@ -316,8 +301,8 @@ pub struct Seams {
     pub ask: AskFn,
     /// Sets one of FERB's questions aside (it was answered elsewhere).
     pub close_ask: Arc<dyn Fn(&str) + Send + Sync>,
-    /// The owner's words as a chat message (his hand-over): (text, client id, where the turn's news goes: HAND-702).
-    pub hand_over: HandOver,
+    /// HAND-707: Hand to FERB's session driver (its task, its fresh step, the gateway's typing, FERB's chat).
+    pub driver: DriverRef,
     pub now: Arc<dyn Fn() -> String + Send + Sync>,
     pub mono: Arc<dyn Fn() -> f64 + Send + Sync>,
     pub new_id: Arc<dyn Fn() -> String + Send + Sync>,
@@ -386,6 +371,8 @@ impl Entry {
             exe: String::new(),
             term: None,
             looked_at: f64::NEG_INFINITY,
+            drive: None,
+            ferb_sent: Vec::new(),
         }
     }
 }
@@ -410,6 +397,10 @@ struct Entry {
     term: Option<Term>,
     /// HAND-706: when a client last read its timeline (monotonic; never: -inf).
     looked_at: f64,
+    /// HAND-707: FERB's drive of it, while one runs.
+    drive: Option<driver::Drive>,
+    /// HAND-709: what FERB's drives sent it (one line each, redacted), marked as FERB's where the record shows them.
+    ferb_sent: Vec<String>,
 }
 
 /// What FERB keeps of one terminal session (HAND-692, HAND-693).
@@ -559,7 +550,10 @@ impl Sessions {
                 newer.len() > take,
             )
         };
-        let cards = e.cards.iter().map(|h| h.card.clone()).collect();
+        let mut cards: Vec<Card> = e.cards.iter().map(|h| h.card.clone()).collect();
+        // decision: HAND-708 — FERB's own question about its drive shows in the session's screen with the agent's
+        cards.extend(e.drive.as_ref().and_then(|d| d.card.clone()));
+        let items = with_ferb_marks(e, items);
         Ok((items, more, cards))
     }
 
@@ -882,6 +876,7 @@ impl Sessions {
                             text: (self.seams.redact)(&d.text),
                             tool: d.tool,
                             parts: Vec::new(),
+                            ferb: false,
                         };
                         if item.kind == ItemKind::Assistant {
                             e.s.last_text = clip(&one_line(&item.text), 200);
@@ -988,7 +983,7 @@ impl Sessions {
                     e.s.status = Status::WaitingForYou;
                     e.s.waiting = match card.kind {
                         CardKind::Permission => Waiting::Permission,
-                        CardKind::Question => Waiting::Question,
+                        CardKind::Question | CardKind::Ferb => Waiting::Question,
                     };
                     e.cards.push(Held {
                         card,
@@ -1107,7 +1102,7 @@ impl Sessions {
                 ),
                 card.detail.clone(),
             ),
-            CardKind::Question => (
+            CardKind::Question | CardKind::Ferb => (
                 QUESTION_ASK,
                 format!("{} in {folder} asks: {}", agent.name(), card.question),
                 card.detail.clone(),
@@ -1167,6 +1162,12 @@ impl Sessions {
         choice: &str,
         by: Option<&Caller>,
     ) -> Result<(), Refused> {
+        // decision: HAND-708 — FERB's own question (keep going?) is answered here too, by the owner only
+        if !by.is_some_and(Caller::is_task) {
+            if let Some(r) = self.answer_drive_card(session, card_id, choice) {
+                return r;
+            }
+        }
         let held = {
             let mut st = lock(&self.state);
             let e = st.sessions.get_mut(session).ok_or_else(gone)?;
@@ -1241,7 +1242,8 @@ impl Sessions {
                 e.s.agent,
                 where_,
                 e.s.last_text.clone(),
-                mono - e.looked_at < LOOKED_AT_S,
+                // HAND-709: a drive's turns are FERB's to follow; its note says each step
+                mono - e.looked_at < LOOKED_AT_S || e.drive.is_some(),
             )
         };
         (self.seams.publish)(
@@ -1801,100 +1803,6 @@ impl Sessions {
         Some(cmd)
     }
 
-    /// The owner hands a session to FERB with his goal (ORCH-687): his words become a chat message, a FERB task like
-    /// any other, which reads and answers the session with its tools. HAND-702: the session says what became of it
-    /// (`ferb_note`), and "FERB is on it" lasts only while FERB's task for it runs.
-    pub fn delegate(
-        &self,
-        id: &str,
-        goal: &str,
-        client: Option<String>,
-    ) -> Result<String, Refused> {
-        if !self.enabled() {
-            return Err(off());
-        }
-        let goal = goal.trim();
-        if goal.is_empty() {
-            return Err(no(
-                codes::SEND_FAILED,
-                "Say what FERB should get done in this session.",
-            ));
-        }
-        let s = self.session(id).ok_or_else(gone)?;
-        let text = hand_over_text(&s, goal);
-        let me = self.clone();
-        let sid = id.to_owned();
-        let news: HandNews = Arc::new(move |h: Hand| me.hand_news(&sid, h));
-        // the goal is set before the message goes: its first news can come at once
-        if let Some(e) = lock(&self.state).sessions.get_mut(id) {
-            e.s.goal = self.redact(goal);
-            e.s.delegate.clear();
-            e.s.ferb_note = format!("Handed to FERB: “{}”", clip(&one_line(&e.s.goal), 160));
-        }
-        if let Err(e) = (self.seams.hand_over)(text.clone(), client, news) {
-            if let Some(x) = lock(&self.state).sessions.get_mut(id) {
-                x.s.goal.clear();
-                x.s.ferb_note.clear();
-            }
-            self.changed();
-            return Err(no(codes::SEND_FAILED, e));
-        }
-        (self.seams.journal)("sessions.delegated", json!({"session": id}));
-        self.changed();
-        Ok(text)
-    }
-
-    /// HAND-702: what became of a hand-over message, said in the session. Only a started task keeps "FERB is on it";
-    /// a question, an answer or a failure ends it and says so.
-    pub fn hand_news(&self, id: &str, h: Hand) {
-        let quote = |t: &str| clip(&one_line(&self.redact(t)), 300);
-        {
-            let mut st = lock(&self.state);
-            let Some(e) = st.sessions.get_mut(id) else {
-                return;
-            };
-            // a later hand-over, or his taking it back, already replaced this one
-            if e.s.goal.is_empty() && e.s.delegate.is_empty() {
-                return;
-            }
-            match &h {
-                Hand::Started(task) => {
-                    e.s.delegate = task.clone();
-                    e.s.ferb_note = format!("FERB is on it: “{}”", clip(&one_line(&e.s.goal), 160));
-                }
-                Hand::Asked(q) => {
-                    e.s.goal.clear();
-                    e.s.delegate.clear();
-                    e.s.ferb_note = format!(
-                        "FERB asked you something in its chat before it starts: “{}”",
-                        quote(q)
-                    );
-                }
-                Hand::Said(t) => {
-                    e.s.goal.clear();
-                    e.s.delegate.clear();
-                    e.s.ferb_note =
-                        format!("FERB answered in its chat and didn't start: “{}”", quote(t));
-                }
-                Hand::Failed(t) => {
-                    e.s.goal.clear();
-                    e.s.delegate.clear();
-                    e.s.ferb_note = format!("FERB couldn't start on it: “{}”", quote(t));
-                }
-            }
-        }
-        (self.seams.journal)(
-            "sessions.hand_news",
-            json!({"session": id, "news": match h {
-                Hand::Started(_) => "started",
-                Hand::Asked(_) => "asked",
-                Hand::Said(_) => "said",
-                Hand::Failed(_) => "failed",
-            }}),
-        );
-        self.changed();
-    }
-
     /// A FERB task acted on a session: the session shows it is FERB's (until the task ends).
     pub fn task_touched(&self, id: &str, tree: &str) {
         if let Some(e) = lock(&self.state).sessions.get_mut(id) {
@@ -2059,6 +1967,7 @@ impl Sessions {
                         text: (self.seams.redact)(&d.text),
                         tool: d.tool.clone(),
                         parts: Vec::new(),
+                        ferb: false,
                     })
                     .collect();
                 if let Some(last) = e.items.iter().rev().find(|i| i.kind == ItemKind::Assistant) {
@@ -2201,7 +2110,7 @@ impl ToolOrQuestion for Card {
     fn tool_or_question(&self) -> String {
         match self.kind {
             CardKind::Permission => self.tool.clone(),
-            CardKind::Question => claude::QUESTION_TOOL.to_owned(),
+            CardKind::Question | CardKind::Ferb => claude::QUESTION_TOOL.to_owned(),
         }
     }
 }
@@ -2222,48 +2131,6 @@ pub const ENABLE_SUMMARY: &str = "Let FERB see your terminal sessions?";
 pub const ENABLE_DETAIL: &str = "Then you can follow your terminals and type into them from your phone or this Mac, Claude Code and Codex too, open new ones, and hand one to me to keep going. I'd add a small hook to Claude Code's settings so I hear when a session finishes or needs you; nothing else is changed. What I read stays on this Mac, and you can turn this off in Settings.";
 pub const ENABLE_YES: &str = "Yes, let FERB see them";
 pub const ENABLE_NO: &str = "No, thanks";
-
-/// HAND-702: the owner's hand-over message: the session by its kind, title, folder, app and id, that it is on this
-/// Mac and is driven with the agent_session tools (read it, type into it), and his goal in his words.
-pub fn hand_over_text(s: &Session, goal: &str) -> String {
-    let where_ = match s
-        .host
-        .as_ref()
-        .map(|h| h.name.as_str())
-        .filter(|n| !n.is_empty())
-    {
-        Some(app) => format!(" in {app}"),
-        None => String::new(),
-    };
-    let title = if s.title.is_empty() {
-        String::new()
-    } else {
-        format!(" \"{}\"", s.title)
-    };
-    let what = match s.agent {
-        Agent::AppChat => {
-            let app = s.host.as_ref().map(|h| h.name.clone()).unwrap_or_default();
-            format!("my {app} chat{title} (session {})", s.id)
-        }
-        Agent::Terminal => {
-            let program = if s.program.is_empty() {
-                String::new()
-            } else {
-                format!(" running {}", s.program)
-            };
-            format!("my terminal{program} ({}{where_}, session {})", s.cwd, s.id)
-        }
-        _ => format!(
-            "my {} session{title} ({}{where_}, session {})",
-            s.agent.name(),
-            s.cwd,
-            s.id
-        ),
-    };
-    format!(
-        "Take over {what} on this Mac. It's a session on the Mac, not a person to message: read it and type into it with the agent_session tools, and keep it going until this is done: {goal}"
-    )
-}
 
 /// The last part of a folder ("FERB" for "/Users/x/Desktop/FERB").
 pub fn folder_name(cwd: &str) -> String {
@@ -2341,6 +2208,40 @@ fn codex_pid(t: &Table, cwd: &str, mac: &dyn Mac) -> i32 {
 }
 
 /// The JSON a client reads for a session's state; `yours`: the caller controls it.
+/// HAND-709: which of a session's items are messages FERB's drives sent: each sent line marks the first owner's item
+/// after the last one marked that shows exactly it (indexes into `e.items`).
+fn ferb_marks(e: &Entry) -> std::collections::BTreeSet<usize> {
+    let mut marked = std::collections::BTreeSet::new();
+    let mut from = 0;
+    for sent in &e.ferb_sent {
+        if let Some(n) = (from..e.items.len()).find(|&n| {
+            e.items[n].kind == ItemKind::User
+                && !marked.contains(&n)
+                && one_line(&e.items[n].text) == *sent
+        }) {
+            marked.insert(n);
+            from = n + 1;
+        }
+    }
+    marked
+}
+
+/// The items with FERB's sent messages marked (`ferb`).
+fn with_ferb_marks(e: &Entry, items: Vec<Item>) -> Vec<Item> {
+    if e.ferb_sent.is_empty() {
+        return items;
+    }
+    let seqs: std::collections::BTreeSet<u64> =
+        ferb_marks(e).into_iter().map(|n| e.items[n].seq).collect();
+    items
+        .into_iter()
+        .map(|mut i| {
+            i.ferb = seqs.contains(&i.seq);
+            i
+        })
+        .collect()
+}
+
 pub fn session_json(s: &Session, by: &Caller) -> Value {
     let mut v = serde_json::to_value(s).unwrap_or(Value::Null);
     if let Value::Object(m) = &mut v {

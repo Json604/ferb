@@ -1,6 +1,7 @@
 //! The owner's coding-agent sessions as FERB's task sees them (ORCH-687): `agent_session.list`, `.read`, `.send` and
-//! `.answer` (catalog additions after `mac.clipboard`). A hand-over is the owner's chat message; the task that takes it
-//! uses these. Waiting for the agent is code (`send`'s wait: no model call until its turn is over). Typing into a
+//! `.answer` (catalog additions after `mac.clipboard`), for a chat task that works with a session. Hand to FERB is the
+//! session driver (HAND-707): its step has list and read, and code types its decision with `.send` (wait off) or
+//! `.answer` through the gateway, so every rule here holds for it too. Waiting for the agent is code (`send`'s wait: no model call until its turn is over). Typing into a
 //! terminal or an app's window asks the owner first, as any terminal input does (GATE-585: the tool's
 //! `terminal_input`, one Yes per app per task). Code refuses what the task may never do: answer a permission prompt
 //! (HAND-663), type while the agent asks something, type when the agent isn't its terminal's front program (HAND-658).

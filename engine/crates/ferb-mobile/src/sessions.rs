@@ -166,6 +166,8 @@ pub struct SessionItem {
     pub tool: String,
     /// HAND-703: the reply's parts in order (an app chat's turn); empty: `text` alone, drawn as Markdown.
     pub parts: Vec<SessionPart>,
+    /// HAND-709: a message FERB sent while it kept the session going (shown as FERB's, not the owner's).
+    pub ferb: bool,
 }
 
 /// HAND-703: one part of a reply, as the app shows it.
@@ -204,6 +206,7 @@ impl SessionItem {
                         .collect()
                 })
                 .unwrap_or_default(),
+            ferb: i["ferb"].as_bool().unwrap_or(false),
         }
     }
 }
@@ -230,7 +233,7 @@ pub struct SessionChoice {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SessionCard {
     pub id: String,
-    /// permission or question.
+    /// permission, question, or ferb (HAND-709: FERB's own question about its drive, "keep going?").
     pub kind: String,
     pub tool: String,
     /// What it would run or change, exactly.
@@ -653,5 +656,15 @@ mod tests {
                 .parts
                 .is_empty()
         );
+    }
+
+    // decision: HAND-709
+    #[test]
+    fn a_message_ferb_sent_is_read_as_ferb_s() {
+        let i = SessionItem::read(
+            &json!({"seq": 4, "kind": "user", "text": "run the tests", "ferb": true}),
+        );
+        assert!(i.ferb);
+        assert!(!SessionItem::read(&json!({"seq": 5, "kind": "user", "text": "hi"})).ferb);
     }
 }

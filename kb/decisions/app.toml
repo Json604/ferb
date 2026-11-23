@@ -4720,3 +4720,13 @@ rule = "For HAND-702, HAND-703, HAND-705, PHN-822. FERB.app has no \"…\" menu 
 evidence = "apps/mac/FERBNotch Tests/NotchCoreTests/SessionsHandOverTests.swift (14) and SessionsTests.swift."
 paths = ["apps/mac/FERBNotch/Sources/FERBNotch/SessionsPage.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SessionsModel.swift", "apps/mac/FERBNotch/Sources/NotchCore/SessionRows.swift"]
 live = ["LIVE-1195", "LIVE-1196"]
+
+[APP-1124]
+title = "FERB.app's session: FERB's keep-going question and what FERB sent"
+by = "agent"
+date = 2026-11-23
+status = "active"
+rule = "For HAND-708, HAND-709. A card of kind ferb is FERB's own question (\"FERB asks\", its question and choices) drawn with the agent's cards and answered with sessions.answer. An item with ferb is drawn on the owner's side with \"Sent by FERB\" over the bubble."
+evidence = "apps/mac/FERBNotch Tests/NotchCoreTests/SessionsHandOverTests.swift testFERBsKeepGoingQuestionShowsInTheSessionAndKeepGoingAnswersIt, testAMessageFERBSentIsMarkedAsFERBs."
+paths = ["apps/mac/FERBNotch/Sources/NotchCore/SessionRows.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SessionsPage.swift"]
+live = ["LIVE-1199"]

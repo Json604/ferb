@@ -74,7 +74,16 @@ pub const EXTRA_CONTEXT_LABEL: &str = "What the owner gave this temporary chat t
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Fresh {
     pub extra_context: Option<String>,
+    /// decision: ORCH-705 — a session driver's step (HAND-707): nothing is pushed to it either, but it keeps the
+    /// lookups that read what FERB knows (memory, the chat history, the trail), since its goal may name an earlier
+    /// conversation or decision; its own prompt says what it is, so it gets no temporary chat's fact; and code, not the
+    /// step, types into the session (its token has no `agent_session.send` or `.answer`: [`DRIVER_HIDDEN_TOOLS`]).
+    pub driver: bool,
 }
+
+/// decision: ORCH-705 — what a session driver's step is not given: typing into the session and answering its
+/// questions are code's, from the step's decision (one message per round), through the gateway like any tool call.
+pub const DRIVER_HIDDEN_TOOLS: [&str; 2] = ["agent_session.send", "agent_session.answer"];
 
 /// The temporary chat, as the daemon holds it.
 struct Chat {
@@ -280,6 +289,13 @@ impl Inner {
     /// decision: ORCH-699 — the one switch every route reads: a temporary chat's turn gets no prior context. None for
     /// any other request.
     pub fn fresh_for(&self, request_id: &str) -> Option<Fresh> {
+        // decision: ORCH-705 — a session driver's step: the same switch, keeping its lookups
+        if ferb_core::driver::is_request(request_id) {
+            return Some(Fresh {
+                extra_context: None,
+                driver: true,
+            });
+        }
         if !temporary::is_request(request_id) {
             return None;
         }
@@ -289,7 +305,10 @@ impl Inner {
             .as_ref()
             .filter(|c| c.requests.contains(request_id))
             .and_then(|c| c.extra_context.clone());
-        Some(Fresh { extra_context })
+        Some(Fresh {
+            extra_context,
+            driver: false,
+        })
     }
 
     /// decision: ORCH-699 — an open question (by its task) a conversation's turn may see and answer: any in the kept

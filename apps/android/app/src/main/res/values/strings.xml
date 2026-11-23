@@ -488,6 +488,9 @@
     <string name="sessions_loading">Getting this session from your Mac…</string>
     <string name="sessions_wants_tool">%1$s wants to use %2$s</string>
     <string name="sessions_asks">%1$s asks</string>
+    <!-- HAND-709: FERB's own question in a session it keeps going ("keep going?"), and the label over what it sent -->
+    <string name="sessions_ferb_asks">FERB asks</string>
+    <string name="sessions_sent_by_ferb">Sent by FERB</string>
     <string name="sessions_answer_on_mac">Answer this one on your Mac.</string>
     <string name="sessions_yes_send">Yes, send it</string>
     <string name="sessions_cancel">Cancel</string>

@@ -143,6 +143,8 @@ data class SessionLine(
     val day: String? = null,
     val blocks: List<RichBlock>? = null,
     val parts: List<SessionPartView> = emptyList(),
+    /** HAND-709: an owner's-side line FERB sent while it kept the session going: its small label ("Sent by FERB"). */
+    val by: String? = null,
 )
 
 /** What a part of an agent's reply is (HAND-703): its words, a thought, a step it ran, the turn's small meta line. */
@@ -172,7 +174,12 @@ val onSessionFill = RichLook(15.5f, Ink.white, Ink.onDark, androidx.compose.ui.g
 @Composable
 fun SessionLineView(line: SessionLine, modifier: Modifier = Modifier) {
     when (line.kind) {
-        SessionLineKind.OWNER -> OwnerBubble(line.text, modifier)
+        SessionLineKind.OWNER -> if (line.by == null) OwnerBubble(line.text, modifier)
+        else Column(modifier.fillMaxWidth().testTag("session-ferb-sent"), horizontalAlignment = Alignment.End) {
+            // HAND-709: what FERB sent for the owner, on his side, marked as FERB's
+            PhoneText(line.by, 12f, color = Ink.onDark, modifier = Modifier.padding(end = 6.dp, bottom = 3.dp))
+            OwnerBubble(line.text)
+        }
         SessionLineKind.AGENT -> if (line.parts.isNotEmpty()) SessionReply(line.key, line.parts, modifier)
         else if (line.blocks != null) Box(modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
             // its Markdown as the main chat draws FERB's (Rich.kt): selectable, a wide table scrolls inside the bubble

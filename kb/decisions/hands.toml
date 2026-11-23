@@ -2668,3 +2668,37 @@ rule = "For APP-1109 and the owner's live report (2026-11-23: FERB's chat filled
 evidence = "ferb-daemon tests/sessions.rs a_finished_turn_is_one_notification_per_session_and_none_while_he_looks_at_it; read only: chat_entries 2026-11-23 04:00-08:32 hold five such notices."
 paths = ["engine/crates/ferb-daemon/src/sessions/mod.rs", "engine/crates/ferbd/src/compose/sessions.rs"]
 live = ["LIVE-1195"]
+
+
+[HAND-707]
+title = "Hand to FERB is a session driver: code waits, one fresh step per reply, usual tools and lookups"
+by = "owner"
+date = 2026-11-23
+status = "active"
+words = "yes this makes sense, ig the tempchat swithc might come handy here. … also i wnat this session agent liek teh temp agent access to the usual tools so it cna look and do things normally, JUST not the whole context that goes in normal chat / cause this way, even if my req in the session is like 'look at our recent convo adn deciosion we took regarding thsi adn start controlling this session with reaching the goal we decided' - the fresha gent can lookup whatever it needs. so yes a system prompt with this, BUT not the full ferb chat like one."
+words_source = "Owner 2026-11-23 (relayed verbatim), shown the session-driver design after asking \"cuase if its the normal loop, i dont think so its optimal here\"."
+rule = "Refines ORCH-687 and HAND-702. Hand to FERB starts a session driver, not a chat turn: no planner, no checker. Code waits for the agent's turn to end (no model call, no time limit), then runs one fresh worker step: ORCH-699's switch (no profile, memory, chat history, schedules or screen pushed) with the usual tools and the lookups (memory, chat history, trail), so it can look up what the goal refers to, and a short prompt of its own. Each step decides one: send the next message, done, or ask the owner. Safety rules unchanged."
+paths = ["engine/crates/ferb-daemon/src/sessions/driver.rs", "engine/crates/ferb-supervisor/src/flow/driver.rs", "engine/runtime/orchestrator/prompts/session_driver.md"]
+live = ["LIVE-1199"]
+
+[HAND-708]
+title = "The session driver asks the owner after 20 rounds whether to keep going"
+by = "owner"
+date = 2026-11-23
+status = "active"
+words = "also what is this cap??? / yeah this works"
+words_source = "Owner 2026-11-23 (relayed verbatim): asked about the cap in the design, then, shown \"20 rounds, then ask you\": \"yeah this works\"."
+rule = "For HAND-707. One round is an agent reply and the driver's next message. After 20 rounds (ROUNDS_PER_ASK) the driver stops and asks him in the session's screen \"I've gone 20 rounds on “{goal}”. Keep going?\": Keep going gives 20 more; Stop ends the drive. No 240 s or 40-call limit on the drive (waiting is free); each step keeps the worker's own per-step guards."
+paths = ["engine/crates/ferb-daemon/src/sessions/driver.rs"]
+live = ["LIVE-1199"]
+
+[HAND-709]
+title = "The session driver's loop: its task, its decisions, the owner's prompts, Take it back"
+by = "agent"
+date = 2026-11-23
+status = "active"
+rule = "For HAND-707, HAND-708. Its task: rows, request driver-<id>, a session_driver.step span per step. send: code types it (agent_session.send, wait off; a question only by its choice, agent_session.answer) through the gateway for the drive's task (GATE-585). done ends it; ask ends it with the question in the session. A permission prompt waits for him. Take it back (task.stop) ends it at once. The note says each step; FERB's sent items are marked. Ending by itself: one chat line. Never a chat task; ferb stats counts steps."
+why = "The loop is code's (waiting costs nothing); the step decides and code acts, so one message per round is structural and the gateway's rules hold."
+evidence = "ferb-daemon tests/sessions.rs (drive, ask, Take it back mid-wait, permission and question, 20 rounds); ferb-supervisor tests/session_driver.rs; ferbd tests/stats.rs."
+paths = ["engine/crates/ferb-daemon/src/sessions/driver.rs", "engine/crates/ferb-supervisor/src/flow/driver.rs", "engine/crates/ferbd/src/compose/sessions.rs", "engine/crates/ferbd/src/stats.rs"]
+live = ["LIVE-1199"]

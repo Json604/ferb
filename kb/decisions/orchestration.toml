@@ -2432,3 +2432,13 @@ words_source = "Owner 2026-11-23 (relayed), on being told the temporary chat's f
 rule = "Refines ORCH-699. A temporary chat's message is captured at send like any message: its front window and screenshot reach its planner and its workers. The capture is kept only where any message's capture is (the evidence store, the traces), never in the temporary chat's entries or anything else kept. Everything else of ORCH-699 stays: no kept chat, no schedules, reminders or timers, no profile or memory facts, only its own tasks' questions."
 paths = ["engine/crates/ferb-supervisor/src/flow/chat.rs", "engine/crates/ferb-supervisor/src/flow/temporary.rs"]
 live = ["LIVE-1194"]
+[ORCH-705]
+title = "A session driver's step: the fresh switch with its lookups kept, its own prompt, code types"
+by = "agent"
+date = 2026-11-23
+status = "active"
+rule = "For HAND-707, ORCH-699. fresh_for reads a driver's request (driver-<id>) as fresh with `driver`: instructions read fresh (no profile, memory facts, schedules), nothing newly always on, no temporary chat fact, no screen. Its token names every tool but agent_session.send and .answer (DRIVER_HIDDEN_TOOLS), so memory.read, memory.learned, chat.history and trail stay. It runs session_driver.md, schema {decision: send|done|ask, text}, context: goal (owner), session (FERB), exchanges and question (data), earlier decisions."
+why = "The owner wanted the temporary chat's switch with the usual tools: the step can look things up but is given nothing."
+evidence = "ferb-supervisor tests/session_driver.rs a_drive_is_one_fresh_worker_step_per_reply_with_its_lookups_and_no_planner_or_checker."
+paths = ["engine/crates/ferb-supervisor/src/flow/temporary.rs", "engine/crates/ferb-supervisor/src/flow/host.rs", "engine/crates/ferb-supervisor/src/flow/driver.rs", "engine/crates/ferb-core/src/driver.rs"]
+live = ["LIVE-1199"]

@@ -48,8 +48,8 @@ final class SessionScreensTests: XCTestCase {
                      program: "", window: "", noText: "", ferbTask: ferbTask, ferbNote: ferbNote)
     }
 
-    private func item(_ seq: UInt64, _ kind: String, _ text: String, parts: [SessionPart] = []) -> SessionItem {
-        SessionItem(seq: seq, at: "", kind: kind, text: text, tool: "", parts: parts)
+    private func item(_ seq: UInt64, _ kind: String, _ text: String, parts: [SessionPart] = [], ferb: Bool = false) -> SessionItem {
+        SessionItem(seq: seq, at: "", kind: kind, text: text, tool: "", parts: parts, ferb: ferb)
     }
 
     private func same<S: View, P: View>(_ name: String, @ViewBuilder sheet: () -> S, @ViewBuilder page: () -> P) {
@@ -149,6 +149,31 @@ final class SessionScreensTests: XCTestCase {
              page: { SessionsTabPage(model: vm, insets: .lab, waiting: nil) })
         o.takingBack = true
         same("session-menu-taking-back-402", sheet: { SessionScreenPage(model: vm, open: o, insets: .lab, still: true) },
+             page: { SessionsTabPage(model: vm, insets: .lab, waiting: nil) })
+    }
+
+    /// FERB kept the session going for 20 rounds and asks in the session whether to keep going; what it sent is marked as
+    /// FERB's: drawn by the app from the Mac's card (kind ferb) and item (ferb), the design's golden.
+    // decision: HAND-708, HAND-709
+    func testFERBsKeepGoingQuestionAndWhatItSentDrawTheDesigns() async {
+        rig.phone.codingList.sessions[2].ferbNote = SessionSample.keepGoingNote
+        rig.phone.codingItems["claude:3"] = [
+            item(1, "assistant", "The tests build. Two of them still fail on the login form."),
+            item(2, "user", "Fix those two and run the tests again", ferb: true),
+            item(3, "assistant", "Done: both pass now, and the whole suite is green."),
+        ]
+        rig.phone.codingCards["claude:3"] = [SessionCard(id: "ferb-t-3-20", kind: "ferb", tool: "", detail: "",
+                                                          question: SessionSample.keepGoingQuestion,
+                                                          choices: [SessionChoice(id: "keep_going", label: "Keep going"),
+                                                                    SessionChoice(id: "stop", label: "Stop")])]
+        let vm = rig.model()
+        await vm.loadSessions().value
+        await vm.openSession("claude:3").value
+        guard let o = vm.coding.open else { return XCTFail("open") }
+        XCTAssertEqual(SessionWords.ask(o.cards[0], agent: "Claude Code").title, "FERB asks")
+        XCTAssertEqual(SessionWords.line(o.items[1]).by, "Sent by FERB")
+        XCTAssertNil(SessionWords.line(o.items[0]).by)
+        same("session-keep-going-402", sheet: { SessionScreenPage(model: vm, open: o, insets: .lab, still: true) },
              page: { SessionsTabPage(model: vm, insets: .lab, waiting: nil) })
     }
 

@@ -277,6 +277,15 @@ struct SessionItemView: View {
         switch item.look(agent: agent) {
         case .owner(let text):
             SessionBubble(text: text)
+        case .ferbSent(let text):
+            // HAND-709: what FERB sent while it kept the session going, marked as FERB's
+            VStack(alignment: .trailing, spacing: 3) {
+                Text("Sent by FERB").font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary)
+                    .padding(.trailing, 4)
+                SessionBubble(text: text)
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .accessibilityElement(children: .combine)
         case .toolLine(let line):
             Text(line).font(.system(size: 11, design: .monospaced)).foregroundStyle(.white.opacity(0.55))
                 .lineLimit(2).textSelection(.enabled)

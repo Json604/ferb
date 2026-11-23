@@ -443,7 +443,7 @@ pub fn reply(choice: &str, card: &Card, input: &Value, suggestions: &Value) -> S
             "deny" => json!({"behavior": "deny", "message": "The owner said no, from FERB."}),
             _ => return String::new(),
         },
-        CardKind::Question => {
+        CardKind::Question | CardKind::Ferb => {
             if !card.choices.iter().any(|c| c.id == choice) {
                 return String::new();
             }

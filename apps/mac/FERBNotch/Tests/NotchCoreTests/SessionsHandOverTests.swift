@@ -180,6 +180,46 @@ final class SessionsHandOverTests: XCTestCase {
         XCTAssertEqual(model.openSession?.ferbNote, "")
     }
 
+    // MARK: The session driver (HAND-707..709)
+
+    /// FERB's keep-going question after the rounds the owner set: shown in the session as FERB's own card, answered with
+    /// the choice through `sessions.answer` like the agent's.
+    static let keepGoing: [String: Any] = [
+        "id": "ferb-drive1-20", "session": "claude:abc", "kind": "ferb", "detail": "",
+        "question": "I've gone 20 rounds on “polish the docs”. Keep going?",
+        "choices": [["id": "keep_going", "label": "Keep going"], ["id": "stop", "label": "Stop"]],
+        "asked_at": "2026-11-23T10:00:00+00:00"]
+
+    // decision: HAND-708
+    func testFERBsKeepGoingQuestionShowsInTheSessionAndKeepGoingAnswersIt() async throws {
+        let rpc = HoldingRPC()
+        let row = claude(delegate: "drive1", goal: "polish the docs", note: "FERB is waiting for your answer.")
+        let model = try await opened(rpc, row)
+        rpc.scripted.replies["sessions.timeline"] = ["session": row, "more": false, "cards": [Self.keepGoing], "items": [] as [Any]]
+        await model.poll()
+        let card = try XCTUnwrap(model.cards.first)
+        XCTAssertEqual(card.kind, "ferb")
+        XCTAssertEqual(card.heading(agentName: "Claude Code"), "FERB asks")
+        XCTAssertEqual(card.question, "I've gone 20 rounds on “polish the docs”. Keep going?")
+        XCTAssertEqual(card.choices.map(\.label), ["Keep going", "Stop"])
+        lays(SessionCardView(card: card, agentName: "Claude Code", choose: { _ in }), width: 500, height: 200)
+        rpc.scripted.replies["sessions.timeline"] = ["session": row, "more": false, "cards": [] as [Any], "items": [] as [Any]]
+        await model.answer(card, card.choices[0])
+        let sent = try XCTUnwrap(rpc.scripted.params(of: "sessions.answer").first)
+        XCTAssertEqual(sent["card"] as? String, "ferb-drive1-20")
+        XCTAssertEqual(sent["choice"] as? String, "keep_going")
+        XCTAssertTrue(model.cards.isEmpty)
+    }
+
+    /// What FERB sent while it kept the session going is drawn on the owner's side, marked as FERB's.
+    // decision: HAND-709
+    func testAMessageFERBSentIsMarkedAsFERBs() throws {
+        let sent = try XCTUnwrap(SessionItem(["seq": 6, "kind": "user", "text": "run the tests", "ferb": true]))
+        XCTAssertEqual(sent.look(agent: "claude_code"), .ferbSent("run the tests"))
+        XCTAssertEqual(SessionItem(["seq": 7, "kind": "user", "text": "hi"])?.look(agent: "claude_code"), .owner("hi"))
+        lays(SessionItemView(item: sent, agent: "claude_code"), width: 500, height: 80)
+    }
+
     // MARK: Replies in parts
 
     /// A reply modelled on the owner's Cursor screenshot (invented content).

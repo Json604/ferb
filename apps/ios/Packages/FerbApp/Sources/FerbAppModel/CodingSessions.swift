@@ -615,7 +615,7 @@ extension AppModel {
         show(.sessionHand(id: id))
     }
 
-    /// Hand it over (signed, ORCH-687): the owner's goal becomes FERB's task in the chat. At the tap the button says
+    /// Hand it over (signed, ORCH-687): the owner's goal starts FERB's session driver on the Mac (HAND-707). At the tap the button says
     /// "Handing it to FERB…" and waits for the Mac (owner 2026-11-23); its Yes closes the sheet and reads the session at
     /// once; a refusal keeps the sheet with his words and says the Mac's reason under the button.
     @discardableResult
@@ -879,7 +879,8 @@ public enum SessionWords {
     public static func line(_ i: SessionItem, markdown: Bool = true) -> SessionLine {
         let key = String(i.seq)
         switch i.kind {
-        case "user": return SessionLine(key, .owner, i.text)
+        // HAND-709: a message FERB sent while it kept the session going is marked as FERB's
+        case "user": return SessionLine(key, .owner, i.text, by: i.ferb ? L.s("sessions_sent_by_ferb") : nil)
         case "tool": return SessionLine(key, .tool, i.text.isEmpty ? i.tool : i.text)
         case "interrupted": return SessionLine(key, .interrupted, i.text.isEmpty ? L.s("sessions_interrupted") : i.text)
         case "error": return SessionLine(key, .error, i.text)
@@ -942,7 +943,9 @@ public enum SessionWords {
     /// The agent's question: "<agent> wants to use <tool>" or "<agent> asks", its words, the exact detail, its buttons
     /// (none: answered on the Mac).
     public static func ask(_ c: SessionCard, agent: String) -> SessionAsk {
-        let title = c.kind == "permission" && !c.tool.isEmpty ? L.s("sessions_wants_tool", agent, c.tool) : L.s("sessions_asks", agent)
+        // HAND-709: FERB's own question about its drive of the session (keep going?)
+        let title = c.kind == "ferb" ? L.s("sessions_ferb_asks")
+            : c.kind == "permission" && !c.tool.isEmpty ? L.s("sessions_wants_tool", agent, c.tool) : L.s("sessions_asks", agent)
         return SessionAsk(title: title, question: c.question, detail: c.detail, choices: c.choices.map(\.label),
                           onMac: L.s("sessions_answer_on_mac"), key: c.id)
     }

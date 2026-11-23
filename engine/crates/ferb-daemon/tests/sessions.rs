@@ -279,9 +279,6 @@ struct Seen {
     asks: Mutex<Vec<(String, Ask)>>,
     answers: Mutex<HashMap<String, oneshot::Sender<Option<String>>>>,
     closed: Mutex<Vec<String>>,
-    handed: Mutex<Vec<(String, Option<String>)>>,
-    /// HAND-702: where each hand-over's news goes (the chat turn's events, in the real daemon).
-    news: Mutex<Vec<HandNews>>,
     published: Mutex<Vec<String>>,
     told: Mutex<Vec<String>>,
     /// HAND-706: each notification's ident (one per session: a later one replaces it).
@@ -292,8 +289,91 @@ struct Seen {
     picks: Mutex<std::collections::VecDeque<Pick>>,
 }
 
+/// What one step decides: from what it was shown.
+type Decide = Box<dyn FnMut(&Step) -> Result<Decision, String> + Send>;
+
+/// HAND-707: the session driver's stand-in (the real one is the supervisor's fresh worker step and the gateway's
+/// typing): it records each task begun, each step and what it was shown, and types a message as the gateway's
+/// agent_session tools would, for the drive's task (`Caller::Task`), so the session's own record shows it.
+#[derive(Default)]
+struct FakeDriver {
+    sessions: std::sync::OnceLock<Sessions>,
+    begun: Mutex<Vec<(String, String, String)>>,
+    steps: Mutex<Vec<Step>>,
+    decide: Mutex<Option<Decide>>,
+    delivered: Mutex<Vec<Act>>,
+    /// Typed into the session (else only recorded, the session's state left as it was).
+    types: std::sync::atomic::AtomicBool,
+    stopped: std::sync::atomic::AtomicBool,
+    ended: Mutex<Vec<(String, String, String)>>,
+    said: Mutex<Vec<String>>,
+}
+
+impl Driver for FakeDriver {
+    fn begin(
+        &self,
+        session: &str,
+        goal: &str,
+        app: &str,
+    ) -> BoxFuture<'static, Result<String, String>> {
+        let mut b = self.begun.lock().unwrap();
+        b.push((session.into(), goal.into(), app.into()));
+        let task = format!("drive{}", b.len());
+        Box::pin(async move { Ok(task) })
+    }
+    fn step(&self, _task: &str, step: Step) -> BoxFuture<'static, Result<Decision, String>> {
+        let d = match self.decide.lock().unwrap().as_mut() {
+            Some(f) => f(&step),
+            None => Ok(Decision::Done("nothing to do".into())),
+        };
+        self.steps.lock().unwrap().push(step);
+        Box::pin(async move { d })
+    }
+    fn deliver(
+        &self,
+        task: &str,
+        session: &str,
+        act: Act,
+    ) -> BoxFuture<'static, Result<(), String>> {
+        self.delivered.lock().unwrap().push(act.clone());
+        let types = self.types.load(std::sync::atomic::Ordering::SeqCst);
+        let s = self.sessions.get().cloned().unwrap();
+        let (task, session) = (task.to_owned(), session.to_owned());
+        Box::pin(async move {
+            if !types {
+                return Ok(());
+            }
+            let by = Caller::Task(task);
+            match act {
+                Act::Send(text) => s
+                    .send(&session, &text, &by)
+                    .await
+                    .map(|_| ())
+                    .map_err(|r| r.message),
+                Act::Answer { card, choice } => s
+                    .resolve(&session, &card, &choice, Some(&by))
+                    .map_err(|r| r.message),
+            }
+        })
+    }
+    fn stopped(&self, _task: &str) -> bool {
+        self.stopped.load(std::sync::atomic::Ordering::SeqCst)
+    }
+    fn end(&self, task: &str, status: &str, summary: &str) -> BoxFuture<'static, ()> {
+        self.ended
+            .lock()
+            .unwrap()
+            .push((task.into(), status.into(), summary.into()));
+        Box::pin(async {})
+    }
+    fn say(&self, _ident: &str, line: &str) {
+        self.said.lock().unwrap().push(line.into());
+    }
+}
+
 struct World {
     s: Sessions,
+    driver: Arc<FakeDriver>,
     away: Arc<Mutex<bool>>,
     mac: Arc<FakeMac>,
     seen: Arc<Seen>,
@@ -329,14 +409,17 @@ fn world(speed: f64) -> World {
     let start = Instant::now();
     let (e1, e2) = (enabled.clone(), enabled.clone());
     let s7 = seen.clone();
-    let (s1, s2, s3, s4, s5, s6) = (
-        seen.clone(),
+    let (s1, s2, s3, s4, s5) = (
         seen.clone(),
         seen.clone(),
         seen.clone(),
         seen.clone(),
         seen.clone(),
     );
+    let driver = Arc::new(FakeDriver::default());
+    driver
+        .types
+        .store(true, std::sync::atomic::Ordering::SeqCst);
     let seams = Seams {
         mac: mac.clone(),
         home: home.clone(),
@@ -368,11 +451,7 @@ fn world(speed: f64) -> World {
             (id, fut)
         }),
         close_ask: Arc::new(move |id: &str| s5.closed.lock().unwrap().push(id.into())),
-        hand_over: Arc::new(move |text, client, news| {
-            s6.handed.lock().unwrap().push((text, client));
-            s6.news.lock().unwrap().push(news);
-            Ok(())
-        }),
+        driver: driver.clone(),
         now: Arc::new(|| "2026-11-22T10:00:00.000+00:00".into()),
         mono: Arc::new(move || start.elapsed().as_secs_f64() * speed),
         new_id: Arc::new(move || {
@@ -390,8 +469,11 @@ fn world(speed: f64) -> World {
         }),
         layouts: home.join("chat-layouts.json"),
     };
+    let s = Sessions::new(seams);
+    let _ = driver.sessions.set(s.clone());
     World {
-        s: Sessions::new(seams),
+        s,
+        driver,
         away,
         mac,
         seen,
@@ -1177,40 +1259,407 @@ async fn ferb_s_task_never_answers_a_permission_but_may_answer_a_question() {
     );
 }
 
-// decision: ORCH-687
-#[tokio::test]
-async fn a_hand_over_is_the_owner_s_message_and_a_start_types_the_exact_command() {
+// ---------- Hand to FERB: the session driver (HAND-707..709) ----------
+
+/// The agent's turn ends: its reply in its own record, then its Stop hook.
+async fn agent_replies(w: &World, words: &str) {
+    append(
+        &transcript(w),
+        &json!({"type": "assistant", "message": {"content": [{"type": "text", "text": words}]}}),
+    );
+    w.s.hook(
+        &hook_event("Stop", json!({"last_assistant_message": words})),
+        &[140, 130],
+    )
+    .await;
+}
+
+fn note(w: &World) -> String {
+    w.s.session(&id()).unwrap().ferb_note
+}
+
+/// A driver's world: Claude Code in Terminal, its transcript echoing what is typed, and the step's decisions.
+fn driven(decide: Decide) -> World {
     let w = world(1.0);
     in_terminal(&w, true);
+    append(
+        &transcript(&w),
+        &json!({"type": "ai-title", "aiTitle": "Tests"}),
+    );
     listed(&w);
-    let msg =
-        w.s.delegate(
-            &id(),
-            "keep going until the tests pass",
-            Some("phone:p1".into()),
-        )
-        .unwrap();
-    let handed = w.seen.handed.lock().unwrap().clone();
-    assert_eq!(handed.len(), 1);
-    assert_eq!(handed[0].1.as_deref(), Some("phone:p1"));
-    assert!(
-        msg.contains(&id())
-            && msg.contains("keep going until the tests pass")
-            && msg.contains("/p/app")
-    );
+    *w.mac.echo_to.lock().unwrap() = Some(transcript(&w));
+    *w.driver.decide.lock().unwrap() = Some(decide);
+    w
+}
+
+/// The owner's design (2026-11-23): Hand to FERB starts a driver, not a chat turn: code waits for the agent's turn to
+/// end, then runs exactly one fresh step per reply, which sends the next message, is done, or asks him. What it sends
+/// shows in the session as FERB's; the session's note says every step; done ends it with one line in FERB's chat.
+// decision: HAND-707
+// decision: HAND-709
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_hand_over_runs_one_step_per_agent_reply_and_done_ends_it() {
+    let w = driven(Box::new(|st: &Step| {
+        Ok(if st.round == 1 {
+            Decision::Send("run the tests".into())
+        } else {
+            Decision::Done("All 12 tests pass.".into())
+        })
+    }));
+    let goal =
+        w.s.delegate(&id(), "get the tests passing", Some("phone:p1".into()))
+            .unwrap();
+    assert_eq!(goal, "get the tests passing");
+    // no chat message, no planner: the drive's task and its first step (the agent's turn was already over)
+    until("the first step", || {
+        w.driver.steps.lock().unwrap().len() == 1
+    })
+    .await;
+    let begun = w.driver.begun.lock().unwrap().clone();
     assert_eq!(
-        w.s.session(&id()).unwrap().goal,
-        "keep going until the tests pass"
+        begun,
+        [(
+            id(),
+            "get the tests passing".to_string(),
+            "Terminal".to_string()
+        )]
     );
-    w.s.task_touched(&id(), "tree1");
-    assert_eq!(w.s.session(&id()).unwrap().delegate, "tree1");
-    w.s.task_ended("tree1", "done");
-    assert_eq!(w.s.session(&id()).unwrap().delegate, "");
+    let first = w.driver.steps.lock().unwrap()[0].clone();
+    assert_eq!(
+        (first.round, first.goal.as_str()),
+        (1, "get the tests passing")
+    );
+    assert!(
+        first.session.contains("Agent: Claude Code") && first.session.contains("Folder: /p/app")
+    );
+    assert!(
+        first.session.contains(&format!("Session id: {}", id())),
+        "{}",
+        first.session
+    );
+    assert!(first.session.contains("after 20"), "{}", first.session);
+    assert!(first.decided.is_empty());
+    // code typed it, for the drive's task; the session shows it as FERB's
+    until("typed", || !w.mac.typed.lock().unwrap().is_empty()).await;
+    assert_eq!(
+        *w.mac.typed.lock().unwrap(),
+        [("/dev/ttys004".to_string(), "run the tests".to_string())]
+    );
+    until("on it", || note(&w).ends_with("· 1 of 20 rounds")).await;
+    assert_eq!(
+        note(&w),
+        "FERB is on it: “get the tests passing” · 1 of 20 rounds"
+    );
+    let s = w.s.session(&id()).unwrap();
+    assert_eq!(
+        (s.delegate.as_str(), s.goal.as_str()),
+        ("drive1", "get the tests passing")
+    );
+    let (items, _, _) = w.s.timeline(&id(), 0, 50).unwrap();
+    let mine: Vec<(&str, bool)> = items
+        .iter()
+        .filter(|i| i.kind == ItemKind::User)
+        .map(|i| (i.text.as_str(), i.ferb))
+        .collect();
+    assert_eq!(mine, [("run the tests", true)]);
+    // while the agent works: no step, however long
+    w.s.hook(
+        &hook_event("UserPromptSubmit", json!({"prompt": "run the tests"})),
+        &[140, 130],
+    )
+    .await;
+    tokio::time::sleep(Duration::from_millis(1200)).await;
+    assert_eq!(w.driver.steps.lock().unwrap().len(), 1);
+    // its reply: exactly one more step, shown the reply in full and what it sent before
+    agent_replies(&w, "All 12 tests pass.").await;
+    until("the second step", || {
+        w.driver.steps.lock().unwrap().len() == 2
+    })
+    .await;
+    let second = w.driver.steps.lock().unwrap()[1].clone();
+    assert_eq!(second.round, 2);
+    assert!(
+        second
+            .exchanges
+            .contains("FERB (you, for the owner): run the tests"),
+        "{}",
+        second.exchanges
+    );
+    assert!(
+        second.exchanges.contains("Claude Code: All 12 tests pass."),
+        "{}",
+        second.exchanges
+    );
+    assert_eq!(second.decided, ["Round 1: sent “run the tests”"]);
+    // done: the task's outcome, the session is his again, one plain line in FERB's chat
+    until("ended", || !w.driver.ended.lock().unwrap().is_empty()).await;
+    assert_eq!(
+        w.driver.ended.lock().unwrap()[0],
+        ("drive1".into(), "done".into(), "All 12 tests pass.".into())
+    );
+    until("the note", || note(&w).starts_with("FERB finished")).await;
+    assert_eq!(
+        note(&w),
+        "FERB finished: “All 12 tests pass.” The session is yours again."
+    );
+    let s = w.s.session(&id()).unwrap();
+    assert!(s.delegate.is_empty() && s.goal.is_empty());
+    assert_eq!(
+        *w.driver.said.lock().unwrap(),
+        ["Done with your Claude Code session in app: All 12 tests pass."]
+    );
+    assert_eq!(w.driver.steps.lock().unwrap().len(), 2);
+    // a drive's finished turns are its own to follow: no "done and waiting" banner
+    assert!(
+        w.seen.told.lock().unwrap().is_empty(),
+        "{:?}",
+        w.seen.told.lock().unwrap()
+    );
+    // the mark stays on what FERB sent
+    assert!(w.s.timeline(&id(), 0, 50).unwrap().0.iter().any(|i| i.ferb));
+    // an empty goal is refused, and a second hand-over while one runs
     assert_eq!(
         w.s.delegate(&id(), "  ", None).unwrap_err().code,
         codes::SEND_FAILED
     );
-    // an older phone's New session named an agent: its command is the agent's program with the words
+}
+
+// decision: HAND-709
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_step_that_asks_ends_the_drive_with_its_question_in_the_session() {
+    let w = driven(Box::new(|_| {
+        Ok(Decision::Ask("Postgres or SQLite?".into()))
+    }));
+    w.s.delegate(&id(), "set up the database we decided on", None)
+        .unwrap();
+    until("ended", || !w.driver.ended.lock().unwrap().is_empty()).await;
+    assert_eq!(
+        w.driver.ended.lock().unwrap()[0],
+        (
+            "drive1".into(),
+            "needs_user".into(),
+            "Postgres or SQLite?".into()
+        )
+    );
+    until("the note", || note(&w).starts_with("FERB stopped to ask")).await;
+    assert_eq!(
+        note(&w),
+        "FERB stopped to ask you: “Postgres or SQLite?” The session is yours again; hand it back with your answer."
+    );
+    assert!(w.mac.typed.lock().unwrap().is_empty(), "nothing typed");
+    assert_eq!(
+        *w.driver.said.lock().unwrap(),
+        ["Your Claude Code session in app needs you: Postgres or SQLite?"]
+    );
+    // the session is his again: he can hand it over once more
+    assert!(w.s.session(&id()).unwrap().delegate.is_empty());
+    w.s.delegate(&id(), "use Postgres", None).unwrap();
+}
+
+/// The owner's Take it back stops the drive at once, also while it waits for the agent; nothing goes to FERB's chat.
+// decision: HAND-709
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn take_it_back_stops_it_mid_wait() {
+    let w = driven(Box::new(|_| Ok(Decision::Send("keep going".into()))));
+    w.s.delegate(&id(), "finish the refactor", None).unwrap();
+    until("typed", || !w.mac.typed.lock().unwrap().is_empty()).await;
+    w.s.hook(
+        &hook_event("UserPromptSubmit", json!({"prompt": "keep going"})),
+        &[140, 130],
+    )
+    .await;
+    assert!(w.s.session(&id()).unwrap().status == Status::Working);
+    // his Take it back (the task's stop) while the agent works
+    w.driver
+        .stopped
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    until("ended", || !w.driver.ended.lock().unwrap().is_empty()).await;
+    assert_eq!(w.driver.ended.lock().unwrap()[0].1, "cancelled");
+    until("the note", || {
+        note(&w) == "FERB stopped. The session is yours again."
+    })
+    .await;
+    assert_eq!(w.driver.steps.lock().unwrap().len(), 1);
+    assert!(
+        w.driver.said.lock().unwrap().is_empty(),
+        "he knows: no chat line"
+    );
+    assert!(w.s.session(&id()).unwrap().delegate.is_empty());
+}
+
+/// The agent's permission prompts stay the owner's: the driver runs no step until he answers; the agent's question is
+/// answered only with one of its own choices.
+// decision: HAND-709
+// decision: HAND-663
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_permission_prompt_waits_for_the_owner_and_a_question_is_answered_with_its_choice() {
+    let w = driven(Box::new(|st: &Step| {
+        Ok(if st.asking.is_empty() {
+            Decision::Done("Set up.".into())
+        } else {
+            Decision::Send("SQLite".into())
+        })
+    }));
+    // the agent asks a permission before FERB's first step
+    let s = w.s.clone();
+    let perm = tokio::spawn(async move {
+        s.hook(
+            &hook_event("PermissionRequest", bash("git push")),
+            &[140, 130],
+        )
+        .await
+    });
+    until("the card", || {
+        !w.s.timeline(&id(), 0, 5).unwrap().2.is_empty()
+    })
+    .await;
+    w.s.delegate(&id(), "set it up", None).unwrap();
+    until("waiting for him", || note(&w).contains("permission prompt")).await;
+    assert_eq!(
+        note(&w),
+        "FERB is waiting for you to answer Claude Code's permission prompt."
+    );
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    assert!(
+        w.driver.steps.lock().unwrap().is_empty(),
+        "no step on a permission prompt"
+    );
+    let card = w.s.timeline(&id(), 0, 5).unwrap().2[0].id.clone();
+    w.s.resolve(&id(), &card, "deny", Some(&Caller::Mac))
+        .unwrap();
+    perm.await.unwrap();
+    // the agent then asks a question: the step is shown it, and its "SQLite" answers with that choice
+    let q = json!({"tool_name": "AskUserQuestion", "tool_input": {"questions": [{"question": "Which db?", "options": [{"label": "postgres"}, {"label": "sqlite"}]}]}});
+    let s = w.s.clone();
+    let question = tokio::spawn(async move {
+        s.hook(&hook_event("PermissionRequest", q), &[140, 130])
+            .await
+    });
+    until("a step", || !w.driver.steps.lock().unwrap().is_empty()).await;
+    let step = w.driver.steps.lock().unwrap()[0].clone();
+    assert!(
+        step.asking.contains("Which db?") && step.asking.contains("postgres | sqlite"),
+        "{}",
+        step.asking
+    );
+    let r: Value = serde_json::from_str(&question.await.unwrap()).unwrap();
+    assert_eq!(
+        r["hookSpecificOutput"]["decision"]["updatedInput"]["answers"],
+        json!({"Which db?": "sqlite"})
+    );
+    assert!(
+        matches!(w.driver.delivered.lock().unwrap()[0], Act::Answer { ref choice, .. } if choice == "sqlite")
+    );
+    assert!(
+        w.mac.typed.lock().unwrap().is_empty(),
+        "an answer types nothing"
+    );
+}
+
+/// The owner's number (2026-11-23, "yeah this works"): after 20 rounds the driver stops and asks him in the session's
+/// screen whether to keep going; Keep going gives it 20 more.
+// decision: HAND-708
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn after_20_rounds_it_asks_to_keep_going_and_keep_going_continues() {
+    let w = driven(Box::new(|st: &Step| {
+        Ok(if st.round <= ROUNDS_PER_ASK {
+            Decision::Send(format!("round {}", st.round))
+        } else {
+            Decision::Done("Kept going and finished.".into())
+        })
+    }));
+    // the stand-in only records what it would type: each agent turn is over at once
+    w.driver
+        .types
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+    w.s.delegate(&id(), "polish the docs", None).unwrap();
+    let card = loop {
+        if let Some(c) = w.s.timeline(&id(), 0, 5).unwrap().2.first().cloned() {
+            break c;
+        }
+        assert!(w.driver.ended.lock().unwrap().is_empty());
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    assert_eq!(w.driver.delivered.lock().unwrap().len(), 20);
+    assert_eq!(
+        w.driver.steps.lock().unwrap().len(),
+        20,
+        "no 21st step before his answer"
+    );
+    assert_eq!(card.kind, CardKind::Ferb);
+    assert_eq!(
+        card.question,
+        "I've gone 20 rounds on “polish the docs”. Keep going?"
+    );
+    let choices: Vec<(&str, &str)> = card
+        .choices
+        .iter()
+        .map(|c| (c.id.as_str(), c.label.as_str()))
+        .collect();
+    assert_eq!(choices, [(KEEP_GOING, "Keep going"), (STOP, "Stop")]);
+    assert_eq!(note(&w), "FERB is waiting for your answer.");
+    assert_eq!(
+        *w.seen.told.lock().unwrap(),
+        ["FERB has gone 20 rounds in app. Keep going?"]
+    );
+    // FERB's own task can't answer it; the owner can
+    assert!(w
+        .s
+        .resolve(
+            &id(),
+            &card.id,
+            KEEP_GOING,
+            Some(&Caller::Task("drive1".into()))
+        )
+        .is_err());
+    w.s.resolve(
+        &id(),
+        &card.id,
+        KEEP_GOING,
+        Some(&Caller::Phone("p1".into())),
+    )
+    .unwrap();
+    until("ended", || !w.driver.ended.lock().unwrap().is_empty()).await;
+    assert_eq!(w.driver.steps.lock().unwrap().len(), 21);
+    assert_eq!(w.driver.ended.lock().unwrap()[0].1, "done");
+    assert!(
+        w.s.timeline(&id(), 0, 5).unwrap().2.is_empty(),
+        "the question went"
+    );
+}
+
+// decision: HAND-708
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn stop_on_the_keep_going_question_ends_the_drive() {
+    let w = driven(Box::new(|st: &Step| {
+        Ok(Decision::Send(format!("round {}", st.round)))
+    }));
+    w.driver
+        .types
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+    w.s.delegate(&id(), "polish the docs", None).unwrap();
+    let card = loop {
+        if let Some(c) = w.s.timeline(&id(), 0, 5).unwrap().2.first().cloned() {
+            break c;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    w.s.resolve(&id(), &card.id, STOP, Some(&Caller::Mac))
+        .unwrap();
+    until("ended", || !w.driver.ended.lock().unwrap().is_empty()).await;
+    assert_eq!(w.driver.ended.lock().unwrap()[0].1, "cancelled");
+    assert_eq!(w.driver.steps.lock().unwrap().len(), 20);
+    until("the note", || {
+        note(&w) == "FERB stopped. The session is yours again."
+    })
+    .await;
+    assert!(w.driver.said.lock().unwrap().is_empty());
+}
+
+// an older phone's New session named an agent: its command is the agent's program with the words
+// decision: HAND-695
+#[test]
+fn an_older_phone_s_new_session_is_the_agent_s_program_with_its_words() {
     assert_eq!(
         Sessions::legacy_command(Agent::ClaudeCode, "fix the 'login' bug").unwrap(),
         "claude 'fix the '\\''login'\\'' bug'"
@@ -1218,115 +1667,6 @@ async fn a_hand_over_is_the_owner_s_message_and_a_start_types_the_exact_command(
     assert_eq!(
         Sessions::legacy_command(Agent::Codex, " ").unwrap(),
         "codex"
-    );
-}
-
-/// The owner's live report (2026-11-23): Hand to FERB "didn't message anything" and "FERB is on it" stayed after the
-/// task had failed, and after he stopped controlling and closed the terminal. Now the session says what became of the
-/// hand-over, "FERB is on it" lasts only while FERB's task runs, and the message names the agent_session tools.
-// decision: HAND-702
-#[tokio::test]
-async fn a_hand_over_says_what_became_of_it_and_is_on_it_only_while_its_task_runs() {
-    let w = world(1.0);
-    in_terminal(&w, true);
-    listed(&w);
-    let on_it = |w: &World| {
-        let s = w.s.session(&id()).unwrap();
-        (s.goal.clone(), s.delegate.clone(), s.ferb_note.clone())
-    };
-    // the message: the session on this Mac, driven with the agent_session tools, his goal in his words
-    let msg = w.s.delegate(&id(), "chat with it", None).unwrap();
-    assert!(
-        msg.contains("on this Mac")
-            && msg.contains("agent_session tools")
-            && msg.ends_with(": chat with it"),
-        "{msg}"
-    );
-    assert_eq!(
-        on_it(&w),
-        (
-            "chat with it".into(),
-            String::new(),
-            "Handed to FERB: “chat with it”".into()
-        )
-    );
-    // the planner's answer failed (the live run: an invalid plan): it says so and FERB is no longer on it
-    let news = w.seen.news.lock().unwrap().last().cloned().unwrap();
-    news(Hand::Failed(
-        "I couldn't start that: something broke inside FERB.".into(),
-    ));
-    assert_eq!(
-        on_it(&w),
-        (
-            String::new(),
-            String::new(),
-            "FERB couldn't start on it: “I couldn't start that: something broke inside FERB.”"
-                .into()
-        )
-    );
-    // a news that comes after the hand-over ended changes nothing
-    news(Hand::Started("late".into()));
-    assert_eq!(on_it(&w).1, "");
-    // asked first: the question is quoted, not "on it"
-    w.s.delegate(&id(), "chat with it", None).unwrap();
-    let news = w.seen.news.lock().unwrap().last().cloned().unwrap();
-    news(Hand::Asked("What should I talk to Codex about?".into()));
-    assert_eq!(
-        on_it(&w).2,
-        "FERB asked you something in its chat before it starts: “What should I talk to Codex about?”"
-    );
-    assert!(!w
-        .s
-        .list()
-        .iter()
-        .any(|s| s.id == id() && !(s.goal.is_empty() && s.delegate.is_empty())));
-    // a task started: on it until the task ends, whichever way, and the session says how it ended
-    w.s.delegate(&id(), "keep going", None).unwrap();
-    let news = w.seen.news.lock().unwrap().last().cloned().unwrap();
-    news(Hand::Started("tree9".into()));
-    assert_eq!(
-        on_it(&w),
-        (
-            "keep going".into(),
-            "tree9".into(),
-            "FERB is on it: “keep going”".into()
-        )
-    );
-    w.s.task_ended("tree9", "stopped");
-    assert_eq!(
-        on_it(&w),
-        (
-            String::new(),
-            String::new(),
-            "FERB stopped. The session is yours again.".into()
-        )
-    );
-    // a plain answer and no task
-    w.s.delegate(&id(), "how is it going", None).unwrap();
-    let news = w.seen.news.lock().unwrap().last().cloned().unwrap();
-    news(Hand::Said("It's idle.".into()));
-    assert_eq!(
-        on_it(&w).2,
-        "FERB answered in its chat and didn't start: “It's idle.”"
-    );
-    // the news is journaled by kind only
-    let kinds: Vec<Value> = w
-        .seen
-        .journal
-        .lock()
-        .unwrap()
-        .iter()
-        .filter(|(k, _)| k == "sessions.hand_news")
-        .map(|(_, d)| d["news"].clone())
-        .collect();
-    assert_eq!(
-        kinds,
-        [
-            json!("failed"),
-            json!("asked"),
-            json!("started"),
-            json!("said")
-        ]
     );
 }
 
@@ -1417,7 +1757,7 @@ fn watching_is_code_only() {
         );
         w.s.look();
     }
-    assert!(w.seen.asks.lock().unwrap().is_empty() && w.seen.handed.lock().unwrap().is_empty());
+    assert!(w.seen.asks.lock().unwrap().is_empty() && w.driver.steps.lock().unwrap().is_empty());
     assert_eq!(w.s.timeline(&id(), 0, 100).unwrap().0.len(), 50);
 }
 
@@ -1712,7 +2052,7 @@ fn an_app_chat_is_listed_read_only_while_watched_and_his_own_typing_is_his() {
     w.mac.chat_windows.lock().unwrap().clear();
     w.s.look();
     assert!(w.s.session(&chat_id()).is_none());
-    assert!(w.seen.asks.lock().unwrap().is_empty() && w.seen.handed.lock().unwrap().is_empty());
+    assert!(w.seen.asks.lock().unwrap().is_empty() && w.driver.steps.lock().unwrap().is_empty());
 }
 
 // decision: HAND-669, HAND-674
@@ -1822,7 +2162,7 @@ async fn a_send_types_into_the_app_s_own_box_and_its_reply_is_awaited_by_code_wi
     let (items, _, _) = w.s.timeline(&id, 0, 50).unwrap();
     assert_eq!(items.iter().filter(|i| i.kind == ItemKind::User).count(), 2);
     // watching and waiting asked no model anything
-    assert!(w.seen.asks.lock().unwrap().is_empty() && w.seen.handed.lock().unwrap().is_empty());
+    assert!(w.seen.asks.lock().unwrap().is_empty() && w.driver.steps.lock().unwrap().is_empty());
 }
 
 // decision: HAND-672
@@ -1857,12 +2197,18 @@ async fn an_app_chat_s_stop_is_its_own_stop_control_and_a_hand_over_names_the_ap
     w.s.take_control(&chat_id(), &Caller::Mac).unwrap();
     w.s.interrupt(&chat_id(), &Caller::Mac).await.unwrap();
     assert_eq!(w.mac.chat_pressed.lock().unwrap().len(), 1);
-    let msg =
+    let goal =
         w.s.delegate(&chat_id(), "get a reply I can send", None)
             .unwrap();
-    assert!(
-        msg.contains("my Claude chat") && msg.contains(&chat_id()),
-        "{msg}"
+    assert_eq!(goal, "get a reply I can send");
+    until("the drive's task", || {
+        !w.driver.begun.lock().unwrap().is_empty()
+    })
+    .await;
+    let begun = w.driver.begun.lock().unwrap()[0].clone();
+    assert_eq!(
+        (begun.0.as_str(), begun.2.as_str()),
+        (chat_id().as_str(), "Claude")
     );
     assert!(Sessions::legacy_command(Agent::AppChat, "").is_none());
 }

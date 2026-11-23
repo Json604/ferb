@@ -1589,6 +1589,9 @@ mirror! {
         text: String,
         tool: String,
         parts: Vec<SessionPart>,
+        /// HAND-709: a message FERB sent while it kept the session going.
+        #[uniffi(default = false)]
+        ferb: bool,
     }
 }
 
@@ -1620,7 +1623,8 @@ mirror! {
 }
 
 mirror! {
-    /// The agent waits for the owner: a permission prompt or a question (no choices: answered on the Mac).
+    /// The agent waits for the owner: a permission prompt or a question (no choices: answered on the Mac); or FERB's
+    /// own question about its drive of the session (kind "ferb", HAND-709).
     SessionCard from ferb_mobile::sessions::SessionCard {
         id: String,
         kind: String,

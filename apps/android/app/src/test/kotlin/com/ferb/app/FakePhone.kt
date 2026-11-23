@@ -509,8 +509,8 @@ class FakePhone : PhoneApi {
                 false, "2026-11-22T10:00:00Z", "", controlledHere, if (controlledHere) "phone:p1" else "", withFerb, "", terminals,
                 "", "", "", ferbTask, ferbNote)
 
-        fun item(seq: Int, kind: String, text: String, tool: String = "", parts: List<com.ferb.mobile.SessionPart> = emptyList()) =
-            com.ferb.mobile.SessionItem(seq.toULong(), "2026-11-22T10:00:00Z", kind, text, tool, parts)
+        fun item(seq: Int, kind: String, text: String, tool: String = "", parts: List<com.ferb.mobile.SessionPart> = emptyList(), ferb: Boolean = false) =
+            com.ferb.mobile.SessionItem(seq.toULong(), "2026-11-22T10:00:00Z", kind, text, tool, parts, ferb)
 
         fun part(kind: String, text: String = "", label: String = "", detail: String = "") = com.ferb.mobile.SessionPart(kind, text, label, detail)
 

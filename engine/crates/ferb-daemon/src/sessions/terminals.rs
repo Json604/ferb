@@ -222,6 +222,7 @@ impl Sessions {
                         text: piece,
                         tool: String::new(),
                         parts: Vec::new(),
+                        ferb: false,
                     });
                 }
                 Some(text)
@@ -252,6 +253,7 @@ impl Sessions {
                 text: words,
                 tool: String::new(),
                 parts: Vec::new(),
+                ferb: false,
             });
         }
         true

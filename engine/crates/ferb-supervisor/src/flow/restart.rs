@@ -164,6 +164,9 @@ impl Inner {
                 .map(|t| t.split('.').next().unwrap_or("").to_string())
                 .filter(|t| !resuming.contains(t))
                 .filter(|t| !self.temporary_task(t))
+                // decision: HAND-709 — a restart ends a session driver: no "pick it up again?" in the chat; its rows
+                // say interrupted
+                .filter(|t| !self.driver_task(t))
                 .collect();
             for tid in roots {
                 let goal = self

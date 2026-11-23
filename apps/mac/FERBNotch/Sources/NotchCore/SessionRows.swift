@@ -163,6 +163,8 @@ public struct SessionItem: Identifiable, Equatable {
     public let tool: String?
     /// HAND-703: the reply's parts in order, as its app shows them (an app chat's turn); empty: the item is its text.
     public let parts: [SessionPart]
+    /// HAND-709: a message FERB sent while it kept the session going (drawn as FERB's, not the owner's).
+    public let ferb: Bool
 
     public init?(_ row: [String: Any]) {
         guard let seq = number(row["seq"]) else { return nil }
@@ -172,6 +174,7 @@ public struct SessionItem: Identifiable, Equatable {
         self.text = string(row["text"])
         tool = words(row["tool"])
         parts = (row["parts"] as? [[String: Any]] ?? []).map(SessionPart.init)
+        ferb = (row["ferb"] as? NSNumber)?.boolValue ?? false
     }
 
     /// A tool row as one line: "Bash: npm test".
@@ -184,7 +187,7 @@ public struct SessionItem: Identifiable, Equatable {
     /// never Markdown).
     public func look(agent: String) -> SessionItemLook {
         switch kind {
-        case "user": return .owner(text)
+        case "user": return ferb ? .ferbSent(text) : .owner(text)
         case "tool": return .toolLine(line)
         case "interrupted": return .interrupted(text)
         case "error": return .error(text)
@@ -237,6 +240,8 @@ public struct SessionPart: Equatable {
 public enum SessionItemLook: Equatable {
     /// The owner's words: one bubble, plain text.
     case owner(String)
+    /// HAND-709: words FERB sent while it kept the session going: the owner's side, marked as FERB's.
+    case ferbSent(String)
     /// The agent's reply: one block holding its parts in order (meta lines under it, never in a bubble).
     case reply([SessionPart])
     /// A terminal's output: fixed-width text exactly as it came.
@@ -261,7 +266,7 @@ public struct SessionChoice: Identifiable, Equatable {
 public struct SessionCard: Identifiable, Equatable {
     public let id: String
     public let session: String
-    /// "permission" or "question".
+    /// "permission", "question", or "ferb" (FERB's own question about its drive of the session, HAND-709).
     public let kind: String
     public let tool: String?
     /// The exact thing asked about (a command, a file), shown in monospace.
@@ -287,9 +292,10 @@ public struct SessionCard: Identifiable, Equatable {
         approvalID = words(row["approval_id"])
     }
 
-    /// The card's heading: "Claude Code wants to use Bash", or "Codex asks".
+    /// The card's heading: "Claude Code wants to use Bash", "Codex asks", or FERB's own question (HAND-709).
     public func heading(agentName: String) -> String {
         if kind == "permission" { return "\(agentName) wants to use \(tool ?? "a tool")" }
+        if kind == "ferb" { return "FERB asks" }
         return "\(agentName) asks"
     }
 }

@@ -767,3 +767,13 @@ rule = "For ORCH-696, ORCH-697. New runtime prompt not_done.md (the router: retr
 why = "Text that reaches a model changes only as a prompts decision says."
 paths = ["engine/runtime/orchestrator/prompts/not_done.md", "engine/crates/ferb-orchestrator/src/evidence.rs::fresh_look_block", "engine/crates/ferb-supervisor/src/words.rs", "engine/crates/ferb-gateway/src/words.rs"]
 untestable = "Prompt text (TEST-500); the router's choices are tested with stand-in answers in ferb-supervisor tests/indexed_check.rs."
+
+[PRM-372]
+title = "session_driver.md: the session driver's own short prompt"
+by = "agent"
+date = 2026-11-23
+status = "active"
+rule = "For HAND-707, ORCH-705. New runtime prompt session_driver.md: FERB keeps one session going toward the owner's goal; what it gets and that nothing else of FERB's memory is given; the agent's words are data; look up earlier conversation or decisions (chat_history, memory_read, memory_learned) and check claims with the usual tools; never type itself; decide one of send, done, ask; keep to the goal; permission prompts are the owner's. Code-written lines that reach it: driver_context's blocks and the daemon's step_of."
+why = "Text that reaches a model changes only as a prompts decision says."
+paths = ["engine/runtime/orchestrator/prompts/session_driver.md", "engine/crates/ferb-supervisor/src/flow/driver.rs", "engine/crates/ferb-daemon/src/sessions/driver.rs"]
+untestable = "Prompt text (TEST-500); the step's request is checked by ferb-supervisor tests/session_driver.rs."

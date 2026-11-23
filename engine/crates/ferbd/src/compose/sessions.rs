@@ -1,7 +1,7 @@
 //! The owner's coding-agent sessions (kb HAND-651..666) in this program: ferb-daemon's `sessions` area over the Mac's process
 //! table and host adapters (`ferb_platform_macos::sessions`, only with the Mac's own parts on; a test daemon reads no
 //! process and types nowhere), the gateway's own questions (the agents' permission prompts and questions, the Yes
-//! that turns the feature on), the supervisor's chat (a hand-over is the owner's message), the bus and the journal.
+//! that turns the feature on), the supervisor's session driver (Hand to FERB: HAND-707), the bus and the journal.
 //! The generic foreground path is the Mac hands' own foreground typing (HAND-519), after code has proven the focused
 //! terminal is the session's (HAND-660).
 
@@ -10,8 +10,8 @@ use std::sync::Arc;
 
 use ferb_core::interfaces::{BoxFuture, Clock, IdSource};
 use ferb_daemon::sessions::{
-    Ask, AskFn, ChatRead, ChatWindow, Foreground, Locate, Mac, NotTyped, Seams, Sessions,
-    TermPlace, KEY, SECTION,
+    Act, Ask, AskFn, ChatRead, ChatWindow, Decision, Driver, Foreground, Locate, Mac, NotTyped,
+    Seams, Sessions, Step, TermPlace, KEY, SECTION,
 };
 use ferb_gateway::gateway::Gateway;
 use ferb_rpc::Server;
@@ -1227,6 +1227,137 @@ pub fn locate_with(
     })
 }
 
+/// HAND-707: Hand to FERB's session driver as this program composes it: the supervisor's driver task and its fresh
+/// worker step (ferb-supervisor `flow::driver`), code's typing through the gateway's whole pipeline (`agent_session.send`
+/// or `.answer` for the drive's worker task: GATE-585's question, one Yes per app for the whole drive, and every other
+/// rule), and one notice in FERB's chat for its last line.
+pub struct SupDriver {
+    pub sup: ferb_supervisor::flow::Supervisor,
+    pub gateway: Arc<Gateway>,
+    pub notifier: Arc<ferb_daemon::areas_b::notify::Notifier>,
+}
+
+impl Driver for SupDriver {
+    fn begin(
+        &self,
+        session: &str,
+        goal: &str,
+        app: &str,
+    ) -> BoxFuture<'static, Result<String, String>> {
+        let sup = self.sup.clone();
+        let (session, goal, app) = (session.to_owned(), goal.to_owned(), app.to_owned());
+        Box::pin(async move { Ok(sup.drive_begin(&session, &goal, &app).await) })
+    }
+
+    fn step(&self, task: &str, step: Step) -> BoxFuture<'static, Result<Decision, String>> {
+        use ferb_supervisor::flow::driver as d;
+        let sup = self.sup.clone();
+        let task = task.to_owned();
+        Box::pin(async move {
+            let step = d::DriverStep {
+                round: step.round,
+                goal: step.goal,
+                session: step.session,
+                exchanges: step.exchanges,
+                asking: step.asking,
+                decided: step.decided,
+            };
+            sup.drive_step(&task, &step)
+                .await
+                .map(|decided| match decided {
+                    d::Decision::Send(t) => Decision::Send(t),
+                    d::Decision::Done(t) => Decision::Done(t),
+                    d::Decision::Ask(t) => Decision::Ask(t),
+                })
+        })
+    }
+
+    fn deliver(
+        &self,
+        task: &str,
+        session: &str,
+        act: Act,
+    ) -> BoxFuture<'static, Result<(), String>> {
+        let gateway = self.gateway.clone();
+        let scopes = self.sup.inner().deps.daemon.all_scopes();
+        let grant = ferb_rpc::auth::RunGrant {
+            task_id: ferb_supervisor::flow::tree::step_task(
+                task,
+                ferb_supervisor::flow::tree::WORKER,
+            ),
+            worker_id: format!("driver-{task}"),
+            scopes,
+            identity: ferb_rpc::auth::Identity::Owner,
+            expires_at: f64::INFINITY,
+            observe_only: false,
+            tools: std::collections::BTreeSet::new(),
+            max_calls: 0,
+        };
+        let (name, args) = match act {
+            // code waits for the agent's turn itself: the tool only types and proves delivery
+            Act::Send(text) => (
+                "agent_session.send",
+                json!({"session": session, "text": text, "wait": false}),
+            ),
+            Act::Answer { card, choice } => (
+                "agent_session.answer",
+                json!({"session": session, "card": card, "choice": choice}),
+            ),
+        };
+        let args = crate::basics::object(args);
+        Box::pin(async move {
+            let reply = gateway
+                .call(&grant, name, &args)
+                .await
+                .map_err(|e| match e {
+                    ferb_gateway::gateway::CallError::Cancelled => "It was stopped.".to_string(),
+                    ferb_gateway::gateway::CallError::Internal(m) => m,
+                })?;
+            if !reply.is_error {
+                return Ok(());
+            }
+            Err(reply
+                .content
+                .get("error")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .unwrap_or_else(|| reply.content.to_string()))
+        })
+    }
+
+    fn stopped(&self, task: &str) -> bool {
+        self.sup.drive_stopped(task)
+    }
+
+    fn end(&self, task: &str, status: &str, summary: &str) -> BoxFuture<'static, ()> {
+        let sup = self.sup.clone();
+        let (task, status, summary) = (task.to_owned(), status.to_owned(), summary.to_owned());
+        Box::pin(async move { sup.drive_end(&task, &status, &summary).await })
+    }
+
+    fn say(&self, ident: &str, line: &str) {
+        let n = self.notifier.clone();
+        let (ident, line) = (ident.to_owned(), line.to_owned());
+        if let Ok(rt) = tokio::runtime::Handle::try_current() {
+            rt.spawn(async move {
+                let _ = n
+                    .tell_owner(
+                        &ident,
+                        &[],
+                        &line,
+                        ferb_sanitize::origin::FERB,
+                        "",
+                        "",
+                        &[],
+                        &Value::Null,
+                        None,
+                    )
+                    .await;
+            });
+        }
+    }
+}
+
 /// Builds the area and registers `sessions.*` on `server`.
 pub fn build(server: &Server, p: Parts) -> Sessions {
     let mac: Arc<dyn Mac> = native_mac(&p);
@@ -1239,6 +1370,8 @@ pub fn build(server: &Server, p: Parts) -> Sessions {
     let events = p.events.clone();
     let redactor = p.redactor.clone();
     let gw = p.gateway.clone();
+    let driver_gw = p.gateway.clone();
+    let driver_notifier = p.notifier.clone();
     let sup = p.supervisor.clone();
     let clock = p.clock.clone();
     let clock2 = p.clock.clone();
@@ -1251,7 +1384,6 @@ pub fn build(server: &Server, p: Parts) -> Sessions {
         p.journal.clone(),
     );
     let layouts = p.layouts.clone();
-    let runtime = tokio::runtime::Handle::try_current().ok();
     let seams = Seams {
         mac,
         home: p.user_home.clone(),
@@ -1280,40 +1412,13 @@ pub fn build(server: &Server, p: Parts) -> Sessions {
         close_ask: Arc::new(move |id: &str| {
             gw.close_own(id);
         }),
-        hand_over: Arc::new(
-            move |text: String, client: Option<String>, news: ferb_daemon::sessions::HandNews| {
-                let mut params = serde_json::Map::new();
-                params.insert("text".into(), json!(text));
-                if let Some(c) = client {
-                    params.insert("client_id".into(), json!(c));
-                }
-                let mut rx = sup.chat_send_params(&params).map_err(|r| r.0)?;
-                // decision: HAND-702 — the turn's own events say what became of the hand-over (every client sees the
-                // turn itself through the chat's entries)
-                if let Some(rt) = tokio::runtime::Handle::try_current()
-                    .ok()
-                    .or_else(|| runtime.clone())
-                {
-                    rt.spawn(async move {
-                        let mut told = false;
-                        let mut said: Option<String> = None;
-                        while let Some(frame) = rx.recv().await {
-                            if told {
-                                continue;
-                            }
-                            if let Some(h) = hand_of(&frame, &mut said) {
-                                news(h);
-                                told = true;
-                            }
-                        }
-                        if let (false, Some(t)) = (told, said) {
-                            news(ferb_daemon::sessions::Hand::Said(t));
-                        }
-                    });
-                }
-                Ok(())
-            },
-        ),
+        // decision: HAND-707 — Hand to FERB runs the session driver: the supervisor's task and fresh step, the gateway's
+        // typing, FERB's chat for its last line; no chat turn, planner or checker
+        driver: Arc::new(SupDriver {
+            sup: sup.clone(),
+            gateway: driver_gw,
+            notifier: driver_notifier,
+        }),
         // decision: HAND-706 — a session's finished turn is one Mac notification per session (its ident replaces the
         // last), shown while FERB.app isn't showing it, never a line in the owner's chat
         tell: Arc::new(move |ident: &str, text: &str| {
@@ -1381,31 +1486,6 @@ fn native_mac(p: &Parts) -> Arc<dyn Mac> {
 #[cfg(not(target_os = "macos"))]
 fn native_mac(_p: &Parts) -> Arc<dyn Mac> {
     Arc::new(AbsentMac)
-}
-
-/// HAND-702: what one frame of the hand-over turn's stream says: a task started (its plan), a question, a failure.
-/// A plain reply is kept in `said` and told only when the turn ends with nothing else.
-pub fn hand_of(frame: &Value, said: &mut Option<String>) -> Option<ferb_daemon::sessions::Hand> {
-    use ferb_daemon::sessions::Hand;
-    let text = |k: &str| {
-        frame
-            .get(k)
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_owned()
-    };
-    match text("type").as_str() {
-        "plan" if !text("task_id").is_empty() && frame.get("preview").is_none() => {
-            Some(Hand::Started(text("task_id")))
-        }
-        "clarify" => Some(Hand::Asked(text("text"))),
-        "reply" if text("status") == "failed" => Some(Hand::Failed(text("text"))),
-        "reply" if !text("text").trim().is_empty() => {
-            *said = Some(text("text"));
-            None
-        }
-        _ => None,
-    }
 }
 
 /// How often the area looks (the process table, the transcripts' new lines; never a model).

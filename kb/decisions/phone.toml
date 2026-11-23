@@ -4232,3 +4232,13 @@ words_source = "Owner 2026-11-23 (relayed verbatim), live on his Moto."
 rule = "Refines PHN-817 and APP-1121. Start turns at once into a spinner with \"Opening a terminal…\" and the form is disabled; when the Mac answers the sheet closes and the new session opens (sessions.start's `session`), or the list says \"Your new terminal will show here in a moment.\" until it shows; a refusal keeps the sheet with the Mac's reason. FERB.app the same."
 paths = ["apps/android/app/src/main/kotlin/com/ferb/app/ui/Sessions.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/CodingSessions.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SessionsModel.swift"]
 live = ["LIVE-1198"]
+
+[PHN-823]
+title = "The phones' session: FERB's keep-going question and what FERB sent"
+by = "agent"
+date = 2026-11-23
+status = "active"
+rule = "For HAND-708, HAND-709. Both phones: a card of kind ferb is titled \"FERB asks\" (sessions_ferb_asks) and answered like the agent's (sessions.answer, signed); an item with ferb (ferb-mobile SessionItem.ferb, ffi default false) is drawn on the owner's side with \"Sent by FERB\" (sessions_sent_by_ferb) over the bubble."
+evidence = "Android SessionShotsTest session-keep-going-360/412, SessionsTest; iPhone goldens session-keep-going-375/402, SessionScreensTests; ferb-mobile sessions a_message_ferb_sent_is_read_as_ferb_s."
+paths = ["apps/android/app/src/main/kotlin/com/ferb/app/ui/Sessions.kt", "apps/android/design/src/main/kotlin/com/ferb/design/components/Sessions.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/CodingSessions.swift", "apps/ios/Packages/FerbDesign/Sources/FerbDesign/Sessions.swift", "engine/crates/ferb-mobile/src/sessions.rs"]
+live = ["LIVE-1199"]

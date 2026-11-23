@@ -391,6 +391,7 @@ impl Sessions {
                         detail: redact(&p.detail),
                     })
                     .collect(),
+                ferb: false,
             })
             .collect();
         if let Some(last) = e.items.iter().rev().find(|i| i.kind == ItemKind::Assistant) {
