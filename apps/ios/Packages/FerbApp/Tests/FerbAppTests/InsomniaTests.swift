@@ -175,13 +175,13 @@ final class InsomniaTests: XCTestCase {
 
     // ---- the camera view ---------------------------------------------------------------------------------------------
 
-    // decision: APP-983, PHN-454, PHN-775
-    func testTheCameraPullsOnlyWhileItsViewShowsAndIsKeptOutOfCaptures() async {
+    // decision: APP-983, PHN-454, PHN-775, PHN-810
+    func testTheCameraPullsOnlyWhileItsViewShowsAndFollowsTheScreenshotSwitch() async {
         rig.session.foreground(true)
         let vm = rig.model()
         vm.showCamera()
         XCTAssertEqual(vm.sheet, .camera)
-        XCTAssertTrue(vm.mustSecure)
+        XCTAssertFalse(vm.mustSecure, "the Mac's camera follows the owner's switch (PHN-810)")
         await eventually("asked") { phone.calls.filter { $0 == "camera" }.count == 1 }
         vm.show(nil)
         await eventually("stopped when it leaves") { phone.cameraStopped == 1 }

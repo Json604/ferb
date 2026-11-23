@@ -26,7 +26,7 @@ public struct CameraScreen: Equatable, Sendable {
 
 /// Show me (APP-983; Android: model/CameraWatch.kt): the Mac's camera while the camera view is on screen, and only
 /// then. Each frame is kept in memory and never written anywhere (no file, no cache, no notification); the view is
-/// kept out of screenshots and hidden while the screen is captured ([AppModel.mustSecure]). It stops when the view
+/// out of screenshots and captures as the owner's screenshot switch says (kb PHN-810, PHN-811). It stops when the view
 /// goes, the app goes to the background or locks; the Mac turns the camera off a few seconds after the last ask. On
 /// the public relay the library refuses it before anything is asked, and the view says the library's words.
 @MainActor

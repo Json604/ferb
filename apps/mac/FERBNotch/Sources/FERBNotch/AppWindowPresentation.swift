@@ -508,7 +508,6 @@ extension AppWindowPresentation {
         .init(name: "Settings → Thinking and setup pickers", mechanism: .menu, file: "SetupView.swift", code: "Picker("),
         .init(name: "Memory → Import from…", mechanism: .menu, file: "WindowPages.swift", code: "Menu("),
         .init(name: "Sessions → New session's folder menu", mechanism: .menu, file: "SessionsPage.swift", code: "Menu("),
-        .init(name: "Sessions → New session's agent picker", mechanism: .menu, file: "SessionsPage.swift", code: "Picker("),
         // On every Space by construction
         .init(name: "The notch", mechanism: .everySpace, file: "PanelCoordinator.swift", code: "class NotchPanel: NSPanel"),
         .init(name: "The notch's light (trace)", mechanism: .everySpace, file: "PanelCoordinator.swift",

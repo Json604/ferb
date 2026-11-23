@@ -211,10 +211,9 @@ class OnPhoneTest {
         nm.cancelAll()
     }
 
-    // decision: PHN-454, PHN-420
-    // decision: PHN-518
+    // decision: PHN-420, PHN-810
     @Test
-    fun watch_live_keeps_the_window_out_of_screenshots_even_with_the_switch_off() {
+    fun watch_live_follows_the_screenshot_switch() {
         shell("locksettings clear --old 1111")
         val app = context as FerbApplication
         ActivityScenario.launch(MainActivity::class.java).use { s ->
@@ -224,8 +223,10 @@ class OnPhoneTest {
                 s.onActivity { a -> app.session.unlocked(); a.setBlockScreenshots(false) }
                 assertTrue("the switch off and the app unlocked: screenshots allowed", waitFor(false))
                 s.onActivity { a -> a.vm.watchLive("t-test") }
-                assertTrue("Watch live: FLAG_SECURE whatever the switch says", waitFor(true))
-                s.onActivity { a -> a.vm.closeLive() }
+                assertTrue("Watch live with the switch off: screenshots allowed (PHN-810)", waitFor(false))
+                s.onActivity { a -> a.setBlockScreenshots(true) }
+                assertTrue("Watch live with the switch on: FLAG_SECURE", waitFor(true))
+                s.onActivity { a -> a.vm.closeLive(); a.setBlockScreenshots(false) }
                 assertTrue(waitFor(false))
             } finally {
                 s.onActivity { a -> a.setBlockScreenshots(true); a.vm.closeLive(); app.session.lockNow() }

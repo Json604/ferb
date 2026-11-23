@@ -94,11 +94,11 @@ class SessionsLibraryTest {
         mac.answers["sessions.answer"] = { Fixtures.write(mapOf("answered" to true)) }
         mac.answers["sessions.release"] = { Fixtures.write(mapOf("released" to 1.0)) }
         mac.answers["sessions.prepare"] = { p ->
-            val base = mapOf("folders" to listOf("/Users/owner/code/web-app", "/Users/owner/code/blog"), "agents" to listOf("claude_code", "codex"), "host" to "Terminal")
-            Fixtures.write(if (p["folder"] == null) base else base + ("needs_yes" to mapOf("question" to "Open Terminal on your Mac and run this?",
-                "detail" to "cd /Users/owner/code/blog && codex", "covers" to "")))
+            val base = mapOf("folders" to listOf("/Users/owner/code/web-app", "/Users/owner/code/blog"), "host" to "Terminal")
+            Fixtures.write(if (p["folder"] == null || p["command"] == "") base else base + ("needs_yes" to mapOf(
+                "question" to "Open a new Terminal window in blog and type this?", "detail" to p["command"], "covers" to "")))
         }
-        mac.answers["sessions.start"] = { Fixtures.write(mapOf("started" to true, "command" to "cd /Users/owner/code/blog && codex")) }
+        mac.answers["sessions.start"] = { p -> Fixtures.write(mapOf("started" to true, "command" to p["command"], "session" to "term:300", "host" to "Terminal")) }
         mac.answers["sessions.delegate"] = { Fixtures.write(mapOf("handed_over" to true, "message" to "FERB is on it.")) }
         mac.refuse["sessions.interrupt"] = "ferb_error"
 
@@ -147,9 +147,13 @@ class SessionsLibraryTest {
 
             assertEquals(1u, m.sessionRelease("claude:abc"))
             assertEquals(listOf("/Users/owner/code/web-app", "/Users/owner/code/blog"), m.sessionPrepare("", "", "").folders)
-            val plan = m.sessionPrepare("codex", "/Users/owner/code/blog", "")
-            assertEquals("cd /Users/owner/code/blog && codex", plan.needsYes?.detail)
-            assertEquals("cd /Users/owner/code/blog && codex", m.sessionStart("codex", "/Users/owner/code/blog", "", signer))
+            // decision: HAND-695 — a new terminal: the folder and the command only, no agent
+            assertNull(m.sessionPrepare("terminal", "/Users/owner/code/blog", "").needsYes)
+            val plan = m.sessionPrepare("terminal", "/Users/owner/code/blog", "agy")
+            assertEquals("agy", plan.needsYes?.detail)
+            assertEquals(mapOf("folder" to "/Users/owner/code/blog", "command" to "agy"),
+                Json.parse(mac.params.last { it.first == "sessions.prepare" }.second))
+            assertEquals("agy", m.sessionStart("terminal", "/Users/owner/code/blog", "agy", signer))
             assertEquals("FERB is on it.", m.sessionDelegate("claude:abc", "Keep going until the tests pass", signer))
 
             try {

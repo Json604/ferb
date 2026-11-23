@@ -335,7 +335,7 @@ final class FakePhone: PhoneApi {
     // ---- the owner's coding sessions (kb HAND-651) --------------------------------------------------------------------
     /// What the Mac says: the list, each session's conversation and open cards, what each call gets; `controlled`: the
     /// sessions this phone controls (a send to any other asks first).
-    @ObservationIgnored var codingList = SessionsList(enabled: true, sessions: [])
+    @ObservationIgnored var codingList = SessionsList(enabled: true, sessions: [], noChats: [])
     @ObservationIgnored var codingItems: [String: [SessionItem]] = [:]
     @ObservationIgnored var codingCards: [String: [SessionCard]] = [:]
     @ObservationIgnored var controlled: Set<String> = []
@@ -344,6 +344,8 @@ final class FakePhone: PhoneApi {
     @ObservationIgnored var codingControlRefusal: FerbError?
     @ObservationIgnored var codingRefusal: FerbError?
     @ObservationIgnored var codingDelivered = true
+    /// The session's transcript carries a sent message at once (false: it shows only later, PHN-812).
+    @ObservationIgnored var codingEchoes = true
     @ObservationIgnored var codingFolders = ["/Users/owner/code/garden-app", "/Users/owner/code/recipes"]
     @ObservationIgnored var sessionPreview: PreviewSink?
     private func row(_ id: String) -> AgentSession? {
@@ -358,7 +360,7 @@ final class FakePhone: PhoneApi {
     private func deliver(_ id: String, _ text: String) -> SessionSent {
         codingSent.append((id, text))
         let n = UInt64((codingItems[id]?.last?.seq ?? 0) + 1)
-        codingItems[id, default: []].append(SessionItem(seq: n, at: "2026-01-02T10:00:00Z", kind: "user", text: text, tool: ""))
+        if codingEchoes { codingItems[id, default: []].append(SessionItem(seq: n, at: "2026-01-02T10:00:00Z", kind: "user", text: text, tool: "")) }
         return SessionSent(needsYes: nil, sent: true, delivered: codingDelivered, path: "terminal_script")
     }
     func sessionsList() async -> Outcome<SessionsList> {
@@ -417,16 +419,16 @@ final class FakePhone: PhoneApi {
     }
     func sessionPrepare(agent: String, folder: String, text: String) async -> Outcome<SessionStartPlan> {
         calls.append("session-prepare:\(agent):\(folder):\(text)")
-        if folder.isEmpty { return .ok(SessionStartPlan(folders: codingFolders, needsYes: nil)) }
-        let command = "cd '\(folder)' && \(agent == "codex" ? "codex" : "claude")" + (text.isEmpty ? "" : " '\(text)'")
-        return .ok(SessionStartPlan(folders: codingFolders, needsYes: SessionYes(question: "Start this in a new Terminal window?", detail: command,
-                                                                                    covers: "FERB types this command and nothing else.")))
+        // HAND-695: a new terminal; only a command is asked about, shown exactly
+        if folder.isEmpty || text.isEmpty { return .ok(SessionStartPlan(folders: codingFolders, needsYes: nil)) }
+        return .ok(SessionStartPlan(folders: codingFolders, needsYes: SessionYes(question: "Open a new Terminal window in \((folder as NSString).lastPathComponent) and type this?",
+                                                                                    detail: text, covers: "FERB opens it in the background and types only this command, then Return.")))
     }
     func sessionStart(agent: String, folder: String, text: String, signer: Signer) async -> Outcome<String> {
         calls.append("session-start:\(agent):\(folder):\(text)")
         guard let sig = signer.sign(payload: "sessions.start") else { return .failed(.NotSigned(detail: "Nothing was sent.", linkCode: nil)) }
         signed.append(sig)
-        return .ok("cd '\(folder)' && claude")
+        return .ok(text)
     }
     func sessionDelegate(_ session: String, goal: String, signer: Signer) async -> Outcome<String> {
         calls.append("session-delegate:\(session):\(goal)")

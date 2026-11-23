@@ -100,7 +100,7 @@ public final class AppShell: ObservableObject {
             beginBackground()
         default:
             // .inactive: the app switcher, a system sheet or Face ID's own sheet over FERB; the privacy cover shows
-            // (PHN-565) and no prompt starts by itself (PHN-615)
+            // (PHN-811) and no prompt starts by itself (PHN-615)
             active = false
             model.setWindowReady(false)
         }

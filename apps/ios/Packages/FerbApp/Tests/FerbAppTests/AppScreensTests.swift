@@ -151,7 +151,7 @@ final class AppScreensTests: XCTestCase {
         shot(MacView(model: vm, waiting: nil), app: "mac-screen-use-noon")
     }
 
-    // ---- the privacy cover (PHN-597) ---------------------------------------------------------------------------
+    // ---- the privacy cover (PHN-811) ---------------------------------------------------------------------------
 
     private func centre<V: View>(_ v: V) -> (r: UInt8, g: UInt8, b: UInt8) {
         let image = AppSnapshot.render(v.frame(width: 200, height: 400), size: CGSize(width: 200, height: 400)).cgImage!
@@ -163,7 +163,7 @@ final class AppScreensTests: XCTestCase {
     private var white: some View { Color.white }
 
     /// The app switcher and Control Center never see FERB: whenever the scene isn't active, the cover shows.
-    // decision: PHN-597, PHN-15
+    // decision: PHN-811, PHN-15
     func testTheCoverShowsWheneverTheSceneIsNotActive() {
         let active = centre(white.ferbPrivacy(hideWhenCaptured: false, mustHide: false, capturedForTest: false).environment(\.scenePhase, .active))
         XCTAssertEqual(active.r, 255, "active: the app shows")
@@ -173,9 +173,9 @@ final class AppScreensTests: XCTestCase {
         }
     }
 
-    /// While the screen is recorded or mirrored: hidden by the owner's switch, and always for Watch live and a
-    /// private answer (mustHide); never otherwise.
-    // decision: PHN-597, PHN-454, PHN-110
+    /// While the screen is recorded or mirrored: hidden by the owner's switch, and always for a private answer
+    /// (mustHide); never otherwise.
+    // decision: PHN-811, PHN-810, PHN-110
     func testACapturedScreenHidesFERBByTheSwitchAndAlwaysForWhatMustStayPrivate() {
         func shown(switchOn: Bool, must: Bool, captured: Bool) -> Bool {
             centre(white.ferbPrivacy(hideWhenCaptured: switchOn, mustHide: must, capturedForTest: captured).environment(\.scenePhase, .active)).r == 255
@@ -184,6 +184,81 @@ final class AppScreensTests: XCTestCase {
         XCTAssertFalse(shown(switchOn: false, must: true, captured: true))
         XCTAssertTrue(shown(switchOn: false, must: false, captured: true))
         XCTAssertTrue(shown(switchOn: true, must: true, captured: false))
+    }
+
+    /// A window FERB presents (a file's preview, the share sheet) sits above the root's cover: it gets the same cover,
+    /// from the same switch and private state, carried in by `ferbFullScreenCover` / `ferbSheet`.
+    // decision: PHN-811, PHN-15, PHN-110
+    func testAPresentedWindowGetsTheSameCoverFromTheSamePlace() {
+        func shown(block: Bool, must: Bool, captured: Bool, phase: ScenePhase = .active) -> Bool {
+            centre(FerbPresenting<URL, Color>.presented(white, block: block, mustHide: must, capturedForTest: captured)
+                .environment(\.scenePhase, phase)).r == 255
+        }
+        XCTAssertFalse(shown(block: false, must: false, captured: false, phase: .inactive), "the app switcher never sees it")
+        XCTAssertFalse(shown(block: false, must: false, captured: false, phase: .background))
+        XCTAssertFalse(shown(block: true, must: false, captured: true), "recorded with the switch on: hidden")
+        XCTAssertTrue(shown(block: false, must: false, captured: true), "recorded with the switch off: shown")
+        XCTAssertFalse(shown(block: false, must: true, captured: true), "a private answer: hidden whatever the switch says")
+        XCTAssertTrue(shown(block: true, must: false, captured: false))
+    }
+
+    /// Every window FERB presents goes through the one place: no `.fullScreenCover(` or `.sheet(` in the app's screens
+    /// except the helpers themselves, so a new one can't skip the cover (kb PHN-811).
+    // decision: PHN-811
+    func testEveryPresentedWindowGoesThroughTheOnePlace() throws {
+        let ui = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../Sources/FerbAppUI").standardized
+        let files = try FileManager.default.contentsOfDirectory(at: ui, includingPropertiesForKeys: nil).filter { $0.pathExtension == "swift" }
+        XCTAssertFalse(files.isEmpty)
+        var raw: [String] = []
+        for f in files where f.lastPathComponent != "Privacy.swift" {
+            let text = try String(contentsOf: f, encoding: .utf8)
+            for (n, line) in text.components(separatedBy: "\n").enumerated()
+            where line.contains(".fullScreenCover(") || line.contains(".sheet(") || line.contains(".popover(") {
+                raw.append("\(f.lastPathComponent):\(n + 1)")
+            }
+        }
+        XCTAssertEqual(raw, [], "present through ferbFullScreenCover / ferbSheet (Privacy.swift)")
+    }
+
+    /// The pictures of the Mac are shielded while the owner's switch is on and drawn plainly while it is off: one
+    /// environment value set at the root decides, on where nothing set it (kb PHN-810, PHN-811).
+    // decision: PHN-810, PHN-811
+    func testTheShieldFollowsTheSwitchFromTheRoot() {
+        func shielded(_ block: Bool?) -> Bool {
+            let picture = Color.red.screenshotShielded()
+            let v: AnyView = block.map { AnyView(picture.environment(\.ferbBlockScreenshots, $0)) } ?? AnyView(picture)
+            let host = UIHostingController(rootView: v.frame(width: 100, height: 100))
+            let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
+            window.rootViewController = host
+            window.makeKeyAndVisible()
+            host.view.layoutIfNeeded()
+            defer { window.isHidden = true }
+            func find(_ v: UIView) -> Bool { v is ShieldView || v.subviews.contains(where: find) }
+            return find(host.view)
+        }
+        XCTAssertTrue(shielded(true), "the switch on: in the shield")
+        XCTAssertFalse(shielded(false), "the switch off: drawn plainly, in screenshots like every page")
+        XCTAssertTrue(shielded(nil), "nothing set it: shielded (fail safe)")
+        // the root sets it from the owner's switch (Root.swift: ferbScreens)
+        let root = (try? String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appendingPathComponent("../../Sources/FerbAppUI/Root.swift").standardized, encoding: .utf8)) ?? ""
+        XCTAssertTrue(root.contains(".ferbScreens(blockScreenshots: model.settings.blockScreenshots, mustHide: model.mustSecure)"))
+    }
+
+    /// Under a screen drawn edge to edge (a session, Watch live, the camera) the page takes no touch and VoiceOver doesn't
+    /// reach it: a tap by a session's message box never lands on the Sessions tab's New session (owner 2026-11-23).
+    // decision: PHN-815
+    func testThePageUnderAWholeScreenSheetIsOutOfReach() {
+        for sheet: AppSheet in [.session(id: "s"), .sessionWatch(id: "s"), .live(taskId: "t"), .camera] {
+            XCTAssertTrue(RootView.coversPage(sheet), "\(sheet)")
+        }
+        for sheet: AppSheet? in [nil, .profile, .sessionNew, .sessionYes, .sessionHand(id: "s"), .task(taskId: "t", worker: nil)] {
+            XCTAssertFalse(RootView.coversPage(sheet), "\(String(describing: sheet)): a sheet with the page showing above it")
+        }
+        let root = (try? String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appendingPathComponent("../../Sources/FerbAppUI/Root.swift").standardized, encoding: .utf8)) ?? ""
+        XCTAssertTrue(root.contains(".allowsHitTesting(!Self.coversPage(model.sheet))"))
+        XCTAssertTrue(root.contains(".accessibilityHidden(Self.coversPage(model.sheet))"))
     }
 
     // ---- notifications as iOS gets them (PHN-415, PHN-417, PHN-422, PHN-566) ------------------------------------

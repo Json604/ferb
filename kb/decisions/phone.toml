@@ -1981,7 +1981,8 @@ evidence = "app OnPhoneTest a_picked_file_is_copied_here_and_a_fetched_file_is_h
 title = "Watch live always blocks screenshots and stops when it leaves the screen"
 by = "agent"
 date = 2026-11-16
-status = "active"
+status = "superseded"
+superseded_by = "PHN-811"
 rule = "For PHN-454, PHN-420. The Watch live screen sets FLAG_SECURE while it shows, whatever the Block screenshots switch says; the preview stops when the screen goes, the app goes to the background or locks; on the public relay it says the relay's rule and asks nothing. Frames are decoded in memory and never written or put in a notification."
 why = "PHN-454's condition for an unmasked picture on the phone: screenshots blank and nothing stored."
 evidence = "app OnPhoneTest watch_live_keeps_the_window_out_of_screenshots_even_with_the_switch_off; app FeaturesTest watch_live_never_asks_on_the_public_relay_and_stops_in_the_background."
@@ -2353,7 +2354,8 @@ evidence = "Android MacSettingsTest, iPhone MacSettingsTests (an older Mac's row
 title = "iPhone keeps Watch live's picture of the Mac out of screenshots through a secure field's canvas"
 by = "agent"
 date = 2026-11-17
-status = "active"
+status = "superseded"
+superseded_by = "PHN-811"
 supersedes = ["PHN-565"]
 rule = "For PHN-598, PHN-454. Watch live's frame is hosted in a never-attached secure UITextField's canvas (FerbAppUI ScreenshotShield); none found: a plain view and This phone says screenshots can show FERB. Private answers show no value (dots, SecureField). The rest of the app is not shielded; captures hide FERB."
 why = "Banking apps' technique: public calls, undocumented, may change (Apple). The window-layer variant crashed on iOS 26. SwiftUI hosted in the canvas isn't reached by VoiceOver (simulator UI test), so only a picture nothing reads or taps goes in."
@@ -3579,7 +3581,8 @@ why = "The phone had only the work row's circles."
 title = "Small live pictures follow the screenshot switch; the big views always block"
 by = "owner"
 date = 2026-11-18
-status = "active"
+status = "superseded"
+superseded_by = "PHN-810"
 words = "\" B (my recommendation) │ follow your switch │ force blocking on \" - i chose thi stoo"
 words_source = "Owner 2026-11-18, choosing B of A (every live picture forces blocking), B (small round pictures follow the switch, big views force it), C (everything follows the switch)."
 rule = "Refines the rule that live frames stay out of screenshots (PHN-454): it binds the views that show the Mac's screen readably (Watch live, a task's or step's short view); the small round pictures in the chat follow his Block screenshots switch."
@@ -3637,7 +3640,8 @@ why = "The Mac's rules (APP-403, APP-891) at a phone's cost: a full window JPEG 
 title = "Where small ends and big begins for screenshot blocking"
 by = "agent"
 date = 2026-11-18
-status = "active"
+status = "superseded"
+superseded_by = "PHN-811"
 rule = "For PHN-732. Small: the work row's 30 pt circles and a row's 26 pt circle. Big: the short view's picture (sheet width, 16:9) and Watch live; they set mustSecure while open and on iPhone draw in the screenshot shield. The app switcher: iPhone's cover is always on; Android's recents follow FLAG_SECURE as screenshots do."
 why = "The big views show the Mac's screen readably; a 30 pt circle doesn't."
 
@@ -4089,3 +4093,88 @@ status = "active"
 rule = "Both phones' Tasks tab and home list: a task that waits for the owner (its status needs_user, or its live state needs_you) is listed under Waiting for you, never under Running, from the chat's transcript and from the Mac's own list alike. A task whose open question is already listed there is not listed a second time."
 why = "The owner's phone on 2026-11-23 showed two ChatGPT watch tasks asking him under Running, with only the review's question under Waiting for you."
 paths = ["apps/android/app/src/main/kotlin/com/ferb/app/model/Work.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/Work.swift"]
+
+[PHN-810]
+title = "Every page follows the Block screenshots switch, Watch included"
+by = "owner"
+date = 2026-11-23
+status = "active"
+words = "also its watch page isnt adhering to the screenshot on/off toggle. PLEASE RUN AN AGENT THAT SEES WHAT ALL PAGES AERNT UNDER THIS RULE, and make them. / yeah its ok, both in ios and android."
+words_source = "Owner 2026-11-23 on the phone app from 301bbfa2, relayed verbatim. After the /: his answer to \"So with the switch off, a screenshot on your phone can capture Watch or a live picture of your Mac. OK?\""
+rule = "Supersedes PHN-732 (his B of 2026-11-18 becomes C) and refines PHN-454, PHN-793 and PHN-800 where they keep Watch live, a task's short view, the Mac's camera or a session's Watch out of screenshots whatever the switch says. On both phones every page, sheet, picture and window follows his Block screenshots switch. Only a hidden answer's box stays out whatever it says (PHN-110), and recent apps stay covered (PHN-15). PHN-454's other conditions hold: direct or own relay, unlocked, memory only, never in a notification."
+supersedes = ["PHN-732"]
+live = ["LIVE-1190"]
+
+[PHN-812]
+title = "A send to a session shows as sending at once, then sent or not sent"
+by = "owner"
+date = 2026-11-23
+status = "active"
+words = "BUT, I just noticed that what I've typed in their phone gets typed in the chat and until then the send button on phone is frozen, no activity indicator or so. so please add it"
+words_source = "Owner 2026-11-23, after sending from his phone into his Claude Code session (it worked); relayed verbatim by the coordinator."
+rule = "Refines PHN-800. On both phones and FERB.app's Sessions page, Send clears the message box at once and his words show in the session as a pending bubble with a small spinner and \"Sending\u2026\", the send button disabled and showing progress, for as long as FERB types into the terminal. When the Mac confirms, the bubble is an ordinary sent one (the session's reply follows as before, never a second copy); when the Mac refuses or the send fails, it is PHN-800's \"Not sent.\" with the reason and Try again, his words kept. No invented progress."
+live = ["LIVE-1191"]
+
+[PHN-813]
+title = "A session's conversation scrolls like FERB's own chat"
+by = "owner"
+date = 2026-11-23
+status = "active"
+words = "also, this session chat window doesn't have the scroll down, scroll arrow on up etcetc other features like the main FERB phone chat- add them too"
+words_source = "Owner 2026-11-23 on the phone app built from 301bbfa2, about a session's screen; relayed verbatim by the coordinator."
+rule = "A session's conversation on both phones (and FERB.app's Sessions page where it applies) uses the main chat's own list, not a copy, so it has what the chat has (the jump-to-latest arrow when scrolled up, staying at the bottom only when already there, and the rest the chat's list does) and later chat features reach sessions too."
+live = ["LIVE-1191"]
+
+
+[PHN-815]
+title = "A session's screen: the chat's gaps, touches only where meant, the sent bubble at once"
+by = "owner"
+date = 2026-11-23
+status = "active"
+words = "the top bar and the bottom chat have no space whatsover, also hte bottom takes wring touch sometimes on the sides and taks me to the session home page and prompts start a new session. its all UI and no spcing issue - ifx them / also theres no buble after ive sent the message, please add it, else it looks stuck -FEEDBACK, remember - FEEDBACK."
+words_source = "Owner 2026-11-23, two messages with a screenshot of a session's screen on his Android phone (the Working pill on the first message, the last under the box); relayed verbatim."
+rule = "On both phones a session's screen keeps the main chat's gaps (PHN-416): the list starts below the header and scrolls under its fade, the message box sits above the bottom edge with the chat's gap, and the last message is never under it. Near the message box only it and its send button take touches; nothing there leads back to the sessions list or opens New session. His message shows as a bubble the moment he sends it (PHN-812)."
+live = ["LIVE-1191"]
+
+[PHN-816]
+title = "A session opening shows its messages loading, never an error before the Mac has answered"
+by = "owner"
+date = 2026-11-23
+status = "active"
+words = "it for some seconds saud ferb cant find a chat - if it takes time it shoudl show some skeleton indiactor or something - AGAIN, FEEDBACK."
+words_source = "Owner 2026-11-23, opening a session on his phone; relayed verbatim by the coordinator."
+rule = "On both phones and FERB.app's Sessions page, while a session's first read (or the refresh after a send) is on its way, its screen shows the chat's loading look of message bubbles. A line saying the chat can't be found shows only once the Mac has answered that it isn't there."
+live = ["LIVE-1191"]
+
+[PHN-811]
+title = "The screenshot switch is set in one place per phone; only a hidden answer's box always blocks"
+by = "agent"
+date = 2026-11-23
+status = "active"
+supersedes = ["PHN-518", "PHN-727", "PHN-597"]
+rule = "For PHN-810, PHN-110, PHN-15, PHN-598. Android: MainActivity's one window takes FLAG_SECURE from ScreenGuard.secure(switch, mustSecure); mustSecure is only a hidden answer's box; every page and sheet is drawn in that window; a Compose dialog or popup takes its flag when it opens; recents always blank. iPhone: Privacy.swift ferbScreens sets the switch once at the root and carries it into every page and presented window (ferbFullScreenCover, ferbSheet): on, the pictures of the Mac draw in the ScreenshotShield canvas and FERB hides while captured; the app switcher is always covered."
+why = "Watch live, the short view, the camera and a session's Watch forced the block whatever the switch said (PHN-810). On iPhone, file previews and the share sheet sat above the root's cover. The rest of the iPhone app stays unshielded in screenshots: SwiftUI in the canvas loses VoiceOver and taps."
+evidence = "Android ScreenGuardTest (every sheet, switch on and off; a Compose Dialog and Popup); iPhone AppScreensTests (presented windows, one place, the shield by the switch), ParityTests, ScreenshotShieldTests. A blank screenshot on a phone: LIVE-1190."
+paths = ["apps/android/app/src/main/kotlin/com/ferb/app/ScreenGuard.kt", "apps/android/app/src/main/kotlin/com/ferb/app/MainActivity.kt", "apps/android/app/src/main/kotlin/com/ferb/app/FerbViewModel.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppUI/Privacy.swift", "apps/ios/Packages/FerbApp/Sources/FerbAppUI/ScreenshotShield.swift", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/AppModel.swift"]
+live = ["LIVE-1190"]
+
+[PHN-814]
+title = "Both phones: one sending state per session, the chat's list, a full page's touches, a loading look"
+by = "agent"
+date = 2026-11-23
+status = "active"
+rule = "For PHN-812, PHN-813, PHN-815, PHN-816. One state per open session (Android SessionSending, iPhone SessionOutgoing): sending from the tap (box cleared, faded bubble, turning send button), sent until his message is in the session's record, or not sent with Try again. The list uses the main chat's pieces (Android rememberChatFollow, JumpPill; iPhone FollowingList): follow at the end, the arrow and New message, day marks, selectable words, the chat's gaps and edge fades. A full page takes every touch over the page under it (coversPage). ChatWaiting until the first read answers."
+why = "The send button froze with nothing shown; the list was its own; the Working pill sat on the first message and the last ran under the box; taps at the box's edges fell through to the tab's New session under it (the page's root took no touches); an error showed before the first read answered."
+evidence = "Android SessionsTest, SessionShotsTest (goldens session-sending, -scrolled-up, -waiting, -conversation-360/-412; taps at the box's edges); iPhone SessionsTests, SessionScreensTests, goldens session-{long,sending,scrolled-up,new-message,waiting}-{375,402}."
+paths = ["apps/android/app/src/main/kotlin/com/ferb/app/model/Sessions.kt", "apps/android/app/src/main/kotlin/com/ferb/app/ui/Sessions.kt", "apps/android/design/src/main/kotlin/com/ferb/design/components/Sessions.kt", "apps/android/design/src/main/kotlin/com/ferb/design/screens/SessionScreens.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/CodingSessions.swift", "apps/ios/Packages/FerbDesign/Sources/FerbDesign/Sessions.swift", "apps/ios/Packages/FerbDesign/Sources/FerbDesign/ChatList.swift"]
+live = ["LIVE-1191"]
+
+[PHN-817]
+title = "The phones' Sessions list: each terminal's program, folder and app; New session: folder and command"
+by = "agent"
+date = 2026-11-23
+status = "active"
+rule = "For HAND-691, HAND-697, PHN-798. Both phones: the tab is \"Your terminal sessions\"; a row's title is the session's own, else its window's in its app's words, else its folder; its line \"<program> · <folder> · in <app>\". Each chat app open with no chat adds one quiet line under the list. New session: the folders the Mac offers, Another folder (a full path typed), and Command to run (optional); no agent picker. A command is shown exactly in the Mac's question before the signed start; with none it opens at once (still signed). Browsing the Mac's folders from the sheet is T-1300."
+evidence = "Android SessionsTest (new session as a terminal; a terminal row; the no-chat line), SessionsLibraryTest, SessionShotsTest (sessions-list, session-new, session-new-command); iPhone SessionsTests, SessionsLibraryTests."
+paths = ["apps/android/app/src/main/kotlin/com/ferb/app/ui/Sessions.kt", "apps/android/app/src/main/kotlin/com/ferb/app/model/Sessions.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppUI/Sessions.swift", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/CodingSessions.swift", "engine/crates/ferb-mobile/src/sessions.rs"]
+live = ["LIVE-1192", "LIVE-1193"]

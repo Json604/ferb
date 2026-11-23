@@ -266,14 +266,14 @@ class InsomniaTest {
 
     // ---- the camera view ---------------------------------------------------------------------------------------------
 
-    // decision: APP-983, PHN-454, PHN-775
+    // decision: APP-983, PHN-454, PHN-775, PHN-810
     @Test
-    fun the_camera_pulls_only_while_its_view_shows_and_always_out_of_screenshots() {
+    fun the_camera_pulls_only_while_its_view_shows_and_follows_the_screenshot_switch() {
         session.foreground(true)
         val vm = vm()
         vm.showCamera()
         assertEquals(Sheet.Camera, vm.sheet.value)
-        assertTrue(vm.mustSecure.value)
+        assertFalse("the camera follows the owner's switch (PHN-810)", vm.mustSecure.value)
         assertEquals(1, phone.calls.count { it == "camera" })
         // it leaves: the pulling stops
         vm.show(null)

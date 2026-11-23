@@ -72,8 +72,8 @@ public enum RunningModel {
 
 /// The work row's round live pictures (APP-403, APP-900) under the preview's rules (PHN-454, PHN-444): only while the
 /// row is on screen and the app unlocked and in front (the model says when), never on the shared relay (the library
-/// refuses it), at most one picture every `everyMs` per task. Each frame is decoded small, in memory only; the screen is
-/// kept out of screen captures while any shows (AppModel.mustSecure).
+/// refuses it), at most one picture every `everyMs` per task. Each frame is decoded small, in memory only; screenshots
+/// and captures as the owner's switch says (kb PHN-810).
 @MainActor
 @Observable
 public final class Thumbnails {

@@ -5173,3 +5173,38 @@ request = "Look at the top bar on each tab. Open a session; open its menu (\u202
 pass = "The chosen tab shows its name, the other icons have room, the same on both phones; the profile button's badge shows the link and its page's first row opens the connection sheet; the session's header is its title and state with \u2026 and Close, its menu holds where it runs and its actions; a refused send shows your words dimmed with \"Not sent.\" and why, and Try again sends them; the screenshot shows the session with the switch off, black with it on."
 decisions = ["PHN-800", "PHN-798", "PHN-801"]
 sitting = "after this build is installed"
+
+[LIVE-1190]
+title = "The screenshot switch on every page of both phones, Watch included"
+area = "phone"
+surface = "The Android phone and the iPhone, paired over a direct link or his own relay; a running task and a Claude Code session on the Mac"
+request = "Turn Block screenshots off. Take a screenshot of the chat, a task's short view, Watch live, Show me (the Mac's camera), a session and its Watch. Turn it on and take the same screenshots. With it on or off, open a question that asks for a hidden answer and take one more."
+pass = "Android: with the switch off every screenshot shows the page, Watch and the camera included; with it on every one is black; the hidden answer's box is black either way; recent apps show FERB covered. iPhone: with the switch off the pictures of the Mac show; with it on they are blank in the screenshot and FERB is hidden in a screen recording; This phone's row says the rest of the app can show in screenshots."
+decisions = ["PHN-810", "PHN-811"]
+sitting = "after this build is installed"
+
+[LIVE-1191]
+title = "A session's screen: sending at once, the chat's list, its gaps, its touches and its loading look"
+area = "phone"
+surface = "The Android phone, the iPhone and FERB.app's Sessions page; a Claude Code session in VS Code's terminal on the Mac"
+request = "Open the session from the Sessions tab and watch the first seconds. Send a message and watch the bubble until the session answers. Scroll up while it answers, then use the arrow. Tap all along the message box's edges and just below it. Send once with the session's terminal hidden so the send is refused."
+pass = "While it opens the chat's loading look shows and no error; your message shows at once as Sending… with the send button turning, then as your message, once; scrolled up, the arrow shows with New message and takes you to the latest; the header and the message box each have room and the last message is never under the box; no tap near the box opens New session; a refused send shows Not sent. with Try again and your words; the same on all three."
+decisions = ["PHN-812", "PHN-813", "PHN-814", "PHN-815", "PHN-816", "APP-1120"]
+
+[LIVE-1192]
+title = "Every terminal is a session: agy in a new Terminal tab appears and is typed into; New session"
+area = "hands"
+surface = "FERB.app and a paired phone; Terminal and VS Code on the Mac; a disposable folder"
+request = "Open a new Terminal tab, cd to a folder and run agy (or python3). Look at the phone's Sessions tab. Open that row, send a short line, then let it finish. In VS Code, open an integrated terminal running zsh. Then New session on the phone: pick the disposable folder, no command, Start; again with the command agy."
+pass = "Within seconds the tab is one row \"agy · <folder> · in Terminal\" titled with its window's words; a Claude Code session in VS Code shows once; the agy row shows its text and your line is typed after the one Yes; VS Code's zsh row says FERB can't show its text; New session opens a new Terminal window in the folder without coming forward (or says it did), types nothing without a command, and exactly agy with one."
+decisions = ["HAND-691", "HAND-692", "HAND-693", "HAND-694", "HAND-695", "PHN-817", "APP-1121"]
+sitting = "after this build is installed"
+
+[LIVE-1193]
+title = "Chat apps: an editor-only window is no session; a real chat is found and typed only into its box"
+area = "hands"
+surface = "Cursor, the Claude app and ChatGPT on the Mac; a paired phone"
+request = "Open Cursor with only a file open, no agent chat. Look at the phone's Sessions tab. Then open Cursor's agent chat and wait a few seconds; open it on the phone and send hi. Open the Claude app's chat and do the same."
+pass = "With no chat open, Cursor shows no session and one line \"No chat open in Cursor. Start one there to continue here.\"; nothing is ever typed into the file; once the chat is open it appears (after at most one model look, journaled as sessions.layout_asked), its messages are only the chat's; hi goes into the chat box; a sign-in window that comes up stops the send with that reason; no call times out."
+decisions = ["HAND-697", "HAND-698", "HAND-699", "HAND-700", "HAND-701", "PHN-817", "APP-1121"]
+sitting = "after this build is installed"

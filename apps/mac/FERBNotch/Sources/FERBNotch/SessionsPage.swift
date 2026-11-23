@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 import NotchCore
 
-/// Sessions: the owner's Claude Code and Codex sessions on this Mac, in any app. The list, one session's conversation
+/// Sessions: every terminal on this Mac (HAND-691), the owner's Claude Code and Codex sessions among them, in any app. The list, one session's conversation
 /// (the agent's own record, shown as plain text: nothing in it is a link or runs), its open questions with their
 /// buttons, a composer, and Watch, Hand to FERB, Stop its turn, Stop controlling and New session. Everything that would
 /// type or run something shows the daemon's question with the exact text first.
@@ -55,9 +55,9 @@ struct SessionsPage: View {
             if sessions.enabled == false {
                 WindowCard {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("FERB doesn't see your Claude Code and Codex sessions yet.")
+                        Text("FERB doesn't see your terminal sessions yet.")
                             .font(.system(size: 15, weight: .semibold))
-                        Text("Turn it on and you can follow and answer them from here, start new ones and hand one to FERB. FERB adds a small hook to Claude Code's settings so it hears when a session finishes or needs you. Codex needs nothing added.")
+                        Text("Turn it on and you can follow your terminals and type into them from here, Claude Code and Codex too, open new ones and hand one to FERB. FERB adds a small hook to Claude Code's settings so it hears when a session finishes or needs you.")
                             .font(.system(size: 12)).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                         Button("Turn on") { Task { await store.turnOnSessions() } }
@@ -72,13 +72,17 @@ struct SessionsPage: View {
                         .help("Refresh sessions").accessibilityLabel("Refresh sessions")
                 }.padding(.bottom, 4)
                 if sessions.sessions.isEmpty {
-                    Text("No Claude Code or Codex sessions are running right now.").foregroundStyle(.secondary)
+                    Text("No terminals are open on your Mac right now.").foregroundStyle(.secondary)
                 }
                 ForEach(sessions.sessions) { row in
                     Button { Task { await sessions.open(row) } } label: {
                         WindowCard { SessionRowView(row: row) }.contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                }
+                // HAND-697: an app open with no chat FERB could find says so, once
+                ForEach(sessions.noChats, id: \.self) { app in
+                    Text(AgentSessionRow.noChatLine(app)).font(.system(size: 12)).foregroundStyle(.secondary)
                 }
             }
         }
@@ -154,7 +158,7 @@ struct SessionDetailView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
-            if let problem = sessions.problem { ProblemLine(text: problem) }
+            if let problem = sessions.problemShown { ProblemLine(text: problem) }
             if let note = sessions.note { Text(note).foregroundStyle(.secondary).textSelection(.enabled) }
             timeline
             composer
@@ -185,29 +189,18 @@ struct SessionDetailView: View {
         }
     }
 
+    /// The conversation, by the chat's own list and rules (PHN-813): earlier items as he scrolls up, "New message"
+    /// when something arrives while he is scrolled up, his words on their way (PHN-812).
     private var timeline: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 10) {
-                    if sessions.more {
-                        Button("Show earlier") { Task { await sessions.showEarlier() } }
-                            .frame(maxWidth: .infinity)
-                    }
-                    ForEach(sessions.items) { item in SessionItemView(item: item).id(item.seq) }
-                    ForEach(sessions.cards) { card in
-                        SessionCardView(card: card, agentName: row.agentName) { choice in
-                            Task { await sessions.answer(card, choice) }
-                        }
-                    }
-                    Color.clear.frame(height: 1).id("end")
-                }
-                .padding(.vertical, 6)
+        Group {
+            // while the first read is on its way: the loading look, never an error (PHN-816)
+            if sessions.opening {
+                SessionSkeleton()
+            } else {
+                SessionTranscript(sessions: sessions, agentName: row.agentName)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .onChange(of: sessions.items.last?.seq) { _, _ in proxy.scrollTo("end", anchor: .bottom) }
-            .onChange(of: sessions.cards.count) { _, _ in proxy.scrollTo("end", anchor: .bottom) }
-            .onAppear { proxy.scrollTo("end", anchor: .bottom) }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     @ViewBuilder private var composer: some View {
@@ -218,30 +211,34 @@ struct SessionDetailView: View {
                     .padding(.horizontal, 14).padding(.vertical, 11)
                     .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .onSubmit { Task { await sessions.send() } }
-                Button("Send") { Task { await sessions.send() } }
-                    .buttonStyle(SetupActionStyle(primary: true))
-                    .disabled(sessions.busy || sessions.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                // while his words are on their way the button shows it, never just greyed (PHN-812)
+                Button { Task { await sessions.send() } } label: {
+                    if sending {
+                        ProgressView().controlSize(.small).accessibilityLabel("Sending…")
+                    } else {
+                        Text("Send")
+                    }
+                }
+                .buttonStyle(SetupActionStyle(primary: true))
+                .disabled(sessions.busy || sessions.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         } else if let why = row.noSend {
             Text(why).font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
     }
+
+    private var sending: Bool { sessions.outgoing?.state == .sending }
 }
 
-/// One line of the conversation: the owner's words on the right, the agent's on the left, a tool call as one small
-/// monospace line, an interrupt or an error as a quiet line. Plain text only.
+/// One line of the conversation: the owner's words on the right, the agent's on the left (both on the chat's text
+/// surface), a tool call as one small monospace line, an interrupt or an error as a quiet line. Plain text only.
 struct SessionItemView: View {
     let item: SessionItem
 
     var body: some View {
         switch item.kind {
         case "user":
-            HStack {
-                Spacer(minLength: 80)
-                Text(item.text).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 14).padding(.vertical, 9)
-                    .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            }
+            SessionBubble(text: item.text)
         case "tool":
             Text(item.line).font(.system(size: 11, design: .monospaced)).foregroundStyle(.white.opacity(0.55))
                 .lineLimit(2).textSelection(.enabled)
@@ -252,8 +249,9 @@ struct SessionItemView: View {
             Label(item.text, systemImage: "exclamationmark.triangle").font(.system(size: 12))
                 .foregroundStyle(.red.opacity(0.85)).textSelection(.enabled)
         default:
+            // the chat's text surface: select and copy as in the chat (APP-788), plain text only
             HStack {
-                Text(item.text).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                NativeMessageText(item.text, size: 13)
                 Spacer(minLength: 80)
             }
         }
@@ -430,22 +428,19 @@ struct HandOverView: View {
     }
 }
 
-/// New session: which agent, which folder, an optional first message; Start shows the exact command first.
+/// New session (HAND-691): a terminal. Only the folder (the daemon's list, or Choose… to browse) and an optional
+/// command; Start opens it, and a command is shown exactly and typed only after the Yes. No agent to pick: the owner
+/// types the one he wants.
 struct NewSessionView: View {
     @ObservedObject var sessions: SessionsModel
     let close: () -> Void
-    @State private var agent = "claude_code"
     @State private var folder = ""
-    @State private var first = ""
+    @State private var command = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("New session").font(.system(size: 17, weight: .semibold))
-            Text("Which agent?").foregroundStyle(.secondary)
-            Picker("Which agent?", selection: $agent) {
-                ForEach(sessions.agents, id: \.self) { Text(AgentSessionRow.agentName($0)).tag($0) }
-            }
-            .pickerStyle(.segmented).labelsHidden()
+            Text("Opens a new \(sessions.host) window in the folder.").font(.system(size: 12)).foregroundStyle(.secondary)
             Text("Folder").foregroundStyle(.secondary)
             Menu(folder.isEmpty ? "Choose…" : (folder as NSString).abbreviatingWithTildeInPath) {
                 ForEach(sessions.folders, id: \.self) { path in
@@ -455,21 +450,26 @@ struct NewSessionView: View {
                 Button("Choose…") { choose() }
             }
             .fixedSize()
-            Text("First message (optional)").foregroundStyle(.secondary)
-            TextField("", text: $first, axis: .vertical)
-                .textFieldStyle(.plain).lineLimit(2...6)
+            Text("Command (optional)").foregroundStyle(.secondary)
+            TextField("Command to run (optional)", text: $command)
+                .textFieldStyle(.plain).font(.system(size: 13, design: .monospaced))
                 .padding(10).background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             if let problem = sessions.problem { ProblemLine(text: problem) }
             HStack {
                 Spacer()
                 Button("Cancel", action: close).keyboardShortcut(.cancelAction)
-                Button("Start") { Task { await sessions.planStart(agent: agent, folder: folder, text: first) } }
-                    .buttonStyle(SetupActionStyle(primary: true))
-                    .disabled(folder.isEmpty)
+                Button("Start") {
+                    Task {
+                        let noCommand = command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        if await sessions.planStart(folder: folder, command: command), noCommand { close() }
+                    }
+                }
+                .buttonStyle(SetupActionStyle(primary: true))
+                .disabled(folder.isEmpty)
             }
         }
         .padding(24).frame(width: 480)
-        .onAppear { if let named = sessions.agents.first, !sessions.agents.contains(agent) { agent = named } }
+        .onAppear { if folder.isEmpty, let first = sessions.folders.first { folder = first } }
     }
 
     private func choose() {

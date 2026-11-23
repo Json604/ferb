@@ -56,10 +56,12 @@ final class SessionsMac: Transport, @unchecked Sendable {
         case "sessions.interrupt": v = ["interrupted": true]
         case "sessions.release": v = ["released": 1]
         case "sessions.prepare":
-            var r: [String: Any] = ["folders": ["/Users/owner/code/garden-app", ""], "agents": ["claude_code", "codex"], "host": "Terminal"]
-            if p["folder"] != nil { r["needs_yes"] = ["question": "Start this in a new Terminal window?", "detail": "cd '/x' && claude", "covers": ""] }
+            var r: [String: Any] = ["folders": ["/Users/owner/code/garden-app", ""], "host": "Terminal"]
+            if let c = p["command"] as? String, !c.isEmpty {
+                r["needs_yes"] = ["question": "Open a new Terminal window in x and type this?", "detail": c, "covers": ""]
+            }
             v = r
-        case "sessions.start": v = ["started": true, "command": "cd '/x' && claude"]
+        case "sessions.start": v = ["started": true, "command": p["command"] ?? "", "session": "term:300", "host": "Terminal"]
         case "sessions.delegate": v = ["handed_over": true, "message": "FERB is on it."]
         default: throw TransportError.Failed(code: "method_not_allowed", detail: "\(method) is not allowed", allow: nil, retryAfterS: nil)
         }
@@ -166,7 +168,7 @@ final class SessionsLibraryTests: XCTestCase {
         XCTAssertTrue(signer.payloads.first?.contains("Run the tests") ?? false, "the signature covers the exact words")
     }
 
-    // decision: HAND-663, HAND-665, ORCH-687
+    // decision: HAND-663, HAND-695, ORCH-687
     func testAnswersStartsAndHandOversAreSignedEachTime() throws {
         XCTAssertTrue(try mobile.sessionAnswer(session: "claude:abc", card: "card-1", choice: "deny", signer: Signs()))
         let answer = try XCTUnwrap(mac.calls.last { $0.method == "sessions.answer" })
@@ -176,9 +178,13 @@ final class SessionsLibraryTests: XCTestCase {
         XCTAssertEqual(plan.folders, ["/Users/owner/code/garden-app"], "empty folders dropped")
         XCTAssertNil(plan.needsYes)
         XCTAssertTrue(mac.calls.last { $0.method == "sessions.prepare" }!.params.isEmpty, "the folder list asks with nothing")
-        let withFolder = try mobile.sessionPrepare(agent: "codex", folder: "/x", text: "hi")
-        XCTAssertEqual(withFolder.needsYes?.detail, "cd '/x' && claude")
-        XCTAssertEqual(try mobile.sessionStart(agent: "codex", folder: "/x", text: "hi", signer: Signs()), "cd '/x' && claude")
+        XCTAssertNil(try mobile.sessionPrepare(agent: "terminal", folder: "/x", text: "").needsYes, "no command: nothing to ask")
+        let withFolder = try mobile.sessionPrepare(agent: "terminal", folder: "/x", text: "agy")
+        XCTAssertEqual(withFolder.needsYes?.detail, "agy")
+        let asked = try XCTUnwrap(mac.calls.last { $0.method == "sessions.prepare" })
+        XCTAssertEqual(asked.params["command"] as? String, "agy")
+        XCTAssertNil(asked.params["agent"], "no agent: a new session is a terminal")
+        XCTAssertEqual(try mobile.sessionStart(agent: "terminal", folder: "/x", text: "agy", signer: Signs()), "agy")
         XCTAssertNotNil(mac.calls.last { $0.method == "sessions.start" }?.proof)
         XCTAssertEqual(try mobile.sessionDelegate(session: "claude:abc", goal: "Keep going", signer: Signs()), "FERB is on it.")
         XCTAssertNotNil(mac.calls.last { $0.method == "sessions.delegate" }?.proof)

@@ -10,7 +10,7 @@ import XCTest
 /// check); this test proves the parts iOS lets a test see, and catches an iOS that builds the field differently.
 @MainActor
 final class ScreenshotShieldTests: XCTestCase {
-    // decision: PHN-597
+    // decision: PHN-811
     func testTheSecureCanvasIsFoundAndHostsTheContent() throws {
         XCTAssertTrue(ScreenshotShield.available, "this iOS no longer builds a secure field's canvas as the shield needs")
         let host = ShieldHost(rootView: Text("secret").accessibilityIdentifier("inside"))
@@ -38,7 +38,7 @@ final class ScreenshotShieldTests: XCTestCase {
         window.isHidden = true
     }
 
-    // decision: PHN-597
+    // decision: PHN-811
     func testWithoutACanvasTheContentIsStillShownInAPlainView() {
         // an iOS that builds the field differently: the content shows as before (the capture cover still hides it
         // while recorded or mirrored), and This phone says screenshots can show FERB (ScreenshotShield.available)

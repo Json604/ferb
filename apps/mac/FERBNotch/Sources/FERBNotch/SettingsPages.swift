@@ -541,11 +541,11 @@ struct PrivacySettingsPage: View {
                 MemoryImportSwitches(store: store)
             }
             // Sessions: the daemon's `sessions.enabled`; on adds FERB's hook to Claude Code's settings, off removes it
-            WindowSettingsSection(title: "Your coding sessions") {
-                KnownToggle(title: "Let FERB see your Claude Code and Codex sessions",
+            WindowSettingsSection(title: "Your terminal sessions") {
+                KnownToggle(title: "Let FERB see your terminal sessions",
                             isOn: store.toggle("sessions.enabled"),
                             known: store.settingsKnown && store.settings.has("sessions.enabled"))
-                Text("When this is on, you can follow and answer your sessions from your phone or this window, start new ones and hand one to FERB. FERB adds a small hook to Claude Code's settings and removes it when you turn this off.")
+                Text("When this is on, you can follow your terminals and type into them from your phone or this window, Claude Code and Codex too, open new ones and hand one to FERB. FERB adds a small hook to Claude Code's settings and removes it when you turn this off.")
                     .font(.system(size: 12)).foregroundStyle(.secondary)
             }
             WindowSettingsSection(title: "Apps FERB ignores") {

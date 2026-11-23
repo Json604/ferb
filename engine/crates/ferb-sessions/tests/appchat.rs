@@ -76,9 +76,26 @@ fn bubbles() -> Vec<Node> {
         ),
         text(450.0, 230.0, 250.0, "Thanks, run it again"),
         text(40.0, 280.0, 660.0, "All 12 tests pass."),
-        input(880.0, false),
+        Node {
+            composer: true,
+            ..input(880.0, false)
+        },
         input(300.0, false), // a search box higher up: not the composer
+        list(),
     ]
+}
+
+/// The message list's container above the composer.
+fn list() -> Node {
+    Node {
+        role: "AXScrollArea".into(),
+        x: 40.0,
+        y: 90.0,
+        w: 660.0,
+        h: 300.0,
+        enabled: true,
+        ..Node::default()
+    }
 }
 
 // decision: HAND-670
@@ -99,7 +116,7 @@ fn the_owner_s_own_messages_are_his_by_the_app_s_layout_with_nothing_sent_by_fer
             (Speaker::App, "All 12 tests pass."),
         ]
     );
-    // the composer is the lowest editable field, never the search box
+    // the composer is the one the proof marked, never the search box
     assert_eq!(look.composer, Some(6));
     assert!(!look.stop_control);
 }
@@ -122,7 +139,13 @@ fn an_app_with_no_side_of_its_own_is_read_by_alignment_and_labels_it_shows() {
         text(20.0, 100.0, 40.0, "You"),
         text(20.0, 120.0, 300.0, "rename the module"),
         text(20.0, 160.0, 320.0, "Renamed it and updated 4 imports."),
-        input(600.0, true),
+        Node {
+            composer: true,
+            x: 20.0,
+            w: 340.0,
+            ..input(600.0, true)
+        },
+        list(),
     ];
     let look = read(&nodes, &pane, &[]);
     let said: Vec<Speaker> = look.blocks.iter().map(|b| b.speaker).collect();
@@ -217,4 +240,177 @@ fn a_window_with_no_field_to_type_into_has_no_composer() {
     let nodes = vec![text(40.0, 100.0, 300.0, "Read only")];
     assert_eq!(read(&nodes, &claude(), &[]).composer, None);
     assert!(!known().is_empty() && known().iter().all(|f| !f.bundle_id.is_empty()));
+}
+
+fn cand(index: usize, label: &str, chain: &[(&str, &[&str])]) -> Candidate {
+    Candidate {
+        index,
+        label: label.into(),
+        focused: false,
+        bottom: 900.0,
+        chain: chain
+            .iter()
+            .map(|(role, marks)| Link {
+                role: role.to_string(),
+                marks: marks.iter().map(|m| m.to_string()).collect(),
+                frame: None,
+            })
+            .collect(),
+    }
+}
+
+const CURSOR: &str = "com.todesktop.230313mzl4w4u92";
+
+// decision: HAND-697, HAND-698
+#[test]
+fn a_chat_pane_is_proven_by_structure_and_an_editor_or_a_settings_page_never_is() {
+    let cursor = facts_for(CURSOR, "Cursor", &[]);
+    // the editor's input, whatever its label: never a composer
+    let editor = cand(
+        3,
+        "scratch.txt",
+        &[
+            ("AXTextArea", &["inputarea"]),
+            ("AXGroup", &["monaco-editor"]),
+            ("AXWindow", &[]),
+        ],
+    );
+    assert_eq!(prove(std::slice::from_ref(&editor), &cursor), None);
+    // a settings page: a search field and a text field, neither in a chat pane
+    let search = cand(
+        1,
+        "Search settings",
+        &[("AXTextField", &["AXSearchField"]), ("AXWindow", &[])],
+    );
+    let field = cand(
+        2,
+        "Claude export",
+        &[
+            ("AXTextField", &["setting-input"]),
+            ("AXGroup", &["settings-editor"]),
+            ("AXWindow", &[]),
+        ],
+    );
+    assert_eq!(prove(&[search.clone(), field.clone()], &cursor), None);
+    // the agent pane: its composer's marks inside its pane's
+    let composer = cand(
+        7,
+        "Plan, search, build anything",
+        &[
+            ("AXTextArea", &["aislash-editor-input"]),
+            ("AXGroup", &["composer-input"]),
+            ("AXGroup", &["auxiliarybar", "part"]),
+            ("AXWindow", &[]),
+        ],
+    );
+    assert_eq!(
+        prove(&[editor, search, field, composer.clone()], &cursor),
+        Some(Proven {
+            composer: 7,
+            pane: 2
+        })
+    );
+    // its fingerprint finds it again, never the editor
+    let fp = fingerprint(&composer, 2);
+    assert_eq!(
+        matches(&fp, &[composer]),
+        Some(Proven {
+            composer: 7,
+            pane: 2
+        })
+    );
+    // an app the owner added: the one editable element that is no editor's
+    let added = facts_for("com.example.chat", "Some Chat", &[]);
+    let one = cand(4, "Message", &[("AXTextArea", &[]), ("AXWindow", &[])]);
+    assert_eq!(
+        prove(std::slice::from_ref(&one), &added),
+        Some(Proven {
+            composer: 4,
+            pane: 1
+        })
+    );
+    assert_eq!(
+        prove(
+            &[
+                one.clone(),
+                cand(5, "Search", &[("AXTextField", &[]), ("AXWindow", &[])])
+            ],
+            &added
+        ),
+        None
+    );
+    // icon-font glyphs aren't words
+    assert_eq!(plain("\u{eb60} scratch.txt \u{f101}"), "scratch.txt");
+}
+
+// decision: HAND-699
+#[test]
+fn a_model_s_pick_is_learned_only_when_code_s_check_holds() {
+    let nodes = vec![
+        list(),
+        text(400.0, 100.0, 300.0, "hi"),
+        text(40.0, 150.0, 600.0, "Hello"),
+        Node {
+            composer: false,
+            ..input(880.0, false)
+        },
+        Node {
+            role: "AXTextArea".into(),
+            x: 700.0,
+            y: 80.0,
+            w: 400.0,
+            h: 800.0,
+            editable: true,
+            enabled: true,
+            ..Node::default()
+        },
+    ];
+    let reply = Candidate {
+        chain: vec![
+            Link {
+                role: "AXTextArea".into(),
+                marks: vec![],
+                frame: Some((40.0, 880.0, 600.0, 40.0)),
+            },
+            Link {
+                role: "AXGroup".into(),
+                marks: vec![],
+                frame: Some((0.0, 0.0, 720.0, 1000.0)),
+            },
+        ],
+        ..cand(3, "Prompt", &[])
+    };
+    let editor = Candidate {
+        chain: vec![Link {
+            role: "AXTextArea".into(),
+            marks: vec!["inputarea".into()],
+            frame: None,
+        }],
+        ..cand(4, "", &[])
+    };
+    let read = WindowRead {
+        nodes,
+        cands: vec![reply, editor],
+    };
+    let pick = |list: usize, reply: usize| Pick {
+        chat: true,
+        message_list: Some(list),
+        reply_box: Some(reply),
+    };
+    assert_eq!(
+        check_pick(&read, &pick(0, 3)),
+        Some(Proven {
+            composer: 3,
+            pane: 1
+        })
+    );
+    assert_eq!(check_pick(&read, &pick(0, 4)), None, "the editor");
+    assert_eq!(check_pick(&read, &pick(1, 3)), None, "a text is no list");
+    assert_eq!(check_pick(&read, &Pick::default()), None, "none");
+    let outline = outline(&read);
+    assert!(
+        outline.contains("3 AXTextArea editable \"Prompt\" @40,880 600x40"),
+        "{outline}"
+    );
+    assert!(!outline.contains("Hello"), "values never: {outline}");
 }

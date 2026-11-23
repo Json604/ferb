@@ -138,6 +138,7 @@ final class SessionsTests: XCTestCase {
         XCTAssertNil(model.confirm)
         XCTAssertTrue(rpc.params(of: "sessions.control").isEmpty)
         XCTAssertEqual(model.draft, "x")                                // kept for the owner to change
+        XCTAssertNil(model.outgoing)                                    // nothing shows as sending
     }
 
     func testACardsButtonAnswersWithThatChoice() async throws {
@@ -231,7 +232,9 @@ final class SessionsTests: XCTestCase {
                                                              code: SessionRefusal.cardOpen)
         model.draft = "go on"
         await model.send()
-        XCTAssertEqual(model.problem, "Claude Code is asking something. Answer that first.")
+        // PHN-812: his words stay, as not sent, with the daemon's words under them
+        XCTAssertEqual(model.outgoing?.state, .notSent("Claude Code is asking something. Answer that first."))
+        XCTAssertEqual(model.outgoing?.text, "go on")
         XCTAssertNil(model.confirm)
     }
 
@@ -250,28 +253,53 @@ final class SessionsTests: XCTestCase {
         XCTAssertFalse(model.more)
     }
 
-    func testANewSessionShowsTheExactCommandAndStartsOnlyOnYes() async throws {
+    // decision: HAND-691, HAND-695
+    func testANewSessionIsATerminalAndOnlyItsCommandIsAskedAbout() async throws {
         let rpc = ScriptedRPC()
         let model = SessionsModel(rpc: rpc)
-        rpc.replies["sessions.prepare"] = ["folders": ["/Users/o/code/site"], "agents": ["claude_code", "codex"], "host": "Terminal"]
+        rpc.replies["sessions.prepare"] = ["folders": ["/Users/o/code/site"], "host": "Terminal"]
         await model.prepareNew()
         XCTAssertEqual(model.folders, ["/Users/o/code/site"])
-        rpc.replies["sessions.prepare"] = ["folders": ["/Users/o/code/site"], "agents": ["claude_code", "codex"],
-                                           "needs_yes": ["question": "Start Codex in a new Terminal window?",
-                                                         "detail": "cd '/Users/o/code/site' && codex 'add tests'", "covers": "…"]]
-        let planned = await model.planStart(agent: "codex", folder: "/Users/o/code/site", text: " add tests ")
+        XCTAssertEqual(model.host, "Terminal")
+        // no command: it opens, nothing asked, nothing to type, no agent named
+        rpc.replies["sessions.start"] = ["started": true, "command": "", "session": "term:1", "host": "Terminal"]
+        let opened = await model.planStart(folder: "/Users/o/code/site", command: "  ")
+        XCTAssertTrue(opened)
+        XCTAssertNil(model.confirm)
+        let first = try XCTUnwrap(rpc.params(of: "sessions.start").first)
+        XCTAssertEqual(first["folder"] as? String, "/Users/o/code/site")
+        XCTAssertEqual(first["command"] as? String, "")
+        XCTAssertNil(first["agent"])
+        // a command: shown exactly first, typed only after the Yes
+        rpc.replies["sessions.prepare"] = ["folders": ["/Users/o/code/site"], "host": "Terminal",
+                                           "needs_yes": ["question": "Open a new Terminal window in site and type this?",
+                                                         "detail": "agy", "covers": "…"]]
+        let planned = await model.planStart(folder: "/Users/o/code/site", command: " agy ")
         XCTAssertTrue(planned)
         let asked = try XCTUnwrap(rpc.params(of: "sessions.prepare").last)
-        XCTAssertEqual(asked["agent"] as? String, "codex")
-        XCTAssertEqual(asked["text"] as? String, "add tests")
-        XCTAssertEqual(model.confirm?.yes.detail, "cd '/Users/o/code/site' && codex 'add tests'")
-        XCTAssertTrue(rpc.params(of: "sessions.start").isEmpty)
-        rpc.replies["sessions.start"] = ["started": true, "command": "…"]
+        XCTAssertEqual(asked["command"] as? String, "agy")
+        XCTAssertNil(asked["agent"])
+        XCTAssertEqual(model.confirm?.yes.detail, "agy")
+        XCTAssertEqual(rpc.params(of: "sessions.start").count, 1)
         await model.confirmYes()
-        let started = try XCTUnwrap(rpc.params(of: "sessions.start").first)
-        XCTAssertEqual(started["agent"] as? String, "codex")
-        XCTAssertEqual(started["folder"] as? String, "/Users/o/code/site")
-        XCTAssertEqual(started["text"] as? String, "add tests")
+        let started = try XCTUnwrap(rpc.params(of: "sessions.start").last)
+        XCTAssertEqual(started["command"] as? String, "agy")
+    }
+
+    // decision: HAND-692, HAND-697
+    func testATerminalRowSaysItsProgramFolderAndAppAndAnAppWithNoChatSaysSo() async throws {
+        let row = try XCTUnwrap(AgentSessionRow(["id": "term:110", "agent": "terminal", "program": "agy", "cwd": "/Users/o/Desktop",
+                                                 "window": "Desktop — agy — 120×30", "host": ["name": "Terminal"],
+                                                 "send_paths": ["terminal_script"]]))
+        XCTAssertEqual(row.agentName, "agy")
+        XCTAssertEqual(row.heading, "Desktop — agy — 120×30")
+        XCTAssertEqual(row.whereLine, "agy · Desktop · in Terminal")
+        let rpc = ScriptedRPC()
+        rpc.replies["sessions.list"] = ["enabled": true, "sessions": [] as [Any], "no_chats": ["Cursor"]]
+        let model = SessionsModel(rpc: rpc)
+        await model.load()
+        XCTAssertEqual(model.noChats, ["Cursor"])
+        XCTAssertEqual(AgentSessionRow.noChatLine("Cursor"), "No chat open in Cursor. Start one there to continue here.")
     }
 
     func testTurnOnWritesTheSwitchAndReadsTheListAgain() async throws {
@@ -314,7 +342,7 @@ final class SessionsTests: XCTestCase {
     // MARK: Uninstall
 
     // decision: APP-5
-    // decision: HAND-666
+    // decision: HAND-696
     func testUninstallTakesTheHookOutBeforeTheServiceIsTurnedOffAndAFailureDoesntStopIt() async throws {
         let rpc = ScriptedRPC()
         rpc.replies["sessions.remove_hooks"] = ["removed": true]

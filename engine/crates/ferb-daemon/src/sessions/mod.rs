@@ -19,6 +19,7 @@
 mod appchats;
 mod codex_link;
 mod rpc;
+mod terminals;
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -33,11 +34,12 @@ use ferb_sessions::{clip, codex, one_line, paths};
 use serde_json::{json, Map, Value};
 use tokio::sync::oneshot;
 
-pub use appchats::ChatWindow;
+pub use appchats::{ChatRead, ChatWindow, Locate, CHECK_EVERY_S, MODEL_ASKS_PER_APP_PER_DAY};
 pub use codex_link::CodexLink;
 pub use rpc::register;
+pub use terminals::{OPENERS, START_WAIT_S, WORKING_S};
 
-/// The setting (config `[sessions] enabled`): off until the owner says Yes (HAND-666).
+/// The setting (config `[sessions] enabled`): off until the owner says Yes (HAND-696).
 pub const SECTION: &str = "sessions";
 pub const KEY: &str = "enabled";
 
@@ -49,6 +51,9 @@ pub const ENABLE_ASK: &str = "agent_session.enable";
 /// How long a send waits to see the owner's words in the agent's own record before it says "not delivered" (HAND-655;
 /// the lab measured 0.15-1.7 s on every path).
 pub const DELIVERY_WAIT_S: f64 = 10.0;
+/// A send answers within this many seconds of being asked, seen or not (a phone's call ends at the link's 10 s:
+/// `call_deadline_s`); a delivery not seen by then is said as not seen yet (HAND-698).
+pub const ANSWER_WITHIN_S: f64 = 8.0;
 /// How often `claude agents --json` is read again while sessions are on (hooks give new sessions at once; this finds
 /// the ones started before the hook was in place).
 pub const AGENTS_EVERY_S: f64 = 30.0;
@@ -110,6 +115,8 @@ pub struct Foreground {
     pub key: String,
     /// An app chat (HAND-672): focus the window's own composer first; the proof is that focus, in that window.
     pub composer: bool,
+    /// HAND-698: the chat pane's fingerprint: the composer is found again by it, right before typing (None: no chat).
+    pub chat: Option<ferb_sessions::appchat::Fingerprint>,
     /// The window server's id of the session's window (0: the app's front window).
     pub window: i64,
     /// HAND-683: the terminal the owner chose as this session's (a `TerminalChoice` id; "" when he chose none): FERB
@@ -168,19 +175,80 @@ pub trait Mac: Send + Sync {
     fn chat_windows(&self, _bundles: &[String]) -> Vec<ChatWindow> {
         Vec::new()
     }
-    /// HAND-669: a chat window's Accessibility tree (`front`: the app may be brought forward to read it, then put
-    /// back). None: unreadable.
-    fn chat_tree(
+    /// HAND-669, HAND-698: one read of a chat window (`front`: the app may be brought forward to read it, then put
+    /// back): its nodes and editable elements, the pane `prove` finds there, and that pane's own nodes with its
+    /// composer marked. None: unreadable.
+    fn chat_read(
         &self,
         _w: &ChatWindow,
         _front: bool,
-    ) -> Option<Vec<ferb_sessions::appchat::Node>> {
+        _prove: &(dyn Fn(&ferb_sessions::appchat::WindowRead) -> Option<ferb_sessions::appchat::Proven>
+              + Sync),
+    ) -> Option<ChatRead> {
         None
     }
     /// HAND-672: presses the app's own stop control (a button with one of these labels) in the window.
     fn chat_press(&self, _w: &ChatWindow, _labels: &[String]) -> Result<(), String> {
         Err("this app has no stop control FERB can press".into())
     }
+    /// HAND-654, PHN-797: the running app's own process for `bundle_id`, the one that owns its windows, given the
+    /// process the tree found (`found`). An app's helper that left the app's tree (a terminal's session server under
+    /// launchd) is in the app's bundle but owns no window. The found one when it is the app's, or can't be told.
+    fn app_pid(&self, _bundle_id: &str, found: i32) -> i32 {
+        found
+    }
+    /// HAND-692: a process's program as it was started (argv[0]'s file name; `exe`, its executable, when unknown).
+    fn program_of(&self, _pid: i32, exe: &str) -> String {
+        ferb_sessions::proof::program_name(exe)
+    }
+    /// HAND-692: when a terminal last had input or output (its device's times): seconds since 1970 and the same as
+    /// ISO 8601. None when unknown.
+    fn tty_activity(&self, _tty: &str) -> Option<(f64, String)> {
+        None
+    }
+    /// HAND-692: every app's normal windows with a title: (the app's pid, the window's id, its title).
+    fn window_titles(&self) -> Vec<(i32, i64, String)> {
+        Vec::new()
+    }
+    /// HAND-693: a terminal's text as its app shows it (Err: why FERB can't read it, in the owner's words).
+    fn terminal_text(&self, _t: &TermPlace) -> Result<String, String> {
+        Err("FERB can't read this terminal's text here.".into())
+    }
+    /// HAND-695: a new window of the terminal app `bundle_id` in `folder`, in the background, typing nothing.
+    fn terminal_open_at(&self, _bundle_id: &str, _folder: &str) -> Result<(), String> {
+        Err("FERB can't open a terminal here.".into())
+    }
+}
+
+/// PHN-797: what finds a session's window, the same for sending and for Watch (HAND-682, HAND-683): its host, what
+/// proves a terminal or window is the session's, the terminal the owner chose and an app chat's own window.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Place {
+    pub host: Host,
+    pub proof: ferb_sessions::proof::Proof,
+    /// HAND-683: the owner's chosen terminal (a `TerminalChoice` id; "" when none).
+    pub chosen: String,
+    /// HAND-672, HAND-698: an app chat's window and its proven pane's fingerprint (None: no proven chat there now).
+    pub chat: Option<(ChatWindow, ferb_sessions::appchat::Fingerprint)>,
+    /// The window already known to be the session's (0: none): an app chat's own (HAND-672), or a terminal's by its
+    /// app's words for it (HAND-692).
+    pub window: i64,
+}
+
+/// HAND-693: where a terminal's text is read: its app, its device, how it is shown (tmux's pane, the app's own
+/// terminal) and its window.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TermPlace {
+    pub bundle_id: String,
+    pub app: String,
+    /// The app's main process.
+    pub pid: i32,
+    /// The terminal's device (the pane's own for tmux).
+    pub tty: String,
+    /// Through tmux: its server's pid (0: not through tmux).
+    pub tmux_server: i32,
+    /// The window that is its (0: FERB can't tell which).
+    pub window: i64,
 }
 
 /// FERB's own question to the owner (the gateway's store): (capability, summary, detail, options). Answers the
@@ -234,6 +302,10 @@ pub struct Seams {
     pub chat_apps: Arc<dyn Fn() -> Vec<String> + Send + Sync>,
     /// HAND-669: FERB may bring an app forward to read its chat now (the owner is away from the Mac).
     pub may_take_front: Arc<dyn Fn() -> bool + Send + Sync>,
+    /// HAND-699: the model's one look at a chat app's layout code couldn't tell.
+    pub locate: Locate,
+    /// HAND-699: where the learned layouts are kept (a file of FERB's own).
+    pub layouts: PathBuf,
 }
 
 /// One held card.
@@ -273,6 +345,9 @@ impl Entry {
                 delegate: String::new(),
                 goal: String::new(),
                 terminals: Vec::new(),
+                program: String::new(),
+                window: String::new(),
+                no_text: String::new(),
             },
             transcript: None,
             offset: 0,
@@ -284,6 +359,7 @@ impl Entry {
             turn: String::new(),
             host_key: (0, String::new()),
             exe: String::new(),
+            term: None,
         }
     }
 }
@@ -304,6 +380,25 @@ struct Entry {
     /// Host resolution's input, to redo it only when it changes.
     host_key: (i32, String),
     exe: String,
+    /// HAND-692, HAND-693: a terminal's own state (None for an agent's session).
+    term: Option<Term>,
+}
+
+/// What FERB keeps of one terminal session (HAND-692, HAND-693).
+#[derive(Default)]
+struct Term {
+    /// The process that names it (its terminal lives as long as it does).
+    leader: i32,
+    tty: String,
+    /// The window that is its, by the app's own words (0: FERB can't tell).
+    window: i64,
+    /// When the terminal last had input or output (the device's times), and when FERB saw that change (monotonic).
+    activity: f64,
+    changed_at: f64,
+    /// What has been shown of its text.
+    screen: ferb_sessions::terminals::Screen,
+    /// When its text was last read, and when a client last looked at it (monotonic).
+    read_at: f64,
 }
 
 #[derive(Default)]
@@ -316,6 +411,7 @@ struct State {
     hooks_installed: Option<bool>,
     asked_enable: bool,
     chats: appchats::Chats,
+    layouts: appchats::Layouts,
     /// HAND-683: session → (its agent's process, the terminal the owner chose for it): until it ends (a new process,
     /// even under the same id, isn't it) or he stops controlling it.
     chosen: HashMap<String, (i32, String)>,
@@ -405,6 +501,10 @@ impl Sessions {
         match Agent::split(id).map(|(a, _)| a) {
             Some(Agent::Codex) => self.codex_refresh(id),
             Some(Agent::AppChat) => self.chat_viewed(id),
+            // decision: HAND-693 — a terminal's text is read only while someone looks at it
+            Some(Agent::Terminal) => {
+                self.term_read(id, false);
+            }
             _ => {}
         }
         let st = lock(&self.state);
@@ -508,12 +608,14 @@ impl Sessions {
         for id in ids {
             self.refresh(&id, &table);
         }
+        // decision: HAND-692 — every terminal, whatever runs in it; an agent's session claims its own
+        self.note_terminals(&table);
         // HAND-668: the chat apps' windows
         self.chats_look();
         self.changed();
     }
 
-    /// Hooks in place exactly while sessions are on (HAND-666): Claude Code's settings, FERB's entries only.
+    /// Hooks in place exactly while sessions are on (HAND-696): Claude Code's settings, FERB's entries only.
     fn reconcile_hooks(&self, on: bool) {
         let program = self.seams.hook_program.clone();
         if program.is_empty() {
@@ -580,38 +682,10 @@ impl Sessions {
         let id = Agent::ClaudeCode.session_id(sid);
         let now = self.now();
         let mut st = lock(&self.state);
-        let e = st.sessions.entry(id.clone()).or_insert_with(|| Entry {
-            s: Session {
-                id: id.clone(),
-                agent: Agent::ClaudeCode,
-                agent_session: sid.to_owned(),
-                source: Source::Attached,
-                pid: 0,
-                cwd: String::new(),
-                title: String::new(),
-                status: Status::Idle,
-                waiting: Waiting::None,
-                host: None,
-                send_paths: Vec::new(),
-                no_send: String::new(),
-                last_at: now.clone(),
-                last_text: String::new(),
-                control: String::new(),
-                delegate: String::new(),
-                goal: String::new(),
-                terminals: Vec::new(),
-            },
-            transcript: None,
-            offset: 0,
-            partial: Vec::new(),
-            items: Vec::new(),
-            owners_title: false,
-            cards: Vec::new(),
-            via_ferb: false,
-            turn: String::new(),
-            host_key: (0, String::new()),
-            exe: String::new(),
-        });
+        let e = st
+            .sessions
+            .entry(id.clone())
+            .or_insert_with(|| Entry::new(&id, Agent::ClaudeCode, &now));
         if e.s.status == Status::Ended {
             return;
         }
@@ -639,7 +713,7 @@ impl Sessions {
         let (agent, pid, transcript_known, sid) = {
             let st = lock(&self.state);
             let Some(e) = st.sessions.get(id) else { return };
-            if e.s.agent == Agent::AppChat {
+            if e.s.agent == Agent::AppChat || e.term.is_some() {
                 return;
             }
             (
@@ -697,10 +771,16 @@ impl Sessions {
                 } else {
                     self.seams.mac.app(&f.bundle)
                 };
+                // the app's own process, which owns its windows (HAND-654, PHN-797)
+                let pid = if bundle_id.is_empty() {
+                    f.pid
+                } else {
+                    self.seams.mac.app_pid(&bundle_id, f.pid)
+                };
                 Host {
                     bundle_id,
                     name,
-                    pid: f.pid,
+                    pid,
                     via: Some(f.via),
                     tty: f.tty,
                 }
@@ -1156,6 +1236,14 @@ impl Sessions {
             .filter(|n| !n.is_empty());
         let place = match (path, &app) {
             (_, Some(a)) if s.agent == Agent::AppChat => a.clone(),
+            (_, Some(a)) if s.agent == Agent::Terminal => format!(
+                "{} in {a}",
+                if s.program.is_empty() {
+                    "the terminal"
+                } else {
+                    &s.program
+                }
+            ),
             (SendPath::AgentApi, _) => format!("{} in {}", s.agent.name(), folder_name(&s.cwd)),
             (_, Some(a)) => format!("{} in {a}", s.agent.name()),
             (_, None) => s.agent.name().to_owned(),
@@ -1225,6 +1313,7 @@ impl Sessions {
         if !self.enabled() {
             return Err(off());
         }
+        let asked_at = (self.seams.mono)();
         let text = text.trim_end().to_owned();
         if text.trim().is_empty() {
             return Err(no(codes::SEND_FAILED, "There's nothing to send."));
@@ -1250,6 +1339,9 @@ impl Sessions {
                 format!("{} is asking something. Answer that first.", s.agent.name()),
             ));
         }
+        if s.agent == Agent::Terminal {
+            self.term_unchanged(&s)?;
+        }
         let before = self.last_seq(id);
         let started = (self.seams.mono)();
         self.deliver(&s, path, &text, "").await?;
@@ -1264,7 +1356,7 @@ impl Sessions {
             "sessions.sent",
             json!({"session": id, "by": by.key(), "path": path.as_str(), "text": self.redact(&text)}),
         );
-        let delivered = self.delivered(id, &text, before).await;
+        let delivered = self.delivered(id, &text, before, asked_at).await;
         self.changed();
         Ok(Sent {
             path,
@@ -1282,7 +1374,8 @@ impl Sessions {
         key: &str,
     ) -> Result<(), Refused> {
         let failed = |e: String| no(codes::SEND_FAILED, e);
-        if path.types() && s.agent != Agent::AppChat {
+        // HAND-694: a terminal session is the terminal itself: whatever leads it gets the words (checked in `send`)
+        if path.types() && s.agent != Agent::AppChat && s.agent != Agent::Terminal {
             // decision: HAND-658 — typed text reaches the agent only when it is its terminal's foreground program
             let table = self.seams.mac.processes();
             if !host::in_front(&table, s.pid) {
@@ -1361,16 +1454,20 @@ impl Sessions {
                     .map_err(failed)
             }
             SendPath::TerminalScript | SendPath::Foreground => {
-                let chat = (s.agent == Agent::AppChat)
-                    .then(|| self.chat_window(&s.id))
-                    .flatten();
-                let proof = self.proof_of(s, &host);
-                let chosen = lock(&self.state)
-                    .chosen
-                    .get(&s.id)
-                    .filter(|(pid, _)| *pid == s.pid)
-                    .map(|(_, t)| t.clone())
-                    .unwrap_or_default();
+                let Place {
+                    proof,
+                    chosen,
+                    chat,
+                    ..
+                } = self.place_of(s, &host);
+                // decision: HAND-698 — no proven chat pane: nothing is typed anywhere in the app
+                if s.agent == Agent::AppChat && chat.is_none() {
+                    let app = s.host.as_ref().map(|h| h.name.clone()).unwrap_or_default();
+                    return Err(no(
+                        codes::NO_SEND_PATH,
+                        format!("No chat open in {app}. Start one there to continue here."),
+                    ));
+                }
                 let typed = self
                     .seams
                     .mac
@@ -1387,12 +1484,59 @@ impl Sessions {
                         enter: key.is_empty(),
                         key: key.to_owned(),
                         composer: chat.is_some(),
-                        window: chat.as_ref().map_or(0, |w| w.window),
+                        window: chat.as_ref().map_or(0, |(w, _)| w.window),
+                        chat: chat.as_ref().map(|(_, fp)| fp.clone()),
                         chosen,
                     })
                     .await;
                 self.typed(&s.id, typed)
             }
+        }
+    }
+
+    /// PHN-797: where the session is shown on the Mac, for its Watch view: found as a send finds it. None when no
+    /// app's window shows it (a detached tmux, an agent with no app above it).
+    pub fn place(&self, id: &str) -> Option<Place> {
+        let s = self.session(id)?;
+        let host = s
+            .host
+            .clone()
+            .filter(|h| h.pid > 0 && !h.bundle_id.is_empty())?;
+        Some(self.place_of(&s, &host))
+    }
+
+    /// The send path's facts about where the session is (HAND-682, HAND-683, HAND-672).
+    fn place_of(&self, s: &Session, host: &Host) -> Place {
+        let chat = (s.agent == Agent::AppChat)
+            .then(|| self.chat_window(&s.id))
+            .flatten();
+        let (chosen, window) = {
+            let st = lock(&self.state);
+            let chosen = st
+                .chosen
+                .get(&s.id)
+                .filter(|(pid, _)| *pid == s.pid)
+                .map(|(_, t)| t.clone())
+                .unwrap_or_default();
+            let window = st
+                .chats
+                .get(&s.id)
+                .map(|c| c.win.window)
+                .or_else(|| {
+                    st.sessions
+                        .get(&s.id)
+                        .and_then(|e| e.term.as_ref())
+                        .map(|t| t.window)
+                })
+                .unwrap_or(0);
+            (chosen, window)
+        };
+        Place {
+            host: host.clone(),
+            proof: self.proof_of(s, host),
+            chosen,
+            chat,
+            window,
         }
     }
 
@@ -1496,15 +1640,27 @@ impl Sessions {
     }
 
     /// HAND-655: the sent words appear as the owner's message in the agent's own record.
-    async fn delivered(&self, id: &str, text: &str, before: u64) -> bool {
+    async fn delivered(&self, id: &str, text: &str, before: u64, asked_at: f64) -> bool {
         let want = one_line(&self.redact(text));
-        let deadline = (self.seams.mono)() + DELIVERY_WAIT_S;
+        let deadline = ((self.seams.mono)() + DELIVERY_WAIT_S).min(asked_at + ANSWER_WITHIN_S);
         loop {
             // a read of Codex's thread waits on its daemon: off the async thread
             let (me, i) = (self.clone(), id.to_owned());
+            let (me2, i2, t2) = (self.clone(), id.to_owned(), text.to_owned());
+            let terminal = Agent::split(id).map(|(a, _)| a) == Some(Agent::Terminal);
+            if terminal {
+                // decision: HAND-693 — a terminal's proof is its own text showing the words
+                if tokio::task::spawn_blocking(move || me2.term_delivered(&i2, &t2))
+                    .await
+                    .unwrap_or(false)
+                {
+                    return true;
+                }
+            }
             let _ = tokio::task::spawn_blocking(move || match Agent::split(&i).map(|(a, _)| a) {
                 Some(Agent::Codex) => me.codex_refresh(&i),
                 Some(Agent::AppChat) => me.chat_look(&i, true),
+                Some(Agent::Terminal) => {}
                 _ => me.tail(&i),
             })
             .await;
@@ -1519,7 +1675,12 @@ impl Sessions {
             if (self.seams.mono)() >= deadline {
                 return false;
             }
-            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+            tokio::time::sleep(std::time::Duration::from_millis(if terminal {
+                500
+            } else {
+                150
+            }))
+            .await;
         }
     }
 
@@ -1581,74 +1742,20 @@ impl Sessions {
         out
     }
 
-    /// The command FERB types into a new Terminal window to start a session (HAND-665), shown exactly before the Yes.
-    pub fn start_command(&self, agent: Agent, folder: &str, text: &str) -> Result<String, Refused> {
-        let f = Path::new(folder);
-        if !f.is_absolute() || !f.is_dir() {
-            return Err(no(codes::SEND_FAILED, "That folder isn't on this Mac."));
-        }
+    /// An older phone's New session named an agent (before HAND-691): its command, as that phone showed it, is the
+    /// agent's program with the first words; it is typed into the new terminal like any command the owner gives.
+    pub fn legacy_command(agent: Agent, text: &str) -> Option<String> {
         let program = match agent {
             Agent::ClaudeCode => "claude",
             Agent::Codex => "codex",
-            Agent::AppChat => {
-                return Err(no(
-                    codes::SEND_FAILED,
-                    "Start a new chat in the app itself.",
-                ));
-            }
+            Agent::AppChat | Agent::Terminal => return None,
         };
-        let mut cmd = format!("cd {} && {program}", shell_quote(folder));
+        let mut cmd = program.to_owned();
         if !text.trim().is_empty() {
             cmd.push(' ');
             cmd.push_str(&shell_quote(text.trim()));
         }
-        Ok(cmd)
-    }
-
-    /// Starts a session in a new Terminal window, in the background (the owner said Yes to the exact command).
-    pub async fn start(
-        &self,
-        agent: Agent,
-        folder: &str,
-        text: &str,
-        by: &Caller,
-    ) -> Result<String, Refused> {
-        if !self.enabled() {
-            return Err(off());
-        }
-        let cmd = self.start_command(agent, folder, text)?;
-        let mac = self.seams.mac.clone();
-        let c = cmd.clone();
-        tokio::task::spawn_blocking(move || mac.terminal_open(&c))
-            .await
-            .map_err(|e| no(codes::SEND_FAILED, e.to_string()))?
-            .map_err(|e| no(codes::SEND_FAILED, e))?;
-        (self.seams.journal)(
-            "sessions.started",
-            json!({"agent": agent.as_str(), "folder": folder, "by": by.key(), "command": self.redact(&cmd)}),
-        );
-        // the new session gets control for its starter once it appears (by folder, the next looks)
-        let me = self.clone();
-        let (folder, by) = (folder.to_owned(), by.clone());
-        let before: Vec<String> = self.list().into_iter().map(|s| s.id).collect();
-        tokio::spawn(async move {
-            for _ in 0..60 {
-                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                me.look();
-                if let Some(s) = me
-                    .list()
-                    .into_iter()
-                    .find(|s| !before.contains(&s.id) && s.cwd == folder && s.agent == agent)
-                {
-                    if let Some(e) = lock(&me.state).sessions.get_mut(&s.id) {
-                        e.s.source = Source::StartedByFerb;
-                    }
-                    let _ = me.take_control(&s.id, &by);
-                    return;
-                }
-            }
-        });
-        Ok(cmd)
+        Some(cmd)
     }
 
     /// The owner hands a session to FERB with his goal (ORCH-687): his words become a chat message, a FERB task like
@@ -1687,6 +1794,16 @@ impl Sessions {
         let text = if s.agent == Agent::AppChat {
             let app = s.host.as_ref().map(|h| h.name.clone()).unwrap_or_default();
             format!("Take over my {app} chat{title} (session {}) and keep it going until this is done: {goal}", s.id)
+        } else if s.agent == Agent::Terminal {
+            let program = if s.program.is_empty() {
+                String::new()
+            } else {
+                format!(" running {}", s.program)
+            };
+            format!(
+                "Take over my terminal{program} ({}{where_}, session {}) and keep it going until this is done: {goal}",
+                s.cwd, s.id
+            )
         } else {
             format!(
                 "Take over my {} session{title} ({}{where_}, session {}) and keep it going until this is done: {goal}",
@@ -1757,14 +1874,9 @@ impl Sessions {
 
     // ---------- the own question that turns sessions on ----------
 
-    /// Once after setup, when Claude Code or Codex is on this Mac and the owner hasn't said: FERB asks (HAND-666).
+    /// Once after setup, while the owner hasn't said: FERB asks (HAND-696: every Mac has terminals).
     pub fn offer(&self) {
         if (self.seams.enabled)().is_some() || !(self.seams.setup_done)() {
-            return;
-        }
-        let present =
-            self.seams.home.join(".claude").is_dir() || self.seams.home.join(".codex").is_dir();
-        if !present {
             return;
         }
         {
@@ -1824,37 +1936,12 @@ impl Sessions {
         let pid = codex_pid(&table, &t.cwd, &*self.seams.mac);
         {
             let mut st = lock(&self.state);
-            let e = st.sessions.entry(id.clone()).or_insert_with(|| Entry {
-                s: Session {
-                    id: id.clone(),
-                    agent: Agent::Codex,
-                    agent_session: t.id.clone(),
-                    source: Source::Attached,
-                    pid: 0,
-                    cwd: t.cwd.clone(),
-                    title: String::new(),
-                    status: t.status,
-                    waiting: t.waiting,
-                    host: None,
-                    send_paths: Vec::new(),
-                    no_send: String::new(),
-                    last_at: now.clone(),
-                    last_text: String::new(),
-                    control: String::new(),
-                    delegate: String::new(),
-                    goal: String::new(),
-                    terminals: Vec::new(),
-                },
-                transcript: None,
-                offset: 0,
-                partial: Vec::new(),
-                items: Vec::new(),
-                owners_title: false,
-                cards: Vec::new(),
-                via_ferb: false,
-                turn: String::new(),
-                host_key: (0, String::new()),
-                exe: String::new(),
+            let e = st.sessions.entry(id.clone()).or_insert_with(|| {
+                let mut e = Entry::new(&id, Agent::Codex, &now);
+                e.s.cwd = t.cwd.clone();
+                e.s.status = t.status;
+                e.s.waiting = t.waiting;
+                e
             });
             if t.status == Status::Ended {
                 e.s.status = Status::Ended;
@@ -2036,13 +2123,13 @@ fn gone() -> Refused {
 fn off() -> Refused {
     no(
         codes::SESSIONS_OFF,
-        "Seeing your coding sessions is off. Turn it on in FERB's Settings.",
+        "Seeing your terminal sessions is off. Turn it on in FERB's Settings.",
     )
 }
 
-/// The question that turns sessions on (HAND-666).
-pub const ENABLE_SUMMARY: &str = "Let FERB see your Claude Code and Codex sessions?";
-pub const ENABLE_DETAIL: &str = "Then you can follow and answer them from your phone or this Mac, start new ones, and hand one to me to keep going. I'd add a small hook to Claude Code's settings so I hear when a session finishes or needs you; Codex needs nothing added. What I read stays on this Mac, and you can turn this off in Settings.";
+/// The question that turns sessions on (HAND-696).
+pub const ENABLE_SUMMARY: &str = "Let FERB see your terminal sessions?";
+pub const ENABLE_DETAIL: &str = "Then you can follow your terminals and type into them from your phone or this Mac, Claude Code and Codex too, open new ones, and hand one to me to keep going. I'd add a small hook to Claude Code's settings so I hear when a session finishes or needs you; nothing else is changed. What I read stays on this Mac, and you can turn this off in Settings.";
 pub const ENABLE_YES: &str = "Yes, let FERB see them";
 pub const ENABLE_NO: &str = "No, thanks";
 
@@ -2134,6 +2221,15 @@ pub fn session_json(s: &Session, by: &Caller) -> Value {
 pub fn list_json(me: &Sessions, by: &Caller) -> Map<String, Value> {
     let mut m = Map::new();
     m.insert("enabled".into(), json!(me.enabled()));
+    // HAND-697: the chat apps open with no chat FERB could find (their names; the clients say "No chat open in …")
+    m.insert(
+        "no_chats".into(),
+        json!(if me.enabled() {
+            me.no_chat_apps()
+        } else {
+            Vec::new()
+        }),
+    );
     m.insert(
         "sessions".into(),
         Value::Array(me.list().iter().map(|s| session_json(s, by)).collect()),

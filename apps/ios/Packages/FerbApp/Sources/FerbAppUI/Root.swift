@@ -6,7 +6,7 @@ import SwiftUI
 
 /// Everything on screen (Android's Root.kt): the live sky behind every page (the shared city's coarse place, else the
 /// time zone's, PHN-420/450), the page the gate allows, and a sheet over it. Nothing of FERB's is drawn before the
-/// gate is main (PHN-8). The app switcher and screen captures are covered (Privacy.swift, PHN-565).
+/// gate is main (PHN-8). The app switcher and screen captures are covered (Privacy.swift, PHN-811).
 public struct FerbRoot: View {
     @ObservedObject var app: AppShell
     @Environment(\.scenePhase) private var phase
@@ -30,7 +30,8 @@ public struct FerbRoot: View {
 #if DEBUG && targetEnvironment(simulator)
 /// A Debug simulator started with `-FERBUITestShield YES` shows only this: a plain half and a shielded half, for
 /// checking by `xcrun simctl io booted screenshot` (and the simulator's own Trigger Screenshot) what the screenshot
-/// shield does here (kb PHN-597). Never in a Release build or on a phone.
+/// shield does here (kb PHN-811; shielded whatever the switch says: nothing above it sets it). Never in a Release build
+/// or on a phone.
 struct ShieldCheckPage: View {
     var body: some View {
         VStack(spacing: 0) {
@@ -75,6 +76,11 @@ struct RootView: View {
                                              instant: { $0.gate == .locked || $0.gate == .starting }) { s in
                                     if s.asks { AsksPage(asker: shell.firstRun, insets: insets) } else { page(s.gate, insets: insets, moment: moment) }
                                 }
+                                // under a screen that covers it whole (a session, Watch live, the camera) the page takes no
+                                // touch and VoiceOver doesn't reach it: never the Sessions tab's New session under a
+                                // session's message box (owner 2026-11-23, kb PHN-815)
+                                .allowsHitTesting(!Self.coversPage(model.sheet))
+                                .accessibilityHidden(Self.coversPage(model.sheet))
                             })
                     .preferredColorScheme(moment.ink.topIsDark ? .light : .dark)
             }
@@ -84,10 +90,19 @@ struct RootView: View {
         .launchOverlay(shell.launch, ready: model.ui.gate != .starting)
         .onAppear { StartLog.mark("first frame") }
         .onChange(of: model.ui.gate, initial: true) { _, g in if g != .starting { StartLog.mark("page", "\(g)") } }
-        .ferbPrivacy(hideWhenCaptured: model.settings.blockScreenshots, mustHide: model.mustSecure)
+        // the one place for the owner's screenshot switch: the cover, every shielded picture, every presented window (PHN-811)
+        .ferbScreens(blockScreenshots: model.settings.blockScreenshots, mustHide: model.mustSecure)
         .task(id: model.ui.gate) {
             await shell.firstRun.refresh()
             await askNotificationsOnce()
+        }
+    }
+
+    /// The sheets drawn over the whole screen (opaque, edge to edge): the page under them is out of reach (PHN-815).
+    static func coversPage(_ sheet: AppSheet?) -> Bool {
+        switch sheet {
+        case .session, .sessionWatch, .live, .camera: true
+        default: false
         }
     }
 

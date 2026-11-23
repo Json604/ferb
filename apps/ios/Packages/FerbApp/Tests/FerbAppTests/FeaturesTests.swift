@@ -344,7 +344,7 @@ final class FeaturesTests: XCTestCase {
         XCTAssertEqual(phone.calls.filter { $0.hasPrefix("upload") }, ["upload:a.pdf:-", "upload:b.pdf:-"])
     }
 
-    // decision: PHN-454, PHN-420, PHN-518
+    // decision: PHN-454, PHN-420, PHN-810
     func testWatchLiveNeverAsksOnThePublicRelayAndStopsInTheBackground() async {
         session.unlocked()
         session.foreground(true)
@@ -357,7 +357,7 @@ final class FeaturesTests: XCTestCase {
         await settle()
         vm.watchLive("t-1")
         XCTAssertEqual(vm.sheet, .live(taskId: "t-1"))
-        XCTAssertTrue(vm.mustSecure, "hidden from screen captures whatever the switch says")
+        XCTAssertFalse(vm.mustSecure, "Watch live follows the owner's screenshot switch like every page (PHN-810)")
         await eventually("watching") { phone.preview != nil }
         phone.preview?.frame(frame: PreviewFrame(jpeg: nil, seq: 3, state: "working", line: "Reading delivery options", fresh: false, busy: true,
                                                  gone: false, emptyText: nil))

@@ -177,7 +177,7 @@ private fun Check(text: String, on: Boolean, onChange: (Boolean) -> Unit) {
     }
 }
 
-/** Show me (APP-983): the Mac's camera while this shows (MainActivity keeps it out of screenshots). */
+/** Show me (APP-983): the Mac's camera while this shows (screenshots as the owner's switch says, kb PHN-810). */
 @Composable
 fun CameraScreen(vm: FerbViewModel, ui: UiState, insets: PhoneInsets) {
     val view by vm.camera.view.collectAsState()

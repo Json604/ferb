@@ -55,13 +55,16 @@ screenshots are re-recorded with `TEST_RUNNER_FERB_RECORD_SNAPSHOTS=1` (its READ
   No DNS context is needed on iOS: n0-dns-resolver reads the nameservers through libresolv (PHN-478), so there is no
   `NativeInit` twin.
 - **The scanner** (PHN-564): AVFoundation's QR reader, as PHN-447 named.
-- **Screenshots** (PHN-597, the owner's PHN-598): iOS has no public FLAG_SECURE. Watch live's picture of the Mac is
-  drawn inside a secure text field's canvas (FerbAppUI `ScreenshotShield`, the banking apps' technique: public calls,
-  undocumented behaviour), which iOS leaves out of screenshots; where an iOS doesn't build that canvas the picture is
-  drawn plainly and This phone says screenshots can show FERB. A private answer never shows its value. FERB covers
-  itself in the app switcher always and hides while the screen is recorded or mirrored (`isSceneCaptured`). The
-  simulator doesn't honour the secure layer: a blank screenshot is checked on an iPhone. `-FERBUITestShield YES` (Debug,
-  simulator) shows a plain and a shielded half for that check.
+- **Screenshots** (PHN-810, PHN-811, the owner's PHN-598): iOS has no public FLAG_SECURE. FERB follows the owner's one
+  Block screenshots switch, set once at the root (`ferbScreens` in FerbAppUI `Privacy.swift`) and carried into every page
+  and every window it presents. With it on, the pictures of the Mac (Watch live, a task's short view, the Mac's camera,
+  a session's window) are drawn inside a secure text field's canvas (FerbAppUI `ScreenshotShield`, the banking apps'
+  technique: public calls, undocumented behaviour), which iOS leaves out of screenshots, and FERB hides while the screen
+  is recorded or mirrored (`isSceneCaptured`); with it off they show. Where an iOS doesn't build that canvas the pictures
+  are drawn plainly and This phone says screenshots can show FERB. The rest of the app shows in screenshots either way.
+  A private answer never shows its value and hides from captures whatever the switch says (PHN-110). FERB covers itself
+  in the app switcher always, presented windows included. The simulator doesn't honour the secure layer: a blank
+  screenshot is checked on an iPhone. `-FERBUITestShield YES` (Debug, simulator) shows a plain and a shielded half.
 - **Speaking** (PHN-603..605): hold the microphone; Apple's recogniser with `requiresOnDeviceRecognition` where the
   iPhone supports the language, else Apple's service after FERB's words; the words land in the message box.
 - **Background** (PHN-566): no Stay connected; see below (the words are the owner's question, kb T-1241).
@@ -95,9 +98,10 @@ The This phone sheet says so where Android shows Stay connected.
    - Chat, a question answered (a routine one from its notification while FERB is in the background; a check with
      Face ID), Stop, Stop everything.
    - Files: open a folder, fetch a file, Open (QuickLook) and Share; a key place asks Face ID each time; send a photo.
-   - Watch live: hidden while recording the screen (Control Center → Screen Recording); a screenshot (side button +
-     volume up) taken while Watch live shows the Mac comes out with the picture blank and the buttons drawn; This
-     phone's screenshot row says "Watch live's picture of your Mac stays out of screenshots".
+   - Watch live with Block screenshots on: hidden while recording the screen (Control Center → Screen Recording); a
+     screenshot (side button + volume up) taken while Watch live shows the Mac comes out with the picture blank and the
+     buttons drawn; This phone's screenshot row says "Pictures of your Mac stay out of screenshots, …". With the switch
+     off, the same screenshot shows the picture.
    - Speaking: hold the microphone in the message box; FERB's words first, then iOS's two questions; the words land in
      the box, nothing is sent until Send; with Settings → Accessibility → VoiceOver on, double-tap and hold works.
    - This phone → Forget this Mac: the chat goes, pairing starts over.

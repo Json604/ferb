@@ -92,7 +92,7 @@ object RunningModel {
  * while the row is on screen and the app unlocked and in front (the view model says when), never on the shared relay
  * (the library refuses it there: the row keeps its plain circles), at most one picture every [everyMs] per task, the
  * Mac leaving out a frame the phone already has. Each frame is decoded small, in memory only, and never written
- * anywhere; the screen is kept out of screenshots while any shows (FerbViewModel.mustSecure).
+ * anywhere; screenshots follow the owner's switch as every page does (kb PHN-810).
  */
 class Thumbnails(
     private val scope: CoroutineScope,

@@ -60,8 +60,8 @@ struct FilesView: View {
             .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, insets.bottom + 8)
         }
         .onAppear { model.filesOpened() }
-        .fullScreenCover(item: $preview) { url in QuickLookView(url: url) { preview = nil } }
-        .sheet(item: $share) { s in ShareSheet(urls: s.urls) { share = nil } }
+        .ferbFullScreenCover(item: $preview) { url in QuickLookView(url: url) { preview = nil } }
+        .ferbSheet(item: $share) { s in ShareSheet(urls: s.urls) { share = nil } }
     }
 
     private func line(_ text: String) -> some View {

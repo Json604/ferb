@@ -18,6 +18,8 @@ data class SessionsUi(
     val enabled: Boolean = true,
     val sessions: List<AgentSession> = emptyList(),
     val problem: Note? = null,
+    /** HAND-697: the chat apps open on the Mac with no chat FERB could find. */
+    val noChats: List<String> = emptyList(),
 )
 
 /**
@@ -36,8 +38,11 @@ data class SessionUi(
     val ask: SessionConfirm? = null,
     val handOver: Boolean = false,
     val problem: Note? = null,
-    /** A message the Mac refused (PHN-800): shown as not sent, with why and Try again; never as sent. */
-    val unsent: Unsent? = null,
+    /**
+     * His message on its way (PHN-812: Sending…, then as sent until the session's own record of it arrives) or refused
+     * (PHN-800: not sent, with why and Try again; never as sent). One bubble after the conversation's last line.
+     */
+    val outgoing: SessionSending? = null,
     /** The session's menu is open (PHN-800). */
     val menu: Boolean = false,
     /** HAND-683: FERB can't tell which terminal is the session's: he chooses one for these words, or doesn't send. */
@@ -50,34 +55,54 @@ data class SessionUi(
     val first: Long get() = items.firstOrNull()?.seq?.toLong() ?: 0L
 }
 
+/** Where his message to a session stands (PHN-812, PHN-800). */
+enum class SessionSendPhase {
+    /** FERB is typing it into the session's terminal on the Mac: "Sending…" with a turning mark. */
+    SENDING,
+
+    /** The Mac typed it: a plain bubble of his until the session's own record of a message of his arrives. */
+    SENT,
+
+    /** The Mac refused it or it never reached the Mac: dimmed, "Not sent." with why, and Try again. */
+    NOT_SENT,
+}
+
 /**
- * The Mac's question before FERB types into a session for the owner (GATE-622): [text] exactly as it will be sent (empty
- * when he only takes control, to stop its turn: [thenInterrupt]).
+ * His message to a session that the conversation doesn't hold yet (one state for sending, sent and not sent: PHN-812,
+ * PHN-800): [text] as he wrote it, [phase], the Mac's [reason] when not sent, and [after], the conversation's newest
+ * `seq` when he sent it (a message of his after it is the session's own record of this one).
  */
-data class Unsent(val text: String, val reason: Note)
+data class SessionSending(val text: String, val phase: SessionSendPhase, val reason: Note? = null, val after: Long = 0)
 
 /** HAND-683: the words waiting for his choice of terminal, the Mac's reason, and the terminals it can see. */
 data class TerminalPick(val text: String, val why: String, val terminals: List<com.ferb.mobile.SessionChoice>)
 
+/**
+ * The Mac's question before FERB types into a session for the owner (GATE-622): [text] exactly as it will be sent (empty
+ * when he only takes control, to stop its turn: [thenInterrupt]).
+ */
 data class SessionConfirm(val text: String, val yes: SessionYes, val thenInterrupt: Boolean = false)
 
-/** The New session sheet: the agent, the folders the Mac offers, the first words, and the exact command once chosen. */
+/**
+ * The New session sheet (HAND-691): a terminal, so only where (the folders the Mac offers, or one typed: [other]) and an
+ * optional command ([text]); with a command, the Mac's question showing exactly it.
+ */
 data class NewSessionUi(
     val loading: Boolean = true,
     val folders: List<String> = emptyList(),
-    val agent: String = Sessions.CLAUDE,
     val folder: String? = null,
+    val other: String = "",
     val text: String = "",
-    /** The Mac's question with the exact command it will type in Terminal: the owner's Yes starts it. */
+    /** The Mac's question with the exact command it will type in the new terminal: the owner's Yes starts it. */
     val yes: SessionYes? = null,
-)
+) {
+    /** The folder it opens in: the typed one while it holds something, else the chosen one. */
+    val chosen: String? get() = other.trim().ifEmpty { null } ?: folder
+}
 
 object Sessions {
-    const val CLAUDE = "claude_code"
-    const val CODEX = "codex"
-
-    /** The two agents FERB can start, by their product names (not words to translate). */
-    val AGENTS = listOf(CLAUDE to "Claude Code", CODEX to "Codex")
+    /** HAND-691: what a new session is (the only kind FERB opens). */
+    const val TERMINAL = "terminal"
 
     /** The newest items a session's screen asks for at once, and per "Show earlier". */
     const val PAGE = 50
@@ -97,8 +122,8 @@ object Sessions {
         else -> SessionState.IDLE
     }
 
-    /** A row's title: the agent's own title, else the folder's name. */
-    fun title(s: AgentSession): String = s.title.ifBlank { s.folderName.ifBlank { s.folder } }
+    /** A row's title: the agent's own title, else its window's in its app's words, else the folder's name. */
+    fun title(s: AgentSession): String = s.title.ifBlank { s.window.ifBlank { s.folderName.ifBlank { s.folder } } }
 
     /** New items after what is held, by `seq` (a poll can repeat the last one). */
     fun appended(held: List<SessionItem>, more: List<SessionItem>): List<SessionItem> {
@@ -106,10 +131,34 @@ object Sessions {
         return held + more.filter { it.seq > last }.sortedBy { it.seq }
     }
 
+    /**
+     * A sent message's bubble leaves once the conversation holds a message of his after the moment he sent it (the
+     * session's own record of it: the agent may write it a little differently, so any message of his counts); sending
+     * and not sent stay until the Mac answers or he tries again (PHN-812).
+     */
+    fun settled(o: SessionSending?, items: List<SessionItem>): SessionSending? =
+        o?.takeUnless { it.phase == SessionSendPhase.SENT && items.any { i -> i.kind == "user" && i.seq.toLong() > it.after } }
+
     /** An earlier page before what is held. */
     fun prepended(held: List<SessionItem>, earlier: List<SessionItem>): List<SessionItem> {
         val first = held.firstOrNull()?.seq ?: ULong.MAX_VALUE
         return earlier.filter { it.seq < first }.sortedBy { it.seq } + held
+    }
+
+    /**
+     * The first line of each day by its `seq`, with that day (the main chat's day, ChatModel.chatDay, in [zone]): the
+     * session's lines carry a day's start as the main chat does (PHN-813). An item whose time can't be read starts none.
+     */
+    fun days(items: List<SessionItem>, zone: java.time.ZoneId): Map<ULong, Long> {
+        val out = LinkedHashMap<ULong, Long>()
+        var prev: Long? = null
+        for (i in items) {
+            val ms = runCatching { java.time.Instant.parse(i.at).toEpochMilli() }.getOrNull() ?: continue
+            val d = ChatModel.chatDay(ms, zone)
+            if (d != prev) out[i.seq] = d
+            prev = d
+        }
+        return out
     }
 
     /** One item as the screen draws it; [stopped] is the app's words for a stop the Mac left without its own. */

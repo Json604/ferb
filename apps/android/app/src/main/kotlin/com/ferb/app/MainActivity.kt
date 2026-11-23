@@ -31,7 +31,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 
 /**
- * The one activity: edge to edge over the sky, the screen kept out of screenshots and recent apps (PHN-420, PHN-15),
+ * The one activity: edge to edge over the sky, screenshots as the owner's switch says on every page (PHN-420, PHN-810) and recent apps always covered (PHN-15),
  * the system's fingerprint prompts, and the screens (ui/). A notification's tap lands here with the question or the
  * chat entry to open.
  */
@@ -50,7 +50,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** The owner's screenshot switch (PHN-420, the lock page too: PHN-793); mustSecure overrides it (PHN-110, PHN-454). */
+    /** The owner's screenshot switch (PHN-420), for every page (PHN-793, PHN-810); only mustSecure overrides it (PHN-110). */
     val blockScreenshots = MutableStateFlow(true)
 
     /**

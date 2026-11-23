@@ -147,7 +147,7 @@ public struct LivePage: View {
     var insets: PhoneInsets
     var onClose: (() -> Void)?
     var onStop: (() -> Void)?
-    /// The app's screenshot shield around the frame (kb PHN-597); nil draws it plainly (the default).
+    /// The app's screenshot shield around the frame (kb PHN-811, by the owner's switch); nil draws it plainly (the default).
     var shieldFrame: ((AnyView) -> AnyView)?
     /// Not from the lab: false leaves Stop out (a coding session's window, kb HAND-651; Android's LivePage onStop = null).
     var stops: Bool

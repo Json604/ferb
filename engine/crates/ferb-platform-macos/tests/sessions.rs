@@ -47,3 +47,36 @@ fn what_ferb_runs_for_sessions_starts_from_an_empty_environment() {
     assert!(!out.contains("CLAUDE_CODE_CHILD_SESSION"), "{out}");
     assert!(out.contains("HOME=/tmp"), "{out}");
 }
+
+// decision: HAND-692
+#[test]
+fn a_program_is_named_as_it_was_started() {
+    let me = std::process::id() as i32;
+    let a = argv0_of(me);
+    assert!(!a.is_empty());
+    assert!(std::env::args().next().is_some_and(|x| x == a), "{a}");
+    // argc, the executable's path, its padding, then argv[0] and the rest
+    let mut buf = 2i32.to_ne_bytes().to_vec();
+    buf.extend_from_slice(b"/bin/zsh\0\0\0\0-zsh\0-l\0");
+    assert_eq!(argv0_from_procargs(&buf), "-zsh");
+    assert_eq!(argv0_from_procargs(b"\0\0"), "");
+    assert_eq!(tty_activity("not-a-device"), None);
+}
+
+// decision: HAND-693, HAND-695
+#[test]
+fn terminal_is_read_by_its_tab_and_opened_in_the_background() {
+    let s = terminal_contents_script("/dev/ttys004");
+    assert!(
+        s.contains("if tty of t is \"/dev/ttys004\" then return contents of t"),
+        "{s}"
+    );
+    assert!(
+        !s.contains("activate") && !s.contains("do script"),
+        "read only: {s}"
+    );
+    assert_eq!(
+        open_folder_args("com.apple.Terminal", "/p/app"),
+        ["-g", "-b", "com.apple.Terminal", "/p/app"]
+    );
+}

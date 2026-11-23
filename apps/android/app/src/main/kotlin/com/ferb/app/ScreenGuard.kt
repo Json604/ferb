@@ -4,11 +4,14 @@ import android.view.Window
 import android.view.WindowManager
 
 /**
- * Which of FERB's screens screenshots and screen recordings may show (FLAG_SECURE). The owner's switch decides
- * (PHN-420), the lock page included (owner 2026-11-22, kb PHN-793): it shows only FERB's mark and fixed words, and
- * the unlock is the system's own prompt, so FERB never draws a PIN. A private screen (a hidden answer's box, Watch
- * live, the Mac's camera: the view model's mustSecure, PHN-110, PHN-454) is kept out whatever the switch says. The
- * recent-apps picture is covered always and separately (setRecentsScreenshotEnabled, PHN-15).
+ * The one place that says which of FERB's screens screenshots and screen recordings may show (FLAG_SECURE on
+ * MainActivity's window, kb PHN-811). FERB draws every page, sheet and overlay inside that one window, so each follows
+ * it; a dialog or popup window opened from it inherits the flag when it opens (Compose's SecureFlagPolicy.Inherit),
+ * and the scanner's camera is a TextureView drawn inside the window. The owner's switch decides for every page (PHN-420;
+ * owner 2026-11-23, kb PHN-810): the lock page (PHN-793), Watch live, a task's short view, the Mac's camera and a
+ * coding session's Watch included. The one exception: a hidden answer's box (the view model's mustSecure, PHN-110) is
+ * kept out whatever the switch says. The recent-apps picture is covered always and separately
+ * (setRecentsScreenshotEnabled, PHN-15).
  */
 object ScreenGuard {
     fun secure(blockScreenshots: Boolean, mustSecure: Boolean): Boolean = blockScreenshots || mustSecure

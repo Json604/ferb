@@ -413,7 +413,7 @@ fn send_paths_go_agent_first_then_an_adapter_then_the_foreground() {
 
 const PROGRAM: &str = "/Applications/FERB.app/Contents/Resources/bin/ferb";
 
-// decision: HAND-666
+// decision: HAND-696
 #[test]
 fn ferb_s_hooks_go_in_and_out_of_claude_code_s_settings_touching_nothing_else() {
     let mine = json!({"model": "opus", "permissions": {"allow": ["Bash(ls)"]},

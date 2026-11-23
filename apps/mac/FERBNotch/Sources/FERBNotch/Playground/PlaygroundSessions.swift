@@ -123,28 +123,26 @@ final class PlaygroundSessions {
             emit("sessions.changed", ["count": sessions.count])
             return ["interrupted": true]
         case "sessions.prepare":
-            var reply: [String: Any] = ["folders": ["/Users/demo/code/site", "/Users/demo/code/notes-app"],
-                                        "agents": ["claude_code", "codex"], "host": "Terminal"]
-            if let folder = params["folder"] as? String, !folder.isEmpty {
-                let agent = params["agent"] as? String ?? "claude_code"
-                let program = agent == "codex" ? "codex" : "claude"
-                let first = params["text"] as? String ?? ""
-                reply["needs_yes"] = ["question": "Start \(AgentSessionRow.agentName(agent)) in a new Terminal window?",
-                                      "detail": "cd '\(folder)' && \(program)" + (first.isEmpty ? "" : " '\(first)'"),
-                                      "covers": "FERB types this command into a new Terminal window, in the background."]
+            var reply: [String: Any] = ["folders": ["/Users/demo/code/site", "/Users/demo/code/notes-app"], "host": "Terminal"]
+            // HAND-695: a new terminal; only a command is asked about, shown exactly
+            if let folder = params["folder"] as? String, !folder.isEmpty, let command = params["command"] as? String, !command.isEmpty {
+                reply["needs_yes"] = ["question": "Open a new Terminal window in \((folder as NSString).lastPathComponent) and type this?",
+                                      "detail": command,
+                                      "covers": "FERB opens it in the background and types only this command, then Return. You can type more into it from here."]
             }
             return reply
         case "sessions.start":
             started += 1
-            let agent = params["agent"] as? String ?? "claude_code"
             let folder = params["folder"] as? String ?? "/Users/demo/code/site"
-            let new = "\(agent == "codex" ? "codex" : "claude"):sample-new-\(started)"
-            sessions.insert(["id": new, "agent": agent, "cwd": folder, "title": "", "status": "idle", "waiting": "none",
+            let command = params["command"] as? String ?? ""
+            let program = command.split(separator: " ").first.map(String.init) ?? "zsh"
+            let new = "term:sample-new-\(started)"
+            sessions.insert(["id": new, "agent": "terminal", "program": program, "cwd": folder, "title": "", "status": "idle", "waiting": "none",
                              "host": ["bundle_id": "com.apple.Terminal", "name": "Terminal", "pid": 0, "via": "direct", "tty": ""],
                              "send_paths": ["terminal_script"], "last_at": PlaygroundSamples.time(), "last_text": ""], at: 0)
-            if let first = params["text"] as? String, !first.isEmpty { items[new] = [["seq": 1, "at": PlaygroundSamples.time(), "kind": "user", "text": first]] }
+            if !command.isEmpty { items[new] = [["seq": 1, "at": PlaygroundSamples.time(), "kind": "user", "text": command]] }
             emit("sessions.changed", ["count": sessions.count])
-            return ["started": true, "command": "cd '\(folder)' && \(agent == "codex" ? "codex" : "claude")"]
+            return ["started": true, "command": command, "session": new, "host": "Terminal"]
         case "sessions.delegate":
             guard let index else { throw DaemonRPCError.remote("That session has ended.", code: SessionRefusal.sessionGone) }
             sessions[index]["delegate"] = "sample-delegate"

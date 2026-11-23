@@ -1510,6 +1510,9 @@ mirror! {
         with_ferb: bool,
         goal: String,
         terminals: Vec<SessionChoice>,
+        program: String,
+        window: String,
+        no_text: String,
     }
 }
 
@@ -1518,6 +1521,7 @@ mirror! {
     SessionsList from ferb_mobile::sessions::SessionsList {
         enabled: bool,
         sessions: Vec<AgentSession>,
+        no_chats: Vec<String>,
     }
 }
 

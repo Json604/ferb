@@ -149,7 +149,7 @@ async fn replay(name: &str, d: &Daemon, only: &[&str]) -> (usize, usize) {
                             values.insert("memory.local_import".into(), json!(false));
                             // MEM-459: the owner\'s switch for ChatGPT and Claude, off until he chooses a browser
                             values.insert("memory.sites_import".into(), json!(false));
-                            // HAND-666: the owner's answer about his coding sessions, off until asked
+                            // HAND-696: the owner's answer about his coding sessions, off until asked
                             values.insert("sessions.enabled".into(), json!(false));
                             values.insert("insomnia.grace_minutes".into(), json!(10));
                             values.insert("insomnia.battery_warn_percent".into(), json!(20));

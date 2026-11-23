@@ -274,7 +274,7 @@ struct FERBWindowView: View {
     private var subtitle: String {
         switch selection.section ?? .tasks {
         case .tasks: return "What FERB is working on, and what’s done."
-        case .sessions: return "Your coding sessions"
+        case .sessions: return "Your terminal sessions"
         case .schedules: return "The things you want to happen, right on time."
         case .noticed: return "The little things FERB picked up along the way."
         case .memory: return "What FERB knows about you. Yours to change."

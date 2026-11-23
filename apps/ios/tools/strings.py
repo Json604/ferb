@@ -45,8 +45,8 @@ IOS = {
     "question_yes_fingerprint": "Yes asks for %@.",
     "n_needs_fingerprint": "Needs %@. Tap to answer it in FERB.",
     "n_needs_fingerprint_title": "This one needs %@",
-    # iOS can't blank screenshots (no FLAG_SECURE): the switch hides FERB while the screen is recorded or mirrored;
-    # the app switcher is always covered (kb PHN-565; the owner's question)
+    # iOS can't blank the whole app in screenshots (no FLAG_SECURE): the switch keeps the pictures of the Mac out of
+    # screenshots and hides FERB while the screen is recorded or mirrored; the app switcher is always covered (kb PHN-811)
     "profile_screenshots": "Hide in screen recordings",
     "profile_screenshots_detail": "Blank while the screen is recorded or mirrored",
     # no Stay connected on iPhone (kb PHN-566; the owner's question): notifications while FERB runs
@@ -105,8 +105,8 @@ NEW = {
     "background_text": "On iPhone, FERB's questions and news reach you while FERB is open and for a short while after you leave it. Once iOS closes it, they wait on your Mac and show the moment you open FERB again. Your Mac never stops for this: what it is doing goes on.",
     "scan_no_camera": "This iPhone has no camera FERB can use here. Type the code instead.",
     "recording_cover": "FERB is hidden while the screen is recorded or mirrored.",
-    # This phone's screenshot row says whether this iOS keeps Watch live's picture out of screenshots (PHN-597)
-    "profile_screenshots_detail_shield": "Blank while the screen is recorded or mirrored. Watch live's picture of your Mac stays out of screenshots.",
+    # This phone's screenshot row says whether this iOS keeps the pictures of the Mac out of screenshots (PHN-811)
+    "profile_screenshots_detail_shield": "Pictures of your Mac stay out of screenshots, and FERB is blank while the screen is recorded or mirrored.",
     "profile_screenshots_detail_no_shield": "Blank while the screen is recorded or mirrored. Screenshots can still show FERB on this iPhone.",
     # the lab's Mac page and This phone rows name the fingerprint (Android) or Face ID (the lab's iPhone): the phone's own
     "mac_settings_detail": "Each change asks for %@",

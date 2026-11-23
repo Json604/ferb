@@ -10,8 +10,8 @@ public final class Prefs: @unchecked Sendable {
         d = defaults
     }
 
-    /// PHN-420 on iOS (kb PHN-565): hide FERB while the screen is recorded or mirrored; on unless the owner turns it
-    /// off. The app switcher is always covered.
+    /// PHN-420 on iOS (kb PHN-810, PHN-811): the pictures of the Mac out of screenshots and FERB hidden while the screen
+    /// is recorded or mirrored; on unless the owner turns it off. The app switcher is always covered.
     public var blockScreenshots: Bool {
         get { d.object(forKey: "secure") as? Bool ?? true }
         set { d.set(newValue, forKey: "secure") }

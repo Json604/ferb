@@ -87,6 +87,34 @@ final class ScreenshotTests: XCTestCase {
         }, page: { SessionSample.page() })
     }
 
+    /// One session's conversation, owner 2026-11-23 (kb PHN-812, PHN-813, PHN-815), at the smallest current iPhone width
+    /// (375 points) and the lab's (402): a conversation longer than the screen with room under the header (rows dissolve
+    /// in under it) and above the message box; his words the moment he tapped Send (a dimmed bubble, a small turning arc
+    /// and "Sending…", Send waiting); him scrolled up, with the main chat's jump control; and opening, its first page on
+    /// its way (the main chat's waiting look).
+    // decision: PHN-812, PHN-813, PHN-815, PHN-816
+    func testASessionsConversation() {
+        for width: CGFloat in [375, 402] {
+            let size = CGSize(width: width, height: PhoneInsets.labSize.height)
+            func shot<S: View>(_ name: String, @ViewBuilder sheet: () -> S) {
+                let view = PhoneScreen(moment: .lab(12.5), glide: false, sheet: sheet, page: { SessionSample.page() })
+                    .frame(width: size.width, height: size.height)
+                    .stillMotion()
+                Snapshot.assert(view, size: size, path: "screens/session-\(name)-\(Int(width)).png")
+            }
+            shot("long") { SessionSample.session(scrolls: false, lines: SessionSample.long, asks: false) }
+            shot("sending") { SessionSample.session(scrolls: false, sending: SessionSample.sending) }
+            // PHN-816: opening, its first page on its way: the main chat's waiting look, never an error before the Mac answers
+            shot("waiting") { SessionSample.session(scrolls: false, lines: [], waiting: "Getting this session from your Mac…") }
+            shot("scrolled-up") {
+                SessionSample.session(scrolls: false, lines: SessionSample.long, asks: false, stillJump: ListScroll(atEnd: false, unseen: false))
+            }
+            shot("new-message") {
+                SessionSample.session(scrolls: false, lines: SessionSample.long, asks: false, stillJump: ListScroll(atEnd: false, unseen: true))
+            }
+        }
+    }
+
     /// A few of the gallery's showcases, at their own size.
     // decision: PHN-416, PHN-450
     func testComponents() {

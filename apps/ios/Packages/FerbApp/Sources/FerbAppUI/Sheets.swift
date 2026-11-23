@@ -217,7 +217,7 @@ struct TypeCode: View {
     }
 }
 
-/// MobileScreens.swift ProfileSheet with this phone's switches working (PHN-8, PHN-420, PHN-422, PHN-565, PHN-566).
+/// MobileScreens.swift ProfileSheet with this phone's switches working (PHN-8, PHN-420, PHN-422, PHN-811, PHN-566).
 struct Profile: View {
     @Bindable var model: AppModel
     let shell: AppShell
@@ -236,7 +236,7 @@ struct Profile: View {
                      more: AnyView(VStack(spacing: 0) {
                          Divide()
                          CardRow(title: L.s("profile_screenshots"),
-                                 // says honestly whether this iOS keeps Watch live and private answers out of screenshots (PHN-597)
+                                 // says honestly whether this iOS keeps the pictures of the Mac out of screenshots (PHN-811)
                                  detail: L.s(ScreenshotShield.available ? "profile_screenshots_detail_shield" : "profile_screenshots_detail_no_shield")) { RowIcon(symbol: "eye") } trailing: {
                              PhoneSwitch(on: s.blockScreenshots, onChange: { model.blockScreenshots($0) }, label: L.s("profile_screenshots"))
                          }
@@ -272,9 +272,8 @@ struct Profile: View {
     }
 }
 
-/// Watch live (PHN-454, PHN-518): the task's window on the Mac as FERB.app's preview shows it, full screen, with
-/// FERB's line and Stop. The frame lives in memory only; the app is hidden from screen captures while this shows
-/// (mustSecure, whatever the owner's switch says).
+/// Watch live (PHN-454, PHN-810): the task's window on the Mac as FERB.app's preview shows it, full screen, with
+/// FERB's line and Stop. The frame lives in memory only; screenshots and captures as the owner's switch says (PHN-811).
 struct LiveView: View {
     @Bindable var model: AppModel
     let insets: PhoneInsets
@@ -288,7 +287,7 @@ struct LiveView: View {
                 LivePage(title: L.s("live_title"), frame: image, placeholder: placeholder, line: line,
                          closeTitle: L.s("live_close"), stopTitle: L.s("live_stop"), insets: insets,
                          onClose: { model.closeLive() }, onStop: { model.stop(v.taskId) },
-                         // the picture of the Mac out of screenshots where this iOS allows it (PHN-597)
+                         // the picture of the Mac out of screenshots while the owner's switch is on (PHN-810, PHN-811)
                          shieldFrame: { AnyView($0.screenshotShielded()) })
                 if v.ended != nil {
                     Pill(title: L.s("live_again"), kind: .grey, symbol: "eye", height: 46) { model.watchAgain() }

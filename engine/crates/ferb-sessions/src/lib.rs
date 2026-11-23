@@ -1,5 +1,6 @@
-//! The owner's coding-agent sessions on his Mac (Claude Code, Codex), whatever app shows them: found, read and
-//! signalled through the agent itself, never through a list of hosts (kb HAND-651..666, the agent-remote lab's HAND-652..3).
+//! The owner's sessions on his Mac: every terminal whatever runs in it (kb HAND-691..695), his Claude Code and Codex
+//! sessions (found, read and signalled through the agent itself, HAND-652..664) and the chat apps' chats (HAND-668,
+//! HAND-697..699), whatever app shows them, never through a list of hosts.
 //!
 //! This crate is portable (it builds for the phones too) and does no input or output of its own: the daemon hands it
 //! bytes (a transcript's new lines, a hook's JSON, an app-server message, a process table) and takes back facts
@@ -14,6 +15,8 @@
 //! - [`host`]: the app that shows an agent, from a process table (HAND-654).
 //! - [`paths`]: which send paths a session has, in order (HAND-656).
 //! - [`proof`]: whether the terminal FERB would type into is the session's (HAND-660, HAND-682).
+//! - [`window`]: which of the host app's windows shows a session, for sending and for Watch (HAND-683, PHN-797).
+//! - [`terminals`]: every terminal on the Mac as a session, and what is new in its text (HAND-692, HAND-693).
 //! - [`hooks`]: FERB's entries in Claude Code's settings, added and removed without touching anything else.
 //! - [`ws`]: the WebSocket frames Codex's local socket speaks.
 //! - [`codes`]: the stable refusal codes of the `sessions.*` calls.
@@ -27,6 +30,8 @@ pub mod host;
 pub mod model;
 pub mod paths;
 pub mod proof;
+pub mod terminals;
+pub mod window;
 pub mod ws;
 
 pub use model::{

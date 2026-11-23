@@ -40,6 +40,18 @@ fn bad(msg: &str) -> HandlerError {
     HandlerError::coded(ferb_rpc::phone_gate::BAD_REQUEST, msg)
 }
 
+/// A new terminal's command: `command` (HAND-695); an older phone's `agent` and first words become the agent's
+/// program with them (that phone showed exactly that).
+fn command_of(p: &Params) -> Result<String, HandlerError> {
+    let agent = text(p, "agent");
+    if agent.is_empty() || agent == "terminal" {
+        return Ok(text(p, "command"));
+    }
+    Agent::parse(&agent)
+        .and_then(|a| Sessions::legacy_command(a, &text(p, "text")))
+        .ok_or_else(|| bad("agent must be terminal"))
+}
+
 fn num(p: &Params, k: &str) -> u64 {
     p.get(k).and_then(Value::as_u64).unwrap_or(0)
 }
@@ -161,22 +173,23 @@ pub fn register(me: &Sessions, server: &Server) {
         }
     });
 
-    // what a new session would run, shown before the Yes; and the folders to choose from
+    // decision: HAND-695 — a new session is a terminal: the folders to choose from and the app it opens in; with a
+    // folder and a command, the exact command and its question (GATE-585). No command: nothing is typed, nothing asked.
     let m = me.clone();
     server.register_unary("sessions.prepare", move |_s, p: Params| {
         let m = m.clone();
         async move {
             let folder = text(&p, "folder");
-            let mut out = obj(json!({"folders": m.folders(), "agents": ["claude_code", "codex"], "host": "Terminal"}));
+            let (_, app) = m.start_host();
+            let mut out = obj(json!({"folders": m.folders(), "host": app}));
             if !folder.is_empty() {
-                let agent = Agent::parse(&text(&p, "agent")).ok_or_else(|| bad("agent must be claude_code or codex"))?;
-                let cmd = m.start_command(agent, &folder, &text(&p, "text")).map_err(err)?;
-                out.insert(
-                    "needs_yes".into(),
-                    json!({"question": format!("Start {} in a new Terminal window?", agent.name()),
-                           "detail": cmd,
-                           "covers": "FERB types this command into a new Terminal window, in the background."}),
-                );
+                let command = command_of(&p)?;
+                if let Some(n) = m.start_question(&folder, &command).map_err(err)? {
+                    out.insert(
+                        "needs_yes".into(),
+                        json!({"question": n.question, "detail": n.detail, "covers": n.covers}),
+                    );
+                }
             }
             Ok(out)
         }
@@ -186,13 +199,14 @@ pub fn register(me: &Sessions, server: &Server) {
     server.register_unary("sessions.start", move |s: RpcSession, p: Params| {
         let m = m.clone();
         async move {
-            let agent = Agent::parse(&text(&p, "agent"))
-                .ok_or_else(|| bad("agent must be claude_code or codex"))?;
-            let cmd = m
-                .start(agent, &text(&p, "folder"), &text(&p, "text"), &caller(&s))
+            let command = command_of(&p)?;
+            let (id, app) = m
+                .start_terminal(&text(&p, "folder"), &command, &caller(&s))
                 .await
                 .map_err(err)?;
-            Ok(obj(json!({"started": true, "command": cmd})))
+            Ok(obj(
+                json!({"started": true, "command": command, "session": id, "host": app}),
+            ))
         }
     });
 

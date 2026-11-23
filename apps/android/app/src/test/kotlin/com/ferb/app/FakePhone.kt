@@ -337,6 +337,8 @@ class FakePhone : PhoneApi {
     // ---- the owner's coding sessions (kb HAND-651..666): what the Mac says, what each call got, the refusals it scripts ----
     var sessionsEnabled = true
     val sessions = ArrayList<com.ferb.mobile.AgentSession>()
+    /** HAND-697: the chat apps the Mac says are open with no chat. */
+    var noChats = listOf<String>()
     var sessionsRefusal: Outcome.Failed? = null
     /** Each session's items on the Mac, oldest first, and its open cards. */
     val sessionItems = HashMap<String, MutableList<com.ferb.mobile.SessionItem>>()
@@ -347,6 +349,11 @@ class FakePhone : PhoneApi {
     /** The Mac's refusal of a send or a control with words (the foreground proof failing, PHN-800); null: delivered. */
     var sendRefusal: Outcome.Failed? = null
     var interruptRefusal: Outcome.Failed? = null
+    /** While set, a send or a control waits here as FERB typing into the terminal would (PHN-812), then answers. */
+    var sendGate: CompletableDeferred<Unit>? = null
+    /** While set, a session's read waits here (the Mac slow to answer, PHN-816); [timelineRefusal] answers it with a refusal. */
+    var timelineGate: CompletableDeferred<Unit>? = null
+    var timelineRefusal: Outcome.Failed? = null
     var startFolders = listOf("~/code/web-app", "~/code/blog")
     val timelineAsks = ArrayList<Triple<String, Long, Long>>()
 
@@ -356,11 +363,14 @@ class FakePhone : PhoneApi {
     override suspend fun sessionsList(): Outcome<com.ferb.mobile.SessionsList> {
         calls += "sessions"
         sessionsRefusal?.let { return it }
-        return Outcome.Ok(com.ferb.mobile.SessionsList(sessionsEnabled, if (sessionsEnabled) sessions.map { it.copy(controlledHere = it.id in controlled) } else emptyList()))
+        return Outcome.Ok(com.ferb.mobile.SessionsList(sessionsEnabled, if (sessionsEnabled) sessions.map { it.copy(controlledHere = it.id in controlled) } else emptyList(),
+            if (sessionsEnabled) noChats else emptyList()))
     }
     override suspend fun sessionTimeline(session: String, after: Long, before: Long, limit: Int): Outcome<com.ferb.mobile.SessionTimeline> {
         calls += "timeline:$session:$after:$before"
         timelineAsks += Triple(session, after, before)
+        timelineGate?.await()
+        timelineRefusal?.let { return it }
         val all = sessionItems[session].orEmpty()
         val (page, more) = when {
             after > 0 -> all.filter { it.seq.toLong() > after }.let { a -> a.take(limit) to (a.size > limit) }
@@ -374,6 +384,7 @@ class FakePhone : PhoneApi {
         calls += "session-send:$session:$text"
         if (session !in controlled) return Outcome.Ok(com.ferb.mobile.SessionSent(yes(text), false, false, ""))
         if (text.isBlank()) return Outcome.Failed(FerbException.Refused("There's nothing to send.", "ferb_error"))
+        sendGate?.await()
         sendRefusal?.let { return it }
         return Outcome.Ok(com.ferb.mobile.SessionSent(null, true, delivered, "agent_api"))
     }
@@ -382,6 +393,7 @@ class FakePhone : PhoneApi {
         val sig = signer.sign("sessions.control") ?: return Outcome.Failed(FerbException.NotSigned("Nothing was sent.", null))
         signed += sig
         controlled += session
+        sendGate?.await()
         // HAND-683: until he chooses a terminal the session offers, the Mac can't tell which is the session's
         if (text.isNotBlank() && terminal.isEmpty()) sendRefusal?.let { return it }
         return Outcome.Ok(com.ferb.mobile.SessionSent(null, text.isNotBlank(), text.isNotBlank() && delivered, "agent_api"))
@@ -406,15 +418,16 @@ class FakePhone : PhoneApi {
     override suspend fun sessionPrepare(agent: String, folder: String, text: String): Outcome<com.ferb.mobile.SessionStartPlan> {
         calls += "session-prepare:$agent:$folder:$text"
         if (folder.isEmpty()) return Outcome.Ok(com.ferb.mobile.SessionStartPlan(startFolders, null))
-        val cmd = "cd $folder && ${if (agent == "codex") "codex" else "claude"}" + if (text.isNotEmpty()) " '$text'" else ""
-        return Outcome.Ok(com.ferb.mobile.SessionStartPlan(startFolders, com.ferb.mobile.SessionYes("Open Terminal on your Mac and run this?", cmd,
-            "FERB types this one command in a new Terminal window.")))
+        // HAND-695: a new terminal; only a command is asked about, shown exactly
+        if (text.isEmpty()) return Outcome.Ok(com.ferb.mobile.SessionStartPlan(startFolders, null))
+        return Outcome.Ok(com.ferb.mobile.SessionStartPlan(startFolders, com.ferb.mobile.SessionYes("Open a new Terminal window in ${folder.substringAfterLast('/')} and type this?", text,
+            "FERB opens it in the background and types only this command, then Return. You can type more into it from here.")))
     }
     override suspend fun sessionStart(agent: String, folder: String, text: String, signer: Signer): Outcome<String> {
         calls += "session-start:$agent:$folder:$text"
         val sig = signer.sign("sessions.start") ?: return Outcome.Failed(FerbException.NotSigned("Nothing was sent.", null))
         signed += sig
-        return Outcome.Ok("cd $folder && claude")
+        return Outcome.Ok(text)
     }
     override suspend fun sessionDelegate(session: String, goal: String, signer: Signer): Outcome<String> {
         calls += "session-delegate:$session:$goal"
@@ -458,7 +471,8 @@ class FakePhone : PhoneApi {
                          terminals: List<com.ferb.mobile.SessionChoice> = emptyList()) =
             com.ferb.mobile.AgentSession(id, if (id.startsWith("codex")) "codex" else "claude_code", if (id.startsWith("codex")) "Codex" else "Claude Code",
                 title, "/Users/owner/code/web-app", "web-app", status, if (status == "waiting_for_you") "permission" else "none", host, canSend, noSend,
-                false, "2026-11-22T10:00:00Z", "", controlledHere, if (controlledHere) "phone:p1" else "", withFerb, "", terminals)
+                false, "2026-11-22T10:00:00Z", "", controlledHere, if (controlledHere) "phone:p1" else "", withFerb, "", terminals,
+                "", "", "")
 
         fun item(seq: Int, kind: String, text: String, tool: String = "") = com.ferb.mobile.SessionItem(seq.toULong(), "2026-11-22T10:00:00Z", kind, text, tool)
 

@@ -133,6 +133,8 @@ public struct SessionsPage: View {
     var insets: PhoneInsets
     var off: SessionsOff?
     var empty: String?
+    /// HAND-697: one quiet line per chat app open with no chat FERB could find.
+    var notes: [String]
     var waiting: PhoneTab?
     var onTab: ((PhoneTab) -> Void)?
     var onProfile: (() -> Void)?
@@ -141,14 +143,16 @@ public struct SessionsPage: View {
     var onTurnOn: (() -> Void)?
 
     public init(label: String, rows: [SessionRowData], newLabel: String, insets: PhoneInsets = .lab, off: SessionsOff? = nil,
-                empty: String? = nil, waiting: PhoneTab? = nil, onTab: ((PhoneTab) -> Void)? = nil, onProfile: (() -> Void)? = nil,
-                onRow: ((Int) -> Void)? = nil, onNew: (() -> Void)? = nil, onTurnOn: (() -> Void)? = nil) {
+                empty: String? = nil, notes: [String] = [], waiting: PhoneTab? = nil, onTab: ((PhoneTab) -> Void)? = nil,
+                onProfile: (() -> Void)? = nil, onRow: ((Int) -> Void)? = nil, onNew: (() -> Void)? = nil,
+                onTurnOn: (() -> Void)? = nil) {
         self.label = label
         self.rows = rows
         self.newLabel = newLabel
         self.insets = insets
         self.off = off
         self.empty = empty
+        self.notes = notes
         self.waiting = waiting
         self.onTab = onTab
         self.onProfile = onProfile
@@ -187,6 +191,12 @@ public struct SessionsPage: View {
                             }
                         }
                     }
+                    if off == nil {
+                        ForEach(Array(notes.enumerated()), id: \.offset) { _, note in
+                            Text(note).type(14.5, .medium, ink.low).fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 8).padding(.top, 10)
+                        }
+                    }
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, -6)
@@ -204,8 +214,9 @@ public struct SessionsPage: View {
 
 // MARK: One session
 
-/// What a line of a session's conversation is: the owner's words, the agent's, one tool it ran, a stop, an error.
-public enum SessionLineKind: Sendable { case owner, agent, tool, interrupted, error }
+/// What a line of a session's conversation is: the owner's words, the agent's, one tool it ran, a stop, an error, a
+/// day's start (PHN-813).
+public enum SessionLineKind: Sendable { case owner, agent, tool, interrupted, error, day }
 
 /// One line of the conversation (`key` stays the same while it is on screen: its sequence number).
 public struct SessionLine: Equatable, Sendable {
@@ -224,7 +235,8 @@ public struct SessionLineView: View {
         switch line.kind {
         case .owner: OwnerBubble(line.text)
         case .agent:
-            Text(line.text).type(15.5, .regular, Ink.white).lineSpacing(2)
+            // selectable, as FERB's words in the main chat are (PHN-813)
+            Text(line.text).type(15.5, .regular, Ink.white).lineSpacing(2).textSelection(.enabled)
                 .padding(.horizontal, 16).padding(.vertical, 11)
                 .background(Ink.darkFill, in: UnevenRoundedRectangle(topLeadingRadius: 22, bottomLeadingRadius: 6, bottomTrailingRadius: 22,
                                                                       topTrailingRadius: 22, style: .continuous))
@@ -245,6 +257,12 @@ public struct SessionLineView: View {
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 6)
+        // a day's start, as the main chat's DayDivider, in the black page's quiet ink (PHN-813)
+        case .day:
+            Text(line.text).type(13, .semibold, Ink.onDark)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 6).padding(.bottom, 2)
+                .accessibilityAddTraits(.isHeader)
         }
     }
 }
@@ -366,6 +384,37 @@ public struct SessionUnsentView: View {
     }
 }
 
+/// His words on their way into the session (owner 2026-11-23, kb PHN-812): his bubble, dimmed, the moment he taps Send,
+/// with a small spinner and "Sending…" under it, as the main chat's outbox row says it (PHN-401); once sent, his bubble.
+public struct SessionSending: Equatable, Sendable {
+    public var text: String
+    /// "Sending…" while on its way; nil once sent (his plain bubble until the conversation carries it).
+    public var status: String?
+    public init(text: String, status: String?) { self.text = text; self.status = status }
+}
+
+public struct SessionSendingView: View {
+    let sending: SessionSending
+    public init(_ sending: SessionSending) { self.sending = sending }
+    public var body: some View {
+        if let status = sending.status {
+            VStack(alignment: .trailing, spacing: 4) {
+                OwnerBubble(sending.text).opacity(0.7)
+                HStack(spacing: 8) {
+                    SessionArc(color: Ink.onDark).frame(width: 12, height: 12)
+                    Text(status).type(13.5, .medium, Ink.onDark)
+                }
+                .padding(.horizontal, 6)
+                .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(.updatesFrequently)
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
+        } else {
+            OwnerBubble(sending.text)
+        }
+    }
+}
+
 /// The session's menu (PHN-800): where it runs, then its actions, one per row, in a white card.
 public struct SessionMenu: View {
     let place: String
@@ -424,12 +473,16 @@ public struct SessionComposer: View {
     let sendLabel: String
     var text: Binding<String>?
     var onSend: (() -> Void)?
-    public init(value: String, placeholder: String, sendLabel: String, text: Binding<String>? = nil, onSend: (() -> Void)? = nil) {
+    /// A message is on its way (PHN-812): Send shows a small spinner and waits; the box stays free to type in.
+    var sending: Bool
+    public init(value: String, placeholder: String, sendLabel: String, text: Binding<String>? = nil, onSend: (() -> Void)? = nil,
+                sending: Bool = false) {
         self.value = value
         self.placeholder = placeholder
         self.sendLabel = sendLabel
         self.text = text
         self.onSend = onSend
+        self.sending = sending
     }
     public var body: some View {
         let shown = text?.wrappedValue ?? value
@@ -445,9 +498,15 @@ public struct SessionComposer: View {
                 if shown.isEmpty { Text(placeholder).type(16.5, .regular, Ink.onDark).lineLimit(1).allowsHitTesting(false) }
             }
             .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
-            Image(systemName: "arrow.up").font(.system(size: 17, weight: .semibold)).foregroundStyle(Ink.black)
-                .frame(width: 40, height: 40).background(ready ? Ink.white : Ink.onDark, in: Circle())
-                .pressable(ready ? onSend : nil, label: sendLabel)
+            ZStack {
+                if sending {
+                    SessionArc(color: Ink.black).frame(width: 18, height: 18)
+                } else {
+                    Image(systemName: "arrow.up").font(.system(size: 17, weight: .semibold)).foregroundStyle(Ink.black)
+                }
+            }
+            .frame(width: 40, height: 40).background(ready && !sending ? Ink.white : Ink.onDark, in: Circle())
+            .pressable(ready && !sending ? onSend : nil, label: sendLabel)
         }
         .padding(.leading, 18).padding(.trailing, 8).padding(.vertical, 8)
         .frame(minHeight: 56)
@@ -458,7 +517,7 @@ public struct SessionComposer: View {
 /// One session, full screen on black: its title and state on one header with its menu (where it runs and its actions,
 /// PHN-800) and Close; the conversation with "Show earlier" at its top, a refused message (`unsent`) after its last
 /// line and the agent's open questions at its end; the message box (`foot`, or why nothing can be sent). The app follows
-/// the owner's screenshot switch here (PHN-800); only Watch is kept out of captures always.
+/// the owner's screenshot switch here, as everywhere (PHN-800, PHN-810).
 public struct SessionPage<Foot: View>: View {
     var header: SessionRowData
     var lines: [SessionLine]
@@ -471,17 +530,29 @@ public struct SessionPage<Foot: View>: View {
     var onChoice: ((Int, Int) -> Void)?
     var unsent: SessionUnsent?
     var onRetry: (() -> Void)?
+    /// His words on their way, or just sent (PHN-812).
+    var sending: SessionSending?
     var moreLabel: String
     var menuOpen: Bool
     var onMenu: ((Bool) -> Void)?
+    /// The jump control's words (the main chat's: "New message", "Go to the latest messages"; PHN-813).
+    var newMessage: String
+    var toLatest: String
     /// False draws the conversation's end without a scroll view (a still picture: the screenshots cannot draw one).
     var scrolls: Bool
+    /// A still picture as the owner sees it scrolled up (the jump control drawn; the screenshots).
+    var stillJump: ListScroll?
+    /// The first read is on its way (`waiting`'s words): the main chat's waiting look, never an empty page or an error
+    /// before the Mac answered (owner 2026-11-23, PHN-816).
+    var waiting: String?
     var foot: Foot
 
     public init(header: SessionRowData, lines: [SessionLine], asks: [SessionAsk], actions: [SessionAction], insets: PhoneInsets = .lab,
                 older: String? = nil, onOlder: (() -> Void)? = nil, onClose: (() -> Void)? = nil, onChoice: ((Int, Int) -> Void)? = nil,
-                unsent: SessionUnsent? = nil, onRetry: (() -> Void)? = nil, moreLabel: String = "More", menuOpen: Bool = false,
-                onMenu: ((Bool) -> Void)? = nil, scrolls: Bool = true, @ViewBuilder foot: () -> Foot) {
+                unsent: SessionUnsent? = nil, onRetry: (() -> Void)? = nil, sending: SessionSending? = nil, moreLabel: String = "More",
+                menuOpen: Bool = false, onMenu: ((Bool) -> Void)? = nil, newMessage: String = "New message",
+                toLatest: String = "Go to the latest messages", scrolls: Bool = true, stillJump: ListScroll? = nil,
+                waiting: String? = nil, @ViewBuilder foot: () -> Foot) {
         self.header = header
         self.lines = lines
         self.asks = asks
@@ -493,10 +564,15 @@ public struct SessionPage<Foot: View>: View {
         self.onChoice = onChoice
         self.unsent = unsent
         self.onRetry = onRetry
+        self.sending = sending
         self.moreLabel = moreLabel
         self.menuOpen = menuOpen
         self.onMenu = onMenu
+        self.newMessage = newMessage
+        self.toLatest = toLatest
         self.scrolls = scrolls
+        self.stillJump = stillJump
+        self.waiting = waiting
         self.foot = foot()
     }
 
@@ -516,26 +592,47 @@ public struct SessionPage<Foot: View>: View {
                 CloseButton(onClick: onClose)
             }
             .padding(.horizontal, 16)
-            BottomFitOrScroll(end: (lines.last?.key ?? "") + ":\(asks.count):\(unsent?.text ?? "")", scrolls: scrolls) {
-                VStack(spacing: 10) {
+            // the header's own room under it: the conversation never touches it (owner 2026-11-23, PHN-815)
+            .padding(.bottom, Self.headerGap)
+            // the main chat's list (PHN-813): followed at the end, the jump control when scrolled up ("New message" when
+            // something arrived), the keyboard down on a drag, his sent words always in view; rows dissolve under the
+            // header instead of being cut at its edge (PHN-815)
+            let endKey = "\(lines.last?.key ?? ""):\(asks.count):\(unsent?.text ?? ""):\(sending?.text ?? ""):\(sending?.status ?? "")"
+            ZStack(alignment: .bottom) {
+                // the first read on its way: the main chat's waiting look (shapes of messages, its spinner and words)
+                if let waiting, lines.isEmpty {
+                    ChatWaiting(waiting, textInk: Ink.onDark).frame(maxHeight: .infinity, alignment: .top)
+                        .transition(.opacity)
+                        .accessibilityIdentifier("session-waiting")
+                }
+                FollowingList(end: ListEnd(key: endKey, mine: sending != nil, value: endKey),
+                              keys: lines.map(\.key), spacing: 10,
+                              padding: EdgeInsets(top: Self.listTop, leading: 16, bottom: 12, trailing: 16),
+                              fade: Self.fade, still: !scrolls,
+                              jump: { ListJump.plain($0, newMessage: newMessage, toLatest: toLatest, light: true) }, over: { _ in EmptyView() }) {
                     if let older {
                         Pill(title: older, kind: .grey, height: 36, fill: false, onClick: onOlder).ferbSurface()
                     }
-                    ForEach(Array(lines.enumerated()), id: \.offset) { _, l in SessionLineView(l) }
+                    ForEach(lines, id: \.key) { l in SessionLineView(l).id(l.key).transition(.motionItem) }
                     if let unsent { SessionUnsentView(unsent, onRetry: onRetry) }
+                    if let sending { SessionSendingView(sending).id("sending").transition(.motionItem) }
                     ForEach(Array(asks.enumerated()), id: \.offset) { a, ask in
                         SessionAskCard(ask, onChoice: onChoice.map { f in { f(a, $0) } })
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 14)
-                .padding(.bottom, 12)
+                // a still picture of him scrolled up: the jump control as the live list draws it
+                if !scrolls, let s = stillJump, let j = ListJump.plain(s, newMessage: newMessage, toLatest: toLatest, light: true) {
+                    JumpPill(j.text, label: j.label, light: true) {}.padding(.bottom, 10)
+                }
             }
             foot.padding(.horizontal, 16)
         }
         .padding(.top, insets.top + 8)
         .padding(.bottom, insets.bottom + 8)
+        // the whole screen takes every touch: nothing reaches the Sessions tab under it (its New session at the foot;
+        // owner 2026-11-23, PHN-815)
         .background(Ink.black)
+        .contentShape(Rectangle())
         .overlay(alignment: .topTrailing) {
             if menuOpen, !actions.isEmpty {
                 ZStack(alignment: .topTrailing) {
@@ -550,38 +647,15 @@ public struct SessionPage<Foot: View>: View {
     }
 }
 
-/// The conversation: drawn as it is when it fits (the screenshots), else a scroll view at its end that follows a new
-/// line while the owner is at the end.
-struct BottomFitOrScroll<Content: View>: View {
-    let end: String
-    var scrolls = true
-    @ViewBuilder var content: Content
-    var body: some View {
-        if !scrolls {
-            // its own height (every line whole), its end at the bottom, what is above cut off
-            content.fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .bottom).clipped()
-        } else {
-            fitOrScroll
-        }
-    }
-    private var fitOrScroll: some View {
-        ViewThatFits(in: .vertical) {
-            content.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-            ScrollViewReader { reader in
-                ScrollView {
-                    content
-                    Color.clear.frame(height: 1).id("end")
-                }
-                .defaultScrollAnchor(.bottom)
-                .scrollBounceBehavior(.basedOnSize)
-                .onChange(of: end) { reader.scrollTo("end", anchor: .bottom) }
-            }
-        }
-    }
+extension SessionPage {
+    /// The room between the header and the conversation, the conversation's own top inset and the fade that rows dissolve
+    /// in under the header: rows at rest start below the fade, so nothing at rest is dimmed (PHN-815).
+    static var headerGap: CGFloat { 10 }
+    static var listTop: CGFloat { 20 }
+    static var fade: CGFloat { 20 }
 }
 
-/// The Mac's question before FERB types for the owner (GATE-622) or starts a session (HAND-665): its question as the title,
+/// The Mac's question before FERB types for the owner (GATE-622) or starts a session (HAND-695): its question as the title,
 /// the exact words or command in a fixed-width face, what the Yes covers, and Yes / Cancel. Nothing was sent before
 /// his Yes.
 public struct SessionYesSheet: View {
@@ -675,7 +749,7 @@ public struct PickTerminalSheet: View {
 
 /// Invented sessions for the gallery and the screenshots (no real folder, title or command; Android's labSessions).
 public enum SessionSample {
-    public static let label = "Your coding sessions"
+    public static let label = "Your terminal sessions"
     public static let rows: [SessionRowData] = [
         SessionRowData(title: "Fix the flaky login test", subtitle: "web-app · in Terminal", state: .working, stateText: "Working"),
         SessionRowData(title: "Move the blog to the new theme", subtitle: "blog · in Visual Studio Code", state: .waiting, stateText: "Waiting for you"),
@@ -684,8 +758,8 @@ public enum SessionSample {
         SessionRowData(title: "thesis-tools", subtitle: "thesis-tools · in the background", state: .idle, stateText: "Idle"),
     ]
     public static let off = SessionsOff(
-        title: "FERB doesn't see your Claude Code and Codex sessions yet.",
-        text: "Turn it on and you can follow and answer them from here, start new ones and hand one to FERB. FERB adds a small hook to Claude Code's settings so it hears when a session finishes or needs you. Codex needs nothing added.",
+        title: "FERB doesn't see your terminal sessions yet.",
+        text: "Turn it on and you can follow your terminals and type into them from here, Claude Code and Codex too, open new ones and hand one to FERB. FERB adds a small hook to Claude Code's settings so it hears when a session finishes or needs you.",
         turnOn: "Turn on")
     public static let lines: [SessionLine] = [
         SessionLine("1", .owner, "Move the blog to the new theme and keep the old URLs working"),
@@ -714,14 +788,30 @@ public enum SessionSample {
         ("w7:1:Terminal 2, zsh", "config.toml — blog · Terminal 2, zsh"),
     ]
 
+    /// PHN-812: his words the moment he tapped Send.
+    public static let sending = SessionSending(text: "Then deploy it to staging", status: "Sending…")
+
+    /// A conversation longer than the screen, the newest at the end (PHN-813, PHN-815: the header's room, the fade, the
+    /// jump control).
+    public static let long: [SessionLine] = lines + [
+        SessionLine("6", .tool, "Bash: npm run build"),
+        SessionLine("7", .agent, "The build passed and the redirects answer with 301. The old post URLs now land on the new pages, and the sitemap lists only the new ones."),
+        SessionLine("8", .owner, "Great. Check the RSS feed keeps its old address too"),
+        SessionLine("9", .agent, "The feed keeps /index.xml, so readers' subscriptions keep working. Nothing else links to the old theme's assets."),
+        SessionLine("10", .owner, "Now open a pull request with a short summary of what changed"),
+        SessionLine("11", .tool, "Bash: git push -u origin new-theme"),
+        SessionLine("12", .agent, "Pushed the branch new-theme and opened the pull request with the summary: the new theme, the redirects for the old post URLs, and the feed kept at its address."),
+    ]
+
     public static func session(insets: PhoneInsets = .lab, typed: String = "", scrolls: Bool = true, menuOpen: Bool = false,
-                               unsent: SessionUnsent? = nil) -> some View {
-        SessionPage(header: rows[1], lines: lines, asks: unsent == nil ? [ask] : [],
+                               unsent: SessionUnsent? = nil, sending: SessionSending? = nil, lines: [SessionLine] = lines,
+                               asks: Bool = true, stillJump: ListScroll? = nil, waiting: String? = nil) -> some View {
+        SessionPage(header: rows[1], lines: lines, asks: unsent == nil && sending == nil && asks && waiting == nil ? [ask] : [],
                     actions: [SessionAction("Watch", symbol: "eye", onClick: {}), SessionAction("Hand to FERB", symbol: "hand.raised", onClick: {}),
                               SessionAction("Stop its turn", symbol: "stop.fill", onClick: {})],
-                    insets: insets, older: "Show earlier", onClose: {}, unsent: unsent, onRetry: {}, menuOpen: menuOpen, onMenu: { _ in },
-                    scrolls: scrolls) {
-            SessionComposer(value: typed, placeholder: "Message Claude Code…", sendLabel: "Send")
+                    insets: insets, older: waiting == nil ? "Show earlier" : nil, onClose: {}, unsent: unsent, onRetry: {}, sending: sending,
+                    menuOpen: menuOpen, onMenu: { _ in }, scrolls: scrolls, stillJump: stillJump, waiting: waiting) {
+            SessionComposer(value: typed, placeholder: "Message Claude Code…", sendLabel: "Send", sending: sending?.status != nil)
         }
     }
 }

@@ -8,6 +8,7 @@ import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.test.core.app.ApplicationProvider
 import com.ferb.app.model.LocalFiles
+import com.ferb.app.model.SessionSendPhase
 import com.ferb.app.model.Why
 import com.ferb.core.KeyKind
 import com.ferb.mobile.LinkPath
@@ -161,6 +162,22 @@ class SessionsTest {
         assertFalse(vm.mustSecure.value)
     }
 
+    // decision: PHN-816
+    @Test
+    fun while_the_first_read_is_on_its_way_nothing_says_not_found_and_only_the_mac_s_answer_does() {
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        phone.timelineGate = gate
+        val vm = opened()
+        var o = vm.openSession.value!!
+        assertFalse("still waiting for the Mac", o.loaded)
+        assertNull("no error before the Mac answered", o.problem)
+        phone.timelineRefusal = Outcome.Failed(FerbException.Refused("FERB can't find that session.", "not_found"))
+        gate.complete(Unit)
+        o = vm.openSession.value!!
+        assertFalse(o.loaded)
+        assertEquals("the Mac's answer, once it came", "FERB can't find that session.", o.problem?.words)
+    }
+
     @Test
     fun show_earlier_pages_back_with_before() {
         phone.sessionItems["claude:s1"] = (1..60).map { FakePhone.item(it, if (it % 2 == 0) "assistant" else "user", "line $it") }.toMutableList()
@@ -215,19 +232,91 @@ class SessionsTest {
         vm.sessionYes()
         val o = vm.openSession.value!!
         assertNull("the question closes: never stuck on the fingerprint", o.ask)
-        assertEquals("Run the tests again", o.unsent!!.text)
-        assertEquals(why, o.unsent!!.reason.words)
+        assertEquals("Run the tests again", o.outgoing!!.text)
+        assertEquals(why, o.outgoing!!.reason!!.words)
         assertEquals("the words left the box for the not-sent bubble", "", o.draft)
         assertTrue("nothing shows as sent", o.items.none { it.text == "Run the tests again" })
         // controlling it now: a direct send the Mac refuses is not sent either
         vm.sessionTyped("And commit")
         vm.sessionSend()
-        assertEquals("And commit", vm.openSession.value!!.unsent!!.text)
+        assertEquals("And commit", vm.openSession.value!!.outgoing!!.text)
         // Try again, once the Mac can send: it goes, and the not-sent bubble leaves
         phone.sendRefusal = null
         vm.sessionRetry()
         assertTrue("session-send:claude:s1:And commit" in phone.calls)
-        assertNull(vm.openSession.value!!.unsent)
+        assertEquals("sent: the not-sent bubble is his sent message now", SessionSendPhase.SENT, vm.openSession.value!!.outgoing!!.phase)
+    }
+
+    // decision: PHN-812
+    @Test
+    fun a_send_shows_at_once_as_sending_then_as_sent_and_once_the_session_holds_it_only_once() {
+        phone.controlled += "claude:s1"
+        val vm = opened()
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        phone.sendGate = gate
+        vm.sessionTyped("Run the tests again")
+        vm.sessionSend()
+        // FERB is still typing it on the Mac: the box is empty at once, his words show as sending
+        var o = vm.openSession.value!!
+        assertEquals("", o.draft)
+        assertEquals("Run the tests again", o.outgoing!!.text)
+        assertEquals(SessionSendPhase.SENDING, o.outgoing!!.phase)
+        assertTrue("session-send" in vm.ui.value.busy)
+        // a second tap while it goes sends nothing more
+        vm.sessionTyped("And commit")
+        vm.sessionSend()
+        assertEquals(1, count("session-send:claude:s1:"))
+        vm.sessionTyped("")
+        gate.complete(Unit)
+        o = vm.openSession.value!!
+        assertEquals("the Mac typed it: his plain bubble", SessionSendPhase.SENT, o.outgoing!!.phase)
+        assertFalse("session-send" in vm.ui.value.busy)
+        // the session's own record of it arrives: the bubble gives way to it, never shown twice
+        phone.sessionItems["claude:s1"]!! += FakePhone.item(4, "user", "Run the tests again")
+        tick()
+        o = vm.openSession.value!!
+        assertNull(o.outgoing)
+        assertEquals(1, o.items.count { it.text == "Run the tests again" && it.seq == 4uL })
+    }
+
+    // decision: PHN-812, PHN-800
+    @Test
+    fun a_send_that_fails_while_sending_shows_not_sent_with_its_words_and_try_again_sends_them() {
+        phone.controlled += "claude:s1"
+        val why = "FERB couldn't tell that the terminal in front in Code is this session's, so it typed nothing."
+        phone.sendRefusal = Outcome.Failed(FerbException.Refused(why, "not_the_session"))
+        val vm = opened()
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        phone.sendGate = gate
+        vm.sessionTyped("Deploy to staging")
+        vm.sessionSend()
+        assertEquals(SessionSendPhase.SENDING, vm.openSession.value!!.outgoing!!.phase)
+        gate.complete(Unit)
+        val o = vm.openSession.value!!
+        assertEquals(SessionSendPhase.NOT_SENT, o.outgoing!!.phase)
+        assertEquals("his words are kept", "Deploy to staging", o.outgoing!!.text)
+        assertEquals(why, o.outgoing!!.reason!!.words)
+        phone.sendRefusal = null
+        vm.sessionRetry()
+        assertEquals(2, count("session-send:claude:s1:Deploy to staging"))
+        assertEquals(SessionSendPhase.SENT, vm.openSession.value!!.outgoing!!.phase)
+    }
+
+    // decision: PHN-812, GATE-622
+    @Test
+    fun after_the_yes_the_question_closes_and_his_words_show_as_sending() {
+        val vm = opened()
+        vm.sessionTyped("Run the tests again")
+        vm.sessionSend()
+        assertNull("asked first: nothing on its way yet", vm.openSession.value!!.outgoing)
+        assertNotNull(vm.openSession.value!!.ask)
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        phone.sendGate = gate
+        vm.sessionYes()
+        assertNull("the question closes at once", vm.openSession.value!!.ask)
+        assertEquals(SessionSendPhase.SENDING, vm.openSession.value!!.outgoing!!.phase)
+        gate.complete(Unit)
+        assertEquals(SessionSendPhase.SENT, vm.openSession.value!!.outgoing!!.phase)
     }
 
     // decision: HAND-683
@@ -248,11 +337,11 @@ class SessionsTest {
         assertNull(o.ask)
         assertEquals("the terminals the Mac can see, to choose from", offered, o.pick!!.terminals)
         assertEquals(why, o.pick!!.why)
-        assertEquals("Run the tests again", o.unsent!!.text)
+        assertEquals("Run the tests again", o.outgoing!!.text)
         // Don't send: nothing typed, the words stay as not sent
         vm.sessionPickNo()
         assertNull(vm.openSession.value!!.pick)
-        assertEquals("Run the tests again", vm.openSession.value!!.unsent!!.text)
+        assertEquals("Run the tests again", vm.openSession.value!!.outgoing!!.text)
         // Try again asks to choose again; his choice is signed as control is, and the words go there
         vm.sessionRetry()
         assertNotNull(vm.openSession.value!!.pick)
@@ -262,7 +351,7 @@ class SessionsTest {
         assertEquals(signed + 1, phone.signed.size)
         assertEquals(KeyKind.STRONG to Why.YES, signers.last().let { it.first.kind to it.second })
         assertNull(vm.openSession.value!!.pick)
-        assertNull("sent: the not-sent bubble leaves", vm.openSession.value!!.unsent)
+        assertEquals("sent: the not-sent bubble is his sent message now", SessionSendPhase.SENT, vm.openSession.value!!.outgoing!!.phase)
     }
 
     @Test
@@ -332,8 +421,9 @@ class SessionsTest {
         assertEquals(R.string.sessions_handed, vm.ui.value.note?.res)
     }
 
+    // decision: HAND-691, HAND-695
     @Test
-    fun a_new_session_shows_the_exact_command_before_the_signed_start() {
+    fun a_new_session_is_a_terminal_with_no_agent_to_pick_and_only_a_command_is_asked_about() {
         val vm = vm()
         vm.choose(PhoneTab.SESSIONS)
         vm.newSession()
@@ -341,26 +431,47 @@ class SessionsTest {
         assertTrue("session-prepare:::" in phone.calls)
         val n = vm.newSession.value!!
         assertEquals(phone.startFolders, n.folders)
-        assertEquals(phone.startFolders.first(), n.folder)
-        vm.newSessionAgent("codex")
+        assertEquals(phone.startFolders.first(), n.chosen)
+        // no command: it opens at once (signed), nothing asked, nothing typed
         vm.newSessionFolder("~/code/blog")
-        vm.newSessionText("Move the blog to the new theme")
         vm.newSessionNext()
-        assertTrue("session-prepare:codex:~/code/blog:Move the blog to the new theme" in phone.calls)
-        val yes = vm.newSession.value!!.yes
-        assertNotNull("the command is shown before anything runs", yes)
-        assertTrue(phone.calls.none { it.startsWith("session-start") })
-        vm.newSessionStart()
-        assertTrue("session-start:codex:~/code/blog:Move the blog to the new theme" in phone.calls)
+        assertTrue("session-prepare:terminal:~/code/blog:" in phone.calls)
+        assertTrue("session-start:terminal:~/code/blog:" in phone.calls)
         assertEquals(KeyKind.STRONG to Why.YES, signers.last().let { it.first.kind to it.second })
-        assertNull(vm.sheet.value)
         assertNull(vm.newSession.value)
         assertEquals(R.string.sessions_started, vm.ui.value.note?.res)
+        // a command, in a folder typed by hand: shown exactly before anything runs, then typed exactly
+        phone.calls.clear()
+        vm.newSession()
+        vm.newSessionOther("/Users/owner/elsewhere")
+        vm.newSessionText(" agy ")
+        vm.newSessionNext()
+        assertTrue("session-prepare:terminal:/Users/owner/elsewhere:agy" in phone.calls)
+        assertEquals("agy", vm.newSession.value!!.yes!!.detail)
+        assertTrue(phone.calls.none { it.startsWith("session-start") })
+        vm.newSessionStart()
+        assertTrue("session-start:terminal:/Users/owner/elsewhere:agy" in phone.calls)
+        assertNull(vm.sheet.value)
+    }
+
+    // decision: HAND-692, HAND-697
+    @Test
+    fun a_terminal_row_says_its_program_folder_and_app_and_an_app_with_no_chat_says_so() {
+        phone.sessions += FakePhone.agentSession("term:110", "", "idle", "Terminal").copy(agent = "terminal", agentName = "agy", program = "agy",
+            folder = "/Users/owner/Desktop", folderName = "Desktop", window = "Desktop — agy — 120×30")
+        phone.noChats = listOf("Cursor")
+        val vm = vm()
+        vm.choose(PhoneTab.SESSIONS)
+        val ui = vm.sessions.value
+        assertEquals(listOf("Cursor"), ui.noChats)
+        val row = ui.sessions.first { it.id == "term:110" }
+        assertEquals("Desktop — agy — 120×30", com.ferb.app.model.Sessions.title(row))
     }
 
     // decision: PHN-797, PHN-454, PHN-444
+    // decision: PHN-810
     @Test
-    fun watch_is_never_asked_for_on_the_shared_relay_and_is_out_of_screenshots() {
+    fun watch_is_never_asked_for_on_the_shared_relay_and_follows_the_screenshot_switch() {
         phone.link.value = FakePhone.status(path = LinkPath.PUBLIC_RELAY)
         val vm = opened()
         vm.watchSession()
@@ -371,7 +482,7 @@ class SessionsTest {
         vm.watchSession()
         assertTrue("session-live:claude:s1" in phone.calls)
         assertEquals(Sheet.SessionLive("claude:s1"), vm.sheet.value)
-        assertTrue(vm.mustSecure.value)
+        assertFalse("its window follows the owner's switch (PHN-810)", vm.mustSecure.value)
         val reads = count("timeline")
         tick(); tick()
         assertEquals("the conversation isn't read while its window is watched", reads, count("timeline"))

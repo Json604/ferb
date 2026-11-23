@@ -63,6 +63,7 @@ fn session_value(s: &ferb_sessions::Session) -> Value {
         },
         "app": s.host.as_ref().map(|h| h.name.clone()).unwrap_or_default(),
         "can_send": !s.send_paths.is_empty(), "last": s.last_text,
+        "program": s.program, "window": s.window,
     })
 }
 
@@ -138,9 +139,14 @@ impl Tool for SessionTool {
                 ),
                 enter: true,
                 window: s.title.clone(),
+                // HAND-692: a terminal is named by the program in front in it
                 label: format!(
                     "{} in {}",
-                    s.agent.name(),
+                    if s.agent == ferb_sessions::Agent::Terminal && !s.program.is_empty() {
+                        s.program.as_str()
+                    } else {
+                        s.agent.name()
+                    },
                     ferb_daemon::sessions::folder_name(&s.cwd)
                 ),
                 ..TerminalInput::default()

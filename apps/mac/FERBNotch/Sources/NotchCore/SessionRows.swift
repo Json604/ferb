@@ -55,6 +55,12 @@ public struct AgentSessionRow: Identifiable, Equatable {
     /// HAND-683: FERB couldn't tell which terminal in its app is this session's: the ones it can see, for the owner to
     /// choose (empty otherwise).
     public let terminals: [SessionChoice]
+    /// HAND-692: the program in front in its terminal ("agy", "zsh", "claude"; "" when unknown), and its window in its
+    /// app's own words.
+    public let program: String
+    public let window: String
+    /// HAND-693: why FERB can't show this terminal's text (nil when it can).
+    public let noText: String?
 
     public init?(_ row: [String: Any]) {
         guard let id = row["id"] as? String, !id.isEmpty else { return nil }
@@ -77,12 +83,17 @@ public struct AgentSessionRow: Identifiable, Equatable {
             guard let id = t["id"] as? String, !id.isEmpty else { return nil }
             return SessionChoice(id: id, label: string(t["label"]))
         }
+        program = string(row["program"])
+        window = string(row["window"])
+        noText = words(row["no_text"])
     }
 
     /// The agent as the owner calls it.
     public var agentName: String {
         // HAND-668: an app chat is named by its app
         if agent == "app_chat", let name = host?.name, !name.isEmpty { return name }
+        // HAND-692: a terminal by the program in front in it
+        if agent == "terminal", !program.isEmpty { return program }
         return Self.agentName(agent)
     }
 
@@ -91,6 +102,7 @@ public struct AgentSessionRow: Identifiable, Equatable {
         case "claude_code": return "Claude Code"
         case "codex": return "Codex"
         case "app_chat": return "App chat"
+        case "terminal": return "Terminal"
         default: return agent.replacingOccurrences(of: "_", with: " ")
         }
     }
@@ -101,14 +113,18 @@ public struct AgentSessionRow: Identifiable, Equatable {
         return name.isEmpty || name == "/" ? cwd : name
     }
 
-    /// The row's heading: the session's title, else its folder's name.
-    public var heading: String { title.isEmpty ? folderName : title }
+    /// The row's heading: the session's title, else its window's in its app's words (HAND-692), else its folder's name.
+    public var heading: String { !title.isEmpty ? title : (!window.isEmpty ? window : folderName) }
 
-    /// Where it runs: "<folder> · in <app>", or "in the background" when no app shows it.
+    /// Where it runs: "<program> · <folder> · in <app>" (HAND-692; no program: "<folder> · in <app>"), or "in the
+    /// background" when no app shows it.
     public var whereLine: String {
         let app = host?.name ?? ""
-        return folderName + " · " + (app.isEmpty ? "in the background" : "in \(app)")
+        return [program, folderName, app.isEmpty ? "in the background" : "in \(app)"].filter { !$0.isEmpty }.joined(separator: " · ")
     }
+
+    /// HAND-697: an app open with no chat FERB could find.
+    public static func noChatLine(_ app: String) -> String { "No chat open in \(app). Start one there to continue here." }
 
     public var canSend: Bool { !sendPaths.isEmpty }
     /// Sending brings its app forward on the Mac.

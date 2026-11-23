@@ -29,8 +29,8 @@ data class LiveView(
 
 /**
  * Watch live (PHN-454, PHN-111): a task's live preview at the link's own pace, each frame decoded in memory and never
- * written anywhere (no file, no cache, no notification); the screen that shows it is always kept out of screenshots
- * (MainActivity, FLAG_SECURE whatever the owner's switch says). It stops when the screen goes, the app goes to the
+ * written anywhere (no file, no cache, no notification); the screen that shows it follows the owner's screenshot
+ * switch as every page does (kb PHN-810; MainActivity's FLAG_SECURE). It stops when the screen goes, the app goes to the
  * background, or the app locks; on the public relay it is never asked for (the relay's rule is said instead).
  */
 class LiveWatch(

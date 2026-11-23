@@ -4,8 +4,8 @@ import FerbMobile
 import SwiftUI
 import UIKit
 
-// The owner's coding sessions on his Mac (kb HAND-651; Android's ui/Sessions.kt): the Sessions tab, one session, the Yes
-// before FERB types for him, Hand to FERB, a new session and the session's window. The words are the app's (the
+// The owner's sessions on his Mac (kb HAND-691, HAND-651; Android's ui/Sessions.kt): the Sessions tab, one session, the
+// Yes before FERB types for him, Hand to FERB, a new terminal and the session's window. The words are the app's (the
 // catalog, the same English as FERB.app); the agent's own words are shown as plain text. The polls run only while these
 // show (the list every 3 s, the open session every 2 s); the model also checks the app is unlocked and in front.
 
@@ -40,7 +40,8 @@ struct SessionsTabPage: View {
         SessionsPage(label: L.s("sessions_title"), rows: sessions.map(SessionWords.row), newLabel: L.s("sessions_new"), insets: insets,
                      off: loaded && c.list?.enabled == false
                          ? SessionsOff(title: L.s("sessions_off"), text: L.s("sessions_off_more"), turnOn: L.s("sessions_turn_on")) : nil,
-                     empty: c.problem?.text ?? (loaded ? L.s("sessions_none") : nil), waiting: waiting,
+                     empty: c.problem?.text ?? (loaded ? L.s("sessions_none") : nil),
+                     notes: (c.list?.noChats ?? []).map { L.s("sessions_no_chat", $0) }, waiting: waiting,
                      onTab: { model.choose($0) }, onProfile: { model.show(.profile) },
                      onRow: { i in if i < sessions.count { model.openSession(sessions[i].id) } },
                      onNew: { model.newSession() },
@@ -94,7 +95,18 @@ struct SessionScreenPage: View {
                                          onClick: busy.contains("session-release") ? nil : { model.releaseSession() }))
         }
         let cards = open.cards
-        return SessionPage(header: header, lines: open.items.map(SessionWords.line), asks: cards.map { SessionWords.ask($0, agent: agent) },
+        // a day's start between days, as the main chat's earlier days (PHN-813)
+        let today = ChatModel.chatDay(Date(), Calendar.current)
+        let lines = SessionWords.lines(open.items, today: today) { dayLabel($0, today: today) }
+        // his words from the moment he tapped Send: sending, then his bubble until the conversation has it (PHN-812)
+        let sending: SessionSending? = open.outgoing.flatMap { o in
+            switch o.state {
+            case .sending: SessionSending(text: o.text, status: L.s("outbox_sending"))
+            case .sent: SessionSending(text: o.text, status: nil)
+            case .notSent: nil
+            }
+        }
+        return SessionPage(header: header, lines: lines, asks: cards.map { SessionWords.ask($0, agent: agent) },
                            actions: actions, insets: insets, older: open.more ? L.s("sessions_older") : nil,
                            onOlder: busy.contains("session-earlier") ? nil : { model.sessionEarlier() },
                            onClose: { model.closeSession() },
@@ -106,13 +118,18 @@ struct SessionScreenPage: View {
                                SessionUnsent(text: $0.text, reason: $0.reason.text, retry: L.s("sessions_try_again"), notSent: L.s("sessions_not_sent"))
                            },
                            onRetry: busy.contains("session-send") ? nil : { model.retrySessionSend() },
+                           sending: sending,
                            moreLabel: L.s("sessions_more"), menuOpen: open.menu, onMenu: { model.sessionMenu($0) },
-                           scrolls: !still) {
+                           newMessage: L.s("chat_new_message"), toLatest: L.s("chat_to_latest"),
+                           // the first page on its way: the main chat's waiting look, not an empty page (PHN-816)
+                           scrolls: !still, waiting: open.loaded ? nil : L.s("sessions_loading")) {
             if s == nil || s?.canSend == true {
+                let sendingNow = sending?.status != nil
                 SessionComposer(value: model.coding.draft, placeholder: L.s("sessions_message_hint", agent.isEmpty ? header.title : agent),
                                 sendLabel: L.s("sessions_send"),
                                 text: still ? nil : Binding(get: { model.coding.draft }, set: { model.sessionTyped($0) }),
-                                onSend: busy.contains("session-send") ? nil : { model.sendToSession() })
+                                onSend: busy.contains("session-send") || sendingNow ? nil : { model.sendToSession() },
+                                sending: sendingNow)
             } else if let s {
                 Text(s.noSend).type(14.5, .regular, Ink.onDark).fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 6).padding(.vertical, 10)
@@ -173,8 +190,8 @@ struct SessionHandSheet: View {
     }
 }
 
-/// New session (HAND-665): which agent, which folder (the Mac's list), the first words; then the Mac's exact command and
-/// the owner's Yes.
+/// New session (HAND-691): a terminal on the Mac. Only where (the Mac's list, or another folder typed) and an optional
+/// command; with a command, the Mac's exact command and the owner's Yes. No agent to pick: he types the one he wants.
 struct NewSessionSheet: View {
     @Bindable var model: AppModel
     let insets: PhoneInsets
@@ -182,53 +199,50 @@ struct NewSessionSheet: View {
     var body: some View {
         let close = { model.closeNewSession() }
         if let n = model.coding.new {
-            let agentName = CodingSessions.agents.first { $0.id == n.agent }?.name ?? ""
             Sheet(bottomInset: insets.bottom, onDismiss: close) {
                 SheetTitle(L.s("sessions_new"), onClose: close)
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
-                        Text(L.s("sessions_new_agent")).type(15.5, .semibold, Ink.black).padding(.top, 12).padding(.bottom, 8)
-                        HStack(spacing: 8) {
-                            ForEach(CodingSessions.agents, id: \.id) { a in
-                                Pill(title: a.name, kind: n.agent == a.id ? .black : .grey, height: 44) { model.newSessionAgent(a.id) }
-                                    .accessibilityAddTraits(n.agent == a.id ? .isSelected : [])
-                            }
-                        }
-                        Text(L.s("sessions_new_folder")).type(15.5, .semibold, Ink.black).padding(.top, 16).padding(.bottom, 8)
+                        Text(L.s("sessions_new_folder")).type(15.5, .semibold, Ink.black).padding(.top, 12).padding(.bottom, 8)
                         if !n.folders.isEmpty {
                             // the sheet's grey fill for the folders: a white card would vanish on the white sheet
                             VStack(spacing: 0) {
                                 ForEach(Array(n.folders.enumerated()), id: \.offset) { i, f in
+                                    let picked = f == n.folder && n.other.isEmpty
                                     if i > 0 { Divide() }
                                     CardRow(title: (f as NSString).lastPathComponent.isEmpty ? f : (f as NSString).lastPathComponent, detail: f,
                                             onClick: { model.newSessionFolder(f) }) {
                                         RowIcon(symbol: "folder")
                                     } trailing: {
-                                        if f == n.folder { Image(systemName: "checkmark").font(.system(size: 17, weight: .semibold)).foregroundStyle(Ink.black) }
+                                        if picked { Image(systemName: "checkmark").font(.system(size: 17, weight: .semibold)).foregroundStyle(Ink.black) }
                                     }
-                                    .accessibilityAddTraits(f == n.folder ? .isSelected : [])
+                                    .accessibilityAddTraits(picked ? .isSelected : [])
                                 }
                             }
                             .background(Ink.fill, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                         } else if n.loading {
                             ProgressView().frame(maxWidth: .infinity)
                         }
-                        Text(L.s("sessions_new_first")).type(15.5, .semibold, Ink.black).padding(.top, 16).padding(.bottom, 8)
+                        Text(L.s("sessions_new_other")).type(15.5, .semibold, Ink.black).padding(.top, 16).padding(.bottom, 8)
+                        Field(text: Binding(get: { model.coding.new?.other ?? "" }, set: { model.newSessionOther($0) }),
+                              hint: L.s("sessions_new_other_hint"))
+                        Text(L.s("sessions_new_command")).type(15.5, .semibold, Ink.black).padding(.top, 16).padding(.bottom, 8)
                         Field(text: Binding(get: { model.coding.new?.text ?? "" }, set: { model.newSessionText($0) }),
-                              hint: L.s("sessions_message_hint", agentName))
+                              hint: L.s("sessions_new_command_hint"))
                     }
                 }
                 .frame(maxHeight: 520)
                 .fixedSize(horizontal: false, vertical: true)
                 Pill(title: L.s("sessions_start"), kind: .black,
-                     onClick: n.folder == nil || model.ui.busy.contains("session-prepare") ? nil : { model.startSession() })
+                     onClick: n.chosen == nil || model.ui.busy.contains("session-prepare") ? nil : { model.startSession() })
                     .padding(.top, 18)
             }
         }
     }
 }
 
-/// Watch: the session's window live (Watch live's page and rules: memory only, out of captures, not on the shared relay).
+/// Watch: the session's window live (Watch live's page and rules: memory only, screenshots as the owner's switch says,
+/// not on the shared relay; PHN-810).
 struct SessionWatchView: View {
     @Bindable var model: AppModel
     let insets: PhoneInsets
@@ -242,7 +256,7 @@ struct SessionWatchView: View {
             ZStack(alignment: .bottom) {
                 LivePage(title: L.s("sessions_watch_title", name), frame: image, placeholder: placeholder, line: line,
                          closeTitle: L.s("live_close"), insets: insets, onClose: { model.closeLive() },
-                         // the picture of the Mac out of screenshots where this iOS allows it (PHN-597)
+                         // the picture of the Mac out of screenshots while the owner's switch is on (PHN-810, PHN-811)
                          shieldFrame: { AnyView($0.screenshotShielded()) }, stops: false)
                 if v.ended != nil {
                     Pill(title: L.s("live_again"), kind: .grey, symbol: "eye", height: 46) { model.watchSessionAgain() }

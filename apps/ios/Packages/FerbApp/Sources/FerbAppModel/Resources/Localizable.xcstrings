@@ -2593,7 +2593,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Blank while the screen is recorded or mirrored. Watch live's picture of your Mac stays out of screenshots."
+            "value": "Pictures of your Mac stay out of screenshots, and FERB is blank while the screen is recorded or mirrored."
           }
         }
       }
@@ -3381,6 +3381,17 @@
         }
       }
     },
+    "sessions_loading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Getting this session from your Mac…"
+          }
+        }
+      }
+    },
     "sessions_message_hint": {
       "extractionState": "manual",
       "localizations": {
@@ -3414,24 +3425,24 @@
         }
       }
     },
-    "sessions_new_agent": {
+    "sessions_new_command": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Which agent?"
+            "value": "Command (optional)"
           }
         }
       }
     },
-    "sessions_new_first": {
+    "sessions_new_command_hint": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "First message (optional)"
+            "value": "Command to run (optional)"
           }
         }
       }
@@ -3447,13 +3458,46 @@
         }
       }
     },
+    "sessions_new_other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another folder"
+          }
+        }
+      }
+    },
+    "sessions_new_other_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full path, like /Users/you/site"
+          }
+        }
+      }
+    },
+    "sessions_no_chat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No chat open in %1$@. Start one there to continue here."
+          }
+        }
+      }
+    },
     "sessions_none": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No Claude Code or Codex sessions are running right now."
+            "value": "No terminals are open on your Mac right now."
           }
         }
       }
@@ -3486,7 +3530,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "FERB doesn't see your Claude Code and Codex sessions yet."
+            "value": "FERB doesn't see your terminal sessions yet."
           }
         }
       }
@@ -3497,7 +3541,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Turn it on and you can follow and answer them from here, start new ones and hand one to FERB. FERB adds a small hook to Claude Code's settings so it hears when a session finishes or needs you. Codex needs nothing added."
+            "value": "Turn it on and you can follow your terminals and type into them from here, Claude Code and Codex too, open new ones and hand one to FERB. FERB adds a small hook to Claude Code's settings so it hears when a session finishes or needs you."
           }
         }
       }
@@ -3574,7 +3618,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Starting it in Terminal on your Mac."
+            "value": "Opening a terminal on your Mac."
           }
         }
       }
@@ -3607,7 +3651,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your coding sessions"
+            "value": "Your terminal sessions"
           }
         }
       }

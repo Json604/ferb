@@ -257,7 +257,7 @@ pub fn settings() -> Vec<Setting> {
         check: Check::Bool,
         default: json!(false),
     });
-    // decision: HAND-666 — FERB sees the owner's coding sessions (and has its hook in Claude Code's settings) only after
+    // decision: HAND-696 — FERB sees the owner's coding sessions (and has its hook in Claude Code's settings) only after
     // his Yes; off until asked
     out.push(Setting {
         section: "sessions",

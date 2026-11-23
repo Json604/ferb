@@ -50,7 +50,7 @@ public enum AppSheet: Equatable, Sendable {
     case sessionPick
     /// Hand a session to FERB with a goal (ORCH-687).
     case sessionHand(id: String)
-    /// A new session: which agent, the folder, the first message (HAND-665).
+    /// A new session: a terminal; the folder and an optional command (HAND-691).
     case sessionNew
     /// A session's window on the Mac, live (Watch live's rules, PHN-454).
     case sessionWatch(id: String)
@@ -408,22 +408,11 @@ public final class AppModel {
         set { box.prompts = newValue }
     }
 
-    /// A screen that must stay out of screen captures whatever the owner's switch says: a private answer being typed
-    /// (PHN-110) and Watch live (PHN-454). The shell hides the app's content while the screen is captured then.
-    public var mustSecure: Bool {
-        switch sheet {
-        // the views that show the Mac's screen readably (Watch live, a task's or step's short view) whatever the switch
-        // says; the small round pictures in the chat follow the owner's switch (owner 2026-11-18, kb PHN-727)
-        case .live, .task: return true
-        // the Mac's camera (APP-983)
-        case .camera: return true
-        // a coding session's window live (kb HAND-651, PHN-454); its conversation, the Yes before a send and Hand to
-        // FERB follow the owner's switch (owner 2026-11-22, PHN-800)
-        case .sessionWatch: return true
-        // a hidden input's field in a question's box (kb PHN-770)
-        default: return !hiddenBoxes.isEmpty
-        }
-    }
+    /// A screen that must stay out of screen captures whatever the owner's switch says: only a private answer being
+    /// typed (PHN-110). Every other page, sheet and picture follows his Block screenshots switch, Watch live, a task's
+    /// short view, the Mac's camera and a session's window included (owner 2026-11-23, kb PHN-810, PHN-811). The shell
+    /// hides the app's content while the screen is captured then.
+    public var mustSecure: Bool { !hiddenBoxes.isEmpty }
 
     /// The question boxes with a hidden input's field on screen now: the screen stays out of captures (PHN-110).
     public private(set) var hiddenBoxes: Set<String> = []
@@ -2071,7 +2060,8 @@ public final class AppModel {
         refreshProfile()
     }
 
-    /// PHN-420 on iOS (kb PHN-565): hide FERB while the screen is recorded or mirrored.
+    /// PHN-420 on iOS (kb PHN-810, PHN-811): every picture of the Mac out of screenshots and FERB hidden while the screen is
+    /// recorded or mirrored.
     public func blockScreenshots(_ on: Bool) {
         prefs.blockScreenshots = on
         refreshProfile()

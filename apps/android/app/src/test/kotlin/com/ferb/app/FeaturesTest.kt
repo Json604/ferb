@@ -396,7 +396,7 @@ class FeaturesTest {
     }
 
     // decision: PHN-454, PHN-420
-    // decision: PHN-518
+    // decision: PHN-810
     @Test
     fun watch_live_never_asks_on_the_public_relay_and_stops_in_the_background() {
         session.unlocked()
@@ -410,7 +410,7 @@ class FeaturesTest {
         vm.watchLive("t-1")
         idle()
         assertEquals(Sheet.Live("t-1"), vm.sheet.value)
-        assertTrue("kept out of screenshots whatever the switch says", vm.mustSecure.value)
+        assertFalse("screenshots as the owner's switch says, as every page (PHN-810)", vm.mustSecure.value)
         phone.preview!!.frame(PreviewFrame(null, 3, "working", "Reading delivery options", false, true, false, null))
         assertEquals("Reading delivery options", vm.live.view.value?.line)
         phone.preview!!.ended("needs_unlock", "Unlock to watch live.")

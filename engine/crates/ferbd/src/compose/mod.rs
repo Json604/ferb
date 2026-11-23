@@ -1101,6 +1101,9 @@ impl Daemon {
                 user_home: opts.user_home.clone(),
                 app_bundle: opts.app_bundle.clone(),
                 native: opts.native,
+                make_runtime: memory_loops::learning_runtime(learning_area.clone()),
+                layouts: home.join("sessions").join("chat-layouts.json"),
+                device_id: device_id.clone(),
             },
         );
         tool_parts.set_sessions(sessions_area);

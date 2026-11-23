@@ -4680,3 +4680,23 @@ status = "active"
 rule = "For APP-806 and APP-814. A reply or notice said after a turn the app doesn't hold (an earlier day's, not read since FERB.app opened) is shown on its own day, in arrival order, before the turns the app holds. Whether the chat draws its transcript (entries, open questions, the memory import's live card) is one test (`NotchModel.showsTranscript`) that the body's layout, its greeting and its height all read; the empty day's height is used only when nothing is drawn."
 why = "Owner 2026-11-23: \"its blank after i approved all the memory messages\". His day held only notices after the previous day's turn, so none showed; with the review gone and the import's card up, the chat was sized as empty while drawing a transcript."
 paths = ["apps/mac/FERBNotch/Sources/NotchCore/ConversationArchive.swift", "apps/mac/FERBNotch/Sources/FERBNotch/Conversation.swift", "apps/mac/FERBNotch/Sources/FERBNotch/ChatBody.swift", "apps/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift"]
+
+[APP-1120]
+title = "FERB.app's Sessions page: a send shows at once, and the conversation is the chat's own list"
+by = "agent"
+date = 2026-11-23
+status = "active"
+rule = "For PHN-812, PHN-813, PHN-816, APP-1112. SessionsModel.outgoing: Send empties the box and shows his words sending (dimmed, spinner, \"Sending…\"), then sent until the session's record has his message, or not sent (\"Not sent.\", the daemon's words, Try again); Cancel and Don't send put them back. The conversation is the chat's TranscriptList (an item row) under its follow rules: pinned only at the bottom, \"New message\", earlier items on scroll, the chat's text surface. A skeleton and no problem line until the first read answers."
+why = "FERB.app's page had no not-sent state (a refusal was only a red line) and its own plain list."
+evidence = "FERBNotch SessionsSendingTests (8), SessionsOpeningTests (3) and SessionsTests; swift test 961, 0 failures."
+paths = ["apps/mac/FERBNotch/Sources/FERBNotch/SessionsModel.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SessionTranscript.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SessionsPage.swift", "apps/mac/FERBNotch/Sources/FERBNotch/TranscriptList.swift"]
+
+[APP-1121]
+title = "FERB.app's Sessions: each terminal by program, folder and app; New session is a folder and a command"
+by = "agent"
+date = 2026-11-23
+status = "active"
+rule = "For HAND-691, HAND-697, APP-1112. The page and its Settings switch say \"Your terminal sessions\"; a row names a terminal by its program, its heading is its title, else its window's words, else its folder, and its line \"<program> · <folder> · in <app>\". One quiet line per chat app open with no chat. New session: the folder (the daemon's list, or Choose… to browse) and Command to run (optional); no agent picker; a command is shown exactly before it is typed; none opens it at once."
+evidence = "NotchCoreTests SessionsTests testANewSessionIsATerminalAndOnlyItsCommandIsAskedAbout, testATerminalRowSaysItsProgramFolderAndAppAndAnAppWithNoChatSaysSo; PlaygroundWorkspaceTests' sessions flow."
+paths = ["apps/mac/FERBNotch/Sources/FERBNotch/SessionsPage.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SessionsModel.swift", "apps/mac/FERBNotch/Sources/NotchCore/SessionRows.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift"]
+live = ["LIVE-1192", "LIVE-1193"]

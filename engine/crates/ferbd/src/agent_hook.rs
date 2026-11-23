@@ -1,4 +1,4 @@
-//! `ferb agent-hook claude <Event>` (kb HAND-666, HAND-662): the command FERB puts in Claude Code's settings for each hook
+//! `ferb agent-hook claude <Event>` (kb HAND-696, HAND-662): the command FERB puts in Claude Code's settings for each hook
 //! event. It reads the event's JSON from stdin, hands it to the daemon (`sessions.hook`, the owner's uid's `cli` role)
 //! with its own ancestors (so the daemon knows which Claude Code process asks), and prints the daemon's reply, which is
 //! empty except for a held permission request the owner answered.

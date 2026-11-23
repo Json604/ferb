@@ -994,8 +994,8 @@ title = "Start new sessions in other apps, and pick the session's tab in a multi
 area = "hands"
 kind = "build"
 status = "open"
-why = "HAND-665 starts only in Terminal. HAND-660 refuses when the focused terminal isn't the session's; the lab found VS Code's tab by its 'Terminal tabs' list (AXPress by the session's title) and its window by VSCODE_GIT_IPC_HANDLE; not built."
-decisions = ["HAND-665", "HAND-660"]
+why = "HAND-695 opens new terminals only in Terminal (OPENERS); iTerm2, Ghostty, WezTerm and kitty need their own background openers. HAND-660 refuses when the focused terminal isn't the session's; the lab found VS Code's tab by its 'Terminal tabs' list (AXPress by title); not built."
+decisions = ["HAND-695", "HAND-660"]
 after = []
 
 [T-1288]
@@ -1060,4 +1060,22 @@ status = "open"
 why = "MEM-472: Not sure on a fact whose check date came asks again in 7 days (`import_review::UNSURE_AGAIN_DAYS`, FERB's proposal). Numbers that change FERB's behavior are the owner's (rule 18)."
 decisions = ["MEM-472"]
 ask = "When you answer Not sure about something FERB said it would check (a trip, a course), FERB asks again in a week. Is a week right?"
+after = []
+
+[T-1300]
+title = "Browse the Mac's folders from the phones' New session sheet"
+area = "phone"
+kind = "build"
+status = "open"
+why = "PHN-817: the phones offer the Mac's folder list and a typed path; FERB.app has Choose… (a folder panel). A browser over phone.files (PHN-482's rules, folder by folder) inside the sheet is not built."
+decisions = ["PHN-817", "HAND-695"]
+after = []
+
+[T-1301]
+title = "Read the text of terminals whose app doesn't show it: VS Code-family, iTerm2 by its tty, Warp"
+area = "hands"
+kind = "build"
+status = "open"
+why = "HAND-693 reads tmux, Terminal by tty and a terminal app's one text area by Accessibility. xterm.js shows its rows only in screen-reader mode, so an editor's terminal says no_text; iTerm2 has a scripting read by tty (contents of session) not built; Warp, Ghostty, kitty and WezTerm unchecked."
+decisions = ["HAND-693"]
 after = []

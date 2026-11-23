@@ -26,7 +26,10 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
@@ -123,8 +126,11 @@ fun SessionRow(row: SessionRowData, onClick: (() -> Unit)? = null) {
 /** What a line of a session's conversation is: the owner's words, the agent's, one tool it ran, a stop, an error. */
 enum class SessionLineKind { OWNER, AGENT, TOOL, INTERRUPTED, ERROR }
 
-/** One line of the conversation ([key] stays the same while it is on screen: its sequence number). */
-data class SessionLine(val key: String, val kind: SessionLineKind, val text: String)
+/**
+ * One line of the conversation ([key] stays the same while it is on screen: its sequence number). [day]: the words of
+ * its day's start ("Today", "Yesterday", the date) when it is the first line of a day, as the main chat marks days.
+ */
+data class SessionLine(val key: String, val kind: SessionLineKind, val text: String, val day: String? = null)
 
 /**
  * One line on the session screen's black page: the owner's words on white at the right, the agent's on the dark fill
@@ -135,12 +141,15 @@ fun SessionLineView(line: SessionLine, modifier: Modifier = Modifier) {
     when (line.kind) {
         SessionLineKind.OWNER -> OwnerBubble(line.text, modifier)
         SessionLineKind.AGENT -> Box(modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
-            PhoneText(
-                line.text, 15.5f, color = Ink.white, lineSpacing = 2f,
-                modifier = Modifier.widthIn(max = Phone.bubbleMaxFerb)
-                    .background(Ink.darkFill, RoundedCornerShape(Phone.bubbleCorner, Phone.bubbleCorner, Phone.bubbleCorner, Phone.bubbleTail))
-                    .padding(horizontal = 16.dp, vertical = 11.dp),
-            )
+            // its words can be selected and copied, as FERB's answers in the main chat (Rich.kt)
+            androidx.compose.foundation.text.selection.SelectionContainer {
+                PhoneText(
+                    line.text, 15.5f, color = Ink.white, lineSpacing = 2f,
+                    modifier = Modifier.widthIn(max = Phone.bubbleMaxFerb)
+                        .background(Ink.darkFill, RoundedCornerShape(Phone.bubbleCorner, Phone.bubbleCorner, Phone.bubbleCorner, Phone.bubbleTail))
+                        .padding(horizontal = 16.dp, vertical = 11.dp),
+                )
+            }
         }
         SessionLineKind.TOOL -> BasicText(
             line.text, modifier.fillMaxWidth().padding(horizontal = 6.dp),
@@ -188,20 +197,40 @@ fun SessionAskCard(ask: SessionAsk, modifier: Modifier = Modifier, onChoice: ((I
 data class SessionAction(val label: String, val icon: ImageVector?, val onClick: (() -> Unit)?)
 
 /**
- * A message the Mac refused (PHN-800): the owner's words, dimmed, never as sent; why, in the Mac's plain words; and
- * [retry] to send them again.
+ * His message to a session that its conversation doesn't hold yet, one bubble for each way it stands (PHN-812,
+ * PHN-800): [sending] ("Sending…" under it, a turning mark) while FERB types it on the Mac; sent (neither: his plain
+ * bubble) until the session's own record of it arrives; refused ([reason]: dimmed, "[notSent] [reason]", and [retry]).
  */
-data class SessionUnsent(val text: String, val reason: String, val retry: String, val notSent: String)
+data class SessionOutgoing(
+    val text: String,
+    val sending: Boolean,
+    val reason: String? = null,
+    val sendingLabel: String = "",
+    val retry: String = "",
+    val notSent: String = "",
+)
 
 @Composable
-fun SessionUnsentView(u: SessionUnsent, modifier: Modifier = Modifier, onRetry: (() -> Unit)? = null) {
-    Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        OwnerBubble(u.text, Modifier.alpha(0.5f))
-        Row(Modifier.padding(start = 40.dp, end = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
-            LampDot(Lamp.red, 7.dp, Modifier.padding(top = 6.dp))
-            PhoneText("${u.notSent} ${u.reason}", 14f, color = Ink.onDark, lineSpacing = 2f)
+fun SessionOutgoingView(u: SessionOutgoing, modifier: Modifier = Modifier, onRetry: (() -> Unit)? = null) {
+    Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(if (u.reason != null) 8.dp else 4.dp)) {
+        // faded until the Mac typed it, as the main chat's outbox (Main.kt OutboxRow); more when refused
+        OwnerBubble(u.text, Modifier.alpha(when { u.reason != null -> 0.5f; u.sending -> 0.7f; else -> 1f }))
+        when {
+            u.reason != null -> {
+                Row(Modifier.padding(start = 40.dp, end = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
+                    LampDot(Lamp.red, 7.dp, Modifier.padding(top = 6.dp))
+                    PhoneText("${u.notSent} ${u.reason}", 14f, color = Ink.onDark, lineSpacing = 2f)
+                }
+                FerbSurface { Pill(u.retry, Modifier.padding(end = 2.dp), PillKind.GREY, height = 36.dp, fill = false, onClick = onRetry) }
+            }
+            u.sending -> Row(
+                Modifier.padding(horizontal = 6.dp).semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
+                horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically,
+            ) {
+                RunningArc(12.dp, Ink.onDark, stroke = 1.8.dp)
+                PhoneText(u.sendingLabel, 13.5f, FerbType.Medium, Ink.onDark)
+            }
         }
-        FerbSurface { Pill(u.retry, Modifier.padding(end = 2.dp), PillKind.GREY, height = 36.dp, fill = false, onClick = onRetry) }
     }
 }
 
@@ -262,6 +291,7 @@ fun SessionActions(actions: List<SessionAction>, modifier: Modifier = Modifier) 
 /**
  * The session screen's message box (kb HAND-651..666): the owner's words to the agent, several lines, and Send. Never a
  * terminal's keyboard: what is sent is what the box holds. Without [onValueChange] it only shows [value] (screenshots).
+ * While his last message is on its way ([sending], PHN-812) the send button turns, never a frozen arrow, and takes no tap.
  */
 @Composable
 fun SessionComposer(
@@ -272,6 +302,7 @@ fun SessionComposer(
     onValueChange: ((String) -> Unit)? = null,
     onSend: (() -> Unit)? = null,
     focus: FocusRequester? = null,
+    sending: Boolean = false,
 ) {
     Row(
         modifier.fillMaxWidth().heightIn(min = Phone.composerHeight).background(Ink.darkFill, RoundedCornerShape(Phone.composerHeight / 2))
@@ -294,9 +325,10 @@ fun SessionComposer(
             if (value.isEmpty()) PhoneText(placeholder, 16.5f, color = Ink.onDark, maxLines = 1)
         }
         Box(
-            Modifier.pressable(onSend?.takeIf { value.isNotBlank() }, label = sendLabel).semantics { contentDescription = sendLabel }
-                .size(Phone.composerButton).background(if (value.isNotBlank()) Ink.white else Ink.onDark, CircleShape),
+            Modifier.pressable(onSend?.takeIf { value.isNotBlank() && !sending }, label = sendLabel).semantics { contentDescription = sendLabel }
+                .size(Phone.composerButton).background(if (value.isNotBlank() && !sending) Ink.white else Ink.onDark, CircleShape)
+                .testTag(if (sending) "session-send-busy" else "session-send"),
             contentAlignment = Alignment.Center,
-        ) { FerbIcon(FerbIcons.arrowUp, 17f, Ink.black) }
+        ) { if (sending) RunningArc(18.dp, Ink.black, stroke = 2.dp) else FerbIcon(FerbIcons.arrowUp, 17f, Ink.black) }
     }
 }

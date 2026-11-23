@@ -52,10 +52,9 @@ import com.ferb.design.motionAppear
 
 /** A day's start in the chat: "Today", "Yesterday" or the date, small and centred in the sky's ink. */
 @Composable
-fun DayDivider(text: String, modifier: Modifier = Modifier) {
-    val ink = LocalSkyInk.current
+fun DayDivider(text: String, modifier: Modifier = Modifier, color: Color = LocalSkyInk.current.low) {
     Box(modifier.fillMaxWidth().padding(top = 6.dp, bottom = 2.dp).semantics { heading() }, contentAlignment = Alignment.Center) {
-        PhoneText(text, 13f, FerbType.Semibold, ink.low)
+        PhoneText(text, 13f, FerbType.Semibold, color)
     }
 }
 
@@ -166,9 +165,10 @@ private fun StatusMark(tone: StatusTone) {
 /**
  * While the first page of the chat comes from the Mac and nothing is stored yet: the shapes of a few messages and one
  * plain line ([text]), never a blank screen. Still shapes (no shimmer: the lab's only unasked motion is the spinner).
+ * [ink] is the line's colour: the sky's ink on the chat, the dark page's grey on a coding session (PHN-816).
  */
 @Composable
-fun ChatWaiting(text: String, modifier: Modifier = Modifier) {
+fun ChatWaiting(text: String, modifier: Modifier = Modifier, ink: Color = LocalSkyInk.current.low) {
     val shade = Color.White.copy(alpha = 0.16f)
     Column(modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -180,8 +180,8 @@ fun ChatWaiting(text: String, modifier: Modifier = Modifier) {
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(top = 6.dp).semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite }) {
-            RunningArc(16.dp, LocalSkyInk.current.low)
-            PhoneText(text, 14.5f, FerbType.Medium, LocalSkyInk.current.low)
+            RunningArc(16.dp, ink)
+            PhoneText(text, 14.5f, FerbType.Medium, ink)
         }
     }
 }

@@ -1,6 +1,10 @@
 [
-  {"bundle_id": "com.anthropic.claudefordesktop", "name": "Claude", "stop_labels": ["Stop response", "Stop"], "owner_side": "right"},
-  {"bundle_id": "com.openai.codex", "name": "ChatGPT", "stop_labels": ["Stop streaming", "Stop generating", "Stop"], "owner_side": "right"},
-  {"bundle_id": "com.openai.chat", "name": "ChatGPT", "stop_labels": ["Stop streaming", "Stop generating", "Stop"], "owner_side": "right"},
-  {"bundle_id": "com.todesktop.230313mzl4w4u92", "name": "Cursor", "stop_labels": ["Stop", "Cancel generation"], "owner_side": "layout"}
+  {"bundle_id": "com.anthropic.claudefordesktop", "name": "Claude", "stop_labels": ["Stop response", "Stop"], "owner_side": "right",
+   "composer_marks": ["ProseMirror", "Write your prompt to Claude", "Reply to Claude"], "pane_marks": ["role:AXWebArea"]},
+  {"bundle_id": "com.openai.codex", "name": "ChatGPT", "stop_labels": ["Stop streaming", "Stop generating", "Stop"], "owner_side": "right",
+   "composer_marks": ["ProseMirror", "Ask anything", "Ask Codex", "Message ChatGPT"]},
+  {"bundle_id": "com.openai.chat", "name": "ChatGPT", "stop_labels": ["Stop streaming", "Stop generating", "Stop"], "owner_side": "right",
+   "composer_marks": ["Ask anything", "Message ChatGPT"]},
+  {"bundle_id": "com.todesktop.230313mzl4w4u92", "name": "Cursor", "stop_labels": ["Stop", "Cancel generation"], "owner_side": "layout",
+   "composer_marks": ["aislash-editor-input"], "pane_marks": ["auxiliarybar", "composer-bar", "chat-view"]}
 ]

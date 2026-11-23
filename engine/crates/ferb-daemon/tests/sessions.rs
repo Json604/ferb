@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 
 use ferb_core::interfaces::BoxFuture;
 use ferb_daemon::sessions::*;
+use ferb_sessions::appchat::{Candidate, Link, Pick, Proven, WindowRead};
 use ferb_sessions::codes;
 use ferb_sessions::host::{Proc, Table};
 use ferb_sessions::model::*;
@@ -23,6 +24,9 @@ use tokio::sync::oneshot;
 
 const SID: &str = "bce22ef4-0000-4bcf-a44f-de50b0d1c1fe";
 const OWN_PID: i32 = 7;
+
+/// What a new terminal does when it opens (its shell appears in the table).
+type OnOpen = Box<dyn Fn(&FakeMac, &str) + Send>;
 
 /// What a chat app does with typed words: its window's tree after them.
 type Echo = Box<dyn Fn(&str) -> Vec<ferb_sessions::appchat::Node> + Send>;
@@ -47,14 +51,95 @@ struct FakeMac {
     chat_pressed: Mutex<Vec<String>>,
     /// What a chat does when FERB types into it (the app answering): the window's tree after the send.
     chat_echo: Mutex<Option<Echo>>,
+    /// The running apps' own processes by bundle id (the ones that own their windows).
+    app_pids: Mutex<HashMap<String, i32>>,
+    /// HAND-698: an editable node's chain (window id, node index), when not the default one (the node, the app's web
+    /// area, the window).
+    chat_chains: Mutex<HashMap<(i64, usize), Vec<Link>>>,
+    /// HAND-692: each process's folder, argv[0], and each terminal's activity; the apps' windows; the terminals'
+    /// text (by tty) and the terminals opened (bundle, folder).
+    cwds: Mutex<HashMap<i32, String>>,
+    argv0: Mutex<HashMap<i32, String>>,
+    activity: Mutex<HashMap<String, f64>>,
+    windows: Mutex<Vec<(i32, i64, String)>>,
+    screens: Mutex<HashMap<String, String>>,
+    opened_at: Mutex<Vec<(String, String)>>,
+    /// What a new terminal does when opened (the shell appears in the table).
+    on_open: Mutex<Option<OnOpen>>,
+}
+
+/// An editable node's chain as a chat app shows it by default: the node (its label as its mark), the app's web
+/// area, the window.
+fn default_chain(n: &Node) -> Vec<Link> {
+    vec![
+        Link {
+            role: n.role.clone(),
+            marks: vec![n.label.clone()],
+            frame: Some((n.x, n.y, n.w, n.h)),
+        },
+        Link {
+            role: "AXWebArea".into(),
+            marks: vec![],
+            frame: Some((0.0, 0.0, 1200.0, 1000.0)),
+        },
+        Link {
+            role: "AXWindow".into(),
+            marks: vec![],
+            frame: Some((0.0, 0.0, 1200.0, 1000.0)),
+        },
+    ]
 }
 
 impl Mac for FakeMac {
     fn processes(&self) -> Table {
         self.table.lock().unwrap().clone()
     }
-    fn cwd_of(&self, _pid: i32) -> String {
-        String::new()
+    fn cwd_of(&self, pid: i32) -> String {
+        self.cwds
+            .lock()
+            .unwrap()
+            .get(&pid)
+            .cloned()
+            .unwrap_or_default()
+    }
+    fn program_of(&self, pid: i32, exe: &str) -> String {
+        let a = self
+            .argv0
+            .lock()
+            .unwrap()
+            .get(&pid)
+            .cloned()
+            .unwrap_or_default();
+        ferb_sessions::terminals::program_name(&a, exe)
+    }
+    fn tty_activity(&self, tty: &str) -> Option<(f64, String)> {
+        self.activity.lock().unwrap().get(tty).map(|a| {
+            (
+                *a,
+                format!("2026-11-22T10:00:{:02}.000+00:00", (*a as i64) % 60),
+            )
+        })
+    }
+    fn window_titles(&self) -> Vec<(i32, i64, String)> {
+        self.windows.lock().unwrap().clone()
+    }
+    fn terminal_text(&self, t: &TermPlace) -> Result<String, String> {
+        self.screens
+            .lock()
+            .unwrap()
+            .get(&t.tty)
+            .cloned()
+            .ok_or_else(|| "Code doesn't show this terminal's text to FERB.".to_string())
+    }
+    fn terminal_open_at(&self, bundle_id: &str, folder: &str) -> Result<(), String> {
+        self.opened_at
+            .lock()
+            .unwrap()
+            .push((bundle_id.into(), folder.into()));
+        if let Some(f) = self.on_open.lock().unwrap().as_ref() {
+            f(self, folder);
+        }
+        Ok(())
     }
     fn tmux_clients(&self, _server: i32) -> Vec<(i32, String)> {
         Vec::new()
@@ -71,6 +156,11 @@ impl Mac for FakeMac {
     }
     fn terminal_type(&self, tty: &str, text: &str) -> Result<(), String> {
         self.typed.lock().unwrap().push((tty.into(), text.into()));
+        // a terminal shows what is typed into it
+        if let Some(screen) = self.screens.lock().unwrap().get_mut(tty) {
+            screen.push_str(text);
+            screen.push('\n');
+        }
         if let Some(p) = self.echo_to.lock().unwrap().clone() {
             append(
                 &p,
@@ -122,13 +212,65 @@ impl Mac for FakeMac {
             .cloned()
             .collect()
     }
-    fn chat_tree(&self, w: &ChatWindow, front: bool) -> Option<Vec<ferb_sessions::appchat::Node>> {
+    fn chat_read(
+        &self,
+        w: &ChatWindow,
+        front: bool,
+        prove: &(dyn Fn(&WindowRead) -> Option<Proven> + Sync),
+    ) -> Option<ChatRead> {
         self.chat_reads.lock().unwrap().push((w.window, front));
-        self.chat_trees.lock().unwrap().get(&w.window).cloned()
+        let nodes = self.chat_trees.lock().unwrap().get(&w.window).cloned()?;
+        let chains = self.chat_chains.lock().unwrap();
+        let cands = nodes
+            .iter()
+            .enumerate()
+            .filter(|(_, n)| n.editable && n.enabled)
+            .map(|(i, n)| Candidate {
+                index: i,
+                label: n.label.clone(),
+                focused: n.focused,
+                bottom: n.y + n.h,
+                chain: chains
+                    .get(&(w.window, i))
+                    .cloned()
+                    .unwrap_or_else(|| default_chain(n)),
+            })
+            .collect();
+        let window = WindowRead {
+            nodes: nodes.clone(),
+            cands,
+        };
+        let proven = prove(&window);
+        // the stand-in's pane is the whole window, its composer marked
+        let pane = proven
+            .map(|p| {
+                nodes
+                    .iter()
+                    .enumerate()
+                    .map(|(i, n)| Node {
+                        composer: i == p.composer,
+                        ..n.clone()
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        Some(ChatRead {
+            window,
+            proven,
+            pane,
+        })
     }
     fn chat_press(&self, _w: &ChatWindow, labels: &[String]) -> Result<(), String> {
         self.chat_pressed.lock().unwrap().push(labels.join("|"));
         Ok(())
+    }
+    fn app_pid(&self, bundle_id: &str, found: i32) -> i32 {
+        self.app_pids
+            .lock()
+            .unwrap()
+            .get(bundle_id)
+            .copied()
+            .unwrap_or(found)
     }
 }
 
@@ -141,6 +283,9 @@ struct Seen {
     published: Mutex<Vec<String>>,
     told: Mutex<Vec<String>>,
     journal: Mutex<Vec<(String, Value)>>,
+    /// HAND-699: the outlines the model was shown, and its answers in turn (none left: "no chat").
+    located: Mutex<Vec<String>>,
+    picks: Mutex<std::collections::VecDeque<Pick>>,
 }
 
 struct World {
@@ -179,6 +324,7 @@ fn world(speed: f64) -> World {
     let away2 = away.clone();
     let start = Instant::now();
     let (e1, e2) = (enabled.clone(), enabled.clone());
+    let s7 = seen.clone();
     let (s1, s2, s3, s4, s5, s6) = (
         seen.clone(),
         seen.clone(),
@@ -229,6 +375,12 @@ fn world(speed: f64) -> World {
         version: "0.28.0".into(),
         chat_apps: Arc::new(|| vec!["com.example.notes-chat".to_string()]),
         may_take_front: Arc::new(move || *away2.lock().unwrap()),
+        locate: Arc::new(move |outline: String| {
+            s7.located.lock().unwrap().push(outline);
+            let pick = s7.picks.lock().unwrap().pop_front().unwrap_or_default();
+            Box::pin(async move { Ok(pick) })
+        }),
+        layouts: home.join("chat-layouts.json"),
     };
     World {
         s: Sessions::new(seams),
@@ -298,8 +450,8 @@ fn id() -> String {
     format!("claude:{SID}")
 }
 
-// decision: HAND-666
-// decision: HAND-666
+// decision: HAND-696
+// decision: HAND-696
 #[test]
 fn off_reads_nothing_and_its_switch_puts_ferb_s_hook_in_and_takes_it_out() {
     let w = world(1.0);
@@ -412,10 +564,12 @@ fn a_session_is_listed_with_its_host_and_read_from_its_own_transcript_redacted()
         ["Done."]
     );
     assert_eq!(w.s.session(&id()).unwrap().last_text, "Done.");
-    // the process ended: the session leaves the list
+    // the process ended: the session leaves the list, and the terminal it ran in is a session of its own (HAND-692)
     w.mac.table.lock().unwrap().remove(&130);
+    w.mac.table.lock().unwrap().remove(&140);
     w.s.look();
-    assert!(w.s.list().is_empty());
+    let left: Vec<(String, String)> = w.s.list().into_iter().map(|s| (s.id, s.program)).collect();
+    assert_eq!(left, [("term:120".to_string(), "zsh".to_string())]);
 }
 
 fn hook_event(name: &str, extra: Value) -> Value {
@@ -440,6 +594,79 @@ async fn until(what: &str, f: impl Fn() -> bool) {
 }
 
 // decision: HAND-662
+// decision: HAND-654
+// decision: HAND-683
+// decision: PHN-797
+// decision: HAND-690
+#[tokio::test]
+async fn watch_finds_the_session_where_a_send_does_the_app_s_own_process_and_the_chosen_terminal() {
+    use ferb_sessions::window::{session_window, Win};
+    let w = world(50.0);
+    {
+        // the agent's nearest app process is a helper of the app that left its tree (its parent is launchd): it is
+        // in the app's bundle but owns no window; the running app's own process (100) does
+        let mut t = w.mac.table.lock().unwrap();
+        t.extend([
+            proc(100, 1, 100, 0, "", "/Applications/Visual Studio Code.app/Contents/MacOS/Code"),
+            proc(110, 1, 110, 0, "", "/Applications/Visual Studio Code.app/Contents/Frameworks/Code Helper.app/Contents/MacOS/Code Helper"),
+            proc(120, 110, 120, 130, "/dev/ttys004", "/bin/zsh"),
+            proc(130, 120, 130, 130, "/dev/ttys004", "/u/claude"),
+        ]);
+        w.mac
+            .app_pids
+            .lock()
+            .unwrap()
+            .insert("com.microsoft.VSCode".into(), 100);
+    }
+    listed(&w);
+    assert_eq!(w.s.session(&id()).unwrap().host.unwrap().pid, 100);
+    let place = w.s.place(&id()).expect("shown by an app");
+    assert_eq!(place.host.pid, 100);
+    assert_eq!(place.proof.folder, "app");
+    assert_eq!(place.chosen, "");
+    // the app's windows (front to back): an untitled strip, another project's window, then the session's folder's
+    let wins = vec![
+        Win {
+            id: 3,
+            title: String::new(),
+            size: (1470.0, 33.0),
+            on_screen: false,
+        },
+        Win {
+            id: 7,
+            title: "notes.md — other".into(),
+            size: (1200.0, 800.0),
+            on_screen: true,
+        },
+        Win {
+            id: 9,
+            title: "main.rs — app".into(),
+            size: (1200.0, 800.0),
+            on_screen: true,
+        },
+    ];
+    let watched = |p: &Place| session_window(&wins, &p.proof, &p.chosen, p.window);
+    assert_eq!(watched(&place).map(|f| f.id), Some(9));
+    // he chooses the other window's terminal for a send: Watch shows that window, and the send went to the same app
+    // process Watch reads
+    w.s.take_control(&id(), &Caller::Mac).unwrap();
+    let offered = vec![TerminalChoice {
+        id: "w7:0:Terminal 1, 2.1.330".into(),
+        label: "notes.md — other · Terminal 1, 2.1.330".into(),
+    }];
+    *w.mac.unproven.lock().unwrap() = offered;
+    let _ = w.s.send(&id(), "go", &Caller::Mac).await;
+    w.s.choose_terminal(&id(), "w7:0:Terminal 1, 2.1.330")
+        .unwrap();
+    w.s.send(&id(), "go", &Caller::Mac).await.unwrap();
+    let sent = w.mac.foreground.lock().unwrap().last().unwrap().clone();
+    let place = w.s.place(&id()).unwrap();
+    assert_eq!(place.chosen, sent.chosen);
+    assert_eq!(place.host.pid, sent.pid);
+    assert_eq!(place.proof, sent.proof);
+    assert_eq!(watched(&place).map(|f| f.id), Some(7));
+}
+
 // decision: HAND-663
 #[tokio::test]
 async fn a_held_permission_is_the_owner_s_question_and_his_answer_answers_the_hook() {
@@ -904,7 +1131,6 @@ async fn ferb_s_task_never_answers_a_permission_but_may_answer_a_question() {
 }
 
 // decision: ORCH-687
-// decision: HAND-665
 #[tokio::test]
 async fn a_hand_over_is_the_owner_s_message_and_a_start_types_the_exact_command() {
     let w = world(1.0);
@@ -937,29 +1163,15 @@ async fn a_hand_over_is_the_owner_s_message_and_a_start_types_the_exact_command(
         w.s.delegate(&id(), "  ", None).unwrap_err().code,
         codes::SEND_FAILED
     );
-    // a new session: the command is shown before the Yes, exactly as typed
-    let folder = w.home.join("it's here");
-    std::fs::create_dir_all(&folder).unwrap();
-    let f = folder.to_string_lossy().into_owned();
-    let cmd =
-        w.s.start_command(Agent::ClaudeCode, &f, "fix the 'login' bug")
-            .unwrap();
+    // an older phone's New session named an agent: its command is the agent's program with the words
     assert_eq!(
-        cmd,
-        format!(
-            "cd '{}' && claude 'fix the '\\''login'\\'' bug'",
-            f.replace('\'', "'\\''")
-        )
+        Sessions::legacy_command(Agent::ClaudeCode, "fix the 'login' bug").unwrap(),
+        "claude 'fix the '\\''login'\\'' bug'"
     );
-    assert!(w
-        .s
-        .start_command(Agent::Codex, "relative/path", "")
-        .is_err());
-    let started =
-        w.s.start(Agent::ClaudeCode, &f, "fix the 'login' bug", &Caller::Mac)
-            .await
-            .unwrap();
-    assert_eq!(*w.mac.opened.lock().unwrap(), [started]);
+    assert_eq!(
+        Sessions::legacy_command(Agent::Codex, " ").unwrap(),
+        "codex"
+    );
 }
 
 /// FERB never asks a model while it watches: no question, no hand-over, nothing but code, however long it looks.
@@ -1179,7 +1391,7 @@ fn chat_text(x: f64, y: f64, w: f64, words: &str) -> Node {
 fn chat_box() -> Node {
     Node {
         role: "AXTextArea".into(),
-        label: "Prompt".into(),
+        label: "Write your prompt to Claude".into(),
         x: 40.0,
         y: 880.0,
         w: 600.0,
@@ -1222,7 +1434,7 @@ fn chat_id() -> String {
 }
 
 // decision: HAND-668
-// decision: HAND-670
+// decision: HAND-670, HAND-701
 #[test]
 fn an_app_chat_is_listed_read_only_while_watched_and_his_own_typing_is_his() {
     let w = world(1.0);
@@ -1232,7 +1444,8 @@ fn an_app_chat_is_listed_read_only_while_watched_and_his_own_typing_is_his() {
         .lock()
         .unwrap()
         .insert(77, claude_chat(&[]));
-    // an app nobody watches is listed, never read
+    // a window is listed once code proves its chat pane (HAND-698): one read, then not again until due
+    w.s.look();
     w.s.look();
     let s = w.s.session(&chat_id()).expect("listed");
     assert_eq!(
@@ -1240,9 +1453,15 @@ fn an_app_chat_is_listed_read_only_while_watched_and_his_own_typing_is_his() {
         (Agent::AppChat, "Landlord reply")
     );
     assert_eq!(s.host.as_ref().unwrap().name, "Claude");
-    assert!(
-        w.mac.chat_reads.lock().unwrap().is_empty(),
-        "not read until someone watches"
+    assert_eq!(
+        w.mac.chat_reads.lock().unwrap().len(),
+        1,
+        "checked once, then every CHECK_EVERY_S"
+    );
+    assert_eq!(
+        ferb_daemon::sessions::CHECK_EVERY_S,
+        15.0,
+        "the owner's 15 s"
     );
     // the owner opens it: read by code, his own words his by the app's layout
     let (items, _, _) = w.s.timeline(&chat_id(), 0, 50).unwrap();
@@ -1279,17 +1498,21 @@ fn a_chat_on_another_space_is_read_by_bringing_it_forward_only_while_the_owner_i
         .unwrap()
         .insert(77, claude_chat(&[]));
     w.s.look();
-    let _ = w.s.timeline(&chat_id(), 0, 50).unwrap();
     assert!(
         w.mac.chat_reads.lock().unwrap().is_empty(),
         "the owner is here: nothing brought forward"
     );
-    assert!(!w.s.session(&chat_id()).unwrap().no_send.is_empty());
+    assert!(
+        w.s.session(&chat_id()).is_none(),
+        "not proven yet, not listed"
+    );
     *w.away.lock().unwrap() = true;
-    let _ = w.s.timeline(&chat_id(), 0, 50).unwrap();
+    w.s.look();
     assert_eq!(*w.mac.chat_reads.lock().unwrap(), [(77, true)]);
+    assert!(w.s.session(&chat_id()).is_some());
     // and at most once per FOREGROUND_LOOK_S (30 s, HAND-674)
     let _ = w.s.timeline(&chat_id(), 0, 50).unwrap();
+    w.s.look();
     assert_eq!(w.mac.chat_reads.lock().unwrap().len(), 1);
 }
 
@@ -1413,5 +1636,552 @@ async fn an_app_chat_s_stop_is_its_own_stop_control_and_a_hand_over_names_the_ap
         msg.contains("my Claude chat") && msg.contains(&chat_id()),
         "{msg}"
     );
-    assert!(w.s.start_command(Agent::AppChat, "/tmp", "").is_err());
+    assert!(Sessions::legacy_command(Agent::AppChat, "").is_none());
+}
+
+// ---------- every terminal as a session (HAND-691..695) ----------
+
+const TERMINAL_APP: &str = "/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal";
+const CODE_APP: &str =
+    "/Applications/Visual Studio Code.app/Contents/Frameworks/Code Helper.app/Contents/MacOS/Code Helper";
+
+/// Terminal's tab on ttys000 running `agy` (a program nobody listed), and VS Code's terminal on ttys002 running Claude
+/// Code (pid 230).
+fn terminals(w: &World) {
+    let mut t = w.mac.table.lock().unwrap();
+    t.clear();
+    t.extend([
+        proc(100, 1, 100, 0, "", TERMINAL_APP),
+        proc(110, 100, 110, 130, "/dev/ttys000", "/usr/bin/login"),
+        proc(120, 110, 120, 130, "/dev/ttys000", "/bin/zsh"),
+        proc(130, 120, 130, 130, "/dev/ttys000", "/u/.local/bin/agy"),
+        proc(200, 1, 200, 0, "", CODE_APP),
+        proc(210, 200, 210, 230, "/dev/ttys002", "/bin/zsh"),
+        proc(
+            230,
+            210,
+            230,
+            230,
+            "/dev/ttys002",
+            "/u/.local/share/claude/versions/2.1.330",
+        ),
+    ]);
+    drop(t);
+    w.mac.argv0.lock().unwrap().extend([
+        (120, "-zsh".to_string()),
+        (130, "agy".to_string()),
+        (230, "claude".to_string()),
+    ]);
+    w.mac.cwds.lock().unwrap().extend([
+        (120, "/u/Desktop".to_string()),
+        (130, "/u/Desktop".to_string()),
+        (230, "/p/app".to_string()),
+    ]);
+    *w.mac.windows.lock().unwrap() = vec![
+        (100, 1, "Desktop — agy — 120×30".to_string()),
+        (200, 5, "main.rs — app".to_string()),
+    ];
+    *w.mac.agents.lock().unwrap() = Some(
+        json!([{"pid": 230, "cwd": "/p/app", "sessionId": SID, "name": "", "kind": "interactive", "status": "idle"}])
+            .to_string(),
+    );
+}
+
+// decision: HAND-691, HAND-692
+#[test]
+fn a_terminal_running_any_program_is_a_session_and_claude_code_shows_once() {
+    let w = world(1.0);
+    terminals(&w);
+    w.mac
+        .activity
+        .lock()
+        .unwrap()
+        .insert("/dev/ttys000".into(), 100.0);
+    w.s.look();
+    let list = w.s.list();
+    assert_eq!(list.len(), 2, "{list:?}");
+    let t = w.s.session("term:110").expect("the agy terminal");
+    assert_eq!(t.agent, Agent::Terminal);
+    assert_eq!(
+        (t.program.as_str(), t.cwd.as_str(), t.window.as_str()),
+        ("agy", "/u/Desktop", "Desktop — agy — 120×30")
+    );
+    assert_eq!(t.host.as_ref().unwrap().name, "Terminal");
+    assert_eq!(
+        t.send_paths,
+        [SendPath::TerminalScript, SendPath::Foreground]
+    );
+    assert_eq!(t.status, Status::Idle);
+    // Claude Code's session claims its terminal: one row, with the terminal's program and window
+    let c = w.s.session(&id()).unwrap();
+    assert_eq!(
+        (c.program.as_str(), c.window.as_str()),
+        ("claude", "main.rs — app")
+    );
+    assert!(w.s.list().iter().all(|s| !s.id.starts_with("term:21")));
+    // output on the terminal: working, its time the terminal's
+    w.mac
+        .activity
+        .lock()
+        .unwrap()
+        .insert("/dev/ttys000".into(), 101.0);
+    w.s.look();
+    let t = w.s.session("term:110").unwrap();
+    assert_eq!(t.status, Status::Working);
+    assert_eq!(t.last_at, "2026-11-22T10:00:41.000+00:00");
+    // a new terminal appears at the next look; a closed one leaves
+    w.mac.table.lock().unwrap().extend([
+        proc(150, 100, 150, 160, "/dev/ttys005", "/usr/bin/login"),
+        proc(160, 150, 160, 160, "/dev/ttys005", "/bin/zsh"),
+    ]);
+    w.s.look();
+    assert_eq!(w.s.session("term:150").unwrap().program, "zsh");
+    w.mac
+        .table
+        .lock()
+        .unwrap()
+        .retain(|p, _| *p != 150 && *p != 160);
+    w.s.look();
+    assert!(w.s.session("term:150").is_none());
+    // off: nothing is seen
+    *w.enabled.lock().unwrap() = Some(false);
+    w.s.look();
+    assert!(w.s.list().is_empty());
+}
+
+// decision: HAND-693, HAND-694
+// decision: HAND-692, HAND-690
+#[test]
+fn a_terminal_s_watch_finds_its_window_where_a_send_does_in_the_app_s_own_process() {
+    use ferb_sessions::window::{session_window, Win};
+    let w = world(1.0);
+    terminals(&w);
+    // no agent session: VS Code's terminal (ttys002) is a terminal session of its own. Its nearest app process is a
+    // helper that owns no window; the running app's own process (300) owns them
+    *w.mac.agents.lock().unwrap() = Some("[]".into());
+    w.mac.table.lock().unwrap().extend([proc(
+        300,
+        1,
+        300,
+        0,
+        "",
+        "/Applications/Visual Studio Code.app/Contents/MacOS/Code",
+    )]);
+    w.mac
+        .app_pids
+        .lock()
+        .unwrap()
+        .insert("com.microsoft.VSCode".into(), 300);
+    *w.mac.windows.lock().unwrap() = vec![
+        (100, 1, "Desktop — agy — 120×30".to_string()),
+        (300, 6, "notes.md — other".to_string()),
+        (300, 5, "main.rs — app".to_string()),
+    ];
+    w.s.look();
+    let t = w.s.session("term:210").expect("VS Code's terminal");
+    assert_eq!(t.host.as_ref().unwrap().pid, 300);
+    assert_eq!(t.window, "main.rs — app");
+    let place = w.s.place("term:210").expect("shown by an app");
+    assert_eq!((place.host.pid, place.window), (300, 5));
+    assert_eq!(place.chat, None);
+    // the other project's window is in front: Watch shows the terminal's own
+    let wins = vec![
+        Win {
+            id: 6,
+            title: "notes.md — other".into(),
+            size: (1200.0, 800.0),
+            on_screen: true,
+        },
+        Win {
+            id: 5,
+            title: "main.rs — app".into(),
+            size: (1200.0, 800.0),
+            on_screen: true,
+        },
+    ];
+    let found = session_window(&wins, &place.proof, &place.chosen, place.window);
+    assert_eq!(found.map(|f| f.id), Some(5));
+    // Terminal's tab: its window by Terminal's own words
+    let place = w.s.place("term:110").unwrap();
+    assert_eq!((place.host.pid, place.window), (100, 1));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_terminal_s_text_is_read_while_watched_and_a_send_types_into_it_proven_on_its_screen() {
+    let w = world(20.0);
+    terminals(&w);
+    // zsh in front in Terminal's tab
+    w.mac.table.lock().unwrap().retain(|p, _| *p != 130);
+    for p in w.mac.table.lock().unwrap().values_mut() {
+        if p.tty == "/dev/ttys000" {
+            p.tpgid = 120;
+        }
+    }
+    w.mac.screens.lock().unwrap().insert(
+        "/dev/ttys000".into(),
+        "Last login: Mon\nowner ~ % \n".into(),
+    );
+    let s2 = w.s.clone();
+    tokio::task::spawn_blocking(move || s2.look())
+        .await
+        .unwrap();
+    let tid = "term:110";
+    let (items, _, _) = w.s.timeline(tid, 0, 50).unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(
+        (items[0].kind, items[0].text.as_str()),
+        (ItemKind::Assistant, "Last login: Mon\nowner ~ %")
+    );
+    let yes = w.s.needs_yes(tid, "ls -la", &Caller::Mac).unwrap().unwrap();
+    assert!(yes.question.contains("zsh in Terminal"), "{}", yes.question);
+    assert_eq!(yes.detail, "ls -la");
+    w.s.take_control(tid, &Caller::Mac).unwrap();
+    let sent = w.s.send(tid, "ls -la", &Caller::Mac).await.unwrap();
+    assert!(sent.delivered, "the words show on the terminal's screen");
+    assert_eq!(
+        *w.mac.typed.lock().unwrap(),
+        [("/dev/ttys000".to_string(), "ls -la".to_string())]
+    );
+    let (items, _, _) = w.s.timeline(tid, 0, 50).unwrap();
+    assert!(items
+        .iter()
+        .any(|i| i.kind == ItemKind::User && i.text == "ls -la"));
+    // another program came to the front since he looked: nothing is typed
+    w.mac.table.lock().unwrap().extend([proc(
+        170,
+        120,
+        170,
+        170,
+        "/dev/ttys000",
+        "/usr/bin/python3",
+    )]);
+    for p in w.mac.table.lock().unwrap().values_mut() {
+        if p.tty == "/dev/ttys000" {
+            p.tpgid = 170;
+        }
+    }
+    let r =
+        w.s.send(tid, "rm -rf build", &Caller::Mac)
+            .await
+            .unwrap_err();
+    assert_eq!(r.code, codes::NOT_IN_FRONT);
+    assert!(r.message.contains("python3"), "{}", r.message);
+    assert_eq!(w.mac.typed.lock().unwrap().len(), 1);
+    // a terminal whose app doesn't show its text says why
+    w.mac.agents.lock().unwrap().take();
+    w.mac.table.lock().unwrap().retain(|p, _| *p != 230);
+    for p in w.mac.table.lock().unwrap().values_mut() {
+        if p.tty == "/dev/ttys002" {
+            p.tpgid = 210;
+        }
+    }
+    let s2 = w.s.clone();
+    tokio::task::spawn_blocking(move || s2.look())
+        .await
+        .unwrap();
+    let _ = w.s.timeline("term:210", 0, 50).unwrap();
+    assert!(!w.s.session("term:210").unwrap().no_text.is_empty());
+}
+
+// decision: HAND-695
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_new_session_is_a_terminal_in_the_folder_typing_only_the_owner_s_command() {
+    let w = world(20.0);
+    terminals(&w);
+    let folder = w.home.join("site");
+    std::fs::create_dir_all(&folder).unwrap();
+    let f = folder.to_string_lossy().into_owned();
+    // a new Terminal window: a login shell in the folder appears
+    *w.mac.on_open.lock().unwrap() = Some(Box::new(|mac: &FakeMac, folder: &str| {
+        let n = mac.opened_at.lock().unwrap().len() as i32;
+        let (login, shell, tty) = (300 + n * 10, 301 + n * 10, format!("/dev/ttys01{n}"));
+        mac.table.lock().unwrap().extend([
+            proc(login, 100, login, shell, &tty, "/usr/bin/login"),
+            proc(shell, login, shell, shell, &tty, "/bin/zsh"),
+        ]);
+        mac.cwds.lock().unwrap().insert(shell, folder.to_owned());
+    }));
+    assert_eq!(w.s.start_host().1, "Terminal");
+    // no command: nothing to ask, nothing typed
+    assert_eq!(w.s.start_question(&f, "  ").unwrap(), None);
+    let (sid, app) = w.s.start_terminal(&f, "", &Caller::Mac).await.unwrap();
+    assert_eq!(app, "Terminal");
+    assert_eq!(
+        *w.mac.opened_at.lock().unwrap(),
+        [("com.apple.Terminal".to_string(), f.clone())]
+    );
+    assert!(w.mac.typed.lock().unwrap().is_empty());
+    let s = w.s.session(&sid).unwrap();
+    assert_eq!(
+        (s.source, s.control.as_str(), s.program.as_str()),
+        (Source::StartedByFerb, "mac", "zsh")
+    );
+    // a command: asked first with exactly it, then typed exactly into the new terminal
+    let yes = w.s.start_question(&f, "agy").unwrap().unwrap();
+    assert_eq!(yes.detail, "agy");
+    let phone = Caller::Phone("p1".into());
+    let (sid2, _) = w.s.start_terminal(&f, "agy", &phone).await.unwrap();
+    assert_eq!(
+        *w.mac.typed.lock().unwrap(),
+        [("/dev/ttys012".to_string(), "agy".to_string())]
+    );
+    assert_eq!(w.s.session(&sid2).unwrap().control, "phone:p1");
+    assert_eq!(
+        w.s.start_terminal("relative/path", "", &Caller::Mac)
+            .await
+            .unwrap_err()
+            .code,
+        codes::SEND_FAILED
+    );
+}
+
+// ---------- app chats proven by structure (HAND-697..699) ----------
+
+const CURSOR: &str = "com.todesktop.230313mzl4w4u92";
+
+fn cursor_window(window: i64, title: &str) -> ChatWindow {
+    ChatWindow {
+        bundle_id: CURSOR.into(),
+        app: "Cursor".into(),
+        pid: 950,
+        window,
+        title: title.into(),
+        on_space: true,
+    }
+}
+
+fn editable(x: f64, y: f64, w: f64, h: f64, label: &str) -> Node {
+    Node {
+        role: "AXTextArea".into(),
+        label: label.into(),
+        x,
+        y,
+        w,
+        h,
+        enabled: true,
+        editable: true,
+        ..Node::default()
+    }
+}
+
+fn link(role: &str, marks: &[&str], frame: (f64, f64, f64, f64)) -> Link {
+    Link {
+        role: role.into(),
+        marks: marks.iter().map(|m| m.to_string()).collect(),
+        frame: Some(frame),
+    }
+}
+
+/// Cursor with only an editor open: a breadcrumb, icon glyphs, and the editor's input.
+fn editor_only(w: &World, window: i64) {
+    w.mac
+        .chat_windows
+        .lock()
+        .unwrap()
+        .push(cursor_window(window, "scratch.txt — Cursor"));
+    w.mac.chat_trees.lock().unwrap().insert(
+        window,
+        vec![
+            chat_text(200.0, 40.0, 80.0, "Users"),
+            chat_text(290.0, 40.0, 20.0, "\u{eb60}"),
+            chat_text(320.0, 40.0, 80.0, "scratch.txt"),
+            editable(200.0, 80.0, 900.0, 800.0, "scratch.txt"),
+        ],
+    );
+    w.mac.chat_chains.lock().unwrap().insert(
+        (window, 3),
+        vec![
+            link(
+                "AXTextArea",
+                &["inputarea", "monaco-mouse-cursor-text"],
+                (200.0, 80.0, 900.0, 800.0),
+            ),
+            link("AXGroup", &["monaco-editor"], (200.0, 80.0, 900.0, 800.0)),
+            link("AXWindow", &[], (0.0, 0.0, 1200.0, 1000.0)),
+        ],
+    );
+}
+
+// decision: HAND-697, HAND-698
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_editor_only_window_is_no_chat_and_is_never_typed_into() {
+    let w = world(1.0);
+    editor_only(&w, 81);
+    let s2 = w.s.clone();
+    tokio::task::spawn_blocking(move || s2.look())
+        .await
+        .unwrap();
+    assert!(w.s.list().is_empty(), "no session");
+    assert_eq!(w.s.no_chat_apps(), ["Cursor"]);
+    assert_eq!(list_json(&w.s, &Caller::Mac)["no_chats"], json!(["Cursor"]));
+    assert!(
+        w.seen.located.lock().unwrap().is_empty(),
+        "an editor is never shown to a model as a chat"
+    );
+    let id = format!("app:{CURSOR}:81");
+    w.s.take_control(&id, &Caller::Mac).unwrap_err();
+    assert_eq!(
+        w.s.send(&id, "start a session", &Caller::Mac)
+            .await
+            .unwrap_err()
+            .code,
+        codes::SESSION_GONE
+    );
+    assert!(
+        w.mac.foreground.lock().unwrap().is_empty(),
+        "nothing typed anywhere"
+    );
+}
+
+/// A Cursor layout the app's marks don't know: a message list and a reply box in a panel of their own.
+fn new_layout(w: &World, window: i64, extra_groups: usize) {
+    w.mac
+        .chat_windows
+        .lock()
+        .unwrap()
+        .push(cursor_window(window, "app — Cursor"));
+    w.mac.chat_trees.lock().unwrap().insert(
+        window,
+        vec![
+            Node {
+                role: "AXScrollArea".into(),
+                x: 40.0,
+                y: 100.0,
+                w: 600.0,
+                h: 700.0,
+                enabled: true,
+                ..Node::default()
+            },
+            chat_text(340.0, 120.0, 300.0, "hi"),
+            chat_text(
+                40.0,
+                200.0,
+                560.0,
+                "Hello! How can I help with the app today?",
+            ),
+            editable(40.0, 880.0, 600.0, 40.0, "Message"),
+        ],
+    );
+    let mut chain = vec![link(
+        "AXTextArea",
+        &["lexical-input"],
+        (40.0, 880.0, 600.0, 40.0),
+    )];
+    for _ in 0..extra_groups {
+        chain.push(link("AXGroup", &[], (40.0, 860.0, 600.0, 80.0)));
+    }
+    chain.push(link("AXGroup", &["agent-panel"], (0.0, 0.0, 700.0, 1000.0)));
+    chain.push(link("AXWindow", &[], (0.0, 0.0, 1200.0, 1000.0)));
+    w.mac.chat_chains.lock().unwrap().insert((window, 3), chain);
+}
+
+// decision: HAND-699
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_unknown_layout_is_learned_with_one_model_call_then_found_by_code() {
+    let w = world(1.0);
+    new_layout(&w, 90, 0);
+    w.seen.picks.lock().unwrap().push_back(Pick {
+        chat: true,
+        message_list: Some(0),
+        reply_box: Some(3),
+    });
+    let s2 = w.s.clone();
+    tokio::task::spawn_blocking(move || s2.look())
+        .await
+        .unwrap();
+    let id = format!("app:{CURSOR}:90");
+    until("the layout learned and the chat found", || {
+        w.s.session(&id).is_some()
+    })
+    .await;
+    let located = w.seen.located.lock().unwrap().clone();
+    assert_eq!(located.len(), 1);
+    // the outline: roles, labels and places; never what is written
+    assert!(
+        located[0].contains("AXTextArea editable \"Message\""),
+        "{}",
+        located[0]
+    );
+    assert!(!located[0].contains("How can I help"), "{}", located[0]);
+    let (items, _, _) = w.s.timeline(&id, 0, 50).unwrap();
+    assert_eq!(items.len(), 2);
+    assert!(
+        w.home.join("chat-layouts.json").is_file(),
+        "kept for the next start"
+    );
+    // another window in the same layout: found by code alone
+    new_layout(&w, 91, 0);
+    let s2 = w.s.clone();
+    tokio::task::spawn_blocking(move || s2.look())
+        .await
+        .unwrap();
+    assert!(w.s.session(&format!("app:{CURSOR}:91")).is_some());
+    assert_eq!(
+        w.seen.located.lock().unwrap().len(),
+        1,
+        "no second model call"
+    );
+}
+
+// decision: HAND-699, HAND-700
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_model_pick_code_can_t_check_is_dropped_and_none_is_no_chat_within_the_day_s_asks() {
+    let w = world(1.0);
+    // a window with a reply box and the editor: the model picks the editor; code drops it
+    new_layout(&w, 92, 0);
+    w.mac
+        .chat_trees
+        .lock()
+        .unwrap()
+        .get_mut(&92)
+        .unwrap()
+        .push(editable(700.0, 80.0, 400.0, 800.0, "main.rs"));
+    w.mac.chat_chains.lock().unwrap().insert(
+        (92, 4),
+        vec![
+            link("AXTextArea", &["inputarea"], (700.0, 80.0, 400.0, 800.0)),
+            link("AXWindow", &[], (0.0, 0.0, 1200.0, 1000.0)),
+        ],
+    );
+    w.seen.picks.lock().unwrap().push_back(Pick {
+        chat: true,
+        message_list: Some(0),
+        reply_box: Some(4),
+    });
+    let s2 = w.s.clone();
+    tokio::task::spawn_blocking(move || s2.look())
+        .await
+        .unwrap();
+    until("the pick checked", || {
+        w.s.layouts_asked().iter().any(|(_, o)| o == "dropped")
+    })
+    .await;
+    assert!(w.s.session(&format!("app:{CURSOR}:92")).is_none());
+    assert!(w.mac.foreground.lock().unwrap().is_empty());
+    // ten more layouts, the model says none to each: no session; the app's tenth ask of the day is the last
+    let cap = ferb_daemon::sessions::MODEL_ASKS_PER_APP_PER_DAY as usize;
+    assert_eq!(cap, 10);
+    for i in 0..cap {
+        new_layout(&w, 93 + i as i64, i + 1);
+    }
+    let s2 = w.s.clone();
+    tokio::task::spawn_blocking(move || s2.look())
+        .await
+        .unwrap();
+    until("the asks answered", || {
+        w.s.layouts_asked()
+            .iter()
+            .filter(|(_, o)| o == "none")
+            .count()
+            == cap - 1
+    })
+    .await;
+    assert_eq!(
+        w.seen.located.lock().unwrap().len(),
+        cap,
+        "{:?}",
+        w.s.layouts_asked()
+    );
+    assert!(w.s.list().is_empty());
+    assert_eq!(w.s.no_chat_apps(), ["Cursor"]);
 }

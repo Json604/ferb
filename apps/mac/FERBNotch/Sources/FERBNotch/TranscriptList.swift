@@ -3,13 +3,15 @@ import SwiftUI
 import NotchCore
 
 /// One row of the chat's transcript list (APP-815): the space under the top fade, the loader while an earlier page comes,
-/// an entry, an open question, the memory import's live card (MEM-456), the end.
+/// an entry, an open question, the memory import's live card (MEM-456), the end; or a row of another conversation the
+/// same list draws (a coding session's, PHN-813): its key, and its words, which change whenever what it draws does.
 enum TranscriptRow: Equatable {
     case top
     case loader
     case entry(TranscriptEntry, hidden: Set<String>)
     case question(DaemonApproval)
     case memoryImport(MemoryImportCard)
+    case item(key: String, text: String)
     case bottom
 
     var key: String {
@@ -19,6 +21,7 @@ enum TranscriptRow: Equatable {
         case let .entry(entry, _): return TranscriptTarget.entry(entry.id)
         case let .question(question): return TranscriptTarget.question(question.id)
         case .memoryImport: return MemoryImportCardView.anchor
+        case let .item(key, _): return key
         case .bottom: return "transcript-bottom"
         }
     }
@@ -275,6 +278,7 @@ final class TranscriptList: NSObject, NSTableViewDataSource, NSTableViewDelegate
         case .loader: return 24 + Self.spacing
         case .question: return 150 + Self.spacing
         case let .memoryImport(card): return MemoryImportCardView.estimate(card) + Self.spacing
+        case let .item(_, text): return 18 + min(lines(text), 40) * 15 + Self.spacing
         case let .entry(entry, _):
             switch entry {
             case let .turn(turn, _):
@@ -864,5 +868,25 @@ struct TranscriptListView: NSViewRepresentable {
         list.viewport = viewport
         list.setEnvironment(context.environment)
         list.update(rows: rows)
+    }
+}
+
+/// The control at the list's bottom right that brings the view down to what arrived (or up to an item above): the
+/// chat's "New message" and its pills (APP-720), and a coding session's "New message" (PHN-813).
+struct TranscriptJumpButton: View {
+    let title: String
+    let systemImage: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.system(size: 10, weight: .medium))
+                .padding(.horizontal, 10).padding(.vertical, 6)
+                .ferbGlass(in: Capsule())                                  // APP-785
+        }
+        .buttonStyle(.plain)
+        .padding(.trailing, 9).padding(.bottom, 7)
+        .transition(.opacity.combined(with: .move(edge: .bottom)))
     }
 }

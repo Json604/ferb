@@ -23,7 +23,7 @@ final class SessionScreensTests: XCTestCase {
             session("claude:2", "Move the blog to the new theme", "blog", "waiting_for_you", "Visual Studio Code"),
             session("claude:3", "Add dark mode to settings", "notes-app", "working", "Terminal", withFerb: true),
             session("codex:4", "", "thesis-tools", "idle", ""),
-        ])
+        ], noChats: [])
         rig.phone.codingItems["claude:2"] = [
             item(100, "user", "Move the blog to the new theme and keep the old URLs working"),
             item(101, "assistant", "I'll switch the theme in the config, then add redirects for the old post URLs."),
@@ -42,7 +42,8 @@ final class SessionScreensTests: XCTestCase {
         AgentSession(id: id, agent: id.hasPrefix("codex") ? "codex" : "claude_code", agentName: id.hasPrefix("codex") ? "Codex" : "Claude Code",
                      title: title, folder: "/Users/owner/code/\(folder)", folderName: folder, status: status,
                      waiting: status == "waiting_for_you" ? "permission" : "none", host: host, canSend: true, noSend: "",
-                     foreground: true, lastAt: "", lastText: "", controlledHere: false, control: "", withFerb: withFerb, goal: "", terminals: [])
+                     foreground: true, lastAt: "", lastText: "", controlledHere: false, control: "", withFerb: withFerb, goal: "", terminals: [],
+                     program: "", window: "", noText: "")
     }
 
     private func item(_ seq: UInt64, _ kind: String, _ text: String) -> SessionItem {
@@ -78,6 +79,38 @@ final class SessionScreensTests: XCTestCase {
         o.items = Array(o.items.suffix(5))
         XCTAssertTrue(o.more)
         same("session-noon", sheet: { SessionScreenPage(model: vm, open: o, insets: .lab, still: true) }, page: { SessionsTabPage(model: vm, insets: .lab, waiting: nil) })
+    }
+
+    /// Opening a session, its first page not read yet: the main chat's waiting look, not an empty page and no error before
+    /// the Mac answered (owner 2026-11-23).
+    // decision: PHN-816
+    func testOpeningASessionShowsTheWaitingLookUntilItsFirstPage() async {
+        let vm = rig.model()
+        await vm.loadSessions().value
+        let o = OpenSession(id: "claude:2", session: vm.coding.row("claude:2"))
+        XCTAssertFalse(o.loaded)
+        XCTAssertNil(vm.ui.note, "nothing said before the Mac answered")
+        same("session-waiting-402", sheet: { SessionScreenPage(model: vm, open: o, insets: .lab, still: true) },
+             page: { SessionsTabPage(model: vm, insets: .lab, waiting: nil) })
+        await vm.openSession("claude:2").value
+        XCTAssertEqual(vm.coding.open?.loaded, true, "the first page read: the conversation replaces the waiting look")
+        XCTAssertFalse(vm.coding.open?.items.isEmpty ?? true)
+    }
+
+    /// His words the moment he tapped Send, drawn by the app from its one outgoing state: the design's sending golden
+    /// (owner 2026-11-23).
+    // decision: PHN-812, PHN-814
+    func testHisWordsWhileTheyGoDrawTheDesignsSendingBubble() async {
+        rig.phone.codingItems["claude:2"] = (1...46).map { item($0, "tool", "Read: old-\($0)") } + rig.phone.codingItems["claude:2"]!
+        let vm = rig.model()
+        await vm.loadSessions().value
+        await vm.openSession("claude:2").value
+        guard var o = vm.coding.open else { return XCTFail("open") }
+        o.items = Array(o.items.suffix(5))
+        o.cards = []
+        o.outgoing = SessionOutgoing(text: "Then deploy it to staging", state: .sending, after: o.last)
+        same("session-sending-402", sheet: { SessionScreenPage(model: vm, open: o, insets: .lab, still: true) },
+             page: { SessionsTabPage(model: vm, insets: .lab, waiting: nil) })
     }
 }
 #endif

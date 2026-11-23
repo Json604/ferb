@@ -277,17 +277,17 @@ class ShownTest {
     private fun vm(phone: FakePhone) = FerbViewModel(phone, Session { 0L }, Prefs(androidx.test.core.app.ApplicationProvider.getApplicationContext()), { true }, null,
         androidx.lifecycle.SavedStateHandle(), com.ferb.app.model.LocalFiles(java.nio.file.Files.createTempDirectory("ferb-shown").toFile()) { null })
 
-    /** His choice B: the small circles follow his switch; the short view and Watch live always block. */
-    // decision: PHN-727, PHN-732
+    /** Every live picture follows his switch, the small circles and the short view alike (owner 2026-11-23). */
+    // decision: PHN-810
     @Test
-    fun small_pictures_follow_the_switch_and_the_big_views_always_block() {
+    fun small_pictures_and_the_short_view_follow_the_switch() {
         val phone = FakePhone()
         val vm = vm(phone)
         vm.thumbnails.show(listOf("t-1"))
         phone.thumbnails["t-1"]?.frame(PreviewFrame(byteArrayOf(1), 1, "working", null, true, false, false, null))
         assertFalse("a small picture on screen doesn't force the block", vm.mustSecure.value)
         vm.showTask("t-1", "t-1.s1")
-        assertTrue("a step's short view forces it", vm.mustSecure.value)
+        assertFalse("a step's short view follows the switch too (PHN-810)", vm.mustSecure.value)
         vm.show(null)
         assertFalse(vm.mustSecure.value)
         vm.rowPictures("card", listOf(com.ferb.app.model.Thumbnails.key("t-1", "t-1.s1")))

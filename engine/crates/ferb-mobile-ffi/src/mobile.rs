@@ -750,7 +750,7 @@ impl Mobile {
         guard(|| Ok(self.core()?.session_prepare(&agent, &folder, &text)?.conv()))
     }
 
-    /// Starts a session in a new Terminal window on the Mac (signed: it types the command `session_prepare` showed).
+    /// Opens a new terminal on the Mac (signed; `agent` "terminal", `text` the command it types, if any: HAND-691).
     /// Answers the command. Network and the prompt.
     pub fn session_start(
         &self,

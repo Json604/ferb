@@ -10207,3 +10207,199 @@ him were listed under Running.
 - The phones' box hiding has no UI test.
 - A notice the app already holds is not re-marked by a later page (`absorb` keeps what it holds). Pages are read
   once per launch.
+
+## 2026-11-23 · 185 · The screenshot switch on every page; a session's Watch finds its window; a session's screen sends, scrolls and opens like the chat
+
+**What the owner said (PHN-810, PHN-812, PHN-813, PHN-815, PHN-816).** "also its watch page isnt adhering to the
+screenshot on/off toggle. PLEASE RUN AN AGENT THAT SEES WHAT ALL PAGES AERNT UNDER THIS RULE, and make them."; "the
+watch live isnt working, it says, its window isnt open on your mac - whe clearly it is"; the send button froze with no
+sign while FERB typed; the session's chat lacked the main chat's scroll arrow and the rest; no room under the header
+or above the message box, and taps by the box opened New session; "it for some seconds saud ferb cant find a chat".
+
+**Screenshots (PHN-810 supersedes his PHN-732 choice B; PHN-811 supersedes PHN-518, PHN-727, PHN-597).**
+- Cause: both phones forced the block for Watch live, a task's short view, the Mac's camera and a session's Watch
+  (Android FerbViewModel's mustSecure, iPhone AppModel.mustSecure), whatever the switch said.
+- Android: MainActivity's one window takes FLAG_SECURE from ScreenGuard; every page and sheet is drawn in it; mustSecure
+  is now only a hidden answer's box (PHN-110). No Compose Dialog, Popup or SurfaceView exists; a dialog or popup opened
+  later takes the window's flag (tested). Recents stay blank (PHN-15).
+- iPhone: Privacy.swift `ferbScreens` sets the switch once at the root; `screenshotShielded()` uses the secure canvas
+  only while it is on; file previews and the share sheet now go through `ferbFullScreenCover` / `ferbSheet`, so the
+  app switcher's cover and the recording cover reach them (they never did). The rest of the iPhone app still shows in
+  screenshots with the switch on (SwiftUI in the canvas loses VoiceOver and taps); This phone says so, and the
+  switch keeps its iPhone title "Hide in screen recordings".
+- The audit, every page of both phones before and after, is in the coordinator's report for this patch; in short:
+  only Watch live, the short view, the camera and a session's Watch changed (always blocked → the switch), plus the
+  iPhone's presented windows (never covered → covered).
+
+**Session Watch (HAND-690).** On his Mac (read only): claude 93334 → zsh → Code Helper 92887 → Code 92863; the session's
+host pid was 92863, the window's owner. VS Code lists seven layer-0 windows (the project's file and six untitled bars
+and strips), and the old finder (shots `front_window`) wanted an exact title or the app's only window, so every Watch
+said "isn't open". ferb-sessions `window` now picks the window for Watch and the send's folder test alike: an app
+chat's window, the chosen terminal (HAND-683), the session's title, its folder as a word, the only window, the front
+one; this Space first. The daemon's `Place` gives Watch the send path's host, proof and chosen terminal, and the host
+is the running app's own process. Minimized and another desktop are said as such.
+
+**A session's screen (PHN-814, APP-1120).**
+- One sending state per app (Android `SessionSending`, iPhone `SessionOutgoing`, FERB.app `SessionsModel.outgoing`),
+  replacing the unsent one: Sending… at the tap with a turning send button, sent until his message is in the record
+  (never twice), Not sent. with Try again and his words. FERB.app had no not-sent state before; it has the phones'.
+- The conversation uses the main chat's list (Android ChatList's follow and JumpPill; iPhone a shared `FollowingList`
+  the main chat now uses too; FERB.app the chat's TranscriptList with an item row): followed only at the end, the
+  arrow with "New message", day marks, selectable words, earlier items.
+- Gaps: the list starts below the header and fades under it; the box keeps the chat's gap; the last message scrolls
+  to its end (it scrolled to the message's top before, so a long one ran under the box).
+- Mis-taps (Android): the session page's root took no touches, and the Sessions tab's full-width New session button
+  sits exactly under the message box, so taps at its ends fell through. Full pages now take every touch
+  (`coversPage`); iPhone hides the page under a full sheet from touches and VoiceOver.
+- Until the first read answers: the chat's waiting look ("Getting this session from your Mac…"), never an error;
+  FERB.app a bubble skeleton, its 2 s poll and 3 s list read no longer surfacing a quiet failure meanwhile.
+
+**New owner-facing strings.** "Getting this session from your Mac…" (both phones); "{app} has no window open for this
+session."; "Its window in {app} (“{title}”) is minimized in the Dock. Open it again and Watch shows it; FERB doesn't
+bring windows back on its own."; "Its window in {app} (“{title}”) is on another desktop (Space). Watch shows it once
+that desktop is the one on screen; FERB doesn't switch desktops on its own." (without a title: "Its window in {app}
+is …"); FERB.app: "Sending…", "Not sent.", "Try again", "FERB couldn't send it.", accessibility "Opening this session…".
+iPhone: `profile_screenshots_detail_shield` now "Pictures of your Mac stay out of screenshots, and FERB is blank while
+the screen is recorded or mirrored."
+
+**Evidence.** Android `:app:testDebugUnitTest` 346 and `:design:testDebugUnitTest` 114 pass (ScreenGuardTest, SessionsTest,
+SessionShotsTest; new goldens session-sending, -scrolled-up, -waiting, -conversation-360/-412). iPhone FerbApp 223,
+FerbDesign 72, UI tests 7 pass (AppScreensTests, ParityTests, SessionsTests; goldens
+session-{long,sending,scrolled-up,new-message,waiting}-{375,402}). FERB.app swift test 961, 0 failures
+(SessionsSendingTests, SessionsOpeningTests). ferb-sessions tests/window.rs (4), ferb-daemon tests/sessions.rs (19).
+
+**Open / unverified.**
+- PHN-810 lets Watch's unmasked frames into a phone screenshot with the switch off; PHN-454 had made blocking a
+  condition of unmasked frames. The owner confirmed that reading on 2026-11-23 for both phones (added to PHN-810's
+  words).
+- Nothing ran on a phone or an installed FERB.app: LIVE-1190, LIVE-1191, LIVE-1173. OnPhoneTest was updated, not run.
+- A blank iPhone screenshot needs an iPhone (T-1243). Whether ScreenCaptureKit captures a window on another Space.
+- FERB.app keeps one outgoing slot: a new send while an earlier one shows Not sent replaces it.
+- The main chat's pill for an out-of-view card is not on FERB.app's Sessions page (it rides NotchModel).
+
+## 2026-11-23 · 186 · Every terminal is a session; New session is a terminal; a chat app's chat only when code proves it
+
+**Why agy never showed (the owner's words HAND-691).** Read only on his Mac at 04:07: `ps` showed agy, pid 9815, on
+ttys000, leading the terminal's foreground group (pgid = tpgid = 9815), under `-zsh` 9315, `login` 9311 and Terminal
+9293; its folder `/Users/kartikey/Desktop`. The daemon's list was fed only by Claude Code (`claude agents --json` and
+its hook: `note_claude`) and Codex's own daemon (`note_codex`), plus the chat apps (ferb-daemon sessions/mod.rs `look`).
+No code looked at terminals as such, so no program but those two agents could ever appear, and New session offered
+only `claude` or `codex` (`start_command`, HAND-665). Journal rows: `sessions.enabled` and `sessions.hooks` at 23:36
+on 11-22, sends to the VS Code Claude Code session at 04:00-04:03, nothing about ttys000.
+
+**What (HAND-691..696).**
+- **Found by code (HAND-692).** ferb-sessions `terminals::find`: one session per terminal device with the owner's
+  processes (`term:<leader pid>`; the leader is the first process on it whose parent isn't); its program is the
+  foreground group's leader, named by argv[0] (`-zsh` is zsh; ferb-platform-macos `argv0_of`, KERN_PROCARGS2); its
+  folder that program's cwd; its app by HAND-654's process-tree walk (no app and no tmux: not listed); its window the
+  app's window whose title names the program and folder (`window_of`); working while the device's access or change
+  time moved in the last 4 s (`tty_activity`). FERB's own terminals and a tmux client's are left out (its panes are
+  listed). A Claude Code or Codex session on a terminal claims it: one row, with `program` and `window` added.
+  ferb-daemon `sessions/terminals.rs::note_terminals` runs in each 2 s look.
+- **Read (HAND-693).** Only while a client reads the timeline (1.5 s at most) or a send waits: tmux `capture-pane`,
+  Terminal's `contents of tab` by tty (AppleScript, read only), else the window's one terminal text area by
+  Accessibility (`terminal_text_by_ax`); none: `no_text` says why. Redacted, then `terminals::Screen` turns reads into
+  items: the first read shows the screen, later reads the settled lines after the last read's, a redrawn screen once
+  it holds still.
+- **Typed into (HAND-694).** Whatever leads the terminal gets the words, but right before typing the program in front
+  must still be the one he was shown (`term_unchanged`), else not_in_front naming it. Paths, GATE-622's question and
+  HAND-682/683 unchanged. Delivery: his words show in its text, then go in as his item.
+- **New session (HAND-695).** `sessions.prepare {folder, command}`: folders, the app (`start_host`: his most recently
+  used of OPENERS, Terminal only so far), and a question only when there is a command, showing exactly it.
+  `sessions.start {folder, command}`: `open -g -b com.apple.Terminal <folder>`, waits up to 6 s for the new terminal
+  there, gives its starter control, types the command (if any) by its tab's tty; answers `session` and `host`. An
+  older phone's `agent` + `text` becomes that agent's program and words (`legacy_command`).
+- **The question that turns sessions on (HAND-696, supersedes HAND-666)** asks on every Mac after setup: "Let FERB
+  see your terminal sessions?".
+- **RPC additions (no renames).** Session: `program`, `window`, `no_text`; `sessions.list`: `no_chats`;
+  `sessions.prepare`: `host` (its `agents` is gone); `sessions.start`: `session`, `host`.
+
+**Chat apps (HAND-697..699, the owner's words after Cursor typed into scratch.txt).**
+- **Proven by structure (HAND-698).** `appchat::prove`: an editable element with the app's composer marks inside a
+  container with its pane marks (appchat.json: Claude `ProseMirror`/its placeholder in the web area, ChatGPT its
+  placeholder, Cursor `aislash-editor-input` in `auxiliarybar`/`composer-bar`), never an editor's or terminal's input
+  or a find box (`NOT_COMPOSER`). The Mac reads the window's editable elements with their chains (`window_read`,
+  `chain_of`), then the pane alone (`pane_nodes`, its composer marked); messages are the pane's texts above the
+  composer in its column, private-use glyphs removed (`plain`). No proof: no session, and the list says "No chat open
+  in {app}." (`no_chat_apps`). Unwatched windows are checked every 15 s.
+- **Sending.** The composer is found again by the pane's fingerprint; before typing and before Return it must hold
+  the keyboard in the app in front (`still_composer`), else FERB stops and names what came in front.
+- **The 10 s timeout.** The phone's call ends at the link's `call_deadline_s` (10 s); `sessions.control` ran the
+  send's 10 s delivery wait after two whole-window reads. A send now answers within `ANSWER_WITHIN_S` (8 s) of being
+  asked, delivered or "not seen yet" (every session, HAND-655's wait capped by it). Inferred from the code and his
+  phone's error text; his trace wasn't read.
+- **One model look per unknown layout (HAND-699).** `maybe_ask`: the window's outline (numbers, roles, labels cut to
+  40 and redacted, positions; never values) goes to one independent `learning_call` (checker role, its own prompt
+  `CHAT_PANE_PROMPT` and the outline only; Claude's runtime passes `--setting-sources=`, and the factory adds no
+  profile or memory: read in areas_b/runtimes and claude/transport.rs). `check_pick` keeps an answer only when it holds
+  structurally; the fingerprint is kept in `~/.ferb/sessions/chat-layouts.json`; once per layout and at most 10 per
+  app a day, with no cap across apps (the owner, HAND-700: "ok, then lets have a per app 10 daily limit", after hearing
+  the cap only guards against a loop). The 15 s re-check of an unwatched window (code only) is his too (HAND-701: "ok
+  lets keep it"); T-1302 is closed. The coordinator moved the general no-context switch and temporary chat to another agent:
+  none of that is here.
+
+**Clients (PHN-817, APP-1121).** Both phones and FERB.app: "Your terminal sessions"; rows "{program} · {folder} · in
+{app}" titled by the session's title, else its window's words, else its folder; one quiet line per chat app with no
+chat; New session is the folder (list; FERB.app's Choose… browses; the phones type another folder) and "Command to
+run (optional)", no agent picker. A command is asked about exactly; none opens at once (signed on a phone).
+
+**Strings (new or changed; Android strings.xml, the iPhone catalog from it, FERB.app).** "Your terminal sessions";
+"FERB doesn't see your terminal sessions yet."; "Turn it on and you can follow your terminals and type into them from
+here, Claude Code and Codex too, open new ones and hand one to FERB. FERB adds a small hook to Claude Code's settings
+so it hears when a session finishes or needs you."; "No terminals are open on your Mac right now."; "No chat open in
+{app}. Start one there to continue here."; "Folder"; "Another folder"; "A folder on your Mac, like
+/Users/you/code/site"; "Command (optional)"; "Command to run (optional)"; "Opening a terminal on your Mac."; FERB.app:
+"Opens a new {app} window in the folder.", Settings "Let FERB see your terminal sessions" and its note. The Mac's:
+"Let FERB see your terminal sessions?" and its detail; "Open a new {app} window in {folder} and type this?"; "FERB
+opens it in the background and types only this command, then Return. You can type more into it from here."; "{program}
+is in front in this terminal now, not {shown}, so FERB typed nothing. Look again and send if it's right."; "{app}
+doesn't show this terminal's text to FERB. Watch shows its window."; "A new {app} window opened, but FERB couldn't
+find it to type your command, so nothing was typed."; "FERB couldn't find the chat's message box in {app} now, so it
+typed nothing."; "{other} came to the front instead of {app}, so FERB stopped."; "{app}'s window "{title}" took the
+keyboard from its chat, so FERB stopped." (+ "Your words may be typed there without being sent; check it." before
+Return); "Seeing your terminal sessions is off. Turn it on in FERB's Settings."
+
+**Evidence.**
+- ferb-sessions `tests/terminals.rs` (3), `tests/appchat.rs` (6, two new: the proof refuses Cursor's editor and a
+  settings page and finds the agent pane; a pick is learned only when code's check holds, never the editor).
+- ferb-daemon `tests/sessions.rs` (24, 6 new): a terminal running agy listed with program, folder and window, Claude
+  Code's terminal one row, working by activity, a new terminal at the next look; a terminal's text read and a send
+  proven on its screen, refused when python3 came to the front; a new session in a folder typing nothing, then exactly
+  `agy`, control to the starter; an editor-only window no session and never typed into; an unknown layout learned with
+  one model call then found by code (zero calls the second time); a dropped pick and the day's cap.
+- ferb-learning `tests/single_call.rs`: the lookup's request holds only its prompt and the outline.
+- ferb-platform-macos `tests/sessions.rs` (+2), ferb-mobile `sessions` (+1); ferbd sessions_hook, every_method_answers,
+  every_tool_through_the_program pass; `cargo clippy --all-targets -D warnings` clean on ferb-sessions, ferb-daemon,
+  ferbd, ferb-platform-macos, ferb-learning.
+- FERB.app `swift test`: 951 tests, 0 failures (the Space rule list loses the agent picker).
+- Merged with journal 185's work, one tree: ferb-daemon `tests/sessions.rs` 26 (one more: a terminal in VS Code is
+  found in the app's own process, and its Watch shows the window its app's words name, not the one in front);
+  ferb-sessions, ferb-platform-macos, ferb-learning single_call, ferb-mobile sessions, ferbd sessions_hook,
+  every_method_answers, every_tool_through_the_program, catalog_mcp and replay pass; clippy `-D warnings` clean on
+  ferb-sessions, ferb-daemon, ferb-platform-macos, ferb-learning, ferbd, ferb-mobile, ferb-mobile-ffi; FERB.app
+  `swift test` 967 (8 skipped), 0 failures; Android `:app:testDebugUnitTest` 348 and `:design:test` 114, 0 failures;
+  iPhone `tools/build.sh test`: FerbAppTests 224, FerbDesignTests 72, FerbCoreTests 15, FerbMobileTests 4, UI tests 7,
+  0 failures.
+
+**With journal 185 (built beside it, merged).** A terminal session is found as every session is: its host is the
+app's own process (`app_pid`, PHN-797), so a terminal app whose helper left its tree still has its windows, and the
+daemon's `Place` (one way to find the session's window for a send and for Watch) carries the window already known to
+be the session's: an app chat's own, or a terminal's by its app's words (`Place.window`, HAND-692); `Place.chat` holds
+the chat's window with its pane's fingerprint (HAND-698), so the send path refuses an unproven chat before anything is
+typed. `window_titles` lists only windows that draw, as ferb-sessions' `window` counts them. Pending sends on the
+phones and FERB.app cover terminal and app-chat sends alike (one send path).
+
+**Named differences.** `sessions.prepare` drops `agents` and `sessions.start` takes `command` (an older phone's
+`agent`/`text` still works); the enable question's words; Session and list fields added; `agent: "terminal"`.
+ferb-rpc's class description for `sessions.start` still names HAND-665 (fixture bytes in engine/fixtures/phone).
+
+**Unverified.**
+- Nothing ran against a real terminal, Terminal's AppleScript read, `open -g -b com.apple.Terminal <folder>` (whether
+  Terminal stays behind, and opens the folder as a new window rather than a tab) or a real chat app; I couldn't read
+  Terminal's or VS Code's Accessibility tree (no windows on this Space at the time).
+- Whether Terminal's AXTextArea and other terminal apps expose their text; VS Code-family terminals don't by default
+  (T-1301).
+- appchat.json's composer and pane marks are best knowledge; a wrong mark fails safe (no chat), then the model look.
+- The model look's prompt and the checker role's model on real windows; its cost.
+- tty times as "working" for a program that redraws a clock; argv[0] of programs that rename themselves.
+- The phones' browse is a typed path (T-1300).

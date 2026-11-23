@@ -44,7 +44,7 @@ import com.ferb.design.components.Pill
 import com.ferb.design.components.PillKind
 import com.ferb.design.components.RowIcon
 import com.ferb.design.components.SessionAction
-import com.ferb.design.components.SessionUnsent
+import com.ferb.design.components.SessionOutgoing
 import com.ferb.design.components.SessionAsk
 import com.ferb.design.components.SessionComposer
 import com.ferb.design.components.SessionRowData
@@ -57,10 +57,14 @@ import com.ferb.design.screens.SessionsPage
 import com.ferb.mobile.AgentSession
 import com.ferb.mobile.SessionYes
 
-// The owner's coding sessions (kb HAND-651..666): the Sessions tab, one session's screen, its window live, and starting one.
+// The owner's sessions (kb HAND-691, HAND-651..666): the Sessions tab, one session's screen, its window live, and opening a
+// new terminal.
 // The words are the app's (strings.xml, the same English as FERB.app); the agent's own words are shown as plain text.
 
-/** A session's row and header: its title (or folder), "<folder> · in <app>" (or in the background), its state, FERB's badge. */
+/**
+ * A session's row and header: its title (or its window, or folder), "<program> · <folder> · in <app>" (HAND-692; no
+ * program: "<folder> · in <app>"; no app: in the background), its state, FERB's badge.
+ */
 @Composable
 internal fun sessionRow(s: AgentSession): SessionRowData {
     val where = if (s.host.isBlank()) stringResource(R.string.sessions_in_background) else stringResource(R.string.sessions_in_app, s.host)
@@ -71,7 +75,8 @@ internal fun sessionRow(s: AgentSession): SessionRowData {
         com.ferb.design.components.SessionState.IDLE -> R.string.sessions_idle
     })
     val folder = s.folderName.ifBlank { s.folder }
-    return SessionRowData(Sessions.title(s), if (folder.isBlank()) where else "$folder · $where", state, stateText,
+    val subtitle = listOf(s.program, folder, where).filter { it.isNotBlank() }.joinToString(" · ")
+    return SessionRowData(Sessions.title(s), subtitle, state, stateText,
         ferb = if (s.withFerb) stringResource(R.string.sessions_with_ferb) else null)
 }
 
@@ -98,6 +103,7 @@ fun SessionsTabPage(
             ui.loaded -> stringResource(R.string.sessions_none)
             else -> null
         },
+        notes = ui.noChats.map { stringResource(R.string.sessions_no_chat, it) },
         waiting = waiting, onTab = onTab, onProfile = onProfile,
         onRow = { i -> ui.sessions.getOrNull(i)?.let { onRow(it.id) } },
         onNew = onNew, onTurnOn = onTurnOn,
@@ -145,6 +151,9 @@ fun SessionScreen(vm: FerbViewModel, busy: Set<String>, insets: PhoneInsets) {
 
 private object HandOver
 
+/** The day a session's lines are dated against ("Today", "Yesterday"): the clock's, or a fixed one (screenshots). */
+val LocalSessionToday = androidx.compose.runtime.staticCompositionLocalOf<Long?> { null }
+
 /** The session's page from its state (the screenshots draw it too). */
 @Composable
 fun SessionScreenPage(
@@ -157,7 +166,11 @@ fun SessionScreenPage(
     val header = s?.let { sessionRow(it) } ?: SessionRowData("", "", com.ferb.design.components.SessionState.IDLE, "")
     val agent = s?.agentName.orEmpty()
     val stopped = stringResource(R.string.sessions_interrupted)
-    val lines = remember(ui.items, stopped) { ui.items.map { Sessions.line(it, stopped) } }
+    // each day's first line carries its day, as the main chat marks a day's start (PHN-813)
+    val days = remember(ui.items) { Sessions.days(ui.items, java.time.ZoneId.systemDefault()) }
+    val today = LocalSessionToday.current ?: com.ferb.app.model.ChatModel.chatDay(System.currentTimeMillis(), java.time.ZoneId.systemDefault())
+    val labels = days.mapValues { (_, d) -> dayLabel(d, today) }
+    val lines = remember(ui.items, stopped, labels) { ui.items.map { Sessions.line(it, stopped).copy(day = labels[it.seq]) } }
     val onMac = stringResource(R.string.sessions_answer_on_mac)
     val asks = ui.cards.map { c ->
         val title = if (c.kind == "permission" && c.tool.isNotBlank()) stringResource(R.string.sessions_wants_tool, agent, c.tool)
@@ -182,13 +195,18 @@ fun SessionScreenPage(
             val choice = card?.choices?.getOrNull(c)
             if (card != null && choice != null && "session-answer:${card.id}" !in busy) onChoice(card.id, choice.id)
         },
-        unsent = ui.unsent?.let {
-            SessionUnsent(it.text, noteText(it.reason), stringResource(R.string.sessions_try_again), stringResource(R.string.sessions_not_sent))
+        outgoing = ui.outgoing?.let {
+            SessionOutgoing(it.text, it.phase == com.ferb.app.model.SessionSendPhase.SENDING, it.reason?.let { r -> noteText(r) },
+                stringResource(R.string.outbox_sending), stringResource(R.string.sessions_try_again), stringResource(R.string.sessions_not_sent))
         },
         onRetry = onRetry.takeIf { "session-send" !in busy },
         moreLabel = stringResource(R.string.sessions_more),
         menuOpen = ui.menu,
         onMenu = onMenu,
+        toLatest = stringResource(R.string.chat_to_latest),
+        newMessage = stringResource(R.string.chat_new_message),
+        // its first read on its way and no answer yet: the waiting look; an error only once the Mac answered (PHN-816)
+        loading = if (!ui.loaded && ui.problem == null) stringResource(R.string.sessions_loading) else null,
     ) { m ->
         Column(m.testTag("session-foot")) {
             ui.problem?.let { PhoneText(noteText(it), 13.5f, color = Ink.onDark, modifier = Modifier.padding(start = 6.dp, end = 6.dp, bottom = 8.dp)) }
@@ -196,6 +214,7 @@ fun SessionScreenPage(
                 SessionComposer(
                     ui.draft, stringResource(R.string.sessions_message_hint, agent.ifBlank { header.title }), stringResource(R.string.sessions_send),
                     Modifier.testTag("session-composer"), onValueChange = onTyped, onSend = onSend.takeIf { "session-send" !in busy },
+                    sending = ui.outgoing?.phase == com.ferb.app.model.SessionSendPhase.SENDING,
                 )
             } else {
                 PhoneText(s.noSend, 14.5f, color = Ink.onDark, modifier = Modifier.padding(horizontal = 6.dp, vertical = 10.dp).testTag("session-no-send"))
@@ -258,7 +277,7 @@ internal fun HandOverSheet(insets: PhoneInsets, busy: Boolean, onGo: (String) ->
     }
 }
 
-/** Watch: the session's window live (Watch live's page and rules: memory only, out of screenshots, not on the shared relay). */
+/** Watch: the session's window live (Watch live's page and rules: memory only, screenshots as the owner's switch says, not on the shared relay). */
 @Composable
 fun SessionLiveScreen(vm: FerbViewModel, insets: PhoneInsets) {
     val view by vm.live.view.collectAsState()
@@ -270,19 +289,22 @@ fun SessionLiveScreen(vm: FerbViewModel, insets: PhoneInsets) {
         title = stringResource(R.string.sessions_watch_title, name))
 }
 
-/** New session: which agent, which folder, the first words; then the Mac's exact command and the owner's Yes. */
+/**
+ * New session (HAND-691): a terminal on the Mac. Only where (the folders the Mac offers, or another typed) and an optional
+ * command; with a command, the Mac's exact command and the owner's Yes. No agent to pick: he types the one he wants.
+ */
 @Composable
 fun NewSessionSheet(vm: FerbViewModel, busy: Set<String>, insets: PhoneInsets) {
     val n by vm.newSession.collectAsState()
     val ui = n ?: return
-    NewSessionPage(ui, busy, insets, onAgent = vm::newSessionAgent, onFolder = vm::newSessionFolder, onText = vm::newSessionText,
+    NewSessionPage(ui, busy, insets, onFolder = vm::newSessionFolder, onOther = vm::newSessionOther, onText = vm::newSessionText,
         onNext = { vm.newSessionNext() }, onStart = { vm.newSessionStart() }, onBack = vm::newSessionBack, onClose = vm::closeNewSession)
 }
 
 @Composable
 fun NewSessionPage(
     ui: NewSessionUi, busy: Set<String>, insets: PhoneInsets,
-    onAgent: (String) -> Unit = {}, onFolder: (String) -> Unit = {}, onText: (String) -> Unit = {},
+    onFolder: (String) -> Unit = {}, onOther: (String) -> Unit = {}, onText: (String) -> Unit = {},
     onNext: () -> Unit = {}, onStart: () -> Unit = {}, onBack: () -> Unit = {}, onClose: () -> Unit = {},
 ) {
     val yes = ui.yes
@@ -294,14 +316,7 @@ fun NewSessionPage(
     SheetFrame(title = title, bottomInset = insets.bottom, onDismiss = onClose) {
         SheetTitle(title, onClose)
         Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState())) {
-            PhoneText(stringResource(R.string.sessions_new_agent), 15.5f, FerbType.Semibold, Ink.black, Modifier.padding(top = 12.dp, bottom = 8.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                for ((id, name) in Sessions.AGENTS) {
-                    Pill(name, Modifier.weight(1f).testTag("agent-$id"), if (ui.agent == id) PillKind.BLACK else PillKind.GREY, height = 44.dp,
-                        onClick = { onAgent(id) })
-                }
-            }
-            PhoneText(stringResource(R.string.sessions_new_folder), 15.5f, FerbType.Semibold, Ink.black, Modifier.padding(top = 16.dp, bottom = 8.dp))
+            PhoneText(stringResource(R.string.sessions_new_folder), 15.5f, FerbType.Semibold, Ink.black, Modifier.padding(top = 12.dp, bottom = 8.dp))
             if (ui.folders.isNotEmpty()) {
                 // the sheet's grey fill for the folders: a white card would vanish on the white sheet
                 Column(Modifier.fillMaxWidth().background(Ink.fill, RoundedCornerShape(18.dp)).testTag("new-folders")) {
@@ -309,17 +324,18 @@ fun NewSessionPage(
                         if (i > 0) Divide()
                         val name = f.trimEnd('/').substringAfterLast('/').ifEmpty { f }
                         CardRow(name, f, onClick = { onFolder(f) }, leading = { RowIcon(FerbIcons.folder) },
-                            trailing = { if (f == ui.folder) com.ferb.design.FerbIcon(FerbIcons.check, 17f, Ink.black) })
+                            trailing = { if (f == ui.folder && ui.other.isBlank()) com.ferb.design.FerbIcon(FerbIcons.check, 17f, Ink.black) })
                     }
                 }
             } else if (ui.loading) {
                 com.ferb.design.components.RunningArc(20.dp, Ink.black)
             }
-            PhoneText(stringResource(R.string.sessions_new_first), 15.5f, FerbType.Semibold, Ink.black, Modifier.padding(top = 16.dp, bottom = 8.dp))
-            Field(ui.text, onText, stringResource(R.string.sessions_message_hint, Sessions.AGENTS.firstOrNull { it.first == ui.agent }?.second.orEmpty()),
-                Modifier.testTag("new-first"))
+            PhoneText(stringResource(R.string.sessions_new_other), 15.5f, FerbType.Semibold, Ink.black, Modifier.padding(top = 16.dp, bottom = 8.dp))
+            Field(ui.other, onOther, stringResource(R.string.sessions_new_other_hint), Modifier.testTag("new-other"))
+            PhoneText(stringResource(R.string.sessions_new_command), 15.5f, FerbType.Semibold, Ink.black, Modifier.padding(top = 16.dp, bottom = 8.dp))
+            Field(ui.text, onText, stringResource(R.string.sessions_new_command_hint), Modifier.testTag("new-command"))
         }
         Pill(stringResource(R.string.sessions_start), Modifier.padding(top = 18.dp).testTag("new-start"),
-            onClick = if (ui.folder == null || "session-prepare" in busy) null else onNext)
+            onClick = if (ui.chosen == null || "session-prepare" in busy) null else onNext)
     }
 }

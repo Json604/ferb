@@ -12,6 +12,9 @@ pub enum Agent {
     /// A desktop chat app's conversation, read from its window (the Claude app, ChatGPT, Cursor's agent pane, any chat
     /// app the owner adds: HAND-668).
     AppChat,
+    /// HAND-692: a terminal (a tab, pane or window of any terminal app, an editor's terminal, a tmux pane) running
+    /// whatever program the owner started in it; found from the process table, never from an agent's files.
+    Terminal,
 }
 
 impl Agent {
@@ -20,6 +23,7 @@ impl Agent {
             Agent::ClaudeCode => "claude_code",
             Agent::Codex => "codex",
             Agent::AppChat => "app_chat",
+            Agent::Terminal => "terminal",
         }
     }
     pub fn parse(s: &str) -> Option<Agent> {
@@ -27,6 +31,7 @@ impl Agent {
             "claude_code" | "claude" => Some(Agent::ClaudeCode),
             "codex" => Some(Agent::Codex),
             "app_chat" => Some(Agent::AppChat),
+            "terminal" => Some(Agent::Terminal),
             _ => None,
         }
     }
@@ -36,6 +41,7 @@ impl Agent {
             Agent::ClaudeCode => "Claude Code",
             Agent::Codex => "Codex",
             Agent::AppChat => "The app",
+            Agent::Terminal => "The terminal",
         }
     }
     /// The id prefix of its sessions (`claude:<sessionId>`, `codex:<threadId>`).
@@ -44,6 +50,7 @@ impl Agent {
             Agent::ClaudeCode => "claude",
             Agent::Codex => "codex",
             Agent::AppChat => "app",
+            Agent::Terminal => "term",
         }
     }
     /// The session id FERB uses for the agent's own id.
@@ -57,6 +64,7 @@ impl Agent {
             "claude" => Agent::ClaudeCode,
             "codex" => Agent::Codex,
             "app" => Agent::AppChat,
+            "term" => Agent::Terminal,
             _ => return None,
         };
         (!own.is_empty()).then_some((a, own))
@@ -205,6 +213,16 @@ pub struct Session {
     /// choose (empty otherwise).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub terminals: Vec<TerminalChoice>,
+    /// HAND-692: the program in front in its terminal, as it was started ("agy", "zsh", "claude"; "" when FERB doesn't
+    /// know its terminal).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub program: String,
+    /// HAND-692: its window or tab in the app's own words ("Desktop — agy — 120×30"; "" when FERB can't tell which).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub window: String,
+    /// HAND-693: a terminal whose text FERB can't read: why, in the owner's words ("" when it can, or before it tried).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub no_text: String,
 }
 
 /// HAND-683: a terminal the owner may choose as a session's, as its app shows it.

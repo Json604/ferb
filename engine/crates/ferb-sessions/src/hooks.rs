@@ -1,5 +1,5 @@
 //! FERB's entries in Claude Code's settings (`~/.claude/settings.json`), added after the owner's Yes and removed on
-//! his No, the Settings switch or an uninstall (kb HAND-666, HAND-666). Only FERB's own entries are ever touched: each is a
+//! his No, the Settings switch or an uninstall (kb HAND-696). Only FERB's own entries are ever touched: each is a
 //! command hook whose program is FERB's `ferb` with `agent-hook claude` after it, so an older FERB.app's entries are
 //! found too. Every other key, hook and order in the file stays as it was. A file that isn't a JSON object is left
 //! alone and said.

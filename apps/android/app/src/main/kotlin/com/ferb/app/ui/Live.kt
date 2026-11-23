@@ -42,8 +42,8 @@ import com.ferb.design.screens.paddingOverBottom
 
 /**
  * Watch live (PHN-454): the task's window on the Mac as FERB.app's preview shows it, full screen, with FERB's line
- * under it and Stop. The frame lives in memory only; the window is kept out of screenshots and recent apps while this
- * shows (MainActivity: FLAG_SECURE through the view model's mustSecure, whatever the owner's switch says).
+ * under it and Stop. The frame lives in memory only; screenshots follow the owner's switch as every page does
+ * (kb PHN-810; MainActivity's FLAG_SECURE through ScreenGuard) and recent apps are always covered (PHN-15).
  */
 @Composable
 fun LiveScreen(vm: FerbViewModel, insets: PhoneInsets) {

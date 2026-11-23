@@ -131,8 +131,8 @@ struct InsomniaSheet: View {
     }
 }
 
-/// Show me (APP-983): the Mac's camera while this shows. The picture is kept out of screenshots where this iOS allows
-/// it (the secure canvas, PHN-597) and the app is hidden while the screen is captured (mustSecure).
+/// Show me (APP-983): the Mac's camera while this shows. With the owner's screenshot switch on, the picture is kept out
+/// of screenshots where this iOS allows it (the secure canvas) and the app is hidden while the screen is captured (PHN-811).
 struct CameraView: View {
     @Bindable var model: AppModel
     let insets: PhoneInsets

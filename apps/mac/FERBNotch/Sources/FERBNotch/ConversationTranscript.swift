@@ -63,8 +63,9 @@ struct EarlierEntries: Equatable {
     var loading = false
 }
 
-/// The top of a day while the daemon's page of earlier entries is on its way (APP-806): a small loader.
-private struct EarlierLoader: View {
+/// The top of a day while the daemon's page of earlier entries is on its way (APP-806): a small loader. A coding
+/// session's earlier items show it too (PHN-813).
+struct EarlierLoader: View {
     var body: some View {
         HStack {
             Spacer()
@@ -203,7 +204,7 @@ struct ConversationTranscript: View {
     @MainActor
     private static func content(_ row: TranscriptRow, model: NotchModel) -> AnyView {
         switch row {
-        case .top, .bottom: return AnyView(Color.clear)
+        case .top, .bottom, .item: return AnyView(Color.clear)         // .item: another conversation's row (PHN-813)
         case .loader: return AnyView(EarlierLoader())
         case let .question(question):
             return AnyView(ApprovalView(model: model, approval: question)
@@ -232,15 +233,7 @@ struct ConversationTranscript: View {
     }
 
     private func jump(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: systemImage)
-                .font(.system(size: 10, weight: .medium))
-                .padding(.horizontal, 10).padding(.vertical, 6)
-                .ferbGlass(in: Capsule())                                  // APP-785
-        }
-        .buttonStyle(.plain)
-        .padding(.trailing, 9).padding(.bottom, 7)
-        .transition(.opacity.combined(with: .move(edge: .bottom)))
+        TranscriptJumpButton(title: title, systemImage: systemImage, action: action)
     }
 
     /// New entries: pinned to the bottom while following, else the "New message" control.

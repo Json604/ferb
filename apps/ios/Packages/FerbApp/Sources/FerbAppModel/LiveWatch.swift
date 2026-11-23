@@ -27,9 +27,9 @@ public struct LiveScreen: Equatable, Sendable {
     }
 }
 
-/// Watch live (PHN-454, PHN-111; kb PHN-518; Android: model/LiveWatch.kt): a task's live preview at the link's own
+/// Watch live (PHN-454, PHN-111; kb PHN-810; Android: model/LiveWatch.kt): a task's live preview at the link's own
 /// pace, each frame kept in memory and never written anywhere (no file, no cache, no notification); the screen that
-/// shows it is hidden while the screen is captured, whatever the owner's switch says ([AppModel.mustSecure]). It stops
+/// shows it follows the owner's screenshot switch like every page (owner 2026-11-23, kb PHN-810, PHN-811). It stops
 /// when the screen goes, the app goes to the background, or the app locks; on the public relay it is never asked for
 /// (the relay's rule is said instead).
 @MainActor

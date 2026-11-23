@@ -1,4 +1,4 @@
-//! The Mac's side of the owner's coding-agent sessions (kb HAND-651..666): the process table with each process's terminal and
+//! The Mac's side of the owner's sessions (kb HAND-691..695, HAND-652..666): the process table with each process's terminal and
 //! its foreground group (libproc), a process's working folder, an app bundle's id and name, and the host adapters
 //! that type without the foreground: Terminal's scripting (`do script`) and tmux's own input. Every program FERB runs
 //! for this gets an environment built from scratch (HAND-659: an agent's variables leaking into a terminal it opens made
@@ -432,4 +432,133 @@ pub fn tmux_send(
         tmux(program, home, &sock, &["send-keys", "-t", &pane, "Enter"])?;
     }
     Ok(())
+}
+
+// ---------- every terminal as a session (HAND-691..695) ----------
+
+/// A process's argv[0] as it was started ("-zsh", "agy", "claude"), "" when unreadable (another user's, or gone).
+pub fn argv0_of(pid: i32) -> String {
+    let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid];
+    let mut size: libc::size_t = 0;
+    // SAFETY: a size query (null buffer) on a three-int name that lives through the call.
+    let r = unsafe {
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            3,
+            std::ptr::null_mut(),
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if r != 0 || size < 8 {
+        return String::new();
+    }
+    let mut buf = vec![0u8; size];
+    // SAFETY: `buf` holds `size` bytes, as the kernel was told; it writes at most that and updates `size`.
+    let r = unsafe {
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            3,
+            buf.as_mut_ptr() as *mut c_void,
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if r != 0 {
+        return String::new();
+    }
+    buf.truncate(size);
+    argv0_from_procargs(&buf)
+}
+
+/// argv[0] from KERN_PROCARGS2's layout: argc (4 bytes), the executable's path, its NUL padding, then argv[0].
+pub fn argv0_from_procargs(buf: &[u8]) -> String {
+    if buf.len() < 4 {
+        return String::new();
+    }
+    let rest = &buf[4..];
+    let Some(end_path) = rest.iter().position(|b| *b == 0) else {
+        return String::new();
+    };
+    let after = &rest[end_path..];
+    let Some(start) = after.iter().position(|b| *b != 0) else {
+        return String::new();
+    };
+    let arg = &after[start..];
+    let end = arg.iter().position(|b| *b == 0).unwrap_or(arg.len());
+    String::from_utf8_lossy(&arg[..end]).into_owned()
+}
+
+/// When a terminal device last had input or output: the later of its access and change times, in seconds since
+/// 1970. None when it can't be read.
+pub fn tty_activity(tty: &str) -> Option<f64> {
+    use std::os::unix::fs::MetadataExt;
+    if !tty.starts_with("/dev/") {
+        return None;
+    }
+    let m = std::fs::metadata(tty).ok()?;
+    let at = |s: i64, ns: i64| s as f64 + ns as f64 / 1e9;
+    Some(at(m.atime(), m.atime_nsec()).max(at(m.mtime(), m.mtime_nsec())))
+}
+
+/// The AppleScript that answers the visible text of Terminal's tab on `tty` (read only; no `activate`).
+pub fn terminal_contents_script(tty: &str) -> String {
+    format!(
+        "tell application id \"com.apple.Terminal\"\n\
+           repeat with w in windows\n\
+             repeat with t in tabs of w\n\
+               if tty of t is {tty} then return contents of t\n\
+             end repeat\n\
+           end repeat\n\
+           error \"no tab\"\n\
+         end tell",
+        tty = applescript_string(tty),
+    )
+}
+
+/// Terminal: the visible text of the tab on `tty`.
+pub fn terminal_contents(home: &Path, tty: &str) -> Result<String, String> {
+    let mut c = clean_command("/usr/bin/osascript", home);
+    c.args(["-e", &terminal_contents_script(tty)]);
+    run(c, Duration::from_secs(10))
+        .map_err(|_| "Terminal has no tab on this terminal any more.".to_owned())
+}
+
+/// tmux: the visible text of the pane on `tty` (wrapped lines joined).
+pub fn tmux_capture(program: &str, home: &Path, server: i32, tty: &str) -> Result<String, String> {
+    let sock = tmux_socket(program, home, server).ok_or("tmux's server isn't there any more")?;
+    let panes = tmux(
+        program,
+        home,
+        &sock,
+        &["list-panes", "-a", "-F", "#{pane_tty} #{pane_id}"],
+    )?;
+    let pane = panes
+        .lines()
+        .find_map(|l| {
+            let (t, id) = l.split_once(' ')?;
+            (t == tty).then(|| id.trim().to_owned())
+        })
+        .ok_or("tmux has no pane on this terminal any more")?;
+    tmux(
+        program,
+        home,
+        &sock,
+        &["capture-pane", "-p", "-J", "-t", &pane],
+    )
+}
+
+/// The arguments that open a new window of the app `bundle_id` in `folder` without bringing it forward (`open -g`).
+pub fn open_folder_args(bundle_id: &str, folder: &str) -> Vec<String> {
+    vec!["-g".into(), "-b".into(), bundle_id.into(), folder.into()]
+}
+
+/// A new window of the terminal app `bundle_id` in `folder` (Terminal opens a folder as a new window there), in the
+/// background; nothing is typed.
+pub fn open_folder_in(home: &Path, bundle_id: &str, folder: &str) -> Result<(), String> {
+    let mut c = clean_command("/usr/bin/open", home);
+    c.args(open_folder_args(bundle_id, folder));
+    run(c, Duration::from_secs(10)).map(|_| ())
 }

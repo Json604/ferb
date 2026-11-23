@@ -8,10 +8,23 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.click
+import androidx.compose.ui.test.swipeDown
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import com.ferb.app.model.LiveView
 import com.ferb.app.model.NewSessionUi
 import com.ferb.app.model.SessionUi
-import com.ferb.app.model.Unsent
+import com.ferb.app.model.SessionSending
+import com.ferb.app.model.SessionSendPhase
 import com.ferb.app.model.TerminalPick
 import com.ferb.app.model.SessionsUi
 import com.ferb.app.ui.HandOverSheet
@@ -52,7 +65,11 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(qualifiers = "w412dp-h1000dp-port-mdpi")
 class SessionShotsTest {
-    private companion object { const val PHONE = "phone" }
+    private companion object {
+        const val PHONE = "phone"
+        /** The day the stand-in lines were said on (FakePhone.item), so a golden never depends on the day it runs. */
+        val TODAY = com.ferb.app.model.ChatModel.chatDay(java.time.Instant.parse("2026-11-22T10:00:00Z").toEpochMilli(), java.time.ZoneId.systemDefault())
+    }
 
     @get:Rule val compose = createComposeRule()
 
@@ -87,7 +104,7 @@ class SessionShotsTest {
     @Composable
     private fun Phone(sheet: @Composable () -> Unit = {}, page: @Composable () -> Unit) {
         Box(Modifier.size(Phone.frameWidth, Phone.frameHeight).testTag(PHONE)) {
-            CompositionLocalProvider(LocalConnection provides connection) {
+            CompositionLocalProvider(LocalConnection provides connection, com.ferb.app.ui.LocalSessionToday provides TODAY) {
                 PhoneScreen(labMoment(12.5), insets = PhoneInsets.Lab, glide = false, sheet = { sheet(); LabAndroidChrome() }) { page() }
             }
         }
@@ -104,8 +121,13 @@ class SessionShotsTest {
 
     // decision: PHN-801
     @Test
+    // decision: HAND-692, HAND-697
     fun the_sessions_tab_lists_each_with_its_place_and_state() {
-        compose.setContent { Phone { tab(SessionsUi(true, true, sessions)) } }
+        // a terminal running a program nobody listed: its window's words, "<program> · <folder> · in <app>"; and an app
+        // open with no chat says so in one quiet line
+        val terminal = FakePhone.agentSession("term:110", "", "idle", "Terminal").copy(agent = "terminal", agentName = "agy", program = "agy",
+            folder = "/Users/owner/Desktop", folderName = "Desktop", window = "Desktop — agy — 120×30")
+        compose.setContent { Phone { tab(SessionsUi(true, true, sessions + terminal, noChats = listOf("Cursor"))) } }
         shoot("sessions-list.png")
     }
 
@@ -146,7 +168,7 @@ class SessionShotsTest {
             "Click into the session's terminal once, then send again."
         compose.setContent {
             Phone(sheet = {
-                SessionScreenPage(open.copy(cards = emptyList(), draft = "", unsent = Unsent("Then deploy it to staging", Note(R.string.err_mac_said, why))),
+                SessionScreenPage(open.copy(cards = emptyList(), draft = "", outgoing = SessionSending("Then deploy it to staging", SessionSendPhase.NOT_SENT, Note(R.string.err_mac_said, why))),
                     emptySet(), PhoneInsets.Lab)
             }) { tab(SessionsUi(true, true, sessions)) }
         }
@@ -210,10 +232,11 @@ class SessionShotsTest {
         shoot("session-hand.png")
     }
 
+    // decision: HAND-691
     @Test
-    fun a_new_session_its_agent_folder_and_first_words() {
+    fun a_new_session_is_a_folder_and_an_optional_command_with_no_agent_to_pick() {
         val n = NewSessionUi(false, listOf("/Users/owner/code/web-app", "/Users/owner/code/blog", "/Users/owner/code/notes-app"),
-            folder = "/Users/owner/code/blog", text = "Move the blog to the new theme")
+            folder = "/Users/owner/code/blog", text = "agy")
         compose.setContent { Phone(sheet = { NewSessionPage(n, emptySet(), PhoneInsets.Lab) }) { tab(SessionsUi(true, true, sessions)) } }
         shoot("session-new.png")
     }
@@ -222,7 +245,8 @@ class SessionShotsTest {
     @Test
     fun a_new_session_shows_the_exact_command_before_it_starts() {
         val n = NewSessionUi(false, listOf("/Users/owner/code/blog"), folder = "/Users/owner/code/blog",
-            yes = SessionYes("Open Terminal on your Mac and run this?", "cd /Users/owner/code/blog && claude 'Move the blog to the new theme'", ""))
+            yes = SessionYes("Open a new Terminal window in blog and type this?", "agy",
+                "FERB opens it in the background and types only this command, then Return. You can type more into it from here."))
         compose.setContent { Phone(sheet = { NewSessionPage(n, emptySet(), PhoneInsets.Lab) }) { tab(SessionsUi(true, true, sessions)) } }
         shoot("session-new-command.png")
     }
@@ -244,4 +268,150 @@ class SessionShotsTest {
         }
         shoot("session-watch.png")
     }
+
+    // ---- sending, the list as the main chat's, the page's touches (PHN-812, PHN-813, PHN-815) -------------------------
+
+    // decision: PHN-812
+    @Test
+    fun a_message_on_its_way_shows_at_once_as_sending_and_the_send_button_turns() {
+        compose.setContent {
+            Phone(sheet = {
+                SessionScreenPage(open.copy(cards = emptyList(), draft = "", outgoing = SessionSending("Then deploy it to staging", SessionSendPhase.SENDING, after = 47)),
+                    setOf("session-send"), PhoneInsets.Lab)
+            }) { tab(SessionsUi(true, true, sessions)) }
+        }
+        shoot("session-sending.png")
+    }
+
+    // decision: PHN-816
+    @Test
+    fun a_session_opening_shows_the_waiting_look_never_an_error() {
+        compose.setContent {
+            Phone(sheet = { SessionScreenPage(SessionUi("claude:s2", sessions[1]), emptySet(), PhoneInsets.Lab) }) { tab(SessionsUi(true, true, sessions)) }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithTag("session-waiting").assertExists()
+        compose.onAllNodesWithText("FERB can't find that session.", substring = true).assertCountEquals(0)
+        shoot("session-waiting.png")
+    }
+
+    // decision: PHN-816
+    @Test
+    fun the_mac_s_not_found_shows_as_its_words_without_the_waiting_look() {
+        compose.setContent {
+            Phone(sheet = {
+                SessionScreenPage(SessionUi("claude:s2", sessions[1], problem = Note(R.string.err_mac_said, "FERB can't find that session.")), emptySet(), PhoneInsets.Lab)
+            }) { tab(SessionsUi(true, true, sessions)) }
+        }
+        compose.waitForIdle()
+        compose.onAllNodesWithTag("session-waiting").assertCountEquals(0)
+        compose.onNodeWithText("FERB can't find that session.", substring = true).assertExists()
+    }
+
+    /** A conversation longer than the screen, as the owner's (his screenshot of 2026-11-23). */
+    private val long = open.copy(
+        items = (1..24).map { i ->
+            if (i % 3 == 0) FakePhone.item(i, "user", "Step $i: go on, and tell me what is left.")
+            else FakePhone.item(i, "assistant", "Done with step $i. I read the config, changed the theme's layout and checked that " +
+                "the old post URLs still answer. The build passes; next I'll look at the redirects and the feed.")
+        },
+        cards = emptyList(), draft = "", more = false,
+    )
+
+    // decision: PHN-813
+    @Test
+    fun scrolled_up_the_session_shows_the_main_chat_s_arrow_back_to_the_latest() {
+        compose.setContent { Phone(sheet = { SessionScreenPage(long, emptySet(), PhoneInsets.Lab) }) { tab(SessionsUi(true, true, sessions)) } }
+        compose.waitForIdle()
+        compose.onAllNodesWithTag("session-jump").assertCountEquals(0)
+        compose.onNodeWithTag("session-list").performTouchInput { swipeDown(startY = top + 40f, endY = bottom - 40f, durationMillis = 300) }
+        compose.waitForIdle()
+        compose.onNodeWithTag("session-jump").assertExists()
+        shoot("session-scrolled-up.png")
+    }
+
+    // decision: PHN-813
+    @Test
+    fun the_arrow_takes_him_back_to_the_end_and_goes() {
+        compose.setContent { Phone(sheet = { SessionScreenPage(long, emptySet(), PhoneInsets.Lab) }) { tab(SessionsUi(true, true, sessions)) } }
+        compose.waitForIdle()
+        compose.onNodeWithTag("session-list").performTouchInput { swipeDown(startY = top + 40f, endY = bottom - 40f, durationMillis = 300) }
+        compose.waitForIdle()
+        compose.onNodeWithTag("session-jump").performClick()
+        compose.waitForIdle()
+        compose.onAllNodesWithTag("session-jump").assertCountEquals(0)
+        compose.onNodeWithText("Done with step 23", substring = true).assertIsDisplayed()
+    }
+
+    // decision: PHN-813
+    @Test
+    fun a_new_line_while_scrolled_up_says_new_message_and_doesn_t_move_the_list() {
+        var ui by androidx.compose.runtime.mutableStateOf(long)
+        compose.setContent { Phone(sheet = { SessionScreenPage(ui, emptySet(), PhoneInsets.Lab) }) { tab(SessionsUi(true, true, sessions)) } }
+        compose.waitForIdle()
+        compose.onNodeWithTag("session-list").performTouchInput { swipeDown(startY = top + 40f, endY = bottom - 40f, durationMillis = 300) }
+        compose.waitForIdle()
+        ui = long.copy(items = long.items + FakePhone.item(25, "assistant", "The redirects work."))
+        compose.waitForIdle()
+        compose.onNodeWithText("New message").assertExists()
+        compose.onAllNodesWithText("The redirects work.").assertCountEquals(0)
+    }
+
+    /** Taps beside and under the message box: before this fix they reached the Sessions tab's New session under the page. */
+    // decision: PHN-815
+    @Test
+    fun taps_beside_and_under_the_message_box_never_reach_new_session_under_the_page() {
+        var newTapped = 0
+        var covered by androidx.compose.runtime.mutableStateOf(true)
+        compose.setContent {
+            Phone(sheet = { if (covered) SessionScreenPage(open.copy(cards = emptyList()), emptySet(), PhoneInsets.Lab) }) {
+                SessionsTabPage(SessionsUi(true, true, sessions), PhoneInsets.Lab, null, {}, {}, onNew = { newTapped++ })
+            }
+        }
+        compose.waitForIdle()
+        val box = compose.onNodeWithTag("session-composer").fetchSemanticsNode().boundsInRoot
+        // the message box's own rounded ends and its foot: on the box, but beside its field and its send button
+        val points = listOf(
+            androidx.compose.ui.geometry.Offset(box.left + 6f, box.center.y),
+            androidx.compose.ui.geometry.Offset(box.right - 3f, box.center.y),
+            androidx.compose.ui.geometry.Offset(box.center.x, box.bottom - 3f),
+        )
+        // each point is over the tab's New session button (the page under the session)
+        val pill = compose.onNodeWithText("New session").fetchSemanticsNode().boundsInRoot
+        for (p in points) org.junit.Assert.assertTrue("$p over New session ($pill)", pill.contains(p))
+        for (p in points) compose.onNodeWithTag(PHONE).performTouchInput { click(p) }
+        compose.waitForIdle()
+        org.junit.Assert.assertEquals("no tap reached New session under the session", 0, newTapped)
+        // the same tap with the session closed does reach it: the points were the button's
+        covered = false
+        compose.waitForIdle()
+        compose.onNodeWithTag(PHONE).performTouchInput { click(points[0]) }
+        compose.waitForIdle()
+        org.junit.Assert.assertEquals(1, newTapped)
+    }
+
+    @Composable
+    private fun Sized(sheet: @Composable () -> Unit, page: @Composable () -> Unit) {
+        Box(Modifier.fillMaxSize().testTag(PHONE)) {
+            CompositionLocalProvider(LocalConnection provides connection, com.ferb.app.ui.LocalSessionToday provides TODAY) {
+                PhoneScreen(labMoment(12.5), insets = PhoneInsets.Lab, glide = false, sheet = { sheet(); LabAndroidChrome() }) { page() }
+            }
+        }
+    }
+
+    private fun conversationAt(path: String) {
+        compose.setContent {
+            Sized(sheet = {
+                SessionScreenPage(long.copy(session = sessions[0], outgoing = SessionSending("Then deploy it to staging", SessionSendPhase.SENDING, after = 24)),
+                    setOf("session-send"), PhoneInsets.Lab)
+            }) { tab(SessionsUi(true, true, sessions)) }
+        }
+        shoot(path)
+    }
+
+    // decision: PHN-815, PHN-813
+    @Test @Config(qualifiers = "w360dp-h740dp-port-mdpi") fun the_conversation_at_360() = conversationAt("session-conversation-360.png")
+
+    // decision: PHN-815, PHN-813
+    @Test @Config(qualifiers = "w412dp-h860dp-port-mdpi") fun the_conversation_at_412() = conversationAt("session-conversation-412.png")
 }

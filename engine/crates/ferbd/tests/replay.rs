@@ -104,7 +104,7 @@ fn as_named(line: String) -> String {
         values.insert("memory.local_import".into(), json!(false));
         // MEM-459: the owner\'s switch for ChatGPT and Claude, off until he chooses a browser
         values.insert("memory.sites_import".into(), json!(false));
-        // HAND-666: the owner's answer about his coding sessions, off until asked
+        // HAND-696: the owner's answer about his coding sessions, off until asked
         values.insert("sessions.enabled".into(), json!(false));
         for (k, n) in added {
             values.insert(k.into(), json!(n));

@@ -2,7 +2,9 @@ import FerbAppModel
 import SwiftUI
 import UIKit
 
-/// Keeping Watch live's picture of the Mac out of screenshots on iPhone (kb PHN-597, PHN-598; the owner's T-1240). A
+/// Keeping the pictures of the Mac out of screenshots on iPhone while the owner's Block screenshots switch is on (kb
+/// PHN-811, PHN-810, PHN-598; the owner's T-1240): Watch live, a task's short view, the Mac's camera, a session's window.
+/// With the switch off they show in screenshots like every other page (owner 2026-11-23, PHN-810). A
 /// private answer never shows its value (dots for a code; iOS's SecureField, which iOS itself keeps out of screenshots,
 /// for a password), so it needs no shield; it is hidden while the screen is recorded or mirrored (Privacy.swift).
 ///
@@ -142,11 +144,35 @@ struct ScreenshotShielded<Content: View>: UIViewControllerRepresentable {
     }
 }
 
+/// The owner's Block screenshots switch as every shielded picture reads it (kb PHN-810, PHN-811): set once at the root
+/// (RootView, from the model's settings), carried by SwiftUI into every page, sheet and presented window under it. It is
+/// on where nothing set it (fail safe: the shield's own check page, a view drawn on its own).
+private struct BlockScreenshotsKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
+extension EnvironmentValues {
+    public var ferbBlockScreenshots: Bool {
+        get { self[BlockScreenshotsKey.self] }
+        set { self[BlockScreenshotsKey.self] = newValue }
+    }
+}
+
+/// `content` in the shield while the owner's switch is on, drawn plainly while it is off (PHN-810, PHN-811).
+struct ShieldedBySwitch<Content: View>: View {
+    let content: Content
+    @Environment(\.ferbBlockScreenshots) private var block
+    var body: some View {
+        if block { ScreenshotShielded { content } } else { content }
+    }
+}
+
 extension View {
-    /// Draws this view inside the screenshot shield. Only for a picture that nothing reads out or taps (Watch live's
-    /// frame, PHN-454): SwiftUI content hosted in there is not reached by VoiceOver (seen on the simulator: the UI tests'
-    /// accessibility tree stops at the hosting view, with or without the secure canvas), so controls stay outside.
+    /// Draws this view inside the screenshot shield while the owner's switch is on (the one place: the environment's
+    /// `ferbBlockScreenshots`), plainly while it is off. Only for a picture that nothing reads out or taps (a picture
+    /// of the Mac, PHN-454): SwiftUI content hosted in there is not reached by VoiceOver (seen on the simulator: the UI
+    /// tests' accessibility tree stops at the hosting view, with or without the secure canvas), so controls stay outside.
     func screenshotShielded() -> some View {
-        ScreenshotShielded { self }
+        ShieldedBySwitch(content: self)
     }
 }

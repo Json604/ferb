@@ -71,6 +71,12 @@ pub struct AgentSession {
     /// HAND-683: FERB couldn't tell which terminal in its app is this session's: the ones it can see, for the owner to
     /// choose (his pick goes with `session_control`). Empty otherwise.
     pub terminals: Vec<SessionChoice>,
+    /// HAND-692: the program in front in its terminal ("agy", "zsh", "claude"; "" when unknown).
+    pub program: String,
+    /// HAND-692: its window or tab in its app's own words ("" when FERB can't tell).
+    pub window: String,
+    /// HAND-693: why FERB can't show this terminal's text ("" when it can).
+    pub no_text: String,
 }
 
 impl AgentSession {
@@ -91,6 +97,10 @@ impl AgentSession {
                 "app_chat" => Some(text(&v["host"]["name"]))
                     .filter(|n| !n.is_empty())
                     .unwrap_or_else(|| "App chat".into()),
+                // HAND-692: a terminal is named by the program in front in it
+                "terminal" => Some(text(&v["program"]))
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or_else(|| "Terminal".into()),
                 _ => "Claude Code".into(),
             },
             agent,
@@ -121,6 +131,9 @@ impl AgentSession {
                         .collect()
                 })
                 .unwrap_or_default(),
+            program: text(&v["program"]),
+            window: text(&v["window"]),
+            no_text: text(&v["no_text"]),
         }
     }
 }
@@ -131,6 +144,8 @@ pub struct SessionsList {
     /// The owner turned sessions on (else the list is empty and the phone says how to turn them on).
     pub enabled: bool,
     pub sessions: Vec<AgentSession>,
+    /// HAND-697: the chat apps open on the Mac with no chat FERB could find (their names).
+    pub no_chats: Vec<String>,
 }
 
 /// One timeline item (thinking is never sent; a tool call is one line).
@@ -224,6 +239,16 @@ fn sent_of(v: &Value) -> SessionSent {
     }
 }
 
+/// A new session's parameters: a terminal in `folder` with an optional `command` (HAND-691); an agent's name is the
+/// form an older Mac still reads.
+fn start_params(agent: &str, folder: &str, words: &str) -> Value {
+    if agent.is_empty() || agent == "terminal" {
+        json!({"folder": folder, "command": words})
+    } else {
+        json!({"agent": agent, "folder": folder, "text": words})
+    }
+}
+
 fn need(id: &str) -> MobileResult<()> {
     if id.trim().is_empty() {
         return Err(MobileError::new(ErrorCode::Refused, "Which session?"));
@@ -241,6 +266,10 @@ impl Mobile {
             sessions: v["sessions"]
                 .as_array()
                 .map(|a| a.iter().map(AgentSession::read).collect())
+                .unwrap_or_default(),
+            no_chats: v["no_chats"]
+                .as_array()
+                .map(|a| a.iter().map(text).filter(|n| !n.is_empty()).collect())
                 .unwrap_or_default(),
         })
     }
@@ -377,7 +406,8 @@ impl Mobile {
         Ok(v["interrupted"].as_bool().unwrap_or(false))
     }
 
-    /// The folders a new session may start in; with a folder, the exact command and its question.
+    /// The folders a new session may start in; with a folder, the exact command and its question. A new session is a
+    /// terminal (HAND-691): `agent` is "terminal" (or empty) and `words` is the command to type, if any.
     pub fn session_prepare(
         &self,
         agent: &str,
@@ -387,7 +417,7 @@ impl Mobile {
         let t = self.shared.transport_online()?;
         let mut p = json!({});
         if !folder.is_empty() {
-            p = json!({"agent": agent, "folder": folder, "text": words});
+            p = start_params(agent, folder, words);
         }
         let v = Shared::call(&t, "sessions.prepare", p)?;
         Ok(SessionStartPlan {
@@ -399,7 +429,8 @@ impl Mobile {
         })
     }
 
-    /// Starts a session in a new Terminal window (signed: it types the command shown by `session_prepare`).
+    /// Opens a new terminal in `folder` on the Mac (signed), typing `words` when given (the command `session_prepare`
+    /// showed); `agent` is "terminal" (or empty).
     pub fn session_start(
         &self,
         agent: &str,
@@ -411,7 +442,7 @@ impl Mobile {
         let v = Shared::call_signed(
             &t,
             "sessions.start",
-            json!({"agent": agent, "folder": folder, "text": words}),
+            start_params(agent, folder, words),
             Some(&signer),
         )?;
         Ok(text(&v["command"]))
@@ -503,5 +534,35 @@ mod tests {
         assert!(AgentSession::read(&json!({"id": "claude:s2"}))
             .terminals
             .is_empty());
+    }
+
+    // decision: HAND-692, HAND-695
+    #[test]
+    fn a_terminal_is_named_by_its_program_and_a_new_one_carries_only_folder_and_command() {
+        let s = AgentSession::read(
+            &json!({"id": "term:110", "agent": "terminal", "program": "agy", "cwd": "/u/Desktop",
+            "window": "Desktop — agy — 120×30", "host": {"name": "Terminal"}, "send_paths": ["terminal_script"]}),
+        );
+        assert_eq!(
+            (
+                s.agent_name.as_str(),
+                s.program.as_str(),
+                s.folder_name.as_str()
+            ),
+            ("agy", "agy", "Desktop")
+        );
+        assert_eq!(s.window, "Desktop — agy — 120×30");
+        assert_eq!(
+            AgentSession::read(&json!({"id": "term:1", "agent": "terminal"})).agent_name,
+            "Terminal"
+        );
+        assert_eq!(
+            start_params("terminal", "/p", "agy"),
+            json!({"folder": "/p", "command": "agy"})
+        );
+        assert_eq!(
+            start_params("", "/p", ""),
+            json!({"folder": "/p", "command": ""})
+        );
     }
 }

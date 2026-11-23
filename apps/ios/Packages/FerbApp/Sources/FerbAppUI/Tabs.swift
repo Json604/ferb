@@ -299,14 +299,7 @@ struct ChatView: View {
     let waiting: PhoneTab?
     let picking: Picking
     @Environment(\.skyInk) private var ink
-    /// He is at the chat's end (its last point is in view): then it is followed (kb PHN-628).
-    @State private var atEnd = true
-    /// Something arrived while he was scrolled up: the pill.
-    @State private var unseen = false
-    /// The row at the top of what he sees: the day he is in (kb PHN-663).
-    @State private var topKey: String?
     @State private var tallest: CGFloat = 0
-    private static let end = "chat-end"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -333,105 +326,72 @@ struct ChatView: View {
             // the way to earlier days at the top when there are some (rows of them, or older pages the Mac still has),
             // and the memory import's card last while one runs, never in the earlier days (kb MEM-456)
             let rows = ChatModel.shown(places, earlier: earlier, loose: loose, importing: model.ui.status?.memoryImport)
-            // the day he is looking at and the latest messages' day: the sticky label and the way back (PHN-662, 663)
-            let top = topKey.flatMap { k in rows.firstIndex { $0.key == k } }
-            let shownDay = top.flatMap { ChatModel.dayAt(rows, $0) }
             let endDay = ChatModel.dayAt(rows, rows.count - 1)
-            let jump = ChatJump.of(atEnd: atEnd, unseen: unseen, shownDay: shownDay, endDay: endDay, earlier: earlier)
-            ScrollViewReader { reader in
-                ZStack(alignment: .bottom) {
-                    // nothing stored yet and the first page on its way: the waiting look, never a blank screen (PHN-628)
-                    if rows.isEmpty && model.ui.conversation == nil && model.ui.link?.phase == .online {
-                        ChatWaiting(L.s("chat_loading")).frame(maxHeight: .infinity, alignment: .top)
-                    }
-                    ScrollView {
-                        LazyVStack(spacing: 12) {
-                            ForEach(rows) { row in
-                                // each row gets only what it draws: a streamed word re-evaluates its own row (kb PHN-714)
-                                ChatRowView(model: model, row: row, today: todayDay, olderLoading: model.ui.busy.contains("older")).id(row.key)
-                                    // only the earlier days load older pages; today's chat never does
-                                    .onAppear { if earlier, case .older(_, .available) = row { model.loadOlder() } }
-                                    .transition(.motionItem)  // a row that arrives rises in (kb PHN-624)
-                            }
-                            // the end of the chat: in view means he is at the end, and it is followed (PHN-628)
-                            Color.clear.frame(height: 1).id(Self.end)
-                                .onAppear { atEnd = true; unseen = false }
-                                .onDisappear { atEnd = false }
-                        }
-                        .scrollTargetLayout()
-                        .animation(FerbMotion.item.animation, value: rows.map(\.key))
-                        // with the way to today always there, the end keeps room for it (kb PHN-698)
-                        .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, earlier ? 64 : 12)
-                    }
-                    .scrollPosition(id: $topKey, anchor: .top)
-                    .defaultScrollAnchor(.bottom)
-                    // the chat's height as answers fold to it (FERB.app's CollapsePolicy): the tallest it has been, so the
-                    // keyboard never folds or unfolds what is on screen; the earlier days' cards are a record (APP-769)
-                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { h in if h > tallest { tallest = h } }
-                    .environment(\.chatViewport, tallest)
-                    .environment(\.cardsLive, !earlier)
-                    .environment(\.questions, model.ui.questions)
-                    .environment(\.busy, model.ui.busy)
-                    .scrollDismissesKeyboard(.interactively)
-                    // follow the end while he is at it: a new row, a reply that grows as it streams, his own message
-                    // always; scrolled up, a pill. Before, only a change in the number of rows scrolled (PHN-628).
-                    .onChange(of: rows.last, initial: true) { old, new in
-                        guard new != nil else { return }
-                        let newRow = old?.key != new?.key
-                        let mine: Bool = {
-                            switch new {
-                            case .outbox, .withFiles: return newRow
-                            default: return false
-                            }
-                        }()
-                        if atEnd || mine || old == nil {
-                            if newRow { withAnimation(FerbMotion.item.animation) { reader.scrollTo(Self.end, anchor: .bottom) } }
-                            else { reader.scrollTo(Self.end, anchor: .bottom) }
-                        } else if newRow {
-                            withAnimation(FerbMotion.item.animation) { unseen = true }
-                        }
-                    }
-                    // the day he is in, held at the top while he looks through the chat (kb PHN-663)
-                    if earlier, !atEnd, let shownDay, let top, !Self.isDay(rows[top]) {
-                        StickyDay(dayLabel(shownDay, today: todayDay)).padding(.top, 8)
-                            .frame(maxHeight: .infinity, alignment: .top)
-                            .transition(.motionItem)
-                            .accessibilityIdentifier("sticky-day")
-                    }
-                    // the way back to the latest messages whenever he is not at the end (kb PHN-662)
-                    if jump != .none {
-                        JumpPill(jump == .newMessage ? L.s("chat_new_message") : jump == .day ? endDay.map { dayLabel($0, today: todayDay) }
-                                    : jump == .today ? L.s("day_today") : nil,
-                                 label: L.s(jump == .today ? "chat_to_today" : "chat_to_latest")) {
-                            if jump == .today { model.backToToday() } else { toEnd(reader) }
-                        }
-                        .padding(.bottom, 10)
-                        .transition(.motionItem)
-                        .accessibilityIdentifier("chat-jump")
-                    }
-                    // FERB's alerts float over the chat's foot as a toast: no room of their own (kb APP-1109)
-                    AlertToastView(model: model).padding(.horizontal, 16).padding(.bottom, 8)
-                        .frame(maxHeight: .infinity, alignment: .bottom)
+            // the day he is looking at and the latest messages' day: the sticky label and the way back (PHN-662, 663)
+            let shownDay = { (s: ListScroll) -> Int? in
+                s.topKey.flatMap { k in rows.firstIndex { $0.key == k } }.flatMap { ChatModel.dayAt(rows, $0) }
+            }
+            ZStack(alignment: .bottom) {
+                // nothing stored yet and the first page on its way: the waiting look, never a blank screen (PHN-628)
+                if rows.isEmpty && model.ui.conversation == nil && model.ui.link?.phase == .online {
+                    ChatWaiting(L.s("chat_loading")).frame(maxHeight: .infinity, alignment: .top)
                 }
-                .animation(FerbMotion.item.animation, value: jump)
-                // the Chat tab tapped on today's chat: to its end (kb PHN-662; in the earlier days it goes back to
-                // today, PHN-698)
-                .onChange(of: model.chatToEnd) { toEnd(reader) }
-                // a notification's tap or the Tasks tab's row: the question's box in view (kb PHN-770)
-                .onChange(of: model.toQuestion?.n) {
-                    guard let id = model.toQuestion?.id else { return }
-                    withAnimation(FerbMotion.item.animation) { reader.scrollTo("q:\(id)", anchor: .center) }
+                // the one list every conversation on the phone uses (kb PHN-813): follows the end, the jump control, the
+                // keyboard; the chat adds its days, its question boxes and its toast
+                FollowingList(end: rows.last.map { last in
+                                  // his own message always goes to the end (PHN-628)
+                                  let mine: Bool = { switch last { case .outbox, .withFiles: true; default: false } }()
+                                  return ListEnd(key: last.key, mine: mine, value: last)
+                              },
+                              keys: rows.map(\.key),
+                              // with the way to today always there, the end keeps room for it (kb PHN-698)
+                              padding: EdgeInsets(top: 16, leading: 16, bottom: earlier ? 64 : 12, trailing: 16),
+                              // the Chat tab tapped on today's chat: to its end (kb PHN-662; in the earlier days it goes
+                              // back to today, PHN-698); a notification's tap or the Tasks tab's row: the question's box
+                              // in view (kb PHN-770)
+                              toEnd: model.chatToEnd, reveal: model.toQuestion.map { ListReveal(id: "q:\($0.id)", n: $0.n) },
+                              jump: { s in
+                                  let jump = ChatJump.of(atEnd: s.atEnd, unseen: s.unseen, shownDay: shownDay(s), endDay: endDay, earlier: earlier)
+                                  if jump == .none { return nil }
+                                  return ListJump(text: jump == .newMessage ? L.s("chat_new_message")
+                                                    : jump == .day ? endDay.map { dayLabel($0, today: todayDay) }
+                                                    : jump == .today ? L.s("day_today") : nil,
+                                                  label: L.s(jump == .today ? "chat_to_today" : "chat_to_latest"),
+                                                  action: jump == .today ? { model.backToToday() } : nil)
+                              },
+                              over: { s in
+                                  // the day he is in, held at the top while he looks through the chat (kb PHN-663)
+                                  if earlier, !s.atEnd, let day = shownDay(s), let top = s.topKey.flatMap({ k in rows.firstIndex { $0.key == k } }),
+                                     !Self.isDay(rows[top]) {
+                                      StickyDay(dayLabel(day, today: todayDay)).padding(.top, 8)
+                                          .frame(maxHeight: .infinity, alignment: .top)
+                                          .transition(.motionItem)
+                                          .accessibilityIdentifier("sticky-day")
+                                  }
+                                  // FERB's alerts float over the chat's foot as a toast: no room of their own (kb APP-1109)
+                                  AlertToastView(model: model).padding(.horizontal, 16).padding(.bottom, 8)
+                                      .frame(maxHeight: .infinity, alignment: .bottom)
+                              }) {
+                    ForEach(rows) { row in
+                        // each row gets only what it draws: a streamed word re-evaluates its own row (kb PHN-714)
+                        ChatRowView(model: model, row: row, today: todayDay, olderLoading: model.ui.busy.contains("older")).id(row.key)
+                            // only the earlier days load older pages; today's chat never does
+                            .onAppear { if earlier, case .older(_, .available) = row { model.loadOlder() } }
+                            .transition(.motionItem)  // a row that arrives rises in (kb PHN-624)
+                    }
                 }
+                // the chat's height as answers fold to it (FERB.app's CollapsePolicy): the tallest it has been, so the
+                // keyboard never folds or unfolds what is on screen; the earlier days' cards are a record (APP-769)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { h in if h > tallest { tallest = h } }
+                .environment(\.chatViewport, tallest)
+                .environment(\.cardsLive, !earlier)
+                .environment(\.questions, model.ui.questions)
+                .environment(\.busy, model.ui.busy)
             }
             Composer(model: model, placeholder: L.s("chat_placeholder"), picking: picking)
                 .padding(.horizontal, 16).padding(.bottom, insets.bottom + 8)
         }
         .animation(FerbMotion.item.animation, value: statusLine?.0)
-    }
-
-    private func toEnd(_ reader: ScrollViewProxy) {
-        unseen = false
-        withAnimation(FerbMotion.item.animation) { reader.scrollTo(Self.end, anchor: .bottom) }
     }
 
     private static func isDay(_ row: ChatRow) -> Bool { if case .day = row { return true } else { return false } }
@@ -615,7 +575,7 @@ struct TaskFileRow: View {
             default: model.transfers.resume(t.key)
             }
         }) { FileIcon(name: line.title, width: 26) } trailing: { Opens() }
-            .fullScreenCover(item: $showing) { url in QuickLookView(url: url) { showing = nil } }
+            .ferbFullScreenCover(item: $showing) { url in QuickLookView(url: url) { showing = nil } }
     }
 }
 

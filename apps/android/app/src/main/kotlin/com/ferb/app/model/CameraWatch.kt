@@ -28,8 +28,8 @@ data class CameraView(
 
 /**
  * Show me (APP-983): the Mac's camera while the camera view is on screen, and only then. Each frame is decoded in
- * memory and never written anywhere (no file, no cache, no notification); the view is always kept out of screenshots
- * (MainActivity, FLAG_SECURE through the view model's mustSecure). It stops when the view goes, the app goes to the
+ * memory and never written anywhere (no file, no cache, no notification); the view follows the owner's screenshot switch as every
+ * page does (kb PHN-810; MainActivity's FLAG_SECURE). It stops when the view goes, the app goes to the
  * background or locks; the Mac turns the camera off a few seconds after the last ask. On the public relay the library
  * refuses it before anything is asked, and the view says the library's words.
  */

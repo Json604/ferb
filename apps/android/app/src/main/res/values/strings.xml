@@ -452,13 +452,14 @@
     <string name="camera_starting">Starting your Mac\'s camera…</string>
     <string name="camera_needs_unlock">Unlock to see your Mac\'s camera.</string>
     <string name="camera_ended">The camera stopped.</string>
-    <!-- the owner's coding sessions (kb HAND-651..666): Claude Code and Codex on the Mac, in any app; the owner reviews all wording -->
+    <!-- the owner's sessions (kb HAND-691, HAND-651..666): every terminal on the Mac, Claude Code and Codex among them, and the chat apps' chats; the owner reviews all wording -->
     <string name="sessions_tab">Sessions</string>
-    <string name="sessions_title">Your coding sessions</string>
-    <string name="sessions_off">FERB doesn\'t see your Claude Code and Codex sessions yet.</string>
-    <string name="sessions_off_more">Turn it on and you can follow and answer them from here, start new ones and hand one to FERB. FERB adds a small hook to Claude Code\'s settings so it hears when a session finishes or needs you. Codex needs nothing added.</string>
+    <string name="sessions_title">Your terminal sessions</string>
+    <string name="sessions_off">FERB doesn\'t see your terminal sessions yet.</string>
+    <string name="sessions_off_more">Turn it on and you can follow your terminals and type into them from here, Claude Code and Codex too, open new ones and hand one to FERB. FERB adds a small hook to Claude Code\'s settings so it hears when a session finishes or needs you.</string>
     <string name="sessions_turn_on">Turn on</string>
-    <string name="sessions_none">No Claude Code or Codex sessions are running right now.</string>
+    <string name="sessions_none">No terminals are open on your Mac right now.</string>
+    <string name="sessions_no_chat">No chat open in %1$s. Start one there to continue here.</string>
     <string name="sessions_working">Working</string>
     <string name="sessions_waiting">Waiting for you</string>
     <string name="sessions_idle">Idle</string>
@@ -479,6 +480,7 @@
     <string name="sessions_pick_note">FERB types only into the one you choose, and asks again if it changes.</string>
     <string name="sessions_pick_no">Don\'t send</string>
     <string name="sessions_older">Show earlier</string>
+    <string name="sessions_loading">Getting this session from your Mac…</string>
     <string name="sessions_wants_tool">%1$s wants to use %2$s</string>
     <string name="sessions_asks">%1$s asks</string>
     <string name="sessions_answer_on_mac">Answer this one on your Mac.</string>
@@ -492,10 +494,12 @@
     <string name="sessions_hand_note">FERB answers the agent for you and asks you before anything risky. You can stop it any time.</string>
     <string name="sessions_hand_go">Hand it over</string>
     <string name="sessions_handed">FERB is on it. You\'ll see it in the chat.</string>
-    <string name="sessions_new_agent">Which agent?</string>
     <string name="sessions_new_folder">Folder</string>
-    <string name="sessions_new_first">First message (optional)</string>
+    <string name="sessions_new_other">Another folder</string>
+    <string name="sessions_new_other_hint">Full path, like /Users/you/site</string>
+    <string name="sessions_new_command">Command (optional)</string>
+    <string name="sessions_new_command_hint">Command to run (optional)</string>
     <string name="sessions_start">Start</string>
-    <string name="sessions_started">Starting it in Terminal on your Mac.</string>
+    <string name="sessions_started">Opening a terminal on your Mac.</string>
     <string name="sessions_watch_title">Watching %1$s</string>
 </resources>

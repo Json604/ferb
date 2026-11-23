@@ -517,7 +517,7 @@ private fun chatDayOf(ui: UiState): Long =
 
 /** A day's start as words: "Today", "Yesterday", else the weekday and date in the phone's language (kb PHN-627). */
 @Composable
-private fun dayLabel(day: Long, today: Long = ChatModel.chatDay(System.currentTimeMillis(), java.time.ZoneId.systemDefault())): String {
+internal fun dayLabel(day: Long, today: Long = ChatModel.chatDay(System.currentTimeMillis(), java.time.ZoneId.systemDefault())): String {
     return when (day) {
         today -> stringResource(R.string.day_today)
         today - 1 -> stringResource(R.string.day_yesterday)
