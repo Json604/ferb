@@ -113,7 +113,7 @@ struct TurnCardView: View {
     var body: some View {
         let questions = model.rowQuestions(turn)
         let rows = card.shownRows
-        let running = model.runningTasks[card.taskID] != nil
+        let running = model.isRunning(task: card.taskID)
         // A row still working in a turn that ended without its footer (interrupted, or read from history) isn't moving.
         let live = running || ["working", "needs_user", "previewRunning"].contains(turn.status)
         let displays = rows.map { display($0, rows: rows, live: live, questions: questions) }

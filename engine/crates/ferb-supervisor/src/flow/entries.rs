@@ -231,6 +231,11 @@ impl ChatProjector {
         }
     }
 
+    /// Whether this conversation holds the question of `approval_id` (asked here, open or answered).
+    pub fn holds_question(&self, approval_id: &str) -> bool {
+        self.questions.contains_key(approval_id)
+    }
+
     /// Every entry as it stands now, in creation order.
     pub fn entries(&self) -> Vec<Entry> {
         self.order

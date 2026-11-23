@@ -90,6 +90,32 @@ final class ChatModelTests: XCTestCase {
         XCTAssertEqual(ChatModel.markOf("retrying"), .running)
     }
 
+    /// The owner's live case (2026-11-23): FERB's questions sat above his newest message on the phone, under the first
+    /// turn of their task, while FERB.app draws them at the end of the chat (ConversationTranscript: the entries, then
+    /// the open questions), a card row's question in its row. `question_left_open` as the Mac stores it: "Which
+    /// colour?" is the paint card's row p2, "Move the screenshots?" is asked at the end; with its row taken away,
+    /// "Which colour?" is a loose question asked before "tidy my desktop", and goes to the end too.
+    // decision: PHN-824
+    func testAnOpenQuestionIsWhereFerbAppDrawsItNeverAboveNewerWords() throws {
+        func asked(_ rows: [ChatRow]) -> [(String, Int)] {
+            rows.enumerated().compactMap { i, r in if case .asking(_, let id, _, _, _) = r { return (id, i) } else { return nil } }
+        }
+        func tidy(_ rows: [ChatRow]) -> Int {
+            rows.firstIndex { if case .owner(_, let t, _, _) = $0 { return t == "tidy my desktop" } else { return false } }!
+        }
+        let c = try XCTUnwrap(try Fixtures.conversations().first { $0.scenario == "question_left_open" })
+        let card = ChatModel.rows(try FixtureMac.transcript(FixtureMac(c)))
+        let inCard = Dictionary(uniqueKeysWithValues: asked(card))
+        XCTAssertLessThan(try XCTUnwrap(inCard["ap-1"]), tidy(card), "the card row's question is in its turn, before the next message")
+        XCTAssertGreaterThan(try XCTUnwrap(inCard["ap-2"]), tidy(card), "the other at the end")
+
+        let rows = ChatModel.rows(try FixtureMac.transcript(FixtureMac(try .looseQuestions())))
+        XCTAssertEqual(asked(rows).map(\.0), ["ap-1", "ap-2"])
+        XCTAssertTrue(asked(rows).allSatisfy { $0.1 > tidy(rows) }, "every open question comes after his newer message")
+        XCTAssertTrue(rows.suffix(2).allSatisfy { if case .asking = $0 { return true } else { return false } },
+                      "and after everything said: the questions close the chat")
+    }
+
     func testMarkdownMarksThatOnlyStyleAreDropped() {
         XCTAssertEqual(ChatModel.plain("**Done:** [the report](https://x.example)"), "Done: the report")
         XCTAssertEqual(ChatModel.plain("## Title\n- one"), "Title\n• one")

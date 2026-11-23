@@ -92,6 +92,33 @@ class ChatModelTest {
         }
     }
 
+    // The owner's live case (2026-11-23): FERB's questions sat above his newest message on the phone, under the first
+    // turn of their task, while FERB.app draws them at the end of the chat (ConversationTranscript: the entries, then
+    // the open questions), a card row's question in its row. `question_left_open` as the Mac stores it: "Which colour?"
+    // is the paint card's row p2, "Move the screenshots?" is asked at the end; with its row taken away, "Which
+    // colour?" is a loose question asked before "tidy my desktop", and goes to the end too.
+    // decision: PHN-824
+    @Test
+    fun an_open_question_is_where_ferb_app_draws_it_never_above_newer_words() {
+        val c = all.first { it.scenario == "question_left_open" }
+        fun asked(rows: List<ChatRow>) = rows.withIndex().filter { it.value is ChatRow.Asking }.map { (it.value as ChatRow.Asking).approvalId to it.index }
+        val tidy = { rows: List<ChatRow> -> rows.indexOfFirst { it is ChatRow.Owner && it.text == "tidy my desktop" } }
+
+        val card = ChatModel.rows(FixtureMac.transcript(FixtureMac(c)))
+        val inCard = asked(card).toMap()
+        assertTrue("the card row's question is in its turn, before the next message", inCard.getValue("ap-1") < tidy(card))
+        assertTrue("the other at the end", inCard.getValue("ap-2") > tidy(card))
+
+        @Suppress("UNCHECKED_CAST")
+        val loose = c.copy(entries = c.entries.map { e ->
+            if (e["approval_id"] == "ap-1") e + ("body" to ((e["body"] as Map<String, Any?>) + ("part" to null))) else e
+        })
+        val rows = ChatModel.rows(FixtureMac.transcript(FixtureMac(loose)))
+        assertEquals(listOf("ap-1", "ap-2"), asked(rows).map { it.first })
+        assertTrue("every open question comes after his newer message", asked(rows).all { it.second > tidy(rows) })
+        assertTrue("and after everything said: the questions close the chat", rows.takeLast(2).all { it is ChatRow.Asking })
+    }
+
     @Test
     fun marks_follow_the_macs_states_and_never_colour_alone() {
         assertEquals(MarkKind.DONE, ChatModel.markOf("done_with_gaps"))

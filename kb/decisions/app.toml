@@ -4730,3 +4730,14 @@ rule = "For HAND-708, HAND-709. A card of kind ferb is FERB's own question (\"FE
 evidence = "apps/mac/FERBNotch Tests/NotchCoreTests/SessionsHandOverTests.swift testFERBsKeepGoingQuestionShowsInTheSessionAndKeepGoingAnswersIt, testAMessageFERBSentIsMarkedAsFERBs."
 paths = ["apps/mac/FERBNotch/Sources/NotchCore/SessionRows.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SessionsPage.swift"]
 live = ["LIVE-1199"]
+
+[APP-1125]
+title = "The temporary chat's work row counts only its own tasks"
+by = "agent"
+date = 2026-11-23
+status = "active"
+rule = "For APP-1122 and APP-901 (PHN-725 on the phones). While the temporary chat shows, the work row (\"N active tasks\", its time, the round live pictures, View tasks and the Tasks list it opens) is built from the temporary chat's own turns and running tasks: chat.status running rows marked temporary, a task its stream's plan names, or a task its entries hold. The saved chat's row never counts them, and the temporary chat's never counts the saved chat's. A task of either chat still holds the pill up and keeps its card rows' running state."
+why = "Owner 2026-11-23: \"theres no live preview box neither x active tasks in this mac app in temp mode BUT i can see it in phone. why??? fix it in mac too.\" The Mac dropped the temporary chat's running rows and drew the saved chat's list in its place."
+evidence = "apps/mac/FERBNotch Tests/NotchCoreTests/TemporaryChatTests.swift testItsRunningTaskShowsInItsWorkRowWithItsPicture, testATaskItStartsMovesToItsWorkRow."
+paths = ["apps/mac/FERBNotch/Sources/FERBNotch/TaskList.swift", "apps/mac/FERBNotch/Sources/FERBNotch/TemporaryChatModel.swift", "apps/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift"]
+live = ["LIVE-1194"]

@@ -477,11 +477,14 @@ class FakePhone : PhoneApi {
     /** The Mac's temporary chat (memory only on the Mac); [temporaryItems] are its turns as the library folds them. */
     var temporaryOn = false
     var temporaryItems: List<com.ferb.mobile.Item> = emptyList()
+    /** Its whole transcript as the library folds the Mac's entries (its questions too), in place of [temporaryItems]. */
+    var temporaryView: TranscriptView? = null
     var temporaryRefusal: Outcome.Failed? = null
     val temporarySent = ArrayList<String>()
     fun temporaryNow() = com.ferb.mobile.TemporaryChat(
         temporaryOn, if (temporaryOn) "T1" else null, if (temporaryOn) "2026-01-02T10:05:00+00:00" else null, if (temporaryOn) 1L else 0L,
-        TranscriptView(if (temporaryOn) "temporary:T1" else "", if (temporaryOn) temporaryItems else emptyList(), emptyList(), emptyList(), emptyList(), OlderState.Complete),
+        temporaryView?.takeIf { temporaryOn }
+            ?: TranscriptView(if (temporaryOn) "temporary:T1" else "", if (temporaryOn) temporaryItems else emptyList(), emptyList(), emptyList(), emptyList(), OlderState.Complete),
     )
     override suspend fun temporaryChat(): Outcome<com.ferb.mobile.TemporaryChat> { calls += "temporary"; return Outcome.Ok(temporaryNow()) }
     override suspend fun setTemporaryChat(on: Boolean): Outcome<com.ferb.mobile.TemporaryChat> {

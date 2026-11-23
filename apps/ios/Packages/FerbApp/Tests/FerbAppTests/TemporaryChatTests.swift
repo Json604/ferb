@@ -117,6 +117,37 @@ final class TemporaryChatTests: XCTestCase {
         await eventually("its own work row") { vm.temporaryRunning?.tasks.compactMap(\.taskId) == ["t-x"] }
     }
 
+    /// The owner's live case (2026-11-23): in the temporary chat FERB's questions sat above his newest message and
+    /// stayed after he answered them. Its questions are at its end, after everything said, as FERB.app draws them; once
+    /// the Mac's temporary chat says one is answered (its rev moved: the library's Change.temporary), it is gone.
+    // decision: PHN-824
+    // decision: PHN-818
+    func testItsQuestionsAreAtItsEndAndGoOnceAnswered() async throws {
+        func chat(_ answered: Set<String>, rev: Int64) throws -> TemporaryChat {
+            var t = try FixtureMac.transcript(FixtureMac(try .looseQuestions(answered: answered)))
+            t.conversation = "temporary:tmp7"
+            return TemporaryChat(on: true, id: "tmp7", startedAt: "2026-11-23T10:00:00+05:30", rev: rev, transcript: t)
+        }
+        phone.temporaryNow = try chat([], rev: 1)
+        let vm = await opened()
+        await eventually("the temporary chat") { vm.temporary?.id == "tmp7" }
+        let rows = vm.temporary!.shown(vm.ui.questions)
+        let tidy = rows.firstIndex { if case .owner(_, let t, _, _) = $0 { return t == "tidy my desktop" } else { return false } }!
+        let asks = rows.enumerated().compactMap { i, r -> (String, Int)? in
+            if case .asking(_, let id, _, _, _) = r { return (id, i) } else { return nil }
+        }
+        XCTAssertEqual(asks.map(\.0), ["ap-1", "ap-2"])
+        XCTAssertTrue(asks.allSatisfy { $0.1 > tidy }, "below his newer message")
+
+        phone.temporaryNow = try chat(["ap-1"], rev: 2)
+        phone.emit(.temporary)
+        await eventually("answered: gone") {
+            vm.temporary?.shown(vm.ui.questions).compactMap { r -> String? in
+                if case .asking(_, let id, _, _, _) = r { return id } else { return nil }
+            } == ["ap-2"]
+        }
+    }
+
     /// Closing the app or locking the phone never ends it: a new launch reads it from the Mac and shows it; when it
     /// ends elsewhere (the library's Change.temporary), the normal chat comes back.
     // decision: PHN-416

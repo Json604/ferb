@@ -1625,14 +1625,14 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     /// where its countdown can draw (`timerHoldsPill`, APP-766).
     private func scheduleIndicatorRest() {
         guard !isDocked, indicatorRestTask == nil, !notchSurfaceVisible,
-              onFullScreenSpace || (!model.taskItems.contains(where: \.isRunning) && !timerHoldsPill)
+              onFullScreenSpace || (!model.anyTaskRunning && !timerHoldsPill)
         else { return }
         indicatorRestTask = Task { [weak self, restWait] in
             do { try await restWait(.seconds(3)) } catch { return }
             guard let self, !Task.isCancelled else { return }
             self.indicatorRestTask = nil
             guard !self.model.expanded, !self.pointerIsInside,
-                  self.onFullScreenSpace || (!self.model.taskItems.contains(where: \.isRunning)
+                  self.onFullScreenSpace || (!self.model.anyTaskRunning
                                              && !self.timerHoldsPill) else { return }
             self.setIndicatorResting(true)
         }

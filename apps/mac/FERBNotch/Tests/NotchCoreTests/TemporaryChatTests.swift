@@ -306,6 +306,68 @@ final class TemporaryChatTests: XCTestCase {
         XCTAssertEqual(model.inlineQuestions.map(\.id), ["ap-saved"])
         XCTAssertFalse(historyText(rpc).contains("Book it"))
     }
+
+    // MARK: its work row
+
+    // The owner's live case (2026-11-23): "theres no live preview box neither x active tasks in this mac app in temp
+    // mode BUT i can see it in phone". The temporary chat's own running task shows in its work row ("1 active task",
+    // the round picture, View tasks) as a saved chat's does; the saved chat's task isn't counted there, and the saved
+    // chat's row never counts the temporary one's.
+    // decision: APP-1125
+    func testItsRunningTaskShowsInItsWorkRowWithItsPicture() async throws {
+        let rpc = TemporaryRPC()
+        rpc.keep("message", request: "temporary-p1", body: ["text": "Book it", "attachments": [], "hidden": []])
+        rpc.keep("plan", request: "temporary-p1", task: "task-temp", body: ["text": "I'll book it."])
+        rpc.running = [["task_id": "task-temp", "goal": "Book it", "name": "Book it", "temporary": true,
+                        "started_at": "2026-11-23T10:00:00Z"],
+                       ["task_id": "task-saved", "goal": "Send the mail", "name": "Send the mail"]]
+        let model = try connected(rpc, "TempWorkRow")
+        await until { model.inTemporaryChat && model.activeTaskCount == 1 && !model.runningTasks.isEmpty }
+
+        XCTAssertTrue(model.showsWorkRow, "the work row shows under the temporary chat")
+        XCTAssertEqual(model.workRowText, "1 active task")
+        XCTAssertNotNil(model.workSince, "its timer counts from its start")
+        XCTAssertEqual(model.taskItems.map(\.id), ["task-temp"], "only its own task, in its row and on View tasks")
+        XCTAssertEqual(model.taskItems.first?.title, "Book it")
+        let pictured = model.taskItems.filter { $0.isUnderway && !model.rowsShowPreview(of: $0.backendID ?? $0.id) }
+        XCTAssertEqual(pictured.map(\.id), ["task-temp"], "its round live picture by the row")
+        XCTAssertEqual(model.preview(for: try XCTUnwrap(pictured.first)).taskID, "task-temp")
+        XCTAssertEqual(Array(model.runningTasks.keys), ["task-saved"], "still not the saved chat's work")
+
+        // its result ends its row there; the saved chat's own task is still the saved chat's
+        rpc.running = [["task_id": "task-saved", "goal": "Send the mail", "name": "Send the mail"]]
+        model.receiveBusEvent(["topic": "task.result", "data": ["task_id": "task-temp", "status": "done",
+                                                                "request_id": "temporary-p1", "answer": "Booked"]])
+        XCTAssertFalse(model.showsWorkRow)
+        XCTAssertTrue(model.anyTaskRunning, "the saved chat's task still holds the pill up")
+
+        // off: the saved chat's row counts only its own task
+        model.endTemporaryChat()
+        XCTAssertEqual(model.taskItems.map(\.id), ["task-saved"])
+        XCTAssertEqual(model.workRowText, "1 active task")
+    }
+
+    // A message sent here: its task (named by the stream's `plan`) runs in the temporary chat's work row, even when the
+    // bus's `task.created` came first and the saved chat took it for one of its own.
+    // decision: APP-1125
+    func testATaskItStartsMovesToItsWorkRow() async throws {
+        let rpc = TemporaryRPC()
+        rpc.keep("message", request: "temporary-p1", body: ["text": "Hi", "attachments": [], "hidden": []])
+        let model = try connected(rpc, "TempPlan")
+        await until { model.inTemporaryChat }
+        model.receiveBusEvent(["topic": "task.created", "data": ["task_id": "task-new", "goal": "Find a table",
+                                                                 "name": "Find a table"]])
+        XCTAssertEqual(model.runningTasks["task-new"], "Find a table", "not known as the temporary chat's yet")
+
+        let id = UUID()
+        model.temporaryChat?.send(id: id, text: "Find a table", sources: [], at: Date())
+        model.receiveTemporaryFrame(["type": "plan", "request_id": "temporary-p2", "task_id": "task-new",
+                                     "name": "Find a table"], id: id)
+        XCTAssertNil(model.runningTasks["task-new"])
+        XCTAssertEqual(model.temporaryRunning["task-new"], "Find a table")
+        XCTAssertEqual(model.workRowText, "1 active task")
+        XCTAssertEqual(model.taskItems.map(\.id), ["task-new"])
+    }
 }
 
 private extension TemporaryChatTests.TemporaryRPC {

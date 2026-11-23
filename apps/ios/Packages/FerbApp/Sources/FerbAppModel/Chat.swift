@@ -291,10 +291,11 @@ public enum ChatModel {
                     merged = at.map { "Read together with your message " + ($0 < mine ? "above" : "below") } ?? "Read together with your other message"
                 }
                 turn(t, live[t.entry], merged: merged, questionBelow: questionBelow.contains(t.entry), &out)
-                for q in open {
-                    let mine = (q.requestId != nil && q.requestId == t.requestId) || (q.taskId != nil && q.taskId == t.taskId)
-                    if mine { ask(q) }
-                }
+                // where FERB.app draws an open question (ConversationTranscript, `rowPlacements`): a card row's in its
+                // turn; every other one at the end of the chat, below what was said since (kb PHN-770). Never under
+                // the first turn of its task or request: a message read with an earlier one shares its task, and its
+                // question then sat above his newer words (owner 2026-11-23).
+                for q in open where q.row.map({ !$0.turn.isEmpty && $0.turn == t.entry }) == true { ask(q) }
             case .reply(let r):
                 let turn = turns[r.answers]
                 if r.quotesRequest {

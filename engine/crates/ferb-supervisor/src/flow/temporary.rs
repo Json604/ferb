@@ -336,7 +336,8 @@ impl Inner {
         request.is_some_and(|r| temporary::is_request(&r))
     }
 
-    /// A bus event (task.result, task.part, approval.*) about a temporary chat's message or task.
+    /// A bus event (task.result, task.part, approval.*) about a temporary chat's message or task. `approval.resolved`
+    /// names only its approval (`{approval_id, state}`): it is the temporary chat's when that chat asked it.
     pub(crate) fn temporary_event(&self, data: &Value) -> bool {
         let named = |k: &str| {
             data.get(k)
@@ -346,7 +347,17 @@ impl Inner {
         if named("request_id").is_some_and(|r| temporary::is_request(&r)) {
             return true;
         }
-        named("task_id").is_some_and(|t| self.temporary_task(&t))
+        if named("task_id").is_some_and(|t| self.temporary_task(&t)) {
+            return true;
+        }
+        // decision: ORCH-702 — an answer to its own question closes that question in its memory (every client folds
+        // the entry), never routed to the kept chat, which never held it
+        named("approval_id").is_some_and(|a| {
+            self.temporary
+                .lock()
+                .as_ref()
+                .is_some_and(|c| c.projector.holds_question(&a))
+        })
     }
 
     /// [`forget`] on the store, keeping the rows of the chat on now; a failure is journaled, never raised.

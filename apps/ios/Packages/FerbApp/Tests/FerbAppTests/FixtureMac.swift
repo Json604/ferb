@@ -9,6 +9,26 @@ struct FixtureConversation {
     let entries: [[String: Any]]
 }
 
+extension FixtureConversation {
+    /// `question_left_open` as the Mac stores it, its "Which colour?" (`ap-1`) asked loose (no card row) and the
+    /// questions in `answered` answered: its two open questions are both drawn at the end of the chat by FERB.app.
+    static func looseQuestions(answered: Set<String> = []) throws -> FixtureConversation {
+        let c = try Fixtures.conversations().first { $0.scenario == "question_left_open" }!
+        let entries = c.entries.map { e -> [String: Any] in
+            var x = e
+            if x["approval_id"] as? String == "ap-1", var body = x["body"] as? [String: Any] {
+                body["part"] = NSNull()
+                x["body"] = body
+            }
+            if let id = x["approval_id"] as? String, answered.contains(id) {
+                x["state"] = "answered"; x["open"] = false; x["rev"] = 9; x["seq"] = 20
+            }
+            return x
+        }
+        return FixtureConversation(file: c.file, scenario: c.scenario, conversation: c.conversation, entries: entries)
+    }
+}
+
 enum Fixtures {
     /// engine/fixtures/chat-entries in this checkout (the simulator reads the Mac's files).
     static let dir = URL(fileURLWithPath: #filePath)

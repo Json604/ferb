@@ -90,7 +90,18 @@ extension NotchModel {
             }
         }
         changeIfNeeded(\.temporaryChat, next)
+        adoptTemporaryTasks()
         onBackgroundChange?(true)
+    }
+
+    /// A running task the saved chat took before its turn here named it (`task.created` comes before the temporary
+    /// chat's entries are read again) moves to the temporary chat's work row: added there first, so its time stays.
+    private func adoptTemporaryTasks() {
+        guard let chat = temporaryChat else { return }
+        for (id, heading) in runningTasks where chat.owns(taskID: id) {
+            temporaryRunning[id] = heading
+            runningTasks.removeValue(forKey: id)
+        }
     }
 
     /// The temporary chat ended (the icon here or on another device, or the daemon restarted): its copy here goes and
@@ -104,6 +115,7 @@ extension NotchModel {
 
     private func forgetTemporaryChat(_ chat: TemporaryChat) {
         temporary.formerTasks.formUnion(chat.tasks)
+        temporaryRunning = [:]                  // its tasks end with it (the daemon stops them)
         temporary.sends.values.forEach { $0.cancel() }
         temporary.sends.removeAll()
     }
@@ -210,7 +222,14 @@ extension NotchModel {
         case "reply_delta":
             changeTemporary { $0.stream(id: id, delta: event["text"] as? String ?? "") }
         case "plan":
-            if let task = event["task_id"] as? String { changeTemporary { $0.planned(id: id, taskID: task) } }
+            if let task = event["task_id"] as? String, !task.isEmpty {
+                changeTemporary { $0.planned(id: id, taskID: task) }
+                // its task runs in this chat's work row from now, never the saved chat's
+                let sent = temporaryChat?.pending.first(where: { $0.turn.id == id })?.turn.request
+                temporaryRunning[task] = Self.heading(event, empty: temporaryRunning[task] ?? runningTasks[task]
+                                                         ?? sent ?? "Running task")
+                runningTasks.removeValue(forKey: task)
+            }
         case "error":
             changeTemporary { $0.failed(id: id, reason: event["text"] as? String ?? "FERB could not start this request.") }
         case "event":

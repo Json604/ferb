@@ -11113,3 +11113,86 @@ driven, the test passes with that real window list too. Yielding never blocks do
 
 **Open / unverified.** Nothing runs FERB.app live, and none was needed: production passes the same list it read
 before. Other FERB.app tests still use real run-loop time (`settle`), as they did before.
+
+## 2026-11-23 · 194 · The Mac's temporary chat shows its own work row; questions sit where the Mac draws them and close when answered
+
+**What the owner saw.**
+- FERB.app: "theres no live preview box neither x active tasks in this mac app in temp mode BUT i can see it in phone.
+  why??? fix it in mac too." His screenshot: the notch's temporary chat with its messages, but no "1 active task ·
+  View tasks" row and no round live picture, while the phone's temporary chat showed both.
+- The phone (two screenshots of the temporary chat): "why am i getting these questions above and not at below??? they
+  also dont go away after ive answered them". FERB's "Let FERB use your screen in WhatsApp for this task?" and
+  "Send to … for the first time?" sat under his first message's reply, above his newer message, and stayed after he
+  answered them. On the Mac they were at the end and went.
+
+**Causes (read from the code at b504b9ae).**
+1. FERB.app dropped the temporary chat's running tasks and drew the saved chat's list in their place.
+   - `refreshDaemonStatus` kept only the saved chat's running rows (DaemonConnection.swift:135, `filter { !isTemporaryRow($0) }`),
+     and `task.created` skipped a temporary chat's task (:641). Nothing kept them anywhere else.
+   - The work row, its time, its round pictures and the Tasks list are one list (TaskList.swift:156 `makeTaskList`),
+     built only from `conversation.turns` (:161) and `runningTasks` (:180): the saved chat's, even while the temporary
+     chat showed. So the temporary view showed the saved chat's tasks (none, in his case) and never its own.
+   - The phones have kept a separate work row for it since journal 187 (`temporaryRunning`, `statusPart(temporary: true)`).
+2. Both phones placed an open question right under the first turn of its task or request (iPhone Chat.swift:295,
+   Android Chat.kt:302). His second message was read with the first one's task ("I'll keep the Colab work going"), so
+   the task's questions sat under the first turn, above his newer words. FERB.app draws open questions after every
+   entry (ConversationTranscript's rows: entries, then questions), a card row's in that row (`rowPlacements`). PHN-770
+   says "where the Mac draws it (after its turn, or at the end)"; the phones read "after its turn" for every question.
+   The library's fold already says where the Mac draws each one (`QuestionItem.shown`: `card_row` with `row`, or
+   `end_of_chat`). The same code draws the normal chat, so it had the same fault.
+3. The temporary chat's questions never closed. `approval.resolved` names only its approval (`{approval_id, state}`,
+   chat_rpc.rs:560 and the gateway's). `temporary_event` (temporary.rs:340) recognised an event by its request or task
+   only, so `chat_bus` (chat.rs:142) sent the answer to the kept chat, whose router finds no stored question for it
+   (chat_log.rs:843) and drops it. The temporary chat's question entry stayed open, and the phones draw open question
+   entries. FERB.app draws its questions from `pendingApprovals`, which `approval.resolved` empties, so it never showed.
+
+**Changes.**
+- FERB.app (APP-1125):
+  - `NotchModel.temporaryRunning`: the temporary chat's running tasks, from chat.status rows marked `temporary` (while
+    the status says a temporary chat is on), from its stream's `plan`, and from a `task.created` of a task it holds. A
+    task the saved chat took first (`task.created` before the chat's entries were read again) moves over when the chat
+    is read. It empties when the chat ends.
+  - The task list is built per chat: while the temporary chat shows, from its own turns and `temporaryRunning`; else
+    the saved chat's, as before. The work row, its timer (only the shown chat's tasks), the round pictures and View
+    tasks read it. The saved chat's row never counts a temporary task, and the temporary chat's never counts a saved one.
+  - Either chat's task: keeps the pill up (`anyTaskRunning`), keeps its live pictures while the other chat shows,
+    keeps its card rows and checklist lines running (`isRunning(task:)`), names its question (`questionContext`), finds
+    a step question's root task, counts in the menu bar's "working" and defers a service restart (APP-921).
+- Both phones (PHN-824): a question the fold puts in a card row (`row.turn`) comes right after that turn; every other
+  open question at the end of the chat, after everything said. Normal and temporary chat alike (both use `ChatModel.rows`).
+- Engine (ORCH-702): `temporary_event` also takes an event naming an approval the temporary chat asked
+  (`ChatProjector::holds_question`). `approval.resolved` then closes that question in the chat's memory, with what its
+  record keeps (`chat_log::answered`, as the kept chat gets it), and bumps its rev. The phones read it again on that rev.
+
+**Evidence.**
+- ferb-supervisor `tests/temporary_chat.rs` `an_answered_question_closes_in_the_temporary_chat_that_asked_it`: a fresh
+  run, its task's `approval.requested` (open in the snapshot), then `{approval_id, state}` only: closed (`answered`,
+  `open: false`), a new rev and a `chat.temporary` with it; an answer to a question it never asked changes nothing and
+  writes no chat entry. With the new branch disabled, it fails on `open: true`. All 10 tests of the file pass; clippy
+  `-D warnings` and fmt on ferb-supervisor.
+- FERB.app `TemporaryChatTests` `testItsRunningTaskShowsInItsWorkRowWithItsPicture` (its task in the status marked
+  temporary: "1 active task", the timer, its picture; the saved chat's task not counted there and still not the saved
+  chat's own row's; its result ends its row; off, the saved row counts only its own) and
+  `testATaskItStartsMovesToItsWorkRow` (`task.created` first, then the stream's `plan`). Full `swift test`: 991 tests,
+  8 skipped, 0 failures.
+- Android `ChatModelTest.an_open_question_is_where_ferb_app_draws_it_never_above_newer_words` (the recorded
+  `question_left_open`: its card row's question in its turn; with that row taken away, both questions after "tidy my
+  desktop" and closing the chat) and `TemporaryChatTest.its_questions_are_at_its_end_and_go_once_answered` (the same
+  conversation through the real library as the temporary chat; answered on the Mac and `Change.Temporary`: gone from
+  its rows and questions). With Chat.kt as at b504b9ae both fail.
+- iPhone `ChatModelTests.testAnOpenQuestionIsWhereFerbAppDrawsItNeverAboveNewerWords` and
+  `TemporaryChatTests.testItsQuestionsAreAtItsEndAndGoOnceAnswered`, the same cases.
+- Full runs: all of ferb-supervisor's tests pass. Android `:app:testDebugUnitTest` 397 and `:design:test` 119, 0
+  failures. iPhone `apps/ios/tools/build.sh test`: 346 passed, 1 skipped, 1 failed:
+  `FeaturesTests.testTheToastLeavesByItselfAfterItsSecondsUnlessTheStackIsOpen` (a wall-clock wait), which passed when
+  run alone. A first Android full run, made while the iPhone tests and a cargo build ran, failed 27 tests that read
+  invented conversations through the library (`BadReply` in `Mobile.sync`) and one main-thread timing test. They passed
+  alone and in a second full run; the cause was not found.
+- No visual change to a drawn row, so no golden was recorded again.
+
+**Open / unverified.**
+- No live check (LIVE-1194) and no installed build. The owner's case (a message read with an earlier one's task) is
+  covered by the rule, not replayed.
+- FERB.app's profile menu still lists only the saved chat's running tasks.
+- The phones still learn of a temporary chat's change only through the status `rev`; how soon an answer leaves their
+  screen depends on that status reaching them.

@@ -68,18 +68,24 @@ struct TaskListCache {
     }
 
     fileprivate var built: Built?
-    /// How many times the list was built (tests count rebuilds).
+    /// The temporary chat's list (its own turns and running tasks), built while it is on.
+    fileprivate var builtTemporary: Built?
+    /// How many times a list was built (tests count rebuilds).
     fileprivate(set) var builds = 0
 
-    mutating func invalidate() { built = nil }
+    mutating func invalidate() { built = nil; builtTemporary = nil }
+    /// The temporary chat changed (a streamed word, its entries read again): only its own list is built again.
+    mutating func invalidateTemporary() { builtTemporary = nil }
 }
 
 @MainActor
 extension NotchModel {
     /// Running first, then kept loops, then the newest first; a task with no turn here (recovered from the daemon)
-    /// counts as newest. Never the random task id's order (owner 2026-10-25: "it shows previous on top").
+    /// counts as newest. Never the random task id's order (owner 2026-10-25: "it shows previous on top"). The shown
+    /// chat's: the temporary chat's own tasks while it is on (owner 2026-11-23: its work row and round pictures as the
+    /// saved chat has them), else the saved chat's.
     var taskItems: [TaskItem] {
-        let list = builtTaskList
+        let list = shownTaskList
         guard !list.standing.isEmpty else { return list.rows }
         var rows = list.rows
         let now = Date()
@@ -87,13 +93,24 @@ extension NotchModel {
         return rows
     }
 
-    var activeTaskCount: Int { builtTaskList.active }
+    var activeTaskCount: Int { shownTaskList.active }
 
     /// Tasks the owner paused (ORCH-308): counted apart from the active ones, with no spinner and no running time.
-    var pausedTaskCount: Int { builtTaskList.paused }
+    var pausedTaskCount: Int { shownTaskList.paused }
 
     /// Loops kept between their rounds (L31): standing work, counted apart from the active tasks.
-    var keptGoingCount: Int { builtTaskList.kept }
+    var keptGoingCount: Int { shownTaskList.kept }
+
+    /// Whether a task of either chat runs now (the pill stays up for it, D14), whichever chat shows.
+    var anyTaskRunning: Bool {
+        builtTaskList.active > 0 || (temporaryChat != nil && builtTemporaryTaskList.active > 0)
+    }
+
+    /// The tasks of both chats still running or paused (their live pictures are kept).
+    var underwayTaskIDs: Set<String> {
+        let rows = builtTaskList.rows + (temporaryChat != nil ? builtTemporaryTaskList.rows : [])
+        return Set(rows.filter(\.isUnderway).map { $0.backendID ?? $0.id })
+    }
 
     /// The chat's work row: shown while a task runs or is paused, or a loop is kept; its spinner turns only for
     /// running work.
@@ -103,7 +120,8 @@ extension NotchModel {
     /// paused task's time isn't counted (APP-901): with every task paused the row shows no time.
     var workSince: Date? {
         guard hasRunningWork else { return nil }
-        return runningSince.filter { !pausedTasks.contains($0.key) }.values.min()
+        let shown = Set(shownTaskList.rows.compactMap(\.backendID))
+        return runningSince.filter { shown.contains($0.key) && !pausedTasks.contains($0.key) }.values.min()
     }
 
     /// The work row's words on either side of its timer (APP-901).
@@ -113,10 +131,21 @@ extension NotchModel {
 
     var workRowText: String { workRowWords.text }
 
+    /// The list the chat shows now: the temporary chat's while it is on, else the saved chat's.
+    private var shownTaskList: TaskListCache.Built { temporaryChat != nil ? builtTemporaryTaskList : builtTaskList }
+
     private var builtTaskList: TaskListCache.Built {
         if let built = taskListCache.built { return built }
         let built = makeTaskList()
         taskListCache.built = built
+        taskListCache.builds += 1
+        return built
+    }
+
+    private var builtTemporaryTaskList: TaskListCache.Built {
+        if let built = taskListCache.builtTemporary { return built }
+        let built = makeTemporaryTaskList()
+        taskListCache.builtTemporary = built
         taskListCache.builds += 1
         return built
     }
@@ -152,13 +181,24 @@ extension NotchModel {
         return !conversation.turns.contains { $0.id == local }
     }
 
-    /// Builds the list from the conversation, the task sessions, the daemon's running tasks, open questions and loops.
+    /// Builds the saved chat's list from the conversation, the task sessions, the daemon's running tasks, open
+    /// questions and loops.
     func makeTaskList() -> TaskListCache.Built {
-        var rows: [String: TaskItem] = [:]
-        var asked: [String: Int] = [:]          // the conversation's order: a later turn was asked later
         var sessions = workSessions
         if let id = session.activeTaskID { sessions[id] = session }
-        for (index, turn) in conversation.turns.enumerated() where turn.backendTaskID?.isEmpty == false {
+        return makeTaskList(turns: conversation.turns, sessions: sessions, running: runningTasks)
+    }
+
+    /// Builds the temporary chat's list: its own turns and its running tasks (it sends with no task session).
+    func makeTemporaryTaskList() -> TaskListCache.Built {
+        makeTaskList(turns: temporaryChat?.archive.turns ?? [], sessions: [:], running: temporaryRunning)
+    }
+
+    private func makeTaskList(turns: [ConversationTurn], sessions: [UUID: NotchSession],
+                              running runningTasks: [String: String]) -> TaskListCache.Built {
+        var rows: [String: TaskItem] = [:]
+        var asked: [String: Int] = [:]          // the conversation's order: a later turn was asked later
+        for (index, turn) in turns.enumerated() where turn.backendTaskID?.isEmpty == false {
             let id = turn.backendTaskID!
             asked[id] = index
             let active = runningTasks[id] != nil || sessions.values.contains { $0.backendTaskID == id && $0.activeTaskID != nil }
@@ -169,7 +209,7 @@ extension NotchModel {
         for (local, work) in sessions where work.activeTaskID != nil {
             let id = work.backendTaskID ?? local.uuidString
             let title = work.backendTaskID.flatMap { runningTasks[$0] }
-                ?? conversation.turns.first(where: { $0.id == local }).map(Self.title(of:))
+                ?? turns.first(where: { $0.id == local }).map(Self.title(of:))
                 ?? work.result?.request ?? work.draft
             rows[id] = TaskItem(id: id, backendID: work.backendTaskID, localID: local,
                 title: title.isEmpty ? (work.backendTaskID == nil ? "New request" : "A task from earlier") : title,

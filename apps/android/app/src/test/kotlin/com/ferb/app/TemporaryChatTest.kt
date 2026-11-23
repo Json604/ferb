@@ -14,6 +14,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.lifecycle.SavedStateHandle
 import androidx.test.core.app.ApplicationProvider
+import com.ferb.app.model.ChatRow
 import com.ferb.app.model.LocalFiles
 import com.ferb.app.ui.Host
 import com.ferb.app.ui.Main
@@ -211,6 +212,36 @@ class TemporaryChatTest {
         phone.temporaryOn = true
         vm.toggleTemporary()
         assertEquals(R.string.temporary_start_failed, vm.ui.value.note?.res)
+    }
+
+    // The owner's live case (2026-11-23): in the temporary chat FERB's questions sat above his newest message and stayed
+    // after he answered them. Its questions are at its end, after everything said, as FERB.app draws them; once the Mac's
+    // temporary chat says one is answered (its rev moved: `Change.Temporary`), it is gone.
+    // decision: PHN-824, PHN-818
+    @Test
+    fun its_questions_are_at_its_end_and_go_once_answered() {
+        val c = Fixtures.conversations().first { it.scenario == "question_left_open" }
+        @Suppress("UNCHECKED_CAST")
+        fun loose(answered: Set<String>) = c.copy(entries = c.entries.map { e ->
+            var x = if (e["approval_id"] == "ap-1") e + ("body" to ((e["body"] as Map<String, Any?>) + ("part" to null))) else e
+            if (x["approval_id"] in answered) x = x + mapOf("state" to "answered", "open" to false, "rev" to 9.0, "seq" to 20.0)
+            x
+        })
+        phone.temporaryOn = true
+        phone.temporaryView = FixtureMac.transcript(FixtureMac(loose(emptySet())))
+        val vm = vm()
+        session.unlocked()
+        val rows = vm.ui.value.temporary!!.rows
+        val tidy = rows.indexOfFirst { it is ChatRow.Owner && it.text == "tidy my desktop" }
+        val asks = rows.withIndex().filter { it.value is ChatRow.Asking }
+        assertEquals(listOf("ap-1", "ap-2"), asks.map { (it.value as ChatRow.Asking).approvalId })
+        assertTrue("below his newer message", asks.all { it.index > tidy })
+
+        phone.temporaryView = FixtureMac.transcript(FixtureMac(loose(setOf("ap-1"))))
+        phone.changes.tryEmit(Change.Temporary)
+        val after = vm.ui.value.temporary!!
+        assertEquals(listOf("ap-2"), after.rows.filterIsInstance<ChatRow.Asking>().map { it.approvalId })
+        assertEquals(listOf("ap-2"), after.questions.map { it.approvalId })
     }
 
     // decision: PHN-818

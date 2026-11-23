@@ -13,7 +13,7 @@ struct StepChecklistView: View {
     @ObservedObject var model: NotchModel
 
     var body: some View {
-        let running = model.runningTasks[checklist.taskID] != nil
+        let running = model.isRunning(task: checklist.taskID)
         // A checklist whose turn ended without its outcome (interrupted, read from history) isn't moving.
         let live = !checklist.finished && (running || ["working", "needs_user"].contains(turn.status))
         let lines = Self.lines(checklist, live: live, model: model)

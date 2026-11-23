@@ -1111,7 +1111,7 @@ fn traced_input(input: &Input<'_>) -> Value {
 /// An answer to a question with the facts its record keeps (compose.py `_question_record`'s `question.answered` row,
 /// DMN-583: how it was answered, the choice, a typed answer's first line, the kinds of secret hidden in it), as
 /// FERB.app's question card reads them; the bus event alone when there is no record.
-fn answered(conn: &Connection, data: &Value) -> Result<Value, ferb_store::Error> {
+pub(super) fn answered(conn: &Connection, data: &Value) -> Result<Value, ferb_store::Error> {
     let Some(id) = data.get("approval_id").and_then(Value::as_str) else {
         return Ok(data.clone());
     };

@@ -4242,3 +4242,14 @@ rule = "For HAND-708, HAND-709. Both phones: a card of kind ferb is titled \"FER
 evidence = "Android SessionShotsTest session-keep-going-360/412, SessionsTest; iPhone goldens session-keep-going-375/402, SessionScreensTests; ferb-mobile sessions a_message_ferb_sent_is_read_as_ferb_s."
 paths = ["apps/android/app/src/main/kotlin/com/ferb/app/ui/Sessions.kt", "apps/android/design/src/main/kotlin/com/ferb/design/components/Sessions.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/CodingSessions.swift", "apps/ios/Packages/FerbDesign/Sources/FerbDesign/Sessions.swift", "engine/crates/ferb-mobile/src/sessions.rs"]
 live = ["LIVE-1199"]
+
+[PHN-824]
+title = "A question is drawn where FERB.app draws it: a card row's in its turn, every other one at the end"
+by = "agent"
+date = 2026-11-23
+status = "active"
+rule = "For PHN-770 (its \"after its turn, or at the end\"). Both phones place an open question by the library's fold, as FERB.app's ConversationTranscript does: one the fold puts in a card row (QuestionItem.row) right after that turn; every other one at the end of the chat, after everything said, in the normal chat and the temporary chat alike. Never under the first turn of its task or request. An answered or expired one leaves with its entry; the temporary chat's entry is closed by its approval.resolved (ORCH-702)."
+why = "Owner 2026-11-23, phone screenshots: \"why am i getting these questions above and not at below??? they also dont go away after ive answered them\". A message read with an earlier one shares its task, so its questions sat under the earlier turn, above his newer words; the Mac draws them at the end."
+evidence = "Android ChatModelTest and TemporaryChatTest, iPhone ChatModelTests and TemporaryChatTests (question order, answered one gone); ferb-supervisor temporary_chat.rs an_answered_question_closes_in_the_temporary_chat_that_asked_it."
+paths = ["apps/android/app/src/main/kotlin/com/ferb/app/model/Chat.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/Chat.swift", "engine/crates/ferb-supervisor/src/flow/temporary.rs"]
+live = ["LIVE-1194"]

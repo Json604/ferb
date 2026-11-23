@@ -140,6 +140,13 @@ impl Supervisor {
     pub fn chat_bus(&self, topic: &str, data: Value) {
         // decision: ORCH-699 — an event about a temporary chat's message or task goes to its memory, never the kept chat
         if super::chat_log::TOPICS.contains(&topic) && self.inner.temporary_event(&data) {
+            // an answer carries what its record keeps (how, the choice), as the kept chat's question gets it
+            let data = if topic == "approval.resolved" {
+                let db = self.inner.db();
+                super::chat_log::answered(db.conn(), &data).unwrap_or(data)
+            } else {
+                data
+            };
             self.inner
                 .temporary_feed(super::entries::Input::Bus { topic, data: &data });
             return;

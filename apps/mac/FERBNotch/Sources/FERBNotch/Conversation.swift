@@ -75,7 +75,7 @@ extension NotchModel {
     /// always say which task asks).
     func questionContext(_ approval: DaemonApproval) -> String? {
         guard let taskID = approval.taskID, !taskID.isEmpty else { return nil }
-        if let goal = runningTasks[taskID], !goal.isEmpty { return goal }
+        if let goal = runningTasks[taskID] ?? temporaryRunning[taskID], !goal.isEmpty { return goal }
         if let turn = (temporaryChat?.archive.turns ?? []).first(where: { $0.backendTaskID == taskID })
             ?? conversation.turns.first(where: { $0.backendTaskID == taskID }) {
             let title = Self.title(of: turn)

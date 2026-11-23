@@ -668,3 +668,70 @@ fn a_temporary_conversation_holds_only_its_own_rows() {
     assert!(ferb_orchestrator::continuity::reserved("temporary:abc"));
     assert!(!ferb_orchestrator::continuity::reserved("s1"));
 }
+
+/// The temporary chat's question entry with `approval`, as `chat.temporary.get` gives it.
+fn temporary_question(snap: &Value, approval: &str) -> Option<Value> {
+    snap["entries"]
+        .as_array()?
+        .iter()
+        .find(|e| e["kind"] == "question" && e["approval_id"] == approval)
+        .cloned()
+}
+
+// The owner's live case (2026-11-23): in the phone's temporary chat FERB's questions stayed after he answered them.
+// `approval.resolved` names only its approval (`{approval_id, state}`), so it was routed to the kept chat, which never
+// held the question, and the temporary chat's entry stayed open. It now closes there, with a new rev every client
+// reads; an answer to a question it never asked stays the kept chat's.
+// decision: ORCH-702
+#[test]
+fn an_answered_question_closes_in_the_temporary_chat_that_asked_it() {
+    let mut w = world();
+    run(&mut w, json!({"fresh": true}));
+    let inner = w.sup.inner().clone();
+    let task: String =
+        w.db.lock()
+            .unwrap()
+            .conn()
+            .query_row(
+                "SELECT id FROM tasks WHERE request_id LIKE 'temporary-%' ORDER BY rowid LIMIT 1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+    w.sup.chat_bus(
+        "approval.requested",
+        json!({"approval_id": "aptemp0001", "task_id": task, "kind": "confirm",
+               "reason": "INVENTED-TEMPORARY-QUESTION", "options": ["Yes", "No"]}),
+    );
+    let asked = temporary_question(&inner.temporary_snapshot(), "aptemp0001")
+        .expect("its task's question is the temporary chat's");
+    assert_eq!(asked["open"], true, "{asked}");
+    let rev = inner.temporary_snapshot()["rev"].as_u64().unwrap();
+
+    w.sup.chat_bus(
+        "approval.resolved",
+        json!({"approval_id": "aptemp0001", "state": "granted"}),
+    );
+    let snap = inner.temporary_snapshot();
+    let answered = temporary_question(&snap, "aptemp0001").unwrap();
+    assert_eq!(answered["open"], false, "{answered}");
+    assert_eq!(answered["state"], "answered", "{answered}");
+    let after = snap["rev"].as_u64().unwrap();
+    assert!(after > rev, "a new rev: the phones read it again");
+    assert!(w
+        .daemon
+        .published
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|(t, d)| t == "chat.temporary" && d["rev"] == after));
+
+    // an answer to a question the temporary chat never asked changes nothing in it
+    w.sup.chat_bus(
+        "approval.resolved",
+        json!({"approval_id": "apkept0001", "state": "denied"}),
+    );
+    w.sup.chat_flush();
+    assert_eq!(inner.temporary_snapshot()["rev"].as_u64().unwrap(), after);
+    assert_eq!(count(&w, "SELECT COUNT(*) FROM chat_entries"), 0);
+}

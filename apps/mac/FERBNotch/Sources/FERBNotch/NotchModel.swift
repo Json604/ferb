@@ -99,7 +99,7 @@ final class NotchModel: ObservableObject {
     @Published var conversation = ConversationArchive() { didSet { taskListCache.invalidate(); shownTranscript = nil } }
     /// The temporary chat while it is on (owner 2026-11-23; TemporaryChatModel.swift): what the chat shows instead of
     /// the saved one, held in memory only and read from the daemon. `conversation` stays as it was meanwhile.
-    @Published var temporaryChat: TemporaryChat? { didSet { shownTranscript = nil } }
+    @Published var temporaryChat: TemporaryChat? { didSet { shownTranscript = nil; taskListCache.invalidateTemporary() } }
     /// The temporary chat's icon was tapped and FERB hasn't answered yet.
     @Published var temporaryToggling = false
     let temporary = TemporaryChatState()
@@ -193,7 +193,7 @@ final class NotchModel: ObservableObject {
 
     var menuBarState: MenuBarState {
         MenuBarState.derive(link: daemonLink.state, paused: daemonPaused, stopped: daemonStopped,
-                            questions: pendingApprovals.count, running: runningTasks.count,
+                            questions: pendingApprovals.count, running: runningTasks.count + temporaryRunning.count,
                             settingUp: serviceSettingUp)
     }
 
@@ -225,19 +225,30 @@ final class NotchModel: ObservableObject {
     /// another open question stays answerable meanwhile (several are open at once: a plan's asks, a safety check).
     @Published var sendingAnswers: Set<String> = []
     func isSending(_ approval: DaemonApproval) -> Bool { sendingAnswers.contains(approval.id) }
+    /// The saved chat's running tasks (a temporary chat's are `temporaryRunning`), by task: their headings.
     @Published var runningTasks: [String: String] = [:] {
-        didSet {
-            guard runningTasks != oldValue else { return }
-            taskListCache.invalidate()
-            // When each running task started, for the work row's timer (a friend's feedback 2026-10-27): kept for
-            // tasks still running; one first seen here starts now unless the daemon's status says otherwise.
-            var since = runningSince.filter { runningTasks[$0.key] != nil }
-            for id in runningTasks.keys where since[id] == nil { since[id] = Date() }
-            if since != runningSince { runningSince = since }
-            // a task that ended is no longer paused
-            let ended = pausedTasks.filter { oldValue[$0] != nil && runningTasks[$0] == nil }
-            if !ended.isEmpty { pausedTasks.subtract(ended) }
-        }
+        didSet { if runningTasks != oldValue { runningChanged(from: oldValue) } }
+    }
+    /// The temporary chat's running tasks (marked `temporary` by the daemon, or its own turns'), by task: its work row,
+    /// round pictures and Tasks list while it shows, as `runningTasks` are the saved chat's (TemporaryChatModel.swift).
+    @Published var temporaryRunning: [String: String] = [:] {
+        didSet { if temporaryRunning != oldValue { runningChanged(from: oldValue) } }
+    }
+
+    /// Whether a task runs now, in either chat.
+    func isRunning(task id: String) -> Bool { runningTasks[id] != nil || temporaryRunning[id] != nil }
+
+    /// One of the two running lists changed (`old`: what it was).
+    private func runningChanged(from old: [String: String]) {
+        taskListCache.invalidate()
+        // When each running task started, for the work row's timer (a friend's feedback 2026-10-27): kept for
+        // tasks still running; one first seen here starts now unless the daemon's status says otherwise.
+        var since = runningSince.filter { isRunning(task: $0.key) }
+        for id in Array(runningTasks.keys) + Array(temporaryRunning.keys) where since[id] == nil { since[id] = Date() }
+        if since != runningSince { runningSince = since }
+        // a task that ended is no longer paused
+        let ended = pausedTasks.filter { old[$0] != nil && !isRunning(task: $0) }
+        if !ended.isEmpty { pausedTasks.subtract(ended) }
     }
     /// Running tasks the owner paused in place (ORCH-308): the daemon's `task.paused` until its `task.resumed` or the
     /// task's end; after a reconnect, read from tasks.list's status (APP-901).
@@ -256,7 +267,7 @@ final class NotchModel: ObservableObject {
         return created
     }
     func discardFinishedPreviews() {
-        let active = Set(taskItems.filter(\.isUnderway).map { $0.backendID ?? $0.id })
+        let active = underwayTaskIDs            // both chats': a picture of the chat not shown stays for its return
         for (key, preview) in taskPreviews where !active.contains(preview.taskID) {
             taskPreviews.removeValue(forKey: key)?.stop()
         }

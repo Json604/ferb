@@ -132,13 +132,21 @@ extension NotchModel {
             // reconciliation cadence will fetch a fresh snapshot next time.
             guard taskStateRevision == snapshotRevision else { return }
             changeIfNeeded(\.connectionStatus, "Connected to FERB")
-            let running = (status["running"] as? [[String: Any]] ?? []).filter { !isTemporaryRow($0) }
-            changeIfNeeded(\.runningTasks, Dictionary(running.compactMap { row in
-                guard let id = row["task_id"] as? String, !id.isEmpty else { return nil }
-                return (id, Self.heading(row))
-            }, uniquingKeysWith: { _, last in last }))
-            for row in running {
-                if let id = row["task_id"] as? String, runningTasks[id] != nil,
+            let allRunning = status["running"] as? [[String: Any]] ?? []
+            let running = allRunning.filter { !isTemporaryRow($0) }
+            // the temporary chat's own running tasks: its work row while it shows (none while the daemon says it is off;
+            // its status says so even before this app read the chat itself)
+            let temporaryRows = status["temporary"] is [String: Any] ? allRunning.filter(isTemporaryRow) : []
+            func headings(_ rows: [[String: Any]]) -> [String: String] {
+                Dictionary(rows.compactMap { row in
+                    guard let id = row["task_id"] as? String, !id.isEmpty else { return nil }
+                    return (id, Self.heading(row))
+                }, uniquingKeysWith: { _, last in last })
+            }
+            changeIfNeeded(\.temporaryRunning, headings(temporaryRows))
+            changeIfNeeded(\.runningTasks, headings(running))
+            for row in running + temporaryRows {
+                if let id = row["task_id"] as? String, isRunning(task: id),
                    let started = LiveProgress.time(row["started_at"]), runningSince[id] != started { runningSince[id] = started }
             }
             // A multi-part task's rows as they stand (ORCH-319): live rows after a reconnect, or for a task this
@@ -159,7 +167,7 @@ extension NotchModel {
             // Standing work only for a task still running (L31).
             let loops = status["loops"] as? [[String: Any]] ?? []
             changeIfNeeded(\.standingWork, Dictionary(loops.compactMap { row in
-                guard let id = row["task_id"] as? String, runningTasks[id] != nil,
+                guard let id = row["task_id"] as? String, isRunning(task: id),
                       let work = StandingWork(loopStatus: row) else { return nil }
                 return (id, work)
             }, uniquingKeysWith: { _, last in last }))
@@ -575,7 +583,8 @@ extension NotchModel {
         var normalized = value
         if let taskID = value["task_id"] as? String {
             normalized["source_task_id"] = value["source_task_id"] ?? taskID     // ties a step's question to its row
-            var roots = Set(runningTasks.keys)
+            var roots = Set(runningTasks.keys).union(temporaryRunning.keys)
+            roots.formUnion(temporaryChat?.tasks ?? [])
             roots.formUnion(workSessions.values.compactMap(\.backendTaskID))
             roots.formUnion(conversation.turns.compactMap(\.backendTaskID))
             if let current = session.backendTaskID { roots.insert(current) }
@@ -636,9 +645,16 @@ extension NotchModel {
             promptError = nil
             onBackgroundChange?(true)
         case "task.steered":
-            if let taskID, data["goal"] is String || data["name"] is String { runningTasks[taskID] = Self.heading(data) }
+            if let taskID, data["goal"] is String || data["name"] is String {
+                if temporaryRunning[taskID] != nil { temporaryRunning[taskID] = Self.heading(data) }
+                else { runningTasks[taskID] = Self.heading(data) }
+            }
         case "task.created":
-            if let taskID, !isTemporaryTask(taskID) {
+            // a temporary chat's task runs in its work row (one not known as its yet moves there when its turn comes)
+            if let taskID, temporaryChat?.owns(taskID: taskID) == true {
+                temporaryRunning[taskID] = Self.heading(data)
+                taskActivities[taskID] = []
+            } else if let taskID, !isTemporaryTask(taskID) {
                 runningTasks[taskID] = Self.heading(data)
                 taskActivities[taskID] = []
                 knownCompletedTasks.remove(taskID)
@@ -698,7 +714,7 @@ extension NotchModel {
             // A loop's state change (L31). A finished or stopped loop leaves; a status arriving after its task's
             // result never brings the row back.
             guard let taskID else { return }
-            if runningTasks[taskID] != nil, let work = StandingWork(loopStatus: data) { standingWork[taskID] = work }
+            if isRunning(task: taskID), let work = StandingWork(loopStatus: data) { standingWork[taskID] = work }
             else { standingWork.removeValue(forKey: taskID) }
         case "attention.notice":
             receiveNotices([data])
@@ -769,7 +785,9 @@ extension NotchModel {
         // A temporary chat's task ends in its own entries, never in the saved chat (TemporaryChatModel.swift)
         if isTemporaryTask(taskID) || isTemporaryRow(event) {
             runningTasks.removeValue(forKey: taskID)
+            temporaryRunning.removeValue(forKey: taskID)
             taskActivities.removeValue(forKey: taskID)
+            pausedTasks.remove(taskID)
             if inTemporaryChat { Task { await refreshTemporaryChat() } }
             return
         }
