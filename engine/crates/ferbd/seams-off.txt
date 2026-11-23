@@ -67,11 +67,6 @@ value refused | An open logs stream has no refusal.
 value timeout | A program run with no time limit (its own).
 value approval_id | One of FERB's own questions asked for the first time (device.facts' exact location, GATE-613): no earlier id to ask again under.
 value runtime_switch | One of FERB's own questions that offers no switch of AI service (device.facts' exact location).
-value element | A coding session's foreground typing (HAND-660): typed into the app's keyboard focus, no element.
-value direction | A coding session's foreground typing: no scroll direction.
-value amount | A coding session's foreground typing: no scroll amount.
-value window | A coding session's foreground typing: the app's own front window, proven before typing.
-value name | A coding session's foreground typing: no element action named.
 off reader.reversible | SpanStore.task_origins only reads: whether a span's kind is reversible matters only when a span is written.
 off trail.reads_only | The retention pass's trail only purges; `record` never runs there, so its publish, device id, pause and test runs are never reached.
 off evidence.purge_only | The retention pass's evidence store only purges; nothing is stored or painted there.

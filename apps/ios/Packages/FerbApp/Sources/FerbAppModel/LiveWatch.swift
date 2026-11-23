@@ -56,20 +56,6 @@ public final class LiveWatch {
         }
     }
 
-    /// A coding session's window on the Mac (kb HAND-651): the same preview, rules and screen as a task's; `taskId` holds
-    /// the session's id.
-    @discardableResult
-    public func startSession(_ session: String) -> Task<Void, Never> {
-        let api = self.api
-        return begin(session) { sink in await api.watchSession(session, sink: sink) }
-    }
-
-    /// A session's window that isn't asked for (the public relay's rule, HAND-710): its place on screen says why.
-    public func refused(_ session: String, _ why: Note) {
-        stop(keepView: true)
-        view = LiveScreen(taskId: session, ended: why)
-    }
-
     private func begin(_ id: String, _ ask: @escaping @MainActor (PreviewSink) async -> Outcome<Live>) -> Task<Void, Never> {
         stop(keepView: true)
         generation += 1

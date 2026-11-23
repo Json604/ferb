@@ -247,8 +247,6 @@ impl ChatRpc {
             .running_trees()
             .into_iter()
             .filter(|(t, _)| !inner.is_watch(t)) // a watch check isn't listed: no client adopts it (I3)
-            // decision: HAND-709 — a session driver isn't a chat task: the session's screen is its place
-            .filter(|(t, _)| !inner.driver_task(t))
             .map(|(t, goal)| {
                 let mut r = Map::new();
                 r.insert("task_id".into(), json!(t));

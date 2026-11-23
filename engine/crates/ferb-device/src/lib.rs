@@ -8,11 +8,14 @@
 //!   persona facts, the developer-tools facts and FERB's extension folder.
 //! - [`cli`]: the `ferb` program's argument parser and the commands FERB.app runs (`setup --service`, `setup
 //!   --cli`, `uninstall`, the sign-outs, the clean-up), plus the developer toolbox's pure RPC clients.
+//! - [`claude_hooks`]: what the archived sessions left (FERB's hooks in Claude Code's settings, its folder and its
+//!   config table), taken away at every daemon start and at uninstall (HAND-718).
 //! - `grant_probe` (Mac only): the fresh reading of Screen Recording and Input Monitoring (APP-662).
 //!
 //! Permission facts (ferb/device/permissions.py) and the autorelease pools are ported in `ferb-mac-hands`; this
 //! crate takes them through [`cli::setup::PermissionFacts`].
 
+pub mod claude_hooks;
 pub mod cli;
 pub mod devtools;
 pub mod extensions;

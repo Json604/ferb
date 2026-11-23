@@ -86,12 +86,6 @@ pub const NOT_WAITED: &[&str] = &[
     "insomnia.camera",
     // APP-1106: alerts put away on a device: what clients show, not a plan's to wait on
     "attention.acked",
-    // HAND-651..666: a session task waits for its agent in code with agent_session.send's own wait, not a plan's wait
-    "sessions.changed",
-    "sessions.card",
-    "sessions.card_gone",
-    "sessions.finished",
-    "phone.locked",
     "tool.called",
     "tool.finished",
     "trail.event",

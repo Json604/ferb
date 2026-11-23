@@ -47,18 +47,6 @@ class LiveWatch(
         // a step's own picture (a card row's short view, kb PHN-726) comes at the row's pace
         begin(taskId) { sink -> if (worker != null) api.watchStepThumbnail(taskId, worker, Thumbnails.EVERY_MS, sink) else api.watchLive(taskId, sink) }
 
-    /** A coding session's window on the Mac (kb HAND-651..666): the same preview, its rules and its screen ([LiveView.taskId] holds the session's id). */
-    fun startSession(sessionId: String) = begin(sessionId) { sink -> api.watchSession(sessionId, sink) }
-
-    /**
-     * Nothing is asked for and [why] shows where the picture would (a watch session's screen on the public relay, whose
-     * rule is said instead, HAND-710).
-     */
-    fun notAsked(id: String, why: Note) {
-        stop(keepView = true)
-        _view.value = LiveView(id, ended = why)
-    }
-
     private fun begin(id: String, ask: suspend (PreviewSink) -> Outcome<Live>) {
         stop(keepView = true)
         val gen = ++generation

@@ -17,7 +17,6 @@ ferb-identity = { path = "../ferb-identity" }
 ferb-rpc = { path = "../ferb-rpc" }
 libc.workspace = true
 zeroize.workspace = true
-plist.workspace = true
 
 [target.'cfg(target_os = "macos")'.dev-dependencies]
 serde_json.workspace = true

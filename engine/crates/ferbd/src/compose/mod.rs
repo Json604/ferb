@@ -26,11 +26,10 @@ pub mod presence;
 pub mod previews;
 pub mod rpc;
 pub mod runtimes;
-pub mod sessions;
 pub mod supervisor;
 pub mod tools;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use ferb_clock::clock::ZonedClock;
@@ -511,6 +510,7 @@ impl Daemon {
         }
         new_protection_defaults(&config, &journal);
         legacy_continuity(&db, &journal, &redactor);
+        retired_sessions(&home, &opts.user_home, &config, &journal);
 
         let ledger = Arc::new(gateway::RealLedger {
             db: db.clone(),
@@ -1084,26 +1084,6 @@ impl Daemon {
             gw.set_standing_screen(Arc::new(move || i.screen_yes_since()));
         }
         tool_parts.set_insomnia(ins);
-        // HAND-651..666: the owner's coding sessions: their RPCs; their hook's report; their agents' questions as FERB's own
-        let sessions_area = sessions::build(
-            &server,
-            sessions::Parts {
-                journal: journal.clone(),
-                events: events.clone(),
-                clock: clock.clone(),
-                ids: opts.ids.clone(),
-                config: config.clone(),
-                redactor: redactor.clone(),
-                gateway: gw.clone(),
-                supervisor: sup.supervisor.clone(),
-                notifier: b.notifier.clone(),
-                tools: tool_parts.downgrade(),
-                user_home: opts.user_home.clone(),
-                app_bundle: opts.app_bundle.clone(),
-                native: opts.native,
-            },
-        );
-        tool_parts.set_sessions(sessions_area);
 
         // DMN-510: serve before the slow part; every call but `ping` waits for the start to finish
         server.set_starting();
@@ -1616,6 +1596,31 @@ fn new_protection_defaults(config: &Config, journal: &Journal) {
         json!({"key": "protection.never_read", "added": added, "offered": p::default_never_read()}),
     );
 }
+
+/// decision: HAND-718 — what the archived sessions left on this Mac (FERB's hooks in Claude Code's settings, the
+/// sessions' folder, config.toml's `[sessions]`) is taken away at every start; journaled when something was there, and a
+/// failure that stays (say, a settings file that isn't JSON) only the first time.
+fn retired_sessions(home: &Path, user_home: &Path, config: &Config, journal: &Journal) {
+    let Some(mut done) = ferb_device::claude_hooks::retire_sessions(home, user_home, config) else {
+        return;
+    };
+    let only_failed = done
+        .as_object()
+        .is_some_and(|m| m.len() == 1 && m.contains_key("errors"));
+    if only_failed {
+        if !journal
+            .of_kind(RETIRED_SESSIONS, "only", "errors")
+            .is_empty()
+        {
+            return;
+        }
+        done["only"] = json!("errors");
+    }
+    journal.note(RETIRED_SESSIONS, done);
+}
+
+/// The journal kind of [`retired_sessions`].
+pub const RETIRED_SESSIONS: &str = "sessions.retired";
 
 /// main.py:406-409: chat continuity written by builds before 2026-10-03 upgraded once, journaled (step 8c); it also
 /// makes the owner's daily conversation.

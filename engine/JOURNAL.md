@@ -11460,3 +11460,78 @@ ferb-test-guard; ferb-test-guard's tests pass. The whole gate was not run (anoth
 **Unverified.** The cause of the gate's `--test link` failure and of the silent `--lib` failure (the guard will name
 the next one). Whether the TemporaryChat timeout came from load or from something else. The iPhone suites were run
 with TSan only, not the gate's non-TSan `build.sh test`.
+
+## 2026-11-24 · 198 · Sessions archived: all built for them removed, the hook a stub, an upgrade cleans his Mac
+
+**What the owner decided (HAND-717).** After the redesigned build (journal 196) was installed: "i still don't like it, I
+have to think of this later with a fresh mind and add it. as of now just archive this". It supersedes every sessions
+decision, his and the agents' (56 active ones: HAND-652..716 as they stood, GATE-622, ORCH-687, ORCH-705, PRM-372,
+PHN-797, PHN-798, PHN-800, PHN-812..817, PHN-821..823, APP-1112, APP-1120, APP-1121, APP-1123, APP-1124); their words
+are unchanged, their `paths` and `live` went with the files and checks. The code is kept at the tag
+`archive/sessions-2026-11-24` on f01e1d44; engine/ARCHIVE-sessions.md says what each design was (journals 170-196),
+what was removed, what stayed and how to restore a part. T-1272 (his "later, plan it first") points at both.
+
+**Removed** (143 files, about 24,600 lines, and the sessions parts of 123 more; 83 goldens deleted, 159 recorded again):
+crate ferb-sessions (out of the workspace, `gate.sh portable` and both lock files); ferb-daemon `sessions/`, the
+`sessions.enabled` setting, the `phone.locked` event; ferbd `compose/sessions.rs`, `compose/tools/sessions.rs`, the
+`agent_session.*` tools, `tasks.preview {session}`, the stats line, the loops, spawns.txt and seams-off.txt lines;
+ferb-supervisor `flow/driver.rs`, `Fresh.driver`, `DRIVER_HIDDEN_TOOLS` and the driver filters (the temporary chat's
+switch is as before journal 191); ferb-core `driver`, the five bus topics; ferb-orchestrator's waits for them;
+ferb-rpc's 12 `sessions.*` methods; ferb-gateway's four catalog additions and two own checks (and ferb-link's copy);
+ferb-policy's app-chat wording, `TerminalInput.chat` and `is_terminal_app`; ferb-platform-macos `sessions`;
+ferb-mac-hands' `show_window`, `focused_window_frame`, `same_frame` and the `Ax` trait's three methods added for
+sessions; ferb-link's codes -32040..-32049 (a comment reserves them) and the `session` preview forward; ferb-mobile
+`sessions` and the FFI's 11 records, 11 calls and `watch_session`; `session_driver.md`. FERB.app: the Sessions page, its
+model, rows, transcript, playground, Settings switch and the uninstall's `sessions.remove_hooks` step (`ferb uninstall`
+does it now). Android and iPhone: the Sessions tab, its screens, models, strings (62) and goldens, the folder picker
+(only New session used it); the top bar has four tabs (PHN-825), every bar golden recorded again.
+
+**Named differences undone.** Journal 170's against the recorded Python: ferb-rpc's method table and
+`CANCEL_WHEN_LEFT` are Python's plus the other additions again; `engine/fixtures/phone/classes.json` loses the 12 rows;
+the bus's critical topics, the orchestrator's waits, the catalog additions and the settings listing (b_small,
+a_replay, ferbd replay) lose theirs.
+
+**Kept** (used elsewhere): the chat's shared list and a whole-screen page taking every touch (now PHN-826, which
+`coversPage` and `FollowingList` cite instead of PHN-813/815); the screenshot switch on every page (PHN-810, PHN-811);
+the temporary chat (ORCH-699..704), ORCH-703, `LearningSpans` (its `shared` constructor now has no caller); the memory
+import's session index (MEM-466); the adaptive bar (PHN-820).
+
+**The upgrade on his Mac (HAND-718).** ferb-device `claude_hooks` (FERB's part of the old `ferb-sessions::hooks`):
+`retire_sessions` at every daemon start, right after the config upgrades, takes FERB's entries out of
+`~/.claude/settings.json` (a command hook whose program is a `ferb` followed by `agent-hook claude`; other hooks, keys
+and order untouched; written as Claude Code writes it, two spaces, a final newline only if there was one; a symlink
+written where it points; a file that isn't a JSON object left alone), deletes `~/.ferb/sessions/`, and retires every
+key of config.toml's `[sessions]` (the table goes with them). It journals `sessions.retired` with what it did only when
+something was there; a failure that stays (only errors) is journaled once. `ferb uninstall` strips the same entries
+(its list says "FERB's hooks in …"). `ferb agent-hook …` stays for good as a stub: it reads stdin (16 MB at most),
+prints nothing, exits 0. Claude Code sessions started before the upgrade keep calling the hook until they restart, and
+an unknown `ferb` command exits 2, which Claude Code treats as a blocking hook error (UserPromptSubmit: his prompts).
+
+**Evidence.**
+- ferb-device `tests/claude_hooks.rs` (4) on `engine/fixtures/retired-sessions` (invented settings in Claude Code's
+  layout with FERB's entries from two installs, a quoted path, a look-alike `ferbish` hook, a group mixing his hook and
+  FERB's): only FERB's entries out, byte for byte; no final newline kept as none; not-an-object refused; a symlink and
+  the file's mode kept, no temporary left; the start's pass takes hooks, folder and table, then finds nothing.
+- ferbd `tests/retired_sessions.rs` (3), the real programs: `ferb agent-hook` with four inputs (a 2 MB one, none, not
+  JSON) exits 0 with nothing on stdout or stderr and writes nothing; the real daemon's start cleans a prepared home and
+  user home, journals once, and a second start journals nothing; `sessions.list`, `sessions.hook` and
+  `sessions.remove_hooks` are in no role's table and refused (-32001, as any unknown method), and `settings.get` has no
+  `sessions.enabled`.
+- The whole workspace through ferb-test-guard: 304 test binaries, 1,636 passed. Three failed in the first run: ferb-rpc
+  `golden` (the method counts: 156 cli and 68 FERB.app-only now, fixed) and `phone_classes` (the file's class counts:
+  rewritten with UPDATE_GOLDEN and checked to differ only by the 12 rows and their counts), and ferb-orchestrator
+  `action_routes` `an_upload_is_judged_by_the_bytes_that_left_the_mac`, which passed 3 runs of 3 alone (I infer a race
+  not of this change: its `sha` helper writes one temporary file per process, `ferb-sha-<pid>`, that parallel tests
+  share). ferb-mobile 105, ferb-mobile-ffi 21 and ferb-link (every binary, `--test-threads 3`) passed.
+- clippy `--all-targets -D warnings` (workspace and the three phone crates) and fmt clean; the portable crates check for
+  aarch64-apple-ios and aarch64-linux-android.
+- FERB.app `swift test`: 945 tests, 8 skipped, 0 failures. Android `:app:testDebugUnitTest` 321 and `:design:test`
+  112, 0 failures; `:gallery:assembleDebug` builds. iPhone `tools/build.sh test`: TEST SUCCEEDED (FerbAppTests 204,
+  FerbDesignTests 75, FerbCoreTests 15, FerbMobileTests 4, UI tests 7); `tools/build.sh` builds FERB and the Gallery.
+  These ran on f01e1d44 with this change, before it moved onto 4a4d40bf (journal 197's test fixes, no file in common).
+- `kb check` ok.
+
+**Unverified.** Nothing ran on his Mac or a phone. The cleanup against his real `~/.claude/settings.json` (not read: it
+is his); that Claude Code writes its settings in the same two-space layout (an entry formatted otherwise would be
+re-laid out, its values unchanged). An older FERB.app or phone talking to this daemon is refused the sessions calls
+(-32001, "not allowed"; its Sessions page shows that as an error; nothing else breaks).

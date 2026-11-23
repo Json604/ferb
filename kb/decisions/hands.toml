@@ -2157,23 +2157,23 @@ superseded_by = "HAND-691"
 words = "so an agent session can be in terminal, in cursor app, in claude/codex offical apps or any other app too. taking foreground ocntrol is ok in this case, no biggie ... what i want is easy way to message myself, let ferb control the convo, let me see the screen(acc to our relay permission ofc), and jsut control any ongoing or start a new one too. o also used zedra, it was shit to typr in the terminla from phone ... lets try this as a separte thing first to validate and when finalized, we adopt it in ferb"
 words_source = "Owner 2026-11-18..19, relayed verbatim by the coordinator (the ... are the coordinator's cuts); the lab ~/Desktop/ferb-agent-remote validated it."
 rule = "FERB lists the owner's Claude Code and Codex sessions wherever they run, shows each as a chat, lets him message any running session or start a new one from his phones and FERB.app with a composer (never a terminal keyboard), hands one to FERB to keep going, and shows its window live under the relay rules (PHN-454). Taking the foreground is acceptable for this feature; it is still asked once (GATE-622), never silent."
-live = ["LIVE-1168", "LIVE-1169", "LIVE-1170", "LIVE-1171", "LIVE-1172", "LIVE-1173"]
 
 [HAND-652]
 title = "Sessions are found and driven through the agent, whatever app hosts it: no host list"
 by = "owner"
 date = 2026-11-19
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 words = "i agree with all but why are you focusung on VS code or a set of things only??? there can be any IDE, external terminla app etcetc. so jsut make sure that / i use vs and termnial only, with claude/codex. otehr might use other ide ore model providers"
 words_source = "Owner 2026-11-19 (the lab's CORE-1) and 2026-11-20..22, both relayed verbatim by the coordinator."
 rule = "A session is found, read and signalled through the agent itself (its process, its transcript or daemon, its hooks), whatever app shows it: any terminal, any IDE, the agents' desktop apps, tmux inside any of them. Sending uses a host's background adapter where one exists and the generic foreground path for every other app (HAND-656, HAND-660). No part of the code assumes one host; Terminal and VS Code are the hosts tested first."
-live = ["LIVE-1168", "LIVE-1170"]
 
 [HAND-653]
 title = "The agent remote is built into FERB as the release prototype"
 by = "owner"
 date = 2026-11-22
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 words = "why not build that and we call it a final ready prototype of ferb taht i'll release after 14 days"
 words_source = "Owner 2026-11-22, relayed verbatim by the coordinator, after the lab's spikes."
 rule = "The lab's agent remote (sessions list, conversation, send, answers, hand to FERB, watch, start) is built into FERB itself (engine, FERB.app, both phones) on branch rust, from the lab's findings, not as a separate program."
@@ -2183,114 +2183,112 @@ untestable = "A product decision on what is built where; HAND-651's live checks 
 title = "FERB may put its hook in the owner's coding agents' settings after his Yes"
 by = "owner"
 date = 2026-11-22
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 words = "didnt i said yes to hooks??"
 words_source = "Owner 2026-11-22, relayed verbatim by the coordinator, on whether FERB may install its hooks into his Claude Code and Codex settings (lab LAB-4)."
 rule = "FERB adds its own hook to the owner's coding agents' settings (Claude Code's ~/.claude/settings.json; Codex's where one is needed) once he says Yes, keeps everything else in the file as it was, and removes it again on No, the Settings switch or FERB's uninstall. Nobody edits the settings by hand. On the owner's Mac the Yes is given; other users are asked once (HAND-666)."
-live = ["LIVE-1168"]
 
 [HAND-654]
 title = "A session's host is a fact of the process tree, never configured per app"
 by = "agent"
 date = 2026-11-22
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 rule = "For HAND-652 (the lab's CORE-2). From the agent's process: its tty, then its ancestors up to the first whose program is inside an .app bundle; the host's main process is the highest ancestor in that outermost bundle (an IDE's terminal runs under a helper inside it). Through tmux, the pane's server has no app above it: tmux's own client list gives the client's tty and its app; a detached tmux has no window (input by tmux alone). No list of hosts finds a session."
 evidence = "ferb-sessions tests/sessions.rs the_host_is_found_from_the_process_tree_with_no_list_of_hosts (VS Code's helper chain, Terminal, tmux attached and detached, none)."
-paths = ["engine/crates/ferb-sessions/src/host.rs", "engine/crates/ferb-platform-macos/src/sessions.rs"]
 
 [HAND-655]
 title = "A send is proven in the agent's own record, never on the screen"
 by = "agent"
 date = 2026-11-22
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 rule = "For HAND-652 (the lab's CORE-3). After any send, by any path, FERB waits up to DELIVERY_WAIT_S (10 s; the lab measured 0.15-1.7 s) for the exact words as the owner's message in the agent's own record (Claude Code's transcript, Codex's thread) and says delivered or not. Not seen is said plainly, never retried by itself."
 evidence = "ferb-daemon tests/sessions.rs the_owner_s_first_send_asks_once_then_types_and_proves_delivery, typing_is_refused_when_the_agent_is_not_in_front_and_unproven_delivery_is_said, codex_is_read_sent_and_answered_through_its_own_daemon."
-paths = ["engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.delivered"]
 
 [HAND-656]
 title = "Send paths in order: the agent's own interface, a host's background adapter, the foreground"
 by = "agent"
 date = 2026-11-22
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 rule = "For HAND-652 (the lab's IN-1). Code lists a session's paths; the phone never picks one: 1 Codex's own daemon (turn/start, turn/steer, turn/interrupt); 2 tmux (send-keys -l, paste-buffer -p for several lines); 3 Terminal's do script in the tab on the agent's tty (bracketed paste for several lines; background); 4 the generic foreground path (HAND-660) for every other app. No app showing it: no path, said why. Interrupt is the agent's own: Esc (Terminal's goes by the foreground path), turn/interrupt."
 evidence = "ferb-sessions tests send_paths_go_agent_first_then_an_adapter_then_the_foreground; ferb-daemon tests/sessions.rs (Terminal, the foreground with VS Code, Codex's daemon)."
-paths = ["engine/crates/ferb-sessions/src/paths.rs", "engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.deliver"]
 
 [HAND-657]
 title = "Codex is read and driven through its own daemon; nothing is written into Codex's settings"
 by = "agent"
 date = 2026-11-22
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 rule = "For HAND-667, HAND-656. FERB is one more client of Codex's shared app-server (~/.codex/app-server-control/app-server-control.sock, JSON-RPC over WebSocket): thread/loaded/list and thread/read for the list and conversation, its notifications for states, turn/start or turn/steer to send, its approval requests as the owner's questions (accept, acceptForSession, decline). That daemon already gives every event a hook would, so FERB adds nothing to ~/.codex. Retried at most every 10 s while Codex isn't there."
 why = "A Codex notify program is one per config (FERB's would replace the owner's), and its hooks file's format wasn't verified in the lab; the daemon is Codex's documented local API and was verified."
 evidence = "ferb-daemon tests/sessions.rs codex_is_read_sent_and_answered_through_its_own_daemon (a stand-in daemon on a Unix socket); ferb-sessions codex_threads_items_and_events."
-paths = ["engine/crates/ferb-sessions/src/codex.rs", "engine/crates/ferb-daemon/src/sessions/codex_link.rs"]
 
 [HAND-658]
 title = "Typed text goes in only when the agent leads its terminal and asks nothing"
 by = "agent"
 date = 2026-11-22
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 rule = "For HAND-652 (the lab's IN-2). Right before any typed path the agent's process must be its terminal's foreground group (pgid == tpgid; never its name: Claude Code titles itself with its version), else not_in_front and nothing is typed (it would reach a shell). While the agent asks a permission or question, typed text is refused (card_open): Return would answer its dialog."
 evidence = "ferb-sessions typed_text_is_allowed_only_when_the_agent_leads_its_terminal; ferb-daemon tests/sessions.rs (not_in_front, card_open; nothing typed in either)."
-paths = ["engine/crates/ferb-sessions/src/host.rs::in_front", "engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.send"]
 
 [HAND-659]
 title = "What FERB runs for sessions gets a clean environment"
 by = "agent"
 date = 2026-11-22
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 rule = "For HAND-652 (the lab's IN-3). osascript (Terminal's adapter and new windows), tmux and claude agents --json run with an environment built from scratch (HOME, a PATH of the usual install places, USER, LOGNAME, LANG, SHELL, TMPDIR), never the daemon's."
 why = "In the lab a Claude Code that inherited another agent's variables saved no transcript and was missing from claude agents."
-paths = ["engine/crates/ferb-platform-macos/src/sessions.rs::clean_command"]
 untestable = "The environment of programs run on a real Mac; LIVE-1171 (start a new session) shows a transcript is saved."
 
 [HAND-660]
 title = "The foreground path types only into a terminal proven to be the session's"
 by = "agent"
 date = 2026-11-22
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 rule = "For HAND-651, HAND-652 (the lab's IN-4, IN-5). FERB brings the host forward and reads the focused element's Accessibility chain: it must be a terminal and the session's (HAND-682), else FERB types nothing, puts the front app back and says why. Then the Mac hands' foreground typing types the whole text as a terminal input the owner said Yes to (HAND-519's path: its quiet wait, cover, own-focus stop), Return follows as its armed key, and the app that was in front comes back."
 evidence = "ferb-daemon tests/sessions.rs any_other_app_gets_the_foreground_path_with_the_session_s_proof (the proof words and the call); the Mac's own part is LIVE-1170."
-paths = ["engine/crates/ferbd/src/compose/sessions.rs::foreground"]
-live = ["LIVE-1170"]
 
 [HAND-661]
 title = "A session's conversation is its agent's own record, read by an allowlist and redacted"
 by = "agent"
 date = 2026-11-22
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 rule = "For HAND-651 (the lab's SIG-3, LAB-5). Claude Code's transcript gives the owner's messages, the agent's text, one line per tool call (from its input's own command, path, pattern, url, query or description), interrupts, API errors and its title; thinking, subagents' turns, Claude Code's notes and unknown kinds are skipped. api-request records (the whole request, the owner's account in it) are never read. Codex's thread items likewise. Every text that leaves the Mac goes through FERB's redactor."
 evidence = "ferb-sessions the_transcript_is_read_by_an_allowlist_and_requests_never, interrupts_commands_errors_and_titles; ferb-daemon a_session_is_listed_with_its_host_and_read_from_its_own_transcript_redacted."
-paths = ["engine/crates/ferb-sessions/src/claude.rs::parse_line", "engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.tail"]
 
 [HAND-662]
 title = "Claude Code's hook reports in a moment; only a permission request is held, beside its own dialog"
 by = "agent"
 date = 2026-11-22
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 rule = "For HAND-667 (the lab's SIG-1, SIG-2). `ferb agent-hook claude <Event>` (FERB.app's bin/ferb) hands each event to the daemon and exits 0 with no output within 2 s when FERB is off, absent, starting, busy or failing. Only PermissionRequest (permissions and AskUserQuestion) waits, for the owner, while Claude Code's own dialog stays up; the first answer wins. A PostToolUse, prompt or Stop withdraws it (no decision); FERB stopping or Claude Code's hook timeout ends the call, leaving its dialog to decide. PreToolUse is never used. A session FERB itself runs is ignored."
 evidence = "ferbd tests/sessions_hook.rs (the real hook and daemon: quick, held then answered, FERB stopped while held, a hung FERB); ferb-daemon tests/sessions.rs (held, withdrawn, dropped, FERB's own)."
-paths = ["engine/crates/ferbd/src/agent_hook.rs", "engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.hook", "engine/crates/ferb-rpc/src/server.rs::CANCEL_WHEN_LEFT"]
 
 [HAND-663]
 title = "An agent's permission prompts and questions are the owner's; FERB never answers a permission"
 by = "agent"
 date = 2026-11-22
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 rule = "For HAND-651. A held permission or question becomes one of FERB's own questions in the gateway's store (FERB.app's notch, chat and the phones' notifications), with the agent's exact request and its choices; the session's screens answer the same card (sessions.answer). A permission's Yes from a phone takes the fingerprint (OWN_CHECKS). \"Allow for this session\" is the agent's own rule from its own suggestions. FERB's own task may answer the agent's questions, never its permission prompts (owners_only)."
 evidence = "ferb-daemon tests/sessions.rs a_held_permission_is_the_owner_s_question_and_his_answer_answers_the_hook, ferb_s_task_never_answers_a_permission_but_may_answer_a_question."
-paths = ["engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.ask_card", "engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.resolve", "engine/crates/ferb-gateway/src/questions.rs::OWN_CHECKS"]
-live = ["LIVE-1169"]
 
 [HAND-664]
 title = "Watching sessions is code only: no model call while nothing is asked of FERB"
 by = "agent"
 date = 2026-11-22
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 rule = "For HAND-651 (lab LAB-5, the owner's T-1272 test). The list, states, conversations and cards come from hooks, the transcripts' new lines, Codex's daemon and the process table, read every 2 s by code. A model runs only when the owner hands a session to FERB (a FERB task) or writes to FERB; a task waiting on an agent waits in code (ORCH-687)."
 evidence = "ferb-daemon tests/sessions.rs watching_is_code_only (50 looks: no question, no hand-over)."
-paths = ["engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.look", "engine/crates/ferbd/src/compose/sessions.rs::start_loops"]
 
 [HAND-665]
 title = "A new session starts in a new Terminal window with the exact command shown first"
@@ -2300,8 +2298,6 @@ status = "superseded"
 superseded_by = "HAND-691"
 rule = "For HAND-651. sessions.prepare shows the exact command (cd '<folder>' && claude|codex '<first message>', shell-quoted) and its question; on the owner's Yes (a phone's fingerprint) sessions.start types it into a new Terminal window in the background, and the session that appears in that folder gets his control. Other hosts for new sessions are T-1287."
 evidence = "ferb-daemon tests/sessions.rs a_hand_over_is_the_owner_s_message_and_a_start_types_the_exact_command."
-paths = ["engine/crates/ferb-daemon/src/sessions/rpc.rs"]
-live = ["LIVE-1171"]
 
 [HAND-666]
 title = "Seeing the sessions is off until the owner's Yes, asked once after setup, with a Settings switch"
@@ -2311,8 +2307,6 @@ status = "superseded"
 superseded_by = "HAND-696"
 rule = "For HAND-667. The setting sessions.enabled (off until set). Once setup is done and ~/.claude or ~/.codex exists, FERB asks once (its own question: \"Let FERB see your Claude Code and Codex sessions?\"). Yes turns it on; FERB then reads sessions and keeps its hook in Claude Code's settings (FERB's entries only, any FERB.app's found by `ferb agent-hook claude`); off or No removes them, and FERB.app's uninstall calls sessions.remove_hooks. A settings file that isn't JSON is left alone and journaled."
 evidence = "ferb-sessions ferb_s_hooks_go_in_and_out_of_claude_code_s_settings_touching_nothing_else; ferb-daemon off_reads_nothing_and_its_switch_puts_ferb_s_hook_in_and_takes_it_out."
-paths = ["engine/crates/ferb-sessions/src/hooks.rs", "engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.reconcile_hooks", "engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.offer", "engine/crates/ferb-daemon/src/areas_a/settings.rs"]
-live = ["LIVE-1168"]
 
 [HAND-668]
 title = "The desktop chat apps' conversations are sessions too, watched smartly: no model calls to look"
@@ -2384,10 +2378,10 @@ evidence = "ferb-sessions tests/appchat.rs replying_until_the_stop_control_has_b
 title = "Typing into an app chat asks naming the app's chat and message box, never a terminal"
 by = "agent"
 date = 2026-11-22
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 rule = "For HAND-672, GATE-585. FERB's first typing into a desktop chat app in a task still asks once (one Yes per app per task, as GATE-586 keys it), but the question, its summary and its trace line name the app's chat and its message box, not a terminal: the input says it is a chat's (TerminalInput.chat, set by agent_session.send for an app chat) and the shared terminal wording reads it. A terminal's question is unchanged."
 evidence = "ferb-policy tests/chat_card.rs a_chat_app_s_question_names_its_chat_never_a_terminal; tests/parity.rs terminal_input_matches_python unchanged."
-paths = ["engine/crates/ferb-policy/src/wording.rs", "engine/crates/ferb-policy/src/terminal.rs", "engine/crates/ferbd/src/compose/tools/sessions.rs"]
 
 [HAND-676]
 title = "A snapshot lists what the worker can use, not what only repeats"
@@ -2459,24 +2453,22 @@ paths = ["engine/crates/ferb-mac-hands/src/driver/mod.rs", "engine/crates/ferb-m
 title = "A terminal is the session's by its title, or by its program and folder; FERB finds it in an editor"
 by = "agent"
 date = 2026-11-22
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 rule = "For HAND-660, PHN-800. Typing needs the focused element to be a terminal by structure (ferb-policy's surface: a terminal app, or xterm.js in an editor) and the session's: its title in its words or its window's, or its program as the Mac names it (the executable's file name, e.g. 2.1.330) in the terminal's own words with its folder in the window's. The second is offered only when no other running session in that app shares both. Not proven: in the one window naming the folder, the one text input naming the program gets the cursor, and the proof is read again."
 why = "Every send into the owner's VS Code session was refused: VS Code shows \"Terminal 1, 2.1.330\" in a window titled \"… — FERB\", never the session's title, and the old proof tried only the title (ferbd compose/sessions.rs, the first proof word)."
 evidence = "ferb-sessions tests/proof.rs (VS Code's real words, read 2026-11-22); ferb-daemon tests/sessions.rs any_other_app_gets_the_foreground_path_with_the_session_s_proof (the proof, and two sessions alike)."
-paths = ["engine/crates/ferb-sessions/src/proof.rs", "engine/crates/ferbd/src/compose/sessions.rs::prove_terminal", "engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.proof_of"]
-live = ["LIVE-1170"]
 
 [HAND-683]
 title = "When FERB can't tell a session's terminal, the owner picks one of those it sees; FERB keeps to it"
 by = "owner"
 date = 2026-11-23
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 words = "ok go without it. with a fallbakc so that user can chose themselves if that works, idk."
 words_source = "Owner 2026-11-23, relayed verbatim by the coordinator, on shipping HAND-682's proof without a VS Code extension (T-1295)."
 rule = "One shared path for every host. When no terminal proves itself the session's (HAND-682), or a chosen one changed, FERB types nothing and offers the terminals it can see in that app, by the app's own words (its window's title and the terminal's name; the one in front now first), and Don't send. His pick (fingerprint on a phone, as control) is used for that send and kept for the session until it ends or he stops controlling it; FERB types only there and checks it is the same element right before typing, else asks again."
 evidence = "ferb-daemon tests/sessions.rs when_no_terminal_proves_itself_the_owner_chooses_one_and_ferb_keeps_to_it; Android SessionsTest, iPhone SessionsTests, FERB.app SessionsTests (choose, Don't send); ferb-mobile sessions tests."
-paths = ["engine/crates/ferbd/src/compose/sessions.rs::terminal_for", "engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.choose_terminal"]
-live = ["LIVE-1170"]
 
 [HAND-690]
 title = "Watch finds a session's window as a send does; minimized or on another desktop is said as such"
@@ -2487,30 +2479,27 @@ superseded_by = "HAND-713"
 rule = "For PHN-797, HAND-682, HAND-683. One place (ferb-sessions window) picks a session's window for Watch and the send's folder test: an app chat's window; the owner's chosen terminal; a title holding the session's title; a title naming its folder; the only window; else the front one; this Space first; titled normal windows only. The host is the app's own process. Minimized is said so; off this Space is tried, then said to be on another desktop. FERB neither restores windows nor switches Spaces."
 why = "Every Watch of the owner's VS Code session said \"Its window isn't open on your Mac\": the old finder wanted an exact title or the app's only window, and VS Code lists seven layer-0 windows (read 2026-11-23). The host pid was VS Code's own."
 evidence = "ferb-sessions tests/window.rs (a recorded window list and process tree of that shape); ferb-daemon tests/sessions.rs watch_finds_the_session_where_a_send_does_the_app_s_own_process_and_the_chosen_terminal."
-paths = ["engine/crates/ferb-sessions/src/window.rs", "engine/crates/ferbd/src/compose/sessions.rs", "engine/crates/ferb-daemon/src/sessions/mod.rs"]
-live = ["LIVE-1173"]
 
 [HAND-691]
 title = "A session is any terminal on his Mac; a new session is a terminal, and he types the agent he wants"
 by = "owner"
 date = 2026-11-23
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 words = "why does thisb show only codex and claude to start a new session??? WTF are yo doing?? didnt i said a universal session feature??? you just fucking let me start a terminal session - nothing else, i'll type int eh terminal which agent i want / i aslo started a new terminal with agy. agy doesnt matter here, what matters is phoen didint showed a new terminal session appeared, WHY???"
 words_source = "Owner 2026-11-23 on the phone's Sessions tab (his New session sheet offered only Claude Code and Codex; a Terminal tab running agy never appeared), two messages relayed verbatim (joined with /)."
 rule = "Supersedes HAND-651 (keeping all it gave) and HAND-665. FERB lists every terminal session on the Mac (any terminal app's tab or window, an editor's terminal, a tmux pane) whatever runs in it, a Claude Code or Codex session as one row with its terminal, and the chat apps' chats (HAND-697); shows each as a chat; he messages any from his phones and FERB.app, asked once (GATE-622); hands one to FERB; watches its window (PHN-454). New session opens a terminal: the folder and an optional command he types; no agent picker anywhere."
 why = "The list was fed only by Claude Code's `claude agents`/hook and Codex's daemon (ferb-daemon sessions/mod.rs look, note_claude, note_codex); nothing looked at terminals. On his Mac (ps, 04:07): agy pid 9815 led ttys000 under login 9311 under Terminal 9293."
 supersedes = ["HAND-651", "HAND-665"]
-live = ["LIVE-1192"]
 
 [HAND-692]
 title = "Every terminal is found by code from the process table, and an agent's session claims its own"
 by = "agent"
 date = 2026-11-23
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 rule = "For HAND-691. One session per terminal device with his processes (`term:<leader pid>`), in the app HAND-654's walk finds (none and no tmux: not listed). Program: the foreground leader's argv[0] (-zsh is zsh); folder: its cwd; window: the app's window whose title names program and folder (else one of them, else its only window). Working while the device had I/O in the last 4 s. FERB's own and a tmux client's terminals are left out. An agent's session on a terminal claims it: one row. No list of programs or apps."
 evidence = "ferb-sessions tests/terminals.rs (found whatever runs, never FERB's own; the window by its words); ferb-daemon tests/sessions.rs a_terminal_running_any_program_is_a_session_and_claude_code_shows_once; ferb-platform-macos a_program_is_named_as_it_was_started."
-paths = ["engine/crates/ferb-sessions/src/terminals.rs", "engine/crates/ferb-daemon/src/sessions/terminals.rs::Sessions.note_terminals", "engine/crates/ferb-platform-macos/src/sessions.rs"]
-live = ["LIVE-1192"]
 
 [HAND-693]
 title = "A terminal's conversation is its own text, read while someone looks, redacted, shown as what is new"
@@ -2520,38 +2509,34 @@ status = "superseded"
 superseded_by = "HAND-710"
 rule = "For HAND-691. Read only while a client reads its timeline (every 1.5 s at most) or a send waits: tmux's capture-pane, Terminal's `contents` of the tab on its tty, else its window's one terminal text area by Accessibility; none: `no_text` says why. Redacted, then items: the first read shows the screen (80 lines); later reads add the settled lines after the last read's; a redrawn screen shows once it holds still. His words are proven by showing in its text, then go in as his item."
 evidence = "ferb-sessions tests/terminals.rs a_terminal_s_text_gives_only_what_is_new; ferb-daemon tests/sessions.rs a_terminal_s_text_is_read_while_watched_and_a_send_types_into_it_proven_on_its_screen; ferb-platform-macos terminal_is_read_by_its_tab_and_opened_in_the_background."
-live = ["LIVE-1192"]
 
 [HAND-694]
 title = "Typing into a terminal session goes to what leads it, only while that is the program he was shown"
 by = "agent"
 date = 2026-11-23
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 rule = "For HAND-691, HAND-658. A terminal session is the terminal itself: whatever leads its foreground group gets the words (HAND-658's agent-leads check is for agents' sessions). Right before typing, the program in front must still be the one the list showed him; else not_in_front, naming what is in front now, and nothing is typed. The send paths (HAND-656: tmux, Terminal's do script, else the foreground with HAND-682/683's proof), GATE-622's one question with the exact text and GATE-585 stay as decided."
 evidence = "ferb-daemon tests/sessions.rs a_terminal_s_text_is_read_while_watched_and_a_send_types_into_it_proven_on_its_screen (zsh typed into; python3 in front since: refused, nothing typed)."
-paths = ["engine/crates/ferb-daemon/src/sessions/terminals.rs::Sessions.term_unchanged", "engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.send"]
-live = ["LIVE-1192"]
 
 [HAND-695]
 title = "A new session opens a terminal in the folder in the background, typing only his command, asked first"
 by = "agent"
 date = 2026-11-23
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 rule = "For HAND-691. sessions.prepare: the folders and the app (his most recently used one FERB can open, OPENERS: Terminal only, T-1287); with a command, one question showing exactly it (GATE-585); none: nothing asked or typed. sessions.start (signed on a phone): `open -g -b <app> <folder>` (not brought forward), waits up to 6 s for that terminal, gives its starter control, types the command by the tab's tty. An older phone's agent and words become that agent's program and words."
 evidence = "ferb-daemon tests/sessions.rs a_new_session_is_a_terminal_in_the_folder_typing_only_the_owner_s_command; ferb-mobile a_terminal_is_named_by_its_program_and_a_new_one_carries_only_folder_and_command; Android, iPhone and FERB.app new-session tests."
-paths = ["engine/crates/ferb-daemon/src/sessions/terminals.rs::Sessions.start_terminal", "engine/crates/ferb-daemon/src/sessions/rpc.rs", "engine/crates/ferb-platform-macos/src/sessions.rs::open_folder_in"]
-live = ["LIVE-1192"]
 
 [HAND-696]
 title = "Seeing sessions is off until the owner's Yes, asked once after setup on every Mac, with a switch"
 by = "agent"
 date = 2026-11-23
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 rule = "For HAND-691; replaces HAND-666 now that sessions are every terminal. The setting sessions.enabled (off until set). Once setup is done FERB asks once (\"Let FERB see your terminal sessions?\"), whether or not Claude Code or Codex is installed. Yes turns it on; FERB then reads sessions and keeps its hook in Claude Code's settings when ~/.claude exists (FERB's entries only, any FERB.app's found by `ferb agent-hook claude`); off or No removes them, and FERB.app's uninstall calls sessions.remove_hooks. A settings file that isn't JSON is left alone and journaled."
 evidence = "ferb-sessions ferb_s_hooks_go_in_and_out_of_claude_code_s_settings_touching_nothing_else; ferb-daemon off_reads_nothing_and_its_switch_puts_ferb_s_hook_in_and_takes_it_out."
-paths = ["engine/crates/ferb-sessions/src/hooks.rs", "engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.reconcile_hooks", "engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.offer", "engine/crates/ferb-daemon/src/areas_a/settings.rs"]
 supersedes = ["HAND-666"]
-live = ["LIVE-1168"]
 
 [HAND-697]
 title = "An app with no chat open shows no session and is never typed into; one line says to start one there"
@@ -2609,13 +2594,12 @@ evidence = "ferb-daemon tests/sessions.rs an_app_chat_is_listed_read_only_while_
 title = "Hand to FERB is said in the session; \"FERB is on it\" only while its task runs; Take it back"
 by = "owner"
 date = 2026-11-23
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 words = "if ferb is on it then why show hand to ferb. anyways this hand to ferb isnt working, i tried 2 times. it didnt message anything. also the ferb is on it tag stays even when i pressed on stopped controlling and closed the terminal in the mac for some time"
 words_source = "Owner 2026-11-23, live on FERB.app 202611230246 and his Moto (relayed verbatim by the coordinator), then: \"ohh i just saw, the ferb hanlde messages were arrivign in the ferb chat\"."
 rule = "Refines ORCH-687. The hand-over message names the session as one on this Mac driven with the agent_session tools. The daemon follows that turn: a started task sets delegate (\"FERB is on it\" until it ends); a question, a plain answer or a failure ends the hand-over. The session carries ferb_note, FERB's latest word on it (handed, on it, asked with the question quoted, couldn't start, finished, stopped), shown in the session. While FERB has it the menu shows Take it back (task stop) instead of Hand to FERB; every tap shows pending, then the result."
 evidence = "ferb-daemon tests/sessions.rs a_hand_over_says_what_became_of_it_and_is_on_it_only_while_its_task_runs; ferbd tests/sessions_hook.rs a_hand_over_turn_s_frames_say_what_became_of_it; ferb-mobile sessions a_hand_over_s_task_and_note_and_a_reply_s_parts_are_read; the clients' session tests."
-paths = ["engine/crates/ferb-daemon/src/sessions/mod.rs", "engine/crates/ferbd/src/compose/sessions.rs", "engine/crates/ferb-mobile/src/sessions.rs"]
-live = ["LIVE-1195"]
 
 [HAND-703]
 title = "A chat app's reply is one block of typed parts read by structure, shown as the app shows it"
@@ -2632,13 +2616,12 @@ evidence = "ferb-sessions tests/appchat.rs one_reply_is_one_block_with_its_parts
 title = "Every terminal in every terminal app is listed and an agent in one has its app (root's login a link)"
 by = "owner"
 date = 2026-11-23
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 words = "if ferb can see terminal in vs code, why not a normal terminal??? also i just noticed it starting the terminal, but that terminal session never shows here - shouldnt all opened terminal sessions anywhere and these agent chat apps be shown here???"
 words_source = "Owner 2026-11-23 (relayed verbatim), after Claude Code in a terminal said \"No app shows this session\" and Codex's Watch said no app shows it."
 rule = "Refines HAND-654 and HAND-692. The Mac's process table holds the owner's processes and, as links only (parent and program, no terminal), every other process on the way up from one of them: Terminal, iTerm2 and Ghostty start each shell through root's `login`, which the owner-only table left out, so a shell's walk to its app stopped and no tab of those apps, nor an agent in one, had an app. A terminal is still found by the owner's processes on it. Terminal's text is read by its scripting, else by Accessibility like any app's."
 evidence = "His Mac 2026-11-23, read only: Terminal (pid 15160) opened by sessions.start at 08:32:55, never listed; processes() dropped other users' processes. Tests: ferb-platform-macos, ferb-sessions and ferb-daemon tests named for root's login."
-paths = ["engine/crates/ferb-platform-macos/src/sessions.rs", "engine/crates/ferbd/src/compose/sessions.rs"]
-live = ["LIVE-1197"]
 
 [HAND-705]
 title = "The no-chat line says it is about an agent chat"
@@ -2654,119 +2637,131 @@ rule = "Refines HAND-697. The line for a chat app with no chat FERB can follow, 
 title = "A session's finished turn is one notification per session, never a chat line"
 by = "agent"
 date = 2026-11-23
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 rule = "For APP-1109 and the owner's live report (2026-11-23: FERB's chat filled with five and more \"Claude Code in FERB is done and waiting for you.\"). A turn he sent through FERB that ends is said on the session (its status) and, only when no client read that session in the last 10 s (LOOKED_AT_S), as one Mac banner (category task_finished, shown while FERB.app isn't showing it) whose ident is the session's, so a later one replaces it. Nothing goes to the owner's chat. Phones get no push for it yet (no phone push channel for a session's turn)."
 evidence = "ferb-daemon tests/sessions.rs a_finished_turn_is_one_notification_per_session_and_none_while_he_looks_at_it; read only: chat_entries 2026-11-23 04:00-08:32 hold five such notices."
-paths = ["engine/crates/ferb-daemon/src/sessions/mod.rs", "engine/crates/ferbd/src/compose/sessions.rs"]
-live = ["LIVE-1195"]
 
 
 [HAND-707]
 title = "Hand to FERB is a session driver: code waits, one fresh step per reply, usual tools and lookups"
 by = "owner"
 date = 2026-11-23
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 words = "yes this makes sense, ig the tempchat swithc might come handy here. … also i wnat this session agent liek teh temp agent access to the usual tools so it cna look and do things normally, JUST not the whole context that goes in normal chat / cause this way, even if my req in the session is like 'look at our recent convo adn deciosion we took regarding thsi adn start controlling this session with reaching the goal we decided' - the fresha gent can lookup whatever it needs. so yes a system prompt with this, BUT not the full ferb chat like one."
 words_source = "Owner 2026-11-23 (relayed verbatim), shown the session-driver design after asking \"cuase if its the normal loop, i dont think so its optimal here\"."
 rule = "Refines ORCH-687 and HAND-702. Hand to FERB starts a session driver, not a chat turn: no planner, no checker. Code waits for the agent's turn to end (no model call, no time limit), then runs one fresh worker step: ORCH-699's switch (no profile, memory, chat history, schedules or screen pushed) with the usual tools and the lookups (memory, chat history, trail), so it can look up what the goal refers to, and a short prompt of its own. Each step decides one: send the next message, done, or ask the owner. Safety rules unchanged."
-paths = ["engine/crates/ferb-daemon/src/sessions/driver.rs", "engine/crates/ferb-supervisor/src/flow/driver.rs", "engine/runtime/orchestrator/prompts/session_driver.md"]
-live = ["LIVE-1199"]
 
 [HAND-708]
 title = "The session driver asks the owner after 20 rounds whether to keep going"
 by = "owner"
 date = 2026-11-23
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 words = "also what is this cap??? / yeah this works"
 words_source = "Owner 2026-11-23 (relayed verbatim): asked about the cap in the design, then, shown \"20 rounds, then ask you\": \"yeah this works\"."
 rule = "For HAND-707. One round is an agent reply and the driver's next message. After 20 rounds (ROUNDS_PER_ASK) the driver stops and asks him in the session's screen \"I've gone 20 rounds on “{goal}”. Keep going?\": Keep going gives 20 more; Stop ends the drive. No 240 s or 40-call limit on the drive (waiting is free); each step keeps the worker's own per-step guards."
-paths = ["engine/crates/ferb-daemon/src/sessions/driver.rs"]
-live = ["LIVE-1199"]
 
 [HAND-709]
 title = "The session driver's loop: its task, its decisions, the owner's prompts, Take it back"
 by = "agent"
 date = 2026-11-23
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 rule = "For HAND-707, HAND-708. Its task: rows, request driver-<id>, a session_driver.step span per step. send: code types it (agent_session.send, wait off; a question only by its choice, agent_session.answer) through the gateway for the drive's task (GATE-585). done ends it; ask ends it with the question in the session. A permission prompt waits for him. Take it back (task.stop) ends it at once. The note says each step; FERB's sent items are marked. Ending by itself: one chat line. Never a chat task; ferb stats counts steps."
 why = "The loop is code's (waiting costs nothing); the step decides and code acts, so one message per round is structural and the gateway's rules hold."
 evidence = "ferb-daemon tests/sessions.rs (drive, ask, Take it back mid-wait, permission and question, 20 rounds); ferb-supervisor tests/session_driver.rs; ferbd tests/stats.rs."
-paths = ["engine/crates/ferb-daemon/src/sessions/driver.rs", "engine/crates/ferb-supervisor/src/flow/driver.rs", "engine/crates/ferbd/src/compose/sessions.rs", "engine/crates/ferbd/src/stats.rs"]
-live = ["LIVE-1199"]
 
 [HAND-710]
 title = "Sessions: say which are on; read and send exactly where the agent allows, else watch live and type"
 by = "owner"
 date = 2026-11-24
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 words = "lets remove and archive everything built in sessions / upon further thinking, this sessions tab is helpful BUT it aint working like it should - so no remove BUT a method of this sessions that easily tells which are on and easy to send, see, type etcetc. lets discuss / yeah i like this and when not available just watch live and type. BUT first lets build and test this - live by me. cause again it has to be universal. / which i dont want, just switch the desktop why are you saying this, ferb does switch on its own. anyways its phone so do it / Do both"
 words_source = "Owner 2026-11-23/24, relayed verbatim in order: remove; keep it, reworked; the design shown: \"yeah i like this…\"; on Watch off-desktop; \"Do both\": driver for Claude Code/Codex only, a guard stop asks."
 rule = "Supersedes the app-chat and terminal-text reading that failed live. On = Claude Code's list and transcripts, Codex's app-server, every terminal, every open window of a known agent/chat app by structure (app, title). Read = only Claude Code's and Codex's records; else Watch, no other app's text. Send = Codex's service; Claude Code in a terminal by HAND-682/683; else Watch and \"Type here\" into that window under the existing confirmations. Watch is universal (switches desktop, unminimizes). Hand to FERB: Claude Code and Codex only; a guard-stopped step asks Keep trying."
 supersedes = ["HAND-668", "HAND-669", "HAND-670", "HAND-671", "HAND-672", "HAND-673", "HAND-674", "HAND-693", "HAND-697", "HAND-698", "HAND-699", "HAND-700", "HAND-701", "HAND-703", "HAND-705"]
-paths = ["engine/crates/ferb-sessions/src/apps.rs", "engine/crates/ferb-sessions/src/paths.rs", "engine/crates/ferb-daemon/src/sessions/windows.rs", "engine/crates/ferb-daemon/src/sessions/mod.rs", "engine/crates/ferbd/src/compose/sessions.rs"]
-live = ["LIVE-1205", "LIVE-1206", "LIVE-1207", "LIVE-1208", "LIVE-1209"]
 
 [HAND-711]
 title = "Only Claude Code's and Codex's records are read; terminals and agent apps' windows are watched"
 by = "agent"
 date = 2026-11-24
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 rule = "For HAND-710. Terminals (HAND-692) and each open window of a known agent/chat app (ferb-sessions apps::KNOWN plus config [sessions] chat_apps) are watch: true: empty timeline, no text, tree or model read. An app window is a session per window (app:<bundle>:<window>, app_chat on the wire): normal, drawn, titled, at least 300x200, any desktop (apps::pick); its title redacted; idle. Removed: appchat(.json), the daemon's appchats and chat-layouts.json, terminal text reads and terminals::Screen, Item.parts, no_chats."
 why = "Every one of these reads was built against guesses about other apps' trees and failed live; structure (process table, window server) is exact."
 evidence = "ferb-sessions tests/apps.rs (VS Code's real window rows); ferb-daemon tests/sessions.rs an_app_s_open_windows_are_sessions_by_structure_watched_and_typed_into and a_terminal_is_watched_never_read_and_a_send_types_into_it_at_once; the read-only probe on his Mac (journal 196)."
-paths = ["engine/crates/ferb-sessions/src/apps.rs", "engine/crates/ferb-daemon/src/sessions/windows.rs", "engine/crates/ferb-daemon/src/sessions/terminals.rs", "engine/crates/ferb-sessions/src/model.rs"]
-live = ["LIVE-1205"]
 
 [HAND-712]
 title = "Send routes: the agent's service, exact adapters, the proven terminal, else the session's window"
 by = "agent"
 date = 2026-11-24
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 rule = "For HAND-710; refines HAND-655/656. Codex app-server; tmux; Terminal's do script by tty; Claude Code/Codex in an app's terminal: proven foreground (HAND-682/683); anything else (editor or other-app terminal, app window, Claude Code with no terminal): the window path: found as Watch finds it, brought onto the screen (HAND-713), typed and Returned only while its app is in front with that window focused, under GATE-622 or the gateway's question; left in front. A watched send is delivered once typed. Claude Code with no terminal: app above its hook, else its record's entrypoint."
 why = "The owner: \"when not available just watch live and type\": he sees in Watch what FERB typed."
 evidence = "ferb-sessions send_paths test; ferb-daemon sessions tests (terminal watched and typed, app windows, Claude Code run by the Claude app). ferbd's window_type is compiled, not run (tests take no foreground actions)."
-paths = ["engine/crates/ferb-sessions/src/paths.rs", "engine/crates/ferb-daemon/src/sessions/mod.rs", "engine/crates/ferbd/src/compose/sessions.rs"]
-live = ["LIVE-1207", "LIVE-1208"]
 
 [HAND-713]
 title = "Watch brings the session's window onto the screen once per Watch (switch desktop, unminimize)"
 by = "agent"
 date = 2026-11-24
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 rule = "For HAND-710 (\"just switch the desktop\"); replaces HAND-690's \"said as such\". A Watch's first frame (none for that session in the last WATCH_GAP_S = 5 s) finds the window as a send does and, if minimized or on another desktop, turns AXMinimized off, activates its app and raises it (macOS switches desktop), waiting up to 2 s. Later frames of the same Watch never move it again; off screen then is said as such. If it can't: \"… is minimized in the Dock, and FERB couldn't bring it back onto your screen.\" / \"… on another desktop (Space), and FERB couldn't switch to it.\""
 why = "From the phone this is his own act; once per Watch keeps a Watch left open from pulling him back."
 evidence = "ferb-sessions tests/window.rs a_window_minimized_or_on_another_space_that_ferb_couldn_t_bring_back_is_said_as_such; ferbd watch_frame and bring_into_view compiled, not run."
-paths = ["engine/crates/ferbd/src/compose/sessions.rs", "engine/crates/ferb-mac-hands/src/ax.rs", "engine/crates/ferb-sessions/src/window.rs"]
 supersedes = ["HAND-690"]
-live = ["LIVE-1206"]
 
 [HAND-714]
 title = "Hand to FERB only for Claude Code and Codex; a guard-stopped step asks Keep trying / Stop"
 by = "agent"
 date = 2026-11-24
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 rule = "For HAND-710; refines HAND-707/709. sessions.delegate refuses any other session: \"FERB keeps only Claude Code and Codex sessions going: their replies are exact. Watch this one and type into it instead.\" When ORCH-691's guard stops a driver step (the gateway's latched stop for the drive's worker task), FERB's card in the session with one Mac banner asks \"<the guard's words>. Keep trying?\" (Keep trying / Stop). Keep trying resets the guard for the task and reruns the step; Stop ends it as his stop."
 why = "Only exact replies give a step something true to decide from; the owner's \"Do both\"."
 evidence = "ferb-daemon tests/sessions.rs a_step_the_guard_stopped_asks_keep_trying_and_keep_trying_steps_again and an_app_s_open_windows_are_sessions_by_structure_watched_and_typed_into (refused). SupDriver's take_stuck mapping is compiled, not run against a real guard."
-paths = ["engine/crates/ferb-daemon/src/sessions/driver.rs", "engine/crates/ferbd/src/compose/sessions.rs"]
-live = ["LIVE-1209"]
 
 [HAND-715]
 title = "The process table takes another user's process (a tab's root login) from its short record"
 by = "agent"
 date = 2026-11-24
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 rule = "Refines HAND-704. proc_pidinfo's full record (PROC_PIDTBSDINFO) is refused (EPERM) for a process running as another user, as root's login under every Terminal, iTerm2 and Ghostty tab does, so HAND-704's links never formed and no such tab had an app (not listed; New session never shown). Such a process now comes from its short record (PROC_PIDT_SHORTBSDINFO: parent and group, no terminal) and is kept as a link."
 why = "Read on his Mac 2026-11-24: the full record of launchd, a root XPC helper and a setuid-root top (euid 0, his ruid, like login) was refused; their short records and paths were readable."
 evidence = "ferb-platform-macos tests/sessions.rs another_user_s_process_comes_in_through_its_short_record; the probe in journal 196."
-paths = ["engine/crates/ferb-platform-macos/src/sessions.rs"]
-live = ["LIVE-1205"]
 
 [HAND-716]
 title = "The clients still draw a reply's parts an older Mac sends; this Mac sends none"
 by = "agent"
 date = 2026-11-24
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 rule = "For HAND-711. A paired phone or FERB.app may talk to an older FERB.app that still read app chats: its items' parts are still drawn (text, thinking, tool, meta) and a missing watch reads as false. Nothing on this Mac produces parts any more."
 why = "Upgrading from any older FERB build keeps working (STORE-403); removing the drawing buys nothing."
-paths = ["engine/crates/ferb-mobile/src/sessions.rs"]
+
+[HAND-717]
+title = "Sessions are archived: all built only for them is removed, kept in git under a tag for later"
+by = "owner"
+date = 2026-11-24
+status = "active"
+words = "no, lets remove adn archive eveyrhitgn built in sessions - BUT do a complete audit whats there to archive, is ti only sessions or other things that are separate from it that we need anywyas / i still don't like it, I have to think of this later with a fresh mind and add it. as of now just archive this"
+words_source = "Owner, relayed verbatim by the coordinator: first before the redesign (he then kept it as HAND-710), then on 2026-11-24 after the redesigned build was installed."
+rule = "The sessions feature (2026-11-22..24: finding, reading, sending to, starting, watching and handing over his coding-agent sessions, on the Mac and both phones) is removed from the engine, FERB.app and both phones and kept only in git (tag archive/sessions-2026-11-24; engine/ARCHIVE-sessions.md). What other features use stays: the chat's shared list, the screenshot switch, the temporary chat, the memory import's session index (MEM-466), the adaptive top bar. Supersedes every sessions decision. A new design only from him, planned first (T-1272)."
+why = "The owner didn't like the result, even redesigned (HAND-710), and wants to think it through again later with a fresh mind."
+supersedes = ["HAND-652", "HAND-653", "HAND-654", "HAND-655", "HAND-656", "HAND-657", "HAND-658", "HAND-659", "HAND-660", "HAND-661", "HAND-662", "HAND-663", "HAND-664", "HAND-667", "HAND-675", "HAND-682", "HAND-683", "HAND-691", "HAND-692", "HAND-694", "HAND-695", "HAND-696", "HAND-702", "HAND-704", "HAND-706", "HAND-707", "HAND-708", "HAND-709", "HAND-710", "HAND-711", "HAND-712", "HAND-713", "HAND-714", "HAND-715", "HAND-716", "GATE-622", "ORCH-687", "ORCH-705", "PRM-372", "PHN-797", "PHN-798", "PHN-800", "PHN-812", "PHN-813", "PHN-814", "PHN-815", "PHN-816", "PHN-817", "PHN-821", "PHN-822", "PHN-823", "APP-1112", "APP-1120", "APP-1121", "APP-1123", "APP-1124"]
+paths = ["engine/ARCHIVE-sessions.md"]
+
+[HAND-718]
+title = "An upgrade takes away what the sessions left on the Mac; ferb agent-hook stays as a do-nothing stub"
+by = "agent"
+date = 2026-11-24
+status = "active"
+rule = "For HAND-717. At every daemon start (and in `ferb uninstall`) FERB takes its own hook entries out of Claude Code's settings (~/.claude/settings.json: any command hook whose program is a `ferb` followed by `agent-hook claude`), touching nothing else in the file (written as Claude Code writes it, a symlink kept, a file that isn't a JSON object left alone); deletes ~/.ferb/sessions/; and drops config.toml's [sessions]. It is journaled (sessions.retired) only when something was there, a lasting failure only once. `ferb agent-hook …` stays for good: it reads its event, prints nothing and exits 0."
+why = "His Claude Code sessions started before the upgrade keep calling the hook until they restart; an unknown `ferb` command exits 2, which Claude Code treats as a blocking hook error and, for UserPromptSubmit, blocks his prompts. Nothing of the archived feature should stay on his Mac."
+evidence = "ferb-device tests/claude_hooks.rs (engine/fixtures/retired-sessions: only FERB's entries out, byte for byte); ferbd tests/retired_sessions.rs (the real hook command: exit 0, no output; the real daemon's start cleans and journals once)."
+paths = ["engine/crates/ferb-device/src/claude_hooks.rs", "engine/crates/ferbd/src/agent_hook.rs", "engine/crates/ferbd/src/compose/mod.rs", "engine/crates/ferb-device/src/install.rs"]

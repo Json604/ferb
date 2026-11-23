@@ -51,7 +51,6 @@ ferb-py = { path = "../ferb-py" }
 ferb-rpc = { path = "../ferb-rpc" }
 ferb-runtimes = { path = "../ferb-runtimes" }
 ferb-sanitize = { path = "../ferb-sanitize" }
-ferb-sessions = { path = "../ferb-sessions" }
 ferb-sense = { path = "../ferb-sense" }
 ferb-shell = { path = "../ferb-shell" }
 ferb-store = { path = "../ferb-store" }

@@ -56,9 +56,6 @@ pub const OWN_CHECKS: &[&str] = &[
     "memory.forget",
     "downloads.delete",
     "browsing.choose",
-    // HAND-663: a coding agent's permission prompt, and turning on FERB's sight of the sessions (its hook)
-    "agent_session.permission",
-    "agent_session.enable",
 ];
 /// Hidden inputs (the gateway's SECRET_KINDS): answered only through the sealed path (kb PHN-109, PHN-110): chat.answer
 /// with the phone's unlock proof; the value is never logged, stored or echoed by the bridge.

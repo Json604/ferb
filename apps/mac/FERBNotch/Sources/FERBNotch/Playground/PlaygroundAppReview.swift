@@ -59,15 +59,11 @@ final class PlaygroundAppReview: PlayHost {
             return true
         }
         actions.beforeUninstall = { nil }
-        actions.removeSessionHooks = { [daemon = services.daemon] in _ = await SessionsModel.removeHooks(rpc: daemon) }
         actions.correctMemory = { [weak coordinator] text in
             coordinator?.model.prepareMemoryCorrection(text)
             coordinator?.showFromMenu()
         }
-        let store = FERBWindowStore(rpc: services.daemon)
-        store.previewAccess = coordinator.model.previewAccess
-        store.sessions.clientID = { [weak model = coordinator.model] in model?.clientID }
-        window = FERBWindowController(store: store, actions: actions)
+        window = FERBWindowController(store: FERBWindowStore(rpc: services.daemon), actions: actions)
         coordinator.onSetUp = replayIntro
         coordinator.hasWindow = true
         coordinator.onOpenWindow = { [weak self] in self?.show(.tasks) }

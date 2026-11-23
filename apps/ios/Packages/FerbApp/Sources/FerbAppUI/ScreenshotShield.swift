@@ -3,7 +3,7 @@ import SwiftUI
 import UIKit
 
 /// Keeping the pictures of the Mac out of screenshots on iPhone while the owner's Block screenshots switch is on (kb
-/// PHN-811, PHN-810, PHN-598; the owner's T-1240): Watch live, a task's short view, the Mac's camera, a session's window.
+/// PHN-811, PHN-810, PHN-598; the owner's T-1240): Watch live, a task's short view, the Mac's camera.
 /// With the switch off they show in screenshots like every other page (owner 2026-11-23, PHN-810). A
 /// private answer never shows its value (dots for a code; iOS's SecureField, which iOS itself keeps out of screenshots,
 /// for a password), so it needs no shield; it is hidden while the screen is recorded or mirrored (Privacy.swift).

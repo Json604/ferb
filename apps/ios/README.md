@@ -57,8 +57,8 @@ screenshots are re-recorded with `TEST_RUNNER_FERB_RECORD_SNAPSHOTS=1` (its READ
 - **The scanner** (PHN-564): AVFoundation's QR reader, as PHN-447 named.
 - **Screenshots** (PHN-810, PHN-811, the owner's PHN-598): iOS has no public FLAG_SECURE. FERB follows the owner's one
   Block screenshots switch, set once at the root (`ferbScreens` in FerbAppUI `Privacy.swift`) and carried into every page
-  and every window it presents. With it on, the pictures of the Mac (Watch live, a task's short view, the Mac's camera,
-  a session's window) are drawn inside a secure text field's canvas (FerbAppUI `ScreenshotShield`, the banking apps'
+  and every window it presents. With it on, the pictures of the Mac (Watch live, a task's short view, the Mac's camera)
+  are drawn inside a secure text field's canvas (FerbAppUI `ScreenshotShield`, the banking apps'
   technique: public calls, undocumented behaviour), which iOS leaves out of screenshots, and FERB hides while the screen
   is recorded or mirrored (`isSceneCaptured`); with it off they show. Where an iOS doesn't build that canvas the pictures
   are drawn plainly and This phone says screenshots can show FERB. The rest of the app shows in screenshots either way.

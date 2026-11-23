@@ -250,8 +250,6 @@ fn fixes(request: &str, python: &str) -> Option<String> {
             settings.push(json!({"key": "memory.local_import", "value": false, "where": place}));
             // decision: MEM-459: the owner\'s switch for ChatGPT and Claude, off until he chooses a browser
             settings.push(json!({"key": "memory.sites_import", "value": false, "where": place}));
-            // decision: HAND-696: the owner's answer about his coding sessions, off until asked
-            settings.push(json!({"key": "sessions.enabled", "value": false, "where": place}));
             for (key, value) in [
                 ("insomnia.grace_minutes", 10),
                 ("insomnia.battery_warn_percent", 20),

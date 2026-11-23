@@ -8,7 +8,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// The tabs (Mobile.swift TopBar; Android's Main.kt): chat (the home screen until a chat starts), tasks, files, the
-/// coding sessions (kb HAND-651), the Mac; a short note over the page.
+/// Mac; a short note over the page.
 struct MainView: View {
     @Bindable var model: AppModel
     let shell: AppShell
@@ -34,8 +34,6 @@ struct MainView: View {
                         TasksView(model: model)
                     case .files:
                         FilesView(model: model, insets: insets, waiting: waiting, picking: picking)
-                    case .sessions:
-                        SessionsView(model: model, insets: insets, waiting: waiting)
                     case .mac:
                         MacView(model: model, waiting: waiting)
                     }
@@ -367,7 +365,7 @@ struct ChatView: View {
                     // nothing stored yet and the first page on its way: the waiting look, never a blank screen (PHN-628)
                     ChatWaiting(L.s("chat_loading")).frame(maxHeight: .infinity, alignment: .top)
                 }
-                // the one list every conversation on the phone uses (kb PHN-813): follows the end, the jump control, the
+                // the one list every conversation on the phone uses (kb PHN-826): follows the end, the jump control, the
                 // keyboard; the chat adds its days, its question boxes and its toast
                 FollowingList(end: rows.last.map { last in
                                   // his own message always goes to the end (PHN-628)

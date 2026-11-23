@@ -245,14 +245,14 @@ final class AppScreensTests: XCTestCase {
         XCTAssertTrue(root.contains(".ferbScreens(blockScreenshots: model.settings.blockScreenshots, mustHide: model.mustSecure)"))
     }
 
-    /// Under a screen drawn edge to edge (a session, Watch live, the camera) the page takes no touch and VoiceOver doesn't
-    /// reach it: a tap by a session's message box never lands on the Sessions tab's New session (owner 2026-11-23).
-    // decision: PHN-815
+    /// Under a screen drawn edge to edge (Watch live, the camera) the page takes no touch and VoiceOver doesn't reach it
+    /// (owner 2026-11-23).
+    // decision: PHN-826
     func testThePageUnderAWholeScreenSheetIsOutOfReach() {
-        for sheet: AppSheet in [.session(id: "s"), .sessionWatch(id: "s"), .live(taskId: "t"), .camera] {
+        for sheet: AppSheet in [.live(taskId: "t"), .camera] {
             XCTAssertTrue(RootView.coversPage(sheet), "\(sheet)")
         }
-        for sheet: AppSheet? in [nil, .profile, .sessionNew, .sessionYes, .sessionHand(id: "s"), .task(taskId: "t", worker: nil)] {
+        for sheet: AppSheet? in [nil, .profile, .settings, .task(taskId: "t", worker: nil)] {
             XCTAssertFalse(RootView.coversPage(sheet), "\(String(describing: sheet)): a sheet with the page showing above it")
         }
         let root = (try? String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()

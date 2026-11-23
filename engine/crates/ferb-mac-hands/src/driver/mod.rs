@@ -319,21 +319,6 @@ pub trait Ax: Send + Sync {
     fn raise_window(&self, pid: i32, bounds: Rect) -> bool {
         false
     }
-    /// HAND-713: the window at these bounds back from the Dock when minimized, raised and made main.
-    fn show_window(&self, pid: i32, bounds: Rect) -> bool {
-        let _ = (pid, bounds);
-        false
-    }
-    /// Whether the window at these bounds is minimized (None: can't tell).
-    fn window_minimized(&self, pid: i32, bounds: Rect) -> Option<bool> {
-        let _ = (pid, bounds);
-        None
-    }
-    /// HAND-712: the frame of the app's focused window (None: it has none, or can't tell).
-    fn focused_window_frame(&self, pid: i32) -> Option<Rect> {
-        let _ = pid;
-        None
-    }
     fn scroll_area_of(&self, el: &El) -> Option<El> {
         None
     }

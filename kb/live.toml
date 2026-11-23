@@ -5005,60 +5005,6 @@ pass = "The DMG downloads after sign-in and the notice line shows before it; the
 decisions = ["REL-433", "REL-434", "REL-432"]
 sitting = "website review after deployment"
 
-[LIVE-1168]
-title = "Coding sessions: the one question, the hook in Claude Code's settings, and the list"
-area = "hands"
-surface = "FERB.app with this build on the owner's Mac, a Claude Code session in Terminal and one in VS Code's terminal, a Codex session in Terminal"
-request = "After setup, answer FERB's \"Let FERB see your Claude Code and Codex sessions?\" with Yes. Open ~/.claude/settings.json; open FERB.app's window → Sessions; then turn the switch off in Settings → Privacy and on again."
-pass = "The question comes once; Yes adds FERB's seven agent-hook entries and nothing else changes in the file; all three sessions are listed with their folder, app (Terminal, Visual Studio Code) and state, and change state within a few seconds of the agents working or stopping; off removes the entries and empties the list; FERB's own work never shows as a session; Claude Code feels no slower."
-decisions = ["HAND-666", "HAND-667", "HAND-652", "HAND-654", "HAND-664"]
-sitting = "after this build is installed"
-
-[LIVE-1169]
-title = "From the phone: read a session, answer its permission prompt, send to it"
-area = "hands"
-surface = "The paired Android phone (and later the iPhone) away from the Mac, over the owner's relay or a direct path; a Claude Code session in Terminal in default permission mode"
-request = "On the phone open Sessions → the Terminal session. Ask it at the Mac beforehand to run a command that needs permission. Answer the card from the phone (Allow). Then type a short message in the composer and send it; say Yes to the question."
-pass = "The conversation shows his messages, the agent's replies and one line per tool call, with no thinking and no secrets; the permission card shows the exact command; Allow takes the fingerprint and the command runs, the Mac's own dialog goes away; the first send asks once showing the exact words, later sends don't; the message appears in the session and the phone shows it as delivered."
-decisions = ["HAND-661", "HAND-662", "HAND-663", "GATE-622", "HAND-655", "HAND-656"]
-sitting = "after this build is installed"
-
-[LIVE-1170]
-title = "Sending into VS Code's terminal and into Codex"
-area = "hands"
-surface = "FERB.app and the phone; Claude Code in VS Code's integrated terminal (its terminal focused in its window); a Codex session in Terminal"
-request = "From the phone send a message to the VS Code session, then to the Codex session; then press Stop its turn on each while it works."
-pass = "VS Code comes forward, the words land in that session's terminal (never in an editor or another terminal), VS Code goes back behind what was in front; with the cursor left in VS Code's editor, FERB puts it into the session's terminal first; when no terminal is provably the session's FERB types nothing and offers the terminals it sees: your pick (fingerprint) gets the words and the next sends; Codex gets the message without any app coming forward; Stop its turn interrupts both."
-decisions = ["HAND-652", "HAND-656", "HAND-657", "HAND-658", "HAND-660", "GATE-622", "HAND-682", "PHN-800", "HAND-683"]
-sitting = "after this build is installed"
-
-[LIVE-1171]
-title = "Start a new session from the phone"
-area = "hands"
-surface = "The paired phone; the Mac with Terminal"
-request = "Sessions → New session: Claude Code, a project folder, first message \"say hello\"; Start."
-pass = "The exact command is shown before the Yes; after the fingerprint a new Terminal window opens on the Mac without taking the front, Claude Code starts in that folder with the message, saves its transcript (it appears in the list with its replies) and the phone controls it without asking again."
-decisions = ["HAND-665", "HAND-659"]
-sitting = "after this build is installed"
-
-[LIVE-1172]
-title = "Hand a session to FERB with a goal"
-area = "hands"
-surface = "FERB.app or the phone; a Claude Code session in VS Code with a small failing test in a throwaway project"
-request = "Hand to FERB: \"keep going until the tests pass\". Watch the chat; when Claude Code asks for permission, answer it yourself."
-pass = "The hand-over shows as your message and a FERB task; FERB asks once before typing into VS Code's terminal (the exact text), then answers the agent's turns itself, waits without model calls while the agent works, never answers its permission prompt, stops on Stop and ends when the tests pass or asks you when unsure; the session shows FERB is on it until the task ends."
-decisions = ["ORCH-687", "HAND-663", "HAND-664"]
-sitting = "after this build is installed"
-
-[LIVE-1173]
-title = "Watch a session's window on the phone"
-area = "phone"
-surface = "The paired phone over a direct path or the owner's relay, then over the public relay"
-request = "Open a session → Watch, on each path; take a screenshot on the phone while it shows."
-pass = "On the direct path or the owner's relay the session's app window shows live (Terminal's or VS Code's), unmasked; the screenshot comes out blank; on the public relay it is refused with the usual words; locking the phone ends it."
-decisions = ["PHN-797", "PHN-454"]
-sitting = "after this build is installed"
-
 [LIVE-1177]
 title = "A long worker task stops re-sending old screens, and a Chrome snapshot is smaller"
 area = "runtimes"
@@ -5140,38 +5086,21 @@ pass = "No model calls for your sessions until you ask; FERB still names the ses
 decisions = ["MEM-466", "MEM-467"]
 
 [LIVE-1186]
-title = "The phones' tabs, a session's header and menu, a refused send, and screenshots there"
+title = "The phones' top bar: four tabs, the chosen one named, the link's badge on the profile button"
 area = "phone"
-surface = "The Android phone and the iPhone, paired; a Claude Code session on the Mac"
-request = "Look at the top bar on each tab. Open a session; open its menu (\u2026). Send a message with the session's terminal hidden in its app (say Yes). Then show the terminal and press Try again. With Block screenshots off, take a screenshot of the session; with it on, again."
-pass = "The chosen tab shows its name, the other icons have room, the same on both phones; the profile button's badge shows the link and its page's first row opens the connection sheet; the session's header is its title and state with \u2026 and Close, its menu holds where it runs and its actions; a refused send shows your words dimmed with \"Not sent.\" and why, and Try again sends them; the screenshot shows the session with the switch off, black with it on."
-decisions = ["PHN-800", "PHN-798", "PHN-801"]
+surface = "The Android phone and the iPhone, paired"
+request = "Look at the top bar on each of the four tabs (Chat, Tasks, Files, Mac). Open the profile page."
+pass = "Four tabs, no Sessions; the chosen tab shows its name, the other icons have room, the same on both phones; the profile button's badge shows the link and its page's first row opens the connection sheet."
+decisions = ["PHN-801", "PHN-825"]
 sitting = "after this build is installed"
 
 [LIVE-1190]
 title = "The screenshot switch on every page of both phones, Watch included"
 area = "phone"
-surface = "The Android phone and the iPhone, paired over a direct link or his own relay; a running task and a Claude Code session on the Mac"
-request = "Turn Block screenshots off. Take a screenshot of the chat, a task's short view, Watch live, Show me (the Mac's camera), a session and its Watch. Turn it on and take the same screenshots. With it on or off, open a question that asks for a hidden answer and take one more."
+surface = "The Android phone and the iPhone, paired over a direct link or his own relay; a running task on the Mac"
+request = "Turn Block screenshots off. Take a screenshot of the chat, a task's short view, Watch live and Show me (the Mac's camera). Turn it on and take the same screenshots. With it on or off, open a question that asks for a hidden answer and take one more."
 pass = "Android: with the switch off every screenshot shows the page, Watch and the camera included; with it on every one is black; the hidden answer's box is black either way; recent apps show FERB covered. iPhone: with the switch off the pictures of the Mac show; with it on they are blank in the screenshot and FERB is hidden in a screen recording; This phone's row says the rest of the app can show in screenshots."
 decisions = ["PHN-810", "PHN-811"]
-sitting = "after this build is installed"
-
-[LIVE-1191]
-title = "A session's screen: sending at once, the chat's list, its gaps, its touches and its loading look"
-area = "phone"
-surface = "The Android phone, the iPhone and FERB.app's Sessions page; a Claude Code session in VS Code's terminal on the Mac"
-request = "Open the session from the Sessions tab and watch the first seconds. Send a message and watch the bubble until the session answers. Scroll up while it answers, then use the arrow. Tap all along the message box's edges and just below it. Send once with the session's terminal hidden so the send is refused."
-pass = "While it opens the chat's loading look shows and no error; your message shows at once as Sending… with the send button turning, then as your message, once; scrolled up, the arrow shows with New message and takes you to the latest; the header and the message box each have room and the last message is never under the box; no tap near the box opens New session; a refused send shows Not sent. with Try again and your words; the same on all three."
-decisions = ["PHN-812", "PHN-813", "PHN-814", "PHN-815", "PHN-816", "APP-1120"]
-
-[LIVE-1192]
-title = "Every terminal is a session: agy in a new Terminal tab appears and is typed into; New session"
-area = "hands"
-surface = "FERB.app and a paired phone; Terminal and VS Code on the Mac; a disposable folder"
-request = "Open a new Terminal tab, cd to a folder and run agy (or python3). Look at the phone's Sessions tab. Open that row, send a short line, then let it finish. In VS Code, open an integrated terminal running zsh. Then New session on the phone: pick the disposable folder, no command, Start; again with the command agy."
-pass = "Within seconds the tab is one row \"agy · <folder> · in Terminal\" titled with its window's words; a Claude Code session in VS Code shows once; the agy row shows its window live and your line is typed after the one Yes; VS Code's zsh row shows its window live; New session opens a new Terminal window in the folder without coming forward (or says it did), types nothing without a command, and exactly agy with one."
-decisions = ["HAND-691", "HAND-692", "HAND-694", "HAND-695", "PHN-817", "APP-1121"]
 sitting = "after this build is installed"
 
 [LIVE-1187]
@@ -5193,40 +5122,13 @@ decisions = ["ORCH-699", "ORCH-700", "ORCH-701", "ORCH-702", "APP-1122", "PHN-81
 sitting = "one sitting, about 10 minutes"
 
 [LIVE-1195]
-title = "Hand a session to FERB: it says what happens in the session, and Take it back stops it"
-area = "hands"
-surface = "FERB.app with this build and a paired phone with its build; a Claude Code or Codex session in Terminal"
-request = "In a terminal, start `codex` or `claude` in a folder. On the phone open it in Sessions, \"…\", Hand to FERB, goal: \"ask it which model it is, then tell me\". Watch the session screen. Then hand it over again with a vague goal (\"chat with it\"). Once FERB is on it, open \"…\" again and tap Take it back. Send a message to a session from the phone and leave the session screen while it answers."
-pass = "Hand to FERB shows Handing it to FERB… then FERB's line in the session (Handed to FERB, FERB is on it, or FERB asked in its chat: the question quoted); FERB types into the session itself; no raw error text anywhere; with FERB on it the menu has Take it back instead of Hand to FERB, and it stops FERB and the chip goes; when FERB's task ends or fails the chip goes by itself; FERB's chat gets no \"… is done and waiting for you.\" lines, the Mac shows one notification for that session at most."
-decisions = ["HAND-702", "HAND-706", "ORCH-703", "APP-1123"]
-sitting = "one sitting, about 10 minutes"
-
-[LIVE-1197]
-title = "Every terminal shows in Sessions, and an agent in Terminal can be typed into and watched"
-area = "hands"
-surface = "FERB.app with this build and a paired phone with its build; Terminal with two tabs, VS Code's terminal"
-request = "Open Terminal with two tabs (one plain shell, one running `claude`), and a VS Code terminal. Open Sessions on the phone. Open the Claude Code one, send it a message, then tap Watch. Open the plain shell's session."
-pass = "All three terminals are listed, each with a name (program · folder · in Terminal / Visual Studio Code), none \"in the background\" with an empty title; the Claude Code session takes your message after the Yes and Watch shows its Terminal window; the plain shell's session shows its window live."
-decisions = ["HAND-704"]
-sitting = "one sitting, about 5 minutes"
-
-[LIVE-1198]
-title = "New session: pick the folder from the Mac's folders, Start shows it is opening"
-area = "phone"
-surface = "A paired phone (Android, then iPhone) with this build and FERB.app"
-request = "Sessions, New session, Another folder…: browse into a folder on the Mac and tap Use this folder. Tap Start."
-pass = "The folder browser shows only folders and the path; the picked folder is selected at the top; Start turns into \"Opening a terminal…\" at once, then the sheet closes and the new terminal's session opens (or the list says it will show in a moment); the new Terminal window is listed."
-decisions = ["PHN-821", "PHN-822"]
-sitting = "one sitting, about 5 minutes"
-
-[LIVE-1199]
-title = "Hand a session to FERB: it drives it round by round, looks things up, asks after 20 rounds"
-area = "hands"
-surface = "FERB.app with this build and a paired phone with its build; a Claude Code or Codex session in Terminal in a disposable folder"
-request = "In a disposable folder start `claude` (or `codex`). On the phone open it in Sessions, \"…\", Hand to FERB, goal: \"get it to write a hello.py that prints the date, run it, and stop when it works\". Watch the session screen, answer the terminal question FERB asks once. Then hand it over again with a goal that names an earlier FERB chat (\"do what we decided in chat about the greeting\") after telling FERB in its chat what you decided. Once it is on it, tap Take it back."
-pass = "No chat turn or plan card in FERB's chat while it drives; the note says each round (n of 20); what FERB typed shows as Sent by FERB; one step per reply (ferb trace: a session_driver.step per round, no planner or checker; ferb stats counts them); the second goal uses what you decided; permission prompts stay yours; Take it back stops it at once; ending by itself, one plain chat line. After 20 rounds: \"I've gone 20 rounds on “…”. Keep going?\""
-decisions = ["HAND-707", "HAND-708", "HAND-709", "ORCH-705", "APP-1124", "PHN-823"]
-sitting = "one sitting, about 15 minutes"
+title = "A plan FERB couldn't repair is said in plain words, never a validator's"
+area = "orchestration"
+surface = "FERB.app with this build, everyday use over a few days"
+request = "Use FERB as usual for a few days; then look through the chat (and `ferb trace` of any task that didn't start)."
+pass = "No chat reply shows a validator's or exception's words (\"validation errors\", \"ValidationError\", \"must be an ISO timestamp\"); a plan that still didn't hold after its repair is said as \"I couldn't start that: the plan I made for it didn't hold together…\", and its problems are in the journal."
+decisions = ["ORCH-703"]
+sitting = "over a few days of use"
 
 [LIVE-1200]
 title = "A long look through a big PDF on Claude runs to the end"
@@ -5235,49 +5137,4 @@ surface = "FERB.app with this build, Claude as the model, a disposable PDF of 20
 request = "Ask FERB to look through that PDF page by page (as pictures, not only its text) and tell you what is on pages 15 to 25."
 pass = "FERB gets through every page and answers; no \"something broke inside FERB\" or \"couldn't run\". If an attempt ever does break inside FERB, it tries again by itself, and only after 3 in a row asks \"Keep trying, or go on with what I have?\" with the reason."
 decisions = ["RUN-473", "ORCH-707"]
-sitting = "one sitting, about 10 minutes"
-
-[LIVE-1205]
-title = "Sessions lists what is really open: terminals (Terminal too), agent apps' windows, Claude, Codex"
-area = "hands"
-surface = "FERB.app and a paired phone with this build; Terminal with two tabs, VS Code running claude in a terminal, a Cursor and a Claude app window, a Codex session"
-request = "Open Sessions on the phone. Then on the Mac open a new Terminal tab and a new Cursor window; on the phone tap New session, pick a disposable folder, no command, Start."
-pass = "Every one of them is a row: each Terminal tab \"zsh · <folder> · in Terminal\", VS Code's claude \"Claude Code · <folder> · in Code\", each Cursor and Claude app window by its title with the app's name under it, Codex by its thread; nothing open is missing and nothing is listed twice except an app's window beside the terminals inside it. The new Terminal tab, the new Cursor window and the New session terminal show within a few seconds. No row shows text read from another app."
-decisions = ["HAND-710", "HAND-711", "HAND-715"]
-sitting = "one sitting, about 5 minutes"
-
-[LIVE-1206]
-title = "Watch is universal: a window on another desktop or minimized is brought onto the screen and shown"
-area = "hands"
-surface = "A paired phone with this build and FERB.app; a Cursor (or VS Code) window moved to another desktop, a Terminal window minimized to the Dock"
-request = "With another desktop in front on the Mac, open the Cursor window's session on the phone. Then open the minimized Terminal window's session. Then, while the second Watch stays open, swipe to another desktop on the Mac."
-pass = "Opening each Watch switches the Mac to the window's desktop (or brings it back from the Dock) and the phone shows it live within a couple of seconds; nothing is clicked or typed. With the Watch left open, the Mac is not pulled back after you swipe away: the phone says the window is on another desktop."
-decisions = ["HAND-710", "HAND-713"]
-sitting = "one sitting, about 5 minutes"
-
-[LIVE-1207]
-title = "Type here: words typed from the phone into a watched window (Cursor, Claude app, plain terminal)"
-area = "hands"
-surface = "A paired phone with this build and FERB.app; Cursor with its agent chat open, the Claude app, a VS Code terminal running zsh, a disposable folder"
-request = "Open Cursor's window session: type \"say hello\" in Type here and send; say Yes once. Do the same in the Claude app's window and in VS Code's zsh terminal (\"echo hi\"). Then click into another app's window on the Mac right as you send once more."
-pass = "Each send asks once (the exact words), then the window comes up, the words and Return go into what has the keyboard in that window and you see them in the live picture; the bubble clears at the Mac's answer. When another window took the keyboard, nothing is typed and the phone says why (Not sent.). No question beyond the first Yes."
-decisions = ["HAND-710", "HAND-712"]
-sitting = "one sitting, about 10 minutes"
-
-[LIVE-1208]
-title = "Exact routes stay exact: Claude Code in VS Code and Terminal, Codex, Claude Code in the Claude app"
-area = "hands"
-surface = "FERB.app and a paired phone with this build; Claude Code in VS Code's terminal and in a Terminal tab, Codex (TUI or app), a Claude Code session in the Claude app"
-request = "Send one short message to each from the phone. For the Claude app's Claude Code session, open it and look at its conversation first."
-pass = "Claude Code in VS Code and in Terminal and Codex take the message with their conversation shown from their own record and the message appears there; Claude Code run by the Claude app shows its conversation (exact) and its send goes in through the Claude app's window (you see it if you Watch); none says \"No app shows this session\"."
-decisions = ["HAND-710", "HAND-712", "HAND-715"]
-sitting = "one sitting, about 10 minutes"
-
-[LIVE-1209]
-title = "Hand to FERB only on Claude Code and Codex; a stuck step asks Keep trying in the session"
-area = "hands"
-surface = "A paired phone with this build and FERB.app; a Claude Code session in a disposable folder, a plain terminal session"
-request = "Open the plain terminal's session: look for Hand to FERB. Hand the Claude Code session to FERB with a goal that makes it work in an app that can't be done (\"open the app NoSuchApp and make it say hi, then tell claude it's done\")."
-pass = "The plain terminal (and any app window) has no Hand to FERB. On the Claude Code session, when FERB's guard stops a step the session shows FERB's card \"… so FERB stopped to ask you. Keep trying?\" with Keep trying and Stop (and one Mac banner); Keep trying runs it again, Stop gives the session back with no chat line."
-decisions = ["HAND-710", "HAND-714"]
 sitting = "one sitting, about 10 minutes"

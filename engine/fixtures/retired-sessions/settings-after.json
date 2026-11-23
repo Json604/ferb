@@ -1,0 +1,43 @@
+{
+  "model": "opus",
+  "env": {
+    "GREETING": "grüß dich — ✓"
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/bin/check-bash.sh",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/ferbish agent-hook claude Stop"
+          },
+          {
+            "type": "command",
+            "command": "say \"done\""
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)"
+    ],
+    "deny": [],
+    "additionalDirectories": {}
+  },
+  "cleanupPeriodDays": 30,
+  "includeCoAuthoredBy": false
+}

@@ -20,9 +20,6 @@ fn account(v: &Values) -> String {
 }
 
 fn terminal(v: &Values) -> R<String> {
-    if v.has("chat") {
-        return Ok(format!("send a message in {}'s chat", v.req("app")?));
-    }
     let mut where_ = (if v.has("label") {
         format!("the terminal {}", v.opt("label"))
     } else {
@@ -321,17 +318,6 @@ fn part(n: &Need, alongside: &[&str]) -> R<String> {
             v.req("browser")?,
             v.req("name")?,
             account(v)
-        ),
-        // decision: HAND-675 — typing into a chat app's message box is said as that, never as a terminal
-        TERMINAL_INPUT if v.has("chat") => format!(
-            "this would send a message in {}'s chat. FERB asks before it first types into an app's chat in a task, and \
-             this Yes {}",
-            v.req("app")?,
-            if v.has("wide") {
-                format!("lets FERB type in {} for the rest of this task", v.req("app")?)
-            } else {
-                "covers this one message only".to_string()
-            }
         ),
         TERMINAL_INPUT if v.has("wide") => format!(
             "this would {}; FERB counts it a terminal because it is {}. FERB asks before it first types into a \
@@ -814,23 +800,6 @@ fn terminal_card(v: &Values) -> Option<Card> {
     } else {
         "the app"
     };
-    // decision: HAND-675 — a chat app's message box: the question names the app, never a terminal
-    if v.has("chat") {
-        return Some(c(
-            format!("Send this to {app}?"),
-            format!(
-                "FERB types it into {app}'s message box and sends it, bringing {app} to the front. {}",
-                if v.has("wide") {
-                    format!("Yes lets FERB type in {app} for the rest of this task.")
-                } else {
-                    "Yes covers only this message.".to_string()
-                }
-            ),
-            bare(v.opt("text")),
-            "Send it",
-            "Don't send",
-        ));
-    }
     let (where_, which_) = (in_terminal(v), which(v));
     if v.has("runs") {
         let mut pressed = if v.has("menu") {

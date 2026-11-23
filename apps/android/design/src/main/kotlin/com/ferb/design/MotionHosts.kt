@@ -179,19 +179,18 @@ fun Modifier.inert(): Modifier = pointerInput(Unit) {
 }
 
 /**
- * A page drawn over another page (a full-screen sheet: a coding session, Watch live, the Mac's camera): every touch on
- * it stays on it, on its empty places and margins too, and none reaches the page under it. Its own controls still take
- * theirs. Without it a tap beside a session's message box went through to the Sessions tab's New session under it
- * (owner 2026-11-23, kb PHN-815).
+ * A page drawn over another page (a full-screen sheet: Watch live, the Mac's camera): every touch on it stays on it,
+ * on its empty places and margins too, and none reaches the page under it. Its own controls still take theirs (owner
+ * 2026-11-23, kb PHN-826).
  */
 fun Modifier.coversPage(): Modifier = pointerInput(Unit) {
     awaitPointerEventScope { while (true) awaitPointerEvent(PointerEventPass.Final) }
 }
 
 /**
- * For a page shown by a [MotionKind.SHEET] switch that is not a [com.ferb.design.components.Sheet] (Watch live, a
- * coding session): it rises and fades in, fades out, takes no touch while going, and while shown keeps every touch on
- * it from the page under it ([coversPage]).
+ * For a page shown by a [MotionKind.SHEET] switch that is not a [com.ferb.design.components.Sheet] (Watch live): it
+ * rises and fades in, fades out, takes no touch while going, and while shown keeps every touch on it from the page
+ * under it ([coversPage]).
  */
 @Composable
 fun Modifier.presenceFade(): Modifier {

@@ -63,9 +63,8 @@ struct EarlierEntries: Equatable {
     var loading = false
 }
 
-/// The top of a day while the daemon's page of earlier entries is on its way (APP-806): a small loader. A coding
-/// session's earlier items show it too (PHN-813).
-struct EarlierLoader: View {
+/// The top of a day while the daemon's page of earlier entries is on its way (APP-806): a small loader.
+private struct EarlierLoader: View {
     var body: some View {
         HStack {
             Spacer()
@@ -204,7 +203,7 @@ struct ConversationTranscript: View {
     @MainActor
     private static func content(_ row: TranscriptRow, model: NotchModel) -> AnyView {
         switch row {
-        case .top, .bottom, .item: return AnyView(Color.clear)         // .item: another conversation's row (PHN-813)
+        case .top, .bottom: return AnyView(Color.clear)
         case .loader: return AnyView(EarlierLoader())
         case let .question(question):
             return AnyView(ApprovalView(model: model, approval: question)

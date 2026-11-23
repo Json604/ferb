@@ -2042,6 +2042,17 @@ impl Installer {
         for f in files {
             done.remove(&f);
         }
+        // decision: HAND-718 — the archived sessions' hooks leave Claude Code's settings (only FERB's entries)
+        let claude = self.user_home.join(".claude").join("settings.json");
+        match crate::claude_hooks::strip_file(&claude) {
+            Ok(true) => done
+                .removed
+                .push(format!("FERB's hooks in {}", claude.to_string_lossy())),
+            Ok(false) => {}
+            Err(why) => done
+                .failed
+                .push((claude.to_string_lossy().into_owned(), why)),
+        }
         if purge {
             self.check_purge_target()?;
             for (service, count) in self.remove_keychain_items() {

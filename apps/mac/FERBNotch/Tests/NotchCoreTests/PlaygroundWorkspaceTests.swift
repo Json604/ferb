@@ -130,68 +130,6 @@ final class PlaygroundWorkspaceTests: XCTestCase {
     }
 
     // decision: APP-619
-    func testSessionsAreThreeSampleSessionsAnsweredInMemory() async throws {
-        let services = try make()
-        try services.daemon.workspace.prepare()
-        let store = FERBWindowStore(rpc: services.daemon)
-        await store.refresh(.sessions)
-        let model = store.sessions
-        XCTAssertEqual(model.enabled, true)
-        XCTAssertEqual(model.sessions.map(\.agent), ["claude_code", "codex", "app_chat"])
-        // HAND-710: Cursor's window is watched: no conversation, its row names the window and the app alone
-        let cursor = try XCTUnwrap(model.sessions.last)
-        XCTAssertTrue(cursor.watch)
-        XCTAssertEqual(cursor.heading, "site — studio.css")
-        XCTAssertEqual(cursor.whereLine, "Cursor")
-        await model.open(cursor)
-        XCTAssertTrue(model.items.isEmpty)
-        model.close()
-        let codex = try XCTUnwrap(model.sessions[1])
-        await model.open(codex)
-        let card = try XCTUnwrap(model.cards.first)
-        await model.answer(card, try XCTUnwrap(card.choices.first))
-        XCTAssertTrue(model.cards.isEmpty)
-        model.draft = "Thanks, carry on"
-        await model.send()
-        XCTAssertEqual(model.confirm?.yes.detail, "Thanks, carry on")
-        await model.confirmYes()
-        XCTAssertEqual(model.items.last?.text, "Thanks, carry on")
-        XCTAssertEqual(model.openSession?.yours, true)
-        await model.interrupt()
-        XCTAssertEqual(model.items.last?.kind, "interrupted")
-        await model.release()
-        XCTAssertEqual(model.openSession?.yours, false)
-        let handed = await model.delegate(goal: "Keep going until the tests pass")
-        XCTAssertTrue(handed)
-        XCTAssertEqual(model.openSession?.withFerb, true)
-        XCTAssertEqual(model.openSession?.ferbNote, "FERB is on it: “Keep going until the tests pass”")
-        // Take it back: the task stops and the session is his again
-        await model.takeItBack()
-        XCTAssertEqual(model.openSession?.withFerb, false)
-        XCTAssertEqual(model.openSession?.ferbNote, "FERB stopped. The session is yours again.")
-        XCTAssertNil(model.takingBack)
-        await model.prepareNew()
-        XCTAssertFalse(model.folders.isEmpty)
-        // HAND-695: with a command, its exact words first, then the new terminal
-        let planned = await model.planStart(folder: model.folders[0], command: "agy")
-        XCTAssertEqual(planned, .asks)
-        XCTAssertEqual(model.confirm?.yes.detail, "agy")
-        let opened = await model.confirmYes()
-        XCTAssertTrue(opened)
-        XCTAssertEqual(model.sessions.count, 4)
-        XCTAssertEqual(model.openID, model.sessions.first?.id)              // the new terminal opens
-        XCTAssertEqual(model.sessions.first?.whereLine, "agy · site · in Terminal")
-        let watch = try await services.daemon.call("tasks.preview", params: ["session": codex.id])
-        XCTAssertFalse((watch["image"] as? String ?? "").isEmpty)
-        let removed = await SessionsModel.removeHooks(rpc: services.daemon)
-        XCTAssertTrue(removed)
-        await store.set("sessions.enabled", .bool(false))
-        await model.load()
-        XCTAssertEqual(model.enabled, false)
-        XCTAssertNil(model.problem)
-    }
-
-    // decision: APP-619
     func testUnknownCallsNeverReportSuccess() async throws {
         let services = try make()
         do {

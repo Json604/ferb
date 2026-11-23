@@ -1524,12 +1524,11 @@ paths = ["engine/crates/ferb-policy/src/confirm.rs::listed_values", "engine/crat
 title = "The owner's typing into a session asks once with the exact text; the Yes covers it from there"
 by = "agent"
 date = 2026-11-22
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 rule = "Rule 6 and GATE-585 for HAND-651. The owner's first send to a session from FERB.app or a phone shows his exact words and asks once (sessions.send answers needs_yes); his Yes (sessions.control, a phone's fingerprint signed over the session and text, lab LAB-6) lets that surface send, answer and interrupt there until he lets go, the session ends, that phone locks (phone.locked) or FERB restarts. Each surface asks for itself. FERB's own task asks by the gateway's terminal question (GATE-585)."
 why = "His own words typed from his surface are his input (rule 9); the one Yes keeps the composer usable while typing into a terminal is never silent. No idle timer: that number is the owner's (rule 18, T-1286)."
 evidence = "ferb-daemon tests/sessions.rs the_owner_s_first_send_asks_once_then_types_and_proves_delivery (asked, refused before, sent after, the phone's own, ended by the lock)."
-paths = ["engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.needs_yes", "engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.take_control", "engine/crates/ferb-daemon/src/phone/gate.rs::lock_phone"]
-live = ["LIVE-1169", "LIVE-1170"]
 
 [GATE-623]
 title = "The 30-minute don't-ask window never covers taking the owner's screen or keyboard"

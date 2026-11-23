@@ -56,7 +56,6 @@ class ScreenGuardTest {
         Sheet.Help, Sheet.StopAll, Sheet.Settings, Sheet.Days("2026-11-23"), Sheet.Live("t-1"), Sheet.Task("t-1", "t-1.s1"),
         Sheet.Sites("r1"), Sheet.Voice(SpeechKind.ON_DEVICE), Sheet.Location("loc-1"), Sheet.City,
         Sheet.CantNotify(NotifyBlocker.entries.first()), Sheet.Connection, Sheet.Insomnia, Sheet.Camera,
-        Sheet.Session("claude:s1"), Sheet.SessionLive("claude:s1"), Sheet.NewSession,
     )
 
     // decision: PHN-810, PHN-793, PHN-794, PHN-420, PHN-110
@@ -72,7 +71,7 @@ class ScreenGuardTest {
 
     // decision: PHN-810, PHN-811, PHN-110
     @Test
-    fun every_sheet_watch_live_the_short_view_the_camera_and_a_session_s_watch_follow_the_switch() {
+    fun every_sheet_watch_live_the_short_view_and_the_camera_follow_the_switch() {
         val vm = vm()
         for (s in everySheet) {
             vm.show(s)
@@ -82,7 +81,7 @@ class ScreenGuardTest {
             }
         }
         // a hidden answer's box over any of them keeps the window out with the switch off
-        vm.show(Sheet.SessionLive("claude:s1"))
+        vm.show(Sheet.Live("t-1"))
         vm.hiddenShown("ap-1", true)
         assertEquals(true, secureAfter(block = false, mustSecure = vm.mustSecure.value))
         vm.hiddenShown("ap-1", false)

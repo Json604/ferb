@@ -1,9 +1,9 @@
 {
   "counts": {
-    "plain": 59,
-    "private": 49,
-    "sensitive": 56,
-    "never": 30
+    "plain": 58,
+    "private": 44,
+    "sensitive": 52,
+    "never": 28
   },
   "methods": {
     "about.get": {
@@ -1412,114 +1412,6 @@
       "refused_params": [],
       "owner_to_confirm": false,
       "why": "whether FERB watches the Mac"
-    },
-    "sessions.answer": {
-      "class": "sensitive",
-      "locked": "refused",
-      "stream": false,
-      "on_mac_screen": false,
-      "refused_params": [],
-      "owner_to_confirm": false,
-      "why": "answers a coding agent's permission prompt or question for the owner (HAND-663)"
-    },
-    "sessions.control": {
-      "class": "sensitive",
-      "locked": "refused",
-      "stream": false,
-      "on_mac_screen": false,
-      "refused_params": [],
-      "owner_to_confirm": false,
-      "why": "types the owner's words into one of his coding sessions from now on (rule 6: one Yes per session, GATE-622)"
-    },
-    "sessions.delegate": {
-      "class": "sensitive",
-      "locked": "refused",
-      "stream": false,
-      "on_mac_screen": false,
-      "refused_params": [],
-      "owner_to_confirm": false,
-      "why": "hands a coding session to FERB to keep going (ORCH-687)"
-    },
-    "sessions.hook": {
-      "class": "never",
-      "locked": "refused",
-      "stream": false,
-      "on_mac_screen": false,
-      "refused_params": [],
-      "owner_to_confirm": false,
-      "why": "is Claude Code's own report through FERB's hook on the Mac; a phone never speaks for the agent"
-    },
-    "sessions.interrupt": {
-      "class": "private",
-      "locked": "refused",
-      "stream": false,
-      "on_mac_screen": false,
-      "refused_params": [],
-      "owner_to_confirm": false,
-      "why": "stops the agent's turn in a session he controls from this phone"
-    },
-    "sessions.list": {
-      "class": "private",
-      "locked": "refused",
-      "stream": false,
-      "on_mac_screen": false,
-      "refused_params": [],
-      "owner_to_confirm": false,
-      "why": "the owner's coding sessions on the Mac: names, folders, states"
-    },
-    "sessions.prepare": {
-      "class": "private",
-      "locked": "refused",
-      "stream": false,
-      "on_mac_screen": false,
-      "refused_params": [],
-      "owner_to_confirm": false,
-      "why": "the folders a new session may start in, and the exact command it would run"
-    },
-    "sessions.release": {
-      "class": "plain",
-      "locked": "allowed",
-      "stream": false,
-      "on_mac_screen": false,
-      "refused_params": [],
-      "owner_to_confirm": false,
-      "why": "ends this phone's control of a session: it only takes something away"
-    },
-    "sessions.remove_hooks": {
-      "class": "never",
-      "locked": "refused",
-      "stream": false,
-      "on_mac_screen": false,
-      "refused_params": [],
-      "owner_to_confirm": false,
-      "why": "is a step of FERB.app's Uninstall; from a phone, the Settings switch turns sessions off"
-    },
-    "sessions.send": {
-      "class": "private",
-      "locked": "refused",
-      "stream": false,
-      "on_mac_screen": false,
-      "refused_params": [],
-      "owner_to_confirm": false,
-      "why": "the owner's words into a session he controls from this phone (its control took the fingerprint)"
-    },
-    "sessions.start": {
-      "class": "sensitive",
-      "locked": "refused",
-      "stream": false,
-      "on_mac_screen": false,
-      "refused_params": [],
-      "owner_to_confirm": false,
-      "why": "types a command into a new Terminal window to start a coding session (HAND-665)"
-    },
-    "sessions.timeline": {
-      "class": "private",
-      "locked": "refused",
-      "stream": false,
-      "on_mac_screen": false,
-      "refused_params": [],
-      "owner_to_confirm": false,
-      "why": "a coding session's conversation, redacted (HAND-661)"
     },
     "settings.get": {
       "class": "private",

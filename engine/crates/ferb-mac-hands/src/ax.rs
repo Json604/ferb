@@ -798,36 +798,6 @@ impl<S: AxSource> Ax<S> {
         self.src.perform(&win, "AXRaise") == 0
     }
 
-    /// HAND-713: the window at these bounds back from the Dock when minimized (AXMinimized off), then raised and made
-    /// main. False when there isn't exactly one such window or it stayed minimized.
-    pub fn show_window(&self, pid: i32, bounds: Rect) -> bool {
-        let matches: Vec<El> = self
-            .ax_windows(pid)
-            .into_iter()
-            .filter(|w| {
-                self.frame(Some(w))
-                    .is_some_and(|f| Self::near(&f, &bounds, 2.0))
-            })
-            .collect();
-        let [win] = matches.as_slice() else {
-            return false;
-        };
-        if self.attr(win, "AXMinimized").bool_or(None) == Some(true) {
-            self.src.set(win, "AXMinimized", AxValue::Bool(false));
-            if self.attr(win, "AXMinimized").bool_or(None) == Some(true) {
-                return false;
-            }
-        }
-        self.src.set(win, "AXMain", AxValue::Bool(true));
-        self.src.perform(win, "AXRaise") == 0
-    }
-
-    /// HAND-712: the frame of the app's focused window (the one typed keys reach), None when it has none.
-    pub fn focused_window_frame(&self, pid: i32) -> Option<Rect> {
-        let win = self.attr(&self.src.app(pid), "AXFocusedWindow").as_el()?;
-        self.frame(Some(&win))
-    }
-
     pub fn element_window(&self, el: &El) -> Option<El> {
         if self.role_of(el) == "AXWindow" {
             Some(el.clone())
@@ -1985,12 +1955,4 @@ impl NoAnswer {
 pub fn center(n: &AxNode) -> (f64, f64) {
     let (x, y, w, h) = n.rect;
     (x + w / 2.0, y + h / 2.0)
-}
-
-/// HAND-712: whether two frames are the same window's (within two points, as windows are matched here).
-pub fn same_frame(a: &Rect, b: &Rect) -> bool {
-    (a.0 - b.0).abs() <= 2.0
-        && (a.1 - b.1).abs() <= 2.0
-        && (a.2 - b.2).abs() <= 2.0
-        && (a.3 - b.3).abs() <= 2.0
 }

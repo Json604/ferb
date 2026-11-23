@@ -64,7 +64,7 @@ class BarLayoutTest {
     @Test
     fun a_narrow_phone_folds_the_two_round_buttons_into_the_menu() {
         val name = chatName(1f)
-        for (w in listOf(320, 360)) {
+        for (w in listOf(300, 320)) {
             val l = barLayout(room(w), name, buttons = 2)
             assertEquals("at $w", BarFit.FOLDED, l.fit)
             assertTrue(l.menu && l.showName)
@@ -81,14 +81,14 @@ class BarLayoutTest {
     fun a_big_side_cutout_folds() {
         val name = chatName(1f)
         assertEquals(BarFit.NORMAL, barLayout(room(393), name, 2).fit)
-        assertEquals(BarFit.FOLDED, barLayout(room(393, start = 60), name, 2).fit)
+        assertEquals(BarFit.FOLDED, barLayout(room(393, start = 80), name, 2).fit)
     }
 
     // decision: PHN-820
     @Test
     fun too_tight_even_folded_drops_the_chosen_tabs_name() {
         val name = chatName(1f)
-        val l = barLayout(room(300, start = 20), name, buttons = 2)
+        val l = barLayout(room(280, start = 20), name, buttons = 2)
         assertEquals(BarFit.CONTRACTED, l.fit)
         assertTrue(l.menu && !l.showName)
         // the profile button alone never folds: it goes straight to the icon-only tab
@@ -103,7 +103,7 @@ class BarLayoutTest {
         val (plain, big, bigger) = chatNames(1f, 1.6f, 2f)
         assertTrue("the name grows with the font", bigger > big && big > plain)
         assertEquals(BarFit.NORMAL, barLayout(room(412), big, 2).fit)
-        assertEquals(BarFit.FOLDED, barLayout(room(375), big, 2).fit)
-        assertEquals(BarFit.CONTRACTED, barLayout(room(320), bigger, 2).fit)
+        assertEquals(BarFit.FOLDED, barLayout(room(320), big, 2).fit)
+        assertEquals(BarFit.CONTRACTED, barLayout(room(300), bigger, 2).fit)
     }
 }

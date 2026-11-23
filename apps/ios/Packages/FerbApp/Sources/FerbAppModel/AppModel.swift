@@ -39,21 +39,6 @@ public enum AppSheet: Equatable, Sendable {
     case insomnia
     /// Show me (APP-983): the Mac's camera while this shows, out of screenshots and captures.
     case camera
-    /// One of the owner's coding sessions on the Mac (kb HAND-651): its conversation, the agent's questions, the message
-    /// box and its buttons; out of captures (his conversation).
-    case session(id: String)
-    /// The Yes before FERB types into a session or starts one (rule 6, GATE-622): the Mac's question with the exact text;
-    /// what is asked is `coding.asking`.
-    case sessionYes
-    /// HAND-683: FERB can't tell which terminal is the session's: the ones it can see, for the owner to choose
-    /// (`coding.open?.pick`).
-    case sessionPick
-    /// Hand a session to FERB with a goal (ORCH-687).
-    case sessionHand(id: String)
-    /// A new session: a terminal; the folder and an optional command (HAND-691).
-    case sessionNew
-    /// A session's window on the Mac, live (Watch live's rules, PHN-454).
-    case sessionWatch(id: String)
 }
 
 /// A short line for the owner: a catalog key (Android's string name) and its arguments (the Mac's own words, when
@@ -329,8 +314,6 @@ public final class AppModel {
     /// The message box's files and the messages that carry files (kb PHN-690, PHN-691); kept on the phone, off main.
     public let outgoing: Outgoing
     public let live: LiveWatch
-    /// The owner's coding sessions (kb HAND-651): the list, the one open, what waits for his Yes.
-    public let coding = CodingSessions()
     /// The owner's review of what an import brought in (kb MEM-460): the list on its question's card.
     public let review = ImportReview()
     /// Show me (APP-983): the Mac's camera, pulled only while its view shows.
@@ -421,7 +404,7 @@ public final class AppModel {
 
     /// A screen that must stay out of screen captures whatever the owner's switch says: only a private answer being
     /// typed (PHN-110). Every other page, sheet and picture follows his Block screenshots switch, Watch live, a task's
-    /// short view, the Mac's camera and a session's window included (owner 2026-11-23, kb PHN-810, PHN-811). The shell
+    /// short view and the Mac's camera included (owner 2026-11-23, kb PHN-810, PHN-811). The shell
     /// hides the app's content while the screen is captured then.
     public var mustSecure: Bool { !hiddenBoxes.isEmpty }
 
@@ -635,11 +618,8 @@ public final class AppModel {
                 thumbnails.show([])
                 switch sheet {
                 case .live, .task, .settings, .days, .location, .camera, .insomnia: sheet = nil
-                // a coding session's conversation and its list are private (kb HAND-651)
-                case .session, .sessionYes, .sessionPick, .sessionHand, .sessionNew, .sessionWatch: sheet = nil
                 default: break
                 }
-                coding.locked()
                 review.locked()
                 transfers.locked()
                 outgoing.locked()
@@ -674,8 +654,6 @@ public final class AppModel {
                 // the Mac's camera only while he looks at it (APP-983)
                 if camera.showing { closeCamera() }
             } else {
-                // a session FERB reads no words of shows its window again (HAND-710)
-                watchWindowIfShown()
                 transfers.dropKeyPlaceFiles(openedKeyFiles)
                 openedKeyFiles = []
                 let local = self.local, at = now()
@@ -1956,8 +1934,6 @@ public final class AppModel {
     public func closeLive() {
         live.stop()
         if case .live = sheet { sheet = nil }
-        // a session's window goes back to the session (kb HAND-651)
-        if case .sessionWatch(let id) = sheet { sheet = .session(id: id) }
     }
 
     // ---- FERB's settings (PHN-404, PHN-112, PHN-133) ----------------------------------------------------------------
@@ -2038,7 +2014,6 @@ public final class AppModel {
         switch t {
         case .tasks: loadTasks()
         case .files: filesOpened()
-        case .sessions: loadSessions()
         case .chat: markRead()
         default: break
         }
@@ -2070,21 +2045,11 @@ public final class AppModel {
     }
 
     public func show(_ s: AppSheet?) {
-        // HAND-710: the screen of a session FERB reads no words of shows its window live too
-        func watching(_ x: AppSheet?) -> Bool {
-            switch x {
-            case .live, .task, .sessionWatch: return true
-            case .session(let id): return coding.open?.id == id && coding.open?.watch == true
-            default: return false
-            }
-        }
+        func watching(_ x: AppSheet?) -> Bool { switch x { case .live, .task: return true; default: return false } }
         if watching(sheet) && !watching(s) { live.stop() }
         if sheet == .camera && s != .camera { camera.stop() }
-        // leaving a coding session's sheets: its conversation goes (nothing polls it any more)
-        if !Self.isSessionSheet(s) { coding.closed() }
         sheet = s
         if s == nil && pendingLocation != nil { showPending() }
-        watchWindowIfShown()
     }
 
     public func note(_ n: Note?) { ui.note = n }
@@ -2135,7 +2100,6 @@ public final class AppModel {
                 ui.files = FilesUi()
                 ui.settings = nil
                 ui.status = nil
-                coding.locked()
                 review.locked()
                 refreshProfile()
             case .failed(let e):
@@ -2329,7 +2293,6 @@ public final class AppModel {
         case .chat: "chat"
         case .tasks: "tasks"
         case .files: "files"
-        case .sessions: "sessions"
         case .mac: "mac"
         }
     }

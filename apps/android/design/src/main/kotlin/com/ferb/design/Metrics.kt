@@ -53,10 +53,10 @@ object Phone {
     val rowGap = 14.dp
 
     /**
-     * TopBar (PHN-801, the owner: "i want teh names", "i like b"): a black pill of five tabs, 42 high inside a 4 margin.
+     * TopBar (PHN-801, the owner: "i want teh names", "i like b"): a black pill of four tabs, 42 high inside a 4 margin.
      * The chosen tab shows its icon and name (padding 12, gap 6); the others share what is left beside the profile
-     * button, the lab's 46 at most and never under 36: about 41 on a 360-wide phone, 44 at 375, 46 from about 393. The
-     * connection's state is a badge on the profile button (no second round button). The same on iPhone.
+     * button, the lab's 46 at most and never under 36. The connection's state is a badge on the profile button (no second
+     * round button). The same on iPhone.
      */
     val tabHeight = 42.dp
     val tabMinWidth = 46.dp

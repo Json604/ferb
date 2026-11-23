@@ -41,8 +41,6 @@ pub mod chat_log;
 pub mod conversations;
 pub mod data_delete;
 pub mod data_rpc;
-// the session driver's task: one fresh worker step per agent reply, no planner or checker (HAND-707)
-pub mod driver;
 pub mod entries;
 pub mod entries_rpc;
 pub mod fold;

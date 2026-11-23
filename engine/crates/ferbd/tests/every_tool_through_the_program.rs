@@ -108,11 +108,6 @@ fn calls() -> Vec<(&'static str, Value, Expect, &'static str)> {
         ("mac.pointer", json!({"app": "com.example.none", "shot": "s1", "x": 1, "y": 1, "action": "click"}), NotCalled(READS_THE_MAC), "mac_input"),
         ("mac.record", json!({"app": "com.example.none", "shot": "s1", "path": "rec.mp4"}), NotCalled(READS_THE_MAC), "write_file"),
         ("mac.clipboard", json!({"text": "invented"}), Reaches("without the Mac's own parts"), "mac_input"),
-        // ORCH-687: the owner's coding sessions: off until his Yes, so each is refused by the tool itself
-        ("agent_session.list", json!({}), Reaches("hasn't turned on"), "read"),
-        ("agent_session.read", json!({"session": "claude:s1"}), Reaches("hasn't turned on"), "read"),
-        ("agent_session.send", json!({"session": "claude:s1", "text": "hi"}), Reaches("hasn't turned on"), "mac_input"),
-        ("agent_session.answer", json!({"session": "claude:s1", "card": "c", "choice": "x"}), Reaches("hasn't turned on"), "mac_input"),
         ("audio.listen", json!({"seconds": 1, "app": "com.example.none"}), NotCalled(READS_THE_MAC), "read"),
         ("shell.run", json!({"command": "echo made-by-the-test"}), Works, "run_shell"),
         ("shell.start", json!({"command": "sleep 30"}), Works, "run_shell"),

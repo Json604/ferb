@@ -4654,11 +4654,10 @@ paths = ["apps/mac/FERBNotch/Sources/NotchCore/TurnOff.swift", "apps/mac/FERBNot
 title = "FERB.app's Sessions page: the owner's coding sessions, read, answered, sent to, handed over, watched"
 by = "agent"
 date = 2026-11-22
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 rule = "For HAND-651. A Sessions section in FERB's window (after Tasks): off words and Turn on; each session's agent, title or folder, \"<folder> · in <app>\", state and \"FERB is on it\"; one session's conversation (his bubbles right, the agent left, tool rows monospace), cards with their choices, a composer (or why nothing can deliver), Watch, Hand to FERB, Stop its turn, Stop controlling, New session. Every Yes shows the daemon's needs_yes words and exact text. Settings → Privacy: \"Your coding sessions\" switch. Uninstall calls sessions.remove_hooks."
 evidence = "NotchCoreTests SessionsTests (16) and PlaygroundWorkspaceTests' sessions flow, on ScriptedRPC; the page's layout in every state."
-paths = ["apps/mac/FERBNotch/Sources/FERBNotch/SessionsPage.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SessionsModel.swift", "apps/mac/FERBNotch/Sources/NotchCore/SessionRows.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift"]
-live = ["LIVE-1168", "LIVE-1170", "LIVE-1172"]
 
 [APP-1113]
 title = "A stop's end that another message's reply says is the task's turn's state only"
@@ -4685,21 +4684,20 @@ paths = ["apps/mac/FERBNotch/Sources/NotchCore/ConversationArchive.swift", "apps
 title = "FERB.app's Sessions page: a send shows at once, and the conversation is the chat's own list"
 by = "agent"
 date = 2026-11-23
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 rule = "For PHN-812, PHN-813, PHN-816, APP-1112. SessionsModel.outgoing: Send empties the box and shows his words sending (dimmed, spinner, \"Sending…\"), then sent until the session's record has his message, or not sent (\"Not sent.\", the daemon's words, Try again); Cancel and Don't send put them back. The conversation is the chat's TranscriptList (an item row) under its follow rules: pinned only at the bottom, \"New message\", earlier items on scroll, the chat's text surface. A skeleton and no problem line until the first read answers."
 why = "FERB.app's page had no not-sent state (a refusal was only a red line) and its own plain list."
 evidence = "FERBNotch SessionsSendingTests (8), SessionsOpeningTests (3) and SessionsTests; swift test 961, 0 failures."
-paths = ["apps/mac/FERBNotch/Sources/FERBNotch/SessionsModel.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SessionTranscript.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SessionsPage.swift", "apps/mac/FERBNotch/Sources/FERBNotch/TranscriptList.swift"]
 
 [APP-1121]
 title = "FERB.app's Sessions: each terminal by program, folder and app; New session is a folder and a command"
 by = "agent"
 date = 2026-11-23
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 rule = "For HAND-691, HAND-697, APP-1112. The page and its Settings switch say \"Your terminal sessions\"; a row names a terminal by its program, its heading is its title, else its window's words, else its folder, and its line \"<program> · <folder> · in <app>\". One quiet line per chat app open with no chat. New session: the folder (the daemon's list, or Choose… to browse) and Command to run (optional); no agent picker; a command is shown exactly before it is typed; none opens it at once."
 evidence = "NotchCoreTests SessionsTests testANewSessionIsATerminalAndOnlyItsCommandIsAskedAbout, testATerminalRowSaysItsProgramFolderAndAppAndAnAppWithNoChatSaysSo; PlaygroundWorkspaceTests' sessions flow."
-paths = ["apps/mac/FERBNotch/Sources/FERBNotch/SessionsPage.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SessionsModel.swift", "apps/mac/FERBNotch/Sources/NotchCore/SessionRows.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift"]
-live = ["LIVE-1192"]
 
 [APP-1122]
 title = "The temporary chat's dashed bubble in the notch and window headers, kept only in memory"
@@ -4715,21 +4713,19 @@ live = ["LIVE-1194"]
 title = "FERB.app's Sessions page: Take it back, FERB's note, a reply's parts, and Start's pending state"
 by = "agent"
 date = 2026-11-23
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 rule = "For HAND-702, HAND-703, HAND-705, PHN-822. FERB.app has no \"…\" menu on a session: Take it back (task.stop on its delegate), a disabled \"FERB is starting…\" while a hand-over has no task, and Hand to FERB sit in its header. ferb_note is one line with FERB's mark. A reply with parts is one block: text through MarkdownDocument, thinking and tool collapsible, meta under it; terminal text fixed-width. Row titles fall back to the agent's name. Start and Hand to FERB show pending and the refusal on their sheets."
 evidence = "apps/mac/FERBNotch Tests/NotchCoreTests/SessionsHandOverTests.swift (14) and SessionsTests.swift."
-paths = ["apps/mac/FERBNotch/Sources/FERBNotch/SessionsPage.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SessionsModel.swift", "apps/mac/FERBNotch/Sources/NotchCore/SessionRows.swift"]
-live = ["LIVE-1195"]
 
 [APP-1124]
 title = "FERB.app's session: FERB's keep-going question and what FERB sent"
 by = "agent"
 date = 2026-11-23
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 rule = "For HAND-708, HAND-709. A card of kind ferb is FERB's own question (\"FERB asks\", its question and choices) drawn with the agent's cards and answered with sessions.answer. An item with ferb is drawn on the owner's side with \"Sent by FERB\" over the bubble."
 evidence = "apps/mac/FERBNotch Tests/NotchCoreTests/SessionsHandOverTests.swift testFERBsKeepGoingQuestionShowsInTheSessionAndKeepGoingAnswersIt, testAMessageFERBSentIsMarkedAsFERBs."
-paths = ["apps/mac/FERBNotch/Sources/NotchCore/SessionRows.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SessionsPage.swift"]
-live = ["LIVE-1199"]
 
 [APP-1125]
 title = "The temporary chat's work row counts only its own tasks"

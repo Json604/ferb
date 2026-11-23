@@ -147,12 +147,11 @@ public extension View {
 
 // MARK: Pieces
 
-/// Mobile.swift `Tab`: the pages, with the owner's coding sessions after Tasks (not from the lab, kb HAND-651, PHN-798;
-/// Android's PhoneTab.SESSIONS).
+/// Mobile.swift `Tab`: the four pages.
 public enum PhoneTab: CaseIterable, Hashable, Sendable {
-    case chat, tasks, sessions, files, mac
-    public var title: String { ["Chat", "Tasks", "Sessions", "Files", "Mac"][PhoneTab.allCases.firstIndex(of: self)!] }
-    public var symbol: String { ["bubble.left", "checklist", "terminal", "folder", "laptopcomputer"][PhoneTab.allCases.firstIndex(of: self)!] }
+    case chat, tasks, files, mac
+    public var title: String { ["Chat", "Tasks", "Files", "Mac"][PhoneTab.allCases.firstIndex(of: self)!] }
+    public var symbol: String { ["bubble.left", "checklist", "folder", "laptopcomputer"][PhoneTab.allCases.firstIndex(of: self)!] }
 }
 
 /// The top of every page: a short black pill of tabs (the chosen one shows its name, PHN-801) and the profile button
@@ -254,7 +253,7 @@ public struct TopBar: View {
                 ForEach(PhoneTab.allCases, id: \.self) { tab in
                     let on = tab == chosen
                     HStack(spacing: 6) {
-                        Image(systemName: tab.symbol + (on && tab != .tasks && tab != .mac && tab != .sessions ? ".fill" : ""))
+                        Image(systemName: tab.symbol + (on && tab != .tasks && tab != .mac ? ".fill" : ""))
                             .font(.system(size: 17, weight: .medium))
                         if on && layout.named { Text(tab.title).font(.system(size: 15, weight: .semibold)).lineLimit(1).fixedSize() }
                     }

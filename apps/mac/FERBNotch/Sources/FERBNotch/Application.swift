@@ -115,8 +115,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             // Uninstall unregisters macOS's login item first; `ferb uninstall` then removes the fallback file
             // DMN-598: before that, the service (Full Disk Access) removes FERB's files from the browsers' folders
             actions.removeBrowserFiles = { [appSetup] in await appSetup.removeBrowserFilesForUninstall() }
-            // Sessions: the service takes FERB's hook out of Claude Code's settings before it is turned off
-            actions.removeSessionHooks = { [rpc = coordinator.model.rpc] in _ = await SessionsModel.removeHooks(rpc: rpc) }
             // APP-986: the root helper for a closed Mac on battery, registered when the owner turns the mode on here
             let powerHelper = AppBundle.isApp ? PowerHelper(registrar: PowerHelperService()) { [rpc = coordinator.model.rpc] params in
                 _ = try? await rpc.call("insomnia.report", params: params)
@@ -188,9 +186,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 coordinator?.showFromMenu()
             }
             let store = FERBWindowStore(rpc: coordinator.model.rpc)
-            store.previewAccess = coordinator.model.previewAccess        // Sessions → Watch: the notch's gate (APP-407)
             store.memoryReview = coordinator.model.memoryReview          // MEM-460: one review, chat and Memory page
-            store.sessions.clientID = { [weak model = coordinator.model] in model?.clientID }
             let window = FERBWindowController(store: store, actions: actions)
             coordinator.hasWindow = true                      // plan D's menu shows Open FERB Window
             coordinator.onOpenWindow = { [window] in window.show(.tasks) }

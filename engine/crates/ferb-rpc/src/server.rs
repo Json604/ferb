@@ -57,9 +57,7 @@ pub const LONG_WAITS: &[(&str, f64)] = &[
 
 /// Calls that end when their caller leaves (server.py:45-47; DMN-403): an abandoned preview request stops its
 /// capture, and an abandoned intro suggestion its model call.
-/// HAND-662 adds `sessions.hook`: a held permission request ends with the hook's process (Claude Code's own timeout, or
-/// the hook stopped), and Claude Code's own dialog decides.
-pub const CANCEL_WHEN_LEFT: &[&str] = &["intro.suggest", "tasks.preview", "sessions.hook"];
+pub const CANCEL_WHEN_LEFT: &[&str] = &["intro.suggest", "tasks.preview"];
 
 /// Answered while the daemon is still starting (server.py:51-53; DMN-510). Every other call waits until the
 /// start is done.

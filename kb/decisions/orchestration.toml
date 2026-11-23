@@ -2256,12 +2256,11 @@ paths = ["engine/crates/ferb-supervisor/src/flow/tree.rs::finish_tree", "engine/
 title = "Handing a session to FERB is the owner's message; the task drives it with agent_session tools"
 by = "agent"
 date = 2026-11-22
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 rule = "For HAND-651. sessions.delegate posts the owner's goal as his own chat message naming the session (a normal FERB task: Stop, questions, the completion check). The task's tools (catalog additions after mac.clipboard): agent_session.list, .read, .send (typed paths ask GATE-585's question; then it waits in code until the agent's turn ends, 30 min at most by default) and .answer (questions only, HAND-663). The session shows \"FERB is on it\" until that task ends."
 why = "Existing task machinery covers stopping, asking when unsure and the completion check; waiting in the tool keeps model calls to one per agent turn (T-1272's lesson)."
 evidence = "ferb-daemon tests/sessions.rs a_hand_over_is_the_owner_s_message_and_a_start_types_the_exact_command; ferbd every_tool_through_the_program (the four tools wired); ferb-gateway catalog tests. The real planner's use of them is LIVE-1172."
-paths = ["engine/crates/ferbd/src/compose/tools/sessions.rs", "engine/crates/ferb-gateway/src/catalog_additions.json", "engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.delegate"]
-live = ["LIVE-1172"]
 
 [ORCH-688]
 title = "A stop's end shows once in the chat: one answer with its words, cards and sites"
@@ -2437,12 +2436,11 @@ live = ["LIVE-1194"]
 title = "A session driver's step: the fresh switch with its lookups kept, its own prompt, code types"
 by = "agent"
 date = 2026-11-23
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 rule = "For HAND-707, ORCH-699. fresh_for reads a driver's request (driver-<id>) as fresh with `driver`: instructions read fresh (no profile, memory facts, schedules), nothing newly always on, no temporary chat fact, no screen. Its token names every tool but agent_session.send and .answer (DRIVER_HIDDEN_TOOLS), so memory.read, memory.learned, chat.history and trail stay. It runs session_driver.md, schema {decision: send|done|ask, text}, context: goal (owner), session (FERB), exchanges and question (data), earlier decisions."
 why = "The owner wanted the temporary chat's switch with the usual tools: the step can look things up but is given nothing."
 evidence = "ferb-supervisor tests/session_driver.rs a_drive_is_one_fresh_worker_step_per_reply_with_its_lookups_and_no_planner_or_checker."
-paths = ["engine/crates/ferb-supervisor/src/flow/temporary.rs", "engine/crates/ferb-supervisor/src/flow/host.rs", "engine/crates/ferb-supervisor/src/flow/driver.rs", "engine/crates/ferb-core/src/driver.rs"]
-live = ["LIVE-1199"]
 
 [ORCH-706]
 title = "No cap on calls per attempt: the 40-call trial is removed"

@@ -125,10 +125,6 @@ fun Sheets(vm: FerbViewModel, ui: UiState, sheet: Sheet?, insets: PhoneInsets, h
         is Sheet.Live -> LiveScreen(vm, insets)
         Sheet.Insomnia -> InsomniaSheet(vm, ui, insets)
         Sheet.Camera -> CameraScreen(vm, ui, insets)
-        // the owner's coding sessions (kb HAND-651..666): one session full screen, its window live, starting one
-        is Sheet.Session -> SessionScreen(vm, ui.busy, insets)
-        is Sheet.SessionLive -> SessionLiveScreen(vm, insets)
-        Sheet.NewSession -> NewSessionSheet(vm, ui.busy, insets)
         // a running task's short view (kb PHN-725; FERB.app's TaskShortView): its picture, title, line, Watch live, Stop
         is Sheet.Task -> {
             val r = ui.running?.tasks?.firstOrNull { it.taskId == sheet.taskId }

@@ -31,10 +31,6 @@ import com.ferb.mobile.ScreenUseEnd
 import com.ferb.mobile.PreviewSink
 import com.ferb.mobile.RecentFiles
 import com.ferb.mobile.SecretInput
-import com.ferb.mobile.SessionSent
-import com.ferb.mobile.SessionStartPlan
-import com.ferb.mobile.SessionTimeline
-import com.ferb.mobile.SessionsList
 import com.ferb.mobile.SettingValue
 import com.ferb.mobile.Signer
 import com.ferb.mobile.TaskPage
@@ -177,28 +173,6 @@ interface PhoneApi {
     suspend fun registerKeys(signer: (KeyKind) -> Signer): Outcome<Boolean>
 
     /**
-     * The owner's coding sessions on the Mac (kb HAND-651..666; ferb-mobile `sessions.rs`): the list and one session's
-     * conversation (reads in the unlock window); a send that the Mac first asks about (`needsYes`: nothing was sent) and
-     * the owner's Yes to it, [sessionControl], signed by the fingerprint key; letting go, stopping its turn; the agent's
-     * question answered, a new session started and one handed to FERB, each signed every time; its window live (Watch
-     * live's rules: never on the public relay, memory only).
-     */
-    suspend fun sessionsList(): Outcome<SessionsList>
-    /** The newest [limit] items ([after] and [before] 0), those after [after], or those before [before]. */
-    suspend fun sessionTimeline(session: String, after: Long, before: Long, limit: Int): Outcome<SessionTimeline>
-    suspend fun sessionSend(session: String, text: String): Outcome<SessionSent>
-    /** [terminal]: the one he chose of those the session offers (HAND-683; "" for none). */
-    suspend fun sessionControl(session: String, text: String, terminal: String, signer: Signer): Outcome<SessionSent>
-    suspend fun sessionRelease(session: String): Outcome<Int>
-    suspend fun sessionAnswer(session: String, card: String, choice: String, signer: Signer): Outcome<Boolean>
-    suspend fun sessionInterrupt(session: String): Outcome<Boolean>
-    /** The folders to start in ("" agent and folder), or with a folder the exact command and its question. */
-    suspend fun sessionPrepare(agent: String, folder: String, text: String): Outcome<SessionStartPlan>
-    suspend fun sessionStart(agent: String, folder: String, text: String, signer: Signer): Outcome<com.ferb.mobile.SessionStarted>
-    suspend fun sessionDelegate(session: String, goal: String, signer: Signer): Outcome<String>
-    suspend fun watchSession(session: String, sink: PreviewSink): Outcome<Live>
-
-    /**
      * FERB's review of what an import brought in (kb MEM-460..457; ferb-mobile `review.rs`): the list as it stands, and
      * the owner's answer to items of one part (one or all at once), which gives the list after it. Both in the unlock window.
      */
@@ -299,24 +273,6 @@ class LibraryPhone(private val phone: FerbPhone) : PhoneApi {
     override suspend fun cachedMacInfo() = phone.call { it.cachedMacInfo() }
     override suspend fun unregisteredKeys() = phone.unregisteredKeys()
     override suspend fun registerKeys(signer: (KeyKind) -> Signer) = phone.registerKeys(signer)
-
-    override suspend fun sessionsList() = phone.call { it.sessionsList() }
-    override suspend fun sessionTimeline(session: String, after: Long, before: Long, limit: Int) =
-        // its Markdown read by the library here, off the main thread, so the screen's lines find it kept (HAND-703)
-        phone.call { it.sessionTimeline(session, after.toULong(), before.toULong(), limit.toUInt()).also(Sessions::prepare) }
-    override suspend fun sessionSend(session: String, text: String) = phone.call { it.sessionSend(session, text) }
-    override suspend fun sessionControl(session: String, text: String, terminal: String, signer: Signer) =
-        phone.call { it.sessionControl(session, text, terminal, signer) }
-    override suspend fun sessionRelease(session: String) = phone.call { it.sessionRelease(session).toInt() }
-    override suspend fun sessionAnswer(session: String, card: String, choice: String, signer: Signer) =
-        phone.call { it.sessionAnswer(session, card, choice, signer) }
-    override suspend fun sessionInterrupt(session: String) = phone.call { it.sessionInterrupt(session) }
-    override suspend fun sessionPrepare(agent: String, folder: String, text: String) = phone.call { it.sessionPrepare(agent, folder, text) }
-    override suspend fun sessionStart(agent: String, folder: String, text: String, signer: Signer) =
-        phone.call { it.sessionStart(agent, folder, text, signer) }
-    override suspend fun sessionDelegate(session: String, goal: String, signer: Signer) = phone.call { it.sessionDelegate(session, goal, signer) }
-    override suspend fun watchSession(session: String, sink: PreviewSink): Outcome<Live> =
-        phone.call { m -> m.watchSession(session, sink).let { p -> Live { runCatching { p.stop() } } } }
 
     override suspend fun memoryReview() = phone.call { it.memoryReview() }
     override suspend fun answerMemoryReview(part: String, itemIds: List<String>, answer: String) =

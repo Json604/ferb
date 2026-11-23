@@ -19,15 +19,6 @@ import com.ferb.app.model.LocalFiles
 import com.ferb.app.model.UnlockStatement
 import com.ferb.app.model.MacSettings
 import com.ferb.app.model.Moment
-import com.ferb.app.model.FolderPickUi
-import com.ferb.app.model.NewSessionUi
-import com.ferb.app.model.SessionConfirm
-import com.ferb.app.model.SessionSending
-import com.ferb.app.model.SessionSendPhase
-import com.ferb.app.model.TerminalPick
-import com.ferb.app.model.SessionUi
-import com.ferb.app.model.Sessions
-import com.ferb.app.model.SessionsUi
 import com.ferb.app.model.Phase
 import com.ferb.app.model.PhoneApi
 import com.ferb.app.model.Question
@@ -76,7 +67,6 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -144,15 +134,6 @@ sealed interface Sheet {
 
     /** Show me (APP-983): the Mac's camera while this shows; screenshots as the owner's switch says (PHN-810). */
     data object Camera : Sheet
-
-    /** One of the owner's coding sessions (kb HAND-651..666), full screen: its conversation; screenshots as his switch says (PHN-800). */
-    data class Session(val id: String) : Sheet
-
-    /** A coding session's window live (Watch, kb HAND-651..666; PHN-454's rules); screenshots as the owner's switch says (PHN-810). */
-    data class SessionLive(val id: String) : Sheet
-
-    /** Start a new coding session on the Mac: the agent, the folder, the first words, then the exact command. */
-    data object NewSession : Sheet
 }
 
 /** What pressing the microphone needs from the screen: nothing more, or Android's microphone question. */
@@ -372,20 +353,6 @@ class FerbViewModel(
     }
     val live = LiveWatch(viewModelScope, api)
 
-    // the owner's coding sessions (kb HAND-651..666): read only while their screens show, memory only (declared before `init`,
-    // whose lock collector clears them)
-    private val _sessions = MutableStateFlow(SessionsUi())
-    /** The Sessions tab's list, read every [Sessions.LIST_MS] while it shows. */
-    val sessions: StateFlow<SessionsUi> = _sessions.asStateFlow()
-    private val _openSession = MutableStateFlow<SessionUi?>(null)
-    /** The open session's screen, its conversation read after its newest item every [Sessions.OPEN_MS] while it shows. */
-    val openSession: StateFlow<SessionUi?> = _openSession.asStateFlow()
-    private val _newSession = MutableStateFlow<NewSessionUi?>(null)
-    val newSession: StateFlow<NewSessionUi?> = _newSession.asStateFlow()
-
-    /** The pause between two reads of the sessions (tests give their own, to step the polling). */
-    internal var sessionsWait: suspend (Long) -> Unit = { delay(it) }
-
     // FERB's review of what an import brought in (kb MEM-460..457): read when its question's card shows, memory only
     // (declared before `init`, whose lock collector clears it)
     private val _review = MutableStateFlow<com.ferb.mobile.MemoryReview?>(null)
@@ -436,40 +403,9 @@ class FerbViewModel(
                 .distinctUntilChanged().collect { _home.value = it }
         }
         viewModelScope.launch {
-            // every page follows the owner's switch, Watch live, a short view, the Mac's camera and a session's Watch
+            // every page follows the owner's switch, Watch live, a short view and the Mac's camera
             // included (owner 2026-11-23, kb PHN-810, PHN-811); only a hidden answer's box forces the block (PHN-110)
             hiddenBoxes.map { it.isNotEmpty() }.collect { _mustSecure.value = it }
-        }
-        viewModelScope.launch {
-            // the coding sessions are read only while their screens show, the app unlocked and in front (kb HAND-651..666): the
-            // list every 3 s on the Sessions tab, an open session's newest items every 2 s; nothing in the background
-            combine(tab, _sheet, session.front, session.locked) { t, s, front, locked ->
-                when {
-                    locked || !front -> null
-                    s is Sheet.Session -> s
-                    s is Sheet.SessionLive -> null
-                    t == PhoneTab.SESSIONS -> PhoneTab.SESSIONS
-                    else -> null
-                }
-            }.distinctUntilChanged().collectLatest { what ->
-                when (what) {
-                    is Sheet.Session -> try {
-                        while (true) {
-                            // HAND-710: a session FERB reads no words of shows its window, live; its conversation is always
-                            // empty, so after the first read (its record: control, terminals) nothing more is polled
-                            if (watchedHere(what.id)) watchInPlace(what.id)
-                            readSession(what.id)
-                            if (watchedHere(what.id)) { watchInPlace(what.id); awaitCancellation() }
-                            sessionsWait(Sessions.OPEN_MS)
-                        }
-                    } finally {
-                        // its screen went (another page, the lock, the background): its window's picture stops with it
-                        if (live.view.value?.taskId == what.id && _sheet.value !is Sheet.SessionLive) live.stop()
-                    }
-                    PhoneTab.SESSIONS -> while (true) { readSessions(); sessionsWait(Sessions.LIST_MS) }
-                    else -> Unit
-                }
-            }
         }
         viewModelScope.launch {
             // the work row's pictures: while it shows, the app unlocked and in front, and the path carries pictures
@@ -578,12 +514,7 @@ class FerbViewModel(
                     live.stop()
                     camera.stop()
                     if (_sheet.value is Sheet.Live || _sheet.value is Sheet.Task || _sheet.value is Sheet.Settings || _sheet.value is Sheet.Days ||
-                        _sheet.value is Sheet.Location || _sheet.value is Sheet.Camera || _sheet.value is Sheet.Insomnia ||
-                        _sheet.value is Sheet.Session || _sheet.value is Sheet.SessionLive || _sheet.value == Sheet.NewSession) _sheet.value = null
-                    // the coding sessions' conversations and folders are memory only, gone with the lock (kb HAND-651..666)
-                    _sessions.value = SessionsUi()
-                    _openSession.value = null
-                    _newSession.value = null
+                        _sheet.value is Sheet.Location || _sheet.value is Sheet.Camera || _sheet.value is Sheet.Insomnia) _sheet.value = null
                     _review.value = null
                     transfers.locked()
                     outgoing.locked()
@@ -1739,466 +1670,6 @@ class FerbViewModel(
             }
         }
 
-    // ---- the owner's coding sessions (kb HAND-651..666) ------------------------------------------------------------------
-
-    /** The list, as the Mac says it now. The first read may ask for the Mac's unlock; the later ones never prompt. */
-    private suspend fun readSessions() {
-        val first = !_sessions.value.loaded
-        val r = if (first) unlocker.run { api.sessionsList() } else api.sessionsList()
-        when (r) {
-            is Outcome.Ok -> _sessions.update { u ->
-                // a new terminal said to be on its way: its line stays until a session the list didn't hold shows
-                val coming = u.coming?.takeIf { before -> r.value.sessions.all { it.id in before } }
-                SessionsUi(true, r.value.enabled, r.value.sessions, null, coming)
-            }
-            is Outcome.Failed -> if (r.error !is FerbException.NotSigned) _sessions.update { it.copy(loaded = true, problem = errorNote(r.error)) }
-        }
-    }
-
-    /** One session's screen, opened from its row: its conversation is read at once and while it shows. */
-    fun openSession(id: String) {
-        val known = _sessions.value.sessions.firstOrNull { it.id == id }
-        if (_openSession.value?.id != id) _openSession.value = SessionUi(id, known)
-        show(Sheet.Session(id))
-    }
-
-    fun closeSession() {
-        if (_sheet.value is Sheet.Session || _sheet.value is Sheet.SessionLive) show(null)
-        _openSession.value = null
-    }
-
-    /** Whether the open session is [id] and FERB reads none of its words (HAND-710). */
-    private fun watchedHere(id: String): Boolean = _openSession.value?.takeIf { it.id == id }?.session.let(Sessions::watch)
-
-    /**
-     * A watch session's screen (HAND-710): its window live in place of the conversation, as Watch shows it (its rules;
-     * never asked for on the public relay, whose rule shows where the picture would). Already showing: left as it is.
-     */
-    private fun watchInPlace(id: String) {
-        val v = live.view.value
-        if (v?.taskId == id && v.ended == null) return
-        val l = api.link.value
-        if (l?.path == LinkPath.PUBLIC_RELAY || (l?.phase == LinkPhase.ONLINE && !l.bulkAllowed)) live.notAsked(id, Note(R.string.not_on_shared_relay))
-        else live.startSession(id)
-    }
-
-    /** Reads the open session: its newest page first, then what came after the newest item held. */
-    private suspend fun readSession(id: String) {
-        val o = _openSession.value?.takeIf { it.id == id } ?: return
-        if (!o.loaded) {
-            when (val r = unlocker.run { api.sessionTimeline(id, 0, 0, Sessions.PAGE) }) {
-                is Outcome.Ok -> _openSession.update { u ->
-                    u?.takeIf { it.id == id }?.copy(session = r.value.session ?: u.session, items = r.value.items.sortedBy { it.seq },
-                        more = r.value.more, cards = r.value.cards, loaded = true, problem = null)?.settled()
-                }
-                is Outcome.Failed -> if (r.error !is FerbException.NotSigned) _openSession.update { it?.copy(problem = errorNote(r.error)) }
-            }
-            return
-        }
-        // a page may hold only part of what came: ask again at once while the Mac says there is more after it
-        repeat(5) {
-            val after = _openSession.value?.takeIf { it.id == id }?.last ?: return
-            when (val r = api.sessionTimeline(id, after, 0, Sessions.AFTER_PAGE)) {
-                is Outcome.Ok -> {
-                    _openSession.update { u ->
-                        u?.takeIf { it.id == id }?.copy(session = r.value.session ?: u.session, items = Sessions.appended(u.items, r.value.items),
-                            cards = r.value.cards, problem = null)?.settled()
-                    }
-                    if (!r.value.more || r.value.items.isEmpty()) return
-                }
-                is Outcome.Failed -> { _openSession.update { it?.copy(problem = errorNote(r.error)) }; return }
-            }
-        }
-    }
-
-    /** "Show earlier": the page before the oldest item held. */
-    fun sessionOlder() = busy("session-older") {
-        val o = _openSession.value ?: return@busy
-        if (!o.more || o.items.isEmpty()) return@busy
-        when (val r = unlocker.run { api.sessionTimeline(o.id, 0, o.first, Sessions.PAGE) }) {
-            is Outcome.Ok -> _openSession.update { u -> u?.takeIf { it.id == o.id }?.copy(items = Sessions.prepended(u.items, r.value.items), more = r.value.more) }
-            is Outcome.Failed -> if (r.error !is FerbException.NotSigned) failed(r.error)
-        }
-    }
-
-    /** The open session's message box. */
-    fun sessionTyped(text: String) = _openSession.update { it?.copy(draft = text) }
-
-    /** A sent message's bubble leaves once the session's own record of it is held (PHN-812). */
-    private fun SessionUi.settled(): SessionUi = copy(outgoing = Sessions.settled(outgoing, items))
-
-    /**
-     * Send: his words leave the box at once and show as his message with "Sending…" while FERB types them on the Mac
-     * (owner 2026-11-23, PHN-812). The Mac sends it when this phone controls the session; else it asks first (GATE-622)
-     * and nothing was sent: the bubble goes, the question shows over the screen with the exact words, and his Yes is
-     * [sessionYes] (Cancel puts the words back in the box).
-     */
-    fun sessionSend() = busy("session-send", tap = true) {
-        val o = _openSession.value ?: return@busy
-        val text = o.draft
-        if (text.isBlank() || o.outgoing?.phase == SessionSendPhase.SENDING) return@busy
-        _openSession.update { u -> if (u?.id == o.id) u.copy(draft = "") else u }
-        sendWords(o.id, text)
-    }
-
-    /** Try again on a message the Mac refused (PHN-800): the same words, the same way (asked first if not controlled). */
-    fun sessionRetry() = busy("session-send", tap = true) {
-        val o = _openSession.value ?: return@busy
-        val u = o.outgoing?.takeIf { it.phase == SessionSendPhase.NOT_SENT } ?: return@busy
-        sendWords(o.id, u.text)
-    }
-
-    /** His words as sending (PHN-812): one bubble after the conversation's last line, in place of a refused one. */
-    private fun sending(id: String, text: String) = _openSession.update { u ->
-        if (u?.id == id) u.copy(outgoing = SessionSending(text, SessionSendPhase.SENDING, after = u.last)) else u
-    }
-
-    private suspend fun sendWords(id: String, text: String) {
-        if (text.isBlank()) return
-        sending(id, text)
-        when (val r = unlocker.run { api.sessionSend(id, text) }) {
-            is Outcome.Ok -> {
-                val yes = r.value.needsYes
-                if (yes != null) {
-                    // nothing was sent: his Yes comes first, and only then is it on its way
-                    _openSession.update { u -> if (u?.id == id) u.copy(outgoing = null, ask = SessionConfirm(text, yes)) else u }
-                } else sessionSent(id, text, r.value)
-            }
-            is Outcome.Failed -> notSent(id, text, r.error)
-        }
-    }
-
-    /**
-     * PHN-800: a send the Mac refused (or that never reached it) never looks sent: his bubble dims with "Not sent." and
-     * why, in the Mac's plain words, and Try again; the question, if one was open, closes. A prompt he cancelled sent
-     * nothing: the words go back to the box.
-     */
-    private suspend fun notSent(id: String, text: String, e: FerbException) {
-        if (e is FerbException.NotSigned) {
-            _openSession.update { u ->
-                if (u?.id != id || u.outgoing?.text != text) u
-                else u.copy(outgoing = null, draft = u.draft.ifBlank { text })
-            }
-            return
-        }
-        _openSession.update { u ->
-            if (u?.id != id) u
-            else u.copy(ask = null, pick = null, outgoing = SessionSending(text, SessionSendPhase.NOT_SENT, errorNote(e), u.last),
-                draft = if (u.draft == text) "" else u.draft)
-        }
-        // HAND-683: FERB can't tell which terminal is the session's: the ones it can see, for him to choose
-        if (e is FerbException.Refused && e.linkCode == "choose_terminal") {
-            readSession(id)
-            val terminals = _openSession.value?.takeIf { it.id == id }?.session?.terminals.orEmpty()
-            if (terminals.isNotEmpty()) _openSession.update { it?.copy(pick = TerminalPick(text, e.detail, terminals)) }
-        }
-    }
-
-    /**
-     * HAND-683: his choice of terminal for these words, signed with the fingerprint as control is (GATE-622): the Mac
-     * types only there, keeps it for the session while he controls it, and asks again if it changes.
-     */
-    fun sessionPickTerminal(terminal: String) = busy("session-pick", tap = true) {
-        val o = _openSession.value ?: return@busy
-        val pick = o.pick ?: return@busy
-        val signer = freshSigner(Why.YES) ?: return@busy
-        // signed: the choice closes and his words are on their way (PHN-812)
-        _openSession.update { it?.copy(pick = null) }
-        sending(o.id, pick.text)
-        when (val r = unlocker.run { api.sessionControl(o.id, pick.text, terminal, signer()) }) {
-            is Outcome.Ok -> sessionSent(o.id, pick.text, r.value)
-            is Outcome.Failed -> notSent(o.id, pick.text, r.error)
-        }
-    }
-
-    /** Don't send: nothing is typed; his words stay as not sent, with Try again. */
-    fun sessionPickNo() = _openSession.update { it?.copy(pick = null) }
-
-    /**
-     * The Mac typed it: his bubble shows as sent until the session's own record of it arrives (PHN-812); a send the Mac
-     * couldn't see arrive yet is said.
-     */
-    private suspend fun sessionSent(id: String, text: String, sent: com.ferb.mobile.SessionSent) {
-        if (!sent.sent) {
-            _openSession.update { u -> if (u?.id == id && u.outgoing?.text == text) u.copy(outgoing = null) else u }
-            return
-        }
-        if (watchedHere(id)) {
-            // HAND-710: typed into its window, and no record of it will ever come: Sending… ends at the Mac's answer;
-            // its record (who controls it now) is read on its own, so the box takes the next words at once
-            _openSession.update { u ->
-                if (u?.id != id) u else u.copy(draft = if (u.draft == text) "" else u.draft, outgoing = u.outgoing?.takeUnless { it.text == text })
-            }
-            if (!sent.delivered) note(Note(R.string.sessions_not_seen))
-            viewModelScope.launch { readSession(id) }
-            return
-        }
-        _openSession.update { u ->
-            if (u?.id != id) u
-            else u.copy(draft = if (u.draft == text) "" else u.draft,
-                outgoing = u.outgoing?.takeIf { it.text == text }?.copy(phase = SessionSendPhase.SENT, reason = null) ?: u.outgoing).settled()
-        }
-        if (!sent.delivered) note(Note(R.string.sessions_not_seen))
-        readSession(id)
-    }
-
-    /**
-     * The owner's Yes to the Mac's question (GATE-622): this phone controls the session from now on and the exact words
-     * are sent, signed with the fingerprint (the fingerprint-only key where the phone has one). The question closes at
-     * once and his words show as sending (PHN-812); a cancelled prompt sends nothing and the question opens again.
-     */
-    fun sessionYes() = busy("session-yes", tap = true) {
-        val o = _openSession.value ?: return@busy
-        val ask = o.ask ?: return@busy
-        val signer = freshSigner(Why.YES) ?: return@busy
-        if (!ask.thenInterrupt) {
-            _openSession.update { it?.copy(ask = null) }
-            sending(o.id, ask.text)
-        }
-        when (val r = unlocker.run { api.sessionControl(o.id, ask.text, "", signer()) }) {
-            is Outcome.Ok -> {
-                _openSession.update { it?.copy(ask = null) }
-                if (ask.thenInterrupt) interruptNow(o.id, asked = true) else sessionSent(o.id, ask.text, r.value)
-            }
-            // PHN-800: refused after his Yes: the words show as not sent, never stuck open
-            is Outcome.Failed -> when {
-                ask.thenInterrupt -> if (r.error !is FerbException.NotSigned) { _openSession.update { it?.copy(ask = null) }; failed(r.error) }
-                // the fingerprint cancelled: nothing went; the question is back as it was
-                r.error is FerbException.NotSigned -> _openSession.update { u ->
-                    if (u?.id == o.id) u.copy(ask = ask, outgoing = u.outgoing?.takeUnless { it.text == ask.text && it.phase == SessionSendPhase.SENDING }) else u
-                }
-                else -> notSent(o.id, ask.text, r.error)
-            }
-        }
-    }
-
-    /** Cancel on the Mac's question: nothing is sent; the words go back to the box. */
-    fun sessionNo() = _openSession.update { u -> u?.copy(ask = null, draft = u.draft.ifBlank { u.ask?.text.orEmpty() }) }
-
-    /** The session's menu (PHN-800). */
-    fun sessionMenu(open: Boolean) = _openSession.update { it?.copy(menu = open) }
-
-    /** Stop its turn (needs control of the session: the same question with no words first, then the stop). */
-    fun sessionInterrupt() = busy("session-interrupt", tap = true) {
-        val id = _openSession.value?.id ?: return@busy
-        interruptNow(id, asked = false)
-    }
-
-    private suspend fun interruptNow(id: String, asked: Boolean) {
-        when (val r = unlocker.run { api.sessionInterrupt(id) }) {
-            is Outcome.Ok -> { note(Note(R.string.sessions_interrupted)); readSession(id) }
-            is Outcome.Failed -> {
-                // refused: when it is because this phone doesn't control the session, the Mac's send asks its question
-                // (nothing is sent with no words), and his Yes takes control before the stop; else the Mac's words
-                val yes = if (!asked && r.error is FerbException.Refused) (api.sessionSend(id, "") as? Outcome.Ok)?.value?.needsYes else null
-                if (yes != null) _openSession.update { it?.copy(ask = SessionConfirm("", yes, thenInterrupt = true)) } else failed(r.error)
-            }
-        }
-    }
-
-    /** Stop controlling: this phone's sends ask again (allowed while locked: it only takes something away). */
-    fun sessionRelease() = busy("session-release", tap = true) {
-        val id = _openSession.value?.id ?: return@busy
-        when (val r = api.sessionRelease(id)) {
-            is Outcome.Ok -> {
-                _openSession.update { u -> u?.copy(session = u.session?.copy(controlledHere = false)) }
-                readSession(id)
-            }
-            is Outcome.Failed -> failed(r.error)
-        }
-    }
-
-    /** One of the card's answers (its choice's id), signed each time (HAND-663). */
-    fun sessionAnswer(cardId: String, choiceId: String) = busy("session-answer:$cardId", tap = true) {
-        val id = _openSession.value?.id ?: return@busy
-        val signer = freshSigner(Why.YES) ?: return@busy
-        when (val r = unlocker.run { api.sessionAnswer(id, cardId, choiceId, signer()) }) {
-            is Outcome.Ok -> {
-                _openSession.update { u -> u?.copy(cards = u.cards.filter { it.id != cardId }) }
-                readSession(id)
-            }
-            is Outcome.Failed -> if (r.error !is FerbException.NotSigned) failed(r.error)
-        }
-    }
-
-    /** Hand to FERB: its sheet over the session's screen (never for a session FERB reads no words of, HAND-710). */
-    fun askHandOver(open: Boolean = true) = _openSession.update { u ->
-        if (open && Sessions.watch(u?.session)) u else u?.copy(handOver = open, handProblem = null)
-    }
-
-    /**
-     * Hand it over (signed): the owner's goal becomes FERB's task in the chat; FERB says so. The sheet's button turns
-     * at the tap and stays so until the Mac answers (HAND-702): done, the sheet closes and the session is read at once;
-     * refused, the sheet stays with his words and the Mac's reason under the button.
-     */
-    fun handOver(goal: String) = busy("session-hand", tap = true) {
-        val id = _openSession.value?.id ?: return@busy
-        if (goal.isBlank()) return@busy
-        _openSession.update { it?.copy(handProblem = null) }
-        val signer = freshSigner(Why.YES) ?: return@busy
-        when (val r = unlocker.run { api.sessionDelegate(id, goal.trim(), signer()) }) {
-            is Outcome.Ok -> {
-                _openSession.update { it?.copy(handOver = false, handProblem = null) }
-                note(Note(R.string.sessions_handed))
-                readSession(id)
-            }
-            is Outcome.Failed -> if (r.error !is FerbException.NotSigned) {
-                // the sheet still open: the reason under its button; closed meanwhile: said as every refusal is
-                if (_openSession.value?.let { it.id == id && it.handOver } == true) _openSession.update { it?.copy(handProblem = errorNote(r.error)) }
-                else failed(r.error)
-            }
-        }
-    }
-
-    /**
-     * Take it back (HAND-702): stops FERB's task that keeps the session going (the task stop every task has; no unlock,
-     * never queued, as Stop). The menu's row turns at the tap; done, the menu closes and the session is read at once (its
-     * chip goes when the Mac says so); refused, the Mac's reason.
-     */
-    fun takeBack() = busy("session-take-back", tap = true) {
-        val o = _openSession.value ?: return@busy
-        val task = o.session?.ferbTask?.takeIf { it.isNotBlank() } ?: return@busy
-        when (val r = api.stop(listOf(task))) {
-            is Outcome.Ok -> {
-                _openSession.update { u -> if (u?.id == o.id) u.copy(menu = false) else u }
-                readSession(o.id)
-            }
-            is Outcome.Failed -> note(Note(R.string.sessions_take_back_failed, inner = errorNote(r.error)))
-        }
-    }
-
-    /** Watch: the session's window live, like Watch live (never asked for on the public relay: its rule is said). */
-    fun watchSession() {
-        val id = _openSession.value?.id ?: return
-        val l = api.link.value
-        if (l?.path == LinkPath.PUBLIC_RELAY || (l?.phase == LinkPhase.ONLINE && !l.bulkAllowed)) {
-            note(Note(R.string.not_on_shared_relay))
-            return
-        }
-        _sheet.value = Sheet.SessionLive(id)
-        live.startSession(id)
-    }
-
-    /** Turn on (the off state's one button): the Mac's `sessions.enabled`, a signed setting like any other (PHN-133). */
-    fun turnOnSessions() = busy("sessions-on", tap = true) {
-        val signer = freshSigner(Why.SETTING) ?: return@busy
-        when (val r = unlocker.run { api.setSetting(SESSIONS_SETTING, "true", signer()) }) {
-            is Outcome.Ok -> readSessions()
-            is Outcome.Failed -> if (r.error !is FerbException.NotSigned) failed(r.error)
-        }
-    }
-
-    /** New session (HAND-691): a terminal; the sheet, with the folders the Mac offers (its sessions' first, then recent ones). */
-    fun newSession() = busy("session-new", tap = true) {
-        _newSession.value = NewSessionUi()
-        show(Sheet.NewSession)
-        when (val r = unlocker.run { api.sessionPrepare("", "", "") }) {
-            is Outcome.Ok -> _newSession.update { it?.copy(loading = false, folders = r.value.folders, folder = it.folder ?: r.value.folders.firstOrNull()) }
-            is Outcome.Failed -> {
-                if (r.error !is FerbException.NotSigned) failed(r.error)
-                if (_sheet.value == Sheet.NewSession) show(null)
-                _newSession.value = null
-            }
-        }
-    }
-
-    fun newSessionFolder(folder: String) = _newSession.update { it?.copy(folder = folder, problem = null) }
-    fun newSessionText(text: String) = _newSession.update { it?.copy(text = text, problem = null) }
-
-    // ---- "Another folder…" (PHN-821): the Files tab's browser over phone.files, folders only, over the sheet --------------
-
-    /** Opens the Mac's folders over the sheet: the places and the recent folders, read as the Files tab reads them. */
-    fun newSessionBrowse() {
-        if (_newSession.value == null) return
-        _newSession.update { it?.copy(browse = FolderPickUi()) }
-        viewModelScope.launch {
-            val r = unlocker.run { api.recentFiles(RECENT_FILES) }
-            if (r is Outcome.Ok) _newSession.update { n ->
-                n?.browse?.let { b -> n.copy(browse = b.copy(recent = r.value.files.filter { it.dir }.map { it.path }.distinct())) } ?: n
-            }
-        }
-    }
-
-    /** A folder of the Mac opened in the picker (a key place asks for the fingerprint for that very path, PHN-121). */
-    fun newSessionBrowseOpen(path: String, keyPlace: Boolean = false) = busy("session-browse") {
-        _newSession.update { n -> n?.browse?.let { n.copy(browse = it.copy(loading = path, problem = null)) } ?: n }
-        val r = unlocker.withProof(keyPlace, Why.FILE) { signer -> api.files(path, signer) }
-        _newSession.update { n ->
-            val b = n?.browse?.takeIf { it.loading == path } ?: return@update n
-            n.copy(browse = when (r) {
-                is Outcome.Ok -> b.copy(trail = b.trail + r.value, loading = null)
-                is Outcome.Failed -> b.copy(loading = null, problem = filesNote(r.error))
-            })
-        }
-    }
-
-    /** Back in the picker: the folder before, then the places; from the places, back to the sheet as it was. */
-    fun newSessionBrowseBack() = _newSession.update { n ->
-        val b = n?.browse ?: return@update n
-        n.copy(browse = if (b.trail.isEmpty()) null else b.copy(trail = b.trail.dropLast(1), loading = null, problem = null))
-    }
-
-    /** Closes the picker: the sheet as it was. */
-    fun newSessionBrowseClose() = _newSession.update { it?.copy(browse = null) }
-
-    /** "Use this folder": the folder showing becomes the chosen one, first in the sheet's list. */
-    fun newSessionBrowseUse() = _newSession.update { n ->
-        val path = n?.browse?.shown?.path ?: return@update n
-        n.copy(browse = null, picked = path, folder = path, problem = null)
-    }
-
-    /** Start: with a command, the Mac's question showing exactly it first (nothing runs yet); with none, it opens. */
-    fun newSessionNext() = busy("session-prepare", tap = true) {
-        val n = _newSession.value ?: return@busy
-        val folder = n.chosen ?: return@busy
-        _newSession.update { it?.copy(problem = null) }
-        when (val r = unlocker.run { api.sessionPrepare(Sessions.TERMINAL, folder, n.text.trim()) }) {
-            is Outcome.Ok -> {
-                val yes = r.value.needsYes
-                if (yes != null) _newSession.update { it?.copy(yes = yes) } else startNow(n, folder)
-            }
-            is Outcome.Failed -> if (r.error !is FerbException.NotSigned) _newSession.update { it?.copy(problem = errorNote(r.error)) }
-        }
-    }
-
-    /** The owner's Yes to the command: signed, it opens a terminal on the Mac in the folder and types exactly it. */
-    fun newSessionStart() = busy("session-start", tap = true) {
-        val n = _newSession.value ?: return@busy
-        startNow(n, n.chosen ?: return@busy)
-    }
-
-    /**
-     * Opens it (signed). Start shows its pending state until the Mac answers (PHN-822): opened, the sheet closes and the
-     * new session opens when the Mac named it, else the list says it will show in a moment until it does; refused, the
-     * sheet stays with the Mac's reason under Start.
-     */
-    private suspend fun startNow(n: NewSessionUi, folder: String) {
-        _newSession.update { it?.copy(problem = null) }
-        val signer = freshSigner(Why.YES) ?: return
-        when (val r = unlocker.run { api.sessionStart(Sessions.TERMINAL, folder, n.text.trim(), signer()) }) {
-            is Outcome.Ok -> {
-                if (_sheet.value == Sheet.NewSession) show(null)
-                _newSession.value = null
-                note(Note(R.string.sessions_started))
-                val id = r.value.session
-                if (id.isNotBlank()) openSession(id)
-                else {
-                    _sessions.update { it.copy(coming = it.sessions.map { s -> s.id }.toSet()) }
-                    readSessions()
-                }
-            }
-            is Outcome.Failed -> if (r.error !is FerbException.NotSigned) _newSession.update { it?.copy(problem = errorNote(r.error)) }
-        }
-    }
-
-    /** Back from the command to the choices. */
-    fun newSessionBack() = _newSession.update { it?.copy(yes = null, problem = null) }
-
-    fun closeNewSession() {
-        if (_sheet.value == Sheet.NewSession) show(null)
-        _newSession.value = null
-    }
-
     // ---- Watch live (PHN-454) ----------------------------------------------------------------------------------------
 
     /** Watch live: never asked for on the public relay (its rule is said instead); elsewhere a full screen of its own. */
@@ -2255,9 +1726,7 @@ class FerbViewModel(
 
     /** The Mac's window closed under the preview: unlock (one prompt) and watch again. */
     fun watchAgain() = busy("live") {
-        val s = _sheet.value
-        // a watch session's own screen shows its window too (HAND-710)
-        if (s !is Sheet.Live && s !is Sheet.SessionLive && !(s is Sheet.Session && watchedHere(s.id))) return@busy
+        val s = _sheet.value as? Sheet.Live ?: return@busy
         val p = prompts ?: return@busy
         if (live.view.value?.needsUnlock == true) {
             when (val r = api.unlock(p.signer(KeyKind.LOCK))) {
@@ -2265,22 +1734,12 @@ class FerbViewModel(
                 is Outcome.Failed -> { if (r.error !is FerbException.NotSigned) failed(r.error); return@busy }
             }
         }
-        when (s) {
-            is Sheet.Live -> live.start(s.taskId)
-            is Sheet.SessionLive -> live.startSession(s.id)
-            is Sheet.Session -> live.startSession(s.id)
-            else -> Unit
-        }
+        live.start(s.taskId)
     }
 
     fun closeLive() {
         live.stop()
-        when (val s = _sheet.value) {
-            is Sheet.Live -> _sheet.value = null
-            // a session's window: back to its conversation
-            is Sheet.SessionLive -> _sheet.value = Sheet.Session(s.id)
-            else -> Unit
-        }
+        if (_sheet.value is Sheet.Live) _sheet.value = null
     }
 
     // ---- FERB's settings (PHN-404, PHN-112, PHN-133) ----------------------------------------------------------------
@@ -2382,7 +1841,7 @@ class FerbViewModel(
     }
 
     fun show(s: Sheet?) {
-        val watching = { x: Sheet? -> x is Sheet.Live || x is Sheet.Task || x is Sheet.SessionLive }
+        val watching = { x: Sheet? -> x is Sheet.Live || x is Sheet.Task }
         if (watching(_sheet.value) && !watching(s)) live.stop()
         if (_sheet.value is Sheet.Camera && s !is Sheet.Camera) camera.stop()
         _sheet.value = s
@@ -2566,9 +2025,6 @@ class FerbViewModel(
 
         /** The lab's three places (PhoneFilesPage), as the Mac's paths. */
         val PLACES = listOf("~/Desktop", "~/Documents", "~/Downloads")
-
-        /** The Mac's switch for the coding sessions (kb HAND-651..666): turning it on also adds FERB's hook to Claude Code. */
-        const val SESSIONS_SETTING = "sessions.enabled"
 
         /** The Mac no longer knows this phone: pair again. */
         val REMOVED_CODES = setOf("device_revoked", "not_paired", "unknown_phone")

@@ -29,15 +29,6 @@ import com.ferb.design.screens.UnlockPage
 import com.ferb.design.screens.WorkGroup
 import com.ferb.design.screens.WorkRow
 import com.ferb.design.sky.SkyMoment
-import com.ferb.design.components.SessionAction
-import com.ferb.design.components.SessionAsk
-import com.ferb.design.components.SessionComposer
-import com.ferb.design.components.SessionLine
-import com.ferb.design.components.SessionLineKind
-import com.ferb.design.components.SessionRowData
-import com.ferb.design.components.SessionState
-import com.ferb.design.screens.SessionPage
-import com.ferb.design.screens.SessionsPage
 
 // The glass lab's twelve phone screens (MobileScreens.swift MobileScreen) with the lab's own invented data, for the
 // gallery and the screenshot tests. Every name, task, code and place is invented; nothing here is FERB's real data.
@@ -55,8 +46,6 @@ enum class LabScreen(val title: String, val note: String) {
     UNLOCK("Unlock", "FERB opens with a fingerprint every time."),
     PAIR("Pair", "First run: the Mac is a dashed circle until it is paired. One button."),
     CODES("Codes", "Both screens show the same code; you say yes on the Mac only if they match."),
-    SESSIONS("Sessions", "Your Claude Code and Codex sessions on the Mac, in any app: what each is doing, and FERB's badge on the one it keeps going."),
-    SESSION("Session", "One session's conversation on black: your words on white, the agent's on grey, its tools as small lines, its question as a card, and a message box."),
 }
 
 /** MobileScreens.swift SampleWork: the home screen's list. */
@@ -101,7 +90,6 @@ fun LabScreenView(
                 LabScreen.SECRET -> SecretSheet("Sign-in code", "The 6-digit code Northfield Energy sent you.", 4, insets)
                 LabScreen.RELAY -> RelaySheet(labRelay, insets)
                 LabScreen.PROFILE -> ProfileSheet("MacBook Pro", "10 November", insets)
-                LabScreen.SESSION -> LabSession(insets)
                 else -> Unit
             }
             if (chrome) LabAndroidChrome()
@@ -117,41 +105,8 @@ fun LabScreenView(
             LabScreen.UNLOCK -> UnlockPage(insets)
             LabScreen.PAIR -> PairPage(insets)
             LabScreen.CODES -> CodesPage("482719", insets)
-            LabScreen.SESSIONS, LabScreen.SESSION -> SessionsPage("Your coding sessions", labSessions, "New session", insets)
         }
     }
-}
-
-/** The lab's coding sessions (invented): one working, one waiting for the owner, one FERB keeps going, one idle. */
-val labSessions = listOf(
-    SessionRowData("Fix the flaky login test", "web-app · in Terminal", SessionState.WORKING, "Working"),
-    SessionRowData("Move the blog to the new theme", "blog · in Visual Studio Code", SessionState.WAITING, "Waiting for you"),
-    SessionRowData("Add dark mode to settings", "notes-app · in Terminal", SessionState.WORKING, "Working", ferb = "FERB is on it"),
-    SessionRowData("thesis-tools", "thesis-tools · in the background", SessionState.IDLE, "Idle"),
-)
-
-/** One lab session: a few lines of its conversation, its permission prompt, and the message box. */
-@Composable
-fun LabSession(insets: PhoneInsets = PhoneInsets.Lab, typed: String = "") {
-    SessionPage(
-        labSessions[1],
-        listOf(
-            SessionLine("1", SessionLineKind.OWNER, "Move the blog to the new theme and keep the old URLs working"),
-            SessionLine("2", SessionLineKind.AGENT, "I'll switch the theme in the config, then add redirects for the old post URLs."),
-            SessionLine("3", SessionLineKind.TOOL, "Read: config/site.toml"),
-            SessionLine("4", SessionLineKind.TOOL, "Edit: config/site.toml"),
-            SessionLine("5", SessionLineKind.AGENT, "The theme builds. Now I need to run the build to check the redirects."),
-        ),
-        listOf(SessionAsk("Claude Code wants to use Bash", "", "npm run build", listOf("Yes", "Yes, and don't ask again", "No"), "Answer this one on your Mac.")),
-        listOf(
-            SessionAction("Watch", FerbIcons.eye, {}),
-            SessionAction("Hand to FERB", null, {}),
-            SessionAction("Stop its turn", FerbIcons.stop, {}),
-        ),
-        insets,
-        older = "Show earlier",
-        onClose = {},
-    ) { m -> SessionComposer(typed, "Message Claude Code…", "Send", m) }
 }
 
 /**

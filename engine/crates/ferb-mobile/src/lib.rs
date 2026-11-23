@@ -24,7 +24,6 @@ pub mod question;
 pub mod remote;
 pub mod review;
 pub mod rich;
-pub mod sessions;
 pub mod shown;
 pub mod status;
 pub mod store;

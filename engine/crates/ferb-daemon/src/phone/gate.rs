@@ -666,10 +666,6 @@ pub(crate) fn lock_phone(
     st.windows.remove(&phone.device);
     st.locked_at.insert(phone.device.clone(), inner.mono());
     inner.audit(&phone.device, "phone.lock", "link", "ok", json!({}));
-    // decision: GATE-622 — the phone's control of the owner's coding sessions ends with its lock
-    let mut ev = Params::new();
-    ev.insert("phone".into(), json!(phone.device));
-    (inner.seams.publish)("phone.locked", ev);
     let mut out = Params::new();
     out.insert("unlocked".into(), json!(false));
     Ok(out)

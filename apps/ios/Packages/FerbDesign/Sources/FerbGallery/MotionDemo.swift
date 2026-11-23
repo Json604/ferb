@@ -34,7 +34,6 @@ struct MotionDemo: View {
                         else { ChatPage(insets: insets) }
                     case .tasks: TasksPage(onRow: { _, _ in sheet = "question" })
                     case .files: FilesPage(insets: insets)
-                    case .sessions: SessionSample.page(insets: insets)
                     case .mac: MacPage(link: .relay, onLink: { sheet = "relay" })
                     }
                 }
@@ -47,7 +46,7 @@ struct MotionDemo: View {
     /// by one and back, then the question, the profile and the relay sheets up and down. Changes as a tap makes them.
     private func tour() async {
         let steps: [() -> Void] = [
-            { tab = .tasks }, { tab = .sessions }, { tab = .files }, { tab = .mac }, { tab = .chat },
+            { tab = .tasks }, { tab = .files }, { tab = .mac }, { tab = .chat },
             { sheet = "question" }, { sheet = nil }, { sheet = "profile" }, { sheet = nil },
             { tab = .mac }, { sheet = "relay" }, { sheet = nil }, { tab = .tasks }, { tab = .chat },
         ]

@@ -44,9 +44,6 @@ fn reads() -> Vec<(&'static str, Value)> {
         ("runtimes.status", json!({})),
         ("schedules.list", json!({})),
         ("screen_use.status", json!({})),
-        // PHN-797: off in a test daemon: an empty list, and the folders a new session may start in
-        ("sessions.list", json!({})),
-        ("sessions.prepare", json!({})),
         ("secrets.saved", json!({})),
         ("seen.list", json!({})),
         ("sense.status", json!({})),

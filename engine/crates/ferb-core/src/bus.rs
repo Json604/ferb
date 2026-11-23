@@ -83,13 +83,6 @@ pub const CRITICAL: &[&str] = &[
     "insomnia.camera",
     // APP-1106: alerts seen or put away on one device (`attention.ack`), so every other drops them at once
     "attention.acked",
-    // HAND-651..666: the owner's coding sessions changed (FERB.app's Sessions page reloads), an agent's card asked or gone, a
-    // turn sent through FERB ended; a phone locked (its control of a session ends)
-    "sessions.changed",
-    "sessions.card",
-    "sessions.card_gone",
-    "sessions.finished",
-    "phone.locked",
 ];
 
 /// bus.py:36-44. May be dropped, oldest first.

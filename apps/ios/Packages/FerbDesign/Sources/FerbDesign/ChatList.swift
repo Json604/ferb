@@ -31,21 +31,16 @@ public struct NewMessagePill: View {
 public struct JumpPill: View {
     let text: String?
     let label: String
-    /// White with black ink, over a black page whose messages are on the dark fill (a coding session's, PHN-813).
-    let light: Bool
     let onClick: () -> Void
-    public init(_ text: String?, label: String, light: Bool = false, onClick: @escaping () -> Void) {
-        self.text = text; self.label = label; self.light = light; self.onClick = onClick
-    }
+    public init(_ text: String?, label: String, onClick: @escaping () -> Void) { self.text = text; self.label = label; self.onClick = onClick }
     public var body: some View {
-        let ink = light ? Ink.black : Ink.white
         HStack(spacing: 6) {
             Image(systemName: "arrow.down").font(.system(size: text == nil ? 15 : 13, weight: .semibold))
-            if let text { Text(text).type(14, .semibold, ink).lineLimit(1) }
+            if let text { Text(text).type(14, .semibold, Ink.white).lineLimit(1) }
         }
-        .foregroundStyle(ink)
+        .foregroundStyle(Ink.white)
         .padding(.horizontal, text == nil ? 11 : 16).padding(.vertical, 9)
-        .background(light ? Ink.white : Ink.darkFill, in: Capsule())
+        .background(Ink.darkFill, in: Capsule())
         .pressable(onClick, label: text.map { "\($0), \(label)" } ?? label)
         .accessibilityAddTraits(.updatesFrequently)
     }
@@ -125,10 +120,8 @@ public struct StatusLine: View {
 /// plain line, never a blank screen. Still shapes (the lab's only unasked motion is the spinner).
 public struct ChatWaiting: View {
     let text: String
-    /// The words' ink where the page isn't the sky (a coding session's black page: its quiet grey); nil: the sky's.
-    let textInk: Color?
     @Environment(\.skyInk) private var ink
-    public init(_ text: String, textInk: Color? = nil) { self.text = text; self.textInk = textInk }
+    public init(_ text: String) { self.text = text }
     public var body: some View {
         let shade = Color.white.opacity(0.16)
         VStack(alignment: .leading, spacing: 12) {
@@ -137,7 +130,7 @@ public struct ChatWaiting: View {
             HStack { Spacer(); RoundedRectangle(cornerRadius: 16).fill(shade).frame(width: 140, height: 40) }
             HStack(spacing: 10) {
                 Spinner(size: 16)
-                Text(text).type(14.5, .medium, textInk ?? ink.low)
+                Text(text).type(14.5, .medium, ink.low)
             }
             .padding(.top, 6)
             .accessibilityElement(children: .combine)
@@ -264,7 +257,7 @@ public struct EarlierLink: View {
     }
 }
 
-// MARK: The chat's list, shared (kb PHN-813, PHN-814)
+// MARK: The chat's list, shared (kb PHN-826)
 
 /// Where the owner is in a following list (`FollowingList`): at its end (its last point in view: then it is followed),
 /// something new arrived while he was scrolled up (`unseen`), and the row at the top of what he sees (`topKey`).
@@ -292,10 +285,8 @@ public struct ListJump {
     public var label: String
     public var action: (() -> Void)?
     public var id: String
-    /// Drawn white (JumpPill's `light`).
-    public var light: Bool
-    public init(text: String?, label: String, id: String = "chat-jump", light: Bool = false, action: (() -> Void)? = nil) {
-        self.text = text; self.label = label; self.action = action; self.id = id; self.light = light
+    public init(text: String?, label: String, id: String = "chat-jump", action: (() -> Void)? = nil) {
+        self.text = text; self.label = label; self.action = action; self.id = id
     }
 }
 
@@ -306,8 +297,8 @@ public struct ListReveal: Equatable, Sendable {
     public init(id: String, n: Int) { self.id = id; self.n = n }
 }
 
-/// The main chat's list, shared by every conversation the phone shows (the chat, a coding session's; kb PHN-628,
-/// PHN-662, PHN-813): rows that rise in, opened at the end; followed while the owner is at the end (a new row, a reply
+/// The main chat's list, shared by every conversation the phone shows (the chat, the temporary chat; kb PHN-628,
+/// PHN-662, PHN-826): rows that rise in, opened at the end; followed while the owner is at the end (a new row, a reply
 /// growing, his own message wherever he was); scrolled up, a new row brings `jump`'s "New message" and nothing moves; the
 /// jump control whenever he is not at the end; the keyboard goes as he drags down; `toEnd` (a change) goes to the end
 /// and `reveal` brings a row into view. `fade` dissolves rows under what sits above the list instead of cutting them at
@@ -388,7 +379,7 @@ public struct FollowingList<Value: Equatable, Rows: View, Over: View>: View {
                 }
                 // the way back to the latest whenever he is not at the end (kb PHN-662)
                 if let shown {
-                    JumpPill(shown.text, label: shown.label, light: shown.light) {
+                    JumpPill(shown.text, label: shown.label) {
                         if let action = shown.action { action() } else { toEndNow(reader) }
                     }
                     .padding(.bottom, 10)
@@ -409,18 +400,6 @@ public struct FollowingList<Value: Equatable, Rows: View, Over: View>: View {
     private func toEndNow(_ reader: ScrollViewProxy) {
         scroll.unseen = false
         withAnimation(FerbMotion.item.animation) { reader.scrollTo(Self.endId, anchor: .bottom) }
-    }
-}
-
-/// The jump a conversation shows when it isn't the main chat's today (no days to name): "New message" when something
-/// arrived while he was scrolled up, else the arrow alone; nothing at the end (kb PHN-662, PHN-813).
-public extension ListJump {
-    static func plain(_ s: ListScroll, newMessage: String, toLatest: String, light: Bool = false) -> ListJump? {
-        switch ChatJump.of(atEnd: s.atEnd, unseen: s.unseen, shownDay: nil, endDay: nil) {
-        case .none: nil
-        case .newMessage: ListJump(text: newMessage, label: toLatest, light: light)
-        default: ListJump(text: nil, label: toLatest, light: light)
-        }
     }
 }
 

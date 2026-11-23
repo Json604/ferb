@@ -45,7 +45,7 @@ import java.io.File
  * The top bar folded where there is no room (owner 2026-11-23, PHN-820): on a narrow phone the chat tab's temporary
  * bubble and the profile button become one menu button with three lines; while the temporary chat is on the button
  * carries the bubble's mark; its menu offers the temporary chat and this phone. Where everything fits, the bar is as
- * before (the 412 goldens).
+ * before (360 and the 412 goldens).
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -119,25 +119,23 @@ class TopBarFoldTest {
     @Test @Config(qualifiers = "w320dp-h915dp-port-mdpi") fun folded_at_320() = shots(320)
 
     // decision: PHN-820
-    @Test @Config(qualifiers = "w360dp-h915dp-port-mdpi") fun folded_at_360() = shots(360)
-
-    // decision: PHN-820
     @Test @Config(qualifiers = "w320dp-h915dp-port-mdpi") fun folded_with_the_temporary_chat_on_at_320() = shotsOn(320)
-
-    // decision: PHN-820
-    @Test @Config(qualifiers = "w360dp-h915dp-port-mdpi") fun folded_with_the_temporary_chat_on_at_360() = shotsOn(360)
 
     // decision: PHN-820
     @Test @Config(qualifiers = "w320dp-h915dp-port-mdpi") fun the_open_menu_at_320() = shotsMenu(320)
 
-    // decision: PHN-820
-    @Test @Config(qualifiers = "w360dp-h915dp-port-mdpi") fun the_open_menu_at_360() = shotsMenu(360)
-
     /** Where it fits, nothing folds: the bubble and the profile button as built. */
     // decision: PHN-820
     @Test @Config(qualifiers = "w412dp-h915dp-port-mdpi")
-    fun at_412_nothing_folds() {
-        frame(412, base)
+    fun at_412_nothing_folds() = nothingFolds(412)
+
+    /** The four tabs leave room at the smallest common width too: nothing folds at 360. */
+    // decision: PHN-820
+    @Test @Config(qualifiers = "w360dp-h915dp-port-mdpi")
+    fun at_360_nothing_folds() = nothingFolds(360)
+
+    private fun nothingFolds(width: Int) {
+        frame(width, base)
         compose.onNodeWithTag("temporary-chat").assertIsDisplayed()
         compose.onNodeWithTag("topbar-menu").assertDoesNotExist()
     }

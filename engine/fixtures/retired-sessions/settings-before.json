@@ -1,0 +1,65 @@
+{
+  "model": "opus",
+  "env": {
+    "GREETING": "grüß dich — ✓"
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Applications/FERB.app/Contents/Resources/bin/ferb agent-hook claude UserPromptSubmit"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/bin/check-bash.sh",
+            "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "'/Users/someone/Applications/FERB Old.app/Contents/Resources/bin/ferb' agent-hook claude PreToolUse"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Applications/FERB.app/Contents/Resources/bin/ferb agent-hook claude Stop"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/ferbish agent-hook claude Stop"
+          },
+          {
+            "type": "command",
+            "command": "say \"done\""
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)"
+    ],
+    "deny": [],
+    "additionalDirectories": {}
+  },
+  "cleanupPeriodDays": 30,
+  "includeCoAuthoredBy": false
+}

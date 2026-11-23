@@ -77,9 +77,8 @@ struct RootView: View {
                                              instant: { $0.gate == .locked || $0.gate == .starting }) { s in
                                     if s.asks { AsksPage(asker: shell.firstRun, insets: insets) } else { page(s.gate, insets: insets, moment: moment) }
                                 }
-                                // under a screen that covers it whole (a session, Watch live, the camera) the page takes no
-                                // touch and VoiceOver doesn't reach it: never the Sessions tab's New session under a
-                                // session's message box (owner 2026-11-23, kb PHN-815)
+                                // under a screen that covers it whole (Watch live, the camera) the page takes no touch and
+                                // VoiceOver doesn't reach it (owner 2026-11-23, kb PHN-826)
                                 .allowsHitTesting(!Self.coversPage(model.sheet))
                                 .accessibilityHidden(Self.coversPage(model.sheet))
                             })
@@ -99,10 +98,10 @@ struct RootView: View {
         }
     }
 
-    /// The sheets drawn over the whole screen (opaque, edge to edge): the page under them is out of reach (PHN-815).
+    /// The sheets drawn over the whole screen (opaque, edge to edge): the page under them is out of reach (PHN-826).
     static func coversPage(_ sheet: AppSheet?) -> Bool {
         switch sheet {
-        case .session, .sessionWatch, .live, .camera: true
+        case .live, .camera: true
         default: false
         }
     }

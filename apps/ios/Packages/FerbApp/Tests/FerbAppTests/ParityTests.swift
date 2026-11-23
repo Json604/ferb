@@ -213,7 +213,7 @@ final class ParityTests: XCTestCase {
     }
 
     /// Every sheet and page follows the owner's Block screenshots switch (owner 2026-11-23): Watch live, a task's short
-    /// view, the Mac's camera and a session's window too. Only a private answer's box hides from captures whatever the
+    /// view and the Mac's camera too. Only a private answer's box hides from captures whatever the
     /// switch says.
     // decision: PHN-810, PHN-811, PHN-110
     func testEveryPageFollowsTheSwitchAndOnlyAPrivateAnswerAlwaysHides() throws {
@@ -223,8 +223,7 @@ final class ParityTests: XCTestCase {
         let every: [AppSheet] = [.relay, .profile, .forget, .typeCode, .scan, .ownRelay, .notifications, .help, .stopAll, .settings,
                                  .connection, .days(key: "k"), .live(taskId: "t-1"), .task(taskId: "t-1", worker: nil),
                                  .task(taskId: "t-1", worker: "t-1.s1"), .sites(row: "r"), .voice(.onDevice), .location(requestId: "l"), .city,
-                                 .background, .insomnia, .camera, .session(id: "s"), .sessionYes, .sessionPick, .sessionHand(id: "s"),
-                                 .sessionNew, .sessionWatch(id: "s")]
+                                 .background, .insomnia, .camera]
         for on in [true, false] {
             m.blockScreenshots(on)
             XCTAssertEqual(m.settings.blockScreenshots, on)

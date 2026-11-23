@@ -56,29 +56,13 @@ fun LiveScreen(vm: FerbViewModel, insets: PhoneInsets) {
 
 /** The page itself (drawn from a [LiveView]; the screenshots hold it). */
 @Composable
-fun LivePage(v: LiveView, insets: PhoneInsets, onClose: () -> Unit, onStop: (() -> Unit)?, onAgain: (() -> Unit)?, title: String? = null) {
+fun LivePage(v: LiveView, insets: PhoneInsets, onClose: () -> Unit, onStop: () -> Unit, onAgain: (() -> Unit)?) {
     // opened over the page, it rises and fades in, and fades out (kb PHN-623)
     Column(Modifier.presenceFade().fillMaxSize().background(Color.Black).paddingOverBottom(insets, 8.dp, top = insets.top + 8.dp)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            PhoneText(title ?: stringResource(R.string.live_title), 22f, FerbType.Semibold, Ink.white, Modifier.weight(1f).semantics { heading() }, maxLines = 2)
+            PhoneText(stringResource(R.string.live_title), 22f, FerbType.Semibold, Ink.white, Modifier.weight(1f).semantics { heading() })
             CloseButton(onClose)
         }
-        LiveFrame(v, Modifier.weight(1f).fillMaxWidth())
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (onAgain != null) Pill(stringResource(R.string.live_again), Modifier.weight(1f), PillKind.GREY, FerbIcons.eye, height = 46.dp, onClick = onAgain)
-            else Pill(stringResource(R.string.live_close), Modifier.weight(1f), PillKind.GREY, height = 46.dp, onClick = onClose)
-            if (onStop != null) Pill(stringResource(R.string.live_stop), Modifier.weight(1f), PillKind.GREY, FerbIcons.stop, height = 46.dp, onClick = onStop)
-        }
-    }
-}
-
-/**
- * The live picture and FERB.app's line under it (Watch live's, and a watch session's screen, HAND-710): the last frame
- * fitted to the space, or while none came the Mac's words for it, why it ended, or the waiting words.
- */
-@Composable
-fun LiveFrame(v: LiveView, modifier: Modifier = Modifier) {
-    Column(modifier) {
         Box(Modifier.weight(1f).fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
             val frame = v.frame
             if (frame != null) {
@@ -93,6 +77,11 @@ fun LiveFrame(v: LiveView, modifier: Modifier = Modifier) {
         if (line != null) {
             PhoneText(line, 15f, FerbType.Medium, Ink.onDark, Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp)
                 .semantics { liveRegion = LiveRegionMode.Polite })
+        }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (onAgain != null) Pill(stringResource(R.string.live_again), Modifier.weight(1f), PillKind.GREY, FerbIcons.eye, height = 46.dp, onClick = onAgain)
+            else Pill(stringResource(R.string.live_close), Modifier.weight(1f), PillKind.GREY, height = 46.dp, onClick = onClose)
+            Pill(stringResource(R.string.live_stop), Modifier.weight(1f), PillKind.GREY, FerbIcons.stop, height = 46.dp, onClick = onStop)
         }
     }
 }

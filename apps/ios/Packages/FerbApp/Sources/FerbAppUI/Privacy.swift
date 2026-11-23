@@ -12,8 +12,8 @@ import UIKit
 /// - recording and mirroring: while the scene is captured (iOS 17's `isSceneCaptured`: a recording, AirPlay, QuickTime,
 ///   a remote control; not iPhone Mirroring, which iOS doesn't report) the content is hidden when the owner's switch is
 ///   on, and always while a private answer's box shows (PHN-110);
-/// - screenshots: with the switch on, the pictures of the Mac (Watch live, a task's short view, the Mac's camera, a
-///   session's window) are drawn inside a secure text field's canvas (ScreenshotShield.swift), which iOS leaves out of
+/// - screenshots: with the switch on, the pictures of the Mac (Watch live, a task's short view, the Mac's camera) are
+///   drawn inside a secure text field's canvas (ScreenshotShield.swift), which iOS leaves out of
 ///   screenshots; with it off they show like the rest of the app. Where this iOS doesn't build that canvas, a screenshot
 ///   shows them, and This phone says so. A private answer never shows its value (dots, or iOS's SecureField). The rest
 ///   of the app shows in a screenshot whatever the switch says: iOS has no way to blank it that keeps VoiceOver and

@@ -284,7 +284,6 @@ status = "open"
 why = "Owner requested PostHog at the end of the website work. Obtain the project configuration, implement analytics, and reflect actual collection in the privacy disclosure before deployment."
 decisions = ["REL-407"]
 
-
 [T-1020]
 title = "Should the secret helper report the Keychain's status (it re-pins the helper)?"
 area = "gateway"
@@ -308,7 +307,6 @@ kind = "build"
 status = "open"
 why = "APP-666 dropped Try's preview; FERB.app no longer calls intro.preview. Still in place: the intro.preview RPC, Supervisor.preview (_Turn.preview, PREVIEW_SESSION), its auth entry, Conversation's preview helpers, the transcript's preview label, the playground's preview picker, and their tests."
 decisions = ["APP-666"]
-
 
 [T-1042]
 title = "The planner's cached prefix stays at 10,752 tokens while its prompt grows"
@@ -671,7 +669,6 @@ kind = "live"
 status = "open"
 why = "0.19.12 drops a stale pairing key, sends a queued pairing code once the link is up and backs off reconnects (HAND-563..566). The daemon works with 0.19.11; the owner publishes when the zip is made."
 
-
 [T-1121]
 title = "Put the owner's app back the instant a popup takes focus, not when the click's reply arrives"
 area = "hands"
@@ -679,14 +676,12 @@ kind = "build"
 status = "open"
 why = "HAND-570 acts when the tab's reply carries the fact (about 4 s after the click in the live case). Acting at the popup itself needs the extension's popup event to carry the focus fact."
 
-
 [T-1122]
 title = "Stage 2 leftovers: the shared conversation's live checks and the one-time archive import"
 area = "engine"
 kind = "live"
 status = "open"
 why = "ENG-10/ENG-12: the archive import is by hand with the owner present; the second-client check can't use a cli-role script since GATE-612 made chat.send app-only, so it needs another method (a phone, or a test client the app check accepts)."
-
 
 [T-1125]
 title = "Drive the browser.* and ferb_browser.* tools through the program against a fake extension"
@@ -894,9 +889,9 @@ title = "Later, to be planned first: control a terminal or join a running agent 
 area = "phone"
 kind = "question"
 status = "open"
-why = "Owner 2026-11-18: wanted, 'BUT needs proper feature plannign - BUT not now, later'. His test of 2026-11-18: FERB typed into a Claude Code session and read the reply, but its watch loop used a worker and a checker call every round while idle. A plan comes before any code."
-decisions = ["PHN-413", "GATE-585"]
-ask = "When you want to plan it: which sessions (Claude Code, Codex, any terminal), what the phone shows and may type, and how a new reply wakes FERB without a model call while nothing happens."
+why = "Owner 2026-11-18: wanted, 'BUT needs proper feature plannign - BUT not now, later'. A plan comes before any code. The sessions built 2026-11-22..24 were archived (HAND-717): git tag archive/sessions-2026-11-24, engine/ARCHIVE-sessions.md."
+decisions = ["PHN-413", "GATE-585", "HAND-717"]
+ask = "When you want to plan it: which sessions (Claude Code, Codex, any terminal), what the phone shows and may type, and how a new reply wakes FERB without a model call while nothing happens. Start from engine/ARCHIVE-sessions.md (what worked and what didn't)."
 
 [T-1274]
 title = "Build insomnia mode: keep the Mac working while the owner is away, with the shield and the phone"
@@ -979,45 +974,6 @@ why = "MEM-454 took PORTING.md 3a parts 1-3. Part 4 isn't ported: verify reads t
 decisions = ["MEM-454", "MEM-435"]
 after = []
 
-[T-1286]
-title = "How long a phone's control of a coding session lasts with no activity"
-area = "hands"
-kind = "question"
-status = "open"
-why = "GATE-622: control ends on letting go, the session's end, the phone's lock or a restart. The lab suggested ending it after 30 minutes idle too (LAB-6, T-4); that number is the owner's (rule 18), so none is built."
-decisions = ["GATE-622"]
-ask = "Should a phone's control of a session also end after some idle time (30 minutes was suggested), or only when you lock the phone or let go?"
-after = []
-
-[T-1287]
-title = "Start new sessions in other apps, and pick the session's tab in a multi-terminal VS Code window"
-area = "hands"
-kind = "build"
-status = "open"
-why = "HAND-695 opens new terminals only in Terminal (OPENERS); iTerm2, Ghostty, WezTerm and kitty need their own background openers. HAND-660 refuses when the focused terminal isn't the session's; the lab found VS Code's tab by its 'Terminal tabs' list (AXPress by title); not built."
-decisions = ["HAND-695", "HAND-660"]
-after = []
-
-[T-1288]
-title = "Codex live: turn/steer mid-turn, the approval round trip and agentMessage's text"
-area = "hands"
-kind = "live"
-status = "open"
-why = "HAND-657 rests on Codex's schema for these (the lab's turns all hit a usage limit, lab T-2); tested only against a stand-in daemon."
-decisions = ["HAND-657"]
-after = []
-
-
-
-[T-1289]
-title = "The agents' desktop apps and Cursor: their sessions and composers"
-area = "hands"
-kind = "build"
-status = "open"
-why = "HAND-652: Claude.app's Code tab reads as Claude Code (its hooks unverified), the Codex app through its daemon; their composers and Cursor's agent chat (state.vscdb) need the lab's Accessibility send and reading (x4), not built. Until then the foreground path types only where focus names the session."
-decisions = ["HAND-652", "HAND-660"]
-after = []
-
 [T-1291]
 title = "Codex compaction, later, tested live with the owner"
 area = "runtimes"
@@ -1033,15 +989,6 @@ kind = "build"
 status = "open"
 why = "MEM-467: a watch waits by code and checks with a model at most every 12 hours. A code check (sender's address, arrival after the request, read through the extension in his profile, e.g. Gmail's feed) would let only the found mail start a model run. Open: which mailbox, reading it reliably."
 decisions = ["MEM-467"]
-
-[T-1295]
-title = "VS Code-family extension and per-host bridges for exact, background session sends"
-area = "hands"
-kind = "build"
-status = "open"
-why = "Later, if HAND-682's proof or HAND-683's choosing bother the owner (he shipped without it, 2026-11-23). The identity is the agent's tty/pid; hosts that map a tty to their terminal send in the background. Matrix: journal 181."
-decisions = ["HAND-682", "HAND-683", "HAND-660"]
-after = []
 
 [T-1296]
 title = "Ask again in 7 days when the owner is not sure a dated fact still holds?"
@@ -1070,13 +1017,4 @@ kind = "build"
 status = "blocked"
 why = "Built and replayed on Sonnet (patch .local/checker-slim.patch, tables .local/checker-slim-replays.md): -61% context; missed 7edd twice, 455bfe materials and d83a 1 of 2. Next: the same 4 cases twice on Codex, then decide."
 decisions = ["ORCH-694"]
-after = []
-
-[T-1304]
-title = "Remove ferb-policy's app-chat wording for the terminal question (HAND-675): nothing produces it now"
-area = "hands"
-kind = "build"
-status = "open"
-why = "HAND-711 removed the app chats' composer typing; TerminalInput.chat and its wording in ferb-policy (wording.rs, terminal.rs, tests/chat_card.rs) have no caller from sessions. Left for a pass over ferb-policy (outside this change's crates)."
-decisions = ["HAND-675", "HAND-711"]
 after = []

@@ -75,11 +75,10 @@ import com.ferb.design.rememberReducedMotion
 import kotlinx.coroutines.launch
 import com.ferb.design.Phone
 
-/** Mobile.swift Tab: the pages, with the owner's coding sessions after Tasks (kb HAND-651, PHN-798). */
+/** Mobile.swift Tab: the four pages. */
 enum class PhoneTab(val title: String, val icon: ImageVector, val chosenIcon: ImageVector) {
     CHAT("Chat", FerbIcons.bubble, FerbIcons.bubbleFill),
     TASKS("Tasks", FerbIcons.checklist, FerbIcons.checklist),
-    SESSIONS("Sessions", FerbIcons.terminal, FerbIcons.terminal),
     FILES("Files", FerbIcons.folder, FerbIcons.folderFill),
     MAC("Mac", FerbIcons.laptop, FerbIcons.laptop),
 }

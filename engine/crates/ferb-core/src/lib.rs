@@ -11,8 +11,6 @@ pub mod chat_entry;
 #[cfg(unix)]
 pub mod config;
 pub mod device;
-/// A session driver's reserved names (HAND-707).
-pub mod driver;
 pub mod errors;
 pub mod ids;
 pub mod interfaces;

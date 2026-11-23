@@ -50,9 +50,6 @@ const OWN_CHECKS: &[&str] = &[
     "memory.forget",
     "downloads.delete",
     "browsing.choose",
-    // HAND-663: a coding agent's permission prompt, and turning on FERB's sight of the sessions (its hook)
-    "agent_session.permission",
-    "agent_session.enable",
 ];
 const LOCKED_OK: &[&str] = &["ping", "chat.status", "stop.engage", "task.stop"];
 const LINK_METHODS: &[&str] = &[

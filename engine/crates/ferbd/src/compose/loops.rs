@@ -115,11 +115,6 @@ pub fn start(d: &Arc<Daemon>) {
     // mode that was on when FERB stopped resumed (said once)
     super::insomnia::start_loops(d);
 
-    // HAND-651..666: the owner's coding sessions: a look every LOOK_MS (code only), the question once setup is done
-    if let Some(s) = d.tools.sessions() {
-        super::sessions::start_loops(d, &s);
-    }
-
     // the resource log: a sample every SAMPLE_SECONDS (the owner's "every 5 minutes"); shutdown writes the last
     if crate::basics::lock(&d.resource_log).is_some() {
         let weak = Arc::downgrade(d);

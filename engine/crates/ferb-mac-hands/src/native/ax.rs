@@ -404,15 +404,6 @@ impl Ax for AxDriver {
     fn raise_window(&self, pid: i32, bounds: Rect) -> bool {
         self.ax.raise_window(pid, bounds)
     }
-    fn show_window(&self, pid: i32, bounds: Rect) -> bool {
-        self.ax.show_window(pid, bounds)
-    }
-    fn window_minimized(&self, pid: i32, bounds: Rect) -> Option<bool> {
-        self.ax.window_minimized(pid, bounds)
-    }
-    fn focused_window_frame(&self, pid: i32) -> Option<Rect> {
-        self.ax.focused_window_frame(pid)
-    }
     fn scroll_area_of(&self, el: &El) -> Option<El> {
         self.ax.scroll_area_of(el)
     }

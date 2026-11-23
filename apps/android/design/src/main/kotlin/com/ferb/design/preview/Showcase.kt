@@ -117,7 +117,7 @@ private fun Caption(text: String) = PhoneText(text, 12f, FerbType.Medium, LocalS
 @Composable
 fun ShowTopBars(moment: SkyMoment) = OnSky(moment, Modifier.width(412.dp)) {
     for (tab in PhoneTab.entries) TopBar(tab, Modifier.outset(16.dp))
-    // as the app draws them, with the connection control beside the profile button (kb PHN-751): five tabs fit
+    // as the app draws them, with the connection control beside the profile button (kb PHN-751)
     val connection = com.ferb.design.components.Connection(com.ferb.design.components.LinkMark.DIRECT, "Connected directly", null)
     CompositionLocalProvider(com.ferb.design.components.LocalConnection provides connection) {
         for (tab in PhoneTab.entries) TopBar(tab, Modifier.outset(16.dp))
@@ -182,33 +182,6 @@ fun ShowSheetPieces() = Column(Modifier.background(Ink.white).padding(16.dp).wid
     PairingCode("482719")
     PairStep(1, "On your Mac, open FERB and choose Pair a phone.")
     Row { PairAction(FerbIcons.keyboard, "Type code", Modifier.weight(1f)); PairAction(FerbIcons.laptop, "Get the Mac app", Modifier.weight(1f)); PairAction(FerbIcons.help, "Help", Modifier.weight(1f)) }
-}
-
-/** The Sessions tab's rows and chips on the sky, and a session's lines and message box on black (kb HAND-651..666). */
-@Composable
-fun ShowSessions(moment: SkyMoment) = Column(Modifier.width(412.dp)) {
-    OnSky(moment, Modifier.width(412.dp)) {
-        Card {
-            labSessions.forEachIndexed { i, r ->
-                if (i > 0) Divide()
-                com.ferb.design.components.SessionRow(r)
-            }
-        }
-    }
-    Column(Modifier.background(Ink.black).padding(16.dp).width(412.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        com.ferb.design.components.SessionLineKind.entries.forEach { k ->
-            com.ferb.design.components.SessionLineView(com.ferb.design.components.SessionLine(k.name, k, when (k) {
-                com.ferb.design.components.SessionLineKind.OWNER -> "Run the tests again"
-                com.ferb.design.components.SessionLineKind.AGENT -> "All 214 tests pass now."
-                com.ferb.design.components.SessionLineKind.TOOL -> "Bash: npm test"
-                com.ferb.design.components.SessionLineKind.INTERRUPTED -> "You stopped its turn."
-                com.ferb.design.components.SessionLineKind.ERROR -> "The agent's request failed."
-            }))
-        }
-        com.ferb.design.components.SessionAskCard(com.ferb.design.components.SessionAsk("Codex asks", "Which branch should I use?", "", emptyList(), "Answer this one on your Mac."))
-        com.ferb.design.components.SessionComposer("", "Message Codex…", "Send")
-        com.ferb.design.components.SessionComposer("Keep going until the tests pass", "Message Codex…", "Send")
-    }
 }
 
 @Composable
@@ -402,7 +375,6 @@ val SHOWCASES: List<Pair<String, @Composable () -> Unit>> = listOf(
     "conversation" to { ShowConversation(labMoment(12.5)) },
     "sheet-pieces" to { ShowSheetPieces() },
     "keypad" to { ShowKeypad() },
-    "sessions" to { ShowSessions(labMoment(12.5)) },
     "qr-frame" to { ShowQrFrame(labMoment(12.5)) },
     "link-pictures" to { ShowLinkPictures(labMoment(17.4)) },
     "marks-files" to { ShowMarksAndFiles() },

@@ -608,9 +608,6 @@ extension NotchModel {
             NotificationCenter.default.post(name: .ferbSchedulesChanged, object: nil)
         }
         switch event["topic"] as? String {
-        // Sessions: a session changed, asked, was answered or finished: the Sessions page reads it again
-        case "sessions.changed", "sessions.card", "sessions.card_gone", "sessions.finished":
-            NotificationCenter.default.post(name: .ferbSessionsChanged, object: data["session"] as? String)
         case "runtimes.changed":                         // APP-882: Settings → AI follows a change made anywhere
             NotificationCenter.default.post(name: .ferbRuntimesChanged, object: nil)
         // T-1205: Settings → Phone, and the notch for a pairing; GATE-615: "until I'm back at my Mac" started or ended

@@ -21,7 +21,6 @@ ferb-orchestrator = { path = "../ferb-orchestrator" }
 ferb-py = { path = "../ferb-py" }
 ferb-rpc = { path = "../ferb-rpc" }
 ferb-sanitize = { path = "../ferb-sanitize" }
-ferb-sessions = { path = "../ferb-sessions" }
 ferb-store = { path = "../ferb-store" }
 rusqlite = { version = "0.42", features = ["bundled"] }
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }

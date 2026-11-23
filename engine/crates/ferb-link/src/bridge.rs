@@ -2240,8 +2240,7 @@ impl Session {
                     *last = Some(Instant::now());
                 }
                 let mut p = json!({"task_id": params.get("task_id").cloned().unwrap_or(Value::Null)});
-                // PHN-797: a coding session's window rides the same path as a task's preview
-                for k in ["worker", "have", "session"] {
+                for k in ["worker", "have"] {
                     if let Some(v) = params.get(k) {
                         p[k] = v.clone();
                     }

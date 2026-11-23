@@ -4038,21 +4038,19 @@ paths = ["engine/crates/ferb-mobile/src/notify.rs", "engine/crates/ferb-mobile-f
 title = "The sessions calls' phone classes, and a session's window as a live preview"
 by = "agent"
 date = 2026-11-22
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 rule = "For HAND-651, GATE-622. sessions.list, .timeline, .prepare private; .control, .answer, .start, .delegate sensitive (signed over the exact call); .send and .interrupt private and also need that phone's control (GATE-622); .release plain, allowed locked; .hook and .remove_hooks never. Watching a session is tasks.preview with `session` (the link forwards it): the host's window as captured, under PHN-454 (direct or own relay only, unlocked, memory only, screenshot-blocked), refused on the public relay as Watch live is. Refusals carry codes -32040..-32048 with the owner's words."
 evidence = "ferb-rpc tests/phone_classes.rs and golden.rs (the rows, engine/fixtures/phone/classes.json); ferb-mobile and ferb-mobile-ffi sessions calls; the phone apps' tests."
-paths = ["engine/crates/ferb-rpc/src/classes.rs", "engine/crates/ferb-sessions/src/codes.rs", "engine/crates/ferb-mobile/src/sessions.rs", "engine/crates/ferbd/src/areas_c/records.rs", "engine/crates/ferb-link/src/bridge.rs"]
-live = ["LIVE-1173"]
 
 [PHN-798]
 title = "The phones' Sessions tab mirrors FERB.app's Sessions page"
 by = "agent"
 date = 2026-11-22
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 rule = "For HAND-651, APP-1112. Android and iPhone gain a Sessions tab after Tasks: the off state with Turn on (a signed settings change), the list, New session; a session's full screen (screenshots as his switch says) with its conversation, cards, composer, actions in a menu; the Mac's question before a send, signed control; Hand to FERB; Watch as Watch live's page (public relay refused). Polling only while shown; nothing kept on the phone. One top bar on both phones (PHN-801)."
 evidence = "Android SessionsTest (13, FakePhone), SessionsLibraryTest (the real library over FixtureMac), SessionShotsTest (10 goldens); iPhone SessionsTests and snapshots."
-paths = ["apps/android/app/src/main/kotlin/com/ferb/app/ui/Sessions.kt", "apps/android/app/src/main/kotlin/com/ferb/app/model/Sessions.kt", "apps/android/design/src/main/kotlin/com/ferb/design/components/TopBar.kt", "apps/android/design/src/main/kotlin/com/ferb/design/Metrics.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppUI/Sessions.swift", "apps/ios/Packages/FerbDesign/Sources/FerbDesign/Lab/Mobile.swift"]
-live = ["LIVE-1169", "LIVE-1171", "LIVE-1173"]
 
 [PHN-799]
 title = "A new session proves the phone's presence before it goes online"
@@ -4068,11 +4066,11 @@ paths = ["engine/crates/ferb-link/src/client.rs", "engine/crates/ferb-mobile-ffi
 title = "Sending to a session works, a refused send is said; roomier tabs; a calm header; its screenshots"
 by = "owner"
 date = 2026-11-22
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 words = "i tried messaging this session throught the app, it opesn and shows the message btu sending is broken, the fingerprint ope ed i pressed  but it isnt seding. im stuck also the navbar icons are too close and the session UI topbar is too cluttered adn it also dosnt take in the screenshot settign toggle on/off - its black. FIX ALL"
 words_source = "Owner 2026-11-22 on FERB.app 202611221757 and the Android build on his Moto, sending to a Claude Code session in VS Code's terminal; relayed verbatim by the coordinator."
 rule = "Sending into a session in an editor's terminal works (HAND-682). A send the Mac refuses never looks sent and never leaves him on the Yes: the question closes, his words show dimmed with \"Not sent.\" and the Mac's plain reason, and Try again. Both phones' tabs have comfortable room again (their layout: PHN-801). A session's header is its title and state, with its actions in one menu (\u2026) beside Close. The session's screen, its Yes and Hand to FERB follow his Block screenshots switch; only Watch and hidden-answer boxes stay always secure."
-live = ["LIVE-1186", "LIVE-1170"]
 
 [PHN-801]
 title = "The chosen tab shows its name; the link's state is a badge on the profile button; its page holds it"
@@ -4109,42 +4107,42 @@ live = ["LIVE-1190"]
 title = "A send to a session shows as sending at once, then sent or not sent"
 by = "owner"
 date = 2026-11-23
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 words = "BUT, I just noticed that what I've typed in their phone gets typed in the chat and until then the send button on phone is frozen, no activity indicator or so. so please add it"
 words_source = "Owner 2026-11-23, after sending from his phone into his Claude Code session (it worked); relayed verbatim by the coordinator."
 rule = "Refines PHN-800. On both phones and FERB.app's Sessions page, Send clears the message box at once and his words show in the session as a pending bubble with a small spinner and \"Sending\u2026\", the send button disabled and showing progress, for as long as FERB types into the terminal. When the Mac confirms, the bubble is an ordinary sent one (the session's reply follows as before, never a second copy); when the Mac refuses or the send fails, it is PHN-800's \"Not sent.\" with the reason and Try again, his words kept. No invented progress."
-live = ["LIVE-1191"]
 
 [PHN-813]
 title = "A session's conversation scrolls like FERB's own chat"
 by = "owner"
 date = 2026-11-23
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 words = "also, this session chat window doesn't have the scroll down, scroll arrow on up etcetc other features like the main FERB phone chat- add them too"
 words_source = "Owner 2026-11-23 on the phone app built from 301bbfa2, about a session's screen; relayed verbatim by the coordinator."
 rule = "A session's conversation on both phones (and FERB.app's Sessions page where it applies) uses the main chat's own list, not a copy, so it has what the chat has (the jump-to-latest arrow when scrolled up, staying at the bottom only when already there, and the rest the chat's list does) and later chat features reach sessions too."
-live = ["LIVE-1191"]
 
 
 [PHN-815]
 title = "A session's screen: the chat's gaps, touches only where meant, the sent bubble at once"
 by = "owner"
 date = 2026-11-23
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 words = "the top bar and the bottom chat have no space whatsover, also hte bottom takes wring touch sometimes on the sides and taks me to the session home page and prompts start a new session. its all UI and no spcing issue - ifx them / also theres no buble after ive sent the message, please add it, else it looks stuck -FEEDBACK, remember - FEEDBACK."
 words_source = "Owner 2026-11-23, two messages with a screenshot of a session's screen on his Android phone (the Working pill on the first message, the last under the box); relayed verbatim."
 rule = "On both phones a session's screen keeps the main chat's gaps (PHN-416): the list starts below the header and scrolls under its fade, the message box sits above the bottom edge with the chat's gap, and the last message is never under it. Near the message box only it and its send button take touches; nothing there leads back to the sessions list or opens New session. His message shows as a bubble the moment he sends it (PHN-812)."
-live = ["LIVE-1191"]
 
 [PHN-816]
 title = "A session opening shows its messages loading, never an error before the Mac has answered"
 by = "owner"
 date = 2026-11-23
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 words = "it for some seconds saud ferb cant find a chat - if it takes time it shoudl show some skeleton indiactor or something - AGAIN, FEEDBACK."
 words_source = "Owner 2026-11-23, opening a session on his phone; relayed verbatim by the coordinator."
 rule = "On both phones and FERB.app's Sessions page, while a session's first read (or the refresh after a send) is on its way, its screen shows the chat's loading look of message bubbles. A line saying the chat can't be found shows only once the Mac has answered that it isn't there."
-live = ["LIVE-1191"]
 
 [PHN-811]
 title = "The screenshot switch is set in one place per phone; only a hidden answer's box always blocks"
@@ -4162,22 +4160,20 @@ live = ["LIVE-1190"]
 title = "Both phones: one sending state per session, the chat's list, a full page's touches, a loading look"
 by = "agent"
 date = 2026-11-23
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 rule = "For PHN-812, PHN-813, PHN-815, PHN-816. One state per open session (Android SessionSending, iPhone SessionOutgoing): sending from the tap (box cleared, faded bubble, turning send button), sent until his message is in the session's record, or not sent with Try again. The list uses the main chat's pieces (Android rememberChatFollow, JumpPill; iPhone FollowingList): follow at the end, the arrow and New message, day marks, selectable words, the chat's gaps and edge fades. A full page takes every touch over the page under it (coversPage). ChatWaiting until the first read answers."
 why = "The send button froze with nothing shown; the list was its own; the Working pill sat on the first message and the last ran under the box; taps at the box's edges fell through to the tab's New session under it (the page's root took no touches); an error showed before the first read answered."
 evidence = "Android SessionsTest, SessionShotsTest (goldens session-sending, -scrolled-up, -waiting, -conversation-360/-412; taps at the box's edges); iPhone SessionsTests, SessionScreensTests, goldens session-{long,sending,scrolled-up,new-message,waiting}-{375,402}."
-paths = ["apps/android/app/src/main/kotlin/com/ferb/app/model/Sessions.kt", "apps/android/app/src/main/kotlin/com/ferb/app/ui/Sessions.kt", "apps/android/design/src/main/kotlin/com/ferb/design/components/Sessions.kt", "apps/android/design/src/main/kotlin/com/ferb/design/screens/SessionScreens.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/CodingSessions.swift", "apps/ios/Packages/FerbDesign/Sources/FerbDesign/Sessions.swift", "apps/ios/Packages/FerbDesign/Sources/FerbDesign/ChatList.swift"]
-live = ["LIVE-1191"]
 
 [PHN-817]
 title = "The phones' Sessions list: each terminal's program, folder and app; New session: folder and command"
 by = "agent"
 date = 2026-11-23
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 rule = "For HAND-691, HAND-697, PHN-798. Both phones: the tab is \"Your terminal sessions\"; a row's title is the session's own, else its window's in its app's words, else its folder; its line \"<program> · <folder> · in <app>\". Each chat app open with no chat adds one quiet line under the list. New session: the folders the Mac offers, Another folder (a full path typed), and Command to run (optional); no agent picker. A command is shown exactly in the Mac's question before the signed start; with none it opens at once (still signed). Browsing the Mac's folders from the sheet is T-1300."
 evidence = "Android SessionsTest (new session as a terminal; a terminal row; the no-chat line), SessionsLibraryTest, SessionShotsTest (sessions-list, session-new, session-new-command); iPhone SessionsTests, SessionsLibraryTests."
-paths = ["apps/android/app/src/main/kotlin/com/ferb/app/ui/Sessions.kt", "apps/android/app/src/main/kotlin/com/ferb/app/model/Sessions.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppUI/Sessions.swift", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/CodingSessions.swift", "engine/crates/ferb-mobile/src/sessions.rs"]
-live = ["LIVE-1192"]
 
 [PHN-818]
 title = "The temporary chat on both phones: the dashed bubble in the chat tab's top bar, held only in memory"
@@ -4215,33 +4211,30 @@ live = ["LIVE-1194"]
 title = "New session's Another folder opens the Mac's folders to pick from"
 by = "owner"
 date = 2026-11-23
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 words = "we already have the mac file system, so it would be easy to pick folders rather than typing the folder path - it better UX"
 words_source = "Owner 2026-11-23 (relayed verbatim), about the phones' New session sheet (PHN-817, T-1300)."
 rule = "Refines PHN-817. On both phones Another folder opens the phone's Mac Files browser in a folders-only mode (files hidden, folders open on tap, Use this folder with the path shown); the chosen folder becomes the selected one at the top; the recent folders stay. No typed path."
-paths = ["apps/android/app/src/main/kotlin/com/ferb/app/ui/Sessions.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/CodingSessions.swift"]
-live = ["LIVE-1198"]
 
 [PHN-822]
 title = "Start shows that it is opening the terminal, then opens it"
 by = "owner"
 date = 2026-11-23
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 words = "even after pressing start session, theres a freeze on the new session modal and after that it goes down and the terminal is opened - remember FEEDBACK."
 words_source = "Owner 2026-11-23 (relayed verbatim), live on his Moto."
 rule = "Refines PHN-817 and APP-1121. Start turns at once into a spinner with \"Opening a terminal…\" and the form is disabled; when the Mac answers the sheet closes and the new session opens (sessions.start's `session`), or the list says \"Your new terminal will show here in a moment.\" until it shows; a refusal keeps the sheet with the Mac's reason. FERB.app the same."
-paths = ["apps/android/app/src/main/kotlin/com/ferb/app/ui/Sessions.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/CodingSessions.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SessionsModel.swift"]
-live = ["LIVE-1198"]
 
 [PHN-823]
 title = "The phones' session: FERB's keep-going question and what FERB sent"
 by = "agent"
 date = 2026-11-23
-status = "active"
+status = "superseded"
+superseded_by = "HAND-717"
 rule = "For HAND-708, HAND-709. Both phones: a card of kind ferb is titled \"FERB asks\" (sessions_ferb_asks) and answered like the agent's (sessions.answer, signed); an item with ferb (ferb-mobile SessionItem.ferb, ffi default false) is drawn on the owner's side with \"Sent by FERB\" (sessions_sent_by_ferb) over the bubble."
 evidence = "Android SessionShotsTest session-keep-going-360/412, SessionsTest; iPhone goldens session-keep-going-375/402, SessionScreensTests; ferb-mobile sessions a_message_ferb_sent_is_read_as_ferb_s."
-paths = ["apps/android/app/src/main/kotlin/com/ferb/app/ui/Sessions.kt", "apps/android/design/src/main/kotlin/com/ferb/design/components/Sessions.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/CodingSessions.swift", "apps/ios/Packages/FerbDesign/Sources/FerbDesign/Sessions.swift", "engine/crates/ferb-mobile/src/sessions.rs"]
-live = ["LIVE-1199"]
 
 [PHN-824]
 title = "A question is drawn where FERB.app draws it: a card row's in its turn, every other one at the end"
@@ -4253,3 +4246,24 @@ why = "Owner 2026-11-23, phone screenshots: \"why am i getting these questions a
 evidence = "Android ChatModelTest and TemporaryChatTest, iPhone ChatModelTests and TemporaryChatTests (question order, answered one gone); ferb-supervisor temporary_chat.rs an_answered_question_closes_in_the_temporary_chat_that_asked_it."
 paths = ["apps/android/app/src/main/kotlin/com/ferb/app/model/Chat.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/Chat.swift", "engine/crates/ferb-supervisor/src/flow/temporary.rs"]
 live = ["LIVE-1194"]
+
+[PHN-825]
+title = "The phones' top bar has four tabs: Chat, Tasks, Files, Mac"
+by = "agent"
+date = 2026-11-24
+status = "active"
+rule = "For HAND-717 and PHN-801, PHN-820. With Sessions archived both phones' bars have four tabs. PHN-801's look is unchanged (the chosen tab's icon and name in the white pill, the others sharing what is left, 46 at most and never under 36, the link's badge on the profile button), now with three other tabs; PHN-820's folding happens only when even that has no room (at 360 wide nothing folds any more). A saved Sessions tab opens on Chat."
+why = "The owner archived sessions (HAND-717); the adaptive bar stays."
+evidence = "Android TopBarFoldTest, BarLayoutTest and every bar golden recorded again; iPhone TopBarLayoutTests and every bar golden recorded again."
+paths = ["apps/android/design/src/main/kotlin/com/ferb/design/components/TopBar.kt", "apps/ios/Packages/FerbDesign/Sources/FerbDesign/Lab/Mobile.swift"]
+live = ["LIVE-1186"]
+
+[PHN-826]
+title = "A whole-screen page takes every touch from the page under it; the chat's list is one shared piece"
+by = "agent"
+date = 2026-11-24
+status = "active"
+rule = "For HAND-717: what stays of PHN-813 and PHN-815 now that sessions are archived. On both phones a page drawn over the whole screen (Watch live, the Mac's camera) takes every touch, on its margins and empty places too, and (iPhone) VoiceOver doesn't reach the page under it (Android coversPage, iPhone RootView.coversPage). The chat's list is one shared piece (Android ChatList with rememberChatFollow and JumpPill, iPhone FollowingList): follow at the end, the jump arrow with New message, day marks."
+why = "Both were built for the session screen but serve Watch live, the camera and the main chat; the owner's complaints behind them (taps falling through, a list unlike the chat's) still hold there."
+evidence = "iPhone AppScreensTests testThePageUnderAWholeScreenSheetIsOutOfReach; Android ScreenGuardTest and the chat's list tests."
+paths = ["apps/android/design/src/main/kotlin/com/ferb/design/MotionHosts.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppUI/Root.swift", "apps/ios/Packages/FerbDesign/Sources/FerbDesign/ChatList.swift"]
