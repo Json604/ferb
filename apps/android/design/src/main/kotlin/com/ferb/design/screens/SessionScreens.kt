@@ -92,8 +92,6 @@ fun SessionsPage(
     insets: PhoneInsets = PhoneInsets.Lab,
     off: SessionsOff? = null,
     empty: String? = null,
-    /** HAND-697: one quiet line per chat app open with no chat FERB could find. */
-    notes: List<String> = emptyList(),
     /** A new terminal the Mac opened that the list doesn't hold yet: one quiet line until it shows. */
     coming: String? = null,
     waiting: PhoneTab? = null,
@@ -128,9 +126,6 @@ fun SessionsPage(
             }
             if (off == null) {
                 coming?.let { PhoneText(it, 14.5f, FerbType.Medium, ink.low, Modifier.padding(start = 8.dp, end = 8.dp, top = 10.dp).testTag("session-coming")) }
-                for (note in notes) {
-                    PhoneText(note, 14.5f, FerbType.Medium, ink.low, Modifier.padding(start = 8.dp, end = 8.dp, top = 10.dp).testTag("no-chat"))
-                }
             }
         }
         if (off == null) {
@@ -152,6 +147,9 @@ fun SessionsPage(
  * selectable. Lines start below the header with the main chat's gaps and fade out under it and above the message box
  * (owner, kb PHN-815), and the page keeps every touch on it from the Sessions tab under it ([coversPage]). While its
  * first read is on its way ([loading]) it shows the main chat's waiting look (PHN-816).
+ *
+ * A session FERB reads no words of (HAND-710) has no conversation: its window, live ([watch], sized to the space), in its
+ * place, his message on its way or refused under it, then one quiet line ([watchNote]: what he sends is typed there).
  */
 @Composable
 fun SessionPage(
@@ -175,6 +173,8 @@ fun SessionPage(
     /** FERB's latest word on a hand-over (HAND-702): above the message box, or under the header when [noteOnTop]. */
     note: String? = null,
     noteOnTop: Boolean = false,
+    watch: (@Composable (Modifier) -> Unit)? = null,
+    watchNote: String? = null,
     list: LazyListState = rememberLazyListState(),
     composer: @Composable (Modifier) -> Unit,
 ) {
@@ -197,7 +197,9 @@ fun SessionPage(
             if (note != null && noteOnTop) FerbNoteLine(note, Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp))
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 // its first read on its way: the main chat's waiting look, never an empty page or an error (PHN-816)
-                if (loading != null && lines.isEmpty() && asks.isEmpty() && outgoing == null) {
+                if (watch != null) {
+                    WatchPlace(watch, watchNote, outgoing, onRetry)
+                } else if (loading != null && lines.isEmpty() && asks.isEmpty() && outgoing == null) {
                     ChatWaiting(loading, Modifier.testTag("session-waiting"), ink = Ink.onDark)
                 } else {
                     SessionList(lines, asks, older, onOlder, onChoice, outgoing, onRetry, toLatest, newMessage, list)
@@ -215,6 +217,19 @@ fun SessionPage(
                 onPicked = { onMenu?.invoke(false) },
             )
         }
+    }
+}
+
+/** A watch session's place for its conversation (HAND-710): its window live, his message's state, the quiet note. */
+@Composable
+private fun WatchPlace(watch: @Composable (Modifier) -> Unit, note: String?, outgoing: SessionOutgoing?, onRetry: (() -> Unit)?) {
+    Column(Modifier.fillMaxSize().testTag("session-watch")) {
+        watch(Modifier.weight(1f).fillMaxWidth())
+        if (outgoing != null) {
+            SessionOutgoingView(outgoing, Modifier.padding(horizontal = 16.dp).padding(top = 8.dp)
+                .testTag(if (outgoing.reason != null) "session-unsent" else "session-outgoing"), onRetry)
+        }
+        note?.let { PhoneText(it, 13.5f, color = Ink.onDark, lineSpacing = 2f, modifier = Modifier.padding(start = 22.dp, end = 22.dp, top = 8.dp).testTag("session-type-note")) }
     }
 }
 

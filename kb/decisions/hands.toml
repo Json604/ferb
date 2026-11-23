@@ -2318,70 +2318,67 @@ live = ["LIVE-1168"]
 title = "The desktop chat apps' conversations are sessions too, watched smartly: no model calls to look"
 by = "owner"
 date = 2026-11-22
-status = "active"
+status = "superseded"
+superseded_by = "HAND-710"
 words = "no ferb can already do it, and those are anyways needed when im away so taking focus on it is not a problem BUT hte thingi is how smartly does it do. cause if you remeber a few days ago i did try ferb controlling a session BUT onle a few minutes in it did so many model clals looking at eht esession"
 words_source = "Owner 2026-11-22, relayed verbatim by the coordinator, asking for T-1289 in the release. His earlier run (task 38f4a1ef) made 9 model calls in 7m41s only watching."
 rule = "The chats open in the desktop chat apps (the Claude app, ChatGPT, the Codex app's own threads, Cursor's agent pane, any chat app he adds) are sessions in the same Sessions list: read, sent to and handed to FERB in one generic way. Taking the foreground for them is fine while he's away. Watching and waiting cost no model call: FERB's model runs only when a reply has finished and there is something to decide."
-live = ["LIVE-1174", "LIVE-1175", "LIVE-1176"]
 
 [HAND-669]
 title = "An app chat is read from its window's Accessibility tree by code, and only while someone watches"
 by = "agent"
 date = 2026-11-22
-status = "active"
+status = "superseded"
+superseded_by = "HAND-710"
 rule = "For HAND-668. The known chat apps (data: ferb-sessions appchat.json) and the ones he adds (config sessions.chat_apps) are listed by their normal titled windows. A chat is read only while watched (a client read it in the last 30 s, FERB's task holds it, or a send awaits its reply): every 2 s while it replies, 10 s otherwise (HAND-674). A window on another Space is read by bringing its app forward only while the owner is away (presence, no recent input, unlocked), every 30 s (HAND-674), the front app put back; else the session says when FERB can read it."
 evidence = "ferb-daemon tests/sessions.rs an_app_chat_is_listed_read_only_while_watched_and_his_own_typing_is_his, a_chat_on_another_space_is_read_by_bringing_it_forward_only_while_the_owner_is_away."
-paths = ["engine/crates/ferb-daemon/src/sessions/appchats.rs", "engine/crates/ferbd/src/compose/sessions.rs::chat_read", "engine/crates/ferb-sessions/src/appchat.json"]
 
 [HAND-670]
 title = "Who said what in an app chat comes from its layout; FERB's own sent text only confirms it"
 by = "agent"
 date = 2026-11-22
-status = "active"
+status = "superseded"
+superseded_by = "HAND-710"
 rule = "For HAND-668. Messages are the text runs above the composer in reading order, grouped by gaps. A message is the owner's by the app's own structure first, kept as data per app (which side its owner's messages sit on, a label it puts on them), else by alignment: set in and flush right within the transcript's column. Text FERB typed into that chat only confirms a message is his. What he typed in the app himself is his."
 evidence = "ferb-sessions tests/appchat.rs (the owner typing in the app, an added app read by alignment, an agent pane marked by its label, FERB's text confirming); ferb-daemon an_app_chat_is_listed_read_only_while_watched_and_his_own_typing_is_his."
-paths = ["engine/crates/ferb-sessions/src/appchat.rs::read"]
 
 [HAND-671]
 title = "An app is replying while its stop control is up; finished once it is gone, or, with none, when still"
 by = "agent"
 date = 2026-11-22
-status = "active"
+status = "superseded"
+superseded_by = "HAND-710"
 rule = "For HAND-668. An app whose data names a stop control (its label): replying while it is there and enabled; finished once it has been gone STOP_GONE_S (counted from the last look that saw it, a send or a change in the chat). An app with none: replying while the last message's text or the number of messages changed within STILL_S; finished once still that long. What was there before FERB first looked counts as settled. The numbers are the owner's (HAND-674)."
 evidence = "ferb-sessions tests/appchat.rs replying_until_the_stop_control_goes_and_the_last_message_holds_still."
-paths = ["engine/crates/ferb-sessions/src/appchat.rs::Watch"]
 
 [HAND-672]
 title = "Typing into an app chat goes into its own message box, proven by focus; its stop is its stop control"
 by = "agent"
 date = 2026-11-22
-status = "active"
+status = "superseded"
+superseded_by = "HAND-710"
 rule = "For HAND-668, HAND-660. The composer is the window's focused editable text element, else its lowest one (the lab's x4). FERB brings the app forward (the owner-quiet wait of the Mac hands' foreground typing), raises the window, focuses that element, and types only when the focus is provably it; Return follows; the front app comes back. Asked once as every session send is (GATE-622; GATE-585 for FERB's task). Delivery is the text showing as his message (HAND-655). Stop presses the app's own stop control."
 evidence = "ferb-daemon tests/sessions.rs a_send_types_into_the_app_s_own_box_and_its_reply_is_awaited_by_code_with_no_model_call, an_app_chat_s_stop_is_its_own_stop_control_and_a_hand_over_names_the_app."
-paths = ["engine/crates/ferbd/src/compose/sessions.rs::foreground", "engine/crates/ferb-sessions/src/appchat.rs::composer"]
-live = ["LIVE-1175"]
 
 [HAND-673]
 title = "Handing an app chat to FERB: one model call per finished reply, none while it waits"
 by = "agent"
 date = 2026-11-22
-status = "active"
+status = "superseded"
+superseded_by = "HAND-710"
 rule = "For HAND-668, ORCH-687. A hand-over of an app chat is the owner's message naming it; FERB's task reads it and sends with agent_session.read and .send, whose wait looks at the window by code until the reply has finished (HAND-671) and then returns the new messages. So the task's model runs once per finished reply; no planner, worker or checker call watches the chat."
 evidence = "ferb-daemon tests/sessions.rs a_send_types_into_the_app_s_own_box_and_its_reply_is_awaited_by_code_with_no_model_call (no question, no hand-over, no call while waiting)."
-paths = ["engine/crates/ferb-daemon/src/sessions/mod.rs::Sessions.wait_turn", "engine/crates/ferbd/src/compose/tools/sessions.rs"]
-live = ["LIVE-1176"]
 
 [HAND-674]
 title = "App chats' timing: done 3 s after the stop control goes, else 10 s still; looks 2 s or 10 s; 30 s"
 by = "owner"
 date = 2026-11-22
-status = "active"
+status = "superseded"
+superseded_by = "HAND-710"
 words = "go with your picks"
 words_source = "Owner 2026-11-22, relayed verbatim by the coordinator, answering the proposal for the app chats' timing (HAND-671, HAND-669) quoted in the rule; its question task is closed."
 rule = "The proposal he answered, verbatim: \"finished once the Stop button has been gone for 3 seconds, or, for an app with no Stop button, no change for 10 seconds; looks every 2 seconds while the app is replying, every 10 seconds otherwise; a window on another Space looked at every 30 seconds, only while he's away\". In code: STOP_GONE_S 3, STILL_S 10, LOOK_REPLYING_S 2, LOOK_IDLE_S 10, FOREGROUND_LOOK_S 30."
 evidence = "ferb-sessions tests/appchat.rs replying_until_the_stop_control_has_been_gone_3_s_or_a_chat_without_one_holds_still_10_s."
-paths = ["engine/crates/ferb-sessions/src/appchat.rs"]
-live = ["LIVE-1176"]
 
 [HAND-675]
 title = "Typing into an app chat asks naming the app's chat and message box, never a terminal"
@@ -2391,7 +2388,6 @@ status = "active"
 rule = "For HAND-672, GATE-585. FERB's first typing into a desktop chat app in a task still asks once (one Yes per app per task, as GATE-586 keys it), but the question, its summary and its trace line name the app's chat and its message box, not a terminal: the input says it is a chat's (TerminalInput.chat, set by agent_session.send for an app chat) and the shared terminal wording reads it. A terminal's question is unchanged."
 evidence = "ferb-policy tests/chat_card.rs a_chat_app_s_question_names_its_chat_never_a_terminal; tests/parity.rs terminal_input_matches_python unchanged."
 paths = ["engine/crates/ferb-policy/src/wording.rs", "engine/crates/ferb-policy/src/terminal.rs", "engine/crates/ferbd/src/compose/tools/sessions.rs"]
-live = ["LIVE-1176"]
 
 [HAND-676]
 title = "A snapshot lists what the worker can use, not what only repeats"
@@ -2486,7 +2482,8 @@ live = ["LIVE-1170"]
 title = "Watch finds a session's window as a send does; minimized or on another desktop is said as such"
 by = "agent"
 date = 2026-11-23
-status = "active"
+status = "superseded"
+superseded_by = "HAND-713"
 rule = "For PHN-797, HAND-682, HAND-683. One place (ferb-sessions window) picks a session's window for Watch and the send's folder test: an app chat's window; the owner's chosen terminal; a title holding the session's title; a title naming its folder; the only window; else the front one; this Space first; titled normal windows only. The host is the app's own process. Minimized is said so; off this Space is tried, then said to be on another desktop. FERB neither restores windows nor switches Spaces."
 why = "Every Watch of the owner's VS Code session said \"Its window isn't open on your Mac\": the old finder wanted an exact title or the app's only window, and VS Code lists seven layer-0 windows (read 2026-11-23). The host pid was VS Code's own."
 evidence = "ferb-sessions tests/window.rs (a recorded window list and process tree of that shape); ferb-daemon tests/sessions.rs watch_finds_the_session_where_a_send_does_the_app_s_own_process_and_the_chosen_terminal."
@@ -2519,10 +2516,10 @@ live = ["LIVE-1192"]
 title = "A terminal's conversation is its own text, read while someone looks, redacted, shown as what is new"
 by = "agent"
 date = 2026-11-23
-status = "active"
+status = "superseded"
+superseded_by = "HAND-710"
 rule = "For HAND-691. Read only while a client reads its timeline (every 1.5 s at most) or a send waits: tmux's capture-pane, Terminal's `contents` of the tab on its tty, else its window's one terminal text area by Accessibility; none: `no_text` says why. Redacted, then items: the first read shows the screen (80 lines); later reads add the settled lines after the last read's; a redrawn screen shows once it holds still. His words are proven by showing in its text, then go in as his item."
 evidence = "ferb-sessions tests/terminals.rs a_terminal_s_text_gives_only_what_is_new; ferb-daemon tests/sessions.rs a_terminal_s_text_is_read_while_watched_and_a_send_types_into_it_proven_on_its_screen; ferb-platform-macos terminal_is_read_by_its_tab_and_opened_in_the_background."
-paths = ["engine/crates/ferb-sessions/src/terminals.rs::Screen", "engine/crates/ferb-daemon/src/sessions/terminals.rs::Sessions.term_read", "engine/crates/ferbd/src/compose/sessions.rs::terminal_text_by_ax"]
 live = ["LIVE-1192"]
 
 [HAND-694]
@@ -2560,57 +2557,53 @@ live = ["LIVE-1168"]
 title = "An app with no chat open shows no session and is never typed into; one line says to start one there"
 by = "owner"
 date = 2026-11-23
-status = "active"
+status = "superseded"
+superseded_by = "HAND-710"
 words = "so this just happended in teh chat app i tried(all), there wasnt any agent session opned so it showed like that, it even typed in the empty file in cursor. SO, fi ferb cant create any new sessions in these apps, eher it should(ONLY IF ITS EASY and RELIABLE) or just say that no runnign session found there, start one to continue here. (i like the latter) / or maybe do a few model call to help the code identify where to type adn if its even there. its not constant, its ut htere to help verify it ont eh first lookup. will this work out???"
 words_source = "Owner 2026-11-23 after trying every chat app (a Cursor editor window listed, his words typed into scratch.txt); relayed verbatim (joined with /); the coordinator answered yes to the model-call idea."
 rule = "Refines HAND-668..672. A chat app's window is a session only when code proves its chat pane (HAND-698), learned with one model look where code can't tell a layout (HAND-699). No proof: no session and nothing typed anywhere in the app; the list says once per app \"No chat open in {app}. Start one there to continue here.\" FERB doesn't create chats in these apps."
 evidence = "ferb-daemon tests/sessions.rs an_editor_only_window_is_no_chat_and_is_never_typed_into; Android, iPhone and FERB.app no-chat line tests."
-live = ["LIVE-1193"]
 
 [HAND-698]
 title = "A chat pane is proven by structure: its composer inside the pane; messages only from the pane"
 by = "agent"
 date = 2026-11-23
-status = "active"
+status = "superseded"
+superseded_by = "HAND-710"
 rule = "For HAND-697. A window is a chat only when an editable element carries the app's composer marks inside a container with its pane marks (appchat.json), or matches a learned fingerprint (HAND-699); an editor's or terminal's input or a find box never is. Only the pane is read: its texts above the composer in its column, icon glyphs removed. A send refinds the composer by fingerprint; before typing and before Return it must hold the keyboard in the app in front, else FERB stops and says why. Sends answer within 8 s."
 why = "A Cursor window with only scratch.txt open was listed: the old composer rule (focused, else lowest editable) took Monaco's editor, its breadcrumb became messages, his words went into the file; sessions.control outran the link's 10 s (a 10 s delivery wait over whole-window reads)."
 evidence = "ferb-sessions tests/appchat.rs a_chat_pane_is_proven_by_structure_and_an_editor_or_a_settings_page_never_is; ferb-daemon tests/sessions.rs an_editor_only_window_is_no_chat_and_is_never_typed_into, a_send_types_into_the_app_s_own_box_and_its_reply_is_awaited_by_code_with_no_model_call."
-paths = ["engine/crates/ferb-sessions/src/appchat.rs", "engine/crates/ferb-sessions/src/appchat.json", "engine/crates/ferb-daemon/src/sessions/appchats.rs", "engine/crates/ferbd/src/compose/sessions.rs::still_composer"]
-live = ["LIVE-1193"]
 
 [HAND-699]
 title = "A chat layout code can't tell is shown once to a model as an outline; its checked pick is learned"
 by = "agent"
 date = 2026-11-23
-status = "active"
+status = "superseded"
+superseded_by = "HAND-710"
 rule = "For HAND-697. Code can't prove a pane in a layout it hasn't learned: one independent call (checker role, learning_call, its own prompt and the outline only) sees each element's number, role, label (40 chars, redacted), position; never values. Code keeps its pick only if the reply box is editable and no editor's, and the list above it in its column is taller, holds 2+ texts, inside one container with it; the fingerprint is kept (sessions/chat-layouts.json). Once per layout; 10 per app a day, none across apps (HAND-700)."
 evidence = "ferb-daemon tests/sessions.rs an_unknown_layout_is_learned_with_one_model_call_then_found_by_code, a_model_pick_code_can_t_check_is_dropped_and_none_is_no_chat_within_the_day_s_asks; ferb-sessions appchat.rs; ferb-learning single_call.rs."
-paths = ["engine/crates/ferb-daemon/src/sessions/appchats.rs::Sessions.maybe_ask", "engine/crates/ferb-sessions/src/appchat.rs::check_pick", "engine/crates/ferbd/src/compose/sessions.rs::locate_with"]
-live = ["LIVE-1193"]
 
 [HAND-700]
 title = "At most 10 model looks at chat layouts per app a day, none across apps"
 by = "owner"
 date = 2026-11-23
-status = "active"
+status = "superseded"
+superseded_by = "HAND-710"
 words = "ok, then lets have a per app 10 daily limit"
 words_source = "Owner 2026-11-23, relayed verbatim by the coordinator: his answer to T-1302 (3 looks per app, 10 a day in all), after hearing the cap only guards against a loop."
 rule = "For HAND-699. FERB's model looks at chat layouts code can't tell are at most 10 per app a day (MODEL_ASKS_PER_APP_PER_DAY), still once per layout; there is no daily cap across apps. The cap only guards against a loop."
 evidence = "ferb-daemon tests/sessions.rs a_model_pick_code_can_t_check_is_dropped_and_none_is_no_chat_within_the_day_s_asks (the app's tenth ask is the last)."
-paths = ["engine/crates/ferb-daemon/src/sessions/appchats.rs::Sessions.maybe_ask"]
-live = ["LIVE-1193"]
 
 [HAND-701]
 title = "An unwatched chat app window is re-checked for a newly opened chat every 15 s, by code"
 by = "owner"
 date = 2026-11-23
-status = "active"
+status = "superseded"
+superseded_by = "HAND-710"
 words = "ok lets keep it"
 words_source = "Owner 2026-11-23, relayed verbatim by the coordinator, asked whether FERB should re-check an unwatched chat app window for a newly opened chat every 15 s, by code only (T-1302)."
 rule = "For HAND-698. A chat app's window no one watches is checked for a chat being opened or closed there every 15 s (CHECK_EVERY_S), by code alone: no model call."
 evidence = "ferb-daemon tests/sessions.rs an_app_chat_is_listed_read_only_while_watched_and_his_own_typing_is_his (one read, then not again until due; CHECK_EVERY_S is 15)."
-paths = ["engine/crates/ferb-daemon/src/sessions/appchats.rs"]
-live = ["LIVE-1193"]
 
 [HAND-702]
 title = "Hand to FERB is said in the session; \"FERB is on it\" only while its task runs; Take it back"
@@ -2628,13 +2621,12 @@ live = ["LIVE-1195"]
 title = "A chat app's reply is one block of typed parts read by structure, shown as the app shows it"
 by = "owner"
 date = 2026-11-23
-status = "active"
+status = "superseded"
+superseded_by = "HAND-710"
 words = "the chat replies/message UI is broken, see what cursor showed and what ferb app. it was the same case in claude app too."
 words_source = "Owner 2026-11-23 with his Cursor screenshot (relayed), then: \"no you can show it but why cant like how they are in the app ina good ui??? - if possible\"."
 rule = "Refines HAND-669. One item per owner message and one per app reply. Runs are read in tree order (never by position) and joined in their block. Parts, by structure only (roles, subroles, an opener, a status region, a button row), never words: text (Markdown, the app's words escaped), thinking (collapsed row), tool (collapsible step: label, what it ran, output fixed-width), meta (time or state line). A button's label is chrome. No shape: the layout groups, still one reply. Items carry parts, redacted; transcripts' assistant text is drawn as Markdown."
 evidence = "ferb-sessions tests/appchat.rs one_reply_is_one_block_with_its_parts_in_order_read_by_structure, a_read_with_no_shape_still_makes_one_reply_between_the_owner_s_messages_and_its_words_stay_words; the clients' parts tests and goldens."
-paths = ["engine/crates/ferb-sessions/src/appchat.rs", "engine/crates/ferb-sessions/src/model.rs", "engine/crates/ferb-daemon/src/sessions/appchats.rs", "engine/crates/ferbd/src/compose/sessions.rs"]
-live = ["LIVE-1196"]
 
 [HAND-704]
 title = "Every terminal in every terminal app is listed and an agent in one has its app (root's login a link)"
@@ -2652,12 +2644,11 @@ live = ["LIVE-1197"]
 title = "The no-chat line says it is about an agent chat"
 by = "owner"
 date = 2026-11-23
-status = "active"
+status = "superseded"
+superseded_by = "HAND-710"
 words = "wording to be improved in sessions: it is for agentic chat.session only, currentyl for eg,: it says on chat open in X, sstart one..... BUT chat is open but not an agentic chat/session"
 words_source = "Owner 2026-11-23 (relayed verbatim)."
 rule = "Refines HAND-697. The line for a chat app with no chat FERB can follow, and the send's refusal there, read \"No agent chat open in {app}. Start one there to continue here.\" on the Mac and both phones."
-paths = ["engine/crates/ferb-daemon/src/sessions/mod.rs"]
-live = ["LIVE-1196"]
 
 [HAND-706]
 title = "A session's finished turn is one notification per session, never a chat line"
@@ -2702,3 +2693,80 @@ why = "The loop is code's (waiting costs nothing); the step decides and code act
 evidence = "ferb-daemon tests/sessions.rs (drive, ask, Take it back mid-wait, permission and question, 20 rounds); ferb-supervisor tests/session_driver.rs; ferbd tests/stats.rs."
 paths = ["engine/crates/ferb-daemon/src/sessions/driver.rs", "engine/crates/ferb-supervisor/src/flow/driver.rs", "engine/crates/ferbd/src/compose/sessions.rs", "engine/crates/ferbd/src/stats.rs"]
 live = ["LIVE-1199"]
+
+[HAND-710]
+title = "Sessions: say which are on; read and send exactly where the agent allows, else watch live and type"
+by = "owner"
+date = 2026-11-24
+status = "active"
+words = "lets remove and archive everything built in sessions / upon further thinking, this sessions tab is helpful BUT it aint working like it should - so no remove BUT a method of this sessions that easily tells which are on and easy to send, see, type etcetc. lets discuss / yeah i like this and when not available just watch live and type. BUT first lets build and test this - live by me. cause again it has to be universal. / which i dont want, just switch the desktop why are you saying this, ferb does switch on its own. anyways its phone so do it / Do both"
+words_source = "Owner 2026-11-23/24, relayed verbatim in order: remove; keep it, reworked; the design shown: \"yeah i like this…\"; on Watch off-desktop; \"Do both\": driver for Claude Code/Codex only, a guard stop asks."
+rule = "Supersedes the app-chat and terminal-text reading that failed live. On = Claude Code's list and transcripts, Codex's app-server, every terminal, every open window of a known agent/chat app by structure (app, title). Read = only Claude Code's and Codex's records; else Watch, no other app's text. Send = Codex's service; Claude Code in a terminal by HAND-682/683; else Watch and \"Type here\" into that window under the existing confirmations. Watch is universal (switches desktop, unminimizes). Hand to FERB: Claude Code and Codex only; a guard-stopped step asks Keep trying."
+supersedes = ["HAND-668", "HAND-669", "HAND-670", "HAND-671", "HAND-672", "HAND-673", "HAND-674", "HAND-693", "HAND-697", "HAND-698", "HAND-699", "HAND-700", "HAND-701", "HAND-703", "HAND-705"]
+paths = ["engine/crates/ferb-sessions/src/apps.rs", "engine/crates/ferb-sessions/src/paths.rs", "engine/crates/ferb-daemon/src/sessions/windows.rs", "engine/crates/ferb-daemon/src/sessions/mod.rs", "engine/crates/ferbd/src/compose/sessions.rs"]
+live = ["LIVE-1205", "LIVE-1206", "LIVE-1207", "LIVE-1208", "LIVE-1209"]
+
+[HAND-711]
+title = "Only Claude Code's and Codex's records are read; terminals and agent apps' windows are watched"
+by = "agent"
+date = 2026-11-24
+status = "active"
+rule = "For HAND-710. Terminals (HAND-692) and each open window of a known agent/chat app (ferb-sessions apps::KNOWN plus config [sessions] chat_apps) are watch: true: empty timeline, no text, tree or model read. An app window is a session per window (app:<bundle>:<window>, app_chat on the wire): normal, drawn, titled, at least 300x200, any desktop (apps::pick); its title redacted; idle. Removed: appchat(.json), the daemon's appchats and chat-layouts.json, terminal text reads and terminals::Screen, Item.parts, no_chats."
+why = "Every one of these reads was built against guesses about other apps' trees and failed live; structure (process table, window server) is exact."
+evidence = "ferb-sessions tests/apps.rs (VS Code's real window rows); ferb-daemon tests/sessions.rs an_app_s_open_windows_are_sessions_by_structure_watched_and_typed_into and a_terminal_is_watched_never_read_and_a_send_types_into_it_at_once; the read-only probe on his Mac (journal 196)."
+paths = ["engine/crates/ferb-sessions/src/apps.rs", "engine/crates/ferb-daemon/src/sessions/windows.rs", "engine/crates/ferb-daemon/src/sessions/terminals.rs", "engine/crates/ferb-sessions/src/model.rs"]
+live = ["LIVE-1205"]
+
+[HAND-712]
+title = "Send routes: the agent's service, exact adapters, the proven terminal, else the session's window"
+by = "agent"
+date = 2026-11-24
+status = "active"
+rule = "For HAND-710; refines HAND-655/656. Codex app-server; tmux; Terminal's do script by tty; Claude Code/Codex in an app's terminal: proven foreground (HAND-682/683); anything else (editor or other-app terminal, app window, Claude Code with no terminal): the window path: found as Watch finds it, brought onto the screen (HAND-713), typed and Returned only while its app is in front with that window focused, under GATE-622 or the gateway's question; left in front. A watched send is delivered once typed. Claude Code with no terminal: app above its hook, else its record's entrypoint."
+why = "The owner: \"when not available just watch live and type\": he sees in Watch what FERB typed."
+evidence = "ferb-sessions send_paths test; ferb-daemon sessions tests (terminal watched and typed, app windows, Claude Code run by the Claude app). ferbd's window_type is compiled, not run (tests take no foreground actions)."
+paths = ["engine/crates/ferb-sessions/src/paths.rs", "engine/crates/ferb-daemon/src/sessions/mod.rs", "engine/crates/ferbd/src/compose/sessions.rs"]
+live = ["LIVE-1207", "LIVE-1208"]
+
+[HAND-713]
+title = "Watch brings the session's window onto the screen once per Watch (switch desktop, unminimize)"
+by = "agent"
+date = 2026-11-24
+status = "active"
+rule = "For HAND-710 (\"just switch the desktop\"); replaces HAND-690's \"said as such\". A Watch's first frame (none for that session in the last WATCH_GAP_S = 5 s) finds the window as a send does and, if minimized or on another desktop, turns AXMinimized off, activates its app and raises it (macOS switches desktop), waiting up to 2 s. Later frames of the same Watch never move it again; off screen then is said as such. If it can't: \"… is minimized in the Dock, and FERB couldn't bring it back onto your screen.\" / \"… on another desktop (Space), and FERB couldn't switch to it.\""
+why = "From the phone this is his own act; once per Watch keeps a Watch left open from pulling him back."
+evidence = "ferb-sessions tests/window.rs a_window_minimized_or_on_another_space_that_ferb_couldn_t_bring_back_is_said_as_such; ferbd watch_frame and bring_into_view compiled, not run."
+paths = ["engine/crates/ferbd/src/compose/sessions.rs", "engine/crates/ferb-mac-hands/src/ax.rs", "engine/crates/ferb-sessions/src/window.rs"]
+supersedes = ["HAND-690"]
+live = ["LIVE-1206"]
+
+[HAND-714]
+title = "Hand to FERB only for Claude Code and Codex; a guard-stopped step asks Keep trying / Stop"
+by = "agent"
+date = 2026-11-24
+status = "active"
+rule = "For HAND-710; refines HAND-707/709. sessions.delegate refuses any other session: \"FERB keeps only Claude Code and Codex sessions going: their replies are exact. Watch this one and type into it instead.\" When ORCH-691's guard stops a driver step (the gateway's latched stop for the drive's worker task), FERB's card in the session with one Mac banner asks \"<the guard's words>. Keep trying?\" (Keep trying / Stop). Keep trying resets the guard for the task and reruns the step; Stop ends it as his stop."
+why = "Only exact replies give a step something true to decide from; the owner's \"Do both\"."
+evidence = "ferb-daemon tests/sessions.rs a_step_the_guard_stopped_asks_keep_trying_and_keep_trying_steps_again and an_app_s_open_windows_are_sessions_by_structure_watched_and_typed_into (refused). SupDriver's take_stuck mapping is compiled, not run against a real guard."
+paths = ["engine/crates/ferb-daemon/src/sessions/driver.rs", "engine/crates/ferbd/src/compose/sessions.rs"]
+live = ["LIVE-1209"]
+
+[HAND-715]
+title = "The process table takes another user's process (a tab's root login) from its short record"
+by = "agent"
+date = 2026-11-24
+status = "active"
+rule = "Refines HAND-704. proc_pidinfo's full record (PROC_PIDTBSDINFO) is refused (EPERM) for a process running as another user, as root's login under every Terminal, iTerm2 and Ghostty tab does, so HAND-704's links never formed and no such tab had an app (not listed; New session never shown). Such a process now comes from its short record (PROC_PIDT_SHORTBSDINFO: parent and group, no terminal) and is kept as a link."
+why = "Read on his Mac 2026-11-24: the full record of launchd, a root XPC helper and a setuid-root top (euid 0, his ruid, like login) was refused; their short records and paths were readable."
+evidence = "ferb-platform-macos tests/sessions.rs another_user_s_process_comes_in_through_its_short_record; the probe in journal 196."
+paths = ["engine/crates/ferb-platform-macos/src/sessions.rs"]
+live = ["LIVE-1205"]
+
+[HAND-716]
+title = "The clients still draw a reply's parts an older Mac sends; this Mac sends none"
+by = "agent"
+date = 2026-11-24
+status = "active"
+rule = "For HAND-711. A paired phone or FERB.app may talk to an older FERB.app that still read app chats: its items' parts are still drawn (text, thinking, tool, meta) and a missing watch reads as false. Nothing on this Mac produces parts any more."
+why = "Upgrading from any older FERB build keeps working (STORE-403); removing the drawing buys nothing."
+paths = ["engine/crates/ferb-mobile/src/sessions.rs"]

@@ -1568,6 +1568,9 @@ mirror! {
         no_text: String,
         ferb_task: String,
         ferb_note: String,
+        /// HAND-710: FERB reads none of its words: its screen is its window, live, and "Type here" types into it.
+        #[uniffi(default = false)]
+        watch: bool,
     }
 }
 

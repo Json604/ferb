@@ -98,7 +98,6 @@ pub fn register(me: &Sessions, server: &Server) {
             let id = text(&p, "session");
             let words = text(&p, "text");
             let by = caller(&s);
-            m.prime(&id).await;
             if let Some(n) = m.needs_yes(&id, &words, &by).map_err(err)? {
                 return Ok(needs_json(&n));
             }

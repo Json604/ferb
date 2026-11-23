@@ -2,7 +2,7 @@
 //! a terminal's text turned into what is new each read.
 
 use ferb_sessions::host::{Proc, Table};
-use ferb_sessions::terminals::{self, Screen, Terminal};
+use ferb_sessions::terminals::{self, Terminal};
 
 fn proc(pid: i32, ppid: i32, pgid: i32, tpgid: i32, tty: &str, exe: &str) -> (i32, Proc) {
     (
@@ -114,52 +114,7 @@ fn a_terminal_s_window_is_the_one_its_app_names_it_by() {
     );
 }
 
-// decision: HAND-693
-#[test]
-fn a_terminal_s_text_gives_only_what_is_new() {
-    let mut s = Screen::default();
-    // the first read shows the screen as it is
-    assert_eq!(
-        s.read("Last login: Mon\nowner@mac ~ % \n\n\n").as_deref(),
-        Some("Last login: Mon\nowner@mac ~ %")
-    );
-    // typing at the prompt: its line is open, nothing settled yet
-    assert_eq!(s.read("Last login: Mon\nowner@mac ~ % ls"), None);
-    // the command ran: the settled lines after the last read's
-    assert_eq!(
-        s.read("Last login: Mon\nowner@mac ~ % ls\na.txt  b.txt\nowner@mac ~ % ")
-            .as_deref(),
-        Some("owner@mac ~ % ls\na.txt  b.txt")
-    );
-    // the screen scrolled: the lines that went off the top are known, only the new ones show
-    assert_eq!(
-        s.read("owner@mac ~ % ls\na.txt  b.txt\nowner@mac ~ % echo hi\nhi\nowner@mac ~ % ")
-            .as_deref(),
-        Some("owner@mac ~ % echo hi\nhi")
-    );
-    // a full-screen program redraws: nothing while it changes, the screen once it holds still
-    assert_eq!(s.read("Antigravity CLI\n⠋ thinking\n> "), None);
-    assert_eq!(s.read("Antigravity CLI\n⠙ thinking\n> "), None);
-    assert_eq!(
-        s.read("Antigravity CLI\nDone: 3 files\n> ").as_deref(),
-        None,
-        "changed since the last read"
-    );
-    assert_eq!(
-        s.read("Antigravity CLI\nDone: 3 files\n> ").as_deref(),
-        Some("Antigravity CLI\nDone: 3 files\n>")
-    );
-    assert_eq!(
-        s.read("Antigravity CLI\nDone: 3 files\n> "),
-        None,
-        "shown once"
-    );
-    assert!(terminals::shows("x\n% run the  tests\n", "run the tests"));
-    assert!(!terminals::shows("x\n% run\n", "run the tests"));
-}
-
-// decision: HAND-704 — the table as the Mac gives it: root's `login` is a link (no terminal), so Terminal's tab is
-// found by the owner's shell and its walk up reaches Terminal (before, `login` was missing and no app was found)
+// decision: HAND-704
 #[test]
 fn a_terminal_app_s_tab_under_root_s_login_has_its_app() {
     let t: Table = [

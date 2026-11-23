@@ -1053,15 +1053,6 @@ decisions = ["MEM-472"]
 ask = "When you answer Not sure about something FERB said it would check (a trip, a course), FERB asks again in a week. Is a week right?"
 after = []
 
-[T-1301]
-title = "Read the text of terminals whose app doesn't show it: VS Code-family, iTerm2 by its tty, Warp"
-area = "hands"
-kind = "build"
-status = "open"
-why = "HAND-693 reads tmux, Terminal by tty and a terminal app's one text area by Accessibility. xterm.js shows its rows only in screen-reader mode, so an editor's terminal says no_text; iTerm2 has a scripting read by tty (contents of session) not built; Warp, Ghostty, kitty and WezTerm unchecked."
-decisions = ["HAND-693"]
-after = []
-
 [T-1297]
 title = "Confirm the check's cap on its own calls (CHECK_CALLS = 6)"
 area = "orchestration"
@@ -1079,4 +1070,13 @@ kind = "build"
 status = "blocked"
 why = "Built and replayed on Sonnet (patch .local/checker-slim.patch, tables .local/checker-slim-replays.md): -61% context; missed 7edd twice, 455bfe materials and d83a 1 of 2. Next: the same 4 cases twice on Codex, then decide."
 decisions = ["ORCH-694"]
+after = []
+
+[T-1304]
+title = "Remove ferb-policy's app-chat wording for the terminal question (HAND-675): nothing produces it now"
+area = "hands"
+kind = "build"
+status = "open"
+why = "HAND-711 removed the app chats' composer typing; TerminalInput.chat and its wording in ferb-policy (wording.rs, terminal.rs, tests/chat_card.rs) have no caller from sessions. Left for a pass over ferb-policy (outside this change's crates)."
+decisions = ["HAND-675", "HAND-711"]
 after = []

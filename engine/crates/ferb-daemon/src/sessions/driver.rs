@@ -11,6 +11,10 @@
 //!    every other safety rule unchanged); an open question of the agent's is answered only with its own choices
 //!    (`agent_session.answer`), never a permission prompt.
 //!
+//! HAND-714: only Claude Code and Codex sessions are driven (their replies are exact, from their own records); a step
+//! that FERB's guard stopped (ORCH-691) asks the owner "Keep trying?" in the session, as the main chat asks, instead of
+//! ending the drive.
+//!
 //! One round is an agent reply and the driver's next message. The session's note says every step (HAND-702's states);
 //! a message FERB sent shows in the session marked as FERB's. When the drive ends by itself (done, a question for the
 //! owner, a failure, the session ended) one plain line goes to FERB's chat; when he stops it, nothing does (he knows).
@@ -46,6 +50,11 @@ pub const WAITING_FOR_ANSWER: &str = "FERB is waiting for your answer.";
 /// The keep-going question's answers.
 pub const KEEP_GOING: &str = "keep_going";
 pub const STOP: &str = "stop";
+/// HAND-714: the answer to FERB's question after its guard stopped a step.
+pub const KEEP_TRYING: &str = "keep_trying";
+/// HAND-714: the refusal for a session FERB can only watch.
+pub const NOT_DRIVEN: &str =
+    "FERB keeps only Claude Code and Codex sessions going: their replies are exact. Watch this one and type into it instead.";
 
 /// What one step is given (nothing else of FERB's context).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -69,6 +78,8 @@ pub enum Decision {
     Send(String),
     Done(String),
     Ask(String),
+    /// HAND-714: FERB's guard stopped the step (ORCH-691), in its plain words: the owner is asked whether to keep trying.
+    Stuck(String),
 }
 
 /// What code types for the drive: a message, or the choice of the agent's open question.
@@ -103,6 +114,8 @@ pub trait Driver: Send + Sync {
     fn end(&self, task: &str, status: &str, summary: &str) -> BoxFuture<'static, ()>;
     /// One plain line in FERB's chat, posted once for `ident`.
     fn say(&self, ident: &str, line: &str);
+    /// HAND-714: the owner said keep trying after the guard stopped a step: the guard counts the step afresh.
+    fn keep_trying(&self, _task: &str) {}
 }
 
 /// A drive under way on one session.
@@ -156,6 +169,10 @@ impl Sessions {
             ));
         }
         let s = self.session(id).ok_or_else(gone)?;
+        // decision: HAND-714 — only Claude Code and Codex: their replies are exact
+        if !matches!(s.agent, Agent::ClaudeCode | Agent::Codex) || s.watch {
+            return Err(no(codes::SEND_FAILED, NOT_DRIVEN));
+        }
         // nothing can type into it: said now, not after a step
         if s.send_paths.is_empty() {
             return Err(no(codes::NO_SEND_PATH, s.no_send.clone()));
@@ -252,17 +269,60 @@ impl Sessions {
     /// FERB's keep-going question in the session's screen (HAND-708's words), answered with `sessions.answer`:
     /// Some(true) keep going, Some(false) stop, None stopped or gone meanwhile.
     async fn keep_going(&self, id: &str, task: &str, goal: &str, rounds: u32) -> Option<bool> {
-        let (tx, rx) = oneshot::channel();
         let question = format!(
             "I've gone {rounds} rounds on “{}”. Keep going?",
             quote(goal, 160)
         );
+        let banner =
+            |folder: &str| format!("FERB has gone {rounds} rounds in {folder}. Keep going?");
+        self.ask_in_session(
+            id,
+            task,
+            &format!("ferb-{task}-{rounds}"),
+            question,
+            (KEEP_GOING, "Keep going"),
+            &banner,
+            json!({"session": id, "task": task, "rounds": rounds}),
+        )
+        .await
+    }
+
+    /// HAND-714: FERB's guard stopped a step (its plain words in `why`): the same kind of question, "Keep trying?".
+    async fn keep_trying(&self, id: &str, task: &str, why: &str, n: u32) -> Option<bool> {
+        let why = quote(why.trim_end_matches('.'), 300);
+        let question = format!("{why}. Keep trying?");
+        let banner = |folder: &str| format!("FERB stopped in {folder}: {why}. Keep trying?");
+        self.ask_in_session(
+            id,
+            task,
+            &format!("ferb-{task}-stuck-{n}"),
+            question,
+            (KEEP_TRYING, "Keep trying"),
+            &banner,
+            json!({"session": id, "task": task, "stuck": n}),
+        )
+        .await
+    }
+
+    /// FERB's own question in the session's screen, with one Mac banner: `go` (its id and words) or Stop.
+    #[allow(clippy::too_many_arguments)]
+    async fn ask_in_session(
+        &self,
+        id: &str,
+        task: &str,
+        card_id: &str,
+        question: String,
+        go: (&str, &str),
+        banner: &(dyn Fn(&str) -> String + Sync),
+        journal: serde_json::Value,
+    ) -> Option<bool> {
+        let (tx, rx) = oneshot::channel();
         let folder = {
             let mut st = lock(&self.state);
             let e = st.sessions.get_mut(id)?;
             let d = e.drive.as_mut().filter(|d| d.task == task)?;
             d.card = Some(Card {
-                id: format!("ferb-{task}-{rounds}"),
+                id: card_id.to_owned(),
                 session: id.to_owned(),
                 kind: CardKind::Ferb,
                 tool: String::new(),
@@ -270,8 +330,8 @@ impl Sessions {
                 question: question.clone(),
                 choices: vec![
                     Choice {
-                        id: KEEP_GOING.into(),
-                        label: "Keep going".into(),
+                        id: go.0.into(),
+                        label: go.1.into(),
                     },
                     Choice {
                         id: STOP.into(),
@@ -285,15 +345,9 @@ impl Sessions {
             e.s.ferb_note = WAITING_FOR_ANSWER.into();
             folder_name(&e.s.cwd)
         };
-        (self.seams.journal)(
-            "sessions.driver_asked",
-            json!({"session": id, "task": task, "rounds": rounds}),
-        );
+        (self.seams.journal)("sessions.driver_asked", journal);
         (self.seams.publish)("sessions.card", json!({"session": id}));
-        (self.seams.tell)(
-            &format!("sessions.driver:{id}"),
-            &format!("FERB has gone {rounds} rounds in {folder}. Keep going?"),
-        );
+        (self.seams.tell)(&format!("sessions.driver:{id}"), &banner(&folder));
         self.changed();
         let answer = tokio::select! {
             a = rx => a.ok(),
@@ -306,7 +360,7 @@ impl Sessions {
             }
         }
         self.changed();
-        answer.map(|a| a == KEEP_GOING)
+        answer.map(|a| a == go.0)
     }
 
     /// An answer to FERB's own question in the session: Some(result) when `card` is it, None when it isn't.
@@ -322,7 +376,11 @@ impl Sessions {
             if d.card.as_ref().map(|c| c.id.as_str()) != Some(card) {
                 return None;
             }
-            if choice != KEEP_GOING && choice != STOP {
+            let offered = d
+                .card
+                .as_ref()
+                .is_some_and(|c| c.choices.iter().any(|x| x.id == choice));
+            if !offered {
                 return Some(Err(no(
                     codes::CARD_GONE,
                     "That isn't one of the question's answers.",
@@ -504,6 +562,7 @@ impl Sessions {
         let mut rounds: u32 = 0;
         let mut allowed = ROUNDS_PER_ASK;
         let mut decided: Vec<String> = Vec::new();
+        let mut stuck: u32 = 0;
         let end = loop {
             // 1. the agent's turn ends: code only, no time limit
             let s = match self.turn_over(&id, &task).await {
@@ -541,7 +600,7 @@ impl Sessions {
                     format!("FERB is on it: “{}”", quote(&goal, 160)),
                 );
             }
-            // 4. one fresh step
+            // 4. one fresh step (again, after the guard stopped one and the owner said keep trying)
             let step = self.step_of(&id, &goal, rounds + 1, allowed, &decided);
             let decision = tokio::select! {
                 d = self.seams.driver.step(&task, step) => d,
@@ -556,6 +615,24 @@ impl Sessions {
                 break End::Gone;
             }
             let text = match decision {
+                // decision: HAND-714 — the guard stopped the step: the owner is asked, never just ended
+                Ok(Decision::Stuck(why)) => {
+                    stuck += 1;
+                    match self.keep_trying(&id, &task, &why, stuck).await {
+                        Some(true) => {
+                            self.seams.driver.keep_trying(&task);
+                            self.drive_note(
+                                &id,
+                                &task,
+                                format!("FERB is on it: “{}”", quote(&goal, 160)),
+                            );
+                            continue;
+                        }
+                        Some(false) => break End::Stopped,
+                        None if self.drives(&id, &task) => break End::Stopped,
+                        None => break End::Gone,
+                    }
+                }
                 Err(why) => break End::Failed(why),
                 Ok(Decision::Done(summary)) => break End::Done(summary),
                 Ok(Decision::Ask(q)) => break End::Asked(q),

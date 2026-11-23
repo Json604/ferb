@@ -53,7 +53,7 @@ fn proc(pid: i32, ppid: i32, exe: &str) -> Proc {
     }
 }
 
-// decision: HAND-690
+// decision: HAND-713
 // decision: PHN-797
 // decision: HAND-682
 // decision: HAND-654
@@ -84,7 +84,7 @@ fn a_session_in_an_editor_s_terminal_is_watched_in_the_window_that_names_its_fol
 }
 
 // decision: HAND-683
-// decision: HAND-690
+// decision: HAND-713
 // decision: PHN-797
 #[test]
 fn the_terminal_the_owner_chose_is_the_window_watched() {
@@ -105,7 +105,7 @@ fn the_terminal_the_owner_chose_is_the_window_watched() {
     );
 }
 
-// decision: HAND-690
+// decision: HAND-713
 // decision: PHN-797
 #[test]
 fn the_session_s_title_then_its_folder_then_the_front_window() {
@@ -163,23 +163,24 @@ fn the_session_s_title_then_its_folder_then_the_front_window() {
     assert_eq!(session_window(&[], &untitled, "", 0), None);
 }
 
-// decision: HAND-690
+// decision: HAND-713
 // decision: PHN-797
 #[test]
-fn a_window_minimized_or_on_another_space_is_said_as_such() {
-    // the folder's window is off this Space: found, not on screen; the daemon says minimized or another desktop
+fn a_window_minimized_or_on_another_space_that_ferb_couldn_t_bring_back_is_said_as_such() {
+    // the folder's window is off this Space: found, not on screen; FERB brings it onto the screen itself, and says so
+    // only when it couldn't
     let wins = vec![win(5, "main.rs — FERB", (900.0, 700.0), false)];
     let found = session_window(&wins, &session(), "", 0).expect("found");
     assert!(!found.on_screen);
     assert_eq!(
         Unseen::Minimized.words("Visual Studio Code", &found.title),
-        "Its window in Visual Studio Code (“main.rs — FERB”) is minimized in the Dock. Open it again and Watch shows \
-         it; FERB doesn't bring windows back on its own."
+        "Its window in Visual Studio Code (“main.rs — FERB”) is minimized in the Dock, and FERB couldn't bring it \
+         back onto your screen."
     );
     assert_eq!(
         Unseen::OtherSpace.words("Visual Studio Code", &found.title),
-        "Its window in Visual Studio Code (“main.rs — FERB”) is on another desktop (Space). Watch shows it once that \
-         desktop is the one on screen; FERB doesn't switch desktops on its own."
+        "Its window in Visual Studio Code (“main.rs — FERB”) is on another desktop (Space), and FERB couldn't switch \
+         to it."
     );
     assert_eq!(
         Unseen::NoWindow.words("Terminal", ""),

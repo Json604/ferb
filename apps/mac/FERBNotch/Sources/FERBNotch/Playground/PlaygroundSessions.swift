@@ -3,8 +3,8 @@ import Foundation
 import NotchCore
 
 /// Sessions in the playground: the daemon's `sessions.*` answered with three invented sessions (Claude Code working in
-/// Terminal, Codex in Visual Studio Code waiting on a permission question, and an agent chat in Cursor whose reply comes
-/// in parts, HAND-703). Nothing reaches a terminal, an agent or a settings file.
+/// Terminal, Codex in Visual Studio Code waiting on a permission question, and a Cursor window FERB only watches and
+/// types into, HAND-710; new terminals are watched too). Nothing reaches a terminal, an agent or a settings file.
 @MainActor
 final class PlaygroundSessions {
     var emit: (String, [String: Any]) -> Void = { _, _ in }
@@ -17,11 +17,10 @@ final class PlaygroundSessions {
          "status": "waiting_for_you", "waiting": "permission",
          "host": ["bundle_id": "com.microsoft.VSCode", "name": "Visual Studio Code", "pid": 0, "via": "direct", "tty": "/dev/ttys007"],
          "send_paths": ["agent_api"], "last_at": PlaygroundSamples.time(-180), "last_text": "Wants to run npm install"],
-        ["id": "chat:sample-cursor", "agent": "app_chat", "cwd": "/Users/demo/Downloads", "title": "What's in this folder",
-         "status": "idle", "waiting": "none",
+        ["id": "chat:sample-cursor", "agent": "app_chat", "cwd": "", "program": "", "title": "site — studio.css",
+         "window": "site — studio.css", "status": "idle", "waiting": "none", "watch": true,
          "host": ["bundle_id": "com.todesktop.230313mzl4w4u92", "name": "Cursor", "pid": 0, "via": "direct", "tty": ""],
-         "send_paths": ["foreground"], "last_at": PlaygroundSamples.time(-20),
-         "last_text": "So it's your photo library export, sitting in Downloads as three zips."]
+         "send_paths": ["window"], "last_at": PlaygroundSamples.time(-20), "last_text": ""]
     ]
     var items: [String: [[String: Any]]] = [
         "claude:sample-site": [
@@ -35,18 +34,7 @@ final class PlaygroundSessions {
             ["seq": 1, "at": PlaygroundSamples.time(-900), "kind": "user", "text": "Add unit tests for the note search."],
             ["seq": 2, "at": PlaygroundSamples.time(-880), "kind": "assistant", "text": "The project has no test runner yet. I'll add vitest as a dev dependency and write the tests next to the search module."],
             ["seq": 3, "at": PlaygroundSamples.time(-200), "kind": "interrupted", "text": ""],
-            ["seq": 4, "at": PlaygroundSamples.time(-190), "kind": "user", "text": "Go ahead, but keep it to dev dependencies."]],
-        "chat:sample-cursor": [
-            ["seq": 1, "at": PlaygroundSamples.time(-60), "kind": "user", "text": "What's this folder again? I forgot."],
-            ["seq": 2, "at": PlaygroundSamples.time(-20), "kind": "assistant",
-             "text": "This is a photo library export.",
-             "parts": [["kind": "thinking", "label": "Thought 1s"],
-                       ["kind": "text", "text": "I'll look through this folder and tell you what it is."],
-                       ["kind": "tool", "label": "List zip sizes and contents", "detail": "ls, echo, unzip, head",
-                        "text": "  Length      Date    Time    Name\n---------  ---------- -----   ----\n     4096  01-01-2026 00:00   albums/index.json\n---------                     -------\n     4096                     1 file"],
-                       ["kind": "thinking", "label": "Thought 4s"],
-                       ["kind": "text", "text": "This is a **photo library export**, the bundle you get when you download your library. Nothing here is unzipped yet.\n\n| File | What's inside |\n| --- | --- |\n| `albums-000.zip` (2 MB) | 14 albums and their covers. |\n| `photos-000.zip` (380 MB) | The bulk of it: about 2,100 photos. |\n| `settings-000.zip` | Your sharing settings. |\n\n- Open `photos-000.zip` first to see the pictures.\n- The other two are small.\n\nSo it's your photo library export, sitting in Downloads as three zips."],
-                       ["kind": "meta", "text": "Just now"]]]]
+            ["seq": 4, "at": PlaygroundSamples.time(-190), "kind": "user", "text": "Go ahead, but keep it to dev dependencies."]]
     ]
     var cards: [String: [[String: Any]]] = [
         "codex:sample-notes": [["id": "sample-card", "session": "codex:sample-notes", "kind": "permission", "tool": "shell",
@@ -81,8 +69,10 @@ final class PlaygroundSessions {
                 chosen = Array(all.suffix(limit))
                 more = all.count > limit
             }
-            return ["session": Self.yours(sessions[index]), "items": chosen, "more": more,
-                    "cards": before > 0 ? [] : (cards[id] ?? [])]
+            // HAND-710: a watched session's conversation is always empty
+            let watched = sessions[index]["watch"] as? Bool == true
+            return ["session": Self.yours(sessions[index]), "items": watched ? [] : chosen, "more": watched ? false : more,
+                    "cards": before > 0 || watched ? [] : (cards[id] ?? [])]
         case "sessions.send", "sessions.control":
             guard let index else { throw DaemonRPCError.remote("That session has ended.", code: SessionRefusal.sessionGone) }
             let text = (params["text"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -105,9 +95,12 @@ final class PlaygroundSessions {
                 let agent = AgentSessionRow.agentName(sessions[index]["agent"] as? String ?? "")
                 throw DaemonRPCError.remote("\(agent) is asking something. Answer that first.", code: SessionRefusal.cardOpen)
             }
-            append(id, kind: "user", text: text)
-            sessions[index]["status"] = "working"
-            sessions[index]["last_text"] = text
+            // a watched window is typed into; FERB reads nothing back from it
+            if sessions[index]["watch"] as? Bool != true {
+                append(id, kind: "user", text: text)
+                sessions[index]["status"] = "working"
+                sessions[index]["last_text"] = text
+            }
             emit("sessions.changed", ["count": sessions.count])
             var reply: [String: Any] = ["sent": true, "path": (sessions[index]["send_paths"] as? [String])?.first ?? "",
                                         "delivered": true, "seconds": 0.4]
@@ -155,8 +148,7 @@ final class PlaygroundSessions {
             let new = "term:sample-new-\(started)"
             sessions.insert(["id": new, "agent": "terminal", "program": program, "cwd": folder, "title": "", "status": "idle", "waiting": "none",
                              "host": ["bundle_id": "com.apple.Terminal", "name": "Terminal", "pid": 0, "via": "direct", "tty": ""],
-                             "send_paths": ["terminal_script"], "last_at": PlaygroundSamples.time(), "last_text": ""], at: 0)
-            if !command.isEmpty { items[new] = [["seq": 1, "at": PlaygroundSamples.time(), "kind": "user", "text": command]] }
+                             "send_paths": ["terminal_script"], "watch": true, "last_at": PlaygroundSamples.time(), "last_text": ""], at: 0)
             emit("sessions.changed", ["count": sessions.count])
             return ["started": true, "command": command, "session": new, "host": "Terminal"]
         case "sessions.delegate":

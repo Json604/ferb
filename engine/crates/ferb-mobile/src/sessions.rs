@@ -81,6 +81,10 @@ pub struct AgentSession {
     pub ferb_task: String,
     /// HAND-702: FERB's latest word on the hand-over, shown in the session ("" for none).
     pub ferb_note: String,
+    /// HAND-710: FERB reads none of this session's words (a terminal, an app's window): its screen is its window,
+    /// live (Watch), and what the owner types goes into that window ("Type here"). Its conversation is always empty
+    /// and it can't be handed to FERB.
+    pub watch: bool,
 }
 
 impl AgentSession {
@@ -116,7 +120,10 @@ impl AgentSession {
             host: text(&v["host"]["name"]),
             can_send: !paths.is_empty(),
             no_send: text(&v["no_send"]),
-            foreground: paths.first().is_some_and(|p| p == "foreground"),
+            // HAND-710: the window path brings its app to the front too
+            foreground: paths
+                .first()
+                .is_some_and(|p| p == "foreground" || p == "window"),
             last_at: text(&v["last_at"]),
             last_text: text(&v["last_text"]),
             controlled_here: v["yours"].as_bool().unwrap_or(false),
@@ -140,6 +147,7 @@ impl AgentSession {
             no_text: text(&v["no_text"]),
             ferb_task: text(&v["delegate"]),
             ferb_note: text(&v["ferb_note"]),
+            watch: v["watch"].as_bool().unwrap_or(false),
         }
     }
 }
@@ -622,7 +630,7 @@ mod tests {
         );
     }
 
-    // decision: HAND-702, HAND-703
+    // decision: HAND-702, HAND-716
     #[test]
     fn a_hand_over_s_task_and_note_and_a_reply_s_parts_are_read() {
         let s = AgentSession::read(

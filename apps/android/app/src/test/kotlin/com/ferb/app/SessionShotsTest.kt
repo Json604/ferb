@@ -121,13 +121,17 @@ class SessionShotsTest {
 
     // decision: PHN-801
     @Test
-    // decision: HAND-692, HAND-697, HAND-705
+    // decision: HAND-692, HAND-710
     fun the_sessions_tab_lists_each_with_its_place_and_state() {
-        // a terminal running a program nobody listed: its window's words, "<program> · <folder> · in <app>"; and an app
-        // open with no chat says so in one quiet line
+        // a terminal running a program nobody listed: its window's words, "<program> · <folder> · in <app>"; an app's
+        // window: its title, and the app's name alone
         val terminal = FakePhone.agentSession("term:110", "", "idle", "Terminal").copy(agent = "terminal", agentName = "agy", program = "agy",
-            folder = "/Users/owner/Desktop", folderName = "Desktop", window = "Desktop — agy — 120×30")
-        compose.setContent { Phone { tab(SessionsUi(true, true, sessions + terminal, noChats = listOf("Cursor"))) } }
+            folder = "/Users/owner/Desktop", folderName = "Desktop", window = "Desktop — agy — 120×30", watch = true)
+        compose.setContent { Phone { tab(SessionsUi(true, true, sessions + terminal + appWindow)) } }
+        compose.waitForIdle()
+        compose.onNodeWithText("checkout.ts — shop").assertExists()
+        compose.onAllNodesWithText("Cursor").assertCountEquals(1)
+        compose.onNodeWithText("agy · Desktop · in Terminal").assertExists()
         shoot("sessions-list.png")
     }
 
@@ -415,6 +419,90 @@ class SessionShotsTest {
     // decision: PHN-815, PHN-813
     @Test @Config(qualifiers = "w412dp-h860dp-port-mdpi") fun the_conversation_at_412() = conversationAt("session-conversation-412.png")
 
+    // ---- a session FERB reads no words of: its window, live, and "Type here" (HAND-710) -------------------------------
+
+    /** One open window of an agent app (Cursor). */
+    private val appWindow = FakePhone.agentSession("app:cursor:1", "checkout.ts — shop", "idle", "Cursor").copy(agent = "app_chat",
+        agentName = "Cursor", folder = "", folderName = "", window = "checkout.ts — shop", watch = true)
+
+    /** A terminal FERB reads no words of, which this phone controls (its menu: Stop controlling only). */
+    private val watched = FakePhone.agentSession("term:5", "", "idle", "Terminal", controlledHere = true).copy(agent = "terminal",
+        agentName = "zsh", program = "zsh", folder = "/Users/owner/code/web-app", folderName = "web-app", window = "web-app — zsh — 120×30", watch = true)
+
+    /** A stand-in for the window's picture: a dark terminal with a few lines. */
+    private fun standInFrame() = android.graphics.Bitmap.createBitmap(480, 300, android.graphics.Bitmap.Config.ARGB_8888).apply {
+        val c = android.graphics.Canvas(this)
+        c.drawColor(android.graphics.Color.rgb(24, 24, 28))
+        val p = android.graphics.Paint().apply { color = android.graphics.Color.rgb(200, 200, 205) }
+        for (i in 0 until 8) c.drawRect(18f, 22f + i * 30, 440f - (i % 3) * 90, 34f + i * 30, p)
+    }
+
+    private fun watchAt(path: String) {
+        val view = LiveView("term:5", standInFrame(), "", null)
+        compose.setContent {
+            Sized(sheet = { SessionScreenPage(SessionUi("term:5", watched, loaded = true), emptySet(), PhoneInsets.Lab, live = view) }) {
+                tab(SessionsUi(true, true, sessions))
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithTag("session-watch").assertExists()
+        compose.onNodeWithText("What you send is typed into this window on your Mac, then Return.").assertExists()
+        compose.onNodeWithText("Type here").assertExists()
+        compose.onAllNodesWithTag("session-list").assertCountEquals(0)
+        shoot(path)
+    }
+
+    // decision: HAND-710
+    @Test @Config(qualifiers = "w360dp-h740dp-port-mdpi") fun a_watch_session_at_360() = watchAt("session-watch-360.png")
+
+    // decision: HAND-710
+    @Test @Config(qualifiers = "w412dp-h860dp-port-mdpi") fun a_watch_session_at_412() = watchAt("session-watch-412.png")
+
+    // decision: HAND-710
+    @Test
+    fun a_watch_session_s_menu_has_no_hand_to_ferb_and_no_watch() {
+        compose.setContent {
+            Sized(sheet = { SessionScreenPage(SessionUi("term:5", watched, loaded = true, menu = true), emptySet(), PhoneInsets.Lab, live = LiveView("term:5")) }) {
+                tab(SessionsUi(true, true, sessions))
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithTag("session-menu").assertExists()
+        compose.onNodeWithText("Stop controlling").assertExists()
+        compose.onAllNodesWithText("Hand to FERB").assertCountEquals(0)
+        compose.onAllNodesWithTag("session-hand-over").assertCountEquals(0)
+        compose.onAllNodesWithText("Watch").assertCountEquals(0)
+        // no picture yet: Watch's waiting words in its place
+        compose.onNodeWithText("Waiting for the first picture…").assertExists()
+    }
+
+    // decision: HAND-710, PHN-812, PHN-800
+    @Test
+    fun a_watch_session_shows_sending_then_a_refusal_with_why_and_try_again_under_its_window() {
+        var ui by androidx.compose.runtime.mutableStateOf(
+            SessionUi("term:5", watched, loaded = true, outgoing = SessionSending("npm test", SessionSendPhase.SENDING)))
+        var busy by androidx.compose.runtime.mutableStateOf(setOf("session-send"))
+        var retried = 0
+        compose.setContent {
+            Sized(sheet = { SessionScreenPage(ui, busy, PhoneInsets.Lab, live = LiveView("term:5", standInFrame()), onRetry = { retried++ }) }) {
+                tab(SessionsUi(true, true, sessions))
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithTag("session-outgoing").assertExists()
+        compose.onNodeWithTag("session-send-busy").assertExists()
+        // the Mac's refusal: the send is no longer busy
+        ui = ui.copy(outgoing = SessionSending("npm test", SessionSendPhase.NOT_SENT, Note(R.string.err_mac_said, "FERB couldn't bring that window to the front.")))
+        busy = emptySet()
+        compose.waitForIdle()
+        compose.onNodeWithTag("session-unsent").assertExists()
+        compose.onNodeWithText("Not sent.", substring = true).assertExists()
+        compose.onNodeWithText("FERB couldn't bring that window to the front.", substring = true).assertExists()
+        compose.onNodeWithText("Try again").performClick()
+        compose.waitForIdle()
+        org.junit.Assert.assertEquals(1, retried)
+    }
+
     // ---- the live fixes (owner 2026-11-23: HAND-702, HAND-703, PHN-821) -----------------------------------------------
 
     /** A reply modelled on the owner's reference (Cursor): a thought, words, a step closed, a table, a list, code, its time. */
@@ -449,13 +537,13 @@ class SessionShotsTest {
         shoot(path)
     }
 
-    // decision: HAND-703
+    // decision: HAND-716
     @Test @Config(qualifiers = "w360dp-h860dp-port-mdpi") fun a_rich_reply_at_360() = richAt("session-rich-360.png")
 
-    // decision: HAND-703
+    // decision: HAND-716
     @Test @Config(qualifiers = "w412dp-h915dp-port-mdpi") fun a_rich_reply_at_412() = richAt("session-rich-412.png")
 
-    // decision: HAND-703
+    // decision: HAND-716
     @Test
     fun a_step_opens_on_a_tap_to_its_output_and_one_with_nothing_to_open_has_no_chevron() {
         val ui = rich.copy(items = listOf(FakePhone.item(2, "assistant", "", parts = listOf(

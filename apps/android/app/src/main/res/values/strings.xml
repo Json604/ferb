@@ -454,12 +454,11 @@
     <string name="camera_ended">The camera stopped.</string>
     <!-- the owner's sessions (kb HAND-691, HAND-651..666): every terminal on the Mac, Claude Code and Codex among them, and the chat apps' chats; the owner reviews all wording -->
     <string name="sessions_tab">Sessions</string>
-    <string name="sessions_title">Your terminal sessions</string>
+    <string name="sessions_title">Your sessions</string>
     <string name="sessions_off">FERB doesn\'t see your terminal sessions yet.</string>
     <string name="sessions_off_more">Turn it on and you can follow your terminals and type into them from here, Claude Code and Codex too, open new ones and hand one to FERB. FERB adds a small hook to Claude Code\'s settings so it hears when a session finishes or needs you.</string>
     <string name="sessions_turn_on">Turn on</string>
-    <string name="sessions_none">No terminals are open on your Mac right now.</string>
-    <string name="sessions_no_chat">No agent chat open in %1$s. Start one there to continue here.</string>
+    <string name="sessions_none">No terminals or agent apps are open on your Mac right now.</string>
     <string name="sessions_coming">Your new terminal will show here in a moment.</string>
     <string name="sessions_working">Working</string>
     <string name="sessions_waiting">Waiting for you</string>
@@ -515,6 +514,8 @@
     <string name="sessions_opening">Opening a terminal…</string>
     <string name="sessions_started">Opening a terminal on your Mac.</string>
     <string name="sessions_watch_title">Watching %1$s</string>
+    <string name="sessions_type_here">Type here</string>
+    <string name="sessions_type_note">What you send is typed into this window on your Mac, then Return.</string>
     <!-- the temporary chat (owner 2026-11-23): the same small icon turns it on and off -->
     <string name="temporary_chat">Temporary chat</string>
     <string name="temporary_chat_end">End temporary chat</string>

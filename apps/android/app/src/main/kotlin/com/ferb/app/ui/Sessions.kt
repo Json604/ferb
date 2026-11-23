@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import com.ferb.app.FerbViewModel
 import com.ferb.app.R
 import com.ferb.app.Sheet
+import com.ferb.app.model.LiveView
 import com.ferb.app.model.NewSessionUi
 import com.ferb.app.model.SessionUi
 import com.ferb.app.model.Sessions
@@ -64,7 +65,8 @@ import com.ferb.mobile.SessionYes
 
 /**
  * A session's row and header: its title (or its window, or folder), "<program> · <folder> · in <app>" (HAND-692; no
- * program: "<folder> · in <app>"; no app: in the background), its state, FERB's badge.
+ * program: "<folder> · in <app>"; no app: in the background), its state, FERB's badge. An app's window (HAND-710): its
+ * window's title, and the app's name alone under it.
  */
 @Composable
 internal fun sessionRow(s: AgentSession): SessionRowData {
@@ -76,7 +78,8 @@ internal fun sessionRow(s: AgentSession): SessionRowData {
         com.ferb.design.components.SessionState.IDLE -> R.string.sessions_idle
     })
     val folder = s.folderName.ifBlank { s.folder }
-    val subtitle = listOf(s.program, folder, where).filter { it.isNotBlank() }.joinToString(" · ")
+    val subtitle = if (s.agent == Sessions.APP_CHAT) s.host.ifBlank { s.agentName }
+        else listOf(s.program, folder, where).filter { it.isNotBlank() }.joinToString(" · ")
     return SessionRowData(Sessions.title(s), subtitle, state, stateText,
         ferb = if (s.withFerb) stringResource(R.string.sessions_with_ferb) else null)
 }
@@ -104,7 +107,6 @@ fun SessionsTabPage(
             ui.loaded -> stringResource(R.string.sessions_none)
             else -> null
         },
-        notes = ui.noChats.map { stringResource(R.string.sessions_no_chat, it) },
         coming = if (ui.coming != null) stringResource(R.string.sessions_coming) else null,
         waiting = waiting, onTab = onTab, onProfile = onProfile,
         onRow = { i -> ui.sessions.getOrNull(i)?.let { onRow(it.id) } },
@@ -119,6 +121,7 @@ fun SessionsTabPage(
 @Composable
 fun SessionScreen(vm: FerbViewModel, busy: Set<String>, insets: PhoneInsets) {
     val o by vm.openSession.collectAsState()
+    val view by vm.live.view.collectAsState()
     val ui = o ?: return
     BackHandler {
         when {
@@ -135,6 +138,7 @@ fun SessionScreen(vm: FerbViewModel, busy: Set<String>, insets: PhoneInsets) {
         onChoice = { card, choice -> vm.sessionAnswer(card, choice) },
         onWatch = vm::watchSession, onHand = { vm.askHandOver() }, onInterrupt = { vm.sessionInterrupt() }, onRelease = { vm.sessionRelease() },
         onRetry = { vm.sessionRetry() }, onMenu = vm::sessionMenu, onTakeBack = { vm.takeBack() },
+        live = view, onWatchAgain = { vm.watchAgain() },
     )
     // over the screen: one at a time, up from below like every sheet
     val over: Any? = ui.pick ?: ui.ask ?: if (ui.handOver) HandOver else null
@@ -165,8 +169,13 @@ fun SessionScreenPage(
     onChoice: (card: String, choice: String) -> Unit = { _, _ -> }, onWatch: () -> Unit = {}, onHand: () -> Unit = {},
     onInterrupt: () -> Unit = {}, onRelease: () -> Unit = {}, onRetry: () -> Unit = {}, onMenu: (Boolean) -> Unit = {},
     onTakeBack: () -> Unit = {},
+    /** A watch session's window, live (HAND-710): the view model's Watch, shown here while it is this session's. */
+    live: LiveView? = null,
+    onWatchAgain: () -> Unit = {},
 ) {
     val s = ui.session
+    // HAND-710: FERB reads none of its words: its window live in place of the conversation, typed into from the box
+    val watch = Sessions.watch(s)
     val header = s?.let { sessionRow(it) } ?: SessionRowData("", "", com.ferb.design.components.SessionState.IDLE, "")
     val agent = s?.agentName.orEmpty()
     val stopped = stringResource(R.string.sessions_interrupted)
@@ -191,7 +200,8 @@ fun SessionScreenPage(
         SessionAsk(title, c.question, c.detail, c.choices.map { it.label }, onMac, key = c.id)
     }
     val actions = buildList {
-        add(SessionAction(stringResource(R.string.sessions_watch), FerbIcons.eye, onWatch))
+        // a watch session's screen is its Watch already
+        if (!watch) add(SessionAction(stringResource(R.string.sessions_watch), FerbIcons.eye, onWatch))
         // FERB has it (its task): Take it back stops that task; handed but not started yet: FERB is starting (HAND-702)
         when {
             s != null && s.ferbTask.isNotBlank() -> {
@@ -200,7 +210,8 @@ fun SessionScreenPage(
                     onTakeBack, busy = taking, keepOpen = true, tag = "session-take-back"))
             }
             s != null && s.withFerb -> add(SessionAction(stringResource(R.string.sessions_ferb_starting), FerbIcons.handOver, null, tag = "session-ferb-starting"))
-            else -> add(SessionAction(stringResource(R.string.sessions_hand_over), FerbIcons.handOver, onHand, tag = "session-hand-over"))
+            // FERB keeps only Claude Code and Codex sessions going (HAND-710): never offered for a watch session
+            !watch -> add(SessionAction(stringResource(R.string.sessions_hand_over), FerbIcons.handOver, onHand, tag = "session-hand-over"))
         }
         if (s != null && s.status != "idle") {
             add(SessionAction(stringResource(R.string.sessions_stop_turn), FerbIcons.stop, onInterrupt.takeIf { "session-interrupt" !in busy }))
@@ -232,12 +243,24 @@ fun SessionScreenPage(
         // FERB's latest word on the hand-over, as the Mac says it (HAND-702): above the box, or under the header with none
         note = s?.ferbNote?.takeIf { it.isNotBlank() },
         noteOnTop = s != null && !s.canSend,
+        watch = if (!watch) null else ({ m ->
+            val v = live?.takeIf { it.taskId == ui.id } ?: LiveView(ui.id)
+            Column(m) {
+                LiveFrame(v, Modifier.weight(1f).fillMaxWidth())
+                if (v.ended != null) {
+                    Pill(stringResource(R.string.live_again), Modifier.padding(horizontal = 16.dp).testTag("session-watch-again"), PillKind.GREY,
+                        FerbIcons.eye, height = 40.dp, onClick = onWatchAgain.takeIf { "live" !in busy })
+                }
+            }
+        }),
+        watchNote = if (watch) stringResource(R.string.sessions_type_note) else null,
     ) { m ->
         Column(m.testTag("session-foot")) {
             ui.problem?.let { PhoneText(noteText(it), 13.5f, color = Ink.onDark, modifier = Modifier.padding(start = 6.dp, end = 6.dp, bottom = 8.dp)) }
             if (s == null || s.canSend) {
                 SessionComposer(
-                    ui.draft, stringResource(R.string.sessions_message_hint, agent.ifBlank { header.title }), stringResource(R.string.sessions_send),
+                    ui.draft, if (watch) stringResource(R.string.sessions_type_here) else stringResource(R.string.sessions_message_hint, agent.ifBlank { header.title }),
+                    stringResource(R.string.sessions_send),
                     Modifier.testTag("session-composer"), onValueChange = onTyped, onSend = onSend.takeIf { "session-send" !in busy },
                     sending = ui.outgoing?.phase == com.ferb.app.model.SessionSendPhase.SENDING,
                 )

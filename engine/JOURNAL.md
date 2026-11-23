@@ -11291,3 +11291,104 @@ failed the whole attempt. It is now a 256 MiB memory guard that skips the line. 
   progress event for it are missed; if it was a `result`, the run would end without one. Neither has been seen.
 - ORCH-707's question replaces only the check's `retry`. If the check or router chooses ask or fail on a crash, that
   stands, as before.
+
+## 2026-11-24 · 196 · Sessions redesigned: say which are on, read only what the agent records, else watch live and type
+
+**Why, honestly.** Journals 170, 172, 181, 185, 186 and 189 built sessions by reading other apps' windows: the chat
+apps' Accessibility trees (appchat, a layout model look, typed reply parts), terminals' text (tmux capture, Terminal's
+`contents`, an AXTextArea), and a proof for typing into the right box. Every one of those readers was built and tested
+against stand-in trees and my guesses about Cursor's, the Claude app's, ChatGPT's and terminals' structures; none was
+read on a real app before it shipped. The owner's live results said so: Cursor's replies came out as one block of every
+UI label, plain terminals were blank, a Claude Code session the Claude app runs said "No app shows this session", the
+terminals New session opened never showed, and Watch refused a window on another desktop. He first said to remove and
+archive it all, then kept the tab with a new method, shown and approved (HAND-710, verbatim in kb).
+
+**A real bug found on his Mac (read only), HAND-715.** Journal 189's fix for Terminal tabs (root's `login` kept as a
+link) never worked: `proc_pidinfo(PROC_PIDTBSDINFO)` is refused (EPERM) for any process running as another user. Read
+on his Mac: launchd (pid 1), a root XPC helper (84167) and a setuid-root `top` started by me (ruid 501, euid 0, like
+`login`) all refused it; `PROC_PIDT_SHORTBSDINFO` and `proc_pidpath` answered for all three. `processes()` skipped the
+refused process, so `with_links` had nothing to link through and every Terminal/iTerm2/Ghostty tab, and any agent in
+one, had no app: not listed, no send path, no Watch. Such a process now comes from its short record (parent and group,
+no terminal). I couldn't open a Terminal window to see it end to end (no foreground actions): LIVE-1200.
+
+**What (HAND-710..716).**
+- Which are on: Claude Code's `claude agents --json`, hooks and transcripts; Codex's app-server; every terminal from the
+  process table (HAND-692); and every open window of a known agent or chat app (`ferb_sessions::apps::KNOWN`: Cursor,
+  the Claude app, ChatGPT, the Codex app, VS Code and Insiders, Windsurf, Zed; plus config `[sessions] chat_apps`),
+  one session per window `app:<bundle>:<window id>` (wire agent still `app_chat`), by structure only: a normal, drawn,
+  titled window of at least 300×200 points on any desktop (`apps::pick`), its title redacted (HAND-711).
+- Read: only Claude Code's and Codex's records. Terminals and app windows carry `watch: true`: their timeline is always
+  empty; their screen on the clients is Watch, with "Type here".
+- Send (HAND-712): Codex's app-server; tmux; Terminal's `do script` by tty; Claude Code or Codex in an app's terminal by
+  the proven foreground path (HAND-682/683, unchanged); everything else by the new window path (`SendPath::Window`,
+  wire "window"): the window found as Watch finds it, brought onto the screen, its app activated and the window raised,
+  nothing typed unless the app in front is it and its focused window has that window's frame (checked before the words
+  and before Return), then the words and Return through the Mac hands' foreground typing under the session's control
+  (GATE-622) or the gateway's question for FERB's task. No new question. A watched session's send answers `delivered`
+  once typed (no record to prove it in). Claude Code with no terminal (the Claude app's) gets its app from the app above
+  its hook, else from its record's `entrypoint` (`claude-desktop`); its conversation is still its transcript.
+- Watch (HAND-713, his "just switch the desktop"): the first frame of a Watch (no frame for that session in the last
+  5 s) un-minimizes the window, activates its app and raises it (macOS switches desktop), waiting up to 2 s; later frames
+  never move it again, so a Watch left open never pulls him back.
+- Hand to FERB (HAND-714): refused for anything but Claude Code and Codex. When ORCH-691's guard stops a driver step
+  (the gateway's latched stop for the drive's worker task, read by ferbd's `SupDriver::step`), the drive asks in the
+  session "<the guard's words>. Keep trying?" (Keep trying / Stop, one Mac banner); Keep trying resets the guard for the
+  task (`Gateway::keep_trying`) and runs the step again; Stop ends it as his stop.
+- New session: unchanged; with HAND-715 its Terminal window is found at the next look (2 s).
+- Clients (contract at the coordinator's scratchpad sess3-contract.md): ferb-mobile/ffi `AgentSession.watch` (UniFFI
+  default false); a watch session's screen on Android, iPhone and FERB.app is the live Watch picture, a quiet note and a
+  "Type here" box, its sending state ending at the Mac's answer, no Hand to FERB; app-window rows by window title with
+  the app's name; the "No agent chat open" line removed. The clients still draw parts an older Mac sends (HAND-716).
+
+**Removed.** ferb-sessions `appchat.rs` (1,330 lines), `appchat.json`, `tests/appchat.rs`, `terminals::Screen`/`shows`,
+`model::Part`/`PartKind`/`Item.parts`; ferb-daemon `sessions/appchats.rs` (570), `term_read`/`term_delivered`, the
+`Mac` trait's `chat_windows`/`chat_read`/`chat_press`/`terminal_text`, `TermPlace`, `Place.chat`, `Foreground.composer`/
+`chat`, the seams `may_take_front`/`locate`/`layouts`, `prime`, `no_chats`; ferbd's `chat_read`, `window_read`,
+`chain_of`, `pane_nodes`, `node_of`, `still_composer`, `terminal_text_by_ax`, `CHAT_PANE_PROMPT`, `locate_with` and the
+sessions Parts `make_runtime`/`layouts`/`device_id` (`~/.ferb/sessions/chat-layouts.json` is no longer written; an
+existing one is left); ferb-platform-macos `terminal_contents(_script)`, `tmux_capture`. Left: ferb-policy's app-chat
+wording for the terminal question (HAND-675, no caller now: T-1304).
+
+**Owner-facing strings.** New: "Type here"; "What you send is typed into this window on your Mac, then Return.";
+"Type this into {app}'s window “{title}”? FERB will bring its window onto your screen and type it there, then Return."
+(and "… into {program} in {app}? …" for a terminal); "FERB keeps only Claude Code and Codex sessions going: their
+replies are exact. Watch this one and type into it instead."; "{guard's words}. Keep trying?", "Keep trying", banner
+"FERB stopped in {folder}: {guard's words}. Keep trying?"; "{app} came to the front instead of {app}, so FERB
+stopped."; "Another window of {app} has the keyboard, not “{title}”, so FERB stopped."; "FERB couldn't bring {app} to
+the front, so it typed nothing."; "… Your words may be typed there without being sent; check it in Watch."; Watch: "…
+is minimized in the Dock, and FERB couldn't bring it back onto your screen." / "… is on another desktop (Space), and FERB
+couldn't switch to it." Changed: "Your sessions" (was "Your terminal sessions"), "No terminals or agent apps are open
+on your Mac right now.", NO_WINDOW "No app on your Mac shows this session, so FERB can't type into it.". Removed: "No
+agent chat open in {app}. …". Settings and the enable question still say "terminal sessions" (unchanged).
+
+**Ran on his Mac, read only (2026-11-24 ~10:00).** `ps`, `lsappinfo`, CGWindowList (a Swift script listing layer-0
+windows with their desktop flag), `claude agents --json` with FERB's clean environment (exit 0; nothing under `~/.claude`
+changed except this session's own transcript), the `proc_pidinfo` probes above, and `ferbd --example sessions_probe`
+(not in the patch): the daemon's real `Sessions::look` twice over his real process table, window server, `claude agents`,
+transcripts and Codex's socket, with a Mac whose every acting part refuses, no hook program and no question. Open then:
+VS Code (one window "mac-review-chat-card.png — FERB" on another desktop; two terminals: ttys001 claude 93334, ttys002
+zsh 93127), Codex's app-server daemon (78767) with no thread loaded, Brave, Chrome, WhatsApp, Finder; no Terminal,
+Cursor, Claude app or ChatGPT running. The probe listed exactly:
+```
+Code · mac-review-chat-card.png — FERB      app_chat  read: watch   send: window      Hand to FERB: no
+Claude Code · FERB · in Code (pid 93334)     claude    read: record  send: foreground  Hand to FERB: yes (3 items read)
+zsh · FERB · in Code (term:93127, ttys002)   terminal  read: watch   send: window      Hand to FERB: no
+```
+Codex connected (no `codex_unreachable`) and listed nothing: no thread is loaded, which is right. Nothing open was
+missing.
+
+**Tests.** ferb-sessions (apps 2 new on VS Code's real window rows, proof 3, sessions 10, terminals 3, window 4);
+ferb-daemon tests/sessions.rs 30 (new: app windows by structure, watched and typed into; a terminal watched, never read,
+typed at once; Claude Code run by the Claude app; a guard-stopped step asks Keep trying); ferb-platform-macos sessions 7
+(new: another user's process through its short record, run on this Mac); ferbd, ferb-daemon, ferb-mac-hands whole
+crates; clippy and fmt; Android, iPhone and FERB.app as below.
+
+**Overlap with other agents.** ferb-gateway is the other agent's crate: I only call its public `take_stuck`,
+`keep_trying` and `stuck::words`. ferb-mac-hands: `ax.rs`, `driver/mod.rs`, `native/ax.rs` gained show_window,
+window_minimized, focused_window_frame, same_frame. Android's strings.xml and the iPhone catalog changed (four strings).
+
+**Unverified (his live checks LIVE-1205..1209).** The window path's typing, Watch's desktop switch and un-minimize, and
+the Claude app's Claude Code session were never run (no foreground actions, the Claude app wasn't running); whether
+activating an app and raising its window switches desktop on his settings ("switch to a Space with open windows" on);
+Terminal tabs end to end after HAND-715; multi-line text through the window path (typed as the Mac hands type it); the
+guard's latch read for a real drive.

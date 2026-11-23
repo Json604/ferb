@@ -515,3 +515,16 @@ pub fn parse_agents(out: &str) -> Vec<Listed> {
         })
         .collect()
 }
+
+/// HAND-712: who runs the session, as its own record says (`entrypoint`: "cli", "claude-desktop", …); None when the
+/// line doesn't say.
+pub fn entrypoint(line: &str) -> Option<String> {
+    if !line.contains("\"entrypoint\"") {
+        return None;
+    }
+    let v: Value = serde_json::from_str(line).ok()?;
+    v.get("entrypoint")
+        .and_then(Value::as_str)
+        .filter(|e| !e.is_empty())
+        .map(str::to_owned)
+}

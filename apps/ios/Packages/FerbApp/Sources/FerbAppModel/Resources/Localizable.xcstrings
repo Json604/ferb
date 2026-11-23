@@ -3557,24 +3557,13 @@
         }
       }
     },
-    "sessions_no_chat": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No agent chat open in %1$@. Start one there to continue here."
-          }
-        }
-      }
-    },
     "sessions_none": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No terminals are open on your Mac right now."
+            "value": "No terminals or agent apps are open on your Mac right now."
           }
         }
       }
@@ -3783,7 +3772,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your terminal sessions"
+            "value": "Your sessions"
           }
         }
       }
@@ -3806,6 +3795,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "Turn on"
+          }
+        }
+      }
+    },
+    "sessions_type_here": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Type here"
+          }
+        }
+      }
+    },
+    "sessions_type_note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What you send is typed into this window on your Mac, then Return."
           }
         }
       }

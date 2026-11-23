@@ -674,6 +674,8 @@ public final class AppModel {
                 // the Mac's camera only while he looks at it (APP-983)
                 if camera.showing { closeCamera() }
             } else {
+                // a session FERB reads no words of shows its window again (HAND-710)
+                watchWindowIfShown()
                 transfers.dropKeyPlaceFiles(openedKeyFiles)
                 openedKeyFiles = []
                 let local = self.local, at = now()
@@ -2068,13 +2070,21 @@ public final class AppModel {
     }
 
     public func show(_ s: AppSheet?) {
-        func watching(_ x: AppSheet?) -> Bool { switch x { case .live, .task, .sessionWatch: return true; default: return false } }
+        // HAND-710: the screen of a session FERB reads no words of shows its window live too
+        func watching(_ x: AppSheet?) -> Bool {
+            switch x {
+            case .live, .task, .sessionWatch: return true
+            case .session(let id): return coding.open?.id == id && coding.open?.watch == true
+            default: return false
+            }
+        }
         if watching(sheet) && !watching(s) { live.stop() }
         if sheet == .camera && s != .camera { camera.stop() }
         // leaving a coding session's sheets: its conversation goes (nothing polls it any more)
         if !Self.isSessionSheet(s) { coding.closed() }
         sheet = s
         if s == nil && pendingLocation != nil { showPending() }
+        watchWindowIfShown()
     }
 
     public func note(_ n: Note?) { ui.note = n }

@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use ferb_core::interfaces::BoxFuture;
 use ferb_daemon::sessions::*;
-use ferb_sessions::appchat::{Candidate, Link, Pick, Proven, WindowRead};
+use ferb_sessions::apps::AppWindow;
 use ferb_sessions::codes;
 use ferb_sessions::host::{Proc, Table};
 use ferb_sessions::model::*;
@@ -28,9 +28,6 @@ const OWN_PID: i32 = 7;
 /// What a new terminal does when it opens (its shell appears in the table).
 type OnOpen = Box<dyn Fn(&FakeMac, &str) + Send>;
 
-/// What a chat app does with typed words: its window's tree after them.
-type Echo = Box<dyn Fn(&str) -> Vec<ferb_sessions::appchat::Node> + Send>;
-
 #[derive(Default)]
 struct FakeMac {
     table: Mutex<Table>,
@@ -44,50 +41,19 @@ struct FakeMac {
     chosen_gone: Mutex<bool>,
     /// Where a typed message lands (the agent writes it to its transcript, as Claude Code does).
     echo_to: Mutex<Option<PathBuf>>,
-    /// HAND-668: the chat apps' windows and their trees (by window id); the trees read, with `front`; presses.
-    chat_windows: Mutex<Vec<ChatWindow>>,
-    chat_trees: Mutex<HashMap<i64, Vec<ferb_sessions::appchat::Node>>>,
-    chat_reads: Mutex<Vec<(i64, bool)>>,
-    chat_pressed: Mutex<Vec<String>>,
-    /// What a chat does when FERB types into it (the app answering): the window's tree after the send.
-    chat_echo: Mutex<Option<Echo>>,
+    /// HAND-711: the agent and chat apps' open windows.
+    app_windows: Mutex<Vec<AppWindow>>,
     /// The running apps' own processes by bundle id (the ones that own their windows).
     app_pids: Mutex<HashMap<String, i32>>,
-    /// HAND-698: an editable node's chain (window id, node index), when not the default one (the node, the app's web
-    /// area, the window).
-    chat_chains: Mutex<HashMap<(i64, usize), Vec<Link>>>,
-    /// HAND-692: each process's folder, argv[0], and each terminal's activity; the apps' windows; the terminals'
-    /// text (by tty) and the terminals opened (bundle, folder).
+    /// HAND-692: each process's folder, argv[0], and each terminal's activity; the apps' windows; the terminals
+    /// opened (bundle, folder).
     cwds: Mutex<HashMap<i32, String>>,
     argv0: Mutex<HashMap<i32, String>>,
     activity: Mutex<HashMap<String, f64>>,
     windows: Mutex<Vec<(i32, i64, String)>>,
-    screens: Mutex<HashMap<String, String>>,
     opened_at: Mutex<Vec<(String, String)>>,
     /// What a new terminal does when opened (the shell appears in the table).
     on_open: Mutex<Option<OnOpen>>,
-}
-
-/// An editable node's chain as a chat app shows it by default: the node (its label as its mark), the app's web
-/// area, the window.
-fn default_chain(n: &Node) -> Vec<Link> {
-    vec![
-        Link {
-            role: n.role.clone(),
-            marks: vec![n.label.clone()],
-            frame: Some((n.x, n.y, n.w, n.h)),
-        },
-        Link {
-            role: "AXWebArea".into(),
-            marks: vec![],
-            frame: Some((0.0, 0.0, 1200.0, 1000.0)),
-        },
-        Link {
-            role: "AXWindow".into(),
-            marks: vec![],
-            frame: Some((0.0, 0.0, 1200.0, 1000.0)),
-        },
-    ]
 }
 
 impl Mac for FakeMac {
@@ -123,14 +89,6 @@ impl Mac for FakeMac {
     fn window_titles(&self) -> Vec<(i32, i64, String)> {
         self.windows.lock().unwrap().clone()
     }
-    fn terminal_text(&self, t: &TermPlace) -> Result<String, String> {
-        self.screens
-            .lock()
-            .unwrap()
-            .get(&t.tty)
-            .cloned()
-            .ok_or_else(|| "Code doesn't show this terminal's text to FERB.".to_string())
-    }
     fn terminal_open_at(&self, bundle_id: &str, folder: &str) -> Result<(), String> {
         self.opened_at
             .lock()
@@ -156,11 +114,6 @@ impl Mac for FakeMac {
     }
     fn terminal_type(&self, tty: &str, text: &str) -> Result<(), String> {
         self.typed.lock().unwrap().push((tty.into(), text.into()));
-        // a terminal shows what is typed into it
-        if let Some(screen) = self.screens.lock().unwrap().get_mut(tty) {
-            screen.push_str(text);
-            screen.push('\n');
-        }
         if let Some(p) = self.echo_to.lock().unwrap().clone() {
             append(
                 &p,
@@ -185,7 +138,7 @@ impl Mac for FakeMac {
                 terminals: offered.clone(),
             })
         } else {
-            (!f.composer && !offered.is_empty()).then(|| NotTyped::Choose {
+            (!f.into_window && !offered.is_empty()).then(|| NotTyped::Choose {
                 why: "FERB couldn't tell which terminal is this session's.".into(),
                 terminals: offered.clone(),
             })
@@ -194,75 +147,17 @@ impl Mac for FakeMac {
             self.foreground.lock().unwrap().push(f);
             return Box::pin(async move { Err(r) });
         }
-        if f.composer {
-            if let Some(echo) = self.chat_echo.lock().unwrap().as_ref() {
-                let tree = echo(&f.text);
-                self.chat_trees.lock().unwrap().insert(f.window, tree);
-            }
-        }
         self.foreground.lock().unwrap().push(f);
         Box::pin(async { Ok(()) })
     }
-    fn chat_windows(&self, bundles: &[String]) -> Vec<ChatWindow> {
-        self.chat_windows
+    fn app_windows(&self, bundles: &[String]) -> Vec<AppWindow> {
+        self.app_windows
             .lock()
             .unwrap()
             .iter()
             .filter(|w| bundles.contains(&w.bundle_id))
             .cloned()
             .collect()
-    }
-    fn chat_read(
-        &self,
-        w: &ChatWindow,
-        front: bool,
-        prove: &(dyn Fn(&WindowRead) -> Option<Proven> + Sync),
-    ) -> Option<ChatRead> {
-        self.chat_reads.lock().unwrap().push((w.window, front));
-        let nodes = self.chat_trees.lock().unwrap().get(&w.window).cloned()?;
-        let chains = self.chat_chains.lock().unwrap();
-        let cands = nodes
-            .iter()
-            .enumerate()
-            .filter(|(_, n)| n.editable && n.enabled)
-            .map(|(i, n)| Candidate {
-                index: i,
-                label: n.label.clone(),
-                focused: n.focused,
-                bottom: n.y + n.h,
-                chain: chains
-                    .get(&(w.window, i))
-                    .cloned()
-                    .unwrap_or_else(|| default_chain(n)),
-            })
-            .collect();
-        let window = WindowRead {
-            nodes: nodes.clone(),
-            cands,
-        };
-        let proven = prove(&window);
-        // the stand-in's pane is the whole window, its composer marked
-        let pane = proven
-            .map(|p| {
-                nodes
-                    .iter()
-                    .enumerate()
-                    .map(|(i, n)| Node {
-                        composer: i == p.composer,
-                        ..n.clone()
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        Some(ChatRead {
-            window,
-            proven,
-            pane,
-        })
-    }
-    fn chat_press(&self, _w: &ChatWindow, labels: &[String]) -> Result<(), String> {
-        self.chat_pressed.lock().unwrap().push(labels.join("|"));
-        Ok(())
     }
     fn app_pid(&self, bundle_id: &str, found: i32) -> i32 {
         self.app_pids
@@ -284,9 +179,6 @@ struct Seen {
     /// HAND-706: each notification's ident (one per session: a later one replaces it).
     told_ids: Mutex<Vec<String>>,
     journal: Mutex<Vec<(String, Value)>>,
-    /// HAND-699: the outlines the model was shown, and its answers in turn (none left: "no chat").
-    located: Mutex<Vec<String>>,
-    picks: Mutex<std::collections::VecDeque<Pick>>,
 }
 
 /// What one step decides: from what it was shown.
@@ -307,6 +199,8 @@ struct FakeDriver {
     stopped: std::sync::atomic::AtomicBool,
     ended: Mutex<Vec<(String, String, String)>>,
     said: Mutex<Vec<String>>,
+    /// HAND-714: the tasks the owner said keep trying for (the guard counts afresh).
+    kept: Mutex<Vec<String>>,
 }
 
 impl Driver for FakeDriver {
@@ -369,12 +263,14 @@ impl Driver for FakeDriver {
     fn say(&self, _ident: &str, line: &str) {
         self.said.lock().unwrap().push(line.into());
     }
+    fn keep_trying(&self, task: &str) {
+        self.kept.lock().unwrap().push(task.into());
+    }
 }
 
 struct World {
     s: Sessions,
     driver: Arc<FakeDriver>,
-    away: Arc<Mutex<bool>>,
     mac: Arc<FakeMac>,
     seen: Arc<Seen>,
     enabled: Arc<Mutex<Option<bool>>>,
@@ -404,11 +300,8 @@ fn world(speed: f64) -> World {
     let seen = Arc::new(Seen::default());
     let enabled = Arc::new(Mutex::new(Some(true)));
     let ids = Arc::new(Mutex::new(0u32));
-    let away = Arc::new(Mutex::new(false));
-    let away2 = away.clone();
     let start = Instant::now();
     let (e1, e2) = (enabled.clone(), enabled.clone());
-    let s7 = seen.clone();
     let (s1, s2, s3, s4, s5) = (
         seen.clone(),
         seen.clone(),
@@ -461,20 +354,12 @@ fn world(speed: f64) -> World {
         }),
         version: "0.28.0".into(),
         chat_apps: Arc::new(|| vec!["com.example.notes-chat".to_string()]),
-        may_take_front: Arc::new(move || *away2.lock().unwrap()),
-        locate: Arc::new(move |outline: String| {
-            s7.located.lock().unwrap().push(outline);
-            let pick = s7.picks.lock().unwrap().pop_front().unwrap_or_default();
-            Box::pin(async move { Ok(pick) })
-        }),
-        layouts: home.join("chat-layouts.json"),
     };
     let s = Sessions::new(seams);
     let _ = driver.sessions.set(s.clone());
     World {
         s,
         driver,
-        away,
         mac,
         seen,
         enabled,
@@ -620,10 +505,7 @@ fn a_session_is_listed_with_its_host_and_read_from_its_own_transcript_redacted()
         (h.bundle_id.as_str(), h.name.as_str(), h.pid, h.tty.as_str()),
         ("com.apple.Terminal", "Terminal", 100, "/dev/ttys004")
     );
-    assert_eq!(
-        s.send_paths,
-        [SendPath::TerminalScript, SendPath::Foreground]
-    );
+    assert_eq!(s.send_paths, [SendPath::TerminalScript]);
     let (items, more, cards) = w.s.timeline(&id(), 0, 50).unwrap();
     assert!(!more && cards.is_empty());
     let shown: Vec<(ItemKind, &str)> = items.iter().map(|i| (i.kind, i.text.as_str())).collect();
@@ -687,7 +569,7 @@ async fn until(what: &str, f: impl Fn() -> bool) {
 // decision: HAND-654
 // decision: HAND-683
 // decision: PHN-797
-// decision: HAND-690
+// decision: HAND-713
 #[tokio::test]
 async fn watch_finds_the_session_where_a_send_does_the_app_s_own_process_and_the_chosen_terminal() {
     use ferb_sessions::window::{session_window, Win};
@@ -1719,10 +1601,7 @@ fn terminal_s_tabs_under_root_s_login_are_listed_and_an_agent_in_one_has_its_app
     let agent = w.s.session(&id()).expect("Claude Code is listed");
     let host = agent.host.clone().expect("its app is found");
     assert_eq!((host.name.as_str(), host.pid), ("Terminal", 100));
-    assert_eq!(
-        agent.send_paths,
-        [SendPath::TerminalScript, SendPath::Foreground]
-    );
+    assert_eq!(agent.send_paths, [SendPath::TerminalScript]);
     assert_eq!(agent.no_send, "");
     assert_eq!(agent.program, "claude", "the agent claims its tab: one row");
     assert!(w.s.place(&id()).is_some(), "Watch finds where it is shown");
@@ -1937,283 +1816,7 @@ async fn codex_is_read_sent_and_answered_through_its_own_daemon() {
     until("the end", || w.s.session(cid).is_none()).await;
 }
 
-// ---------- app chats (HAND-668..673) ----------
-
-use ferb_sessions::appchat::Node;
-
-const CLAUDE_APP: &str = "com.anthropic.claudefordesktop";
-
-fn chat_text(x: f64, y: f64, w: f64, words: &str) -> Node {
-    Node {
-        role: "AXStaticText".into(),
-        value: words.into(),
-        x,
-        y,
-        w,
-        h: 18.0,
-        enabled: true,
-        ..Node::default()
-    }
-}
-
-fn chat_box() -> Node {
-    Node {
-        role: "AXTextArea".into(),
-        label: "Write your prompt to Claude".into(),
-        x: 40.0,
-        y: 880.0,
-        w: 600.0,
-        h: 40.0,
-        enabled: true,
-        editable: true,
-        ..Node::default()
-    }
-}
-
-/// The Claude app's window: the owner typed his first message in the app himself (FERB sent nothing).
-fn claude_chat(extra: &[Node]) -> Vec<Node> {
-    let mut v = vec![
-        chat_text(400.0, 100.0, 300.0, "Draft a reply to the landlord"),
-        chat_text(
-            40.0,
-            150.0,
-            660.0,
-            "Here's a short, polite reply you can send.",
-        ),
-    ];
-    v.extend_from_slice(extra);
-    v.push(chat_box());
-    v
-}
-
-fn chat_window(on_space: bool) -> ChatWindow {
-    ChatWindow {
-        bundle_id: CLAUDE_APP.into(),
-        app: "Claude".into(),
-        pid: 900,
-        window: 77,
-        title: "Landlord reply".into(),
-        on_space,
-    }
-}
-
-fn chat_id() -> String {
-    format!("app:{CLAUDE_APP}:77")
-}
-
-// decision: HAND-668
-// decision: HAND-670, HAND-701
-#[test]
-fn an_app_chat_is_listed_read_only_while_watched_and_his_own_typing_is_his() {
-    let w = world(1.0);
-    w.mac.chat_windows.lock().unwrap().push(chat_window(true));
-    w.mac
-        .chat_trees
-        .lock()
-        .unwrap()
-        .insert(77, claude_chat(&[]));
-    // a window is listed once code proves its chat pane (HAND-698): one read, then not again until due
-    w.s.look();
-    w.s.look();
-    let s = w.s.session(&chat_id()).expect("listed");
-    assert_eq!(
-        (s.agent, s.title.as_str()),
-        (Agent::AppChat, "Landlord reply")
-    );
-    assert_eq!(s.host.as_ref().unwrap().name, "Claude");
-    assert_eq!(
-        w.mac.chat_reads.lock().unwrap().len(),
-        1,
-        "checked once, then every CHECK_EVERY_S"
-    );
-    assert_eq!(
-        ferb_daemon::sessions::CHECK_EVERY_S,
-        15.0,
-        "the owner's 15 s"
-    );
-    // the owner opens it: read by code, his own words his by the app's layout
-    let (items, _, _) = w.s.timeline(&chat_id(), 0, 50).unwrap();
-    let said: Vec<(ItemKind, &str)> = items.iter().map(|i| (i.kind, i.text.as_str())).collect();
-    assert_eq!(
-        said,
-        [
-            (ItemKind::User, "Draft a reply to the landlord"),
-            (
-                ItemKind::Assistant,
-                "Here's a short, polite reply you can send."
-            )
-        ]
-    );
-    assert_eq!(
-        w.s.session(&chat_id()).unwrap().send_paths,
-        [SendPath::Foreground]
-    );
-    // an app the owner added is looked for too; a closed window leaves the list
-    w.mac.chat_windows.lock().unwrap().clear();
-    w.s.look();
-    assert!(w.s.session(&chat_id()).is_none());
-    assert!(w.seen.asks.lock().unwrap().is_empty() && w.driver.steps.lock().unwrap().is_empty());
-}
-
-// decision: HAND-669, HAND-674
-#[test]
-fn a_chat_on_another_space_is_read_by_bringing_it_forward_only_while_the_owner_is_away() {
-    let w = world(1.0);
-    w.mac.chat_windows.lock().unwrap().push(chat_window(false));
-    w.mac
-        .chat_trees
-        .lock()
-        .unwrap()
-        .insert(77, claude_chat(&[]));
-    w.s.look();
-    assert!(
-        w.mac.chat_reads.lock().unwrap().is_empty(),
-        "the owner is here: nothing brought forward"
-    );
-    assert!(
-        w.s.session(&chat_id()).is_none(),
-        "not proven yet, not listed"
-    );
-    *w.away.lock().unwrap() = true;
-    w.s.look();
-    assert_eq!(*w.mac.chat_reads.lock().unwrap(), [(77, true)]);
-    assert!(w.s.session(&chat_id()).is_some());
-    // and at most once per FOREGROUND_LOOK_S (30 s, HAND-674)
-    let _ = w.s.timeline(&chat_id(), 0, 50).unwrap();
-    w.s.look();
-    assert_eq!(w.mac.chat_reads.lock().unwrap().len(), 1);
-}
-
-// decision: HAND-671
-// decision: HAND-672
-// decision: HAND-673
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_send_types_into_the_app_s_own_box_and_its_reply_is_awaited_by_code_with_no_model_call() {
-    let w = world(20.0);
-    w.mac.chat_windows.lock().unwrap().push(chat_window(true));
-    w.mac
-        .chat_trees
-        .lock()
-        .unwrap()
-        .insert(77, claude_chat(&[]));
-    // the app takes the words and starts answering, its stop control up
-    *w.mac.chat_echo.lock().unwrap() = Some(Box::new(|t: &str| {
-        let mut stop = Node {
-            role: "AXButton".into(),
-            label: "Stop response".into(),
-            x: 650.0,
-            y: 885.0,
-            w: 30.0,
-            h: 30.0,
-            enabled: true,
-            ..Node::default()
-        };
-        stop.focused = false;
-        claude_chat(&[
-            chat_text(450.0, 200.0, 250.0, t),
-            chat_text(40.0, 250.0, 660.0, "Writing"),
-            stop,
-        ])
-    }));
-    let s2 = w.s.clone();
-    tokio::task::spawn_blocking(move || s2.look())
-        .await
-        .unwrap();
-    let id = chat_id();
-    w.s.prime(&id).await;
-    let yes =
-        w.s.needs_yes(&id, "make it shorter", &Caller::Mac)
-            .unwrap()
-            .unwrap();
-    assert!(
-        yes.question.contains("Claude") && !yes.question.contains("The app"),
-        "{}",
-        yes.question
-    );
-    w.s.take_control(&id, &Caller::Mac).unwrap();
-    let sent =
-        w.s.send(&id, "make it shorter", &Caller::Mac)
-            .await
-            .unwrap();
-    assert!(
-        sent.delivered,
-        "the words show as his message in the app's own window"
-    );
-    let f = w.mac.foreground.lock().unwrap()[0].clone();
-    assert!(f.composer && f.window == 77 && f.text == "make it shorter" && f.enter);
-    assert_eq!(w.s.session(&id).unwrap().status, Status::Working);
-    // the reply finishes: the stop control goes and the text settles
-    let mac = w.mac.clone();
-    tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(300)).await;
-        mac.chat_trees.lock().unwrap().insert(
-            77,
-            claude_chat(&[
-                chat_text(450.0, 200.0, 250.0, "make it shorter"),
-                chat_text(40.0, 250.0, 660.0, "Sure: thanks, I'll pay on Friday."),
-            ]),
-        );
-    });
-    let t = Instant::now();
-    let done = w.s.wait_turn(&id, 120.0).await.unwrap();
-    assert_eq!(done.status, Status::Idle);
-    assert_eq!(done.last_text, "Sure: thanks, I'll pay on Friday.");
-    assert!(t.elapsed() < Duration::from_secs(30));
-    let (items, _, _) = w.s.timeline(&id, 0, 50).unwrap();
-    assert_eq!(items.iter().filter(|i| i.kind == ItemKind::User).count(), 2);
-    // watching and waiting asked no model anything
-    assert!(w.seen.asks.lock().unwrap().is_empty() && w.driver.steps.lock().unwrap().is_empty());
-}
-
-// decision: HAND-672
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn an_app_chat_s_stop_is_its_own_stop_control_and_a_hand_over_names_the_app() {
-    let w = world(1.0);
-    w.mac.chat_windows.lock().unwrap().push(chat_window(true));
-    let stop = Node {
-        role: "AXButton".into(),
-        label: "Stop response".into(),
-        x: 650.0,
-        y: 885.0,
-        w: 30.0,
-        h: 30.0,
-        enabled: true,
-        ..Node::default()
-    };
-    w.mac
-        .chat_trees
-        .lock()
-        .unwrap()
-        .insert(77, claude_chat(&[stop]));
-    let s2 = w.s.clone();
-    tokio::task::spawn_blocking(move || s2.look())
-        .await
-        .unwrap();
-    let s2 = w.s.clone();
-    tokio::task::spawn_blocking(move || s2.timeline(&chat_id(), 0, 10))
-        .await
-        .unwrap()
-        .unwrap();
-    w.s.take_control(&chat_id(), &Caller::Mac).unwrap();
-    w.s.interrupt(&chat_id(), &Caller::Mac).await.unwrap();
-    assert_eq!(w.mac.chat_pressed.lock().unwrap().len(), 1);
-    let goal =
-        w.s.delegate(&chat_id(), "get a reply I can send", None)
-            .unwrap();
-    assert_eq!(goal, "get a reply I can send");
-    until("the drive's task", || {
-        !w.driver.begun.lock().unwrap().is_empty()
-    })
-    .await;
-    let begun = w.driver.begun.lock().unwrap()[0].clone();
-    assert_eq!(
-        (begun.0.as_str(), begun.2.as_str()),
-        (chat_id().as_str(), "Claude")
-    );
-    assert!(Sessions::legacy_command(Agent::AppChat, "").is_none());
-}
-
-// ---------- every terminal as a session (HAND-691..695) ----------
+// ---------- terminals (HAND-691..695) ----------
 
 const TERMINAL_APP: &str = "/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal";
 const CODE_APP: &str =
@@ -2281,10 +1884,9 @@ fn a_terminal_running_any_program_is_a_session_and_claude_code_shows_once() {
         ("agy", "/u/Desktop", "Desktop — agy — 120×30")
     );
     assert_eq!(t.host.as_ref().unwrap().name, "Terminal");
-    assert_eq!(
-        t.send_paths,
-        [SendPath::TerminalScript, SendPath::Foreground]
-    );
+    // decision: HAND-711 — watched, never read; Terminal's own scripting types into its tab exactly
+    assert_eq!(t.send_paths, [SendPath::TerminalScript]);
+    assert!(t.watch);
     assert_eq!(t.status, Status::Idle);
     // Claude Code's session claims its terminal: one row, with the terminal's program and window
     let c = w.s.session(&id()).unwrap();
@@ -2323,8 +1925,8 @@ fn a_terminal_running_any_program_is_a_session_and_claude_code_shows_once() {
     assert!(w.s.list().is_empty());
 }
 
-// decision: HAND-693, HAND-694
-// decision: HAND-692, HAND-690
+// decision: HAND-711, HAND-694
+// decision: HAND-692, HAND-713
 #[test]
 fn a_terminal_s_watch_finds_its_window_where_a_send_does_in_the_app_s_own_process() {
     use ferb_sessions::window::{session_window, Win};
@@ -2357,7 +1959,6 @@ fn a_terminal_s_watch_finds_its_window_where_a_send_does_in_the_app_s_own_proces
     assert_eq!(t.window, "main.rs — app");
     let place = w.s.place("term:210").expect("shown by an app");
     assert_eq!((place.host.pid, place.window), (300, 5));
-    assert_eq!(place.chat, None);
     // the other project's window is in front: Watch shows the terminal's own
     let wins = vec![
         Win {
@@ -2380,46 +1981,55 @@ fn a_terminal_s_watch_finds_its_window_where_a_send_does_in_the_app_s_own_proces
     assert_eq!((place.host.pid, place.window), (100, 1));
 }
 
+/// The owner (2026-11-23): "when not available just watch live and type". A terminal's text is never read: its
+/// timeline stays empty, it is marked watch, and a send types into it (Terminal's tab by its tty; an editor's terminal
+/// through its window, brought onto the screen) and answers as soon as it is typed.
+// decision: HAND-711
+// decision: HAND-712, HAND-694
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_terminal_s_text_is_read_while_watched_and_a_send_types_into_it_proven_on_its_screen() {
+async fn a_terminal_is_watched_never_read_and_a_send_types_into_it_at_once() {
     let w = world(20.0);
     terminals(&w);
-    // zsh in front in Terminal's tab
-    w.mac.table.lock().unwrap().retain(|p, _| *p != 130);
+    // zsh in front in Terminal's tab; no agent anywhere
+    *w.mac.agents.lock().unwrap() = Some("[]".into());
+    w.mac
+        .table
+        .lock()
+        .unwrap()
+        .retain(|p, _| *p != 130 && *p != 230);
     for p in w.mac.table.lock().unwrap().values_mut() {
         if p.tty == "/dev/ttys000" {
             p.tpgid = 120;
         }
+        if p.tty == "/dev/ttys002" {
+            p.tpgid = 210;
+        }
     }
-    w.mac.screens.lock().unwrap().insert(
-        "/dev/ttys000".into(),
-        "Last login: Mon\nowner ~ % \n".into(),
-    );
     let s2 = w.s.clone();
     tokio::task::spawn_blocking(move || s2.look())
         .await
         .unwrap();
     let tid = "term:110";
-    let (items, _, _) = w.s.timeline(tid, 0, 50).unwrap();
-    assert_eq!(items.len(), 1);
-    assert_eq!(
-        (items[0].kind, items[0].text.as_str()),
-        (ItemKind::Assistant, "Last login: Mon\nowner ~ %")
-    );
+    let (items, _, cards) = w.s.timeline(tid, 0, 50).unwrap();
+    assert!(items.is_empty() && cards.is_empty(), "nothing is read");
+    let t = w.s.session(tid).unwrap();
+    assert!(t.watch);
     let yes = w.s.needs_yes(tid, "ls -la", &Caller::Mac).unwrap().unwrap();
     assert!(yes.question.contains("zsh in Terminal"), "{}", yes.question);
     assert_eq!(yes.detail, "ls -la");
     w.s.take_control(tid, &Caller::Mac).unwrap();
     let sent = w.s.send(tid, "ls -la", &Caller::Mac).await.unwrap();
-    assert!(sent.delivered, "the words show on the terminal's screen");
+    assert_eq!(sent.path, SendPath::TerminalScript);
+    assert!(
+        sent.delivered,
+        "typed is all FERB knows of a watched session"
+    );
+    assert!(sent.seconds < 2.0, "no wait for a record: {}", sent.seconds);
     assert_eq!(
         *w.mac.typed.lock().unwrap(),
         [("/dev/ttys000".to_string(), "ls -la".to_string())]
     );
-    let (items, _, _) = w.s.timeline(tid, 0, 50).unwrap();
-    assert!(items
-        .iter()
-        .any(|i| i.kind == ItemKind::User && i.text == "ls -la"));
+    assert!(w.s.timeline(tid, 0, 50).unwrap().0.is_empty());
     // another program came to the front since he looked: nothing is typed
     w.mac.table.lock().unwrap().extend([proc(
         170,
@@ -2441,20 +2051,22 @@ async fn a_terminal_s_text_is_read_while_watched_and_a_send_types_into_it_proven
     assert_eq!(r.code, codes::NOT_IN_FRONT);
     assert!(r.message.contains("python3"), "{}", r.message);
     assert_eq!(w.mac.typed.lock().unwrap().len(), 1);
-    // a terminal whose app doesn't show its text says why
-    w.mac.agents.lock().unwrap().take();
-    w.mac.table.lock().unwrap().retain(|p, _| *p != 230);
-    for p in w.mac.table.lock().unwrap().values_mut() {
-        if p.tty == "/dev/ttys002" {
-            p.tpgid = 210;
-        }
-    }
-    let s2 = w.s.clone();
-    tokio::task::spawn_blocking(move || s2.look())
-        .await
-        .unwrap();
-    let _ = w.s.timeline("term:210", 0, 50).unwrap();
-    assert!(!w.s.session("term:210").unwrap().no_text.is_empty());
+    // VS Code's terminal: its window, brought onto the screen and typed into, no terminal proof
+    let vid = "term:210";
+    let v = w.s.session(vid).unwrap();
+    assert_eq!(v.send_paths, [SendPath::Window]);
+    let yes = w.s.needs_yes(vid, "make", &Caller::Mac).unwrap().unwrap();
+    assert!(
+        yes.question.contains("bring its window onto your screen"),
+        "{}",
+        yes.question
+    );
+    w.s.take_control(vid, &Caller::Mac).unwrap();
+    let sent = w.s.send(vid, "make", &Caller::Mac).await.unwrap();
+    assert_eq!((sent.path, sent.delivered), (SendPath::Window, true));
+    let f = w.mac.foreground.lock().unwrap().last().cloned().unwrap();
+    assert!(f.into_window);
+    assert_eq!((f.text.as_str(), f.enter, f.window), ("make", true, 5));
 }
 
 // decision: HAND-695
@@ -2509,253 +2121,201 @@ async fn a_new_session_is_a_terminal_in_the_folder_typing_only_the_owner_s_comma
     );
 }
 
-// ---------- app chats proven by structure (HAND-697..699) ----------
+// ---------- agent and chat apps' windows (HAND-710..714) ----------
 
 const CURSOR: &str = "com.todesktop.230313mzl4w4u92";
+const CLAUDE_APP: &str = "com.anthropic.claudefordesktop";
 
-fn cursor_window(window: i64, title: &str) -> ChatWindow {
-    ChatWindow {
-        bundle_id: CURSOR.into(),
-        app: "Cursor".into(),
-        pid: 950,
+fn app_window(bundle: &str, app: &str, pid: i32, window: i64, title: &str) -> AppWindow {
+    AppWindow {
+        bundle_id: bundle.into(),
+        app: app.into(),
+        pid,
         window,
         title: title.into(),
-        on_space: true,
+        on_screen: false,
     }
 }
 
-fn editable(x: f64, y: f64, w: f64, h: f64, label: &str) -> Node {
-    Node {
-        role: "AXTextArea".into(),
-        label: label.into(),
-        x,
-        y,
-        w,
-        h,
-        enabled: true,
-        editable: true,
-        ..Node::default()
-    }
-}
-
-fn link(role: &str, marks: &[&str], frame: (f64, f64, f64, f64)) -> Link {
-    Link {
-        role: role.into(),
-        marks: marks.iter().map(|m| m.to_string()).collect(),
-        frame: Some(frame),
-    }
-}
-
-/// Cursor with only an editor open: a breadcrumb, icon glyphs, and the editor's input.
-fn editor_only(w: &World, window: i64) {
-    w.mac
-        .chat_windows
+/// HAND-711: every open window of an agent or chat app is a session, by structure alone: its app and its title. FERB
+/// reads none of it (no text, no tree): it is watched and typed into through its window; it can't be handed to FERB.
+// decision: HAND-711
+// decision: HAND-712, HAND-714
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_app_s_open_windows_are_sessions_by_structure_watched_and_typed_into() {
+    let w = world(20.0);
+    *w.mac.app_windows.lock().unwrap() = vec![
+        app_window(CURSOR, "Cursor", 500, 41, "auth.ts — shop"),
+        app_window(CURSOR, "Cursor", 500, 42, "Cursor Settings"),
+        app_window(
+            "com.example.notes-chat",
+            "Notes Chat",
+            600,
+            7,
+            "token sk-live-1234567890abcdef",
+        ),
+        app_window("com.example.unlisted", "Other", 700, 9, "Not an agent app"),
+    ];
+    let s2 = w.s.clone();
+    tokio::task::spawn_blocking(move || s2.look())
+        .await
+        .unwrap();
+    let ids: Vec<String> = w.s.list().into_iter().map(|s| s.id).collect();
+    assert_eq!(ids.len(), 3, "known and added apps only: {ids:?}");
+    let id = format!("app:{CURSOR}:41");
+    let c = w.s.session(&id).unwrap();
+    assert_eq!(
+        (c.agent, c.title.as_str(), c.window.as_str(), c.watch),
+        (Agent::AppChat, "auth.ts — shop", "auth.ts — shop", true)
+    );
+    assert_eq!(
+        c.host.as_ref().map(|h| (h.name.as_str(), h.pid)),
+        Some(("Cursor", 500))
+    );
+    assert_eq!(c.send_paths, [SendPath::Window]);
+    // a title is redacted like any words that leave the Mac
+    assert_eq!(
+        w.s.session("app:com.example.notes-chat:7").unwrap().title,
+        "token [REDACTED]"
+    );
+    // nothing is read
+    let (items, more, cards) = w.s.timeline(&id, 0, 50).unwrap();
+    assert!(items.is_empty() && !more && cards.is_empty());
+    // a send: asked once with the exact words, then typed into that window, answered at once
+    let yes =
+        w.s.needs_yes(&id, "run the tests", &Caller::Mac)
+            .unwrap()
+            .unwrap();
+    assert_eq!(
+        yes.question,
+        "Type this into Cursor's window “auth.ts — shop”? FERB will bring its window onto your screen and type it there, then Return."
+    );
+    w.s.take_control(&id, &Caller::Mac).unwrap();
+    let sent = w.s.send(&id, "run the tests", &Caller::Mac).await.unwrap();
+    assert_eq!((sent.path, sent.delivered), (SendPath::Window, true));
+    let f = w.mac.foreground.lock().unwrap().last().cloned().unwrap();
+    assert!(f.into_window);
+    assert_eq!(
+        (f.pid, f.window, f.text.as_str()),
+        (500, 41, "run the tests")
+    );
+    // Watch finds this very window
+    let place = w.s.place(&id).unwrap();
+    assert_eq!((place.host.pid, place.window), (500, 41));
+    // not handed to FERB: its replies aren't exact
+    let r = w.s.delegate(&id, "finish it", None).unwrap_err();
+    assert_eq!(r.message, NOT_DRIVEN);
+    assert!(w.driver.begun.lock().unwrap().is_empty());
+    // a closed window leaves the list
+    w.mac.app_windows.lock().unwrap().retain(|x| x.window != 41);
+    let s2 = w.s.clone();
+    tokio::task::spawn_blocking(move || s2.look())
+        .await
+        .unwrap();
+    assert!(w.s.session(&id).is_none());
+    // no model, no window read, no other app's text: the journal holds no read of any kind
+    assert!(w
+        .seen
+        .journal
         .lock()
         .unwrap()
-        .push(cursor_window(window, "scratch.txt — Cursor"));
-    w.mac.chat_trees.lock().unwrap().insert(
-        window,
-        vec![
-            chat_text(200.0, 40.0, 80.0, "Users"),
-            chat_text(290.0, 40.0, 20.0, "\u{eb60}"),
-            chat_text(320.0, 40.0, 80.0, "scratch.txt"),
-            editable(200.0, 80.0, 900.0, 800.0, "scratch.txt"),
-        ],
+        .iter()
+        .all(|(k, _)| !k.contains("chat")));
+}
+
+/// HAND-712: a Claude Code session the Claude app runs (no terminal): its words come from its own record (exact), and
+/// it is typed into through the Claude app's window, which its record names (`entrypoint`).
+// decision: HAND-712
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn claude_code_run_by_the_claude_app_is_read_from_its_record_and_typed_into_its_window() {
+    let w = world(20.0);
+    w.mac.table.lock().unwrap().clear();
+    *w.mac.app_windows.lock().unwrap() = vec![app_window(CLAUDE_APP, "Claude", 800, 3, "Claude")];
+    append(
+        &transcript(&w),
+        &json!({"type": "user", "entrypoint": "claude-desktop", "cwd": "/p/app", "sessionId": SID,
+                "timestamp": "2026-11-22T10:00:00.000Z", "message": {"content": "fix the bug"}}),
     );
-    w.mac.chat_chains.lock().unwrap().insert(
-        (window, 3),
-        vec![
-            link(
-                "AXTextArea",
-                &["inputarea", "monaco-mouse-cursor-text"],
-                (200.0, 80.0, 900.0, 800.0),
+    // its hook, from a process with no terminal and no app above it in the table
+    let hook = hook_event("UserPromptSubmit", json!({"prompt": "fix the bug"}));
+    let _ = w.s.hook(&hook, &[900, 1]).await;
+    let s2 = w.s.clone();
+    tokio::task::spawn_blocking(move || s2.look())
+        .await
+        .unwrap();
+    let c = w.s.session(&id()).expect("the session");
+    assert!(!c.watch, "its record is read");
+    assert_eq!(
+        c.host.as_ref().map(|h| (h.name.as_str(), h.pid)),
+        Some(("Claude", 800))
+    );
+    assert_eq!(c.send_paths, [SendPath::Window]);
+    let (items, _, _) = w.s.timeline(&id(), 0, 50).unwrap();
+    assert!(items
+        .iter()
+        .any(|i| i.kind == ItemKind::User && i.text == "fix the bug"));
+}
+
+/// The owner ("Do both"): when FERB's guard stops a driver step (ORCH-691), the drive asks him "Keep trying?" in the
+/// session, as the main chat asks; Keep trying runs the step again with the guard counting afresh, Stop ends it.
+// decision: HAND-714
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_step_the_guard_stopped_asks_keep_trying_and_keep_trying_steps_again() {
+    let n = Arc::new(Mutex::new(0u32));
+    let n2 = n.clone();
+    let w = driven(Box::new(move |_st: &Step| {
+        let mut n = n2.lock().unwrap();
+        *n += 1;
+        Ok(match *n {
+            1 => Decision::Stuck(
+                "8 of FERB's actions in Safari failed or changed nothing, so FERB stopped to ask you".into(),
             ),
-            link("AXGroup", &["monaco-editor"], (200.0, 80.0, 900.0, 800.0)),
-            link("AXWindow", &[], (0.0, 0.0, 1200.0, 1000.0)),
-        ],
-    );
-}
-
-// decision: HAND-697, HAND-698
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn an_editor_only_window_is_no_chat_and_is_never_typed_into() {
-    let w = world(1.0);
-    editor_only(&w, 81);
-    let s2 = w.s.clone();
-    tokio::task::spawn_blocking(move || s2.look())
-        .await
-        .unwrap();
-    assert!(w.s.list().is_empty(), "no session");
-    assert_eq!(w.s.no_chat_apps(), ["Cursor"]);
-    assert_eq!(list_json(&w.s, &Caller::Mac)["no_chats"], json!(["Cursor"]));
-    assert!(
-        w.seen.located.lock().unwrap().is_empty(),
-        "an editor is never shown to a model as a chat"
-    );
-    let id = format!("app:{CURSOR}:81");
-    w.s.take_control(&id, &Caller::Mac).unwrap_err();
+            _ => Decision::Done("Finished after trying again.".into()),
+        })
+    }));
+    w.s.delegate(&id(), "check the deploy", None).unwrap();
+    let card = loop {
+        if let Some(c) = w.s.timeline(&id(), 0, 5).unwrap().2.first().cloned() {
+            break c;
+        }
+        assert!(
+            w.driver.ended.lock().unwrap().is_empty(),
+            "never just ended"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    assert_eq!(card.kind, CardKind::Ferb);
     assert_eq!(
-        w.s.send(&id, "start a session", &Caller::Mac)
-            .await
-            .unwrap_err()
-            .code,
-        codes::SESSION_GONE
+        card.question,
+        "8 of FERB's actions in Safari failed or changed nothing, so FERB stopped to ask you. Keep trying?"
     );
-    assert!(
-        w.mac.foreground.lock().unwrap().is_empty(),
-        "nothing typed anywhere"
-    );
-}
-
-/// A Cursor layout the app's marks don't know: a message list and a reply box in a panel of their own.
-fn new_layout(w: &World, window: i64, extra_groups: usize) {
-    w.mac
-        .chat_windows
-        .lock()
-        .unwrap()
-        .push(cursor_window(window, "app — Cursor"));
-    w.mac.chat_trees.lock().unwrap().insert(
-        window,
-        vec![
-            Node {
-                role: "AXScrollArea".into(),
-                x: 40.0,
-                y: 100.0,
-                w: 600.0,
-                h: 700.0,
-                enabled: true,
-                ..Node::default()
-            },
-            chat_text(340.0, 120.0, 300.0, "hi"),
-            chat_text(
-                40.0,
-                200.0,
-                560.0,
-                "Hello! How can I help with the app today?",
-            ),
-            editable(40.0, 880.0, 600.0, 40.0, "Message"),
-        ],
-    );
-    let mut chain = vec![link(
-        "AXTextArea",
-        &["lexical-input"],
-        (40.0, 880.0, 600.0, 40.0),
-    )];
-    for _ in 0..extra_groups {
-        chain.push(link("AXGroup", &[], (40.0, 860.0, 600.0, 80.0)));
-    }
-    chain.push(link("AXGroup", &["agent-panel"], (0.0, 0.0, 700.0, 1000.0)));
-    chain.push(link("AXWindow", &[], (0.0, 0.0, 1200.0, 1000.0)));
-    w.mac.chat_chains.lock().unwrap().insert((window, 3), chain);
-}
-
-// decision: HAND-699
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn an_unknown_layout_is_learned_with_one_model_call_then_found_by_code() {
-    let w = world(1.0);
-    new_layout(&w, 90, 0);
-    w.seen.picks.lock().unwrap().push_back(Pick {
-        chat: true,
-        message_list: Some(0),
-        reply_box: Some(3),
-    });
-    let s2 = w.s.clone();
-    tokio::task::spawn_blocking(move || s2.look())
-        .await
+    let choices: Vec<(&str, &str)> = card
+        .choices
+        .iter()
+        .map(|c| (c.id.as_str(), c.label.as_str()))
+        .collect();
+    assert_eq!(choices, [(KEEP_TRYING, "Keep trying"), (STOP, "Stop")]);
+    assert_eq!(note(&w), "FERB is waiting for your answer.");
+    w.s.resolve(&id(), &card.id, KEEP_TRYING, Some(&Caller::Mac))
         .unwrap();
-    let id = format!("app:{CURSOR}:90");
-    until("the layout learned and the chat found", || {
-        w.s.session(&id).is_some()
-    })
-    .await;
-    let located = w.seen.located.lock().unwrap().clone();
-    assert_eq!(located.len(), 1);
-    // the outline: roles, labels and places; never what is written
-    assert!(
-        located[0].contains("AXTextArea editable \"Message\""),
-        "{}",
-        located[0]
-    );
-    assert!(!located[0].contains("How can I help"), "{}", located[0]);
-    let (items, _, _) = w.s.timeline(&id, 0, 50).unwrap();
-    assert_eq!(items.len(), 2);
-    assert!(
-        w.home.join("chat-layouts.json").is_file(),
-        "kept for the next start"
-    );
-    // another window in the same layout: found by code alone
-    new_layout(&w, 91, 0);
-    let s2 = w.s.clone();
-    tokio::task::spawn_blocking(move || s2.look())
-        .await
+    until("ended", || !w.driver.ended.lock().unwrap().is_empty()).await;
+    assert_eq!(*w.driver.kept.lock().unwrap(), ["drive1"]);
+    assert_eq!(*n.lock().unwrap(), 2, "the step ran again");
+    assert_eq!(w.driver.ended.lock().unwrap()[0].1, "done");
+    // Stop on it ends the drive as his stop: no chat line
+    *n.lock().unwrap() = 0;
+    w.driver.ended.lock().unwrap().clear();
+    w.driver.said.lock().unwrap().clear();
+    w.s.delegate(&id(), "check it again", None).unwrap();
+    let card = loop {
+        if let Some(c) = w.s.timeline(&id(), 0, 5).unwrap().2.first().cloned() {
+            break c;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    w.s.resolve(&id(), &card.id, STOP, Some(&Caller::Mac))
         .unwrap();
-    assert!(w.s.session(&format!("app:{CURSOR}:91")).is_some());
-    assert_eq!(
-        w.seen.located.lock().unwrap().len(),
-        1,
-        "no second model call"
-    );
-}
-
-// decision: HAND-699, HAND-700
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_model_pick_code_can_t_check_is_dropped_and_none_is_no_chat_within_the_day_s_asks() {
-    let w = world(1.0);
-    // a window with a reply box and the editor: the model picks the editor; code drops it
-    new_layout(&w, 92, 0);
-    w.mac
-        .chat_trees
-        .lock()
-        .unwrap()
-        .get_mut(&92)
-        .unwrap()
-        .push(editable(700.0, 80.0, 400.0, 800.0, "main.rs"));
-    w.mac.chat_chains.lock().unwrap().insert(
-        (92, 4),
-        vec![
-            link("AXTextArea", &["inputarea"], (700.0, 80.0, 400.0, 800.0)),
-            link("AXWindow", &[], (0.0, 0.0, 1200.0, 1000.0)),
-        ],
-    );
-    w.seen.picks.lock().unwrap().push_back(Pick {
-        chat: true,
-        message_list: Some(0),
-        reply_box: Some(4),
-    });
-    let s2 = w.s.clone();
-    tokio::task::spawn_blocking(move || s2.look())
-        .await
-        .unwrap();
-    until("the pick checked", || {
-        w.s.layouts_asked().iter().any(|(_, o)| o == "dropped")
-    })
-    .await;
-    assert!(w.s.session(&format!("app:{CURSOR}:92")).is_none());
-    assert!(w.mac.foreground.lock().unwrap().is_empty());
-    // ten more layouts, the model says none to each: no session; the app's tenth ask of the day is the last
-    let cap = ferb_daemon::sessions::MODEL_ASKS_PER_APP_PER_DAY as usize;
-    assert_eq!(cap, 10);
-    for i in 0..cap {
-        new_layout(&w, 93 + i as i64, i + 1);
-    }
-    let s2 = w.s.clone();
-    tokio::task::spawn_blocking(move || s2.look())
-        .await
-        .unwrap();
-    until("the asks answered", || {
-        w.s.layouts_asked()
-            .iter()
-            .filter(|(_, o)| o == "none")
-            .count()
-            == cap - 1
-    })
-    .await;
-    assert_eq!(
-        w.seen.located.lock().unwrap().len(),
-        cap,
-        "{:?}",
-        w.s.layouts_asked()
-    );
-    assert!(w.s.list().is_empty());
-    assert_eq!(w.s.no_chat_apps(), ["Cursor"]);
+    until("ended", || !w.driver.ended.lock().unwrap().is_empty()).await;
+    assert_eq!(w.driver.ended.lock().unwrap()[0].1, "cancelled");
+    assert!(w.driver.said.lock().unwrap().is_empty());
 }

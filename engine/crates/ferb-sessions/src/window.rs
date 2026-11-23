@@ -105,7 +105,8 @@ pub fn session_window(wins: &[Win], proof: &Proof, chosen: &str, known: i64) -> 
     front(&shown).map(found)
 }
 
-/// Why the session's window can't be watched now, in the owner's words. `app`: the host app's name.
+/// Why the session's window can't be watched now, in the owner's words. `app`: the host app's name. HAND-713: FERB
+/// brings a minimized window or one on another desktop onto the screen itself; these words say it couldn't.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Unseen {
     /// The app shows no window at all.
@@ -132,10 +133,10 @@ impl Unseen {
         match self {
             Unseen::NoWindow => format!("{app} has no window open for this session."),
             Unseen::Minimized => format!(
-                "{named} is minimized in the Dock. Open it again and Watch shows it; FERB doesn't bring windows back on its own."
+                "{named} is minimized in the Dock, and FERB couldn't bring it back onto your screen."
             ),
             Unseen::OtherSpace => format!(
-                "{named} is on another desktop (Space). Watch shows it once that desktop is the one on screen; FERB doesn't switch desktops on its own."
+                "{named} is on another desktop (Space), and FERB couldn't switch to it."
             ),
         }
     }

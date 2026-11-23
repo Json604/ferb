@@ -285,20 +285,14 @@ final class SessionsTests: XCTestCase {
         XCTAssertEqual(started["command"] as? String, "agy")
     }
 
-    // decision: HAND-692, HAND-697, HAND-705
-    func testATerminalRowSaysItsProgramFolderAndAppAndAnAppWithNoChatSaysSo() async throws {
+    // decision: HAND-692
+    func testATerminalRowSaysItsProgramFolderAndApp() async throws {
         let row = try XCTUnwrap(AgentSessionRow(["id": "term:110", "agent": "terminal", "program": "agy", "cwd": "/Users/o/Desktop",
                                                  "window": "Desktop — agy — 120×30", "host": ["name": "Terminal"],
                                                  "send_paths": ["terminal_script"]]))
         XCTAssertEqual(row.agentName, "agy")
         XCTAssertEqual(row.heading, "Desktop — agy — 120×30")
         XCTAssertEqual(row.whereLine, "agy · Desktop · in Terminal")
-        let rpc = ScriptedRPC()
-        rpc.replies["sessions.list"] = ["enabled": true, "sessions": [] as [Any], "no_chats": ["Cursor"]]
-        let model = SessionsModel(rpc: rpc)
-        await model.load()
-        XCTAssertEqual(model.noChats, ["Cursor"])
-        XCTAssertEqual(AgentSessionRow.noChatLine("Cursor"), "No agent chat open in Cursor. Start one there to continue here.")
     }
 
     func testTurnOnWritesTheSwitchAndReadsTheListAgain() async throws {

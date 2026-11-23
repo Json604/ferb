@@ -63,22 +63,28 @@ fn a_program_is_named_as_it_was_started() {
     assert_eq!(tty_activity("not-a-device"), None);
 }
 
-// decision: HAND-693, HAND-695
+// decision: HAND-695
 #[test]
-fn terminal_is_read_by_its_tab_and_opened_in_the_background() {
-    let s = terminal_contents_script("/dev/ttys004");
-    assert!(
-        s.contains("if tty of t is \"/dev/ttys004\" then return contents of t"),
-        "{s}"
-    );
-    assert!(
-        !s.contains("activate") && !s.contains("do script"),
-        "read only: {s}"
-    );
+fn a_terminal_is_opened_in_the_background() {
     assert_eq!(
         open_folder_args("com.apple.Terminal", "/p/app"),
         ["-g", "-b", "com.apple.Terminal", "/p/app"]
     );
+}
+
+// decision: HAND-715 — read on this Mac: root's launchd (as root's `login` under a terminal tab) refuses its full record
+// to the owner, and its short record still names its parent; so `processes` keeps such a parent as a link
+#[test]
+fn another_user_s_process_comes_in_through_its_short_record() {
+    let launchd = short_info(1).expect("launchd's short record");
+    assert_eq!(
+        (launchd.pid, launchd.ppid, launchd.tty.as_str()),
+        (1, 0, "")
+    );
+    let me = std::process::id() as i32;
+    let mine = short_info(me).expect("its own short record");
+    assert_eq!(mine.ppid, parent_of(me));
+    assert!(processes().contains_key(&me));
 }
 
 // decision: HAND-704 — Terminal starts each shell through root's `login`: kept as a link (parent and program, no

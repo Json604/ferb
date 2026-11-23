@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 // NOT FROM THE LAB. The owner's coding sessions on his Mac (Claude Code, Codex; kb HAND-651): the Sessions tab and one
 // session's screen, the twins of Android's design (components/Sessions.kt, screens/SessionScreens.kt). Made only of the
@@ -133,8 +136,6 @@ public struct SessionsPage: View {
     var insets: PhoneInsets
     var off: SessionsOff?
     var empty: String?
-    /// HAND-697: one quiet line per chat app open with no chat FERB could find.
-    var notes: [String]
     /// A new terminal started but not in the list yet: one quiet line until it shows.
     var soon: String?
     var waiting: PhoneTab?
@@ -145,7 +146,7 @@ public struct SessionsPage: View {
     var onTurnOn: (() -> Void)?
 
     public init(label: String, rows: [SessionRowData], newLabel: String, insets: PhoneInsets = .lab, off: SessionsOff? = nil,
-                empty: String? = nil, notes: [String] = [], soon: String? = nil, waiting: PhoneTab? = nil, onTab: ((PhoneTab) -> Void)? = nil,
+                empty: String? = nil, soon: String? = nil, waiting: PhoneTab? = nil, onTab: ((PhoneTab) -> Void)? = nil,
                 onProfile: (() -> Void)? = nil, onRow: ((Int) -> Void)? = nil, onNew: (() -> Void)? = nil,
                 onTurnOn: (() -> Void)? = nil) {
         self.label = label
@@ -154,7 +155,6 @@ public struct SessionsPage: View {
         self.insets = insets
         self.off = off
         self.empty = empty
-        self.notes = notes
         self.soon = soon
         self.waiting = waiting
         self.onTab = onTab
@@ -202,12 +202,6 @@ public struct SessionsPage: View {
                                 if i > 0 { Divide() }
                                 SessionRow(row, onClick: onRow.map { f in { f(i) } })
                             }
-                        }
-                    }
-                    if off == nil {
-                        ForEach(Array(notes.enumerated()), id: \.offset) { _, note in
-                            Text(note).type(14.5, .medium, ink.low).fixedSize(horizontal: false, vertical: true)
-                                .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 8).padding(.top, 10)
                         }
                     }
                 }
@@ -564,10 +558,71 @@ public struct SessionComposer: View {
     }
 }
 
+/// A session FERB reads none of the words of (HAND-710: a terminal, an app's window): its window, live, in place of the
+/// conversation. The picture as Watch draws it (the newest frame, else its waiting words or why it ended), the line
+/// over it, Watch again once it ended, and one quiet note on what a send does. `shieldFrame` is the app's screenshot
+/// shield around the picture (PHN-810, PHN-811); nil draws it plainly.
+public struct SessionWindow {
+    public var frame: Image?
+    public var placeholder: String
+    public var line: String?
+    public var again: String?
+    public var onAgain: (() -> Void)?
+    public var note: String
+    public var shieldFrame: ((AnyView) -> AnyView)?
+    public init(frame: Image? = nil, placeholder: String, line: String? = nil, again: String? = nil, onAgain: (() -> Void)? = nil,
+                note: String, shieldFrame: ((AnyView) -> AnyView)? = nil) {
+        self.frame = frame
+        self.placeholder = placeholder
+        self.line = line
+        self.again = again
+        self.onAgain = onAgain
+        self.note = note
+        self.shieldFrame = shieldFrame
+    }
+}
+
+/// The window's picture sized to the room between the header and the message box, his words on their way or refused
+/// under it (PHN-812, PHN-800), and the quiet note last, just above the box.
+struct SessionWindowView: View {
+    let window: SessionWindow
+    let unsent: SessionUnsent?
+    let onRetry: (() -> Void)?
+    let sending: SessionSending?
+
+    var body: some View {
+        VStack(spacing: 10) {
+            ZStack {
+                if let frame = window.frame {
+                    let picture = frame.resizable().interpolation(.high).aspectRatio(contentMode: .fit)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    if let shield = window.shieldFrame { shield(AnyView(picture)) } else { picture }
+                } else {
+                    Text(window.placeholder).type(16, .regular, Ink.onDark).multilineTextAlignment(.center).padding(.horizontal, 16)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityIdentifier("session-window")
+            if let line = window.line {
+                Text(line).type(14.5, .medium, Ink.onDark).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 6)
+            }
+            if let again = window.again {
+                Pill(title: again, kind: .grey, symbol: "eye", height: 40, fill: false, onClick: window.onAgain).ferbSurface()
+            }
+            if let unsent { SessionUnsentView(unsent, onRetry: onRetry) }
+            if let sending { SessionSendingView(sending).transition(.motionItem) }
+            Text(window.note).type(13.5, .medium, Ink.onDark).lineSpacing(2).fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 6)
+        }
+        .padding(.horizontal, 16).padding(.top, 4).padding(.bottom, 10)
+    }
+}
+
 /// One session, full screen on black: its title and state on one header with its menu (where it runs and its actions,
 /// PHN-800) and Close; the conversation with "Show earlier" at its top, a refused message (`unsent`) after its last
-/// line and the agent's open questions at its end; the message box (`foot`, or why nothing can be sent). The app follows
-/// the owner's screenshot switch here, as everywhere (PHN-800, PHN-810).
+/// line and the agent's open questions at its end, or, for a session FERB reads no words of, its window live
+/// (`window`, HAND-710); the message box (`foot`, or why nothing can be sent). The app follows the owner's screenshot
+/// switch here, as everywhere (PHN-800, PHN-810).
 public struct SessionPage<Foot: View>: View {
     var header: SessionRowData
     var lines: [SessionLine]
@@ -599,6 +654,8 @@ public struct SessionPage<Foot: View>: View {
     /// end just above the message box, or under the header when `noteOnTop` (no box).
     var note: String?
     var noteOnTop: Bool
+    /// HAND-710: the session's window, live, in place of the conversation (its lines, asks and Show earlier are not drawn).
+    var window: SessionWindow?
     var foot: Foot
 
     public init(header: SessionRowData, lines: [SessionLine], asks: [SessionAsk], actions: [SessionAction], insets: PhoneInsets = .lab,
@@ -606,7 +663,8 @@ public struct SessionPage<Foot: View>: View {
                 unsent: SessionUnsent? = nil, onRetry: (() -> Void)? = nil, sending: SessionSending? = nil, moreLabel: String = "More",
                 menuOpen: Bool = false, onMenu: ((Bool) -> Void)? = nil, newMessage: String = "New message",
                 toLatest: String = "Go to the latest messages", scrolls: Bool = true, stillJump: ListScroll? = nil,
-                waiting: String? = nil, note: String? = nil, noteOnTop: Bool = false, @ViewBuilder foot: () -> Foot) {
+                waiting: String? = nil, note: String? = nil, noteOnTop: Bool = false, window: SessionWindow? = nil,
+                @ViewBuilder foot: () -> Foot) {
         self.header = header
         self.lines = lines
         self.asks = asks
@@ -629,6 +687,7 @@ public struct SessionPage<Foot: View>: View {
         self.waiting = waiting
         self.note = note
         self.noteOnTop = noteOnTop
+        self.window = window
         self.foot = foot()
     }
 
@@ -654,33 +713,10 @@ public struct SessionPage<Foot: View>: View {
             // the main chat's list (PHN-813): followed at the end, the jump control when scrolled up ("New message" when
             // something arrived), the keyboard down on a drag, his sent words always in view; rows dissolve under the
             // header instead of being cut at its edge (PHN-815)
-            let endKey = "\(lines.last?.key ?? ""):\(asks.count):\(unsent?.text ?? ""):\(sending?.text ?? ""):\(sending?.status ?? "")"
-            ZStack(alignment: .bottom) {
-                // the first read on its way: the main chat's waiting look (shapes of messages, its spinner and words)
-                if let waiting, lines.isEmpty {
-                    ChatWaiting(waiting, textInk: Ink.onDark).frame(maxHeight: .infinity, alignment: .top)
-                        .transition(.opacity)
-                        .accessibilityIdentifier("session-waiting")
-                }
-                FollowingList(end: ListEnd(key: endKey, mine: sending != nil, value: endKey),
-                              keys: lines.map(\.key), spacing: 10,
-                              padding: EdgeInsets(top: Self.listTop, leading: 16, bottom: 12, trailing: 16),
-                              fade: Self.fade, still: !scrolls,
-                              jump: { ListJump.plain($0, newMessage: newMessage, toLatest: toLatest, light: true) }, over: { _ in EmptyView() }) {
-                    if let older {
-                        Pill(title: older, kind: .grey, height: 36, fill: false, onClick: onOlder).ferbSurface()
-                    }
-                    ForEach(lines, id: \.key) { l in SessionLineView(l).id(l.key).transition(.motionItem) }
-                    if let unsent { SessionUnsentView(unsent, onRetry: onRetry) }
-                    if let sending { SessionSendingView(sending).id("sending").transition(.motionItem) }
-                    ForEach(Array(asks.enumerated()), id: \.offset) { a, ask in
-                        SessionAskCard(ask, onChoice: onChoice.map { f in { f(a, $0) } })
-                    }
-                }
-                // a still picture of him scrolled up: the jump control as the live list draws it
-                if !scrolls, let s = stillJump, let j = ListJump.plain(s, newMessage: newMessage, toLatest: toLatest, light: true) {
-                    JumpPill(j.text, label: j.label, light: true) {}.padding(.bottom, 10)
-                }
+            if let window {
+                SessionWindowView(window: window, unsent: unsent, onRetry: onRetry, sending: sending)
+            } else {
+                conversation
             }
             if !noteOnTop, let note, !note.isEmpty { SessionFerbNote(note).padding(.horizontal, 16).padding(.bottom, 6) }
             foot.padding(.horizontal, 16)
@@ -702,6 +738,38 @@ public struct SessionPage<Foot: View>: View {
             }
         }
         .ignoresSafeArea()
+    }
+
+    /// The conversation as the main chat's list draws it.
+    @ViewBuilder private var conversation: some View {
+        let endKey = "\(lines.last?.key ?? ""):\(asks.count):\(unsent?.text ?? ""):\(sending?.text ?? ""):\(sending?.status ?? "")"
+        ZStack(alignment: .bottom) {
+            // the first read on its way: the main chat's waiting look (shapes of messages, its spinner and words)
+            if let waiting, lines.isEmpty {
+                ChatWaiting(waiting, textInk: Ink.onDark).frame(maxHeight: .infinity, alignment: .top)
+                    .transition(.opacity)
+                    .accessibilityIdentifier("session-waiting")
+            }
+            FollowingList(end: ListEnd(key: endKey, mine: sending != nil, value: endKey),
+                          keys: lines.map(\.key), spacing: 10,
+                          padding: EdgeInsets(top: Self.listTop, leading: 16, bottom: 12, trailing: 16),
+                          fade: Self.fade, still: !scrolls,
+                          jump: { ListJump.plain($0, newMessage: newMessage, toLatest: toLatest, light: true) }, over: { _ in EmptyView() }) {
+                if let older {
+                    Pill(title: older, kind: .grey, height: 36, fill: false, onClick: onOlder).ferbSurface()
+                }
+                ForEach(lines, id: \.key) { l in SessionLineView(l).id(l.key).transition(.motionItem) }
+                if let unsent { SessionUnsentView(unsent, onRetry: onRetry) }
+                if let sending { SessionSendingView(sending).id("sending").transition(.motionItem) }
+                ForEach(Array(asks.enumerated()), id: \.offset) { a, ask in
+                    SessionAskCard(ask, onChoice: onChoice.map { f in { f(a, $0) } })
+                }
+            }
+            // a still picture of him scrolled up: the jump control as the live list draws it
+            if !scrolls, let s = stillJump, let j = ListJump.plain(s, newMessage: newMessage, toLatest: toLatest, light: true) {
+                JumpPill(j.text, label: j.label, light: true) {}.padding(.bottom, 10)
+            }
+        }
     }
 }
 
@@ -807,7 +875,7 @@ public struct PickTerminalSheet: View {
 
 /// Invented sessions for the gallery and the screenshots (no real folder, title or command; Android's labSessions).
 public enum SessionSample {
-    public static let label = "Your terminal sessions"
+    public static let label = "Your sessions"
     public static let rows: [SessionRowData] = [
         SessionRowData(title: "Fix the flaky login test", subtitle: "web-app · in Terminal", state: .working, stateText: "Working"),
         SessionRowData(title: "Move the blog to the new theme", subtitle: "blog · in Visual Studio Code", state: .waiting, stateText: "Waiting for you"),
@@ -947,6 +1015,32 @@ public enum SessionSample {
         ferbSession(insets: insets, note: keepGoingNote, lines: keepGoingLines, asks: [keepGoingAsk])
     }
 
+    // MARK: a session FERB reads no words of (HAND-710)
+
+    /// A terminal FERB reads none of the words of: its row (the program, its folder, its app) and its window as the Mac
+    /// sends it, an invented one.
+    public static let watchRow = SessionRowData(title: "web-app — zsh", subtitle: "zsh · web-app · in Terminal", state: .idle, stateText: "Idle")
+    public static let typeNote = "What you send is typed into this window on your Mac, then Return."
+
+    #if canImport(UIKit)
+    /// The invented window's picture as the Mac's preview sends it (PNG bytes, drawn here): a terminal that ran the tests.
+    @MainActor public static func windowPicture() -> Data {
+        let r = ImageRenderer(content: WindowPicture().environment(\.colorScheme, .light))
+        r.scale = 1
+        return r.uiImage?.pngData() ?? Data()
+    }
+
+    /// The watch session's screen: the header, its window live, the note, the box saying "Type here".
+    @MainActor public static func watch(insets: PhoneInsets = .lab, picture: Data? = nil) -> some View {
+        let frame = UIImage(data: picture ?? windowPicture()).map { Image(uiImage: $0) }
+        return SessionPage(header: watchRow, lines: [], asks: [],
+                           actions: [], insets: insets, onClose: {}, scrolls: false,
+                           window: SessionWindow(frame: frame, placeholder: "Waiting for the first picture…", note: typeNote)) {
+            SessionComposer(value: "", placeholder: "Type here", sendLabel: "Send")
+        }
+    }
+    #endif
+
     public static let newWords = NewSessionWords(title: "New session", folder: "Folder", other: "Another folder…", command: "Command (optional)",
                                                  commandHint: "Command to run (optional)", start: "Start", starting: "Opening a terminal…")
     public static let folders: [SessionFolderRow] = [
@@ -975,5 +1069,35 @@ public enum SessionSample {
             recent: top ? [SessionFolderRow(title: "recipes", detail: "/Users/you/code/recipes", opens: true)] : [],
             path: top ? "" : "/Users/you/code", use: "Use this folder", insets: insets, scrolls: false,
             onUp: {}, onRow: { _ in }, onRecent: { _ in }, onUse: top ? nil : {}, onClose: {})
+    }
+}
+
+
+/// The invented terminal window the watch session's sample shows (no real folder or command of the owner's).
+struct WindowPicture: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 7) {
+                ForEach([Color(red: 1, green: 0.37, blue: 0.34), Color(red: 1, green: 0.74, blue: 0.18), Color(red: 0.16, green: 0.79, blue: 0.25)],
+                        id: \.self) { c in Circle().fill(c).frame(width: 11, height: 11) }
+                Spacer(minLength: 0)
+                Text("web-app — zsh — 80×24").font(.system(size: 12, weight: .medium)).foregroundStyle(Color(white: 0.55))
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12).frame(height: 30)
+            .background(Color(white: 0.17))
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(Array(["~/code/web-app $ npm test", "", " PASS  src/login.test.ts", " PASS  src/settings.test.ts",
+                         " PASS  src/theme.test.ts", "", "Tests:  42 passed, 42 total", "Time:   3.1 s", "", "~/code/web-app $ "]
+                            .enumerated()), id: \.offset) { _, line in
+                    Text(line.isEmpty ? " " : line).font(.system(size: 13, design: .monospaced))
+                        .foregroundStyle(line.contains("PASS") ? Color(red: 0.4, green: 0.85, blue: 0.45) : Color(white: 0.9))
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(Color(white: 0.1))
+        }
+        .frame(width: 520, height: 330)
     }
 }

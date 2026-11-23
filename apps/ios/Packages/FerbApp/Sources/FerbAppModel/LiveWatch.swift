@@ -64,6 +64,12 @@ public final class LiveWatch {
         return begin(session) { sink in await api.watchSession(session, sink: sink) }
     }
 
+    /// A session's window that isn't asked for (the public relay's rule, HAND-710): its place on screen says why.
+    public func refused(_ session: String, _ why: Note) {
+        stop(keepView: true)
+        view = LiveScreen(taskId: session, ended: why)
+    }
+
     private func begin(_ id: String, _ ask: @escaping @MainActor (PreviewSink) async -> Outcome<Live>) -> Task<Void, Never> {
         stop(keepView: true)
         generation += 1

@@ -42,7 +42,14 @@ final class SessionsMac: Transport, @unchecked Sendable {
             codex.removeValue(forKey: "delegate")
             codex.removeValue(forKey: "ferb_note")
             codex.removeValue(forKey: "control")
-            v = ["enabled": true, "sessions": [Self.session, codex]]
+            // HAND-710: an app's own window, which FERB reads no words of
+            let window: [String: Any] = [
+                "id": "app:cursor:9", "agent": "app_chat", "cwd": "", "title": "Fix the login form — garden-app",
+                "window": "Fix the login form — garden-app", "program": "", "status": "idle", "waiting": "none",
+                "host": ["bundle_id": "com.todesktop.230313mzl4w4u92", "name": "Cursor", "pid": 77], "send_paths": ["window"],
+                "watch": true, "yours": false,
+            ]
+            v = ["enabled": true, "sessions": [Self.session, codex, window]]
         case "sessions.timeline":
             v = ["session": Self.session, "more": true,
                  "items": [["seq": 7, "at": "2026-01-02T10:00:00Z", "kind": "user", "text": "Fix the test"],
@@ -119,11 +126,11 @@ final class SessionsLibraryTests: XCTestCase {
         try? FileManager.default.removeItem(at: dir)
     }
 
-    // decision: PHN-797
+    // decision: PHN-797, HAND-710
     func testTheListReadsEachSessionAsTheScreensShowIt() throws {
         let l = try mobile.sessionsList()
         XCTAssertTrue(l.enabled)
-        XCTAssertEqual(l.sessions.count, 2)
+        XCTAssertEqual(l.sessions.count, 3)
         let a = l.sessions[0]
         XCTAssertEqual(a.agentName, "Claude Code")
         XCTAssertEqual(a.folderName, "garden-app")
@@ -142,6 +149,17 @@ final class SessionsLibraryTests: XCTestCase {
         XCTAssertFalse(b.withFerb)
         XCTAssertEqual(b.ferbTask, "")
         XCTAssertEqual(b.ferbNote, "")
+        XCTAssertFalse(a.watch, "absent: FERB reads its words")
+        XCTAssertFalse(b.watch)
+        // HAND-710: an app's window: its words aren't read, it is typed into through the window
+        let w = l.sessions[2]
+        XCTAssertTrue(w.watch)
+        XCTAssertEqual(w.agentName, "Cursor")
+        XCTAssertEqual(w.host, "Cursor")
+        XCTAssertEqual(w.window, "Fix the login form — garden-app")
+        XCTAssertEqual(w.folder, "")
+        XCTAssertTrue(w.canSend)
+        XCTAssertTrue(w.foreground, "the window path brings its app forward")
     }
 
     // decision: PHN-797, HAND-663

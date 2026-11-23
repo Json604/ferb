@@ -107,11 +107,12 @@ final class SessionsTests: XCTestCase {
 
     /// The menu offers Hand to FERB while FERB doesn't have it, Take it back while it does, and "FERB is starting…"
     /// (no tap) between the two.
-    // decision: HAND-702, HAND-705
+    // decision: HAND-702, HAND-710
     func testTheMenuOffersHandToFERBTakeItBackOrFERBIsStarting() {
         XCTAssertEqual(L.s("sessions_take_back"), "Take it back")
         XCTAssertEqual(L.s("sessions_ferb_starting"), "FERB is starting…")
-        XCTAssertEqual(L.s("sessions_no_chat", "Codex"), "No agent chat open in Codex. Start one there to continue here.")
+        // HAND-710: no app window is hidden any more, so the list has no "no chat open" line
+        XCTAssertFalse(L.has("sessions_no_chat"))
     }
 
     // decision: PHN-797
@@ -591,6 +592,142 @@ final class SessionsTests: XCTestCase {
         XCTAssertTrue(rig.prompts.signers.isEmpty, "letting go asks nothing")
     }
 
+    // ---- a session FERB reads no words of (HAND-710) ---------------------------------------------------------------------
+
+    private let term = "term:w7"
+
+    /// A terminal FERB reads none of the words of: its window is its screen.
+    private func watchSession(_ id: String = "term:w7", agent: String = "terminal", agentName: String = "zsh", title: String = "",
+                              window: String = "web-app — zsh", folder: String = "/Users/owner/code/web-app", host: String = "Terminal",
+                              program: String = "zsh") -> AgentSession {
+        var s = session(id, title: title, folder: folder, host: host)
+        s.agent = agent
+        s.agentName = agentName
+        s.window = window
+        s.program = program
+        s.watch = true
+        return s
+    }
+
+    /// An app's own window (Cursor, the Claude app…) is one row: its window's title, and the app's name alone under it;
+    /// with no title, the app's name. A terminal's row keeps "<program> · <folder> · in <app>".
+    // decision: HAND-710
+    func testAnAppWindowsRowIsItsWindowsTitleAndTheAppsNameAlone() {
+        let app = watchSession("app:cursor:9", agent: SessionWords.appChat, agentName: "Cursor", title: "Fix the login form — garden-app",
+                               window: "Fix the login form — garden-app", folder: "", host: "Cursor", program: "")
+        XCTAssertEqual(SessionWords.row(app).title, "Fix the login form — garden-app")
+        XCTAssertEqual(SessionWords.row(app).subtitle, "Cursor", "no folder, no \"in Cursor\" repeated")
+        var untitled = app
+        untitled.title = ""
+        untitled.window = ""
+        XCTAssertEqual(SessionWords.title(untitled), "Cursor", "no window title: the app's name")
+        XCTAssertEqual(SessionWords.subtitle(watchSession()), "zsh · web-app · " + L.s("sessions_in_app", "Terminal"))
+    }
+
+    /// Its screen is its window, live (Watch's preview, asked for as the screen opens and while it shows), not a
+    /// conversation; it can't be handed to FERB; the picture stops when something covers the screen or the app leaves the
+    /// front, and comes back with it.
+    // decision: HAND-710, PHN-454, PHN-810
+    func testAWatchSessionsScreenIsItsWindowLiveAndItCantBeHandedToFERB() async {
+        phone.codingList.sessions.append(watchSession())
+        let vm = rig.model()
+        await vm.loadSessions().value
+        await vm.openSession(term).value
+        XCTAssertEqual(vm.sheet, .session(id: term), "the session's own screen, not Watch's page")
+        XCTAssertEqual(vm.coding.open?.watch, true)
+        await eventually("its window asked for") { phone.calls.contains("watch-session:\(term)") }
+        XCTAssertEqual(vm.live.view?.taskId, term)
+        XCTAssertFalse(vm.mustSecure, "the owner's screenshot switch decides, as for Watch (PHN-810)")
+        phone.sessionPreview?.frame(frame: PreviewFrame(jpeg: Data([1, 2, 3]), seq: 1, state: "", line: nil, fresh: true, busy: false,
+                                                        gone: false, emptyText: nil))
+        await eventually("the picture") { vm.live.view?.frame != nil }
+        // Hand to FERB isn't offered, and asking for it does nothing
+        vm.askHandToFerb()
+        XCTAssertEqual(vm.sheet, .session(id: term))
+        // the app leaves the front: the picture stops; back in front: asked for again
+        let asked = phone.calls.filter { $0 == "watch-session:\(term)" }.count
+        let stopped = phone.previewStopped
+        rig.session.foreground(false)
+        await eventually("stopped away from the screen") { phone.previewStopped > stopped }
+        XCTAssertEqual(vm.sheet, .session(id: term))
+        rig.session.foreground(true)
+        await eventually("asked again in front") { phone.calls.filter { $0 == "watch-session:\(term)" }.count > asked }
+        // closed: the picture goes
+        let before = phone.previewStopped
+        vm.closeSession()
+        await eventually("stopped") { phone.previewStopped > before }
+        XCTAssertNil(vm.live.view)
+    }
+
+    /// On the public relay its window is never asked for: the picture's place says Watch live's rule.
+    // decision: HAND-710, PHN-454
+    func testAWatchSessionsWindowIsNeverAskedForOnThePublicRelay() async {
+        phone.codingList.sessions.append(watchSession())
+        phone.link = FakePhone.status(path: .publicRelay)
+        let vm = rig.model()
+        await vm.loadSessions().value
+        await vm.openSession(term).value
+        XCTAssertEqual(vm.sheet, .session(id: term))
+        XCTAssertFalse(phone.calls.contains { $0.hasPrefix("watch-session") })
+        XCTAssertEqual(vm.live.view?.ended, Note("not_on_shared_relay"))
+    }
+
+    /// A send to it asks first as any send (GATE-622), then ends at the Mac's answer: no record will ever carry his
+    /// words, so nothing waits for one; a send that is already allowed ends the same way.
+    // decision: HAND-710, GATE-622, PHN-812
+    func testASendToAWatchSessionEndsAtTheMacsAnswer() async {
+        phone.codingList.sessions.append(watchSession())
+        phone.codingEchoes = false
+        let vm = rig.model()
+        await vm.loadSessions().value
+        await vm.openSession(term).value
+        vm.sessionTyped("npm test")
+        let first = vm.sendToSession()
+        XCTAssertEqual(vm.coding.open?.outgoing?.state, .sending, "Sending… at once")
+        await first.value
+        XCTAssertEqual(vm.sheet, .sessionYes, "the Mac's question first")
+        guard case .send(_, let text, _)? = vm.coding.asking else { return XCTFail("asks to send") }
+        XCTAssertEqual(text, "npm test")
+        await vm.sessionYes().value
+        XCTAssertEqual(phone.codingSent.map(\.1), ["npm test"])
+        XCTAssertEqual(vm.sheet, .session(id: term))
+        XCTAssertNil(vm.coding.open?.outgoing, "sent: gone at the Mac's answer, never waiting for a record")
+        XCTAssertNil(vm.coding.open?.unsent)
+        await eventually("its window again after the question") { vm.live.view?.taskId == term }
+        // allowed from here now: sending → gone, with no question
+        vm.sessionTyped("git status")
+        let second = vm.sendToSession()
+        XCTAssertEqual(vm.coding.open?.outgoing?.state, .sending)
+        await second.value
+        XCTAssertEqual(phone.codingSent.map(\.1).last, "git status")
+        XCTAssertNil(vm.coding.open?.outgoing)
+        await vm.sessionsTick()
+        XCTAssertNil(vm.coding.open?.outgoing, "a poll brings nothing back")
+        XCTAssertEqual(vm.coding.open?.items.isEmpty, true, "its conversation stays empty")
+    }
+
+    /// Refused, it shows as today: Not sent., the Mac's reason, Try again (which sends it and ends at the answer).
+    // decision: HAND-710, PHN-800
+    func testASendToAWatchSessionTheMacRefusesShowsNotSentAndTryAgain() async {
+        phone.codingList.sessions.append(watchSession())
+        phone.controlled.insert(term)
+        phone.codingEchoes = false
+        let why = "Terminal's window w7 isn't open any more, so FERB typed nothing."
+        let vm = rig.model()
+        await vm.loadSessions().value
+        await vm.openSession(term).value
+        phone.codingRefusal = .Refused(detail: why, linkCode: "ferb_error")
+        vm.sessionTyped("npm test")
+        await vm.sendToSession().value
+        XCTAssertEqual(vm.coding.open?.unsent?.text, "npm test")
+        XCTAssertEqual(vm.coding.open?.unsent?.reason.text, why)
+        XCTAssertTrue(phone.codingSent.isEmpty)
+        await vm.retrySessionSend().value
+        XCTAssertEqual(phone.codingSent.map(\.1), ["npm test"])
+        XCTAssertNil(vm.coding.open?.unsent)
+        XCTAssertNil(vm.coding.open?.outgoing)
+    }
+
     // ---- its window, captures and the lock -----------------------------------------------------------------------------
 
     // decision: PHN-454, PHN-444, PHN-797, PHN-810
@@ -638,7 +775,7 @@ final class SessionsCatalogTests: XCTestCase {
                     "sessions_not_seen", "sessions_interrupted", "sessions_hand_title", "sessions_hand_label", "sessions_hand_hint",
                     "sessions_hand_note", "sessions_hand_go", "sessions_handed", "sessions_new_folder",
                     "sessions_new_browse", "sessions_new_command", "sessions_new_command_hint",
-                    "sessions_no_chat", "sessions_start", "sessions_started", "sessions_watch_title", "live_close", "live_again",
+                    "sessions_type_here", "sessions_type_note", "sessions_start", "sessions_started", "sessions_watch_title", "live_close", "live_again",
                     "live_waiting", "err_try_again", "sessions_more", "sessions_not_sent", "sessions_try_again", "sessions_pick_title", "sessions_pick_note",
                     "sessions_pick_no", "sessions_take_back", "sessions_taking_back", "sessions_take_back_failed", "sessions_ferb_starting",
                     "sessions_hand_going", "sessions_opening", "sessions_coming", "sessions_browse_title", "sessions_browse_home",

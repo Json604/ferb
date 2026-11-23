@@ -21,8 +21,6 @@ data class SessionsUi(
     val enabled: Boolean = true,
     val sessions: List<AgentSession> = emptyList(),
     val problem: Note? = null,
-    /** HAND-697: the chat apps open on the Mac with no chat FERB could find. */
-    val noChats: List<String> = emptyList(),
     /**
      * A new terminal the Mac opened before its session showed (its start answered no session yet): the sessions the list
      * held then; the list says it will show in a moment until a session not among them arrives.
@@ -48,7 +46,8 @@ data class SessionUi(
     val problem: Note? = null,
     /**
      * His message on its way (PHN-812: Sending…, then as sent until the session's own record of it arrives) or refused
-     * (PHN-800: not sent, with why and Try again; never as sent). One bubble after the conversation's last line.
+     * (PHN-800: not sent, with why and Try again; never as sent). One bubble after the conversation's last line. A
+     * watch session's (HAND-710) has no record to wait for: Sending… ends at the Mac's answer, gone once typed.
      */
     val outgoing: SessionSending? = null,
     /** The session's menu is open (PHN-800). */
@@ -136,6 +135,9 @@ object Sessions {
     /** HAND-691: what a new session is (the only kind FERB opens). */
     const val TERMINAL = "terminal"
 
+    /** HAND-710: one open window of a chat or agent app (Cursor, ChatGPT, …): named by its window's title and its app. */
+    const val APP_CHAT = "app_chat"
+
     /** The newest items a session's screen asks for at once, and per "Show earlier". */
     const val PAGE = 50
 
@@ -160,6 +162,12 @@ object Sessions {
      */
     fun title(s: AgentSession): String = s.title.ifBlank { s.window }.ifBlank { s.folderName }
         .ifBlank { s.folder.trimEnd('/').substringAfterLast('/') }.ifBlank { s.folder }.ifBlank { s.agentName }.ifBlank { s.agent }
+
+    /**
+     * HAND-710: FERB reads none of the session's words (any terminal, an app's window): its screen is its window, live,
+     * and what he sends is typed into that window; its conversation is always empty and it is never handed to FERB.
+     */
+    fun watch(s: AgentSession?): Boolean = s?.watch == true
 
     /** Whether the session is a terminal's (its output is shown as it is: never Markdown). */
     fun terminal(s: AgentSession?): Boolean = s?.agent == TERMINAL

@@ -617,18 +617,135 @@ class SessionsTest {
         assertTrue("the menu stays to try again", vm.openSession.value!!.menu)
     }
 
-    // decision: HAND-692, HAND-697
+    // decision: HAND-692, HAND-710
     @Test
-    fun a_terminal_row_says_its_program_folder_and_app_and_an_app_with_no_chat_says_so() {
+    fun a_terminal_row_is_named_by_its_window_and_an_app_s_window_by_its_title_then_its_app() {
         phone.sessions += FakePhone.agentSession("term:110", "", "idle", "Terminal").copy(agent = "terminal", agentName = "agy", program = "agy",
-            folder = "/Users/owner/Desktop", folderName = "Desktop", window = "Desktop — agy — 120×30")
-        phone.noChats = listOf("Cursor")
+            folder = "/Users/owner/Desktop", folderName = "Desktop", window = "Desktop — agy — 120×30", watch = true)
+        phone.sessions += appWindow
         val vm = vm()
         vm.choose(PhoneTab.SESSIONS)
         val ui = vm.sessions.value
-        assertEquals(listOf("Cursor"), ui.noChats)
-        val row = ui.sessions.first { it.id == "term:110" }
-        assertEquals("Desktop — agy — 120×30", com.ferb.app.model.Sessions.title(row))
+        assertEquals("Desktop — agy — 120×30", com.ferb.app.model.Sessions.title(ui.sessions.first { it.id == "term:110" }))
+        assertEquals("checkout.ts — shop", com.ferb.app.model.Sessions.title(ui.sessions.first { it.id == "app:cursor:1" }))
+        assertEquals("no title: the app's name", "Cursor", com.ferb.app.model.Sessions.title(appWindow.copy(title = "", window = "")))
+    }
+
+    // ---- a session FERB reads no words of: its window, live, and "Type here" (HAND-710) -------------------------------
+
+    /** A terminal FERB reads no words of. */
+    private val watched = FakePhone.agentSession("term:5", "", "idle", "Terminal").copy(agent = "terminal", agentName = "zsh", program = "zsh",
+        folder = "/Users/owner/code/web-app", folderName = "web-app", window = "web-app — zsh — 120×30", watch = true)
+
+    /** One open window of an agent app. */
+    private val appWindow = FakePhone.agentSession("app:cursor:1", "checkout.ts — shop", "idle", "Cursor").copy(agent = "app_chat",
+        agentName = "Cursor", folder = "", folderName = "", window = "checkout.ts — shop", watch = true)
+
+    private fun openedWatch(): FerbViewModel {
+        phone.sessions += watched
+        return vm().also { it.choose(PhoneTab.SESSIONS); it.openSession("term:5") }
+    }
+
+    // decision: HAND-710, PHN-810
+    @Test
+    fun a_watch_session_shows_its_window_live_and_polls_no_conversation() {
+        val vm = openedWatch()
+        assertEquals(Sheet.Session("term:5"), vm.sheet.value)
+        assertTrue("its window is asked for at once", "session-live:term:5" in phone.calls)
+        assertEquals("term:5", vm.live.view.value?.taskId)
+        assertFalse("its window follows the owner's switch (PHN-810)", vm.mustSecure.value)
+        val reads = count("timeline:term:5")
+        assertEquals("its record is read once", 1, reads)
+        tick(); tick()
+        assertEquals("its conversation is always empty: nothing is polled", reads, count("timeline:term:5"))
+        assertEquals("asked for once", 1, count("session-live:term:5"))
+        vm.closeSession()
+        assertNull(vm.live.view.value)
+        assertEquals("its picture stops with its screen", 1, phone.previewStopped)
+    }
+
+    // decision: HAND-710, PHN-454
+    @Test
+    fun a_watch_session_s_window_stops_in_the_background_and_comes_back_in_front() {
+        val vm = openedWatch()
+        session.foreground(false)
+        assertEquals(1, phone.previewStopped)
+        assertNull(vm.live.view.value)
+        session.foreground(true)
+        assertEquals("watched again once in front", 2, count("session-live:term:5"))
+        assertEquals("term:5", vm.live.view.value?.taskId)
+    }
+
+    // decision: HAND-710, PHN-797
+    @Test
+    fun on_the_shared_relay_a_watch_session_says_the_relay_s_rule_where_its_window_would_be() {
+        phone.link.value = FakePhone.status(path = LinkPath.PUBLIC_RELAY)
+        val vm = openedWatch()
+        assertTrue(phone.calls.none { it.startsWith("session-live") })
+        assertEquals(R.string.not_on_shared_relay, vm.live.view.value?.ended?.res)
+    }
+
+    // decision: HAND-710
+    @Test
+    fun a_watch_session_is_never_handed_to_ferb() {
+        val vm = openedWatch()
+        vm.askHandOver()
+        assertFalse(vm.openSession.value!!.handOver)
+    }
+
+    // decision: HAND-710, PHN-812
+    @Test
+    fun a_send_to_a_watch_session_ends_sending_at_the_mac_s_answer() {
+        phone.controlled += "term:5"
+        val vm = openedWatch()
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        phone.sendGate = gate
+        vm.sessionTyped("npm test")
+        vm.sessionSend()
+        var o = vm.openSession.value!!
+        assertEquals("", o.draft)
+        assertEquals(SessionSendPhase.SENDING, o.outgoing!!.phase)
+        gate.complete(Unit)
+        o = vm.openSession.value!!
+        assertNull("typed: no record will come, so nothing waits for one", o.outgoing)
+        assertFalse("the box takes the next words at once", "session-send" in vm.ui.value.busy)
+        assertTrue("session-send:term:5:npm test" in phone.calls)
+        tick(); tick()
+        assertNull(vm.openSession.value!!.outgoing)
+    }
+
+    // decision: HAND-710, GATE-622
+    @Test
+    fun a_watch_session_asks_first_as_today_and_after_the_yes_sending_ends_at_the_answer() {
+        val vm = openedWatch()
+        vm.sessionTyped("npm test")
+        vm.sessionSend()
+        assertNotNull("the Mac asked: nothing was sent", vm.openSession.value!!.ask)
+        vm.sessionYes()
+        assertTrue("session-control:term:5:npm test" in phone.calls)
+        val o = vm.openSession.value!!
+        assertNull(o.ask)
+        assertNull("sent: gone at the answer", o.outgoing)
+    }
+
+    // decision: HAND-710, PHN-800
+    @Test
+    fun a_send_to_a_watch_session_the_mac_refuses_shows_not_sent_with_why_and_try_again() {
+        phone.controlled += "term:5"
+        val why = "FERB couldn't bring that window to the front, so it typed nothing."
+        phone.sendRefusal = Outcome.Failed(FerbException.Refused(why, "ferb_error"))
+        val vm = openedWatch()
+        vm.sessionTyped("npm test")
+        vm.sessionSend()
+        var o = vm.openSession.value!!
+        assertEquals(SessionSendPhase.NOT_SENT, o.outgoing!!.phase)
+        assertEquals("npm test", o.outgoing!!.text)
+        assertEquals(why, o.outgoing!!.reason!!.words)
+        phone.sendRefusal = null
+        vm.sessionRetry()
+        o = vm.openSession.value!!
+        assertNull("sent on Try again: gone at the answer", o.outgoing)
+        assertEquals(2, count("session-send:term:5:npm test"))
     }
 
     // decision: HAND-702
@@ -642,7 +759,7 @@ class SessionsTest {
         assertEquals("Codex", com.ferb.app.model.Sessions.title(FakePhone.agentSession("codex:9", "", "idle", "").copy(folder = "", folderName = "")))
     }
 
-    // decision: HAND-703
+    // decision: HAND-716
     @Test
     fun a_reply_s_parts_become_one_reply_and_markdown_only_where_it_is_markdown() {
         val read = ArrayList<String>()

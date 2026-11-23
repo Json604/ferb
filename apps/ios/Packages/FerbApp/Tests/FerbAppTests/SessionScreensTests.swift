@@ -102,7 +102,7 @@ final class SessionScreensTests: XCTestCase {
     /// An agent's reply with parts, read through the real phone library's Markdown, draws the design's rich reply: one
     /// block, a thought, words, a step closed with its label and detail, a real table, a list, inline code, "Just now"
     /// (owner 2026-11-23).
-    // decision: HAND-703
+    // decision: HAND-716
     func testAReplyWithPartsDrawsTheDesignsRichReply() async {
         func part(_ kind: String, _ text: String, label: String = "", detail: String = "") -> SessionPart {
             SessionPart(kind: kind, text: text, label: label, detail: detail)
@@ -175,6 +175,35 @@ final class SessionScreensTests: XCTestCase {
         XCTAssertNil(SessionWords.line(o.items[0]).by)
         same("session-keep-going-402", sheet: { SessionScreenPage(model: vm, open: o, insets: .lab, still: true) },
              page: { SessionsTabPage(model: vm, insets: .lab, waiting: nil) })
+    }
+
+    /// A terminal FERB reads none of the words of (HAND-710): its screen is its window live (the Mac's picture through
+    /// Watch's preview) in place of the conversation, the note on what a send does and "Type here"; no Hand to FERB (nor
+    /// Watch: an idle one has no menu). Drawn by the app from the model: the design's golden.
+    // decision: HAND-710
+    func testAWatchSessionDrawsTheDesignsWindowScreen() async {
+        var t = session("term:w7", "", "web-app", "idle", "Terminal")
+        t.agent = "terminal"
+        t.agentName = "zsh"
+        t.program = "zsh"
+        t.window = "web-app — zsh"
+        t.watch = true
+        rig.phone.codingList.sessions.append(t)
+        let vm = rig.model()
+        await vm.loadSessions().value
+        await vm.openSession("term:w7").value
+        guard let o = vm.coding.open else { return XCTFail("open") }
+        XCTAssertEqual(SessionScreenPage.actions(model: vm, open: o).map(\.label), [], "no Hand to FERB, and its screen is its Watch already")
+        await eventually("its window asked for") { self.rig.phone.sessionPreview != nil }
+        rig.phone.sessionPreview?.frame(frame: PreviewFrame(jpeg: SessionSample.windowPicture(), seq: 1, state: "", line: nil, fresh: true,
+                                                            busy: false, gone: false, emptyText: nil))
+        await eventually("the picture") { vm.live.view?.frame != nil }
+        same("session-watch-402", sheet: {
+            SessionScreenPage(model: vm, open: o, insets: .lab, still: true).environment(\.ferbBlockScreenshots, false)
+        }, page: { SessionsTabPage(model: vm, insets: .lab, waiting: nil) })
+        // a Claude Code session keeps Hand to FERB
+        XCTAssertEqual(SessionScreenPage.actions(model: vm, open: OpenSession(id: "claude:2", session: vm.coding.row("claude:2"))).map(\.label),
+                       [L.s("sessions_watch"), L.s("sessions_hand_over"), L.s("sessions_stop_turn")])
     }
 
     /// New session at the tap of Start, and its folder picker inside a folder, drawn by the app: the design's goldens.

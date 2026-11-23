@@ -77,7 +77,11 @@ class SessionsLibraryTest {
         mac.answers["sessions.list"] = { Fixtures.write(mapOf("enabled" to true, "sessions" to listOf(session,
             mapOf("id" to "codex:def", "agent" to "codex", "cwd" to "/Users/owner/code/blog", "title" to "Blog theme", "status" to "idle",
                 "waiting" to "none", "host" to null, "send_paths" to emptyList<String>(), "no_send" to "No app shows this session.",
-                "last_at" to "2026-11-22T08:00:00Z", "last_text" to "", "yours" to false)))) }
+                "last_at" to "2026-11-22T08:00:00Z", "last_text" to "", "yours" to false),
+            // HAND-710: one open window of an agent app: FERB reads none of its words; typed into its window
+            mapOf("id" to "app:cursor:1", "agent" to "app_chat", "cwd" to "", "title" to "checkout.ts — shop", "window" to "checkout.ts — shop",
+                "program" to "", "status" to "idle", "waiting" to "none", "host" to mapOf("name" to "Cursor", "bundle_id" to "com.todesktop.cursor"),
+                "send_paths" to listOf("window"), "last_at" to "", "last_text" to "", "yours" to false, "watch" to true)))) }
         mac.answers["sessions.timeline"] = { p ->
             assertEquals("claude:abc", p["session"])
             Fixtures.write(mapOf("session" to session, "more" to true, "items" to listOf(
@@ -126,12 +130,19 @@ class SessionsLibraryTest {
             assertEquals("", b.host)
             assertFalse(b.canSend)
             assertEquals("No app shows this session.", b.noSend)
+            // decision: HAND-710 — who is watched comes from the Mac; absent means not
+            assertFalse(a.watch || b.watch)
+            val w = list.sessions[2]
+            assertTrue(w.watch && w.canSend && w.foreground)
+            assertEquals("checkout.ts — shop", Sessions.title(w))
+            assertEquals("Cursor", w.host)
+            assertEquals("Cursor", w.agentName)
 
             val t = m.sessionTimeline("claude:abc", 0u, 0u, 50u)
             assertTrue(t.more)
             assertEquals(listOf(SessionLineKind.OWNER, SessionLineKind.AGENT, SessionLineKind.TOOL, SessionLineKind.INTERRUPTED, SessionLineKind.AGENT),
                 t.items.map { Sessions.line(it, "stopped").kind })
-            // decision: HAND-703 — a reply's parts in order, its text part's table read by the library as a table
+            // decision: HAND-716 — a reply's parts in order, its text part's table read by the library as a table
             val reply = Sessions.line(t.items[4], "")
             assertEquals(listOf("thinking", "tool", "text", "meta"), t.items[4].parts.map { it.kind })
             assertEquals(listOf(com.ferb.design.components.SessionPartKind.THINKING, com.ferb.design.components.SessionPartKind.TOOL,

@@ -358,6 +358,7 @@ fn typed_text_is_allowed_only_when_the_agent_leads_its_terminal() {
 }
 
 // decision: HAND-656
+// decision: HAND-712
 #[test]
 fn send_paths_go_agent_first_then_an_adapter_then_the_foreground() {
     let h = |bundle: &str, via: Via, pid: i32| Host {
@@ -382,7 +383,7 @@ fn send_paths_go_agent_first_then_an_adapter_then_the_foreground() {
             false
         )
         .0,
-        [SendPath::TerminalScript, SendPath::Foreground]
+        [SendPath::TerminalScript]
     );
     // any other app is never "unsupported": it gets the foreground path (HAND-652)
     assert_eq!(
@@ -404,6 +405,27 @@ fn send_paths_go_agent_first_then_an_adapter_then_the_foreground() {
         .0,
         [SendPath::Foreground]
     );
+    // decision: HAND-712 — anything else an app shows is its window, watched and typed into: a terminal session in an
+    // editor, an app's own window, Claude Code with no terminal (run by an app)
+    let no_tty = Host {
+        tty: String::new(),
+        ..h("com.anthropic.claudefordesktop", Via::Direct, 5)
+    };
+    for (agent, host) in [
+        (Agent::Terminal, h("com.microsoft.VSCode", Via::Direct, 5)),
+        (
+            Agent::AppChat,
+            h("com.todesktop.230313mzl4w4u92", Via::App, 5),
+        ),
+        (Agent::ClaudeCode, no_tty),
+    ] {
+        assert_eq!(
+            paths::send_paths(agent, Some(&host), false).0,
+            [SendPath::Window],
+            "{agent:?}"
+        );
+    }
+    assert!(SendPath::Window.types() && SendPath::Window.foreground());
     let (none, why) = paths::send_paths(Agent::ClaudeCode, None, false);
     assert!(none.is_empty() && !why.is_empty());
     assert!(

@@ -4699,7 +4699,7 @@ status = "active"
 rule = "For HAND-691, HAND-697, APP-1112. The page and its Settings switch say \"Your terminal sessions\"; a row names a terminal by its program, its heading is its title, else its window's words, else its folder, and its line \"<program> · <folder> · in <app>\". One quiet line per chat app open with no chat. New session: the folder (the daemon's list, or Choose… to browse) and Command to run (optional); no agent picker; a command is shown exactly before it is typed; none opens it at once."
 evidence = "NotchCoreTests SessionsTests testANewSessionIsATerminalAndOnlyItsCommandIsAskedAbout, testATerminalRowSaysItsProgramFolderAndAppAndAnAppWithNoChatSaysSo; PlaygroundWorkspaceTests' sessions flow."
 paths = ["apps/mac/FERBNotch/Sources/FERBNotch/SessionsPage.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SessionsModel.swift", "apps/mac/FERBNotch/Sources/NotchCore/SessionRows.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift"]
-live = ["LIVE-1192", "LIVE-1193"]
+live = ["LIVE-1192"]
 
 [APP-1122]
 title = "The temporary chat's dashed bubble in the notch and window headers, kept only in memory"
@@ -4719,7 +4719,7 @@ status = "active"
 rule = "For HAND-702, HAND-703, HAND-705, PHN-822. FERB.app has no \"…\" menu on a session: Take it back (task.stop on its delegate), a disabled \"FERB is starting…\" while a hand-over has no task, and Hand to FERB sit in its header. ferb_note is one line with FERB's mark. A reply with parts is one block: text through MarkdownDocument, thinking and tool collapsible, meta under it; terminal text fixed-width. Row titles fall back to the agent's name. Start and Hand to FERB show pending and the refusal on their sheets."
 evidence = "apps/mac/FERBNotch Tests/NotchCoreTests/SessionsHandOverTests.swift (14) and SessionsTests.swift."
 paths = ["apps/mac/FERBNotch/Sources/FERBNotch/SessionsPage.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SessionsModel.swift", "apps/mac/FERBNotch/Sources/NotchCore/SessionRows.swift"]
-live = ["LIVE-1195", "LIVE-1196"]
+live = ["LIVE-1195"]
 
 [APP-1124]
 title = "FERB.app's session: FERB's keep-going question and what FERB sent"

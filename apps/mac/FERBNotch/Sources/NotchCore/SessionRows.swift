@@ -29,7 +29,7 @@ public struct SessionHost: Equatable {
 /// One session (`sessions.list` `sessions`, or `sessions.timeline` `session`).
 public struct AgentSessionRow: Identifiable, Equatable {
     public let id: String
-    /// "claude_code" or "codex".
+    /// "claude_code", "codex", "terminal" or "app_chat" (an agent app's window).
     public let agent: String
     public let cwd: String
     /// "" before the agent named it.
@@ -63,6 +63,9 @@ public struct AgentSessionRow: Identifiable, Equatable {
     public let noText: String?
     /// HAND-702: FERB's latest word on the owner's hand-over, in the daemon's plain words, shown as it is ("" for none).
     public let ferbNote: String
+    /// HAND-710: FERB reads none of this session's words (any terminal, an agent app's window): its screen is its
+    /// window, live, and what the owner sends is typed into it. Its conversation is always empty.
+    public let watch: Bool
 
     public init?(_ row: [String: Any]) {
         guard let id = row["id"] as? String, !id.isEmpty else { return nil }
@@ -89,6 +92,7 @@ public struct AgentSessionRow: Identifiable, Equatable {
         window = string(row["window"])
         noText = words(row["no_text"])
         ferbNote = string(row["ferb_note"])
+        watch = (row["watch"] as? NSNumber)?.boolValue ?? false
     }
 
     /// The agent as the owner calls it.
@@ -123,16 +127,24 @@ public struct AgentSessionRow: Identifiable, Equatable {
     }
 
     /// Where it runs: "<program> · <folder> · in <app>" (HAND-692; no program: "<folder> · in <app>"), or "in the
-    /// background" when no app shows it.
+    /// background" when no app shows it. An app's window (HAND-710): the app's name alone.
     public var whereLine: String {
         let app = host?.name ?? ""
+        if agent == "app_chat" { return app.isEmpty ? agentName : app }
         return [program, folderName, app.isEmpty ? "in the background" : "in \(app)"].filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
-    /// HAND-697, HAND-705: an app open with no agent chat FERB could find.
-    public static func noChatLine(_ app: String) -> String {
-        "No agent chat open in \(app). Start one there to continue here."
+    /// The open session's line under its title: "<agent> · <where>"; an app's window names its app once.
+    public var detailLine: String {
+        agent == "app_chat" ? whereLine : agentName + " · " + whereLine
     }
+
+    /// HAND-710: Hand to FERB is only for Claude Code and Codex (the Mac refuses a watched one anyway).
+    public var offersHandOver: Bool { !watch }
+    /// The message box's placeholder: a watched window is typed into as it is.
+    public var composerPlaceholder: String { watch ? "Type here" : "Message \(agentName)…" }
+    /// HAND-710: the quiet line on a watched session's screen.
+    public static let typeNote = "What you send is typed into this window on your Mac, then Return."
 
     public var canSend: Bool { !sendPaths.isEmpty }
     /// Sending brings its app forward on the Mac.

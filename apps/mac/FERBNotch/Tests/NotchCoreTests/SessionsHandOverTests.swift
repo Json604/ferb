@@ -68,7 +68,7 @@ final class SessionsHandOverTests: XCTestCase {
         let tapped = Task { await model.takeItBack() }
         try await rpc.waitForHeldCall()
         XCTAssertTrue(model.isTakingBack(row), "pending from the tap")
-        lays(SessionDetailView(sessions: model, row: row, sheet: .constant(nil)))
+        lays(SessionDetailView(sessions: model, row: row, sheet: .constant(nil), previewAccess: PreviewAccess()))
         await model.takeItBack()                                         // a second tap does nothing meanwhile
         // the daemon: the task stopped, the session is his again
         let mine = claude(note: "FERB stopped. The session is yours again.")
@@ -117,7 +117,7 @@ final class SessionsHandOverTests: XCTestCase {
         XCTAssertEqual(row.ferbTask, "")
         await model.takeItBack()
         XCTAssertTrue(rpc.scripted.params(of: "task.stop").isEmpty)
-        lays(SessionDetailView(sessions: model, row: row, sheet: .constant(nil)))
+        lays(SessionDetailView(sessions: model, row: row, sheet: .constant(nil), previewAccess: PreviewAccess()))
     }
 
     // MARK: Hand to FERB
@@ -173,7 +173,7 @@ final class SessionsHandOverTests: XCTestCase {
         await model.poll()
         XCTAssertEqual(model.openSession?.ferbNote, "FERB asked you something in its chat before it starts: “Which branch?”")
         XCTAssertEqual(model.openSession?.withFerb, false)
-        lays(SessionDetailView(sessions: model, row: try XCTUnwrap(model.openSession), sheet: .constant(nil)))
+        lays(SessionDetailView(sessions: model, row: try XCTUnwrap(model.openSession), sheet: .constant(nil), previewAccess: PreviewAccess()))
         lays(SessionFerbNote(text: "FERB finished. The session is yours again."), width: 500, height: 40)
         rpc.scripted.replies["sessions.timeline"] = ["session": claude(), "more": false, "cards": [] as [Any], "items": [] as [Any]]
         await model.poll()
@@ -233,7 +233,7 @@ final class SessionsHandOverTests: XCTestCase {
                   ["kind": "image", "text": "An unknown kind reads as text."],
                   ["kind": "meta", "text": "Just now"]]]
 
-    // decision: HAND-703
+    // decision: HAND-716
     func testAReplysPartsAreReadAndDrawnAsOneBlock() throws {
         let item = try XCTUnwrap(SessionItem(Self.reply))
         XCTAssertEqual(item.parts.map(\.kind), ["thinking", "text", "tool", "text", "image", "meta"])
@@ -263,7 +263,7 @@ final class SessionsHandOverTests: XCTestCase {
         lays(SessionReplyView(parts: parts + [SessionPart(kind: "tool", text: "out", label: "Run", detail: "ls")]))
     }
 
-    // decision: HAND-703
+    // decision: HAND-716
     func testAnItemWithoutPartsIsMarkdownExceptATerminalsOutput() throws {
         let words = try XCTUnwrap(SessionItem(["seq": 3, "kind": "assistant", "text": "| a | b |\n| --- | --- |\n| 1 | 2 |"]))
         XCTAssertEqual(words.look(agent: "claude_code"), .reply([SessionPart(kind: "text", text: words.text)]))
@@ -276,7 +276,7 @@ final class SessionsHandOverTests: XCTestCase {
         lays(SessionItemView(item: words, agent: "claude_code"))
     }
 
-    // decision: HAND-703
+    // decision: HAND-716
     func testAReplyWhosePartsGrowIsReplacedAndDrawnAgain() async throws {
         let rpc = HoldingRPC()
         let app: [String: Any] = ["id": "chat:1", "agent": "app_chat", "host": ["name": "Cursor"], "send_paths": ["foreground"]]

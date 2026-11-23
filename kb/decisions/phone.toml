@@ -4177,7 +4177,7 @@ status = "active"
 rule = "For HAND-691, HAND-697, PHN-798. Both phones: the tab is \"Your terminal sessions\"; a row's title is the session's own, else its window's in its app's words, else its folder; its line \"<program> · <folder> · in <app>\". Each chat app open with no chat adds one quiet line under the list. New session: the folders the Mac offers, Another folder (a full path typed), and Command to run (optional); no agent picker. A command is shown exactly in the Mac's question before the signed start; with none it opens at once (still signed). Browsing the Mac's folders from the sheet is T-1300."
 evidence = "Android SessionsTest (new session as a terminal; a terminal row; the no-chat line), SessionsLibraryTest, SessionShotsTest (sessions-list, session-new, session-new-command); iPhone SessionsTests, SessionsLibraryTests."
 paths = ["apps/android/app/src/main/kotlin/com/ferb/app/ui/Sessions.kt", "apps/android/app/src/main/kotlin/com/ferb/app/model/Sessions.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppUI/Sessions.swift", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/CodingSessions.swift", "engine/crates/ferb-mobile/src/sessions.rs"]
-live = ["LIVE-1192", "LIVE-1193"]
+live = ["LIVE-1192"]
 
 [PHN-818]
 title = "The temporary chat on both phones: the dashed bubble in the chat tab's top bar, held only in memory"

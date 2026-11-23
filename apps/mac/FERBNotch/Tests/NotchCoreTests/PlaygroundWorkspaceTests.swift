@@ -138,9 +138,13 @@ final class PlaygroundWorkspaceTests: XCTestCase {
         let model = store.sessions
         XCTAssertEqual(model.enabled, true)
         XCTAssertEqual(model.sessions.map(\.agent), ["claude_code", "codex", "app_chat"])
-        // HAND-703: the agent chat's reply comes in parts, modelled on Cursor's
-        await model.open(try XCTUnwrap(model.sessions.last))
-        XCTAssertEqual(model.items.last?.parts.map(\.kind), ["thinking", "text", "tool", "thinking", "text", "meta"])
+        // HAND-710: Cursor's window is watched: no conversation, its row names the window and the app alone
+        let cursor = try XCTUnwrap(model.sessions.last)
+        XCTAssertTrue(cursor.watch)
+        XCTAssertEqual(cursor.heading, "site — studio.css")
+        XCTAssertEqual(cursor.whereLine, "Cursor")
+        await model.open(cursor)
+        XCTAssertTrue(model.items.isEmpty)
         model.close()
         let codex = try XCTUnwrap(model.sessions[1])
         await model.open(codex)

@@ -55,6 +55,12 @@ pub fn processes() -> HashMap<i32, Proc> {
             )
         };
         if r != size {
+            // decision: HAND-715 — another user's process (a terminal's `login`, which runs as root) refuses the full
+            // record to the owner (EPERM, read on his Mac): its short record still gives its parent and group, so it
+            // is kept as a link with no terminal and the walk up to the terminal's app passes through it
+            if let Some(p) = short_info(pid) {
+                all.insert(pid, (p, false));
+            }
             continue;
         }
         let tty = tty_name(info.e_tdev);
@@ -82,6 +88,28 @@ pub fn processes() -> HashMap<i32, Proc> {
         p.exe = exe_of(p.pid);
     }
     out
+}
+
+/// A process's short record (parent and group, no terminal): what macOS gives the owner of another user's process.
+pub fn short_info(pid: i32) -> Option<Proc> {
+    let mut info: libc::proc_bsdshortinfo = unsafe { std::mem::zeroed() };
+    let size = std::mem::size_of::<libc::proc_bsdshortinfo>() as i32;
+    // SAFETY: `info` is a zeroed proc_bsdshortinfo of exactly `size` bytes that the call fills in.
+    let r = unsafe {
+        libc::proc_pidinfo(
+            pid,
+            libc::PROC_PIDT_SHORTBSDINFO,
+            0,
+            &mut info as *mut _ as *mut c_void,
+            size,
+        )
+    };
+    (r == size).then(|| Proc {
+        pid,
+        ppid: info.pbsi_ppid as i32,
+        pgid: info.pbsi_pgid as i32,
+        ..Proc::default()
+    })
 }
 
 /// HAND-704: the owner's processes (`true`), with every other process on the way up from one of them to launchd kept
@@ -543,53 +571,6 @@ pub fn tty_activity(tty: &str) -> Option<f64> {
     let m = std::fs::metadata(tty).ok()?;
     let at = |s: i64, ns: i64| s as f64 + ns as f64 / 1e9;
     Some(at(m.atime(), m.atime_nsec()).max(at(m.mtime(), m.mtime_nsec())))
-}
-
-/// The AppleScript that answers the visible text of Terminal's tab on `tty` (read only; no `activate`).
-pub fn terminal_contents_script(tty: &str) -> String {
-    format!(
-        "tell application id \"com.apple.Terminal\"\n\
-           repeat with w in windows\n\
-             repeat with t in tabs of w\n\
-               if tty of t is {tty} then return contents of t\n\
-             end repeat\n\
-           end repeat\n\
-           error \"no tab\"\n\
-         end tell",
-        tty = applescript_string(tty),
-    )
-}
-
-/// Terminal: the visible text of the tab on `tty`.
-pub fn terminal_contents(home: &Path, tty: &str) -> Result<String, String> {
-    let mut c = clean_command("/usr/bin/osascript", home);
-    c.args(["-e", &terminal_contents_script(tty)]);
-    run(c, Duration::from_secs(10))
-        .map_err(|_| "Terminal has no tab on this terminal any more.".to_owned())
-}
-
-/// tmux: the visible text of the pane on `tty` (wrapped lines joined).
-pub fn tmux_capture(program: &str, home: &Path, server: i32, tty: &str) -> Result<String, String> {
-    let sock = tmux_socket(program, home, server).ok_or("tmux's server isn't there any more")?;
-    let panes = tmux(
-        program,
-        home,
-        &sock,
-        &["list-panes", "-a", "-F", "#{pane_tty} #{pane_id}"],
-    )?;
-    let pane = panes
-        .lines()
-        .find_map(|l| {
-            let (t, id) = l.split_once(' ')?;
-            (t == tty).then(|| id.trim().to_owned())
-        })
-        .ok_or("tmux has no pane on this terminal any more")?;
-    tmux(
-        program,
-        home,
-        &sock,
-        &["capture-pane", "-p", "-J", "-t", &pane],
-    )
 }
 
 /// The arguments that open a new window of the app `bundle_id` in `folder` without bringing it forward (`open -g`).

@@ -1,11 +1,11 @@
-//! Every terminal on the Mac as a session (kb HAND-691..695): found by code from the process table on each look, its
-//! text read only while someone looks at it, typed into through the one send path, and new ones opened for the owner.
+//! Every terminal on the Mac as a session (kb HAND-691..695): found by code from the process table on each look, watched
+//! live and typed into through the one send path (HAND-710, HAND-711: FERB reads none of its text), and new ones opened
+//! for the owner.
 //!
 //! - Found (HAND-692): one session per terminal device with the owner's processes on it, in any app the process tree
 //!   leads to (HAND-654), whatever program runs there. A Claude Code or Codex session claims its terminal: the agent's
 //!   row is the one shown, with the terminal's program and window added, never a second row.
-//! - Read (HAND-693): tmux's own capture, else the app's own words for the terminal by its device (Terminal), else the
-//!   terminal's text in its window by Accessibility; redacted; turned into items by `ferb_sessions::terminals::Screen`.
+//! - Seen (HAND-711): never read; `watch` on the session: its window is watched live (Watch) and typed into.
 //! - Sent to (HAND-694): whatever leads the terminal gets the words, but only while it is still the program the owner
 //!   was shown; GATE-622's question and HAND-682/683's proof as for every session.
 //! - Opened (HAND-695): a new window of his terminal app in a folder, typing nothing unless he gave a command.
@@ -19,12 +19,10 @@ use ferb_sessions::model::*;
 use ferb_sessions::{paths, terminals};
 use serde_json::json;
 
-use super::{folder_name, lock, no, Caller, Entry, Refused, Sessions, Term, TermPlace};
+use super::{folder_name, lock, no, Caller, Entry, Refused, Sessions, Term};
 
 /// A terminal is working while its device had input or output within this many seconds (two looks).
 pub const WORKING_S: f64 = 4.0;
-/// A terminal's text is read again at most this often while someone looks at it.
-pub const READ_EVERY_S: f64 = 1.5;
 /// How long a new terminal may take to appear before FERB says it couldn't find it (the call answers within the
 /// link's 10 s).
 pub const START_WAIT_S: f64 = 6.0;
@@ -134,7 +132,6 @@ impl Sessions {
                     tty: t.tty.clone(),
                     activity: activity.as_ref().map_or(0.0, |a| a.0),
                     changed_at: f64::NEG_INFINITY,
-                    read_at: f64::NEG_INFINITY,
                     ..Term::default()
                 });
                 if let Some((_, iso)) = &activity {
@@ -164,6 +161,7 @@ impl Sessions {
             e.s.host = Some(host);
             e.s.send_paths = paths_;
             e.s.no_send = why;
+            e.s.watch = true;
             e.exe = front.exe;
         }
         // terminals that closed, or that an agent's session claimed since
@@ -176,87 +174,6 @@ impl Sessions {
         for id in gone {
             self.end(&id);
         }
-    }
-
-    /// HAND-693: reads a terminal's text (at most every READ_EVERY_S unless `now`) and adds what is new to its items.
-    pub(super) fn term_read(&self, id: &str, now: bool) -> Option<String> {
-        let mono = (self.seams.mono)();
-        let place = {
-            let mut st = lock(&self.state);
-            let e = st.sessions.get_mut(id)?;
-            let host = e.s.host.clone().unwrap_or_default();
-            let term = e.term.as_mut()?;
-            if !now && mono - term.read_at < READ_EVERY_S {
-                return None;
-            }
-            term.read_at = mono;
-            let tmux_server = if host.via == Some(Via::Tmux) {
-                self.tmux_server(e.s.pid)
-            } else {
-                0
-            };
-            TermPlace {
-                bundle_id: host.bundle_id,
-                app: host.name,
-                pid: host.pid,
-                tty: term.tty.clone(),
-                tmux_server,
-                window: term.window,
-            }
-        };
-        let read = self.seams.mac.terminal_text(&place);
-        let mut st = lock(&self.state);
-        let e = st.sessions.get_mut(id)?;
-        match read {
-            Ok(text) => {
-                let text = self.redact(&text);
-                e.s.no_text.clear();
-                let new = e.term.as_mut()?.screen.read(&text);
-                if let Some(piece) = new {
-                    let seq = e.items.last().map_or(1, |i| i.seq + 1);
-                    e.s.last_text = ferb_sessions::clip(&ferb_sessions::one_line(&piece), 200);
-                    e.items.push(Item {
-                        seq,
-                        at: self.now(),
-                        kind: ItemKind::Assistant,
-                        text: piece,
-                        tool: String::new(),
-                        parts: Vec::new(),
-                        ferb: false,
-                    });
-                }
-                Some(text)
-            }
-            Err(why) => {
-                e.s.no_text = why;
-                None
-            }
-        }
-    }
-
-    /// HAND-693: the owner's words show in the terminal's text: they arrived. They go in as his item.
-    pub(super) fn term_delivered(&self, id: &str, text: &str) -> bool {
-        let Some(now_text) = self.term_read(id, true) else {
-            return false;
-        };
-        let words = self.redact(text);
-        if !terminals::shows(&now_text, &words) {
-            return false;
-        }
-        let at = self.now();
-        if let Some(e) = lock(&self.state).sessions.get_mut(id) {
-            let seq = e.items.last().map_or(1, |i| i.seq + 1);
-            e.items.push(Item {
-                seq,
-                at,
-                kind: ItemKind::User,
-                text: words,
-                tool: String::new(),
-                parts: Vec::new(),
-                ferb: false,
-            });
-        }
-        true
     }
 
     /// HAND-694: right before typing into a terminal, the program in front must still be the one the owner was shown.

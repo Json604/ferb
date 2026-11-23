@@ -1,4 +1,4 @@
-//! The chat-pane look's single call (kb HAND-699): the request holds only the call's own prompt and input, nothing of
+//! A learner's single call (`learning_call`): the request holds only the call's own prompt and input, nothing of
 //! FERB's context (no profile, memory, chat history or task tree).
 
 mod support;
@@ -7,7 +7,6 @@ use ferb_learning::calls::{learning_call, learning_task, Made};
 use serde_json::{json, Value};
 use support::FakeRuntime;
 
-// decision: HAND-699
 #[tokio::test]
 async fn a_single_call_carries_only_its_prompt_and_its_input() {
     let events = support::Events::default();

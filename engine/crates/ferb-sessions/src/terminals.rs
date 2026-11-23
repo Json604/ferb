@@ -1,5 +1,5 @@
-//! Every terminal on the Mac as a session (HAND-691, HAND-692), and what is new in a terminal's text each time FERB
-//! reads it (HAND-693).
+//! Every terminal on the Mac as a session (HAND-691, HAND-692). FERB reads none of a terminal's text (HAND-711): its
+//! window is watched live and typed into.
 //!
 //! A terminal is a terminal device with the owner's processes on it: a tab or window of any terminal app, an editor's
 //! terminal, a tmux pane. Everything here is the process table's structure (a process's terminal, its parent, its
@@ -110,94 +110,4 @@ pub fn window_of<'a>(
         .or_else(|| (!f.is_empty()).then(|| one(&|t| has_token(t, f))).flatten())
         .or_else(|| (!p.is_empty()).then(|| one(&|t| has_token(t, p))).flatten())
         .or_else(|| (windows.len() == 1).then(|| &windows[0]))
-}
-
-/// The most lines the first read of a terminal shows.
-pub const FIRST_LINES: usize = 80;
-/// The longest piece of a terminal's text one item holds (its end is kept).
-pub const MAX_ITEM: usize = 8_000;
-
-/// What FERB has shown of one terminal's text, so each new read gives only what is new (HAND-693).
-///
-/// A terminal's last line is open: the cursor is on it (a prompt being typed at, a progress line). Every other line
-/// is settled. A read whose settled lines continue the last read's (the same lines, maybe scrolled up) gives the new
-/// settled lines. A read that doesn't (a full-screen program redrew it, the screen was cleared) gives the whole screen
-/// once it holds still for one read, so a program that keeps redrawing (a spinner) shows when it settles, not every
-/// frame.
-#[derive(Clone, Debug, Default)]
-pub struct Screen {
-    /// The text the shown lines line up with.
-    base: Vec<String>,
-    read_once: bool,
-    /// The previous read, to tell a screen that holds still.
-    last: Vec<String>,
-    /// The last whole screen shown.
-    shown: Vec<String>,
-}
-
-fn lines(text: &str) -> Vec<String> {
-    let mut v: Vec<String> = text
-        .replace("\r\n", "\n")
-        .split(['\n', '\r'])
-        .map(|l| l.trim_end().to_owned())
-        .collect();
-    while v.last().is_some_and(|l| l.is_empty()) {
-        v.pop();
-    }
-    v
-}
-
-fn piece(ls: &[String]) -> Option<String> {
-    let text = ls.join("\n");
-    if text.trim().is_empty() {
-        return None;
-    }
-    let n = text.chars().count();
-    Some(if n > MAX_ITEM {
-        let tail: String = text.chars().skip(n - (MAX_ITEM - 2)).collect();
-        format!("…\n{tail}")
-    } else {
-        text
-    })
-}
-
-impl Screen {
-    /// The terminal's text now: what is new since the last read, None when nothing is to show yet.
-    pub fn read(&mut self, text: &str) -> Option<String> {
-        let cur = lines(text);
-        let was = std::mem::replace(&mut self.last, cur.clone());
-        if !self.read_once {
-            self.read_once = true;
-            self.base = cur.clone();
-            self.shown = cur.clone();
-            let from = cur.len().saturating_sub(FIRST_LINES);
-            return piece(&cur[from..]);
-        }
-        let settled = self.base.len().saturating_sub(1);
-        let need = settled.min(2);
-        let lined_up = (0..=settled).find(|d| {
-            let k = settled - d;
-            k >= need && k <= cur.len() && self.base[*d..settled] == cur[..k]
-        });
-        if let Some(d) = lined_up {
-            let k = settled - d;
-            let open = cur.len().saturating_sub(1);
-            self.base = cur.clone();
-            return if open > k { piece(&cur[k..open]) } else { None };
-        }
-        // redrawn: shown once it holds still, and only when it differs from the last screen shown
-        if cur == was && cur != self.shown {
-            self.base = cur.clone();
-            self.shown = cur.clone();
-            return piece(&cur);
-        }
-        None
-    }
-}
-
-/// Whether the owner's words show in a terminal's text (the proof a send arrived, HAND-693): one line each, the words
-/// somewhere in the text.
-pub fn shows(text: &str, words: &str) -> bool {
-    let w = crate::one_line(words);
-    !w.is_empty() && crate::one_line(text).contains(&w)
 }

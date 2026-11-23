@@ -3,7 +3,7 @@ import SwiftUI
 import NotchCore
 
 /// The FERB window's Sessions page data: every terminal on the Mac (HAND-691), Claude Code and Codex among them, and the
-/// chat apps' chats, through the daemon's `sessions.*`
+/// agent apps' windows (HAND-710), through the daemon's `sessions.*`
 /// calls. Each button is one call; whatever the daemon asks before sending or starting (`needs_yes`) is shown to the
 /// owner first, exactly, and only the owner's Yes makes the call that acts. A refusal is shown as the daemon's words.
 @MainActor
@@ -79,8 +79,6 @@ final class SessionsModel: ObservableObject {
     /// New session (HAND-691): a terminal; the folders to choose from and the app it opens in, from `sessions.prepare {}`.
     @Published private(set) var folders: [String] = []
     @Published private(set) var host = "Terminal"
-    /// HAND-697: the chat apps open with no chat FERB could find.
-    @Published private(set) var noChats: [String] = []
     /// Why the last call failed (the daemon's own words), and the last action's one line.
     @Published var problem: String?
     @Published var note: String?
@@ -126,7 +124,6 @@ final class SessionsModel: ObservableObject {
         guard let reply = await ask("sessions.list", quiet: quiet) else { return }
         enabled = (reply["enabled"] as? NSNumber)?.boolValue ?? false
         sessions = (reply["sessions"] as? [[String: Any]] ?? []).compactMap(AgentSessionRow.init)
-        noChats = (reply["no_chats"] as? [Any] ?? []).compactMap { $0 as? String }.filter { !$0.isEmpty }
         if let openID, let row = sessions.first(where: { $0.id == openID }) { openSession = row }
         if let known = awaitingNew, sessions.contains(where: { !known.contains($0.id) }) { awaitingNew = nil }
         settleTakeBack()
@@ -148,9 +145,19 @@ final class SessionsModel: ObservableObject {
         outgoing = nil
         note = nil
         problem = nil
+        // HAND-710: a watched session has no conversation to read: its screen is its window, live
+        guard !row.watch else { return }
         opening = true
         await loadTimeline()
         if openID == row.id { opening = false }
+    }
+
+    /// The open session is watched (HAND-710): `sessions.timeline` always answers it nothing, so it is never asked;
+    /// the session itself is read again with the list (~3 s and on the daemon's events).
+    var watching: Bool { openSession?.watch == true }
+
+    private func isWatched(_ id: String) -> Bool {
+        (openSession?.id == id ? openSession : sessions.first { $0.id == id })?.watch == true
     }
 
     func close() {
@@ -167,7 +174,7 @@ final class SessionsModel: ObservableObject {
 
     /// The newest page of the open session.
     func loadTimeline() async {
-        guard let id = openID else { return }
+        guard let id = openID, !watching else { return }
         guard let reply = await ask("sessions.timeline", ["session": id, "limit": Self.page]), openID == id else { return }
         let timeline = SessionTimeline(reply)
         items = timeline.items
@@ -180,7 +187,7 @@ final class SessionsModel: ObservableObject {
 
     /// What is new since the last item held (every ~2 s while the page shows, and on the daemon's events).
     func poll() async {
-        guard let id = openID, !opening else { return }      // the first read is still on its way
+        guard let id = openID, !opening, !watching else { return }   // the first read is still on its way
         guard let last = items.last?.seq else { return await loadTimeline() }
         guard let reply = await ask("sessions.timeline", ["session": id, "after": last, "limit": Self.page * 2],
                                     quiet: true), openID == id else { return }
@@ -246,13 +253,16 @@ final class SessionsModel: ObservableObject {
         await poll()
     }
 
-    /// The daemon's answer to a send: sent (the bubble stays as sent until the record has it), or not sent.
+    /// The daemon's answer to a send: sent (the bubble stays as sent until the record has it), or not sent. A watched
+    /// session has no record to wait for (HAND-710): its words are done once the daemon says they were typed.
     private func sent(_ reply: [String: Any], session: String, text: String) {
         guard reply["sent"] as? Bool == true else {
             notSent(session: session, text: text, why: reply["message"] as? String ?? "FERB couldn't send it.")
             return
         }
-        if outgoing?.session == session, outgoing?.text == text { outgoing?.state = .sent }
+        if outgoing?.session == session, outgoing?.text == text {
+            if isWatched(session) { outgoing = nil } else { outgoing?.state = .sent }
+        }
         note = reply["delivered"] as? Bool == false ? "Sent, but FERB couldn't see it arrive yet." : nil
     }
 

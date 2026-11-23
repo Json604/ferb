@@ -337,8 +337,6 @@ class FakePhone : PhoneApi {
     // ---- the owner's coding sessions (kb HAND-651..666): what the Mac says, what each call got, the refusals it scripts ----
     var sessionsEnabled = true
     val sessions = ArrayList<com.ferb.mobile.AgentSession>()
-    /** HAND-697: the chat apps the Mac says are open with no chat. */
-    var noChats = listOf<String>()
     var sessionsRefusal: Outcome.Failed? = null
     /** Each session's items on the Mac, oldest first, and its open cards. */
     val sessionItems = HashMap<String, MutableList<com.ferb.mobile.SessionItem>>()
@@ -364,7 +362,7 @@ class FakePhone : PhoneApi {
         calls += "sessions"
         sessionsRefusal?.let { return it }
         return Outcome.Ok(com.ferb.mobile.SessionsList(sessionsEnabled, if (sessionsEnabled) sessions.map { it.copy(controlledHere = it.id in controlled) } else emptyList(),
-            if (sessionsEnabled) noChats else emptyList()))
+            emptyList()))
     }
     override suspend fun sessionTimeline(session: String, after: Long, before: Long, limit: Int): Outcome<com.ferb.mobile.SessionTimeline> {
         calls += "timeline:$session:$after:$before"
@@ -506,11 +504,12 @@ class FakePhone : PhoneApi {
         /** One session as the library reads it (kb HAND-651..666). */
         fun agentSession(id: String = "claude:s1", title: String = "Fix the flaky login test", status: String = "working", host: String = "Terminal",
                          canSend: Boolean = true, noSend: String = "", withFerb: Boolean = false, controlledHere: Boolean = false,
-                         terminals: List<com.ferb.mobile.SessionChoice> = emptyList(), ferbTask: String = "", ferbNote: String = "") =
+                         terminals: List<com.ferb.mobile.SessionChoice> = emptyList(), ferbTask: String = "", ferbNote: String = "",
+                         watch: Boolean = false) =
             com.ferb.mobile.AgentSession(id, if (id.startsWith("codex")) "codex" else "claude_code", if (id.startsWith("codex")) "Codex" else "Claude Code",
                 title, "/Users/owner/code/web-app", "web-app", status, if (status == "waiting_for_you") "permission" else "none", host, canSend, noSend,
                 false, "2026-11-22T10:00:00Z", "", controlledHere, if (controlledHere) "phone:p1" else "", withFerb, "", terminals,
-                "", "", "", ferbTask, ferbNote)
+                "", "", "", ferbTask, ferbNote, watch)
 
         fun item(seq: Int, kind: String, text: String, tool: String = "", parts: List<com.ferb.mobile.SessionPart> = emptyList(), ferb: Boolean = false) =
             com.ferb.mobile.SessionItem(seq.toULong(), "2026-11-22T10:00:00Z", kind, text, tool, parts, ferb)

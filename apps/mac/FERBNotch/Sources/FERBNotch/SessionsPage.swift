@@ -2,8 +2,9 @@ import AppKit
 import SwiftUI
 import NotchCore
 
-/// Sessions: every terminal on this Mac (HAND-691), the owner's Claude Code and Codex sessions among them, in any app. The list, one session's conversation
-/// (the agent's own record, shown as plain text: nothing in it is a link or runs), its open questions with their
+/// Sessions: every terminal on this Mac (HAND-691), the owner's Claude Code and Codex sessions among them, in any app,
+/// and the agent apps' windows (HAND-710). The list, one session's conversation (the agent's own record, shown as plain
+/// text: nothing in it is a link or runs) or, for a watched one, its window live; its open questions with their
 /// buttons, a composer, and Watch, Hand to FERB, Stop its turn, Stop controlling and New session. Everything that would
 /// type or run something shows the daemon's question with the exact text first.
 struct SessionsPage: View {
@@ -42,7 +43,7 @@ struct SessionsPage: View {
 
     @ViewBuilder private var content: some View {
         if sessions.openID != nil, let row = sessions.openSession {
-            SessionDetailView(sessions: sessions, row: row, sheet: $sheet)
+            SessionDetailView(sessions: sessions, row: row, sheet: $sheet, previewAccess: store.previewAccess)
         } else {
             list
         }
@@ -75,17 +76,13 @@ struct SessionsPage: View {
                 if let waiting = sessions.awaitingNewLine {
                     Text(waiting).font(.system(size: 12)).foregroundStyle(.secondary)
                 } else if sessions.sessions.isEmpty {
-                    Text("No terminals are open on your Mac right now.").foregroundStyle(.secondary)
+                    Text("No terminals or agent apps are open on your Mac right now.").foregroundStyle(.secondary)
                 }
                 ForEach(sessions.sessions) { row in
                     Button { Task { await sessions.open(row) } } label: {
                         WindowCard { SessionRowView(row: row) }.contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                }
-                // HAND-697: an app open with no chat FERB could find says so, once
-                ForEach(sessions.noChats, id: \.self) { app in
-                    Text(AgentSessionRow.noChatLine(app)).font(.system(size: 12)).foregroundStyle(.secondary)
                 }
             }
         }
@@ -152,11 +149,14 @@ struct SessionRowView: View {
     }
 }
 
-/// One session open: its header and actions, its conversation, its open cards, and the composer.
+/// One session open: its header and actions, its conversation, its open cards, and the composer. A watched session
+/// (HAND-710) shows its window live in place of the conversation, the quiet line that what he sends is typed into it,
+/// his words only while they are on their way or weren't sent, and the box.
 struct SessionDetailView: View {
     @ObservedObject var sessions: SessionsModel
     let row: AgentSessionRow
     @Binding var sheet: SessionsSheet?
+    let previewAccess: PreviewAccess
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -166,7 +166,19 @@ struct SessionDetailView: View {
             // HAND-702: FERB's word on his hand-over, at the end of the conversation above the box (under the header
             // when there is no box)
             if !row.canSend { ferbNote }
-            timeline
+            if row.watch {
+                SessionLiveView(session: row.id, rpc: sessions.rpc, access: previewAccess).id(row.id)
+                if row.canSend {
+                    Text(AgentSessionRow.typeNote).font(.system(size: 12)).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                // no conversation to hold them: his words show only while sending, or not sent with Try again
+                if let outgoing = sessions.outgoing, outgoing.session == row.id, outgoing.state != .sent {
+                    SessionOutgoingView(outgoing: outgoing) { Task { await sessions.tryAgain() } }
+                }
+            } else {
+                timeline
+            }
             if row.canSend { ferbNote }
             composer
         }
@@ -182,7 +194,8 @@ struct SessionDetailView: View {
             HStack(spacing: 8) {
                 Button { sessions.close() } label: { Label("Sessions", systemImage: "chevron.left") }
                 Spacer()
-                if row.host != nil { Button("Watch") { sheet = .watch(row) } }
+                // a watched session already shows its window here
+                if row.host != nil, !row.watch { Button("Watch") { sheet = .watch(row) } }
                 handOverButton
                 if row.status == "working" { Button("Stop its turn") { Task { await sessions.interrupt() } } }
                 if row.yours { Button("Stop controlling") { Task { await sessions.release() } } }
@@ -190,7 +203,7 @@ struct SessionDetailView: View {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(row.heading).font(.system(size: 17, weight: .semibold)).lineLimit(2).textSelection(.enabled)
-                    Text(row.agentName + " · " + row.whereLine).font(.system(size: 12)).foregroundStyle(.secondary)
+                    Text(row.detailLine).font(.system(size: 12)).foregroundStyle(.secondary)
                     if let goal = row.goal { Text(goal).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(2) }
                 }
                 Spacer(minLength: 8)
@@ -218,7 +231,7 @@ struct SessionDetailView: View {
             .disabled(pending)
         } else if row.withFerb {
             Button("FERB is starting…") {}.disabled(true)
-        } else {
+        } else if row.offersHandOver {
             Button("Hand to FERB") { sessions.handOverProblem = nil; sheet = .handOver }
         }
     }
@@ -240,7 +253,7 @@ struct SessionDetailView: View {
     @ViewBuilder private var composer: some View {
         if row.canSend {
             HStack(alignment: .bottom, spacing: 10) {
-                TextField("Message \(row.agentName)…", text: $sessions.draft, axis: .vertical)
+                TextField(row.composerPlaceholder, text: $sessions.draft, axis: .vertical)
                     .textFieldStyle(.plain).lineLimit(1...8)
                     .padding(.horizontal, 14).padding(.vertical, 11)
                     .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -680,15 +693,51 @@ struct SessionWatchView: View {
     }
 }
 
-/// Keeps the window showing this view out of screen sharing and recordings (APP-406's rule for live previews).
+/// A watched session's window, live, in place of its conversation (HAND-710): the same picture as Watch, sized to the
+/// space, with its own loading look and errors; it captures only while the page can be seen (APP-407).
+struct SessionLiveView: View {
+    @StateObject private var preview: TaskPreview
+
+    init(session: String, rpc: DaemonRPCTransport, access: PreviewAccess) {
+        _preview = StateObject(wrappedValue: TaskPreview(rpc: rpc, session: session, access: access))
+    }
+
+    var body: some View {
+        TaskVideoView(preview: preview)
+            .frame(maxWidth: .infinity, minHeight: 200, maxHeight: .infinity)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(HiddenFromCapture())
+    }
+}
+
+/// Keeps the window showing this view out of screen sharing and recordings (APP-406's rule for live previews), while
+/// the view is in it: the window's own setting comes back when the view leaves (the FERB window shows a watched
+/// session's picture inline).
 struct HiddenFromCapture: NSViewRepresentable {
     func makeNSView(context: Context) -> Marker { Marker() }
     func updateNSView(_ nsView: Marker, context: Context) {}
+    static func dismantleNSView(_ nsView: Marker, coordinator: ()) { nsView.restore() }
 
     final class Marker: NSView {
+        private weak var covered: NSWindow?
+        private var before: NSWindow.SharingType = .readOnly
+
+        override func viewWillMove(toWindow newWindow: NSWindow?) {
+            super.viewWillMove(toWindow: newWindow)
+            if newWindow !== covered { restore() }
+        }
+
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            window?.sharingType = .none
+            guard let window, window !== covered else { return }
+            before = window.sharingType
+            covered = window
+            window.sharingType = .none
+        }
+
+        func restore() {
+            covered?.sharingType = before
+            covered = nil
         }
     }
 }

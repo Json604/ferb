@@ -76,6 +76,7 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -452,7 +453,19 @@ class FerbViewModel(
                 }
             }.distinctUntilChanged().collectLatest { what ->
                 when (what) {
-                    is Sheet.Session -> while (true) { readSession(what.id); sessionsWait(Sessions.OPEN_MS) }
+                    is Sheet.Session -> try {
+                        while (true) {
+                            // HAND-710: a session FERB reads no words of shows its window, live; its conversation is always
+                            // empty, so after the first read (its record: control, terminals) nothing more is polled
+                            if (watchedHere(what.id)) watchInPlace(what.id)
+                            readSession(what.id)
+                            if (watchedHere(what.id)) { watchInPlace(what.id); awaitCancellation() }
+                            sessionsWait(Sessions.OPEN_MS)
+                        }
+                    } finally {
+                        // its screen went (another page, the lock, the background): its window's picture stops with it
+                        if (live.view.value?.taskId == what.id && _sheet.value !is Sheet.SessionLive) live.stop()
+                    }
                     PhoneTab.SESSIONS -> while (true) { readSessions(); sessionsWait(Sessions.LIST_MS) }
                     else -> Unit
                 }
@@ -1736,7 +1749,7 @@ class FerbViewModel(
             is Outcome.Ok -> _sessions.update { u ->
                 // a new terminal said to be on its way: its line stays until a session the list didn't hold shows
                 val coming = u.coming?.takeIf { before -> r.value.sessions.all { it.id in before } }
-                SessionsUi(true, r.value.enabled, r.value.sessions, null, r.value.noChats, coming)
+                SessionsUi(true, r.value.enabled, r.value.sessions, null, coming)
             }
             is Outcome.Failed -> if (r.error !is FerbException.NotSigned) _sessions.update { it.copy(loaded = true, problem = errorNote(r.error)) }
         }
@@ -1752,6 +1765,21 @@ class FerbViewModel(
     fun closeSession() {
         if (_sheet.value is Sheet.Session || _sheet.value is Sheet.SessionLive) show(null)
         _openSession.value = null
+    }
+
+    /** Whether the open session is [id] and FERB reads none of its words (HAND-710). */
+    private fun watchedHere(id: String): Boolean = _openSession.value?.takeIf { it.id == id }?.session.let(Sessions::watch)
+
+    /**
+     * A watch session's screen (HAND-710): its window live in place of the conversation, as Watch shows it (its rules;
+     * never asked for on the public relay, whose rule shows where the picture would). Already showing: left as it is.
+     */
+    private fun watchInPlace(id: String) {
+        val v = live.view.value
+        if (v?.taskId == id && v.ended == null) return
+        val l = api.link.value
+        if (l?.path == LinkPath.PUBLIC_RELAY || (l?.phase == LinkPhase.ONLINE && !l.bulkAllowed)) live.notAsked(id, Note(R.string.not_on_shared_relay))
+        else live.startSession(id)
     }
 
     /** Reads the open session: its newest page first, then what came after the newest item held. */
@@ -1895,6 +1923,16 @@ class FerbViewModel(
             _openSession.update { u -> if (u?.id == id && u.outgoing?.text == text) u.copy(outgoing = null) else u }
             return
         }
+        if (watchedHere(id)) {
+            // HAND-710: typed into its window, and no record of it will ever come: Sending… ends at the Mac's answer;
+            // its record (who controls it now) is read on its own, so the box takes the next words at once
+            _openSession.update { u ->
+                if (u?.id != id) u else u.copy(draft = if (u.draft == text) "" else u.draft, outgoing = u.outgoing?.takeUnless { it.text == text })
+            }
+            if (!sent.delivered) note(Note(R.string.sessions_not_seen))
+            viewModelScope.launch { readSession(id) }
+            return
+        }
         _openSession.update { u ->
             if (u?.id != id) u
             else u.copy(draft = if (u.draft == text) "" else u.draft,
@@ -1983,8 +2021,10 @@ class FerbViewModel(
         }
     }
 
-    /** Hand to FERB: its sheet over the session's screen. */
-    fun askHandOver(open: Boolean = true) = _openSession.update { it?.copy(handOver = open, handProblem = null) }
+    /** Hand to FERB: its sheet over the session's screen (never for a session FERB reads no words of, HAND-710). */
+    fun askHandOver(open: Boolean = true) = _openSession.update { u ->
+        if (open && Sessions.watch(u?.session)) u else u?.copy(handOver = open, handProblem = null)
+    }
 
     /**
      * Hand it over (signed): the owner's goal becomes FERB's task in the chat; FERB says so. The sheet's button turns
@@ -2216,7 +2256,8 @@ class FerbViewModel(
     /** The Mac's window closed under the preview: unlock (one prompt) and watch again. */
     fun watchAgain() = busy("live") {
         val s = _sheet.value
-        if (s !is Sheet.Live && s !is Sheet.SessionLive) return@busy
+        // a watch session's own screen shows its window too (HAND-710)
+        if (s !is Sheet.Live && s !is Sheet.SessionLive && !(s is Sheet.Session && watchedHere(s.id))) return@busy
         val p = prompts ?: return@busy
         if (live.view.value?.needsUnlock == true) {
             when (val r = api.unlock(p.signer(KeyKind.LOCK))) {
@@ -2224,7 +2265,12 @@ class FerbViewModel(
                 is Outcome.Failed -> { if (r.error !is FerbException.NotSigned) failed(r.error); return@busy }
             }
         }
-        if (s is Sheet.Live) live.start(s.taskId) else if (s is Sheet.SessionLive) live.startSession(s.id)
+        when (s) {
+            is Sheet.Live -> live.start(s.taskId)
+            is Sheet.SessionLive -> live.startSession(s.id)
+            is Sheet.Session -> live.startSession(s.id)
+            else -> Unit
+        }
     }
 
     fun closeLive() {

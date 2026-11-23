@@ -9,8 +9,9 @@ use serde::{Deserialize, Serialize};
 pub enum Agent {
     ClaudeCode,
     Codex,
-    /// A desktop chat app's conversation, read from its window (the Claude app, ChatGPT, Cursor's agent pane, any chat
-    /// app the owner adds: HAND-668).
+    /// HAND-711: one open window of an agent or chat app (Cursor, the Claude app, ChatGPT, the Codex app, VS Code, any
+    /// app the owner adds), listed by structure alone (its app and its title); FERB reads none of its words: it is
+    /// watched live and typed into ("app_chat" on the wire, as before).
     AppChat,
     /// HAND-692: a terminal (a tab, pane or window of any terminal app, an editor's terminal, a tmux pane) running
     /// whatever program the owner started in it; found from the process table, never from an agent's files.
@@ -152,6 +153,10 @@ pub enum SendPath {
     TerminalScript,
     /// The host app brought forward and typed into, once code has proven the focused terminal is the session's.
     Foreground,
+    /// HAND-711: the session's window brought onto the screen (its desktop switched to, or un-minimized), focused and
+    /// typed into, then Return: what the owner sees in Watch is what FERB types into. No terminal proof: for a session
+    /// FERB can't reach exactly (a plain terminal, an app's window, Claude Code run by an app with no terminal).
+    Window,
 }
 
 impl SendPath {
@@ -161,6 +166,7 @@ impl SendPath {
             SendPath::Tmux => "tmux",
             SendPath::TerminalScript => "terminal_script",
             SendPath::Foreground => "foreground",
+            SendPath::Window => "window",
         }
     }
     /// Whether this path types into a terminal or a window (AGENTS.md rule 6: asked first).
@@ -169,7 +175,7 @@ impl SendPath {
     }
     /// Whether it takes the foreground (rule 10: the owner's Yes covers it).
     pub fn foreground(self) -> bool {
-        matches!(self, SendPath::Foreground)
+        matches!(self, SendPath::Foreground | SendPath::Window)
     }
 }
 
@@ -220,9 +226,10 @@ pub struct Session {
     /// HAND-692: its window or tab in the app's own words ("Desktop — agy — 120×30"; "" when FERB can't tell which).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub window: String,
-    /// HAND-693: a terminal whose text FERB can't read: why, in the owner's words ("" when it can, or before it tried).
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub no_text: String,
+    /// HAND-711: FERB reads none of this session's words (a terminal, an app's window): its screen is its window, live
+    /// (Watch), and what the owner types goes into that window. Its timeline is always empty.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub watch: bool,
     /// HAND-702: FERB's latest word on the owner's hand-over of this session, in his words ("FERB is on it: …", "FERB
     /// asked in its chat: …", "FERB couldn't start on it: …"); "" when he hasn't handed it over.
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -267,10 +274,6 @@ pub struct Item {
     /// For a tool: its name ("Bash", "Edit").
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub tool: String,
-    /// HAND-703: the reply's parts in order, as the app shows them (an app chat's turn, read by structure); empty when
-    /// the item is its text alone (a transcript's item: its text is Markdown, drawn as such).
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub parts: Vec<Part>,
     /// HAND-709: an owner's message FERB's session driver sent (its words, seen in the agent's own record): the
     /// clients mark it as FERB's.
     #[serde(default, skip_serializing_if = "is_false")]
@@ -279,37 +282,6 @@ pub struct Item {
 
 fn is_false(b: &bool) -> bool {
     !*b
-}
-
-/// HAND-703: what one part of a reply is.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum PartKind {
-    /// Words, as Markdown: paragraphs, headings, lists, pipe tables and fenced code, drawn by each client's own
-    /// Markdown reader (the phones' `rich`, FERB.app's `MarkdownDocument`).
-    Text,
-    /// The agent's thinking: a small row, collapsed (`label`, its words in `text` when the app shows them).
-    Thinking,
-    /// One step the agent ran: a collapsible row (`label`, what it ran in `detail`, its output in `text` when the app
-    /// shows it, drawn in a fixed-width block).
-    Tool,
-    /// The turn's own small line: a time, a state the app shows while it works ("Working…"); never a bubble.
-    Meta,
-}
-
-/// HAND-703: one part of a reply.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Part {
-    pub kind: PartKind,
-    /// A text part's Markdown, a step's or thought's shown words, a meta line.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub text: String,
-    /// A thought's or a step's own row ("Thought 1s", "List zip sizes and contents").
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub label: String,
-    /// A step's second words (what it ran: "ls, echo, unzip, head").
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub detail: String,
 }
 
 /// What a card asks.

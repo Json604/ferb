@@ -33,6 +33,10 @@ public struct OpenSession: Equatable {
         self.session = session
     }
 
+    /// HAND-710: FERB reads none of this session's words (a terminal, an app's window): its screen is its window, live,
+    /// and what he sends is typed into it.
+    public var watch: Bool { session?.watch == true }
+
     /// The newest item's number: the poll asks for what came after it.
     public var last: UInt64 { items.last?.seq ?? 0 }
     /// The oldest item's number: Show earlier asks for what came before it.
@@ -273,6 +277,7 @@ extension AppModel {
     public func openSession(_ id: String) -> Task<Void, Never> {
         coding.open = OpenSession(id: id, session: coding.row(id))
         coding.draft = ""
+        // a session FERB reads no words of shows its window live from here (show starts it, HAND-710)
         show(.session(id: id))
         return busy("session-open") { [self] in await readTimeline(earlier: false, prompt: true) }
     }
@@ -312,6 +317,8 @@ extension AppModel {
                 now.cards = t.cards
                 now.loaded = true
                 coding.open = now
+                // the row wasn't known at the tap: a session FERB reads no words of shows its window now (HAND-710)
+                watchWindowIfShown()
             case .failed(let e): readFailed(e, prompt: prompt)
             }
             return
@@ -465,6 +472,8 @@ extension AppModel {
         if var o = coding.open, o.outgoing?.text == text {
             o.outgoing?.state = .sent
             Self.arrived(&o)
+            // HAND-710: no record of its words will ever carry them: the Mac's answer ends the sending state
+            if o.watch { o.outgoing = nil }
             coding.open = o
         }
         if !r.delivered { note(Note("sessions_not_seen")) }
@@ -609,7 +618,8 @@ extension AppModel {
 
     /// Hand to FERB: the sheet that asks for the goal.
     public func askHandToFerb() {
-        guard let id = coding.open?.id else { return }
+        // HAND-710: only Claude Code and Codex sessions are handed to FERB; one FERB reads no words of isn't
+        guard let id = coding.open?.id, coding.open?.watch == false else { return }
         coding.handing = false
         coding.handRefused = nil
         show(.sessionHand(id: id))
@@ -800,12 +810,17 @@ extension AppModel {
 
     // ---- its window -------------------------------------------------------------------------------------------------
 
+    /// The link can't carry a live picture (the public relay, or one that allows no bulk): Watch live's rule.
+    private var noLivePictures: Bool {
+        let l = api.link
+        return l?.path == .publicRelay || (l?.phase == .online && l?.bulkAllowed == false)
+    }
+
     /// Watch: the session's window, live; never asked for on the public relay (its rule is said instead, as Watch
     /// live's).
     public func watchCodingSession() {
         guard let id = coding.open?.id else { return }
-        let l = api.link
-        if l?.path == .publicRelay || (l?.phase == .online && l?.bulkAllowed == false) {
+        if noLivePictures {
             note(Note("not_on_shared_relay"))
             return
         }
@@ -813,11 +828,30 @@ extension AppModel {
         live.startSession(id)
     }
 
-    /// The Mac's window closed under the picture: unlock (one prompt) and watch again.
+    /// The session's window on screen: its own Watch page, or the screen of a session FERB reads no words of (HAND-710).
+    var watchedSession: String? {
+        switch sheet {
+        case .sessionWatch(let id): id
+        case .session(let id): coding.open?.id == id && coding.open?.watch == true ? id : nil
+        default: nil
+        }
+    }
+
+    /// HAND-710: a session FERB reads no words of shows its window live while its screen shows, the app is in front and
+    /// unlocked: the same preview as Watch (memory only, the owner's screenshot switch), asked for once per showing. On
+    /// the public relay it is never asked for: the picture's place says Watch live's rule instead.
+    func watchWindowIfShown() {
+        guard case .session(let id) = sheet, watchedSession == id, session.front, !session.locked else { return }
+        if live.view?.taskId == id { return }
+        if noLivePictures { live.refused(id, Note("not_on_shared_relay")) } else { live.startSession(id) }
+    }
+
+    /// The Mac's window closed under the picture: unlock (one prompt) and watch again (its Watch page, or the screen of a
+    /// session FERB reads no words of).
     @discardableResult
     public func watchSessionAgain() -> Task<Void, Never> {
         busy("live") { [self] in
-            guard case .sessionWatch(let id) = sheet, let p = prompts else { return }
+            guard let id = watchedSession, let p = prompts else { return }
             if live.view?.needsUnlock == true {
                 guard let s = p.signer(.lock, why: .open) else { return }
                 if case .failed(let e) = await api.unlock(s) {
@@ -825,7 +859,7 @@ extension AppModel {
                     return
                 }
             }
-            live.startSession(id)
+            if noLivePictures { live.refused(id, Note("not_on_shared_relay")) } else { live.startSession(id) }
         }
     }
 }
@@ -844,9 +878,13 @@ public enum SessionWords {
     /// A terminal's output is fixed text, never Markdown; every agent's chat is (HAND-703).
     public static func markdown(_ s: AgentSession?) -> Bool { s?.agent != CodingSessions.terminal }
 
+    /// HAND-710: an app's own window (Cursor, the Claude app, ChatGPT…), one row per open window.
+    public static let appChat = "app_chat"
+
     /// "<program> · <folder> · in <app>" (HAND-692; no program or folder: without them), or "in the background" when
-    /// no app shows it.
+    /// no app shows it. An app's window: the app's name alone (HAND-710).
     public static func subtitle(_ s: AgentSession) -> String {
+        if s.agent == appChat { return s.host.isEmpty ? s.agentName : s.host }
         let place = s.host.isEmpty ? L.s("sessions_in_background") : L.s("sessions_in_app", s.host)
         let folder = s.folderName.isEmpty ? s.folder : s.folderName
         return [s.program, folder, place].filter { !$0.isEmpty }.joined(separator: " · ")

@@ -41,7 +41,6 @@ struct SessionsTabPage: View {
                      off: loaded && c.list?.enabled == false
                          ? SessionsOff(title: L.s("sessions_off"), text: L.s("sessions_off_more"), turnOn: L.s("sessions_turn_on")) : nil,
                      empty: c.problem?.text ?? (loaded ? L.s("sessions_none") : nil),
-                     notes: (c.list?.noChats ?? []).map { L.s("sessions_no_chat", $0) },
                      soon: c.soon ? L.s("sessions_coming") : nil, waiting: waiting,
                      onTab: { model.choose($0) }, onProfile: { model.show(.profile) },
                      onRow: { i in if i < sessions.count { model.openSession(sessions[i].id) } },
@@ -71,8 +70,10 @@ struct SessionScreen: View {
     }
 }
 
-/// The session's page from the model (the screenshots draw it too): Watch and Hand to FERB always, Stop its turn while
-/// it isn't idle, Stop controlling while this phone controls it; the box while something can deliver to it.
+/// The session's page from the model (the screenshots draw it too): Watch and Hand to FERB but on a session FERB reads
+/// no words of (HAND-710), Stop its turn while it isn't idle, Stop controlling while this phone controls it; the box while
+/// something can deliver to it. A session FERB reads no words of shows its window live in place of the conversation,
+/// the note on what a send does, and "Type here" (HAND-710).
 struct SessionScreenPage: View {
     @Bindable var model: AppModel
     let open: OpenSession
@@ -85,16 +86,7 @@ struct SessionScreenPage: View {
         let busy = model.ui.busy
         let header = s.map(SessionWords.row) ?? SessionRowData(title: "", subtitle: "", state: .idle, stateText: "")
         let agent = s?.agentName ?? ""
-        var actions = [SessionAction(L.s("sessions_watch"), symbol: "eye", onClick: { model.watchCodingSession() }),
-                       Self.handAction(model: model, open: open)]
-        if let s, s.status != "idle" {
-            actions.append(SessionAction(L.s("sessions_stop_turn"), symbol: "stop.fill",
-                                         onClick: busy.contains("session-stop") ? nil : { model.stopSessionTurn() }))
-        }
-        if s?.controlledHere == true {
-            actions.append(SessionAction(L.s("sessions_let_go"), symbol: "rectangle.portrait.and.arrow.right",
-                                         onClick: busy.contains("session-release") ? nil : { model.releaseSession() }))
-        }
+        let actions = Self.actions(model: model, open: open)
         let cards = open.cards
         // a day's start between days, as the main chat's earlier days (PHN-813)
         let today = ChatModel.chatDay(Date(), Calendar.current)
@@ -109,6 +101,7 @@ struct SessionScreenPage: View {
             case .notSent: nil
             }
         }
+        let window = open.watch ? Self.window(model: model) : nil
         return SessionPage(header: header, lines: lines, asks: cards.map { SessionWords.ask($0, agent: agent) },
                            actions: actions, insets: insets, older: open.more ? L.s("sessions_older") : nil,
                            onOlder: busy.contains("session-earlier") ? nil : { model.sessionEarlier() },
@@ -127,10 +120,11 @@ struct SessionScreenPage: View {
                            // the first page on its way: the main chat's waiting look, not an empty page (PHN-816)
                            scrolls: !still, waiting: open.loaded ? nil : L.s("sessions_loading"),
                            // FERB's word on his hand-over, verbatim (HAND-702): above the box, or under the header without one
-                           note: note.isEmpty ? nil : note, noteOnTop: !canSend) {
+                           note: note.isEmpty ? nil : note, noteOnTop: !canSend, window: window) {
             if canSend {
                 let sendingNow = sending?.status != nil
-                SessionComposer(value: model.coding.draft, placeholder: L.s("sessions_message_hint", agent.isEmpty ? header.title : agent),
+                SessionComposer(value: model.coding.draft,
+                                placeholder: open.watch ? L.s("sessions_type_here") : L.s("sessions_message_hint", agent.isEmpty ? header.title : agent),
                                 sendLabel: L.s("sessions_send"),
                                 text: still ? nil : Binding(get: { model.coding.draft }, set: { model.sessionTyped($0) }),
                                 onSend: busy.contains("session-send") || sendingNow ? nil : { model.sendToSession() },
@@ -144,6 +138,40 @@ struct SessionScreenPage: View {
 }
 
 extension SessionScreenPage {
+    /// The menu: Watch and Hand to FERB (or Take it back), but not on a session FERB reads no words of (HAND-710: its
+    /// screen is its Watch already, and only Claude Code and Codex are handed to FERB); Stop its turn while it isn't
+    /// idle; Stop controlling while this phone controls it.
+    static func actions(model: AppModel, open: OpenSession) -> [SessionAction] {
+        let s = open.session
+        let busy = model.ui.busy
+        var actions: [SessionAction] = []
+        if !open.watch {
+            actions.append(SessionAction(L.s("sessions_watch"), symbol: "eye", onClick: { model.watchCodingSession() }))
+            actions.append(handAction(model: model, open: open))
+        }
+        if let s, s.status != "idle" {
+            actions.append(SessionAction(L.s("sessions_stop_turn"), symbol: "stop.fill",
+                                         onClick: busy.contains("session-stop") ? nil : { model.stopSessionTurn() }))
+        }
+        if s?.controlledHere == true {
+            actions.append(SessionAction(L.s("sessions_let_go"), symbol: "rectangle.portrait.and.arrow.right",
+                                         onClick: busy.contains("session-release") ? nil : { model.releaseSession() }))
+        }
+        return actions
+    }
+
+    /// HAND-710: the session's window as Watch shows it (its newest picture, else its waiting words or why it ended, with
+    /// Watch again), in the owner's screenshot shield (PHN-810, PHN-811), and the note on what a send does.
+    static func window(model: AppModel) -> SessionWindow {
+        let v = model.live.view
+        let image = v?.frame.flatMap { UIImage(data: $0) }.map { Image(uiImage: $0) }
+        let placeholder = v?.ended?.text ?? v?.empty ?? L.s("live_waiting")
+        let line = v.flatMap { v in image != nil ? (v.ended?.text ?? v.line) : (v.ended == nil ? v.line : nil) }
+        return SessionWindow(frame: image, placeholder: placeholder, line: line,
+                             again: v?.ended != nil ? L.s("live_again") : nil, onAgain: { model.watchSessionAgain() },
+                             note: L.s("sessions_type_note"), shieldFrame: { AnyView($0.screenshotShielded()) })
+    }
+
     /// Hand to FERB while FERB doesn't have it; Take it back while it does (its task's id: the task stop, owner
     /// 2026-11-23), "Taking it back…" while that is on its way; "FERB is starting…" (no tap) between his hand-over and
     /// FERB's task.
