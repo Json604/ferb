@@ -10208,6 +10208,69 @@ him were listed under Running.
 - A notice the app already holds is not re-marked by a later page (`absorb` keeps what it holds). Pages are read
   once per launch.
 
+## 2026-11-23 · 184 · The check is never run twice: FERB's own look, at most 6 calls, a small call for "not done"
+
+**What.** The owner was shown an audit of his checks (11-09..11-23, 203 checks in his three stores: the check was 8% of
+input tokens but 41% of uncached input, about 209k input tokens a check; the no-look rerun repeated its verdict 15 of
+16 times and replaced it, dropping the first run's findings, tasks c252e651 and a2653; a not-done report's full check
+agreed 49 of 50 times; one check ran 33 model calls). He asked "they sound good, but are they??? also what exactly
+changes does this make?? is it a downgrade?", said "yes" to building three changes with a replay, and after the replays
+chose "yes ship 2": ship the safe changes, keep the full context, park the slim one (ORCH-694, superseding ORCH-671;
+PRM-370 supersedes PRM-359). The check's context is unchanged: every recorded call in full, as before.
+- **No full re-check (ORCH-696).** Before the check, `attempt.rs::fresh_look` reads the place of the step's last
+  acting call (ORCH-671's `last_action_at`): the tab's snapshot in its browser family, else the app's `mac.snapshot`
+  (its window when named), through `Daemon::probe_read` (the gateway's observe-only probe, under the step's task);
+  recorded as `verify.look` on the check and handed in as "FERB's fresh look" (`evidence::fresh_look_block`), which
+  counts as the check's own look. No rerun: an outward met with no look at all, or a met with a changed file not read,
+  is can't tell at once (`no_place_look`, `no_file_look`; one `verify.refused`). Where reruns remain (the Python
+  recordings' path) the rerun's findings join the first run's by quote (`merged`): the c252e651 bug.
+- **The cap (ORCH-696).** The check's token carries `max_calls = CHECK_CALLS` (6) through
+  `WorkerHost::issue_token_capped` and `RunOptions::max_calls`; the gateway refuses calls past it with the check's own
+  words (`CHECK_CALLS_SPENT`, for a capped grant naming no tools) and doesn't answer a capped check's repeat from
+  ORCH-557's planner cache; RUN-445's wrong-call cap ends a run that keeps calling, and the check is unconfirmed.
+- **The not-done router (ORCH-697).** `judge()` sends a not-done (not cancelled) report that ORCH-654 doesn't skip to
+  `route_not_done`: one call on the checker's runtime (the task's switch honoured), mode supervisor, no tools, prompt
+  `not_done.md`, one protected block (goal, conditions, the report, its last failed call redacted, attempt number,
+  CHECK_IN_AFTER, the owner's answers in this step). retry, ask and fail come back as a check's `Next`, so ORCH-650 and
+  the 5-attempt check-in hold; a failed or malformed answer ends the step as reported (`verify.routed` records it). The
+  full check still runs when FERB's guard stopped the attempt (ORCH-691; its stop carried in `TreeState::stuck_taken`)
+  or an owner_step fact stands (ORCH-690).
+- **The seam.** `Daemon::lean_check()` (true; ferbd's `Reads::lean_check` true, the stand-ins' script false,
+  seams-off.txt) keeps the earlier check for replays of Python recordings.
+
+**Prompts changed.** verifier.md, four PRM-370 edits (named in `engine/fixtures/catalog/prompt_changes.json`): "What you
+get" names FERB's fresh look; a line on the check's few calls of its own; after acting, FERB's look counts as the
+check's own and without one the pass is can't tell; a changed file not read makes a met can't tell. New
+`engine/runtime/orchestrator/prompts/not_done.md` (PRM-371). Code-written lines a model reads (PRM-371): the fresh-look
+block, ROUTED_REPORT and ferb-gateway's CHECK_CALLS_SPENT.
+
+**Parked: the slim context (T-1303).** An index of the calls with the last action in full, claims beside the results
+code found for them, coverage counts and per-part verdicts were built and replayed on Sonnet through his Claude Code
+sign-in (144 model calls, every one counted by code under the owner's ceilings, plus 3 on a stopped worker
+self-check experiment): the first request -61%, input
+tokens -86%; over-cautious retries fell in 4 of 6; but 7edd's sentence finding was missed in both runs and 455bfe
+materials and d83a were caught in one run of two, so it doesn't catch everything the old check caught. The patch
+(on rust 1f992e12) is `.local/checker-slim.patch`, the tables `.local/checker-slim-replays.md`. Next: the same four cases
+twice on Codex.
+
+**Named differences.** `Daemon::lean_check` (the Python recordings keep the earlier check); the four PRM-370 prompt
+changes; the gateway's refusal words for a capped grant with no tool list (no Python grant had one).
+
+**Fixed against Python.** A check's rerun replaced its first verdict and dropped its findings (Rust-only ORCH-671 rerun
+and Python's L39 changed-file rerun alike); the findings now join (`a_reruns_verdict_keeps_the_first_runs_findings`,
+which fails with the old replacement).
+
+**Evidence.** ferb-supervisor `tests/lean_check.rs` (8: code's look with every call in full, verified, one check, cap 6 on
+the token; no look → can't tell, never rerun; the check's own look counts when code's failed; past the cap →
+unconfirmed; findings reach the fix round; the c252 regression on the recordings' path; a not-done report routed by one
+tool-less call per attempt with the check-in after five; ORCH-654's skip with no checker call). ferb-gateway
+`tests/catalog.rs` `a_checks_calls_past_its_cap_are_refused_with_the_checks_words`. Every existing ferb-supervisor test
+binary passes on the recordings' path; action_routes' ORCH-671 tests cite ORCH-694 and run that path.
+
+**Unverified.** The changes on a real model (the replays above ran the slim context, not this one); code's live look
+(the probe path is tested only with a stand-in); the router's choices on a real model; CHECK_CALLS = 6 is FERB's
+proposal, the owner's number to confirm (T-1297). LIVE-1187.
+
 ## 2026-11-23 · 185 · The screenshot switch on every page; a session's Watch finds its window; a session's screen sends, scrolls and opens like the chat
 
 **What the owner said (PHN-810, PHN-812, PHN-813, PHN-815, PHN-816).** "also its watch page isnt adhering to the

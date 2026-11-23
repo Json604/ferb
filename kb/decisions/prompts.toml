@@ -638,7 +638,8 @@ untestable = "Prompt text: TEST-500 keeps no wording tests; the named change in 
 title = "verifier.md: after acting, met needs the check's own look; a code fact is a receipt"
 by = "agent"
 date = 2026-11-17
-status = "active"
+status = "superseded"
+superseded_by = "PRM-370"
 rule = "For ORCH-671 and ORCH-666. verifier.md's judging list adds one item: after the step acted on a page or an app, met=true needs the check's own look at that tab, app or site after its last action (FERB refuses a pass without it); a code fact about an action is a receipt of what FERB did (which file, to whom, where), never proof that the site took it. Named in engine/fixtures/catalog/prompt_changes.json."
 why = "The checker should know the rule code enforces and what code's facts are worth before it judges, rather than learn it from a refusal."
 paths = ["engine/runtime/orchestrator/prompts/verifier.md"]
@@ -745,3 +746,24 @@ rule = "For ORCH-682, ORCH-683. The retry line adds: a running task's retry stop
 why = "Live 2026-11-21, tree 111d1ed8: the planner told the owner 'Anything already found will be kept' when nothing was; the code now hands on the stopped work's calls, and the planner says no more than that."
 paths = ["engine/runtime/orchestrator/prompts/supervisor.md", "engine/fixtures/catalog/prompt_changes.json"]
 untestable = "Prompt text (TEST-500); the named change is checked by the prompts and parity tests."
+
+[PRM-370]
+title = "verifier.md: FERB's fresh look counts as the check's own; few calls of its own; no rerun"
+by = "agent"
+date = 2026-11-23
+status = "active"
+rule = "For ORCH-694, ORCH-696; supersedes PRM-359. \"What you get\" names FERB's fresh look at the place of the step's last action. A new line: the check's own calls are few (FERB refuses those past its cap): open what a condition needs and judge from what it has. After acting, FERB's fresh look counts as the check's own; without one, look, or the pass is can't tell. A changed file not read makes a met can't tell. Named in prompt_changes.json (four PRM-370 entries)."
+why = "The checker should know what code hands it and what code enforces before it judges."
+supersedes = ["PRM-359"]
+paths = ["engine/runtime/orchestrator/prompts/verifier.md", "engine/fixtures/catalog/prompt_changes.json"]
+untestable = "Prompt text (TEST-500); the named change is checked by the prompts and parity tests."
+
+[PRM-371]
+title = "not_done.md and code's model-facing lines of the owner's check"
+by = "agent"
+date = 2026-11-23
+status = "active"
+rule = "For ORCH-696, ORCH-697. New runtime prompt not_done.md (the router: retry with a different route, ask only what the owner alone can settle and the worker's own question, fail when nothing more can reach it; never ask about keeping on). Code-written lines that reach a model: the fresh-look block (evidence::fresh_look_block), words::ROUTED_REPORT and ferb-gateway's words::CHECK_CALLS_SPENT."
+why = "Text that reaches a model changes only as a prompts decision says."
+paths = ["engine/runtime/orchestrator/prompts/not_done.md", "engine/crates/ferb-orchestrator/src/evidence.rs::fresh_look_block", "engine/crates/ferb-supervisor/src/words.rs", "engine/crates/ferb-gateway/src/words.rs"]
+untestable = "Prompt text (TEST-500); the router's choices are tested with stand-in answers in ferb-supervisor tests/indexed_check.rs."

@@ -119,6 +119,31 @@ impl WorkerHost for Host {
             None,
         )
     }
+    // decision: ORCH-696 — the check's token carries its cap; a capped run otherwise issues as `issue_token`
+    fn issue_token_capped(
+        &self,
+        task: &Task,
+        worker_id: &str,
+        scopes: &BTreeSet<String>,
+        identity: Identity,
+        ttl_s: f64,
+        observe_only: bool,
+        max_calls: Option<usize>,
+    ) -> String {
+        if max_calls.is_none() {
+            return self.issue_token(task, worker_id, scopes, identity, ttl_s, observe_only);
+        }
+        self.sup().deps.daemon.issue_token(
+            &task.id,
+            worker_id,
+            scopes,
+            identity.as_str(),
+            ttl_s,
+            observe_only,
+            None,
+            max_calls,
+        )
+    }
     fn validate_token(&self, token: &str) -> Result<Grant, Error> {
         self.sup()
             .deps

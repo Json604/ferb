@@ -2088,7 +2088,8 @@ paths = ["engine/crates/ferb-orchestrator/src/verify.rs::uploaded"]
 title = "No look, no pass for pages and apps: a met needs the check's own look after the last action"
 by = "agent"
 date = 2026-11-17
-status = "active"
+status = "superseded"
+superseded_by = "ORCH-694"
 rule = "For ORCH-664; generalises the changed-files rule (L39). When a step's worker acted on a page or an app (its last acting call with a tab, site or app), the check's met on an outcome or external condition whose \"if\" applied stands only if the check itself made an observation call at that tab, else that site or app, during the check. Else FERB refuses the pass once with the reason (verify.refused with no_look), reruns the check, and then keeps the condition can't tell, never false. A replay of a Python recording is exempt (Daemon::fresh_look_rule, the named difference)."
 why = "With the veto gone, what keeps the checker from waving the worker's words through is a structural fact: which tool ran where and when."
 live = ["LIVE-1147"]
@@ -2375,3 +2376,37 @@ why = "The journal is the supervisor's working state while a turn runs, so those
 evidence = "ferb-supervisor tests/temporary_chat.rs; ferb-rpc golden and phone classes."
 paths = ["engine/crates/ferb-supervisor/src/flow/temporary.rs", "engine/crates/ferb-supervisor/src/flow/chat_rpc.rs", "engine/crates/ferb-memory/src/search.rs", "engine/crates/ferb-store/src/task_results.rs", "engine/crates/ferb-rpc/src/classes.rs"]
 live = ["LIVE-1194"]
+
+[ORCH-694]
+title = "The check: code's fresh look and no rerun, a 6-call cap, a small call for not-done reports"
+by = "owner"
+date = 2026-11-23
+status = "active"
+words = "they sound good, but are they??? also what exactly changes does this make?? is it a downgrade? / yes / yes ship 2"
+words_source = "Owner 2026-11-23 (relayed): on the checker audit; \"yes\" to building three changes with a replay; then \"yes ship 2\": only no rerun, the 6-lookup cap and the small not-done call, full context kept."
+rule = "Supersedes ORCH-671; refines ORCH-562. The check keeps its full context (every recorded call in full, as before). (1) No full re-check: code takes the fresh look at the last action's tab or app and hands it in as the check's own look; no rerun; a pass with no look is can't tell at once; findings are merged, never replaced (ORCH-696). (2) At most CHECK_CALLS calls of the check's own (ORCH-696). (3) A not-done report after acting goes to one tool-less call choosing retry, ask or fail; ORCH-654's skip stays (ORCH-697). Python recordings' replays keep the old check (lean_check)."
+why = "Audit 11-09..11-23: the no-look rerun repeated its verdict 15 of 16 times and replaced it, dropping findings (c252e651); a not-done report's full check agreed 49 of 50; one check ran 33 model calls. The slimmer context was replayed and parked (T-1303)."
+supersedes = ["ORCH-671"]
+evidence = "ferb-supervisor tests/lean_check.rs; the slim-context replays (parked) in .local/checker-slim-replays.md."
+paths = ["engine/crates/ferb-supervisor/src/flow/attempt.rs::verifier", "engine/crates/ferb-supervisor/src/flow/attempt.rs::judge", "engine/crates/ferb-supervisor/src/flow/mod.rs::lean_check"]
+live = ["LIVE-1187"]
+
+[ORCH-696]
+title = "Code's fresh look before the check, no rerun, a cap of CHECK_CALLS, findings merged"
+by = "agent"
+date = 2026-11-23
+status = "active"
+rule = "For ORCH-694. Code reads the last acting call's place (tab snapshot in its browser family, else the app's mac.snapshot) by probe_read, observe-only, records verify.look and hands the result in as FERB's fresh look, which counts as the check's own look. An outward met with no look, or a met with a changed file's record unopened, is can't tell at once (verify.refused, no rerun). The check's token has max_calls CHECK_CALLS (6, the owner's to confirm: T-1297); past it the gateway refuses and RUN-445's cap ends the run, unconfirmed. A remaining rerun's findings join the first run's."
+why = "The rerun nearly always repeated the verdict and replaced it; a look code takes itself is one read, not a second full check. The runaway check (2bccf5aa: 33 model calls, 26 task.evidence reads) shows a cap must count every call, not only looks."
+paths = ["engine/crates/ferb-supervisor/src/flow/attempt.rs::fresh_look", "engine/crates/ferb-supervisor/src/flow/attempt.rs::no_place_look", "engine/crates/ferb-supervisor/src/flow/attempt.rs::no_file_look", "engine/crates/ferb-supervisor/src/flow/attempt.rs::merged", "engine/crates/ferb-supervisor/src/flow/attempt.rs::CHECK_CALLS", "engine/crates/ferb-gateway/src/admit.rs", "engine/crates/ferb-worker/src/ports.rs::issue_token_capped"]
+live = ["LIVE-1187"]
+
+[ORCH-697]
+title = "A not-done report after acting goes to one tool-less call that chooses retry, ask or fail"
+by = "agent"
+date = 2026-11-23
+status = "active"
+rule = "For ORCH-694. A not-done (not cancelled) report that ORCH-654 doesn't skip goes to one call on the checker's runtime, mode supervisor, no tools, with not_done.md and one block: goal, conditions, the report, its last failed call (redacted), attempt number, CHECK_IN_AFTER, the owner's answers in the step. retry, ask and fail are taken as a check's (ORCH-650 and the check-in hold); a failed or malformed call ends as reported. The full check still runs when FERB's guard stopped the attempt (ORCH-691) or an owner_step fact stands (ORCH-690)."
+why = "The full check agreed with a not-done report 49 times in 50, at about 200k tokens each; what it decided was only whether to retry, ask or stop."
+paths = ["engine/crates/ferb-supervisor/src/flow/attempt.rs::route_not_done", "engine/crates/ferb-supervisor/src/flow/attempt.rs::last_failed_call", "engine/runtime/orchestrator/prompts/not_done.md"]
+live = ["LIVE-1187"]

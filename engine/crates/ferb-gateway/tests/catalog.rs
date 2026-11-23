@@ -445,3 +445,63 @@ fn the_device_facts_are_a_planner_lookup_and_a_workers_tool() {
         .is_ok());
     }
 }
+
+/// ORCH-696: a check's grant (observe-only, no tool list) with its cap admits CHECK_CALLS calls and refuses the next
+/// with the check's own words (give the verdict from what it has; a condition it couldn't confirm is null); the
+/// planner's lookups keep theirs. Every call counts, opened records as much as looks.
+// decision: ORCH-696
+#[test]
+fn a_checks_calls_past_its_cap_are_refused_with_the_checks_words() {
+    let r = registry();
+    let grant = |tools: &[&str]| RunGrant {
+        task_id: "t".into(),
+        worker_id: "w".into(),
+        scopes: ["task:read", "browser:read"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
+        identity: Identity::Owner,
+        expires_at: 1e9,
+        observe_only: true,
+        tools: tools.iter().map(|s| s.to_string()).collect(),
+        max_calls: 6,
+    };
+    let check = grant(&[]);
+    for name in ["task.evidence", "browser.snapshot"] {
+        let tool = r.get(name).unwrap();
+        for made in 0..6 {
+            assert!(ferb_gateway::admit::admit(
+                &check,
+                Some(tool.as_ref()),
+                name,
+                false,
+                true,
+                made
+            )
+            .is_ok());
+        }
+        let refused = ferb_gateway::admit::admit(&check, Some(tool.as_ref()), name, false, true, 6)
+            .unwrap_err();
+        assert!(refused.over_cap);
+        assert_eq!(
+            refused.content["error"],
+            "this check has made its 6 calls: give your verdict now from what you have; a condition you couldn't \
+             confirm is met: null"
+        );
+    }
+    let planner = grant(&ferb_orchestrator::lookups::PLANNER_TOOLS);
+    let tool = r.get("task.evidence").unwrap();
+    let refused = ferb_gateway::admit::admit(
+        &planner,
+        Some(tool.as_ref()),
+        "task.evidence",
+        false,
+        true,
+        6,
+    )
+    .unwrap_err();
+    assert!(refused.content["error"]
+        .as_str()
+        .unwrap()
+        .starts_with("this turn has made its 6 lookups"));
+}

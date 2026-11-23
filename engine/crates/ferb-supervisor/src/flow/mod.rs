@@ -144,6 +144,13 @@ pub trait Daemon: Send + Sync {
     fn fresh_look_rule(&self) -> bool {
         true
     }
+    /// ORCH-694: whether the check runs as the owner chose on 2026-11-23 (true): code's own look at the place of the
+    /// step's last action and no rerun, at most CHECK_CALLS calls of its own (ORCH-696), and a not-done report after
+    /// acting routed by one call without tools (ORCH-697). A replay of a Python recording, whose checker was rerun and
+    /// judged every report, says false (the named difference).
+    fn lean_check(&self) -> bool {
+        true
+    }
     /// GATE-609: whether the words typed in a safety check's box are read by the planner for the sites they name
     /// (true). A replay of a Python recording, whose card replies reached the task with no planner call, says false
     /// (the named difference).
@@ -941,6 +948,9 @@ pub struct TreeState {
     /// ORCH-679: the owner said "keep trying" to the step's question: it isn't asked again in this step (the 5-attempt
     /// check-in governs).
     pub kept_trying: bool,
+    /// ORCH-697: the guard's stop (ORCH-691) was read before a not-done report was routed, so the full check that
+    /// runs instead still sees it.
+    pub stuck_taken: bool,
 }
 
 /// ORCH-652: one stated condition a check accepted as not done, with what code shows the owner.

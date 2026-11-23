@@ -31,6 +31,10 @@ const RUNTIME_DOWN: &str = "_RuntimeDown";
 const NOT_REPORTED_DONE: &str = "the worker didn't report done";
 /// ORCH-679: the choice code puts in place of the checker's when the rule asks the owner.
 pub const KEEP_OR_GO_ON: &str = "keep_or_go_on";
+/// ORCH-696: the most tool calls a check makes of its own (looks and opened records alike); the gateway refuses the
+/// ones after, and the check gives its verdict from what it has or ends unconfirmed. FERB's proposal, the owner's
+/// number to confirm.
+pub const CHECK_CALLS: usize = 6;
 
 fn obj(v: Value) -> Map<String, Value> {
     match v {
@@ -548,6 +552,7 @@ impl Inner {
                         effort: None,
                         roles,
                         observe_only: false,
+                        max_calls: None,
                     },
                 )
                 .await
@@ -1110,6 +1115,20 @@ impl Inner {
             next.reason = reason;
             return Ok(next);
         }
+        if out.status != OutcomeStatus::Done
+            && out.status != OutcomeStatus::Cancelled
+            && self.deps.daemon.lean_check()
+        {
+            // ORCH-697: a not-done report after acting: one call without tools decides retry, ask or fail; the full
+            // check still runs when FERB's guard stopped the attempt (ORCH-691) or the owner's own step stands
+            // (ORCH-690), whose question comes from the check
+            let stuck = self.deps.daemon.take_stuck(&tree.worker_task().id);
+            if stuck {
+                tree.lock().stuck_taken = true;
+            } else if !self.owner_step_stands(tree) {
+                return Ok(self.route_not_done(tree, out, span).await);
+            }
+        }
         if out.status == OutcomeStatus::Done {
             let skip = self.look_only(tree);
             if !skip.is_empty() {
@@ -1187,6 +1206,208 @@ impl Inner {
         Ok(self.next(tree, out, &verdict))
     }
 
+    /// ORCH-697: the not-done router: one model call with no tools and a small context (the step's goal and
+    /// conditions, the worker's report, its last failed call, the attempts so far and the owner's answers in this step)
+    /// chooses retry, ask or fail, which the attempt loop takes as it takes a check's (the check-in after
+    /// CHECK_IN_AFTER failed attempts included). A call that fails or answers out of form ends the step as the worker
+    /// reported, as ORCH-654's skip does.
+    async fn route_not_done(&self, tree: &Arc<Tree>, out: &Outcome, span: &str) -> Next {
+        let task = tree.worker_task();
+        let (goal, conditions, reason, question, answer, attempt, since) = {
+            let st = tree.lock();
+            let spec = st.spec.clone().expect("a spec");
+            (
+                spec.goal.clone(),
+                spec.success_conditions
+                    .iter()
+                    .map(|c| c.text.clone())
+                    .collect::<Vec<_>>(),
+                st.reason.clone(),
+                st.worker_question.clone(),
+                st.owner_answer.clone(),
+                st.attempt,
+                st.calls_since,
+            )
+        };
+        let failed_call = self.last_failed_call(&task.id, since);
+        let answers = self.step_answers(&tree.id, &tree.step_id);
+        let report = json!({
+            "goal": goal,
+            "conditions": conditions,
+            "worker_report": {"status": "not_done", "reason": reason, "question": question,
+                              "answer": answer, "summary": out.summary},
+            "last_failed_call": failed_call,
+            "attempt": attempt,
+            "check_in_after": ferb_orchestrator::attempts::CHECK_IN_AFTER,
+            "owner_answers_in_this_step": answers,
+        });
+        let shown = self.redact(&report);
+        let blocks = vec![ContextBlock {
+            protected: true,
+            origin: origin::INFERRED.into(),
+            ..ContextBlock::new(
+                format!(
+                    "{ROUTED_REPORT}\n{}",
+                    self.wrap(&ferb_py::json::dumps_utf8(&shown))
+                ),
+                "not-done report",
+            )
+        }];
+        let routed = self.span_start(
+            "verify.routed",
+            Some(&task.id),
+            Some(span),
+            None,
+            json!({"attempt": attempt,
+                   "last_failed_call": failed_call.get("tool").cloned().unwrap_or(Value::Null)}),
+        );
+        let fallback = |why: &str| {
+            self.span_finish(&routed, None, Some(why), None, None);
+            let mut next = Next::of("fail");
+            next.reason = reason.clone();
+            next
+        };
+        let schema = router_schema();
+        let runtime = ferb_worker::ports::WorkerTree::runtime(tree.as_ref());
+        let role = if runtime.is_empty() {
+            "checker".to_string()
+        } else {
+            format!("checker:{runtime}")
+        };
+        let rt = match self
+            .deps
+            .daemon
+            .make_runtime(&role, "supervisor", &[], &schema, None)
+        {
+            Ok(rt) => rt,
+            Err(e) => return fallback(&e.class()),
+        };
+        let rtask = Task {
+            id: format!("{}.route", task.id),
+            parent_id: Some(task.id.clone()),
+            goal: "route a not-done report".into(),
+            device_id: self.deps.device_id.clone(),
+            identity: task.identity,
+            scopes: BTreeSet::new(),
+            role: TaskRole::Verifier,
+            request_id: task.request_id.clone(),
+            success_conditions: Vec::new(),
+            deadline: task.deadline,
+        };
+        let worker = self.worker.get().expect("the worker").clone();
+        let call = ferb_worker::worker::Call {
+            task: &rtask,
+            system: self.system_for("not_done.md", false, &[]),
+            context: blocks,
+            token: "",
+            parent_span: &routed,
+            tree: None,
+            worker_id: "",
+            images: Vec::new(),
+            hooks: Default::default(),
+            retry_silent: true,
+        };
+        let text = match worker.run_call(&rt, call).await {
+            Ok(t) => t,
+            Err(e) => return fallback(&e.class()),
+        };
+        let Ok(Value::Object(got)) = serde_json::from_str::<Value>(&text) else {
+            return fallback("the answer is not a JSON object");
+        };
+        let field = |k: &str| {
+            got.get(k)
+                .and_then(Value::as_str)
+                .map(|t| t.trim().to_string())
+                .unwrap_or_default()
+        };
+        let next = match field("next").as_str() {
+            "retry" => {
+                let mut next = Next::of("retry");
+                next.missing = field("missing");
+                next.instructions = [field("instructions"), next.missing.clone(), reason.clone()]
+                    .into_iter()
+                    .find(|s| !s.is_empty())
+                    .unwrap_or_default();
+                next
+            }
+            "ask" if !field("question").is_empty() => {
+                let mut next = Next::of("ask");
+                next.question = field("question");
+                next.missing = field("missing");
+                next
+            }
+            "fail" => {
+                let mut next = Next::of("fail");
+                next.reason = if reason.is_empty() {
+                    field("reason")
+                } else {
+                    reason.clone()
+                };
+                next
+            }
+            _ => return fallback("no retry, ask or fail in the answer"),
+        };
+        self.span_finish(
+            &routed,
+            Some(json!({"next": next.action, "missing": next.missing, "instructions": next.instructions,
+                        "question": next.question, "reason": field("reason")})),
+            None,
+            None,
+            None,
+        );
+        next
+    }
+
+    /// ORCH-697: the step's last call that failed (an error, or a result saying `error`), as the router reads it:
+    /// tool, kind, target and the error, redacted; null when none failed.
+    fn last_failed_call(&self, task_id: &str, since: i64) -> Value {
+        let rows = {
+            let db = self.db();
+            ferb_orchestrator::sql::rows(
+                db.conn(),
+                "SELECT input_json, output_json, error FROM spans WHERE task_id = ? AND kind = 'tool.call' AND rowid > ? \
+                 ORDER BY rowid DESC",
+                &[
+                    rusqlite::types::Value::Text(task_id.into()),
+                    rusqlite::types::Value::Integer(since),
+                ],
+            )
+            .unwrap_or_default()
+        };
+        for row in rows {
+            let load = |k: &str| {
+                row.get(k)
+                    .and_then(Value::as_str)
+                    .and_then(|t| ferb_py::json::loads(t).ok())
+                    .unwrap_or(Value::Null)
+            };
+            let call = load("input_json");
+            let tool = call
+                .get("tool")
+                .map(ferb_py::value::py_str)
+                .unwrap_or_default();
+            if ferb_orchestrator::evidence::CONTEXT_READS.contains(&tool.as_str()) {
+                continue;
+            }
+            let said = row
+                .get("error")
+                .filter(|e| ferb_py::value::truthy(e))
+                .cloned()
+                .or_else(|| {
+                    load("output_json")
+                        .get("error")
+                        .filter(|e| ferb_py::value::truthy(e))
+                        .cloned()
+                });
+            if let Some(error) = said {
+                let error: String = ferb_py::value::py_str(&error).chars().take(1000).collect();
+                return self.redact(&json!({"tool": tool, "kind": call.get("kind"),
+                    "target": call.get("target"), "error": error}));
+            }
+        }
+        Value::Null
+    }
+
     /// supervisor.py:6643 `_found`.
     fn found(&self, tree: &Arc<Tree>, r: &ConditionResult) -> String {
         let said = self.owner_text(tree, r);
@@ -1225,8 +1446,10 @@ impl Inner {
             .filter(|r| r.index < planned)
             .collect();
         let mut action = checked.next.clone();
-        // ORCH-691: whether FERB's guard stopped this attempt (read once, whatever the check chose)
-        let stuck = self.deps.daemon.take_stuck(&tree.worker_task().id);
+        // ORCH-691: whether FERB's guard stopped this attempt (read once, whatever the check chose; ORCH-697 may have
+        // read it before routing)
+        let stuck = self.deps.daemon.take_stuck(&tree.worker_task().id)
+            || std::mem::take(&mut tree.lock().stuck_taken);
         let verified = planned > 0
             && outcomes.len() as i64 == planned
             && outcomes.iter().all(|r| r.met == Some(true));
@@ -1964,6 +2187,8 @@ impl Inner {
         let mut reads = reads;
         reads.began = began.as_ref().map(|b| b.0.clone());
         let report = worker_context::verifier_report(&reads, &|t| self.wrap(t));
+        // ORCH-694: the owner's check (code's look, no rerun, a cap); a Python recording's replay keeps its own
+        let lean = self.deps.daemon.lean_check();
         let mut context = self.context(tree, false).await?;
         // ORCH-655: what changes between checks of one step comes after what doesn't, so a later check's first call
         // can reuse the earlier one's cached prefix: the previous attempts' block goes last among the task's blocks
@@ -2048,6 +2273,20 @@ impl Inner {
                 })
                 .unwrap_or(0)
         };
+        // ORCH-696: code takes the fresh look at the place of the step's last action itself, through the observe-only
+        // probe path, and hands it in; it counts as the check's own look (ORCH-671's rule without its rerun)
+        let acted_at = self.last_action_at(tree, task);
+        let code_looked = match acted_at.as_ref().filter(|_| lean) {
+            Some(at) => match self.fresh_look(task, &vtask, at, span).await {
+                Some(block) => {
+                    ctx.push(block.clone());
+                    plain.push(block);
+                    true
+                }
+                None => false,
+            },
+            None => false,
+        };
         let checked = self
             .check(
                 tree,
@@ -2069,7 +2308,14 @@ impl Inner {
             .filter(|r| r.met.is_some())
             .filter_map(|r| r.index.as_i64())
             .collect();
-        if !changed.records.is_empty() && verdict.results.iter().any(|r| r.met == Some(true)) {
+        if lean && !changed.records.is_empty() {
+            // ORCH-696: no rerun: a met on a step that changed files stands only when the check opened each record
+            let unread = self.unread(&vtask.id, cursor, &changed.records);
+            if !unread.is_empty() && verdict.results.iter().any(|r| r.met == Some(true)) {
+                self.no_file_look(&vtask.id, span, &unread, &mut verdict);
+            }
+        } else if !changed.records.is_empty() && verdict.results.iter().any(|r| r.met == Some(true))
+        {
             let unread = self.unread(&vtask.id, cursor, &changed.records);
             if !unread.is_empty() {
                 let refused = self.span_start(
@@ -2114,7 +2360,8 @@ impl Inner {
                     .await?
                 {
                     Checked::Unchecked(results) => return Ok((results, None)),
-                    Checked::Verdict(v) => verdict = *v,
+                    // the rerun's findings join the first run's: a finding is never dropped (ORCH-696, task c252e651)
+                    Checked::Verdict(v) => verdict = merged(&verdict, *v),
                 }
                 tree.lock().checker_judged = verdict
                     .results
@@ -2125,36 +2372,7 @@ impl Inner {
                 if verdict.results.iter().any(|r| r.met == Some(true)) {
                     let unread = self.unread(&vtask.id, cursor, &changed.records);
                     if !unread.is_empty() {
-                        let again = self.span_start(
-                            "verify.refused",
-                            Some(&vtask.id),
-                            Some(span),
-                            None,
-                            json!({"unread": unread}),
-                        );
-                        self.span_finish(
-                            &again,
-                            Some(json!({"result": "met=null: a pass without a look is never a pass"})),
-                            None,
-                            None,
-                            None,
-                        );
-                        let shown = unread
-                            .iter()
-                            .map(|p| ferb_fs::changes::shown(p, &self.deps.home))
-                            .collect::<Vec<_>>()
-                            .join(", ");
-                        for r in verdict.results.iter_mut() {
-                            if r.met == Some(true) {
-                                r.met = None;
-                                r.evidence = format!(
-                                    "{} {}",
-                                    NO_LOOK.replace("{files}", &shown),
-                                    r.evidence
-                                );
-                                r.how = Some(NO_LOOK_HOW.replace("{files}", &shown));
-                            }
-                        }
+                        self.no_file_look(&vtask.id, span, &unread, &mut verdict);
                     }
                 }
             }
@@ -2162,7 +2380,7 @@ impl Inner {
         // ORCH-671: no look, no pass, for pages and apps too: a met on an outward condition stands only with a look of
         // the check's own at the tab, app or site of the step's last action; once refused with the reason, then
         // can't tell, never false
-        if let Some(at) = self.last_action_at(tree, task) {
+        if let Some(at) = acted_at {
             let outward = |i: i64| {
                 judged
                     .iter()
@@ -2174,7 +2392,13 @@ impl Inner {
                     r.met == Some(true) && r.applies && r.index.as_i64().is_some_and(outward)
                 })
             };
-            if needs(&verdict) && !self.looked_at(&vtask.id, cursor, &at) {
+            let unlooked = |v: &CheckerOutcome| {
+                needs(v) && !code_looked && !self.looked_at(&vtask.id, cursor, &at)
+            };
+            if lean && unlooked(&verdict) {
+                // ORCH-696: no rerun: code's look failed and the check made none of its own, so the pass is can't tell
+                self.no_place_look(&vtask.id, span, &at, &outward, &mut verdict);
+            } else if unlooked(&verdict) {
                 let refused = self.span_start(
                     "verify.refused",
                     Some(&vtask.id),
@@ -2202,7 +2426,8 @@ impl Inner {
                     .await?
                 {
                     Checked::Unchecked(results) => return Ok((results, None)),
-                    Checked::Verdict(v) => verdict = *v,
+                    // the rerun's findings join the first run's: a finding is never dropped (ORCH-696, task c252e651)
+                    Checked::Verdict(v) => verdict = merged(&verdict, *v),
                 }
                 tree.lock().checker_judged = verdict
                     .results
@@ -2210,29 +2435,8 @@ impl Inner {
                     .filter(|r| r.met.is_some())
                     .filter_map(|r| r.index.as_i64())
                     .collect();
-                if needs(&verdict) && !self.looked_at(&vtask.id, cursor, &at) {
-                    let again = self.span_start(
-                        "verify.refused",
-                        Some(&vtask.id),
-                        Some(span),
-                        None,
-                        json!({"no_look": at.said}),
-                    );
-                    self.span_finish(
-                        &again,
-                        Some(json!({"result": "met=null: a pass without a look is never a pass"})),
-                        None,
-                        None,
-                        None,
-                    );
-                    for r in verdict.results.iter_mut() {
-                        if r.met == Some(true) && r.applies && r.index.as_i64().is_some_and(outward)
-                        {
-                            r.met = None;
-                            r.evidence =
-                                format!("{} {}", crate::endings::no_look_at(&at.said), r.evidence);
-                        }
-                    }
+                if unlooked(&verdict) {
+                    self.no_place_look(&vtask.id, span, &at, &outward, &mut verdict);
                 }
             }
         }
@@ -2371,6 +2575,147 @@ impl Inner {
         })
     }
 
+    /// ORCH-696: code's own look at the place of the step's last action, through the gateway's observe-only probe path
+    /// under the step's task, recorded as `verify.look` on the check: the block handed to the check, or None when there
+    /// is no place to read or the read failed (the check then looks itself, or its pass is can't tell).
+    async fn fresh_look(
+        &self,
+        task: &Task,
+        vtask: &Task,
+        at: &ActedAt,
+        span: &str,
+    ) -> Option<ContextBlock> {
+        let (tool, args) = at.look()?;
+        let rec = self.span_start(
+            "verify.look",
+            Some(&vtask.id),
+            Some(span),
+            None,
+            json!({"tool": tool, "args": Value::Object(args.clone()), "at": at.said}),
+        );
+        let read = self
+            .deps
+            .daemon
+            .probe_read(
+                &task.id,
+                &format!("{}.look", vtask.id),
+                &task.scopes,
+                task.identity.as_str(),
+                &tool,
+                &args,
+                &rec,
+            )
+            .await;
+        let got = match read {
+            Ok(got) if !got.get("is_error").is_some_and(ferb_py::value::truthy) => got,
+            Ok(got) => {
+                let error = ferb_py::value::py_str(&got["content"]["error"]);
+                self.span_finish(&rec, None, Some(&self.redact_text(&error)), None, None);
+                return None;
+            }
+            Err(e) => {
+                self.span_finish(&rec, None, Some(&self.redact_text(&e)), None, None);
+                return None;
+            }
+        };
+        let origins: Vec<String> = got
+            .get("origins")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().map(ferb_py::value::py_str).collect())
+            .unwrap_or_default();
+        let made = if origins.is_empty() {
+            origin::FERB.to_string()
+        } else {
+            origin::join(origins.iter().map(String::as_str))
+        };
+        let content = got.get("content").cloned().unwrap_or(Value::Null);
+        let total = ferb_py::json::dumps_utf8(&content).chars().count();
+        self.span_finish(
+            &rec,
+            Some(json!({"ok": true, "chars": total})),
+            None,
+            Some(&made),
+            None,
+        );
+        let redactor = self.deps.redactor.clone();
+        let redact: ferb_orchestrator::ports::Redact = Arc::new(move |v: &Value| redactor.value(v));
+        let wrap = self.deps.wrap.clone();
+        let wrap: ferb_orchestrator::ports::Wrap = Arc::new(move |t: &str| wrap(t));
+        let when = ferb_clock::py::iso(&self.deps.clock.now());
+        let mut block = ferb_orchestrator::evidence::fresh_look_block(
+            &at.said, &tool, &when, &content, &redact, &wrap,
+        );
+        block.origin = made;
+        Some(block)
+    }
+
+    /// L39 without a rerun (ORCH-696): each met is can't tell, naming the changed files the check didn't open.
+    fn no_file_look(
+        &self,
+        check_id: &str,
+        span: &str,
+        unread: &[String],
+        verdict: &mut CheckerOutcome,
+    ) {
+        let again = self.span_start(
+            "verify.refused",
+            Some(check_id),
+            Some(span),
+            None,
+            json!({"unread": unread}),
+        );
+        self.span_finish(
+            &again,
+            Some(json!({"result": "met=null: a pass without a look is never a pass"})),
+            None,
+            None,
+            None,
+        );
+        let shown = unread
+            .iter()
+            .map(|p| ferb_fs::changes::shown(p, &self.deps.home))
+            .collect::<Vec<_>>()
+            .join(", ");
+        for r in verdict.results.iter_mut() {
+            if r.met == Some(true) {
+                r.met = None;
+                r.evidence = format!("{} {}", NO_LOOK.replace("{files}", &shown), r.evidence);
+                r.how = Some(NO_LOOK_HOW.replace("{files}", &shown));
+            }
+        }
+    }
+
+    /// ORCH-671's rule without a rerun (ORCH-696): an outward met with no look at the place is can't tell, never false.
+    fn no_place_look(
+        &self,
+        check_id: &str,
+        span: &str,
+        at: &ActedAt,
+        outward: &dyn Fn(i64) -> bool,
+        verdict: &mut CheckerOutcome,
+    ) {
+        let again = self.span_start(
+            "verify.refused",
+            Some(check_id),
+            Some(span),
+            None,
+            json!({"no_look": at.said}),
+        );
+        self.span_finish(
+            &again,
+            Some(json!({"result": "met=null: a pass without a look is never a pass"})),
+            None,
+            None,
+            None,
+        );
+        for r in verdict.results.iter_mut() {
+            if r.met == Some(true) && r.applies && r.index.as_i64().is_some_and(outward) {
+                r.met = None;
+                r.evidence = format!("{} {}", crate::endings::no_look_at(&at.said), r.evidence);
+            }
+        }
+    }
+
     /// supervisor.py:7234 `_code_facts`.
     fn code_facts(&self, task: &Task, since: i64) -> ContextBlock {
         let facts = {
@@ -2400,6 +2745,7 @@ impl Inner {
             effort: effort.clone(),
             roles: Vec::new(),
             observe_only: false,
+            max_calls: self.deps.daemon.lean_check().then_some(CHECK_CALLS),
         };
         let ran = worker
             .run_worker(&wtree, vtask, "verifier.md", ctx, &schema, span, &options)
@@ -2972,6 +3318,7 @@ impl Inner {
                     effort: None,
                     roles: vec!["fix".into()],
                     observe_only: true,
+                    max_calls: None,
                 },
             )
             .await;
@@ -3133,6 +3480,10 @@ struct ActedAt {
     tab: Option<String>,
     site: Option<String>,
     said: String,
+    /// The acting call's tool, its app and window arguments (ORCH-696: what code's own look reads).
+    tool: String,
+    app: Option<String>,
+    window: Option<String>,
 }
 
 impl ActedAt {
@@ -3143,14 +3494,59 @@ impl ActedAt {
         };
         let tab = text(call.get("args").and_then(|a| a.get("tab")));
         let site = text(call.get("target").and_then(|t| t.get("site")));
+        let tool = text(call.get("tool")).unwrap_or_default();
+        let app = text(call.get("args").and_then(|a| a.get("app")));
+        let window = text(call.get("args").and_then(|a| a.get("window")));
         let said = match (&tab, &site) {
             (Some(t), Some(s)) => format!("tab {t} on {s}"),
             (Some(t), None) => format!("tab {t}"),
             (None, Some(s)) => s.clone(),
             (None, None) => String::new(),
         };
-        ActedAt { tab, site, said }
+        ActedAt {
+            tab,
+            site,
+            said,
+            tool,
+            app,
+            window,
+        }
     }
+
+    /// ORCH-696: the observe-only read of this place that code takes for the check: the tab's snapshot with the same
+    /// browser family's tool, or the app window's snapshot; None when the call names neither.
+    fn look(&self) -> Option<(String, Map<String, Value>)> {
+        let family = self.tool.split('.').next().unwrap_or("");
+        if let Some(tab) = &self.tab {
+            let tool = if family == "ferb_browser" {
+                "ferb_browser.snapshot"
+            } else {
+                "browser.snapshot"
+            };
+            return Some((tool.into(), obj(json!({"tab": tab}))));
+        }
+        if family == "mac" {
+            let app = self.app.clone().or_else(|| self.site.clone())?;
+            let mut args = obj(json!({"app": app}));
+            if let Some(w) = &self.window {
+                args.insert("window".into(), json!(w));
+            }
+            return Some(("mac.snapshot".into(), args));
+        }
+        None
+    }
+}
+
+/// A check's verdict after a rerun with the first run's findings kept: the rerun's results and choice, its findings
+/// and then each of the first run's whose quoted sentence it didn't repeat (ORCH-696: findings are merged, never
+/// replaced).
+fn merged(first: &CheckerOutcome, mut again: CheckerOutcome) -> CheckerOutcome {
+    for f in &first.findings {
+        if !again.findings.iter().any(|g| g.quote == f.quote) {
+            again.findings.push(f.clone());
+        }
+    }
+    again
 }
 
 /// A site or app as compared for a look: lowercased, without a leading "www.".
@@ -3213,4 +3609,20 @@ pub fn saved_results(v: Option<&Value>, planned: i64) -> Flow<Vec<ConditionResul
         );
     }
     Ok(out)
+}
+
+/// ORCH-697: the not-done router's answer: next (retry, ask or fail), what is missing, the next attempt's
+/// instructions, the owner's question and a reason for FERB's record; every field required (OpenAI's strict form).
+fn router_schema() -> Value {
+    use ferb_context::schemas::obj;
+    obj(vec![
+        (
+            "next",
+            json!({"type": "string", "enum": ["retry", "ask", "fail"]}),
+        ),
+        ("missing", json!({"type": "string"})),
+        ("instructions", json!({"type": "string"})),
+        ("question", json!({"type": "string"})),
+        ("reason", json!({"type": "string"})),
+    ])
 }

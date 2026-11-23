@@ -304,7 +304,7 @@ fn looks_at(w: &World, tab: &str, site: &str, from: usize) {
 /// The live case of 2026-11-16: code has no verdict for the window route; the check looked at Chrome after the last
 /// action there and confirmed both conditions: the task is done and verified, the owner reads the worker's answer,
 /// the Sent card stands beside it.
-// decision: ORCH-664, ORCH-666, ORCH-671
+// decision: ORCH-664, ORCH-666, ORCH-694
 #[test]
 fn work_done_through_the_window_and_confirmed_by_the_check_ends_done() {
     let name = "one_step_task";
@@ -363,7 +363,7 @@ fn work_done_through_the_window_and_confirmed_by_the_check_ends_done() {
 /// The Goibibo case rebuilt from its trace (d05e8354): a script button pressed with plain clicks, the check's fresh
 /// look at the same tab says the refund was processed. Code has no proof either way, so the page decides: the task
 /// ends done, verified, with the worker's answer shown, and no line about forms.
-// decision: ORCH-664, ORCH-665, ORCH-671, ORCH-672, ORCH-309
+// decision: ORCH-664, ORCH-665, ORCH-694, ORCH-672, ORCH-309
 #[test]
 fn a_script_button_confirmed_on_the_page_ends_done_with_the_answer() {
     let name = "one_step_task";
@@ -405,10 +405,11 @@ fn a_script_button_confirmed_on_the_page_ends_done_with_the_answer() {
     );
 }
 
-/// ORCH-671: the same task, but the check never looks at the tab after the last click: FERB refuses its pass once with
-/// the reason, and when the second check doesn't look either, the condition is can't tell, never false: done but
+/// ORCH-671's rule as the Python recordings' path still runs it (ORCH-694's named difference; the owner's check, with
+/// no rerun, is tests/lean_check.rs): the same task, but the check never looks at the tab after the last click: FERB
+/// refuses its pass once with the reason, and when the second check doesn't look either, the condition is can't tell, never false: done but
 /// unconfirmed, with ORCH-607's line and the worker's answer.
-// decision: ORCH-671, ORCH-607, PRM-360
+// decision: ORCH-694, ORCH-607, PRM-360
 #[test]
 fn a_pass_without_a_fresh_look_is_cant_tell_not_false() {
     let name = "one_step_task";
@@ -444,8 +445,9 @@ fn a_pass_without_a_fresh_look_is_cant_tell_not_false() {
         .contains("FERB refused this check's pass: the step's last action was on tab t21"));
 }
 
-/// ORCH-671: refused once, the second check looks at the tab: its pass stands.
-// decision: ORCH-671
+/// ORCH-671's rule on the Python recordings' path (ORCH-694's named difference): refused once, the second check looks
+/// at the tab: its pass stands.
+// decision: ORCH-694
 #[test]
 fn a_check_that_looks_after_the_refusal_passes() {
     let name = "one_step_task";

@@ -291,6 +291,9 @@ span_id), then judge every condition again; give met=true only for what you saw.
 pub const NO_LOOK: &str =
     "The check marked this met without reading the files this step changed ({files}), so it isn't a pass.";
 pub const NO_LOOK_HOW: &str = "Open {files} and check the change yourself.";
+/// ORCH-697: what the not-done router reads, as code writes it.
+pub const ROUTED_REPORT: &str =
+    "The worker's attempt at this step ended not done. Choose what FERB does next.";
 pub const NEEDS_ANSWER: &str = "I need your answer to finish this task.";
 pub const OPEN_QUESTION: &str =
     "Layer 5 — FERB's question in this chat, still open (set answers_question true only \

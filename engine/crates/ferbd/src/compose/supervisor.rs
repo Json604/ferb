@@ -67,6 +67,11 @@ pub trait Reads: Send + Sync {
     fn checks_unacted_not_done(&self) -> bool {
         false
     }
+    /// ORCH-694's named difference: a replay of a Python recording (the stand-ins' script) checks as Python did (the
+    /// reruns, a check of every not-done report).
+    fn lean_check(&self) -> bool {
+        true
+    }
     /// GATE-609's named difference: a replay of a Python recording (the stand-ins' script) reads no card reply with
     /// the planner.
     fn reads_card_replies(&self) -> bool {
@@ -705,6 +710,9 @@ impl Daemon for SupDaemon {
     }
     fn checks_unacted_not_done(&self) -> bool {
         self.reads.checks_unacted_not_done()
+    }
+    fn lean_check(&self) -> bool {
+        self.reads.lean_check()
     }
     fn reads_card_replies(&self) -> bool {
         self.reads.reads_card_replies()

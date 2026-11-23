@@ -265,6 +265,7 @@ async fn worker_runs_match_python() {
                     .get("observe_only")
                     .and_then(Value::as_bool)
                     .unwrap_or(false),
+                max_calls: None,
             };
             let (result, worker_id) = worker
                 .run_worker(
@@ -768,6 +769,7 @@ async fn a_paused_run_ends_as_paused_never_as_a_failure() {
                 effort: None,
                 roles: Vec::new(),
                 observe_only: false,
+                max_calls: None,
             },
         )
         .await

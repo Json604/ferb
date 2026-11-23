@@ -7,7 +7,7 @@ use serde_json::{json, Map, Value};
 
 use crate::listing::{identity, observes};
 use crate::tool::Tool;
-use crate::words::{fill, CHECKER_READ_ONLY, LOOKUPS_SPENT};
+use crate::words::{fill, CHECKER_READ_ONLY, CHECK_CALLS_SPENT, LOOKUPS_SPENT};
 
 /// Why a call isn't admitted: the reply's content, whether its footer names FERB as the origin, and the reason a
 /// small `tool.refused` span records (None: no span, the task isn't running or was stopped).
@@ -90,10 +90,14 @@ pub fn admit(
         });
     }
     if grant.max_calls > 0 && made >= grant.max_calls {
+        // the planner's lookups name their tools; a check's cap (ORCH-696) is the one grant with a cap and no list
+        let spent = if grant.tools.is_empty() {
+            CHECK_CALLS_SPENT
+        } else {
+            LOOKUPS_SPENT
+        };
         return Err(Refusal {
-            content: obj(
-                json!({"error": fill(LOOKUPS_SPENT, &[("n", &grant.max_calls.to_string())])}),
-            ),
+            content: obj(json!({"error": fill(spent, &[("n", &grant.max_calls.to_string())])})),
             ferb_origin: true,
             span_reason: Some(format!("over the grant's {} calls", grant.max_calls)),
             over_cap: true,

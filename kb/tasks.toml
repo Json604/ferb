@@ -1079,3 +1079,22 @@ status = "open"
 why = "HAND-693 reads tmux, Terminal by tty and a terminal app's one text area by Accessibility. xterm.js shows its rows only in screen-reader mode, so an editor's terminal says no_text; iTerm2 has a scripting read by tty (contents of session) not built; Warp, Ghostty, kitty and WezTerm unchecked."
 decisions = ["HAND-693"]
 after = []
+
+[T-1297]
+title = "Confirm the check's cap on its own calls (CHECK_CALLS = 6)"
+area = "orchestration"
+kind = "question"
+status = "open"
+why = "ORCH-696: a check makes at most 6 tool calls of its own; past them the gateway refuses and the check decides from what it has or ends unconfirmed. 6 is FERB's proposal: most audited checks made 1-2 observations; the runaway made 26 record reads."
+decisions = ["ORCH-696"]
+after = []
+ask = "A check now makes at most 6 calls of its own (looking at a page or opening a recorded result); after that it decides from what it has, or says it couldn't confirm. Keep 6, or another number?"
+
+[T-1303]
+title = "Slim checker context (parked): index, claims beside evidence, coverage, per-part verdicts"
+area = "orchestration"
+kind = "build"
+status = "blocked"
+why = "Built and replayed on Sonnet (patch .local/checker-slim.patch, tables .local/checker-slim-replays.md): -61% context; missed 7edd twice, 455bfe materials and d83a 1 of 2. Next: the same 4 cases twice on Codex, then decide."
+decisions = ["ORCH-694"]
+after = []

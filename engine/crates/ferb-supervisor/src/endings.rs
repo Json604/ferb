@@ -2,7 +2,7 @@
 //! of the 2026-11-17 redesign), written by code from recorded facts only: never model text, never the word "failed"
 //! alone, about FERB and in plain words. The checker-facing lines of the fresh-look rule (ORCH-671) are here too.
 //!
-//! decision: ORCH-672, ORCH-668, ORCH-669, ORCH-671, ORCH-674
+//! decision: ORCH-672, ORCH-668, ORCH-669, ORCH-694, ORCH-674
 
 use ferb_orchestrator::models::Condition;
 use ferb_orchestrator::verify::{ConditionResult, BY_MAC, BY_RECORD, DIFFERENT};

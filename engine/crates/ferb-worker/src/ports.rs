@@ -190,6 +190,22 @@ pub trait WorkerHost: Send + Sync {
         ttl_s: f64,
         observe_only: bool,
     ) -> String;
+    /// ORCH-696: `issue_token` whose grant runs at most `max_calls` tool calls (the check's cap); the gateway refuses
+    /// the ones after and the run's wrong-call cap (RUN-445) ends it. None: no cap, as `issue_token`. The default
+    /// ignores the cap (a host whose gateway counts no calls).
+    #[allow(clippy::too_many_arguments)]
+    fn issue_token_capped(
+        &self,
+        task: &Task,
+        worker_id: &str,
+        scopes: &BTreeSet<String>,
+        identity: Identity,
+        ttl_s: f64,
+        observe_only: bool,
+        _max_calls: Option<usize>,
+    ) -> String {
+        self.issue_token(task, worker_id, scopes, identity, ttl_s, observe_only)
+    }
     /// `tokens.validate(token)`: its grant, or `AuthError`.
     fn validate_token(&self, token: &str) -> Result<Grant, Error>;
     fn revoke_worker(&self, worker_id: &str);

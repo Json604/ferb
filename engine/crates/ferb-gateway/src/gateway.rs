@@ -1241,8 +1241,9 @@ impl Gateway {
         cancel: Cancel,
         caller_left: Left,
     ) -> R<Reply> {
-        // ORCH-557: a planner lookup repeated with the same arguments gets its earlier answer back
-        let same = (grant.max_calls > 0).then(|| {
+        // ORCH-557: a planner lookup repeated with the same arguments gets its earlier answer back (a check's capped
+        // grant, which names no tools, looks again for real: ORCH-696)
+        let same = (grant.max_calls > 0 && !grant.tools.is_empty()).then(|| {
             (
                 grant.worker_id.clone(),
                 name.to_string(),

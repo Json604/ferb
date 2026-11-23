@@ -18,6 +18,10 @@ report what you could not confirm as unknown";
 pub const LOOKUPS_SPENT: &str =
     "this turn has made its {n} lookups: answer from what you have, or make the request \
 a task whose worker can look further";
+/// ORCH-696: a check's call past its cap (a grant with a cap and no tool list).
+pub const CHECK_CALLS_SPENT: &str =
+    "this check has made its {n} calls: give your verdict now from what you have; a condition you couldn't \
+confirm is met: null";
 pub const SAME_LOOKUP: &str =
     "same as your earlier call with these arguments: its result is below; looking again \
 won't change it, so answer from it or try other words";

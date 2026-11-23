@@ -102,6 +102,30 @@
       "prompt": "supervisor.md",
       "old": "- retry: an explicitly requested fresh attempt, or to change a running task's identity or plan steps (they can't\n  change while it runs). A retry inspects the current state first and keeps completed work.\n- A job and its schedule move together",
       "new": "- retry: an explicitly requested fresh attempt, or to change a running task's identity or plan steps (they can't\n  change while it runs). A retry inspects the current state first and keeps completed work. A running task's retry\n  stops its unfinished work and hands the new attempt what that work had read, never a result: say only that.\n- A job and its schedule move together"
+    },
+    {
+      "decision": "PRM-370",
+      "prompt": "verifier.md",
+      "old": "span_id); the files the step changed, with their diffs; the task's existing tabs (reuse them before opening a page); and",
+      "new": "span_id); the files the step changed, with their diffs; FERB's fresh look at the tab or app window of the step's last\naction, taken by code after it; the task's existing tabs (reuse them before opening a page); and"
+    },
+    {
+      "decision": "PRM-370",
+      "prompt": "verifier.md",
+      "old": "what the task still holds and what FERB releases when it ends).\n\nJudging each condition:",
+      "new": "what the task still holds and what FERB releases when it ends).\nYour own tool calls are few (FERB refuses the ones past its cap): open what a condition needs, several records in one\ntask_evidence call, and judge from what you have once they are spent; a condition you couldn't see is met=null.\n\nJudging each condition:"
+    },
+    {
+      "decision": "PRM-370",
+      "prompt": "verifier.md",
+      "old": "- After the step acted on a page or an app, met=true needs your own look at that tab, app or site after its last\n  action; FERB refuses a pass without it. A code fact",
+      "new": "- After the step acted on a page or an app, met=true needs a look at that tab, app or site after its last action:\n  FERB's fresh look counts as yours; without one, look yourself, or the pass is can't tell. A code fact"
+    },
+    {
+      "decision": "PRM-370",
+      "prompt": "verifier.md",
+      "old": "(fs_read, or task_evidence\n  with its span_id; one call may name several); FERB refuses a pass without that look.",
+      "new": "(fs_read, or task_evidence\n  with its span_id; one call may name several); a met without that look is can't tell."
     }
   ]
 }

@@ -12,11 +12,11 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `engine/runtime/identity` | 132 | 9 | 62 |
 | hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extension`, `extension-store` | 240 | 15 | 54 |
 | memory | Memory and memory import | `engine/runtime/memory` | 93 | 9 | 9 |
-| orchestration | Orchestration | `ferb/orchestrator/*.py`, `engine/runtime/decide`, `ferb/clock` | 188 | 10 | 43 |
+| orchestration | Orchestration | `ferb/orchestrator/*.py`, `engine/runtime/decide`, `ferb/clock` | 190 | 12 | 44 |
 | perception | Perception | `ferb/sense` | 27 | 4 | 2 |
 | phone | Phone role, link and phone apps | `apps/android`, `apps/ios`, `engine/patches` | 390 | 14 | 22 |
 | project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `HANDOFF.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `kb`, `tools`, `spikes` | 14 | 8 | 0 |
-| prompts | Prompts and abilities | `engine/runtime/orchestrator/prompts`, `engine/runtime/abilities` | 59 | 5 | 10 |
+| prompts | Prompts and abilities | `engine/runtime/orchestrator/prompts`, `engine/runtime/abilities` | 60 | 5 | 10 |
 | release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 28 | 6 | 5 |
 | runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 63 | 7 | 7 |
 | storage | Storage | `engine/runtime/store` | 36 | 5 | 4 |
@@ -52,6 +52,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 - T-1280 (app): Which moments should FERB check in on (stuck on something, a deadline near, a repeated task, end of day), how often at most, and where (notch, phone, both)?
 - T-1286 (hands): Should a phone's control of a session also end after some idle time (30 minutes was suggested), or only when you lock the phone or let go?
 - T-1296 (memory): When you answer Not sure about something FERB said it would check (a trip, a course), FERB asks again in a week. Is a week right?
+- T-1297 (orchestration): A check now makes at most 6 calls of its own (looking at a page or opening a recorded result); after that it decides from what it has, or says it couldn't confirm. Keep 6, or another number?
 
 ## Terms
 

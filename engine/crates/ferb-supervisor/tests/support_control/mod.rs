@@ -374,6 +374,16 @@ pub struct TestDaemon {
     /// ORCH-654's named difference: a Python recording ran its checker on every report (true); a test turns it off
     /// to run FERB's own skip.
     pub checks_every_report: AtomicBool,
+    /// ORCH-694's named difference: a Python recording's checker was rerun and judged every report (false); a test
+    /// turns it on to run the owner's check.
+    pub lean: AtomicBool,
+    /// ORCH-696: code's look as the probe path answers it (None: "no probe reads here"), each look asked (tool, args),
+    /// and each token's call cap (worker id, max_calls) for the tokens that name no tools (a worker's or a check's).
+    pub code_look: Mutex<Option<Result<Value, String>>>,
+    pub probes: Mutex<Vec<(String, Value)>>,
+    pub capped: Mutex<Vec<(String, Option<usize>)>>,
+    /// ORCH-696: the gateway's refusals past a capped run's calls (`calls_refused`) for every run issued a cap.
+    pub refused_after_cap: std::sync::atomic::AtomicU64,
     /// The scenario's supervisor (its open questions as the planner reads them, `pending_questions`).
     sup: Mutex<Option<Supervisor>>,
     db: Arc<Mutex<Db>>,
@@ -670,6 +680,32 @@ impl Daemon for TestDaemon {
     fn checks_unacted_not_done(&self) -> bool {
         self.checks_every_report.load(Ordering::SeqCst)
     }
+    // decision: ORCH-694 (the Python recordings' checker was rerun and judged every report)
+    fn lean_check(&self) -> bool {
+        self.lean.load(Ordering::SeqCst)
+    }
+    fn probe_read<'a>(
+        &'a self,
+        _task_id: &'a str,
+        _worker_id: &'a str,
+        _scopes: &'a BTreeSet<String>,
+        _identity: &'a str,
+        tool: &'a str,
+        args: &'a Map<String, Value>,
+        _span: &'a str,
+    ) -> BoxFuture<'a, Result<Value, String>> {
+        self.probes
+            .lock()
+            .unwrap()
+            .push((tool.to_string(), Value::Object(args.clone())));
+        let got = self
+            .code_look
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap_or_else(|| Err("no probe reads here".into()));
+        Box::pin(async move { got })
+    }
     // decision: GATE-609 (the Python recordings' card replies reached the task with no planner call)
     fn reads_card_replies(&self) -> bool {
         false
@@ -725,8 +761,15 @@ impl Daemon for TestDaemon {
         _ttl_s: f64,
         observe_only: bool,
         tools: Option<&[String]>,
-        _max_calls: Option<usize>,
+        max_calls: Option<usize>,
     ) -> String {
+        // a check's cap (no tool list); the planner's lookups name their tools
+        if tools.is_none() {
+            self.capped
+                .lock()
+                .unwrap()
+                .push((worker_id.to_string(), max_calls));
+        }
         if let Some(t) = tools {
             self.only
                 .lock()
@@ -768,8 +811,18 @@ impl Daemon for TestDaemon {
         self.revoked.lock().unwrap().extend(tokens);
     }
     fn forget_calls(&self, _worker_id: &str) {}
-    fn calls_refused(&self, _watch_id: &str) -> u64 {
-        0
+    fn calls_refused(&self, watch_id: &str) -> u64 {
+        let capped = self
+            .capped
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(w, cap)| w == watch_id && cap.is_some());
+        if capped {
+            self.refused_after_cap.load(Ordering::SeqCst)
+        } else {
+            0
+        }
     }
     fn take_stuck(&self, _task_id: &str) -> bool {
         let mut n = self.stuck.lock().unwrap();
@@ -1874,6 +1927,11 @@ pub fn world_with(name: &str, edit: impl FnOnce(&mut Vec<Value>)) -> World {
         newly_on: Mutex::default(),
         memory: Mutex::default(),
         episodes: Mutex::default(),
+        lean: AtomicBool::new(false),
+        code_look: Mutex::default(),
+        probes: Mutex::default(),
+        capped: Mutex::default(),
+        refused_after_cap: std::sync::atomic::AtomicU64::new(0),
     });
     let clock = Arc::new(
         FakeClock::new(ferb_clock::py::parse("2026-01-01T09:00:00+00:00")).with_zone(Zone::utc()),

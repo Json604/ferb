@@ -94,6 +94,8 @@ pub struct RunOptions {
     pub roles: Vec<String>,
     /// The token offers and runs observation tools only (the checker always; a worker's fix turn, ORCH-545).
     pub observe_only: bool,
+    /// ORCH-696: the most tool calls the run's token allows (the check's cap); None for no cap.
+    pub max_calls: Option<usize>,
 }
 
 /// A callback told one record (a usage report, the call's timing).
@@ -502,13 +504,14 @@ impl Worker {
             None => f64::INFINITY,
         };
         // The final checker's token is observe-only: the gateway offers and runs observation tools only (V3, W4).
-        let token = host.issue_token(
+        let token = host.issue_token_capped(
             task,
             &worker_id,
             &task.scopes,
             task.identity,
             ttl.max(60.0),
             options.observe_only || task.role == TaskRole::Verifier,
+            options.max_calls,
         );
         let tools: Vec<String> = host
             .tools_for(&host.validate_token(&token)?)

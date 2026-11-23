@@ -672,6 +672,10 @@ impl Daemon for TestDaemon {
     fn checks_unacted_not_done(&self) -> bool {
         self.checks_every_report
     }
+    // decision: ORCH-694 (the Python recordings' checker was rerun and judged every report)
+    fn lean_check(&self) -> bool {
+        false
+    }
     // decision: GATE-609 (the Python recordings' card replies reached the task with no planner call)
     fn reads_card_replies(&self) -> bool {
         self.reads_card_replies

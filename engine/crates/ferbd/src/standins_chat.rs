@@ -298,6 +298,10 @@ impl Reads for ScriptReads {
     fn checks_unacted_not_done(&self) -> bool {
         true
     }
+    // decision: ORCH-694 (the Python recordings' checker was rerun and checked every report)
+    fn lean_check(&self) -> bool {
+        false
+    }
     // decision: GATE-609 (the Python recordings' card replies reached the task with no planner call)
     fn reads_card_replies(&self) -> bool {
         false

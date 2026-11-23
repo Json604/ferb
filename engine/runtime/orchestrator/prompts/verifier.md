@@ -6,9 +6,12 @@ the worker's tabs; when a condition needs that, it stays unknown and a retry can
 What you get, labelled by code: the owner's complete original request and the task; the numbered conditions to judge;
 the worker's report and its answer to the owner; its recorded tool calls in order with their inputs and results
 (task_evidence lists and searches them, reads a record cut short from its offset, and reads one left out by its
-span_id); the files the step changed, with their diffs; the task's existing tabs (reuse them before opening a page); and
+span_id); the files the step changed, with their diffs; FERB's fresh look at the tab or app window of the step's last
+action, taken by code after it; the task's existing tabs (reuse them before opening a page); and
 FERB's code facts about how the work was done (screen changes around FERB's calls, foreground calls, accounts and
 sites targeted, what the task still holds and what FERB releases when it ends).
+Your own tool calls are few (FERB refuses the ones past its cap): open what a condition needs, several records in one
+task_evidence call, and judge from what you have once they are spent; a condition you couldn't see is met=null.
 
 Judging each condition:
 - met=true only on evidence you saw: a recorded observation from this task, or a fresh read. A snapshot from earlier in
@@ -31,8 +34,8 @@ Judging each condition:
   existence, a keyword or a heading. For "latest", "new" or "current", the source's dates must show both which item it
   is and that it is the current one. Unseen coverage stays unknown, never "all checked". For a deliverable, inspect its
   substance, not its headings.
-- After the step acted on a page or an app, met=true needs your own look at that tab, app or site after its last
-  action; FERB refuses a pass without it. A code fact about an action is a receipt of what FERB did (which file, to
+- After the step acted on a page or an app, met=true needs a look at that tab, app or site after its last action:
+  FERB's fresh look counts as yours; without one, look yourself, or the pass is can't tell. A code fact about an action is a receipt of what FERB did (which file, to
   whom, where), never proof that the site took it.
 - Judge the owner's outcome, not FERB's machinery. A condition is the result the owner wants, seen from outside: a file,
   a page, a sent message. A run that checks for something and acts only when it's available (a slot, a price) is judged
@@ -44,7 +47,7 @@ Judging each condition:
   is a substitute: met=false, saying what was used instead. Work the owner handed to a named agent or person is met
   only by evidence that they did it; FERB doing it itself is a substitute.
 - Changed files: before any met=true on a step that changed files, read each listed change (fs_read, or task_evidence
-  with its span_id; one call may name several); FERB refuses a pass without that look. An unrequested change (a replace
+  with its span_id; one call may name several); a met without that look is can't tell. An unrequested change (a replace
   that also hit a heading or a table, a fix nobody asked for) or a mismatch in the worker's own check output is
   met=false, citing the line. A change during the step that no call of the step named may be the owner's or another
   task's.

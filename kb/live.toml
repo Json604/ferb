@@ -5207,6 +5207,14 @@ surface = "Cursor, the Claude app and ChatGPT on the Mac; a paired phone"
 request = "Open Cursor with only a file open, no agent chat. Look at the phone's Sessions tab. Then open Cursor's agent chat and wait a few seconds; open it on the phone and send hi. Open the Claude app's chat and do the same."
 pass = "With no chat open, Cursor shows no session and one line \"No chat open in Cursor. Start one there to continue here.\"; nothing is ever typed into the file; once the chat is open it appears (after at most one model look, journaled as sessions.layout_asked), its messages are only the chat's; hi goes into the chat box; a sign-in window that comes up stops the send with that reason; no call times out."
 decisions = ["HAND-697", "HAND-698", "HAND-699", "HAND-700", "HAND-701", "PHN-817", "APP-1121"]
+
+[LIVE-1187]
+title = "The check gets FERB's own look and never reruns; not-done attempts are routed in one small call"
+area = "orchestration"
+surface = "FERB.app with this build, on Codex as usual"
+request = "Run three real tasks: one that fills or sends something on a site (a form on kartikey.xyz), one long research task that reads many pages, and one that can't be done as asked (a page that doesn't exist). Then look at each task's trace (ferb trace TASK) and ferb stats."
+pass = "Each check shows verify.look before it and no second check of the same attempt; a wrong sentence in an answer is still caught; the impossible task's not-done attempts show verify.routed (one small call each) and the check-in after five."
+decisions = ["ORCH-694", "ORCH-696", "ORCH-697"]
 sitting = "after this build is installed"
 
 [LIVE-1194]
