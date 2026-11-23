@@ -19,7 +19,9 @@ final class ScriptedRPC: DaemonRPCTransport, @unchecked Sendable {
     func queue(_ method: String, _ items: [[String: Any]]) { queued[method, default: []] += items }
 
     func call(_ method: String, params: [String: Any], wait seconds: Int) async throws -> [String: Any] {
+        lock.lock()
         waits[method] = seconds
+        lock.unlock()
         return try await call(method, params: params)
     }
 
@@ -29,6 +31,10 @@ final class ScriptedRPC: DaemonRPCTransport, @unchecked Sendable {
     func call(_ method: String, params: [String: Any]) async throws -> [String: Any] {
         recorded.append(method, params)
         onCall?(method)
+        // Calls arrive from several tasks at once: the scripted state is read and changed under the lock (a race here
+        // corrupted a dictionary and crashed InsomniaTests in a full run).
+        lock.lock()
+        defer { lock.unlock() }
         if let left = failFirst[method], left > 0 {
             failFirst[method] = left - 1
             throw DaemonRPCError.invalidResponse
