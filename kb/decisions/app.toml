@@ -4710,3 +4710,13 @@ rule = "For ORCH-699 and ORCH-700; adds to APP-555 and APP-758. A dashed-bubble 
 why = "The owner's words: one tap, held in memory, ended only by the same icon; FERB.app's own saved chat must stay as it was."
 paths = ["apps/mac/FERBNotch/Sources/NotchCore/TemporaryChat.swift", "apps/mac/FERBNotch/Sources/FERBNotch/TemporaryChatModel.swift", "apps/mac/FERBNotch/Sources/FERBNotch/TemporaryChatViews.swift"]
 live = ["LIVE-1194"]
+
+[APP-1123]
+title = "FERB.app's Sessions page: Take it back, FERB's note, a reply's parts, and Start's pending state"
+by = "agent"
+date = 2026-11-23
+status = "active"
+rule = "For HAND-702, HAND-703, HAND-705, PHN-822. FERB.app has no \"…\" menu on a session: Take it back (task.stop on its delegate), a disabled \"FERB is starting…\" while a hand-over has no task, and Hand to FERB sit in its header. ferb_note is one line with FERB's mark. A reply with parts is one block: text through MarkdownDocument, thinking and tool collapsible, meta under it; terminal text fixed-width. Row titles fall back to the agent's name. Start and Hand to FERB show pending and the refusal on their sheets."
+evidence = "apps/mac/FERBNotch Tests/NotchCoreTests/SessionsHandOverTests.swift (14) and SessionsTests.swift."
+paths = ["apps/mac/FERBNotch/Sources/FERBNotch/SessionsPage.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SessionsModel.swift", "apps/mac/FERBNotch/Sources/NotchCore/SessionRows.swift"]
+live = ["LIVE-1195", "LIVE-1196"]

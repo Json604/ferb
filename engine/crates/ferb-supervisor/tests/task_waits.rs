@@ -465,3 +465,70 @@ fn a_stopped_task_says_no_wait_line_after_the_stop() {
         .collect();
     assert!(after.is_empty(), "{after:?}");
 }
+
+// The owner's live report (2026-11-23): a hand-over's plan came back invalid (a converse step with no account), the
+// repair fixed that but made another problem, the second repair brought the first one back, and the owner read
+// pydantic's words. Now the second repair is told every problem so far, and a plan still invalid is said plainly.
+// decision: ORCH-703
+#[test]
+fn a_second_repair_is_told_every_problem_so_far_and_a_plan_still_invalid_is_said_plainly() {
+    let mut converse = wait_for_research();
+    converse["kind"] = json!("converse");
+    converse["event"] = Value::Null;
+    converse["event_match"] = json!([]);
+    converse["conversation"] = json!({"identity": "owner", "account": "", "site": "", "app_bundle_id": "",
+        "recipients": [], "topic": "chat", "standing_sends": [], "until": "", "max_messages": null});
+    let invalid = plan_answer(vec![converse]);
+    let mut invented = wait_for_research();
+    invented["event"] = json!("task_completed");
+    let invented = plan_answer(vec![invented]);
+    let mut w = world_with("stop_while_step_asks", |calls| {
+        calls[0]["events"] = final_text(&invalid);
+        calls[1]["events"] = final_text(&invented);
+        let mut third = calls[1].clone();
+        third["events"] = final_text(&invalid);
+        calls.insert(2, third);
+    });
+    {
+        let mut q = w.daemon.supervise.lock().unwrap();
+        let last = q.last().cloned().unwrap();
+        q.push(last.clone());
+        q.push(last);
+    }
+    let report = run_with(&mut w, "stop_while_step_asks", |steps| {
+        steps.truncate(3);
+        steps.push(json!({"do": "wait", "until": "model calls made: 3"}));
+    });
+    eprintln!("scripted: {}", report.verdict());
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    let calls = w.daemon.calls.lock().unwrap();
+    let third = calls
+        .started
+        .iter()
+        .find(|c| c["n"] == json!(2))
+        .expect("the second repair started");
+    let context = third["parts"].to_string();
+    assert!(
+        context.contains("task_completed"),
+        "the latest problem: {context}"
+    );
+    assert!(
+        context.contains("at least 1 character"),
+        "the first problem too: {context}"
+    );
+    drop(calls);
+    let db = w.db.lock().unwrap();
+    let reply: String = db
+        .conn()
+        .query_row(
+            "SELECT data_json FROM journal WHERE kind = 'chat.reply' ORDER BY seq DESC LIMIT 1",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(
+        reply.contains("the plan I made for it didn't hold together"),
+        "{reply}"
+    );
+    assert!(!reply.contains("validation error"), "{reply}");
+}

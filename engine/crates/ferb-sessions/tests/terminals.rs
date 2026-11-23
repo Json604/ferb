@@ -157,3 +157,34 @@ fn a_terminal_s_text_gives_only_what_is_new() {
     assert!(terminals::shows("x\n% run the  tests\n", "run the tests"));
     assert!(!terminals::shows("x\n% run\n", "run the tests"));
 }
+
+// decision: HAND-704 — the table as the Mac gives it: root's `login` is a link (no terminal), so Terminal's tab is
+// found by the owner's shell and its walk up reaches Terminal (before, `login` was missing and no app was found)
+#[test]
+fn a_terminal_app_s_tab_under_root_s_login_has_its_app() {
+    let t: Table = [
+        proc(100, 1, 100, 0, "", TERMINAL),
+        proc(110, 100, 110, 0, "", "/usr/bin/login"),
+        proc(120, 110, 120, 130, "/dev/ttys000", "/bin/zsh"),
+        proc(130, 120, 130, 130, "/dev/ttys000", "/u/.local/bin/claude"),
+    ]
+    .into_iter()
+    .collect();
+    assert_eq!(
+        terminals::find(&t, 7),
+        [Terminal {
+            tty: "/dev/ttys000".into(),
+            leader: 120,
+            front: 130
+        }]
+    );
+    for pid in [120, 130] {
+        let f = ferb_sessions::host::resolve(&t, pid, &|_| Vec::new()).expect("its app is found");
+        assert_eq!(f.bundle, "/System/Applications/Utilities/Terminal.app");
+        assert_eq!((f.pid, f.tty.as_str()), (100, "/dev/ttys000"));
+    }
+    // without the link (the table before): no app, so the tab was never listed and its agent had no host
+    let mut cut = t.clone();
+    cut.remove(&110);
+    assert!(ferb_sessions::host::resolve(&cut, 130, &|_| Vec::new()).is_none());
+}

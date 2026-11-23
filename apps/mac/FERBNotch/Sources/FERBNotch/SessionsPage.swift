@@ -71,7 +71,10 @@ struct SessionsPage: View {
                     Button { Task { await sessions.load() } } label: { Image(systemName: "arrow.clockwise") }
                         .help("Refresh sessions").accessibilityLabel("Refresh sessions")
                 }.padding(.bottom, 4)
-                if sessions.sessions.isEmpty {
+                // a terminal just opened that hasn't shown yet says so, quietly, until it does
+                if let waiting = sessions.awaitingNewLine {
+                    Text(waiting).font(.system(size: 12)).foregroundStyle(.secondary)
+                } else if sessions.sessions.isEmpty {
                     Text("No terminals are open on your Mac right now.").foregroundStyle(.secondary)
                 }
                 ForEach(sessions.sessions) { row in
@@ -160,10 +163,18 @@ struct SessionDetailView: View {
             header
             if let problem = sessions.problemShown { ProblemLine(text: problem) }
             if let note = sessions.note { Text(note).foregroundStyle(.secondary).textSelection(.enabled) }
+            // HAND-702: FERB's word on his hand-over, at the end of the conversation above the box (under the header
+            // when there is no box)
+            if !row.canSend { ferbNote }
             timeline
+            if row.canSend { ferbNote }
             composer
         }
         .padding(.horizontal, 30).padding(.bottom, 24)
+    }
+
+    @ViewBuilder private var ferbNote: some View {
+        if !row.ferbNote.isEmpty { SessionFerbNote(text: row.ferbNote) }
     }
 
     private var header: some View {
@@ -172,7 +183,7 @@ struct SessionDetailView: View {
                 Button { sessions.close() } label: { Label("Sessions", systemImage: "chevron.left") }
                 Spacer()
                 if row.host != nil { Button("Watch") { sheet = .watch(row) } }
-                if !row.withFerb { Button("Hand to FERB") { sheet = .handOver } }
+                handOverButton
                 if row.status == "working" { Button("Stop its turn") { Task { await sessions.interrupt() } } }
                 if row.yours { Button("Stop controlling") { Task { await sessions.release() } } }
             }
@@ -189,6 +200,29 @@ struct SessionDetailView: View {
         }
     }
 
+    /// Hand to FERB while the session is his; Take it back while FERB's task keeps it going (it stops that task);
+    /// "FERB is starting…" between the two, while FERB hasn't started a task on his goal yet.
+    @ViewBuilder private var handOverButton: some View {
+        if !row.ferbTask.isEmpty {
+            let pending = sessions.isTakingBack(row)
+            Button { Task { await sessions.takeItBack() } } label: {
+                if pending {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text("Taking it back…")
+                    }
+                } else {
+                    Label("Take it back", systemImage: "arrow.uturn.backward")
+                }
+            }
+            .disabled(pending)
+        } else if row.withFerb {
+            Button("FERB is starting…") {}.disabled(true)
+        } else {
+            Button("Hand to FERB") { sessions.handOverProblem = nil; sheet = .handOver }
+        }
+    }
+
     /// The conversation, by the chat's own list and rules (PHN-813): earlier items as he scrolls up, "New message"
     /// when something arrives while he is scrolled up, his words on their way (PHN-812).
     private var timeline: some View {
@@ -197,7 +231,7 @@ struct SessionDetailView: View {
             if sessions.opening {
                 SessionSkeleton()
             } else {
-                SessionTranscript(sessions: sessions, agentName: row.agentName)
+                SessionTranscript(sessions: sessions, agent: row.agent, agentName: row.agentName)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -230,31 +264,125 @@ struct SessionDetailView: View {
     private var sending: Bool { sessions.outgoing?.state == .sending }
 }
 
-/// One line of the conversation: the owner's words on the right, the agent's on the left (both on the chat's text
-/// surface), a tool call as one small monospace line, an interrupt or an error as a quiet line. Plain text only.
+/// One line of the conversation: the owner's words on the right in one bubble, the agent's reply as one block holding
+/// its parts in order (HAND-703: Markdown drawn by the chat's reader, a thought or a step as a small row that opens,
+/// the turn's meta line under it), a terminal's output as fixed-width text, a tool call as one small monospace line,
+/// an interrupt or an error as a quiet line. Nothing in it runs; links are the chat's inert ones.
 struct SessionItemView: View {
     let item: SessionItem
+    /// The session's agent ("terminal": its output is not Markdown).
+    var agent = ""
 
     var body: some View {
-        switch item.kind {
-        case "user":
-            SessionBubble(text: item.text)
-        case "tool":
-            Text(item.line).font(.system(size: 11, design: .monospaced)).foregroundStyle(.white.opacity(0.55))
+        switch item.look(agent: agent) {
+        case .owner(let text):
+            SessionBubble(text: text)
+        case .toolLine(let line):
+            Text(line).font(.system(size: 11, design: .monospaced)).foregroundStyle(.white.opacity(0.55))
                 .lineLimit(2).textSelection(.enabled)
-        case "interrupted":
-            Text(item.text.isEmpty ? "You stopped its turn." : item.text).font(.system(size: 12)).italic()
+        case .interrupted(let text):
+            Text(text.isEmpty ? "You stopped its turn." : text).font(.system(size: 12)).italic()
                 .foregroundStyle(.secondary)
-        case "error":
-            Label(item.text, systemImage: "exclamationmark.triangle").font(.system(size: 12))
+        case .error(let text):
+            Label(text, systemImage: "exclamationmark.triangle").font(.system(size: 12))
                 .foregroundStyle(.red.opacity(0.85)).textSelection(.enabled)
-        default:
-            // the chat's text surface: select and copy as in the chat (APP-788), plain text only
+        case .fixedWidth(let text):
+            // the chat's text surface: select and copy as in the chat (APP-788), the terminal's text as it came
             HStack {
-                NativeMessageText(item.text, size: 13)
+                NativeMessageText(text, size: 12, monospaced: true)
                 Spacer(minLength: 80)
             }
+        case .reply(let parts):
+            SessionReplyView(parts: parts)
         }
+    }
+}
+
+/// An agent's reply (HAND-703): the main chat's FERB-reply look, one block for the whole turn, its parts in order;
+/// the turn's meta lines ("Just now", "Working…") small and dim under it, never in the block.
+struct SessionReplyView: View {
+    let parts: [SessionPart]
+
+    var body: some View {
+        let body = parts.filter { $0.shown != "meta" }
+        let meta = parts.filter { $0.shown == "meta" && !$0.text.isEmpty }.map(\.text)
+        VStack(alignment: .leading, spacing: 4) {
+            if !body.isEmpty {
+                FerbBubble {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(Array(body.enumerated()), id: \.offset) { _, part in
+                            SessionPartView(part: part)
+                        }
+                    }
+                }
+            }
+            if !meta.isEmpty {
+                Text(meta.joined(separator: " · ")).font(.system(size: 10)).foregroundStyle(.secondary)
+                    .padding(.leading, 11)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// One part of a reply: Markdown text, or a thought's or a step's row (collapsed; it opens only when it has words).
+struct SessionPartView: View {
+    let part: SessionPart
+    @State private var open = false
+
+    var body: some View {
+        switch part.shown {
+        case "thinking", "tool":
+            VStack(alignment: .leading, spacing: 6) {
+                Button { if part.expandable { open.toggle() } } label: {
+                    HStack(spacing: 6) {
+                        if part.shown == "tool" {
+                            Image(systemName: "terminal").font(.system(size: 10)).foregroundStyle(.secondary)
+                        }
+                        Text(part.rowLabel).font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.75)).lineLimit(1)
+                        if !part.rowDetail.isEmpty {
+                            Text(part.rowDetail).font(.system(size: 12)).foregroundStyle(.white.opacity(0.45))
+                                .lineLimit(1).truncationMode(.tail)
+                        }
+                        if part.expandable {
+                            Image(systemName: open ? "chevron.down" : "chevron.right")
+                                .font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(!part.expandable)
+                .accessibilityValue(part.expandable ? (open ? "Expanded" : "Collapsed") : "")
+                if open && part.expandable {
+                    if part.shown == "tool" {
+                        NativeMessageText(part.text, size: 11, monospaced: true)
+                            .padding(8).frame(maxWidth: .infinity, alignment: .leading)
+                            .background(.black.opacity(0.3), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    } else {
+                        NativeMessageText(part.text, size: 12, secondary: true)
+                    }
+                }
+            }
+        default:
+            MarkdownContent(part.text, size: 13).equatable()
+        }
+    }
+}
+
+/// HAND-702: FERB's latest word on his hand-over, one quiet line with FERB's mark, shown as the daemon says it.
+struct SessionFerbNote: View {
+    let text: String
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 7) {
+            Image(nsImage: MenuBarIcon.image(MenuBarMark(dot: .solid, dimmed: false), description: "FERB"))
+                .renderingMode(.template).resizable().frame(width: 13, height: 13)
+                .foregroundStyle(.white.opacity(0.7)).alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
+            Text(text).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(2).textSelection(.enabled)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -314,7 +442,17 @@ struct SessionsSheetView: View {
                 PickTerminalView(pick: pick, choose: { t in Task { await sessions.choose(t) } }, cancel: { sessions.cancelPick() })
             } else if let confirm = sessions.confirm {
                 SessionConfirmView(confirm: confirm,
-                                   yes: { Task { sheet = nil; await sessions.confirmYes() } },
+                                   yes: {
+                                       Task {
+                                           // a new session's form stays, pending, until its terminal opened
+                                           if case .start = confirm.action {
+                                               if await sessions.confirmYes() { sheet = nil }
+                                           } else {
+                                               sheet = nil
+                                               await sessions.confirmYes()
+                                           }
+                                       }
+                                   },
                                    cancel: { sessions.cancelConfirm() })
             } else {
                 switch sheet {
@@ -401,7 +539,8 @@ struct PickTerminalView: View {
     }
 }
 
-/// Hand to FERB: the owner's goal; FERB works the session toward it in the chat.
+/// Hand to FERB: the owner's goal; FERB works the session toward it in the chat. From the tap the button shows it is
+/// handing it over and waits for the Mac; a yes closes the sheet, a refusal stays here under the button with his words.
 struct HandOverView: View {
     @ObservedObject var sessions: SessionsModel
     let close: () -> Void
@@ -414,15 +553,26 @@ struct HandOverView: View {
             TextField("Keep going until the tests pass", text: $goal, axis: .vertical)
                 .textFieldStyle(.plain).lineLimit(2...6)
                 .padding(10).background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .disabled(sessions.handingOver)
             Text("FERB answers the agent for you and asks you before anything risky. You can stop it any time.")
                 .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             HStack {
                 Spacer()
                 Button("Cancel", action: close).keyboardShortcut(.cancelAction)
-                Button("Hand it over") { Task { if await sessions.delegate(goal: goal) { close() } } }
-                    .buttonStyle(SetupActionStyle(primary: true))
-                    .disabled(goal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button { Task { if await sessions.delegate(goal: goal) { close() } } } label: {
+                    if sessions.handingOver {
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.small)
+                            Text("Handing it to FERB…")
+                        }
+                    } else {
+                        Text("Hand it over")
+                    }
+                }
+                .buttonStyle(SetupActionStyle(primary: true))
+                .disabled(sessions.handingOver || goal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
+            if let why = sessions.handOverProblem { ProblemLine(text: why).font(.system(size: 12)) }
         }
         .padding(24).frame(width: 460)
     }
@@ -430,46 +580,56 @@ struct HandOverView: View {
 
 /// New session (HAND-691): a terminal. Only the folder (the daemon's list, or Choose… to browse) and an optional
 /// command; Start opens it, and a command is shown exactly and typed only after the Yes. No agent to pick: the owner
-/// types the one he wants.
+/// types the one he wants. From the tap Start shows it is opening a terminal and the form waits; a refusal stays here
+/// under Start.
 struct NewSessionView: View {
     @ObservedObject var sessions: SessionsModel
     let close: () -> Void
-    @State private var folder = ""
-    @State private var command = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("New session").font(.system(size: 17, weight: .semibold))
             Text("Opens a new \(sessions.host) window in the folder.").font(.system(size: 12)).foregroundStyle(.secondary)
             Text("Folder").foregroundStyle(.secondary)
-            Menu(folder.isEmpty ? "Choose…" : (folder as NSString).abbreviatingWithTildeInPath) {
+            Menu(sessions.startFolder.isEmpty ? "Choose…" : (sessions.startFolder as NSString).abbreviatingWithTildeInPath) {
                 ForEach(sessions.folders, id: \.self) { path in
-                    Button((path as NSString).abbreviatingWithTildeInPath) { folder = path }
+                    Button((path as NSString).abbreviatingWithTildeInPath) { sessions.startFolder = path }
                 }
                 if !sessions.folders.isEmpty { Divider() }
                 Button("Choose…") { choose() }
             }
             .fixedSize()
+            .disabled(sessions.starting)
             Text("Command (optional)").foregroundStyle(.secondary)
-            TextField("Command to run (optional)", text: $command)
+            TextField("Command to run (optional)", text: $sessions.startCommand)
                 .textFieldStyle(.plain).font(.system(size: 13, design: .monospaced))
                 .padding(10).background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            if let problem = sessions.problem { ProblemLine(text: problem) }
+                .disabled(sessions.starting)
             HStack {
                 Spacer()
                 Button("Cancel", action: close).keyboardShortcut(.cancelAction)
-                Button("Start") {
+                Button {
                     Task {
-                        let noCommand = command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        if await sessions.planStart(folder: folder, command: command), noCommand { close() }
+                        if await sessions.planStart(folder: sessions.startFolder, command: sessions.startCommand) == .opened {
+                            close()
+                        }
+                    }
+                } label: {
+                    if sessions.starting {
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.small)
+                            Text("Opening a terminal…")
+                        }
+                    } else {
+                        Text("Start")
                     }
                 }
                 .buttonStyle(SetupActionStyle(primary: true))
-                .disabled(folder.isEmpty)
+                .disabled(sessions.starting || sessions.startFolder.isEmpty)
             }
+            if let why = sessions.startProblem { ProblemLine(text: why).font(.system(size: 12)) }
         }
         .padding(24).frame(width: 480)
-        .onAppear { if folder.isEmpty, let first = sessions.folders.first { folder = first } }
     }
 
     private func choose() {
@@ -478,7 +638,7 @@ struct NewSessionView: View {
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
         guard AppWindowPresentation.runModal(panel) == .OK, let url = panel.url else { return }
-        folder = url.path
+        sessions.startFolder = url.path
     }
 }
 

@@ -436,6 +436,8 @@ impl Inner {
         );
         let mut extra = Map::new();
         let text = match failure {
+            // ORCH-703: the owner reads what happened, never a validator's words (they stay in the journal above)
+            Failure::PlanRejected(_) => PLAN_UNUSABLE.to_string(),
             Failure::Worker(ferb_worker::Error::Stalled { .. }) => SILENT.replace(
                 "{minutes}",
                 &ferb_py::value::py_str(&json!(self.deps.stall_s / 60.0)),
@@ -929,6 +931,8 @@ impl Inner {
         cancel: &Cancel,
     ) -> Flow<SupervisorOutcome> {
         let rid = turn.lock().unwrap().request_id.clone();
+        // ORCH-703: every problem found so far goes with a repair, so a second repair can't bring back the first one
+        let mut seen: Vec<String> = Vec::new();
         let mut out = match self.supervise(turn, None, Some(emit), "", cancel).await {
             Ok(out) => out,
             Err(Repairable::Not(f)) => return Err(f),
@@ -938,9 +942,10 @@ impl Inner {
                     json!({"request_id": rid, "problems": problems}),
                     None,
                 );
+                seen.extend(problems.iter().cloned());
                 self.supervise(turn, Some(&problems), Some(emit), "", cancel)
                     .await
-                    .map_err(Repairable::failure)?
+                    .map_err(Repairable::after_repair)?
             }
         };
         self.join_question(turn, &out);
@@ -959,10 +964,18 @@ impl Inner {
                 json!({"type": "plan_abort", "reason": "The provisional plan needs correction."}),
             );
         }
+        let mut all = seen;
+        all.extend(
+            problems
+                .iter()
+                .filter(|p| !all.contains(p))
+                .cloned()
+                .collect::<Vec<_>>(),
+        );
         let mut out = self
-            .supervise(turn, Some(&problems), Some(emit), "", cancel)
+            .supervise(turn, Some(&all), Some(emit), "", cancel)
             .await
-            .map_err(Repairable::failure)?;
+            .map_err(Repairable::after_repair)?;
         self.join_question(turn, &out);
         let remaining = self.problems(turn, &mut out, Some(emit))?;
         if !remaining.is_empty() {
@@ -2967,6 +2980,9 @@ impl Prepare {
     }
 }
 
+/// ORCH-703: what the owner reads when FERB's plan for his message still couldn't be carried out after a repair.
+pub const PLAN_UNUSABLE: &str = "I couldn't start that: the plan I made for it didn't hold together, even after one more try, so I did nothing. Saying it another way usually helps.";
+
 /// How a planner call failed: an answer to repair (its problems), or anything else.
 pub enum Repairable {
     /// The answer to send back for repair: its problems and the exception's class.
@@ -2982,6 +2998,15 @@ impl Repairable {
     fn failure(self) -> Failure {
         match self {
             Repairable::Problems(p, class) => Failure::raised(&class, p.join("\n")),
+            Repairable::Not(f) => f,
+        }
+    }
+
+    /// ORCH-703: the planner's answer still invalid after a repair is a rejected plan (said to the owner in plain
+    /// words; its problems stay in the journal), never an exception's words.
+    fn after_repair(self) -> Failure {
+        match self {
+            Repairable::Problems(p, _) => Failure::PlanRejected(p),
             Repairable::Not(f) => f,
         }
     }

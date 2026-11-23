@@ -130,15 +130,19 @@ final class PlaygroundWorkspaceTests: XCTestCase {
     }
 
     // decision: APP-619
-    func testSessionsAreTwoSampleSessionsAnsweredInMemory() async throws {
+    func testSessionsAreThreeSampleSessionsAnsweredInMemory() async throws {
         let services = try make()
         try services.daemon.workspace.prepare()
         let store = FERBWindowStore(rpc: services.daemon)
         await store.refresh(.sessions)
         let model = store.sessions
         XCTAssertEqual(model.enabled, true)
-        XCTAssertEqual(model.sessions.map(\.agent), ["claude_code", "codex"])
-        let codex = try XCTUnwrap(model.sessions.last)
+        XCTAssertEqual(model.sessions.map(\.agent), ["claude_code", "codex", "app_chat"])
+        // HAND-703: the agent chat's reply comes in parts, modelled on Cursor's
+        await model.open(try XCTUnwrap(model.sessions.last))
+        XCTAssertEqual(model.items.last?.parts.map(\.kind), ["thinking", "text", "tool", "thinking", "text", "meta"])
+        model.close()
+        let codex = try XCTUnwrap(model.sessions[1])
         await model.open(codex)
         let card = try XCTUnwrap(model.cards.first)
         await model.answer(card, try XCTUnwrap(card.choices.first))
@@ -156,14 +160,22 @@ final class PlaygroundWorkspaceTests: XCTestCase {
         let handed = await model.delegate(goal: "Keep going until the tests pass")
         XCTAssertTrue(handed)
         XCTAssertEqual(model.openSession?.withFerb, true)
+        XCTAssertEqual(model.openSession?.ferbNote, "FERB is on it: “Keep going until the tests pass”")
+        // Take it back: the task stops and the session is his again
+        await model.takeItBack()
+        XCTAssertEqual(model.openSession?.withFerb, false)
+        XCTAssertEqual(model.openSession?.ferbNote, "FERB stopped. The session is yours again.")
+        XCTAssertNil(model.takingBack)
         await model.prepareNew()
         XCTAssertFalse(model.folders.isEmpty)
         // HAND-695: with a command, its exact words first, then the new terminal
         let planned = await model.planStart(folder: model.folders[0], command: "agy")
-        XCTAssertTrue(planned)
+        XCTAssertEqual(planned, .asks)
         XCTAssertEqual(model.confirm?.yes.detail, "agy")
-        await model.confirmYes()
-        XCTAssertEqual(model.sessions.count, 3)
+        let opened = await model.confirmYes()
+        XCTAssertTrue(opened)
+        XCTAssertEqual(model.sessions.count, 4)
+        XCTAssertEqual(model.openID, model.sessions.first?.id)              // the new terminal opens
         XCTAssertEqual(model.sessions.first?.whereLine, "agy · site · in Terminal")
         let watch = try await services.daemon.call("tasks.preview", params: ["session": codex.id])
         XCTAssertFalse((watch["image"] as? String ?? "").isEmpty)

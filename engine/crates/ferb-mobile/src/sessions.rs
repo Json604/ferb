@@ -77,6 +77,10 @@ pub struct AgentSession {
     pub window: String,
     /// HAND-693: why FERB can't show this terminal's text ("" when it can).
     pub no_text: String,
+    /// HAND-702: FERB's task that keeps this session going ("" when none has started): Take it back stops it.
+    pub ferb_task: String,
+    /// HAND-702: FERB's latest word on the hand-over, shown in the session ("" for none).
+    pub ferb_note: String,
 }
 
 impl AgentSession {
@@ -134,6 +138,8 @@ impl AgentSession {
             program: text(&v["program"]),
             window: text(&v["window"]),
             no_text: text(&v["no_text"]),
+            ferb_task: text(&v["delegate"]),
+            ferb_note: text(&v["ferb_note"]),
         }
     }
 }
@@ -158,6 +164,59 @@ pub struct SessionItem {
     pub text: String,
     /// For a tool: its name.
     pub tool: String,
+    /// HAND-703: the reply's parts in order (an app chat's turn); empty: `text` alone, drawn as Markdown.
+    pub parts: Vec<SessionPart>,
+}
+
+/// HAND-703: one part of a reply, as the app shows it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SessionPart {
+    /// text (Markdown), thinking, tool, meta.
+    pub kind: String,
+    /// A text part's Markdown, a thought's or a step's words (a step's output), a meta line.
+    pub text: String,
+    /// A thought's or a step's row ("Thought 1s", "List zip sizes and contents").
+    pub label: String,
+    /// A step's second words (what it ran).
+    pub detail: String,
+}
+
+impl SessionItem {
+    /// Reads one item from the Mac's answer, leniently.
+    pub fn read(i: &Value) -> SessionItem {
+        SessionItem {
+            seq: i["seq"].as_u64().unwrap_or(0),
+            at: text(&i["at"]),
+            kind: text(&i["kind"]),
+            text: text(&i["text"]),
+            tool: text(&i["tool"]),
+            parts: i["parts"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .map(|p| SessionPart {
+                            kind: text(&p["kind"]),
+                            text: text(&p["text"]),
+                            label: text(&p["label"]),
+                            detail: text(&p["detail"]),
+                        })
+                        .filter(|p| !p.kind.is_empty())
+                        .collect()
+                })
+                .unwrap_or_default(),
+        }
+    }
+}
+
+/// HAND-695: a new terminal the Mac opened.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SessionStarted {
+    /// The new session's id, to open it ("" when it hadn't shown yet: it appears in the list once it does).
+    pub session: String,
+    /// The app it opened in ("Terminal").
+    pub host: String,
+    /// The command typed into it ("" for none).
+    pub command: String,
 }
 
 /// One answer a card offers.
@@ -298,17 +357,7 @@ impl Mobile {
                 .then(|| AgentSession::read(&v["session"])),
             items: v["items"]
                 .as_array()
-                .map(|a| {
-                    a.iter()
-                        .map(|i| SessionItem {
-                            seq: i["seq"].as_u64().unwrap_or(0),
-                            at: text(&i["at"]),
-                            kind: text(&i["kind"]),
-                            text: text(&i["text"]),
-                            tool: text(&i["tool"]),
-                        })
-                        .collect()
-                })
+                .map(|a| a.iter().map(SessionItem::read).collect())
                 .unwrap_or_default(),
             more: v["more"].as_bool().unwrap_or(false),
             cards: v["cards"]
@@ -430,14 +479,14 @@ impl Mobile {
     }
 
     /// Opens a new terminal in `folder` on the Mac (signed), typing `words` when given (the command `session_prepare`
-    /// showed); `agent` is "terminal" (or empty).
+    /// showed); `agent` is "terminal" (or empty). Answers the new session, to open it.
     pub fn session_start(
         &self,
         agent: &str,
         folder: &str,
         words: &str,
         signer: Arc<dyn Signer>,
-    ) -> MobileResult<String> {
+    ) -> MobileResult<SessionStarted> {
         let t = self.shared.transport_online()?;
         let v = Shared::call_signed(
             &t,
@@ -445,7 +494,11 @@ impl Mobile {
             start_params(agent, folder, words),
             Some(&signer),
         )?;
-        Ok(text(&v["command"]))
+        Ok(SessionStarted {
+            session: text(&v["session"]),
+            host: text(&v["host"]),
+            command: text(&v["command"]),
+        })
     }
 
     /// Hands a session to FERB with the owner's goal (signed): his words become a FERB task in the chat.
@@ -563,6 +616,42 @@ mod tests {
         assert_eq!(
             start_params("", "/p", ""),
             json!({"folder": "/p", "command": ""})
+        );
+    }
+
+    // decision: HAND-702, HAND-703
+    #[test]
+    fn a_hand_over_s_task_and_note_and_a_reply_s_parts_are_read() {
+        let s = AgentSession::read(
+            &json!({"id": "codex:t1", "agent": "codex", "delegate": "tree9",
+            "goal": "chat with it", "ferb_note": "FERB is on it: “chat with it”"}),
+        );
+        assert_eq!((s.ferb_task.as_str(), s.with_ferb), ("tree9", true));
+        assert_eq!(s.ferb_note, "FERB is on it: “chat with it”");
+        let s = AgentSession::read(&json!({"id": "codex:t1", "agent": "codex",
+            "ferb_note": "FERB couldn't start on it: “…”"}));
+        assert_eq!((s.ferb_task.as_str(), s.with_ferb), ("", false));
+        let i = SessionItem::read(
+            &json!({"seq": 3, "kind": "assistant", "text": "Thought\nIt reverts PR",
+            "parts": [{"kind": "thinking", "label": "Thought", "detail": "1s"},
+                      {"kind": "text", "text": "It reverts PR #15."},
+                      {"kind": "tool", "label": "List zip sizes", "detail": "ls", "text": "1 file"},
+                      {"kind": "meta", "text": "Just now"}, {"text": "no kind"}]}),
+        );
+        let kinds: Vec<&str> = i.parts.iter().map(|p| p.kind.as_str()).collect();
+        assert_eq!(kinds, ["thinking", "text", "tool", "meta"]);
+        assert_eq!(
+            (
+                i.parts[2].label.as_str(),
+                i.parts[2].detail.as_str(),
+                i.parts[2].text.as_str()
+            ),
+            ("List zip sizes", "ls", "1 file")
+        );
+        assert!(
+            SessionItem::read(&json!({"seq": 1, "kind": "user", "text": "hi"}))
+                .parts
+                .is_empty()
         );
     }
 }

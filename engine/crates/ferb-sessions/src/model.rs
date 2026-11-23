@@ -223,6 +223,10 @@ pub struct Session {
     /// HAND-693: a terminal whose text FERB can't read: why, in the owner's words ("" when it can, or before it tried).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub no_text: String,
+    /// HAND-702: FERB's latest word on the owner's hand-over of this session, in his words ("FERB is on it: …", "FERB
+    /// asked in its chat: …", "FERB couldn't start on it: …"); "" when he hasn't handed it over.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub ferb_note: String,
 }
 
 /// HAND-683: a terminal the owner may choose as a session's, as its app shows it.
@@ -263,6 +267,41 @@ pub struct Item {
     /// For a tool: its name ("Bash", "Edit").
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub tool: String,
+    /// HAND-703: the reply's parts in order, as the app shows them (an app chat's turn, read by structure); empty when
+    /// the item is its text alone (a transcript's item: its text is Markdown, drawn as such).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parts: Vec<Part>,
+}
+
+/// HAND-703: what one part of a reply is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PartKind {
+    /// Words, as Markdown: paragraphs, headings, lists, pipe tables and fenced code, drawn by each client's own
+    /// Markdown reader (the phones' `rich`, FERB.app's `MarkdownDocument`).
+    Text,
+    /// The agent's thinking: a small row, collapsed (`label`, its words in `text` when the app shows them).
+    Thinking,
+    /// One step the agent ran: a collapsible row (`label`, what it ran in `detail`, its output in `text` when the app
+    /// shows it, drawn in a fixed-width block).
+    Tool,
+    /// The turn's own small line: a time, a state the app shows while it works ("Working…"); never a bubble.
+    Meta,
+}
+
+/// HAND-703: one part of a reply.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Part {
+    pub kind: PartKind,
+    /// A text part's Markdown, a step's or thought's shown words, a meta line.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub text: String,
+    /// A thought's or a step's own row ("Thought 1s", "List zip sizes and contents").
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub label: String,
+    /// A step's second words (what it ran: "ls, echo, unzip, head").
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub detail: String,
 }
 
 /// What a card asks.

@@ -156,6 +156,7 @@ final class PlaygroundWorkspace {
             return ["ok": true]
         case "task.stop":
             finishRunning(status: "cancelled", answer: "Stopped in the playground.", ids: params["task_ids"] as? [String])
+            sessions.stopped(params["task_ids"] as? [String])
             return ["ok": true]
         case "verdict.set":
             if let index = tasks.firstIndex(where: { $0["task_id"] as? String == params["task_id"] as? String }) { tasks[index]["verdict"] = params["verdict"] }

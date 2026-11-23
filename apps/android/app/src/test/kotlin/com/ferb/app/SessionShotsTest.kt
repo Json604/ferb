@@ -121,7 +121,7 @@ class SessionShotsTest {
 
     // decision: PHN-801
     @Test
-    // decision: HAND-692, HAND-697
+    // decision: HAND-692, HAND-697, HAND-705
     fun the_sessions_tab_lists_each_with_its_place_and_state() {
         // a terminal running a program nobody listed: its window's words, "<program> · <folder> · in <app>"; and an app
         // open with no chat says so in one quiet line
@@ -414,4 +414,271 @@ class SessionShotsTest {
 
     // decision: PHN-815, PHN-813
     @Test @Config(qualifiers = "w412dp-h860dp-port-mdpi") fun the_conversation_at_412() = conversationAt("session-conversation-412.png")
+
+    // ---- the live fixes (owner 2026-11-23: HAND-702, HAND-703, PHN-821) -----------------------------------------------
+
+    /** A reply modelled on the owner's reference (Cursor): a thought, words, a step closed, a table, a list, code, its time. */
+    private val rich = SessionUi(
+        "claude:s5", FakePhone.agentSession("claude:s5", "Look through the export folder", "idle"),
+        items = listOf(
+            FakePhone.item(1, "user", "What's in this folder? I forgot."),
+            FakePhone.item(2, "assistant", "", parts = listOf(
+                FakePhone.part("thinking", label = "Thought 1s"),
+                FakePhone.part("text", "I'll look through this folder and tell you what it is."),
+                FakePhone.part("tool", "  Length      Date    Time    Name\n---------  ---------- -----   ----\n    19357  01-01-1980 00:00   projects/a1b2.json",
+                    "List zip sizes and contents", "ls, echo, unzip, head"),
+                FakePhone.part("thinking", label = "Thought 4s"),
+                FakePhone.part("text", "This is a **data export**, the bundle you get when you download an account. Nothing in it is unzipped yet.\n\n" +
+                    "| File | What's inside |\n|---|---|\n| `chats-000.zip` (3 MB) | 101 chats from the last two years |\n" +
+                    "| `pages-000.zip` (425 MB) | Pages, their versions and comments |\n| `settings-000.zip` | The account's settings |\n\n" +
+                    "- Six zips in all\n- Saved on the Desktop\n\nRun `unzip -l` on one to see what it holds."),
+                FakePhone.part("meta", "Just now"),
+            )),
+        ),
+        loaded = true,
+    )
+
+    private fun richAt(path: String) {
+        compose.setContent { Sized(sheet = { SessionScreenPage(rich, emptySet(), PhoneInsets.Lab) }) { tab(SessionsUi(true, true, sessions)) } }
+        compose.waitForIdle()
+        compose.onNodeWithTag("session-reply").assertExists()
+        compose.onNodeWithText("Thought 1s").assertExists()
+        compose.onNodeWithText("List zip sizes and contents · ls, echo, unzip, head").assertExists()
+        compose.onAllNodesWithTag("session-step-output").assertCountEquals(0)
+        compose.onNodeWithTag("session-meta").assertExists()
+        shoot(path)
+    }
+
+    // decision: HAND-703
+    @Test @Config(qualifiers = "w360dp-h860dp-port-mdpi") fun a_rich_reply_at_360() = richAt("session-rich-360.png")
+
+    // decision: HAND-703
+    @Test @Config(qualifiers = "w412dp-h915dp-port-mdpi") fun a_rich_reply_at_412() = richAt("session-rich-412.png")
+
+    // decision: HAND-703
+    @Test
+    fun a_step_opens_on_a_tap_to_its_output_and_one_with_nothing_to_open_has_no_chevron() {
+        val ui = rich.copy(items = listOf(FakePhone.item(2, "assistant", "", parts = listOf(
+            FakePhone.part("tool", "total 3\nchats-000.zip", "List zip sizes and contents", "ls"),
+            FakePhone.part("tool", "", "Explored", "2 searches"),
+        ))))
+        compose.setContent { Phone(sheet = { SessionScreenPage(ui, emptySet(), PhoneInsets.Lab) }) { tab(SessionsUi(true, true, sessions)) } }
+        compose.waitForIdle()
+        compose.onAllNodesWithTag("session-step-output").assertCountEquals(0)
+        compose.onNodeWithText("List zip sizes and contents · ls").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("session-step-output").assertExists()
+        compose.onNodeWithText("Explored · 2 searches").performClick()
+        compose.waitForIdle()
+        compose.onAllNodesWithTag("session-step-output").assertCountEquals(1)
+    }
+
+    private val handed = sessions[1].copy(withFerb = true, goal = "Keep going until the build passes", ferbTask = "task-9",
+        ferbNote = "FERB is on it: \u201cKeep going until the build passes\u201d")
+
+    private fun takeBackAt(path: String) {
+        compose.setContent {
+            Sized(sheet = { SessionScreenPage(open.copy(session = handed, cards = emptyList(), menu = true, draft = ""), emptySet(), PhoneInsets.Lab) }) {
+                tab(SessionsUi(true, true, sessions))
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithText("Take it back").assertExists()
+        compose.onAllNodesWithText("Hand to FERB").assertCountEquals(0)
+        shoot(path)
+    }
+
+    // decision: HAND-702
+    @Test @Config(qualifiers = "w360dp-h740dp-port-mdpi") fun the_menu_with_take_it_back_at_360() = takeBackAt("session-take-back-360.png")
+
+    // decision: HAND-702
+    @Test @Config(qualifiers = "w412dp-h860dp-port-mdpi") fun the_menu_with_take_it_back_at_412() = takeBackAt("session-take-back-412.png")
+
+    // decision: HAND-702
+    @Test
+    fun take_it_back_keeps_the_menu_open_and_turns_while_the_mac_answers() {
+        var taken = 0
+        var closed = 0
+        var busy by androidx.compose.runtime.mutableStateOf(emptySet<String>())
+        compose.setContent {
+            Phone(sheet = {
+                SessionScreenPage(open.copy(session = handed, cards = emptyList(), menu = true), busy, PhoneInsets.Lab,
+                    onTakeBack = { taken++ }, onMenu = { if (!it) closed++ })
+            }) { tab(SessionsUi(true, true, sessions)) }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithTag("session-take-back").performClick()
+        compose.waitForIdle()
+        org.junit.Assert.assertEquals(1, taken)
+        org.junit.Assert.assertEquals("the menu stays open until the Mac answers", 0, closed)
+        busy = setOf("session-take-back")
+        compose.waitForIdle()
+        compose.onNodeWithText("Taking it back…").assertExists()
+        compose.onNodeWithTag("session-take-back").performClick()
+        compose.waitForIdle()
+        org.junit.Assert.assertEquals("no second tap while it goes", 1, taken)
+    }
+
+    // decision: HAND-702
+    @Test
+    fun while_ferb_is_starting_the_menu_says_so_and_offers_nothing_to_tap() {
+        var handTaps = 0
+        val starting = sessions[1].copy(withFerb = true, goal = "Keep going until the build passes")
+        compose.setContent {
+            Phone(sheet = { SessionScreenPage(open.copy(session = starting, cards = emptyList(), menu = true), emptySet(), PhoneInsets.Lab, onHand = { handTaps++ }) }) {
+                tab(SessionsUi(true, true, sessions))
+            }
+        }
+        compose.waitForIdle()
+        compose.onAllNodesWithText("Hand to FERB").assertCountEquals(0)
+        compose.onAllNodesWithText("Take it back").assertCountEquals(0)
+        compose.onNodeWithTag("session-ferb-starting").performClick()
+        compose.waitForIdle()
+        org.junit.Assert.assertEquals(0, handTaps)
+        compose.onNodeWithText("FERB is starting…").assertExists()
+    }
+
+    private fun noteAt(path: String) {
+        compose.setContent {
+            Sized(sheet = { SessionScreenPage(open.copy(session = handed, cards = emptyList(), draft = "", more = false), emptySet(), PhoneInsets.Lab) }) {
+                tab(SessionsUi(true, true, sessions))
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithText("FERB is on it: \u201cKeep going until the build passes\u201d").assertExists()
+        shoot(path)
+    }
+
+    // decision: HAND-702
+    @Test @Config(qualifiers = "w360dp-h740dp-port-mdpi") fun ferbs_word_on_the_hand_over_at_360() = noteAt("session-ferb-note-360.png")
+
+    // decision: HAND-702
+    @Test @Config(qualifiers = "w412dp-h860dp-port-mdpi") fun ferbs_word_on_the_hand_over_at_412() = noteAt("session-ferb-note-412.png")
+
+    // decision: HAND-702
+    @Test
+    fun ferbs_word_sits_under_the_header_when_there_is_no_message_box() {
+        val s = handed.copy(canSend = false, noSend = "No app shows this session, so FERB can't type into it.",
+            ferbNote = "FERB finished. The session is yours again.")
+        compose.setContent { Phone(sheet = { SessionScreenPage(open.copy(session = s, cards = emptyList()), emptySet(), PhoneInsets.Lab) }) { tab(SessionsUi(true, true, sessions)) } }
+        compose.waitForIdle()
+        val note = compose.onNodeWithTag("session-ferb-note").fetchSemanticsNode().boundsInRoot
+        val header = compose.onNodeWithTag("session-header").fetchSemanticsNode().boundsInRoot
+        val list = compose.onNodeWithTag("session-list").fetchSemanticsNode().boundsInRoot
+        org.junit.Assert.assertTrue("under the header ($note, $header)", note.top >= header.bottom - 1f && note.bottom <= list.top + 1f)
+    }
+
+    // decision: HAND-702
+    @Test
+    fun hand_over_turns_while_it_goes_and_a_refusal_shows_the_macs_reason_under_the_button() {
+        var busy by androidx.compose.runtime.mutableStateOf(true)
+        var problem by androidx.compose.runtime.mutableStateOf<String?>(null)
+        compose.setContent {
+            Phone(sheet = {
+                SessionScreenPage(open, emptySet(), PhoneInsets.Lab)
+                HandOverSheet(PhoneInsets.Lab, busy = busy, onGo = {}, onClose = {}, problem = problem, initial = "Keep going until the build passes")
+            }) { tab(SessionsUi(true, true, sessions)) }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithText("Handing it to FERB…").assertExists()
+        busy = false
+        problem = "FERB can't take this session: it is not running."
+        compose.waitForIdle()
+        compose.onNodeWithText("Hand it over").assertExists()
+        compose.onNodeWithText("FERB can't take this session: it is not running.").assertExists()
+        compose.onNodeWithText("Keep going until the build passes").assertExists()
+    }
+
+    private val folders = listOf("/Users/you/code/web-app", "/Users/you/code/blog", "/Users/you/code/notes-app")
+
+    private fun startingAt(path: String) {
+        val n = NewSessionUi(false, folders, folder = "/Users/you/code/blog", text = "agy")
+        compose.setContent { Sized(sheet = { NewSessionPage(n, setOf("session-prepare"), PhoneInsets.Lab) }) { tab(SessionsUi(true, true, sessions)) } }
+        compose.waitForIdle()
+        compose.onNodeWithText("Opening a terminal…").assertExists()
+        shoot(path)
+    }
+
+    // decision: PHN-822
+    @Test @Config(qualifiers = "w360dp-h740dp-port-mdpi") fun a_new_session_starting_at_360() = startingAt("session-new-starting-360.png")
+
+    // decision: PHN-822
+    @Test @Config(qualifiers = "w412dp-h860dp-port-mdpi") fun a_new_session_starting_at_412() = startingAt("session-new-starting-412.png")
+
+    // decision: PHN-822
+    @Test
+    fun while_it_starts_nothing_on_the_form_takes_a_tap_and_a_refusal_shows_under_start() {
+        var picked = 0
+        var next = 0
+        var busy by androidx.compose.runtime.mutableStateOf(setOf("session-prepare"))
+        var n by androidx.compose.runtime.mutableStateOf(NewSessionUi(false, folders, folder = "/Users/you/code/blog"))
+        compose.setContent {
+            Phone(sheet = { NewSessionPage(n, busy, PhoneInsets.Lab, onFolder = { picked++ }, onNext = { next++ }, onBrowse = { picked++ }) }) {
+                tab(SessionsUi(true, true, sessions))
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithText("notes-app").performClick()
+        compose.onNodeWithText("Another folder…").performClick()
+        compose.onNodeWithTag("new-start").performClick()
+        compose.waitForIdle()
+        org.junit.Assert.assertEquals(0 to 0, picked to next)
+        busy = emptySet()
+        n = n.copy(problem = Note(R.string.err_mac_said, "That folder isn't there any more. Choose another one."))
+        compose.waitForIdle()
+        compose.onNodeWithText("That folder isn't there any more. Choose another one.").assertExists()
+        compose.onNodeWithText("Start").assertExists()
+    }
+
+    private val picker = NewSessionUi(false, folders, folder = "/Users/you/code/blog", browse = com.ferb.app.model.FolderPickUi(listOf(
+        com.ferb.mobile.Folder("/Users/you", null, false, emptyList(), 0u, false, 0u, null),
+        com.ferb.mobile.Folder("/Users/you/code", "/Users/you", false, listOf(
+            com.ferb.mobile.FileEntry("blog", "/Users/you/code/blog", true, false, 0u, 0, false),
+            com.ferb.mobile.FileEntry("README.md", "/Users/you/code/README.md", false, false, 2_000u, 1_767_348_000, false),
+            com.ferb.mobile.FileEntry("site", "/Users/you/code/site", true, false, 0u, 0, false),
+            com.ferb.mobile.FileEntry("tools", "/Users/you/code/tools", true, false, 0u, 0, false),
+            com.ferb.mobile.FileEntry("web-app", "/Users/you/code/web-app", true, false, 0u, 0, false),
+        ), 5u, false, 0u, null),
+    )))
+
+    private fun pickerAt(path: String) {
+        compose.setContent { Sized(sheet = { NewSessionPage(picker, emptySet(), PhoneInsets.Lab) }) { tab(SessionsUi(true, true, sessions)) } }
+        compose.waitForIdle()
+        compose.onAllNodesWithText("README.md").assertCountEquals(0)
+        compose.onNodeWithText("Use this folder").assertExists()
+        shoot(path)
+    }
+
+    // decision: PHN-821
+    @Test @Config(qualifiers = "w360dp-h740dp-port-mdpi") fun the_folder_picker_at_360() = pickerAt("session-folder-picker-360.png")
+
+    // decision: PHN-821
+    @Test @Config(qualifiers = "w412dp-h860dp-port-mdpi") fun the_folder_picker_at_412() = pickerAt("session-folder-picker-412.png")
+
+    // decision: PHN-821
+    @Test
+    fun in_the_picker_a_folder_opens_on_a_tap_and_use_this_folder_chooses_the_one_showing() {
+        val opened = ArrayList<String>()
+        var used = 0
+        compose.setContent {
+            Phone(sheet = { NewSessionPage(picker, emptySet(), PhoneInsets.Lab, onBrowseOpen = { p, _ -> opened += p }, onBrowseUse = { used++ }) }) {
+                tab(SessionsUi(true, true, sessions))
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithText("site").performClick()
+        compose.onNodeWithText("Use this folder").performClick()
+        compose.waitForIdle()
+        org.junit.Assert.assertEquals(listOf("/Users/you/code/site"), opened)
+        org.junit.Assert.assertEquals(1, used)
+        compose.onNodeWithTag("browse-path").assertExists()
+    }
+
+    // decision: PHN-822
+    @Test
+    fun a_new_terminal_on_its_way_shows_one_quiet_line_in_the_list() {
+        compose.setContent { Phone { tab(SessionsUi(true, true, sessions, coming = setOf("claude:s1"))) } }
+        compose.waitForIdle()
+        compose.onNodeWithText("Your new terminal will show here in a moment.").assertExists()
+    }
 }

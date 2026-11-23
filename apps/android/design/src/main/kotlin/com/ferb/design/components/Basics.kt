@@ -263,6 +263,8 @@ fun Pill(
     height: Dp = Phone.pillHeight,
     fill: Boolean = true,
     onClick: (() -> Unit)? = {},
+    /** Under way since the tap: a turning mark in place of the icon, no tap until it ends (the owner's feedback rule). */
+    busy: Boolean = false,
 ) {
     // on FERB's surface the one thing to do is the black pill's inverse, the other choice the dark fill
     val dark = LocalOnFerb.current
@@ -273,12 +275,12 @@ fun Pill(
         PillKind.PLAIN -> Color.Transparent
     }
     Row(
-        modifier.then(if (fill) Modifier.fillMaxWidth() else Modifier).pressable(onClick).heightIn(min = height)
+        modifier.then(if (fill) Modifier.fillMaxWidth() else Modifier).pressable(onClick.takeUnless { busy }).heightIn(min = height)
             .background(bg, RoundedCornerShape(Phone.pillCorner)).padding(horizontal = if (fill) 12.dp else 28.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(9.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (icon != null) FerbIcon(icon, 17f, fg)
+        if (busy) RunningArc(17.dp, fg, stroke = 2.dp) else if (icon != null) FerbIcon(icon, 17f, fg)
         PhoneText(title, 16f, FerbType.Semibold, fg, maxLines = 2)
     }
 }

@@ -1566,6 +1566,8 @@ mirror! {
         program: String,
         window: String,
         no_text: String,
+        ferb_task: String,
+        ferb_note: String,
     }
 }
 
@@ -1586,6 +1588,26 @@ mirror! {
         kind: String,
         text: String,
         tool: String,
+        parts: Vec<SessionPart>,
+    }
+}
+
+mirror! {
+    /// One part of a reply as the app shows it (HAND-703): text (Markdown), thinking, tool or meta.
+    SessionPart from ferb_mobile::sessions::SessionPart {
+        kind: String,
+        text: String,
+        label: String,
+        detail: String,
+    }
+}
+
+mirror! {
+    /// A new terminal the Mac opened: its session (to open; "" when it hadn't shown yet), its app, the command typed.
+    SessionStarted from ferb_mobile::sessions::SessionStarted {
+        session: String,
+        host: String,
+        command: String,
     }
 }
 

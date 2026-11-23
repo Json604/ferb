@@ -85,6 +85,24 @@ final class SessionsModel: ObservableObject {
     @Published var problem: String?
     @Published var note: String?
     @Published private(set) var busy = false
+    /// Hand to FERB is on its way: the sheet's button shows it and waits for the Mac's answer; a refusal stays on the
+    /// sheet under the button, with his words kept.
+    @Published private(set) var handingOver = false
+    @Published var handOverProblem: String?
+    /// Take it back: FERB's task being stopped. It stays pending from the tap until the session no longer names that
+    /// task (or `takeBackWait` passes), so the button never flips back while the daemon catches up.
+    @Published private(set) var takingBack: String?
+    private var takenBackAt: Date?
+    static let takeBackWait: TimeInterval = 10
+    /// New session's form (kept here so the daemon's question about its command can come and go over it), Start on
+    /// its way, and why the Mac refused it (shown under Start).
+    @Published var startFolder = ""
+    @Published var startCommand = ""
+    @Published private(set) var starting = false
+    @Published var startProblem: String?
+    /// The terminal just opened hasn't shown in the list yet: the ids listed when it was started, until a new one shows.
+    @Published private(set) var awaitingNew: Set<String>?
+    var now: () -> Date = Date.init
 
     init(rpc: DaemonRPCTransport) {
         self.rpc = rpc
@@ -110,7 +128,12 @@ final class SessionsModel: ObservableObject {
         sessions = (reply["sessions"] as? [[String: Any]] ?? []).compactMap(AgentSessionRow.init)
         noChats = (reply["no_chats"] as? [Any] ?? []).compactMap { $0 as? String }.filter { !$0.isEmpty }
         if let openID, let row = sessions.first(where: { $0.id == openID }) { openSession = row }
+        if let known = awaitingNew, sessions.contains(where: { !known.contains($0.id) }) { awaitingNew = nil }
+        settleTakeBack()
     }
+
+    /// The new terminal's line: shows until it appears in the list.
+    var awaitingNewLine: String? { awaitingNew == nil ? nil : "Your new terminal will show here in a moment." }
 
     // MARK: One session
 
@@ -152,6 +175,7 @@ final class SessionsModel: ObservableObject {
         cards = timeline.cards
         if let session = timeline.session { openSession = session }
         settleOutgoing()
+        settleTakeBack()
     }
 
     /// What is new since the last item held (every ~2 s while the page shows, and on the daemon's events).
@@ -162,10 +186,13 @@ final class SessionsModel: ObservableObject {
                                     quiet: true), openID == id else { return }
         let timeline = SessionTimeline(reply)
         let held = Set(items.map(\.seq))
-        items += timeline.items.filter { !held.contains($0.seq) }
+        // an item already held is replaced: an app chat's turn grows its parts as it is written
+        let fresh = Dictionary(timeline.items.map { ($0.seq, $0) }, uniquingKeysWith: { _, b in b })
+        items = items.map { fresh[$0.seq] ?? $0 } + timeline.items.filter { !held.contains($0.seq) }
         cards = timeline.cards
         if let session = timeline.session { openSession = session }
         settleOutgoing()
+        settleTakeBack()
     }
 
     /// A sent message goes once the session's record has his words: any message of his after the one held when he sent
@@ -241,28 +268,30 @@ final class SessionsModel: ObservableObject {
     }
 
     /// The owner's Yes to the question shown: control of the session from here and the text he read, the interrupt
-    /// he asked for, or the new session's command.
-    func confirmYes() async {
-        guard let pending = confirm else { return }
+    /// he asked for, or the new session's command. Whether it went through (a new session: whether it opened).
+    @discardableResult
+    func confirmYes() async -> Bool {
+        guard let pending = confirm else { return false }
         confirm = nil
         busy = true
         defer { busy = false }
         switch pending.action {
         case .send(let id, let text):
             if outgoing?.text == text { outgoing?.state = .sending }
-            guard let reply = await sending("sessions.control", ["session": id, "text": text], session: id, text: text) else { return }
+            guard let reply = await sending("sessions.control", ["session": id, "text": text], session: id, text: text) else { return false }
             sent(reply, session: id, text: text)
             await load(quiet: true)
             await poll()
         case .interrupt(let id):
-            guard await ask("sessions.control", ["session": id, "text": ""]) != nil else { return }
-            guard await ask("sessions.interrupt", ["session": id]) != nil else { return }
+            guard await ask("sessions.control", ["session": id, "text": ""]) != nil else { return false }
+            guard await ask("sessions.interrupt", ["session": id]) != nil else { return false }
             note = "You stopped its turn."
             await load(quiet: true)
             await poll()
         case .start(let folder, let command):
-            await open(folder: folder, command: command)
+            return await open(folder: folder, command: command)
         }
+        return true
     }
 
     func cancelConfirm() {
@@ -353,48 +382,130 @@ final class SessionsModel: ObservableObject {
         await load(quiet: true)
     }
 
-    /// Hand to FERB: FERB works the session toward the owner's goal, in his chat.
+    /// Hand to FERB: FERB works the session toward the owner's goal, in his chat. Pending from the tap until the Mac
+    /// answers; a yes reads the session again at once (its `ferb_note` says what became of it), a refusal is kept for
+    /// the sheet to show under its button.
     @discardableResult
     func delegate(goal: String) async -> Bool {
-        guard let id = openID else { return false }
+        guard let id = openID, !handingOver else { return false }
         let goal = goal.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !goal.isEmpty else { return false }
         var params: [String: Any] = ["session": id, "goal": goal]
         if let client = clientID(), !client.isEmpty { params["client_id"] = client }
-        guard await ask("sessions.delegate", params) != nil else { return false }
-        note = "FERB is on it. You'll see it in the chat."
+        handingOver = true
+        handOverProblem = nil
+        defer { handingOver = false }
+        do {
+            _ = try await rpc.call("sessions.delegate", params: params)
+        } catch {
+            handOverProblem = error.localizedDescription
+            return false
+        }
         await load(quiet: true)
+        await poll()
         return true
+    }
+
+    /// Take it back: FERB's task on this session stops (the same `task.stop` as the task list's Stop, for exactly that
+    /// task), and the session is read again at once. A refusal says why on the page.
+    func takeItBack() async {
+        guard let row = openSession, !row.ferbTask.isEmpty, takingBack == nil else { return }
+        let task = row.ferbTask
+        takingBack = task
+        takenBackAt = nil
+        problem = nil
+        do {
+            _ = try await rpc.call("task.stop", params: ["task_ids": [task]])
+        } catch {
+            takingBack = nil
+            problem = "Couldn't take it back: \(error.localizedDescription)"
+            return
+        }
+        takenBackAt = now()
+        await load(quiet: true)
+        await poll()
+    }
+
+    /// Whether this session's Take it back is on its way.
+    func isTakingBack(_ row: AgentSessionRow) -> Bool { takingBack != nil && takingBack == row.ferbTask }
+
+    /// Take it back is done once the session no longer names the stopped task, or after `takeBackWait`.
+    private func settleTakeBack() {
+        guard let task = takingBack, let at = takenBackAt else { return }
+        let held = openSession?.ferbTask == task || sessions.contains { $0.ferbTask == task }
+        if !held || now().timeIntervalSince(at) >= Self.takeBackWait {
+            takingBack = nil
+            takenBackAt = nil
+        }
     }
 
     // MARK: New session
 
+    /// New session: a fresh form (the first of the daemon's folders chosen) and the folders to choose from.
     func prepareNew() async {
-        guard let reply = await ask("sessions.prepare") else { return }
+        startCommand = ""
+        startProblem = nil
+        let reply: [String: Any]
+        do { reply = try await rpc.call("sessions.prepare", params: [:]) } catch {
+            startProblem = error.localizedDescription
+            return
+        }
         folders = reply["folders"] as? [String] ?? []
         if let app = reply["host"] as? String, !app.isEmpty { host = app }
+        if startFolder.isEmpty, let first = folders.first { startFolder = first }
     }
+
+    /// What Start's tap led to: the terminal opened, the daemon asks about its command first, or nothing (refused:
+    /// `startProblem` says why).
+    enum StartOutcome: Equatable { case opened, asks, refused }
 
     /// Start (HAND-695): a new terminal in the folder. With a command, the daemon shows exactly it first and it is typed
-    /// only after the owner's Yes; with none, the terminal opens at once and nothing is typed. True: it opened or asks.
+    /// only after the owner's Yes; with none, the terminal opens at once and nothing is typed. Pending from the tap.
     @discardableResult
-    func planStart(folder: String, command: String) async -> Bool {
-        guard !folder.isEmpty else { return false }
+    func planStart(folder: String, command: String) async -> StartOutcome {
+        guard !folder.isEmpty, !starting else { return .refused }
         let command = command.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let reply = await ask("sessions.prepare", ["folder": folder, "command": command]) else { return false }
-        if let yes = SessionYes(reply) {
-            confirm = Confirm(yes: yes, action: .start(folder: folder, command: command))
-            return true
+        starting = true
+        startProblem = nil
+        let reply: [String: Any]
+        do {
+            reply = try await rpc.call("sessions.prepare", params: ["folder": folder, "command": command])
+        } catch {
+            starting = false
+            startProblem = error.localizedDescription
+            return .refused
         }
-        return await open(folder: folder, command: command)
+        if let yes = SessionYes(reply) {
+            starting = false
+            confirm = Confirm(yes: yes, action: .start(folder: folder, command: command))
+            return .asks
+        }
+        return await open(folder: folder, command: command) ? .opened : .refused
     }
 
-    /// The terminal opens (and his command is typed, when he gave one and said Yes to it).
+    /// The terminal opens (and his command is typed, when he gave one and said Yes to it). The new session opens here
+    /// when the daemon named it; else the list says it will show in a moment until it does.
     @discardableResult
     private func open(folder: String, command: String) async -> Bool {
-        guard await ask("sessions.start", ["folder": folder, "command": command]) != nil else { return false }
-        note = "Opening a terminal on your Mac."
+        starting = true
+        startProblem = nil
+        let reply: [String: Any]
+        do {
+            reply = try await rpc.call("sessions.start", params: ["folder": folder, "command": command])
+        } catch {
+            starting = false
+            startProblem = error.localizedDescription
+            return false
+        }
+        starting = false
+        startCommand = ""
+        let id = reply["session"] as? String ?? ""
+        if id.isEmpty { awaitingNew = Set(sessions.map(\.id)) }
         await load(quiet: true)
+        if !id.isEmpty {
+            awaitingNew = nil
+            await open(sessions.first { $0.id == id } ?? AgentSessionRow(["id": id])!)
+        }
         return true
     }
 

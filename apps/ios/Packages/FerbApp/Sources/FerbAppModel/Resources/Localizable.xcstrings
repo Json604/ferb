@@ -3238,6 +3238,50 @@
         }
       }
     },
+    "sessions_browse_home": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home folder"
+          }
+        }
+      }
+    },
+    "sessions_browse_no_folders": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No folders in here."
+          }
+        }
+      }
+    },
+    "sessions_browse_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a folder"
+          }
+        }
+      }
+    },
+    "sessions_browse_use": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use this folder"
+          }
+        }
+      }
+    },
     "sessions_cancel": {
       "extractionState": "manual",
       "localizations": {
@@ -3249,6 +3293,28 @@
         }
       }
     },
+    "sessions_coming": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your new terminal will show here in a moment."
+          }
+        }
+      }
+    },
+    "sessions_ferb_starting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FERB is starting…"
+          }
+        }
+      }
+    },
     "sessions_hand_go": {
       "extractionState": "manual",
       "localizations": {
@@ -3256,6 +3322,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Hand it over"
+          }
+        }
+      }
+    },
+    "sessions_hand_going": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Handing it to FERB…"
           }
         }
       }
@@ -3425,6 +3502,17 @@
         }
       }
     },
+    "sessions_new_browse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another folder…"
+          }
+        }
+      }
+    },
     "sessions_new_command": {
       "extractionState": "manual",
       "localizations": {
@@ -3458,35 +3546,13 @@
         }
       }
     },
-    "sessions_new_other": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Another folder"
-          }
-        }
-      }
-    },
-    "sessions_new_other_hint": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Full path, like /Users/you/site"
-          }
-        }
-      }
-    },
     "sessions_no_chat": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No chat open in %1$@. Start one there to continue here."
+            "value": "No agent chat open in %1$@. Start one there to continue here."
           }
         }
       }
@@ -3553,6 +3619,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Show earlier"
+          }
+        }
+      }
+    },
+    "sessions_opening": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opening a terminal…"
           }
         }
       }
@@ -3641,6 +3718,39 @@
           "stringUnit": {
             "state": "translated",
             "value": "Sessions"
+          }
+        }
+      }
+    },
+    "sessions_take_back": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Take it back"
+          }
+        }
+      }
+    },
+    "sessions_take_back_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't take it back: %1$@"
+          }
+        }
+      }
+    },
+    "sessions_taking_back": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taking it back…"
           }
         }
       }

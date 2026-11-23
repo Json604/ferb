@@ -80,3 +80,47 @@ fn terminal_is_read_by_its_tab_and_opened_in_the_background() {
         ["-g", "-b", "com.apple.Terminal", "/p/app"]
     );
 }
+
+// decision: HAND-704 — Terminal starts each shell through root's `login`: kept as a link (parent and program, no
+// terminal), so the shell's walk reaches Terminal; another user's process off the owner's chains stays out
+#[test]
+fn a_root_login_between_a_shell_and_its_terminal_app_is_kept_as_a_link() {
+    use std::collections::HashMap;
+    let p = |pid: i32, ppid: i32, tty: &str, exe: &str| Proc {
+        pid,
+        ppid,
+        pgid: pid,
+        tpgid: if tty.is_empty() { 0 } else { 30 },
+        tty: tty.into(),
+        exe: exe.into(),
+    };
+    let mut all: HashMap<i32, (Proc, bool)> = HashMap::new();
+    all.insert(
+        10,
+        (
+            p(
+                10,
+                1,
+                "",
+                "/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal",
+            ),
+            true,
+        ),
+    );
+    all.insert(20, (p(20, 10, "/dev/ttys000", "/usr/bin/login"), false));
+    all.insert(30, (p(30, 20, "/dev/ttys000", "/bin/zsh"), true));
+    all.insert(
+        40,
+        (
+            p(40, 30, "/dev/ttys000", "/Users/x/.local/bin/claude"),
+            true,
+        ),
+    );
+    all.insert(50, (p(50, 1, "", "/usr/sbin/someone-elses"), false));
+    let t = with_links(all);
+    let login = t.get(&20).expect("the link is kept");
+    assert_eq!((login.ppid, login.tty.as_str(), login.tpgid), (10, "", 0));
+    assert_eq!(t.get(&30).map(|x| x.tty.as_str()), Some("/dev/ttys000"));
+    assert!(!t.contains_key(&50), "not on any of the owner's chains");
+    assert_eq!(t.len(), 4);
+}

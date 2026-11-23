@@ -21,21 +21,27 @@ pub struct Proc {
     pub exe: String,
 }
 
-/// The owner's processes (this user's only).
+/// The owner's processes, and the other users' between them and their app as links only (HAND-704).
+///
+/// A terminal app starts each shell through `login`, which runs as root: Terminal, iTerm2 and Ghostty → `login` →
+/// `-zsh`. With the owner's processes alone, a shell's parent was missing, the walk up to its app stopped there, and
+/// no terminal in those apps (nor Claude Code or Codex running in one) had an app, so none was listed or typed into
+/// (the owner's live report, 2026-11-23). Such a process is kept with its parent and program, so the walk passes
+/// through it, but without its terminal, so a terminal is still found by the owner's processes on it.
 pub fn processes() -> HashMap<i32, Proc> {
-    let mut out = HashMap::new();
     let uid = unsafe { libc::getuid() };
     let n = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
     if n <= 0 {
-        return out;
+        return HashMap::new();
     }
     let mut pids = vec![0i32; n as usize + 64];
     let bytes = (pids.len() * std::mem::size_of::<i32>()) as i32;
     let got = unsafe { libc::proc_listallpids(pids.as_mut_ptr() as *mut c_void, bytes) };
     if got <= 0 {
-        return out;
+        return HashMap::new();
     }
     pids.truncate(got as usize);
+    let mut all: HashMap<i32, (Proc, bool)> = HashMap::new();
     for pid in pids.into_iter().filter(|p| *p > 0) {
         let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
         let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
@@ -48,25 +54,61 @@ pub fn processes() -> HashMap<i32, Proc> {
                 size,
             )
         };
-        if r != size || info.pbi_uid != uid {
+        if r != size {
             continue;
         }
         let tty = tty_name(info.e_tdev);
-        out.insert(
+        all.insert(
             pid,
-            Proc {
-                pid,
-                ppid: info.pbi_ppid as i32,
-                pgid: info.pbi_pgid as i32,
-                tpgid: if tty.is_empty() {
-                    0
-                } else {
-                    info.e_tpgid as i32
+            (
+                Proc {
+                    pid,
+                    ppid: info.pbi_ppid as i32,
+                    pgid: info.pbi_pgid as i32,
+                    tpgid: if tty.is_empty() {
+                        0
+                    } else {
+                        info.e_tpgid as i32
+                    },
+                    tty,
+                    exe: String::new(),
                 },
-                tty,
-                exe: exe_of(pid),
-            },
+                info.pbi_uid == uid,
+            ),
         );
+    }
+    let mut out = with_links(all);
+    for p in out.values_mut() {
+        p.exe = exe_of(p.pid);
+    }
+    out
+}
+
+/// HAND-704: the owner's processes (`true`), with every other process on the way up from one of them to launchd kept
+/// as a link: its parent and program, no terminal.
+pub fn with_links(all: HashMap<i32, (Proc, bool)>) -> HashMap<i32, Proc> {
+    let mut out: HashMap<i32, Proc> = all
+        .iter()
+        .filter(|(_, (_, mine))| *mine)
+        .map(|(pid, (p, _))| (*pid, p.clone()))
+        .collect();
+    let mine: Vec<i32> = out.keys().copied().collect();
+    for pid in mine {
+        let mut cur = out.get(&pid).map_or(0, |p| p.ppid);
+        let mut steps = 0;
+        while cur > 1 && !out.contains_key(&cur) && steps < 64 {
+            let Some((p, _)) = all.get(&cur) else { break };
+            out.insert(
+                cur,
+                Proc {
+                    tty: String::new(),
+                    tpgid: 0,
+                    ..p.clone()
+                },
+            );
+            cur = p.ppid;
+            steps += 1;
+        }
     }
     out
 }

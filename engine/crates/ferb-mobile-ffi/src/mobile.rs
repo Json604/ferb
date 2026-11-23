@@ -15,8 +15,9 @@ use crate::records::{
     Attachment, CameraFrame, Cancelled, Conv, ConversationInfo, DeviceReport, Fetched, Folder,
     FoundFiles, GroupStarted, Insomnia, InsomniaEnded, InsomniaStarted, LinkState, LocationFix,
     MacInfo, MacLocked, MemoryReview, OlderState, OutboxItem, PhoneStatus, PreviewFrame,
-    RecentFiles, ScreenUse, ScreenUseEnd, SessionSent, SessionStartPlan, SessionTimeline,
-    SessionsList, SettingValue, TaskPage, TemporaryChat, TranscriptView, Tree, Uploaded,
+    RecentFiles, ScreenUse, ScreenUseEnd, SessionSent, SessionStartPlan, SessionStarted,
+    SessionTimeline, SessionsList, SettingValue, TaskPage, TemporaryChat, TranscriptView, Tree,
+    Uploaded,
 };
 
 fn signer_of(s: Arc<dyn Signer>) -> Arc<dyn ferb_mobile::Signer> {
@@ -776,18 +777,19 @@ impl Mobile {
     }
 
     /// Opens a new terminal on the Mac (signed; `agent` "terminal", `text` the command it types, if any: HAND-691).
-    /// Answers the command. Network and the prompt.
+    /// Answers the new session (to open it), its app and the command. Network and the prompt.
     pub fn session_start(
         &self,
         agent: String,
         folder: String,
         text: String,
         signer: Arc<dyn Signer>,
-    ) -> Result<String, FerbError> {
+    ) -> Result<SessionStarted, FerbError> {
         guard(|| {
             Ok(self
                 .core()?
-                .session_start(&agent, &folder, &text, signer_of(signer))?)
+                .session_start(&agent, &folder, &text, signer_of(signer))?
+                .conv())
         })
     }
 

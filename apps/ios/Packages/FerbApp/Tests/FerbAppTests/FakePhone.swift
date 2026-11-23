@@ -274,7 +274,8 @@ final class FakePhone: PhoneApi {
     func fetchTaskFile(id: String, taskId: String, index: UInt64, saveTo: String, listener: TransferListener) async -> Outcome<Fetched> {
         .failed(.NotFound(detail: "No such file.", linkCode: nil))
     }
-    func recentFiles(limit: Int) async -> Outcome<RecentFiles> { calls.append("recent"); return .ok(RecentFiles(files: [], skipped: 0)) }
+    @ObservationIgnored var recent = RecentFiles(files: [], skipped: 0)
+    func recentFiles(limit: Int) async -> Outcome<RecentFiles> { calls.append("recent"); return .ok(recent) }
     var found: FoundFiles?
     func searchFiles(query: String, path: String?, after: String?) async -> Outcome<FoundFiles> {
         if let after {
@@ -360,7 +361,7 @@ final class FakePhone: PhoneApi {
     private func deliver(_ id: String, _ text: String) -> SessionSent {
         codingSent.append((id, text))
         let n = UInt64((codingItems[id]?.last?.seq ?? 0) + 1)
-        if codingEchoes { codingItems[id, default: []].append(SessionItem(seq: n, at: "2026-01-02T10:00:00Z", kind: "user", text: text, tool: "")) }
+        if codingEchoes { codingItems[id, default: []].append(SessionItem(seq: n, at: "2026-01-02T10:00:00Z", kind: "user", text: text, tool: "", parts: [])) }
         return SessionSent(needsYes: nil, sent: true, delivered: codingDelivered, path: "terminal_script")
     }
     func sessionsList() async -> Outcome<SessionsList> {
@@ -417,23 +418,32 @@ final class FakePhone: PhoneApi {
         }
         return .ok(true)
     }
+    /// The Mac's refusal of the next start's prepare (a folder it can't open there).
+    @ObservationIgnored var prepareRefusal: FerbError?
     func sessionPrepare(agent: String, folder: String, text: String) async -> Outcome<SessionStartPlan> {
         calls.append("session-prepare:\(agent):\(folder):\(text)")
+        if !agent.isEmpty, let e = prepareRefusal { prepareRefusal = nil; return .failed(e) }
         // HAND-695: a new terminal; only a command is asked about, shown exactly
         if folder.isEmpty || text.isEmpty { return .ok(SessionStartPlan(folders: codingFolders, needsYes: nil)) }
         return .ok(SessionStartPlan(folders: codingFolders, needsYes: SessionYes(question: "Open a new Terminal window in \((folder as NSString).lastPathComponent) and type this?",
                                                                                     detail: text, covers: "FERB opens it in the background and types only this command, then Return.")))
     }
-    func sessionStart(agent: String, folder: String, text: String, signer: Signer) async -> Outcome<String> {
+    /// The new terminal's id the Mac answers ("" when it hadn't shown yet); `startRefusal` refuses the next start.
+    @ObservationIgnored var startedSession = ""
+    @ObservationIgnored var startRefusal: FerbError?
+    @ObservationIgnored var delegateRefusal: FerbError?
+    func sessionStart(agent: String, folder: String, text: String, signer: Signer) async -> Outcome<SessionStarted> {
         calls.append("session-start:\(agent):\(folder):\(text)")
         guard let sig = signer.sign(payload: "sessions.start") else { return .failed(.NotSigned(detail: "Nothing was sent.", linkCode: nil)) }
         signed.append(sig)
-        return .ok(text)
+        if let e = startRefusal { startRefusal = nil; return .failed(e) }
+        return .ok(SessionStarted(session: startedSession, host: "Terminal", command: text))
     }
     func sessionDelegate(_ session: String, goal: String, signer: Signer) async -> Outcome<String> {
         calls.append("session-delegate:\(session):\(goal)")
         guard let sig = signer.sign(payload: "sessions.delegate") else { return .failed(.NotSigned(detail: "Nothing was sent.", linkCode: nil)) }
         signed.append(sig)
+        if let e = delegateRefusal { delegateRefusal = nil; return .failed(e) }
         return .ok("FERB is on it.")
     }
     func watchSession(_ session: String, sink: PreviewSink) async -> Outcome<Live> {

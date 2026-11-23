@@ -280,8 +280,12 @@ struct Seen {
     answers: Mutex<HashMap<String, oneshot::Sender<Option<String>>>>,
     closed: Mutex<Vec<String>>,
     handed: Mutex<Vec<(String, Option<String>)>>,
+    /// HAND-702: where each hand-over's news goes (the chat turn's events, in the real daemon).
+    news: Mutex<Vec<HandNews>>,
     published: Mutex<Vec<String>>,
     told: Mutex<Vec<String>>,
+    /// HAND-706: each notification's ident (one per session: a later one replaces it).
+    told_ids: Mutex<Vec<String>>,
     journal: Mutex<Vec<(String, Value)>>,
     /// HAND-699: the outlines the model was shown, and its answers in turn (none left: "no chat").
     located: Mutex<Vec<String>>,
@@ -350,7 +354,10 @@ fn world(speed: f64) -> World {
             s1.published.lock().unwrap().push(topic.into())
         }),
         journal: Arc::new(move |k: &str, d: Value| s2.journal.lock().unwrap().push((k.into(), d))),
-        tell: Arc::new(move |_ident: &str, text: &str| s3.told.lock().unwrap().push(text.into())),
+        tell: Arc::new(move |ident: &str, text: &str| {
+            s3.told.lock().unwrap().push(text.into());
+            s3.told_ids.lock().unwrap().push(ident.into());
+        }),
         ask: Arc::new(move |a: Ask| {
             let id = format!("ap{}", s4.asks.lock().unwrap().len() + 1);
             let (tx, rx) = oneshot::channel();
@@ -361,8 +368,9 @@ fn world(speed: f64) -> World {
             (id, fut)
         }),
         close_ask: Arc::new(move |id: &str| s5.closed.lock().unwrap().push(id.into())),
-        hand_over: Arc::new(move |text, client| {
+        hand_over: Arc::new(move |text, client, news| {
             s6.handed.lock().unwrap().push((text, client));
+            s6.news.lock().unwrap().push(news);
             Ok(())
         }),
         now: Arc::new(|| "2026-11-22T10:00:00.000+00:00".into()),
@@ -895,6 +903,45 @@ async fn the_owner_s_first_send_asks_once_then_types_and_proves_delivery() {
     assert!(!told[0].contains("ignore your rules"), "{told:?}");
 }
 
+/// The owner's live report (2026-11-23): FERB's chat filled with "Claude Code in FERB is done and waiting for you."
+/// after every turn he sent from his phone. A finished turn is now one notification for that session (the same ident,
+/// so a later one replaces it; a Mac banner, never a chat line), and none while he is looking at the session.
+// decision: HAND-706
+#[tokio::test]
+async fn a_finished_turn_is_one_notification_per_session_and_none_while_he_looks_at_it() {
+    // the area's clock runs 1000 times faster: LOOKED_AT_S is 10 ms here
+    let w = world(1000.0);
+    in_terminal(&w, true);
+    let t = transcript(&w);
+    listed(&w);
+    *w.mac.echo_to.lock().unwrap() = Some(t.clone());
+    w.s.take_control(&id(), &Caller::Mac).unwrap();
+    let stop = || hook_event("Stop", json!({"last_assistant_message": "done"}));
+    // he looks at the session as the turn ends: nothing is notified
+    w.s.send(&id(), "one", &Caller::Mac).await.unwrap();
+    w.s.timeline(&id(), 0, 50).unwrap();
+    w.s.hook(&stop(), &[140, 130]).await;
+    assert!(w.seen.told.lock().unwrap().is_empty());
+    // he isn't looking: one notification per turn, under the session's own ident (a later one replaces it)
+    std::thread::sleep(Duration::from_millis(30));
+    for words in ["two", "three"] {
+        w.s.send(&id(), words, &Caller::Mac).await.unwrap();
+        w.s.hook(&stop(), &[140, 130]).await;
+    }
+    let ids = w.seen.told_ids.lock().unwrap().clone();
+    assert_eq!(
+        ids,
+        [
+            format!("sessions.finished:{}", id()),
+            format!("sessions.finished:{}", id())
+        ]
+    );
+    assert_eq!(
+        w.seen.told.lock().unwrap()[0],
+        "Claude Code in app is done and waiting for you."
+    );
+}
+
 // decision: HAND-658
 #[tokio::test]
 async fn typing_is_refused_when_the_agent_is_not_in_front_and_unproven_delivery_is_said() {
@@ -1157,7 +1204,7 @@ async fn a_hand_over_is_the_owner_s_message_and_a_start_types_the_exact_command(
     );
     w.s.task_touched(&id(), "tree1");
     assert_eq!(w.s.session(&id()).unwrap().delegate, "tree1");
-    w.s.task_ended("tree1");
+    w.s.task_ended("tree1", "done");
     assert_eq!(w.s.session(&id()).unwrap().delegate, "");
     assert_eq!(
         w.s.delegate(&id(), "  ", None).unwrap_err().code,
@@ -1171,6 +1218,187 @@ async fn a_hand_over_is_the_owner_s_message_and_a_start_types_the_exact_command(
     assert_eq!(
         Sessions::legacy_command(Agent::Codex, " ").unwrap(),
         "codex"
+    );
+}
+
+/// The owner's live report (2026-11-23): Hand to FERB "didn't message anything" and "FERB is on it" stayed after the
+/// task had failed, and after he stopped controlling and closed the terminal. Now the session says what became of the
+/// hand-over, "FERB is on it" lasts only while FERB's task runs, and the message names the agent_session tools.
+// decision: HAND-702
+#[tokio::test]
+async fn a_hand_over_says_what_became_of_it_and_is_on_it_only_while_its_task_runs() {
+    let w = world(1.0);
+    in_terminal(&w, true);
+    listed(&w);
+    let on_it = |w: &World| {
+        let s = w.s.session(&id()).unwrap();
+        (s.goal.clone(), s.delegate.clone(), s.ferb_note.clone())
+    };
+    // the message: the session on this Mac, driven with the agent_session tools, his goal in his words
+    let msg = w.s.delegate(&id(), "chat with it", None).unwrap();
+    assert!(
+        msg.contains("on this Mac")
+            && msg.contains("agent_session tools")
+            && msg.ends_with(": chat with it"),
+        "{msg}"
+    );
+    assert_eq!(
+        on_it(&w),
+        (
+            "chat with it".into(),
+            String::new(),
+            "Handed to FERB: “chat with it”".into()
+        )
+    );
+    // the planner's answer failed (the live run: an invalid plan): it says so and FERB is no longer on it
+    let news = w.seen.news.lock().unwrap().last().cloned().unwrap();
+    news(Hand::Failed(
+        "I couldn't start that: something broke inside FERB.".into(),
+    ));
+    assert_eq!(
+        on_it(&w),
+        (
+            String::new(),
+            String::new(),
+            "FERB couldn't start on it: “I couldn't start that: something broke inside FERB.”"
+                .into()
+        )
+    );
+    // a news that comes after the hand-over ended changes nothing
+    news(Hand::Started("late".into()));
+    assert_eq!(on_it(&w).1, "");
+    // asked first: the question is quoted, not "on it"
+    w.s.delegate(&id(), "chat with it", None).unwrap();
+    let news = w.seen.news.lock().unwrap().last().cloned().unwrap();
+    news(Hand::Asked("What should I talk to Codex about?".into()));
+    assert_eq!(
+        on_it(&w).2,
+        "FERB asked you something in its chat before it starts: “What should I talk to Codex about?”"
+    );
+    assert!(!w
+        .s
+        .list()
+        .iter()
+        .any(|s| s.id == id() && !(s.goal.is_empty() && s.delegate.is_empty())));
+    // a task started: on it until the task ends, whichever way, and the session says how it ended
+    w.s.delegate(&id(), "keep going", None).unwrap();
+    let news = w.seen.news.lock().unwrap().last().cloned().unwrap();
+    news(Hand::Started("tree9".into()));
+    assert_eq!(
+        on_it(&w),
+        (
+            "keep going".into(),
+            "tree9".into(),
+            "FERB is on it: “keep going”".into()
+        )
+    );
+    w.s.task_ended("tree9", "stopped");
+    assert_eq!(
+        on_it(&w),
+        (
+            String::new(),
+            String::new(),
+            "FERB stopped. The session is yours again.".into()
+        )
+    );
+    // a plain answer and no task
+    w.s.delegate(&id(), "how is it going", None).unwrap();
+    let news = w.seen.news.lock().unwrap().last().cloned().unwrap();
+    news(Hand::Said("It's idle.".into()));
+    assert_eq!(
+        on_it(&w).2,
+        "FERB answered in its chat and didn't start: “It's idle.”"
+    );
+    // the news is journaled by kind only
+    let kinds: Vec<Value> = w
+        .seen
+        .journal
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(k, _)| k == "sessions.hand_news")
+        .map(|(_, d)| d["news"].clone())
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            json!("failed"),
+            json!("asked"),
+            json!("started"),
+            json!("said")
+        ]
+    );
+}
+
+/// The owner's live report (2026-11-23): Claude Code and Codex in Terminal said "No app shows this session" (no typing,
+/// no Watch), and the terminals Terminal opened never showed. The Mac's table now keeps root's `login` between Terminal
+/// and each shell as a link (ferb-platform-macos `with_links`): every tab is listed with Terminal as its app, and an
+/// agent in one has its host, its send paths and its Watch place.
+// decision: HAND-704
+#[test]
+fn terminal_s_tabs_under_root_s_login_are_listed_and_an_agent_in_one_has_its_app() {
+    let w = world(1.0);
+    {
+        let mut t = w.mac.table.lock().unwrap();
+        t.extend([
+            proc(
+                100,
+                1,
+                100,
+                0,
+                "",
+                "/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal",
+            ),
+            // a tab running Claude Code: login (root's, a link: no terminal), its shell, the agent in front
+            proc(110, 100, 110, 0, "", "/usr/bin/login"),
+            proc(120, 110, 120, 130, "/dev/ttys004", "/bin/zsh"),
+            proc(
+                130,
+                120,
+                130,
+                130,
+                "/dev/ttys004",
+                "/u/.local/share/claude/versions/2.1.330",
+            ),
+            // another tab FERB opened: a shell alone
+            proc(210, 100, 210, 0, "", "/usr/bin/login"),
+            proc(220, 210, 220, 220, "/dev/ttys005", "/bin/zsh"),
+        ]);
+    }
+    w.mac
+        .argv0
+        .lock()
+        .unwrap()
+        .extend([(130, "claude".to_string()), (220, "-zsh".to_string())]);
+    w.mac
+        .cwds
+        .lock()
+        .unwrap()
+        .extend([(130, "/p/app".to_string()), (220, "/p/blog".to_string())]);
+    listed(&w);
+    let agent = w.s.session(&id()).expect("Claude Code is listed");
+    let host = agent.host.clone().expect("its app is found");
+    assert_eq!((host.name.as_str(), host.pid), ("Terminal", 100));
+    assert_eq!(
+        agent.send_paths,
+        [SendPath::TerminalScript, SendPath::Foreground]
+    );
+    assert_eq!(agent.no_send, "");
+    assert_eq!(agent.program, "claude", "the agent claims its tab: one row");
+    assert!(w.s.place(&id()).is_some(), "Watch finds where it is shown");
+    let tabs: Vec<Session> =
+        w.s.list()
+            .into_iter()
+            .filter(|s| s.agent == Agent::Terminal)
+            .collect();
+    assert_eq!(tabs.len(), 1, "{tabs:?}");
+    assert_eq!(
+        tabs[0].host.as_ref().map(|h| h.name.as_str()),
+        Some("Terminal")
+    );
+    assert_eq!(
+        (tabs[0].program.as_str(), tabs[0].cwd.as_str()),
+        ("zsh", "/p/blog")
     );
 }
 

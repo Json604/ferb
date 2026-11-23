@@ -2410,3 +2410,14 @@ rule = "For ORCH-694. A not-done (not cancelled) report that ORCH-654 doesn't sk
 why = "The full check agreed with a not-done report 49 times in 50, at about 200k tokens each; what it decided was only whether to retry, ask or stop."
 paths = ["engine/crates/ferb-supervisor/src/flow/attempt.rs::route_not_done", "engine/crates/ferb-supervisor/src/flow/attempt.rs::last_failed_call", "engine/runtime/orchestrator/prompts/not_done.md"]
 live = ["LIVE-1187"]
+
+[ORCH-703]
+title = "A second repair is told every problem found so far; a plan still invalid is said in plain words"
+by = "agent"
+date = 2026-11-23
+status = "active"
+rule = "For HAND-702. The planner is still repaired at most twice per message, but the second repair gets the first repair's problems with the new ones, so it can't bring one back. A plan still invalid after a repair is a rejected plan: its problems stay in the journal and the developer report, and the owner reads PLAN_UNUSABLE (\"I couldn't start that: the plan I made for it didn't hold together, even after one more try, so I did nothing. Saying it another way usually helps.\"). Named difference from Python."
+why = "Live 2026-11-23 (journal 1253-1257): a hand-over plan had a converse step with no account; repair 1 fixed it but broke a wait; repair 2, told only of the wait, brought the converse step back; the owner read pydantic's words."
+evidence = "ferb-supervisor tests/task_waits.rs a_second_repair_is_told_every_problem_so_far_and_a_plan_still_invalid_is_said_plainly."
+paths = ["engine/crates/ferb-supervisor/src/flow/turn.rs"]
+live = ["LIVE-1195"]

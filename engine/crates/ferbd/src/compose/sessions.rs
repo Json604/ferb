@@ -273,7 +273,17 @@ impl Mac for NativeMac {
             );
         }
         if t.bundle_id == ferb_sessions::paths::TERMINAL {
-            return ferb_platform_macos::sessions::terminal_contents(&self.home, &t.tty);
+            // HAND-704: Terminal's own words for the tab first; when its scripting won't answer (FERB not allowed to
+            // automate Terminal yet, or the tab moved), the window's terminal text by Accessibility, as for any app
+            let by_script = ferb_platform_macos::sessions::terminal_contents(&self.home, &t.tty);
+            if by_script.is_ok() {
+                return by_script;
+            }
+            return match self.driver() {
+                Some(driver) => terminal_text_by_ax(&driver, t)
+                    .map_err(|e| by_script.err().filter(|_| t.window == 0).unwrap_or(e)),
+                None => by_script,
+            };
         }
         let driver = self.driver().ok_or("FERB's Mac hands aren't running.")?;
         terminal_text_by_ax(&driver, t)
@@ -577,6 +587,10 @@ fn node_of(
             "AXTextArea" | "AXTextField" | "AXComboBox"
         ) && !n.secret,
         composer: false,
+        // decision: HAND-703 — the tree's shape (its depth below the read's root) and the structure a part is read by
+        depth: n.path.len(),
+        subrole: n.subrole.clone(),
+        expanded: n.expanded,
     }
 }
 
@@ -1266,40 +1280,55 @@ pub fn build(server: &Server, p: Parts) -> Sessions {
         close_ask: Arc::new(move |id: &str| {
             gw.close_own(id);
         }),
-        hand_over: Arc::new(move |text: String, client: Option<String>| {
-            let mut params = serde_json::Map::new();
-            params.insert("text".into(), json!(text));
-            if let Some(c) = client {
-                params.insert("client_id".into(), json!(c));
-            }
-            let mut rx = sup.chat_send_params(&params).map_err(|r| r.0)?;
-            // the turn's own events reach every client through the chat's entries; nobody reads these
-            if let Some(rt) = tokio::runtime::Handle::try_current()
-                .ok()
-                .or_else(|| runtime.clone())
-            {
-                rt.spawn(async move { while rx.recv().await.is_some() {} });
-            }
-            Ok(())
-        }),
+        hand_over: Arc::new(
+            move |text: String, client: Option<String>, news: ferb_daemon::sessions::HandNews| {
+                let mut params = serde_json::Map::new();
+                params.insert("text".into(), json!(text));
+                if let Some(c) = client {
+                    params.insert("client_id".into(), json!(c));
+                }
+                let mut rx = sup.chat_send_params(&params).map_err(|r| r.0)?;
+                // decision: HAND-702 — the turn's own events say what became of the hand-over (every client sees the
+                // turn itself through the chat's entries)
+                if let Some(rt) = tokio::runtime::Handle::try_current()
+                    .ok()
+                    .or_else(|| runtime.clone())
+                {
+                    rt.spawn(async move {
+                        let mut told = false;
+                        let mut said: Option<String> = None;
+                        while let Some(frame) = rx.recv().await {
+                            if told {
+                                continue;
+                            }
+                            if let Some(h) = hand_of(&frame, &mut said) {
+                                news(h);
+                                told = true;
+                            }
+                        }
+                        if let (false, Some(t)) = (told, said) {
+                            news(ferb_daemon::sessions::Hand::Said(t));
+                        }
+                    });
+                }
+                Ok(())
+            },
+        ),
+        // decision: HAND-706 — a session's finished turn is one Mac notification per session (its ident replaces the
+        // last), shown while FERB.app isn't showing it, never a line in the owner's chat
         tell: Arc::new(move |ident: &str, text: &str| {
-            let (n, ident, text) = (notifier.clone(), ident.to_owned(), text.to_owned());
+            let n = notifier.clone();
+            let banner = ferb_daemon::areas_b::banners::Banner {
+                title: "FERB".into(),
+                text: text.to_owned(),
+                category: "task_finished".into(),
+                when_hidden: true,
+                ident: ident.to_owned(),
+                target: serde_json::Map::new(),
+                card: serde_json::Map::new(),
+            };
             if let Ok(rt) = tokio::runtime::Handle::try_current() {
-                rt.spawn(async move {
-                    let _ = n
-                        .tell_owner(
-                            &ident,
-                            &[],
-                            &text,
-                            ferb_sanitize::origin::FERB,
-                            "",
-                            "",
-                            &[],
-                            &Value::Null,
-                            None,
-                        )
-                        .await;
-                });
+                rt.spawn(async move { n.notify(banner, false).await });
             }
         }),
         now: Arc::new(move || ferb_core::when::isoformat(&clock.now())),
@@ -1354,6 +1383,31 @@ fn native_mac(_p: &Parts) -> Arc<dyn Mac> {
     Arc::new(AbsentMac)
 }
 
+/// HAND-702: what one frame of the hand-over turn's stream says: a task started (its plan), a question, a failure.
+/// A plain reply is kept in `said` and told only when the turn ends with nothing else.
+pub fn hand_of(frame: &Value, said: &mut Option<String>) -> Option<ferb_daemon::sessions::Hand> {
+    use ferb_daemon::sessions::Hand;
+    let text = |k: &str| {
+        frame
+            .get(k)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_owned()
+    };
+    match text("type").as_str() {
+        "plan" if !text("task_id").is_empty() && frame.get("preview").is_none() => {
+            Some(Hand::Started(text("task_id")))
+        }
+        "clarify" => Some(Hand::Asked(text("text"))),
+        "reply" if text("status") == "failed" => Some(Hand::Failed(text("text"))),
+        "reply" if !text("text").trim().is_empty() => {
+            *said = Some(text("text"));
+            None
+        }
+        _ => None,
+    }
+}
+
 /// How often the area looks (the process table, the transcripts' new lines; never a model).
 pub const LOOK_MS: u64 = 2000;
 
@@ -1373,7 +1427,7 @@ pub fn start_loops(d: &Arc<super::Daemon>, s: &Sessions) {
                             &ferb_daemon::sessions::Caller::Phone(text("phone")),
                         );
                     }
-                    _ => s.task_ended(&text("task_id")),
+                    _ => s.task_ended(&text("task_id"), &text("status")),
                 }
             }),
         );

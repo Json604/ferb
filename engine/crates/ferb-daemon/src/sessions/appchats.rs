@@ -7,7 +7,7 @@
 //!   that layout is found by code alone. At most one ask per layout and MODEL_ASKS_PER_APP_PER_DAY per app a day
 //!   (HAND-700, the owner's number; it only guards against a loop).
 //! - No proven chat: no session, nothing typed. An app whose windows hold none gets one quiet line in the list
-//!   ("No chat open in {app}. Start one there to continue here.": the clients' words, HAND-697).
+//!   ("No agent chat open in {app}. Start one there to continue here.": the clients' words, HAND-697, HAND-705).
 //! - Looked at while someone watches: the owner has it open (a client read its timeline lately), FERB's task holds it,
 //!   or a send waits for its reply; every LOOK_REPLYING_S while the app replies, every LOOK_IDLE_S otherwise. Any
 //!   other window is checked every CHECK_EVERY_S. A window on another Space is read by bringing its app forward only
@@ -380,6 +380,17 @@ impl Sessions {
                 },
                 text: redact(&b.text),
                 tool: String::new(),
+                // decision: HAND-703 — the reply's parts, each redacted like its text (rule 7)
+                parts: b
+                    .parts
+                    .iter()
+                    .map(|p| ferb_sessions::model::Part {
+                        kind: p.kind,
+                        text: redact(&p.text),
+                        label: redact(&p.label),
+                        detail: redact(&p.detail),
+                    })
+                    .collect(),
             })
             .collect();
         if let Some(last) = e.items.iter().rev().find(|i| i.kind == ItemKind::Assistant) {

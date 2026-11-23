@@ -167,7 +167,6 @@ final class SessionsTests: XCTestCase {
         XCTAssertEqual(sent["session"] as? String, "claude:abc")
         XCTAssertEqual(sent["goal"] as? String, "Keep going until the tests pass")
         XCTAssertEqual(sent["client_id"] as? String, "client-7")
-        XCTAssertNotNil(model.note)
         let empty = await model.delegate(goal: "  ")
         XCTAssertFalse(empty)
         XCTAssertEqual(rpc.params(of: "sessions.delegate").count, 1)
@@ -264,7 +263,7 @@ final class SessionsTests: XCTestCase {
         // no command: it opens, nothing asked, nothing to type, no agent named
         rpc.replies["sessions.start"] = ["started": true, "command": "", "session": "term:1", "host": "Terminal"]
         let opened = await model.planStart(folder: "/Users/o/code/site", command: "  ")
-        XCTAssertTrue(opened)
+        XCTAssertEqual(opened, .opened)
         XCTAssertNil(model.confirm)
         let first = try XCTUnwrap(rpc.params(of: "sessions.start").first)
         XCTAssertEqual(first["folder"] as? String, "/Users/o/code/site")
@@ -275,7 +274,7 @@ final class SessionsTests: XCTestCase {
                                            "needs_yes": ["question": "Open a new Terminal window in site and type this?",
                                                          "detail": "agy", "covers": "…"]]
         let planned = await model.planStart(folder: "/Users/o/code/site", command: " agy ")
-        XCTAssertTrue(planned)
+        XCTAssertEqual(planned, .asks)
         let asked = try XCTUnwrap(rpc.params(of: "sessions.prepare").last)
         XCTAssertEqual(asked["command"] as? String, "agy")
         XCTAssertNil(asked["agent"])
@@ -286,7 +285,7 @@ final class SessionsTests: XCTestCase {
         XCTAssertEqual(started["command"] as? String, "agy")
     }
 
-    // decision: HAND-692, HAND-697
+    // decision: HAND-692, HAND-697, HAND-705
     func testATerminalRowSaysItsProgramFolderAndAppAndAnAppWithNoChatSaysSo() async throws {
         let row = try XCTUnwrap(AgentSessionRow(["id": "term:110", "agent": "terminal", "program": "agy", "cwd": "/Users/o/Desktop",
                                                  "window": "Desktop — agy — 120×30", "host": ["name": "Terminal"],
@@ -299,7 +298,7 @@ final class SessionsTests: XCTestCase {
         let model = SessionsModel(rpc: rpc)
         await model.load()
         XCTAssertEqual(model.noChats, ["Cursor"])
-        XCTAssertEqual(AgentSessionRow.noChatLine("Cursor"), "No chat open in Cursor. Start one there to continue here.")
+        XCTAssertEqual(AgentSessionRow.noChatLine("Cursor"), "No agent chat open in Cursor. Start one there to continue here.")
     }
 
     func testTurnOnWritesTheSwitchAndReadsTheListAgain() async throws {

@@ -10654,3 +10654,90 @@ from MEM-412, not a decision. No fixture recorded an import run's spans, so no f
 - No live check, and no installed build. The owner's existing imports keep no spans (only new calls are recorded).
 - The work log's usage is labelled `memory_import`, the job's one usage role, as in Python. Its spans carry
   `worklog_summary`.
+
+## 2026-11-23 · 189 · Terminals in every terminal app, a chat reply as the app shows it, Hand to FERB said in the session
+
+**What the owner found live (FERB.app 202611230246, his Moto; HAND-702..705, PHN-821, PHN-822).** A Claude Code
+session in a terminal ("kartikey-3c", later "Insults toward Claude model") was blank, then read only: "No app shows this
+session, so FERB can't type into it."; a Codex one typed but its Watch said no app shows it; the terminals New session
+opened never showed; Hand to FERB "didn't message anything" and "FERB is on it" stayed; Cursor's and the Claude app's
+replies came as many bubbles split at line breaks with "Thought 1s", "Just now" and table cells as bubbles; the no-chat
+line didn't say it is about an agent chat; Start froze the sheet; the folder had to be typed; FERB's chat filled with
+"Claude Code in FERB is done and waiting for you.".
+
+**Why (read only on his Mac).**
+- Terminals: `ps` showed his Claude Code in VS Code (claude 93334 → zsh 92896 → Code Helper 92887 → Code 92863: found,
+  typed into at 08:32:08, journal `sessions.sent` path foreground). The others ran in Terminal: the unified log shows
+  Terminal 15160 launched by FERB's `sessions.start` at 08:32:55 (`open -g`, dontMakeFrontmost), and the journal holds
+  three `sessions.started` (08:32:55, 08:50:51, 08:52:39) with nothing listed after. The Codex session's rollout
+  (`originator codex-tui`, cwd /Users/kartikey) is a TUI in a terminal. Terminal starts each shell through `login`,
+  which runs as root, and ferb-platform-macos `processes()` kept only `pbi_uid == getuid()`: the shell's parent was
+  missing, `host::resolve` stopped there, so no Terminal tab (nor an agent in one) had an app: not listed, no send path
+  (paths.rs NO_WINDOW), no Watch place (`place()` needs a host). The tests' tables never had `login` in them.
+- Hand to FERB: `phone_audit` has `sessions.delegate` ok at 08:44:50 and 08:46:39. Journal 1253-1257: the planner made
+  a converse step with no account/site (pydantic "3 validation errors"), repair 1 fixed that but made a wait problem
+  ("ask_codex: wait time must be an ISO timestamp"), repair 2, told only of the wait, brought the converse step back,
+  and the reply was "something broke inside FERB (ValidationError: …)". The second was a clarify ("What should I talk
+  to Codex about, and what should count as done?"). Both went only to FERB's main chat; the session kept `goal` (set by
+  `delegate`, cleared only by `task_ended` of a task that never touched it), so "FERB is on it" stayed.
+- Replies: `appchat::read` sorted runs by their y and grouped by gaps: a run wrapping across lines sorts before a link
+  inside it ("It reverts PR (the …) … #15"), each paragraph, status and cell became a block.
+- The notices: `tell_finished` posted a chat notice per finished turn sent through FERB (chat_entries 04:00-08:32).
+
+**What.**
+- HAND-704: `processes()` keeps other users' processes on the way up from the owner's as links (parent and program, no
+  terminal: `with_links`), so Terminal/iTerm2/Ghostty tabs are found by the owner's shell and resolve to their app.
+  Terminal's text: its scripting, else Accessibility (an Automation refusal no longer leaves it blank).
+- HAND-703: `appchat::read` uses the pane's tree (depth, subrole, expanded now on `Node`, from `AxNode.path`): one block
+  per owner message, one per app reply; runs in tree order joined in their block; parts by structure: text (Markdown:
+  paragraphs, headings, AXList → list, AXTable/AXRow → pipe table, AXCodeStyleGroup → code, the app's words escaped),
+  thinking/tool (an element with AXExpanded or a disclosure triangle; tool when its row has an icon glyph or its body
+  is code; the runs under its own holder are its body), meta (a status/time subrole, a busy control, or the only words
+  in a row of buttons); a plain button's label is chrome; a non-composer input's value is an owner message. No shape:
+  the old layout grouping, consecutive app runs one reply. `Item.parts` (added) redacted like the text.
+- HAND-702: the hand-over message names the session as one on this Mac driven with the agent_session tools, not a
+  person to message. ferbd reads the turn's own stream (`hand_of`: plan → Started(task), clarify → Asked, failed reply
+  → Failed, else the last reply → Said); `Sessions::hand_news` keeps "on it" only for a started task and writes
+  `ferb_note`; `task_ended(tree, status)` says how it ended. Clients: Take it back (the existing task stop) instead of
+  Hand to FERB while FERB has it; pending states; the note in the session.
+- ORCH-703: the second repair gets every problem so far; a plan still invalid is `Failure::PlanRejected`, said as
+  PLAN_UNUSABLE (problems stay in the journal and the developer report).
+- HAND-706: a finished turn is one Mac banner per session (ident `sessions.finished:<id>`, category task_finished,
+  when hidden), none when a client read the session in the last 10 s; never a chat line.
+- HAND-705: "No agent chat open in {app}. Start one there to continue here."
+- PHN-821/PHN-822 and APP-1123: the phones' folder picker over the Files browser, Start's pending state and opening the
+  new session (`SessionStarted` from `session_start`), row titles never empty (agent name last), parts rendered on
+  both phones and FERB.app.
+- RPC: Session `ferb_note`; Item `parts`; ffi `AgentSession.ferb_task/ferb_note`, `SessionItem.parts`,
+  `SessionPart`, `session_start` → `SessionStarted` (was String). No method added or renamed.
+
+**New owner-facing strings.** Mac/daemon: "Handed to FERB: “{goal}”", "FERB is on it: “{goal}”", "FERB asked you
+something in its chat before it starts: “{q}”", "FERB answered in its chat and didn't start: “{t}”", "FERB couldn't
+start on it: “{t}”", "FERB is working in this session.", "FERB finished. The session is yours again.", "FERB stopped.
+The session is yours again.", "FERB stopped without finishing. Its chat says why.", PLAN_UNUSABLE, "No agent chat open
+in {app}. Start one there to continue here."; the hand-over message's added sentence. Clients: "Take it back", "Taking
+it back…", "Couldn't take it back: {reason}", "FERB is starting…", "Handing it to FERB…", "Opening a terminal…", "Your
+new terminal will show here in a moment.", phones "Another folder…", "Choose a folder", "Home folder", "Use this
+folder", "No folders in here."; FERB.app "Thinking" (a thought with no label).
+
+**Evidence.** ferb-sessions (appchat 8 incl. 2 new, terminals +1), ferb-daemon tests/sessions.rs 29 (+3:
+terminal_s_tabs_under_root_s_login…, a_hand_over_says_what_became_of_it…, a_finished_turn_is_one_notification…),
+ferb-platform-macos sessions 6 (+1), ferb-supervisor task_waits 10 (+1) and the whole crate, ferbd sessions_hook 3
+(+1), every_method_answers, seams_wired, ferb-mobile sessions 3 (+1); clippy `-D warnings` clean on ferb-sessions,
+ferb-daemon, ferbd, ferb-platform-macos, ferb-supervisor, ferb-mobile, ferb-mobile-ffi. Android `:app:testDebugUnitTest`
+391 and `:design:test` 119, 0 failures (goldens session-rich, -take-back, -ferb-note, -new-starting, -folder-picker at
+360/412; sessions-list and session-new re-recorded). FERB.app `swift test` 987 (8 skipped), 0 failures
+(SessionsHandOverTests 14). iPhone `tools/build.sh test`: TEST SUCCEEDED (FerbAppTests 241, FerbDesignTests 78 with 18 new
+goldens at 375/402, FerbCoreTests 15, FerbMobileTests 4, UI tests 7), but in both full runs the FerbAppTests process aborted
+once with "Rust cannot catch foreign exceptions" near SessionsLibraryTests.testARefusalComesWithTheMacsWords and Xcode
+re-ran the rest; that test passes alone. Not diagnosed.
+
+**Unverified.**
+- Nothing ran against the real Terminal, iTerm2, Cursor or the Claude app; LIVE-1195..1198. Whether `login`'s path is
+  readable by `proc_pidpath` as the owner (if not, its program is "" and the walk still passes through it).
+- Chromium's/Cursor's real Accessibility structure for thoughts, steps, tables, code and status rows is from Chromium's
+  usual mapping, not read (Cursor and the Claude app weren't open): an app that exposes none of it falls back to one
+  text part per reply; thinking vs tool is told by an icon or code body only.
+- The planner's choice for a hand-over is a model's; the message and ORCH-703 make an invalid plan unlikely and never
+  raw, not impossible. Phones get no push for a finished turn (no channel for it).
+- Terminal's Accessibility fallback reads the selected tab of the window only.

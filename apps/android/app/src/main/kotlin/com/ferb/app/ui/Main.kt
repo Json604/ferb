@@ -142,7 +142,7 @@ import com.ferb.mobile.OlderState
 import com.ferb.mobile.RelayStatus
 
 @Composable
-fun noteText(n: Note): String = stringResource(n.res, n.words.orEmpty())
+fun noteText(n: Note): String = stringResource(n.res, n.inner?.let { noteText(it) } ?: n.words.orEmpty())
 
 /** The chat tab's pages (kb PHN-696): today with nothing said yet, today's chat, the earlier days. */
 private enum class ChatPage { HOME, TODAY, EARLIER }

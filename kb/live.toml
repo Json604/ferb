@@ -5225,3 +5225,39 @@ request = "Tap the dashed bubble in the chat's header. Ask \"what's my name?\" a
 pass = "In the temporary chat FERB doesn't know your name or anything from earlier chats, still does the task with its usual questions; the banner shows on Mac and phone; after the relaunch and unlock it is still on; one tap on the same icon ends it everywhere and the normal chat comes back as it was; the normal chat knows nothing of the temporary one and Tasks doesn't list its task."
 decisions = ["ORCH-699", "ORCH-700", "ORCH-701", "ORCH-702", "APP-1122", "PHN-818", "PHN-819", "PHN-820"]
 sitting = "one sitting, about 10 minutes"
+
+[LIVE-1195]
+title = "Hand a session to FERB: it says what happens in the session, and Take it back stops it"
+area = "hands"
+surface = "FERB.app with this build and a paired phone with its build; a Claude Code or Codex session in Terminal"
+request = "In a terminal, start `codex` or `claude` in a folder. On the phone open it in Sessions, \"…\", Hand to FERB, goal: \"ask it which model it is, then tell me\". Watch the session screen. Then hand it over again with a vague goal (\"chat with it\"). Once FERB is on it, open \"…\" again and tap Take it back. Send a message to a session from the phone and leave the session screen while it answers."
+pass = "Hand to FERB shows Handing it to FERB… then FERB's line in the session (Handed to FERB, FERB is on it, or FERB asked in its chat: the question quoted); FERB types into the session itself; no raw error text anywhere; with FERB on it the menu has Take it back instead of Hand to FERB, and it stops FERB and the chip goes; when FERB's task ends or fails the chip goes by itself; FERB's chat gets no \"… is done and waiting for you.\" lines, the Mac shows one notification for that session at most."
+decisions = ["HAND-702", "HAND-706", "ORCH-703", "APP-1123"]
+sitting = "one sitting, about 10 minutes"
+
+[LIVE-1196]
+title = "A chat app's reply looks like the app's: one block with its thought, steps, table and time"
+area = "hands"
+surface = "FERB.app with this build and a paired phone with its build; Cursor's agent pane and the Claude app"
+request = "In Cursor's agent pane ask something that makes it run a command and answer with a table (\"what's in this folder? answer with a table\"). Do the same in the Claude app. Open each in Sessions on the phone and in FERB.app. Open a plain chat window in each app with no agent chat."
+pass = "One bubble for your message, one reply block for the app's answer: its thought as a small row, the command as a collapsed step (label · commands) that opens to its output if the app shows it, paragraphs whole, the table as a table (scrolls sideways on the phone), its time as a small line; nothing split per line. With no agent chat open the line reads \"No agent chat open in Cursor. Start one there to continue here.\""
+decisions = ["HAND-703", "HAND-705", "APP-1123"]
+sitting = "one sitting, about 10 minutes"
+
+[LIVE-1197]
+title = "Every terminal shows in Sessions, and an agent in Terminal can be typed into and watched"
+area = "hands"
+surface = "FERB.app with this build and a paired phone with its build; Terminal with two tabs, VS Code's terminal"
+request = "Open Terminal with two tabs (one plain shell, one running `claude`), and a VS Code terminal. Open Sessions on the phone. Open the Claude Code one, send it a message, then tap Watch. Open the plain shell's session."
+pass = "All three terminals are listed, each with a name (program · folder · in Terminal / Visual Studio Code), none \"in the background\" with an empty title; the Claude Code session takes your message after the Yes and Watch shows its Terminal window; the plain shell's text shows (or one plain line why not)."
+decisions = ["HAND-704"]
+sitting = "one sitting, about 5 minutes"
+
+[LIVE-1198]
+title = "New session: pick the folder from the Mac's folders, Start shows it is opening"
+area = "phone"
+surface = "A paired phone (Android, then iPhone) with this build and FERB.app"
+request = "Sessions, New session, Another folder…: browse into a folder on the Mac and tap Use this folder. Tap Start."
+pass = "The folder browser shows only folders and the path; the picked folder is selected at the top; Start turns into \"Opening a terminal…\" at once, then the sheet closes and the new terminal's session opens (or the list says it will show in a moment); the new Terminal window is listed."
+decisions = ["PHN-821", "PHN-822"]
+sitting = "one sitting, about 5 minutes"

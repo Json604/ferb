@@ -135,6 +135,8 @@ public struct SessionsPage: View {
     var empty: String?
     /// HAND-697: one quiet line per chat app open with no chat FERB could find.
     var notes: [String]
+    /// A new terminal started but not in the list yet: one quiet line until it shows.
+    var soon: String?
     var waiting: PhoneTab?
     var onTab: ((PhoneTab) -> Void)?
     var onProfile: (() -> Void)?
@@ -143,7 +145,7 @@ public struct SessionsPage: View {
     var onTurnOn: (() -> Void)?
 
     public init(label: String, rows: [SessionRowData], newLabel: String, insets: PhoneInsets = .lab, off: SessionsOff? = nil,
-                empty: String? = nil, notes: [String] = [], waiting: PhoneTab? = nil, onTab: ((PhoneTab) -> Void)? = nil,
+                empty: String? = nil, notes: [String] = [], soon: String? = nil, waiting: PhoneTab? = nil, onTab: ((PhoneTab) -> Void)? = nil,
                 onProfile: (() -> Void)? = nil, onRow: ((Int) -> Void)? = nil, onNew: (() -> Void)? = nil,
                 onTurnOn: (() -> Void)? = nil) {
         self.label = label
@@ -153,6 +155,7 @@ public struct SessionsPage: View {
         self.off = off
         self.empty = empty
         self.notes = notes
+        self.soon = soon
         self.waiting = waiting
         self.onTab = onTab
         self.onProfile = onProfile
@@ -169,6 +172,16 @@ public struct SessionsPage: View {
             FitOrScroll {
                 VStack(spacing: 0) {
                     SkyLabel(text: label)
+                    if off == nil, let soon {
+                        HStack(spacing: 8) {
+                            SessionArc(color: ink.low).frame(width: 12, height: 12)
+                            Text(soon).type(14.5, .medium, ink.low).fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 8).padding(.bottom, 10)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityAddTraits(.updatesFrequently)
+                    }
                     if let off {
                         Card(padding: 18) {
                             VStack(alignment: .leading, spacing: 10) {
@@ -214,16 +227,21 @@ public struct SessionsPage: View {
 
 // MARK: One session
 
-/// What a line of a session's conversation is: the owner's words, the agent's, one tool it ran, a stop, an error, a
-/// day's start (PHN-813).
-public enum SessionLineKind: Sendable { case owner, agent, tool, interrupted, error, day }
+/// What a line of a session's conversation is: the owner's words, the agent's (plain), the agent's reply drawn as one
+/// block of parts (HAND-703: its Markdown, thoughts, steps and meta line), one tool it ran, a stop, an error, a day's
+/// start (PHN-813).
+public enum SessionLineKind: Sendable { case owner, agent, reply, tool, interrupted, error, day }
 
-/// One line of the conversation (`key` stays the same while it is on screen: its sequence number).
+/// One line of the conversation (`key` stays the same while it is on screen: its sequence number). A reply's `parts`
+/// are drawn in order in one block; `text` is then what a screen reader and Copy fall back to.
 public struct SessionLine: Equatable, Sendable {
     public var key: String
     public var kind: SessionLineKind
     public var text: String
-    public init(_ key: String, _ kind: SessionLineKind, _ text: String) { self.key = key; self.kind = kind; self.text = text }
+    public var parts: [SessionPartShown]
+    public init(_ key: String, _ kind: SessionLineKind, _ text: String, parts: [SessionPartShown] = []) {
+        self.key = key; self.kind = kind; self.text = text; self.parts = parts
+    }
 }
 
 /// One line on the session screen's black page: the owner's words on white at the right, the agent's on the dark fill
@@ -234,6 +252,8 @@ public struct SessionLineView: View {
     public var body: some View {
         switch line.kind {
         case .owner: OwnerBubble(line.text)
+        // HAND-703: one reply block, the main chat's FERB-reply look on the black page (no bubble per line)
+        case .reply: SessionReplyView(key: line.key, parts: line.parts)
         case .agent:
             // selectable, as FERB's words in the main chat are (PHN-813)
             Text(line.text).type(15.5, .regular, Ink.white).lineSpacing(2).textSelection(.enabled)
@@ -315,12 +335,22 @@ public struct SessionAskCard: View {
     }
 }
 
-/// One of the session screen's actions, in its menu (Watch, Hand to FERB, Stop its turn, Stop controlling).
+/// One of the session screen's actions, in its menu (Watch, Hand to FERB or Take it back, Stop its turn, Stop
+/// controlling). `busy`: a small turning arc in place of its icon while what it started is on its way (its words say
+/// so, and it takes no tap); `stays`: the menu stays open on its tap, for the result to show in its row.
 public struct SessionAction {
     public let label: String
     public let symbol: String?
     public let onClick: (() -> Void)?
-    public init(_ label: String, symbol: String?, onClick: (() -> Void)?) { self.label = label; self.symbol = symbol; self.onClick = onClick }
+    public let busy: Bool
+    public let stays: Bool
+    public init(_ label: String, symbol: String?, busy: Bool = false, stays: Bool = false, onClick: (() -> Void)?) {
+        self.label = label
+        self.symbol = symbol
+        self.busy = busy
+        self.stays = stays
+        self.onClick = onClick
+    }
 }
 
 /// The session screen's buttons: small dark pills in one row, in two when they don't fit (Android's row scrolls
@@ -436,8 +466,14 @@ public struct SessionMenu: View {
                 if i > 0 || !place.trimmingCharacters(in: .whitespaces).isEmpty { Divide() }
                 let ink = a.onClick == nil ? Ink.detail : Ink.black
                 HStack(spacing: 12) {
-                    ZStack { if let s = a.symbol { Image(systemName: s).font(.system(size: 16, weight: .medium)) } }
-                        .frame(width: 20)
+                    ZStack {
+                        if a.busy {
+                            SessionArc(color: Ink.detail).frame(width: 16, height: 16)
+                        } else if let s = a.symbol {
+                            Image(systemName: s).font(.system(size: 16, weight: .medium))
+                        }
+                    }
+                    .frame(width: 20)
                     Text(a.label).type(16, .medium, ink).lineLimit(1)
                     Spacer(minLength: 0)
                 }
@@ -445,7 +481,8 @@ public struct SessionMenu: View {
                 .padding(.horizontal, 14)
                 .frame(minHeight: 48)
                 .contentShape(Rectangle())
-                .pressable(a.onClick.map { f in { onPicked(); f() } }, label: a.label)
+                .pressable(a.busy ? nil : a.onClick.map { f in { if !a.stays { onPicked() }; f() } }, label: a.label)
+                .accessibilityAddTraits(a.busy ? .updatesFrequently : [])
             }
         }
         .frame(minWidth: 220, maxWidth: 280)
@@ -545,6 +582,10 @@ public struct SessionPage<Foot: View>: View {
     /// The first read is on its way (`waiting`'s words): the main chat's waiting look, never an empty page or an error
     /// before the Mac answered (owner 2026-11-23, PHN-816).
     var waiting: String?
+    /// FERB's latest word on his hand-over (HAND-702), verbatim: one quiet line with FERB's mark at the conversation's
+    /// end just above the message box, or under the header when `noteOnTop` (no box).
+    var note: String?
+    var noteOnTop: Bool
     var foot: Foot
 
     public init(header: SessionRowData, lines: [SessionLine], asks: [SessionAsk], actions: [SessionAction], insets: PhoneInsets = .lab,
@@ -552,7 +593,7 @@ public struct SessionPage<Foot: View>: View {
                 unsent: SessionUnsent? = nil, onRetry: (() -> Void)? = nil, sending: SessionSending? = nil, moreLabel: String = "More",
                 menuOpen: Bool = false, onMenu: ((Bool) -> Void)? = nil, newMessage: String = "New message",
                 toLatest: String = "Go to the latest messages", scrolls: Bool = true, stillJump: ListScroll? = nil,
-                waiting: String? = nil, @ViewBuilder foot: () -> Foot) {
+                waiting: String? = nil, note: String? = nil, noteOnTop: Bool = false, @ViewBuilder foot: () -> Foot) {
         self.header = header
         self.lines = lines
         self.asks = asks
@@ -573,6 +614,8 @@ public struct SessionPage<Foot: View>: View {
         self.scrolls = scrolls
         self.stillJump = stillJump
         self.waiting = waiting
+        self.note = note
+        self.noteOnTop = noteOnTop
         self.foot = foot()
     }
 
@@ -594,6 +637,7 @@ public struct SessionPage<Foot: View>: View {
             .padding(.horizontal, 16)
             // the header's own room under it: the conversation never touches it (owner 2026-11-23, PHN-815)
             .padding(.bottom, Self.headerGap)
+            if noteOnTop, let note, !note.isEmpty { SessionFerbNote(note).padding(.horizontal, 16) }
             // the main chat's list (PHN-813): followed at the end, the jump control when scrolled up ("New message" when
             // something arrived), the keyboard down on a drag, his sent words always in view; rows dissolve under the
             // header instead of being cut at its edge (PHN-815)
@@ -625,6 +669,7 @@ public struct SessionPage<Foot: View>: View {
                     JumpPill(j.text, label: j.label, light: true) {}.padding(.bottom, 10)
                 }
             }
+            if !noteOnTop, let note, !note.isEmpty { SessionFerbNote(note).padding(.horizontal, 16).padding(.bottom, 6) }
             foot.padding(.horizontal, 16)
         }
         .padding(.top, insets.top + 8)
@@ -813,5 +858,94 @@ public enum SessionSample {
                     menuOpen: menuOpen, onMenu: { _ in }, scrolls: scrolls, stillJump: stillJump, waiting: waiting) {
             SessionComposer(value: typed, placeholder: "Message Claude Code…", sendLabel: "Send", sending: sending?.status != nil)
         }
+    }
+
+    // MARK: the live fixes (owner 2026-11-23; HAND-702, HAND-703, PHN-821, PHN-822)
+
+    /// An agent's reply drawn from its parts, modelled on the owner's Cursor reference: a thought, a paragraph, a step
+    /// closed with its label and detail, a two-column table, a list, inline code and the turn's "Just now".
+    public static let richMarkdown = """
+        This is a **photo backup**: four archives from an old laptop, and nothing here is unpacked yet.
+
+        | File | What's inside |
+        | --- | --- |
+        | `photos-2019.zip` (2 GB) | Holiday photos from 2019, about 1,400 pictures. |
+        | `photos-2020.zip` (3 GB) | The year's photos and a few short videos. |
+        | `notes.zip` | Plain text notes from the same laptop. |
+
+        - The largest is `photos-2020.zip`.
+        - Nothing needs unzipping to tell what it is.
+        """
+    public static let richText: [RichBlock] = [
+        .paragraph([RichRun("This is a "), RichRun("photo backup", bold: true),
+                    RichRun(": four archives from an old laptop, and nothing here is unpacked yet.")]),
+        .table(header: [[RichRun("File")], [RichRun("What's inside")]], rows: [
+            [[RichRun("photos-2019.zip", code: true), RichRun(" (2 GB)")], [RichRun("Holiday photos from 2019, about 1,400 pictures.")]],
+            [[RichRun("photos-2020.zip", code: true), RichRun(" (3 GB)")], [RichRun("The year's photos and a few short videos.")]],
+            [[RichRun("notes.zip", code: true)], [RichRun("Plain text notes from the same laptop.")]],
+        ]),
+        .item(marker: "•", level: 0, [RichRun("The largest is "), RichRun("photos-2020.zip", code: true), RichRun(".")]),
+        .item(marker: "•", level: 0, [RichRun("Nothing needs unzipping to tell what it is.")]),
+    ]
+    public static let richParts: [SessionPartShown] = [
+        .thinking(label: "Thought 1s", text: ""),
+        .text([.paragraph([RichRun("I'll look through this folder and tell you what it is.")])]),
+        .tool(label: "List the archives and their sizes", detail: "ls, unzip, head",
+              text: "  Length      Date    Time    Name\n---------  ---------- -----   ----\n     2048  01-01-2020 00:00   photos/\n"),
+        .thinking(label: "Thought 4s", text: "Four zips with photo folders inside; one holds text files."),
+        .text(richText),
+        .text([.paragraph([RichRun("So it's your old photo backup, sitting in four zips.")])]),
+        .meta("Just now"),
+    ]
+    public static let rich: [SessionLine] = [
+        SessionLine("1", .owner, "What's in this folder? I forgot"),
+        SessionLine("2", .reply, "", parts: richParts),
+    ]
+    /// A session FERB keeps going: its row, FERB's latest word on it.
+    public static let withFerb = rows[2]
+    public static let ferbNote = "FERB is on it: “Keep going until the tests pass”"
+
+    /// The session FERB has: Take it back in place of Hand to FERB (`taking`: on its way), FERB's word above the box.
+    public static func ferbSession(insets: PhoneInsets = .lab, menuOpen: Bool = false, taking: Bool = false, starting: Bool = false,
+                                   note: String? = ferbNote, lines: [SessionLine] = lines) -> some View {
+        let hand: SessionAction = starting
+            ? SessionAction("FERB is starting…", symbol: nil, busy: true, onClick: nil)
+            : taking ? SessionAction("Taking it back…", symbol: "arrow.uturn.backward", busy: true, stays: true, onClick: nil)
+            : SessionAction("Take it back", symbol: "arrow.uturn.backward", stays: true, onClick: {})
+        return SessionPage(header: withFerb, lines: lines, asks: [],
+                           actions: [SessionAction("Watch", symbol: "eye", onClick: {}), hand, SessionAction("Stop its turn", symbol: "stop.fill", onClick: {})],
+                           insets: insets, older: nil, onClose: {}, menuOpen: menuOpen, onMenu: { _ in }, scrolls: false, note: note) {
+            SessionComposer(value: "", placeholder: "Message Claude Code…", sendLabel: "Send")
+        }
+    }
+
+    public static let newWords = NewSessionWords(title: "New session", folder: "Folder", other: "Another folder…", command: "Command (optional)",
+                                                 commandHint: "Command to run (optional)", start: "Start", starting: "Opening a terminal…")
+    public static let folders: [SessionFolderRow] = [
+        SessionFolderRow(title: "web-app", detail: "/Users/you/code/web-app", checked: true),
+        SessionFolderRow(title: "blog", detail: "/Users/you/code/blog"),
+        SessionFolderRow(title: "notes-app", detail: "/Users/you/code/notes-app"),
+    ]
+
+    public static func newSession(insets: PhoneInsets = .lab, starting: Bool = false, refused: String? = nil) -> some View {
+        NewSessionSheetView(words: newWords, folders: folders, command: "claude", starting: starting, refused: refused, insets: insets,
+                            scrolls: false, onFolder: { _ in }, onOther: {}, onStart: {}, onClose: {})
+    }
+
+    /// The folder picker inside ~/code: its folders, the path, Use this folder.
+    public static func folderPicker(insets: PhoneInsets = .lab, top: Bool = false) -> some View {
+        SessionFolderPickerView(
+            title: "Choose a folder", folder: top ? nil : "code", backLabel: "Back",
+            rows: top
+                ? [SessionFolderRow(title: "Home folder", symbol: "house", opens: true),
+                   SessionFolderRow(title: "Desktop", symbol: "menubar.dock.rectangle", opens: true),
+                   SessionFolderRow(title: "Documents", symbol: "doc", opens: true),
+                   SessionFolderRow(title: "Downloads", symbol: "arrow.down.circle", opens: true)]
+                : [SessionFolderRow(title: "blog", opens: true), SessionFolderRow(title: "notes-app", opens: true),
+                   SessionFolderRow(title: "thesis-tools", opens: true), SessionFolderRow(title: "web-app", opens: true)],
+            recentLabel: top ? "Recent" : nil,
+            recent: top ? [SessionFolderRow(title: "recipes", detail: "/Users/you/code/recipes", opens: true)] : [],
+            path: top ? "" : "/Users/you/code", use: "Use this folder", insets: insets, scrolls: false,
+            onUp: {}, onRow: { _ in }, onRecent: { _ in }, onUse: top ? nil : {}, onClose: {})
     }
 }

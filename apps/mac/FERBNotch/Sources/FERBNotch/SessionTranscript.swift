@@ -64,6 +64,8 @@ final class SessionTranscriptPlace: ObservableObject {
 /// top fade, the loader and "New message" (PHN-813).
 struct SessionTranscript: View {
     @ObservedObject var sessions: SessionsModel
+    /// The session's agent ("terminal": its output is drawn fixed-width, not as Markdown) and its name.
+    var agent = ""
     let agentName: String
     @StateObject private var place = SessionTranscriptPlace()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -74,7 +76,12 @@ struct SessionTranscript: View {
                      loadingEarlier: Bool) -> [TranscriptRow] {
         var rows: [TranscriptRow] = [.top]
         if loadingEarlier { rows.append(.loader) }
-        rows += items.map { .item(key: "session-item-\($0.seq)", text: $0.kind + "\u{1F}" + $0.text) }
+        // a reply's parts are in its row's text: a turn whose parts grow is drawn and measured again
+        rows += items.map { item in
+            .item(key: "session-item-\(item.seq)",
+                  text: ([item.kind, item.text] + item.parts.map { [$0.kind, $0.label, $0.detail, $0.text].joined(separator: "\u{1E}") })
+                    .joined(separator: "\u{1F}"))
+        }
         rows += cards.map { card in
             .item(key: "session-card-\(card.id)",
                   text: [card.question ?? "", card.detail, card.choices.map(\.label).joined(separator: "\u{1F}")]
@@ -100,9 +107,9 @@ struct SessionTranscript: View {
                            rows: Self.rows(items: sessions.items, cards: sessions.cards, outgoing: outgoing,
                                            loadingEarlier: sessions.loadingEarlier),
                            viewport: viewport,
-                           content: { [sessions, agentName] row in
-                               Self.content(row, items: items, cards: cards, outgoing: outgoing, agentName: agentName,
-                                            sessions: sessions)
+                           content: { [sessions, agent, agentName] row in
+                               Self.content(row, items: items, cards: cards, outgoing: outgoing, agent: agent,
+                                            agentName: agentName, sessions: sessions)
                            },
                            scrolled: { offset, height in scrolled(offset, height) })
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { viewport = max(1, $0) }
@@ -154,11 +161,12 @@ struct SessionTranscript: View {
 
     @MainActor
     private static func content(_ row: TranscriptRow, items: [String: SessionItem], cards: [String: SessionCard],
-                                outgoing: SessionsModel.Outgoing?, agentName: String, sessions: SessionsModel) -> AnyView {
+                                outgoing: SessionsModel.Outgoing?, agent: String, agentName: String,
+                                sessions: SessionsModel) -> AnyView {
         switch row {
         case .loader: return AnyView(EarlierLoader())
         case let .item(key, _):
-            if let item = items[key] { return AnyView(SessionItemView(item: item)) }
+            if let item = items[key] { return AnyView(SessionItemView(item: item, agent: agent)) }
             if let card = cards[key] {
                 return AnyView(SessionCardView(card: card, agentName: agentName) { choice in
                     Task { await sessions.answer(card, choice) }

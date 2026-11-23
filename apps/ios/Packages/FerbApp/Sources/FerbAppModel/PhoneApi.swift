@@ -113,7 +113,7 @@ public protocol PhoneApi: AnyObject {
     func sessionInterrupt(_ session: String) async -> Outcome<Bool>
     /// The folders a new session may start in (agent and folder ""), or with them the exact command and its question.
     func sessionPrepare(agent: String, folder: String, text: String) async -> Outcome<SessionStartPlan>
-    func sessionStart(agent: String, folder: String, text: String, signer: Signer) async -> Outcome<String>
+    func sessionStart(agent: String, folder: String, text: String, signer: Signer) async -> Outcome<SessionStarted>
     func sessionDelegate(_ session: String, goal: String, signer: Signer) async -> Outcome<String>
     func watchSession(_ session: String, sink: PreviewSink) async -> Outcome<Live>
 
@@ -269,7 +269,10 @@ public final class LibraryPhone: PhoneApi {
     public func cachedMacInfo() async -> Outcome<MacInfo?> { await phone.call { try $0.cachedMacInfo() } }
     public func sessionsList() async -> Outcome<SessionsList> { await phone.call { try $0.sessionsList() } }
     public func sessionTimeline(_ session: String, after: UInt64, before: UInt64, limit: UInt32) async -> Outcome<SessionTimeline> {
-        await phone.call { try $0.sessionTimeline(session: session, after: after, before: before, limit: limit) }
+        let read = await phone.call { try $0.sessionTimeline(session: session, after: after, before: before, limit: limit) }
+        // the replies' Markdown laid out here, off the main actor, so the lines the screen builds find it kept (HAND-703)
+        if case .ok(let t) = read { let items = t.items; await Task.detached(priority: .userInitiated) { SessionWords.prepare(items) }.value }
+        return read
     }
     public func sessionSend(_ session: String, text: String) async -> Outcome<SessionSent> {
         await phone.call { try $0.sessionSend(session: session, text: text) }
@@ -285,7 +288,7 @@ public final class LibraryPhone: PhoneApi {
     public func sessionPrepare(agent: String, folder: String, text: String) async -> Outcome<SessionStartPlan> {
         await phone.call { try $0.sessionPrepare(agent: agent, folder: folder, text: text) }
     }
-    public func sessionStart(agent: String, folder: String, text: String, signer: Signer) async -> Outcome<String> {
+    public func sessionStart(agent: String, folder: String, text: String, signer: Signer) async -> Outcome<SessionStarted> {
         await phone.call { try $0.sessionStart(agent: agent, folder: folder, text: text, signer: signer) }
     }
     public func sessionDelegate(_ session: String, goal: String, signer: Signer) async -> Outcome<String> {

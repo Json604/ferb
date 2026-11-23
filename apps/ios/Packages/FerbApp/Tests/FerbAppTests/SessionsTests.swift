@@ -28,18 +28,19 @@ final class SessionsTests: XCTestCase {
     override func tearDown() async throws { rig.tearDown() }
 
     private func session(_ id: String, title: String, folder: String = "/Users/owner/code/garden-app", status: String = "idle",
-                         host: String = "Terminal", withFerb: Bool = false, canSend: Bool = true) -> AgentSession {
+                         host: String = "Terminal", withFerb: Bool = false, canSend: Bool = true, ferbTask: String = "",
+                         ferbNote: String = "") -> AgentSession {
         AgentSession(id: id, agent: id.hasPrefix("codex") ? "codex" : "claude_code", agentName: id.hasPrefix("codex") ? "Codex" : "Claude Code",
                      title: title, folder: folder, folderName: (folder as NSString).lastPathComponent, status: status,
                      waiting: status == "waiting_for_you" ? "permission" : "none", host: host, canSend: canSend,
                      noSend: canSend ? "" : "No app on your Mac shows this session.", foreground: host == "Terminal",
                      lastAt: "2026-01-02T10:00:00Z", lastText: "", controlledHere: false, control: "", withFerb: withFerb, goal: "", terminals: [],
-                     program: "", window: "", noText: "")
+                     program: "", window: "", noText: "", ferbTask: ferbTask, ferbNote: ferbNote)
     }
 
     private func items(_ range: ClosedRange<UInt64>) -> [SessionItem] {
         range.map { n in SessionItem(seq: n, at: "2026-01-02T10:00:00Z", kind: n % 3 == 0 ? "tool" : (n % 2 == 0 ? "assistant" : "user"),
-                                     text: "line \(n)", tool: n % 3 == 0 ? "Bash" : "") }
+                                     text: "line \(n)", tool: n % 3 == 0 ? "Bash" : "", parts: []) }
     }
 
     private func opened(_ vm: AppModel) async {
@@ -84,6 +85,35 @@ final class SessionsTests: XCTestCase {
         XCTAssertEqual(SessionWords.stateText(session("x", title: "", status: "idle")), L.s("sessions_idle"))
     }
 
+    /// A row's name is never empty (owner 2026-11-23: "in the background · Idle" with no name): its title, else its
+    /// window's words, else its folder's name, else its agent's name.
+    // decision: PHN-797
+    func testARowsNameFallsBackToTheAgentsNameAndIsNeverEmpty() {
+        var s = session("terminal:1", title: "", folder: "")
+        s.agent = "terminal"
+        s.agentName = "Terminal"
+        XCTAssertEqual(SessionWords.title(s), "Terminal")
+        s.window = "zsh — 80×24"
+        XCTAssertEqual(SessionWords.title(s), "zsh — 80×24")
+        s.window = ""
+        s.folderName = "garden-app"
+        XCTAssertEqual(SessionWords.title(s), "garden-app")
+        s.title = "Fix the test"
+        XCTAssertEqual(SessionWords.title(s), "Fix the test")
+        s = session("x:1", title: "", folder: "")
+        s.agentName = ""
+        XCTAssertFalse(SessionWords.title(s).isEmpty, "the agent's id at the very least")
+    }
+
+    /// The menu offers Hand to FERB while FERB doesn't have it, Take it back while it does, and "FERB is starting…"
+    /// (no tap) between the two.
+    // decision: HAND-702, HAND-705
+    func testTheMenuOffersHandToFERBTakeItBackOrFERBIsStarting() {
+        XCTAssertEqual(L.s("sessions_take_back"), "Take it back")
+        XCTAssertEqual(L.s("sessions_ferb_starting"), "FERB is starting…")
+        XCTAssertEqual(L.s("sessions_no_chat", "Codex"), "No agent chat open in Codex. Start one there to continue here.")
+    }
+
     // decision: PHN-797
     func testTheListPollsOnlyWhileTheTabShowsUnlockedAndInFront() async {
         let vm = rig.model()
@@ -117,7 +147,7 @@ final class SessionsTests: XCTestCase {
         XCTAssertTrue(phone.calls.contains("timeline:\(id):0:11"), "Show earlier asks before the first one shown")
         XCTAssertEqual(vm.coding.open?.items.map(\.seq), Array(1...60))
         XCTAssertEqual(vm.coding.open?.more, false)
-        phone.codingItems[id]! += [SessionItem(seq: 61, at: "", kind: "interrupted", text: "", tool: "")]
+        phone.codingItems[id]! += [SessionItem(seq: 61, at: "", kind: "interrupted", text: "", tool: "", parts: [])]
         await vm.sessionsTick()
         XCTAssertTrue(phone.calls.contains("timeline:\(id):60:0"), "the poll asks after the last one")
         XCTAssertEqual(vm.coding.open?.items.last?.seq, 61)
@@ -204,7 +234,7 @@ final class SessionsTests: XCTestCase {
         // the transcript carries it: the bubble goes, so it never shows twice
         let n = UInt64((phone.codingItems[id]?.last?.seq ?? 0) + 1)
         phone.codingItems[id, default: []].append(SessionItem(seq: n, at: "2026-01-02T10:00:00Z", kind: "user",
-                                                              text: "Run the login test ten times", tool: ""))
+                                                              text: "Run the login test ten times", tool: "", parts: []))
         await vm.sessionsTick()
         XCTAssertNil(vm.coding.open?.outgoing)
         XCTAssertEqual(vm.coding.open?.items.filter { $0.kind == "user" && $0.text == "Run the login test ten times" }.count, 1)
@@ -261,7 +291,7 @@ final class SessionsTests: XCTestCase {
 
     // decision: PHN-813
     func testTheConversationHasADaysStartBetweenDaysAsTheMainChat() {
-        func item(_ seq: UInt64, _ at: String) -> SessionItem { SessionItem(seq: seq, at: at, kind: "assistant", text: "line \(seq)", tool: "") }
+        func item(_ seq: UInt64, _ at: String) -> SessionItem { SessionItem(seq: seq, at: at, kind: "assistant", text: "line \(seq)", tool: "", parts: []) }
         var utc = Calendar(identifier: .gregorian)
         utc.timeZone = TimeZone(identifier: "UTC")!
         let today = ChatModel.day(ISO8601DateFormatter().date(from: "2026-01-02T10:00:00Z")!, utc)
@@ -364,7 +394,7 @@ final class SessionsTests: XCTestCase {
         XCTAssertTrue(none.choices.isEmpty, "no buttons: the card says to answer it on the Mac")
     }
 
-    // decision: ORCH-687
+    // decision: ORCH-687, HAND-702
     func testHandToFERBTakesTheGoalSigned() async {
         let vm = rig.model()
         await opened(vm)
@@ -372,11 +402,68 @@ final class SessionsTests: XCTestCase {
         XCTAssertEqual(vm.sheet, .sessionHand(id: id))
         await vm.handToFerb(goal: "  ").value
         XCTAssertFalse(phone.calls.contains { $0.hasPrefix("session-delegate") }, "no goal: nothing handed over")
-        await vm.handToFerb(goal: "Keep going until the tests pass").value
+        XCTAssertFalse(vm.coding.handing)
+        let reads = phone.calls.filter { $0 == "sessions" }.count
+        let hand = vm.handToFerb(goal: "Keep going until the tests pass")
+        XCTAssertTrue(vm.coding.handing, "at the tap: Handing it to FERB…")
+        await hand.value
+        XCTAssertFalse(vm.coding.handing)
         XCTAssertTrue(phone.calls.contains("session-delegate:\(id):Keep going until the tests pass"))
         XCTAssertEqual(phone.signed.count, 1)
         XCTAssertEqual(vm.ui.note, Note("sessions_handed"))
-        XCTAssertEqual(vm.sheet, .session(id: id))
+        XCTAssertEqual(vm.sheet, .session(id: id), "the sheet closes")
+        XCTAssertGreaterThan(phone.calls.filter { $0 == "sessions" }.count, reads, "the session read again at once")
+    }
+
+    /// A hand-over the Mac refuses keeps the sheet and says the Mac's reason under the button (owner 2026-11-23).
+    // decision: HAND-702, ORCH-687
+    func testAHandOverTheMacRefusesKeepsTheSheetWithItsReason() async {
+        let why = "FERB is already on another session in this folder."
+        phone.delegateRefusal = .Refused(detail: why, linkCode: "ferb_error")
+        let vm = rig.model()
+        await opened(vm)
+        vm.askHandToFerb()
+        await vm.handToFerb(goal: "Keep going").value
+        XCTAssertEqual(vm.sheet, .sessionHand(id: id), "the sheet stays, his words in it")
+        XCTAssertFalse(vm.coding.handing)
+        XCTAssertEqual(vm.coding.handRefused?.text, why)
+        XCTAssertNil(vm.ui.note)
+        vm.askHandToFerb()
+        XCTAssertNil(vm.coding.handRefused, "opened again: nothing old said")
+    }
+
+    /// FERB has the session: the menu's Take it back stops FERB's task by its id (the task stop every client has), says
+    /// "Taking it back…" at once, closes the menu when done and reads the session again; a refusal is said (owner
+    /// 2026-11-23). Between the hand-over and FERB's task the row says FERB is starting and takes no tap.
+    // decision: HAND-702
+    func testTakeItBackStopsFERBsTaskByItsIdWithItsPendingStateAndItsFailureSaid() async {
+        phone.codingList.sessions[0] = session(id, title: "Fix the flaky login test", status: "working", withFerb: true, ferbTask: "t-9",
+                                               ferbNote: "FERB is on it: “Keep going”")
+        let vm = rig.model()
+        await opened(vm)
+        XCTAssertEqual(vm.coding.open?.session?.ferbTask, "t-9")
+        vm.sessionMenu(true)
+        let take = vm.takeSessionBack()
+        XCTAssertEqual(vm.coding.open?.takingBack, true, "at the tap: Taking it back…")
+        XCTAssertEqual(vm.coding.open?.menu, true, "the menu stays open for the result")
+        let reads = phone.calls.filter { $0 == "sessions" }.count
+        phone.codingList.sessions[0] = session(id, title: "Fix the flaky login test", status: "idle", ferbNote: "FERB stopped. The session is yours again.")
+        await take.value
+        XCTAssertTrue(phone.calls.contains("stop:t-9"), "the task stop, with FERB's task id")
+        XCTAssertEqual(vm.coding.open?.takingBack, false)
+        XCTAssertEqual(vm.coding.open?.menu, false, "done: the menu closes")
+        XCTAssertGreaterThan(phone.calls.filter { $0 == "sessions" }.count, reads, "the session read again at once")
+        XCTAssertEqual(vm.coding.open?.session?.ferbTask, "", "the badge goes when the Mac says so")
+        XCTAssertEqual(vm.coding.open?.session?.ferbNote, "FERB stopped. The session is yours again.")
+        // refused: said, and the row is Take it back again
+        phone.codingList.sessions[0] = session(id, title: "Fix the flaky login test", status: "working", withFerb: true, ferbTask: "t-10")
+        await vm.sessionsTick()
+        phone.stopResult = .failed(.Refused(detail: "That task already finished.", linkCode: "ferb_error"))
+        vm.sessionMenu(true)
+        await vm.takeSessionBack().value
+        XCTAssertEqual(vm.ui.note?.text, String(format: L.s("sessions_take_back_failed"), "That task already finished."))
+        XCTAssertEqual(vm.ui.note?.text, "Couldn't take it back: That task already finished.")
+        XCTAssertEqual(vm.coding.open?.takingBack, false)
     }
 
     // decision: HAND-691, HAND-695
@@ -386,25 +473,110 @@ final class SessionsTests: XCTestCase {
         XCTAssertEqual(vm.sheet, .sessionNew)
         XCTAssertEqual(vm.coding.new?.folders, phone.codingFolders)
         XCTAssertEqual(vm.coding.new?.chosen, phone.codingFolders[0], "the first folder is chosen")
-        vm.newSessionOther("/Users/owner/elsewhere")
+        vm.newSessionFolder("/Users/owner/code/recipes")
         vm.newSessionText(" agy ")
         await vm.startSession().value
-        XCTAssertTrue(phone.calls.contains("session-prepare:terminal:/Users/owner/elsewhere:agy"))
+        XCTAssertTrue(phone.calls.contains("session-prepare:terminal:/Users/owner/code/recipes:agy"))
         XCTAssertEqual(vm.sheet, .sessionYes)
         XCTAssertEqual(vm.coding.asking?.yes.detail, "agy", "exactly the command")
         XCTAssertFalse(phone.calls.contains { $0.hasPrefix("session-start") }, "nothing started before the Yes")
+        XCTAssertEqual(vm.coding.new?.starting, false, "the Mac's question shows, not the form's pending state")
         vm.sessionNo()
         XCTAssertEqual(vm.sheet, .sessionNew, "Cancel: back to the choices")
         XCTAssertEqual(vm.coding.new?.text, " agy ", "kept")
-        // no command: it opens (signed), nothing asked, nothing typed
-        vm.newSessionFolder("/Users/owner/code/recipes")
-        vm.newSessionText("")
+        // his Yes: back on the form, Start on its way, then the new terminal opens
+        phone.startedSession = "term:300"
+        phone.codingList.sessions.append(session("term:300", title: "", folder: "/Users/owner/code/recipes"))
         await vm.startSession().value
+        await vm.sessionYes().value
+        XCTAssertTrue(phone.calls.contains("session-start:terminal:/Users/owner/code/recipes:agy"))
+        XCTAssertNil(vm.coding.new)
+        XCTAssertEqual(vm.sheet, .session(id: "term:300"), "the new session opens at once")
+        XCTAssertEqual(vm.coding.open?.id, "term:300")
+    }
+
+    /// Start at once says "Opening a terminal…" and the form waits (owner 2026-11-23); with no command it opens (signed,
+    /// nothing asked); a terminal not shown yet: the list says so in one quiet line until it shows.
+    // decision: PHN-822
+    func testStartShowsItsPendingStateAndANewTerminalNotShownYetIsSaidUntilItShows() async {
+        let vm = rig.model()
+        vm.choose(.sessions)
+        await eventually("the list read") { vm.coding.list != nil }
+        await vm.newSession().value
+        vm.newSessionFolder("/Users/owner/code/recipes")
+        let start = vm.startSession()
+        XCTAssertEqual(vm.coding.new?.starting, true, "at the tap, before the Mac answers")
+        vm.newSessionFolder("/Users/owner/code/garden-app")
+        XCTAssertEqual(vm.coding.new?.chosen, "/Users/owner/code/recipes", "the form takes no tap while it starts")
+        vm.closeNewSession()
+        XCTAssertEqual(vm.sheet, .sessionNew, "nor a close")
+        await start.value
         XCTAssertTrue(phone.calls.contains("session-start:terminal:/Users/owner/code/recipes:"))
         XCTAssertEqual(phone.signed.count, 1)
-        XCTAssertEqual(vm.ui.note, Note("sessions_started"))
-        XCTAssertNil(vm.sheet)
+        XCTAssertNil(vm.sheet, "the id was empty: back to the list")
         XCTAssertNil(vm.coding.new)
+        XCTAssertTrue(vm.coding.soon, "one quiet line until it shows")
+        XCTAssertNil(vm.ui.note, "no toast: the list says it")
+        await vm.sessionsTick()
+        XCTAssertTrue(vm.coding.soon, "a read without it: still said")
+        phone.codingList.sessions.append(session("term:301", title: "", folder: "/Users/owner/code/recipes"))
+        await vm.sessionsTick()
+        XCTAssertFalse(vm.coding.soon, "it shows: the line goes")
+    }
+
+    /// A start the Mac refuses keeps the sheet and says why under Start (owner 2026-11-23).
+    // decision: PHN-822
+    func testAStartTheMacRefusesStaysOnTheSheetWithItsReason() async {
+        let why = "There's no folder named recipes on your Mac any more."
+        phone.startRefusal = .Refused(detail: why, linkCode: "ferb_error")
+        let vm = rig.model()
+        await vm.newSession().value
+        vm.newSessionText("")
+        await vm.startSession().value
+        XCTAssertEqual(vm.sheet, .sessionNew, "the sheet stays")
+        XCTAssertEqual(vm.coding.new?.starting, false)
+        XCTAssertEqual(vm.coding.new?.refused?.text, why, "the Mac's words under Start")
+        XCTAssertNil(vm.ui.note)
+        // a prepare the Mac refuses says it the same way
+        phone.codingRefusal = nil
+        vm.newSessionFolder("/Users/owner/code/recipes")
+        XCTAssertNil(vm.coding.new?.refused, "a new choice clears it")
+    }
+
+    /// "Another folder…" opens the Mac's Files browser, folders only; Use this folder puts the folder shown at the top of
+    /// the list, chosen; Close goes back to the form as it was.
+    // decision: PHN-821
+    func testAnotherFolderOpensTheFilesBrowserForFoldersAndChoosesOne() async {
+        phone.recent = RecentFiles(files: [
+            FoundFile(name: "README.md", path: "/Users/owner/code/recipes/README.md", dir: false, size: 10, modified: 0, source: "fetched", at: nil, taskId: nil, taskName: nil),
+            FoundFile(name: "blog", path: "/Users/owner/code/blog", dir: true, size: 0, modified: 0, source: "made", at: nil, taskId: nil, taskName: nil),
+            FoundFile(name: "notes.txt", path: "/Users/owner/code/recipes/notes.txt", dir: false, size: 10, modified: 0, source: "fetched", at: nil, taskId: nil, taskName: nil),
+        ], skipped: 0)
+        phone.folders["~/Desktop"] = Folder(path: "/Users/owner/Desktop", parent: "/Users/owner", locked: false, entries: [
+            FileEntry(name: "site", path: "/Users/owner/Desktop/site", dir: true, link: false, size: 0, modified: 0, locked: false),
+            FileEntry(name: "photo.jpg", path: "/Users/owner/Desktop/photo.jpg", dir: false, link: false, size: 9, modified: 0, locked: false),
+        ], total: 2, cut: false, from: 0, next: nil)
+        phone.folders["/Users/owner/Desktop/site"] = Folder(path: "/Users/owner/Desktop/site", parent: "/Users/owner/Desktop", locked: false,
+                                                             entries: [], total: 0, cut: false, from: 0, next: nil)
+        let vm = rig.model()
+        await vm.newSession().value
+        let before = vm.coding.new
+        await vm.pickNewSessionFolder()?.value
+        XCTAssertEqual(vm.coding.new?.picker?.recent, ["/Users/owner/code/recipes", "/Users/owner/code/blog"],
+                       "recent folders: the folders the recent files are in, and recent folders, each once")
+        vm.pickerClose()
+        XCTAssertEqual(vm.coding.new, before, "Close: the form as it was")
+        await vm.pickNewSessionFolder()?.value
+        await vm.pickerOpen("~/Desktop")?.value
+        XCTAssertEqual(vm.coding.new?.picker?.folders.map(\.name), ["site"], "files hidden")
+        await vm.pickerOpen("/Users/owner/Desktop/site")?.value
+        XCTAssertEqual(vm.coding.new?.picker?.folder?.path, "/Users/owner/Desktop/site")
+        XCTAssertEqual(vm.coding.new?.picker?.folders, [], "no folders in here")
+        vm.pickerUse()
+        XCTAssertNil(vm.coding.new?.picker, "back to the form")
+        XCTAssertEqual(vm.coding.new?.chosen, "/Users/owner/Desktop/site", "the folder shown is chosen")
+        XCTAssertEqual(vm.coding.new?.folders, ["/Users/owner/Desktop/site"] + phone.codingFolders, "at the top, the rest kept")
+        XCTAssertEqual(vm.sheet, .sessionNew)
     }
 
     // decision: GATE-622
@@ -465,10 +637,12 @@ final class SessionsCatalogTests: XCTestCase {
                     "sessions_older", "sessions_wants_tool", "sessions_asks", "sessions_answer_on_mac", "sessions_yes_send", "sessions_cancel",
                     "sessions_not_seen", "sessions_interrupted", "sessions_hand_title", "sessions_hand_label", "sessions_hand_hint",
                     "sessions_hand_note", "sessions_hand_go", "sessions_handed", "sessions_new_folder",
-                    "sessions_new_other", "sessions_new_other_hint", "sessions_new_command", "sessions_new_command_hint",
+                    "sessions_new_browse", "sessions_new_command", "sessions_new_command_hint",
                     "sessions_no_chat", "sessions_start", "sessions_started", "sessions_watch_title", "live_close", "live_again",
                     "live_waiting", "err_try_again", "sessions_more", "sessions_not_sent", "sessions_try_again", "sessions_pick_title", "sessions_pick_note",
-                    "sessions_pick_no"]
+                    "sessions_pick_no", "sessions_take_back", "sessions_taking_back", "sessions_take_back_failed", "sessions_ferb_starting",
+                    "sessions_hand_going", "sessions_opening", "sessions_coming", "sessions_browse_title", "sessions_browse_home",
+                    "sessions_browse_use", "sessions_browse_no_folders", "files_recent", "files_back", "files_opening"]
         XCTAssertEqual(keys.filter { !L.has($0) }, [], "keys the sessions' screens name but the catalog lacks")
     }
 }

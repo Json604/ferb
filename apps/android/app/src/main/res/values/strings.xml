@@ -459,7 +459,8 @@
     <string name="sessions_off_more">Turn it on and you can follow your terminals and type into them from here, Claude Code and Codex too, open new ones and hand one to FERB. FERB adds a small hook to Claude Code\'s settings so it hears when a session finishes or needs you.</string>
     <string name="sessions_turn_on">Turn on</string>
     <string name="sessions_none">No terminals are open on your Mac right now.</string>
-    <string name="sessions_no_chat">No chat open in %1$s. Start one there to continue here.</string>
+    <string name="sessions_no_chat">No agent chat open in %1$s. Start one there to continue here.</string>
+    <string name="sessions_coming">Your new terminal will show here in a moment.</string>
     <string name="sessions_working">Working</string>
     <string name="sessions_waiting">Waiting for you</string>
     <string name="sessions_idle">Idle</string>
@@ -471,6 +472,10 @@
     <string name="sessions_send">Send</string>
     <string name="sessions_watch">Watch</string>
     <string name="sessions_hand_over">Hand to FERB</string>
+    <string name="sessions_take_back">Take it back</string>
+    <string name="sessions_taking_back">Taking it back…</string>
+    <string name="sessions_take_back_failed">Couldn\'t take it back: %1$s</string>
+    <string name="sessions_ferb_starting">FERB is starting…</string>
     <string name="sessions_stop_turn">Stop its turn</string>
     <string name="sessions_let_go">Stop controlling</string>
     <string name="sessions_more">More</string>
@@ -493,13 +498,18 @@
     <string name="sessions_hand_hint">Keep going until the tests pass</string>
     <string name="sessions_hand_note">FERB answers the agent for you and asks you before anything risky. You can stop it any time.</string>
     <string name="sessions_hand_go">Hand it over</string>
+    <string name="sessions_hand_going">Handing it to FERB…</string>
     <string name="sessions_handed">FERB is on it. You\'ll see it in the chat.</string>
     <string name="sessions_new_folder">Folder</string>
-    <string name="sessions_new_other">Another folder</string>
-    <string name="sessions_new_other_hint">Full path, like /Users/you/site</string>
+    <string name="sessions_new_browse">Another folder…</string>
+    <string name="sessions_browse_title">Choose a folder</string>
+    <string name="sessions_browse_home">Home folder</string>
+    <string name="sessions_browse_use">Use this folder</string>
+    <string name="sessions_browse_no_folders">No folders in here.</string>
     <string name="sessions_new_command">Command (optional)</string>
     <string name="sessions_new_command_hint">Command to run (optional)</string>
     <string name="sessions_start">Start</string>
+    <string name="sessions_opening">Opening a terminal…</string>
     <string name="sessions_started">Opening a terminal on your Mac.</string>
     <string name="sessions_watch_title">Watching %1$s</string>
     <!-- the temporary chat (owner 2026-11-23): the same small icon turns it on and off -->

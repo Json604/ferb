@@ -61,6 +61,16 @@ pub struct Node {
     /// HAND-698: the chat pane's proven composer (the one element FERB may type into).
     #[serde(default)]
     pub composer: bool,
+    /// HAND-703: how many containers it sits below the pane's root (the tree's shape, in reading order); 0 for every
+    /// node of a read with no shape (then the layout alone groups the words).
+    #[serde(default)]
+    pub depth: usize,
+    /// HAND-703: its Accessibility subrole (AXCodeStyleGroup, AXApplicationStatus, …).
+    #[serde(default)]
+    pub subrole: String,
+    /// HAND-703: a control that opens and closes what is under it says whether it is open now.
+    #[serde(default)]
+    pub expanded: Option<bool>,
 }
 
 fn yes() -> bool {
@@ -128,14 +138,18 @@ pub enum Speaker {
     App,
 }
 
-/// One message as read.
+/// One message as read: one of the owner's, or one whole reply of the app (HAND-703: every part of one turn).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Block {
+    /// Its words, plain (one line per run or paragraph).
     pub text: String,
     pub speaker: Speaker,
     pub x: f64,
     pub y: f64,
     pub w: f64,
+    /// HAND-703: an app's reply in its parts, in order, as the app shows them (empty for the owner's).
+    #[serde(default)]
+    pub parts: Vec<crate::model::Part>,
 }
 
 /// One look at a window.
@@ -284,6 +298,15 @@ pub fn prove(cands: &[Candidate], facts: &AppFacts) -> Option<Proven> {
         })
 }
 
+/// Text with icon-font glyphs taken out, its own spaces kept (one run of a line beside others).
+fn plain_kept(text: &str) -> String {
+    text.chars()
+        .filter(|c| {
+            !matches!(*c as u32, 0xE000..=0xF8FF | 0xF0000..=0xFFFFD | 0x100000..=0x10FFFD | 0xFFFD)
+        })
+        .collect()
+}
+
 /// Text with icon-font glyphs (Unicode's private use areas) taken out.
 pub fn plain(text: &str) -> String {
     let kept: String = text
@@ -299,6 +322,13 @@ const LIST_ROLES: [&str; 4] = ["AXScrollArea", "AXList", "AXTable", "AXOutline"]
 
 /// One look at a chat pane's tree (the pane's nodes only; its composer marked by the proof). `sent`: what FERB typed
 /// into this chat (it only confirms a message is the owner's). No marked composer: no chat (`composer` None).
+///
+/// HAND-703: each of the owner's messages is one block, and each reply of the app is one block whatever it holds,
+/// its parts in the app's own order: words (paragraphs, headings, lists, tables, code, as Markdown), a thought, a step
+/// it ran, a time or a state line. What a part is comes from the tree's structure only (its roles, subroles, a
+/// control that opens and closes, a status region), never from the words (AGENTS.md rule 4). A read with no shape
+/// (every depth 0) is grouped by the layout, as before, and an app's runs between two of the owner's messages are
+/// still one reply.
 pub fn read(nodes: &[Node], facts: &AppFacts, sent: &[String]) -> Look {
     let Some(ci) = composer(nodes) else {
         return Look::default();
@@ -320,7 +350,6 @@ pub fn read(nodes: &[Node], facts: &AppFacts, sent: &[String]) -> Look {
     {
         return Look::default();
     }
-    let comp = Some(ci);
     let floor = c.y;
     let stop_control = nodes.iter().any(|n| {
         n.role == "AXButton"
@@ -330,84 +359,708 @@ pub fn read(nodes: &[Node], facts: &AppFacts, sent: &[String]) -> Look {
                 .iter()
                 .any(|l| l.eq_ignore_ascii_case(n.label.trim()))
     });
-    // the owner's-message labels the app shows (data): the next text after one is his
-    let mut runs: Vec<(Node, bool)> = Vec::new();
+    let tree = Tree::of(nodes);
+    // the runs of words above the composer, in its column: texts, and a message the app shows in a read-only box of
+    // its own (an earlier message of the owner's he can edit there: an input that isn't the composer)
+    let mut runs: Vec<Run> = Vec::new();
     let mut marked = false;
-    for n in nodes
-        .iter()
-        .filter(|n| is_text(n) && n.y + n.h <= floor + 1.0 && in_column(n) && !inside_composer(n))
-    {
-        let w = plain(words(n));
+    for (i, n) in nodes.iter().enumerate() {
+        if i == ci || n.y + n.h > floor + 1.0 || !in_column(n) || inside_composer(n) {
+            continue;
+        }
+        let boxed = n.editable && !n.composer && !n.value.trim().is_empty();
+        if !is_text(n) && !boxed {
+            continue;
+        }
+        if tree.shaped && tree.under(i, ci) {
+            continue;
+        }
+        let w = plain(if boxed { n.value.trim() } else { words(n) });
         if w.is_empty() {
             continue;
         }
-        let w = w.as_str();
-        if facts.owner_labels.iter().any(|l| l.eq_ignore_ascii_case(w)) {
+        if facts
+            .owner_labels
+            .iter()
+            .any(|l| l.eq_ignore_ascii_case(&w))
+        {
             marked = true;
             continue;
         }
-        runs.push((n.clone(), std::mem::take(&mut marked)));
+        // a button's own words are its label (chrome), unless it opens and closes a part (a thought, a step)
+        if tree.shaped && tree.in_plain_button(i) {
+            continue;
+        }
+        let raw = plain_kept(if boxed || !n.value.trim().is_empty() {
+            &n.value
+        } else {
+            &n.label
+        });
+        runs.push(Run {
+            i,
+            words: w,
+            raw,
+            marked: std::mem::take(&mut marked),
+            boxed,
+        });
     }
-    runs.sort_by(|a, b| a.0.y.total_cmp(&b.0.y).then(a.0.x.total_cmp(&b.0.x)));
+    if !tree.shaped {
+        runs.sort_by(|a, b| {
+            let (x, y) = (&nodes[a.i], &nodes[b.i]);
+            x.y.total_cmp(&y.y).then(x.x.total_cmp(&y.x))
+        });
+    }
     // the transcript's column: its left and right edges
-    let left = runs.iter().map(|(n, _)| n.x).fold(f64::INFINITY, f64::min);
+    let left = runs
+        .iter()
+        .map(|r| nodes[r.i].x)
+        .fold(f64::INFINITY, f64::min);
     let right = runs
         .iter()
-        .map(|(n, _)| n.x + n.w)
+        .map(|r| nodes[r.i].x + nodes[r.i].w)
         .fold(f64::NEG_INFINITY, f64::max);
     let width = (right - left).max(1.0);
     let on_right =
         |n: &Node| n.x - left > RIGHT_INSET * width && right - (n.x + n.w) < RIGHT_FLUSH * width;
-    // group runs into messages: close below the last, on the same side
-    let mut groups: Vec<(Vec<Node>, bool, bool)> = Vec::new(); // (runs, right side, marked owner)
-    for (mut n, mark) in runs {
-        n.value = plain(words(&n));
-        let side = on_right(&n);
-        let joins = groups.last().is_some_and(|(g, s, _)| {
-            let last = g.last().expect("a group has a run");
-            *s == side && n.y - (last.y + last.h) < GAP && !mark
-        });
-        if joins {
-            if let Some(g) = groups.last_mut() {
-                g.0.push(n);
+    let owner_side = |n: &Node| match facts.owner_side {
+        Side::Layout | Side::Right => on_right(n),
+        Side::Left => !on_right(n),
+    };
+    // rows: one message each (the transcript's own rows when the tree has a shape, else runs close together on one
+    // side)
+    let mut rows: Vec<Vec<Run>> = Vec::new();
+    if tree.shaped {
+        let top = tree.common(runs.iter().map(|r| r.i));
+        let mut last: Option<usize> = None;
+        for r in runs {
+            let row = tree.child_toward(top, r.i);
+            if last == Some(row) && !r.marked {
+                if let Some(g) = rows.last_mut() {
+                    g.push(r);
+                    continue;
+                }
             }
-        } else {
-            groups.push((vec![n], side, mark));
+            last = Some(row);
+            rows.push(vec![r]);
+        }
+    } else {
+        for r in runs {
+            let n = &nodes[r.i];
+            let joins = rows.last().is_some_and(|g| {
+                let prev = &nodes[g.last().expect("a row has a run").i];
+                on_right(prev) == on_right(n) && n.y - (prev.y + prev.h) < GAP && !r.marked
+            });
+            match rows.last_mut() {
+                Some(g) if joins => g.push(r),
+                _ => rows.push(vec![r]),
+            }
         }
     }
-    let blocks = groups
-        .into_iter()
-        .map(|(g, side, mark)| {
-            let text = g.iter().map(words).collect::<Vec<_>>().join("\n");
-            let x = g.iter().map(|n| n.x).fold(f64::INFINITY, f64::min);
-            let r = g
+    // who said each row: the app's label before it, the owner's side (every run of it), his read-only box, or FERB's
+    // own sent words
+    let said: Vec<Speaker> = rows
+        .iter()
+        .map(|g| {
+            let text = g
                 .iter()
-                .map(|n| n.x + n.w)
-                .fold(f64::NEG_INFINITY, f64::max);
-            let owner_by_layout = match facts.owner_side {
-                Side::Layout | Side::Right => side,
-                Side::Left => !side,
-            };
+                .map(|r| r.words.as_str())
+                .collect::<Vec<_>>()
+                .join("\n");
             let confirmed = sent.iter().any(|s| one_line(s) == one_line(&text));
-            let speaker = if mark || owner_by_layout || confirmed {
+            let mark = g[0].marked;
+            let side = g.iter().all(|r| owner_side(&nodes[r.i]));
+            if mark || side || g.iter().all(|r| r.boxed) || confirmed {
                 Speaker::Owner
             } else {
                 Speaker::App
-            };
-            Block {
-                text,
-                speaker,
-                x,
-                y: g[0].y,
-                w: r - x,
             }
         })
         .collect();
+    // turns: each owner row alone; an app's rows in a row are one reply
+    let mut blocks: Vec<Block> = Vec::new();
+    let mut pending: Vec<Run> = Vec::new();
+    let flush = |pending: &mut Vec<Run>, blocks: &mut Vec<Block>| {
+        if pending.is_empty() {
+            return;
+        }
+        let turn = std::mem::take(pending);
+        blocks.push(reply(&turn, nodes, &tree));
+    };
+    for (g, who) in rows.into_iter().zip(said) {
+        match who {
+            Speaker::App => pending.extend(g),
+            Speaker::Owner => {
+                flush(&mut pending, &mut blocks);
+                let (x, y, w) = extent(&g, nodes);
+                blocks.push(Block {
+                    text: g
+                        .iter()
+                        .map(|r| r.words.as_str())
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                    speaker: Speaker::Owner,
+                    x,
+                    y,
+                    w,
+                    parts: Vec::new(),
+                });
+            }
+        }
+    }
+    flush(&mut pending, &mut blocks);
     Look {
-        composer: comp,
+        composer: Some(ci),
         blocks,
         stop_control,
     }
+}
+
+/// One run of words: its node, its words, whether the app's owner label came just before it, and whether it is a
+/// message in a read-only box of its own.
+#[derive(Clone, Debug)]
+struct Run {
+    i: usize,
+    words: String,
+    /// The words as the app gives them, their own spaces kept (runs of one line carry the spaces between them).
+    raw: String,
+    marked: bool,
+    boxed: bool,
+}
+
+fn extent(g: &[Run], nodes: &[Node]) -> (f64, f64, f64) {
+    let x = g.iter().map(|r| nodes[r.i].x).fold(f64::INFINITY, f64::min);
+    let r = g
+        .iter()
+        .map(|r| nodes[r.i].x + nodes[r.i].w)
+        .fold(f64::NEG_INFINITY, f64::max);
+    let y = g.iter().map(|r| nodes[r.i].y).fold(f64::INFINITY, f64::min);
+    (x, y, r - x)
+}
+
+/// Roles whose words sit inside their block's line (a text run, a link).
+const INLINE_ROLES: [&str; 3] = ["AXStaticText", "AXLink", "text"];
+/// The subrole of code (inline, or every run of a block: a code block).
+const CODE_SUBROLE: &str = "AXCodeStyleGroup";
+/// Subroles of the app's own small lines: a status region, a time.
+const META_SUBROLES: [&str; 2] = ["AXApplicationStatus", "AXTimeGroup"];
+/// Roles of a control that turns while the app works.
+const BUSY_ROLES: [&str; 2] = ["AXProgressIndicator", "AXBusyIndicator"];
+
+/// The pane's tree, from the nodes' depths (reading order).
+struct Tree<'a> {
+    nodes: &'a [Node],
+    parent: Vec<Option<usize>>,
+    /// Where each node's subtree ends (exclusive).
+    end: Vec<usize>,
+    /// The read has a shape (some node has a depth).
+    shaped: bool,
+}
+
+impl<'a> Tree<'a> {
+    fn of(nodes: &'a [Node]) -> Tree<'a> {
+        let mut parent = vec![None; nodes.len()];
+        let mut stack: Vec<usize> = Vec::new();
+        for (i, n) in nodes.iter().enumerate() {
+            while stack.last().is_some_and(|&j| nodes[j].depth >= n.depth) {
+                stack.pop();
+            }
+            parent[i] = stack.last().copied();
+            stack.push(i);
+        }
+        let mut end: Vec<usize> = (1..=nodes.len()).collect();
+        for i in (0..nodes.len()).rev() {
+            if let Some(p) = parent[i] {
+                end[p] = end[p].max(end[i]);
+            }
+        }
+        Tree {
+            nodes,
+            parent,
+            end,
+            shaped: nodes.iter().any(|n| n.depth > 0),
+        }
+    }
+
+    /// `i`'s ancestors, nearest first (not itself).
+    fn up(&self, i: usize) -> impl Iterator<Item = usize> + '_ {
+        std::iter::successors(self.parent[i], move |&p| self.parent[p])
+    }
+
+    /// Whether `i` sits inside `j`'s subtree (or is `j`).
+    fn under(&self, i: usize, j: usize) -> bool {
+        i >= j && i < self.end[j]
+    }
+
+    /// The deepest node holding all of these (None: no common one).
+    fn common(&self, mut ids: impl Iterator<Item = usize>) -> Option<usize> {
+        let first = ids.next()?;
+        let mut chain: Vec<usize> = self.up(first).collect();
+        chain.insert(0, first);
+        for i in ids {
+            chain.retain(|&a| self.under(i, a));
+        }
+        chain.first().copied()
+    }
+
+    /// The child of `top` on the way down to `i` (`i` itself when `top` is its parent or None: the top-level node).
+    fn child_toward(&self, top: Option<usize>, i: usize) -> usize {
+        let mut cur = i;
+        for a in self.up(i) {
+            if Some(a) == top {
+                return cur;
+            }
+            cur = a;
+        }
+        if top.is_none() {
+            cur
+        } else {
+            i
+        }
+    }
+
+    fn role(&self, i: usize) -> &str {
+        self.nodes[i].role.as_str()
+    }
+
+    /// A control that opens and closes what is under it (a thought's or a step's row).
+    fn opener(&self, i: usize) -> bool {
+        self.nodes[i].expanded.is_some() || self.role(i) == "AXDisclosureTriangle"
+    }
+
+    /// The nearest opener holding `i` (itself included).
+    fn opener_of(&self, i: usize) -> Option<usize> {
+        std::iter::once(i)
+            .chain(self.up(i))
+            .find(|&a| self.opener(a))
+    }
+
+    /// `i` is a button's own words (its label), the button opening nothing.
+    fn in_plain_button(&self, i: usize) -> bool {
+        std::iter::once(i)
+            .chain(self.up(i))
+            .any(|a| self.role(a) == "AXButton" && !self.opener(a))
+            && self.opener_of(i).is_none()
+    }
+
+    /// The nearest ancestor with this role.
+    fn above(&self, i: usize, role: &str) -> Option<usize> {
+        self.up(i).find(|&a| self.role(a) == role)
+    }
+
+    /// The block `i`'s words belong to: its nearest ancestor that isn't a run, a link or code.
+    fn block(&self, i: usize) -> Option<usize> {
+        self.up(i).find(|&a| {
+            !INLINE_ROLES.contains(&self.role(a)) && self.nodes[a].subrole != CODE_SUBROLE
+        })
+    }
+
+    /// `i` is code (inside a code group below its block).
+    fn code(&self, i: usize) -> bool {
+        let block = self.block(i);
+        self.up(i)
+            .take_while(|&a| Some(a) != block)
+            .any(|a| self.nodes[a].subrole == CODE_SUBROLE)
+            || self.nodes[i].subrole == CODE_SUBROLE
+    }
+
+    /// `i` is one of the app's small lines: in a status region or a time, beside a turning control, or the only words
+    /// in a row of buttons (a reply's own bar: its time beside copy and share).
+    fn meta(&self, i: usize, runs_in: &dyn Fn(usize) -> usize) -> bool {
+        if self
+            .up(i)
+            .chain(std::iter::once(i))
+            .any(|a| META_SUBROLES.contains(&self.nodes[a].subrole.as_str()))
+        {
+            return true;
+        }
+        let Some(b) = self.block(i) else {
+            return false;
+        };
+        let kids = (b + 1)..self.end[b];
+        let busy = kids.clone().any(|k| BUSY_ROLES.contains(&self.role(k)));
+        let buttons = kids
+            .filter(|&k| self.parent[k] == Some(b) && self.role(k) == "AXButton")
+            .count();
+        busy || (buttons > 0 && runs_in(b) == 1 && self.opener_of(i).is_none())
+    }
+}
+
+/// HAND-703: one app reply from its runs, in its parts.
+fn reply(turn: &[Run], nodes: &[Node], tree: &Tree) -> Block {
+    use crate::model::{Part, PartKind};
+    let (x, y, w) = extent(turn, nodes);
+    let text = turn
+        .iter()
+        .map(|r| r.words.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let ids: Vec<usize> = turn.iter().map(|r| r.i).collect();
+    let words_of = |i: usize| -> &str {
+        turn.iter()
+            .find(|r| r.i == i)
+            .map(|r| r.words.as_str())
+            .unwrap_or("")
+    };
+    let runs_in = |b: usize| ids.iter().filter(|&&i| tree.under(i, b)).count();
+    // the reply's own holder: an opener's holder below it is that thought's or step's own
+    let top = tree.common(ids.iter().copied());
+    let mut parts: Vec<Part> = Vec::new();
+    let mut md = String::new();
+    let mut last_block: Option<Option<usize>> = None;
+    let mut last_node: Option<usize> = None;
+    let mut done: Vec<usize> = Vec::new(); // tables, lists and code blocks already written whole
+    let mut steps: Vec<(usize, usize)> = Vec::new(); // (opener, its part)
+    let flush = |md: &mut String, parts: &mut Vec<Part>| {
+        let t = md.trim().to_owned();
+        if !t.is_empty() {
+            parts.push(Part {
+                kind: PartKind::Text,
+                text: t,
+                label: String::new(),
+                detail: String::new(),
+            });
+        }
+        md.clear();
+    };
+    for (k, r) in turn.iter().enumerate() {
+        let i = r.i;
+        if done.iter().any(|&d| tree.under(i, d)) {
+            continue;
+        }
+        if tree.shaped {
+            // a thought's or a step's row, and what it opens
+            if let Some(o) = tree.opener_of(i) {
+                if let Some(&(_, at)) = steps.iter().find(|(s, _)| *s == o) {
+                    let p: &mut Part = &mut parts[at];
+                    if p.label.is_empty() {
+                        p.label = r.words.clone();
+                    } else {
+                        p.detail = join_words(&p.detail, &r.words);
+                    }
+                    continue;
+                }
+                flush(&mut md, &mut parts);
+                let icon = (o..tree.end[o]).any(|j| {
+                    tree.role(j) == "AXImage"
+                        || (is_text(&nodes[j])
+                            && plain(words(&nodes[j])).is_empty()
+                            && !words(&nodes[j]).is_empty())
+                });
+                parts.push(Part {
+                    kind: if icon {
+                        PartKind::Tool
+                    } else {
+                        PartKind::Thinking
+                    },
+                    text: String::new(),
+                    label: r.words.clone(),
+                    detail: String::new(),
+                });
+                steps.push((o, parts.len() - 1));
+                last_block = None;
+                continue;
+            }
+            // what an opener shows under it: the runs after its row inside its own holder
+            if let Some(&(o, at)) = steps.last() {
+                let holder = tree.parent[o];
+                let within = holder.filter(|&h| {
+                    Some(h) != top
+                        && top.is_none_or(|t| tree.under(h, t))
+                        && tree.under(i, h)
+                        && i >= tree.end[o]
+                });
+                if within.is_some() {
+                    let p: &mut Part = &mut parts[at];
+                    if tree.code(i) {
+                        p.kind = PartKind::Tool;
+                    }
+                    let joins =
+                        p.text.is_empty() || tree.block(i) == last_node.and_then(|n| tree.block(n));
+                    let sep = if joins { "" } else { "\n" };
+                    p.text = format!("{}{sep}{}", p.text, r.words);
+                    last_node = Some(i);
+                    continue;
+                }
+            }
+            if tree.meta(i, &runs_in) {
+                flush(&mut md, &mut parts);
+                parts.push(Part {
+                    kind: PartKind::Meta,
+                    text: r.words.clone(),
+                    label: String::new(),
+                    detail: String::new(),
+                });
+                last_block = None;
+                continue;
+            }
+            // a table, a list or a code block: written whole at its first run
+            if let Some(t) = tree.above(i, "AXTable").or_else(|| tree.above(i, "AXGrid")) {
+                para_break(&mut md);
+                md.push_str(&table_md(t, &ids, &words_of, tree));
+                md.push_str("\n\n");
+                done.push(t);
+                last_block = None;
+                continue;
+            }
+            if let Some(l) = tree.above(i, "AXList") {
+                para_break(&mut md);
+                md.push_str(&list_md(l, &ids, &words_of, tree));
+                md.push_str("\n\n");
+                done.push(l);
+                last_block = None;
+                continue;
+            }
+            let block = tree.block(i);
+            if let Some(b) = block.filter(|&b| {
+                let mine: Vec<usize> = ids.iter().copied().filter(|&j| tree.under(j, b)).collect();
+                !mine.is_empty() && mine.iter().all(|&j| tree.code(j)) && tree.code(i)
+            }) {
+                para_break(&mut md);
+                let body: Vec<&str> = ids
+                    .iter()
+                    .copied()
+                    .filter(|&j| tree.under(j, b))
+                    .map(&words_of)
+                    .collect();
+                md.push_str(&fence(&body.join("\n")));
+                md.push_str("\n\n");
+                done.push(b);
+                last_block = None;
+                continue;
+            }
+            // words: a new paragraph when the block changes
+            if last_block != Some(block) {
+                para_break(&mut md);
+                if block.is_some_and(|b| tree.role(b) == "AXHeading") || tree.role(i) == "AXHeading"
+                {
+                    md.push_str("### ");
+                }
+                last_block = Some(block);
+            }
+            if tree.code(i) {
+                md.push('`');
+                md.push_str(&r.words.replace('`', "'"));
+                md.push('`');
+            } else {
+                let start = md.is_empty() || md.ends_with('\n');
+                let piece = escape(if start { r.raw.trim_start() } else { &r.raw }, start);
+                if !md.is_empty()
+                    && !md.ends_with(char::is_whitespace)
+                    && !piece.starts_with(char::is_whitespace)
+                    && needs_space(&md, &piece)
+                {
+                    md.push(' ');
+                }
+                md.push_str(&piece);
+            }
+        } else {
+            // no shape: a gap starts a paragraph, a line break keeps the line
+            let n = &nodes[i];
+            if let Some(prev) = k.checked_sub(1).map(|p| &nodes[turn[p].i]) {
+                if n.y - (prev.y + prev.h) >= GAP {
+                    para_break(&mut md);
+                } else {
+                    md.push('\n');
+                }
+            }
+            md.push_str(&escape(&r.words, true));
+        }
+        last_node = Some(i);
+    }
+    flush(&mut md, &mut parts);
+    Block {
+        text,
+        speaker: Speaker::App,
+        x,
+        y,
+        w,
+        parts,
+    }
+}
+
+fn join_words(a: &str, b: &str) -> String {
+    if a.is_empty() {
+        b.to_owned()
+    } else {
+        format!("{a} {b}")
+    }
+}
+
+fn para_break(md: &mut String) {
+    let t = md.trim_end_matches([' ', '\n']).len();
+    md.truncate(t);
+    if !md.is_empty() {
+        md.push_str("\n\n");
+    }
+}
+
+/// Runs inside one line usually carry their own spaces; two that meet with none between them are joined by a space
+/// only when both sides are letters or digits (a link right after a word keeps its own spacing when it has it).
+fn needs_space(before: &str, after: &str) -> bool {
+    let a = before.chars().last();
+    let b = after.chars().next();
+    matches!((a, b), (Some(x), Some(y)) if x.is_alphanumeric() && y.is_alphanumeric())
+}
+
+/// The app's words made safe as Markdown (they are data, drawn as written): Markdown's marks are escaped, and at a
+/// line's start what would begin a heading, a quote or a list.
+pub fn escape(words: &str, line_start: bool) -> String {
+    let mut out = String::with_capacity(words.len() + 8);
+    for (n, line) in words.split('\n').enumerate() {
+        if n > 0 {
+            out.push('\n');
+        }
+        let starts = n > 0 || line_start;
+        let body = line.trim_start();
+        out.push_str(&line[..line.len() - body.len()]);
+        let digits = body.chars().take_while(char::is_ascii_digit).count();
+        if starts && matches!(body.chars().next(), Some('#' | '+' | '-')) {
+            out.push('\\');
+        }
+        for (k, ch) in body.chars().enumerate() {
+            let list_mark = starts && digits > 0 && k == digits && matches!(ch, '.' | ')');
+            if list_mark
+                || matches!(
+                    ch,
+                    '\\' | '`' | '*' | '_' | '[' | ']' | '|' | '~' | '<' | '>'
+                )
+            {
+                out.push('\\');
+            }
+            out.push(ch);
+        }
+    }
+    out
+}
+
+/// A fenced code block that its own words can't close.
+fn fence(body: &str) -> String {
+    let mut ticks = 3;
+    let mut run = 0;
+    for ch in body.chars() {
+        if ch == '`' {
+            run += 1;
+            ticks = ticks.max(run + 1);
+        } else {
+            run = 0;
+        }
+    }
+    let f = "`".repeat(ticks);
+    format!("{f}\n{body}\n{f}")
+}
+
+/// A table's rows as a pipe table (its first row the header): each row's cells by structure (AXRow, then its cells).
+fn table_md<'w>(
+    t: usize,
+    ids: &[usize],
+    words_of: &dyn Fn(usize) -> &'w str,
+    tree: &Tree,
+) -> String {
+    let mut rows: Vec<Vec<String>> = Vec::new();
+    let mut row_of: Vec<(usize, usize)> = Vec::new(); // (row node, index in rows)
+    for &i in ids.iter().filter(|&&i| tree.under(i, t)) {
+        let row = tree
+            .up(i)
+            .take_while(|&a| a != t)
+            .find(|&a| tree.role(a) == "AXRow");
+        let Some(row) = row else { continue };
+        let cell = tree.child_toward(Some(row), i);
+        let at = match row_of.iter().find(|(r, _)| *r == row) {
+            Some((_, at)) => *at,
+            None => {
+                rows.push(Vec::new());
+                row_of.push((row, rows.len() - 1));
+                rows.len() - 1
+            }
+        };
+        let cells = &mut rows[at];
+        let key = format!("{cell}");
+        // cells are kept in order; a run in the same cell as the last one joins it
+        match cells.last_mut() {
+            Some(last) if last.starts_with(&format!("{key}\u{1}")) => {
+                last.push(' ');
+                last.push_str(&escape(words_of(i), false));
+            }
+            _ => cells.push(format!("{key}\u{1}{}", escape(words_of(i), false))),
+        }
+    }
+    let rows: Vec<Vec<String>> = rows
+        .into_iter()
+        .map(|r| {
+            r.into_iter()
+                .map(|c| {
+                    c.split_once('\u{1}')
+                        .map(|(_, w)| w.replace('\n', " "))
+                        .unwrap_or_default()
+                })
+                .collect()
+        })
+        .filter(|r: &Vec<String>| !r.is_empty())
+        .collect();
+    let Some(cols) = rows.iter().map(Vec::len).max() else {
+        return String::new();
+    };
+    let line = |r: &Vec<String>| {
+        let mut cells = r.clone();
+        cells.resize(cols, String::new());
+        format!("| {} |", cells.join(" | "))
+    };
+    let mut out = vec![line(&rows[0]), format!("|{}", " --- |".repeat(cols))];
+    out.extend(rows[1..].iter().map(line));
+    out.join("\n")
+}
+
+/// A list's items, one line each: its own marker when the app shows one as words ("1.", "•"), numbered when it is a
+/// number, else a bullet.
+fn list_md<'w>(
+    l: usize,
+    ids: &[usize],
+    words_of: &dyn Fn(usize) -> &'w str,
+    tree: &Tree,
+) -> String {
+    let mut items: Vec<(usize, Vec<String>)> = Vec::new();
+    for &i in ids.iter().filter(|&&i| tree.under(i, l)) {
+        let item = tree.child_toward(Some(l), i);
+        match items.last_mut() {
+            Some((it, ws)) if *it == item => ws.push(words_of(i).to_owned()),
+            _ => items.push((item, vec![words_of(i).to_owned()])),
+        }
+    }
+    let mut out = Vec::new();
+    for (n, (_, ws)) in items.iter().enumerate() {
+        let first = ws.first().map(|w| w.trim()).unwrap_or("");
+        let numbered = first
+            .trim_end_matches(['.', ')'])
+            .chars()
+            .all(|c| c.is_ascii_digit())
+            && first.len() > 1
+            && first.ends_with(['.', ')']);
+        let bullet = first.chars().count() == 1 && !first.chars().all(char::is_alphanumeric);
+        let rest: Vec<&String> = if numbered || bullet {
+            ws.iter().skip(1).collect()
+        } else {
+            ws.iter().collect()
+        };
+        let mut body = String::new();
+        for w in rest {
+            let piece = escape(w, false);
+            if !body.is_empty()
+                && !body.ends_with(char::is_whitespace)
+                && !piece.starts_with(char::is_whitespace)
+                && needs_space(&body, &piece)
+            {
+                body.push(' ');
+            }
+            body.push_str(&piece);
+        }
+        let body = body.replace('\n', " ");
+        out.push(if numbered {
+            format!("{}. {}", n + 1, body.trim())
+        } else {
+            format!("- {}", body.trim())
+        });
+    }
+    out.join("\n")
 }
 
 fn one_line(t: &str) -> String {

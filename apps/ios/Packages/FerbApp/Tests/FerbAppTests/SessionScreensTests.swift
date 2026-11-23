@@ -21,7 +21,8 @@ final class SessionScreensTests: XCTestCase {
         rig.phone.codingList = SessionsList(enabled: true, sessions: [
             session("claude:1", "Fix the flaky login test", "web-app", "working", "Terminal"),
             session("claude:2", "Move the blog to the new theme", "blog", "waiting_for_you", "Visual Studio Code"),
-            session("claude:3", "Add dark mode to settings", "notes-app", "working", "Terminal", withFerb: true),
+            session("claude:3", "Add dark mode to settings", "notes-app", "working", "Terminal", withFerb: true, ferbTask: "t-3",
+                    ferbNote: SessionSample.ferbNote),
             session("codex:4", "", "thesis-tools", "idle", ""),
         ], noChats: [])
         rig.phone.codingItems["claude:2"] = [
@@ -38,16 +39,17 @@ final class SessionScreensTests: XCTestCase {
     }
     override func tearDown() async throws { rig.tearDown() }
 
-    private func session(_ id: String, _ title: String, _ folder: String, _ status: String, _ host: String, withFerb: Bool = false) -> AgentSession {
+    private func session(_ id: String, _ title: String, _ folder: String, _ status: String, _ host: String, withFerb: Bool = false,
+                         ferbTask: String = "", ferbNote: String = "") -> AgentSession {
         AgentSession(id: id, agent: id.hasPrefix("codex") ? "codex" : "claude_code", agentName: id.hasPrefix("codex") ? "Codex" : "Claude Code",
                      title: title, folder: "/Users/owner/code/\(folder)", folderName: folder, status: status,
                      waiting: status == "waiting_for_you" ? "permission" : "none", host: host, canSend: true, noSend: "",
                      foreground: true, lastAt: "", lastText: "", controlledHere: false, control: "", withFerb: withFerb, goal: "", terminals: [],
-                     program: "", window: "", noText: "")
+                     program: "", window: "", noText: "", ferbTask: ferbTask, ferbNote: ferbNote)
     }
 
-    private func item(_ seq: UInt64, _ kind: String, _ text: String) -> SessionItem {
-        SessionItem(seq: seq, at: "", kind: kind, text: text, tool: "")
+    private func item(_ seq: UInt64, _ kind: String, _ text: String, parts: [SessionPart] = []) -> SessionItem {
+        SessionItem(seq: seq, at: "", kind: kind, text: text, tool: "", parts: parts)
     }
 
     private func same<S: View, P: View>(_ name: String, @ViewBuilder sheet: () -> S, @ViewBuilder page: () -> P) {
@@ -95,6 +97,88 @@ final class SessionScreensTests: XCTestCase {
         await vm.openSession("claude:2").value
         XCTAssertEqual(vm.coding.open?.loaded, true, "the first page read: the conversation replaces the waiting look")
         XCTAssertFalse(vm.coding.open?.items.isEmpty ?? true)
+    }
+
+    /// An agent's reply with parts, read through the real phone library's Markdown, draws the design's rich reply: one
+    /// block, a thought, words, a step closed with its label and detail, a real table, a list, inline code, "Just now"
+    /// (owner 2026-11-23).
+    // decision: HAND-703
+    func testAReplyWithPartsDrawsTheDesignsRichReply() async {
+        func part(_ kind: String, _ text: String, label: String = "", detail: String = "") -> SessionPart {
+            SessionPart(kind: kind, text: text, label: label, detail: detail)
+        }
+        rig.phone.codingItems["claude:2"] = [
+            item(1, "user", "What's in this folder? I forgot"),
+            item(2, "assistant", "", parts: [
+                part("thinking", "", label: "Thought 1s"),
+                part("text", "I'll look through this folder and tell you what it is."),
+                part("tool", "  Length      Date    Time    Name\n---------  ---------- -----   ----\n     2048  01-01-2020 00:00   photos/\n",
+                     label: "List the archives and their sizes", detail: "ls, unzip, head"),
+                part("thinking", "Four zips with photo folders inside; one holds text files.", label: "Thought 4s"),
+                part("text", SessionSample.richMarkdown),
+                part("text", "So it's your old photo backup, sitting in four zips."),
+                part("meta", "Just now"),
+            ]),
+        ]
+        rig.phone.codingCards["claude:2"] = []
+        let vm = rig.model()
+        await vm.loadSessions().value
+        await vm.openSession("claude:2").value
+        guard var o = vm.coding.open else { return XCTFail("open") }
+        let lines = SessionWords.lines(o.items, today: 0) { _ in "" }
+        XCTAssertEqual(lines.map(\.kind), [.owner, .reply], "one owner bubble, one reply block")
+        XCTAssertEqual(lines[1].parts, SessionSample.richParts, "the library's Markdown is the design's blocks: the table a table, the list a list")
+        o.more = true
+        same("session-rich-reply-402", sheet: { SessionScreenPage(model: vm, open: o, insets: .lab, still: true) },
+             page: { SessionsTabPage(model: vm, insets: .lab, waiting: nil) })
+    }
+
+    /// A session FERB has: its menu has Take it back where Hand to FERB was, and FERB's word shows above the box: the
+    /// design's goldens (owner 2026-11-23).
+    // decision: HAND-702, ORCH-687
+    func testASessionFERBHasDrawsTakeItBackAndFERBsWord() async {
+        rig.phone.codingItems["claude:3"] = rig.phone.codingItems["claude:2"]
+        let vm = rig.model()
+        await vm.loadSessions().value
+        await vm.openSession("claude:3").value
+        guard var o = vm.coding.open else { return XCTFail("open") }
+        same("session-ferb-note-402", sheet: { SessionScreenPage(model: vm, open: o, insets: .lab, still: true) },
+             page: { SessionsTabPage(model: vm, insets: .lab, waiting: nil) })
+        o.menu = true
+        same("session-menu-take-back-402", sheet: { SessionScreenPage(model: vm, open: o, insets: .lab, still: true) },
+             page: { SessionsTabPage(model: vm, insets: .lab, waiting: nil) })
+        o.takingBack = true
+        same("session-menu-taking-back-402", sheet: { SessionScreenPage(model: vm, open: o, insets: .lab, still: true) },
+             page: { SessionsTabPage(model: vm, insets: .lab, waiting: nil) })
+    }
+
+    /// New session at the tap of Start, and its folder picker inside a folder, drawn by the app: the design's goldens.
+    // decision: PHN-821, PHN-822
+    func testNewSessionStartingAndItsFolderPickerDrawTheDesigns() async {
+        rig.phone.codingFolders = ["/Users/you/code/web-app", "/Users/you/code/blog", "/Users/you/code/notes-app"]
+        rig.phone.folders["/Users/you/code"] = Folder(path: "/Users/you/code", parent: "/Users/you", locked: false, entries: [
+            FileEntry(name: "blog", path: "/Users/you/code/blog", dir: true, link: false, size: 0, modified: 0, locked: false),
+            FileEntry(name: "notes-app", path: "/Users/you/code/notes-app", dir: true, link: false, size: 0, modified: 0, locked: false),
+            FileEntry(name: "README.md", path: "/Users/you/code/README.md", dir: false, link: false, size: 12, modified: 0, locked: false),
+            FileEntry(name: "thesis-tools", path: "/Users/you/code/thesis-tools", dir: true, link: false, size: 0, modified: 0, locked: false),
+            FileEntry(name: "web-app", path: "/Users/you/code/web-app", dir: true, link: false, size: 0, modified: 0, locked: false),
+        ], total: 5, cut: false, from: 0, next: nil)
+        let vm = rig.model()
+        await vm.loadSessions().value
+        await vm.newSession().value
+        vm.newSessionText("claude")
+        await vm.pickNewSessionFolder()?.value
+        await vm.pickerOpen("/Users/you/code")?.value
+        same("session-folder-picker-402", sheet: { NewSessionSheet(model: vm, insets: .lab, still: true) },
+             page: { SessionsTabPage(model: vm, insets: .lab, waiting: nil) })
+        vm.pickerClose()
+        rig.phone.prepareRefusal = .Refused(detail: "There's no folder named web-app on your Mac any more.", linkCode: "ferb_error")
+        let start = vm.startSession()
+        same("session-new-starting-402", sheet: { NewSessionSheet(model: vm, insets: .lab, still: true) },
+             page: { SessionsTabPage(model: vm, insets: .lab, waiting: nil) })
+        await start.value
+        same("session-new-refused-402", sheet: { NewSessionSheet(model: vm, insets: .lab, still: true) },
+             page: { SessionsTabPage(model: vm, insets: .lab, waiting: nil) })
     }
 
     /// His words the moment he tapped Send, drawn by the app from its one outgoing state: the design's sending golden

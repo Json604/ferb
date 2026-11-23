@@ -19,6 +19,7 @@ import com.ferb.app.model.LocalFiles
 import com.ferb.app.model.UnlockStatement
 import com.ferb.app.model.MacSettings
 import com.ferb.app.model.Moment
+import com.ferb.app.model.FolderPickUi
 import com.ferb.app.model.NewSessionUi
 import com.ferb.app.model.SessionConfirm
 import com.ferb.app.model.SessionSending
@@ -156,8 +157,8 @@ sealed interface Sheet {
 /** What pressing the microphone needs from the screen: nothing more, or Android's microphone question. */
 enum class VoicePress { DONE, ASK_MICROPHONE }
 
-/** A short line for the owner, in the app's words (string resources) or the Mac's own. */
-data class Note(@StringRes val res: Int, val words: String? = null)
+/** A short line for the owner, in the app's words (string resources) or the Mac's own; [inner] a line said inside it. */
+data class Note(@StringRes val res: Int, val words: String? = null, val inner: Note? = null)
 
 /** This phone's own switches, as the profile sheet shows them. */
 data class PhoneSettings(val stayConnected: Boolean, val blockScreenshots: Boolean, val hideChecks: Boolean, val pairedSince: Long, val shareCity: Boolean = false)
@@ -1732,7 +1733,11 @@ class FerbViewModel(
         val first = !_sessions.value.loaded
         val r = if (first) unlocker.run { api.sessionsList() } else api.sessionsList()
         when (r) {
-            is Outcome.Ok -> _sessions.value = SessionsUi(true, r.value.enabled, r.value.sessions, null, r.value.noChats)
+            is Outcome.Ok -> _sessions.update { u ->
+                // a new terminal said to be on its way: its line stays until a session the list didn't hold shows
+                val coming = u.coming?.takeIf { before -> r.value.sessions.all { it.id in before } }
+                SessionsUi(true, r.value.enabled, r.value.sessions, null, r.value.noChats, coming)
+            }
             is Outcome.Failed -> if (r.error !is FerbException.NotSigned) _sessions.update { it.copy(loaded = true, problem = errorNote(r.error)) }
         }
     }
@@ -1979,20 +1984,46 @@ class FerbViewModel(
     }
 
     /** Hand to FERB: its sheet over the session's screen. */
-    fun askHandOver(open: Boolean = true) = _openSession.update { it?.copy(handOver = open) }
+    fun askHandOver(open: Boolean = true) = _openSession.update { it?.copy(handOver = open, handProblem = null) }
 
-    /** Hand it over (signed): the owner's goal becomes FERB's task in the chat; FERB says so. */
+    /**
+     * Hand it over (signed): the owner's goal becomes FERB's task in the chat; FERB says so. The sheet's button turns
+     * at the tap and stays so until the Mac answers (HAND-702): done, the sheet closes and the session is read at once;
+     * refused, the sheet stays with his words and the Mac's reason under the button.
+     */
     fun handOver(goal: String) = busy("session-hand", tap = true) {
         val id = _openSession.value?.id ?: return@busy
         if (goal.isBlank()) return@busy
+        _openSession.update { it?.copy(handProblem = null) }
         val signer = freshSigner(Why.YES) ?: return@busy
         when (val r = unlocker.run { api.sessionDelegate(id, goal.trim(), signer()) }) {
             is Outcome.Ok -> {
-                _openSession.update { it?.copy(handOver = false) }
+                _openSession.update { it?.copy(handOver = false, handProblem = null) }
                 note(Note(R.string.sessions_handed))
                 readSession(id)
             }
-            is Outcome.Failed -> if (r.error !is FerbException.NotSigned) failed(r.error)
+            is Outcome.Failed -> if (r.error !is FerbException.NotSigned) {
+                // the sheet still open: the reason under its button; closed meanwhile: said as every refusal is
+                if (_openSession.value?.let { it.id == id && it.handOver } == true) _openSession.update { it?.copy(handProblem = errorNote(r.error)) }
+                else failed(r.error)
+            }
+        }
+    }
+
+    /**
+     * Take it back (HAND-702): stops FERB's task that keeps the session going (the task stop every task has; no unlock,
+     * never queued, as Stop). The menu's row turns at the tap; done, the menu closes and the session is read at once (its
+     * chip goes when the Mac says so); refused, the Mac's reason.
+     */
+    fun takeBack() = busy("session-take-back", tap = true) {
+        val o = _openSession.value ?: return@busy
+        val task = o.session?.ferbTask?.takeIf { it.isNotBlank() } ?: return@busy
+        when (val r = api.stop(listOf(task))) {
+            is Outcome.Ok -> {
+                _openSession.update { u -> if (u?.id == o.id) u.copy(menu = false) else u }
+                readSession(o.id)
+            }
+            is Outcome.Failed -> note(Note(R.string.sessions_take_back_failed, inner = errorNote(r.error)))
         }
     }
 
@@ -2031,21 +2062,62 @@ class FerbViewModel(
         }
     }
 
-    fun newSessionFolder(folder: String) = _newSession.update { it?.copy(folder = folder, other = "") }
-    /** HAND-695: a folder typed by hand, used instead of the list's while it holds something. */
-    fun newSessionOther(path: String) = _newSession.update { it?.copy(other = path) }
-    fun newSessionText(text: String) = _newSession.update { it?.copy(text = text) }
+    fun newSessionFolder(folder: String) = _newSession.update { it?.copy(folder = folder, problem = null) }
+    fun newSessionText(text: String) = _newSession.update { it?.copy(text = text, problem = null) }
+
+    // ---- "Another folder…" (PHN-821): the Files tab's browser over phone.files, folders only, over the sheet --------------
+
+    /** Opens the Mac's folders over the sheet: the places and the recent folders, read as the Files tab reads them. */
+    fun newSessionBrowse() {
+        if (_newSession.value == null) return
+        _newSession.update { it?.copy(browse = FolderPickUi()) }
+        viewModelScope.launch {
+            val r = unlocker.run { api.recentFiles(RECENT_FILES) }
+            if (r is Outcome.Ok) _newSession.update { n ->
+                n?.browse?.let { b -> n.copy(browse = b.copy(recent = r.value.files.filter { it.dir }.map { it.path }.distinct())) } ?: n
+            }
+        }
+    }
+
+    /** A folder of the Mac opened in the picker (a key place asks for the fingerprint for that very path, PHN-121). */
+    fun newSessionBrowseOpen(path: String, keyPlace: Boolean = false) = busy("session-browse") {
+        _newSession.update { n -> n?.browse?.let { n.copy(browse = it.copy(loading = path, problem = null)) } ?: n }
+        val r = unlocker.withProof(keyPlace, Why.FILE) { signer -> api.files(path, signer) }
+        _newSession.update { n ->
+            val b = n?.browse?.takeIf { it.loading == path } ?: return@update n
+            n.copy(browse = when (r) {
+                is Outcome.Ok -> b.copy(trail = b.trail + r.value, loading = null)
+                is Outcome.Failed -> b.copy(loading = null, problem = filesNote(r.error))
+            })
+        }
+    }
+
+    /** Back in the picker: the folder before, then the places; from the places, back to the sheet as it was. */
+    fun newSessionBrowseBack() = _newSession.update { n ->
+        val b = n?.browse ?: return@update n
+        n.copy(browse = if (b.trail.isEmpty()) null else b.copy(trail = b.trail.dropLast(1), loading = null, problem = null))
+    }
+
+    /** Closes the picker: the sheet as it was. */
+    fun newSessionBrowseClose() = _newSession.update { it?.copy(browse = null) }
+
+    /** "Use this folder": the folder showing becomes the chosen one, first in the sheet's list. */
+    fun newSessionBrowseUse() = _newSession.update { n ->
+        val path = n?.browse?.shown?.path ?: return@update n
+        n.copy(browse = null, picked = path, folder = path, problem = null)
+    }
 
     /** Start: with a command, the Mac's question showing exactly it first (nothing runs yet); with none, it opens. */
     fun newSessionNext() = busy("session-prepare", tap = true) {
         val n = _newSession.value ?: return@busy
         val folder = n.chosen ?: return@busy
+        _newSession.update { it?.copy(problem = null) }
         when (val r = unlocker.run { api.sessionPrepare(Sessions.TERMINAL, folder, n.text.trim()) }) {
             is Outcome.Ok -> {
                 val yes = r.value.needsYes
                 if (yes != null) _newSession.update { it?.copy(yes = yes) } else startNow(n, folder)
             }
-            is Outcome.Failed -> failed(r.error)
+            is Outcome.Failed -> if (r.error !is FerbException.NotSigned) _newSession.update { it?.copy(problem = errorNote(r.error)) }
         }
     }
 
@@ -2055,21 +2127,32 @@ class FerbViewModel(
         startNow(n, n.chosen ?: return@busy)
     }
 
+    /**
+     * Opens it (signed). Start shows its pending state until the Mac answers (PHN-822): opened, the sheet closes and the
+     * new session opens when the Mac named it, else the list says it will show in a moment until it does; refused, the
+     * sheet stays with the Mac's reason under Start.
+     */
     private suspend fun startNow(n: NewSessionUi, folder: String) {
+        _newSession.update { it?.copy(problem = null) }
         val signer = freshSigner(Why.YES) ?: return
         when (val r = unlocker.run { api.sessionStart(Sessions.TERMINAL, folder, n.text.trim(), signer()) }) {
             is Outcome.Ok -> {
                 if (_sheet.value == Sheet.NewSession) show(null)
                 _newSession.value = null
                 note(Note(R.string.sessions_started))
-                readSessions()
+                val id = r.value.session
+                if (id.isNotBlank()) openSession(id)
+                else {
+                    _sessions.update { it.copy(coming = it.sessions.map { s -> s.id }.toSet()) }
+                    readSessions()
+                }
             }
-            is Outcome.Failed -> if (r.error !is FerbException.NotSigned) failed(r.error)
+            is Outcome.Failed -> if (r.error !is FerbException.NotSigned) _newSession.update { it?.copy(problem = errorNote(r.error)) }
         }
     }
 
     /** Back from the command to the choices. */
-    fun newSessionBack() = _newSession.update { it?.copy(yes = null) }
+    fun newSessionBack() = _newSession.update { it?.copy(yes = null, problem = null) }
 
     fun closeNewSession() {
         if (_sheet.value == Sheet.NewSession) show(null)

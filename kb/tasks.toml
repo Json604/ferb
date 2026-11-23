@@ -1062,15 +1062,6 @@ decisions = ["MEM-472"]
 ask = "When you answer Not sure about something FERB said it would check (a trip, a course), FERB asks again in a week. Is a week right?"
 after = []
 
-[T-1300]
-title = "Browse the Mac's folders from the phones' New session sheet"
-area = "phone"
-kind = "build"
-status = "open"
-why = "PHN-817: the phones offer the Mac's folder list and a typed path; FERB.app has Choose… (a folder panel). A browser over phone.files (PHN-482's rules, folder by folder) inside the sheet is not built."
-decisions = ["PHN-817", "HAND-695"]
-after = []
-
 [T-1301]
 title = "Read the text of terminals whose app doesn't show it: VS Code-family, iTerm2 by its tty, Warp"
 area = "hands"

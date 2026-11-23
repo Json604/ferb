@@ -1,7 +1,10 @@
 package com.ferb.app.model
 
 import com.ferb.app.Note
+import com.ferb.design.components.RichBlock
 import com.ferb.design.components.SessionLine
+import com.ferb.design.components.SessionPartKind
+import com.ferb.design.components.SessionPartView
 import com.ferb.design.components.SessionLineKind
 import com.ferb.design.components.SessionState
 import com.ferb.mobile.AgentSession
@@ -20,6 +23,11 @@ data class SessionsUi(
     val problem: Note? = null,
     /** HAND-697: the chat apps open on the Mac with no chat FERB could find. */
     val noChats: List<String> = emptyList(),
+    /**
+     * A new terminal the Mac opened before its session showed (its start answered no session yet): the sessions the list
+     * held then; the list says it will show in a moment until a session not among them arrives.
+     */
+    val coming: Set<String>? = null,
 )
 
 /**
@@ -47,6 +55,8 @@ data class SessionUi(
     val menu: Boolean = false,
     /** HAND-683: FERB can't tell which terminal is the session's: he chooses one for these words, or doesn't send. */
     val pick: TerminalPick? = null,
+    /** The Mac refused the hand-over: its reason under Hand it over; the sheet keeps his words (HAND-702). */
+    val handProblem: Note? = null,
 ) {
     /** The newest item's `seq` (0: none yet): the next poll asks for what came after it. */
     val last: Long get() = items.lastOrNull()?.seq?.toLong() ?: 0L
@@ -84,20 +94,42 @@ data class TerminalPick(val text: String, val why: String, val terminals: List<c
 data class SessionConfirm(val text: String, val yes: SessionYes, val thenInterrupt: Boolean = false)
 
 /**
- * The New session sheet (HAND-691): a terminal, so only where (the folders the Mac offers, or one typed: [other]) and an
- * optional command ([text]); with a command, the Mac's question showing exactly it.
+ * The New session sheet (HAND-691): a terminal, so only where (the folders the Mac offers, or another chosen in the Mac's
+ * folders: [picked], PHN-821) and an optional command ([text]); with a command, the Mac's question showing exactly it.
  */
 data class NewSessionUi(
     val loading: Boolean = true,
     val folders: List<String> = emptyList(),
     val folder: String? = null,
-    val other: String = "",
     val text: String = "",
     /** The Mac's question with the exact command it will type in the new terminal: the owner's Yes starts it. */
     val yes: SessionYes? = null,
+    /** A folder he chose in the Mac's folders ("Another folder…"): first in the list, above the Mac's own. */
+    val picked: String? = null,
+    /** The Mac's folders open over the sheet, to choose another folder (folders only). */
+    val browse: FolderPickUi? = null,
+    /** The Mac refused to open it: its reason under Start; the sheet keeps what he chose. */
+    val problem: Note? = null,
 ) {
-    /** The folder it opens in: the typed one while it holds something, else the chosen one. */
-    val chosen: String? get() = other.trim().ifEmpty { null } ?: folder
+    /** The folder it opens in. */
+    val chosen: String? get() = folder
+
+    /** The folders the sheet lists: the one he chose in the Mac's folders first, then the Mac's own as it sent them. */
+    val rows: List<String> get() = listOfNotNull(picked) + folders.filter { it != picked }
+}
+
+/**
+ * Choosing another folder in the Mac's folders (PHN-821): the Files tab's browser over `phone.files` in a folders-only
+ * mode. [trail] the folders opened from the places, the last one showing (empty: the places and the recent folders);
+ * [loading] the path on its way; [problem] why the last one couldn't open.
+ */
+data class FolderPickUi(
+    val trail: List<com.ferb.mobile.Folder> = emptyList(),
+    val loading: String? = null,
+    val problem: Note? = null,
+    val recent: List<String> = emptyList(),
+) {
+    val shown: com.ferb.mobile.Folder? get() = trail.lastOrNull()
 }
 
 object Sessions {
@@ -122,8 +154,47 @@ object Sessions {
         else -> SessionState.IDLE
     }
 
-    /** A row's title: the agent's own title, else its window's in its app's words, else the folder's name. */
-    fun title(s: AgentSession): String = s.title.ifBlank { s.window.ifBlank { s.folderName.ifBlank { s.folder } } }
+    /**
+     * A row's title, never empty: the agent's own title, else its window's in its app's words, else the folder's name,
+     * else the agent's name ("Claude Code", "Codex", the app's, the terminal program, "Terminal").
+     */
+    fun title(s: AgentSession): String = s.title.ifBlank { s.window }.ifBlank { s.folderName }
+        .ifBlank { s.folder.trimEnd('/').substringAfterLast('/') }.ifBlank { s.folder }.ifBlank { s.agentName }.ifBlank { s.agent }
+
+    /** Whether the session is a terminal's (its output is shown as it is: never Markdown). */
+    fun terminal(s: AgentSession?): Boolean = s?.agent == TERMINAL
+
+    /**
+     * Reads the timeline's Markdown through the phone library and keeps it (Present.rich), off the main thread, so the
+     * screen's lines find every one kept (as ChatModel.prepare for the chat).
+     */
+    fun prepare(t: com.ferb.mobile.SessionTimeline) {
+        val terminal = terminal(t.session)
+        for (i in t.items) markdownOf(i, terminal).forEach { Present.rich(it) }
+    }
+
+    /** The Markdown of one item (HAND-703): its text parts, else an agent's words (never a terminal's output). */
+    private fun markdownOf(i: SessionItem, terminal: Boolean): List<String> = when {
+        i.parts.isNotEmpty() -> i.parts.filter { partKind(it.kind) == SessionPartKind.TEXT && it.text.isNotBlank() }.map { it.text }
+        lineKind(i.kind) == SessionLineKind.AGENT && !terminal && i.text.isNotBlank() -> listOf(i.text)
+        else -> emptyList()
+    }
+
+    /** A part's kind; one the app doesn't know is drawn as words. */
+    fun partKind(kind: String): SessionPartKind = when (kind) {
+        "thinking" -> SessionPartKind.THINKING
+        "tool" -> SessionPartKind.TOOL
+        "meta" -> SessionPartKind.META
+        else -> SessionPartKind.TEXT
+    }
+
+    private fun lineKind(kind: String) = when (kind) {
+        "user" -> SessionLineKind.OWNER
+        "tool" -> SessionLineKind.TOOL
+        "interrupted" -> SessionLineKind.INTERRUPTED
+        "error" -> SessionLineKind.ERROR
+        else -> SessionLineKind.AGENT
+    }
 
     /** New items after what is held, by `seq` (a poll can repeat the last one). */
     fun appended(held: List<SessionItem>, more: List<SessionItem>): List<SessionItem> {
@@ -161,20 +232,31 @@ object Sessions {
         return out
     }
 
-    /** One item as the screen draws it; [stopped] is the app's words for a stop the Mac left without its own. */
-    fun line(i: SessionItem, stopped: String): SessionLine {
-        val kind = when (i.kind) {
-            "user" -> SessionLineKind.OWNER
-            "tool" -> SessionLineKind.TOOL
-            "interrupted" -> SessionLineKind.INTERRUPTED
-            "error" -> SessionLineKind.ERROR
-            else -> SessionLineKind.AGENT
-        }
+    /**
+     * One item as the screen draws it; [stopped] is the app's words for a stop the Mac left without its own. An agent's
+     * reply (HAND-703): its parts when the Mac sent them, else its words as Markdown ([rich], the phone library's
+     * reading, kept by [prepare]), except a terminal's output ([terminal]), shown as it is. The owner's words stay plain.
+     */
+    fun line(i: SessionItem, stopped: String, terminal: Boolean = false, rich: (String) -> List<RichBlock> = Present::rich): SessionLine {
+        val kind = lineKind(i.kind)
         val text = when (kind) {
             SessionLineKind.TOOL -> i.text.ifBlank { i.tool }
             SessionLineKind.INTERRUPTED -> i.text.ifBlank { stopped }
             else -> i.text
         }
-        return SessionLine(i.seq.toString(), kind, text)
+        if (kind != SessionLineKind.AGENT) return SessionLine(i.seq.toString(), kind, text)
+        if (i.parts.isNotEmpty()) {
+            val parts = i.parts.map { p ->
+                when (val k = partKind(p.kind)) {
+                    SessionPartKind.TEXT -> SessionPartView(k, blocks = if (p.text.isBlank()) emptyList() else rich(p.text), text = p.text)
+                    // the meta line's words are its text (or its label when the Mac put them there)
+                    SessionPartKind.META -> SessionPartView(k, text = p.text.ifBlank { p.label })
+                    else -> SessionPartView(k, text = p.text, label = p.label.ifBlank { p.text.lineSequence().firstOrNull().orEmpty() }, detail = p.detail)
+                }
+            }
+            return SessionLine(i.seq.toString(), kind, text, parts = parts)
+        }
+        if (terminal || text.isBlank()) return SessionLine(i.seq.toString(), kind, text)
+        return SessionLine(i.seq.toString(), kind, text, blocks = rich(text))
     }
 }

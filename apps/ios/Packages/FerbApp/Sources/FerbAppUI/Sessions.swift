@@ -41,7 +41,8 @@ struct SessionsTabPage: View {
                      off: loaded && c.list?.enabled == false
                          ? SessionsOff(title: L.s("sessions_off"), text: L.s("sessions_off_more"), turnOn: L.s("sessions_turn_on")) : nil,
                      empty: c.problem?.text ?? (loaded ? L.s("sessions_none") : nil),
-                     notes: (c.list?.noChats ?? []).map { L.s("sessions_no_chat", $0) }, waiting: waiting,
+                     notes: (c.list?.noChats ?? []).map { L.s("sessions_no_chat", $0) },
+                     soon: c.soon ? L.s("sessions_coming") : nil, waiting: waiting,
                      onTab: { model.choose($0) }, onProfile: { model.show(.profile) },
                      onRow: { i in if i < sessions.count { model.openSession(sessions[i].id) } },
                      onNew: { model.newSession() },
@@ -85,7 +86,7 @@ struct SessionScreenPage: View {
         let header = s.map(SessionWords.row) ?? SessionRowData(title: "", subtitle: "", state: .idle, stateText: "")
         let agent = s?.agentName ?? ""
         var actions = [SessionAction(L.s("sessions_watch"), symbol: "eye", onClick: { model.watchCodingSession() }),
-                       SessionAction(L.s("sessions_hand_over"), symbol: "hand.raised", onClick: { model.askHandToFerb() })]
+                       Self.handAction(model: model, open: open)]
         if let s, s.status != "idle" {
             actions.append(SessionAction(L.s("sessions_stop_turn"), symbol: "stop.fill",
                                          onClick: busy.contains("session-stop") ? nil : { model.stopSessionTurn() }))
@@ -97,7 +98,9 @@ struct SessionScreenPage: View {
         let cards = open.cards
         // a day's start between days, as the main chat's earlier days (PHN-813)
         let today = ChatModel.chatDay(Date(), Calendar.current)
-        let lines = SessionWords.lines(open.items, today: today) { dayLabel($0, today: today) }
+        let lines = SessionWords.lines(open.items, today: today, markdown: SessionWords.markdown(s)) { dayLabel($0, today: today) }
+        let canSend = s == nil || s?.canSend == true
+        let note = s?.ferbNote ?? ""
         // his words from the moment he tapped Send: sending, then his bubble until the conversation has it (PHN-812)
         let sending: SessionSending? = open.outgoing.flatMap { o in
             switch o.state {
@@ -122,8 +125,10 @@ struct SessionScreenPage: View {
                            moreLabel: L.s("sessions_more"), menuOpen: open.menu, onMenu: { model.sessionMenu($0) },
                            newMessage: L.s("chat_new_message"), toLatest: L.s("chat_to_latest"),
                            // the first page on its way: the main chat's waiting look, not an empty page (PHN-816)
-                           scrolls: !still, waiting: open.loaded ? nil : L.s("sessions_loading")) {
-            if s == nil || s?.canSend == true {
+                           scrolls: !still, waiting: open.loaded ? nil : L.s("sessions_loading"),
+                           // FERB's word on his hand-over, verbatim (HAND-702): above the box, or under the header without one
+                           note: note.isEmpty ? nil : note, noteOnTop: !canSend) {
+            if canSend {
                 let sendingNow = sending?.status != nil
                 SessionComposer(value: model.coding.draft, placeholder: L.s("sessions_message_hint", agent.isEmpty ? header.title : agent),
                                 sendLabel: L.s("sessions_send"),
@@ -135,6 +140,23 @@ struct SessionScreenPage: View {
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 6).padding(.vertical, 10)
             }
         }
+    }
+}
+
+extension SessionScreenPage {
+    /// Hand to FERB while FERB doesn't have it; Take it back while it does (its task's id: the task stop, owner
+    /// 2026-11-23), "Taking it back…" while that is on its way; "FERB is starting…" (no tap) between his hand-over and
+    /// FERB's task.
+    static func handAction(model: AppModel, open: OpenSession) -> SessionAction {
+        let s = open.session
+        if let s, !s.ferbTask.isEmpty {
+            if open.takingBack {
+                return SessionAction(L.s("sessions_taking_back"), symbol: "arrow.uturn.backward", busy: true, stays: true, onClick: nil)
+            }
+            return SessionAction(L.s("sessions_take_back"), symbol: "arrow.uturn.backward", stays: true, onClick: { model.takeSessionBack() })
+        }
+        if s?.withFerb == true { return SessionAction(L.s("sessions_ferb_starting"), symbol: nil, busy: true, onClick: nil) }
+        return SessionAction(L.s("sessions_hand_over"), symbol: "hand.raised", onClick: { model.askHandToFerb() })
     }
 }
 
@@ -170,7 +192,8 @@ struct PickTerminalView: View {
     }
 }
 
-/// Hand this session to FERB (ORCH-687): the owner's goal, what FERB will do, Hand it over (signed).
+/// Hand this session to FERB (ORCH-687): the owner's goal, what FERB will do, Hand it over (signed). At the tap the button
+/// says "Handing it to FERB…" until the Mac answers; refused, the Mac's reason under it and his words kept.
 struct SessionHandSheet: View {
     @Bindable var model: AppModel
     let insets: PhoneInsets
@@ -178,66 +201,95 @@ struct SessionHandSheet: View {
 
     var body: some View {
         let back = { model.backToSession() }
+        let handing = model.coding.handing
         let ready = !goal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !model.ui.busy.contains("session-hand")
-        Sheet(bottomInset: insets.bottom, onDismiss: back) {
-            SheetTitle(L.s("sessions_hand_title"), onClose: back)
+        Sheet(bottomInset: insets.bottom, onDismiss: handing ? nil : back) {
+            SheetTitle(L.s("sessions_hand_title"), onClose: handing ? nil : back)
             Text(L.s("sessions_hand_label")).type(15.5, .semibold, Ink.black).padding(.top, 12)
-            Field(text: $goal, hint: L.s("sessions_hand_hint")).padding(.top, 8)
+            Field(text: $goal, hint: L.s("sessions_hand_hint")).padding(.top, 8).disabled(handing).opacity(handing ? 0.55 : 1)
             Text(L.s("sessions_hand_note")).type(14, .regular, Ink.detail).lineSpacing(2).fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 12)
-            Pill(title: L.s("sessions_hand_go"), kind: .black, onClick: ready ? { model.handToFerb(goal: goal) } : nil).padding(.top, 18)
+            if handing {
+                BusyPill(title: L.s("sessions_hand_going")).padding(.top, 18)
+            } else {
+                Pill(title: L.s("sessions_hand_go"), kind: .black, onClick: ready ? { model.handToFerb(goal: goal) } : nil).padding(.top, 18)
+            }
+            if let why = model.coding.handRefused, !handing { SheetRefusal(why.text).padding(.top, 10) }
         }
     }
 }
 
-/// New session (HAND-691): a terminal on the Mac. Only where (the Mac's list, or another folder typed) and an optional
-/// command; with a command, the Mac's exact command and the owner's Yes. No agent to pick: he types the one he wants.
+/// New session (HAND-691): a terminal on the Mac. Only where (the Mac's list, or "Another folder…": the Mac's Files
+/// browser for folders, PHN-821) and an optional command; with a command, the Mac's exact command and the owner's Yes.
+/// No agent to pick: he types the one he wants. Start shows "Opening a terminal…" at once (owner 2026-11-23, PHN-822).
 struct NewSessionSheet: View {
     @Bindable var model: AppModel
     let insets: PhoneInsets
+    /// A still picture (the screenshots): no scroll view and no text field.
+    var still = false
 
     var body: some View {
-        let close = { model.closeNewSession() }
         if let n = model.coding.new {
-            Sheet(bottomInset: insets.bottom, onDismiss: close) {
-                SheetTitle(L.s("sessions_new"), onClose: close)
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(L.s("sessions_new_folder")).type(15.5, .semibold, Ink.black).padding(.top, 12).padding(.bottom, 8)
-                        if !n.folders.isEmpty {
-                            // the sheet's grey fill for the folders: a white card would vanish on the white sheet
-                            VStack(spacing: 0) {
-                                ForEach(Array(n.folders.enumerated()), id: \.offset) { i, f in
-                                    let picked = f == n.folder && n.other.isEmpty
-                                    if i > 0 { Divide() }
-                                    CardRow(title: (f as NSString).lastPathComponent.isEmpty ? f : (f as NSString).lastPathComponent, detail: f,
-                                            onClick: { model.newSessionFolder(f) }) {
-                                        RowIcon(symbol: "folder")
-                                    } trailing: {
-                                        if picked { Image(systemName: "checkmark").font(.system(size: 17, weight: .semibold)).foregroundStyle(Ink.black) }
-                                    }
-                                    .accessibilityAddTraits(picked ? .isSelected : [])
-                                }
-                            }
-                            .background(Ink.fill, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                        } else if n.loading {
-                            ProgressView().frame(maxWidth: .infinity)
-                        }
-                        Text(L.s("sessions_new_other")).type(15.5, .semibold, Ink.black).padding(.top, 16).padding(.bottom, 8)
-                        Field(text: Binding(get: { model.coding.new?.other ?? "" }, set: { model.newSessionOther($0) }),
-                              hint: L.s("sessions_new_other_hint"))
-                        Text(L.s("sessions_new_command")).type(15.5, .semibold, Ink.black).padding(.top, 16).padding(.bottom, 8)
-                        Field(text: Binding(get: { model.coding.new?.text ?? "" }, set: { model.newSessionText($0) }),
-                              hint: L.s("sessions_new_command_hint"))
-                    }
-                }
-                .frame(maxHeight: 520)
-                .fixedSize(horizontal: false, vertical: true)
-                Pill(title: L.s("sessions_start"), kind: .black,
-                     onClick: n.chosen == nil || model.ui.busy.contains("session-prepare") ? nil : { model.startSession() })
-                    .padding(.top, 18)
+            if let p = n.picker {
+                FolderPickerSheet(model: model, picker: p, insets: insets, still: still)
+            } else {
+                NewSessionSheetView(
+                    words: NewSessionWords(title: L.s("sessions_new"), folder: L.s("sessions_new_folder"), other: L.s("sessions_new_browse"),
+                                           command: L.s("sessions_new_command"), commandHint: L.s("sessions_new_command_hint"),
+                                           start: L.s("sessions_start"), starting: L.s("sessions_opening")),
+                    folders: n.folders.map { f in
+                        SessionFolderRow(title: nameOf(f) == L.s("search_mac") ? f : nameOf(f), detail: f, checked: f == n.folder)
+                    },
+                    loading: n.loading, command: n.text,
+                    commandText: still ? nil : Binding(get: { model.coding.new?.text ?? "" }, set: { model.newSessionText($0) }),
+                    starting: n.starting, refused: n.refused?.text, insets: insets, scrolls: !still,
+                    onFolder: { i in if i < n.folders.count { model.newSessionFolder(n.folders[i]) } },
+                    onOther: { model.pickNewSessionFolder() },
+                    onStart: n.chosen == nil || model.ui.busy.contains("session-prepare") ? nil : { model.startSession() },
+                    onClose: { model.closeNewSession() })
             }
         }
+    }
+}
+
+/// "Another folder…" (PHN-821): the Files tab's browser over the Mac's files, folders only; Use this folder chooses the
+/// folder shown, Close goes back to the form as it was.
+struct FolderPickerSheet: View {
+    @Bindable var model: AppModel
+    let picker: FolderPicker
+    let insets: PhoneInsets
+    var still = false
+
+    var body: some View {
+        // the Files tab's places and the home folder they are in (a project folder is often elsewhere under it)
+        let places: [(String, String, String)] = [("~", "sessions_browse_home", "house"),
+                                                  (AppModel.places[0], "place_desktop", "menubar.dock.rectangle"),
+                                                  (AppModel.places[1], "place_documents", "doc"),
+                                                  (AppModel.places[2], "place_downloads", "arrow.down.circle")]
+        let f = picker.folder
+        let folders = picker.folders
+        let rows: [SessionFolderRow] = f == nil
+            ? places.map { p in
+                SessionFolderRow(title: L.s(p.1), detail: picker.loading == p.0 ? L.s("files_opening") : nil, symbol: p.2, opens: true)
+            }
+            : folders.map { e in
+                SessionFolderRow(title: e.name, detail: picker.loading == e.path ? L.s("files_opening") : (e.locked ? L.bio("files_key_place") : nil),
+                                 locked: e.locked, opens: !e.locked)
+            }
+        let line: String? = picker.problem?.text ?? (f != nil && folders.isEmpty && picker.loading == nil ? L.s("sessions_browse_no_folders") : nil)
+        SessionFolderPickerView(
+            title: L.s("sessions_browse_title"), folder: f.map { nameOf($0.path) }, backLabel: L.s("files_back"),
+            rows: rows, recentLabel: L.s("files_recent"),
+            recent: f == nil ? picker.recent.map { SessionFolderRow(title: nameOf($0), detail: $0, opens: true) } : [],
+            line: line, path: f?.path ?? "", use: L.s("sessions_browse_use"), insets: insets, scrolls: !still,
+            onUp: { model.pickerUp() },
+            onRow: { i in
+                if f == nil { if i < places.count { model.pickerOpen(places[i].0) } }
+                else if i < folders.count { model.pickerOpen(folders[i].path, keyPlace: folders[i].locked) }
+            },
+            onRecent: { i in if i < picker.recent.count { model.pickerOpen(picker.recent[i]) } },
+            onUse: f == nil ? nil : { model.pickerUse() },
+            onClose: { model.pickerClose() })
     }
 }
 

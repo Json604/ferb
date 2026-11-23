@@ -16,7 +16,7 @@ final class SessionsMac: Transport, @unchecked Sendable {
         "id": "claude:abc", "agent": "claude_code", "cwd": "/Users/owner/code/garden-app/", "title": "", "status": "waiting_for_you",
         "waiting": "permission", "host": ["bundle_id": "com.apple.Terminal", "name": "Terminal", "pid": 42, "via": "tty", "tty": "/dev/ttys003"],
         "send_paths": ["foreground", "terminal_script"], "last_at": "2026-01-02T10:00:00Z", "last_text": "Run npm test?",
-        "control": "phone:p-1", "delegate": "t-9", "yours": true,
+        "control": "phone:p-1", "delegate": "t-9", "yours": true, "ferb_note": "FERB is on it: “Fix the test”",
     ]
 
     func call(method: String, paramsJson: String, proofJson: String?) throws -> String {
@@ -40,12 +40,17 @@ final class SessionsMac: Transport, @unchecked Sendable {
             codex["no_send"] = "No app on your Mac shows this session."
             codex["yours"] = false
             codex.removeValue(forKey: "delegate")
+            codex.removeValue(forKey: "ferb_note")
             codex.removeValue(forKey: "control")
             v = ["enabled": true, "sessions": [Self.session, codex]]
         case "sessions.timeline":
             v = ["session": Self.session, "more": true,
                  "items": [["seq": 7, "at": "2026-01-02T10:00:00Z", "kind": "user", "text": "Fix the test"],
-                           ["seq": 8, "at": "2026-01-02T10:00:01Z", "kind": "tool", "text": "Bash: npm test", "tool": "Bash"]],
+                           ["seq": 8, "at": "2026-01-02T10:00:01Z", "kind": "tool", "text": "Bash: npm test", "tool": "Bash"],
+                           ["seq": 9, "at": "2026-01-02T10:00:02Z", "kind": "assistant", "text": "**Done.**",
+                            "parts": [["kind": "thinking", "label": "Thought 2s", "text": ""], ["kind": "text", "text": "**Done.**"],
+                                      ["kind": "tool", "label": "Run the tests", "detail": "npm test", "text": "ok"],
+                                      ["kind": "meta", "text": "Just now"]]]],
                  "cards": [["id": "card-1", "session": "claude:abc", "kind": "permission", "tool": "Bash", "detail": "npm test",
                             "choices": [["id": "allow", "label": "Yes"], ["id": "deny", "label": "No"]], "asked_at": "2026-01-02T10:00:02Z"]]]
         case "sessions.send":
@@ -127,18 +132,28 @@ final class SessionsLibraryTests: XCTestCase {
         XCTAssertTrue(a.foreground, "the first path brings the app forward")
         XCTAssertTrue(a.controlledHere, "`yours`")
         XCTAssertTrue(a.withFerb, "a delegate: FERB is on it")
+        XCTAssertEqual(a.ferbTask, "t-9", "the delegate: FERB's task, which Take it back stops")
+        XCTAssertEqual(a.ferbNote, "FERB is on it: “Fix the test”", "FERB's word, verbatim")
         let b = l.sessions[1]
         XCTAssertEqual(b.agentName, "Codex")
         XCTAssertEqual(b.host, "")
         XCTAssertFalse(b.canSend)
         XCTAssertEqual(b.noSend, "No app on your Mac shows this session.")
         XCTAssertFalse(b.withFerb)
+        XCTAssertEqual(b.ferbTask, "")
+        XCTAssertEqual(b.ferbNote, "")
     }
 
     // decision: PHN-797, HAND-663
     func testTheTimelineAsksAfterOrBeforeAndReadsItsCards() throws {
         let first = try mobile.sessionTimeline(session: "claude:abc", after: 0, before: 0, limit: 50)
-        XCTAssertEqual(first.items.map(\.seq), [7, 8])
+        XCTAssertEqual(first.items.map(\.seq), [7, 8, 9])
+        // HAND-703: a reply's parts, in order, as the Mac sent them
+        XCTAssertEqual(first.items[2].parts.map(\.kind), ["thinking", "text", "tool", "meta"])
+        XCTAssertEqual(first.items[2].parts[0].label, "Thought 2s")
+        XCTAssertEqual(first.items[2].parts[2].detail, "npm test")
+        XCTAssertEqual(first.items[2].parts[3].text, "Just now")
+        XCTAssertTrue(first.items[0].parts.isEmpty)
         XCTAssertEqual(first.items[1].kind, "tool")
         XCTAssertEqual(first.items[1].text, "Bash: npm test")
         XCTAssertTrue(first.more)
@@ -184,7 +199,10 @@ final class SessionsLibraryTests: XCTestCase {
         let asked = try XCTUnwrap(mac.calls.last { $0.method == "sessions.prepare" })
         XCTAssertEqual(asked.params["command"] as? String, "agy")
         XCTAssertNil(asked.params["agent"], "no agent: a new session is a terminal")
-        XCTAssertEqual(try mobile.sessionStart(agent: "terminal", folder: "/x", text: "agy", signer: Signs()), "agy")
+        let started = try mobile.sessionStart(agent: "terminal", folder: "/x", text: "agy", signer: Signs())
+        XCTAssertEqual(started.session, "term:300", "the new session's id, to open it")
+        XCTAssertEqual(started.host, "Terminal")
+        XCTAssertEqual(started.command, "agy")
         XCTAssertNotNil(mac.calls.last { $0.method == "sessions.start" }?.proof)
         XCTAssertEqual(try mobile.sessionDelegate(session: "claude:abc", goal: "Keep going", signer: Signs()), "FERB is on it.")
         XCTAssertNotNil(mac.calls.last { $0.method == "sessions.delegate" }?.proof)

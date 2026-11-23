@@ -423,16 +423,26 @@ class FakePhone : PhoneApi {
         return Outcome.Ok(com.ferb.mobile.SessionStartPlan(startFolders, com.ferb.mobile.SessionYes("Open a new Terminal window in ${folder.substringAfterLast('/')} and type this?", text,
             "FERB opens it in the background and types only this command, then Return. You can type more into it from here.")))
     }
-    override suspend fun sessionStart(agent: String, folder: String, text: String, signer: Signer): Outcome<String> {
+    /** The new session's id the Mac answers a start with ("" when it hadn't shown yet), or its refusal. */
+    var startedSession = "term:300"
+    var startRefusal: Outcome.Failed? = null
+    var startGate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
+    override suspend fun sessionStart(agent: String, folder: String, text: String, signer: Signer): Outcome<com.ferb.mobile.SessionStarted> {
         calls += "session-start:$agent:$folder:$text"
         val sig = signer.sign("sessions.start") ?: return Outcome.Failed(FerbException.NotSigned("Nothing was sent.", null))
         signed += sig
-        return Outcome.Ok(text)
+        startGate?.await()
+        startRefusal?.let { return it }
+        return Outcome.Ok(com.ferb.mobile.SessionStarted(startedSession, "Terminal", text))
     }
+    var delegateRefusal: Outcome.Failed? = null
+    var delegateGate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
     override suspend fun sessionDelegate(session: String, goal: String, signer: Signer): Outcome<String> {
         calls += "session-delegate:$session:$goal"
         val sig = signer.sign("sessions.delegate") ?: return Outcome.Failed(FerbException.NotSigned("Nothing was sent.", null))
         signed += sig
+        delegateGate?.await()
+        delegateRefusal?.let { return it }
         return Outcome.Ok("FERB is on it.")
     }
     var sessionLiveRefusal: Outcome.Failed? = null
@@ -493,13 +503,16 @@ class FakePhone : PhoneApi {
         /** One session as the library reads it (kb HAND-651..666). */
         fun agentSession(id: String = "claude:s1", title: String = "Fix the flaky login test", status: String = "working", host: String = "Terminal",
                          canSend: Boolean = true, noSend: String = "", withFerb: Boolean = false, controlledHere: Boolean = false,
-                         terminals: List<com.ferb.mobile.SessionChoice> = emptyList()) =
+                         terminals: List<com.ferb.mobile.SessionChoice> = emptyList(), ferbTask: String = "", ferbNote: String = "") =
             com.ferb.mobile.AgentSession(id, if (id.startsWith("codex")) "codex" else "claude_code", if (id.startsWith("codex")) "Codex" else "Claude Code",
                 title, "/Users/owner/code/web-app", "web-app", status, if (status == "waiting_for_you") "permission" else "none", host, canSend, noSend,
                 false, "2026-11-22T10:00:00Z", "", controlledHere, if (controlledHere) "phone:p1" else "", withFerb, "", terminals,
-                "", "", "")
+                "", "", "", ferbTask, ferbNote)
 
-        fun item(seq: Int, kind: String, text: String, tool: String = "") = com.ferb.mobile.SessionItem(seq.toULong(), "2026-11-22T10:00:00Z", kind, text, tool)
+        fun item(seq: Int, kind: String, text: String, tool: String = "", parts: List<com.ferb.mobile.SessionPart> = emptyList()) =
+            com.ferb.mobile.SessionItem(seq.toULong(), "2026-11-22T10:00:00Z", kind, text, tool, parts)
+
+        fun part(kind: String, text: String = "", label: String = "", detail: String = "") = com.ferb.mobile.SessionPart(kind, text, label, detail)
 
         fun status(phase: LinkPhase = LinkPhase.ONLINE, paired: Boolean = true, path: LinkPath = LinkPath.DIRECT, code: String? = null, problem: com.ferb.mobile.LinkProblem? = null) =
             LinkStatus(phase, path, null, code, paired, path != LinkPath.PUBLIC_RELAY, false, null, false, null, problem, null, false, false)

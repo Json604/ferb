@@ -221,6 +221,7 @@ impl Sessions {
                         kind: ItemKind::Assistant,
                         text: piece,
                         tool: String::new(),
+                        parts: Vec::new(),
                     });
                 }
                 Some(text)
@@ -250,6 +251,7 @@ impl Sessions {
                 kind: ItemKind::User,
                 text: words,
                 tool: String::new(),
+                parts: Vec::new(),
             });
         }
         true

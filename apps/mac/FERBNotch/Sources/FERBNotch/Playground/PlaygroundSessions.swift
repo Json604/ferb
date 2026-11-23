@@ -2,9 +2,9 @@
 import Foundation
 import NotchCore
 
-/// Sessions in the playground: the daemon's `sessions.*` answered with two invented coding sessions (Claude Code
-/// working in Terminal, Codex in Visual Studio Code waiting on a permission question). Nothing reaches a terminal, an
-/// agent or a settings file.
+/// Sessions in the playground: the daemon's `sessions.*` answered with three invented sessions (Claude Code working in
+/// Terminal, Codex in Visual Studio Code waiting on a permission question, and an agent chat in Cursor whose reply comes
+/// in parts, HAND-703). Nothing reaches a terminal, an agent or a settings file.
 @MainActor
 final class PlaygroundSessions {
     var emit: (String, [String: Any]) -> Void = { _, _ in }
@@ -16,7 +16,12 @@ final class PlaygroundSessions {
         ["id": "codex:sample-notes", "agent": "codex", "cwd": "/Users/demo/code/notes-app", "title": "",
          "status": "waiting_for_you", "waiting": "permission",
          "host": ["bundle_id": "com.microsoft.VSCode", "name": "Visual Studio Code", "pid": 0, "via": "direct", "tty": "/dev/ttys007"],
-         "send_paths": ["agent_api"], "last_at": PlaygroundSamples.time(-180), "last_text": "Wants to run npm install"]
+         "send_paths": ["agent_api"], "last_at": PlaygroundSamples.time(-180), "last_text": "Wants to run npm install"],
+        ["id": "chat:sample-cursor", "agent": "app_chat", "cwd": "/Users/demo/Downloads", "title": "What's in this folder",
+         "status": "idle", "waiting": "none",
+         "host": ["bundle_id": "com.todesktop.230313mzl4w4u92", "name": "Cursor", "pid": 0, "via": "direct", "tty": ""],
+         "send_paths": ["foreground"], "last_at": PlaygroundSamples.time(-20),
+         "last_text": "So it's your photo library export, sitting in Downloads as three zips."]
     ]
     var items: [String: [[String: Any]]] = [
         "claude:sample-site": [
@@ -30,7 +35,18 @@ final class PlaygroundSessions {
             ["seq": 1, "at": PlaygroundSamples.time(-900), "kind": "user", "text": "Add unit tests for the note search."],
             ["seq": 2, "at": PlaygroundSamples.time(-880), "kind": "assistant", "text": "The project has no test runner yet. I'll add vitest as a dev dependency and write the tests next to the search module."],
             ["seq": 3, "at": PlaygroundSamples.time(-200), "kind": "interrupted", "text": ""],
-            ["seq": 4, "at": PlaygroundSamples.time(-190), "kind": "user", "text": "Go ahead, but keep it to dev dependencies."]]
+            ["seq": 4, "at": PlaygroundSamples.time(-190), "kind": "user", "text": "Go ahead, but keep it to dev dependencies."]],
+        "chat:sample-cursor": [
+            ["seq": 1, "at": PlaygroundSamples.time(-60), "kind": "user", "text": "What's this folder again? I forgot."],
+            ["seq": 2, "at": PlaygroundSamples.time(-20), "kind": "assistant",
+             "text": "This is a photo library export.",
+             "parts": [["kind": "thinking", "label": "Thought 1s"],
+                       ["kind": "text", "text": "I'll look through this folder and tell you what it is."],
+                       ["kind": "tool", "label": "List zip sizes and contents", "detail": "ls, echo, unzip, head",
+                        "text": "  Length      Date    Time    Name\n---------  ---------- -----   ----\n     4096  01-01-2026 00:00   albums/index.json\n---------                     -------\n     4096                     1 file"],
+                       ["kind": "thinking", "label": "Thought 4s"],
+                       ["kind": "text", "text": "This is a **photo library export**, the bundle you get when you download your library. Nothing here is unzipped yet.\n\n| File | What's inside |\n| --- | --- |\n| `albums-000.zip` (2 MB) | 14 albums and their covers. |\n| `photos-000.zip` (380 MB) | The bulk of it: about 2,100 photos. |\n| `settings-000.zip` | Your sharing settings. |\n\n- Open `photos-000.zip` first to see the pictures.\n- The other two are small.\n\nSo it's your photo library export, sitting in Downloads as three zips."],
+                       ["kind": "meta", "text": "Just now"]]]]
     ]
     var cards: [String: [[String: Any]]] = [
         "codex:sample-notes": [["id": "sample-card", "session": "codex:sample-notes", "kind": "permission", "tool": "shell",
@@ -145,8 +161,10 @@ final class PlaygroundSessions {
             return ["started": true, "command": command, "session": new, "host": "Terminal"]
         case "sessions.delegate":
             guard let index else { throw DaemonRPCError.remote("That session has ended.", code: SessionRefusal.sessionGone) }
+            let goal = params["goal"] as? String ?? ""
             sessions[index]["delegate"] = "sample-delegate"
-            sessions[index]["goal"] = params["goal"] as? String ?? ""
+            sessions[index]["goal"] = goal
+            sessions[index]["ferb_note"] = "FERB is on it: “\(goal)”"
             emit("sessions.changed", ["count": sessions.count])
             return ["handed_over": true, "message": "FERB is on it. You'll see it in the chat."]
         case "sessions.remove_hooks":
@@ -154,6 +172,19 @@ final class PlaygroundSessions {
         default:
             return nil
         }
+    }
+
+    /// Take it back: the playground's `task.stop` for FERB's task leaves the sessions it held to the owner again.
+    func stopped(_ tasks: [String]?) {
+        var any = false
+        for index in sessions.indices {
+            guard let task = sessions[index]["delegate"] as? String, tasks == nil || tasks!.contains(task) else { continue }
+            sessions[index]["delegate"] = nil
+            sessions[index]["goal"] = nil
+            sessions[index]["ferb_note"] = "FERB stopped. The session is yours again."
+            any = true
+        }
+        if any { emit("sessions.changed", ["count": sessions.count]) }
     }
 
     /// The line a session's Watch shows over its sample frame.

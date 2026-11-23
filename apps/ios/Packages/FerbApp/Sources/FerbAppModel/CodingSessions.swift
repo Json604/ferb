@@ -25,6 +25,8 @@ public struct OpenSession: Equatable {
     public var menu = false
     /// HAND-683: FERB can't tell which terminal is the session's: he chooses one for these words, or doesn't send.
     public var pick: TerminalPick?
+    /// Take it back is on its way (owner 2026-11-23): its menu row shows a small arc and "Taking it back…".
+    public var takingBack = false
 
     public init(id: String, session: AgentSession?) {
         self.id = id
@@ -83,21 +85,53 @@ public enum SessionConfirm: Equatable {
     }
 }
 
-/// A new session as the owner chooses it (HAND-691): a terminal, so only where (the Mac's list, the first by default, or
-/// a folder typed: `other`) and an optional command (`text`). No agent to pick: he types the one he wants.
+/// A new session as the owner chooses it (HAND-691, PHN-821): a terminal, so only where (the Mac's list, the first by
+/// default, or a folder chosen in the Mac's Files browser, which joins the list at its top) and an optional command
+/// (`text`). No agent to pick: he types the one he wants.
 public struct NewSessionDraft: Equatable {
     public var folder: String?
-    public var other = ""
     public var text = ""
-    /// The folder it opens in: the typed one while it holds something, else the chosen one.
-    public var chosen: String? {
-        let o = other.trimmingCharacters(in: .whitespaces)
-        return o.isEmpty ? folder : o
-    }
-    /// The folders the Mac offers (its running sessions' first, then recent ones); empty while `loading`.
+    /// The folder it opens in.
+    public var chosen: String? { folder }
+    /// The folders the Mac offers (its running sessions' first, then recent ones), after any he chose in the browser;
+    /// empty while `loading`.
     public var folders: [String] = []
     public var loading = true
+    /// Start is on its way (owner 2026-11-23): "Opening a terminal…", the form takes no tap.
+    public var starting = false
+    /// Why the Mac refused the start, under Start (the form as it was).
+    public var refused: Note?
+    /// "Another folder…": the Mac's Files browser, folders only, open over the form.
+    public var picker: FolderPicker?
     public init() {}
+}
+
+/// The new session's folder picker (PHN-821): the Files tab's browser over `phone.files` and `phone.recent`, folders only.
+/// At the top (`folder` nil) the places and the recent folders; in a folder, its folders. Its own state: the Files tab's
+/// is left as it was.
+public struct FolderPicker: Equatable {
+    public var folder: Folder?
+    /// The path being opened (its row says "Opening…").
+    public var loading: String?
+    public var problem: Note?
+    /// The recent folders: the Mac's recent entries that are folders, and the folders the recent files are in.
+    public var recent: [String] = []
+    public init() {}
+
+    /// The folders of the folder shown (files hidden).
+    public var folders: [FileEntry] { folder?.entries.filter(\.dir) ?? [] }
+
+    /// The recent folders from the Mac's recent files, newest first, each once.
+    public static func recentFolders(_ r: RecentFiles, limit: Int = 8) -> [String] {
+        var out: [String] = []
+        for f in r.files {
+            let path = f.dir ? f.path : (f.path as NSString).deletingLastPathComponent
+            if path.isEmpty || path == "/" || out.contains(path) { continue }
+            out.append(path)
+            if out.count == limit { break }
+        }
+        return out
+    }
 }
 
 /// The owner's coding sessions as the phone shows them (kb HAND-651; Android: model/Sessions.kt): the list, the session
@@ -116,6 +150,14 @@ public final class CodingSessions {
     public internal(set) var new: NewSessionDraft?
     /// The open session's message box.
     public internal(set) var draft = ""
+    /// Hand it over is on its way (owner 2026-11-23): "Handing it to FERB…", the sheet waits for the Mac.
+    public internal(set) var handing = false
+    /// Why the Mac refused the hand-over, under the sheet's button (his words kept in the sheet).
+    public internal(set) var handRefused: Note?
+    /// A new terminal started that the list doesn't show yet: the ids the list had then (nil: none waited for).
+    public internal(set) var awaited: Set<String>?
+    /// "Your new terminal will show here in a moment." while a started terminal isn't in the list yet.
+    public var soon: Bool { awaited != nil }
 
     public init() {}
 
@@ -137,6 +179,9 @@ public final class CodingSessions {
         asking = nil
         new = nil
         draft = ""
+        handing = false
+        handRefused = nil
+        awaited = nil
     }
 
     /// The session's sheets went: its conversation goes too (nothing polls it).
@@ -184,6 +229,8 @@ extension AppModel {
         case .ok(let l):
             coding.list = l
             coding.problem = nil
+            // the terminal started without an id shows: the quiet line goes
+            if let known = coding.awaited, l.sessions.contains(where: { !known.contains($0.id) }) { coding.awaited = nil }
             if var o = coding.open, let s = l.sessions.first(where: { $0.id == o.id }) {
                 o.session = s
                 coding.open = o
@@ -482,14 +529,29 @@ extension AppModel {
                     failed(e)
                 }
             case .start(let agent, let folder, let text, _):
+                // back on the form, Start on its way (owner 2026-11-23)
+                coding.asking = nil
+                coding.new?.starting = true
+                coding.new?.refused = nil
+                if sheet != .sessionNew { show(.sessionNew) }
+                let known = Set(coding.list?.sessions.map(\.id) ?? [])
                 switch await unlocker.run({ await api.sessionStart(agent: agent, folder: folder, text: text, signer: signer) }) {
-                case .ok:
-                    coding.asking = nil
+                case .ok(let started):
                     coding.new = nil
-                    show(nil)
-                    note(Note("sessions_started"))
-                    await readSessions(prompt: false)
-                case .failed(let e): if case .NotSigned = e {} else { failed(e) }
+                    if !started.session.isEmpty {
+                        // the new terminal itself, at once
+                        await readSessions(prompt: false)
+                        openSession(started.session)
+                    } else {
+                        // not shown yet: the list says it is coming until it does
+                        show(nil)
+                        coding.awaited = known
+                        await readSessions(prompt: false)
+                    }
+                case .failed(let e):
+                    coding.new?.starting = false
+                    if case .NotSigned = e { return }
+                    coding.new?.refused = Self.errorNote(e)
                 }
             }
         }
@@ -507,7 +569,9 @@ extension AppModel {
             }
             show(.session(id: id))
         case .interrupt(let id, _): show(.session(id: id))
-        case .start: show(.sessionNew)
+        case .start:
+            coding.new?.starting = false
+            show(.sessionNew)
         }
     }
 
@@ -546,23 +610,56 @@ extension AppModel {
     /// Hand to FERB: the sheet that asks for the goal.
     public func askHandToFerb() {
         guard let id = coding.open?.id else { return }
+        coding.handing = false
+        coding.handRefused = nil
         show(.sessionHand(id: id))
     }
 
-    /// Hand it over (signed, ORCH-687): the owner's goal becomes FERB's task in the chat.
+    /// Hand it over (signed, ORCH-687): the owner's goal becomes FERB's task in the chat. At the tap the button says
+    /// "Handing it to FERB…" and waits for the Mac (owner 2026-11-23); its Yes closes the sheet and reads the session at
+    /// once; a refusal keeps the sheet with his words and says the Mac's reason under the button.
     @discardableResult
     public func handToFerb(goal: String) -> Task<Void, Never> {
-        busy("session-hand", tap: true) { [self] in
-            guard let id = coding.open?.id else { return }
-            let goal = goal.trimmingCharacters(in: .whitespacesAndNewlines)
-            if goal.isEmpty { return }
+        let goal = goal.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !goal.isEmpty, coding.open != nil, !coding.handing {
+            coding.handing = true
+            coding.handRefused = nil
+        }
+        return busy("session-hand", tap: true) { [self] in
+            guard let id = coding.open?.id, !goal.isEmpty else { coding.handing = false; return }
+            defer { coding.handing = false }
             guard let signer = await freshSigner(.yes) else { return }
             switch await unlocker.run({ await api.sessionDelegate(id, goal: goal, signer: signer) }) {
             case .ok:
                 show(.session(id: id))
                 note(Note("sessions_handed"))
+                await readSessions(prompt: false)
                 await readTimeline(earlier: false)
-            case .failed(let e): if case .NotSigned = e {} else { failed(e) }
+            case .failed(let e):
+                if case .NotSigned = e { return }
+                coding.handRefused = Self.errorNote(e)
+            }
+        }
+    }
+
+    /// Take it back (owner 2026-11-23): FERB's task on this session stops (the task stop every client has; no new
+    /// call; HAND-702). At the tap its menu row says "Taking it back…" and takes no tap; done, the menu closes and the session is
+    /// read again at once (the badge goes when the Mac says so); refused, "Couldn't take it back: <why>".
+    @discardableResult
+    public func takeSessionBack() -> Task<Void, Never> {
+        let task = coding.open?.session?.ferbTask ?? ""
+        if !task.isEmpty, coding.open?.takingBack == false { coding.open?.takingBack = true }
+        return busy("session-take-back", tap: true) { [self] in
+            guard let id = coding.open?.id, !task.isEmpty else { return }
+            let r = await api.stop(taskIds: [task])
+            if coding.open?.id == id { coding.open?.takingBack = false }
+            switch r {
+            case .ok:
+                if coding.open?.id == id { coding.open?.menu = false }
+                await readSessions(prompt: false)
+                await readTimeline(earlier: false)
+            case .failed(let e):
+                note(Note("sessions_take_back_failed", Self.errorNote(e).text))
             }
         }
     }
@@ -597,22 +694,27 @@ extension AppModel {
     }
 
     public func newSessionFolder(_ folder: String) {
+        if coding.new?.starting == true { return }
         coding.new?.folder = folder
-        coding.new?.other = ""
+        coding.new?.refused = nil
     }
-    /// HAND-695: a folder typed by hand, used instead of the list's while it holds something.
-    public func newSessionOther(_ path: String) { coding.new?.other = path }
     public func newSessionText(_ text: String) { coding.new?.text = text }
 
     public func closeNewSession() {
+        if coding.new?.starting == true { return }
         if sheet == .sessionNew { show(nil) }
         coding.new = nil
     }
 
-    /// Start: with a command, the Mac's question showing exactly it first (nothing runs yet); with none, it opens.
+    /// Start: at the tap "Opening a terminal…" and the form takes no tap (owner 2026-11-23, PHN-822); with a command, the Mac's
+    /// question showing exactly it first (nothing runs yet); with none, it opens. Refused: the Mac's reason under Start.
     @discardableResult
     public func startSession() -> Task<Void, Never> {
-        busy("session-prepare", tap: true) { [self] in
+        if coding.new?.chosen != nil, coding.new?.starting == false {
+            coding.new?.starting = true
+            coding.new?.refused = nil
+        }
+        return busy("session-prepare", tap: true) { [self] in
             guard let n = coding.new, let folder = n.chosen else { return }
             let command = n.text.trimmingCharacters(in: .whitespaces)
             let kind = CodingSessions.terminal
@@ -622,14 +724,79 @@ extension AppModel {
                     // the Mac asks nothing more: the owner's Start was the Yes (still signed)
                     coding.asking = .start(agent: kind, folder: folder, text: command, yes: SessionYes(question: "", detail: "", covers: ""))
                     await sessionYes().value
+                    // a cancelled prompt: the form again
+                    if coding.asking != nil { coding.asking = nil; coding.new?.starting = false }
                     return
                 }
+                coding.new?.starting = false
                 coding.asking = .start(agent: kind, folder: folder, text: command, yes: yes)
                 show(.sessionYes)
-            case .failed(let e): if case .NotSigned = e {} else { failed(e) }
+            case .failed(let e):
+                coding.new?.starting = false
+                if case .NotSigned = e { return }
+                coding.new?.refused = Self.errorNote(e)
             }
         }
     }
+
+    // ---- the new session's folder picker (PHN-821) -----------------------------------------------------------------
+
+    /// "Another folder…": the Mac's Files browser over the form, folders only, at its top (the places and the recent
+    /// folders).
+    @discardableResult
+    public func pickNewSessionFolder() -> Task<Void, Never>? {
+        guard coding.new != nil, coding.new?.starting == false else { return nil }
+        coding.new?.picker = FolderPicker()
+        return busy("session-folder-recent") { [self] in
+            switch await unlocker.run({ await api.recentFiles(limit: Self.recentFilesCount) }) {
+            case .ok(let r): coding.new?.picker?.recent = FolderPicker.recentFolders(r)
+            case .failed: break  // the places still show; recent folders are a help, not the browser
+            }
+        }
+    }
+
+    /// A folder opens in the picker; a key place asks for Face ID / Touch ID for that very path first (PHN-121).
+    @discardableResult
+    public func pickerOpen(_ path: String, keyPlace: Bool = false) -> Task<Void, Never>? {
+        guard coding.new?.picker != nil else { return nil }
+        coding.new?.picker?.loading = path
+        coding.new?.picker?.problem = nil
+        return busy("session-folder") { [self] in
+            let r = await unlocker.withProof(keyPlace, .file) { signer in await api.files(path: path, signer: signer) }
+            guard coding.new?.picker != nil else { return }
+            coding.new?.picker?.loading = nil
+            switch r {
+            case .ok(let f): coding.new?.picker?.folder = f
+            case .failed(let e):
+                coding.new?.picker?.problem = { if case .NotSigned = e { return Note("files_not_opened") }; return Self.errorNote(e) }()
+            }
+        }
+    }
+
+    /// Back: up one folder; from a place, the picker's top.
+    public func pickerUp() {
+        guard let f = coding.new?.picker?.folder else { return }
+        if let parent = f.parent, !Self.places.contains(f.path), f.path != "~", !parent.isEmpty {
+            pickerOpen(parent)
+        } else {
+            coding.new?.picker?.folder = nil
+            coding.new?.picker?.problem = nil
+        }
+    }
+
+    /// Use this folder: the folder shown becomes the chosen one, at the top of the list; back to the form.
+    public func pickerUse() {
+        guard var n = coding.new, let f = n.picker?.folder else { return }
+        n.folders.removeAll { $0 == f.path }
+        n.folders.insert(f.path, at: 0)
+        n.folder = f.path
+        n.refused = nil
+        n.picker = nil
+        coding.new = n
+    }
+
+    /// Close: back to the form as it was.
+    public func pickerClose() { coding.new?.picker = nil }
 
     // ---- its window -------------------------------------------------------------------------------------------------
 
@@ -665,10 +832,17 @@ extension AppModel {
 
 /// How a session and its conversation read on the phone (the same words as FERB.app and Android's Sessions).
 public enum SessionWords {
-    /// The agent's own title, else its window's in its app's words (HAND-692), else the folder's name.
+    /// The agent's own title, else its window's in its app's words (HAND-692), else the folder's name, else the agent's
+    /// name ("Claude Code", "Codex", the app's, the terminal program, "Terminal"): never empty (owner 2026-11-23).
     public static func title(_ s: AgentSession) -> String {
-        !s.title.isEmpty ? s.title : (!s.window.isEmpty ? s.window : (!s.folderName.isEmpty ? s.folderName : s.folder))
+        for t in [s.title, s.window, s.folderName, s.folder, s.agentName, s.agent] where !t.trimmingCharacters(in: .whitespaces).isEmpty {
+            return t
+        }
+        return ""
     }
+
+    /// A terminal's output is fixed text, never Markdown; every agent's chat is (HAND-703).
+    public static func markdown(_ s: AgentSession?) -> Bool { s?.agent != CodingSessions.terminal }
 
     /// "<program> · <folder> · in <app>" (HAND-692; no program or folder: without them), or "in the background" when
     /// no app shows it.
@@ -700,15 +874,39 @@ public enum SessionWords {
     }
 
     /// One item as a line: the owner's words, the agent's, a tool row, a stopped turn (the app's words when the Mac left
-    /// none), an error.
-    public static func line(_ i: SessionItem) -> SessionLine {
+    /// none), an error. The agent's reply with parts is one block of them in order (HAND-703); without parts, a chat
+    /// agent's words are Markdown (plain words stay the plain line), a terminal's output is drawn as it is.
+    public static func line(_ i: SessionItem, markdown: Bool = true) -> SessionLine {
         let key = String(i.seq)
         switch i.kind {
         case "user": return SessionLine(key, .owner, i.text)
         case "tool": return SessionLine(key, .tool, i.text.isEmpty ? i.tool : i.text)
         case "interrupted": return SessionLine(key, .interrupted, i.text.isEmpty ? L.s("sessions_interrupted") : i.text)
         case "error": return SessionLine(key, .error, i.text)
-        default: return SessionLine(key, .agent, i.text)
+        default:
+            if !i.parts.isEmpty { return SessionLine(key, .reply, i.text, parts: i.parts.compactMap(part)) }
+            if markdown, Present.plainOnly(i.text) == nil { return SessionLine(key, .reply, i.text, parts: [.text(Present.rich(i.text))]) }
+            return SessionLine(key, .agent, i.text)
+        }
+    }
+
+    /// One part as drawn (HAND-703): text is Markdown; a kind this app doesn't know is drawn as text.
+    static func part(_ p: SessionPart) -> SessionPartShown? {
+        switch p.kind {
+        case "thinking": return .thinking(label: p.label.isEmpty ? p.text : p.label, text: p.label.isEmpty ? "" : p.text)
+        case "tool": return .tool(label: p.label, detail: p.detail, text: p.text)
+        case "meta":
+            let words = p.text.isEmpty ? p.label : p.text
+            return words.isEmpty ? nil : .meta(words)
+        default: return p.text.isEmpty ? nil : .text(Present.rich(p.text))
+        }
+    }
+
+    /// The Markdown an item's lines will read, laid out here (off the main actor) so the screen finds it kept.
+    public static func prepare(_ items: [SessionItem]) {
+        for i in items where i.kind != "user" && i.kind != "tool" {
+            if i.parts.isEmpty { _ = Present.rich(i.text) }
+            for p in i.parts where p.kind != "thinking" && p.kind != "tool" && p.kind != "meta" { _ = Present.rich(p.text) }
         }
     }
 
@@ -716,9 +914,10 @@ public enum SessionWords {
     /// PHN-627): none while every item is today's (today's chat has none); else one before each day's first item,
     /// "Today" included. `label` says a day (days since 1970, the chat's own count); an item whose time can't be read
     /// stays in the day before it.
-    public static func lines(_ items: [SessionItem], today: Int, calendar: Calendar = .current, label: (Int) -> String) -> [SessionLine] {
+    public static func lines(_ items: [SessionItem], today: Int, calendar: Calendar = .current, markdown: Bool = true,
+                             label: (Int) -> String) -> [SessionLine] {
         let days = items.map { day($0.at, calendar) }
-        guard days.contains(where: { $0 != nil && $0 != today }) else { return items.map(line) }
+        guard days.contains(where: { $0 != nil && $0 != today }) else { return items.map { line($0, markdown: markdown) } }
         var out: [SessionLine] = []
         var current: Int?
         for (i, item) in items.enumerated() {
@@ -726,7 +925,7 @@ public enum SessionWords {
                 out.append(SessionLine("day:\(d)", .day, label(d)))
                 current = d
             }
-            out.append(line(item))
+            out.append(line(item, markdown: markdown))
         }
         return out
     }

@@ -115,6 +115,32 @@ final class ScreenshotTests: XCTestCase {
         }
     }
 
+    /// The sessions' live fixes, owner 2026-11-23 (kb HAND-702, HAND-703, PHN-821, PHN-822), at 375 and 402 points: an agent's
+    /// reply drawn from its parts (a thought, words, a step closed with its label and detail, a table, a list, inline
+    /// code, "Just now"); the menu of a session FERB has, with Take it back and with it on its way; FERB's word above the
+    /// message box; New session starting and refused; the folder picker inside a folder and at the top.
+    // decision: HAND-702, HAND-703, PHN-821, PHN-822, PHN-416
+    func testTheSessionsLiveFixes() {
+        for width: CGFloat in [375, 402] {
+            let size = CGSize(width: width, height: PhoneInsets.labSize.height)
+            func shot<S: View>(_ name: String, @ViewBuilder sheet: () -> S) {
+                let view = PhoneScreen(moment: .lab(12.5), glide: false, sheet: sheet, page: { SessionSample.page() })
+                    .frame(width: size.width, height: size.height)
+                    .stillMotion()
+                Snapshot.assert(view, size: size, path: "screens/session-\(name)-\(Int(width)).png")
+            }
+            shot("rich-reply") { SessionSample.session(scrolls: false, lines: SessionSample.rich, asks: false) }
+            shot("menu-take-back") { SessionSample.ferbSession(menuOpen: true) }
+            shot("menu-taking-back") { SessionSample.ferbSession(menuOpen: true, taking: true) }
+            shot("menu-ferb-starting") { SessionSample.ferbSession(menuOpen: true, starting: true, note: "Handed to FERB: “Keep going until the tests pass”") }
+            shot("ferb-note") { SessionSample.ferbSession() }
+            shot("new-starting") { SessionSample.newSession(starting: true) }
+            shot("new-refused") { SessionSample.newSession(refused: "There's no folder named web-app on your Mac any more.") }
+            shot("folder-picker") { SessionSample.folderPicker() }
+            shot("folder-picker-top") { SessionSample.folderPicker(top: true) }
+        }
+    }
+
     /// A few of the gallery's showcases, at their own size.
     // decision: PHN-416, PHN-450
     func testComponents() {

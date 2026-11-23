@@ -440,18 +440,181 @@ class SessionsTest {
         assertEquals(KeyKind.STRONG to Why.YES, signers.last().let { it.first.kind to it.second })
         assertNull(vm.newSession.value)
         assertEquals(R.string.sessions_started, vm.ui.value.note?.res)
-        // a command, in a folder typed by hand: shown exactly before anything runs, then typed exactly
+        // decision: PHN-822 — the Mac named the new session: it opens at once
+        assertEquals(Sheet.Session("term:300"), vm.sheet.value)
+        vm.closeSession()
+        // a command: shown exactly before anything runs, then typed exactly
         phone.calls.clear()
         vm.newSession()
-        vm.newSessionOther("/Users/owner/elsewhere")
+        vm.newSessionFolder("~/code/web-app")
         vm.newSessionText(" agy ")
         vm.newSessionNext()
-        assertTrue("session-prepare:terminal:/Users/owner/elsewhere:agy" in phone.calls)
+        assertTrue("session-prepare:terminal:~/code/web-app:agy" in phone.calls)
         assertEquals("agy", vm.newSession.value!!.yes!!.detail)
         assertTrue(phone.calls.none { it.startsWith("session-start") })
         vm.newSessionStart()
-        assertTrue("session-start:terminal:/Users/owner/elsewhere:agy" in phone.calls)
-        assertNull(vm.sheet.value)
+        assertTrue("session-start:terminal:~/code/web-app:agy" in phone.calls)
+        assertEquals(Sheet.Session("term:300"), vm.sheet.value)
+    }
+
+    // decision: PHN-822
+    @Test
+    fun start_shows_its_pending_state_until_the_mac_answers_and_a_refusal_stays_with_the_reason() {
+        val vm = vm()
+        vm.choose(PhoneTab.SESSIONS)
+        vm.newSession()
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        phone.startGate = gate
+        phone.startRefusal = Outcome.Failed(FerbException.Refused("That folder isn't there any more. Choose another one.", "ferb_error"))
+        vm.newSessionNext()
+        assertTrue("pending at once: Start turns, the form takes no taps", "session-prepare" in vm.ui.value.busy)
+        assertEquals(Sheet.NewSession, vm.sheet.value)
+        gate.complete(Unit)
+        assertFalse("session-prepare" in vm.ui.value.busy)
+        val n = vm.newSession.value!!
+        assertEquals("the sheet stays with the Mac's reason", Sheet.NewSession, vm.sheet.value)
+        assertEquals("That folder isn't there any more. Choose another one.", n.problem?.words)
+        assertEquals("what he chose is kept", phone.startFolders.first(), n.chosen)
+        // tried again and opened: the reason goes with the sheet
+        phone.startRefusal = null
+        phone.startGate = null
+        vm.newSessionNext()
+        assertNull(vm.newSession.value)
+    }
+
+    // decision: PHN-822
+    @Test
+    fun a_new_terminal_the_mac_hadn_t_named_yet_shows_a_quiet_line_until_it_appears() {
+        phone.startedSession = ""
+        val vm = vm()
+        vm.choose(PhoneTab.SESSIONS)
+        vm.newSession()
+        vm.newSessionNext()
+        assertNull("the sheet closed", vm.sheet.value)
+        assertNotNull("the list says it will show in a moment", vm.sessions.value.coming)
+        tick()
+        assertNotNull("still not there: the line stays", vm.sessions.value.coming)
+        phone.sessions += FakePhone.agentSession("term:300", "", "idle", "Terminal").copy(agent = "terminal", agentName = "Terminal")
+        tick()
+        assertNull("it showed: the line goes", vm.sessions.value.coming)
+        assertTrue(vm.sessions.value.sessions.any { it.id == "term:300" })
+    }
+
+    // decision: PHN-821
+    @Test
+    fun another_folder_is_chosen_in_the_macs_folders_and_back_leaves_the_sheet_as_it_was() {
+        phone.folders["~"] = com.ferb.mobile.Folder("/Users/you", "/Users", false, listOf(
+            com.ferb.mobile.FileEntry("code", "/Users/you/code", true, false, 0u, 0, false),
+            com.ferb.mobile.FileEntry("notes.txt", "/Users/you/notes.txt", false, false, 12u, 0, false),
+        ), 2u, false, 0u, null)
+        phone.folders["/Users/you/code"] = com.ferb.mobile.Folder("/Users/you/code", "/Users/you", false, listOf(
+            com.ferb.mobile.FileEntry("site", "/Users/you/code/site", true, false, 0u, 0, false),
+        ), 1u, false, 0u, null)
+        phone.recent = Outcome.Ok(com.ferb.mobile.RecentFiles(listOf(
+            com.ferb.mobile.FoundFile("blog", "/Users/you/code/blog", true, 0u, 0, "fetched", null, null, null),
+            com.ferb.mobile.FoundFile("a.pdf", "/Users/you/a.pdf", false, 1u, 0, "fetched", null, null, null),
+        ), 0u))
+        val vm = vm()
+        vm.choose(PhoneTab.SESSIONS)
+        vm.newSession()
+        val before = vm.newSession.value!!
+        vm.newSessionBrowse()
+        assertEquals("the recent folders only, never files", listOf("/Users/you/code/blog"), vm.newSession.value!!.browse!!.recent)
+        // Back from the places: the sheet exactly as it was
+        vm.newSessionBrowseBack()
+        assertEquals(before, vm.newSession.value)
+        vm.newSessionBrowse()
+        vm.newSessionBrowseOpen("~")
+        vm.newSessionBrowseOpen("/Users/you/code")
+        assertEquals("/Users/you/code", vm.newSession.value!!.browse!!.shown!!.path)
+        // Back goes up a folder without asking the Mac again
+        val reads = count("files:")
+        vm.newSessionBrowseBack()
+        assertEquals("/Users/you", vm.newSession.value!!.browse!!.shown!!.path)
+        assertEquals(reads, count("files:"))
+        vm.newSessionBrowseOpen("/Users/you/code")
+        vm.newSessionBrowseUse()
+        val n = vm.newSession.value!!
+        assertNull(n.browse)
+        assertEquals("the folder showing is the chosen one", "/Users/you/code", n.chosen)
+        assertEquals("first in the list, the Mac's own kept as they were", listOf("/Users/you/code") + phone.startFolders, n.rows)
+        vm.newSessionNext()
+        assertTrue("session-start:terminal:/Users/you/code:" in phone.calls)
+    }
+
+    // decision: PHN-821
+    @Test
+    fun closing_the_folder_picker_changes_nothing() {
+        phone.folders["~/Desktop"] = com.ferb.mobile.Folder("/Users/you/Desktop", "/Users/you", false, emptyList(), 0u, false, 0u, null)
+        val vm = vm()
+        vm.choose(PhoneTab.SESSIONS)
+        vm.newSession()
+        val before = vm.newSession.value!!
+        vm.newSessionBrowse()
+        vm.newSessionBrowseOpen("~/Desktop")
+        vm.newSessionBrowseClose()
+        assertEquals(before, vm.newSession.value)
+    }
+
+    // ---- FERB's hand-over (HAND-702) ----------------------------------------------------------------------------------
+
+    // decision: HAND-702
+    @Test
+    fun hand_over_shows_its_pending_state_and_a_refusal_keeps_the_sheet_with_the_reason() {
+        val vm = opened()
+        vm.askHandOver()
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        phone.delegateGate = gate
+        phone.delegateRefusal = Outcome.Failed(FerbException.Refused("FERB can't take this session: it is not running.", "ferb_error"))
+        vm.handOver("Keep going until the tests pass")
+        assertTrue("pending at once", "session-hand" in vm.ui.value.busy)
+        gate.complete(Unit)
+        val o = vm.openSession.value!!
+        assertTrue("the sheet stays", o.handOver)
+        assertEquals("FERB can't take this session: it is not running.", o.handProblem?.words)
+        assertFalse("session-hand" in vm.ui.value.busy)
+        // done: the sheet closes and the session is read at once
+        phone.delegateRefusal = null
+        phone.delegateGate = null
+        val reads = phone.timelineAsks.size
+        vm.handOver("Keep going until the tests pass")
+        assertFalse(vm.openSession.value!!.handOver)
+        assertNull(vm.openSession.value!!.handProblem)
+        assertTrue("read at once", phone.timelineAsks.size > reads)
+    }
+
+    // decision: HAND-702
+    @Test
+    fun take_it_back_stops_ferbs_task_closes_the_menu_and_reads_the_session_at_once() {
+        phone.sessions[0] = FakePhone.agentSession(withFerb = true, ferbTask = "task-9", ferbNote = "FERB is working in this session.")
+        val vm = opened()
+        assertEquals("FERB is working in this session.", vm.openSession.value!!.session!!.ferbNote)
+        vm.sessionMenu(true)
+        phone.sessions[0] = FakePhone.agentSession(ferbNote = "FERB stopped. The session is yours again.")
+        val reads = phone.timelineAsks.size
+        vm.takeBack()
+        assertTrue("the task stop with FERB's task", "stop:task-9" in phone.calls)
+        val o = vm.openSession.value!!
+        assertFalse("the menu closes", o.menu)
+        assertTrue("read at once", phone.timelineAsks.size > reads)
+        assertEquals("", o.session!!.ferbTask)
+        assertFalse(o.session!!.withFerb)
+        assertEquals("FERB stopped. The session is yours again.", o.session!!.ferbNote)
+    }
+
+    // decision: HAND-702
+    @Test
+    fun take_it_back_refused_says_why() {
+        phone.sessions[0] = FakePhone.agentSession(withFerb = true, ferbTask = "task-9")
+        phone.stopResult = Outcome.Failed(FerbException.Refused("That task already ended.", "not_found"))
+        val vm = opened()
+        vm.sessionMenu(true)
+        vm.takeBack()
+        val note = vm.ui.value.note!!
+        assertEquals(R.string.sessions_take_back_failed, note.res)
+        assertEquals("That task already ended.", note.inner?.words)
+        assertEquals("Couldn't take it back: That task already ended.", context.getString(note.res, context.getString(note.inner!!.res, note.inner!!.words)))
+        assertTrue("the menu stays to try again", vm.openSession.value!!.menu)
     }
 
     // decision: HAND-692, HAND-697
@@ -466,6 +629,48 @@ class SessionsTest {
         assertEquals(listOf("Cursor"), ui.noChats)
         val row = ui.sessions.first { it.id == "term:110" }
         assertEquals("Desktop — agy — 120×30", com.ferb.app.model.Sessions.title(row))
+    }
+
+    // decision: HAND-702
+    @Test
+    fun a_row_s_title_is_never_empty() {
+        val bare = FakePhone.agentSession("term:7", "", "idle", "").copy(agent = "terminal", agentName = "Terminal", folder = "", folderName = "", window = "")
+        assertEquals("the agent's name last", "Terminal", com.ferb.app.model.Sessions.title(bare))
+        assertEquals("the folder's name before it", "site", com.ferb.app.model.Sessions.title(bare.copy(folder = "/Users/you/site/")))
+        assertEquals("web-app", com.ferb.app.model.Sessions.title(bare.copy(folder = "/Users/you/web-app", folderName = "web-app")))
+        assertEquals("the window's words before that", "zsh — 80×24", com.ferb.app.model.Sessions.title(bare.copy(window = "zsh — 80×24", folderName = "web-app")))
+        assertEquals("Codex", com.ferb.app.model.Sessions.title(FakePhone.agentSession("codex:9", "", "idle", "").copy(folder = "", folderName = "")))
+    }
+
+    // decision: HAND-703
+    @Test
+    fun a_reply_s_parts_become_one_reply_and_markdown_only_where_it_is_markdown() {
+        val read = ArrayList<String>()
+        val rich: (String) -> List<com.ferb.design.components.RichBlock> = { read += it; listOf(com.ferb.design.components.RichBlock.Paragraph(listOf(com.ferb.design.components.RichRun(it)))) }
+        val reply = FakePhone.item(9, "assistant", "", parts = listOf(
+            FakePhone.part("thinking", label = "Thought 1s"),
+            FakePhone.part("text", "I'll look through this folder."),
+            FakePhone.part("tool", "  Length  Name\n   19357  a.json", "List zip sizes and contents", "ls, echo, unzip, head"),
+            FakePhone.part("tool", "", "Explored", "2 searches"),
+            FakePhone.part("something_new", "Words of a kind the app doesn't know."),
+            FakePhone.part("meta", "Just now"),
+        ))
+        val line = com.ferb.app.model.Sessions.line(reply, "", rich = rich)
+        val k = com.ferb.design.components.SessionPartKind.entries
+        assertEquals(listOf(k[1], k[0], k[2], k[2], k[0], k[3]), line.parts.map { it.kind })
+        assertEquals("only the words are read as Markdown", listOf("I'll look through this folder.", "Words of a kind the app doesn't know."), read)
+        assertEquals("Thought 1s", line.parts[0].label)
+        assertEquals("", line.parts[0].text)
+        assertEquals("List zip sizes and contents" to "ls, echo, unzip, head", line.parts[2].label to line.parts[2].detail)
+        assertTrue("its output opens under it", line.parts[2].text.isNotBlank())
+        assertTrue("nothing to open: no chevron", line.parts[3].text.isBlank())
+        assertEquals("Just now", line.parts[5].text)
+        // without parts: an agent's words as Markdown, a terminal's output as it is, the owner's words plain
+        read.clear()
+        assertNotNull(com.ferb.app.model.Sessions.line(FakePhone.item(10, "assistant", "| a | b |"), "", rich = rich).blocks)
+        assertNull(com.ferb.app.model.Sessions.line(FakePhone.item(11, "assistant", "$ ls\nsrc  tests"), "", terminal = true, rich = rich).blocks)
+        assertNull(com.ferb.app.model.Sessions.line(FakePhone.item(12, "user", "**hi**"), "", rich = rich).blocks)
+        assertEquals(listOf("| a | b |"), read)
     }
 
     // decision: PHN-797, PHN-454, PHN-444

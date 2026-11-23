@@ -39,6 +39,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.ferb.app.FerbViewModel
 import com.ferb.app.R
@@ -249,15 +250,17 @@ private fun Found(vm: FerbViewModel, ui: UiState) {
     }
 }
 
+/** The Files tab's places: Desktop, Documents and Downloads, each with its words and mark. */
+private val places = listOf(
+    Triple(FerbViewModel.PLACES[0], R.string.place_desktop, FerbIcons.desktop),
+    Triple(FerbViewModel.PLACES[1], R.string.place_documents, FerbIcons.doc),
+    Triple(FerbViewModel.PLACES[2], R.string.place_downloads, FerbIcons.download),
+)
+
 @Composable
 private fun Places(vm: FerbViewModel, ui: UiState) {
     val ink = LocalSkyInk.current
     val context = LocalContext.current
-    val places = listOf(
-        Triple(FerbViewModel.PLACES[0], R.string.place_desktop, FerbIcons.desktop),
-        Triple(FerbViewModel.PLACES[1], R.string.place_documents, FerbIcons.doc),
-        Triple(FerbViewModel.PLACES[2], R.string.place_downloads, FerbIcons.download),
-    )
     SkyLabel(stringResource(R.string.files_places))
     Card {
         places.forEachIndexed { i, (path, title, icon) ->
@@ -448,4 +451,85 @@ fun TransferCard(vm: FerbViewModel, group: List<Transfer>, host: Host, modifier:
             }
         }
     }
+}
+
+/**
+ * The Files tab's browser in its folders-only mode (PHN-821), to choose where a new session opens: the places (the home
+ * folder first) and the recent folders, then a folder's folders (its files hidden; a folder opens on a tap, a key place
+ * asking for the fingerprint as in the Files tab), Back up a folder, and at the foot the folder showing with "Use this
+ * folder". Back from the places, or Close, returns to the sheet as it was.
+ */
+@Composable
+internal fun MacFolderPicker(
+    pick: com.ferb.app.model.FolderPickUi,
+    loading: Boolean,
+    insets: PhoneInsets,
+    onOpen: (path: String, keyPlace: Boolean) -> Unit,
+    onBack: () -> Unit,
+    onUse: () -> Unit,
+    onClose: () -> Unit,
+) {
+    val title = stringResource(R.string.sessions_browse_title)
+    val shown = pick.shown
+    val open: (String, Boolean) -> Unit = { path, key -> if (!loading) onOpen(path, key) }
+    com.ferb.design.components.Sheet(title = title, bottomInset = insets.bottom, onDismiss = onClose) {
+        com.ferb.design.components.SheetTitle(title, onClose)
+        Row(Modifier.fillMaxWidth().padding(top = 10.dp).heightIn(min = 36.dp).testTag("browse-header"), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.pressable(onBack, label = stringResource(R.string.files_back)).padding(end = 8.dp, top = 6.dp, bottom = 6.dp)) {
+                FerbIcon(Icons.AutoMirrored.Rounded.ArrowBack, 18f, Ink.black)
+            }
+            PhoneText(shown?.let { nameOf(it.path) } ?: stringResource(R.string.files_places), 15.5f, FerbType.Semibold, Ink.black, Modifier.weight(1f), maxLines = 1)
+            if (pick.loading != null) com.ferb.design.components.RunningArc(16.dp, Ink.black, stroke = 2.dp)
+        }
+        Column(Modifier.padding(top = 6.dp).heightIn(max = 420.dp).verticalScroll(rememberScrollState()).testTag("browse-list")) {
+            val line: @Composable (String) -> Unit = { PhoneText(it, 14.5f, FerbType.Medium, Ink.detail, Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp)) }
+            if (shown == null) {
+                PickCard {
+                    PickRow(stringResource(R.string.sessions_browse_home), FerbIcons.laptop, pick.loading == "~") { open("~", false) }
+                    for ((path, words, icon) in places) {
+                        Divide()
+                        PickRow(stringResource(words), icon, pick.loading == path) { open(path, false) }
+                    }
+                }
+                if (pick.recent.isNotEmpty()) {
+                    PhoneText(stringResource(R.string.files_recent), 15f, FerbType.Semibold, Ink.detail, Modifier.padding(start = 8.dp, top = 16.dp, bottom = 8.dp))
+                    PickCard {
+                        pick.recent.forEachIndexed { i, path ->
+                            if (i > 0) Divide()
+                            PickRow(nameOf(path), FerbIcons.folder, pick.loading == path, detail = path) { open(path, false) }
+                        }
+                    }
+                }
+            } else {
+                val folders = remember(shown) { shown.entries.filter { it.dir } }
+                if (folders.isEmpty()) line(stringResource(R.string.sessions_browse_no_folders))
+                else PickCard {
+                    val n = revealed(shown.path, folders.size)
+                    folders.take(n).forEachIndexed { i, e ->
+                        if (i > 0) Divide()
+                        PickRow(e.name, FerbIcons.folder, pick.loading == e.path, locked = e.locked) { open(e.path, e.locked) }
+                    }
+                }
+            }
+            pick.problem?.let { line(noteText(it)) }
+        }
+        if (shown != null) {
+            // the foot: the folder showing, and choosing it
+            PhoneText(shown.path, 13.5f, color = Ink.detail, maxLines = 2, modifier = Modifier.fillMaxWidth().padding(top = 14.dp, start = 4.dp, end = 4.dp).testTag("browse-path"))
+            Pill(stringResource(R.string.sessions_browse_use), Modifier.padding(top = 10.dp).testTag("browse-use"), icon = FerbIcons.check,
+                onClick = if (loading) null else onUse)
+        }
+    }
+}
+
+/** The picker's rows on the sheet's grey fill (a white card would vanish on the white sheet). */
+@Composable
+private fun PickCard(content: @Composable () -> Unit) {
+    Column(Modifier.fillMaxWidth().background(Ink.fill, androidx.compose.foundation.shape.RoundedCornerShape(18.dp))) { content() }
+}
+
+@Composable
+private fun PickRow(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, opening: Boolean, detail: String? = null, locked: Boolean = false, onClick: () -> Unit) {
+    CardRow(title, if (opening) stringResource(R.string.files_opening) else detail, onClick = onClick, leading = { RowIcon(icon) },
+        trailing = { if (locked) FerbIcon(FerbIcons.lockFill, 15f, Ink.faint) else Opens() })
 }

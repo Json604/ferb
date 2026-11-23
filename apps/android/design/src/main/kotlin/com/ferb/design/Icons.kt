@@ -7,6 +7,7 @@ import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.automirrored.outlined.Backspace
 import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.automirrored.outlined.Logout
+import androidx.compose.material.icons.automirrored.rounded.Undo
 import androidx.compose.material.icons.outlined.ArrowCircleDown
 import androidx.compose.material.icons.outlined.PanTool
 import androidx.compose.material.icons.rounded.MoreHoriz
@@ -83,6 +84,7 @@ object FerbIcons {
     val more = Icons.Rounded.MoreHoriz                     // ellipsis (not from the lab: a session's menu, PHN-800)
     val handOver = Icons.Outlined.PanTool                  // hand.raised (not from the lab: Hand to FERB, PHN-800)
     val letGo = Icons.AutoMirrored.Outlined.Logout                      // rectangle.portrait.and.arrow.right (PHN-800)
+    val takeBack = Icons.AutoMirrored.Rounded.Undo         // arrow.uturn.backward (not from the lab: Take it back, HAND-702)
     val plus = Icons.Rounded.Add                           // plus
     val mic = Icons.Outlined.Mic                           // mic
     val arrowUp = Icons.Rounded.ArrowUpward                // arrow.up

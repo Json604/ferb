@@ -34,6 +34,7 @@ import com.ferb.design.components.Card
 import com.ferb.design.components.CloseButton
 import com.ferb.design.components.Divide
 import com.ferb.design.components.FerbBadge
+import com.ferb.design.components.FerbNoteLine
 import com.ferb.design.components.FerbSurface
 import com.ferb.design.components.LocalSkyInk
 import com.ferb.design.components.PhoneTab
@@ -93,6 +94,8 @@ fun SessionsPage(
     empty: String? = null,
     /** HAND-697: one quiet line per chat app open with no chat FERB could find. */
     notes: List<String> = emptyList(),
+    /** A new terminal the Mac opened that the list doesn't hold yet: one quiet line until it shows. */
+    coming: String? = null,
     waiting: PhoneTab? = null,
     onTab: ((PhoneTab) -> Unit)? = null,
     onProfile: (() -> Unit)? = null,
@@ -113,7 +116,7 @@ fun SessionsPage(
                         Pill(off.turnOn, Modifier.padding(top = 6.dp), onClick = onTurnOn)
                     }
                 }
-                rows.isEmpty() -> if (empty != null) {
+                rows.isEmpty() -> if (empty != null && coming == null) {
                     PhoneText(empty, 15.5f, FerbType.Medium, ink.low, Modifier.padding(start = 8.dp, end = 8.dp, top = 4.dp))
                 }
                 else -> Card {
@@ -124,6 +127,7 @@ fun SessionsPage(
                 }
             }
             if (off == null) {
+                coming?.let { PhoneText(it, 14.5f, FerbType.Medium, ink.low, Modifier.padding(start = 8.dp, end = 8.dp, top = 10.dp).testTag("session-coming")) }
                 for (note in notes) {
                     PhoneText(note, 14.5f, FerbType.Medium, ink.low, Modifier.padding(start = 8.dp, end = 8.dp, top = 10.dp).testTag("no-chat"))
                 }
@@ -168,6 +172,9 @@ fun SessionPage(
     toLatest: String = "Go to the latest messages",
     newMessage: String = "New message",
     loading: String? = null,
+    /** FERB's latest word on a hand-over (HAND-702): above the message box, or under the header when [noteOnTop]. */
+    note: String? = null,
+    noteOnTop: Boolean = false,
     list: LazyListState = rememberLazyListState(),
     composer: @Composable (Modifier) -> Unit,
 ) {
@@ -187,6 +194,7 @@ fun SessionPage(
                 if (actions.isNotEmpty()) MoreButton(moreLabel, menuOpen, Modifier.testTag("session-more"), onClick = onMenu?.let { { it(!menuOpen) } })
                 CloseButton(onClose)
             }
+            if (note != null && noteOnTop) FerbNoteLine(note, Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp))
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 // its first read on its way: the main chat's waiting look, never an empty page or an error (PHN-816)
                 if (loading != null && lines.isEmpty() && asks.isEmpty() && outgoing == null) {
@@ -195,6 +203,7 @@ fun SessionPage(
                     SessionList(lines, asks, older, onOlder, onChoice, outgoing, onRetry, toLatest, newMessage, list)
                 }
             }
+            if (note != null && !noteOnTop) FerbNoteLine(note, Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp))
             composer(Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp))
         }
         if (menuOpen && actions.isNotEmpty()) {

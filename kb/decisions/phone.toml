@@ -4210,3 +4210,25 @@ words_source = "Owner 2026-11-23 (relayed), about the top bar's temporary-chat b
 rule = "Refines PHN-801 and PHN-819. On both phones the bar measures its real width (the window less the cutout and safe-area insets on its sides, at the current text size). Normal: chosen tab with its name, other tabs at least 36, the temporary bubble, the profile button. If a tab would fall under 36, the bubble and the profile fold into one round menu button (three lines, the connection badge on it, a dashed mark while the temporary chat is on) opening Temporary chat and the profile; only if still too tight the chosen tab shows its icon alone."
 paths = ["apps/android/design/src/main/kotlin/com/ferb/design/components/TopBar.kt", "apps/ios/Packages/FerbDesign/Sources/FerbDesign/Lab/Mobile.swift"]
 live = ["LIVE-1194"]
+
+[PHN-821]
+title = "New session's Another folder opens the Mac's folders to pick from"
+by = "owner"
+date = 2026-11-23
+status = "active"
+words = "we already have the mac file system, so it would be easy to pick folders rather than typing the folder path - it better UX"
+words_source = "Owner 2026-11-23 (relayed verbatim), about the phones' New session sheet (PHN-817, T-1300)."
+rule = "Refines PHN-817. On both phones Another folder opens the phone's Mac Files browser in a folders-only mode (files hidden, folders open on tap, Use this folder with the path shown); the chosen folder becomes the selected one at the top; the recent folders stay. No typed path."
+paths = ["apps/android/app/src/main/kotlin/com/ferb/app/ui/Sessions.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/CodingSessions.swift"]
+live = ["LIVE-1198"]
+
+[PHN-822]
+title = "Start shows that it is opening the terminal, then opens it"
+by = "owner"
+date = 2026-11-23
+status = "active"
+words = "even after pressing start session, theres a freeze on the new session modal and after that it goes down and the terminal is opened - remember FEEDBACK."
+words_source = "Owner 2026-11-23 (relayed verbatim), live on his Moto."
+rule = "Refines PHN-817 and APP-1121. Start turns at once into a spinner with \"Opening a terminal…\" and the form is disabled; when the Mac answers the sheet closes and the new session opens (sessions.start's `session`), or the list says \"Your new terminal will show here in a moment.\" until it shows; a refusal keeps the sheet with the Mac's reason. FERB.app the same."
+paths = ["apps/android/app/src/main/kotlin/com/ferb/app/ui/Sessions.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/CodingSessions.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SessionsModel.swift"]
+live = ["LIVE-1198"]

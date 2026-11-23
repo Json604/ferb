@@ -414,3 +414,165 @@ fn a_model_s_pick_is_learned_only_when_code_s_check_holds() {
     );
     assert!(!outline.contains("Hello"), "values never: {outline}");
 }
+
+/// A node of a shaped read: its depth below the pane's root and its frame.
+fn at(depth: usize, role: &str, words: &str, x: f64, y: f64, w: f64) -> Node {
+    Node {
+        role: role.into(),
+        value: if role == "AXStaticText" || role == "AXTextArea" {
+            words.into()
+        } else {
+            String::new()
+        },
+        label: if role == "AXButton" {
+            words.into()
+        } else {
+            String::new()
+        },
+        x,
+        y,
+        w,
+        h: 18.0,
+        enabled: true,
+        depth,
+        ..Node::default()
+    }
+}
+
+/// A reply shaped like Cursor's agent pane (invented words): his message in a read-only box of its own, then one reply
+/// holding a thought, a paragraph with a link inside it, a step it ran with its output, a table, a list and its time
+/// beside the copy button.
+fn shaped_reply() -> Vec<Node> {
+    let t = |d, s: &str, x, y| at(d, "AXStaticText", s, x, y, 300.0);
+    vec![
+        at(0, "AXGroup", "", 40.0, 0.0, 660.0),  // 0 the pane
+        at(1, "AXGroup", "", 40.0, 10.0, 660.0), // 1 the transcript
+        at(2, "AXGroup", "", 40.0, 20.0, 660.0), // 2 his row
+        Node {
+            editable: true,
+            ..at(3, "AXTextArea", "what is this folder?", 40.0, 20.0, 660.0)
+        },
+        at(2, "AXGroup", "", 40.0, 60.0, 660.0), // 4 the reply
+        Node {
+            expanded: Some(false),
+            ..at(3, "AXButton", "", 40.0, 60.0, 200.0)
+        }, // 5 a thought's row
+        t(4, "Thought", 40.0, 60.0),
+        t(4, "1s", 100.0, 60.0),
+        at(3, "AXGroup", "", 40.0, 90.0, 660.0), // 8 a paragraph
+        t(4, "It reverts PR ", 40.0, 90.0),
+        at(4, "AXLink", "", 160.0, 130.0, 30.0), // 10 a link, drawn on a later line
+        t(5, "#15", 160.0, 130.0),
+        t(4, " (the transport work).", 40.0, 90.0),
+        at(3, "AXGroup", "", 40.0, 160.0, 660.0), // 13 a step's holder
+        Node {
+            expanded: Some(true),
+            ..at(4, "AXButton", "", 40.0, 160.0, 660.0)
+        }, // 14 its row
+        t(5, "\u{eb8e}", 40.0, 160.0),            // its icon (an icon font's glyph)
+        t(5, "List zip sizes and contents", 60.0, 160.0),
+        t(5, "ls, unzip", 300.0, 160.0),
+        Node {
+            subrole: "AXCodeStyleGroup".into(),
+            ..at(4, "AXGroup", "", 40.0, 180.0, 660.0)
+        }, // 18 its output
+        t(5, "19357  1 file", 40.0, 180.0),
+        at(3, "AXTable", "", 40.0, 220.0, 660.0), // 20
+        at(4, "AXRow", "", 40.0, 220.0, 660.0),
+        at(5, "AXCell", "", 40.0, 220.0, 300.0),
+        t(6, "File", 40.0, 220.0),
+        at(5, "AXCell", "", 400.0, 220.0, 300.0),
+        at(6, "AXStaticText", "What's inside", 400.0, 220.0, 290.0),
+        at(4, "AXRow", "", 40.0, 240.0, 660.0),
+        at(5, "AXCell", "", 40.0, 240.0, 300.0),
+        t(6, "a.zip", 40.0, 240.0),
+        at(5, "AXCell", "", 400.0, 240.0, 300.0),
+        at(6, "AXStaticText", "101 chats | notes", 400.0, 240.0, 290.0),
+        at(3, "AXList", "", 40.0, 270.0, 660.0), // 31
+        at(4, "AXGroup", "", 40.0, 270.0, 660.0),
+        t(5, "•", 40.0, 270.0),
+        t(5, "first item", 60.0, 270.0),
+        at(4, "AXGroup", "", 40.0, 290.0, 660.0),
+        t(5, "•", 40.0, 290.0),
+        t(5, "second item", 60.0, 290.0),
+        at(3, "AXGroup", "", 40.0, 320.0, 660.0), // 38 the reply's bar
+        at(4, "AXButton", "Copy", 40.0, 320.0, 20.0),
+        t(4, "Just now", 70.0, 320.0),
+        Node {
+            composer: true,
+            editable: true,
+            ..at(1, "AXTextArea", "", 40.0, 880.0, 660.0)
+        },
+    ]
+}
+
+/// The owner's live report (2026-11-23): one reply of Cursor's showed as many bubbles split at line breaks, with its
+/// "Thought 1s", tool rows, "Just now" and a table's cells each a bubble, and a link's words out of their place. Now
+/// one block per message, the reply's parts in the app's order, read by structure; nothing is dropped.
+// decision: HAND-703
+#[test]
+fn one_reply_is_one_block_with_its_parts_in_order_read_by_structure() {
+    use ferb_sessions::model::{Part, PartKind};
+    let cursor = facts_for("com.todesktop.230313mzl4w4u92", "Cursor", &[]);
+    let look = read(&shaped_reply(), &cursor, &[]);
+    assert_eq!(look.composer, Some(41));
+    let who: Vec<Speaker> = look.blocks.iter().map(|b| b.speaker).collect();
+    assert_eq!(who, [Speaker::Owner, Speaker::App], "{:#?}", look.blocks);
+    assert_eq!(look.blocks[0].text, "what is this folder?");
+    let part = |kind, text: &str, label: &str, detail: &str| Part {
+        kind,
+        text: text.into(),
+        label: label.into(),
+        detail: detail.into(),
+    };
+    assert_eq!(
+        look.blocks[1].parts,
+        [
+            part(PartKind::Thinking, "", "Thought", "1s"),
+            part(PartKind::Text, "It reverts PR #15 (the transport work).", "", ""),
+            part(PartKind::Tool, "19357  1 file", "List zip sizes and contents", "ls, unzip"),
+            part(
+                PartKind::Text,
+                "| File | What's inside |\n| --- | --- |\n| a.zip | 101 chats \\| notes |\n\n- first item\n- second item",
+                "",
+                ""
+            ),
+            part(PartKind::Meta, "Just now", "", ""),
+        ]
+    );
+    // the button's own label is never words of the reply
+    assert!(!look.blocks[1].text.contains("Copy"));
+}
+
+// decision: HAND-703
+#[test]
+fn a_read_with_no_shape_still_makes_one_reply_between_the_owner_s_messages_and_its_words_stay_words(
+) {
+    // the app's runs far apart (the Claude app's "Starting session", "Just now" and a reply's paragraphs): one reply
+    let nodes = vec![
+        text(400.0, 100.0, 300.0, "which folder are you in?"),
+        text(40.0, 150.0, 300.0, "Starting session"),
+        text(40.0, 200.0, 300.0, "Just now"),
+        text(450.0, 260.0, 250.0, "what's the last update?"),
+        text(40.0, 320.0, 660.0, "# not a heading, 1. not a list"),
+        text(40.0, 380.0, 660.0, "The working tree is *clean*."),
+        Node {
+            composer: true,
+            ..input(880.0, false)
+        },
+        list(),
+    ];
+    let look = read(&nodes, &claude(), &[]);
+    let who: Vec<Speaker> = look.blocks.iter().map(|b| b.speaker).collect();
+    assert_eq!(
+        who,
+        [Speaker::Owner, Speaker::App, Speaker::Owner, Speaker::App]
+    );
+    assert_eq!(look.blocks[1].text, "Starting session\nJust now");
+    // the app's words are data: Markdown's marks in them are escaped, so they show as written
+    assert_eq!(
+        look.blocks[3].parts[0].text,
+        "\\# not a heading, 1. not a list\n\nThe working tree is \\*clean\\*."
+    );
+    assert_eq!(escape("1. one\n- two", true), "1\\. one\n\\- two");
+}

@@ -19,6 +19,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -129,8 +133,37 @@ enum class SessionLineKind { OWNER, AGENT, TOOL, INTERRUPTED, ERROR }
 /**
  * One line of the conversation ([key] stays the same while it is on screen: its sequence number). [day]: the words of
  * its day's start ("Today", "Yesterday", the date) when it is the first line of a day, as the main chat marks days.
+ * An agent's reply (HAND-703): [parts] when the Mac sent them (one reply block holding them in order), else [blocks],
+ * its words read as Markdown (Claude Code, Codex, an app's chat); neither: [text] as it is (a terminal's output).
  */
-data class SessionLine(val key: String, val kind: SessionLineKind, val text: String, val day: String? = null)
+data class SessionLine(
+    val key: String,
+    val kind: SessionLineKind,
+    val text: String,
+    val day: String? = null,
+    val blocks: List<RichBlock>? = null,
+    val parts: List<SessionPartView> = emptyList(),
+)
+
+/** What a part of an agent's reply is (HAND-703): its words, a thought, a step it ran, the turn's small meta line. */
+enum class SessionPartKind { TEXT, THINKING, TOOL, META }
+
+/**
+ * One part of a reply as drawn: a text part's [blocks] (its Markdown, read by the phone library); a thought's or a
+ * step's [label] ("Thought 1s", "List zip sizes and contents") and a step's [detail] (what it ran); [text] what opens
+ * under a thought or a step (nothing opens when it is empty), or the meta line's words.
+ */
+@Immutable
+data class SessionPartView(
+    val kind: SessionPartKind,
+    val blocks: List<RichBlock> = emptyList(),
+    val text: String = "",
+    val label: String = "",
+    val detail: String = "",
+)
+
+/** The words of a reply on the session's dark fill: white, links light blue, code on black. */
+val onSessionFill = RichLook(15.5f, Ink.white, Ink.onDark, androidx.compose.ui.graphics.Color(0xFF9CC7FF), Ink.black)
 
 /**
  * One line on the session screen's black page: the owner's words on white at the right, the agent's on the dark fill
@@ -140,7 +173,16 @@ data class SessionLine(val key: String, val kind: SessionLineKind, val text: Str
 fun SessionLineView(line: SessionLine, modifier: Modifier = Modifier) {
     when (line.kind) {
         SessionLineKind.OWNER -> OwnerBubble(line.text, modifier)
-        SessionLineKind.AGENT -> Box(modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
+        SessionLineKind.AGENT -> if (line.parts.isNotEmpty()) SessionReply(line.key, line.parts, modifier)
+        else if (line.blocks != null) Box(modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
+            // its Markdown as the main chat draws FERB's (Rich.kt): selectable, a wide table scrolls inside the bubble
+            Column(
+                Modifier.widthIn(max = Phone.bubbleMaxFerb)
+                    .background(Ink.darkFill, RoundedCornerShape(Phone.bubbleCorner, Phone.bubbleCorner, Phone.bubbleCorner, Phone.bubbleTail))
+                    .padding(horizontal = 16.dp, vertical = 11.dp).testTag("session-rich"),
+            ) { RichBlocks(line.blocks, onSessionFill, "session:" + line.key) }
+        }
+        else Box(modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
             // its words can be selected and copied, as FERB's answers in the main chat (Rich.kt)
             androidx.compose.foundation.text.selection.SelectionContainer {
                 PhoneText(
@@ -163,6 +205,106 @@ fun SessionLineView(line: SessionLine, modifier: Modifier = Modifier) {
             LampDot(Lamp.red, 7.dp)
             PhoneText(line.text, 14f, color = Lamp.red, modifier = Modifier.weight(1f))
         }
+    }
+}
+
+/**
+ * An agent's reply with its parts (HAND-703), as the main chat draws one reply: one block on the dark fill holding its
+ * words (Markdown: tables as grids that scroll sideways inside it, code in a fixed-width face), its thoughts and the
+ * steps it ran as small rows that open on a tap (only when there is something to open), in order; the turn's meta
+ * line ("Just now", "Working…") small and dim under the block, never in it.
+ */
+@Composable
+fun SessionReply(key: String, parts: List<SessionPartView>, modifier: Modifier = Modifier) {
+    val inside = parts.filter { it.kind != SessionPartKind.META }
+    val meta = parts.filter { it.kind == SessionPartKind.META && it.text.isNotBlank() }
+    Column(modifier.fillMaxWidth().testTag("session-reply"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (inside.isNotEmpty()) {
+            Column(
+                Modifier.fillMaxWidth()
+                    .background(Ink.darkFill, RoundedCornerShape(Phone.bubbleCorner, Phone.bubbleCorner, Phone.bubbleCorner, Phone.bubbleTail))
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                inside.forEachIndexed { i, p ->
+                    when (p.kind) {
+                        SessionPartKind.TEXT -> if (p.blocks.isNotEmpty()) RichBlocks(p.blocks, onSessionFill, "session:$key:$i")
+                        SessionPartKind.THINKING, SessionPartKind.TOOL -> SessionStepRow(p, "session:$key:$i")
+                        SessionPartKind.META -> Unit
+                    }
+                }
+            }
+        }
+        for (m in meta) PhoneText(m.text, 12.5f, FerbType.Medium, Ink.onDark, Modifier.padding(horizontal = 6.dp).testTag("session-meta"), maxLines = 1)
+    }
+}
+
+/**
+ * A thought or a step it ran, one small row: a thought's label dim ("Thought 1s"); a step's label then what it ran
+ * dimmer on the same line ("List zip sizes and contents · ls, echo, unzip, head"). Closed at first; a chevron and a
+ * tap only when there is something to open: a step's output in a fixed-width block, a thought's words.
+ */
+@Composable
+fun SessionStepRow(part: SessionPartView, key: String, modifier: Modifier = Modifier) {
+    val tool = part.kind == SessionPartKind.TOOL
+    val opens = part.text.isNotBlank()
+    var open by androidx.compose.runtime.saveable.rememberSaveable(key) { androidx.compose.runtime.mutableStateOf(false) }
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            Modifier.fillMaxWidth().pressable(if (opens) ({ open = !open }) else null, label = part.label)
+                .heightIn(min = 24.dp).testTag(if (tool) "session-step" else "session-thought"),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (tool) FerbIcon(FerbIcons.terminal, 13f, Ink.onDark)
+            val words = androidx.compose.ui.text.buildAnnotatedString {
+                pushStyle(androidx.compose.ui.text.SpanStyle(color = if (tool) Ink.white else Ink.onDark))
+                append(part.label)
+                pop()
+                if (tool && part.detail.isNotBlank()) {
+                    pushStyle(androidx.compose.ui.text.SpanStyle(color = Ink.onDark))
+                    append(" · ")
+                    append(part.detail)
+                    pop()
+                }
+            }
+            BasicText(words, Modifier.weight(1f, fill = false), style = FerbType.style(13.5f, FerbType.Medium, Ink.onDark),
+                maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            if (opens) FerbIcon(if (open) FerbIcons.chevronUp else FerbIcons.chevronDown, 15f, Ink.onDark)
+        }
+        if (opens && open) {
+            if (tool) {
+                Box(
+                    Modifier.fillMaxWidth().heightIn(max = 320.dp).background(Ink.black, RoundedCornerShape(10.dp))
+                        .verticalScroll(rememberScrollState()).horizontalScroll(rememberScrollState()).padding(10.dp)
+                        .testTag("session-step-output"),
+                ) {
+                    androidx.compose.foundation.text.selection.SelectionContainer {
+                        BasicText(part.text, style = FerbType.style(12.5f, color = Ink.onDark).copy(fontFamily = FontFamily.Monospace, letterSpacing = 0.sp))
+                    }
+                }
+            } else {
+                androidx.compose.foundation.text.selection.SelectionContainer {
+                    PhoneText(part.text, 13.5f, color = Ink.onDark, lineSpacing = 2f, modifier = Modifier.testTag("session-thought-text"))
+                }
+            }
+        }
+    }
+}
+
+/**
+ * FERB's latest word on a hand-over (HAND-702), exactly as the Mac says it: one quiet line with FERB's mark, pinned at
+ * the end of the conversation above the message box (or under the header when there is none).
+ */
+@Composable
+fun FerbNoteLine(text: String, modifier: Modifier = Modifier) {
+    Row(
+        modifier.fillMaxWidth().semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite }.testTag("session-ferb-note"),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        FerbMark(18.dp)
+        PhoneText(text, 13.5f, FerbType.Medium, Ink.onDark, Modifier.weight(1f), maxLines = 3, lineSpacing = 1f)
     }
 }
 
@@ -193,8 +335,19 @@ fun SessionAskCard(ask: SessionAsk, modifier: Modifier = Modifier, onChoice: ((I
     }
 }
 
-/** One of the session screen's actions, in its menu (Watch, Hand to FERB, Stop its turn, Stop controlling). */
-data class SessionAction(val label: String, val icon: ImageVector?, val onClick: (() -> Unit)?)
+/**
+ * One of the session screen's actions, in its menu (Watch, Hand to FERB or Take it back, Stop its turn, Stop
+ * controlling). [busy]: under way (a small turning mark, no tap); [keepOpen]: the menu stays open after the tap, until
+ * the Mac answers (Take it back, HAND-702).
+ */
+data class SessionAction(
+    val label: String,
+    val icon: ImageVector?,
+    val onClick: (() -> Unit)?,
+    val busy: Boolean = false,
+    val keepOpen: Boolean = false,
+    val tag: String? = null,
+)
 
 /**
  * His message to a session that its conversation doesn't hold yet, one bubble for each way it stands (PHN-812,
@@ -242,13 +395,16 @@ fun SessionMenu(place: String, actions: List<SessionAction>, modifier: Modifier 
         actions.forEachIndexed { i, a ->
             if (i > 0 || place.isNotBlank()) Divide()
             Row(
-                Modifier.fillMaxWidth().pressable(a.onClick?.let { f -> { onPicked(); f() } }, label = a.label)
-                    .heightIn(min = 48.dp).padding(horizontal = 14.dp),
+                Modifier.fillMaxWidth().pressable(a.onClick?.takeIf { !a.busy }?.let { f -> { if (!a.keepOpen) onPicked(); f() } }, label = a.label)
+                    .heightIn(min = 48.dp).padding(horizontal = 14.dp).then(if (a.tag != null) Modifier.testTag(a.tag) else Modifier)
+                    .then(if (a.busy) Modifier.semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite } else Modifier),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                val ink = if (a.onClick != null) Ink.black else Ink.detail
-                Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) { a.icon?.let { FerbIcon(it, 17f, ink) } }
+                val ink = if (a.onClick != null && !a.busy) Ink.black else Ink.detail
+                Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) {
+                    if (a.busy) RunningArc(16.dp, Ink.detail, stroke = 2.dp) else a.icon?.let { FerbIcon(it, 17f, ink) }
+                }
                 PhoneText(a.label, 16f, FerbType.Medium, ink, maxLines = 1)
             }
         }

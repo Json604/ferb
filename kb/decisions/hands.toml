@@ -2611,3 +2611,60 @@ rule = "For HAND-698. A chat app's window no one watches is checked for a chat b
 evidence = "ferb-daemon tests/sessions.rs an_app_chat_is_listed_read_only_while_watched_and_his_own_typing_is_his (one read, then not again until due; CHECK_EVERY_S is 15)."
 paths = ["engine/crates/ferb-daemon/src/sessions/appchats.rs"]
 live = ["LIVE-1193"]
+
+[HAND-702]
+title = "Hand to FERB is said in the session; \"FERB is on it\" only while its task runs; Take it back"
+by = "owner"
+date = 2026-11-23
+status = "active"
+words = "if ferb is on it then why show hand to ferb. anyways this hand to ferb isnt working, i tried 2 times. it didnt message anything. also the ferb is on it tag stays even when i pressed on stopped controlling and closed the terminal in the mac for some time"
+words_source = "Owner 2026-11-23, live on FERB.app 202611230246 and his Moto (relayed verbatim by the coordinator), then: \"ohh i just saw, the ferb hanlde messages were arrivign in the ferb chat\"."
+rule = "Refines ORCH-687. The hand-over message names the session as one on this Mac driven with the agent_session tools. The daemon follows that turn: a started task sets delegate (\"FERB is on it\" until it ends); a question, a plain answer or a failure ends the hand-over. The session carries ferb_note, FERB's latest word on it (handed, on it, asked with the question quoted, couldn't start, finished, stopped), shown in the session. While FERB has it the menu shows Take it back (task stop) instead of Hand to FERB; every tap shows pending, then the result."
+evidence = "ferb-daemon tests/sessions.rs a_hand_over_says_what_became_of_it_and_is_on_it_only_while_its_task_runs; ferbd tests/sessions_hook.rs a_hand_over_turn_s_frames_say_what_became_of_it; ferb-mobile sessions a_hand_over_s_task_and_note_and_a_reply_s_parts_are_read; the clients' session tests."
+paths = ["engine/crates/ferb-daemon/src/sessions/mod.rs", "engine/crates/ferbd/src/compose/sessions.rs", "engine/crates/ferb-mobile/src/sessions.rs"]
+live = ["LIVE-1195"]
+
+[HAND-703]
+title = "A chat app's reply is one block of typed parts read by structure, shown as the app shows it"
+by = "owner"
+date = 2026-11-23
+status = "active"
+words = "the chat replies/message UI is broken, see what cursor showed and what ferb app. it was the same case in claude app too."
+words_source = "Owner 2026-11-23 with his Cursor screenshot (relayed), then: \"no you can show it but why cant like how they are in the app ina good ui??? - if possible\"."
+rule = "Refines HAND-669. One item per owner message and one per app reply. Runs are read in tree order (never by position) and joined in their block. Parts, by structure only (roles, subroles, an opener, a status region, a button row), never words: text (Markdown, the app's words escaped), thinking (collapsed row), tool (collapsible step: label, what it ran, output fixed-width), meta (time or state line). A button's label is chrome. No shape: the layout groups, still one reply. Items carry parts, redacted; transcripts' assistant text is drawn as Markdown."
+evidence = "ferb-sessions tests/appchat.rs one_reply_is_one_block_with_its_parts_in_order_read_by_structure, a_read_with_no_shape_still_makes_one_reply_between_the_owner_s_messages_and_its_words_stay_words; the clients' parts tests and goldens."
+paths = ["engine/crates/ferb-sessions/src/appchat.rs", "engine/crates/ferb-sessions/src/model.rs", "engine/crates/ferb-daemon/src/sessions/appchats.rs", "engine/crates/ferbd/src/compose/sessions.rs"]
+live = ["LIVE-1196"]
+
+[HAND-704]
+title = "Every terminal in every terminal app is listed and an agent in one has its app (root's login a link)"
+by = "owner"
+date = 2026-11-23
+status = "active"
+words = "if ferb can see terminal in vs code, why not a normal terminal??? also i just noticed it starting the terminal, but that terminal session never shows here - shouldnt all opened terminal sessions anywhere and these agent chat apps be shown here???"
+words_source = "Owner 2026-11-23 (relayed verbatim), after Claude Code in a terminal said \"No app shows this session\" and Codex's Watch said no app shows it."
+rule = "Refines HAND-654 and HAND-692. The Mac's process table holds the owner's processes and, as links only (parent and program, no terminal), every other process on the way up from one of them: Terminal, iTerm2 and Ghostty start each shell through root's `login`, which the owner-only table left out, so a shell's walk to its app stopped and no tab of those apps, nor an agent in one, had an app. A terminal is still found by the owner's processes on it. Terminal's text is read by its scripting, else by Accessibility like any app's."
+evidence = "His Mac 2026-11-23, read only: Terminal (pid 15160) opened by sessions.start at 08:32:55, never listed; processes() dropped other users' processes. Tests: ferb-platform-macos, ferb-sessions and ferb-daemon tests named for root's login."
+paths = ["engine/crates/ferb-platform-macos/src/sessions.rs", "engine/crates/ferbd/src/compose/sessions.rs"]
+live = ["LIVE-1197"]
+
+[HAND-705]
+title = "The no-chat line says it is about an agent chat"
+by = "owner"
+date = 2026-11-23
+status = "active"
+words = "wording to be improved in sessions: it is for agentic chat.session only, currentyl for eg,: it says on chat open in X, sstart one..... BUT chat is open but not an agentic chat/session"
+words_source = "Owner 2026-11-23 (relayed verbatim)."
+rule = "Refines HAND-697. The line for a chat app with no chat FERB can follow, and the send's refusal there, read \"No agent chat open in {app}. Start one there to continue here.\" on the Mac and both phones."
+paths = ["engine/crates/ferb-daemon/src/sessions/mod.rs"]
+live = ["LIVE-1196"]
+
+[HAND-706]
+title = "A session's finished turn is one notification per session, never a chat line"
+by = "agent"
+date = 2026-11-23
+status = "active"
+rule = "For APP-1109 and the owner's live report (2026-11-23: FERB's chat filled with five and more \"Claude Code in FERB is done and waiting for you.\"). A turn he sent through FERB that ends is said on the session (its status) and, only when no client read that session in the last 10 s (LOOKED_AT_S), as one Mac banner (category task_finished, shown while FERB.app isn't showing it) whose ident is the session's, so a later one replaces it. Nothing goes to the owner's chat. Phones get no push for it yet (no phone push channel for a session's turn)."
+evidence = "ferb-daemon tests/sessions.rs a_finished_turn_is_one_notification_per_session_and_none_while_he_looks_at_it; read only: chat_entries 2026-11-23 04:00-08:32 hold five such notices."
+paths = ["engine/crates/ferb-daemon/src/sessions/mod.rs", "engine/crates/ferbd/src/compose/sessions.rs"]
+live = ["LIVE-1195"]

@@ -62,6 +62,7 @@ class SessionsLibraryTest {
         "host" to mapOf("bundle_id" to "com.apple.Terminal", "name" to "Terminal", "pid" to 812.0, "via" to "tty", "tty" to "/dev/ttys004"),
         "send_paths" to listOf("terminal_script"), "last_at" to "2026-11-22T09:59:00Z", "last_text" to "Run the build?",
         "control" to "phone:p1", "yours" to true, "goal" to "Keep going until the tests pass", "delegate" to "task-9",
+        "ferb_note" to "FERB is working in this session.",
     )
 
     private val signer = object : Signer {
@@ -84,6 +85,12 @@ class SessionsLibraryTest {
                 mapOf("seq" to 8.0, "at" to "2026-11-22T09:58:05Z", "kind" to "assistant", "text" to "Running it now."),
                 mapOf("seq" to 9.0, "at" to "2026-11-22T09:58:06Z", "kind" to "tool", "text" to "Bash: npm run build", "tool" to "Bash"),
                 mapOf("seq" to 10.0, "at" to "2026-11-22T09:58:09Z", "kind" to "interrupted", "text" to ""),
+                mapOf("seq" to 11.0, "at" to "2026-11-22T09:58:12Z", "kind" to "assistant", "text" to "The build passes.", "parts" to listOf(
+                    mapOf("kind" to "thinking", "text" to "", "label" to "Thought 1s", "detail" to ""),
+                    mapOf("kind" to "tool", "text" to "ok", "label" to "Run the build", "detail" to "npm"),
+                    mapOf("kind" to "text", "text" to "| File | Size |\n|---|---|\n| a.zip | 3 MB |", "label" to "", "detail" to ""),
+                    mapOf("kind" to "meta", "text" to "Just now", "label" to "", "detail" to ""),
+                )),
             ), "cards" to listOf(mapOf("id" to "card-1", "session" to "claude:abc", "kind" to "permission", "tool" to "Bash",
                 "detail" to "npm run build", "choices" to listOf(mapOf("id" to "yes", "label" to "Yes"), mapOf("id" to "no", "label" to "No")),
                 "asked_at" to "2026-11-22T09:58:06Z", "approval_id" to "ap-1"))))
@@ -111,6 +118,10 @@ class SessionsLibraryTest {
             assertEquals("Terminal", a.host)
             assertEquals(SessionState.WAITING, Sessions.state(a.status))
             assertTrue(a.canSend && a.controlledHere && a.withFerb)
+            // decision: HAND-702 — FERB's task (Take it back stops it) and its latest word, as the Mac sends them
+            assertEquals("task-9", a.ferbTask)
+            assertEquals("FERB is working in this session.", a.ferbNote)
+            assertEquals("", b.ferbTask)
             assertEquals("Blog theme", Sessions.title(b))
             assertEquals("", b.host)
             assertFalse(b.canSend)
@@ -118,8 +129,15 @@ class SessionsLibraryTest {
 
             val t = m.sessionTimeline("claude:abc", 0u, 0u, 50u)
             assertTrue(t.more)
-            assertEquals(listOf(SessionLineKind.OWNER, SessionLineKind.AGENT, SessionLineKind.TOOL, SessionLineKind.INTERRUPTED),
+            assertEquals(listOf(SessionLineKind.OWNER, SessionLineKind.AGENT, SessionLineKind.TOOL, SessionLineKind.INTERRUPTED, SessionLineKind.AGENT),
                 t.items.map { Sessions.line(it, "stopped").kind })
+            // decision: HAND-703 — a reply's parts in order, its text part's table read by the library as a table
+            val reply = Sessions.line(t.items[4], "")
+            assertEquals(listOf("thinking", "tool", "text", "meta"), t.items[4].parts.map { it.kind })
+            assertEquals(listOf(com.ferb.design.components.SessionPartKind.THINKING, com.ferb.design.components.SessionPartKind.TOOL,
+                com.ferb.design.components.SessionPartKind.TEXT, com.ferb.design.components.SessionPartKind.META), reply.parts.map { it.kind })
+            assertEquals("npm", reply.parts[1].detail)
+            assertTrue(reply.parts[2].blocks.single() is com.ferb.design.components.RichBlock.Table)
             assertEquals("Bash: npm run build", Sessions.line(t.items[2], "").text)
             assertEquals("stopped", Sessions.line(t.items[3], "stopped").text)
             assertEquals(listOf("yes", "no"), t.cards.single().choices.map { it.id })
@@ -153,7 +171,8 @@ class SessionsLibraryTest {
             assertEquals("agy", plan.needsYes?.detail)
             assertEquals(mapOf("folder" to "/Users/owner/code/blog", "command" to "agy"),
                 Json.parse(mac.params.last { it.first == "sessions.prepare" }.second))
-            assertEquals("agy", m.sessionStart("terminal", "/Users/owner/code/blog", "agy", signer))
+            // the new session, to open it at once (HAND-702)
+            assertEquals(com.ferb.mobile.SessionStarted("term:300", "Terminal", "agy"), m.sessionStart("terminal", "/Users/owner/code/blog", "agy", signer))
             assertEquals("FERB is on it.", m.sessionDelegate("claude:abc", "Keep going until the tests pass", signer))
 
             try {

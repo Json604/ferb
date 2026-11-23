@@ -194,7 +194,7 @@ interface PhoneApi {
     suspend fun sessionInterrupt(session: String): Outcome<Boolean>
     /** The folders to start in ("" agent and folder), or with a folder the exact command and its question. */
     suspend fun sessionPrepare(agent: String, folder: String, text: String): Outcome<SessionStartPlan>
-    suspend fun sessionStart(agent: String, folder: String, text: String, signer: Signer): Outcome<String>
+    suspend fun sessionStart(agent: String, folder: String, text: String, signer: Signer): Outcome<com.ferb.mobile.SessionStarted>
     suspend fun sessionDelegate(session: String, goal: String, signer: Signer): Outcome<String>
     suspend fun watchSession(session: String, sink: PreviewSink): Outcome<Live>
 
@@ -302,7 +302,8 @@ class LibraryPhone(private val phone: FerbPhone) : PhoneApi {
 
     override suspend fun sessionsList() = phone.call { it.sessionsList() }
     override suspend fun sessionTimeline(session: String, after: Long, before: Long, limit: Int) =
-        phone.call { it.sessionTimeline(session, after.toULong(), before.toULong(), limit.toUInt()) }
+        // its Markdown read by the library here, off the main thread, so the screen's lines find it kept (HAND-703)
+        phone.call { it.sessionTimeline(session, after.toULong(), before.toULong(), limit.toUInt()).also(Sessions::prepare) }
     override suspend fun sessionSend(session: String, text: String) = phone.call { it.sessionSend(session, text) }
     override suspend fun sessionControl(session: String, text: String, terminal: String, signer: Signer) =
         phone.call { it.sessionControl(session, text, terminal, signer) }

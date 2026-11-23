@@ -61,6 +61,8 @@ public struct AgentSessionRow: Identifiable, Equatable {
     public let window: String
     /// HAND-693: why FERB can't show this terminal's text (nil when it can).
     public let noText: String?
+    /// HAND-702: FERB's latest word on the owner's hand-over, in the daemon's plain words, shown as it is ("" for none).
+    public let ferbNote: String
 
     public init?(_ row: [String: Any]) {
         guard let id = row["id"] as? String, !id.isEmpty else { return nil }
@@ -86,6 +88,7 @@ public struct AgentSessionRow: Identifiable, Equatable {
         program = string(row["program"])
         window = string(row["window"])
         noText = words(row["no_text"])
+        ferbNote = string(row["ferb_note"])
     }
 
     /// The agent as the owner calls it.
@@ -102,7 +105,7 @@ public struct AgentSessionRow: Identifiable, Equatable {
         case "claude_code": return "Claude Code"
         case "codex": return "Codex"
         case "app_chat": return "App chat"
-        case "terminal": return "Terminal"
+        case "terminal", "": return "Terminal"
         default: return agent.replacingOccurrences(of: "_", with: " ")
         }
     }
@@ -113,8 +116,11 @@ public struct AgentSessionRow: Identifiable, Equatable {
         return name.isEmpty || name == "/" ? cwd : name
     }
 
-    /// The row's heading: the session's title, else its window's in its app's words (HAND-692), else its folder's name.
-    public var heading: String { !title.isEmpty ? title : (!window.isEmpty ? window : folderName) }
+    /// The row's heading: the session's title, else its window's in its app's words (HAND-692), else its folder's name,
+    /// else its agent's name: never empty (owner 2026-11-23: a row read "in the background · Idle" with no title).
+    public var heading: String {
+        [title, window, folderName, agentName].first { !$0.trimmingCharacters(in: .whitespaces).isEmpty } ?? "Terminal"
+    }
 
     /// Where it runs: "<program> · <folder> · in <app>" (HAND-692; no program: "<folder> · in <app>"), or "in the
     /// background" when no app shows it.
@@ -123,14 +129,18 @@ public struct AgentSessionRow: Identifiable, Equatable {
         return [program, folderName, app.isEmpty ? "in the background" : "in \(app)"].filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
-    /// HAND-697: an app open with no chat FERB could find.
-    public static func noChatLine(_ app: String) -> String { "No chat open in \(app). Start one there to continue here." }
+    /// HAND-697, HAND-705: an app open with no agent chat FERB could find.
+    public static func noChatLine(_ app: String) -> String {
+        "No agent chat open in \(app). Start one there to continue here."
+    }
 
     public var canSend: Bool { !sendPaths.isEmpty }
     /// Sending brings its app forward on the Mac.
     public var foreground: Bool { sendPaths.first == "foreground" }
-    /// Handed to FERB: the "FERB is on it" badge.
-    public var withFerb: Bool { delegate != nil }
+    /// FERB's task keeping this session going ("" while none has started: FERB is still starting on the hand-over).
+    public var ferbTask: String { delegate ?? "" }
+    /// Handed to FERB (its task runs, or it is starting on his goal): the "FERB is on it" badge.
+    public var withFerb: Bool { delegate != nil || goal != nil }
 
     /// The state chip's words.
     public var stateWords: String {
@@ -151,6 +161,8 @@ public struct SessionItem: Identifiable, Equatable {
     public let kind: String
     public let text: String
     public let tool: String?
+    /// HAND-703: the reply's parts in order, as its app shows them (an app chat's turn); empty: the item is its text.
+    public let parts: [SessionPart]
 
     public init?(_ row: [String: Any]) {
         guard let seq = number(row["seq"]) else { return nil }
@@ -159,6 +171,7 @@ public struct SessionItem: Identifiable, Equatable {
         kind = string(row["kind"])
         self.text = string(row["text"])
         tool = words(row["tool"])
+        parts = (row["parts"] as? [[String: Any]] ?? []).map(SessionPart.init)
     }
 
     /// A tool row as one line: "Bash: npm test".
@@ -166,6 +179,72 @@ public struct SessionItem: Identifiable, Equatable {
         guard let tool else { return text }
         return text.isEmpty ? tool : "\(tool): \(text)"
     }
+
+    /// How the conversation draws this item. `agent` is the session's ("terminal": its output is fixed-width text,
+    /// never Markdown).
+    public func look(agent: String) -> SessionItemLook {
+        switch kind {
+        case "user": return .owner(text)
+        case "tool": return .toolLine(line)
+        case "interrupted": return .interrupted(text)
+        case "error": return .error(text)
+        default:
+            // one reply block: its parts in order, or its text as one Markdown part (Claude Code, Codex, an app chat)
+            if !parts.isEmpty { return .reply(parts) }
+            if agent == "terminal" { return .fixedWidth(text) }
+            return .reply([SessionPart(kind: "text", text: text)])
+        }
+    }
+}
+
+/// HAND-703: one part of a reply (`items[].parts`).
+public struct SessionPart: Equatable {
+    /// "text" (Markdown), "thinking", "tool" or "meta"; any other kind is drawn as text.
+    public let kind: String
+    public let text: String
+    /// A thought's or a step's own row ("Thought 1s", "List zip sizes and contents").
+    public let label: String
+    /// A step's second words, dimmer on its row ("ls, echo, unzip, head").
+    public let detail: String
+
+    public init(kind: String, text: String = "", label: String = "", detail: String = "") {
+        self.kind = kind
+        self.text = text
+        self.label = label
+        self.detail = detail
+    }
+
+    public init(_ row: [String: Any]) {
+        self.init(kind: string(row["kind"]), text: string(row["text"]), label: string(row["label"]),
+                  detail: string(row["detail"]))
+    }
+
+    /// The kind as drawn: an unknown kind is text.
+    public var shown: String { ["text", "thinking", "tool", "meta"].contains(kind) ? kind : "text" }
+    /// A thought or a step opens to show its words only when it has some (no chevron otherwise).
+    public var expandable: Bool { (shown == "thinking" || shown == "tool") && !text.isEmpty }
+    /// A thought's or a step's row: its label; a step without one goes by what it ran, a thought by "Thinking".
+    public var rowLabel: String {
+        if !label.isEmpty { return label }
+        if shown == "tool", !detail.isEmpty { return detail }
+        return shown == "thinking" ? "Thinking" : ""
+    }
+    /// The step's second words on its row (not repeated when they stand in for the label).
+    public var rowDetail: String { label.isEmpty ? "" : detail }
+}
+
+/// How one conversation item is drawn.
+public enum SessionItemLook: Equatable {
+    /// The owner's words: one bubble, plain text.
+    case owner(String)
+    /// The agent's reply: one block holding its parts in order (meta lines under it, never in a bubble).
+    case reply([SessionPart])
+    /// A terminal's output: fixed-width text exactly as it came.
+    case fixedWidth(String)
+    /// A transcript's tool call: one small line.
+    case toolLine(String)
+    case interrupted(String)
+    case error(String)
 }
 
 /// One answer a card offers.

@@ -54,6 +54,9 @@ pub const DELIVERY_WAIT_S: f64 = 10.0;
 /// A send answers within this many seconds of being asked, seen or not (a phone's call ends at the link's 10 s:
 /// `call_deadline_s`); a delivery not seen by then is said as not seen yet (HAND-698).
 pub const ANSWER_WITHIN_S: f64 = 8.0;
+/// HAND-706: a session a client read within this many seconds is in front of the owner: its finished turn notifies
+/// nothing (he sees it).
+pub const LOOKED_AT_S: f64 = 10.0;
 /// How often `claude agents --json` is read again while sessions are on (hooks give new sessions at once; this finds
 /// the ones started before the hook was in place).
 pub const AGENTS_EVERY_S: f64 = 30.0;
@@ -255,11 +258,31 @@ pub struct TermPlace {
 /// chosen option, None when it was set aside or not answered.
 pub type AskFn = Arc<dyn Fn(Ask) -> (String, BoxFuture<'static, Option<String>>) + Send + Sync>;
 
-/// One notice line: (ident, text).
+/// One Mac notification: (ident, text); a later one with the same ident replaces it (HAND-706: never a chat line).
 pub type Tell = Arc<dyn Fn(&str, &str) + Send + Sync>;
 
 /// A bus topic or journal kind with its data.
 pub type Note = Arc<dyn Fn(&str, Value) + Send + Sync>;
+
+/// HAND-702: what became of the owner's hand-over message (the chat turn's own events).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Hand {
+    /// FERB started a task for it (its id).
+    Started(String),
+    /// FERB asked him something in its chat before starting (its words).
+    Asked(String),
+    /// FERB answered in its chat and started nothing (its words).
+    Said(String),
+    /// FERB couldn't start it (its words in the chat).
+    Failed(String),
+}
+
+/// HAND-702: where the hand-over's news goes.
+pub type HandNews = Arc<dyn Fn(Hand) + Send + Sync>;
+
+/// The owner's hand-over as a chat message: (text, client id, where the turn's news goes).
+pub type HandOver =
+    Arc<dyn Fn(String, Option<String>, HandNews) -> Result<(), String> + Send + Sync>;
 
 /// One own question.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -287,13 +310,14 @@ pub struct Seams {
     pub redact: Arc<dyn Fn(&str) -> String + Send + Sync>,
     pub publish: Note,
     pub journal: Note,
-    /// One notice line in the owner's chat, once per ident (the notifier: every client and phone sees it).
+    /// HAND-706: one notification on the Mac (a banner FERB.app shows while the session isn't in front of him), one per
+    /// session at a time (its ident replaces the last); never a line in the owner's chat.
     pub tell: Tell,
     pub ask: AskFn,
     /// Sets one of FERB's questions aside (it was answered elsewhere).
     pub close_ask: Arc<dyn Fn(&str) + Send + Sync>,
-    /// The owner's words as a chat message (his hand-over): (text, client id).
-    pub hand_over: Arc<dyn Fn(String, Option<String>) -> Result<(), String> + Send + Sync>,
+    /// The owner's words as a chat message (his hand-over): (text, client id, where the turn's news goes: HAND-702).
+    pub hand_over: HandOver,
     pub now: Arc<dyn Fn() -> String + Send + Sync>,
     pub mono: Arc<dyn Fn() -> f64 + Send + Sync>,
     pub new_id: Arc<dyn Fn() -> String + Send + Sync>,
@@ -348,6 +372,7 @@ impl Entry {
                 program: String::new(),
                 window: String::new(),
                 no_text: String::new(),
+                ferb_note: String::new(),
             },
             transcript: None,
             offset: 0,
@@ -360,6 +385,7 @@ impl Entry {
             host_key: (0, String::new()),
             exe: String::new(),
             term: None,
+            looked_at: f64::NEG_INFINITY,
         }
     }
 }
@@ -382,6 +408,8 @@ struct Entry {
     exe: String,
     /// HAND-692, HAND-693: a terminal's own state (None for an agent's session).
     term: Option<Term>,
+    /// HAND-706: when a client last read its timeline (monotonic; never: -inf).
+    looked_at: f64,
 }
 
 /// What FERB keeps of one terminal session (HAND-692, HAND-693).
@@ -507,12 +535,15 @@ impl Sessions {
             }
             _ => {}
         }
-        let st = lock(&self.state);
+        let mono = (self.seams.mono)();
+        let mut st = lock(&self.state);
         let e = st
             .sessions
-            .get(id)
+            .get_mut(id)
             .filter(|e| e.s.status != Status::Ended)
             .ok_or_else(gone)?;
+        e.looked_at = mono;
+        let e = &*e;
         let limit = limit.clamp(1, 100);
         let newer: Vec<&Item> = e.items.iter().filter(|i| i.seq > after).collect();
         let (items, more): (Vec<Item>, bool) = if after == 0 {
@@ -850,6 +881,7 @@ impl Sessions {
                             kind: d.kind,
                             text: (self.seams.redact)(&d.text),
                             tool: d.tool,
+                            parts: Vec::new(),
                         };
                         if item.kind == ItemKind::Assistant {
                             e.s.last_text = clip(&one_line(&item.text), 200);
@@ -1191,8 +1223,11 @@ impl Sessions {
         Ok(())
     }
 
+    /// A turn sent through FERB ended: said on the session (its status) and, only while the owner isn't looking at it,
+    /// as one Mac notification for that session (HAND-706: the owner, "the chat is spammed": never a chat line).
     fn tell_finished(&self, session: &str) {
-        let (agent, folder, last) = {
+        let mono = (self.seams.mono)();
+        let (agent, folder, last, looked) = {
             let st = lock(&self.state);
             let Some(e) = st.sessions.get(session) else {
                 return;
@@ -1202,14 +1237,22 @@ impl Sessions {
                 (Agent::AppChat, Some(h)) => h.name.clone(),
                 _ => format!("{} in {}", e.s.agent.name(), folder_name(&e.s.cwd)),
             };
-            (e.s.agent, where_, e.s.last_text.clone())
+            (
+                e.s.agent,
+                where_,
+                e.s.last_text.clone(),
+                mono - e.looked_at < LOOKED_AT_S,
+            )
         };
         (self.seams.publish)(
             "sessions.finished",
             json!({"session": session, "agent": agent.name(), "folder": folder, "last": last}),
         );
+        if looked {
+            return;
+        }
         // FERB's own words only: the agent's reply is in the session, never in FERB's notice (rule 9)
-        let ident = format!("sessions.finished:{session}:{}", (self.seams.new_id)());
+        let ident = format!("sessions.finished:{session}");
         (self.seams.tell)(&ident, &format!("{folder} is done and waiting for you."));
     }
 
@@ -1465,7 +1508,7 @@ impl Sessions {
                     let app = s.host.as_ref().map(|h| h.name.clone()).unwrap_or_default();
                     return Err(no(
                         codes::NO_SEND_PATH,
-                        format!("No chat open in {app}. Start one there to continue here."),
+                        format!("No agent chat open in {app}. Start one there to continue here."),
                     ));
                 }
                 let typed = self
@@ -1759,7 +1802,8 @@ impl Sessions {
     }
 
     /// The owner hands a session to FERB with his goal (ORCH-687): his words become a chat message, a FERB task like
-    /// any other, which reads and answers the session with its tools.
+    /// any other, which reads and answers the session with its tools. HAND-702: the session says what became of it
+    /// (`ferb_note`), and "FERB is on it" lasts only while FERB's task for it runs.
     pub fn delegate(
         &self,
         id: &str,
@@ -1777,65 +1821,110 @@ impl Sessions {
             ));
         }
         let s = self.session(id).ok_or_else(gone)?;
-        let where_ = match s
-            .host
-            .as_ref()
-            .map(|h| h.name.as_str())
-            .filter(|n| !n.is_empty())
-        {
-            Some(app) => format!(" in {app}"),
-            None => String::new(),
-        };
-        let title = if s.title.is_empty() {
-            String::new()
-        } else {
-            format!(" \"{}\"", s.title)
-        };
-        let text = if s.agent == Agent::AppChat {
-            let app = s.host.as_ref().map(|h| h.name.clone()).unwrap_or_default();
-            format!("Take over my {app} chat{title} (session {}) and keep it going until this is done: {goal}", s.id)
-        } else if s.agent == Agent::Terminal {
-            let program = if s.program.is_empty() {
-                String::new()
-            } else {
-                format!(" running {}", s.program)
-            };
-            format!(
-                "Take over my terminal{program} ({}{where_}, session {}) and keep it going until this is done: {goal}",
-                s.cwd, s.id
-            )
-        } else {
-            format!(
-                "Take over my {} session{title} ({}{where_}, session {}) and keep it going until this is done: {goal}",
-                s.agent.name(),
-                s.cwd,
-                s.id
-            )
-        };
-        (self.seams.hand_over)(text.clone(), client).map_err(|e| no(codes::SEND_FAILED, e))?;
+        let text = hand_over_text(&s, goal);
+        let me = self.clone();
+        let sid = id.to_owned();
+        let news: HandNews = Arc::new(move |h: Hand| me.hand_news(&sid, h));
+        // the goal is set before the message goes: its first news can come at once
         if let Some(e) = lock(&self.state).sessions.get_mut(id) {
             e.s.goal = self.redact(goal);
+            e.s.delegate.clear();
+            e.s.ferb_note = format!("Handed to FERB: “{}”", clip(&one_line(&e.s.goal), 160));
+        }
+        if let Err(e) = (self.seams.hand_over)(text.clone(), client, news) {
+            if let Some(x) = lock(&self.state).sessions.get_mut(id) {
+                x.s.goal.clear();
+                x.s.ferb_note.clear();
+            }
+            self.changed();
+            return Err(no(codes::SEND_FAILED, e));
         }
         (self.seams.journal)("sessions.delegated", json!({"session": id}));
         self.changed();
         Ok(text)
     }
 
+    /// HAND-702: what became of a hand-over message, said in the session. Only a started task keeps "FERB is on it";
+    /// a question, an answer or a failure ends it and says so.
+    pub fn hand_news(&self, id: &str, h: Hand) {
+        let quote = |t: &str| clip(&one_line(&self.redact(t)), 300);
+        {
+            let mut st = lock(&self.state);
+            let Some(e) = st.sessions.get_mut(id) else {
+                return;
+            };
+            // a later hand-over, or his taking it back, already replaced this one
+            if e.s.goal.is_empty() && e.s.delegate.is_empty() {
+                return;
+            }
+            match &h {
+                Hand::Started(task) => {
+                    e.s.delegate = task.clone();
+                    e.s.ferb_note = format!("FERB is on it: “{}”", clip(&one_line(&e.s.goal), 160));
+                }
+                Hand::Asked(q) => {
+                    e.s.goal.clear();
+                    e.s.delegate.clear();
+                    e.s.ferb_note = format!(
+                        "FERB asked you something in its chat before it starts: “{}”",
+                        quote(q)
+                    );
+                }
+                Hand::Said(t) => {
+                    e.s.goal.clear();
+                    e.s.delegate.clear();
+                    e.s.ferb_note =
+                        format!("FERB answered in its chat and didn't start: “{}”", quote(t));
+                }
+                Hand::Failed(t) => {
+                    e.s.goal.clear();
+                    e.s.delegate.clear();
+                    e.s.ferb_note = format!("FERB couldn't start on it: “{}”", quote(t));
+                }
+            }
+        }
+        (self.seams.journal)(
+            "sessions.hand_news",
+            json!({"session": id, "news": match h {
+                Hand::Started(_) => "started",
+                Hand::Asked(_) => "asked",
+                Hand::Said(_) => "said",
+                Hand::Failed(_) => "failed",
+            }}),
+        );
+        self.changed();
+    }
+
     /// A FERB task acted on a session: the session shows it is FERB's (until the task ends).
     pub fn task_touched(&self, id: &str, tree: &str) {
         if let Some(e) = lock(&self.state).sessions.get_mut(id) {
+            if e.s.delegate != tree {
+                e.s.ferb_note = "FERB is working in this session.".into();
+            }
             e.s.delegate = tree.to_owned();
         }
         self.changed();
     }
 
-    /// A task ended: the sessions it held are the owner's again.
-    pub fn task_ended(&self, tree: &str) {
+    /// A task ended (`status`: done, failed, stopped, cancelled…): the sessions it held are the owner's again, and
+    /// each says how it ended (HAND-702).
+    pub fn task_ended(&self, tree: &str, status: &str) {
+        if tree.is_empty() {
+            return;
+        }
         let mut any = false;
         for e in lock(&self.state).sessions.values_mut() {
             if e.s.delegate == tree {
                 e.s.delegate.clear();
                 e.s.goal.clear();
+                e.s.ferb_note = match status {
+                    "done" => "FERB finished. The session is yours again.",
+                    "stopped" | "cancelled" | "interrupted" => {
+                        "FERB stopped. The session is yours again."
+                    }
+                    _ => "FERB stopped without finishing. Its chat says why.",
+                }
+                .into();
                 any = true;
             }
         }
@@ -1969,6 +2058,7 @@ impl Sessions {
                         kind: d.kind,
                         text: (self.seams.redact)(&d.text),
                         tool: d.tool.clone(),
+                        parts: Vec::new(),
                     })
                     .collect();
                 if let Some(last) = e.items.iter().rev().find(|i| i.kind == ItemKind::Assistant) {
@@ -2133,6 +2223,48 @@ pub const ENABLE_DETAIL: &str = "Then you can follow your terminals and type int
 pub const ENABLE_YES: &str = "Yes, let FERB see them";
 pub const ENABLE_NO: &str = "No, thanks";
 
+/// HAND-702: the owner's hand-over message: the session by its kind, title, folder, app and id, that it is on this
+/// Mac and is driven with the agent_session tools (read it, type into it), and his goal in his words.
+pub fn hand_over_text(s: &Session, goal: &str) -> String {
+    let where_ = match s
+        .host
+        .as_ref()
+        .map(|h| h.name.as_str())
+        .filter(|n| !n.is_empty())
+    {
+        Some(app) => format!(" in {app}"),
+        None => String::new(),
+    };
+    let title = if s.title.is_empty() {
+        String::new()
+    } else {
+        format!(" \"{}\"", s.title)
+    };
+    let what = match s.agent {
+        Agent::AppChat => {
+            let app = s.host.as_ref().map(|h| h.name.clone()).unwrap_or_default();
+            format!("my {app} chat{title} (session {})", s.id)
+        }
+        Agent::Terminal => {
+            let program = if s.program.is_empty() {
+                String::new()
+            } else {
+                format!(" running {}", s.program)
+            };
+            format!("my terminal{program} ({}{where_}, session {})", s.cwd, s.id)
+        }
+        _ => format!(
+            "my {} session{title} ({}{where_}, session {})",
+            s.agent.name(),
+            s.cwd,
+            s.id
+        ),
+    };
+    format!(
+        "Take over {what} on this Mac. It's a session on the Mac, not a person to message: read it and type into it with the agent_session tools, and keep it going until this is done: {goal}"
+    )
+}
+
 /// The last part of a folder ("FERB" for "/Users/x/Desktop/FERB").
 pub fn folder_name(cwd: &str) -> String {
     Path::new(cwd)
@@ -2221,7 +2353,7 @@ pub fn session_json(s: &Session, by: &Caller) -> Value {
 pub fn list_json(me: &Sessions, by: &Caller) -> Map<String, Value> {
     let mut m = Map::new();
     m.insert("enabled".into(), json!(me.enabled()));
-    // HAND-697: the chat apps open with no chat FERB could find (their names; the clients say "No chat open in …")
+    // HAND-697: the chat apps open with no chat FERB could find (their names; the clients say "No agent chat open in …", HAND-705)
     m.insert(
         "no_chats".into(),
         json!(if me.enabled() {
