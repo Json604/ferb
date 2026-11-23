@@ -131,7 +131,8 @@ fn result_json(a: &Attempt) -> Value {
         Attempt::Report(py) => json!({"class": "report", "report": py.to_value()}),
         Attempt::Outcome(o) => {
             let class = match &o.kind {
-                OutcomeKind::Plain => "Outcome",
+                // ORCH-707: Python's plain Outcome, told apart in Rust
+                OutcomeKind::Plain | OutcomeKind::Internal => "Outcome",
                 OutcomeKind::ServiceDown { .. } => "ServiceDown",
                 OutcomeKind::Overflowed => "Overflowed",
             };

@@ -15,9 +15,8 @@
 //!   progress stop the attempt. Only the time the step's worker is thinking counts: time inside a call (a wait, a
 //!   long command) and the time between two attempts (the check) don't.
 //!
-//! - **Calls into windows and pages in one attempt** (ORCH-693, on trial): a call of a Mac or browser tool that names
-//!   an app window or a page (its `app`, `tab` or `url` argument; [`Done::window`]), whatever it did.
-//!   [`WINDOW_CALLS_PER_ATTEMPT`] of them in one worker attempt stop it.
+//! Nothing counts calls as such: a long task that keeps making progress is never stopped for its length (ORCH-706,
+//! owner 2026-11-23, retiring the 40-call trial of ORCH-693).
 //!
 //! Each stop is latched once for the supervisor ([`Steps::take_tripped`]) and the step's counts start again, so a
 //! "keep trying" gets a fresh 8 actions and 4 minutes. decision: ORCH-691, ORCH-692
@@ -26,15 +25,12 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use serde_json::{json, Map, Value};
 
-// The guard's numbers, in one place (each with its decision; ORCH-693 is a trial to be rolled back if the owner meets
-// a problem on real tasks).
+// The guard's numbers, in one place (each with its decision).
 /// ORCH-691: failed or unchanged on-screen actions in a row on one app (no progress there in between) that stop an
 /// attempt.
 pub const FAILED_ON_ONE_APP: u32 = 8;
 /// ORCH-691: seconds of the step without progress that stop an attempt.
 pub const NO_PROGRESS_S: f64 = 240.0;
-/// ORCH-693 (trial from 2026-11-22): calls into an app window or a page in one worker attempt that stop it.
-pub const WINDOW_CALLS_PER_ATTEMPT: u32 = 40;
 
 /// Arguments that annotate a call rather than say what it reaches.
 const NOTES: [&str; 4] = ["why", "effect", "purpose", "mechanism"];
@@ -53,8 +49,6 @@ pub struct Done<'a> {
     pub args: &'a Map<String, Value>,
     pub content: &'a Value,
     pub is_error: bool,
-    /// ORCH-693: a Mac or browser tool's call that names an app window or a page (`app`, `tab` or `url`).
-    pub window: bool,
 }
 
 #[derive(Default, Debug)]
@@ -75,8 +69,6 @@ struct Step {
 pub struct Steps {
     by_task: HashMap<String, Step>,
     task_of: HashMap<String, String>,
-    /// ORCH-693: each worker attempt's calls into windows and pages.
-    window_calls: HashMap<String, u32>,
 }
 
 fn truthy_false(content: &Value, key: &str) -> bool {
@@ -146,10 +138,6 @@ impl Steps {
         let step = self.by_task.entry(task.to_string()).or_default();
         step.in_flight = step.in_flight.saturating_sub(1);
         step.last = Some((worker.to_string(), now));
-        if d.window {
-            *self.window_calls.entry(worker.to_string()).or_insert(0) += 1;
-        }
-        let step = self.by_task.entry(task.to_string()).or_default();
         let wrong = went_wrong(d);
         if d.on_screen && !d.app.is_empty() && (wrong || unchanged(d.content)) {
             let slot = step
@@ -186,11 +174,8 @@ impl Steps {
             .values()
             .find(|(n, _)| *n >= FAILED_ON_ONE_APP)
             .cloned();
-        let calls = self.window_calls.get(worker).copied().unwrap_or(0);
         let why = if let Some((n, label)) = failed {
             json!({"why": "failed_actions", "app": label, "count": n})
-        } else if calls >= WINDOW_CALLS_PER_ATTEMPT {
-            json!({"why": "window_calls", "count": calls})
         } else if step.in_flight == 0 && step.idle >= NO_PROGRESS_S {
             json!({"why": "no_progress", "seconds": NO_PROGRESS_S})
         } else {
@@ -199,7 +184,6 @@ impl Steps {
         step.failed.clear();
         step.idle = 0.0;
         step.tripped = Some(why.clone());
-        self.window_calls.remove(worker);
         Some(why)
     }
 
@@ -210,15 +194,6 @@ impl Steps {
 
     /// The owner said "keep trying": the step counts afresh.
     pub fn keep_trying(&mut self, task: &str) {
-        let workers: Vec<String> = self
-            .task_of
-            .iter()
-            .filter(|(_, t)| *t == task)
-            .map(|(w, _)| w.clone())
-            .collect();
-        for w in workers {
-            self.window_calls.remove(&w);
-        }
         if let Some(s) = self.by_task.get_mut(task) {
             s.failed.clear();
             s.idle = 0.0;
@@ -234,7 +209,6 @@ impl Steps {
     /// A run ended: its worker id goes (the step's counts stay for its next attempt).
     pub fn forget_worker(&mut self, worker: &str) {
         self.task_of.remove(worker);
-        self.window_calls.remove(worker);
     }
 }
 
@@ -247,12 +221,6 @@ pub fn words(why: &Value) -> String {
                 .and_then(Value::as_u64)
                 .unwrap_or(FAILED_ON_ONE_APP as u64),
             why.get("app").and_then(Value::as_str).unwrap_or("one app")
-        ),
-        Some("window_calls") => format!(
-            "FERB worked in your apps and pages {} times in this attempt without finishing, so it stopped to ask you",
-            why.get("count")
-                .and_then(Value::as_u64)
-                .unwrap_or(WINDOW_CALLS_PER_ATTEMPT as u64)
         ),
         _ => format!(
             "{} minutes went by on this step without progress, so FERB stopped to ask you",

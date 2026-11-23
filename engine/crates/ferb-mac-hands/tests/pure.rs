@@ -870,3 +870,32 @@ fn locks_after_wav_profiles_scripts_match_python() {
     );
     assert!(applescript::wrap("com.apple.Notes\"", "x").is_err());
 }
+
+/// RUN-473 (agent): the sizes tried while a picture is fitted under the byte target: each smaller by the square root of
+/// how far over it is (a tenth below), never under MIN_FIT_EDGE on the long side, and none once it fits.
+// decision: RUN-473
+#[test]
+fn a_picture_over_the_byte_target_is_tried_smaller_until_it_fits_or_is_small() {
+    use ferb_mac_hands::shots::{smaller, IMAGE_BYTES_TARGET, MIN_FIT_EDGE};
+    assert_eq!(
+        smaller(1568, 2029, IMAGE_BYTES_TARGET, IMAGE_BYTES_TARGET),
+        None
+    );
+    // four times over: about half each side, a tenth below
+    assert_eq!(
+        smaller(1568, 2029, 4 * IMAGE_BYTES_TARGET, IMAGE_BYTES_TARGET),
+        Some((706, 913))
+    );
+    // barely over: still a tenth smaller
+    assert_eq!(
+        smaller(1000, 500, IMAGE_BYTES_TARGET + 1, IMAGE_BYTES_TARGET),
+        Some((900, 450))
+    );
+    // far over: not under the smallest long side, and then no further
+    let (w, h) = smaller(1568, 980, 1000 * IMAGE_BYTES_TARGET, IMAGE_BYTES_TARGET).unwrap();
+    assert_eq!(w.max(h), MIN_FIT_EDGE);
+    assert_eq!(
+        smaller(w, h, 1000 * IMAGE_BYTES_TARGET, IMAGE_BYTES_TARGET),
+        None
+    );
+}

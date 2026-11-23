@@ -2324,13 +2324,14 @@ live = ["LIVE-1179"]
 title = "On trial: after 40 calls into windows or pages in one attempt, FERB stops and asks"
 by = "owner"
 date = 2026-11-22
-status = "active"
+status = "superseded"
+superseded_by = "ORCH-706"
 words = "go with C. just note this while fix as a test and can be roll bakcedwhen i face issue with my real tasks i do with it"
 words_source = "Owner 2026-11-22 (relayed), choosing option C: ORCH-691's limits plus a cap of 40 on-screen actions per worker attempt, then the same question."
 rule = "On trial from 2026-11-22; to be revisited when the owner reports a problem on real tasks (T-1292), and rolled back on his word. Adds to ORCH-691: a worker attempt whose Mac or browser tool calls naming an app window or a page (an app, tab or url argument) reach 40 stops, and its check's retry becomes ORCH-679's question \"Keep trying, or go on with what I have?\"; Keep trying, or a new attempt, counts afresh. The 8-in-a-row and 4-minute limits stay. The three numbers are named constants in ferb-gateway stuck.rs."
 why = "Task a843aa54's second attempt made 93 calls into Chrome; failures came in runs broken by visible changes and new snapshots, so neither ORCH-691 limit would have stopped it."
 evidence = "ferb-gateway tests/stuck.rs: a 93-call attempt shaped as a843aa54's stops at its 40th window call; 39 never ask; keep trying and a new attempt count afresh."
-paths = ["engine/crates/ferb-gateway/src/stuck.rs::WINDOW_CALLS_PER_ATTEMPT", "engine/crates/ferb-gateway/src/gateway.rs::note_step"]
+paths = ["engine/crates/ferb-gateway/src/stuck.rs", "engine/crates/ferb-gateway/src/gateway.rs::note_step"]
 live = ["LIVE-1181"]
 
 [ORCH-699]
@@ -2442,3 +2443,29 @@ why = "The owner wanted the temporary chat's switch with the usual tools: the st
 evidence = "ferb-supervisor tests/session_driver.rs a_drive_is_one_fresh_worker_step_per_reply_with_its_lookups_and_no_planner_or_checker."
 paths = ["engine/crates/ferb-supervisor/src/flow/temporary.rs", "engine/crates/ferb-supervisor/src/flow/host.rs", "engine/crates/ferb-supervisor/src/flow/driver.rs", "engine/crates/ferb-core/src/driver.rs"]
 live = ["LIVE-1199"]
+
+[ORCH-706]
+title = "No cap on calls per attempt: the 40-call trial is removed"
+by = "owner"
+date = 2026-11-23
+status = "active"
+words = "go with C. just note this while fix as a test and can be roll bakcedwhen i face issue with my real tasks i do with it / ohh, so it your added cap, rihgt??? that i said lets keep in trial. i knew you'd do something tooo overcautious adn fuck thigns up. anyways remove taht."
+words_source = "Owner 2026-11-22 choosing ORCH-693's trial (first quote); 2026-11-23 (relayed), told task 047ad9e8's first attempt was stopped by it at its 40th window call (second)."
+rule = "Supersedes ORCH-693. A worker attempt is never stopped for how many calls it made into windows or pages: the count and its constant are gone. ORCH-691's guard stays as it is (8 failed or unchanged actions in a row on one app, 4 minutes without progress), and so does its question."
+why = "The trial cap stopped a healthy long task (047ad9e8, attempt 1) on its length alone."
+supersedes = ["ORCH-693"]
+evidence = "ferb-gateway tests/stuck.rs a_long_attempt_past_forty_window_calls_is_never_stopped_for_its_length (500 calls into windows and pages, no stop)."
+paths = ["engine/crates/ferb-gateway/src/stuck.rs", "engine/crates/ferb-gateway/src/gateway.rs::note_step"]
+
+[ORCH-707]
+title = "An attempt FERB itself broke is retried without counting as a try; 3 in a row ask"
+by = "owner"
+date = 2026-11-23
+status = "active"
+words = "Do both"
+words_source = "Owner 2026-11-23 (relayed), approving #4 of a list: \"a FERB crash retries without counting as one of your 5 tries\" (#16 went to another change)."
+rule = "For ORCH-307. An attempt that couldn't run because something broke inside FERB (the worker's error none of its other kinds names: OutcomeKind::Internal) goes through the check or router as any not-done attempt, and its retry doesn't count toward CHECK_IN_AFTER. After INTERNAL_ERRORS_IN_A_ROW (3, FERB's proposal and the owner's number to change) such attempts in a row in one step, the check's retry becomes ORCH-679's question with the last reason; Keep trying counts afresh."
+why = "Task 047ad9e8: three of its five tries were Claude Code's stream failing to be read (CLIJSONDecodeError), FERB's fault, not the work's."
+evidence = "ferb-supervisor tests/internal_errors.rs (two crashes then the check-in after five real tries; three crashes in a row ask with the reason, Keep trying goes on)."
+paths = ["engine/crates/ferb-worker/src/worker.rs", "engine/crates/ferb-orchestrator/src/attempts.rs", "engine/crates/ferb-supervisor/src/flow/attempt.rs::worker_loop"]
+live = ["LIVE-1200"]

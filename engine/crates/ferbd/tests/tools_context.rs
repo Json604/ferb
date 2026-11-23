@@ -314,6 +314,113 @@ fn fs_look_decodes_as_python() {
     assert_eq!(same_bytes, 4, "pictures byte for byte as Python's");
 }
 
+/// Invented noise (a small LCG): the worst case for JPEG, so a picture of it is as large as one gets.
+fn noise(len: usize) -> Vec<u8> {
+    let mut x: u32 = 0x2545_F491;
+    (0..len)
+        .map(|_| {
+            x = x.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            (x >> 24) as u8
+        })
+        .collect()
+}
+
+/// A 24-bit BMP of noise, `w`x`h`.
+fn noise_bmp(w: u32, h: u32) -> Vec<u8> {
+    let row = (w * 3).div_ceil(4) * 4;
+    let size = 54 + row * h;
+    let mut b = Vec::with_capacity(size as usize);
+    b.extend_from_slice(b"BM");
+    b.extend_from_slice(&size.to_le_bytes());
+    b.extend_from_slice(&[0; 4]);
+    b.extend_from_slice(&54u32.to_le_bytes());
+    b.extend_from_slice(&40u32.to_le_bytes());
+    b.extend_from_slice(&w.to_le_bytes());
+    b.extend_from_slice(&h.to_le_bytes());
+    b.extend_from_slice(&1u16.to_le_bytes());
+    b.extend_from_slice(&24u16.to_le_bytes());
+    b.extend_from_slice(&[0; 24]);
+    let pixels = noise((row * h) as usize);
+    b.extend_from_slice(&pixels);
+    b
+}
+
+/// A one-page PDF whose page is a noise image `w`x`h` drawn over the whole US Letter page.
+fn noise_pdf(w: u32, h: u32) -> Vec<u8> {
+    let image = noise((w * h * 3) as usize);
+    let content = b"q 612 0 0 792 0 0 cm /Im1 Do Q\n";
+    let mut out: Vec<u8> = b"%PDF-1.4\n".to_vec();
+    let mut at = Vec::new();
+    let objects: Vec<Vec<u8>> = vec![
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /XObject << /Im1 4 0 R >> >> /Contents 5 0 R >>"
+            .to_vec(),
+        [
+            format!("<< /Type /XObject /Subtype /Image /Width {w} /Height {h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Length {} >>\nstream\n", image.len()).into_bytes(),
+            image,
+            b"\nendstream".to_vec(),
+        ]
+        .concat(),
+        [
+            format!("<< /Length {} >>\nstream\n", content.len()).into_bytes(),
+            content.to_vec(),
+            b"endstream".to_vec(),
+        ]
+        .concat(),
+    ];
+    for (i, o) in objects.iter().enumerate() {
+        at.push(out.len());
+        out.extend_from_slice(format!("{} 0 obj\n", i + 1).as_bytes());
+        out.extend_from_slice(o);
+        out.extend_from_slice(b"\nendobj\n");
+    }
+    let xref = out.len();
+    out.extend_from_slice(
+        format!("xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1).as_bytes(),
+    );
+    for a in at {
+        out.extend_from_slice(format!("{a:010} 00000 n \n").as_bytes());
+    }
+    out.extend_from_slice(
+        format!(
+            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n",
+            objects.len() + 1
+        )
+        .as_bytes(),
+    );
+    out
+}
+
+/// RUN-473 (agent): a picture or PDF page as large as a JPEG gets (noise) comes back under the byte target, and the
+/// width and height fs.look reports are the picture's own.
+// decision: RUN-473
+#[test]
+fn fs_look_keeps_the_largest_picture_and_page_under_the_byte_target() {
+    use ferb_fs::look::Renderer;
+    use ferb_mac_hands::shots::IMAGE_BYTES_TARGET;
+    let r = ferbd::native::MacRenderer;
+    for (what, got) in [
+        ("picture", r.picture(&noise_bmp(2000, 1500), 1568)),
+        ("page", r.pdf_page(&noise_pdf(600, 800), 1, 1568)),
+    ] {
+        let (jpeg, facts) = got.unwrap_or_else(|e| panic!("{what}: {e:?}"));
+        assert!(
+            jpeg.len() <= IMAGE_BYTES_TARGET,
+            "{what}: {} bytes",
+            jpeg.len()
+        );
+        let (w, h) = ferb_mac_hands::native::paint::size(&jpeg).unwrap();
+        assert_eq!(
+            (facts["width"].as_i64(), facts["height"].as_i64()),
+            (Some(w), Some(h)),
+            "{what}: {facts:?}"
+        );
+        assert!(w.max(h) >= 320, "{what}: still a picture to read ({w}x{h})");
+        eprintln!("{what}: {} bytes at {w}x{h}", jpeg.len());
+    }
+}
+
 #[test]
 fn fs_look_through_the_binary() {
     let f = fixture("ferbd/tools.json");

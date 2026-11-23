@@ -1421,11 +1421,6 @@ impl Gateway {
             args,
             content: r.map_or(&none, |r| &r.content),
             is_error: r.is_none_or(|r| r.is_error),
-            // ORCH-693: a Mac or browser tool's call that names an app window or a page
-            window: (name.starts_with("mac.") || name.starts_with("browser."))
-                && ["app", "tab", "url"]
-                    .iter()
-                    .any(|k| args.get(*k).is_some_and(ferb_py::value::truthy)),
         };
         let now = self.d.clock.monotonic();
         lock(&self.inner)

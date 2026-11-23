@@ -1,6 +1,7 @@
 //! fs.look's decoders on the Mac (`ferb/act/fs/look.py` `picture` and `pdf_page`): ImageIO for a picture, PDFKit and
 //! CoreGraphics for a PDF page, drawn onto an opaque white sRGB bitmap and encoded with the screenshot's JPEG helper
-//! (ferb-mac-hands' `native::paint::jpeg`). Nothing is written to disk and nothing opens on screen.
+//! (ferb-mac-hands' `native::paint`), under RUN-473's byte target (`jpeg_fit`: a lower quality, then smaller, with the
+//! size it ended at in its facts). Nothing is written to disk and nothing opens on screen.
 
 use std::ffi::c_void;
 use std::ptr::NonNull;
@@ -80,10 +81,17 @@ fn bitmap(width: usize, height: usize) -> Result<CFRetained<CGContext>, LookErro
     Ok(ctx)
 }
 
-fn encoded(ctx: &CGContext) -> Result<Vec<u8>, LookError> {
+/// The drawn picture as JPEG under RUN-473's byte target; `facts`' width and height become the size it ended at.
+fn encoded(ctx: &CGContext, facts: &mut Dict) -> Result<Vec<u8>, LookError> {
     let image: CFRetained<CGImage> = CGBitmapContextCreateImage(Some(ctx))
         .ok_or_else(|| undecodable("couldn't make a picture of that size"))?;
-    ferb_mac_hands::native::paint::jpeg(&image).map_err(|e| undecodable(&e.to_string()))
+    let (jpeg, scaled) =
+        ferb_mac_hands::native::paint::jpeg_fit(&image).map_err(|e| undecodable(&e.to_string()))?;
+    if let Some((w, h)) = scaled {
+        facts.insert("width".into(), json!(w));
+        facts.insert("height".into(), json!(h));
+    }
+    Ok(jpeg)
 }
 
 fn number(d: &CFDictionary, key: &CFString) -> i64 {
@@ -161,7 +169,8 @@ pub fn picture(data: &[u8], max_edge: u32) -> Result<(Vec<u8>, Dict), LookError>
             facts.insert("frames".into(), json!(frames));
             facts.insert("shown".into(), json!("the first frame"));
         }
-        Ok((encoded(&ctx)?, facts))
+        let jpeg = encoded(&ctx, &mut facts)?;
+        Ok((jpeg, facts))
     })
 }
 
@@ -230,7 +239,6 @@ pub fn pdf_page(data: &[u8], number: i64, max_edge: u32) -> Result<(Vec<u8>, Dic
             ),
         );
         CGContext::draw_pdf_page(Some(&ctx), Some(r));
-        let jpeg = encoded(&ctx)?;
         // SAFETY: PDFPage's string (NSString, may be nil).
         let text: Option<Retained<NSString>> = unsafe { msg_send![&*page, string] };
         let text = text.map(|t| t.to_string()).unwrap_or_default();
@@ -241,6 +249,7 @@ pub fn pdf_page(data: &[u8], number: i64, max_edge: u32) -> Result<(Vec<u8>, Dic
         facts.insert("width".into(), json!(w));
         facts.insert("height".into(), json!(h));
         facts.insert("text".into(), json!(text.trim()));
+        let jpeg = encoded(&ctx, &mut facts)?;
         Ok((jpeg, facts))
     })
 }

@@ -2,7 +2,7 @@
 //! the program's argv and environment (`_internal/transport/subprocess_cli.py` `_build_command`, `connect`), its
 //! `-v` probe, the stream-json frames on stdin (`client.py` `query`), the control protocol (`_internal/query.py`:
 //! the `initialize` request, answers to the program's own control requests, frames meant for the SDK only), the
-//! stdout reader with its 1 MB line limit, the message parser (`_internal/message_parser.py`) and the shutdown
+//! stdout reader (its lines read whatever their length: RUN-473), the message parser (`_internal/message_parser.py`) and the shutdown
 //! (`close`: stdin closed, 5 s, SIGTERM, 5 s, SIGKILL).
 
 use std::collections::{BTreeMap, HashMap};
@@ -20,8 +20,11 @@ use crate::process::{ProcControl, Spawn, Spawner};
 /// The pinned SDK whose behavior this reproduces, and the Claude Code it bundles (claude_sdk.py:46-48).
 pub const SDK_VERSION: &str = "0.2.174";
 pub const CLAUDE_CODE_VERSION: &str = "2.1.310";
-/// subprocess_cli.py `_DEFAULT_MAX_BUFFER_SIZE`: one stdout message at most 1 MB.
-pub const MAX_BUFFER: usize = 1024 * 1024;
+/// RUN-473 (agent, for the owner's "what if limit hit??/ does it try another way???"): a memory guard against a
+/// runaway program, not a limit on what a run may say. A stdout line longer than this is skipped, logged and the run
+/// goes on (the model already has what the line carried; FERB only reads the stream). The SDK's own limit was 1 MiB
+/// (subprocess_cli.py `_DEFAULT_MAX_BUFFER_SIZE`), which failed the whole attempt: fixed against Python.
+pub const LINE_GUARD: usize = 256 * 1024 * 1024;
 const SDK_READS_SESSION_STATE: &str = "CLAUDE_CODE_SDK_READS_SESSION_STATE";
 
 fn raised(class: &str, message: impl Into<String>) -> RuntimeError {
@@ -354,7 +357,94 @@ async fn version_probe(spawner: &dyn Spawner, cli: &str, environ: &BTreeMap<Stri
     let _ = child.control.wait().await;
 }
 
-/// subprocess_cli.py `_LineFramer` + `_parse_stdout_line` + query.py `_read_messages`.
+/// What one stdout line became as the reader framed it.
+#[derive(Debug, PartialEq)]
+pub enum Framed {
+    /// A whole line (without its newline).
+    Line(Vec<u8>),
+    /// A line longer than [`LINE_GUARD`]: its bytes were dropped as they came; this many were seen.
+    Skipped(usize),
+}
+
+/// subprocess_cli.py `_LineFramer`, without its limit (RUN-473): splits stdout into lines of any length. A line that
+/// grows past `guard` is dropped as it streams in (never held) and reported once, whole, as [`Framed::Skipped`].
+#[derive(Debug)]
+pub struct Framer {
+    guard: usize,
+    pending: Vec<u8>,
+    /// Bytes of the line being skipped, while one is.
+    skipping: Option<usize>,
+}
+
+impl Framer {
+    pub fn new(guard: usize) -> Framer {
+        Framer {
+            guard,
+            pending: Vec::new(),
+            skipping: None,
+        }
+    }
+
+    /// Takes a chunk; returns the lines it completed, in order.
+    pub fn push(&mut self, mut chunk: &[u8]) -> Vec<Framed> {
+        let mut out = Vec::new();
+        loop {
+            if let Some(seen) = self.skipping {
+                match chunk.iter().position(|b| *b == b'\n') {
+                    Some(i) => {
+                        out.push(Framed::Skipped(seen + i));
+                        self.skipping = None;
+                        chunk = &chunk[i + 1..];
+                    }
+                    None => {
+                        self.skipping = Some(seen + chunk.len());
+                        return out;
+                    }
+                }
+                continue;
+            }
+            match chunk.iter().position(|b| *b == b'\n') {
+                Some(i) if self.pending.len() + i <= self.guard => {
+                    self.pending.extend_from_slice(&chunk[..i]);
+                    out.push(Framed::Line(std::mem::take(&mut self.pending)));
+                    chunk = &chunk[i + 1..];
+                }
+                Some(_) | None if self.pending.len() + chunk.len() > self.guard => {
+                    // past the guard: what is held goes, and the rest of the line is dropped as it comes
+                    self.skipping = Some(self.pending.len());
+                    self.pending = Vec::new();
+                }
+                _ => {
+                    self.pending.extend_from_slice(chunk);
+                    return out;
+                }
+            }
+        }
+    }
+
+    /// The tail after the last newline (the stream ended without one); None while a line is being skipped.
+    pub fn tail(self) -> Option<Vec<u8>> {
+        if self.skipping.is_some() {
+            return None;
+        }
+        Some(self.pending)
+    }
+}
+
+/// RUN-473: Claude Code echoes each tool result twice in its `user` message: in `message.content` (what the model
+/// gets) and again as the top-level `tool_use_result`. FERB reads only the first, so the echo is dropped as the line
+/// is read: a big result (a picture) costs once.
+pub fn without_echo(mut message: Value) -> Value {
+    if message.get("type").and_then(Value::as_str) == Some("user") {
+        if let Some(m) = message.as_object_mut() {
+            m.remove("tool_use_result");
+        }
+    }
+    message
+}
+
+/// subprocess_cli.py `_LineFramer` + `_parse_stdout_line` + query.py `_read_messages`: lines of any length
+/// ([`Framer`]); a line past [`LINE_GUARD`] is skipped with a line in the daemon's log, and the run goes on.
 async fn read_messages(
     mut stdout: Box<dyn AsyncRead + Send + Unpin>,
     tx: mpsc::Sender<Result<Value, RuntimeError>>,
@@ -363,54 +453,51 @@ async fn read_messages(
     handlers: Arc<Mutex<Vec<JoinHandle<()>>>>,
     control: Arc<dyn ProcControl>,
 ) {
-    let mut pending: Vec<u8> = Vec::new();
+    let guard = LINE_GUARD;
+    let mut framer = Framer::new(guard);
     let mut chunk = vec![0u8; 65536];
     let failure: Option<RuntimeError> = 'read: loop {
         let n = match stdout.read(&mut chunk).await {
             Ok(0) | Err(_) => break 'read None,
             Ok(n) => n,
         };
-        pending.extend_from_slice(&chunk[..n]);
-        while let Some(i) = pending.iter().position(|b| *b == b'\n') {
-            let line: Vec<u8> = pending.drain(..=i).collect();
-            let text = String::from_utf8_lossy(&line[..line.len() - 1]).into_owned();
-            if text.chars().count() > MAX_BUFFER {
-                break 'read Some(raised(
-                    "CLIJSONDecodeError",
-                    format!(
-                        "Failed to decode JSON: JSON message exceeded maximum buffer size of {MAX_BUFFER} bytes..."
-                    ),
-                ));
-            }
-            match parse_line(&text) {
+        for framed in framer.push(&chunk[..n]) {
+            let line = match framed {
+                Framed::Line(line) => line,
+                Framed::Skipped(bytes) => {
+                    // no content in the log: the line may hold anything the run read
+                    eprintln!(
+                        "FERB: skipped one Claude Code message of {bytes} bytes (over FERB's {guard}-byte memory guard); the run goes on"
+                    );
+                    continue;
+                }
+            };
+            let text = String::from_utf8_lossy(&line);
+            let parsed = parse_line(&text);
+            drop(text);
+            drop(line);
+            match parsed {
                 Err(e) => break 'read Some(e),
                 Ok(None) => {}
                 Ok(Some(message)) => {
                     if *shared.closed.lock().unwrap_or_else(|e| e.into_inner()) {
                         break 'read None;
                     }
-                    if !route(message, &tx, &shared, &stdin, &handlers).await {
+                    if !route(without_echo(message), &tx, &shared, &stdin, &handlers).await {
                         break 'read None;
                     }
                 }
             }
         }
-        if String::from_utf8_lossy(&pending).chars().count() > MAX_BUFFER {
-            break 'read Some(raised(
-                "CLIJSONDecodeError",
-                format!(
-                    "Failed to decode JSON: JSON message exceeded maximum buffer size of {MAX_BUFFER} bytes..."
-                ),
-            ));
-        }
     };
+    let pending = framer.tail().unwrap_or_default();
     let failure = match failure {
         Some(f) => Some(f),
         None => {
             // the tail without a newline: yielded when whole, dropped when cut off
             let tail = String::from_utf8_lossy(&pending).into_owned();
             if let Ok(Some(message)) = parse_line(&tail) {
-                route(message, &tx, &shared, &stdin, &handlers).await;
+                route(without_echo(message), &tx, &shared, &stdin, &handlers).await;
             }
             let code = control.wait().await;
             if code != 0 {

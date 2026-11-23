@@ -5130,6 +5130,7 @@ request = "Use FERB as usual, including long tasks in apps and web pages (forms,
 pass = "FERB asks \"Keep trying, or go on with what I have?\" only when it really isn't getting anywhere; a healthy long task isn't interrupted at its 40th action. If it is, tell FERB's developer: the cap is on trial and gets rolled back (ORCH-693, T-1292)."
 decisions = ["ORCH-693", "ORCH-691"]
 sitting = "over the next weeks of real use"
+waiver = "obsolete 2026-11-23: ORCH-706 (owner) removed the 40-call cap"
 
 [LIVE-1182]
 title = "An import's progress shows in the chat and on the Memory page, and ends as its one message"
@@ -5270,3 +5271,12 @@ request = "In a disposable folder start `claude` (or `codex`). On the phone open
 pass = "No chat turn or plan card in FERB's chat while it drives; the note says each round (n of 20); what FERB typed shows as Sent by FERB; one step per reply (ferb trace: a session_driver.step per round, no planner or checker; ferb stats counts them); the second goal uses what you decided; permission prompts stay yours; Take it back stops it at once; ending by itself, one plain chat line. After 20 rounds: \"I've gone 20 rounds on “…”. Keep going?\""
 decisions = ["HAND-707", "HAND-708", "HAND-709", "ORCH-705", "APP-1124", "PHN-823"]
 sitting = "one sitting, about 15 minutes"
+
+[LIVE-1200]
+title = "A long look through a big PDF on Claude runs to the end"
+area = "runtimes"
+surface = "FERB.app with this build, Claude as the model, a disposable PDF of 20+ pages with full-page pictures or scans"
+request = "Ask FERB to look through that PDF page by page (as pictures, not only its text) and tell you what is on pages 15 to 25."
+pass = "FERB gets through every page and answers; no \"something broke inside FERB\" or \"couldn't run\". If an attempt ever does break inside FERB, it tries again by itself, and only after 3 in a row asks \"Keep trying, or go on with what I have?\" with the reason."
+decisions = ["RUN-473", "ORCH-707"]
+sitting = "one sitting, about 10 minutes"

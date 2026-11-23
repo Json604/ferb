@@ -1,9 +1,7 @@
 //! ORCH-691 (owner, 2026-11-22: "8 failed actions or 4 min"): the gateway's count for one step (crate::stuck), on
 //! structure only: failed or unchanged on-screen actions on one app, and the worker's own time without progress.
 
-use ferb_gateway::stuck::{
-    words, Done, Steps, FAILED_ON_ONE_APP, NO_PROGRESS_S, WINDOW_CALLS_PER_ATTEMPT,
-};
+use ferb_gateway::stuck::{words, Done, Steps, FAILED_ON_ONE_APP, NO_PROGRESS_S};
 use serde_json::{json, Map, Value};
 
 fn args(v: Value) -> Map<String, Value> {
@@ -33,7 +31,6 @@ fn call(
         args: &a,
         content: &content,
         is_error: error,
-        window: tool.starts_with("mac.") || tool.starts_with("browser."),
     };
     s.ended("task-1", worker, &d, now);
 }
@@ -80,7 +77,7 @@ fn fail_as(s: &mut Steps, worker: &str, i: u32, app: &str) {
 #[test]
 fn failures_broken_by_progress_on_the_app_never_stop_a_long_task() {
     let mut s = Steps::default();
-    // each round its own attempt (ORCH-693 counts window calls per attempt; the in-a-row count is the step's)
+    // each round its own attempt (the in-a-row count is the step's)
     for round in 0..50u32 {
         let w = format!("w{round}");
         for i in 0..FAILED_ON_ONE_APP - 1 {
@@ -266,7 +263,6 @@ fn four_minutes_of_the_workers_own_time_without_progress_stop_the_attempt() {
             args: &a,
             content: &content,
             is_error: false,
-            window: false,
         },
         2000.0,
     );
@@ -307,16 +303,15 @@ fn four_minutes_of_the_workers_own_time_without_progress_stop_the_attempt() {
     assert!(s.take_tripped("task-1").is_none());
 }
 
-/// ORCH-693 (owner 2026-11-22, on trial): task a843aa54's second attempt, shaped as it ran (93 calls into Chrome: a
-/// visible change or a new snapshot every few calls, so neither the 8-in-a-row nor the 4-minute limit fires), stops at
-/// its 40th call into a window or page; calls that name no window or page (a profile list, a file read) don't count.
-// decision: ORCH-693
+/// ORCH-706 (owner 2026-11-23: "anyways remove taht", retiring ORCH-693's trial): task a843aa54's second attempt,
+/// shaped as it ran (calls into Chrome with a visible change or a new snapshot every few calls, failures in between),
+/// carried on to 500 calls into windows and pages in one attempt: nothing stops it for its length; only ORCH-691's
+/// limits (8 in a row on one app, 4 minutes without progress) can.
+// decision: ORCH-706, ORCH-691
 #[test]
-fn a_ninety_three_call_attempt_stops_at_its_fortieth_window_call() {
+fn a_long_attempt_past_forty_window_calls_is_never_stopped_for_its_length() {
     let mut s = Steps::default();
-    let mut window_calls = 0;
-    for n in 1..=93u32 {
-        // a non-window call now and then
+    for n in 1..=500u32 {
         if n % 10 == 0 {
             call(
                 &mut s,
@@ -328,7 +323,6 @@ fn a_ninety_three_call_attempt_stops_at_its_fortieth_window_call() {
                 false,
                 n as f64,
             );
-            assert_eq!(s.check("w1", n as f64), None);
         }
         match n % 4 {
             0 => call(
@@ -351,57 +345,29 @@ fn a_ninety_three_call_attempt_stops_at_its_fortieth_window_call() {
                 false,
                 n as f64,
             ),
-            _ => fail(&mut s, n, CHROME),
+            2 => call(
+                &mut s,
+                "w1",
+                "browser.act",
+                "",
+                json!({"tab": 1, "n": n}),
+                json!({"done": true}),
+                false,
+                n as f64,
+            ),
+            // a failed or unchanged action on the app, at this call's time
+            _ => call(
+                &mut s,
+                "w1",
+                "mac.act",
+                CHROME,
+                json!({"app": "pid:1"}),
+                unchanged(),
+                false,
+                n as f64,
+            ),
         }
-        window_calls += 1;
-        let stop = s.check("w1", n as f64);
-        if window_calls < WINDOW_CALLS_PER_ATTEMPT {
-            assert_eq!(stop, None, "call {n}");
-        } else {
-            let why = stop.expect("the 40th window call stops it");
-            assert_eq!(why, json!({"why": "window_calls", "count": 40}));
-            assert_eq!(
-                words(&why),
-                "FERB worked in your apps and pages 40 times in this attempt without finishing, so it stopped to ask you"
-            );
-            assert_eq!(n, 40);
-            break;
-        }
+        assert_eq!(s.check("w1", n as f64), None, "call {n}");
     }
-    assert!(s.take_tripped("task-1").is_some());
-}
-
-/// ORCH-693: an attempt of 39 window calls never asks; "keep trying" starts the count again, and so does a new attempt.
-// decision: ORCH-693
-#[test]
-fn thirty_nine_window_calls_never_ask_and_keep_trying_counts_afresh() {
-    let mut s = Steps::default();
-    let progress = |s: &mut Steps, w: &str, n: u32| {
-        call(
-            s,
-            w,
-            "browser.act",
-            "",
-            json!({"tab": 1, "n": n}),
-            json!({"done": true}),
-            false,
-            1.0,
-        );
-    };
-    for n in 0..WINDOW_CALLS_PER_ATTEMPT - 1 {
-        progress(&mut s, "w1", n);
-        assert_eq!(s.check("w1", 1.0), None, "{n}");
-    }
-    s.keep_trying("task-1");
-    for n in 0..WINDOW_CALLS_PER_ATTEMPT - 1 {
-        progress(&mut s, "w1", n);
-        assert_eq!(s.check("w1", 1.0), None, "after keep trying {n}");
-    }
-    // a new attempt (a new worker) counts its own
-    for n in 0..WINDOW_CALLS_PER_ATTEMPT - 1 {
-        progress(&mut s, "w2", n);
-        assert_eq!(s.check("w2", 1.0), None, "new attempt {n}");
-    }
-    progress(&mut s, "w2", 99);
-    assert!(s.check("w2", 1.0).is_some());
+    assert!(s.take_tripped("task-1").is_none());
 }

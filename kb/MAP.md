@@ -12,13 +12,13 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `engine/runtime/identity` | 132 | 9 | 62 |
 | hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extension`, `extension-store` | 248 | 15 | 58 |
 | memory | Memory and memory import | `engine/runtime/memory` | 93 | 9 | 9 |
-| orchestration | Orchestration | `ferb/orchestrator/*.py`, `engine/runtime/decide`, `ferb/clock` | 193 | 12 | 44 |
+| orchestration | Orchestration | `ferb/orchestrator/*.py`, `engine/runtime/decide`, `ferb/clock` | 194 | 11 | 43 |
 | perception | Perception | `ferb/sense` | 27 | 4 | 2 |
 | phone | Phone role, link and phone apps | `apps/android`, `apps/ios`, `engine/patches` | 394 | 13 | 23 |
 | project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `HANDOFF.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `kb`, `tools`, `spikes` | 14 | 8 | 0 |
 | prompts | Prompts and abilities | `engine/runtime/orchestrator/prompts`, `engine/runtime/abilities` | 61 | 5 | 10 |
 | release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 28 | 6 | 5 |
-| runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 63 | 7 | 7 |
+| runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 64 | 7 | 8 |
 | storage | Storage | `engine/runtime/store` | 36 | 5 | 4 |
 | tests | Tests | `tests` | 15 | 9 | 0 |
 | voice | Voice | `ferb/voice` | 3 | 0 | 0 |

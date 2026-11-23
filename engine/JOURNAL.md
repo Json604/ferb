@@ -11196,3 +11196,98 @@ before. Other FERB.app tests still use real run-loop time (`settle`), as they di
 - FERB.app's profile menu still lists only the saved chat's running tasks.
 - The phones still learn of a temporary chat's change only through the status `rev`; how soon an answer leaves their
   screen depends on that status reaching them.
+
+## 2026-11-23 · 195 · No cap on calls per attempt; Claude Code's stream never fails a run on a long line; a crash isn't a try
+
+**Problem.** Task 047ad9e8 (read-only audit) stopped five ways:
+- Attempt 1 hit ORCH-693's trial cap, WINDOW_CALLS_PER_ATTEMPT = 40 (ferb-gateway `stuck.rs`).
+- Attempts 2, 4 and 5 crashed with CLIJSONDecodeError. The Claude reader's MAX_BUFFER was 1 MiB (claude-agent-sdk's
+  default). fs.look gave a 425,677-byte JPEG of PDF page 21, which became 567,572 base64 characters. Claude Code 2.1.310
+  writes each tool result twice in its `user` line: in `message.content[].tool_result` and again as the top-level
+  `tool_use_result`. So the line was about 1.14M characters.
+- Each crash counted as one of the step's five tries (ORCH-307).
+
+**The owner.**
+- On the cap: "anyways remove taht." This is ORCH-706, which supersedes ORCH-693 and quotes both of his messages.
+- On the limit: "why 64mb is a limit??? what if limit hit??/ does it try another way???" This is RUN-473, an agent
+  ruling.
+- On crashes: "Do both", approving "a FERB crash retries without counting as one of your 5 tries". This is ORCH-707.
+
+**Change.**
+1. **ORCH-706.**
+   - `WINDOW_CALLS_PER_ATTEMPT`, `Done::window`, the per-worker `window_calls` count and the "worked in your apps and
+     pages 40 times" words are gone (ferb-gateway `src/stuck.rs`; `src/gateway.rs` `note_step`).
+   - FAILED_ON_ONE_APP (8) and NO_PROGRESS_S (240) are unchanged (ORCH-691).
+   - T-1292 is closed. LIVE-1181 is waived as obsolete.
+2. **RUN-473, the reader** (ferb-runtimes `src/claude/transport.rs`).
+   - `Framer` splits stdout into lines of any length. It searches only each new chunk for the newline, so a long line
+     costs linear time. The old code counted all pending characters on every 64 KiB chunk.
+   - `without_echo` drops a `user` message's `tool_use_result` as the line is parsed, before it is routed or kept.
+     Nothing in FERB read it. The raw line buffer is freed after the parse.
+   - `LINE_GUARD` = 256 MiB is a memory guard against a runaway program, not a feature limit. A line that grows past
+     it is dropped as it streams in and never held. One line goes to the daemon's log (`logs/daemon.err.log`) with
+     its byte count and no content. The run goes on: the model already has the result in its own context.
+3. **RUN-473, the pictures.** IMAGE_BYTES_TARGET = 500,000 bytes. This is my ruling and the owner's to change
+   (ferb-mac-hands `src/shots.rs`).
+   - `paint::jpeg_within` encodes at 0.8 and, while still over the target, again at 0.65, 0.5 and 0.35. The pixels
+     stay the same.
+   - `paint::jpeg_fit` then scales down while still over, by `shots::smaller` (√(target/bytes) × 0.9, at most 0.9,
+     never under a 320 px long side). It returns the new size.
+   - Where each picture is fitted:
+     - fs.look's picture and PDF page use `jpeg_fit`, and the width and height in their facts are the size it ended
+       at (ferbd `src/native.rs`).
+     - A Mac window capture with a max edge uses `jpeg_fit` and reports the size it ended at, so clicks map as before.
+       At native resolution it uses quality only, because the pixels were asked for (`native/capture.rs`).
+     - A painted (masked) picture uses `jpeg_within`.
+     - A browser shot over the target is encoded again by quality only (`Images::within`, Quartz in ferbd), so the
+       page's coordinates hold.
+   - Pictures under the target are byte for byte as before. The fixture test still matches Python's 4 pictures.
+4. **ORCH-707, the crash retry.**
+   - The worker's catch-all error (none of its named kinds) is now `OutcomeKind::Internal`, with the same words and
+     status (ferb-worker `worker.rs`). The replay maps it to Python's plain `Outcome`.
+   - The supervisor's `worker_loop` still sends it through the check or router. A retry from it never calls
+     `attempts.failed_one()`.
+   - After INTERNAL_ERRORS_IN_A_ROW = 3 (proposed, the owner's number) in a row, the check's retry becomes ORCH-679's
+     question, and `task.internal_errors_asked` is journaled. Keep trying resets the run of crashes.
+   - Any other attempt resets the run too.
+   - New words (ferb-orchestrator `attempts.rs`): "FERB couldn't run this step 3 times in a row because of a problem
+     of its own, not anything you asked. The last time: <the worker's reason, minus its "That's a bug in FERB…"
+     sentence>. Keep trying, or go on with what I have?"
+
+**Evidence.**
+- ferb-runtimes `tests/claude_long_lines.rs` drives a fake Claude Code through the real `Client`:
+  - a 3 MiB tool-result line is read whole;
+  - the echo is dropped and the content stays;
+  - a line of LINE_GUARD + 1000 bytes is skipped, and the messages after it and the result arrive with no error;
+  - the framer splits chunks correctly and skips past a small guard.
+- `tests/claude.rs` (the Python fixtures, the "{broken" decode error included) is unchanged.
+- ferb-gateway `tests/stuck.rs`: a 500-call attempt shaped like a843aa54's is never stopped. ORCH-691's tests are
+  unchanged.
+- ferbd `tests/tools_context.rs` `fs_look_keeps_the_largest_picture_and_page_under_the_byte_target` uses invented
+  noise:
+  - a 2000×1500 BMP came back as 322,708 bytes at 1335×1001;
+  - a PDF page of noise came back as 401,789 bytes at 1010×1306;
+  - in both, the facts' size is the JPEG's own.
+- `fs_look_decodes_as_python` still matches its 4 pictures byte for byte.
+- ferb-mac-hands `tests/pure.rs` checks the sizes `smaller` tries.
+- ferb-supervisor `tests/internal_errors.rs`, on check_in_after_five with invented crashes in front:
+  - two crashes and then five tries make 7 runs, with the check-in at "I've tried 5 times";
+  - three crashes ask with the CLIJSONDecodeError reason; Keep trying, then five tries, make 8 runs, then the
+    check-in.
+
+**Fixed against Python.** The SDK's 1 MiB stdout line limit (claude-agent-sdk 0.2.174 `_DEFAULT_MAX_BUFFER_SIZE`)
+failed the whole attempt. It is now a 256 MiB memory guard that skips the line. PLAN's table has the row.
+
+**Differences from Python, named.**
+- `OutcomeKind::Internal` is a Rust-only kind. Python wrote a plain Outcome, and the replay compares it as one.
+- A picture over 500,000 bytes is encoded differently. Python had no byte target.
+
+**Open / unverified.**
+- No live run (LIVE-1200), and no installed build.
+- Browser shots are encoded again by quality only. A retina viewport at JPEG 70 that stays over the target at 0.35
+  goes as it is.
+- Native-resolution Mac shots likewise.
+- The over-guard skip drops that message. If it was a `user` tool result, the run's "handed back" timing and its one
+  progress event for it are missed; if it was a `result`, the run would end without one. Neither has been seen.
+- ORCH-707's question replaces only the check's `retry`. If the check or router chooses ask or fail on a crash, that
+  stands, as before.

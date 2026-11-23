@@ -11,6 +11,30 @@ use crate::error::{HandError, Result};
 
 pub const MAX_EDGE: u32 = 1568;
 pub const JPEG_QUALITY: f64 = 0.8;
+/// RUN-473 (agent ruling; the owner's to change): the most bytes one picture FERB hands a model should take (a
+/// screenshot, fs.look's picture or PDF page). Over it, the JPEG is encoded again at [`LOWER_QUALITIES`] and, if still
+/// over, scaled down until it fits. A dense PDF page at 1568 px was 425,677 bytes on 2026-11-23 (task 047ad9e8).
+pub const IMAGE_BYTES_TARGET: usize = 500_000;
+/// RUN-473: the qualities tried, in order, after [`JPEG_QUALITY`] made a picture over [`IMAGE_BYTES_TARGET`].
+pub const LOWER_QUALITIES: [f64; 3] = [0.65, 0.5, 0.35];
+/// RUN-473: the smallest long side a picture is scaled down to while fitting it under the target.
+pub const MIN_FIT_EDGE: usize = 320;
+
+/// RUN-473: the next size to try for a picture of `w`x`h` whose JPEG took `bytes` at the lowest quality, to come
+/// under `target`: the side scaled by the square root of the ratio, a tenth below it; None when the long side would go
+/// under [`MIN_FIT_EDGE`] (that last size stands).
+pub fn smaller(w: usize, h: usize, bytes: usize, target: usize) -> Option<(usize, usize)> {
+    if bytes <= target || w.max(h) <= MIN_FIT_EDGE {
+        return None;
+    }
+    let k = ((target as f64 / bytes as f64).sqrt() * 0.9).min(0.9);
+    let k = k.max(MIN_FIT_EDGE as f64 / w.max(h) as f64);
+    let (nw, nh) = (
+        ((w as f64 * k).round() as usize).max(1),
+        ((h as f64 * k).round() as usize).max(1),
+    );
+    Some((nw, nh))
+}
 pub const TIMEOUT_S: f64 = 10.0;
 /// SCStreamErrorFailedToStart.
 pub const START_FAILED: i64 = -3811;

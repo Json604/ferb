@@ -586,6 +586,10 @@ impl ferb_browser::mask::Images for QuartzImages {
     ) -> std::result::Result<Vec<u8>, String> {
         ferb_mac_hands::native::paint::mask_secret_fields(image, boxes).map_err(|e| e.to_string())
     }
+    fn within(&self, image: Vec<u8>) -> Vec<u8> {
+        // a picture Quartz can't read again goes as the browser made it
+        ferb_mac_hands::native::paint::within(&image).unwrap_or(image)
+    }
 }
 
 /// The profiles the drivers know (`self._profiles`, `known`, `unseen`): the browser area's, read fresh.

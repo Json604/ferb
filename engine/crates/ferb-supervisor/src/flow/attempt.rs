@@ -9,7 +9,7 @@ use std::sync::Arc;
 use ferb_context::assemble::ContextBlock;
 use ferb_context::pyvalue::Py;
 use ferb_core::types::{Outcome, OutcomeStatus, Task, TaskRole};
-use ferb_orchestrator::attempts::Attempts;
+use ferb_orchestrator::attempts::{internal_errors_question, Attempts, INTERNAL_ERRORS_IN_A_ROW};
 use ferb_orchestrator::models::{CheckerOutcome, Condition, Finding};
 use ferb_orchestrator::validate::{
     checker_outcome_validate, dump_checker_outcome, dump_finding, dump_fix_outcome, dump_plan,
@@ -509,6 +509,8 @@ impl Inner {
             st.kept_trying = false;
         }
         let mut retrying = false;
+        // ORCH-707: attempts in a row that couldn't run because something broke inside FERB
+        let mut internal_in_row: u32 = 0;
         let worker = self.worker.get().expect("the worker").clone();
         let fix = std::mem::take(&mut tree.lock().restored_fix);
         if !fix.is_empty() {
@@ -560,6 +562,23 @@ impl Inner {
             if self.is_paused(tree) && !self.stopped(tree) {
                 continue; // the pause ended this attempt: its report is dropped (owner_wait.rs)
             }
+            // ORCH-707: an attempt FERB itself broke isn't one of the step's tries (CHECK_IN_AFTER); after
+            // INTERNAL_ERRORS_IN_A_ROW of them the owner is asked
+            let internal = match &raw {
+                Attempt::Outcome(o) if o.kind == OutcomeKind::Internal => {
+                    let s = &o.outcome.summary;
+                    let s = s.strip_prefix("This attempt couldn't run: ").unwrap_or(s);
+                    let s = s.strip_suffix(ferb_worker::errors::BUG).unwrap_or(s);
+                    Some(s.trim().to_string())
+                }
+                _ => None,
+            };
+            internal_in_row = if internal.is_some() {
+                internal_in_row + 1
+            } else {
+                0
+            };
+            let counts = internal.is_none();
             if let Attempt::Outcome(o) = &raw {
                 if let OutcomeKind::ServiceDown { runtime, problem } = &o.kind {
                     if !self.stopped(tree) {
@@ -684,9 +703,22 @@ impl Inner {
                 instructions.clear();
                 continue;
             }
-            let Some(choice) = choice else { break };
+            let Some(mut choice) = choice else { break };
             if self.stopped(tree) || out.status == OutcomeStatus::Cancelled {
                 break;
+            }
+            if let Some(why) = internal
+                .as_ref()
+                .filter(|_| internal_in_row >= INTERNAL_ERRORS_IN_A_ROW && choice.action == "retry")
+            {
+                // ORCH-707: the check's retry becomes ORCH-679's question, with the reason
+                self.journal(
+                    "task.internal_errors_asked",
+                    json!({"task_id": tree.worker.id, "step": tree.step_id, "in_a_row": internal_in_row}),
+                    None,
+                );
+                choice.action = KEEP_OR_GO_ON.into();
+                choice.question = internal_errors_question(internal_in_row, why);
             }
             if accepted {
                 let mut st = tree.lock();
@@ -733,8 +765,9 @@ impl Inner {
                 );
                 match asked {
                     super::owner_wait::KeepOrGoOn::Keep(more) => {
-                        // ORCH-691: a fresh 8 actions and 4 minutes
+                        // ORCH-691: a fresh 8 actions and 4 minutes; ORCH-707: a fresh 3 internal errors
                         self.deps.daemon.keep_trying(&task.id);
+                        internal_in_row = 0;
                         {
                             let mut st = tree.lock();
                             st.owner_question.clear();
@@ -752,7 +785,7 @@ impl Inner {
                         }
                         instructions = check_notes(&choice) + &more;
                         retrying = true;
-                        if attempts.failed_one() {
+                        if counts && attempts.failed_one() {
                             match self
                                 .check_in_step(tree, &task, &mut attempts, out.artifacts.clone())
                                 .await
@@ -798,7 +831,7 @@ impl Inner {
                             ..Default::default()
                         });
                     retrying = true;
-                    if attempts.failed_one() {
+                    if counts && attempts.failed_one() {
                         match self
                             .check_in_step(tree, &task, &mut attempts, out.artifacts.clone())
                             .await
@@ -844,7 +877,7 @@ impl Inner {
             } + &format!("\nInstructions for this attempt: {}", choice.instructions);
             self.note_retried(tree);
             retrying = true;
-            if attempts.failed_one() {
+            if counts && attempts.failed_one() {
                 match self
                     .check_in_step(tree, &task, &mut attempts, out.artifacts.clone())
                     .await

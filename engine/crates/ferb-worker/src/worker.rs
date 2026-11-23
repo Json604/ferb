@@ -83,6 +83,10 @@ pub enum OutcomeKind {
     },
     /// worker.py:85 `Overflowed`: the context overflowed (refused before sending, or the window-exceeded error).
     Overflowed,
+    /// ORCH-707: the attempt couldn't run because something broke inside FERB (an error none of the kinds above
+    /// names: the run's program crashed, its stream couldn't be read). Python wrote a plain `Outcome`; the supervisor
+    /// retries it without counting it as one of the step's tries.
+    Internal,
 }
 
 /// `run_worker`'s keyword arguments.
@@ -828,8 +832,15 @@ impl Worker {
                     "This attempt couldn't run: {}",
                     reason(&e, Some(&redact), &route)
                 );
+                // ORCH-707: FERB's own failure, not the model's not-done
                 (
-                    plain(task, OutcomeStatus::Blocked, summary, vec![failure.clone()]),
+                    outcome(
+                        task,
+                        OutcomeStatus::Blocked,
+                        summary,
+                        vec![failure.clone()],
+                        OutcomeKind::Internal,
+                    ),
                     Some(failure),
                 )
             }

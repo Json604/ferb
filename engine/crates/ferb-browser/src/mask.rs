@@ -18,6 +18,11 @@ pub trait Images: Send + Sync {
     fn size(&self, image: &[u8]) -> std::result::Result<(i64, i64), String>;
     /// The picture with each box filled opaque black, re-encoded; `Err` when it can't be painted.
     fn mask(&self, image: &[u8], boxes: &[ImageBox]) -> std::result::Result<Vec<u8>, String>;
+    /// RUN-473: the picture under the byte target a model's picture keeps (a lower JPEG quality, the same pixels, so
+    /// every point on it stays where it was); as it is when it already is, or with no image library.
+    fn within(&self, image: Vec<u8>) -> Vec<u8> {
+        image
+    }
 }
 
 /// One thing a page's mask state names (`PageItem`).
@@ -188,13 +193,14 @@ pub fn painted(images: &dyn Images, jpeg: Vec<u8>, reply: &Value) -> Result<Vec<
     };
     let (rects, viewport) = page_masks(&before, &after)?;
     if rects.is_empty() {
-        return Ok(jpeg);
+        return Ok(images.within(jpeg));
     }
     let unpaintable = || Error::withheld("pixels withheld: the capture couldn't be painted over");
     let size = images.size(&jpeg).map_err(|_| unpaintable())?;
     let boxes = to_image_boxes(&rects, viewport, size);
     if boxes.is_empty() {
-        return Ok(jpeg);
+        return Ok(images.within(jpeg));
     }
+    // painting encodes it within the target already
     images.mask(&jpeg, &boxes).map_err(|_| unpaintable())
 }

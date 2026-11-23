@@ -165,7 +165,14 @@ impl Capturer for NativeCapturer {
                 )
             };
             let image = wait(&slot)??;
-            Ok((super::paint::jpeg(&image)?, width, height))
+            // RUN-473: a picture a model gets stays under the byte target: by quality alone at native resolution
+            // (the pixels were asked for), else smaller too, with the size it ended at
+            if max_edge.is_none() {
+                return Ok((super::paint::jpeg_within(&image)?, width, height));
+            }
+            let (jpeg, scaled) = super::paint::jpeg_fit(&image)?;
+            let (w, h) = scaled.map_or((width, height), |(w, h)| (w as i64, h as i64));
+            Ok((jpeg, w, h))
         })
     }
 

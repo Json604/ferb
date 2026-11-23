@@ -1449,6 +1449,13 @@ impl EventSource for ScriptEvents {
             let ev = self.events.get(self.at)?.clone();
             self.at += 1;
             let kind = s(&ev["kind"]);
+            if kind == "raise" {
+                // a test's own script: the run breaks as a program crash or an unreadable stream does
+                return Some(Err(ferb_worker::Error::Other {
+                    class: s(&ev["class"]),
+                    message: s(&ev["message"]),
+                }));
+            }
             let Some(kind) = RuntimeEventKind::ALL
                 .iter()
                 .copied()

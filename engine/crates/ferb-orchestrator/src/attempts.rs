@@ -5,6 +5,10 @@
 
 /// The owner's number (2026-10-30); changing it is the owner's decision.
 pub const CHECK_IN_AFTER: u32 = 5;
+/// ORCH-707 (the owner's number to change): attempts in a row in one step that couldn't run because something broke
+/// inside FERB, after which FERB asks the owner instead of trying again by itself. Such an attempt never counts toward
+/// CHECK_IN_AFTER.
+pub const INTERNAL_ERRORS_IN_A_ROW: u32 = 3;
 pub const KEEP_GOING: &str = "Yes";
 pub const STOP_HERE: &str = "No";
 
@@ -52,4 +56,15 @@ pub fn stopped_after(failed: u32, unattended: bool) -> String {
     } else {
         format!("You asked me to stop after {failed} attempts.")
     }
+}
+
+/// ORCH-707: the question after INTERNAL_ERRORS_IN_A_ROW attempts in a row that couldn't run, with what the last one
+/// said (the worker's reason, e.g. "something broke inside FERB (...)"); the answers are ORCH-679's.
+pub fn internal_errors_question(times: u32, why: &str) -> String {
+    let why = crate::py::strip(why).trim_end_matches('.');
+    format!(
+        "FERB couldn't run this step {times} times in a row because of a problem of its own, not anything you asked. \
+         The last time: {why}. {}",
+        crate::rabbit_holes::ASK_TAIL
+    )
 }
