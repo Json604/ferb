@@ -320,13 +320,26 @@ fn until_back_load_more_and_where_uploads_land_through_the_bindings() {
         "{locked:?}"
     );
     mac.lock().window_closed = false;
+    // the answer's own call, not merely the last one: the sync the link's `online` started runs on the library's own
+    // thread and may call the Mac after it (a `chat.entries.page` came last in 1 run of 20 under load)
+    let approves = |mac: &FakeMac| {
+        let m = mac.lock();
+        m.calls
+            .iter()
+            .filter(|c| c.0 == "chat.approve")
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    let before = approves(&mac).len();
     m.answer(
         "s1".into(),
         AnswerInput::UntilBack,
         Some(Arc::new(Signs::default())),
     )
     .unwrap();
-    let call = mac.lock().calls.last().cloned().unwrap();
+    let after = approves(&mac);
+    assert_eq!(after.len(), before + 1, "one answer, one call");
+    let call = after.last().cloned().unwrap();
     assert_eq!(
         (call.0.as_str(), call.1, call.2),
         (

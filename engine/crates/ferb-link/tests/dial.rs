@@ -199,30 +199,49 @@ async fn a_phone_whose_last_process_died_reaches_the_mac_at_once() {
     p.phone.close().await;
     drop(p);
     let mut took = vec![];
-    for _ in 0..3 {
-        // the last process: online and direct, then killed
-        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
-            .args(["child_phone", "--ignored", "--exact", "--nocapture"])
-            .env(
-                "FERB_DIAL_CHILD",
-                serde_json::json!({"state": state, "relay": relay.url()}).to_string(),
-            )
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null())
-            .spawn()
+    for round in 1..=3 {
+        // the last process: online and direct, then killed. Under load a process sometimes stayed on the relay
+        // (`CHILD online`) for the whole wait (2 runs in 10 with 15 s, 1 in 10 with 2 minutes) while this thread was
+        // blocked reading its output. Such a process is not this scene (no direct path to sockets that are gone), so
+        // another one is started.
+        let mut direct = vec![];
+        for _ in 0..3 {
+            let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["child_phone", "--ignored", "--exact", "--nocapture"])
+                .env(
+                    "FERB_DIAL_CHILD",
+                    serde_json::json!({"state": state, "relay": relay.url()}).to_string(),
+                )
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .unwrap();
+            let out = std::io::BufReader::new(child.stdout.take().unwrap());
+            // read off the runtime's threads: the Mac's side of the link runs on them meanwhile
+            let line = tokio::task::spawn_blocking(move || {
+                out.lines()
+                    .map_while(Result::ok)
+                    .find(|l| l.starts_with("CHILD "))
+                    .unwrap_or_default()
+            })
+            .await
             .unwrap();
-        let out = std::io::BufReader::new(child.stdout.take().unwrap());
-        let line = out
-            .lines()
-            .map_while(Result::ok)
-            .find(|l| l.starts_with("CHILD "))
-            .unwrap_or_default();
-        assert!(line.starts_with("CHILD direct"), "{line}");
-        child.kill().unwrap();
-        let _ = child.wait();
+            child.kill().unwrap();
+            let _ = child.wait();
+            direct.push(line.clone());
+            if line.starts_with("CHILD direct") {
+                break;
+            }
+        }
+        assert!(
+            direct.last().is_some_and(|l| l.starts_with("CHILD direct")),
+            "round {round}: no process of the phone went direct: {direct:?}"
+        );
         let (p, t, dials) = open(&state, &w.shared, 40).await;
         took.push(t.as_secs_f64() * 1000.0);
-        println!("MEASURE the last process was killed: online after {t:?}, {dials} dials");
+        println!(
+            "MEASURE the last process was killed: online after {t:?}, {dials} dials (its processes: {direct:?})"
+        );
         p.phone.close().await;
         drop(p);
         tokio::time::sleep(Duration::from_secs(1)).await;
@@ -247,7 +266,9 @@ async fn child_phone() {
         None,
     )]);
     let p = TestPhone::start("phone", &shared, false, Some(state), true).await;
-    let online = p.wait_phase("online", 30).await && wait(15, || p.tier() == "direct").await;
+    // the scene's start, not what is measured: waits that end the moment they hold (the parent starts another
+    // process when this one stays relayed)
+    let online = p.wait_phase("online", 60).await && wait(30, || p.tier() == "direct").await;
     println!("CHILD {}", if online { p.tier() } else { p.phase() });
     tokio::time::sleep(Duration::from_secs(120)).await;
 }

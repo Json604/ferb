@@ -69,7 +69,14 @@ final class FixtureMac: Transport, @unchecked Sendable {
     private let c: FixtureConversation
     private let lock = NSLock()
     private var _calls: [String] = []
-    var refuse: [String: String] = [:]
+    private var _refuse: [String: String] = [:]
+    /// Under the lock: the library calls `call` from its own threads (the sync a link event starts) while a test may
+    /// set this. Thread Sanitizer caught that race in another fake built the same way: a torn dictionary read there
+    /// raised an Objective-C exception through the library's Rust frames ("Rust cannot catch foreign exceptions").
+    var refuse: [String: String] {
+        get { lock.lock(); defer { lock.unlock() }; return _refuse }
+        set { lock.lock(); defer { lock.unlock() }; _refuse = newValue }
+    }
     private let byPos: [[String: Any]]
     private let head: Int64
 
@@ -85,8 +92,9 @@ final class FixtureMac: Transport, @unchecked Sendable {
         lock.lock()
         _calls.append(method)
         let n = _calls.count
+        let refused = _refuse[method]
         lock.unlock()
-        if let code = refuse[method] { throw TransportError.Failed(code: code, detail: "refused by the test", allow: nil, retryAfterS: nil) }
+        if let code = refused { throw TransportError.Failed(code: code, detail: "refused by the test", allow: nil, retryAfterS: nil) }
         let p = (try? JSONSerialization.jsonObject(with: Data(paramsJson.utf8))) as? [String: Any] ?? [:]
         switch method {
         case "chat.entries.page":

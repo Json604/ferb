@@ -49,6 +49,15 @@ final class WindowSpaceTests: XCTestCase {
         return Harness(defaults: defaults, model: model, coordinator: coordinator, window: window)
     }
 
+    /// Runs everything queued on the main queue until now (`ownWindowsChanged` counts after the current event): done when
+    /// it has run, however long a loaded machine takes, never after a fixed time (TEST-508). A 50 ms run-loop spin here
+    /// failed 9 runs in 10 under load: the spin's end had passed before the queued look ran.
+    private func settle() {
+        var done = false
+        DispatchQueue.main.async { done = true }
+        while !done { _ = RunLoop.main.run(mode: .default, before: .distantFuture) }
+    }
+
     private func place(_ h: Harness) -> (member: Bool, ordinary: [UInt64])? {
         h.coordinator.overlayMembership(of: h.window.panel)
     }
@@ -103,11 +112,11 @@ final class WindowSpaceTests: XCTestCase {
         settings.setFrame(h.window.panel.frame, display: false)          // over the sticky window
         settings.orderFrontRegardless()
         h.window.ownWindowsChanged()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        settle()
         assertSteppedBack(h, "Settings shows")
         settings.orderOut(nil)
         h.window.ownWindowsChanged()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        settle()
         assertFixed(h, "Settings closed")
         h.model.setFilePickerOpen(true)
         assertSteppedBack(h, "the picker shows")
@@ -133,7 +142,7 @@ final class WindowSpaceTests: XCTestCase {
         settings.setFrame(h.window.panel.frame, display: false)          // over the sticky window
         settings.orderFrontRegardless()
         h.window.ownWindowsChanged()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        settle()
         XCTAssertTrue(h.window.steppedBack, "Settings shows: the hidden window steps back")
         h.window.show(focus: false)
         assertSteppedBack(h, "shown again while Settings shows")
@@ -242,7 +251,7 @@ final class WindowSpaceTests: XCTestCase {
         let h = try harness()
         h.window.show(focus: true)
         for _ in 0..<5 where !h.window.panel.isKeyWindow {         // as a click on its profile menu leaves it
-            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+            settle()
             h.window.panel.makeKey()
         }
         // Keyboard focus is another app's right now (the owner working on this Mac): nothing to show here
@@ -284,10 +293,14 @@ final class WindowSpaceTests: XCTestCase {
     // decision: APP-760, APP-759
     func testTheProfileMenuOpensOnOneClickInTheFixedSpace() throws {
         let h = try harness()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
         func views(_ root: NSView) -> [NSView] { [root] + root.subviews.flatMap(views) }
-        let button = try XCTUnwrap(views(try XCTUnwrap(h.window.panel.contentView))
-            .compactMap { $0 as? NSButton }.first { $0.toolTip == "Profile and options" })
+        func profileButton() -> NSButton? {
+            h.window.panel.contentView.flatMap { views($0).compactMap { $0 as? NSButton }.first { $0.toolTip == "Profile and options" } }
+        }
+        // the header is laid out by the run loop: run it until the button is there (the bound only ends a failing run)
+        let laidOut = Date().addingTimeInterval(30)
+        while profileButton() == nil, Date() < laidOut { _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05)) }
+        let button = try XCTUnwrap(profileButton())
         var opened = 0
         let present = ProfileMenuButton.present
         ProfileMenuButton.present = { _, _ in opened += 1 }
@@ -298,9 +311,10 @@ final class WindowSpaceTests: XCTestCase {
                 timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: h.window.panel.windowNumber,
                 context: nil, eventNumber: number, clickCount: 1, pressure: 1)), atStart: false)
         }
-        let end = Date().addingTimeInterval(0.4)
-        while Date() < end, let event = NSApp.nextEvent(matching: .any, until: Date().addingTimeInterval(0.02),
-                                                         inMode: .default, dequeue: true) { NSApp.sendEvent(event) }
+        // the posted click is handled, then whatever it left queued: never a fixed time (a 0.4 s window could end before
+        // the first event on a loaded machine); the 30 s bound only ends a click that never opens the menu
+        while let event = NSApp.nextEvent(matching: .any, until: opened == 0 ? Date().addingTimeInterval(30) : .distantPast,
+                                          inMode: .default, dequeue: true) { NSApp.sendEvent(event) }
         XCTAssertEqual(opened, 1)
         assertFixed(h, "after the menu")
     }

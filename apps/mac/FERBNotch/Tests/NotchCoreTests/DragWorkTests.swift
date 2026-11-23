@@ -113,6 +113,15 @@ final class DragWorkTests: XCTestCase {
         }
     }
 
+    /// Runs what is queued on the main queue until now (a staged text goes in on a main-queue turn of its own): done
+    /// when it has run, however loaded the machine, never after a fixed time (TEST-508). A 50 ms spin could end before
+    /// the turn ran, and the text then went in during the counted loop, one typeset counted against "measured once".
+    func drainMain() {
+        var done = false
+        DispatchQueue.main.async { done = true }
+        while !done { _ = RunLoop.main.run(mode: .default, before: .distantFuture) }
+    }
+
     func settle(_ window: NSWindow, _ seconds: TimeInterval = 0.4) {
         let end = Date().addingTimeInterval(seconds)
         while Date() < end {
@@ -425,13 +434,13 @@ final class DragWorkTests: XCTestCase {
         view.frame = CGRect(x: 0, y: 0, width: 340, height: 400)
         host.contentView?.addSubview(view)
         view.stage(MarkdownTextAttributes.make(answer, size: 12), generation: 0)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))               // the staged text goes in
+        drainMain()                                                         // the staged text goes in
         _ = view.measuredSize(width: 340)
         view.layoutSubtreeIfNeeded()
         let before = ChatWork.textLayouts
         for _ in 0..<10 {
             view.stage(MarkdownTextAttributes.make(answer, size: 12), generation: 0)   // a row evaluated again
-            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+            drainMain()
             _ = view.measuredSize(width: 340)
             view.layoutSubtreeIfNeeded()
         }
@@ -439,7 +448,7 @@ final class DragWorkTests: XCTestCase {
         XCTAssertNil(view.pendingText)
         // a changed answer still goes in and is measured
         view.stage(MarkdownTextAttributes.make(answer + "\n\nOne more line.", size: 12), generation: 0)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        drainMain()
         _ = view.measuredSize(width: 340)
         XCTAssertTrue(view.string.hasSuffix("One more line."))
         XCTAssertGreaterThan(ChatWork.textLayouts - before, 0)

@@ -17,9 +17,11 @@ private final class Counted: Ids, @unchecked Sendable {
 }
 
 private final class Heard: Listener, @unchecked Sendable {
-    private(set) var changes: [Change] = []
+    private var _changes: [Change] = []
     private let l = NSLock()
-    func changed(change: Change) { l.lock(); changes.append(change); l.unlock() }
+    /// Read under the lock too: the library calls `changed` from its own threads.
+    var changes: [Change] { l.lock(); defer { l.unlock() }; return _changes }
+    func changed(change: Change) { l.lock(); _changes.append(change); l.unlock() }
 }
 
 private let invented = #"{"id":"m-1","conversation_id":"c1","pos":4294967296,"seq":1,"rev":1,"kind":"message","state":"done","open":false,"request_id":"r-1","client_id":null,"submission_id":null,"created_at":"2026-01-02T10:00:00+00:00","updated_at":"2026-01-02T10:00:00+00:00","day":"2026-01-02","body":{"text":"Invented question","attachments":[],"hidden":[]},"deleted":false}"#

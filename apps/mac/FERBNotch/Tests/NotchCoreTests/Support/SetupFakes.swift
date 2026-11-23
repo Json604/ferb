@@ -208,10 +208,11 @@ enum SetupReplies {
     }
 }
 
-/// Waits (at most 2 s) for something an unstructured Task does.
+/// Waits for something an unstructured Task does: it returns the moment the condition holds, so the bound (30 s) only
+/// ends a failing run and is wide enough for a loaded machine (TEST-508).
 @MainActor
 func eventually(_ condition: @escaping () -> Bool, file: StaticString = #filePath, line: UInt = #line) async {
-    let end = ContinuousClock.now + .seconds(2)
+    let end = ContinuousClock.now + .seconds(30)
     while !condition() {
         if ContinuousClock.now > end { XCTFail("condition never held", file: file, line: line); return }
         try? await Task.sleep(for: .milliseconds(10))

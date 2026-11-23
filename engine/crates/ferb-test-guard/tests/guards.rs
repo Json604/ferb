@@ -124,6 +124,17 @@ fn bad_runaway_memory() {
     }
 }
 
+#[test]
+#[ignore = "a bad test: run only through the guard by its proof"]
+fn bad_crash() {
+    if proof() {
+        // SIGTERM: a death by signal that leaves no crash report behind
+        // SAFETY: raise takes a signal number, no pointers.
+        unsafe { libc::raise(libc::SIGTERM) };
+        std::thread::sleep(Duration::from_secs(5));
+    }
+}
+
 /// What a test may do: bind and reach this Mac's loopback (the daemon's sockets, the fake servers).
 #[test]
 fn loopback_is_allowed() {
@@ -283,6 +294,19 @@ fn ferbs_containment_question_never_ends_a_guarded_binary() {
     assert!(!list.status.success(), "{list:?}");
     assert!(list.stdout.is_empty(), "{list:?}");
     std::fs::remove_dir_all(&home).unwrap();
+}
+
+/// A test binary that dies by a signal (a crash) is named with the signal and the test running then: libtest itself
+/// prints nothing, and the gate once showed ferb-platform-macos's unit tests failing with no message at all.
+// decision: TEST-504
+#[test]
+fn a_binary_that_dies_by_a_signal_is_named_with_its_test() {
+    let (code, err, _) = through_guard("bad_crash", &[]);
+    assert_eq!(code, Some(128 + libc::SIGTERM), "{err}");
+    assert!(
+        err.contains("ended by signal 15 (SIGTERM)") && err.contains("bad_crash"),
+        "{err}"
+    );
 }
 
 /// A good test passes through the guard unchanged, its output passed on.

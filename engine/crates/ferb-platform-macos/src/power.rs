@@ -618,7 +618,9 @@ impl RootHelper for HelperClient {
 mod tests {
     use super::*;
 
-    /// Reads only: nothing is held, nothing locked (a hold would keep the developer's Mac awake for its lease).
+    /// Reads only: nothing is held, nothing locked (a hold would keep the developer's Mac awake for its lease). What
+    /// is checked holds in any state the Mac is in (TEST-508): awake or in a dark wake, display on or asleep, on a Mac
+    /// with a battery or without one. How a capability reading becomes `dark_wake` is the next test.
     #[test]
     fn the_facts_read_without_changing_anything() {
         let r = Facts.read();
@@ -626,9 +628,10 @@ mod tests {
         if let Some(b) = r.battery {
             assert!((0..=100).contains(&b));
         }
-        // whoever runs this test is at an awake Mac: the processor and the graphics both run
-        assert_eq!(r.dark_wake, Some(false));
-        assert!(r.power_nap_ac.is_some() && r.power_nap_battery.is_some());
+        // `dark_wake` is not checked: it was asserted to be a full wake ("whoever runs this test is at an awake Mac"),
+        // which a gate run left alone at night needn't be. The settings in force always have a power-adapter half;
+        // a battery half only on a Mac with a battery, so that one is not asserted either.
+        assert!(r.power_nap_ac.is_some(), "{r:?}");
         assert!(Assertions::new().held.lock().unwrap().is_empty());
         Assertions::new().release(Hold::Display); // nothing held: nothing happens
     }

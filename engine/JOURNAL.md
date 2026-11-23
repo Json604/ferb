@@ -11392,3 +11392,71 @@ the Claude app's Claude Code session were never run (no foreground actions, the 
 activating an app and raising its window switches desktop on his settings ("switch to a Space with open windows" on);
 Terminal tabs end to end after HAND-715; multi-line text through the window path (typed as the Mac hands type it); the
 guard's latch read for a real drive.
+
+## 2026-11-24 · 197 · The push gate's flaky tests: waits on the work itself, locked fakes, a crash named
+
+**Problem.** The push gate failed four times on 2026-11-23/24 on tests that pass alone. TEST-508 (owner): a test never
+depends on real time or the machine's state. Each was run here in a worktree, at nice 19, against 12 to 30 `yes`
+processes at nice 19 (the Mac's load average was 15 to 300 from other agents and the gate meanwhile). Nothing touched
+`~/.ferb`, FERB.app or its daemon. The sessions code (being archived) was left alone.
+
+**WindowSpaceTests (FERB.app): reproduced, fixed.** `ChatWindowController.ownWindowsChanged` (ChatWindow.swift:374)
+counts FERB's own windows on a later main-queue turn; the tests waited for that turn with a 50 ms run-loop spin
+(`RunLoop.main.run(until: +0.05)`). On a loaded Mac the spin's end had passed before the queued look ran, so Settings
+over the window never stepped it back (WindowSpaceTests.swift:107 and :137, "Settings shows"). Unfixed: 4 runs of 10
+failed on a plain checkout, 9 of 10 under load. Fix: `settle()` runs the main queue until a block queued after the
+look has run (no time involved); the profile-menu test waits for its button and handles its posted click the same way
+(a 0.3 s and a 0.4 s window before). Fixed: 10 of 10 under load, no skips.
+
+**TemporaryChatTests timeout (FERB.app): not reproduced; the bound widened, its fake's races removed.** Its `until`
+gave up after 3 s; nothing in the temporary chat's path waits on a clock of its own (TemporaryChatModel.swift:41-245).
+It passed 10 of 10 under load before the change. The bound is now 30 s, which only a failing run reaches; so are
+EntryWatchTests' `until` and SetupFakes' `eventually` (2 s). Its `TemporaryRPC` and the shared `HistoryRPC` were read
+from the model's tasks while a test set `approvals`, `running`, `refuse` and the rest without a lock: the race that
+crashed ScriptedRPC (f01e1d44; the crash report xctest-2026-11-24-011529.ips is that one). Every field is now under the
+lock. 10 of 10 under load with WindowSpaceTests and EntryWatchTests; the whole suite: 1000 tests, 8 skipped, 0 failures.
+
+**DragWorkTests `testAnAnswerGivenAgainIsNotTypesetAgain`: not reproduced (0 of 10 under load), same pattern fixed.**
+`MessageTextView.stage` puts the text in on a main-queue turn (NativeMessageText.swift:300); the test waited 50 ms and
+10 ms for it. Missed, the text would go in inside the counted loop and count one typeset. `drainMain()` as above.
+DragWorkTests 10 of 10.
+
+**ferb-link `--test dial`: reproduced, fixed.** `a_phone_whose_last_process_died_reaches_the_mac_at_once` failed 2 runs
+of 10 under load at dial.rs:220, `CHILD online`: the child process got online but never direct in its 15 s, so the
+scene (a dead process with a direct path) was never set. With 2 minutes it still stayed relayed once in 10 runs, so a
+longer wait is not the fix. Now the parent starts another child when one stays relayed (at most 3 per round) and reads
+its output off the runtime's threads (`spawn_blocking`). The measured dial (online in under 4 s, one dial) is
+unchanged. Fixed: 10 of 10 under load; 22 rounds needed one child, 2 needed a second.
+
+**ferb-link `--test link`: not reproduced.** 10 of 10 under 12 `yes`, 8 of 8 under 30 with the Mac's load average
+at 80 to 140. No change.
+
+**ferb-mobile-ffi `--test remote`: reproduced, fixed.** `until_back_load_more_and_where_uploads_land_through_the_bindings`
+failed 1 run of 20 at remote.rs:330: it took the Mac's last call as the answer's, and the sync the link's `online`
+starts on the library's own thread (`GuardedSpawner`) called `chat.entries.page` after it. It now counts the
+`chat.approve` calls around the answer (exactly one more) and checks that one. Fixed: 60 of 60 under load; the
+binaries `ffi`, `link` and `device` passed 10 of 10 each.
+
+**ferb-platform-macos `--lib`: not reproduced (40 of 40), two causes removed.**
+- `power::tests::the_facts_read_without_changing_anything` asserted a full wake (`dark_wake == Some(false)`, "whoever
+  runs this test is at an awake Mac") and a battery half of the power settings: machine state. Now it checks the
+  battery range and the power-adapter half only.
+- The failure had no message. ferb-test-guard exited with the binary's code (1) when the binary died by a signal, and
+  libtest prints nothing then. The guard now says "… ended by signal N (name); the tests running then: …" and exits
+  128+N. New guards.rs test `a_binary_that_dies_by_a_signal_is_named_with_its_test` (a bad test raising SIGTERM).
+
+**iPhone fakes (no sessions code).** Thread Sanitizer on the simulator showed the cause of "Rust cannot catch foreign
+exceptions": a test fake's `refuse` dictionary written on the main thread while the library's `ferb-mobile` thread read
+it in `Transport.call` (the sync a link event starts). The crash report xctest-2026-11-24-015933.ips has that read
+faulting in `Dictionary._Variant.lookup`. A torn read there can raise an Objective-C exception
+(`doesNotRecognizeSelector`), which unwinds into the library's Rust frames and aborts. The fake was in the sessions
+tests, which are being archived and were not changed. The same shape is fixed in `FixtureMac.refuse` and
+FerbMobileTests' `Heard.changes`, both now under their lock. With TSan: FerbAppTests (250), FerbMobileTests and
+FerbCoreTests, no race reported.
+
+**Checks.** cargo fmt and clippy `-D warnings` clean for ferb-link (devrelay), ferb-mobile-ffi, ferb-platform-macos and
+ferb-test-guard; ferb-test-guard's tests pass. The whole gate was not run (another run was using the checkout).
+
+**Unverified.** The cause of the gate's `--test link` failure and of the silent `--lib` failure (the guard will name
+the next one). Whether the TemporaryChat timeout came from load or from something else. The iPhone suites were run
+with TSan only, not the gate's non-TSan `build.sh test`.

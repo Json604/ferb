@@ -441,7 +441,8 @@ final class EntryWatchTests: XCTestCase {
         return model
     }
 
-    private func until(_ done: () -> Bool, timeout: TimeInterval = 3, file: StaticString = #filePath, line: UInt = #line) async {
+    /// Returns the moment `done` holds: the bound only ends a failing run, so it is wide (a loaded machine, TEST-508).
+    private func until(_ done: () -> Bool, timeout: TimeInterval = 30, file: StaticString = #filePath, line: UInt = #line) async {
         let end = Date().addingTimeInterval(timeout)
         while !done() {
             if Date() > end { XCTFail("timed out", file: file, line: line); return }

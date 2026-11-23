@@ -12,29 +12,37 @@ final class TemporaryChatTests: XCTestCase {
     /// A daemon with a temporary chat (`chat.temporary.get`/`.set`, `chat.send` with `fresh`, chat.status's
     /// `temporary`, the bus's `chat.temporary`), the chat history kept by a `HistoryRPC`, every call recorded.
     final class TemporaryRPC: DaemonRPCTransport, @unchecked Sendable {
+        // Everything below is read and changed under `lock`: the model calls `call` from its own tasks (the status
+        // poll, the bus) while a test sets `approvals` or `running` (the race that crashed ScriptedRPC, f01e1d44).
         private let lock = NSLock()
         private var recorded: [(String, [String: Any])] = []
         let history: HistoryRPC
-        var on = false
-        var id = "t1"
-        var rev = 0
-        var entries: [[String: Any]] = []
-        var refuseSet = false
-        var approvals: [[String: Any]] = []
-        var running: [[String: Any]] = []
-        /// What a fresh chat.send streams, after its message entry is kept.
-        var reply = "Fresh answer"
+        private var _on = false
+        private var _id = "t1"
+        private var _rev = 0
+        private var _entries: [[String: Any]] = []
+        private var _refuseSet = false
+        private var _approvals: [[String: Any]] = []
+        private var _running: [[String: Any]] = []
+        private var _reply = "Fresh answer"
         private var subscribers: [AsyncThrowingStream<[String: Any], Error>.Continuation] = []
 
         init(history: HistoryRPC = HistoryRPC()) { self.history = history }
 
+        var refuseSet: Bool { get { lock.withLock { _refuseSet } } set { lock.withLock { _refuseSet = newValue } } }
+        var approvals: [[String: Any]] { get { lock.withLock { _approvals } } set { lock.withLock { _approvals = newValue } } }
+        var running: [[String: Any]] { get { lock.withLock { _running } } set { lock.withLock { _running = newValue } } }
+        /// What a fresh chat.send streams, after its message entry is kept.
+        var reply: String { get { lock.withLock { _reply } } set { lock.withLock { _reply = newValue } } }
+
         var calls: [(String, [String: Any])] { lock.withLock { recorded } }
         func params(of method: String) -> [[String: Any]] { calls.filter { $0.0 == method }.map(\.1) }
 
+        /// Under the lock.
         private var reading: [String: Any] {
-            guard on else { return ["on": false] }
-            return ["on": true, "id": id, "conversation": "temporary:" + id, "started_at": "2026-11-23T10:00:00Z",
-                    "rev": rev, "entries": entries]
+            guard _on else { return ["on": false] }
+            return ["on": true, "id": _id, "conversation": "temporary:" + _id, "started_at": "2026-11-23T10:00:00Z",
+                    "rev": _rev, "entries": _entries]
         }
 
         func call(_ method: String, params: [String: Any]) async throws -> [String: Any] {
@@ -42,17 +50,19 @@ final class TemporaryChatTests: XCTestCase {
             switch method {
             case "chat.attach": return ["session_id": "S1", "capabilities": ["input_paths"]]
             case "chat.status":
-                var status: [String: Any] = ["results": [], "approvals": approvals, "loops": [], "notices": [],
-                                             "running": running, "paused": false, "stopped": false]
-                if on { status["temporary"] = ["id": id, "rev": rev, "started_at": "2026-11-23T10:00:00Z"] }
-                return status
+                return lock.withLock {
+                    var status: [String: Any] = ["results": [], "approvals": _approvals, "loops": [], "notices": [],
+                                                 "running": _running, "paused": false, "stopped": false]
+                    if _on { status["temporary"] = ["id": _id, "rev": _rev, "started_at": "2026-11-23T10:00:00Z"] }
+                    return status
+                }
             case "chat.temporary.get": return lock.withLock { reading }
             case "chat.temporary.set":
                 if refuseSet { throw DaemonRPCError.unavailable }
                 return lock.withLock {
                     let want = params["on"] as? Bool ?? false
-                    if want && !on { on = true; rev = 1; entries = [] }
-                    if !want && on { on = false; entries = [] }
+                    if want && !_on { _on = true; _rev = 1; _entries = [] }
+                    if !want && _on { _on = false; _entries = [] }
                     return reading
                 }
             default:
@@ -69,13 +79,13 @@ final class TemporaryChatTests: XCTestCase {
                     self.lock.withLock { self.subscribers.append(continuation) }
                 case "chat.send" where params["fresh"] as? Bool == true:
                     let text = params["text"] as? String ?? ""
-                    let request = "temporary-r\(self.entries.count + 1)"
+                    let (request, id, reply) = self.lock.withLock { ("temporary-r\(self._entries.count + 1)", self._id, self._reply) }
                     self.keep("message", request: request, body: ["text": text, "attachments": [], "hidden": []])
                     continuation.yield(["type": "ack", "request_id": request, "fresh": true,
-                                        "conversation": "temporary:" + self.id])
+                                        "conversation": "temporary:" + id])
                     continuation.yield(["type": "reply_delta", "request_id": request, "text": "Fresh"])
-                    self.keep("answer", request: request, body: ["text": self.reply, "status": "done"])
-                    continuation.yield(["type": "reply", "request_id": request, "text": self.reply, "status": "done"])
+                    self.keep("answer", request: request, body: ["text": reply, "status": "done"])
+                    continuation.yield(["type": "reply", "request_id": request, "text": reply, "status": "done"])
                     continuation.finish()
                 default:
                     continuation.finish()
@@ -85,19 +95,23 @@ final class TemporaryChatTests: XCTestCase {
 
         /// Keeps an entry of the temporary chat (on, if it wasn't) and tells the bus.
         func keep(_ kind: String, request: String, task: String? = nil, body: [String: Any]) {
-            lock.withLock {
-                if !on { on = true; rev = 1 }
-                let pos = entries.count + 1
-                var entry: [String: Any] = ["id": "e\(pos)", "conversation_id": "temporary:" + id, "pos": pos,
+            let (id, rev) = lock.withLock {
+                if !_on { _on = true; _rev = 1 }
+                let pos = _entries.count + 1
+                var entry: [String: Any] = ["id": "e\(pos)", "conversation_id": "temporary:" + _id, "pos": pos,
                                             "seq": pos, "rev": 1, "kind": kind, "state": "done", "open": false,
                                             "request_id": request, "created_at": "2026-11-23T10:00:0\(min(pos, 9))Z",
                                             "updated_at": "2026-11-23T10:00:00Z", "day": "2026-11-23", "body": body]
                 if let task { entry["task_id"] = task }
-                entries.append(entry)
-                rev += 1
+                _entries.append(entry)
+                _rev += 1
+                return (_id, _rev)
             }
             push(["topic": "chat.temporary", "data": ["on": true, "id": id, "rev": rev]])
         }
+
+        /// The daemon ended it (another device's icon).
+        func lockedOff() { lock.withLock { _on = false; _entries = [] } }
 
         func push(_ event: [String: Any]) {
             for subscriber in lock.withLock({ subscribers }) { subscriber.yield(event) }
@@ -122,7 +136,9 @@ final class TemporaryChatTests: XCTestCase {
         return model
     }
 
-    private func until(_ done: () -> Bool, timeout: TimeInterval = 3, file: StaticString = #filePath,
+    /// Waits until `done` holds: it returns the moment it does, so the bound only ends a failing run. 3 s timed out once
+    /// in a full `swift test` while other suites loaded the machine; nothing here waits on a clock of its own.
+    private func until(_ done: () -> Bool, timeout: TimeInterval = 30, file: StaticString = #filePath,
                        line: UInt = #line) async {
         let end = Date().addingTimeInterval(timeout)
         while !done() {
@@ -368,9 +384,4 @@ final class TemporaryChatTests: XCTestCase {
         XCTAssertEqual(model.workRowText, "1 active task")
         XCTAssertEqual(model.taskItems.map(\.id), ["task-new"])
     }
-}
-
-private extension TemporaryChatTests.TemporaryRPC {
-    /// The daemon ended it (another device's icon).
-    func lockedOff() { on = false; entries = [] }
 }

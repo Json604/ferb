@@ -487,5 +487,31 @@ fn main() {
         ));
         std::process::exit(SANDBOX_EXIT_CODE);
     }
+    // Ended by a signal (a crash: SIGSEGV, SIGBUS, SIGABRT, or "Rust cannot catch foreign exceptions"): libtest prints
+    // nothing then, so the gate showed a failed binary with no message; it is named here, with the tests running then.
+    if let Some(signal) = status.signal() {
+        let s = seen.lock().unwrap_or_else(|e| e.into_inner());
+        say(&format!(
+            "{} ended by signal {signal} ({}); the tests running then: {}",
+            binary.display(),
+            signal_name(signal),
+            running(&binary, &args, &s, &home).join(", ")
+        ));
+        std::process::exit(128 + signal);
+    }
     std::process::exit(status.code().unwrap_or(1));
+}
+
+/// The usual name of a signal that ends a process.
+fn signal_name(signal: i32) -> &'static str {
+    match signal {
+        libc::SIGABRT => "SIGABRT: an abort, a failed check or an uncaught exception",
+        libc::SIGSEGV => "SIGSEGV: a bad memory access",
+        libc::SIGBUS => "SIGBUS: a bad memory access",
+        libc::SIGILL => "SIGILL",
+        libc::SIGTRAP => "SIGTRAP: a Swift or Rust trap",
+        libc::SIGTERM => "SIGTERM",
+        libc::SIGKILL => "SIGKILL",
+        _ => "another signal",
+    }
 }
