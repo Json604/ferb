@@ -91,8 +91,13 @@ fn shown(held: &BTreeSet<String>) -> String {
     origin::shown(held.iter().map(String::as_str))
 }
 
+/// continuity.py `_reserved`, as the conversation store's (ferb-orchestrator `continuity::RESERVED_SESSIONS`): a
+/// schedule's run, the intro's preview and, decision: ORCH-699, a temporary chat, which gets no notice without a
+/// conversation and none of FERB's own posts.
 fn reserved(conversation: &str) -> bool {
-    conversation.starts_with("schedule:") || conversation.starts_with("preview:")
+    conversation.starts_with("schedule:")
+        || conversation.starts_with("preview:")
+        || ferb_core::temporary::is_session(conversation)
 }
 
 /// continuity.py:22 `in_conversation`.

@@ -322,7 +322,7 @@ impl Inner {
         let scopes: BTreeSet<String> = self.deps.daemon.all_scopes();
         let grant = ferb_worker::ports::Grant {
             task_id: rid.clone(),
-            worker_id: rid,
+            worker_id: rid.clone(),
             scopes,
             identity: if identity == "ferb" {
                 ferb_core::types::Identity::Ferb
@@ -336,7 +336,7 @@ impl Inner {
         let tools = self.deps.daemon.tools_for(&grant);
         let reserve = self.deps.tokenizer.count(&format!(
             "{}{}{}{}",
-            self.system_for("worker.md", true, &[]),
+            self.system_for_request("worker.md", true, &[], &rid),
             payload,
             ferb_py::json::dumps(&schema),
             ferb_py::json::dumps(&Value::Array(tools))

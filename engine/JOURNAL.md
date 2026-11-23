@@ -10741,3 +10741,103 @@ re-ran the rest; that test passes alone. Not diagnosed.
 - The planner's choice for a hand-over is a model's; the message and ORCH-703 make an invalid plan unlikely and never
   raw, not impossible. Phones get no push for a finished turn (no channel for it).
 - Terminal's Accessibility fallback reads the selected tab of the window only.
+
+## 2026-11-23 · 190 · A temporary chat's planner no longer reads the kept chat, the schedules, the reminders or the screen
+
+**What the owner saw (ORCH-699).** In a temporary chat he asked "but isnt your context off in this temp chat?? what
+context did went to you?". FERB answered that it had received "the long prior conversation history, current
+device/browser details, one schedule, one reminder, and a screenshot". His store (read only) confirmed it. The planner's
+`model.turn` span (request `temporary-280cd51e…`, 09:35:41) had a 30,258-character context. It held:
+- "Layer 5 — conversation" with 68 kept-chat entries: notices with no conversation (Mac sleep, heat, 46 "Now always on:
+  …" memory notices), a scheduled run's result and a timer that went off;
+- Layer 2's live facts, with his schedule (instructions included) and his reminder;
+- his front window and its screenshot (`image_evidence`).
+
+**Causes.** `fresh_for` was read where journal 187 put it, but four layers were built around it:
+1. **The conversation.** history.rs `reserved` (and ferb-orchestrator `continuity::RESERVED_SESSIONS`) named only
+   `schedule:` and `preview:`. ferb-core's temporary.rs already called the temporary chat "a reserved session, like
+   `schedule:` and `preview:`", but neither list held it. So every notice with no conversation and every
+   `schedule.posted` / `timer.delivered` row counted as the temporary chat's.
+2. **The planner's live facts.** turn.rs called `live_facts(false, true)` for a fresh turn. The arguments are
+   `(last_runs, owner_state)`, so `owner_state` was on, and with it the schedules, reminders and timers.
+3. **Every role's instructions.** `system_inputs(live)` gave workers, checkers and the question resolver
+   `live_facts(false, true)` (schedules and reminders) and `facts()` with memory's "When the owner says X, they
+   mean Y". `system_for_request` blanked only the Tier 1 profile. The "not done" router and `worker_room` used
+   `system_for`, which reads no request, so they also kept the profile.
+4. **The screen.** `chat.send` captured the front window at send for every message. The capture reached the planner
+   (front window block and image) and the workers (`start_image`).
+- Also: Layer 6 listed every open question, the kept chat's included. The question resolver could route a temporary
+  chat's answer to one of the kept chat's questions.
+
+**The fix: the same switch, applied at each layer.**
+- The conversation: `temporary:` is a reserved session in both lists. A temporary conversation now holds only its own
+  messages and replies. Also, its tasks no longer reach the schedules' runs (`reaches_schedules`).
+- The planner's live facts: `live_facts(false, false)`, as the intro's preview reads them.
+- `Daemon::system_inputs(live, fresh)`. `system_for_request` passes `fresh_for(request)`, and `system_for` is that with
+  no request. The "not done" router and `worker_room` now pass their request. ferbd's composition, when fresh:
+  - facts from `environment::facts_with(…, memory=false)` (no time meanings, memory not read);
+  - live facts without owner state;
+  - no Tier 1 profile (not read).
+- chat.rs: a fresh message's `screen` is false, so nothing is captured. No front window and no screenshot are taken,
+  stored or sent. Its tools can still look at the screen when the request needs it.
+- `Inner::question_in(session, task)`: in a temporary chat, only its own tasks' questions. This applies to the planner's
+  Layer 6 and to the resolver's open list and routed approval.
+
+**What a fresh turn's planner gets now.**
+
+| Layer | Before | After |
+|---|---|---|
+| Fact first | FRESH_FACT (+ extra_context) | same |
+| Layer 1 (macOS, paired profiles and their accounts, worker types) | yes | yes |
+| Layer 5 conversation | kept chat's notices, scheduled results, timers, "Now always on" memory notices | only the temporary chat's own messages and replies |
+| Layer 2 live: Mac line (time, place), models, browsers' connections, running apps | yes | yes |
+| Layer 2 live: schedules, reminders, timers | yes | no |
+| Layer 2 situation (now, ages) | yes | yes (ages of its own entries) |
+| Layer 2 front window + screenshot | yes | no (never captured) |
+| Layer 6 questions | every open question | its own tasks' only |
+| System prompt: profile | no | no (not read) |
+| System prompt: facts from memory (time meanings) | yes | no |
+| Workers/checkers/resolver instructions: schedules, reminders | yes | no |
+
+On Layer 1, ORCH-699 rules out "profile, memory, earlier chat or earlier tasks" and keeps "all of FERB's tools".
+Journal 187 kept the `device.facts` lookup, which returns these same Mac and browser facts. So Layer 1 and the
+Mac/browser lines of Layer 2 stay: they are what the tools act on, not memory. The prompts' "Remember and forget" and
+"Schedules and reminders" sections are instructions only (his span's system prompt has no schedule or reminder id in
+it).
+
+**Evidence.**
+- ferb-supervisor `tests/temporary_chat.rs`, 9 tests. The harness seeds:
+  - a kept-chat message and reply, a notice with no conversation, a reminder delivered and a scheduled run's result;
+  - schedules and reminders (`owner_state`) and a memory fact (`meanings`);
+  - a screen captured at send (`capture`) and an open question of a kept task.
+
+  What they show:
+  - `a_kept_turn_reads_the_kept_chat_the_owner_state_and_the_screen` (control): the kept planner reads all of these,
+    plus a screenshot, and a worker's instructions carry the schedules and reminders.
+  - `a_fresh_turn_reads_no_kept_chat_owner_state_or_screen`: no planner, worker or checker call carries any of the
+    14 markers or ids, every call has 0 images, and every role's instructions are read with `fresh`.
+  - `a_temporary_chat_reads_its_own_earlier_turn_and_nothing_kept` (clarify_then_answer, both fresh): the second
+    planner's Layer 5 conversation holds "Owner: find me a table tonight" and FERB's clarify, and nothing kept.
+  - `a_temporary_conversation_holds_only_its_own_rows`: the timeline for `temporary:abc` against `s1`, and both
+    reserved lists agree.
+- Each cause was checked by reverting its fix alone; the fresh test then failed on it:
+  - conversation → the notice;
+  - live facts → `sc-INVENTED0001`;
+  - instructions → a call's instructions carried the owner state and memory fact;
+  - screen → the window title;
+  - questions → the kept question.
+- ferb-daemon `b_environment::a_temporary_chat_reads_the_facts_without_memory`: `facts_with(false)` is `facts()` without
+  the "When the owner says" lines.
+- All of ferb-supervisor's tests, ferb-orchestrator, ferb-daemon `b_environment`, ferbd chat_replay, replay,
+  seams_wired, owner_facts, wiring, every_method_answers and lifecycle; clippy `-D warnings`; fmt.
+
+**Open / unverified.**
+- No live check (LIVE-1194), and no installed build.
+- ferbd's composition change (`system_inputs` with `fresh`) is covered only by the stand-in harness, which follows the
+  same contract. No ferbd test builds a real system prompt for a fresh call.
+- The kept chat still lists a temporary chat's open questions (journal 187), and FERB.app's temporary view still shows
+  the kept chat's.
+- A reminder set in a temporary chat posts to the kept chat when it goes off (`timer.delivered` is never a temporary
+  conversation's).
+- Layer 2's "owner last active / last trail event" times stay (times only, no content). The worker's projects line
+  (HAND-625) stays: it is grants, not memory.

@@ -9,6 +9,8 @@ mod common;
 mod support_control;
 
 use ferb_context::assemble::ContextBlock;
+use ferb_supervisor::flow::owner_wait::{Ask, Questions};
+use ferb_supervisor::flow::FrontSeen;
 use serde_json::{json, Value};
 use support_control::{run_with, world_with, World};
 
@@ -17,17 +19,125 @@ const NEWLY_ON: &str = "INVENTED-NEWLY-ALWAYS-ON";
 const MEMORY: &str = "INVENTED-MEMORY-ITEM about the owner";
 const EXTRA: &str = "INVENTED-EXTRA-CONTEXT for this chat";
 
+/// The kept chat's history and FERB's own records of the owner, seeded before the run (owner 2026-11-23's live case:
+/// a temporary chat's planner was given the kept chat's notices and posts, the schedules and reminders, and the
+/// screen). Each is a distinct marker a built request must not carry when fresh.
+const KEPT_MESSAGE: &str = "INVENTED-KEPT-CHAT-MESSAGE";
+const KEPT_REPLY: &str = "INVENTED-KEPT-CHAT-REPLY";
+const NOTICE: &str = "INVENTED-NOTICE-WITHOUT-CONVERSATION";
+const NOTICE_ID: &str = "seednotice0001";
+const REMINDER_ARRIVED: &str = "INVENTED-REMINDER-ARRIVED";
+const TIMER_ID: &str = "seedtimer00001";
+const SCHEDULED_RESULT: &str = "INVENTED-SCHEDULED-RUN-RESULT";
+const POSTED_ID: &str = "seedposted0001";
+const SCHEDULES: &str =
+    "The owner's schedules: 1\n- Schedule sc-INVENTED0001 \u{201c}INVENTED-SCHEDULE\u{201d}";
+const REMINDERS: &str = "The owner's pending reminders: 1\n- Reminder tm-INVENTED0002 \u{201c}INVENTED-REMINDER\u{201d}";
+const MEANING: &str =
+    "- When the owner says \u{201c}INVENTED-PHRASE\u{201d}, they mean: INVENTED-MEANING";
+const WINDOW: &str = "INVENTED-FRONT-WINDOW-TITLE";
+const SHOT: &str = "INVENTED-SCREENSHOT-EVIDENCE";
+const KEPT_QUESTION: &str = "INVENTED-KEPT-CHAT-QUESTION";
+
+/// Every marker of what FERB knew before a temporary chat.
+const PRIOR: [&str; 14] = [
+    KEPT_MESSAGE,
+    KEPT_REPLY,
+    NOTICE,
+    NOTICE_ID,
+    REMINDER_ARRIVED,
+    TIMER_ID,
+    SCHEDULED_RESULT,
+    POSTED_ID,
+    "sc-INVENTED0001",
+    "tm-INVENTED0002",
+    "INVENTED-MEANING",
+    WINDOW,
+    SHOT,
+    KEPT_QUESTION,
+];
+
 fn world() -> World {
-    let w = world_with("one_step_task", |_| {});
+    seeded("one_step_task")
+}
+
+/// The scenario's world with a test profile, newly-always-on line and memory, and the kept chat's history, the
+/// owner's schedules and reminders, a fact from memory, a screen captured at send and an open question of a kept task.
+fn seeded(name: &str) -> World {
+    let w = world_with(name, |_| {});
     *w.daemon.profile.lock().unwrap() = PROFILE.into();
     *w.daemon.newly_on.lock().unwrap() = NEWLY_ON.into();
     *w.daemon.memory.lock().unwrap() = vec![ContextBlock::new(MEMORY, "memory item")];
+    *w.daemon.owner_state.lock().unwrap() = format!("{SCHEDULES}\n{REMINDERS}");
+    *w.daemon.meanings.lock().unwrap() = MEANING.into();
+    *w.daemon.capture.lock().unwrap() = Some(FrontSeen {
+        facts:
+            json!({"app": "TextEdit", "bundle_id": "com.apple.TextEdit", "window_title": WINDOW})
+                .as_object()
+                .unwrap()
+                .clone(),
+        image: Some(ferb_core::types::ModelImage::new(vec![1, 2, 3], SHOT)),
+        origin: "external:unlabeled".into(),
+    });
+    {
+        let db = w.db.lock().unwrap();
+        let at = "2025-12-31T08:00:00+00:00";
+        let rows = [
+            (
+                "seedmessage001",
+                "chat.message",
+                json!({"session_id": "s1", "request_id": "seedrequest01", "text": KEPT_MESSAGE}),
+                "owner",
+            ),
+            (
+                "seedreply00001",
+                "chat.reply",
+                json!({"session_id": "s1", "request_id": "seedrequest01", "text": KEPT_REPLY}),
+                "ferb",
+            ),
+            (
+                NOTICE_ID,
+                "chat.notice",
+                json!({"text": NOTICE, "quotes": []}),
+                "ferb",
+            ),
+            (
+                TIMER_ID,
+                "timer.delivered",
+                json!({"kind": "reminder", "message": REMINDER_ARRIVED}),
+                "owner",
+            ),
+            (
+                POSTED_ID,
+                "schedule.posted",
+                json!({"name": "INVENTED-SCHEDULE", "status": "done", "text": SCHEDULED_RESULT}),
+                "ferb",
+            ),
+        ];
+        for (id, kind, data, origin) in rows {
+            ferb_supervisor::flow::store::journal_row(db.conn(), id, at, kind, &data, Some(origin))
+                .unwrap();
+        }
+    }
+    let _ = w.daemon.questions.lock().unwrap().ask(&Ask {
+        capability: "owner.ask".into(),
+        task_id: "seedtask00001.worker".into(),
+        request_id: "seedrequest01".into(),
+        question: KEPT_QUESTION.into(),
+        options: vec!["Yes".into(), "No".into()],
+        ..Ask::default()
+    });
     w
 }
 
 /// Runs the scenario, its chat.send changed by `params`.
 fn run(w: &mut World, params: Value) {
-    let _ = run_with(w, "one_step_task", |steps| {
+    run_named(w, "one_step_task", params)
+}
+
+/// Runs a recorded scenario, its every chat.send changed by `params`.
+fn run_named(w: &mut World, name: &str, params: Value) {
+    let _ = run_with(w, name, |steps| {
         for st in steps.iter_mut().filter(|st| st["do"] == "stream") {
             let mut sent: Value =
                 serde_json::from_str(st["lines"][0]["send"].as_str().unwrap()).unwrap();
@@ -46,6 +156,30 @@ fn count(w: &World, sql: &str) -> i64 {
         .conn()
         .query_row(sql, [], |r| r.get(0))
         .unwrap()
+}
+
+/// Every model call's (system, parts joined, images attached).
+fn built(w: &World) -> Vec<(String, String, u64)> {
+    w.daemon
+        .calls
+        .lock()
+        .unwrap()
+        .started
+        .iter()
+        .map(|c| {
+            let parts: Vec<String> = c["parts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|p| p.as_str().map(str::to_string))
+                .collect();
+            (
+                c["system"].as_str().unwrap_or("").to_string(),
+                parts.join("\n"),
+                c["images"].as_u64().unwrap_or(0),
+            )
+        })
+        .collect()
 }
 
 /// Every model call's (system, parts joined).
@@ -312,4 +446,199 @@ fn fresh_and_extra_context_are_checked_and_a_temporary_session_is_never_named() 
             Some("session_id names one of FERB's own sessions, not a chat")
         );
     });
+}
+
+/// Each planner call's parts joined, in order (the runtimes made for the orchestrator role).
+fn planner_parts(w: &World) -> Vec<String> {
+    let calls = w.daemon.calls.lock().unwrap();
+    calls
+        .started
+        .iter()
+        .filter(|c| {
+            let n = c["n"].as_u64().unwrap() as usize;
+            calls.made[n]["runtime_role"] == "orchestrator"
+        })
+        .map(|c| {
+            c["parts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|p| p.as_str())
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .collect()
+}
+
+// decision: ORCH-699
+#[test]
+fn a_kept_turn_reads_the_kept_chat_the_owner_state_and_the_screen() {
+    // the control for the test below: the same seeds reach a kept turn, so their absence there is the switch
+    let mut w = world();
+    run(&mut w, json!({}));
+    let made = built(&w);
+    let planner = &planner_parts(&w)[0];
+    for m in [
+        KEPT_MESSAGE,
+        KEPT_REPLY,
+        NOTICE,
+        NOTICE_ID,
+        REMINDER_ARRIVED,
+        TIMER_ID,
+        SCHEDULED_RESULT,
+        POSTED_ID,
+        "sc-INVENTED0001",
+        "tm-INVENTED0002",
+        WINDOW,
+        KEPT_QUESTION,
+    ] {
+        assert!(planner.contains(m), "the kept planner reads {m}");
+    }
+    assert!(made[0].2 >= 1, "the planner is given the screenshot");
+    assert!(
+        made.iter().any(|(s, _, _)| s.contains("INVENTED-MEANING")),
+        "the fact from memory"
+    );
+    assert!(
+        made.iter()
+            .any(|(s, _, _)| s.contains("sc-INVENTED0001") && s.contains("tm-INVENTED0002")),
+        "a worker's instructions carry the schedules and reminders"
+    );
+    assert!(w.daemon.fresh_reads.lock().unwrap().iter().all(|f| !f));
+}
+
+// decision: ORCH-699
+#[test]
+fn a_fresh_turn_reads_no_kept_chat_owner_state_or_screen() {
+    let mut w = world();
+    run(&mut w, json!({"fresh": true}));
+    let made = built(&w);
+    assert!(
+        made.len() >= 3,
+        "planner, worker and checker: {}",
+        made.len()
+    );
+    for (n, (system, parts, images)) in made.iter().enumerate() {
+        for m in PRIOR {
+            assert!(!system.contains(m), "call {n}'s instructions carry {m}");
+            assert!(!parts.contains(m), "call {n}'s context carries {m}");
+        }
+        assert_eq!(*images, 0, "call {n}: no screenshot");
+    }
+    let planner = &planner_parts(&w)[0];
+    assert!(planner.contains("say hello"), "the owner's words");
+    assert!(
+        planner.contains("Layer 1"),
+        "this Mac's and the browsers' facts stay: {planner}"
+    );
+    let reads = w.daemon.fresh_reads.lock().unwrap().clone();
+    assert!(
+        !reads.is_empty() && reads.iter().all(|f| *f),
+        "every role's instructions are read fresh: {reads:?}"
+    );
+}
+
+// decision: ORCH-699
+#[test]
+fn a_temporary_chat_reads_its_own_earlier_turn_and_nothing_kept() {
+    let mut w = seeded("clarify_then_answer");
+    run_named(&mut w, "clarify_then_answer", json!({"fresh": true}));
+    let planners = planner_parts(&w);
+    assert!(planners.len() >= 2, "two turns: {}", planners.len());
+    for (n, p) in planners.iter().enumerate() {
+        for m in PRIOR {
+            assert!(!p.contains(m), "planner call {n} carries {m}");
+        }
+    }
+    // its own earlier turn is its conversation (Layer 5), as for any chat
+    let second = &planners[1];
+    let from = second
+        .find("Layer 5 \u{2014} conversation:")
+        .expect("a conversation");
+    let to = from + second[from..].find("Layer 2").unwrap();
+    let conversation = &second[from..to];
+    assert!(
+        conversation.contains("Owner: find me a table tonight")
+            && conversation.contains("FERB: Which restaurant, and for what time?"),
+        "the second turn reads the temporary chat's first: {conversation}"
+    );
+}
+
+struct NoReads;
+
+impl ferb_supervisor::history::TimelineReads for NoReads {
+    fn outcome_json(&self, _task_id: &str) -> Option<String> {
+        None
+    }
+    fn notice_sources(&self, _notice_id: &str) -> Vec<String> {
+        Vec::new()
+    }
+}
+
+// decision: ORCH-699
+#[test]
+fn a_temporary_conversation_holds_only_its_own_rows() {
+    // the conversation layer every reader builds (the planner, the fold): a notice with no conversation and FERB's own
+    // posts (a scheduled run's result, a reminder) are the kept chat's, never a temporary chat's
+    use ferb_supervisor::history::{timeline, Timeline};
+    use ferb_supervisor::seams::JournalRow;
+    let row = |id: &str, kind: &str, data: Value| {
+        JournalRow::from_json(
+            &json!({"id": id, "at": "2026-01-01T08:00:00+00:00", "kind": kind,
+                                      "data": data, "origin": "ferb"}),
+        )
+        .unwrap()
+    };
+    let rows = vec![
+        row(
+            "k1",
+            "chat.message",
+            json!({"session_id": "s1", "request_id": "r1", "text": KEPT_MESSAGE}),
+        ),
+        row("n1", "chat.notice", json!({"text": NOTICE, "quotes": []})),
+        row(
+            "t1",
+            "timer.delivered",
+            json!({"kind": "reminder", "message": REMINDER_ARRIVED}),
+        ),
+        row(
+            "p1",
+            "schedule.posted",
+            json!({"name": "x", "status": "done", "text": SCHEDULED_RESULT}),
+        ),
+        row(
+            "m1",
+            "chat.message",
+            json!({"session_id": "temporary:abc", "request_id": "temporary-r2", "text": "my earlier temporary words"}),
+        ),
+    ];
+    let zone = ferb_clock::zone::Zone::utc();
+    let read = |conversation: &str| -> Vec<String> {
+        let (entries, _) = timeline(&Timeline {
+            current: &Default::default(),
+            conversation: Some(conversation),
+            rows: &rows,
+            task_ids: Some(&Default::default()),
+            covered: &Default::default(),
+            reads: &NoReads,
+            zone: &zone,
+        });
+        entries.into_iter().map(|e| e.text).collect()
+    };
+    let temporary = read("temporary:abc").join("\n");
+    assert!(
+        temporary.contains("my earlier temporary words"),
+        "{temporary}"
+    );
+    for m in [KEPT_MESSAGE, NOTICE, REMINDER_ARRIVED, SCHEDULED_RESULT] {
+        assert!(!temporary.contains(m), "{m}: {temporary}");
+    }
+    let kept = read("s1").join("\n");
+    for m in [KEPT_MESSAGE, NOTICE, REMINDER_ARRIVED, SCHEDULED_RESULT] {
+        assert!(kept.contains(m), "the kept chat reads {m}: {kept}");
+    }
+    assert!(!kept.contains("my earlier temporary words"));
+    // the conversation store's rule is the same one (a temporary chat's tasks never reach the schedules' runs)
+    assert!(ferb_orchestrator::continuity::reserved("temporary:abc"));
+    assert!(!ferb_orchestrator::continuity::reserved("s1"));
 }

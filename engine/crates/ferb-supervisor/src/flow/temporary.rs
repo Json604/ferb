@@ -14,6 +14,17 @@
 //! code fact [`FRESH_FACT`] and the optional `extra_context` (owner's words, given through the switch) are added.
 //! The safety path is unchanged: gateway, confirmations, sink rule, redaction, protection lists.
 //!
+//! Where each layer is cut, all by the same switch:
+//! - the conversation: a temporary conversation is a reserved one (ferb-orchestrator `continuity::RESERVED_SESSIONS`,
+//!   history.rs `reserved`), so it holds only its own messages and replies, never the kept chat's notices or FERB's
+//!   own posts (a scheduled run's result, a reminder or timer that went off);
+//! - the planner's live facts and every role's instructions (`Daemon::live_facts`' `owner_state`,
+//!   `Daemon::system_inputs`' `fresh`): this Mac, its browsers and FERB's models stay; the owner's schedules,
+//!   reminders and timers, the facts taken from memory and the Tier 1 profile go;
+//! - the screen: a temporary chat's message is never captured at send (chat.rs), so no front window or screenshot
+//!   reaches its planner or its workers;
+//! - open questions: only its own tasks' ([`Inner::question_in`]), for the planner and the question resolver.
+//!
 //! **Nothing remembered**: no chat entries, no `task_results` (so not in the Tasks page or chat.status' results, never
 //! "since you last talked"), no `task.result` published, no memory side entries (remember/forget), no episodes, no
 //! conversation index (ferb-memory `index_chat` skips its rows). The journal rows the supervisor works from while a
@@ -278,6 +289,16 @@ impl Inner {
             .filter(|c| c.requests.contains(request_id))
             .and_then(|c| c.extra_context.clone());
         Some(Fresh { extra_context })
+    }
+
+    /// decision: ORCH-699 — an open question (by its task) a conversation's turn may see and answer: any in the kept
+    /// chat, as before; in a temporary chat only its own tasks' questions.
+    pub(crate) fn question_in(&self, session: &str, task_id: &str) -> bool {
+        if !temporary::is_session(session) {
+            return true;
+        }
+        let mine = self.continuity(|c| c.task_ids(session)).unwrap_or_default();
+        !task_id.is_empty() && mine.contains(&self.question_root(task_id))
     }
 
     /// The task (any of a tree's) is a temporary chat's: by its live tree's request, else the stored task's.

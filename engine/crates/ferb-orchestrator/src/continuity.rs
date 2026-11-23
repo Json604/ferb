@@ -17,7 +17,14 @@ use crate::sql::{self, text, Error, Result};
 
 pub const SCHEDULE_SESSION: &str = "schedule:";
 pub const PREVIEW_SESSION: &str = "preview:";
-pub const RESERVED_SESSIONS: &[&str] = &[SCHEDULE_SESSION, PREVIEW_SESSION];
+/// FERB's own conversations, not the owner's chat: they get no notice without a conversation, no scheduled run's or
+/// reminder's post, and their tasks don't reach the schedules' runs. decision: ORCH-699 — a temporary chat is one (it
+/// starts from nothing, so the kept chat's notices and posts never reach it).
+pub const RESERVED_SESSIONS: &[&str] = &[
+    SCHEDULE_SESSION,
+    PREVIEW_SESSION,
+    ferb_core::temporary::SESSION_PREFIX,
+];
 pub const LEGACY_UPGRADE: &str = "continuity_legacy";
 
 /// continuity.py:148 `KINDS`.
@@ -31,7 +38,8 @@ pub const KINDS: &[&str] = &[
 /// continuity.py:149 `SELF_POSTS`.
 pub const SELF_POSTS: &[&str] = &["schedule.posted", "timer.delivered", "chat.part"];
 
-fn reserved(conversation: &str) -> bool {
+/// The conversation is one of [`RESERVED_SESSIONS`].
+pub fn reserved(conversation: &str) -> bool {
     RESERVED_SESSIONS
         .iter()
         .any(|p| conversation.starts_with(p))

@@ -467,6 +467,14 @@ pub struct TestDaemon {
     pub newly_on: Mutex<String>,
     pub memory: Mutex<Vec<ContextBlock>>,
     pub episodes: Mutex<Vec<String>>,
+    /// ORCH-699: a test's owner state (schedules, reminders and timers: added to the live facts read with
+    /// `owner_state`, and to a role's live facts unless `fresh`), its fact taken from memory (added to a role's facts
+    /// unless `fresh`), each `fresh` a role's instructions were read with, and the front window captured at send
+    /// (`captures_at_send` while one is set).
+    pub owner_state: Mutex<String>,
+    pub meanings: Mutex<String>,
+    pub fresh_reads: Mutex<Vec<bool>>,
+    pub capture: Mutex<Option<FrontSeen>>,
 }
 
 pub struct Gate {
@@ -913,20 +921,28 @@ impl Daemon for TestDaemon {
             }
         })
     }
-    fn live_facts(&self, _last_runs: bool, _owner_state: bool) -> String {
+    fn live_facts(&self, _last_runs: bool, owner_state: bool) -> String {
         let rec = pop(&self.supervise, "the planner's live facts");
-        s(&rec["live_facts"])
+        let owner = self.owner_state.lock().unwrap().clone();
+        joined(s(&rec["live_facts"]), owner_state, &owner)
     }
-    fn system_inputs(&self, _live: bool) -> SystemInputs {
+    fn system_inputs(&self, _live: bool, fresh: bool) -> SystemInputs {
         let rec = pop(&self.systems, "a role's instructions");
+        self.fresh_reads.lock().unwrap().push(fresh);
         let i = &rec["inputs"];
+        // as the daemon's composition reads them (ORCH-699): a fresh call gets no profile, no fact from memory, no
+        // owner state
+        let owner = self.owner_state.lock().unwrap().clone();
+        let meanings = self.meanings.lock().unwrap().clone();
         SystemInputs {
-            facts: s(&i["facts"]),
-            live_facts: s(&i["live_facts"]),
+            facts: joined(s(&i["facts"]), !fresh, &meanings),
+            live_facts: joined(s(&i["live_facts"]), !fresh, &owner),
             capabilities: s(&i["capabilities"]),
             identity_context: {
                 let profile = self.profile.lock().unwrap().clone();
-                if profile.is_empty() {
+                if fresh {
+                    String::new()
+                } else if profile.is_empty() {
                     s(&i["identity_context"])
                 } else {
                     profile
@@ -1094,7 +1110,10 @@ impl Daemon for TestDaemon {
         Ok(())
     }
     fn front_window<'a>(&'a self, _request_id: &'a str) -> BoxFuture<'a, Option<FrontSeen>> {
-        Box::pin(async { None })
+        Box::pin(async { self.capture.lock().unwrap().clone() })
+    }
+    fn captures_at_send(&self) -> bool {
+        self.capture.lock().unwrap().is_some()
     }
     fn make_runtime(
         &self,
@@ -1927,6 +1946,10 @@ pub fn world_with(name: &str, edit: impl FnOnce(&mut Vec<Value>)) -> World {
         newly_on: Mutex::default(),
         memory: Mutex::default(),
         episodes: Mutex::default(),
+        owner_state: Mutex::default(),
+        meanings: Mutex::default(),
+        fresh_reads: Mutex::default(),
+        capture: Mutex::default(),
         lean: AtomicBool::new(false),
         code_look: Mutex::default(),
         probes: Mutex::default(),
@@ -2718,5 +2741,16 @@ impl ferb_orchestrator::verify::CheckHost for LiteralHost<'_> {
     }
     fn trash_dir(&self) -> Option<String> {
         None
+    }
+}
+
+/// `base` with `extra` on a line of its own when `with` and there is one.
+fn joined(base: String, with: bool, extra: &str) -> String {
+    if !with || extra.is_empty() {
+        base
+    } else if base.is_empty() {
+        extra.to_string()
+    } else {
+        format!("{base}\n{extra}")
     }
 }

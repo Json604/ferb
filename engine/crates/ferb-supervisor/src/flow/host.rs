@@ -286,15 +286,15 @@ impl WorkerTree for Tree {
 }
 
 impl Inner {
-    /// supervisor.py:1230 `_system`: a role's instructions, read from the seams at the moment it assembles.
+    /// supervisor.py:1230 `_system`: a role's instructions, read from the seams at the moment it assembles (a call
+    /// outside any owner's message: the attention check).
     pub fn system_for(&self, name: &str, live: bool, roles: &[&str]) -> String {
-        let inputs = self.deps.daemon.system_inputs(live);
-        crate::prompts::system(&self.deps.prompts, Some(name), live, roles, &inputs)
-            .unwrap_or_else(|e| panic!("the prompt package: {e}"))
+        self.system_for_request(name, live, roles, "")
     }
 
-    /// A role's instructions for one request's model call. decision: ORCH-699 — a temporary chat's turn gets no Tier 1
-    /// profile (the owner's core profile); everything else (the role, facts about this FERB, what is usable, the
+    /// A role's instructions for one request's model call. decision: ORCH-699 — a temporary chat's turn gets nothing of
+    /// what FERB knows about the owner (`system_inputs`' `fresh`: no Tier 1 profile, no fact from memory, no schedules,
+    /// reminders or timers); everything else (the role, facts about this FERB and this Mac, what is usable, the
     /// catalogs) is as for any turn.
     pub fn system_for_request(
         &self,
@@ -303,10 +303,10 @@ impl Inner {
         roles: &[&str],
         request_id: &str,
     ) -> String {
-        let mut inputs = self.deps.daemon.system_inputs(live);
-        if self.fresh_for(request_id).is_some() {
-            inputs.identity_context = String::new();
-        }
+        let inputs = self
+            .deps
+            .daemon
+            .system_inputs(live, self.fresh_for(request_id).is_some());
         crate::prompts::system(&self.deps.prompts, Some(name), live, roles, &inputs)
             .unwrap_or_else(|e| panic!("the prompt package: {e}"))
     }

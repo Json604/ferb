@@ -707,6 +707,12 @@ pub fn preload_secrets(host: &Host, s: &dyn Seams) -> Result<(), HandlerError> {
 /// environment.py `_facts`: facts about this FERB that hold across turns (in every role's instructions, a cacheable
 /// prefix).
 pub fn facts(host: &Host, s: &dyn Seams) -> Result<String, HandlerError> {
+    facts_with(host, s, true)
+}
+
+/// [`facts`], with the facts taken from FERB's memory of the owner (what a phrase of theirs means) only when `memory`.
+/// decision: ORCH-699 — a temporary chat's roles read them without (its fresh switch).
+pub fn facts_with(host: &Host, s: &dyn Seams, memory: bool) -> Result<String, HandlerError> {
     let address = get(host, "mailbox", "address")?.unwrap_or_else(|| Value::from(""));
     let mut lines = vec![s.about_summary()];
     if ferb_py::value::truthy(&address) {
@@ -756,7 +762,12 @@ pub fn facts(host: &Host, s: &dyn Seams) -> Result<String, HandlerError> {
     if !fact.is_empty() {
         lines.push(fact);
     }
-    for (phrase, meaning) in s.time_meanings() {
+    let meanings = if memory {
+        s.time_meanings()
+    } else {
+        Vec::new()
+    };
+    for (phrase, meaning) in meanings {
         lines.push(format!(
             "- When the owner says “{phrase}”, they mean: {meaning}"
         ));

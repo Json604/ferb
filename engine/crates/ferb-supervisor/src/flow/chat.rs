@@ -349,6 +349,9 @@ impl Inner {
                 .flatten()
                 .map(|p| p.name)
         });
+        // decision: ORCH-699 — a temporary chat's message is never captured at send: no front window, no screenshot
+        // for its planner or its workers (it looks at the screen only through its tools, when the request needs it)
+        let screen = params.screen && !params.fresh;
         let me = self.me();
         let job = tokio::spawn(async move {
             me.turn_stream(
@@ -357,7 +360,7 @@ impl Inner {
                 paths,
                 request_id,
                 (hidden, sealed),
-                (params.screen, sent_from),
+                (screen, sent_from),
                 tx,
             )
             .await;

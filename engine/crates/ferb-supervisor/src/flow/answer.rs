@@ -92,6 +92,7 @@ impl Inner {
             .approvals()
             .into_iter()
             .filter(|q| q.kind == "owner_question")
+            .filter(|q| self.question_in(&session, &q.task_id))
             .collect();
         let seen: BTreeSet<String> = open_now.iter().map(|q| q.id.clone()).collect();
         let displaced = match &focus {
@@ -113,7 +114,8 @@ impl Inner {
             .deps
             .daemon
             .approval(&routed.approval_id)
-            .filter(|ap| ap.kind == "owner_question" && routable(&ap.capability));
+            .filter(|ap| ap.kind == "owner_question" && routable(&ap.capability))
+            .filter(|ap| self.question_in(&session, &ap.task_id));
         let Some(ap) = ap else {
             let routable_now: Vec<&Approval> = open_now
                 .iter()

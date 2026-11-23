@@ -941,7 +941,7 @@ impl Daemon for TestDaemon {
         assert!(rec["owner_active"].is_null() && rec["last_event"].is_null());
         s(&rec["live_facts"])
     }
-    fn system_inputs(&self, live: bool) -> SystemInputs {
+    fn system_inputs(&self, live: bool, _fresh: bool) -> SystemInputs {
         let rec = pop(&self.systems, "a role's instructions");
         assert_eq!(
             rec["live"].as_bool(),

@@ -55,8 +55,8 @@ pub trait Reads: Send + Sync {
     fn environment<'a>(&'a self, words: &'a str) -> BoxFuture<'a, Environment>;
     /// `live_facts(last_runs=..., owner_state=...)`.
     fn live_facts(&self, last_runs: bool, owner_state: bool) -> String;
-    /// `_system`'s inputs.
-    fn system_inputs(&self, live: bool) -> SystemInputs;
+    /// `_system`'s inputs (`fresh`: a temporary chat's, ORCH-699).
+    fn system_inputs(&self, live: bool, fresh: bool) -> SystemInputs;
     /// `availability().text`.
     fn availability(&self) -> String;
     /// `relevant_context(words)`.
@@ -223,7 +223,7 @@ impl Reads for RealReads {
     fn live_facts(&self, last_runs: bool, owner_state: bool) -> String {
         ferb_daemon::areas_b::environment::live_facts(self.seams.as_ref(), owner_state, last_runs)
     }
-    fn system_inputs(&self, live: bool) -> SystemInputs {
+    fn system_inputs(&self, live: bool, fresh: bool) -> SystemInputs {
         let skills = ferb_orchestrator::skills::Skills {
             directory: self.host.home.join("skills").to_string_lossy().into_owned(),
         }
@@ -234,27 +234,36 @@ impl Reads for RealReads {
             .map(|g| g.registry().names().into_iter().collect())
             .unwrap_or_default();
         let abilities = super::tools::context::abilities_catalog(self.tools.package(), &installed);
+        // decision: ORCH-699 — a temporary chat's call reads nothing FERB knows about the owner: no fact from memory,
+        // no schedules, reminders or timers, no Tier 1 profile (never read for it)
         SystemInputs {
-            facts: ferb_daemon::areas_b::environment::facts(&self.host, self.seams.as_ref())
-                .unwrap_or_default(),
+            facts: ferb_daemon::areas_b::environment::facts_with(
+                &self.host,
+                self.seams.as_ref(),
+                !fresh,
+            )
+            .unwrap_or_default(),
             live_facts: if live {
-                self.live_facts(false, true)
+                self.live_facts(false, !fresh)
             } else {
                 String::new()
             },
             capabilities: self.availability_now(),
             // Tier 1: memory's core profile (`_core_profile_text`, memory.py:212, compose.py:143)
-            identity_context: self
-                .seams
-                .a
-                .get()
-                .and_then(|a| {
-                    a.call_blocking(|st| async move {
-                        ferb_daemon::areas_a::memory::core_profile_text(&st)
+            identity_context: if fresh {
+                String::new()
+            } else {
+                self.seams
+                    .a
+                    .get()
+                    .and_then(|a| {
+                        a.call_blocking(|st| async move {
+                            ferb_daemon::areas_a::memory::core_profile_text(&st)
+                        })
+                        .ok()
                     })
-                    .ok()
-                })
-                .unwrap_or_default(),
+                    .unwrap_or_default()
+            },
             skills_line: ferb_supervisor::prompts::catalog_line(&skills),
             abilities_line: ferb_supervisor::prompts::catalog_line(&abilities),
         }
@@ -1015,8 +1024,8 @@ impl Daemon for SupDaemon {
     fn live_facts(&self, last_runs: bool, owner_state: bool) -> String {
         self.reads.live_facts(last_runs, owner_state)
     }
-    fn system_inputs(&self, live: bool) -> SystemInputs {
-        self.reads.system_inputs(live)
+    fn system_inputs(&self, live: bool, fresh: bool) -> SystemInputs {
+        self.reads.system_inputs(live, fresh)
     }
     fn availability(&self) -> String {
         self.reads.availability()

@@ -413,6 +413,8 @@ fn run_case(c: &Value) -> Vec<String> {
             json!({"scopes": a.scopes, "text": a.text, "missing": a.missing})
         }
         "_facts" => json!(env::facts(host, &f).unwrap()),
+        // ORCH-699: a temporary chat's facts (no fact taken from memory)
+        "_facts_without_memory" => json!(env::facts_with(host, &f, false).unwrap()),
         "_live_facts" => json!(env::live_facts(&f, flag(0, true), flag(1, false))),
         "_keychain_values" => {
             let mut problems = vec![];
@@ -582,4 +584,38 @@ fn the_device_line_leads_the_live_facts() {
         seen += 1;
     }
     assert!(seen >= 5);
+}
+
+/// A temporary chat's roles read FERB's facts without the ones taken from memory (what a phrase of the owner's
+/// means); every other fact stays as it is.
+// decision: ORCH-699
+#[test]
+fn a_temporary_chat_reads_the_facts_without_memory() {
+    let fx = fixture("daemon-b/environment.json");
+    let case = fx["cases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["name"] == "facts_mailbox")
+        .unwrap()
+        .clone();
+    let out = |method: &str| -> String {
+        let mut c = case.clone();
+        c["method"] = json!(method);
+        let line = run_case(&c).remove(0);
+        let v: Value = serde_json::from_str(line.strip_prefix("out ").unwrap()).unwrap();
+        v.as_str().unwrap().to_string()
+    };
+    let kept = out("_facts");
+    let fresh = out("_facts_without_memory");
+    assert!(
+        kept.contains("When the owner says \u{201c}tonight\u{201d}"),
+        "{kept}"
+    );
+    assert!(!fresh.contains("When the owner says"), "{fresh}");
+    let without: Vec<&str> = kept
+        .lines()
+        .filter(|l| !l.starts_with("- When the owner says"))
+        .collect();
+    assert_eq!(fresh, without.join("\n"), "every other fact stays");
 }

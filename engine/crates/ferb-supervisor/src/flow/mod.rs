@@ -221,8 +221,10 @@ pub trait Daemon: Send + Sync {
     /// `live_facts(last_runs=..., owner_state=...)` (the planner's).
     fn live_facts(&self, last_runs: bool, owner_state: bool) -> String;
     /// What `_system` reads as it assembles a role's instructions: `facts()`, `live_facts()` when `live`,
-    /// `availability().text`, `identity_context()` and both catalogs.
-    fn system_inputs(&self, live: bool) -> crate::prompts::SystemInputs;
+    /// `availability().text`, `identity_context()` and both catalogs. decision: ORCH-699 — `fresh` (a temporary
+    /// chat's call): nothing of what FERB knows about the owner: no Tier 1 profile, no fact taken from memory (what a
+    /// phrase of the owner's means), and live facts without the owner's schedules, reminders and timers.
+    fn system_inputs(&self, live: bool, fresh: bool) -> crate::prompts::SystemInputs;
     /// `availability().text` (the checker's report). supervisor.py:1270 `_default_availability` (every registered
     /// scope, no problems) is only the Python tests' stand-in for it; the daemon's is ferb-daemon's environment.
     fn availability(&self) -> String;

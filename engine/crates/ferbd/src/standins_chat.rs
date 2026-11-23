@@ -389,7 +389,7 @@ impl Reads for ScriptReads {
         lock(&self.0.state).supervise_used += 1;
         s(&rec["live_facts"])
     }
-    fn system_inputs(&self, _live: bool) -> SystemInputs {
+    fn system_inputs(&self, _live: bool, _fresh: bool) -> SystemInputs {
         let rec = self.pop(&self.0.systems, "a role's instructions");
         lock(&self.0.state).systems_used += 1;
         let i = &rec["inputs"];

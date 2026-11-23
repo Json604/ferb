@@ -1751,10 +1751,10 @@ impl Inner {
         let zone = self.deps.clock.zone();
         prep.mark(self, "conversation");
         let env = turn.lock().unwrap().environment.clone();
-        let live_facts = if preview {
+        // decision: ORCH-699 — a temporary chat's turn: this Mac's and the browsers' facts, never the owner's
+        // schedules, reminders or timers (`live_facts(last_runs, owner_state)`)
+        let live_facts = if preview || fresh {
             self.deps.daemon.live_facts(false, false)
-        } else if fresh {
-            self.deps.daemon.live_facts(false, true)
         } else {
             self.deps.daemon.live_facts(true, true)
         };
@@ -2290,7 +2290,19 @@ impl Inner {
 
     /// supervisor.py:3757 `_questions_block`.
     fn questions_block(&self, session: &str) -> Sourced {
-        let pending = self.deps.daemon.pending_questions();
+        let mut pending = self.deps.daemon.pending_questions();
+        if ferb_core::temporary::is_session(session) {
+            // ORCH-699: a temporary chat's turn sees only its own tasks' questions
+            let theirs: BTreeSet<String> = self
+                .deps
+                .daemon
+                .approvals()
+                .into_iter()
+                .filter(|ap| self.question_in(session, &ap.task_id))
+                .map(|ap| ap.id)
+                .collect();
+            pending.retain(|q| theirs.contains(&q.id));
+        }
         let mine = self.continuity(|c| c.task_ids(session)).unwrap_or_default();
         let conversations: Vec<Value> = {
             self.conversations()

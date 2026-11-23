@@ -1297,7 +1297,7 @@ impl Inner {
         let worker = self.worker.get().expect("the worker").clone();
         let call = ferb_worker::worker::Call {
             task: &rtask,
-            system: self.system_for("not_done.md", false, &[]),
+            system: self.system_for_request("not_done.md", false, &[], &task.request_id),
             context: blocks,
             token: "",
             parent_span: &routed,
