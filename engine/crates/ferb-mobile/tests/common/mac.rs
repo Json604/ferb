@@ -72,6 +72,68 @@ pub struct MacState {
     pub insomnia: Value,
     /// The camera's answers in insomnia mode, in order (`meta` and the frame's bytes).
     pub camera: VecDeque<(Value, Vec<u8>)>,
+    /// The temporary chat, held in the daemon's memory only (none while off): never in `entries`.
+    pub temporary: Option<TempChat>,
+    /// Each temporary chat's id is "T<n>".
+    pub temp_count: u64,
+    /// The temporary chat's rev: one more on every change (start, each entry, end), across chats.
+    pub temp_rev: i64,
+}
+
+/// The fake daemon's temporary chat: its id, start and entries (ENG-8 JSON, in pos order).
+#[derive(Debug, Clone)]
+pub struct TempChat {
+    pub id: String,
+    pub started_at: String,
+    pub entries: Vec<Value>,
+}
+
+impl MacState {
+    /// `chat.temporary.get`'s answer.
+    pub fn temporary_reply(&self) -> Value {
+        match &self.temporary {
+            None => json!({"on": false}),
+            Some(t) => {
+                json!({"on": true, "id": t.id, "conversation": format!("temporary:{}", t.id),
+                              "started_at": t.started_at, "rev": self.temp_rev, "entries": t.entries})
+            }
+        }
+    }
+
+    pub fn start_temporary(&mut self) {
+        if self.temporary.is_none() {
+            self.temp_count += 1;
+            self.temp_rev += 1;
+            self.temporary = Some(TempChat {
+                id: format!("T{}", self.temp_count),
+                started_at: "2026-01-02T10:05:00+00:00".into(),
+                entries: Vec::new(),
+            });
+        }
+    }
+
+    /// One entry of the temporary chat (a message or FERB's answer), as the daemon's memory keeps it.
+    pub fn temporary_entry(&mut self, kind: &str, text: &str, client_id: &Value) -> Value {
+        let t = self.temporary.as_mut().expect("on");
+        let n = t.entries.len() as i64 + 1;
+        let answers = if kind == "answer" {
+            t.entries
+                .last()
+                .map(|m| m["id"].clone())
+                .unwrap_or(Value::Null)
+        } else {
+            Value::Null
+        };
+        let e = json!({
+            "id": format!("{}-e{n}", t.id), "conversation_id": format!("temporary:{}", t.id), "pos": n, "seq": n,
+            "rev": 1, "kind": kind, "state": "done", "open": false, "request_id": format!("{}-r1", t.id),
+            "client_id": client_id, "answers": answers, "created_at": "2026-01-02T10:06:00+00:00",
+            "updated_at": "2026-01-02T10:06:00+00:00", "day": "2026-01-02",
+            "body": {"text": text, "attachments": [], "hidden": []}, "deleted": false});
+        t.entries.push(e.clone());
+        self.temp_rev += 1;
+        e
+    }
 }
 
 #[derive(Clone)]
@@ -120,6 +182,9 @@ impl FakeMac {
                              "helper": {"state": "requires_approval", "error": null,
                                         "problem": "FERB's helper is waiting for your OK in System Settings."}}),
             camera: VecDeque::new(),
+            temporary: None,
+            temp_count: 0,
+            temp_rev: 0,
         })))
     }
 
@@ -466,7 +531,33 @@ impl Transport for FakeMac {
                 json!({"stopped": true})
             }
             "link.lock" => json!({"unlocked": false}),
-            "chat.status" => st.status.clone(),
+            "chat.status" => {
+                let mut s = st.status.clone();
+                if let Some(t) = &st.temporary {
+                    s["temporary"] =
+                        json!({"id": t.id, "rev": st.temp_rev, "started_at": t.started_at});
+                }
+                s
+            }
+            "chat.temporary.get" => st.temporary_reply(),
+            "chat.temporary.set" => {
+                // `on` is required and a bool: never a default
+                match p["on"].as_bool() {
+                    Some(true) => st.start_temporary(),
+                    Some(false) => {
+                        if st.temporary.take().is_some() {
+                            st.temp_rev += 1;
+                        }
+                    }
+                    None => {
+                        return Err(LinkFailure::new(
+                            "ferb_error",
+                            "chat.temporary.set needs on (true or false).",
+                        ));
+                    }
+                }
+                st.temporary_reply()
+            }
             "link.files" => {
                 let path = p["path"].as_str().unwrap_or("~").to_string();
                 if st.key_places.contains(&path) && proof_json.is_none() {
@@ -563,6 +654,34 @@ impl Transport for FakeMac {
             st.sends.push(p.clone());
             if !st.online {
                 return Err(closed_failure("mac_unreachable"));
+            }
+            if p["fresh"] == json!(true) {
+                // the temporary chat: started when off; its turns only in memory, never `entries` (no seq, no epoch)
+                if let Some(SendOutcome::Fail(code)) = st.script.front().cloned() {
+                    st.script.pop_front();
+                    return Err(closed_failure(&code));
+                }
+                st.start_temporary();
+                st.temporary_entry(
+                    "message",
+                    p["text"].as_str().unwrap_or_default(),
+                    &p["client_id"],
+                );
+                let text = format!(
+                    "Fresh answer to: {}",
+                    p["text"].as_str().unwrap_or_default()
+                );
+                st.temporary_entry("answer", &text, &Value::Null);
+                let id = st
+                    .temporary
+                    .as_ref()
+                    .map(|t| t.id.clone())
+                    .unwrap_or_default();
+                return Ok(
+                    json!({"type": "ack", "request_id": format!("{id}-r1"), "fresh": true,
+                                 "conversation": format!("temporary:{id}")})
+                    .to_string(),
+                );
             }
             let sub = p["submission_id"].as_str().unwrap_or_default().to_string();
             if let Some((request, entry, seq)) = st.accepted.get(&sub) {

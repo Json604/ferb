@@ -95,6 +95,10 @@ pub const METHODS: &[Method] = &[
     m("chat.history.put", &[Role::Cli], true),
     m("chat.send", &[Role::Cli], true),
     m("chat.status", &[Role::Cli], false),
+    // ORCH-699: the temporary chat, held in the daemon's memory: read, and the owner's icon (TEMPORARY_ADDITIONS,
+    // FERB.app's own; a phone by class)
+    m("chat.temporary.get", &[Role::Cli], true),
+    m("chat.temporary.set", &[Role::Cli], true),
     m("clipboard.request", &[Role::Cli], false),
     m("conversations.change", &[Role::Cli], false),
     m("conversations.list", &[Role::Cli], false),
@@ -299,6 +303,9 @@ pub const STAGE2_ADDITIONS: [&str; 6] = [
     "chat.entries.page",
     "chat.entries.watch",
 ];
+
+/// ORCH-699: the temporary chat's two calls, FERB.app's own (`app_only`); a phone reaches them by class. Not Python's.
+pub const TEMPORARY_ADDITIONS: [&str; 2] = ["chat.temporary.get", "chat.temporary.set"];
 
 /// The methods the owner's identifier choices added to Python's table (GATE-601, GATE-602): FERB.app's own
 /// (`app_only`), never a tool's or the phone's.

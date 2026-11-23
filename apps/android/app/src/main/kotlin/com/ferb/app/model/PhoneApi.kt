@@ -38,6 +38,7 @@ import com.ferb.mobile.SessionsList
 import com.ferb.mobile.SettingValue
 import com.ferb.mobile.Signer
 import com.ferb.mobile.TaskPage
+import com.ferb.mobile.TemporaryChat
 import com.ferb.mobile.TransferListener
 import com.ferb.mobile.TranscriptView
 import com.ferb.mobile.Tree
@@ -203,6 +204,15 @@ interface PhoneApi {
      */
     suspend fun memoryReview(): Outcome<MemoryReview>
     suspend fun answerMemoryReview(part: String, itemIds: List<String>, answer: String): Outcome<MemoryReview>
+
+    /**
+     * The temporary chat (the owner, 2026-11-23): read from the Mac (`chat.temporary.get`), turned on and off by the one
+     * dashed bubble (`chat.temporary.set`), and a message sent now with `fresh: true`, never through the outbox (a
+     * dropped link is a failure; the words stay with the app). Memory only: nothing of it is stored on the phone.
+     */
+    suspend fun temporaryChat(): Outcome<TemporaryChat> = Outcome.Failed(com.ferb.mobile.FerbException.Offline("No link.", null))
+    suspend fun setTemporaryChat(on: Boolean): Outcome<TemporaryChat> = Outcome.Failed(com.ferb.mobile.FerbException.Offline("No link.", null))
+    suspend fun sendTemporary(text: String): Outcome<TemporaryChat> = Outcome.Failed(com.ferb.mobile.FerbException.Offline("No link.", null))
 }
 
 /** A live preview under way. */
@@ -310,4 +320,9 @@ class LibraryPhone(private val phone: FerbPhone) : PhoneApi {
     override suspend fun memoryReview() = phone.call { it.memoryReview() }
     override suspend fun answerMemoryReview(part: String, itemIds: List<String>, answer: String) =
         phone.call { it.answerMemoryReview(part, itemIds, answer) }
+
+    // FERB's words laid out off the main thread, as the chat's (ChatModel.prepare)
+    override suspend fun temporaryChat() = phone.call { it.temporaryChat().also { t -> ChatModel.prepare(t.transcript) } }
+    override suspend fun setTemporaryChat(on: Boolean) = phone.call { it.setTemporaryChat(on).also { t -> ChatModel.prepare(t.transcript) } }
+    override suspend fun sendTemporary(text: String) = phone.call { it.sendTemporary(text).also { t -> ChatModel.prepare(t.transcript) } }
 }

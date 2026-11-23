@@ -19,7 +19,16 @@ import UIKit
 public struct PhoneInsets: Equatable, Sendable {
     public var top: CGFloat
     public var bottom: CGFloat
-    public init(top: CGFloat, bottom: CGFloat) { self.top = top; self.bottom = bottom }
+    /// Not from the lab (kb PHN-820): the safe area's sides (a notch or island beside the page); the top bar keeps
+    /// clear of them and gives way when they leave it too little room.
+    public var left: CGFloat = 0
+    public var right: CGFloat = 0
+    public init(top: CGFloat, bottom: CGFloat, left: CGFloat = 0, right: CGFloat = 0) {
+        self.top = top
+        self.bottom = bottom
+        self.left = left
+        self.right = right
+    }
     /// Mobile.swift OS.ios: a 58 status bar and a 30 home-indicator area, on the lab's 402 by 874 iPhone.
     public static let lab = PhoneInsets(top: 58, bottom: 30)
     /// Mobile.swift OS.ios.size: the iPhone the lab draws.
@@ -27,6 +36,15 @@ public struct PhoneInsets: Equatable, Sendable {
 }
 
 private struct SkyInkKey: EnvironmentKey { static let defaultValue = SkyInk(top: .white, low: .white) }
+private struct PhoneInsetsKey: EnvironmentKey { static let defaultValue = PhoneInsets(top: 0, bottom: 0) }
+
+public extension EnvironmentValues {
+    /// The insets the page is drawn inside (PhoneScreen sets them): the top bar reads its sides (kb PHN-820).
+    var phoneInsets: PhoneInsets {
+        get { self[PhoneInsetsKey.self] }
+        set { self[PhoneInsetsKey.self] = newValue }
+    }
+}
 
 /// Black or white for what sits straight on the sky, chosen by how light the sky is behind it.
 public struct SkyInk: Equatable {
@@ -144,16 +162,25 @@ public struct TopBar: View {
     var waiting: PhoneTab? = .tasks
     var onTab: ((PhoneTab) -> Void)?
     var onProfile: (() -> Void)?
+    /// Not from the lab: the temporary chat's dashed bubble beside the profile button, on the chat tab only (nil: none).
+    var temporary: TemporaryToggle?
 
-    public init(chosen: PhoneTab, waiting: PhoneTab? = .tasks, onTab: ((PhoneTab) -> Void)? = nil, onProfile: (() -> Void)? = nil) {
+    public init(chosen: PhoneTab, waiting: PhoneTab? = .tasks, onTab: ((PhoneTab) -> Void)? = nil, onProfile: (() -> Void)? = nil,
+                temporary: TemporaryToggle? = nil, menuOpen: Bool = false) {
+        _menuOpen = State(initialValue: menuOpen)
         self.chosen = chosen
         self.waiting = waiting
         self.onTab = onTab
         self.onProfile = onProfile
+        self.temporary = temporary
     }
 
     @Environment(\.tabBarHosted) private var hosted
     @Environment(\.accessibilityReduceMotion) private var reduce
+    /// The safe area's sides the bar keeps clear of (kb PHN-820).
+    @Environment(\.phoneInsets) private var insets
+    /// The folded bar's menu is open (kb PHN-820).
+    @State private var menuOpen = false
     @Namespace private var pill
     /// Not from the lab (kb PHN-751): the connection control beside the profile button, when the app gives one.
     @Environment(\.connection) private var connection
@@ -161,24 +188,52 @@ public struct TopBar: View {
     public var body: some View {
         if hosted {
             // inside a TabBarHost: keep the room, draw nothing, take no touch (the host draws the one bar)
-            bar(onTab: nil, onProfile: nil).hidden().accessibilityHidden(true)
+            bar(onTab: nil, onProfile: nil, temporary: nil).hidden().accessibilityHidden(true)
         } else {
-            bar(onTab: onTab, onProfile: onProfile)
+            bar(onTab: onTab, onProfile: onProfile, temporary: temporary)
+                .onChange(of: chosen) { menuOpen = false }
+                .onChange(of: temporary == nil) { menuOpen = false }
         }
     }
 
     /// The bar: the white pill slides between tabs on PairIt's tab spring (overshoot cut by the bar's round ends, as
     /// PairIt's iPhone bar); the tabs' widths, names and colours follow on the enter curve (kb PHN-622).
-    private func bar(onTab: ((PhoneTab) -> Void)?, onProfile: (() -> Void)?) -> some View {
+    private func bar(onTab: ((PhoneTab) -> Void)?, onProfile: (() -> Void)?, temporary: TemporaryToggle?) -> some View {
         GeometryReader { geo in
-            barRow(width: geo.size.width - 32, onTab: onTab, onProfile: onProfile).padding(.horizontal, 16)
+            let width = geo.size.width - 32 - insets.left - insets.right
+            let layout = TopBarLayout.of(width: width, nameWidth: Self.nameWidth(chosen), temporary: temporary != nil)
+            barRow(layout: layout, onTab: onTab, onProfile: onProfile, temporary: temporary)
+                .padding(.leading, 16 + insets.left).padding(.trailing, 16 + insets.right)
+                // the menu closes when the bar stops folding
+                .onChange(of: layout.menu) { _, folded in if !folded { menuOpen = false } }
+                // the folded bar's menu: under its button, right-aligned; a tap anywhere else closes it
+                .overlay {
+                    if menuOpen && layout.menu {
+                        Color.black.opacity(0.001).frame(width: 6000, height: 6000)
+                            .onTapGesture { menuOpen = false }
+                            .accessibilityHidden(true)
+                    }
+                }
+                .overlay(alignment: .topTrailing) {
+                    if menuOpen && layout.menu, let temporary {
+                        TopBarMenu(temporary: temporary, profile: profileWords, connection: connection?.label,
+                                   onTemporary: { menuOpen = false; temporary.action() },
+                                   onProfile: onProfile.map { f in { menuOpen = false; f() } })
+                            .padding(.trailing, 16 + insets.right)
+                            .offset(y: 42 + 8)
+                            .transition(.opacity)
+                    }
+                }
         }
         .frame(height: 42)
         .padding(.top, 6)
     }
 
-    /// The chosen tab's name, as wide as it draws (15 semibold).
-    private func nameWidth(_ t: PhoneTab) -> CGFloat {
+    /// The profile button's words (and the menu's row for it).
+    private var profileWords: String { "This phone" }
+
+    /// The chosen tab's name, as wide as it draws (15 semibold: a fixed size, so it is the same at every text size).
+    static func nameWidth(_ t: PhoneTab) -> CGFloat {
         #if canImport(UIKit)
         let font = UIFont.systemFont(ofSize: 15, weight: .semibold)
         return ceil((t.title as NSString).size(withAttributes: [.font: font]).width)
@@ -189,11 +244,11 @@ public struct TopBar: View {
 
     // decision: PHN-801 — the chosen tab's name in the pill; the tabs share what is left (the lab's 46 at most, never
     // under 36); the link's state is a badge on the profile button, whose page holds the connection. As Android's.
-    private func barRow(width: CGFloat, onTab: ((PhoneTab) -> Void)?, onProfile: (() -> Void)?) -> some View {
-        let chosenW = 12 * 2 + 17 + 6 + nameWidth(chosen)
-        let room = width - 8 - 42 - 8
-        let tabW = min(46, max(36, ((room - chosenW) / CGFloat(PhoneTab.allCases.count - 1)).rounded(.down)))
-        let label = connection.map { "This phone. \($0.label)" } ?? "This phone"
+    // The temporary chat's bubble (chat tab only) takes its 42 and a gap of 8 from that room. Where that leaves a tab
+    // under 36, the bar gives way (TopBarLayout, kb PHN-820).
+    private func barRow(layout: TopBarLayout, onTab: ((PhoneTab) -> Void)?, onProfile: (() -> Void)?, temporary: TemporaryToggle?) -> some View {
+        let tabW = layout.tabWidth
+        let label = connection.map { "\(profileWords). \($0.label)" } ?? profileWords
         return HStack(spacing: 0) {
             HStack(spacing: 0) {
                 ForEach(PhoneTab.allCases, id: \.self) { tab in
@@ -201,7 +256,7 @@ public struct TopBar: View {
                     HStack(spacing: 6) {
                         Image(systemName: tab.symbol + (on && tab != .tasks && tab != .mac && tab != .sessions ? ".fill" : ""))
                             .font(.system(size: 17, weight: .medium))
-                        if on { Text(tab.title).font(.system(size: 15, weight: .semibold)).lineLimit(1).fixedSize() }
+                        if on && layout.named { Text(tab.title).font(.system(size: 15, weight: .semibold)).lineLimit(1).fixedSize() }
                     }
                     .foregroundStyle(on ? Ink.black : Ink.white)
                     .padding(.horizontal, on ? 12 : 0)
@@ -227,22 +282,47 @@ public struct TopBar: View {
             .clipShape(Capsule().inset(by: -1))
             .animation(reduce ? nil : FerbMotion.tab.animation, value: chosen)
             Spacer(minLength: 0)
-            ZStack(alignment: .bottomTrailing) {
-                Image(systemName: "person.fill")
-                    .font(.system(size: 17))
-                    .foregroundStyle(Ink.white)
-                    .frame(width: 42, height: 42)
-                // the link's state as a badge on the profile button (PHN-801; its sheet is a row on the profile page)
-                if let connection {
-                    LinkMarkView(connection.mark, size: 7).frame(width: 14, height: 14).background(Ink.darkFill, in: Circle())
-                        .offset(x: -2, y: -2)
-                }
+            if layout.menu, let temporary {
+                // folded (kb PHN-820): the bubble and the profile button in one menu button, the badge on it
+                TopBarMenuButton(temporaryOn: temporary.on, mark: connection?.mark)
+                    .pressable { menuOpen.toggle() }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(Text(temporary.menuLabel))
+                    .accessibilityValue(Text(temporary.on ? temporary.label : ""))
+                    .accessibilityIdentifier("top-bar-menu")
+            } else {
+                roundButtons(onProfile: onProfile, temporary: temporary, label: label)
             }
-            .background(Ink.darkFill, in: Circle())
-            .pressable(onProfile)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Text(label))
         }
+    }
+
+    @ViewBuilder
+    private func roundButtons(onProfile: (() -> Void)?, temporary: TemporaryToggle?, label: String) -> some View {
+        if let temporary {
+            TemporaryButton(on: temporary.on)
+                .opacity(temporary.busy ? 0.6 : 1)
+                .pressable(temporary.busy ? nil : temporary.action)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text(temporary.label))
+                .accessibilityAddTraits(temporary.on ? [.isSelected, .isButton] : .isButton)
+                .accessibilityIdentifier("temporary-chat")
+                .padding(.trailing, 8)
+        }
+        ZStack(alignment: .bottomTrailing) {
+            Image(systemName: "person.fill")
+                .font(.system(size: 17))
+                .foregroundStyle(Ink.white)
+                .frame(width: 42, height: 42)
+            // the link's state as a badge on the profile button (PHN-801; its sheet is a row on the profile page)
+            if let connection {
+                LinkMarkView(connection.mark, size: 7).frame(width: 14, height: 14).background(Ink.darkFill, in: Circle())
+                    .offset(x: -2, y: -2)
+            }
+        }
+        .background(Ink.darkFill, in: Circle())
+        .pressable(onProfile)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(label))
     }
 }
 

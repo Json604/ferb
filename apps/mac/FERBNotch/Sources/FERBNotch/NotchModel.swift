@@ -97,6 +97,12 @@ final class NotchModel: ObservableObject {
     var submissions: [UUID: Task<Void, Never>] = [:]
     @Published var pendingStops = Set<UUID>()
     @Published var conversation = ConversationArchive() { didSet { taskListCache.invalidate(); shownTranscript = nil } }
+    /// The temporary chat while it is on (owner 2026-11-23; TemporaryChatModel.swift): what the chat shows instead of
+    /// the saved one, held in memory only and read from the daemon. `conversation` stays as it was meanwhile.
+    @Published var temporaryChat: TemporaryChat? { didSet { shownTranscript = nil } }
+    /// The temporary chat's icon was tapped and FERB hasn't answered yet.
+    @Published var temporaryToggling = false
+    let temporary = TemporaryChatState()
     /// The shown day's entries as last built (`visibleEntries`): the chat, the notch's size on every pointer move and
     /// frame, and the questions all read them, so they are built once per change of the conversation or the day.
     var shownTranscript: (day: Date, entries: [TranscriptEntry])?
@@ -545,7 +551,7 @@ final class NotchModel: ObservableObject {
     var shownHeldPaste: HeldPaste? { shownPaste.flatMap { id in heldPastes.first { $0.id == id } } }
     var conversationChromeHeight: CGFloat {
         composerHeight + 58 + (showsWorkRow ? 22 : 0) + (showsInsomniaLine ? 22 : 0)
-            + ((showingHistory || !viewingToday) ? 36 : 0)
+            + ((showingHistory || !viewingToday) && !inTemporaryChat ? 36 : 0)
             + (promptError == nil ? 0 : 48) + attachmentStripHeight + (introLine.map { introContentHeight($0, width: bodyWidth - 50, inset: IntroNarrationView.chatInset) + 9 } ?? 0)
     }
     var chatTranscriptHeight: CGFloat {
@@ -900,10 +906,15 @@ final class NotchModel: ObservableObject {
             onBackgroundChange?(true)
             return
         }
-        if handleLocalNotchCommand(session.draft) { return }
         // Held pastes go back in at their places, marked as pastes like any other (APP-935)
         let whole = pasteProvenance.expanded(session.draft)
         let outgoing = PastedRequest(text: whole.text, provenance: whole.provenance).markedText
+        // While the temporary chat is on, everything typed goes to it, and nothing of it to the saved chat
+        if inTemporaryChat {
+            sendTemporary(text: PasteMarkers.removed(from: whole.text), outgoing: outgoing, sources: session.attachments)
+            return
+        }
+        if handleLocalNotchCommand(session.draft) { return }
         // The bubble shows the words without leaked paste markers until the ack brings the daemon's text (APP-713)
         begin(request: PasteMarkers.removed(from: whole.text), outgoing: outgoing, sources: session.attachments,
               keepComposer: false)
@@ -926,7 +937,7 @@ final class NotchModel: ObservableObject {
     /// task list's Stop task; a turn whose task id hasn't come yet is stopped as soon as it does.
     func stopTurn(_ id: UUID) {
         // A task waiting on the owner's answer is still running and stops the same way (TaskItem.isRunning).
-        guard let turn = conversation.turns.first(where: { $0.id == id }), TaskItem.isRunning(turn.status) else { return }
+        guard let turn = shownArchive.turns.first(where: { $0.id == id }), TaskItem.isRunning(turn.status) else { return }
         guard let backend = turn.backendTaskID, !backend.isEmpty else { pendingStops.insert(id); return }
         guard !stoppingTaskIDs.contains(backend) else { return }
         stoppingTaskIDs.insert(backend)

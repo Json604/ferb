@@ -4129,6 +4129,83 @@
         }
       }
     },
+    "temporary_banner": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temporary chat · FERB won't use what it knows or keep this chat"
+          }
+        }
+      }
+    },
+    "temporary_chat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temporary chat"
+          }
+        }
+      }
+    },
+    "temporary_chat_end": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "End temporary chat"
+          }
+        }
+      }
+    },
+    "temporary_empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This chat starts fresh. Tap the dashed bubble again to end it."
+          }
+        }
+      }
+    },
+    "temporary_end_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't end the temporary chat. Try again."
+          }
+        }
+      }
+    },
+    "temporary_start_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't start a temporary chat. Try again."
+          }
+        }
+      }
+    },
+    "top_bar_more": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More"
+          }
+        }
+      }
+    },
     "tr_add_message": {
       "extractionState": "manual",
       "localizations": {

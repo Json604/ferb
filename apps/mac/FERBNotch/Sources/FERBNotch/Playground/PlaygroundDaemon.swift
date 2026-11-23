@@ -9,6 +9,12 @@ final class PlaygroundDaemon: DaemonRPCTransport, @unchecked Sendable {
     let state: PlaygroundState
 
     @MainActor lazy var workspace = PlaygroundWorkspace(state: state)
+    /// The temporary chat, in the playground's memory (its bus events go to the app's subscription).
+    @MainActor lazy var temporary: PlaygroundTemporaryChat = {
+        let chat = PlaygroundTemporaryChat()
+        chat.emit = { [weak self] topic, data in self?.workspace.emit(topic, data) }
+        return chat
+    }()
 
     init(state: PlaygroundState) { self.state = state }
 
@@ -58,7 +64,8 @@ final class PlaygroundDaemon: DaemonRPCTransport, @unchecked Sendable {
     @MainActor
     private func answer(_ method: String, _ params: [String: Any]) async throws -> [String: Any] {
         if !Self.quiet.contains(method) { state.note("daemon ← \(method) \(Self.describe(params))") }
-        if let reply = try workspace.answer(method, params) { return reply }
+        if let reply = try temporary.answer(method, params) { return reply }
+        if let reply = try workspace.answer(method, params) { return withTemporary(method, reply) }
         var s = state.saved
         switch method {
         case "ping", "auth.hello":
@@ -68,8 +75,9 @@ final class PlaygroundDaemon: DaemonRPCTransport, @unchecked Sendable {
             return ["session_id": params["new"] as? Bool == true ? "playground-fresh" : "playground",
                     "capabilities": ["input_paths"]]
         case "chat.status":
-            return ["paused": s.paused, "stopped": false, "running": [[String: Any]](), "results": [[String: Any]](),
-                    "notices": [[String: Any]](), "approvals": [[String: Any]]()]
+            return withTemporary(method, ["paused": s.paused, "stopped": false, "running": [[String: Any]](),
+                                          "results": [[String: Any]](), "notices": [[String: Any]](),
+                                          "approvals": [[String: Any]]()])
         case "insomnia.status", "insomnia.start", "insomnia.end", "insomnia.dismiss", "insomnia.report",
              "insomnia.camera_frame":
             // Insomnia mode (APP-980) is never on in the playground: no cover, no camera, nothing kept awake
@@ -212,6 +220,9 @@ final class PlaygroundDaemon: DaemonRPCTransport, @unchecked Sendable {
                        "depends_on": index == 0 ? [] : ["\(index)"]])
             }
             yield(["type": "done", "preview": true, "request_id": id])
+        case "chat.send" where params["fresh"] as? Bool == true:
+            // the temporary chat: an invented answer, kept in the playground's memory only
+            try await temporary.send(params["text"] as? String ?? "", pause: { await self.state.pause($0) }, yield: yield)
         case "chat.send":
             if workspace.enabled {
                 try await workspace.chat(params["text"] as? String ?? "", yield: yield)
@@ -274,6 +285,13 @@ final class PlaygroundDaemon: DaemonRPCTransport, @unchecked Sendable {
             // logs.subscribe, notifications.subscribe: open and quiet until the app leaves
             while !Task.isCancelled { try await Task.sleep(for: .seconds(3600)) }
         }
+    }
+
+    /// chat.status carries `temporary` only while the temporary chat is on.
+    @MainActor
+    private func withTemporary(_ method: String, _ reply: [String: Any]) -> [String: Any] {
+        guard method == "chat.status", let temporary = temporary.status else { return reply }
+        return reply.merging(["temporary": temporary]) { $1 }
     }
 
     // MARK: Replies

@@ -145,7 +145,14 @@ impl Inner {
                 ferb_orchestrator::tree::TaskTree::new(Some(&db), Box::new(move || n.clone()));
             tasks.interrupt_running().unwrap_or_default()
         };
-        let resuming: Vec<String> = self.plans(|p| p.pending()).unwrap_or_default();
+        // decision: ORCH-699 — a restart ends the temporary chat: its tasks don't resume, nobody is asked to pick them
+        // up, and its working rows are forgotten
+        let resuming: Vec<String> = self
+            .plans(|p| p.pending())
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|t| !self.temporary_task(t))
+            .collect();
         if !interrupted.is_empty() {
             self.journal(
                 "tasks.interrupted_after_restart",
@@ -156,6 +163,7 @@ impl Inner {
                 .iter()
                 .map(|t| t.split('.').next().unwrap_or("").to_string())
                 .filter(|t| !resuming.contains(t))
+                .filter(|t| !self.temporary_task(t))
                 .collect();
             for tid in roots {
                 let goal = self
@@ -178,6 +186,7 @@ impl Inner {
                 self.record_episode_after_restart(&tid);
             }
         }
+        self.temporary_forget();
         resuming
     }
 
@@ -279,6 +288,8 @@ impl Inner {
         let tried: Vec<String> = pending
             .into_iter()
             .filter(|t| !self.live().tree_of.contains_key(t))
+            // ORCH-699: a temporary chat's plan never resumes (the restart ended its chat)
+            .filter(|t| !self.temporary_task(t))
             .collect();
         let runs = tried.iter().map(|t| self.restore(t));
         let results = futures_util::future::join_all(runs).await;

@@ -20,9 +20,11 @@ struct MainView: View {
         let waiting: PhoneTab? = (!model.ui.questions.isEmpty && model.tab != .tasks) ? .tasks : nil
         ZStack(alignment: .top) {
             // one tab bar whose pill slides; the page under it comes in from the side of its tab (kb PHN-622)
-            TabBarHost(chosen: model.tab, waiting: barWaiting(waiting), onTab: { model.choose($0) }, onProfile: { model.show(.profile) }) {
+            TabBarHost(chosen: model.tab, waiting: barWaiting(waiting), onTab: { model.choose($0) }, onProfile: { model.show(.profile) },
+                       temporary: model.tab == .chat ? temporaryToggle(model) : nil) {
                 MotionSwitch(TabKey(tab: model.tab, home: model.tab == .chat && !model.earlier && model.home,
-                                    earlier: model.tab == .chat && model.earlier), kind: .tab,
+                                    earlier: model.tab == .chat && model.earlier,
+                                    temporary: model.tab == .chat && model.temporary != nil), kind: .tab,
                              direction: { a, b in (PhoneTab.allCases.firstIndex(of: b.tab) ?? 0) - (PhoneTab.allCases.firstIndex(of: a.tab) ?? 0) }) { k in
                     switch k.tab {
                     case .chat:
@@ -58,6 +60,18 @@ private struct TabKey: Hashable {
     let tab: PhoneTab
     let home: Bool
     var earlier = false
+    /// The temporary chat in place of the chat (the owner, 2026-11-23): its own page, so on and off change pages.
+    var temporary = false
+}
+
+/// The temporary chat's dashed bubble in the chat tab's top bar: one tap starts it, the same tap ends it (the owner,
+/// 2026-11-23, as ChatGPT's and Claude's apps); it waits while a toggle is on its way.
+@MainActor func temporaryToggle(_ model: AppModel) -> TemporaryToggle {
+    let on = model.temporary != nil
+    return TemporaryToggle(on: on, label: L.s(on ? "temporary_chat_end" : "temporary_chat"), busy: model.ui.busy.contains("temporary"),
+                           menuLabel: L.s("top_bar_more")) {
+        model.toggleTemporary()
+    }
 }
 
 extension MainView {
@@ -174,11 +188,14 @@ struct Composer: View {
     var body: some View {
         let t = model.transfers
         let chips = model.outgoing.chips
-        let hasFiles = !chips.isEmpty || !t.ready.isEmpty
+        // a temporary chat takes words only: the box's files wait, unseen, for the chat
+        let temporary = model.temporary != nil
+        let hasFiles = !temporary && (!chips.isEmpty || !t.ready.isEmpty)
         VStack(spacing: 8) {
             if toast { AlertToastView(model: model) }
             // the work row above the message box (kb PHN-725; FERB.app ChatBody.swift WorkRowView)
-            if let r = model.ui.running { WorkRowFor(model: model, r: r) }
+            // (a temporary chat's own while it shows)
+            if let r = temporary ? model.temporaryRunning : model.ui.running { WorkRowFor(model: model, r: r) }
             // PHN-643: what the microphone is doing, in words above the box
             if let micText {
                 Text(micText).type(13.5, .medium, ink.low).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 6)
@@ -186,7 +203,7 @@ struct Composer: View {
             }
             // hold to speak (PHN-603): the words land in the box while held and stay there; never sent by themselves
             PhoneComposer(placeholder: hasFiles ? L.s("chat_placeholder_files") : placeholder, text: Binding(get: { model.draft }, set: { model.typed($0) }),
-                          onSend: { model.send() }, onAttach: { picking.ask(forChat: true) },
+                          onSend: { model.send() }, onAttach: temporary ? nil : { picking.ask(forChat: true) },
                           onMicDown: {
                               if model.voicePress() == .askMicrophone {
                                   Task { model.microphoneAnswered(await AppleSpeech.ask()) }
@@ -303,7 +320,13 @@ struct ChatView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            TopBar(chosen: .chat, waiting: waiting, onTab: { model.choose($0) }, onProfile: { model.show(.profile) })
+            TopBar(chosen: .chat, waiting: waiting, onTab: { model.choose($0) }, onProfile: { model.show(.profile) },
+                   temporary: temporaryToggle(model))
+            // the temporary chat says what it is above everything in it
+            let temporary = model.temporary
+            if temporary != nil {
+                TemporaryBanner(L.s("temporary_banner")).padding(.top, 10).accessibilityIdentifier("temporary-banner")
+            }
             // the app's one status line: small, grey on a black capsule, its tone's mark (kb PHN-660, PHN-661)
             if let (text, tone) = statusLine {
                 StatusLine(text, tone: tone).padding(.top, 10).transition(.motionItem)
@@ -321,19 +344,27 @@ struct ChatView: View {
             // a question the chat doesn't hold yet (the Mac's status brought it first) is a box at the end of today's
             // chat, as FERB.app draws its open questions (ConversationTranscript.swift:205-208; kb PHN-770)
             let placed = Set(model.rows.compactMap { if case .asking(_, let id, _, _, _) = $0 { return id } else { return nil } })
-            let loose: [ChatRow] = model.ui.questions.filter { !placed.contains($0.approvalId) }
+            // (a temporary chat's questions are its own, shown only in it)
+            let loose: [ChatRow] = model.ui.questions.filter { !placed.contains($0.approvalId) && temporary?.owns($0) != true }
                 .map { .asking(key: "q:\($0.approvalId)", approvalId: $0.approvalId, title: $0.title, reason: nil, hidden: $0.hidden) }
             // the way to earlier days at the top when there are some (rows of them, or older pages the Mac still has),
-            // and the memory import's card last while one runs, never in the earlier days (kb MEM-456)
-            let rows = ChatModel.shown(places, earlier: earlier, loose: loose, importing: model.ui.status?.memoryImport)
+            // and the memory import's card last while one runs, never in the earlier days (kb MEM-456); a temporary
+            // chat shows only itself
+            let rows = temporary?.shown(model.ui.questions)
+                ?? ChatModel.shown(places, earlier: earlier, loose: loose, importing: model.ui.status?.memoryImport)
             let endDay = ChatModel.dayAt(rows, rows.count - 1)
             // the day he is looking at and the latest messages' day: the sticky label and the way back (PHN-662, 663)
             let shownDay = { (s: ListScroll) -> Int? in
                 s.topKey.flatMap { k in rows.firstIndex { $0.key == k } }.flatMap { ChatModel.dayAt(rows, $0) }
             }
             ZStack(alignment: .bottom) {
-                // nothing stored yet and the first page on its way: the waiting look, never a blank screen (PHN-628)
-                if rows.isEmpty && model.ui.conversation == nil && model.ui.link?.phase == .online {
+                if temporary != nil {
+                    // an empty temporary chat: how it ends, where its conversation will be
+                    if rows.isEmpty {
+                        TemporaryEmpty(L.s("temporary_empty")).frame(maxHeight: .infinity).accessibilityIdentifier("temporary-empty")
+                    }
+                } else if rows.isEmpty && model.ui.conversation == nil && model.ui.link?.phase == .online {
+                    // nothing stored yet and the first page on its way: the waiting look, never a blank screen (PHN-628)
                     ChatWaiting(L.s("chat_loading")).frame(maxHeight: .infinity, alignment: .top)
                 }
                 // the one list every conversation on the phone uses (kb PHN-813): follows the end, the jump control, the

@@ -30,6 +30,10 @@ pub struct SendParams {
     /// acceptance). Absent: the stream's bytes are exactly as before.
     pub client_id: Option<String>,
     pub submission_id: Option<String>,
+    /// ORCH-699: the message goes to the temporary chat (started if off): no prior context, nothing kept.
+    pub fresh: bool,
+    /// ORCH-699: what the owner gives the temporary chat to start from (with `fresh` only; none for now).
+    pub extra_context: Option<String>,
 }
 
 /// The longest `client_id` or `submission_id` (characters).
@@ -88,6 +92,18 @@ impl Supervisor {
                 "submission_id needs the client_id it belongs to".into(),
             ));
         }
+        // decision: ORCH-699 — `fresh` (a bool when given, never a default from another type) and its optional
+        // `extra_context`
+        let fresh = match params.get("fresh") {
+            None | Some(Value::Null) => false,
+            Some(Value::Bool(b)) => *b,
+            Some(_) => return Err(Refused("fresh must be true or false".into())),
+        };
+        let extra_context = match params.get("extra_context") {
+            None | Some(Value::Null) => None,
+            Some(Value::String(s)) => Some(s.clone()),
+            Some(_) => return Err(Refused("extra_context must be text".into())),
+        };
         // ENG-10: a client naming itself and no conversation writes in the current one (the phones send no session);
         // a caller without a client id keeps today's default
         let session_id = match (params.get("session_id"), &client_id) {
@@ -105,6 +121,8 @@ impl Supervisor {
             screen: self.inner.deps.daemon.captures_at_send(),
             client_id,
             submission_id,
+            fresh,
+            extra_context,
         })
     }
 }
@@ -120,6 +138,12 @@ impl Supervisor {
     /// Stage 2: a bus event the chat's entries read (chat_log.rs `TOPICS`), as the daemon's events hand it over (redacted),
     /// queued in the order it was published. The daemon registers it after its other consumers.
     pub fn chat_bus(&self, topic: &str, data: Value) {
+        // decision: ORCH-699 — an event about a temporary chat's message or task goes to its memory, never the kept chat
+        if super::chat_log::TOPICS.contains(&topic) && self.inner.temporary_event(&data) {
+            self.inner
+                .temporary_feed(super::entries::Input::Bus { topic, data: &data });
+            return;
+        }
         if super::chat_log::TOPICS.contains(&topic) {
             self.inner.chat_log.bus(&self.inner, topic, data);
         }
@@ -175,11 +199,21 @@ impl Inner {
             ));
         }
         let session = params.session_id.clone();
-        if session.starts_with("schedule:") || session.starts_with("preview:") {
+        if session.starts_with("schedule:")
+            || session.starts_with("preview:")
+            || ferb_core::temporary::is_session(&session)
+        {
             return Err(Refused(
                 "session_id names one of FERB's own sessions, not a chat".into(),
             ));
         }
+        // decision: ORCH-699 — a fresh message is the temporary chat's: its conversation and a request id that carries
+        // the mark (ferb-core temporary), so every route reads the switch from the id
+        let (session, request_id) = if params.fresh {
+            self.temporary_accept(params.extra_context.as_deref())
+        } else {
+            (session, self.new_id())
+        };
         let hidden: Vec<String> = self
             .deps
             .redactor
@@ -190,7 +224,6 @@ impl Inner {
             .collect();
         let redacted = self.redact_text(&params.text);
         let text = self.hide_code_reply(&redacted, &session);
-        let request_id = self.new_id();
         // GATE-604 (owner GATE-601): each identifier of the owner's own words is kept sealed for any site, so FERB
         // never asks for it again; the text stays masked, and the model learns only the names
         let sealed = self.seal_identifiers(&params.text);
@@ -209,6 +242,10 @@ impl Inner {
         if !hidden.is_empty() {
             ack.insert("hidden".into(), json!(hidden));
         }
+        if params.fresh {
+            ack.insert("fresh".into(), json!(true));
+            ack.insert("conversation".into(), json!(session));
+        }
         if !sealed.is_empty() {
             let kept: Vec<Value> = sealed
                 .iter()
@@ -222,22 +259,42 @@ impl Inner {
             (Some(c), Some(s)) => Some((c.as_str(), s.as_str(), sha.as_str())),
             _ => None,
         };
-        let accepted = self.chat_log.accept(
-            self,
-            &session,
-            &request_id,
-            &Value::Object(ack.clone()),
-            // the files as the client sent them (what FERB.app's turn keeps)
-            &params.input_paths,
-            params.client_id.as_deref(),
-            submission,
-            |conn| {
-                super::store::journal_row(conn, &row_id, &at, "chat.ack", &data, None).map(|_| ())
-            },
-        );
+        if params.fresh {
+            // the temporary chat: its message entry in memory only (never chat_entries, never a submission row); the
+            // chat.ack row (ids and time, no words) is kept like every message's: an audit row (rule 6)
+            let _ =
+                super::store::journal_row(self.db().conn(), &row_id, &at, "chat.ack", &data, None);
+            let mut frame = Value::Object(ack.clone());
+            frame["input_paths"] = json!(params.input_paths);
+            if let Some(client) = &params.client_id {
+                frame["client_id"] = json!(client);
+            }
+            self.temporary_feed(super::entries::Input::Frame {
+                request_id: &request_id,
+                frame: &frame,
+            });
+        }
+        let accepted = if params.fresh {
+            Ok(Ok(super::chat_log::Accepted::default()))
+        } else {
+            self.chat_log.accept(
+                self,
+                &session,
+                &request_id,
+                &Value::Object(ack.clone()),
+                // the files as the client sent them (what FERB.app's turn keeps)
+                &params.input_paths,
+                params.client_id.as_deref(),
+                submission,
+                |conn| {
+                    super::store::journal_row(conn, &row_id, &at, "chat.ack", &data, None)
+                        .map(|_| ())
+                },
+            )
+        };
         match accepted {
             Ok(Ok(a)) => {
-                if params.client_id.is_some() {
+                if params.client_id.is_some() && !params.fresh {
                     ack.insert("entry_id".into(), json!(a.entry_id));
                     ack.insert("seq".into(), json!(a.seq));
                     ack.insert("epoch".into(), json!(a.epoch));
@@ -393,7 +450,7 @@ impl Inner {
                         // an observation outside any task goes to every open chat: it is about no message
                         wrapper["request_id"] = Value::Null;
                     }
-                    self.chat_log.frame(&self, &session, &request_id, &wrapper);
+                    self.log_frame(&session, &request_id, &wrapper);
                     let _ = out.send(wrapper);
                 }
                 return;
@@ -403,10 +460,12 @@ impl Inner {
                 my_tasks.insert(ferb_py::value::py_str(t));
             }
             // stage 2: the entries are fed the frame on the stream's own path, just before the stream gets it
-            self.chat_log.frame(&self, &session, &request_id, &ev);
+            self.log_frame(&session, &request_id, &ev);
             if ev.get("type").and_then(Value::as_str) == Some("outcome") {
                 let published = self.task_result(&ev, true);
-                self.chat_log.stream_result(&self, &published);
+                if !ferb_core::temporary::is_session(&session) {
+                    self.chat_log.stream_result(&self, &published);
+                }
             }
             let _ = out.send(ev);
         };
@@ -438,7 +497,7 @@ impl Inner {
             if let Some(leave) = unsubscribe {
                 leave();
             }
-            self.chat_log.ended(&self, &session, &request_id);
+            self.log_ended(&session, &request_id);
             return;
         };
         let mut rest = Vec::new();
@@ -483,11 +542,29 @@ impl Inner {
                     Some(ferb_sanitize::origin::FERB),
                 );
                 let frame = stamp(json!({"type": "reply", "text": said, "status": "failed"}));
-                self.chat_log.frame(&self, &session, &request_id, &frame);
+                self.log_frame(&session, &request_id, &frame);
                 let _ = out.send(frame);
             }
         }
-        self.chat_log.ended(&self, &session, &request_id);
+        self.log_ended(&session, &request_id);
+    }
+
+    /// A stream's frame to the conversation's entries: the kept chat's log, or the temporary chat's memory (ORCH-699).
+    fn log_frame(self: &Arc<Self>, session: &str, request_id: &str, frame: &Value) {
+        if ferb_core::temporary::is_session(session) {
+            self.temporary_feed(super::entries::Input::Frame { request_id, frame });
+        } else {
+            self.chat_log.frame(self, session, request_id, frame);
+        }
+    }
+
+    /// A stream's end, as [`Inner::log_frame`] routes it.
+    fn log_ended(self: &Arc<Self>, session: &str, request_id: &str) {
+        if ferb_core::temporary::is_session(session) {
+            self.temporary_feed(super::entries::Input::StreamEnded { request_id });
+        } else {
+            self.chat_log.ended(self, session, request_id);
+        }
     }
 
     /// A tree of this request is running (its run takes the shutdown's path itself).
@@ -577,6 +654,26 @@ impl Inner {
     /// notify.py:33 `_task_result`: what FERB told the owner about a task, recorded.
     pub fn task_result(&self, ev: &Value, shown: bool) -> Value {
         let ev = self.redact(ev);
+        // decision: ORCH-699 — a temporary chat's task: its end reaches only that chat's memory; no task_results row
+        // (the Tasks page, "since you last talked"), no `task.result` on the bus
+        if self.temporary_event(&ev) {
+            let mut published = match ev {
+                Value::Object(m) => m,
+                _ => Map::new(),
+            };
+            published.insert("shown".into(), json!(true));
+            let published = Value::Object(published);
+            let request = published
+                .get("request_id")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            if !self.temporary_holds(&request) {
+                // a task of a chat already ended (stopped with it): its last rows go too
+                self.temporary_forget();
+            }
+            return published;
+        }
         let s = |k: &str| match ev.get(k) {
             None | Some(Value::Null) => String::new(),
             Some(v) => ferb_py::value::py_str(v),

@@ -194,6 +194,17 @@ data class SearchUi(
     val problem: Note? = null,
 )
 
+/**
+ * The temporary chat while it is on (the owner, 2026-11-23; memory only, never the phone's store): its turns as the
+ * chat's rows, its open questions and what of it runs (the status's rows marked `temporary`). Null: the normal chat.
+ */
+data class TemporaryUi(
+    val id: String?,
+    val rows: List<ChatRow>,
+    val questions: List<Question> = emptyList(),
+    val running: com.ferb.app.model.RunningUi? = null,
+)
+
 data class UiState(
     val gate: Gate = Gate.STARTING,
     val failure: String? = null,
@@ -255,6 +266,8 @@ data class UiState(
     val settings: List<SettingRow>? = null,
     /** A fingerprint enrolled after pairing that the Mac doesn't know yet (PHN-133). */
     val newKeys: Boolean = false,
+    /** The temporary chat while it is on: the chat tab shows only it (null: the normal chat). */
+    val temporary: TemporaryUi? = null,
 )
 
 /**
@@ -474,6 +487,7 @@ class FerbViewModel(
                     is Change.Status -> statusChanged()
                     is Change.Mac -> readMac()
                     is Change.LocationWanted -> { pendingLocation = c.requestId; showPending() }
+                    is Change.Temporary -> readTemporary()
                     else -> refresh()
                 }
             }
@@ -495,7 +509,7 @@ class FerbViewModel(
             // (the link's status changes several times a minute on a path that moves, and each word of it started a
             // whole sync), and not while the opening prompt's statement is on its way: its unlock reads the chat itself
             api.link.map { it?.phase == LinkPhase.ONLINE && it.paired }.distinctUntilChanged()
-                .collect { online -> if (online && !session.locked.value && statement == null) syncNow() }
+                .collect { online -> if (online && !session.locked.value && statement == null) { syncNow(); readTemporary() } }
         }
         viewModelScope.launch {
             // can't reach the Mac (kb PHN-753): only once it has stopped for good, or hasn't been online for
@@ -533,6 +547,8 @@ class FerbViewModel(
                     turnTheDay()
                     saved["earlier"] = false
                     refresh()
+                    // a temporary chat on the Mac shows again (locking or closing the app never ends it)
+                    readTemporary()
                     outgoing.unlocked()
                     // a request for the exact location that came while the app was closed or locked
                     (api.locationWanted() as? Outcome.Ok)?.value?.let { pendingLocation = it; showPending() }
@@ -585,6 +601,7 @@ class FerbViewModel(
         }
         readMac()
         refresh()
+        readTemporary()
     }
 
     // ---- the gate -------------------------------------------------------------------------------------------------
@@ -733,13 +750,20 @@ class FerbViewModel(
         val view = if (statusOnly) lastView else read
         lastView = view
         val status = api.lastStatus()
+        // a temporary chat's questions and tasks (the status's rows marked `temporary`) show only in its own view
+        val normal = status?.let { s -> s.copy(questions = s.questions.filterNot { it.temporary }, running = s.running.filterNot { it.temporary }) }
+        val temporary = lastTemporary?.takeIf { it.on }?.let { t ->
+            val own = status?.let { s -> s.copy(questions = s.questions.filter { it.temporary }, running = s.running.filter { it.temporary }) }
+            TemporaryUi(t.id, ChatModel.rows(t.transcript), Questions.merged(Questions.open(t.transcript.questions), own),
+                com.ferb.app.model.RunningModel.of(t.transcript, own, null))
+        }
         // everything made from the whole transcript is made off the main thread: on a long chat it is many
         // milliseconds per streamed word, more than a frame on a phone (kb PHN-714). The rows read the phone library's
         // layout of FERB's words, made when the transcript was read and kept per entry (ChatModel.prepare, PHN-682).
         // A short chat is made where it is (well under a millisecond; no hop, so a test's main looper sees it at once).
         val make = {
-            val questions = Questions.merged(view?.let { Questions.open(it.questions) }.orEmpty(), status)
-            Made(questions, WorkModel.of(view, ""), ChatModel.rows(view), com.ferb.app.model.RunningModel.of(view, status, _ui.value.macTasks), ChatModel.days(view, zone))
+            val questions = Questions.merged(view?.let { Questions.open(it.questions) }.orEmpty(), normal)
+            Made(questions, WorkModel.of(view, ""), ChatModel.rows(view), com.ferb.app.model.RunningModel.of(view, normal, _ui.value.macTasks), ChatModel.days(view, zone))
         }
         val made = if ((view?.items?.size ?: 0) > OFF_MAIN_ENTRIES) withContext(io) { make() } else make()
         val questions = made.questions
@@ -749,7 +773,7 @@ class FerbViewModel(
         val away = chatWork.earlier.filter { it.entry !in seen }
         _ui.update {
             it.copy(conversation = view?.conversation, rows = made.rows, running = made.running, chatWork = chatWork, away = away,
-                questions = questions, older = view?.older ?: OlderState.Unknown, status = status, days = made.days)
+                questions = questions, older = view?.older ?: OlderState.Unknown, status = status, days = made.days, temporary = temporary)
         }
         showAlerts(status)
         if (!storedShown && _ui.value.rows.isNotEmpty()) {
@@ -757,6 +781,53 @@ class FerbViewModel(
             AppLog.i("chat entries ready ${android.os.SystemClock.elapsedRealtime() - born} ms after the app started: ${_ui.value.rows.size} rows, link ${_ui.value.link?.phase}")
         }
         rebuildWork()
+    }
+
+    // ---- the temporary chat (the owner, 2026-11-23) ----------------------------------------------------------------
+
+    /** The temporary chat as last read from the Mac (memory only; null or off: the normal chat). */
+    private var lastTemporary: com.ferb.mobile.TemporaryChat? = null
+    private var temporaryJob: Job? = null
+    private var temporaryAgain = false
+
+    /**
+     * Reads the temporary chat from the Mac (on start, unlock, the link coming online, and each `Change.Temporary`: it
+     * went on or off on any client, or its turns changed). A read that fails keeps what shows; one at a time.
+     */
+    fun readTemporary() {
+        if (temporaryJob?.isActive == true) { temporaryAgain = true; return }
+        temporaryJob = viewModelScope.launch {
+            do {
+                temporaryAgain = false
+                if (session.locked.value) return@launch
+                (api.temporaryChat() as? Outcome.Ok)?.value?.let { showTemporary(it) }
+            } while (temporaryAgain)
+        }
+    }
+
+    private suspend fun showTemporary(t: com.ferb.mobile.TemporaryChat) {
+        // off drops the copy at once: the normal chat shows again
+        lastTemporary = t.takeIf { it.on }
+        apply(null, statusOnly = true)
+    }
+
+    /** The dashed bubble: the same tap turns the temporary chat on and off (never queued; a failure says so). */
+    fun toggleTemporary() = busy("temporary", tap = true) {
+        val on = _ui.value.temporary == null
+        when (val r = api.setTemporaryChat(on)) {
+            is Outcome.Ok -> showTemporary(r.value)
+            is Outcome.Failed -> note(Note(if (on) R.string.temporary_start_failed else R.string.temporary_end_failed))
+        }
+    }
+
+    /** A message in the temporary chat: sent now with `fresh: true`, never the outbox; a failure keeps the words. */
+    private suspend fun sendTemporary(text: String) {
+        if (text.isEmpty()) return
+        saved["draft"] = ""
+        when (val r = api.sendTemporary(text)) {
+            is Outcome.Ok -> showTemporary(r.value)
+            is Outcome.Failed -> { saved["draft"] = text; failed(r.error) }
+        }
     }
 
     /** What [apply] makes from a transcript, off the main thread. */
@@ -830,7 +901,7 @@ class FerbViewModel(
     private fun markRead() {
         val conv = _ui.value.conversation ?: return
         if (_ui.value.gate != Gate.MAIN || session.locked.value || !session.front.value) return
-        if (tab.value != PhoneTab.CHAT || home.value) return
+        if (tab.value != PhoneTab.CHAT || home.value || _ui.value.temporary != null) return
         // one mark on its way at a time, and at most one more behind it: every read of the chat asks for one, and on
         // a slow link each started its own call to the Mac before the first had answered (kb PHN-682)
         if (markJob?.isActive == true) { markAgain = true; return }
@@ -1228,6 +1299,7 @@ class FerbViewModel(
 
     /** Sends through the outbox (PHN-401): with the Mac off it waits there, visible and cancellable. Files go with it. */
     fun send() = busy("send") {
+        if (_ui.value.temporary != null) { sendTemporary(draft.value.trim()); return@busy }
         val text = draft.value.trim()
         val files = transfers.ready.value
         // files in the box: the message shows at once and goes when its files are on the Mac (kb PHN-690, PHN-691)

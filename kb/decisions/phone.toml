@@ -4178,3 +4178,35 @@ rule = "For HAND-691, HAND-697, PHN-798. Both phones: the tab is \"Your terminal
 evidence = "Android SessionsTest (new session as a terminal; a terminal row; the no-chat line), SessionsLibraryTest, SessionShotsTest (sessions-list, session-new, session-new-command); iPhone SessionsTests, SessionsLibraryTests."
 paths = ["apps/android/app/src/main/kotlin/com/ferb/app/ui/Sessions.kt", "apps/android/app/src/main/kotlin/com/ferb/app/model/Sessions.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppUI/Sessions.swift", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/CodingSessions.swift", "engine/crates/ferb-mobile/src/sessions.rs"]
 live = ["LIVE-1192", "LIVE-1193"]
+
+[PHN-818]
+title = "The temporary chat on both phones: the dashed bubble in the chat tab's top bar, held only in memory"
+by = "agent"
+date = 2026-11-23
+status = "active"
+rule = "For ORCH-699 and ORCH-700. ferb-mobile adds temporary_chat, set_temporary_chat(on), send_temporary (chat.send fresh, straight to the Mac, never the outbox), last_temporary_chat, PhoneStatus.temporary and Change::Temporary, in memory only; a locked status without temporary never reads as off. Android and iPhone show the same dashed bubble left of the profile button on the chat tab, the banner, only the temporary rows and questions or tasks marked temporary; it is read again on start, unlock, coming to the front and each status rev."
+why = "The owner's words: one tap on the phones as on the Mac, held in memory, ended only by the same icon. Its place in the top bar is the owner's (PHN-819)."
+paths = ["engine/crates/ferb-mobile/src/temporary.rs", "apps/android/design/src/main/kotlin/com/ferb/design/components/Temporary.kt", "apps/ios/Packages/FerbDesign/Sources/FerbDesign/Temporary.swift", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/Temporary.swift"]
+live = ["LIVE-1194"]
+
+[PHN-819]
+title = "The temporary chat's dashed bubble is a second round button in the chat tab's top bar"
+by = "owner"
+date = 2026-11-23
+status = "active"
+words = "i like A for temp chat icon"
+words_source = "Owner 2026-11-23 (relayed), after renders of A (a second round button left of the profile button) and B (one round button, the bubble floating over the chat)."
+rule = "Refines PHN-801 only for the chat tab's temporary-chat button: on both phones the dashed bubble sits in the top bar as a second round button, left of the profile button, on the chat tab only. Everything else in PHN-801 stands (the connection stays a badge on the profile button, the tabs' minimum width)."
+paths = ["apps/android/design/src/main/kotlin/com/ferb/design/components/TopBar.kt", "apps/ios/Packages/FerbDesign/Sources/FerbDesign/Lab/Mobile.swift"]
+live = ["LIVE-1194"]
+
+[PHN-820]
+title = "The phones' top bar gives way: round buttons fold into one menu, then the tab's name goes"
+by = "owner"
+date = 2026-11-23
+status = "active"
+words = "jsut pack them in a good looking hamburger icon if theres no space to show or place them - i think that will come in phoen's with different nothces so yeah, adjust based on that, contracat if really no space etcetc"
+words_source = "Owner 2026-11-23 (relayed), about the top bar's temporary-chat bubble and profile button beside the tabs (PHN-819)."
+rule = "Refines PHN-801 and PHN-819. On both phones the bar measures its real width (the window less the cutout and safe-area insets on its sides, at the current text size). Normal: chosen tab with its name, other tabs at least 36, the temporary bubble, the profile button. If a tab would fall under 36, the bubble and the profile fold into one round menu button (three lines, the connection badge on it, a dashed mark while the temporary chat is on) opening Temporary chat and the profile; only if still too tight the chosen tab shows its icon alone."
+paths = ["apps/android/design/src/main/kotlin/com/ferb/design/components/TopBar.kt", "apps/ios/Packages/FerbDesign/Sources/FerbDesign/Lab/Mobile.swift"]
+live = ["LIVE-1194"]

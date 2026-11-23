@@ -179,9 +179,11 @@ pub trait WorkerHost: Send + Sync {
     }
 
     // --- run tokens (auth.py `RunTokens`) ---
+    /// `task` is the run's task (its id and request id: a temporary chat's run gets a token without the tools that
+    /// read what FERB knows, ORCH-699).
     fn issue_token(
         &self,
-        task_id: &str,
+        task: &Task,
         worker_id: &str,
         scopes: &BTreeSet<String>,
         identity: Identity,
@@ -241,9 +243,11 @@ pub trait WorkerHost: Send + Sync {
     /// `runtime_account(runtime, account)` (RUN-424): what the runtime said about its account; "" clears it.
     fn runtime_account(&self, runtime: &str, account: &str);
     /// The supervisor's `_system(prompt, roles=roles)`: a role's instructions (ferb-supervisor `prompts::system`).
-    fn system(&self, prompt: &str, roles: &[String]) -> String;
-    /// The supervisor's `_with_newly_always_on(ctx)` (MEM-429).
-    fn with_newly_always_on(&self, ctx: Vec<ContextBlock>) -> Vec<ContextBlock>;
+    /// `task` is the run's (a temporary chat's run gets no Tier 1 profile, ORCH-699).
+    fn system(&self, task: &Task, prompt: &str, roles: &[String]) -> String;
+    /// The supervisor's `_with_newly_always_on(ctx)` (MEM-429); for a temporary chat's run, its fact instead
+    /// (ORCH-699).
+    fn with_newly_always_on(&self, task: &Task, ctx: Vec<ContextBlock>) -> Vec<ContextBlock>;
     /// The supervisor's `_context_exposure(task, ctx, assembly, tree)`: what a run was shown, for its records.
     fn context_exposure(
         &self,

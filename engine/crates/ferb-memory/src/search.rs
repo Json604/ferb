@@ -16,6 +16,10 @@ pub const NODE_KINDS: [&str; 4] = [
     "episode_annotation",
 ];
 /// The conversation kinds the chat index holds.
+/// ferb-core `temporary::SESSION_PREFIX` and `REQUEST_PREFIX` (this crate doesn't depend on ferb-core): a temporary
+/// chat's conversation and messages, never indexed (ORCH-699).
+pub const TEMPORARY_SESSION: &str = "temporary:";
+pub const TEMPORARY_REQUEST: &str = "temporary-";
 pub const CHAT_KINDS: [&str; 5] = [
     "chat.message",
     "chat.reply",
@@ -630,6 +634,35 @@ mod store {
             vec!["?"; CHAT_KINDS.len()].join(",")
         }
 
+        /// ORCH-699: a journal row of a temporary chat: its conversation (`temporary:…`), its message
+        /// (`temporary-…`, ferb-core `temporary`) or a task of one (the task's stored request).
+        fn temporary_row(&self, session: &str, data: &serde_json::Value) -> Result<bool, Error> {
+            if session.starts_with(TEMPORARY_SESSION) {
+                return Ok(true);
+            }
+            for k in ["read_with", "request_id"] {
+                if let Some(v) = pyval::get(data, k)? {
+                    if pyval::to_str(v).starts_with(TEMPORARY_REQUEST) {
+                        return Ok(true);
+                    }
+                }
+            }
+            let Some(task) = pyval::get(data, "task_id")?.filter(|v| pyval::truthy(v)) else {
+                return Ok(false);
+            };
+            let request: Option<Option<String>> = self
+                .conn
+                .query_row(
+                    "SELECT request_id FROM tasks WHERE id = ?",
+                    [pyval::to_str(task)],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            Ok(request
+                .flatten()
+                .is_some_and(|r| r.starts_with(TEMPORARY_REQUEST)))
+        }
+
         /// `index_chat`: index the conversation entries journaled since the last call. Returns how many rows
         /// were read.
         pub fn index_chat(&self, stop: &dyn Fn() -> bool) -> Result<usize, Error> {
@@ -704,6 +737,10 @@ mod store {
                             .flatten()
                             .find(|v| pyval::truthy(v))
                             .map_or(String::new(), pyval::to_str);
+                        // decision: ORCH-699 — a temporary chat's rows are never indexed (nothing of it is searchable)
+                        if self.temporary_row(&session, &data)? {
+                            continue;
+                        }
                         self.conn.execute(
                             "INSERT INTO chat_fts (doc, kind, session, at, request, text) VALUES (?,?,?,?,?,?)",
                             rusqlite::params![

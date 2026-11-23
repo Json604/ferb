@@ -30,6 +30,13 @@ extension NotchModel {
         return loop.state != "acting"
     }
     var visibleEntries: [TranscriptEntry] {
+        // The temporary chat shows whole, on no day: it is one conversation held in memory (TemporaryChatModel.swift)
+        if let temporary = temporaryChat {
+            if let shown = shownTranscript, shown.day == .distantPast { return shown.entries }
+            let entries = temporary.archive.transcript()
+            shownTranscript = (.distantPast, entries)
+            return entries
+        }
         let day = Calendar.current.startOfDay(for: followsToday ? Date() : selectedDay)
         if let shown = shownTranscript, shown.day == day { return shown.entries }
         let all = conversation.transcript(on: day)
@@ -41,13 +48,14 @@ extension NotchModel {
     /// Open questions, shown at the end of today's chat; one that belongs to a card row shown here is in that row instead
     /// (APP-300).
     var inlineQuestions: [DaemonApproval] {
-        guard viewingToday else { return [] }
-        let placed = conversation.rowPlacements(pendingApprovals)
-        guard !placed.isEmpty else { return pendingApprovals }
+        guard viewingToday || inTemporaryChat else { return [] }
+        let approvals = shownApprovals
+        let placed = shownArchive.rowPlacements(approvals)
+        guard !placed.isEmpty else { return approvals }
         let shown = Set(visibleEntries.compactMap { entry -> UUID? in
             if case let .turn(turn, _) = entry { return turn.id } else { return nil }
         })
-        return pendingApprovals.filter { approval in placed[approval.id].map { !shown.contains($0.turnID) } ?? true }
+        return approvals.filter { approval in placed[approval.id].map { !shown.contains($0.turnID) } ?? true }
     }
     /// The memory import's card at the end of today's chat (MEM-456): live state, after the open questions.
     var inlineMemoryImport: MemoryImportCard? { viewingToday ? memoryImport : nil }
@@ -58,16 +66,18 @@ extension NotchModel {
     var showsTranscript: Bool { !visibleEntries.isEmpty || !inlineQuestions.isEmpty || inlineMemoryImport != nil }
     /// The open questions shown inside this turn's card, by part (APP-300). Live state: only in today's chat.
     func rowQuestions(_ turn: ConversationTurn) -> [String: [DaemonApproval]] {
-        guard viewingToday, turn.card != nil, !pendingApprovals.isEmpty else { return [:] }
-        let placed = conversation.rowPlacements(pendingApprovals)
-        return Dictionary(grouping: pendingApprovals.filter { placed[$0.id]?.turnID == turn.id }) { placed[$0.id]!.part }
+        let approvals = shownApprovals
+        guard viewingToday || inTemporaryChat, turn.card != nil, !approvals.isEmpty else { return [:] }
+        let placed = shownArchive.rowPlacements(approvals)
+        return Dictionary(grouping: approvals.filter { placed[$0.id]?.turnID == turn.id }) { placed[$0.id]!.part }
     }
     /// The task a question belongs to: its goal, or its short id when the goal isn't known (a secret prompt must
     /// always say which task asks).
     func questionContext(_ approval: DaemonApproval) -> String? {
         guard let taskID = approval.taskID, !taskID.isEmpty else { return nil }
         if let goal = runningTasks[taskID], !goal.isEmpty { return goal }
-        if let turn = conversation.turns.first(where: { $0.backendTaskID == taskID }) {
+        if let turn = (temporaryChat?.archive.turns ?? []).first(where: { $0.backendTaskID == taskID })
+            ?? conversation.turns.first(where: { $0.backendTaskID == taskID }) {
             let title = Self.title(of: turn)
             if title != Self.unknownTaskTitle { return title }
         }

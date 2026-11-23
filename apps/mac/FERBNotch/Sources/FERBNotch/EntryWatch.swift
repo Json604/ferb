@@ -215,7 +215,8 @@ extension NotchModel {
     /// them. Quiet (`live` or not): no sound, no notch opening; what it changed is saved. Returns whether it did.
     @discardableResult
     func applyEntryChange(_ entry: ChatEntry, live: Bool) async -> Bool {
-        guard !entry.deleted else { return false }
+        // A temporary chat's entry is never written here: that chat lives in the daemon's memory only
+        guard !entry.deleted, !TemporaryChat.isTemporary(entry.conversationID) else { return false }
         // MEM-461: a notice the engine folded into another place is marked here too (by its id, the entry's ref) and
         // not drawn again
         if entry.kind == "notice", let ref = entry.ref, let place = entry.body["folded"] as? String, !place.isEmpty,

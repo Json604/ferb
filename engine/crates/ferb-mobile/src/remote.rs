@@ -299,16 +299,7 @@ impl Shared {
         if this.closed.load(std::sync::atomic::Ordering::SeqCst) {
             return Err(MobileError::closed());
         }
-        let changed = {
-            let mut last = lock(&this.status);
-            let changed = last.as_ref() != Some(&status);
-            *last = Some(status.clone());
-            changed
-        };
-        if changed {
-            this.notify(Change::Status);
-        }
-        Ok(status)
+        Ok(Self::keep_status(this, status))
     }
 
     /// FERB's use of the screen as just read: kept in the last status (when there is one), told when it changed.

@@ -375,21 +375,24 @@ public struct TabBarHost<Content: View>: View {
     let waiting: PhoneTab?
     let onTab: ((PhoneTab) -> Void)?
     let onProfile: (() -> Void)?
+    /// The temporary chat's dashed bubble (the chat tab only; nil: none).
+    let temporary: TemporaryToggle?
     let content: Content
 
     public init(chosen: PhoneTab, waiting: PhoneTab?, onTab: ((PhoneTab) -> Void)?, onProfile: (() -> Void)?,
-                @ViewBuilder content: () -> Content) {
+                temporary: TemporaryToggle? = nil, @ViewBuilder content: () -> Content) {
         self.chosen = chosen
         self.waiting = waiting
         self.onTab = onTab
         self.onProfile = onProfile
+        self.temporary = temporary
         self.content = content()
     }
 
     public var body: some View {
         ZStack(alignment: .top) {
             content.environment(\.tabBarHosted, true)
-            TopBar(chosen: chosen, waiting: waiting, onTab: onTab, onProfile: onProfile)
+            TopBar(chosen: chosen, waiting: waiting, onTab: onTab, onProfile: onProfile, temporary: temporary)
                 .environment(\.tabBarHosted, false)
         }
     }

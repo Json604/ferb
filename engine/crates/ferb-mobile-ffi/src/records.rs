@@ -708,6 +708,9 @@ mirror! {
         /// What FERB.app's card shows for it (kb PHN-739); none only in a record an app made itself.
         #[uniffi(default = None)]
         words: Option<QuestionShown>,
+        /// A question of the temporary chat's task: shown only in the temporary chat, never stored.
+        #[uniffi(default = false)]
+        temporary: bool,
     }
 }
 
@@ -757,6 +760,9 @@ mirror! {
         goal: String,
         started_at: Option<String>,
         held: bool,
+        /// A task of the temporary chat: shown only in the temporary chat, never stored.
+        #[uniffi(default = false)]
+        temporary: bool,
     }
 }
 
@@ -795,6 +801,19 @@ mirror! {
         /// the words are held back, or from an older Mac.
         #[uniffi(default = None)]
         memory_import: Option<ImportCard>,
+        /// The temporary chat while one is on (its id, rev and start); none while none is on or from an older Mac.
+        /// When it appears, goes or its rev moves, `Change.Temporary` says so: read `temporary_chat` again.
+        #[uniffi(default = None)]
+        temporary: Option<TemporaryState>,
+    }
+}
+
+mirror! {
+    /// The temporary chat as `chat.status` names it while one is on: its id, its change number and its start.
+    TemporaryState from ferb_mobile::status::TemporaryState {
+        id: String,
+        rev: i64,
+        started_at: Option<String>,
     }
 }
 
@@ -1251,6 +1270,36 @@ impl Conv<TranscriptView> for ferb_mobile::TranscriptView {
     }
 }
 
+/// The temporary chat (memory only, never the phone's store): whether one is on, which, since when, its change
+/// number, and its turns folded as any conversation (`transcript.conversation` is "temporary:<id>"; empty while off).
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct TemporaryChat {
+    pub on: bool,
+    pub id: Option<String>,
+    pub started_at: Option<String>,
+    pub rev: i64,
+    pub transcript: TranscriptView,
+}
+
+impl Conv<TemporaryChat> for ferb_mobile::TemporaryChat {
+    fn conv(self) -> TemporaryChat {
+        let ferb_mobile::TemporaryChat {
+            on,
+            id,
+            started_at,
+            rev,
+            transcript,
+        } = self;
+        TemporaryChat {
+            on,
+            id,
+            started_at,
+            rev,
+            transcript: transcript.conv(),
+        }
+    }
+}
+
 /// The path the link is on now.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 pub enum LinkPath {
@@ -1330,6 +1379,9 @@ pub enum Change {
     LocationWanted {
         request_id: String,
     },
+    /// The temporary chat moved: on or off (from any client), or its turns changed: read `temporary_chat` again; off,
+    /// show the normal chat.
+    Temporary,
     /// "Forget this Mac" ran or the core closed: every call now answers `closed`.
     Closed,
 }
@@ -1348,6 +1400,7 @@ impl Conv<Change> for ferb_mobile::Change {
             ferb_mobile::Change::LocationWanted { request_id } => {
                 Change::LocationWanted { request_id }
             }
+            ferb_mobile::Change::Temporary => Change::Temporary,
             ferb_mobile::Change::Closed => Change::Closed,
         }
     }

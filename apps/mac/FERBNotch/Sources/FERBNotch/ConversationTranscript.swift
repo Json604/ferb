@@ -323,7 +323,7 @@ private struct TurnView: View {
     private var ferbSide: some View {
         VStack(alignment: .leading, spacing: 7) {
             if let lead = turn.mergedInto {
-                let turns = model.conversation.turns
+                let turns = model.shownArchive.turns
                 let leadIndex = turns.firstIndex { $0.requestID == lead }
                 MergedLabel(lead: leadIndex.map { turns[$0] },
                             leadIsAbove: (leadIndex ?? 0) < (turns.firstIndex { $0.id == turn.id } ?? 0))
@@ -351,7 +351,7 @@ private struct TurnView: View {
             if let live = turn.liveLine { LiveLineView(progress: live) }
             // A question FERB asked stays here unless it was itself shown below.
             if let question = turn.question,
-               !model.conversation.repliesBelow(turn.id).contains(where: { $0.part == .question }) {
+               !model.shownArchive.repliesBelow(turn.id).contains(where: { $0.part == .question }) {
                 FerbBubble { MarkdownContent(question).equatable() }
             }
             if answeredBelow {
@@ -429,7 +429,7 @@ private struct LateReplyView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            if !model.conversation.followsItsTurn(reply) {
+            if !model.shownArchive.followsItsTurn(reply) {
                 Label {
                     Text(turn.quote.isEmpty ? "A task from earlier" : turn.quote).lineLimit(1).truncationMode(.tail)
                 } icon: {
@@ -442,7 +442,7 @@ private struct LateReplyView: View {
             if reply.part == .question, let question = turn.question {
                 // The question was shown here; the final answer follows it unless it went further below.
                 FerbBubble { MarkdownContent(question).equatable() }
-                if !model.conversation.repliesBelow(turn.id).contains(where: { $0.part == .answer }) {
+                if !model.shownArchive.repliesBelow(turn.id).contains(where: { $0.part == .answer }) {
                     AnswerView(turn: turn, hidden: hidden, model: model)
                 }
             } else {

@@ -71,6 +71,8 @@ pub struct StatusQuestion {
     /// The words are held back (a locked phone, PHN-126).
     pub held: bool,
     pub needs: QuestionNeeds,
+    /// A question of the temporary chat's task (`"temporary": true`): shown only in the temporary chat, never stored.
+    pub temporary: bool,
     /// What FERB.app's card shows for it (kb PHN-739), from the approval's own fields; while held, the kind's words.
     #[serde(skip_serializing)]
     pub words: Option<crate::question::QuestionShown>,
@@ -85,6 +87,8 @@ pub struct StatusTask {
     pub goal: String,
     pub started_at: Option<String>,
     pub held: bool,
+    /// A task of the temporary chat (`"temporary": true`): shown only in the temporary chat, never stored.
+    pub temporary: bool,
 }
 
 /// A task that finished since the Mac last showed it.
@@ -369,6 +373,30 @@ pub struct PhoneStatus {
     /// The memory import's live card (MEM-456) while one goes on; none otherwise, while the words are held back, or
     /// from a Mac that doesn't say.
     pub memory_import: Option<ImportCard>,
+    /// The temporary chat while one is on (`chat.status`'s `temporary`): which one, its change number and its start.
+    /// None while none is on, or from a Mac that doesn't say. Memory only, like the rest of the status.
+    pub temporary: Option<TemporaryState>,
+}
+
+/// The temporary chat as `chat.status` names it while one is on: its id, its `rev` (one more on every change: its
+/// start, each entry's change, its end) and when it started. Its turns are read with `Mobile::temporary_chat`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TemporaryState {
+    pub id: String,
+    pub rev: i64,
+    pub started_at: Option<String>,
+}
+
+impl TemporaryState {
+    /// From `chat.status`'s `temporary` (an object with an `id`); None for anything else.
+    pub fn read(v: &Value) -> Option<TemporaryState> {
+        let id = opt(&v["id"])?;
+        Some(TemporaryState {
+            id,
+            rev: v["rev"].as_i64().unwrap_or(0),
+            started_at: opt(&v["started_at"]),
+        })
+    }
 }
 
 /// The memory import's live card (MEM-456), in the Mac's own words: drawn at the end of today's chat, as FERB.app
@@ -492,6 +520,7 @@ impl PhoneStatus {
                         .collect(),
                     held: a["held"].as_bool().unwrap_or(false),
                     needs: QuestionNeeds::read(&a["phone"]),
+                    temporary: a["temporary"].as_bool().unwrap_or(false),
                     words: Some(crate::question::shown(a)),
                 })
                 .collect(),
@@ -503,6 +532,7 @@ impl PhoneStatus {
                     goal: text(&r["goal"]),
                     started_at: opt(&r["started_at"]),
                     held: r["held"].as_bool().unwrap_or(false),
+                    temporary: r["temporary"].as_bool().unwrap_or(false),
                 })
                 .collect(),
             results: list(&v["results"])
@@ -530,6 +560,10 @@ impl PhoneStatus {
                 .get("memory_import")
                 .filter(|c| c.is_object())
                 .and_then(ImportCard::read),
+            temporary: v
+                .get("temporary")
+                .filter(|t| t.is_object())
+                .and_then(TemporaryState::read),
         }
     }
 

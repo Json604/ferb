@@ -465,6 +465,51 @@ final class FakePhone: PhoneApi {
         return .ok(review)
     }
 
+    /// The temporary chat as the Mac holds it (memory only); a refusal answers the next toggle; a send adds the
+    /// owner's words and, when set, FERB's `temporaryReply`.
+    @ObservationIgnored var temporaryNow = FakePhone.temporaryOff
+    @ObservationIgnored var temporaryRefusal: FerbError?
+    @ObservationIgnored var temporaryReply: String?
+    @ObservationIgnored private var temporaryCount = 0
+    static let temporaryOff = TemporaryChat(on: false, id: nil, startedAt: nil, rev: 0,
+                                            transcript: TranscriptView(conversation: "", items: [], questions: [], live: [], outbox: [], older: .complete))
+    func temporaryChat() async -> Outcome<TemporaryChat> { calls.append("temporary"); return .ok(temporaryNow) }
+    func setTemporaryChat(on: Bool) async -> Outcome<TemporaryChat> {
+        calls.append("temporary-set:\(on)")
+        if let e = temporaryRefusal { temporaryRefusal = nil; return .failed(e) }
+        if on && !temporaryNow.on {
+            temporaryCount += 1
+            let id = "tmp\(temporaryCount)"
+            temporaryNow = TemporaryChat(on: true, id: id, startedAt: "2026-11-23T10:00:00+05:30", rev: temporaryNow.rev + 1,
+                                         transcript: TranscriptView(conversation: "temporary:\(id)", items: [], questions: [], live: [],
+                                                                    outbox: [], older: .complete))
+        } else if !on {
+            temporaryNow = FakePhone.temporaryOff
+        }
+        return .ok(temporaryNow)
+    }
+    func sendTemporary(_ text: String) async -> Outcome<TemporaryChat> {
+        calls.append("temporary-send:\(text)")
+        guard temporaryNow.on else { return .failed(.Refused(detail: "No temporary chat is on.", linkCode: nil)) }
+        var v = temporaryNow.transcript
+        let n = v.items.count
+        v.items.append(FakePhone.ownerTurn("t-e\(n)", text, task: "tmp-task-\(n)"))
+        if let reply = temporaryReply {
+            v.items.append(.notice(notice: NoticeItem(entry: "t-e\(n + 1)", at: 0, legacy: false, reference: "t-e\(n + 1)", after: nil,
+                                                      text: reply, quotes: [], cards: nil)))
+        }
+        temporaryNow = TemporaryChat(on: true, id: temporaryNow.id, startedAt: temporaryNow.startedAt, rev: temporaryNow.rev + 1, transcript: v)
+        return .ok(temporaryNow)
+    }
+
+    /// The owner's words as the library hands a turn.
+    static func ownerTurn(_ entry: String, _ text: String, task: String? = nil) -> Item {
+        .turn(turn: TurnItem(entry: entry, at: 0, legacy: false, clientId: nil, requestId: "r-\(entry)", taskId: task, from: "owner",
+                             taskName: nil, status: "running", statusInferred: false, notice: nil, mergedInto: nil, question: nil,
+                             answeredBelow: false, answer: nil, card: nil, checklist: nil, firstReply: nil, parts: [], goal: nil,
+                             words: OwnerWords(text: text, files: [], hidden: [], sealed: [], hiddenNotice: nil)))
+    }
+
     func unregisteredKeys() async -> PublicKeys? { newKeys }
     func registerKeys(_ signer: @escaping @Sendable (KeyKind) -> Signer) async -> Outcome<Bool> {
         guard let k = newKeys else { return .ok(false) }

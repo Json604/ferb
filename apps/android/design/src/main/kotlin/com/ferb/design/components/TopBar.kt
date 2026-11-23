@@ -59,6 +59,13 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.testTag
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import com.ferb.design.FerbIcon
 import com.ferb.design.FerbIcons
 import com.ferb.design.Ink
@@ -92,10 +99,65 @@ data class Connection(val mark: LinkMark, val label: String, val onClick: (() ->
 val LocalConnection = staticCompositionLocalOf<Connection?> { null }
 
 /** What a page's own TopBar hands the one bar of a [TabBarHost]. */
-private data class BarValue(val chosen: PhoneTab, val waiting: PhoneTab?, val onTab: ((PhoneTab) -> Unit)?, val onProfile: (() -> Unit)?)
+private data class BarValue(val chosen: PhoneTab, val waiting: PhoneTab?, val onTab: ((PhoneTab) -> Unit)?, val onProfile: (() -> Unit)?,
+                            val temporary: TemporaryToggle? = null)
 
 private class TabBarState {
     var bar by mutableStateOf<BarValue?>(null)
+    /** The folded bar's menu is open (PHN-820): drawn by the host over every page. */
+    val menu = mutableStateOf(false)
+}
+
+/** The folded bar's menu, open or not: the host's, so its panel and the tap that closes it cover the pages. */
+private val LocalBarMenu = staticCompositionLocalOf<androidx.compose.runtime.MutableState<Boolean>?> { null }
+
+/** What the folded bar's menu offers (PHN-820), handed to the host that draws it. */
+private class MenuValue(val temporary: TemporaryToggle, val onProfile: (() -> Unit)?, val connection: String?, val sideEnd: Dp)
+
+private val LocalBarMenuValue = staticCompositionLocalOf<androidx.compose.runtime.MutableState<MenuValue?>?> { null }
+
+/**
+ * The bar's left and right insets (the display cutout and the system bars, PHN-820): read from the window unless given
+ * here (a golden's stand-in for a phone with a notch at the side).
+ */
+data class BarSides(val start: Dp, val end: Dp)
+
+val LocalBarSides = staticCompositionLocalOf<BarSides?> { null }
+
+/** How the bar fits its width (PHN-820), in the order things give way. */
+enum class BarFit {
+    /** Every tab (unchosen ones at least 36), the temporary chat's bubble on the chat tab, the profile button. */
+    NORMAL,
+    /** The bubble and the profile button folded into one menu button; the tabs as in NORMAL. */
+    FOLDED,
+    /** Folded, and the chosen tab shows only its icon in the white pill. */
+    CONTRACTED,
+}
+
+/** The bar as it fits: how, each unchosen tab's width, whether the chosen tab shows its name, whether there is a menu. */
+data class BarLayout(val fit: BarFit, val tabWidth: Dp, val showName: Boolean, val menu: Boolean)
+
+/**
+ * The order of giving way (owner 2026-11-23, PHN-820), a pure function of the bar's room ([barWidth]: the window less
+ * its side insets and the bar's own margins), the chosen tab's name as measured at the font scale ([nameWidth]) and the
+ * round buttons it would carry ([buttons]: 2 on the chat tab with the bubble, else 1): normal while every unchosen tab
+ * keeps 36 (PHN-801's narrowest); else the two round buttons fold into one menu button; else the chosen tab drops its
+ * name. One round button alone never folds (a menu of one saves nothing): it goes straight to dropping the name.
+ */
+fun barLayout(barWidth: Dp, nameWidth: Dp, buttons: Int): BarLayout {
+    val others = PhoneTab.entries.size - 1
+    val named = Phone.tabPadding * 2 + 17.dp + Phone.tabNameGap + nameWidth
+    val iconOnly = Phone.tabPadding * 2 + 17.dp
+    fun tabs(round: Int, chosen: Dp) = (barWidth - Phone.tabBarPadding * 2 - (Phone.profileButton + Phone.barButtonGap) * round - chosen) / others
+    val normal = tabs(buttons, named)
+    if (normal >= Phone.tabNarrowest) return BarLayout(BarFit.NORMAL, normal.coerceAtMost(Phone.tabMinWidth), true, false)
+    if (buttons > 1) {
+        val folded = tabs(1, named)
+        if (folded >= Phone.tabNarrowest) return BarLayout(BarFit.FOLDED, folded.coerceAtMost(Phone.tabMinWidth), true, true)
+    }
+    // the icon (17) always keeps a little room around it, however narrow
+    val contracted = tabs(1, iconOnly).coerceIn(21.dp, Phone.tabMinWidth)
+    return BarLayout(BarFit.CONTRACTED, contracted, false, buttons > 1)
 }
 
 private val LocalTabBar = staticCompositionLocalOf<TabBarState?> { null }
@@ -116,10 +178,18 @@ fun TabBarHost(
     val state = remember { TabBarState() }
     Box(modifier) {
         CompositionLocalProvider(LocalTabBar provides state, content = content)
+        val menuValue = remember { mutableStateOf<MenuValue?>(null) }
         state.bar?.let { b ->
-            CompositionLocalProvider(LocalTabBar provides null, LocalMotionPresence provides null) {
-                TopBar(b.chosen, waiting = b.waiting, onTab = b.onTab ?: onTab, onProfile = b.onProfile ?: onProfile)
+            CompositionLocalProvider(LocalTabBar provides null, LocalMotionPresence provides null, LocalBarMenu provides state.menu,
+                LocalBarMenuValue provides menuValue) {
+                TopBar(b.chosen, waiting = b.waiting, onTab = b.onTab ?: onTab, onProfile = b.onProfile ?: onProfile, temporary = b.temporary)
             }
+        }
+        val m = menuValue.value
+        if (state.menu.value && m != null) {
+            // a tap anywhere else closes it
+            Box(Modifier.fillMaxSize().pressable({ state.menu.value = false }).testTag("topbar-menu-scrim"))
+            BarMenu(m, Modifier.align(Alignment.TopEnd).padding(top = 6.dp + Phone.profileButton + 8.dp, end = 16.dp + m.sideEnd)) { state.menu.value = false }
         }
     }
 }
@@ -127,7 +197,8 @@ fun TabBarHost(
 /**
  * Mobile.swift TopBar: the top of every page, a short black pill of tabs (the chosen one shows its name, PHN-801) and
  * the profile button with the link's state as its badge. [waiting] puts an amber dot on a tab that is not chosen. Inside a [TabBarHost] it only keeps its
- * room and gives its tabs to the host's bar.
+ * room and gives its tabs to the host's bar. Not from the lab: [temporary], the temporary chat's dashed bubble beside the
+ * profile button (the chat tab only; it takes its 42 and a gap from the tabs' room, as on the iPhone).
  */
 @Composable
 fun TopBar(
@@ -136,14 +207,15 @@ fun TopBar(
     waiting: PhoneTab? = PhoneTab.TASKS,
     onTab: ((PhoneTab) -> Unit)? = null,
     onProfile: (() -> Unit)? = null,
+    temporary: TemporaryToggle? = null,
 ) {
     val host = LocalTabBar.current
     if (host != null) {
-        if (LocalMotionPresence.current?.leaving != true) SideEffect { host.bar = BarValue(chosen, waiting, onTab, onProfile) }
-        Box(modifier.alpha(0f).clearAndSetSemantics { }) { Bar(chosen, Modifier, null, null, null) }
+        if (LocalMotionPresence.current?.leaving != true) SideEffect { host.bar = BarValue(chosen, waiting, onTab, onProfile, temporary) }
+        Box(modifier.alpha(0f).clearAndSetSemantics { }) { Bar(chosen, Modifier, null, null, null, null) }
         return
     }
-    Bar(chosen, modifier, waiting, onTab, onProfile)
+    Bar(chosen, modifier, waiting, onTab, onProfile, temporary)
 }
 
 /** Where the white pill is (MotionHosts' tab spring): the chosen tab's place, reached by a spring that may overshoot. */
@@ -161,6 +233,7 @@ private fun Bar(
     waiting: PhoneTab?,
     onTab: ((PhoneTab) -> Unit)?,
     onProfile: (() -> Unit)?,
+    temporary: TemporaryToggle? = null,
 ) {
     val pill = remember { Pill() }
     val reduced = rememberReducedMotion()
@@ -183,11 +256,24 @@ private fun Bar(
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
     val conn = LocalConnection.current
-    BoxWithConstraints(modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 6.dp)) {
+    // decision: PHN-820 — the room is the window less its side insets (a cutout, the system bars) and the bar's margins
+    val sides = LocalBarSides.current ?: run {
+        val ins = WindowInsets.displayCutout.union(WindowInsets.systemBars)
+        val dir = androidx.compose.ui.platform.LocalLayoutDirection.current
+        with(density) { BarSides(ins.getLeft(this, dir).toDp(), ins.getRight(this, dir).toDp()) }
+    }
+    BoxWithConstraints(modifier.fillMaxWidth().padding(start = 16.dp + sides.start, end = 16.dp + sides.end, top = 6.dp)) {
         val name = with(density) { measurer.measure(chosen.title, FerbType.style(15f, FerbType.Semibold)).size.width.toDp() }
-        val chosenW = Phone.tabPadding * 2 + 17.dp + Phone.tabNameGap + name
-        val room = maxWidth - Phone.barButtonGap - Phone.profileButton - Phone.tabBarPadding * 2
-        val tabW = ((room - chosenW) / (PhoneTab.entries.size - 1)).coerceIn(Phone.tabNarrowest, Phone.tabMinWidth)
+        val fit = barLayout(maxWidth, name, if (temporary != null) 2 else 1)
+        val tabW = fit.tabWidth
+        val menuOpen = LocalBarMenu.current
+        val menuValue = LocalBarMenuValue.current
+        if (fit.menu && temporary != null) {
+            val value = MenuValue(temporary, onProfile, conn?.label, sides.end)
+            SideEffect { menuValue?.value = value }
+        } else {
+            SideEffect { menuValue?.value = null; menuOpen?.value = false }
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Row(
                 Modifier.background(Ink.black, CircleShape).drawBehind { drawPill(pill, chosen) }.padding(Phone.tabBarPadding).selectableGroup(),
@@ -210,12 +296,13 @@ private fun Bar(
                                 }
                                 .animateContentSize(Motion.enter())
                                 .then(if (on) Modifier.padding(horizontal = Phone.tabPadding) else Modifier.width(tabW))
+                                .testTag(if (on) "tab-chosen" else "tab-${tab.name.lowercase()}")
                                 .heightIn(min = Phone.tabHeight),
                             horizontalArrangement = Arrangement.spacedBy(Phone.tabNameGap, Alignment.CenterHorizontally),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             FerbIcon(if (on) tab.chosenIcon else tab.icon, 17f, ink)
-                            if (on) PhoneText(tab.title, 15f, FerbType.Semibold, ink, maxLines = 1)
+                            if (on && fit.showName) PhoneText(tab.title, 15f, FerbType.Semibold, ink, maxLines = 1)
                         }
                         if (dot) {
                             // An 8 amber dot with a 2-wide black ring centred on its edge, offset (-8, 8) from the corner.
@@ -228,6 +315,14 @@ private fun Bar(
                 }
             }
             Spacer(Modifier.weight(1f))
+            if (fit.menu && temporary != null) {
+                MenuButton(temporary, conn, open = menuOpen?.value == true) { menuOpen?.let { it.value = !it.value } }
+                return@Row
+            }
+            if (temporary != null) {
+                TemporaryButton(temporary, Modifier.testTag("temporary-chat"))
+                Spacer(Modifier.width(Phone.barButtonGap))
+            }
             val label = if (conn != null) "This phone. ${conn.label}" else "This phone"
             Box(
                 Modifier.pressable(onProfile, label = label).semantics { contentDescription = label }
@@ -288,5 +383,88 @@ fun LinkMarkView(mark: LinkMark, size: Dp, modifier: Modifier = Modifier) {
         }
         LinkMark.SHARED_RELAY -> Box(modifier.size(size).background(Ink.onDark, CircleShape))
         LinkMark.UNREACHABLE -> LampDot(Ink.amber, size, modifier)
+    }
+}
+
+/**
+ * The folded bar's one round button (PHN-820): three lines, 18 wide and 2 thick with round caps, 5 apart, centred, white
+ * on the dark circle; the link's badge where the profile button has it; while the temporary chat is on, the dashed
+ * bubble's mark at its top left (on white, as the bubble's own on state), so the on state always shows.
+ */
+@Composable
+private fun MenuButton(temporary: TemporaryToggle, conn: Connection?, open: Boolean, onClick: () -> Unit) {
+    val label = if (conn != null) "${temporary.more}. ${conn.label}" else temporary.more
+    Box(
+        Modifier.pressable(onClick, label = label).semantics { contentDescription = label; selected = open }
+            .size(Phone.profileButton).background(Ink.darkFill, CircleShape).testTag("topbar-menu"),
+        contentAlignment = Alignment.Center,
+    ) {
+        androidx.compose.foundation.Canvas(Modifier.size(18.dp)) { drawHamburger() }
+        if (temporary.on) {
+            Box(
+                Modifier.align(Alignment.TopStart).offset(1.dp, 1.dp).size(16.dp).background(Ink.white, CircleShape).testTag("topbar-menu-temporary"),
+                contentAlignment = Alignment.Center,
+            ) { DashedBubble(true, size = 12.dp) }
+        }
+        if (conn != null) {
+            Box(
+                Modifier.align(Alignment.BottomEnd).offset((-2).dp, (-2).dp).size(Phone.linkBadge).background(Ink.darkFill, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) { LinkMarkView(conn.mark, 7.dp) }
+        }
+    }
+}
+
+/** Three lines 18 wide, 2 thick, round caps, 5 apart (a 5 gap between them: 16 tall), centred in an 18 box. */
+private fun DrawScope.drawHamburger() {
+    val w = 2.dp.toPx()
+    val step = 7.dp.toPx()
+    val cy = size.height / 2
+    val half = w / 2
+    for (i in -1..1) {
+        val y = cy + i * step
+        drawLine(Ink.white, androidx.compose.ui.geometry.Offset(half, y), androidx.compose.ui.geometry.Offset(size.width - half, y), w,
+            cap = androidx.compose.ui.graphics.StrokeCap.Round)
+    }
+}
+
+/**
+ * The folded bar's menu (PHN-820): a dark panel under the menu button, right-aligned: the temporary chat (its bubble,
+ * its words as the bubble's label says them, a check while on), then this phone (its icon, "This phone" and the link's
+ * state), which opens the profile page as the profile button does.
+ */
+@Composable
+private fun BarMenu(m: MenuValue, modifier: Modifier, close: () -> Unit) {
+    val t = m.temporary
+    androidx.compose.foundation.layout.Column(
+        modifier.widthIn(min = 240.dp, max = 300.dp).background(Ink.black, androidx.compose.foundation.shape.RoundedCornerShape(20.dp))
+            .padding(6.dp).testTag("topbar-menu-panel"),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().pressable(if (t.busy) null else ({ close(); t.onClick() }), label = t.label)
+                .semantics { contentDescription = t.label; selected = t.on }.heightIn(min = 48.dp).padding(horizontal = 12.dp)
+                .testTag("topbar-menu-temporary-row"),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.size(22.dp), contentAlignment = Alignment.Center) { DashedBubble(false, size = 20.dp) }
+            PhoneText(t.label, 16f, FerbType.Medium, Ink.white, maxLines = 1, modifier = Modifier.weight(1f))
+            if (t.on) FerbIcon(FerbIcons.check, 18f, Ink.white)
+        }
+        Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp).height(1.dp).background(Ink.white.copy(alpha = 0.12f)))
+        val label = if (m.connection != null) "This phone. ${m.connection}" else "This phone"
+        Row(
+            Modifier.fillMaxWidth().pressable(m.onProfile?.let { f -> { close(); f() } }, label = label)
+                .semantics(mergeDescendants = true) { contentDescription = label }.heightIn(min = 52.dp).padding(horizontal = 12.dp)
+                .testTag("topbar-menu-profile-row"),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.size(22.dp), contentAlignment = Alignment.Center) { FerbIcon(FerbIcons.person, 17f, Ink.white) }
+            androidx.compose.foundation.layout.Column(Modifier.weight(1f)) {
+                PhoneText("This phone", 16f, FerbType.Medium, Ink.white, maxLines = 1)
+                m.connection?.let { PhoneText(it, 13f, color = Ink.onDark, maxLines = 1) }
+            }
+        }
     }
 }

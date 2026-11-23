@@ -19,6 +19,9 @@ const NAME: &str = "COALESCE(NULLIF(n.name, ''), json_extract(x.spec_json, '$.na
 pub type Row = Map<String, Value>;
 
 /// Python's `TaskResults` (`task_results.py:15`).
+/// ferb-core `temporary::REQUEST_PREFIX`: a temporary chat's request ids (ORCH-699).
+const TEMPORARY: &str = ferb_core::temporary::REQUEST_PREFIX;
+
 pub struct TaskResults<'a> {
     db: &'a Db,
 }
@@ -94,6 +97,8 @@ impl<'a> TaskResults<'a> {
         )
     }
 
+    /// decision: ORCH-699 — a temporary chat's tasks (request ids `temporary-…`, ferb-core `temporary`) are never
+    /// listed.
     /// `page` (`task_results.py:50-59`): root tasks created before `before`, newest first, at
     /// most `limit`, with their result's answer and the owner's latest verdict.
     pub fn page(&self, before: &str, limit: i64) -> Result<Vec<Row>> {
@@ -104,7 +109,9 @@ impl<'a> TaskResults<'a> {
                  (SELECT v.verdict FROM owner_verdicts v WHERE v.task_id = t.id ORDER BY v.seq DESC LIMIT 1) AS verdict \
                  FROM tasks t LEFT JOIN task_results r ON r.task_id = t.id LEFT JOIN task_context x ON x.task_id = t.id \
                  LEFT JOIN task_result_names n ON n.task_id = t.id \
-                 WHERE t.parent_id IS NULL AND t.created_at < ? ORDER BY t.created_at DESC, t.rowid DESC LIMIT ?"
+                 WHERE t.parent_id IS NULL AND t.created_at < ? \
+                 AND COALESCE(t.request_id, '') NOT LIKE '{TEMPORARY}%' \
+                 ORDER BY t.created_at DESC, t.rowid DESC LIMIT ?"
             ),
             params![before, limit],
         )

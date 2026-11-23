@@ -2331,3 +2331,47 @@ why = "Task a843aa54's second attempt made 93 calls into Chrome; failures came i
 evidence = "ferb-gateway tests/stuck.rs: a 93-call attempt shaped as a843aa54's stops at its 40th window call; 39 never ask; keep trying and a new attempt count afresh."
 paths = ["engine/crates/ferb-gateway/src/stuck.rs::WINDOW_CALLS_PER_ATTEMPT", "engine/crates/ferb-gateway/src/gateway.rs::note_step"]
 live = ["LIVE-1181"]
+
+[ORCH-699]
+title = "One switch gives a turn no prior context, with an optional context field: the temporary chat"
+by = "owner"
+date = 2026-11-23
+status = "active"
+words = "if there is no swithc like that in code to not send any context then i was thinkgin to having one, in this swithc i can have an optional context field which can be empty or alter i decide to add somehting so that this swithc can be used for the later feature 'temporary chat' - where there are all the tools n shit BUT no prior context given. / build it, its just a click on phones and mac, the output,messages are all in ememory so we dont have any other hard work to do here. if you think the opposite is easy then do that - it deosnt matter"
+words_source = "Owner 2026-11-23 (relayed), two messages: the switch, then 'build it' when told it would only be made possible."
+rule = "One switch in the shared context path (fresh, with an optional extra_context, empty for now): every model role of such a turn gets no prior context (no profile, memory, earlier chat or earlier tasks), with all of FERB's tools and safety rules. A temporary chat uses it, one tap on FERB.app and both phones; its messages are held in memory and nothing of it is remembered."
+paths = ["engine/crates/ferb-supervisor/src/flow/temporary.rs", "engine/crates/ferb-supervisor/src/flow/host.rs", "engine/crates/ferb-supervisor/src/flow/chat.rs"]
+live = ["LIVE-1194"]
+
+[ORCH-700]
+title = "The temporary chat ends only by the same small icon that turned it on"
+by = "owner"
+date = 2026-11-23
+status = "active"
+words = "no, it shodln be the same small icon that turned it on taht turns it off - jsut see hte chatgpt adn claude chat app's temp chat"
+words_source = "Owner 2026-11-23 (relayed), correcting a brief that ended it on closing the app or locking the phone."
+rule = "Refines ORCH-699. The same small icon, in the same place on FERB.app and both phones, turns the temporary chat on and off, as in ChatGPT's and Claude's apps. Closing or relaunching the app, locking the phone or switching devices doesn't end it: whichever client opens while it is on shows it."
+paths = ["engine/crates/ferb-supervisor/src/flow/temporary.rs"]
+live = ["LIVE-1194"]
+
+[ORCH-701]
+title = "A temporary chat's turn: the switch read from its request id on every route"
+by = "agent"
+date = 2026-11-23
+status = "active"
+rule = "For ORCH-699. Its conversation is temporary:<id> and its request ids temporary-<id> (ferb-core temporary). Planner, workers, checkers and the question resolver: no Tier 1 profile, nothing newly always on, no memory or activity, no since or earlier-run blocks, only its own tasks; the temporary chat's fact and extra_context first. The planner keeps about.read, about.diagnostics and device.facts; a run's token omits memory.read, memory.learned, chat.history, trail.query, trail.days."
+why = "One id-borne mark reaches every route and every store reader without asking the daemon's memory; the token makes the gateway refuse the hidden tools."
+evidence = "ferb-supervisor tests/temporary_chat.rs: the planner's, worker's and checker's built requests and the tokens, against the same scenario kept."
+paths = ["engine/crates/ferb-core/src/temporary.rs", "engine/crates/ferb-supervisor/src/flow/host.rs", "engine/crates/ferb-supervisor/src/flow/turn.rs", "engine/crates/ferb-worker/src/ports.rs"]
+live = ["LIVE-1194"]
+
+[ORCH-702]
+title = "The temporary chat is held in the daemon's memory; only traces and safety records are kept"
+by = "agent"
+date = 2026-11-23
+status = "active"
+rule = "For ORCH-699/695. chat.temporary.get reads it, chat.temporary.set {on} (required) is the icon, chat.send {fresh} writes in it, chat.status has temporary while on, bus chat.temporary {on, id, rev}. A daemon restart ends it. Never written: chat entries, task_results, task.result, memory side entries, episodes, the conversation index; its journal conversation rows and continuity go when it ends and at start. Kept: tasks, spans, ledger, confirmations, audit rows (rule 6), sealed identifiers."
+why = "The journal is the supervisor's working state while a turn runs, so those rows exist during the chat and are forgotten after; FERB never changes its own audit records."
+evidence = "ferb-supervisor tests/temporary_chat.rs; ferb-rpc golden and phone classes."
+paths = ["engine/crates/ferb-supervisor/src/flow/temporary.rs", "engine/crates/ferb-supervisor/src/flow/chat_rpc.rs", "engine/crates/ferb-memory/src/search.rs", "engine/crates/ferb-store/src/task_results.rs", "engine/crates/ferb-rpc/src/classes.rs"]
+live = ["LIVE-1194"]

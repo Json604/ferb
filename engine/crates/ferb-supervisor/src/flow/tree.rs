@@ -2963,6 +2963,10 @@ impl Inner {
     /// as a tracked job, one capture at a time; a failure is journaled, never raised. At shutdown it is cancelled
     /// (`stop_episodes`) or refused (`Deferred`) and journaled as deferred: the hourly pass captures the card again.
     pub(crate) fn capture_after_outcome(&self, tree_id: &str) {
+        // decision: ORCH-699 — nothing is learned from a temporary chat's task
+        if self.temporary_task(tree_id) {
+            return;
+        }
         let me = self.me();
         let id = tree_id.to_string();
         let job = tokio::spawn(async move {
@@ -3019,6 +3023,10 @@ impl Inner {
 
     /// episodes.py `record`: the task's permanent record, composed from its trace.
     fn record_episode(&self, tree_id: &str) {
+        // decision: ORCH-699 — a temporary chat's task leaves no episode
+        if self.temporary_task(tree_id) {
+            return;
+        }
         let trace = json!({"task_id": tree_id, "spans": self.tree_json(tree_id), "outcome": self.span_outcome(tree_id)});
         let composed = ferb_trace::compose::compose(&trace);
         let now = self.now_iso();

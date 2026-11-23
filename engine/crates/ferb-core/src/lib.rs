@@ -17,6 +17,8 @@ pub mod interfaces;
 #[cfg(unix)]
 pub mod paths;
 pub mod power;
+/// A temporary chat's reserved names (ORCH-699).
+pub mod temporary;
 pub mod timing;
 pub mod types;
 pub mod when;

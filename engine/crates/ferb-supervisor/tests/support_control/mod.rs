@@ -391,7 +391,8 @@ pub struct TestDaemon {
     requests: Mutex<HashMap<String, Request>>,
     grants: Mutex<HashMap<String, Grant>>,
     revoked: Mutex<BTreeSet<String>>,
-    only: Mutex<HashMap<String, Vec<String>>>,
+    /// Each run token's tool list (worker id -> the tools it names), as issued.
+    pub only: Mutex<HashMap<String, Vec<String>>>,
     tokens: AtomicUsize,
     pub unsupported: Mutex<Vec<String>>,
     spans: Vec<Vec<Value>>,
@@ -450,6 +451,12 @@ pub struct TestDaemon {
     /// The standing permissions granted (tree -> its scopes and approval) and each grant and revoke, in order.
     #[allow(clippy::type_complexity)]
     pub standing: Mutex<(HashMap<String, (Vec<Value>, String)>, Vec<String>)>,
+    /// ORCH-699: a test's Tier 1 profile (replaces the recording's `identity_context` when not empty), what just became
+    /// always on (`identity_pending`), the memory a worker is pushed (`memory_push`), and each episode captured.
+    pub profile: Mutex<String>,
+    pub newly_on: Mutex<String>,
+    pub memory: Mutex<Vec<ContextBlock>>,
+    pub episodes: Mutex<Vec<String>>,
 }
 
 pub struct Gate {
@@ -864,7 +871,14 @@ impl Daemon for TestDaemon {
             facts: s(&i["facts"]),
             live_facts: s(&i["live_facts"]),
             capabilities: s(&i["capabilities"]),
-            identity_context: s(&i["identity_context"]),
+            identity_context: {
+                let profile = self.profile.lock().unwrap().clone();
+                if profile.is_empty() {
+                    s(&i["identity_context"])
+                } else {
+                    profile
+                }
+            },
             skills_line: ferb_supervisor::prompts::catalog_line(&catalog(&i["skills_catalog"])),
             abilities_line: ferb_supervisor::prompts::catalog_line(&catalog(
                 &i["abilities_catalog"],
@@ -911,22 +925,23 @@ impl Daemon for TestDaemon {
         None
     }
     fn identity_pending(&self) -> String {
-        String::new()
+        self.newly_on.lock().unwrap().clone()
     }
     fn settle(&self) -> BoxFuture<'_, ()> {
         Box::pin(async {})
     }
     fn memory_push<'a>(&'a self, _q: &'a str, _t: &'a str) -> BoxFuture<'a, Vec<ContextBlock>> {
-        Box::pin(async { Vec::new() })
+        Box::pin(async { self.memory.lock().unwrap().clone() })
     }
     fn on_episode<'a>(&'a self, _tree_id: &'a str) -> BoxFuture<'a, ()> {
         Box::pin(async {})
     }
     fn capture_episode<'a>(
         &'a self,
-        _tree_id: &'a str,
+        tree_id: &'a str,
     ) -> BoxFuture<'a, Result<(), ferb_supervisor::flow::EpisodeFault>> {
         Box::pin(async move {
+            self.episodes.lock().unwrap().push(tree_id.to_string());
             if self.episode_hang.load(Ordering::SeqCst) {
                 std::future::pending::<()>().await;
             }
@@ -1855,6 +1870,10 @@ pub fn world_with(name: &str, edit: impl FnOnce(&mut Vec<Value>)) -> World {
         literal: Mutex::default(),
         look: Mutex::default(),
         looks: AtomicUsize::new(0),
+        profile: Mutex::default(),
+        newly_on: Mutex::default(),
+        memory: Mutex::default(),
+        episodes: Mutex::default(),
     });
     let clock = Arc::new(
         FakeClock::new(ferb_clock::py::parse("2026-01-01T09:00:00+00:00")).with_zone(Zone::utc()),

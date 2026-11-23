@@ -528,6 +528,7 @@ struct ChatWindowView: View {
         HStack(spacing: 6) {
             ChatTitle(model: model)
             Spacer(minLength: 0)
+            TemporaryChatButton(model: model)           // the temporary chat's icon, in the notch header's place
             ProfileMenuButton(model: model).frame(width: 26, height: 26)
             Button(action: controls.close) {
                 Image(systemName: "xmark").font(.system(size: 11, weight: .medium)).frame(width: 24, height: 26)

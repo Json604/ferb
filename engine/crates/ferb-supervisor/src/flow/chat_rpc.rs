@@ -164,6 +164,8 @@ impl ChatRpc {
                 "chat.entries.get" => super::entries_rpc::get(self.sup().inner(), &params),
                 "chat.entries.days" => super::entries_rpc::days(self.sup().inner(), &params),
                 "chat.entries.mark" => super::entries_rpc::mark(self.sup().inner(), &params),
+                "chat.temporary.get" => self.temporary_get(),
+                "chat.temporary.set" => self.temporary_set(&params),
                 other => Err(HandlerError::fault("KeyError", format!("'{other}'"))),
             }
         })
@@ -234,6 +236,10 @@ impl ChatRpc {
                     m.insert("runtime_switch".into(), Value::Object(sw.clone()));
                 }
                 m.extend(card_flags(ap));
+                // ORCH-699: a temporary chat's question, shown in that chat and never saved by a client
+                if ferb_core::temporary::is_request(&ap.request_id) {
+                    m.insert("temporary".into(), json!(true));
+                }
                 Value::Object(m)
             })
             .collect();
@@ -252,6 +258,9 @@ impl ChatRpc {
                 }
                 if let Some(checklist) = inner.checklist_state(&t) {
                     r.insert("checklist".into(), inner.redact(&checklist));
+                }
+                if inner.temporary_task(&t) {
+                    r.insert("temporary".into(), json!(true));
                 }
                 Value::Object(r)
             })
@@ -291,7 +300,36 @@ impl ChatRpc {
         );
         out.insert("paused".into(), json!((self.deps.sensing_paused)()));
         out.insert("stopped".into(), json!(self.deps.gateway.stopped()));
+        // ORCH-699: the temporary chat while one is on (absent otherwise: the bytes as before)
+        if let Some(t) = inner.temporary_status() {
+            out.insert("temporary".into(), t);
+        }
         out
+    }
+
+    /// ORCH-699 `chat.temporary.get`: the temporary chat as the daemon holds it (`{on: false}` when none is on).
+    pub fn temporary_get(&self) -> HandlerResult {
+        Ok(obj(self.sup().inner().temporary_snapshot()))
+    }
+
+    /// ORCH-699 `chat.temporary.set {on, extra_context?}`: the owner's icon. `on` must be true or false (never a
+    /// default: a call without it changes nothing).
+    pub fn temporary_set(&self, params: &Params) -> HandlerResult {
+        let on = match params.get("on") {
+            Some(Value::Bool(b)) => *b,
+            _ => return Err(refusal("on must be true or false")),
+        };
+        let extra = match params.get("extra_context") {
+            None | Some(Value::Null) => None,
+            Some(Value::String(s)) => Some(s.as_str()),
+            Some(_) => return Err(refusal("extra_context must be text")),
+        };
+        let inner = self.sup().inner();
+        Ok(obj(if on {
+            inner.temporary_start(extra)
+        } else {
+            inner.temporary_end()
+        }))
     }
 
     /// areas/chat.py:119 `_results_ack`.
@@ -920,6 +958,8 @@ pub fn register(server: &Server, rpc: Arc<ChatRpc>) {
         "chat.entries.get",
         "chat.entries.days",
         "chat.entries.mark",
+        "chat.temporary.get",
+        "chat.temporary.set",
     ] {
         let rpc = rpc.clone();
         server.register_unary(method, move |session: Session, params: Params| {

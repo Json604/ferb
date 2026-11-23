@@ -10403,3 +10403,145 @@ ferb-rpc's class description for `sessions.start` still names HAND-665 (fixture 
 - The model look's prompt and the checker role's model on real windows; its cost.
 - tty times as "working" for a program that redraws a clock; argv[0] of programs that rename themselves.
 - The phones' browse is a typed path (T-1300).
+
+## 2026-11-23 · 187 · A temporary chat: no prior context, nothing kept, on and off by one dashed bubble
+
+Owner 2026-11-23, in five messages (ORCH-699, ORCH-700, PHN-819, PHN-820). He asked for one switch in code that sends no context, with
+an optional context field he can fill in later, so it could be used for a "temporary chat" with all the tools but no
+prior context. Told it would only be made possible, he said "build it, its just a click on phones and mac". Then he
+corrected the brief: the same small icon that turns it on turns it off, as in ChatGPT's and Claude's apps.
+
+**The switch (engine, ORCH-701).**
+- A temporary chat's conversation is `temporary:<id>`. Each of its messages gets a request id `temporary-<id>`, and
+  its tasks keep that request id (ferb-core `temporary`). So every route and every store reader can tell from the id
+  alone.
+- `Inner::fresh_for(request_id)` (flow/temporary.rs) is the one switch. It is read by:
+  - the planner (turn.rs `supervise`, `planner_blocks`);
+  - every worker and checker run (ferb-worker's `WorkerHost::system`, `with_newly_always_on` and `issue_token` now get
+    the run's task);
+  - the question resolver (answer.rs);
+  - the worker's context (attempt.rs: no relevant activity, no memory push).
+- What such a turn doesn't get:
+  - the Tier 1 profile (`system_for_request` blanks `identity_context`);
+  - anything newly always on;
+  - memory or the owner's activity;
+  - the since-your-last-message and earlier-run blocks;
+  - other chats' tasks (`task_state` lists only the temporary chat's own; the kept chat never lists a temporary one).
+- What it gets: a code fact first (`FRESH_FACT`: nothing from before, nothing kept, don't promise to remember), with
+  the owner's `extra_context` when given (origin owner).
+- Lookups and tools:
+  - The planner keeps only `about.read`, `about.diagnostics` and `device.facts`.
+  - A run's token names every tool except `memory.read`, `memory.learned`, `chat.history`, `trail.query` and
+    `trail.days`, and except tools that are offered only when named. The gateway refuses the rest (admit.rs reads the
+    token's list; that file is unchanged).
+  - Safety is unchanged: gateway, confirmations, sink rule, redaction, protection lists.
+
+**Held in memory, nothing kept (ORCH-702).**
+- The daemon holds one temporary chat (`TemporaryChats`). Its entries are made by the kept chat's own projector
+  (`ChatProjector`), in memory, so clients fold them with their existing entry fold.
+- RPC (fields added, ENG-14):
+  - `chat.send` takes `fresh` and `extra_context`. A fresh send starts the chat if it is off. Its ack adds `fresh` and
+    `conversation`, and never carries `entry_id`.
+  - `chat.temporary.get` reads the chat.
+  - `chat.temporary.set {on}` is the icon. `on` is required: a call without it is refused, never treated as a default.
+  - `chat.status` carries `temporary` while one is on. Its approvals and running rows of the temporary chat carry
+    `temporary: true`.
+  - The bus topic `chat.temporary` says each change.
+  - ferb-rpc: both methods are app_only (`TEMPORARY_ADDITIONS`). Phone classes: get is private, set is plain.
+- Never written:
+  - chat entries or submissions;
+  - `task_results`, so the chat is not in the Tasks page (`TaskResults::page` leaves `temporary-` requests out), not
+    in chat.status results and not in "since";
+  - a `task.result` on the bus;
+  - remember or forget side entries;
+  - episodes (`record_episode`, `capture_after_outcome`);
+  - the conversation index (ferb-memory `index_chat`);
+  - day summaries (ferb-learning `summary.rs`).
+- The journal's conversation rows, the task context and the continuity row are what the supervisor works from while
+  a turn runs. `temporary::forget` deletes them in three cases: when the chat ends, when a task of an ended chat
+  finishes, and at every start (`recover_after_restart`).
+- A restart ends the chat. Its plans don't resume, and nobody is asked to pick its tasks up.
+- Kept, as for any task:
+  - `tasks` and their spans (the traces, which hold the model calls' text);
+  - the gateway's ledger and confirmations;
+  - the journal's audit rows (rule 6);
+  - identifiers sealed from his words (GATE-604);
+  - schedules and reminders it made.
+
+**Clients.**
+- FERB.app (APP-1122):
+  - The dashed bubble sits beside the profile button in the notch header and in the window header.
+  - The banner replaces the Today/History row.
+  - The temporary chat is held in `NotchModel.temporaryChat`, separate from `conversation`, so nothing reaches
+    chat.history.put or the archive.
+  - It is read at each connect, on each `chat.temporary` event and from chat.status.
+- Both phones (PHN-818):
+  - ferb-mobile adds `temporary_chat`, `set_temporary_chat`, `send_temporary` (straight to the Mac, never the
+    outbox), `last_temporary_chat`, `PhoneStatus.temporary`, the questions' and tasks' `temporary` flags and
+    `Change::Temporary`, all in memory.
+  - A locked status that leaves `temporary` out is never read as off.
+  - Android and iPhone draw the same dashed bubble (FERB.app's geometry), left of the profile button on the chat tab.
+  - They read the chat again on start, unlock, coming to the front and each status `rev`.
+  - The iPhone never writes a temporary draft to scene storage.
+- The phones' top bar adapts to its width (PHN-820). He said: "jsut pack them in a good looking hamburger icon if
+  theres no space to show or place them ... contracat if really no space".
+  - Width: the bar measures the window less its side insets (cutout and safe area), at the current text size.
+  - Normal: the chosen tab with its name, the others at 36 or more, the bubble, the profile button.
+  - Folded: when a tab would fall under 36, the bubble and the profile button fold into one three-line menu button.
+    It carries the connection badge, and a dashed mark while the temporary chat is on. Its menu holds Temporary chat
+    and This phone.
+  - Contracted: if the bar is still too tight, the chosen tab drops its name.
+  - Both phones use one layout rule: tab = (room − 8 − buttons×50 − chosen)/4.
+  - At text size 1, Android folds at 360 and 320 and stays normal at 412. The iPhone stays normal at 375 and folds at
+    320.
+  - New string: `top_bar_more` "More" (the menu button's label).
+- Which device shows it: every client, while it's on. It lives in the daemon's memory, so a relaunched app or an
+  unlocked phone shows it, as the owner asked (ORCH-700).
+
+**Strings (new).** "Temporary chat"; "End temporary chat"; "Temporary chat · FERB won't use what it knows or keep this
+chat"; "This chat starts fresh. Tap the dashed bubble again to end it."; "Couldn't start a temporary chat. Try again.";
+"Couldn't end the temporary chat. Try again."; "More" (the phones' folded menu button).
+
+**Evidence.**
+- ferb-supervisor `tests/temporary_chat.rs` (5 tests) runs the recorded one_step_task scenario with a test profile,
+  newly-always-on line and memory:
+  - Kept, the planner and worker calls carry all three.
+  - Fresh, no call (planner, worker, checker) carries any of them. Each carries the fact, the extra context and his
+    words.
+  - The planner's lookups are the three; the workers' tokens omit the hidden tools.
+  - No `chat_entries`, `chat_submissions`, `task_results` or episodes, and no `task.result`. Its task and spans stay.
+  - The Tasks page is empty. After the icon is turned off, its conversation rows, continuity and task context are
+    gone, and the tasks, spans and `chat.ack` rows stay.
+  - The other tests cover the switch held across a second on and a new id after off, and the refusals.
+- ferb-rpc golden (method counts +2) and `fixtures/phone/classes.json` (written again).
+- FERB.app `TemporaryChatTests` (6 tests).
+- ferb-mobile `tests/temporary.rs` (5 tests; 106 passed).
+- Android `TemporaryChatTest` (6 tests) and 2 new screenshot goldens. 60 chat goldens were recorded again for the
+  bubble; their pixel diff touches only its box.
+- iPhone `TemporaryChatTests` (7 tests) and 2 goldens.
+- The adaptive bar (PHN-820):
+  - Android: `BarLayoutTest` (narrow, a 60 cutout, font scale 1.6 and 2.0) and `TopBarFoldTest`, with 6 goldens
+    (folded, folded on, open menu, at 320 and 360). Full run: app 364 and design 119 tests, 0 failures.
+  - iPhone: `TopBarLayoutTests`, with 3 goldens (320, 375, and 402 with 59 on each side). Full run: FerbAppTests 231
+    and FerbDesignTests 77, 0 failures.
+  - Both phones: existing goldens unchanged.
+- On rust 48f57bbb: FERB.app `swift test` ran 973 tests, 0 failures.
+
+**Open / unverified.**
+- No live check (LIVE-1194), and no installed build.
+- Traces keep what a temporary chat said, as for every task (rule 6). The owner's delete of a turn (Stored data) can
+  still remove them.
+- While a temporary chat is on, its conversation rows exist in the journal. Each kept-chat reader leaves them out:
+  index, summaries, since, task state, Tasks page.
+- `chat.status` lists every open question for both chats. A temporary task's question is answerable from the kept
+  chat's card too.
+- FERB.app's temporary view also shows the kept chat's open questions, so none is ever hidden.
+- `reports.build` and the diagnostic report read the journal as they always did, while a chat is on.
+- The bubble's place on the phones is the owner's (PHN-819). Shown renders of A (a second round button in the top bar)
+  and B (one round button, the bubble over the chat), he said "i like A for temp chat icon". The tabs get narrower:
+  38 at 375 wide on the iPhone, and at the 36 minimum near 360 wide on Android (not measured).
+- At its last step the bar differs by phone: Android holds unchosen tabs at 21 or more, while the iPhone holds them at
+  36 and lets the bar run past its width. iPhone tab names are a fixed 15 pt, so large text matters only through
+  the measured name. The app is portrait-only, so only tests exercise the side insets.
+- The phones refresh the temporary chat by reading it again on each status `rev`, with no streamed frames. A very
+  long temporary chat could pass the link's 64 KiB reply.

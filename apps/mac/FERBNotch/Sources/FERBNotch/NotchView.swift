@@ -117,9 +117,12 @@ struct NotchView: View {
                 Color.clear.frame(width: model.handleWidth).accessibilityHidden(true)
                 Spacer(minLength: 0)
             }
-            ProfileMenuButton(model: model).frame(width: 26, height: 26)
-                .frame(width: model.isNotchDocked ? max(0, (model.bodyWidth - model.handleWidth) / 2 - 18) : nil,
-                       alignment: .trailing)
+            HStack(spacing: 4) {
+                TemporaryChatButton(model: model)       // the temporary chat's icon, beside the profile (top right)
+                ProfileMenuButton(model: model).frame(width: 26, height: 26)
+            }
+            .frame(width: model.isNotchDocked ? max(0, (model.bodyWidth - model.handleWidth) / 2 - 18) : nil,
+                   alignment: .trailing)
         }
         .padding(.horizontal, 18)
         .frame(height: max(38, model.cutoutHeight))

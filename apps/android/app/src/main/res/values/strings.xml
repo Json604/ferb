@@ -502,4 +502,13 @@
     <string name="sessions_start">Start</string>
     <string name="sessions_started">Opening a terminal on your Mac.</string>
     <string name="sessions_watch_title">Watching %1$s</string>
+    <!-- the temporary chat (owner 2026-11-23): the same small icon turns it on and off -->
+    <string name="temporary_chat">Temporary chat</string>
+    <string name="temporary_chat_end">End temporary chat</string>
+    <string name="temporary_banner">Temporary chat · FERB won\'t use what it knows or keep this chat</string>
+    <string name="temporary_empty">This chat starts fresh. Tap the dashed bubble again to end it.</string>
+    <string name="temporary_start_failed">Couldn\'t start a temporary chat. Try again.</string>
+    <string name="temporary_end_failed">Couldn\'t end the temporary chat. Try again.</string>
+    <!-- the top bar folded into one menu button when there's no room (owner 2026-11-23, PHN-820) -->
+    <string name="top_bar_more">More</string>
 </resources>

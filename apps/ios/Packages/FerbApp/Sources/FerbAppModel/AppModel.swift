@@ -296,6 +296,17 @@ public final class AppModel {
     /// Long chats whose rows were made on the main thread (tests: must stay 0).
     nonisolated(unsafe) static var longChatsMadeOnMain = 0
     #endif
+    /// The temporary chat while it is on (the owner, 2026-11-23): its rows as the chat draws them, read from the Mac and
+    /// held in memory only (never in saved state, the store or the outbox); nil while it is off. The chat tab shows it
+    /// in place of the chat until the dashed bubble ends it, here or on another device.
+    public private(set) var temporary: TemporaryShown?
+    /// The work row while the temporary chat shows (kb PHN-725): only its tasks (`ui.running` has only the chat's).
+    public private(set) var temporaryRunning: RunningUi?
+    /// Reads of the temporary chat: only the newest one's answer is shown, and none lands while a toggle or a send is
+    /// on its way (that call's own answer is the chat after it; a read asked meanwhile runs after it).
+    @ObservationIgnored private var temporaryReads = 0
+    @ObservationIgnored private var temporaryCalling = false
+    @ObservationIgnored private var temporaryReadAfter = false
     /// The chosen tab and whether the chat tab shows the home screen.
     public private(set) var tab: PhoneTab
     /// The chat tab shows the earlier days (kb PHN-696): "Earlier messages" opened them; Today and a send come back.
@@ -304,7 +315,7 @@ public final class AppModel {
     /// The chat tab shows today's home page (kb PHN-696): today, with nothing said on it yet (his send, FERB's post, a
     /// message with files on its way). Typing, speaking or picking a file never changes it; something said today does.
     public var home: Bool {
-        !earlier && outgoing.messages.isEmpty && !saidToday
+        !earlier && temporary == nil && outgoing.messages.isEmpty && !saidToday
     }
     /// Counts the Chat tab's taps while on Chat: each one takes the chat to its end (kb PHN-662).
     public private(set) var chatToEnd = 0
@@ -436,7 +447,8 @@ public final class AppModel {
         var s = SavedState()
         s.tab = Self.name(of: tab)
         s.home = home
-        s.draft = draft
+        // what is typed in a temporary chat is never kept (nothing of it is saved by the phone)
+        s.draft = temporary == nil ? draft : ""
         s.presented = presented.sorted()
         return s
     }
@@ -538,6 +550,7 @@ public final class AppModel {
                 case .closed: break
                 case .status: statusChanged()
                 case .mac: readMac()
+                case .temporary: readTemporary()
                 case .locationWanted(let id):
                     pendingLocation = id
                     showPending()
@@ -595,6 +608,8 @@ public final class AppModel {
                 turnTheDay()
                 earlier = false
                 refresh()
+                // a temporary chat started or ended while the app was locked or closed shows as it is now
+                readTemporary()
                 outgoing.unlocked()
                 // a request for the exact location that came while the app was closed or locked
                 Task {
@@ -667,10 +682,12 @@ public final class AppModel {
                 turnTheDay()
                 markRead()
                 showPending()
+                readTemporary()
             }
         })
         readMac()
         refresh()
+        readTemporary()
     }
 
     // ---- the gate -------------------------------------------------------------------------------------------------
@@ -839,7 +856,8 @@ public final class AppModel {
             #endif
             rows = ChatModel.rows(view)
             days = ChatModel.days(view, Calendar.current)
-            running = RunningModel.of(view, status: status, mac: mac)
+            // the chat's work row never counts a temporary chat's tasks
+            running = RunningModel.of(view, status: statusPart(status, temporary: false), mac: mac)
             chatWork = WorkModel.of(view, asking: "")
         }
     }
@@ -867,6 +885,7 @@ public final class AppModel {
         ui.status = status
         showAlerts(status)
         rebuildWork()
+        runTemporary()
     }
 
     // MARK: FERB's alerts (kb APP-1105, APP-1106, PHN-791)
@@ -943,7 +962,7 @@ public final class AppModel {
             switch await api.tasks(limit: Self.tasksPage, before: nil) {
             case .ok(let page):
                 ui.macTasks = page.tasks
-                ui.running = RunningModel.of(lastView, status: await api.lastStatus(), mac: page.tasks)
+                ui.running = RunningModel.of(lastView, status: statusPart(await api.lastStatus(), temporary: false), mac: page.tasks)
             case .failed(let e): if case .NeedsUnlock = e { macLocked() }
             }
             rebuildWork()
@@ -972,6 +991,7 @@ public final class AppModel {
             AppLog.i("chat sync answered after \(Int(Date().timeIntervalSince(asked) * 1000)) ms")
             macPending = false
             ui.needsMacUnlock = false
+            readTemporary()
         }
     }
 
@@ -979,7 +999,7 @@ public final class AppModel {
     private func markRead() {
         guard let conv = ui.conversation else { return }
         if ui.gate != .main || session.locked || !session.front { return }
-        if tab != .chat || home { return }
+        if tab != .chat || home || temporary != nil { return }
         // one mark on its way at a time, and at most one more behind it: every read of the chat asks for one, and on
         // a slow link each started its own call to the Mac before the first had answered (kb PHN-682)
         if marking { markAgain = true; return }
@@ -1402,6 +1422,16 @@ public final class AppModel {
     public func send() -> Task<Void, Never> {
         busy("send") { [self] in
             let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+            // the temporary chat: its words go to the Mac's memory only (never the outbox; files stay in the box)
+            if temporary != nil {
+                if text.isEmpty { return }
+                draft = ""
+                await callTemporary { await self.api.sendTemporary(text) } failed: { e in
+                    self.draft = text
+                    self.failed(e)
+                }
+                return
+            }
             let files = transfers.ready
             // files in the box: the message shows at once and goes when its files are on the Mac (kb PHN-690, PHN-691)
             if !outgoing.chips.isEmpty {
@@ -2084,6 +2114,7 @@ public final class AppModel {
                 AppLog.i("forgot the Mac; the Mac was \(told ? "told" : "not reachable")")
                 if !told { note(Note("forget_mac_kept")) }
                 prefs.forgetPairing()
+                temporary = nil
                 tab = .chat
                 earlier = false
                 presented = []
@@ -2162,6 +2193,77 @@ public final class AppModel {
     public func cityChanged(granted: Bool) {
         if !granted { note(Note("city_denied")) }
         refreshProfile()
+    }
+
+    // ---- the temporary chat (the owner, 2026-11-23) -------------------------------------------------------------
+
+    /// The dashed bubble: on starts a temporary chat (or shows the one already on), off ends it; the same bubble does
+    /// both, on any device. A failed toggle says so and leaves the chat as it was.
+    @discardableResult
+    public func toggleTemporary() -> Task<Void, Never> {
+        busy("temporary", tap: true) { [self] in
+            let on = temporary == nil
+            await callTemporary { await self.api.setTemporaryChat(on: on) } failed: { e in
+                AppLog.i("temporary chat \(on ? "start" : "end") failed: \(e.linkCode ?? "")")
+                self.note(Note(on ? "temporary_start_failed" : "temporary_end_failed"))
+            }
+            if temporary != nil {
+                tab = .chat
+                earlier = false
+            }
+        }
+    }
+
+    /// A toggle or a send: its answer is the temporary chat after it; reads asked meanwhile run after it.
+    private func callTemporary(_ call: @escaping @MainActor () async -> Outcome<TemporaryChat>,
+                               failed: @MainActor (FerbError) -> Void) async {
+        temporaryCalling = true
+        temporaryReads += 1
+        let r = await call()
+        temporaryCalling = false
+        switch r {
+        case .ok(let t): showTemporary(t)
+        case .failed(let e): failed(e)
+        }
+        if temporaryReadAfter {
+            temporaryReadAfter = false
+            readTemporary()
+        }
+    }
+
+    /// Reads the temporary chat from the Mac (the app opened, unlocked or back in front, the link up, and the library's
+    /// `Change.temporary`: it went on or off on any device, or its rev in `chat.status` moved): shown while it is on,
+    /// dropped once it is off. A read that fails changes nothing.
+    @discardableResult
+    func readTemporary() -> Task<Void, Never>? {
+        if temporaryCalling {
+            temporaryReadAfter = true
+            return nil
+        }
+        temporaryReads += 1
+        let mine = temporaryReads
+        return Task { [weak self] in
+            guard let self else { return }
+            let r = await self.api.temporaryChat()
+            guard mine == self.temporaryReads, case .ok(let t) = r else { return }
+            self.showTemporary(t)
+        }
+    }
+
+    /// The temporary chat as the Mac said it: its rows (FERB's words laid out by the library) while on, nothing off.
+    private func showTemporary(_ t: TemporaryChat) {
+        let shown = t.on ? TemporaryShown(t) : nil
+        if temporary != shown { temporary = shown }
+        runTemporary()
+    }
+
+    /// The temporary chat's work row: its turns' live lines and the Mac's running rows that are its.
+    private func runTemporary() {
+        let r = temporary.flatMap { t in
+            RunningModel.of(t.transcript, status: statusPart(ui.status, temporary: true) ?? PhoneStatus(
+                locked: false, words: true, stopped: false, questions: [], running: [], results: [], screenUse: nil), mac: nil)
+        }
+        if temporaryRunning != r { temporaryRunning = r }
     }
 
     // ---- helpers ---------------------------------------------------------------------------------------------------

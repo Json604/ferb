@@ -112,6 +112,9 @@ pub enum Change {
     LocationWanted {
         request_id: String,
     },
+    /// The temporary chat moved: turned on or off (on any client), or its turns changed (the status's `temporary`
+    /// rev): read `temporary_chat` again; off, show the normal chat.
+    Temporary,
     /// "Forget this Mac" ran or the core closed: every call now answers `closed`.
     Closed,
 }
@@ -430,6 +433,8 @@ pub(crate) struct Shared {
     /// What FERB has waiting, as last pushed or read (memory only: question words are never stored). Its own small
     /// lock, held only to copy it: `last_status` never waits for the store or for anything else (kb PHN-681).
     pub(crate) status: Mutex<Option<PhoneStatus>>,
+    /// The temporary chat as last read while it is on (memory only, never the store: `temporary`).
+    pub(crate) temporary: Mutex<Option<crate::temporary::TemporaryChat>>,
     /// The core was closed (or forgot its Mac): what reads without the state says `closed` too.
     pub(crate) closed: std::sync::atomic::AtomicBool,
     /// One sync at a time (reads, the watch's start).
@@ -650,6 +655,7 @@ impl Mobile {
                     device: Default::default(),
                 }),
                 status: Mutex::new(None),
+                temporary: Mutex::new(None),
                 closed: std::sync::atomic::AtomicBool::new(false),
                 sync_lock: Mutex::new(()),
                 outbox_lock: Mutex::new(()),
@@ -909,6 +915,7 @@ impl Mobile {
             h.close();
         }
         *lock(&self.shared.status) = None;
+        *lock(&self.shared.temporary) = None;
         let r = match store {
             Some(s) => s.forget().map_err(MobileError::from),
             None => Err(MobileError::closed()),
@@ -936,6 +943,7 @@ impl Mobile {
         }
         let was_open = store.is_some();
         drop(store);
+        *lock(&self.shared.temporary) = None;
         if was_open {
             self.shared.notify(Change::Closed);
         }
@@ -1123,6 +1131,26 @@ impl WatchSink for Sink {
 }
 
 impl Shared {
+    /// Keeps a status the Mac pushed or one read (memory only) and tells the app what moved: `Status`, and
+    /// `Temporary` when the temporary chat went on or off or its rev moved (off drops the copy held). Returns it as
+    /// kept.
+    pub(crate) fn keep_status(this: &Arc<Shared>, mut status: PhoneStatus) -> PhoneStatus {
+        let (changed, temporary) = {
+            let mut last = lock(&this.status);
+            let moved = crate::temporary::carry(last.as_ref(), &mut status);
+            let changed = last.as_ref() != Some(&status);
+            *last = Some(status.clone());
+            (changed, moved.then_some(status.temporary.is_some()))
+        };
+        if changed {
+            this.notify(Change::Status);
+        }
+        if let Some(on) = temporary {
+            crate::temporary::status_moved(this, on);
+        }
+        status
+    }
+
     pub(crate) fn notify(&self, change: Change) {
         not_held("a change told to the app");
         self.env.listener.changed(change);
@@ -1236,15 +1264,7 @@ impl Shared {
                 "status" => {
                     // the Mac's pushed `chat.status` (the bridge's, when it changes): memory only
                     drop(st);
-                    let status = PhoneStatus::read(&ev["status"]);
-                    {
-                        let mut last = lock(&this.status);
-                        if last.as_ref() == Some(&status) {
-                            return;
-                        }
-                        *last = Some(status);
-                    }
-                    this.notify(Change::Status);
+                    Shared::keep_status(this, PhoneStatus::read(&ev["status"]));
                     return;
                 }
                 _ => return,

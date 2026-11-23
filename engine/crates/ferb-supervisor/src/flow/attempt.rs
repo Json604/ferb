@@ -207,7 +207,13 @@ impl Inner {
     pub async fn context(&self, tree: &Arc<Tree>, learned: bool) -> Flow<Vec<ContextBlock>> {
         let spec = tree.spec();
         let request = self.deps.daemon.request(&tree.worker.request_id);
-        let activity = self.deps.daemon.relevant_context(&request.words);
+        // decision: ORCH-699 — a temporary chat's run reads no activity and no memory (temporary.rs)
+        let fresh = self.fresh_for(&tree.worker.request_id).is_some();
+        let activity = if fresh {
+            crate::worker_context::Activity::Text(None)
+        } else {
+            self.deps.daemon.relevant_context(&request.words)
+        };
         let (parent_goal, step_context, receipts, reports, schedule_id, schedule_facts, prior) = {
             let st = tree.lock();
             (
@@ -234,7 +240,7 @@ impl Inner {
             None => String::new(),
         };
         let results = self.result_blocks(tree, &spec);
-        let memory = if learned {
+        let memory = if learned && !fresh {
             self.worker_memory(tree, &request.words, &parent_goal, &spec)
                 .await
         } else {

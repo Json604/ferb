@@ -787,13 +787,14 @@ impl WorkerHost for TestHost {
     }
     fn issue_token(
         &self,
-        task_id: &str,
+        task: &Task,
         worker_id: &str,
         scopes: &BTreeSet<String>,
         identity: Identity,
         ttl_s: f64,
         observe_only: bool,
     ) -> String {
+        let task_id = task.id.as_str();
         let token = format!("tok-{:03}", self.tokens.fetch_add(1, Ordering::SeqCst) + 1);
         self.grants.lock().unwrap().insert(
             token.clone(),
@@ -936,10 +937,10 @@ impl WorkerHost for TestHost {
             json!({"runtime": runtime, "account": account}),
         );
     }
-    fn system(&self, _prompt: &str, _roles: &[String]) -> String {
+    fn system(&self, _task: &Task, _prompt: &str, _roles: &[String]) -> String {
         self.system.lock().unwrap().clone()
     }
-    fn with_newly_always_on(&self, ctx: Vec<ContextBlock>) -> Vec<ContextBlock> {
+    fn with_newly_always_on(&self, _task: &Task, ctx: Vec<ContextBlock>) -> Vec<ContextBlock> {
         // supervisor.py:1260 (the supervisor's own; here as the fixture's host runs it)
         if self.identity_pending.is_empty() {
             return ctx;

@@ -89,21 +89,33 @@ impl WorkerHost for Host {
     }
     fn issue_token(
         &self,
-        task_id: &str,
+        task: &Task,
         worker_id: &str,
         scopes: &BTreeSet<String>,
         identity: Identity,
         ttl_s: f64,
         observe_only: bool,
     ) -> String {
-        self.sup().deps.daemon.issue_token(
-            task_id,
+        let sup = self.sup();
+        // decision: ORCH-699 — a temporary chat's run: every tool but the ones that read what FERB knows, on the token
+        // itself (the gateway refuses the rest)
+        let only: Option<Vec<String>> = sup.fresh_for(&task.request_id).map(|_| {
+            sup.deps
+                .daemon
+                .tool_names()
+                .into_iter()
+                .filter(|n| !super::temporary::HIDDEN_TOOLS.contains(&n.as_str()))
+                .filter(|n| !sup.deps.daemon.named_only(n))
+                .collect()
+        });
+        sup.deps.daemon.issue_token(
+            &task.id,
             worker_id,
             scopes,
             identity.as_str(),
             ttl_s,
             observe_only,
-            None,
+            only.as_deref(),
             None,
         )
     }
@@ -191,13 +203,13 @@ impl WorkerHost for Host {
     fn runtime_account(&self, runtime: &str, account: &str) {
         self.sup().deps.daemon.runtime_account(runtime, account)
     }
-    fn system(&self, prompt: &str, roles: &[String]) -> String {
+    fn system(&self, task: &Task, prompt: &str, roles: &[String]) -> String {
         let roles: Vec<&str> = roles.iter().map(String::as_str).collect();
-        self.sup().system_for(prompt, true, &roles)
+        self.sup()
+            .system_for_request(prompt, true, &roles, &task.request_id)
     }
-    fn with_newly_always_on(&self, ctx: Vec<ContextBlock>) -> Vec<ContextBlock> {
-        let pending = self.sup().deps.daemon.identity_pending();
-        crate::planner::with_newly_always_on(ctx, &pending)
+    fn with_newly_always_on(&self, task: &Task, ctx: Vec<ContextBlock>) -> Vec<ContextBlock> {
+        self.sup().context_final(&task.request_id, ctx)
     }
     fn context_exposure(
         &self,
@@ -254,6 +266,38 @@ impl Inner {
         let inputs = self.deps.daemon.system_inputs(live);
         crate::prompts::system(&self.deps.prompts, Some(name), live, roles, &inputs)
             .unwrap_or_else(|e| panic!("the prompt package: {e}"))
+    }
+
+    /// A role's instructions for one request's model call. decision: ORCH-699 — a temporary chat's turn gets no Tier 1
+    /// profile (the owner's core profile); everything else (the role, facts about this FERB, what is usable, the
+    /// catalogs) is as for any turn.
+    pub fn system_for_request(
+        &self,
+        name: &str,
+        live: bool,
+        roles: &[&str],
+        request_id: &str,
+    ) -> String {
+        let mut inputs = self.deps.daemon.system_inputs(live);
+        if self.fresh_for(request_id).is_some() {
+            inputs.identity_context = String::new();
+        }
+        crate::prompts::system(&self.deps.prompts, Some(name), live, roles, &inputs)
+            .unwrap_or_else(|e| panic!("the prompt package: {e}"))
+    }
+
+    /// A model call's context as it goes out. decision: ORCH-699 — a temporary chat's turn: nothing newly always on,
+    /// and the temporary chat's fact with the owner's `extra_context` first; any other turn: what just became always
+    /// on (MEM-429), as before.
+    pub fn context_final(&self, request_id: &str, ctx: Vec<ContextBlock>) -> Vec<ContextBlock> {
+        match self.fresh_for(request_id) {
+            Some(fresh) => {
+                let mut out = vec![self.fresh_block(&fresh)];
+                out.extend(ctx);
+                out
+            }
+            None => crate::planner::with_newly_always_on(ctx, &self.deps.daemon.identity_pending()),
+        }
     }
 
     /// supervisor.py:6983 `_context_exposure`: only bytes actually handed to a model become reads.

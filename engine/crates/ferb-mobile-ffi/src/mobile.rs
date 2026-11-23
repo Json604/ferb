@@ -16,7 +16,7 @@ use crate::records::{
     FoundFiles, GroupStarted, Insomnia, InsomniaEnded, InsomniaStarted, LinkState, LocationFix,
     MacInfo, MacLocked, MemoryReview, OlderState, OutboxItem, PhoneStatus, PreviewFrame,
     RecentFiles, ScreenUse, ScreenUseEnd, SessionSent, SessionStartPlan, SessionTimeline,
-    SessionsList, SettingValue, TaskPage, TranscriptView, Tree, Uploaded,
+    SessionsList, SettingValue, TaskPage, TemporaryChat, TranscriptView, Tree, Uploaded,
 };
 
 fn signer_of(s: Arc<dyn Signer>) -> Arc<dyn ferb_mobile::Signer> {
@@ -413,6 +413,31 @@ impl Mobile {
     /// work: not on the UI thread).
     pub fn send(&self, text: String) -> Result<OutboxItem, FerbError> {
         guard(|| Ok(self.core()?.send(&text)?.conv()))
+    }
+
+    /// The temporary chat as the Mac holds it now (`chat.temporary.get`): on or off, and while on its turns folded.
+    /// Memory only, never the phone's store. Network: not on the UI thread.
+    pub fn temporary_chat(&self) -> Result<TemporaryChat, FerbError> {
+        guard(|| Ok(self.core()?.temporary_chat()?.conv()))
+    }
+
+    /// Turns the temporary chat on or off (`chat.temporary.set {on}`), the same small icon both ways. Never queued.
+    /// Network: not on the UI thread.
+    pub fn set_temporary_chat(&self, on: bool) -> Result<TemporaryChat, FerbError> {
+        guard(|| Ok(self.core()?.set_temporary_chat(on)?.conv()))
+    }
+
+    /// Writes in the temporary chat (`chat.send` with `fresh: true`), sent now, never through the outbox: with no link
+    /// it is an error and the words stay with the app to try again. Answers the temporary chat read after it.
+    /// Network: not on the UI thread.
+    pub fn send_temporary(&self, text: String) -> Result<TemporaryChat, FerbError> {
+        guard(|| Ok(self.core()?.send_temporary(&text)?.conv()))
+    }
+
+    /// The temporary chat as last read while it is on (memory only; none once the Mac says it is off). Safe on the
+    /// UI thread.
+    pub fn last_temporary_chat(&self) -> Result<Option<TemporaryChat>, FerbError> {
+        guard(|| Ok(self.core()?.last_temporary_chat()?.conv()))
     }
 
     /// Sends what waits in the outbox, in order. Network: not on the UI thread.

@@ -158,7 +158,7 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 type Made = Vec<(String, Watched)>;
 
 /// What the ack's transaction gives back.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Accepted {
     pub entry_id: String,
     pub seq: u64,

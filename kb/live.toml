@@ -5208,3 +5208,12 @@ request = "Open Cursor with only a file open, no agent chat. Look at the phone's
 pass = "With no chat open, Cursor shows no session and one line \"No chat open in Cursor. Start one there to continue here.\"; nothing is ever typed into the file; once the chat is open it appears (after at most one model look, journaled as sessions.layout_asked), its messages are only the chat's; hi goes into the chat box; a sign-in window that comes up stops the send with that reason; no call times out."
 decisions = ["HAND-697", "HAND-698", "HAND-699", "HAND-700", "HAND-701", "PHN-817", "APP-1121"]
 sitting = "after this build is installed"
+
+[LIVE-1194]
+title = "A temporary chat starts from nothing, keeps nothing, and ends only by its icon"
+area = "orchestration"
+surface = "FERB.app with this build and a paired phone (Android or iPhone) with its build"
+request = "Tap the dashed bubble in the chat's header. Ask \"what's my name?\" and then a small task (\"make a note that says hello\"). Quit and reopen FERB.app, lock and unlock the phone: the temporary chat is still there on both. On a narrow phone, or with the text size at its largest, the bubble and the profile fold into one three-line button whose menu has Temporary chat. Tap the dashed bubble again (on either device). Ask the normal chat \"what did I just ask you?\"; open Tasks."
+pass = "In the temporary chat FERB doesn't know your name or anything from earlier chats, still does the task with its usual questions; the banner shows on Mac and phone; after the relaunch and unlock it is still on; one tap on the same icon ends it everywhere and the normal chat comes back as it was; the normal chat knows nothing of the temporary one and Tasks doesn't list its task."
+decisions = ["ORCH-699", "ORCH-700", "ORCH-701", "ORCH-702", "APP-1122", "PHN-818", "PHN-819", "PHN-820"]
+sitting = "one sitting, about 10 minutes"

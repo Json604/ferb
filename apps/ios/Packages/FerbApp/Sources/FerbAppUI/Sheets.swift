@@ -65,7 +65,7 @@ struct SheetsView: View {
             SessionWatchView(model: model, insets: insets)
         // a running task's short view (kb PHN-725; FERB.app's TaskShortView): its picture, title, line, Watch live, Stop
         case .task(let taskId, _):
-            let r = model.ui.running?.tasks.first { $0.taskId == taskId }
+            let r = ((model.ui.running?.tasks ?? []) + (model.temporaryRunning?.tasks ?? [])).first { $0.taskId == taskId }
             let shown = model.live.view
             Sheet(bottomInset: insets.bottom, onDismiss: close) {
                 SheetTitle(r?.title ?? L.s("question_default_title"), onClose: close)

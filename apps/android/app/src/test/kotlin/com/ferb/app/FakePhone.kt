@@ -464,6 +464,31 @@ class FakePhone : PhoneApi {
         return Outcome.Ok(memoryReview)
     }
 
+    /** The Mac's temporary chat (memory only on the Mac); [temporaryItems] are its turns as the library folds them. */
+    var temporaryOn = false
+    var temporaryItems: List<com.ferb.mobile.Item> = emptyList()
+    var temporaryRefusal: Outcome.Failed? = null
+    val temporarySent = ArrayList<String>()
+    fun temporaryNow() = com.ferb.mobile.TemporaryChat(
+        temporaryOn, if (temporaryOn) "T1" else null, if (temporaryOn) "2026-01-02T10:05:00+00:00" else null, if (temporaryOn) 1L else 0L,
+        TranscriptView(if (temporaryOn) "temporary:T1" else "", if (temporaryOn) temporaryItems else emptyList(), emptyList(), emptyList(), emptyList(), OlderState.Complete),
+    )
+    override suspend fun temporaryChat(): Outcome<com.ferb.mobile.TemporaryChat> { calls += "temporary"; return Outcome.Ok(temporaryNow()) }
+    override suspend fun setTemporaryChat(on: Boolean): Outcome<com.ferb.mobile.TemporaryChat> {
+        calls += "temporary:$on"
+        temporaryRefusal?.let { return it }
+        temporaryOn = on
+        if (!on) temporaryItems = emptyList()
+        return Outcome.Ok(temporaryNow())
+    }
+    override suspend fun sendTemporary(text: String): Outcome<com.ferb.mobile.TemporaryChat> {
+        calls += "send-temporary:$text"
+        temporaryRefusal?.let { return it }
+        temporarySent += text
+        temporaryOn = true
+        return Outcome.Ok(temporaryNow())
+    }
+
     companion object {
         /** One session as the library reads it (kb HAND-651..666). */
         fun agentSession(id: String = "claude:s1", title: String = "Fix the flaky login test", status: String = "working", host: String = "Terminal",

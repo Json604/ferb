@@ -196,6 +196,10 @@ pub const PHONE_METHODS: &[PhoneMethod] = &[
         .stream()
         .refuse(&["input_paths", "test_run"]),
     plain("chat.attach", "follows a turn already running, or starts a fresh conversation (history kept)"),
+    // ORCH-699: the temporary chat (held in the daemon's memory): reading it is the owner's conversation; the icon only
+    // starts or ends it
+    private("chat.temporary.get", "the owner's temporary conversation"),
+    plain("chat.temporary.set", "the owner's temporary-chat icon: starts or ends it"),
     plain("chat.approve", "the owner's answer; a hard question's Yes carries its own fingerprint proof")
         .locked(Locked::Answer),
     plain("chat.answer", "the owner's answer; a hidden input only through the sealed path (PHN-110)")

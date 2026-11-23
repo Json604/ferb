@@ -52,7 +52,8 @@ fn the_method_table_is_python_s_plus_the_stage_2_additions() {
         DATA_ADDITIONS, DEVICE_ADDITIONS, IDENTIFIER_ADDITIONS, INSOMNIA_ADDITIONS, LINK_ADDITIONS,
         MEMORY_IMPORT_ADDITIONS, OWNER_APP_ONLY, PHONE_ADDITIONS, PHONE_FILES,
         PHONE_LINK_ADDITIONS, PHONE_OWN, PHONE_SESSION, PROJECT_ADDITIONS, SCREEN_USE_ADDITIONS,
-        SESSIONS_ADDITIONS, SESSIONS_HOOK, STAGE2_ADDITIONS, UNINSTALL_ADDITIONS,
+        SESSIONS_ADDITIONS, SESSIONS_HOOK, STAGE2_ADDITIONS, TEMPORARY_ADDITIONS,
+        UNINSTALL_ADDITIONS,
     };
     let table = fixture("table.json");
     let added = |name: &str| {
@@ -73,6 +74,7 @@ fn the_method_table_is_python_s_plus_the_stage_2_additions() {
             || MEMORY_IMPORT_ADDITIONS.contains(&name)
             || SESSIONS_ADDITIONS.contains(&name)
             || SESSIONS_HOOK.contains(&name)
+            || TEMPORARY_ADDITIONS.contains(&name)
     };
     for role in Role::ALL {
         let ours: Vec<String> = METHODS
@@ -122,6 +124,7 @@ fn the_method_table_is_python_s_plus_the_stage_2_additions() {
         .chain(&SCREEN_USE_ADDITIONS)
         .chain(&INSOMNIA_ADDITIONS)
         .chain(&SESSIONS_ADDITIONS)
+        .chain(&TEMPORARY_ADDITIONS)
     {
         let name = *name;
         let rows: Vec<_> = METHODS.iter().filter(|m| m.name == name).collect();
@@ -151,7 +154,8 @@ fn the_method_table_is_python_s_plus_the_stage_2_additions() {
     }
     // the numbers the port was told to expect, and the six of stage 2 (then 8: insomnia mode, T-1274; the last 3:
     // the owner's word on an imported memory and what the Memory page shows of it, MEM-442, not FERB.app's alone;
-    // then 4 with his two switches, MEM-459; then 6: the review of an import and its answers, MEM-460)
+    // then 4 with his two switches, MEM-459; then 6: the review of an import and its answers, MEM-460; the last 2:
+    // the temporary chat, ORCH-699)
     let count = |role| METHODS.iter().filter(|m| m.roles.contains(&role)).count();
     assert_eq!(
         (
@@ -161,10 +165,10 @@ fn the_method_table_is_python_s_plus_the_stage_2_additions() {
             METHODS.iter().filter(|m| m.app_only).count()
         ),
         (
-            106 + 6 + 2 + 7 + 1 + 2 + 1 + 5 + 7 + 1 + 2 + 8 + 6 + 11 + 1,
+            106 + 6 + 2 + 7 + 1 + 2 + 1 + 5 + 7 + 1 + 2 + 8 + 6 + 11 + 1 + 2,
             3,
             0,
-            20 + 6 + 2 + 7 + 4 + 1 + 2 + 1 + 5 + 7 + 1 + 2 + 8 + 11
+            20 + 6 + 2 + 7 + 4 + 1 + 2 + 1 + 5 + 7 + 1 + 2 + 8 + 11 + 2
         )
     );
     let mut sorted: Vec<&str> = METHODS.iter().map(|m| m.name).collect();

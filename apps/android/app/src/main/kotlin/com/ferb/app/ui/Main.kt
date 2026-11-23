@@ -161,6 +161,8 @@ fun Main(vm: FerbViewModel, ui: UiState, tab: PhoneTab, home: Boolean, insets: P
             val earlier by vm.earlier.collectAsState()
             val page = when {
                 tab != PhoneTab.CHAT -> ChatPage.TODAY
+                // a temporary chat shows only itself (never the home page or the earlier days)
+                ui.temporary != null -> ChatPage.TODAY
                 earlier -> ChatPage.EARLIER
                 home -> ChatPage.HOME
                 else -> ChatPage.TODAY
@@ -271,6 +273,7 @@ private fun Home(vm: FerbViewModel, ui: UiState, draft: String, insets: PhoneIns
         onRow = { i -> away.getOrNull(i)?.let { open(vm, it) } },
         onMore = { vm.choose(PhoneTab.TASKS) },
         composer = { m -> Composer(vm, draft, texts.placeholder, m, host, ui.running, ui) },
+        temporary = temporaryToggle(vm, ui),
         // a new day with nothing said yet: earlier days are one tap away (kb PHN-626)
         earlier = if (ui.rows.any { it !is ChatRow.Older }) stringResource(R.string.older_available) else null,
         onEarlier = { vm.openChat() },
@@ -386,8 +389,19 @@ private fun open(vm: FerbViewModel, item: WorkItem) {
     if (item.approvalId != null) vm.goToQuestion(item.approvalId) else vm.openChat()
 }
 
+/** The temporary chat's dashed bubble for the chat tab's top bar: the same tap turns it on and off. */
+@Composable
+private fun temporaryToggle(vm: FerbViewModel, ui: UiState): com.ferb.design.components.TemporaryToggle {
+    val on = ui.temporary != null
+    return com.ferb.design.components.TemporaryToggle(
+        on, stringResource(if (on) R.string.temporary_chat_end else R.string.temporary_chat), busy = "temporary" in ui.busy,
+        more = stringResource(R.string.top_bar_more),
+    ) { vm.toggleTemporary() }
+}
+
 @Composable
 private fun Chat(vm: FerbViewModel, ui: UiState, draft: String, insets: PhoneInsets, waiting: PhoneTab?, onTab: (PhoneTab) -> Unit, onProfile: () -> Unit, host: Host) {
+    ui.temporary?.let { t -> TemporaryChat(vm, ui, t, draft, insets, waiting, onTab, onProfile, host); return }
     val list = rememberLazyListState()
     // two places, as FERB.app separates days (kb PHN-696): today's chat (only today's rows, the way to earlier days at
     // its top) or the earlier days (one continuous chat with a day's start between days, PHN-627), never both
@@ -437,7 +451,7 @@ private fun Chat(vm: FerbViewModel, ui: UiState, draft: String, insets: PhoneIns
         }
     }
     Column(Modifier.fillMaxSize()) {
-        TopBar(PhoneTab.CHAT, waiting = waiting, onTab = onTab, onProfile = onProfile)
+        TopBar(PhoneTab.CHAT, waiting = waiting, onTab = onTab, onProfile = onProfile, temporary = temporaryToggle(vm, ui))
         // the Mac asleep in a brief Power Nap wake says so in its own words first (kb SENSE-430)
         val status = com.ferb.app.model.MacAsleep.line(ui.status, ui.link)?.let { it to StatusTone.INFO }
             ?: statusLine(ui)?.let { (text, tone) -> stringResource(text) to tone }
@@ -474,6 +488,46 @@ private fun Chat(vm: FerbViewModel, ui: UiState, draft: String, insets: PhoneIns
           }
         }
         Composer(vm, draft, stringResource(R.string.chat_placeholder), Modifier.paddingOverBottom(insets, 8.dp, start = 16.dp, end = 16.dp), host, ui.running)
+    }
+}
+
+/**
+ * The temporary chat (the owner, 2026-11-23): the banner, then only its own turns (folded as the chat's), its open
+ * questions and what of it runs; empty, one quiet line. The box sends with `fresh: true`; nothing is stored.
+ */
+@Composable
+private fun TemporaryChat(vm: FerbViewModel, ui: UiState, t: com.ferb.app.TemporaryUi, draft: String, insets: PhoneInsets, waiting: PhoneTab?,
+                          onTab: (PhoneTab) -> Unit, onProfile: () -> Unit, host: Host) {
+    val list = rememberLazyListState()
+    val today = chatDayOf(ui)
+    // a question the temporary chat's entries don't hold yet (the status brought it first): a box at its end
+    val rows = remember(t) {
+        val placed = t.rows.mapNotNullTo(HashSet()) { (it as? ChatRow.Asking)?.approvalId }
+        t.rows + t.questions.filter { it.approvalId !in placed }.map { ChatRow.Asking("q:${it.approvalId}", it.approvalId, it.title, null, it.hidden) }
+    }
+    val last = rows.lastOrNull()
+    val follow = rememberChatFollow(list, last?.key, last, mine = last is ChatRow.Owner)
+    Column(Modifier.fillMaxSize()) {
+        TopBar(PhoneTab.CHAT, waiting = waiting, onTab = onTab, onProfile = onProfile, temporary = temporaryToggle(vm, ui))
+        com.ferb.design.components.TemporaryBanner(stringResource(R.string.temporary_banner), Modifier.padding(top = 10.dp).testTag("temporary-banner"))
+        var tallest by remember { mutableIntStateOf(0) }
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        Box(Modifier.weight(1f).fillMaxWidth().onSizeChanged { if (it.height > tallest) tallest = it.height }) {
+          CompositionLocalProvider(LocalChatViewport provides with(density) { tallest.toDp() }, LocalCardsLive provides true,
+              LocalQuestions provides t.questions, LocalBusy provides ui.busy) {
+            if (rows.isEmpty()) com.ferb.design.components.TemporaryEmpty(stringResource(R.string.temporary_empty), Modifier.align(Alignment.Center).testTag("temporary-empty"))
+            LazyColumn(
+                Modifier.fillMaxSize().testTag("temporary-list"),
+                state = list,
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                items(rows, key = { it.key }, contentType = { it::class }) { row -> ChatRowView(vm, today, false, row, host) }
+            }
+            LaunchedEffect(follow) { vm.chatToEnd.collect { follow.toEnd(animate = true) } }
+          }
+        }
+        Composer(vm, draft, stringResource(R.string.chat_placeholder), Modifier.paddingOverBottom(insets, 8.dp, start = 16.dp, end = 16.dp), host, t.running)
     }
 }
 

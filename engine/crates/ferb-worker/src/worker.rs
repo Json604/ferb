@@ -503,7 +503,7 @@ impl Worker {
         };
         // The final checker's token is observe-only: the gateway offers and runs observation tools only (V3, W4).
         let token = host.issue_token(
-            &task.id,
+            task,
             &worker_id,
             &task.scopes,
             task.identity,
@@ -605,8 +605,8 @@ impl Worker {
             let sink = timing.clone();
             let call = Call {
                 task,
-                system: host.system(prompt, &options.roles),
-                context: host.with_newly_always_on(ctx),
+                system: host.system(task, prompt, &options.roles),
+                context: host.with_newly_always_on(task, ctx),
                 token: &token,
                 parent_span: &wspan,
                 tree: Some(tree),

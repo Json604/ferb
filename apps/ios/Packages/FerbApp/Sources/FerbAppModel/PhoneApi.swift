@@ -122,6 +122,14 @@ public protocol PhoneApi: AnyObject {
     func memoryReview() async -> Outcome<MemoryReview>
     func answerMemoryReview(part: String, itemIds: [String], answer: String) async -> Outcome<MemoryReview>
 
+    /// The temporary chat (the owner, 2026-11-23): one conversation the Mac holds in memory only, with every tool and
+    /// no prior context; on and off only by the chat's dashed bubble. Read it (private: the Mac's unlock), turn it on
+    /// or off (plain), and send to it; each answers the chat as it stands after the call. Nothing of it is kept on the
+    /// phone: the library holds it in memory.
+    func temporaryChat() async -> Outcome<TemporaryChat>
+    func setTemporaryChat(on: Bool) async -> Outcome<TemporaryChat>
+    func sendTemporary(_ text: String) async -> Outcome<TemporaryChat>
+
     /// Keys made after pairing the Mac doesn't hold (Face ID or Touch ID enrolled later), and registering them
     /// (PHN-133).
     func unregisteredKeys() async -> PublicKeys?
@@ -292,6 +300,21 @@ public final class LibraryPhone: PhoneApi {
     public func memoryReview() async -> Outcome<MemoryReview> { await phone.call { try $0.memoryReview() } }
     public func answerMemoryReview(part: String, itemIds: [String], answer: String) async -> Outcome<MemoryReview> {
         await phone.call { try $0.answerMemoryReview(part: part, itemIds: itemIds, answer: answer) }
+    }
+    public func temporaryChat() async -> Outcome<TemporaryChat> { await Self.laidOut(await phone.call { try $0.temporaryChat() }) }
+    public func setTemporaryChat(on: Bool) async -> Outcome<TemporaryChat> {
+        await Self.laidOut(await phone.call { try $0.setTemporaryChat(on: on) })
+    }
+    public func sendTemporary(_ text: String) async -> Outcome<TemporaryChat> {
+        await Self.laidOut(await phone.call { try $0.sendTemporary(text: text) })
+    }
+    /// FERB's words in the temporary chat laid out off the main actor, as `transcript` does for the chat (kb PHN-682).
+    private static func laidOut(_ read: Outcome<TemporaryChat>) async -> Outcome<TemporaryChat> {
+        if case .ok(let t) = read, t.on {
+            let v = t.transcript
+            await Task.detached(priority: .userInitiated) { ChatModel.prepare(v) }.value
+        }
+        return read
     }
     public func unregisteredKeys() async -> PublicKeys? { await phone.unregisteredKeys() }
     public func registerKeys(_ signer: @escaping @Sendable (KeyKind) -> Signer) async -> Outcome<Bool> { await phone.registerKeys(signer) }

@@ -6,15 +6,15 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 
 | Area | Title | Paths | Active decisions | Open tasks | Pending live checks |
 |---|---|---|---|---|---|
-| app | FERB.app (notch UI, intro, sounds) | `apps/mac`, `apps/AGENTS.md`, `apps/docs`, `apps/output`, `apps/.gitignore`, `demo` | 383 | 17 | 46 |
+| app | FERB.app (notch UI, intro, sounds) | `apps/mac`, `apps/AGENTS.md`, `apps/docs`, `apps/output`, `apps/.gitignore`, `demo` | 384 | 17 | 46 |
 | daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 110 | 9 | 8 |
 | engine | Rust engine (the rewrite) | `engine/*`, `engine/crates`, `engine/fixtures`, `engine/packaging` | 23 | 4 | 0 |
 | gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `engine/runtime/identity` | 132 | 9 | 62 |
 | hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extension`, `extension-store` | 240 | 15 | 54 |
 | memory | Memory and memory import | `engine/runtime/memory` | 93 | 9 | 9 |
-| orchestration | Orchestration | `ferb/orchestrator/*.py`, `engine/runtime/decide`, `ferb/clock` | 184 | 10 | 42 |
+| orchestration | Orchestration | `ferb/orchestrator/*.py`, `engine/runtime/decide`, `ferb/clock` | 188 | 10 | 43 |
 | perception | Perception | `ferb/sense` | 27 | 4 | 2 |
-| phone | Phone role, link and phone apps | `apps/android`, `apps/ios`, `engine/patches` | 387 | 14 | 22 |
+| phone | Phone role, link and phone apps | `apps/android`, `apps/ios`, `engine/patches` | 390 | 14 | 22 |
 | project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `HANDOFF.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `kb`, `tools`, `spikes` | 14 | 8 | 0 |
 | prompts | Prompts and abilities | `engine/runtime/orchestrator/prompts`, `engine/runtime/abilities` | 59 | 5 | 10 |
 | release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 28 | 6 | 5 |

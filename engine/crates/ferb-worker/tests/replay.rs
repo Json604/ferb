@@ -347,7 +347,7 @@ async fn calls_match_python() {
         let rt: Arc<dyn ferb_worker::ports::ModelRuntime> =
             Arc::new(ScriptRuntime::new(host.clone(), sc["runtimes"][0].clone()));
         let token = if sc.get("token").and_then(Value::as_bool) == Some(true) {
-            host.issue_token(&task.id, "", &task.scopes, task.identity, 60.0, false)
+            host.issue_token(&task, "", &task.scopes, task.identity, 60.0, false)
         } else {
             String::new()
         };

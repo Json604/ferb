@@ -149,7 +149,8 @@ final class EntryWatchTests: XCTestCase {
         XCTAssertFalse(model.expanded, "and never opens the notch")
         await until { (self.savedCursor(preferences)?["seq"] as? Int) == 14 }
         await until { rpc.history.rows.count >= 2 }                // the turn and its later answer, in the history
-        XCTAssertNotNil(rpc.params(of: "chat.entries.mark").last { $0["delivered_seq"] as? Int == 14 })
+        // the mark goes in its own task (markEntries), so it may land just after the cursor is saved
+        await until { rpc.params(of: "chat.entries.mark").contains { $0["delivered_seq"] as? Int == 14 } }
         model.disconnectDaemon()
         rpc.endAll()
 

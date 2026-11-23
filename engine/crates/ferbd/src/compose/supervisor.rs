@@ -709,6 +709,12 @@ impl Daemon for SupDaemon {
     fn reads_card_replies(&self) -> bool {
         self.reads.reads_card_replies()
     }
+    fn named_only(&self, tool: &str) -> bool {
+        self.gateway
+            .registry()
+            .get(tool)
+            .is_some_and(|t| t.facts().named_only)
+    }
     fn observes(&self, tool: &str) -> bool {
         self.gateway
             .registry()

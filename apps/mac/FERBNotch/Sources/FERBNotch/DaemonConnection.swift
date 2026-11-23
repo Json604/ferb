@@ -17,6 +17,8 @@ extension NotchModel {
                     self.clickThrough.reconnected()     // the daemon may have restarted: its click-through windows
                     await self.prepareHistory()         // the chat in hand before the status read places anything
                     await self.catchUpEntries()         // and the turns other devices sent (ENG-10)
+                    // a temporary chat still on (a relaunch doesn't end it), or gone (the daemon restarted)
+                    await self.refreshTemporaryChat()
                     await self.refreshDaemonStatus()
                     await self.refreshInsomnia()        // APP-980: a restarted FERB.app raises its cover again
                     await self.refreshMemoryImport()    // MEM-456: an import already going on shows its card
@@ -102,6 +104,7 @@ extension NotchModel {
             .union(session.backendTaskID.map { [$0] } ?? [])
             .union(conversation.turns.filter { Self.waitingStatuses.contains($0.status) }.compactMap(\.backendTaskID))
         let snapshotRevision = taskStateRevision
+        let temporaryTaps = temporary.taps
         defer { refreshingStatus = false }
         let previousSize = panelSize
         defer { if panelSize != previousSize { onBackgroundChange?(true) } }
@@ -118,7 +121,10 @@ extension NotchModel {
             changeIfNeeded(\.daemonPaused, status["paused"] as? Bool ?? false)
             changeIfNeeded(\.daemonStopped, status["stopped"] as? Bool ?? false)
             if let mode = status["insomnia"] { insomnia.apply(mode) }     // APP-980: a missed insomnia.changed
-            let results = status["results"] as? [[String: Any]] ?? []
+            // The temporary chat as it stands (a missed chat.temporary); a status read begun before a tap says nothing
+            if temporary.taps == temporaryTaps { receiveTemporaryStatus(status["temporary"]) }
+            // A temporary chat's tasks never reach the saved chat: not as results, rows, cards or the task taken up
+            let results = (status["results"] as? [[String: Any]] ?? []).filter { !isTemporaryRow($0) }
             for result in results { receiveOutcome(result, announce: false, recordEvent: false) }
             acknowledgeResults(results.compactMap { $0["task_id"] as? String })
             receiveNotices(status["notices"] as? [[String: Any]] ?? [], complete: true)
@@ -126,7 +132,7 @@ extension NotchModel {
             // reconciliation cadence will fetch a fresh snapshot next time.
             guard taskStateRevision == snapshotRevision else { return }
             changeIfNeeded(\.connectionStatus, "Connected to FERB")
-            let running = status["running"] as? [[String: Any]] ?? []
+            let running = (status["running"] as? [[String: Any]] ?? []).filter { !isTemporaryRow($0) }
             changeIfNeeded(\.runningTasks, Dictionary(running.compactMap { row in
                 guard let id = row["task_id"] as? String, !id.isEmpty else { return nil }
                 return (id, Self.heading(row))
@@ -159,7 +165,9 @@ extension NotchModel {
             }, uniquingKeysWith: { _, last in last }))
             // chat.status names a question's root task only: what the live event said (the step's task id, the part,
             // a runtime offer) is kept, so a question stays in its card row.
-            let approvals = (status["approvals"] as? [[String: Any]] ?? []).map(keepKnownFields).compactMap(normalizeApproval)
+            let approvalRows = status["approvals"] as? [[String: Any]] ?? []
+            approvalRows.forEach(noteTemporaryApproval)         // a temporary chat's question shows only there
+            let approvals = approvalRows.map(keepKnownFields).compactMap(normalizeApproval)
             let changed = pendingApprovals != approvals
             if changed { pendingApprovals = approvals; promptError = nil; onBackgroundChange?(true) }
             for approval in approvals { announceApproval(approval) }
@@ -603,6 +611,8 @@ extension NotchModel {
         // camera for the phone's Show me
         case "insomnia.changed", "insomnia.step", "insomnia.expect", "insomnia.camera":
             insomnia.receive(topic: event["topic"] as? String ?? "", data: data)
+        case "chat.temporary":                           // the temporary chat started, changed or ended (anywhere)
+            receiveTemporaryEvent(data)
         case "memory.import.live":                       // MEM-456: the import's card as it stands, or gone
             receiveMemoryImport(data["card"])
         case "device.location_wanted":                   // GATE-613: the owner said Yes; one precise fix, read now
@@ -615,6 +625,7 @@ extension NotchModel {
         case "timer.changed":                            // DMN-548: set, cancelled (by any path) or fired
             receiveTimerChange(data)
         case "approval.requested":
+            noteTemporaryApproval(data)                  // a temporary chat's question shows only there
             guard let approval = normalizeApproval(data), !pendingApprovals.contains(where: { $0.id == approval.id }) else { return }
             pendingApprovals.append(approval)
             if approval.taskID == session.backendTaskID, approval.taskID != nil { session.waitForOwner(approval.reason) }
@@ -627,7 +638,7 @@ extension NotchModel {
         case "task.steered":
             if let taskID, data["goal"] is String || data["name"] is String { runningTasks[taskID] = Self.heading(data) }
         case "task.created":
-            if let taskID {
+            if let taskID, !isTemporaryTask(taskID) {
                 runningTasks[taskID] = Self.heading(data)
                 taskActivities[taskID] = []
                 knownCompletedTasks.remove(taskID)
@@ -755,6 +766,13 @@ extension NotchModel {
 
     func receiveOutcome(_ event: [String: Any], announce: Bool = true, recordEvent: Bool = true) {
         guard let taskID = event["task_id"] as? String else { return }
+        // A temporary chat's task ends in its own entries, never in the saved chat (TemporaryChatModel.swift)
+        if isTemporaryTask(taskID) || isTemporaryRow(event) {
+            runningTasks.removeValue(forKey: taskID)
+            taskActivities.removeValue(forKey: taskID)
+            if inTemporaryChat { Task { await refreshTemporaryChat() } }
+            return
+        }
         if recordEvent { taskStateRevision += 1 }
         // Its result is placed now: the task is no longer one to take up again at a launch (APP-975)
         if event["status"] != nil, preferences.string(forKey: Self.rememberedTaskKey) == taskID {

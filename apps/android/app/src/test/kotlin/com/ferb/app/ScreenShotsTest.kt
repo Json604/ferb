@@ -140,6 +140,24 @@ class ScreenShotsTest {
         shoot("chat-lab-sample-noon.png")
     }
 
+    /**
+     * The temporary chat (the owner, 2026-11-23): the dashed bubble on in the top bar beside the profile button, the banner,
+     * and only its own turns; and the empty one with its line. Not from the lab: the same look as the iPhone's.
+     */
+    @Test
+    fun the_temporary_chat_shows_its_banner_and_only_its_own_turns() {
+        val moment = labMoment(12.5)
+        compose.setContent { Frame(moment, base.copy(rows = labRows, temporary = TemporaryUi("T1", labRows.take(2)))) }
+        shoot("chat-temporary-noon.png")
+    }
+
+    @Test
+    fun an_empty_temporary_chat_says_it_starts_fresh() {
+        val moment = labMoment(12.5)
+        compose.setContent { Frame(moment, base.copy(temporary = TemporaryUi("T1", emptyList()))) }
+        shoot("chat-temporary-empty-noon.png")
+    }
+
     // decision: PHN-401, ORCH-651
     @Test
     fun chat_with_the_outbox_a_notice_and_older_messages_waiting() {

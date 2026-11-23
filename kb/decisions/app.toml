@@ -4700,3 +4700,13 @@ rule = "For HAND-691, HAND-697, APP-1112. The page and its Settings switch say \
 evidence = "NotchCoreTests SessionsTests testANewSessionIsATerminalAndOnlyItsCommandIsAskedAbout, testATerminalRowSaysItsProgramFolderAndAppAndAnAppWithNoChatSaysSo; PlaygroundWorkspaceTests' sessions flow."
 paths = ["apps/mac/FERBNotch/Sources/FERBNotch/SessionsPage.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SessionsModel.swift", "apps/mac/FERBNotch/Sources/NotchCore/SessionRows.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift"]
 live = ["LIVE-1192", "LIVE-1193"]
+
+[APP-1122]
+title = "The temporary chat's dashed bubble in the notch and window headers, kept only in memory"
+by = "agent"
+date = 2026-11-23
+status = "active"
+rule = "For ORCH-699 and ORCH-700; adds to APP-555 and APP-758. A dashed-bubble button beside the profile button in the notch header and the window header toggles chat.temporary.set; on, it is filled and labelled End temporary chat, and the banner \"Temporary chat · FERB won't use what it knows or keep this chat\" replaces the Today/History row. The chat shows only the temporary entries (EntryFold, conversation temporary:<id>), read at connect, on each chat.temporary event and from chat.status; nothing of it reaches chat.history.put, the archive or saved notices."
+why = "The owner's words: one tap, held in memory, ended only by the same icon; FERB.app's own saved chat must stay as it was."
+paths = ["apps/mac/FERBNotch/Sources/NotchCore/TemporaryChat.swift", "apps/mac/FERBNotch/Sources/FERBNotch/TemporaryChatModel.swift", "apps/mac/FERBNotch/Sources/FERBNotch/TemporaryChatViews.swift"]
+live = ["LIVE-1194"]

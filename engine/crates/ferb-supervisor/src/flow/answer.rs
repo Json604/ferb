@@ -454,8 +454,8 @@ impl Inner {
             None,
             json!({"question": question}),
         );
-        let system = self.system_for("question.md", true, &[]);
-        let ctx = crate::planner::with_newly_always_on(ctx, &self.deps.daemon.identity_pending());
+        let system = self.system_for_request("question.md", true, &[], &decision.request_id);
+        let ctx = self.context_final(&decision.request_id, ctx);
         let wtree: Arc<dyn ferb_worker::ports::WorkerTree> = tree.clone();
         let worker = self.worker.get().expect("the worker").clone();
         let call = ferb_worker::worker::Call {

@@ -53,6 +53,7 @@ public struct PhoneScreen<Page: View, SheetContent: View>: View {
         .background(Color.black)
         .environment(\.skyInk, moment.ink)
         .environment(\.skyMoment, moment)
+        .environment(\.phoneInsets, insets)
         .ignoresSafeArea()
     }
 }

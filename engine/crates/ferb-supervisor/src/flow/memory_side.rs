@@ -295,6 +295,11 @@ impl Inner {
             let t = turn.lock().unwrap();
             (t.session.clone(), t.request_id.clone())
         };
+        // decision: ORCH-699 — a temporary chat remembers and forgets nothing: its turn's remember and forget parts are
+        // dropped (its planner is told so by the temporary chat's fact)
+        if self.fresh_for(&rid).is_some() {
+            return Ok(side);
+        }
         let recent = blocked::NOT_IN_RECENT;
         let (sites, elsewhere, about) = if out.remember.is_empty() {
             (BTreeSet::new(), BTreeSet::new(), String::new())

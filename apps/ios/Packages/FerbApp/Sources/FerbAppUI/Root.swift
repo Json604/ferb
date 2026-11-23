@@ -57,7 +57,8 @@ struct RootView: View {
 
     var body: some View {
         GeometryReader { geo in
-            let insets = PhoneInsets(top: geo.safeAreaInsets.top, bottom: geo.safeAreaInsets.bottom)
+            let insets = PhoneInsets(top: geo.safeAreaInsets.top, bottom: geo.safeAreaInsets.bottom,
+                                     left: geo.safeAreaInsets.leading, right: geo.safeAreaInsets.trailing)
             LiveSky(place: model.skyPlace()) { moment in
                 let gate = model.ui.gate
                 PhoneScreen(moment: moment, insets: insets,

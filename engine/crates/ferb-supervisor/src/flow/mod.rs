@@ -48,6 +48,8 @@ pub mod host;
 pub mod loops;
 pub mod memory_side;
 pub mod store;
+// the temporary chat: held in memory, no prior context, nothing kept (ORCH-699)
+pub mod temporary;
 pub mod tree;
 pub mod turn;
 // control and recovery: stop, pause, steer and resume of running work; the stop RPCs; waits for the owner, the
@@ -125,6 +127,11 @@ pub trait Daemon: Send + Sync {
     fn all_scopes(&self) -> BTreeSet<String>;
     /// `observes(gateway.caps.get(tool))`: whether a tool only observes.
     fn observes(&self, tool: &str) -> bool;
+    /// A tool offered only to a run whose token names it (a tool's `named_only` fact): a temporary chat's token lists
+    /// the tools it keeps and must not name these (ORCH-699). False by default.
+    fn named_only(&self, _tool: &str) -> bool {
+        false
+    }
     /// ORCH-654: whether a not-done report from an attempt that neither acted nor changed a file still gets its
     /// check. FERB skips that check (false); a replay of a Python recording, whose checker ran on every report, says
     /// true (the named difference: those recordings keep their checks).
@@ -1094,6 +1101,8 @@ pub struct Inner {
     pub(crate) conversations: ferb_orchestrator::conversations::ConversationStoreShared,
     /// Stage 2: the chat as entries, kept (chat_log.rs).
     pub chat_log: chat_log::ChatLog,
+    /// The temporary chat, held in memory only (temporary.rs, ORCH-699).
+    pub(crate) temporary: temporary::TemporaryChats,
 }
 
 impl Supervisor {
@@ -1114,6 +1123,7 @@ impl Supervisor {
             jobs: Mutex::new(Vec::new()),
             work_open: tokio::sync::watch::channel(true).0,
             chat_log: chat_log::ChatLog::default(),
+            temporary: temporary::TemporaryChats::default(),
         });
         let host = Arc::new(host::Host {
             sup: Arc::downgrade(&inner),

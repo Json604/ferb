@@ -24,6 +24,8 @@ public struct Question: Equatable, Sendable {
     public var held: Bool = false
     /// What FERB.app's card shows for it (kb PHN-739, ferb-mobile `question`): header, question, why, exact, buttons.
     public var shown: QuestionShown? = nil
+    /// A temporary chat's task asks it (the Mac's status says so): shown only in the temporary chat, never kept.
+    public var temporary: Bool = false
 
     public init(approvalId: String, taskId: String?, title: String?, reason: String, exact: String?, kind: String, capability: String?,
                 options: [String], labels: [String], hidden: Bool, needs: QuestionNeeds? = nil, held: Bool = false, shown: QuestionShown? = nil) {
@@ -105,6 +107,14 @@ public struct Question: Equatable, Sendable {
     public static let secretKinds: Set<String> = ["owner_login_code", "owner_admin_password", "owner_secret"]
 }
 
+extension Question {
+    func withTemporary(_ on: Bool) -> Question {
+        var q = self
+        q.temporary = on
+        return q
+    }
+}
+
 public enum Questions {
     public static func parse(_ q: QuestionItem) -> Question {
         let body = Json.object(q.bodyJson)
@@ -129,6 +139,7 @@ public enum Questions {
                  kind: s.kind == Question.clarifyKind ? Question.clarifyKind : s.needs.hidden ? "owner_secret" : "owner_question",
                  capability: s.capability,
                  options: s.held ? [] : s.options, labels: words?.buttons ?? [], hidden: s.needs.hidden, needs: s.needs, held: s.held, shown: words)
+            .withTemporary(s.temporary)
     }
 
     /// The transcript's open questions, each with its needs from `status`, then the status's questions the transcript
@@ -146,6 +157,7 @@ public enum Questions {
             guard let s = byId[q.approvalId] else { return q }
             var q = q
             q.needs = s.needs
+            q.temporary = s.temporary
             return q
         }
         let ids = Set(known.map(\.approvalId))

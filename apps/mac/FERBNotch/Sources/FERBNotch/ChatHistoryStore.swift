@@ -257,6 +257,7 @@ extension NotchModel {
     /// The owner scrolled near the top of the shown day: earlier entries come in, those in hand at once, else the
     /// daemon's next page (the loader shows while it comes).
     func loadEarlier() {
+        guard !inTemporaryChat else { return }
         let day = shownDay
         let all = conversation.transcript(on: day)
         var window = window(for: day, all: all)
@@ -311,6 +312,7 @@ extension NotchModel {
     var hasEarlierEntries: Bool { shownWindow.hasEarlier(conversation.transcript(on: shownDay)) }
 
     var earlierEntries: EarlierEntries {
+        if inTemporaryChat { return EarlierEntries() }       // held whole in memory: nothing earlier to load
         let all = conversation.transcript(on: shownDay)
         let window = window(for: shownDay, all: all)
         return EarlierEntries(more: window.hasEarlier(all), loading: window.loading)
@@ -344,7 +346,9 @@ extension NotchModel {
 
     /// The shown day has nothing to show yet because its first page is on its way (APP-806): the chat keeps its height
     /// and shows the loader.
-    var shownDayLoading: Bool { visibleEntries.isEmpty && (dayWindows[shownDay]?.loading ?? false) }
+    var shownDayLoading: Bool {
+        !inTemporaryChat && visibleEntries.isEmpty && (dayWindows[shownDay]?.loading ?? false)
+    }
 
     /// A day opened again shows its newest page again; what was read stays in hand.
     func resetWindow(_ day: Date) {
@@ -359,6 +363,7 @@ extension NotchModel {
 
     /// An item FERB brings forward in an entry not shown yet: the window opens down to it first.
     func revealForScroll(_ target: String) {
+        guard !inTemporaryChat else { return }
         let day = shownDay
         let all = conversation.transcript(on: day)
         guard let from = dayWindows[day]?.from,

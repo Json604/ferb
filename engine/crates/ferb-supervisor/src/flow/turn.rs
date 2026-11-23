@@ -1419,7 +1419,7 @@ impl Inner {
             ferb_core::timing::Steps::new(Box::new(move || clock.monotonic()))
         };
         let (token, looker) = self.lookup_grant(turn, &span, &lookups);
-        let system = self.system_for("supervisor.md", false, &[]);
+        let system = self.system_for_request("supervisor.md", false, &[], &rid);
         clocked.mark("ferb_before");
         let task = Task {
             id: rid.clone(),
@@ -1451,7 +1451,7 @@ impl Inner {
                 Arc::new(move |m: Map<String, Value>| t.lock().unwrap().extend(m))
             }),
         };
-        let ctx = crate::planner::with_newly_always_on(ctx, &self.deps.daemon.identity_pending());
+        let ctx = self.context_final(&rid, ctx);
         let worker = self.worker.get().expect("the worker").clone();
         let call = Call {
             task: &task,
@@ -1695,10 +1695,18 @@ impl Inner {
         Vec<Sourced>,
         Vec<String>,
     )> {
-        let (session, current, preview) = {
+        let (session, current, preview, rid) = {
             let t = turn.lock().unwrap();
-            (t.session.clone(), t.request_ids(), t.preview)
+            (
+                t.session.clone(),
+                t.request_ids(),
+                t.preview,
+                t.request_id.clone(),
+            )
         };
+        // decision: ORCH-699 — a temporary chat's turn: no lookup that reads what FERB knows, no earlier runs, nothing
+        // since an earlier message (its conversation is its own session)
+        let fresh = self.fresh_for(&rid).is_some();
         // `_lookup_tools`: the planner's read-only lookups that are installed; none for the intro's preview
         let lookups = if !last_call.is_empty() || preview {
             Vec::new()
@@ -1707,6 +1715,7 @@ impl Inner {
             let mut l: Vec<String> = PLANNER_TOOLS
                 .iter()
                 .filter(|n| names.iter().any(|x| x == *n))
+                .filter(|n| !fresh || super::temporary::FRESH_PLANNER_TOOLS.contains(n))
                 .map(|n| n.to_string())
                 .collect();
             l.sort();
@@ -1731,6 +1740,8 @@ impl Inner {
         let env = turn.lock().unwrap().environment.clone();
         let live_facts = if preview {
             self.deps.daemon.live_facts(false, false)
+        } else if fresh {
+            self.deps.daemon.live_facts(false, true)
         } else {
             self.deps.daemon.live_facts(true, true)
         };
@@ -1742,7 +1753,7 @@ impl Inner {
         };
         prep.mark(self, "tasks");
         let (owner_active, last_event) = self.deps.daemon.signals();
-        let since = if preview || session.starts_with("schedule:") {
+        let since = if preview || fresh || session.starts_with("schedule:") {
             None
         } else {
             self.since_block(&current)
@@ -1839,7 +1850,7 @@ impl Inner {
             })
             .collect();
         let now = self.now();
-        let last_runs = if preview {
+        let last_runs = if preview || fresh {
             BTreeSet::new()
         } else {
             self.deps.daemon.last_run_origins()
@@ -2024,7 +2035,12 @@ impl Inner {
         let trees: Vec<Arc<super::Tree>> = {
             let live = self.live();
             let mut seen = Vec::new();
+            // ORCH-699: a temporary chat sees only its own tasks, and the kept chat never sees a temporary chat's
+            let temporary = ferb_core::temporary::is_session(session);
             for (key, tree) in &live.tree_of {
+                if ferb_core::temporary::is_request(&tree.worker.request_id) != temporary {
+                    continue;
+                }
                 if *key == tree.id && !seen.iter().any(|t: &Arc<super::Tree>| t.id == tree.id) {
                     seen.push(tree.clone());
                 }
@@ -2159,6 +2175,8 @@ impl Inner {
             .of_kind("chat.message", "", "", None)
             .into_iter()
             .filter(|e| !current.contains(&e.request_id) && !current.contains(&e.text("read_with")))
+            // ORCH-699: a temporary chat's message is never the kept chat's last one
+            .filter(|e| !ferb_core::temporary::is_request(&e.request_id))
             .collect();
         let last = previous.last()?;
         let marks = vec!["?"; SINCE_KINDS.len()].join(",");

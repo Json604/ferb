@@ -202,6 +202,9 @@ mod stored {
         Ok(out)
     }
 
+    /// A temporary chat's request ids (ORCH-702).
+    const TEMPORARY_REQUEST: &str = ferb_core::temporary::REQUEST_PREFIX;
+
     fn journal_rows(
         store: &Store,
         seams: &dyn Seams,
@@ -220,12 +223,23 @@ mod stored {
             if d.get("test_run").is_some_and(ferb_py::value::truthy) {
                 continue;
             }
+            // decision: ORCH-702 — a temporary chat's messages and tasks are never summarized
+            if py::py_str_opt(d.get("request_id")).starts_with(TEMPORARY_REQUEST) {
+                continue;
+            }
             if r.s("kind") == "task.outcome" {
                 let task = match d.get("task_id") {
                     Some(v) if ferb_py::value::truthy(v) => py::py_str(v),
                     _ => String::new(),
                 };
                 if seams.test_task(store, &task)? {
+                    continue;
+                }
+                let request = store.one(
+                    "SELECT request_id FROM tasks WHERE id=?",
+                    sql![task.as_str()],
+                )?;
+                if request.is_some_and(|row| row.s_at(0).starts_with(TEMPORARY_REQUEST)) {
                     continue;
                 }
             }

@@ -101,10 +101,13 @@ fun HomePage(
      * drawn with the modifier given; none by default.
      */
     live: (@Composable (Modifier) -> Unit)? = null,
+    /** Not from the lab: the temporary chat's dashed bubble in the top bar (none by default). */
+    temporary: com.ferb.design.components.TemporaryToggle? = null,
 ) {
     val ink = LocalSkyInk.current
     Column(Modifier.fillMaxSize()) {
-        TopBar(PhoneTab.CHAT, waiting = if (away.any { it.kind == MarkKind.ASKING }) PhoneTab.TASKS else null, onTab = onTab, onProfile = onProfile)
+        TopBar(PhoneTab.CHAT, waiting = if (away.any { it.kind == MarkKind.ASKING }) PhoneTab.TASKS else null, onTab = onTab, onProfile = onProfile,
+            temporary = temporary)
         if (earlier != null) com.ferb.design.components.EarlierLink(earlier, Modifier.padding(top = 10.dp), onEarlier)
         Column(Modifier.padding(start = 22.dp, end = 22.dp, top = 70.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             PhoneText(texts.greeting, FerbType.Role.greeting, FerbType.Medium, ink.top, Modifier.semantics { heading() })

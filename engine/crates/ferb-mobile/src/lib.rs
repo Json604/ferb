@@ -9,6 +9,7 @@
 //! - `device`: the phone's own record for FERB (T-1214) and finding the Mac's files (recent, search).
 //! - `rich`, `shown`: FERB's words and answers laid out as FERB.app draws them (Markdown, the sites row, cards).
 //! - `notify`: what a phone notification says, in FERB.app's words (a task's end, a question).
+//! - `temporary`: the temporary chat, read from the Mac and held in memory only, never the store.
 //! - `api`: `Mobile`, the object the apps use: sync, watch, outbox (PHN-401), answers, stop, older pages.
 
 pub mod api;
@@ -27,6 +28,7 @@ pub mod sessions;
 pub mod shown;
 pub mod status;
 pub mod store;
+pub mod temporary;
 pub mod time;
 pub mod transport;
 
@@ -36,4 +38,5 @@ pub use api::{
     ThreadSpawner, TranscriptView,
 };
 pub use device::{DeviceReport, Fix, FoundFile, FoundFiles, Place, RecentFiles};
+pub use temporary::TemporaryChat;
 pub use transport::{LinkFailure, Transport, WatchHandle, WatchSink};

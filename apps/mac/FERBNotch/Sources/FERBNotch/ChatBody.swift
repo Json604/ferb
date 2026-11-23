@@ -38,7 +38,8 @@ struct ChatBodyView: View {
     }
 
     private func focusInput() {
-        composerFocused = model.bodyVisible && !model.showingSources && model.viewingToday && !model.showingActivity
+        composerFocused = model.bodyVisible && !model.showingSources && (model.viewingToday || model.inTemporaryChat)
+            && !model.showingActivity
             && model.canCompose && model.questionFocus == nil
     }
 
@@ -77,25 +78,9 @@ struct ChatBodyView: View {
 
     private var conversation: some View {
         VStack(alignment: .leading, spacing: 9) {
-            HStack {
-                Button("Today") { model.selectDay(Date()) }
-                    .font(.system(size: 11, weight: model.viewingToday ? .semibold : .regular))
-                    .buttonStyle(.plain)
-                if !model.viewingToday {
-                    Text(model.selectedDay, format: .dateTime.month(.abbreviated).day())
-                        .font(.system(size: 11, weight: .semibold))
-                }
-                Spacer()
-                Button("Tasks", action: model.toggleTasks)
-                    .font(.system(size: 11)).buttonStyle(.plain)
-                Button {
-                    model.showingHistory.toggle()
-                    if model.showingHistory { model.refreshHistoryDays() }
-                    model.onPresentationChange?(true)
-                } label: { Text("History").font(.system(size: 11)) }
-                    .buttonStyle(.plain).foregroundStyle(Palette.secondary)
-            }
-            if model.showingHistory || !model.viewingToday {
+            // The temporary chat's banner in the days' place: it shows on no day (TemporaryChatModel.swift)
+            if model.inTemporaryChat { TemporaryChatBanner() } else { days }
+            if (model.showingHistory || !model.viewingToday) && !model.inTemporaryChat {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {
                         ForEach(model.listedDays, id: \.self) { day in
@@ -145,7 +130,7 @@ struct ChatBodyView: View {
             }
             if model.showsInsomniaLine { InsomniaLineView(model: model) }
             if model.showsWorkRow { WorkRowView(model: model) }
-            if model.viewingToday { composer.disabled(!model.canCompose) }
+            if model.viewingToday || model.inTemporaryChat { composer.disabled(!model.canCompose) }
             else {
                 Button("Continue in Today") { model.selectDay(Date()) }
                     .buttonStyle(FerbButtonStyle(quiet: true))
@@ -153,9 +138,38 @@ struct ChatBodyView: View {
         }
     }
 
+    /// Today, the shown day, Tasks and History.
+    private var days: some View {
+        HStack {
+            Button("Today") { model.selectDay(Date()) }
+                .font(.system(size: 11, weight: model.viewingToday ? .semibold : .regular))
+                .buttonStyle(.plain)
+            if !model.viewingToday {
+                Text(model.selectedDay, format: .dateTime.month(.abbreviated).day())
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            Spacer()
+            Button("Tasks", action: model.toggleTasks)
+                .font(.system(size: 11)).buttonStyle(.plain)
+            Button {
+                model.showingHistory.toggle()
+                if model.showingHistory { model.refreshHistoryDays() }
+                model.onPresentationChange?(true)
+            } label: { Text("History").font(.system(size: 11)) }
+                .buttonStyle(.plain).foregroundStyle(Palette.secondary)
+        }
+    }
+
     private var composer: some View {
         VStack(alignment: .leading, spacing: 7) {
-            if !model.showsTranscript { Text("Go ahead. I’m here.")
+            if !model.showsTranscript && model.inTemporaryChat {
+                // the empty temporary chat says how it ends, in the greeting's place
+                Text(NotchModel.temporaryChatEmpty)
+                    .font(.system(size: 12, weight: .medium)).foregroundStyle(Palette.secondary)
+                    .lineLimit(1).minimumScaleFactor(0.7)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 24)
+            } else if !model.showsTranscript { Text("Go ahead. I’m here.")
                 .font(.system(size: 14, weight: .medium))
                 .frame(maxWidth: .infinity)
                 .frame(height: 24) }

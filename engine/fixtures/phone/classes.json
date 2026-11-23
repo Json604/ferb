@@ -1,7 +1,7 @@
 {
   "counts": {
-    "plain": 58,
-    "private": 48,
+    "plain": 59,
+    "private": 49,
     "sensitive": 56,
     "never": 30
   },
@@ -233,6 +233,24 @@
       "refused_params": [],
       "owner_to_confirm": false,
       "why": "a locked phone must be able to stop FERB and see that something waits (PHN-125)"
+    },
+    "chat.temporary.get": {
+      "class": "private",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the owner's temporary conversation"
+    },
+    "chat.temporary.set": {
+      "class": "plain",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the owner's temporary-chat icon: starts or ends it"
     },
     "clipboard.request": {
       "class": "sensitive",
