@@ -10545,3 +10545,49 @@ chat"; "This chat starts fresh. Tap the dashed bubble again to end it."; "Couldn
   the measured name. The app is portrait-only, so only tests exercise the side insets.
 - The phones refresh the temporary chat by reading it again on each status `rev`, with no streamed frames. A very
   long temporary chat could pass the link's 64 KiB reply.
+
+## 2026-11-23 · 188 · The import's and the chat-pane look's model calls are in traces and `ferb stats`
+
+**What.** Two paths called a model without recording the calls, so the owner couldn't see them in a trace or in
+`ferb stats`' "Learning model calls" (it counts `model.learning` spans, `ferbd/src/stats.rs`):
+- **The memory import** (ferb-daemon `areas_a/memory_import.rs` `job`) built its `ImportJob` with `spans: None` and a
+  do-nothing `usage`. Each recall and verify call, and the work log's calls that go through the same job, now leave a
+  `model.learning` span (roles `memory_import_recall`, `memory_import_verify`, `worklog_summary`; MEM-412) and each usage
+  event a `model.usage` span with role `memory_import`. Python passed `spans=self.spans,
+  usage=self._record_learning_usage("memory_import")` (memory_import.py:26). Before this, an import's calls were counted
+  only in `memory_import_runs.counts_json` (155 for the owner's coding history, as reported to me; I didn't check his
+  store).
+- **The chat-pane look** (HAND-699, ferbd `compose/sessions.rs` `locate_with`) passed `None` and a do-nothing usage
+  closure. That closure also failed `seams_wired::every_seam_is_wired_or_named_off`. Its call is now a `model.learning`
+  span (role `chat_pane`), and its usage a `model.usage` span.
+- **One spans type for both.** `LearningSpans` (ferb-daemon `areas_a/memory.rs`) writes either through group A's
+  `Rc<Db>` (`new`, `over`) or through the daemon's shared `Arc<Mutex<Db>>` (the new `shared`), which it locks for each
+  write. The chat-pane look runs in `spawn_blocking` + `block_on`. It builds its `LearningSpans::shared` on that
+  thread from the journal's handle, clock, ids and redactor, so nothing that isn't `Send` crosses a thread.
+  `LearningSpans` now takes `ferb_core`'s `Clock` in place of `ZonedClock` (group A's clock coerces; spans only read
+  `now`). `locate_with` is `pub` and takes the `Journal`.
+- **Tests.** ferb-daemon's harness gained `Daemon::start_with` (a stand-in `make_runtime`).
+
+**Fixed against the port.** The import's missing spans and usage were a drift from Python (memory_import.py:26) and
+from MEM-412, not a decision. No fixture recorded an import run's spans, so no fixture changes.
+
+**Evidence.**
+- ferb-daemon `a_memory_flow::each_import_model_call_is_a_learning_span_with_its_usage` (stand-in runtime, the real
+  `local_update`):
+  - recall and verify spans that answered equal `counts.model_calls`.
+  - The work log's call is a span too.
+  - The `memory_import` usage spans equal all those calls.
+  - No span holds the history's words.
+- ferbd `sensing_wired::the_chat_pane_look_is_a_learning_span_with_its_usage_and_stats_count_it` (multi-thread runtime,
+  stand-in runtime, temp store): the pick comes back, with one `model.learning` span (role `chat_pane`, runtime, model,
+  outcome answered) and one `model.usage` span (its cost). `ferb stats` on that home prints `Learning model calls: 1,
+  failed: 0`.
+- `seams_wired` passes again.
+- Other checks: ferb-daemon `a_memory_flow`, `a_memory_live`, `a_memory_switch`, `a_history_folded`, `a_replay`,
+  `a_more`, `a_turn_learning`, `sessions`; ferbd `sensing_wired`, `sessions_hook`, `stats`, `memory_import_tool`;
+  `cargo clippy --all-targets -D warnings` on ferb-daemon and ferbd; `cargo fmt`.
+
+**Open.**
+- No live check, and no installed build. The owner's existing imports keep no spans (only new calls are recorded).
+- The work log's usage is labelled `memory_import`, the job's one usage role, as in Python. Its spans carry
+  `worklog_summary`.

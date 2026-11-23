@@ -854,3 +854,156 @@ async fn hourly(d: &Daemon) {
     d.on(|st| Box::pin(async move { memory_import::hourly(&st).await }))
         .await;
 }
+
+/// A stand-in model for the import: one usage event, then no candidates (so nothing is verified or placed).
+struct NoCandidates;
+
+impl ferb_core::interfaces::AgentRuntime for NoCandidates {
+    fn name(&self) -> &str {
+        "stand-in"
+    }
+    fn start<'a>(
+        &'a self,
+        task: &'a ferb_core::types::Task,
+        _request: &'a ferb_core::types::ModelRequest,
+        _run_token: &'a str,
+    ) -> ferb_core::interfaces::BoxFuture<
+        'a,
+        Result<ferb_core::types::RunHandle, ferb_core::errors::FerbError>,
+    > {
+        let task_id = task.id.clone();
+        Box::pin(async move {
+            Ok(ferb_core::types::RunHandle {
+                id: "r1".into(),
+                runtime: "stand-in".into(),
+                task_id,
+                state: Map::new(),
+            })
+        })
+    }
+    fn events(
+        &self,
+        _run: &ferb_core::types::RunHandle,
+    ) -> tokio::sync::mpsc::Receiver<ferb_core::types::RuntimeEvent> {
+        use ferb_core::types::{RuntimeEvent, RuntimeEventKind};
+        let (tx, rx) = tokio::sync::mpsc::channel(4);
+        let event = |kind, data: Value| RuntimeEvent {
+            kind,
+            data: data.as_object().cloned().unwrap(),
+        };
+        tx.try_send(event(
+            RuntimeEventKind::Usage,
+            json!({"input_tokens": 50, "output_tokens": 4}),
+        ))
+        .unwrap();
+        tx.try_send(event(
+            RuntimeEventKind::Final,
+            json!({"text": "{\"candidates\": []}"}),
+        ))
+        .unwrap();
+        rx
+    }
+    fn continue_run<'a>(
+        &'a self,
+        _run: &'a ferb_core::types::RunHandle,
+        _message: &'a str,
+    ) -> ferb_core::interfaces::BoxFuture<'a, Result<(), ferb_core::errors::FerbError>> {
+        Box::pin(async { Ok(()) })
+    }
+    fn cancel<'a>(
+        &'a self,
+        _run: &'a ferb_core::types::RunHandle,
+    ) -> ferb_core::interfaces::BoxFuture<'a, ()> {
+        Box::pin(async {})
+    }
+}
+
+// decision: MEM-412 — the import's model calls are `model.learning` spans with its roles (memory_import.py:26 passed
+// the daemon's spans and `_record_learning_usage("memory_import")`): each call one span and one usage span, so the
+// trace and `ferb stats` see every call `counts.model_calls` counts
+#[tokio::test]
+async fn each_import_model_call_is_a_learning_span_with_its_usage() {
+    let tmp = tempfile::tempdir().unwrap();
+    let make: std::sync::Arc<ferb_daemon::areas_a::MakeRuntime> =
+        std::sync::Arc::new(|_, _, _, _| {
+            Ok(ferb_learning::calls::Made {
+                rt: Box::new(NoCandidates),
+                limits: Some(ferb_core::types::ModelLimits {
+                    model: "stand-in-1".into(),
+                    context_window: 200_000,
+                    max_output: 8_000,
+                    source: "test".into(),
+                    window_includes_output: true,
+                    max_input_chars: None,
+                }),
+                model: None,
+            })
+        });
+    let d = Daemon::start_with(
+        tmp.path(),
+        "01",
+        "id",
+        FakeClock::new(None),
+        Seq::new("id"),
+        Some(make),
+    )
+    .await;
+    // one line typed into Claude Code eleven days before the clock's now (2026-01-01 09:00 UTC)
+    let history = d.user.join(".claude/history.jsonl");
+    std::fs::create_dir_all(history.parent().unwrap()).unwrap();
+    std::fs::write(
+        &history,
+        "{\"display\": \"I keep bees on my roof in Lisbon\", \"timestamp\": 1766224800000, \"sessionId\": \"s1\", \
+         \"project\": \"/Users/me/hive\"}\n",
+    )
+    .unwrap();
+    // the coding assistants' read, to its end: the import run, then the work log (its calls go through the same job)
+    d.on(|st| {
+        Box::pin(async move {
+            st.config
+                .set("memory", "local_import", &json!(true))
+                .unwrap();
+            memory_import::local_update(&st, memory_import::Tell::Never).await
+        })
+    })
+    .await;
+    let count = |sql: &'static str| {
+        d.on(move |st| Box::pin(async move { st.store.count(sql, ferb_learning::sql![]).unwrap() }))
+    };
+    assert_eq!(
+        count("SELECT COUNT(*) FROM memory_import_runs WHERE status = 'done'").await,
+        1
+    );
+    let calls =
+        count("SELECT json_extract(counts_json, '$.model_calls') FROM memory_import_runs").await;
+    assert!(calls >= 1, "the import made no model call");
+    let learning = count(
+        "SELECT COUNT(*) FROM spans WHERE kind = 'model.learning' AND \
+         json_extract(input_json, '$.role') IN ('memory_import_recall', 'memory_import_verify') AND \
+         json_extract(output_json, '$.outcome') = 'answered'",
+    )
+    .await;
+    assert_eq!(learning, calls, "one model.learning span per model call");
+    let worklog = count(
+        "SELECT COUNT(*) FROM spans WHERE kind = 'model.learning' AND \
+         json_extract(input_json, '$.role') = 'worklog_summary'",
+    )
+    .await;
+    assert!(worklog >= 1, "the work log's call is a span too");
+    let usage = count(
+        "SELECT COUNT(*) FROM spans WHERE kind = 'model.usage' AND json_extract(input_json, '$.role') = 'memory_import' \
+         AND json_extract(input_json, '$.runtime') = 'stand-in'",
+    )
+    .await;
+    assert_eq!(
+        usage,
+        calls + worklog,
+        "one model.usage span per call's usage event"
+    );
+    // the trace never holds what was read (MEM-412)
+    let leaked = count(
+        "SELECT COUNT(*) FROM spans WHERE input_json LIKE '%bees%' OR output_json LIKE '%bees%'",
+    )
+    .await;
+    assert_eq!(leaked, 0);
+}

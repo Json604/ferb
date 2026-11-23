@@ -59,6 +59,7 @@ pub fn job(st: &Rc<State>) -> ImportJob<'static> {
     let make = st.make_runtime.clone();
     let (w1, w2, w3) = (Rc::downgrade(st), Rc::downgrade(st), Rc::downgrade(st));
     let redactor = st.redactor.clone();
+    let spans = Rc::new(super::memory::LearningSpans::new(st));
     ImportJob {
         memory: st.memory.clone(),
         store: st.store.clone(),
@@ -89,8 +90,12 @@ pub fn job(st: &Rc<State>) -> ImportJob<'static> {
         }),
         seams: Box::new(Seams(w3)),
         ids: Rc::new(super::LearnIds(st.ids.clone())),
-        spans: None,
-        usage: Box::new(|_, _| {}),
+        // memory_import.py:26 `spans=self.spans, usage=self._record_learning_usage("memory_import")`: each call a
+        // `model.learning` span (MEM-412's roles), each usage event a `model.usage` span, as every learner's are
+        spans: Some(spans.clone()),
+        usage: Box::new(move |runtime: &str, data: &Value| {
+            spans.usage("memory_import", runtime, data)
+        }),
         device_id: st.device_id(),
         home: Some(st.user_home.clone()),
         unzstd: None,

@@ -1350,14 +1350,21 @@ async fn setup_persona(st: Rc<State>, params: Params) -> HandlerResult {
 /// `model.learning` span and each usage event a `model.usage` span naming that learner's role
 /// (`_record_learning_usage`, memory.py:763-769), in the store, redacted as every span is.
 pub struct LearningSpans {
-    db: Rc<ferb_store::Db>,
-    clock: std::sync::Arc<dyn ferb_clock::clock::ZonedClock>,
+    db: SpanDb,
+    clock: std::sync::Arc<dyn ferb_core::interfaces::Clock>,
     ids: std::sync::Arc<dyn ferb_core::interfaces::IdSource>,
     redactor: std::sync::Arc<ferb_sanitize::redact::Redactor>,
     open: std::cell::RefCell<std::collections::HashMap<String, ferb_store::spans::Span>>,
 }
 
-struct SpanTime(std::sync::Arc<dyn ferb_clock::clock::ZonedClock>);
+/// Where the spans go: group A's own handle on the store, or the daemon's shared one, locked for each write, for a
+/// call made off group A's thread (HAND-699's chat-pane look runs on a blocking thread).
+enum SpanDb {
+    Here(Rc<ferb_store::Db>),
+    Shared(std::sync::Arc<std::sync::Mutex<ferb_store::Db>>),
+}
+
+struct SpanTime(std::sync::Arc<dyn ferb_core::interfaces::Clock>);
 impl ferb_store::spans::Clock for SpanTime {
     fn now(&self) -> ferb_py::time::DateTime {
         super::to_py(&self.0.now())
@@ -1384,12 +1391,12 @@ impl LearningSpans {
     /// Over a store and the daemon's clock, ids and redactor (group A's are [`LearningSpans::new`]'s).
     pub fn over(
         db: Rc<ferb_store::Db>,
-        clock: std::sync::Arc<dyn ferb_clock::clock::ZonedClock>,
+        clock: std::sync::Arc<dyn ferb_core::interfaces::Clock>,
         ids: std::sync::Arc<dyn ferb_core::interfaces::IdSource>,
         redactor: std::sync::Arc<ferb_sanitize::redact::Redactor>,
     ) -> LearningSpans {
         LearningSpans {
-            db,
+            db: SpanDb::Here(db),
             clock,
             ids,
             redactor,
@@ -1397,39 +1404,65 @@ impl LearningSpans {
         }
     }
 
-    fn store(&self) -> ferb_store::spans::SpanStore<'_> {
-        let r = self.redactor.clone();
-        ferb_store::spans::SpanStore::new(
-            &self.db,
-            Box::new(SpanTime(self.clock.clone())),
-            Box::new(SpanIds(self.ids.clone())),
-            Box::new(move |v: &Value| r.value(v)),
-            Box::new(|kind: &str| ferb_policy::rules::REVERSIBLE.contains(&kind)),
-        )
+    /// Over the daemon's shared store (the handle every thread writes through), for a learner's call made off group
+    /// A's thread: built where the call runs, each write takes the store's lock for its moment.
+    pub fn shared(
+        db: std::sync::Arc<std::sync::Mutex<ferb_store::Db>>,
+        clock: std::sync::Arc<dyn ferb_core::interfaces::Clock>,
+        ids: std::sync::Arc<dyn ferb_core::interfaces::IdSource>,
+        redactor: std::sync::Arc<ferb_sanitize::redact::Redactor>,
+    ) -> LearningSpans {
+        LearningSpans {
+            db: SpanDb::Shared(db),
+            clock,
+            ids,
+            redactor,
+            open: Default::default(),
+        }
+    }
+
+    fn with<T>(&self, f: impl FnOnce(&ferb_store::spans::SpanStore<'_>) -> T) -> T {
+        let store = |db: &ferb_store::Db| -> T {
+            let r = self.redactor.clone();
+            f(&ferb_store::spans::SpanStore::new(
+                db,
+                Box::new(SpanTime(self.clock.clone())),
+                Box::new(SpanIds(self.ids.clone())),
+                Box::new(move |v: &Value| r.value(v)),
+                Box::new(|kind: &str| ferb_policy::rules::REVERSIBLE.contains(&kind)),
+            ))
+        };
+        match &self.db {
+            SpanDb::Here(db) => store(db),
+            SpanDb::Shared(db) => {
+                store(&db.lock().unwrap_or_else(std::sync::PoisonError::into_inner))
+            }
+        }
     }
 
     /// `_record_learning_usage(role)(runtime, data)`: one `model.usage` span with the learner's role and the
     /// event's cost.
     pub fn usage(&self, role: &str, runtime: &str, data: &Value) {
-        let store = self.store();
-        if let Ok(mut span) = store.start(
-            "model.usage",
-            &json!({"runtime": runtime, "role": role}),
-            None,
-            None,
-            None,
-        ) {
-            let _ = store.finish(
-                &mut span,
-                ferb_store::spans::Finish {
-                    output: Some(data),
-                    error: None,
-                    cost_usd: data.get("cost_usd").and_then(Value::as_f64),
-                    origin: None,
-                    summary: None,
-                },
-            );
-        }
+        self.with(|store| {
+            if let Ok(mut span) = store.start(
+                "model.usage",
+                &json!({"runtime": runtime, "role": role}),
+                None,
+                None,
+                None,
+            ) {
+                let _ = store.finish(
+                    &mut span,
+                    ferb_store::spans::Finish {
+                        output: Some(data),
+                        error: None,
+                        cost_usd: data.get("cost_usd").and_then(Value::as_f64),
+                        origin: None,
+                        summary: None,
+                    },
+                );
+            }
+        });
     }
 }
 
@@ -1441,7 +1474,7 @@ impl ferb_learning::calls::Spans for LearningSpans {
         input: Value,
         parent_id: Option<&str>,
     ) -> String {
-        match self.store().start(kind, &input, task_id, parent_id, None) {
+        match self.with(|store| store.start(kind, &input, task_id, parent_id, None)) {
             Ok(span) => {
                 let id = span.id.clone();
                 self.open.borrow_mut().insert(id.clone(), span);
@@ -1455,15 +1488,17 @@ impl ferb_learning::calls::Spans for LearningSpans {
         let Some(mut span) = self.open.borrow_mut().remove(id) else {
             return;
         };
-        let _ = self.store().finish(
-            &mut span,
-            ferb_store::spans::Finish {
-                output: output.as_ref(),
-                error: error.as_deref(),
-                cost_usd: None,
-                origin: None,
-                summary: None,
-            },
-        );
+        let _ = self.with(|store| {
+            store.finish(
+                &mut span,
+                ferb_store::spans::Finish {
+                    output: output.as_ref(),
+                    error: error.as_deref(),
+                    cost_usd: None,
+                    origin: None,
+                    summary: None,
+                },
+            )
+        });
     }
 }

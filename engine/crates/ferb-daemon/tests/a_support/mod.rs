@@ -341,6 +341,18 @@ impl Daemon {
         clock: FakeClock,
         ids: Arc<Seq>,
     ) -> Daemon {
+        Daemon::start_with(root, nn, prefix, clock, ids, None).await
+    }
+
+    /// The same, with a stand-in for the learners' model runtimes.
+    pub async fn start_with(
+        root: &Path,
+        nn: &str,
+        prefix: &str,
+        clock: FakeClock,
+        ids: Arc<Seq>,
+        make_runtime: Option<Arc<areas_a::MakeRuntime>>,
+    ) -> Daemon {
         let base = root.join(nn);
         let (home, user) = (base.join("home"), base.join("user"));
         std::fs::create_dir_all(&home).unwrap();
@@ -372,7 +384,7 @@ impl Daemon {
                 timer_tokens: Some(Arc::new(move || {
                     format!("t{:015}", t.fetch_add(1, Ordering::SeqCst) + 1)
                 })),
-                make_runtime: None,
+                make_runtime,
                 app_bundle: None,
                 persona_scan: None,
                 tasks: Arc::new(stand.clone()),
