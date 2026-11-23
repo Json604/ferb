@@ -2421,3 +2421,14 @@ why = "Live 2026-11-23 (journal 1253-1257): a hand-over plan had a converse step
 evidence = "ferb-supervisor tests/task_waits.rs a_second_repair_is_told_every_problem_so_far_and_a_plan_still_invalid_is_said_plainly."
 paths = ["engine/crates/ferb-supervisor/src/flow/turn.rs"]
 live = ["LIVE-1195"]
+
+[ORCH-704]
+title = "A temporary chat's message sees the screen as any message does: the present, not memory"
+by = "owner"
+date = 2026-11-23
+status = "active"
+words = "why not??? it shoudl, its not memory"
+words_source = "Owner 2026-11-23 (relayed), on being told the temporary chat's fix stopped capturing the front window and screenshot at send."
+rule = "Refines ORCH-699. A temporary chat's message is captured at send like any message: its front window and screenshot reach its planner and its workers. The capture is kept only where any message's capture is (the evidence store, the traces), never in the temporary chat's entries or anything else kept. Everything else of ORCH-699 stays: no kept chat, no schedules, reminders or timers, no profile or memory facts, only its own tasks' questions."
+paths = ["engine/crates/ferb-supervisor/src/flow/chat.rs", "engine/crates/ferb-supervisor/src/flow/temporary.rs"]
+live = ["LIVE-1194"]

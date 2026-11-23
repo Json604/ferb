@@ -12,7 +12,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `engine/runtime/identity` | 132 | 9 | 62 |
 | hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extension`, `extension-store` | 245 | 15 | 57 |
 | memory | Memory and memory import | `engine/runtime/memory` | 93 | 9 | 9 |
-| orchestration | Orchestration | `ferb/orchestrator/*.py`, `engine/runtime/decide`, `ferb/clock` | 191 | 12 | 44 |
+| orchestration | Orchestration | `ferb/orchestrator/*.py`, `engine/runtime/decide`, `ferb/clock` | 192 | 12 | 44 |
 | perception | Perception | `ferb/sense` | 27 | 4 | 2 |
 | phone | Phone role, link and phone apps | `apps/android`, `apps/ios`, `engine/patches` | 392 | 13 | 23 |
 | project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `HANDOFF.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `kb`, `tools`, `spikes` | 14 | 8 | 0 |

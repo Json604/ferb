@@ -10841,3 +10841,42 @@ it).
   conversation's).
 - Layer 2's "owner last active / last trail event" times stay (times only, no content). The worker's projects line
   (HAND-625) stays: it is grants, not memory.
+
+## 2026-11-23 · 192 · A temporary chat's message sees the screen again: the present, not memory
+
+**Owner 2026-11-23 (ORCH-704, refines ORCH-699).** He was told that journal 190 had also stopped capturing the screen
+for a temporary chat's message. He said: "why not??? it shoudl, its not memory".
+
+**Change.** chat.rs once more passes `screen = params.screen` for every message. So a temporary chat's message is
+captured at send like any other:
+- the front window block and screenshot go to its planner;
+- `start_image` and the start block go to its workers.
+
+The rest of journal 190 stays: no kept chat, no schedules, reminders or timers, no profile or memory facts, and only
+the chat's own tasks' questions.
+
+**Where the capture goes.** Read from the code: `front::at_send` → `screen_at_send` → `Turn.seen`/`screens` → the
+planner's blocks and the tree's `start_image`/`start_block`. All of these are in memory except:
+- the evidence store under the request, as for any message;
+- the traces' model-call spans, as today.
+
+Nothing in the chat entries (FERB.app's chat or the temporary projector) carries a capture. So the temporary chat's
+entries never hold it.
+
+**Evidence.**
+- ferb-supervisor `tests/temporary_chat.rs` `a_fresh_turn_reads_no_kept_chat_or_owner_state_and_sees_the_screen`:
+  - The planner gets the screenshot (images ≥ 1) and the front window's title. A worker call has the image and the
+    window too.
+  - No call carries any of the other 12 markers: the kept chat's message, reply and notice, the reminder delivered,
+    the scheduled result and their ids, the schedule and reminder ids, the memory fact and the kept question.
+  - The temporary snapshot and the journal hold neither the window title nor the screenshot's evidence ref, and there
+    are no `chat_entries`.
+- The control test is unchanged (a kept turn sees everything).
+- `a_temporary_chat_reads_its_own_earlier_turn_and_nothing_kept`: the clarify in the second turn's conversation is now
+  quoted as data, because the screen it was asked with is an outside origin. The assertion matches its words.
+- All of ferb-supervisor's tests (218 passed), clippy `-D warnings`, fmt.
+- ORCH-704 recorded (owner words); `kb check` ok.
+
+**Open.** No live check (LIVE-1194), and no installed build. The stand-in daemon's capture skips the real evidence
+store, so the store write for a temporary request is read from the code (the same `at_send` path as any request) but
+not run in a test.

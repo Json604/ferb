@@ -21,8 +21,9 @@
 //! - the planner's live facts and every role's instructions (`Daemon::live_facts`' `owner_state`,
 //!   `Daemon::system_inputs`' `fresh`): this Mac, its browsers and FERB's models stay; the owner's schedules,
 //!   reminders and timers, the facts taken from memory and the Tier 1 profile go;
-//! - the screen: a temporary chat's message is never captured at send (chat.rs), so no front window or screenshot
-//!   reaches its planner or its workers;
+//! - the screen is not cut (ORCH-704): its message is captured at send like any message, the present and not memory;
+//!   the front window and screenshot reach its planner and workers and are kept only where any capture is (the
+//!   evidence store, the traces), never in its in-memory entries;
 //! - open questions: only its own tasks' ([`Inner::question_in`]), for the planner and the question resolver.
 //!
 //! **Nothing remembered**: no chat entries, no `task_results` (so not in the Tasks page or chat.status' results, never

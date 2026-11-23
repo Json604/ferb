@@ -20,8 +20,9 @@ const MEMORY: &str = "INVENTED-MEMORY-ITEM about the owner";
 const EXTRA: &str = "INVENTED-EXTRA-CONTEXT for this chat";
 
 /// The kept chat's history and FERB's own records of the owner, seeded before the run (owner 2026-11-23's live case:
-/// a temporary chat's planner was given the kept chat's notices and posts, the schedules and reminders, and the
-/// screen). Each is a distinct marker a built request must not carry when fresh.
+/// a temporary chat's planner was given the kept chat's notices and posts, the schedules and reminders). Each is a
+/// distinct marker a built request must not carry when fresh. The screen captured at send (`WINDOW`, `SHOT`) is the
+/// present, not memory: a fresh turn gets it too (ORCH-704).
 const KEPT_MESSAGE: &str = "INVENTED-KEPT-CHAT-MESSAGE";
 const KEPT_REPLY: &str = "INVENTED-KEPT-CHAT-REPLY";
 const NOTICE: &str = "INVENTED-NOTICE-WITHOUT-CONVERSATION";
@@ -40,7 +41,7 @@ const SHOT: &str = "INVENTED-SCREENSHOT-EVIDENCE";
 const KEPT_QUESTION: &str = "INVENTED-KEPT-CHAT-QUESTION";
 
 /// Every marker of what FERB knew before a temporary chat.
-const PRIOR: [&str; 14] = [
+const PRIOR: [&str; 12] = [
     KEPT_MESSAGE,
     KEPT_REPLY,
     NOTICE,
@@ -52,8 +53,6 @@ const PRIOR: [&str; 14] = [
     "sc-INVENTED0001",
     "tm-INVENTED0002",
     "INVENTED-MEANING",
-    WINDOW,
-    SHOT,
     KEPT_QUESTION,
 ];
 
@@ -508,8 +507,9 @@ fn a_kept_turn_reads_the_kept_chat_the_owner_state_and_the_screen() {
 }
 
 // decision: ORCH-699
+// decision: ORCH-704
 #[test]
-fn a_fresh_turn_reads_no_kept_chat_owner_state_or_screen() {
+fn a_fresh_turn_reads_no_kept_chat_or_owner_state_and_sees_the_screen() {
     let mut w = world();
     run(&mut w, json!({"fresh": true}));
     let made = built(&w);
@@ -518,15 +518,40 @@ fn a_fresh_turn_reads_no_kept_chat_owner_state_or_screen() {
         "planner, worker and checker: {}",
         made.len()
     );
-    for (n, (system, parts, images)) in made.iter().enumerate() {
+    for (n, (system, parts, _)) in made.iter().enumerate() {
         for m in PRIOR {
             assert!(!system.contains(m), "call {n}'s instructions carry {m}");
             assert!(!parts.contains(m), "call {n}'s context carries {m}");
         }
-        assert_eq!(*images, 0, "call {n}: no screenshot");
     }
     let planner = &planner_parts(&w)[0];
     assert!(planner.contains("say hello"), "the owner's words");
+    // ORCH-704: the screen as he sent the message is the present: the planner gets its front window and screenshot,
+    // and the worker starts from the same picture
+    assert!(made[0].2 >= 1, "the planner is given the screenshot");
+    assert!(
+        planner.contains(WINDOW),
+        "the front window block: {planner}"
+    );
+    assert!(
+        made[1..]
+            .iter()
+            .any(|(_, p, i)| *i >= 1 && p.contains(WINDOW)),
+        "a worker starts from the screenshot"
+    );
+    // ... and it is kept only where any message's capture is (the traces): never in the temporary chat's entries
+    // or a journal row
+    let inner = w.sup.inner().clone();
+    let snap = inner.temporary_snapshot().to_string();
+    assert!(!snap.contains(WINDOW) && !snap.contains(SHOT), "{snap}");
+    assert_eq!(count(&w, "SELECT COUNT(*) FROM chat_entries"), 0);
+    assert_eq!(
+        count(
+            &w,
+            &format!("SELECT COUNT(*) FROM journal WHERE data_json LIKE '%{WINDOW}%' OR data_json LIKE '%{SHOT}%'")
+        ),
+        0
+    );
     assert!(
         planner.contains("Layer 1"),
         "this Mac's and the browsers' facts stay: {planner}"
@@ -550,7 +575,8 @@ fn a_temporary_chat_reads_its_own_earlier_turn_and_nothing_kept() {
             assert!(!p.contains(m), "planner call {n} carries {m}");
         }
     }
-    // its own earlier turn is its conversation (Layer 5), as for any chat
+    // its own earlier turn is its conversation (Layer 5), as for any chat (the clarify is quoted as data: the screen
+    // it was asked with is an outside origin, ORCH-704)
     let second = &planners[1];
     let from = second
         .find("Layer 5 \u{2014} conversation:")
@@ -559,7 +585,7 @@ fn a_temporary_chat_reads_its_own_earlier_turn_and_nothing_kept() {
     let conversation = &second[from..to];
     assert!(
         conversation.contains("Owner: find me a table tonight")
-            && conversation.contains("FERB: Which restaurant, and for what time?"),
+            && conversation.contains("Which restaurant, and for what time?"),
         "the second turn reads the temporary chat's first: {conversation}"
     );
 }
