@@ -11069,3 +11069,47 @@ entries never hold it.
 **Open.** No live check (LIVE-1194), and no installed build. The stand-in daemon's capture skips the real evidence
 store, so the store write for a temporary request is read from the code (the same `at_send` path as any request) but
 not run in a test.
+
+## 2026-11-23 · 193 · FERB.app's notch tests no longer read this Mac's windows or wait for its display
+
+**Problem.** `DragWorkTests.testDockingAfterADragRasterizesTheOutlineOnce` failed on every run (`it docked` false, no
+mask image). It failed at 1f992e12 too, where the push gate had passed earlier, so the Mac's state had changed, not the
+code. TEST-508 (owner): a test never depends on anything outside its own temp folders.
+
+**Cause, from evidence.** A temporary print in `snapIndicator` and `tickMagnetic` showed the following:
+- The drop is accepted: the point is in the drag region, and no notch app holds the cutout.
+- The coordinator starts the join's `CADisplayLink`, but the link never ticks, so `finishMagneticFusion` never runs.
+- The display was asleep and the session locked (`system_profiler`: "Display Asleep: Yes"; `IOConsoleLocked` true).
+  An asleep display sends no frames.
+
+The owner's running FERB.app was a second dependency, but not the one that broke the test. Its window (layer 25, over
+the camera housing) made the test's notch yield (`foreignOverlay`; the test's windows dropped to layer 0). With the join
+driven, the test passes with that real window list too. Yielding never blocks docking.
+
+**Change.**
+- `PanelCoordinator` takes `windows:` (default `ScreenWindow.onScreen`, so production is unchanged). Every look the
+  notch takes at other apps' windows now reads this one list:
+  - the yield controller;
+  - `holder(of:)`, the notch-app check (APP-644);
+  - the default `missionControlShowing`;
+  - the sticky window's `windowList`.
+- Every test that builds a `PanelCoordinator` (19 call sites in 11 files) passes `windows: { [] }`. Those tests read the
+  real window list through the yield poll and `holder(of:)`. A notch app or the owner's own FERB.app over the camera
+  would have undocked or yielded them.
+- DragWorkTests' `coordinator(...)` and `holdNotch(...)` take the rows. `joinFrames` drives the join at 60 frames a
+  second from just after the release, through `advanceMagneticFusion` (no new seam), in place of the display link.
+  `MagneticDocking.sample` is a pure function of time since the release, so any real frames from an awake display
+  sample the same join and change nothing.
+
+**Evidence.** These runs used one build, with the owner's FERB.app running and the display asleep:
+- The fixed test passes.
+- With no frames driven but no foreign windows, it fails as before (`it docked`, mask nil). So the display link was
+  the cause.
+- With the real window list and the frames, it passes, while yielded to the owner's FERB.app.
+- With the rows naming a layer-26 window over the cutout (a notch app), `it docked` fails. APP-644 still holds through
+  the injected list.
+- With a layer-25 window over the notch, the test yields (`foreignOverlay`). So the yield still reads the list.
+- The full `swift test` in apps/mac/FERBNotch, on 3e785f91 with this change: 989 tests, 21 skipped, 0 failures.
+
+**Open / unverified.** Nothing runs FERB.app live, and none was needed: production passes the same list it read
+before. Other FERB.app tests still use real run-loop time (`settle`), as they did before.

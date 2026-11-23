@@ -27,7 +27,7 @@ final class WindowModeTests: XCTestCase {
         if hidePill { defaults.set(true, forKey: ChatHost.hidePillKey) }
         before(defaults)
         let model = NotchModel(rpc: ScriptedRPC(), preferences: defaults)
-        let coordinator = PanelCoordinator(model: model, defaults: defaults)
+        let coordinator = PanelCoordinator(model: model, defaults: defaults, windows: { [] })
         coordinator.updateScreen()
         coordinator.hoverWait = { _ in }
         coordinator.pointerLocation = { [unowned self] in self.pointer }

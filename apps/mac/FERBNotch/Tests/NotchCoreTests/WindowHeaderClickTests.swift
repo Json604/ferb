@@ -21,7 +21,7 @@ final class WindowHeaderClickTests: XCTestCase {
         NotchDocking.save(true, in: defaults)
         if window { defaults.set(ChatHost.window.rawValue, forKey: ChatHost.defaultsKey) }
         let model = NotchModel(rpc: ScriptedRPC(), preferences: defaults)
-        let coordinator = PanelCoordinator(model: model, defaults: defaults)
+        let coordinator = PanelCoordinator(model: model, defaults: defaults, windows: { [] })
         coordinator.updateScreen()
         coordinator.hoverWait = { _ in }
         addTeardownBlock { coordinator.tearDown() }

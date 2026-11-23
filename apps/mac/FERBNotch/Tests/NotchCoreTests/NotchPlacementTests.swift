@@ -39,7 +39,7 @@ final class NotchPlacementTests: XCTestCase {
         defaults.set(0.5, forKey: "notch.indicatorFraction")
         defaults.set(NSNumber(value: Self.displayID(screen)), forKey: "notch.indicatorDisplayID")
         let model = NotchModel(rpc: ScriptedRPC(), preferences: defaults)
-        let coordinator = PanelCoordinator(model: model, defaults: defaults)
+        let coordinator = PanelCoordinator(model: model, defaults: defaults, windows: { [] })
         defer { coordinator.tearDown() }
         coordinator.updateScreen()
         model.introLine = IntroCopy.hello                                  // the tour speaks: the surface shows
@@ -68,7 +68,7 @@ final class NotchPlacementTests: XCTestCase {
         let defaults = scratchDefaults("NotchPlacement")                  // nothing saved: a first run
         defaults.set(NSNumber(value: Self.displayID(screen)), forKey: "notch.indicatorDisplayID")
         let model = NotchModel(rpc: ScriptedRPC(), preferences: defaults)
-        let coordinator = PanelCoordinator(model: model, defaults: defaults)
+        let coordinator = PanelCoordinator(model: model, defaults: defaults, windows: { [] })
         defer { coordinator.tearDown() }
         coordinator.updateScreen()
         XCTAssertTrue(model.isNotchDocked)

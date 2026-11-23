@@ -103,6 +103,16 @@ final class DragWorkTests: XCTestCase {
         CATransaction.flush()
     }
 
+    /// The docking join's display frames, 60 a second from just after its release, standing in for the display link: a display
+    /// asleep or a locked screen sends none, so the join would never finish (TEST-508). A frame the real display link
+    /// adds while the display is awake samples the same join at its own time and changes nothing.
+    func joinFrames(_ coordinator: PanelCoordinator, _ window: NSWindow, from start: TimeInterval) {
+        for i in 1...Int((MagneticDocking.fusionDuration * 60).rounded(.up)) + 1 {
+            coordinator.advanceMagneticFusion(at: start + Double(i) / 60, reduceMotion: false)
+            frame(window)
+        }
+    }
+
     func settle(_ window: NSWindow, _ seconds: TimeInterval = 0.4) {
         let end = Date().addingTimeInterval(seconds)
         while Date() < end {
@@ -152,7 +162,10 @@ final class DragWorkTests: XCTestCase {
     }
 
     /// FERB with a 60-entry day in today's chat; the notch torn out to `edge`, or the chat in its window.
-    func coordinator(window: Bool, edge: String = "top") throws -> (PanelCoordinator, UserDefaults) {
+    /// `windows` stands in the window server's list: by default no other app's window, so another app on this Mac (the
+    /// owner's own FERB.app in the notch, a notch app) never changes the result (TEST-508).
+    func coordinator(window: Bool, edge: String = "top",
+                     windows: @escaping () -> [ScreenWindow] = { [] }) throws -> (PanelCoordinator, UserDefaults) {
         _ = NSApplication.shared
         guard NSScreen.screens.first != nil else { throw XCTSkip("Needs a display") }
         let defaults = scratchDefaults("DragWork")
@@ -161,7 +174,7 @@ final class DragWorkTests: XCTestCase {
         if window { defaults.set(ChatHost.window.rawValue, forKey: ChatHost.defaultsKey) }
         let model = NotchModel(rpc: ScriptedRPC(), preferences: defaults)
         model.conversation = try TranscriptScrollProbeTests.archive(day: Date(), entries: 60)
-        let coordinator = PanelCoordinator(model: model, defaults: defaults)
+        let coordinator = PanelCoordinator(model: model, defaults: defaults, windows: windows)
         coordinator.hoverWait = { _ in }
         addTeardownBlock { coordinator.tearDown() }
         coordinator.updateScreen()
@@ -179,8 +192,8 @@ final class DragWorkTests: XCTestCase {
         let move: (CGPoint) throws -> Void
     }
 
-    func holdNotch() throws -> HeldNotch {
-        let (coordinator, defaults) = try coordinator(window: false)
+    func holdNotch(windows: @escaping () -> [ScreenWindow] = { [] }) throws -> HeldNotch {
+        let (coordinator, defaults) = try coordinator(window: false, windows: windows)
         coordinator.model.expand(focus: false)
         let control = try XCTUnwrap(coordinator.indicatorControl)
         let window = try XCTUnwrap(control.window)
@@ -299,6 +312,7 @@ final class DragWorkTests: XCTestCase {
             }
         }
         held.control.mouseUp(with: try event(.leftMouseUp, held.control.window))
+        joinFrames(coordinator, held.window, from: CACurrentMediaTime())       // the join began at the release
         settle(held.window, 1.2)
         let work = counter.finish()
         print("DRAG notch docked: \(work)")

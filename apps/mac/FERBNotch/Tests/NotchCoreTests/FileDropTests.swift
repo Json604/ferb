@@ -177,7 +177,7 @@ final class FileDropTests: XCTestCase {
         NotchDocking.save(true, in: defaults)
         let model = NotchModel(rpc: ScriptedRPC(), preferences: defaults)
         model.setHoverEnabled(hover)
-        let coordinator = PanelCoordinator(model: model, defaults: defaults)
+        let coordinator = PanelCoordinator(model: model, defaults: defaults, windows: { [] })
         coordinator.updateScreen()
         coordinator.hoverWait = { _ in }
         pointer = CGPoint(x: screen.frame.midX, y: screen.frame.minY + 20)
@@ -279,7 +279,7 @@ final class FileDragRoutingTests: XCTestCase {
         NotchDocking.save(true, in: defaults)
         let model = NotchModel(rpc: ScriptedRPC(), preferences: defaults)
         model.setHoverEnabled(false)
-        let coordinator = PanelCoordinator(model: model, defaults: defaults)
+        let coordinator = PanelCoordinator(model: model, defaults: defaults, windows: { [] })
         defer { coordinator.tearDown() }
         coordinator.updateScreen()
         let board = NSPasteboard(name: NSPasteboard.Name("ferb-drag-test-\(UUID().uuidString)"))
@@ -348,7 +348,8 @@ final class FileDragRoutingTests: XCTestCase {
         let model = NotchModel(rpc: ScriptedRPC(), preferences: defaults)
         model.setHoverEnabled(false)
         model.drops.wait = { _ in }
-        let coordinator = PanelCoordinator(model: model, defaults: defaults, overlaySpace: NotchOverlaySpace())
+        let coordinator = PanelCoordinator(model: model, defaults: defaults, overlaySpace: NotchOverlaySpace(),
+                                           windows: { [] })
         if notchless { coordinator.cameraHousing = { _ in (0, nil, nil) } }   // the friend's M1: a virtual notch
         coordinator.fullScreenSpace = { _ in false }
         coordinator.missionControlShowing = { _ in false }

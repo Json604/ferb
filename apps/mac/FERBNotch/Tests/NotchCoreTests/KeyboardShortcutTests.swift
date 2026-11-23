@@ -136,7 +136,8 @@ final class KeyboardShortcutTests: XCTestCase {
         KeyCombo.save(KeyCombo(keyCode: F, modifiers: controlOption), in: defaults)
         let registrar = FakeHotKeys()
         let model = NotchModel(rpc: ScriptedRPC(), preferences: defaults)
-        let coordinator = PanelCoordinator(model: model, defaults: defaults, hotKeyRegistrar: registrar)
+        let coordinator = PanelCoordinator(model: model, defaults: defaults, hotKeyRegistrar: registrar,
+                                           windows: { [] })
         defer { coordinator.tearDown() }
         coordinator.updateScreen()
         coordinator.hotKeys.start()

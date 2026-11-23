@@ -12,7 +12,7 @@ final class NotchDragTests: XCTestCase {
         guard NSScreen.screens.first != nil else { throw XCTSkip("Needs a display") }
         let defaults = scratchDefaults()
         let model = NotchModel(rpc: ScriptedRPC(), preferences: defaults)
-        let coordinator = PanelCoordinator(model: model, defaults: defaults)
+        let coordinator = PanelCoordinator(model: model, defaults: defaults, windows: { [] })
         defer { coordinator.tearDown() }
         coordinator.updateScreen()
         model.onInteraction = { model.openReminderChat() }
@@ -40,7 +40,7 @@ final class NotchDragTests: XCTestCase {
                 NotchDocking.save(docked, in: defaults)
                 defaults.set("left", forKey: "notch.indicatorEdge")
                 let model = NotchModel(rpc: ScriptedRPC(), preferences: defaults)
-                let coordinator = PanelCoordinator(model: model, defaults: defaults)
+                let coordinator = PanelCoordinator(model: model, defaults: defaults, windows: { [] })
                 defer { coordinator.tearDown() }
                 coordinator.updateScreen()
                 if content == "chat" { model.expand(focus: false) }
@@ -126,7 +126,7 @@ final class NotchDragTests: XCTestCase {
                 NotchDocking.save(docked, in: defaults)
                 let model = NotchModel(rpc: ScriptedRPC(), preferences: defaults)
                 model.setHoverEnabled(false)
-                let coordinator = PanelCoordinator(model: model, defaults: defaults)
+                let coordinator = PanelCoordinator(model: model, defaults: defaults, windows: { [] })
                 defer { coordinator.tearDown() }
                 coordinator.updateScreen()
                 let control = try XCTUnwrap(coordinator.indicatorControl)
@@ -208,7 +208,7 @@ final class NotchDragTests: XCTestCase {
                 }
                 let model = NotchModel(rpc: ScriptedRPC(), preferences: defaults)
                 model.setHoverEnabled(false)
-                let coordinator = PanelCoordinator(model: model, defaults: defaults)
+                let coordinator = PanelCoordinator(model: model, defaults: defaults, windows: { [] })
                 defer { coordinator.tearDown() }
                 coordinator.updateScreen()
                 XCTAssertTrue(model.isNotchDocked)
@@ -269,7 +269,7 @@ final class NotchDragTests: XCTestCase {
         }
         let model = NotchModel(rpc: ScriptedRPC(), preferences: defaults)
         model.setHoverEnabled(false)
-        let coordinator = PanelCoordinator(model: model, defaults: defaults)
+        let coordinator = PanelCoordinator(model: model, defaults: defaults, windows: { [] })
         defer { coordinator.tearDown() }
         coordinator.cameraHousing = { _ in (0, nil, nil) }       // a notchless display
         coordinator.fullScreenSpace = { _ in false }

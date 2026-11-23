@@ -137,7 +137,7 @@ final class TimerFlowTests: XCTestCase {
         let defaults = scratchDefaults()
         NotchDocking.save(true, in: defaults)
         let model = NotchModel(rpc: ScriptedRPC(), preferences: defaults)
-        let coordinator = PanelCoordinator(model: model, defaults: defaults)
+        let coordinator = PanelCoordinator(model: model, defaults: defaults, windows: { [] })
         coordinator.updateScreen()
         coordinator.hoverWait = { _ in }
         addTeardownBlock { coordinator.tearDown() }
@@ -212,7 +212,8 @@ final class TimerPillTests: XCTestCase {
         }
         let model = NotchModel(rpc: ScriptedRPC(), preferences: defaults)
         model.setHoverEnabled(false)
-        let coordinator = PanelCoordinator(model: model, defaults: defaults, overlaySpace: NotchOverlaySpace(available: false))
+        let coordinator = PanelCoordinator(model: model, defaults: defaults,
+                                           overlaySpace: NotchOverlaySpace(available: false), windows: { [] })
         coordinator.cameraHousing = { _ in (0, nil, nil) }
         coordinator.fullScreenSpace = { [unowned self] _ in self.fullScreen }
         coordinator.missionControlShowing = { _ in false }

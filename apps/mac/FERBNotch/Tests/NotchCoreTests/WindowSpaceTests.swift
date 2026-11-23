@@ -30,7 +30,8 @@ final class WindowSpaceTests: XCTestCase {
         NotchDocking.save(true, in: defaults)
         defaults.set(ChatHost.window.rawValue, forKey: ChatHost.defaultsKey)
         let model = NotchModel(rpc: ScriptedRPC(), preferences: defaults)
-        let coordinator = PanelCoordinator(model: model, defaults: defaults, overlaySpace: NotchOverlaySpace())
+        let coordinator = PanelCoordinator(model: model, defaults: defaults, overlaySpace: NotchOverlaySpace(),
+                                           windows: { [] })
         coordinator.activeSpace = { 1 }
         coordinator.missionControlShowing = { _ in false }
         coordinator.hoverWait = { _ in }

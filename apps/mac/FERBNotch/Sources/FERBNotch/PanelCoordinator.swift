@@ -180,11 +180,11 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     var activeSpace: () -> UInt64? = { WindowServerSpaces.activeSpace() }
     /// Mission Control (or App Exposé) shows on a display (window-server coordinates): the pointer crossing FERB on its
     /// way to the Spaces bar opens nothing.
-    var missionControlShowing: (CGRect) -> Bool = { display in
-        SpaceFacts.missionControlShowing(in: ScreenWindow.onScreen(), display: display) { pid in
-            NSRunningApplication(processIdentifier: pid)?.bundleIdentifier == "com.apple.WindowManager"
-        }
-    }
+    var missionControlShowing: (CGRect) -> Bool
+    /// The on-screen windows, front to back (`ScreenWindow.onScreen`): every look FERB's notch takes at other apps'
+    /// windows reads them here (yielding, a notch app over the camera, Mission Control, the sticky window's). Tests stand
+    /// in their own rows, so another app on the Mac (the owner's own FERB.app in the notch) never changes a result.
+    private let screenWindows: () -> [ScreenWindow]
     /// How many times FERB laid out its presentation (tests check that a Space change or an unchanged screen notice
     /// doesn't).
     private(set) var presentCount = 0
@@ -284,18 +284,26 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     /// Where the notch's place is kept (`notch.*`: docked, edge, fraction, display).
     private let defaults: UserDefaults
 
-    /// `model`, `defaults` and `overlaySpace` are for tests (a scripted daemon, a scratch suite, the AppKit fallback);
-    /// the app uses its own, the standard defaults and SkyLight's overlay space.
+    /// `model`, `defaults`, `overlaySpace` and `windows` are for tests (a scripted daemon, a scratch suite, the AppKit
+    /// fallback, their own window rows); the app uses its own, the standard defaults, SkyLight's overlay space and the
+    /// window server's list.
     init(model: NotchModel? = nil, defaults: UserDefaults = .standard,
-         overlaySpace: NotchOverlaySpace? = nil, hotKeyRegistrar: HotKeyRegistering? = nil) {
+         overlaySpace: NotchOverlaySpace? = nil, hotKeyRegistrar: HotKeyRegistering? = nil,
+         windows: @escaping () -> [ScreenWindow] = ScreenWindow.onScreen) {
         let model = model ?? NotchModel()
+        screenWindows = windows
+        missionControlShowing = { display in
+            SpaceFacts.missionControlShowing(in: windows(), display: display) { pid in
+                NSRunningApplication(processIdentifier: pid)?.bundleIdentifier == "com.apple.WindowManager"
+            }
+        }
         hotKeys = HotKeyCenter(defaults: defaults, registrar: hotKeyRegistrar)
         self.model = model
         self.defaults = defaults
         self.overlaySpace = overlaySpace ?? NotchOverlaySpace()
         panel = NotchPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
                            backing: .buffered, defer: false)
-        yieldController = NotchYieldController(model: model)
+        yieldController = NotchYieldController(model: model, windows: windows)
         windowYield = NotchWindowYield(panel: panel, tracer: tracerPanel, rejoinOverlay: { [space = self.overlaySpace] window in
             if let window = window as? NSWindow { space.rejoin(window) }
         }, leaveOverlay: { [space = self.overlaySpace] window in
@@ -1241,7 +1249,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         guard geometry.hasNotch else { return nil }
         let height = primaryDisplayHeight
         let cutout = NotchOverlap.windowServerRect(geometry.cutoutFrame, primaryDisplayHeight: height)
-        return NotchOverlap.notchHolder(in: ScreenWindow.onScreen(), cutout: cutout, ownPIDs: [getpid()],
+        return NotchOverlap.notchHolder(in: screenWindows(), cutout: cutout, ownPIDs: [getpid()],
                                         ferbLayer: indicatorPanel.level.rawValue)
             .map { NotchOverlap.windowServerRect($0, primaryDisplayHeight: height) }   // the same flip back
     }
@@ -1421,6 +1429,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     private func ensureChatWindow() -> ChatWindowController {
         if let chatWindow { return chatWindow }
         let window = ChatWindowController(model: model, defaults: defaults)
+        window.windowList = screenWindows
         // Fixed on every Space like the notch (APP-760): in the overlay space when FERB has one
         if overlaySpace.isAttached { window.space = overlaySpace }
         window.onClose = { [weak self] in

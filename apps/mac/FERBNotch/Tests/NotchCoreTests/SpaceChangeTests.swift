@@ -32,7 +32,7 @@ final class SpaceChangeTests: XCTestCase {
         let model = NotchModel(rpc: ScriptedRPC(), preferences: defaults)
         model.setHoverEnabled(hover)
         let coordinator = PanelCoordinator(model: model, defaults: defaults,
-                                           overlaySpace: NotchOverlaySpace(available: overlay))
+                                           overlaySpace: NotchOverlaySpace(available: overlay), windows: { [] })
         if notchless { coordinator.cameraHousing = { _ in (0, nil, nil) } }
         coordinator.fullScreenSpace = { _ in fullScreen }
         coordinator.missionControlShowing = { _ in false }

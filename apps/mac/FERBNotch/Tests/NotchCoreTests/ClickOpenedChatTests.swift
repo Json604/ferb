@@ -25,7 +25,7 @@ final class ClickOpenedChatTests: XCTestCase {
         NotchDocking.save(true, in: defaults)
         let model = NotchModel(rpc: ScriptedRPC(), preferences: defaults)
         model.setHoverEnabled(hover)
-        let coordinator = PanelCoordinator(model: model, defaults: defaults)
+        let coordinator = PanelCoordinator(model: model, defaults: defaults, windows: { [] })
         coordinator.updateScreen()
         coordinator.hoverWait = { _ in }
         coordinator.pointerLocation = { [unowned self] in self.pointer }
