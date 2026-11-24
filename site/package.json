@@ -2,15 +2,17 @@
   "name": "ferb-site",
   "private": true,
   "type": "module",
-  "description": "ferb.kartikey.xyz: the static pages, and the functions for Google sign-in before the download, the unsubscribe link and the owner's user list.",
+  "description": "ferb.kartikey.xyz: the static pages, the functions for Google sign-in before the download, the unsubscribe link and the owner's user list, and PostHog analytics once a visitor says OK.",
   "engines": {
     "node": "24.x"
   },
   "scripts": {
+    "build": "node build.mjs",
     "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "1.2.0",
-    "openid-client": "6.8.9"
+    "openid-client": "6.8.9",
+    "posthog-js": "1.447.10"
   }
 }

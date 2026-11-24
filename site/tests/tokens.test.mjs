@@ -1,4 +1,4 @@
-// decision: REL-434
+// decision: REL-436
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { adminToken, downloadToken, sign, unsubscribeToken, verify } from "../api/_lib/tokens.js";

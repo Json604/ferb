@@ -11654,3 +11654,70 @@ never had the arrival handling:
   `task.result` for a temporary task (ORCH-702), so the Mac doesn't open for it, where it does for a phone's task in
   the normal chat.
 - Android's separate composable (above).
+
+## 2026-11-24 · 201 · The website gets PostHog, asked first: recordings, heatmaps, vitals, errors after OK; nothing before
+
+**What the owner decided (REL-435, superseding REL-407).** "to be added in website: posthog", and, offered a minimal
+privacy-first setup: "yes session recordings and everything analytics we might need or be helpful". T-1006 is done in
+code (deleted); LIVE-1201 is the check after he sets up the project and redeploys.
+
+**How (REL-437; REL-436 supersedes REL-434 only to say the static pages may carry that one script).** With
+`POSTHOG_KEY` and `POSTHOG_HOST` unset nothing changes: the pages carry no script, byte for byte as before. With them
+set, `site/build.mjs` (vercel.json's `buildCommand`, `npm run build`) checks them (a malformed value stops the build),
+copies posthog-js 1.447.10 (pinned exactly in package.json; `dist/array.full.js`, every part bundled) to
+`/vendor/posthog-js-1.447.10.js` after checking it against the package's published sha384, and turns each page's
+`<!-- analytics -->` marker into `<script type="module" src="/analytics.js" data-posthog-…>`. `/analytics.js` asks
+with a bar at the foot of the page ("FERB uses analytics and session recordings to improve the site. Details" / OK /
+No thanks) and loads PostHog only after OK, with the browser checking the same hash. Until an answer, after No
+thanks, and whenever Do Not Track or Global Privacy Control is on (no question then), nothing is loaded, sent or
+stored except the answer (localStorage `ferb-analytics`). No thanks after OK stops recording, opts out and turns
+PostHog's storage off, which deletes its cookie and localStorage (checked in Chrome; PostHog's `opt_out_capturing`
+alone left both), and its sessionStorage keys are removed. The privacy page's "Change your choice" opens the question
+again. After OK: localStorage+cookie on ferb.kartikey.xyz only (`cross_subdomain_cookie: false`, so never
+kartikey.xyz's other sites), identified-only persons, pageviews and page leaves, autocapture, rage and dead clicks,
+heatmaps, web vitals and network timing, exceptions, session recordings with every input masked and no request headers,
+bodies or console, and `continue with google clicked` (sent by beacon as the page leaves). `before_send` cuts `t`, `token`,
+`code`, `state`, `nonce`, `ph`, `email` and similar parameters (and any `#…=…` fragment) from every URL in an event
+and from a recording's page address. PostHog may load no code from its servers but its toolbar
+(`prepare_external_dependency_script`): its remote `config.js` was refused in Chrome and it read its settings as JSON
+instead. The privacy page says what is collected, who processes it, retention ("as FERB's PostHog project is set to"),
+and how to opt out; "There are no tracking cookies" went.
+
+**Choices.** Consent before loading, not `opt_out_capturing_by_default` (PostHog loaded still calls `/flags` and its
+config with the visitor's address before any answer) or `cookieless_mode: 'on_reject'` (sends events for people who
+said no): an IP address is personal data under the GDPR and UK GDPR even without cookies and the site can't tell
+where a visitor is; the cost is no data from visitors who never answer. Bundled, not a CDN: no other party sees
+visitors. A build step, not `/api/config`: no request when unset, and `site/api` is the app sign-in work's.
+
+**Not built: the server's events.** Download link made and served, unsubscribe, sign-in failures and identifying a
+signed-in visitor by an opaque id all happen on `site/api` pages, which carry no script; reporting them needs the
+functions to call PostHog's capture API (`POST {host}/i/v0/e/`), and `site/api` was out of this change's bounds (the
+app sign-in work is there). A plan, for after that lands: a helper in `site/api/_lib` reusing `readAnalytics`;
+`startSignIn` keeps a valid `ph` (the browser's PostHog id, which `/analytics.js` would add to the sign-in link after
+OK) in the sign-in cookie; on success `$identify` with `u_` + HMAC(AUTH_SECRET, email) and `$anon_distinct_id`, then
+`download link requested`, the download token carrying a consent bit for `download link served`; `unsubscribed` and
+everything for visitors without OK sent with `$process_person_profile: false`, a random id and `$geoip_disable`; the
+admin sign-in and list send nothing; each call awaited with a 1.5 s timeout and never failing the page. The privacy
+page then needs a sentence on those counts.
+
+**Evidence.**
+- `site/tests/analytics.test.mjs` (14, REL-435/REL-437): the pages carry the marker once and no script; with no key the
+  build changes nothing; with a key each page gets exactly one tag naming the pinned, hashed bundle; malformed key or
+  host stop the build; the server's pages (`page()`, `/api/admin`, `/api/unsubscribe`) contain no script under
+  `default-src 'none'` and `/analytics.js` does nothing under `/api/`; before an answer nothing loads or is stored and
+  the question shows; No thanks remembered, OK loads and starts PostHog; DNT and GPC are No even over an earlier OK;
+  blocked storage still asks and honours the answer; the privacy page's button and No after OK (opt out, storage off);
+  the named event only after OK; recordings' masking and the cookie's host; only the toolbar may load; URLs cleaned.
+  A small fake DOM (`tests/dom.mjs`). The other tests' `decision:` lines name REL-436 for REL-434.
+- `npm test` in site/: 43 passed (29 before).
+- Chrome (an isolated context, a local copy built with an invented key and host `https://ph.invalid`, so nothing
+  reached PostHog): before OK only the site's own files were requested; after OK the bundle loaded, PostHog started
+  with its cookie on 127.0.0.1, `/flags` and the JSON config were tried, `config.js` no longer was; the privacy page's
+  button and No thanks left no cookie, no `ph_` localStorage or sessionStorage; at 390 px the bar fits.
+- `kb check` ok; `git diff --check` clean.
+
+**Unverified.** Nothing deployed; no real PostHog project: that events, recordings, heatmaps, web vitals and
+exceptions arrive and replay; that Vercel runs `npm run build` with the project's current settings (vercel.json sets
+it) and serves `/vendor/` from the site's root; the toolbar launched from PostHog; Safari and Firefox. Two parallel
+changes may collide on IDs (REL-435..437, LIVE-1201, journal 201) and on REL-434 if the app sign-in work also
+touches it.

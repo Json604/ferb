@@ -10,13 +10,14 @@
 <link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="icon" href="/logo.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<!-- analytics -->
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
 <main id="main">
 <a href="/"><img class="brand" src="/logo.svg" alt="FERB home" width="48" height="48"></a>
 <h1>FERB Privacy Policy</h1>
-<p class="muted">Last updated: 22 November 2026</p>
+<p class="muted">Last updated: 24 November 2026</p>
 
 <p>FERB is a personal assistant for macOS. It is made of the FERB app, which runs on your Mac, and the
 FERB browser extension. This policy covers both, and the FERB website you download it from.</p>
@@ -94,8 +95,39 @@ used for advertising. Every email has a one-click unsubscribe; once you unsubscr
 if you sign in again.</p>
 <p>The list is kept in a database run by Neon for Vercel, which hosts this website, and emails are sent through Resend.
 The website sets two short-lived cookies of its own: one for the few minutes a sign-in takes, and one that keeps FERB's
-maker signed in to see the list. There are no tracking cookies. To have your record deleted, reply to any FERB
-email or ask through the contact below.</p>
+maker signed in to see the list. Analytics cookies are set only if you say OK to analytics (below). To have your
+record deleted, reply to any FERB email or ask through the contact below.</p>
+
+<h2 id="analytics">Analytics on this website</h2>
+<p>This website uses PostHog (posthog.com), an analytics service, to see how people use the website and to fix what
+doesn't work. It covers this website only: the FERB app and the extension send nothing to PostHog.</p>
+<p>PostHog runs only after you press OK on the question at the bottom of the page. Until you answer, and if you choose
+No thanks, PostHog isn't loaded, nothing is sent and nothing is stored except your answer, which stays in this browser.
+If your browser sends Do Not Track or Global Privacy Control, the website takes that as No thanks and doesn't ask. The
+pages for signing in, downloading and unsubscribing, and the list only FERB's maker sees, never load PostHog.</p>
+<p>After you press OK, PostHog collects, on this website's pages:</p>
+<ul>
+  <li><strong>What you do on the page:</strong> the pages you open and leave, the links and buttons you click
+    (including Continue with Google), where you click, how far you scroll and clicks that do nothing, used for heatmaps
+    and counts.</li>
+  <li><strong>Session recordings:</strong> a replay of the page as you use it: what the page shows, mouse movement,
+    scrolling and clicks. Anything typed into a field is masked in the recording and never kept.</li>
+  <li><strong>Speed and errors:</strong> how fast the page loads and responds (web vitals), the page's own requests'
+    timings, and errors in the page's code.</li>
+  <li><strong>About your visit:</strong> your browser, operating system, device type and screen size, language, the
+    page that sent you here, and your IP address, from which PostHog works out an approximate location.</li>
+</ul>
+<p>To count visits from the same browser together, PostHog keeps a random identifier in a cookie and in this browser's
+storage, both for ferb.kartikey.xyz only. Addresses are stripped of sign-in codes, link tokens and email addresses
+before anything is sent.</p>
+<p>PostHog processes this data for FERB under its own terms and privacy policy, and keeps it for as long as FERB's
+PostHog project is set to, within the limits of that project's plan. It is used only to improve this website, never
+sold, shared or used for advertising.</p>
+<p>To change your answer, use the button below, or clear this website's data in your browser. Choosing No thanks after
+OK stops PostHog in this browser and removes its cookie and stored identifier; to have what was already collected
+deleted, ask through the contact below.</p>
+<p data-analytics-controls hidden><span data-analytics-state></span>
+  <button type="button" data-analytics-choice>Change your choice</button></p>
 
 <h2>Your control</h2>
 <p>You choose which browser profiles to pair, and you can remove the extension at any time. You can see everything

@@ -1,5 +1,5 @@
 // decision: REL-433
-// decision: REL-434
+// decision: REL-436
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { sendUpdate, updateEmail } from "../api/_lib/mail.js";

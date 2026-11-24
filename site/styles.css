@@ -377,6 +377,54 @@ footer a {
   color: var(--faint);
 }
 
+/* The analytics question (REL-435): a quiet bar at the foot of the page, only while it is unanswered. */
+.consent {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 0.9rem 1.5rem calc(0.9rem + env(safe-area-inset-bottom));
+  background: var(--bg);
+  border-top: 1px solid var(--rule);
+  font-size: 0.85rem;
+  color: var(--soft);
+}
+
+/* Room under the page's last line, so the bar never covers it. */
+body:has(> .consent) {
+  padding-bottom: 9rem;
+}
+
+.consent p {
+  max-width: 520px;
+  margin: 0 auto 0.6rem;
+}
+
+.consent-actions {
+  display: flex;
+  gap: 0.6rem;
+  max-width: 520px;
+  margin: 0 auto;
+}
+
+.consent button,
+button[data-analytics-choice] {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.3rem 0.9rem;
+  color: var(--text);
+  background: #fff;
+  border: 1px solid var(--underline);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.consent button:first-child {
+  color: #fff;
+  background: var(--ink);
+  border-color: var(--ink);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
