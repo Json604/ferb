@@ -24,7 +24,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 /**
- * FERB's account pages (kb PHN-839, PHN-840) over the noon sky, at the smallest common Android width (360 dp) and the
+ * FERB's account pages (kb PHN-839, PHN-841) over the noon sky, at the smallest common Android width (360 dp) and the
  * lab's (412 dp): the sign-in page (with a line after a cancelled try) and the phone-first page.
  */
 @RunWith(RobolectricTestRunner::class)
@@ -57,9 +57,9 @@ class AccountShotsTest {
     // decision: PHN-839, PHN-416
     @Test @Config(qualifiers = "w412dp-h915dp-port-mdpi") fun sign_in_at_412() = shoot("sign-in-412.png") { SignIn(vm, signedOut, PhoneInsets.Lab) }
 
-    // decision: PHN-840, PHN-416
+    // decision: PHN-841, PHN-416
     @Test @Config(qualifiers = "w360dp-h780dp-port-mdpi") fun phone_first_at_360() = shoot("phone-first-360.png") { MacFirst(vm, macFirst, PhoneInsets.Lab) }
 
-    // decision: PHN-840, PHN-416
+    // decision: PHN-841, PHN-416
     @Test @Config(qualifiers = "w412dp-h915dp-port-mdpi") fun phone_first_at_412() = shoot("phone-first-412.png") { MacFirst(vm, macFirst, PhoneInsets.Lab) }
 }

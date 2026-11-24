@@ -70,7 +70,7 @@ const fn m(name: &'static str, roles: &'static [Role], app_only: bool) -> Method
 pub const METHODS: &[Method] = &[
     m("about.get", &[Role::Cli], false),
     m("about.guide", &[Role::Cli], true),
-    // PHN-828, APP-1128: FERB.app's own sign-in to the owner's FERB account, kept in the Keychain through FERB's signed
+    // PHN-828, APP-1138: FERB.app's own sign-in to the owner's FERB account, kept in the Keychain through FERB's signed
     // helper; the account a phone must share to pair. Not Python's: ACCOUNT_ADDITIONS.
     m("account.clear", &[Role::Cli], true),
     m("account.get", &[Role::Cli], true),
@@ -301,7 +301,7 @@ pub const STAGE2_ADDITIONS: [&str; 6] = [
 /// ORCH-699: the temporary chat's two calls, FERB.app's own (`app_only`); a phone reaches them by class. Not Python's.
 pub const TEMPORARY_ADDITIONS: [&str; 2] = ["chat.temporary.get", "chat.temporary.set"];
 
-/// PHN-828, APP-1128: FERB.app's sign-in to the owner's FERB account (the account, its tokens), kept by the daemon in
+/// PHN-828, APP-1138: FERB.app's sign-in to the owner's FERB account (the account, its tokens), kept by the daemon in
 /// the Keychain through FERB's signed helper; a phone pairs only with a Mac signed in to the same account. FERB.app's
 /// own (`app_only`): never a tool's, the extension's, a command line's or a phone's.
 pub const ACCOUNT_ADDITIONS: [&str; 3] = ["account.clear", "account.get", "account.save"];
@@ -837,7 +837,7 @@ mod tests {
     }
 
     /// The owner's FERB account and its tokens are FERB.app's alone: no model's tools, extension or command line.
-    // decision: APP-1128
+    // decision: APP-1138
     #[test]
     fn the_account_is_ferb_app_s_own() {
         for name in ACCOUNT_ADDITIONS {

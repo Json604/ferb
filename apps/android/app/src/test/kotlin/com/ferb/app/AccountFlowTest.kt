@@ -36,7 +36,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
-/** FERB's account in the app (kb PHN-828, PHN-839, PHN-840): the sign-in gate, the phone-first page, pairing's statement, sign-out. */
+/** FERB's account in the app (kb PHN-828, PHN-839, PHN-841): the sign-in gate, the phone-first page, pairing's statement, sign-out. */
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class, sdk = [35])
@@ -121,7 +121,7 @@ class AccountFlowTest {
         assertEquals(com.ferb.app.model.SignInStep.IDLE, vm.ui.value.account.step)
     }
 
-    // decision: PHN-840
+    // decision: PHN-841
     @Test
     fun signed_in_with_no_mac_shows_the_phone_first_page_until_pair_now() {
         phone.link.value = FakePhone.status(LinkPhase.IDLE, paired = false)

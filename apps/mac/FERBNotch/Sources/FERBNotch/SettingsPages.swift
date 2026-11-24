@@ -117,7 +117,7 @@ struct SettingsView: View {
     }
 }
 
-/// Settings → Account (APP-1128): who is signed in to FERB on this Mac, Sign out, Delete account. The tokens are never
+/// Settings → Account (APP-1138): who is signed in to FERB on this Mac, Sign out, Delete account. The tokens are never
 /// shown; signing out or deleting brings the account step back at once (signed out blocks FERB.app).
 struct AccountSettingsPage: View {
     @ObservedObject var account: AccountSession

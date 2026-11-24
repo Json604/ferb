@@ -38,13 +38,14 @@ enum IntroCopy {
                   choices: [IntroChoice(Pick.retry, "Try again")])
     }
 
-    // MARK: 1b. Your FERB account (APP-1128): required, no skip
+    // MARK: 1b. Your FERB account (APP-1138): required, no skip
 
     static let account = IntroLine(text: "To start, sign in to FERB.",
                                    detail: "One FERB account for your Mac and your phone. " + AccountWords.kept,
                                    choices: [IntroChoice(Pick.accountGoogle, AccountWords.google),
                                              IntroChoice(Pick.accountApple, AccountWords.apple)])
-    static let accountWaiting = IntroLine(text: AccountWords.waiting)
+    static let accountWaiting = IntroLine(text: AccountWords.waiting, detail: AccountWords.waitingDetail,
+                                          choices: [IntroChoice(Pick.cancel, AccountWords.cancel)])
     static func accountFailed(_ why: String?) -> IntroLine {
         IntroLine(text: why ?? AccountWords.serverDown, choices: account.choices)
     }

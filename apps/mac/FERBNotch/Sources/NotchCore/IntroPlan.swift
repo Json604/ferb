@@ -2,7 +2,7 @@ import Foundation
 
 /// FERB.app's first-run intro: its beats, in the spec's order (kb area app). The raw values are what a quit tour
 /// keeps (`IntroProgress`), so they never change: the FERB account step came later as 8 and runs right after Meet
-/// (APP-1128). Order is `order`, never the raw value.
+/// (APP-1138). Order is `order`, never the raw value.
 public enum IntroBeat: Int, CaseIterable, Equatable, Comparable {
     case meet = 0, account = 8, signIn = 1, permissions, browsers, identity, tryIt, control, home
 
@@ -39,7 +39,7 @@ public enum IntroPlan {
     /// The beats this install gets. A finished setup gets none unless replayed (replay is the whole tour). A first run gets
     /// every beat; an upgrade gets only the beats for what is missing, then home.
     /// FERB's own email (identity) is offered whenever browsers are. Signed out of the FERB account: the account step
-    /// comes first whatever else is planned, on a finished setup too, as a short step and not the whole tour (APP-1128).
+    /// comes first whatever else is planned, on a finished setup too, as a short step and not the whole tour (APP-1138).
     public static func beats(_ needs: IntroNeeds, replay: Bool) -> [IntroBeat] {
         if replay { return IntroBeat.allCases }
         if needs.firstRun { return IntroBeat.allCases }

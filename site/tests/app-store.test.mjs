@@ -1,5 +1,5 @@
 // decision: REL-449
-// decision: REL-451
+// decision: REL-452
 // The apps' tables and the SQL that guards them: the file the owner runs by hand matches what the functions make,
 // the tables are made once per instance, and the one-time code burn and the refresh rotation are single conditional
 // UPDATEs (no read-then-write a racing request could slip between). Statements are checked here as text: no

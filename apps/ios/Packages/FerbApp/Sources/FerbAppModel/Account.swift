@@ -4,11 +4,13 @@ import Foundation
 import Observation
 import Security
 
-// FERB's account on the phone (owner 2026-11-24: "required. google and apple."; kb PHN-828, PHN-839, PHN-840): the
+// FERB's account on the phone (owner 2026-11-24: "required. google and apple."; kb PHN-828, PHN-839, PHN-841): the
 // sign-in, the tokens and the account in the Keychain only, their refresh, and the calls the phone makes with them (the
 // pairing assertion, sign out and delete). The site's API is the shared spec's; this is the iPhone's
-// client of it. Apple signs in through the same web flow as Google (one path on every platform): a native Sign in with
-// Apple would need a second audience on the server, which is not built now.
+// client of it. Google signs in through the site's web flow in the system's sign-in sheet, which shares Safari's
+// sign-ins (owner, PHN-841: show the accounts already signed in). Apple signs in with the system's own Sign in with
+// Apple (Face ID, no web page; /api/app/apple checks Apple's identity token for this app); when the system can't show
+// it (no Apple account on the phone, the capability missing from a build), the web flow is the way.
 
 /// The signed-in account as the server says it.
 public struct AccountInfo: Codable, Equatable, Sendable {
@@ -76,6 +78,23 @@ public protocol WebSignIn: AnyObject {
     func open(_ url: URL, callbackScheme: String) async -> WebSignInResult
 }
 
+/// How the system's own Sign in with Apple ended (PHN-841).
+public enum AppleSignInResult: Equatable, Sendable {
+    /// Apple's identity token for this app, and the name Apple shares (only on the first authorization).
+    case credential(identityToken: String, name: String?)
+    /// The person closed it.
+    case cancelled
+    /// The system couldn't show it: the web flow is used instead.
+    case failed
+}
+
+/// The system's Sign in with Apple (ASAuthorizationAppleIDProvider in FerbAppUI), a fake in tests. `nonceHash` goes
+/// into the request; Apple puts it in the identity token, and the site checks it against the raw nonce.
+@MainActor
+public protocol AppleSignIn: AnyObject {
+    func authorize(nonceHash: String) async -> AppleSignInResult
+}
+
 /// Where the account's site is: a constant, never configurable at run time (the shared spec).
 public enum AccountSite {
     public static let url = URL(string: "https://ferb.kartikey.xyz")!
@@ -86,8 +105,9 @@ public enum AccountSite {
 
 public enum SignInProvider: String, Sendable { case google, apple }
 
-/// Where the sign-in stands: nothing under way, the browser sheet open, or the tokens being fetched.
-public enum SignInPhase: Equatable, Sendable { case idle, browser, finishing }
+/// Where the sign-in stands: nothing under way, the browser sheet open, the system's Sign in with Apple open, or the
+/// tokens being fetched.
+public enum SignInPhase: Equatable, Sendable { case idle, browser, apple, finishing }
 
 /// The pairing assertion's outcome (PHN-828).
 public enum AssertionResult: Hashable, Sendable {
@@ -133,6 +153,14 @@ public final class AccountModel {
     public private(set) var phase: SignInPhase = .idle
     /// The sign-in's line (cancelled, can't reach, not answering, didn't finish), or nil.
     public private(set) var problem: Note?
+    /// The sign-in page's line: what is under way (Apple's own sheet is no browser), else the last problem.
+    public var line: String? {
+        switch phase {
+        case .idle: problem?.text
+        case .apple: L.s("signin_finishing_apple")
+        case .browser, .finishing: L.s("signin_finishing")
+        }
+    }
     /// The last refresh couldn't reach the site: FERB keeps working and tries again later.
     public private(set) var checkFailed = false
 
@@ -146,6 +174,7 @@ public final class AccountModel {
     @ObservationIgnored private let store: SecretStore
     @ObservationIgnored private let http: HttpClient
     @ObservationIgnored public var web: WebSignIn?
+    @ObservationIgnored public var apple: AppleSignIn?
     @ObservationIgnored private let prefs: Prefs
     @ObservationIgnored private let version: String
     @ObservationIgnored private let deviceName: String?
@@ -161,11 +190,13 @@ public final class AccountModel {
     /// Refresh when the access token has under this many seconds left.
     static let refreshMargin: Double = 60
 
-    public init(store: SecretStore, http: HttpClient, web: WebSignIn? = nil, prefs: Prefs, version: String,
-                deviceName: String? = nil, site: URL = AccountSite.url, now: @escaping () -> Date = Date.init) {
+    public init(store: SecretStore, http: HttpClient, web: WebSignIn? = nil, apple: AppleSignIn? = nil, prefs: Prefs,
+                version: String, deviceName: String? = nil, site: URL = AccountSite.url,
+                now: @escaping () -> Date = Date.init) {
         self.store = store
         self.http = http
         self.web = web
+        self.apple = apple
         self.prefs = prefs
         self.version = String(version.unicodeScalars.filter { $0.value >= 0x20 && $0.value < 0x7F }.prefix(32).map(Character.init))
         self.deviceName = deviceName.map { String($0.prefix(60)) }
@@ -201,46 +232,97 @@ public final class AccountModel {
 
     // ---- signing in ---------------------------------------------------------------------------------------------------
 
-    /// Continue with Google / Apple: the site's sign-in in the system's web sheet, then the tokens.
+    /// Continue with Google: the site's sign-in in the system's web sheet, then the tokens. Continue with Apple: the
+    /// system's own Sign in with Apple when it can show it, else the same web sheet.
     @discardableResult
     public func signIn(_ provider: SignInProvider) -> Task<Void, Never> {
         Task { [self] in
-            guard phase == .idle, let web else { return }
+            guard phase == .idle else { return }
             problem = nil
-            let verifier = Pkce.random(32)
-            let state = Pkce.random(16)
-            var c = URLComponents(url: site.appendingPathComponent("api/app/start"), resolvingAgainstBaseURL: false)!
-            c.queryItems = [
-                URLQueryItem(name: "provider", value: provider.rawValue),
-                URLQueryItem(name: "platform", value: "ios"),
-                URLQueryItem(name: "redirect", value: AccountSite.redirect),
-                URLQueryItem(name: "state", value: state),
-                URLQueryItem(name: "code_challenge", value: Pkce.challenge(verifier)),
-                URLQueryItem(name: "code_challenge_method", value: "S256"),
-            ]
-            phase = .browser
-            let result = await web.open(c.url!, callbackScheme: AccountSite.callbackScheme)
-            defer { phase = .idle }
-            switch result {
-            case .cancelled: problem = Note("signin_cancelled")
-            case .failed: problem = Note("signin_failed")
-            case .callback(let url):
-                let q = Self.query(url)
-                // a callback that isn't this sign-in's (another state, another place) is ignored: nothing changes
-                guard url.scheme == AccountSite.callbackScheme, url.host == "callback",
-                      let got = q["state"], Self.same(got, state) else {
-                    AppLog.i("sign-in: a callback that isn't this sign-in's was ignored")
+            if provider == .apple, let apple {
+                phase = .apple
+                let nonce = Pkce.random(32)
+                let result = await apple.authorize(nonceHash: Self.sha256hex(nonce))
+                switch result {
+                case .cancelled:
+                    phase = .idle
+                    problem = Note("signin_cancelled")
                     return
-                }
-                if let e = q["error"] {
-                    problem = Note(e == "cancelled" ? "signin_cancelled" : e == "no_email" ? "signin_no_email" : "signin_failed")
+                case .credential(let token, let name):
+                    phase = .finishing
+                    await appleExchange(token: token, nonce: nonce, name: name)
+                    phase = .idle
                     return
+                case .failed:
+                    AppLog.i("sign-in: the system's Sign in with Apple couldn't show; the web sheet instead")
+                    phase = .idle
                 }
-                guard let code = q["code"], !code.isEmpty else { problem = Note("signin_failed"); return }
-                phase = .finishing
-                await exchange(code: code, verifier: verifier)
+            }
+            await webSignIn(provider)
+        }
+    }
+
+    /// The site's sign-in in the system's web sheet (shares Safari's sign-ins), then the tokens.
+    private func webSignIn(_ provider: SignInProvider) async {
+        guard phase == .idle, let web else { return }
+        let verifier = Pkce.random(32)
+        let state = Pkce.random(16)
+        var c = URLComponents(url: site.appendingPathComponent("api/app/start"), resolvingAgainstBaseURL: false)!
+        c.queryItems = [
+            URLQueryItem(name: "provider", value: provider.rawValue),
+            URLQueryItem(name: "platform", value: "ios"),
+            URLQueryItem(name: "redirect", value: AccountSite.redirect),
+            URLQueryItem(name: "state", value: state),
+            URLQueryItem(name: "code_challenge", value: Pkce.challenge(verifier)),
+            URLQueryItem(name: "code_challenge_method", value: "S256"),
+        ]
+        phase = .browser
+        let result = await web.open(c.url!, callbackScheme: AccountSite.callbackScheme)
+        defer { phase = .idle }
+        switch result {
+        case .cancelled: problem = Note("signin_cancelled")
+        case .failed: problem = Note("signin_failed")
+        case .callback(let url):
+            let q = Self.query(url)
+            // a callback that isn't this sign-in's (another state, another place) is ignored: nothing changes
+            guard url.scheme == AccountSite.callbackScheme, url.host == "callback",
+                  let got = q["state"], Self.same(got, state) else {
+                AppLog.i("sign-in: a callback that isn't this sign-in's was ignored")
+                return
+            }
+            if let e = q["error"] {
+                problem = Note(e == "cancelled" ? "signin_cancelled" : e == "no_email" ? "signin_no_email" : "signin_failed")
+                return
+            }
+            guard let code = q["code"], !code.isEmpty else { problem = Note("signin_failed"); return }
+            phase = .finishing
+            await exchange(code: code, verifier: verifier)
+        }
+    }
+
+    /// Apple's identity token and the raw nonce to the site, which checks them and answers as the code grant does.
+    private func appleExchange(token: String, nonce: String, name: String?) async {
+        let gen = generation
+        var body: [String: Any] = ["identity_token": token, "nonce": nonce, "device": device]
+        if let name, !name.isEmpty { body["name"] = String(name.prefix(200)) }
+        let reply = await post("api/app/apple", body, bearer: nil)
+        guard gen == generation else { return }
+        switch reply {
+        case .offline: problem = Note("signin_unreachable")
+        case .answered(let status, let data):
+            if status == 200, let t = Self.tokens(data) {
+                keep(t, fresh: true)
+            } else if Self.error(data) == "no_email" {
+                problem = Note("signin_no_email")
+            } else {
+                problem = Note(status >= 500 || status == 429 ? "signin_not_answering" : "signin_failed")
             }
         }
+    }
+
+    /// SHA-256 of `text`, lowercase hex: what goes into Apple's request as the nonce (Apple's documented form).
+    static func sha256hex(_ text: String) -> String {
+        SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
     private func exchange(code: String, verifier: String) async {

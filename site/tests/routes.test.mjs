@@ -1,4 +1,4 @@
-// The site fits Vercel's Hobby plan (at most 12 functions) and every endpoint still answers at its address (REL-451).
+// The site fits Vercel's Hobby plan (at most 12 functions) and every endpoint still answers at its address (REL-452).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, statSync } from "node:fs";
@@ -14,13 +14,13 @@ function functions(dir) {
   });
 }
 
-// decision: REL-451
+// decision: REL-452
 test("the site deploys at most 12 functions", () => {
   const all = functions(fileURLToPath(new URL("../api", import.meta.url)));
   assert.ok(all.length > 0 && all.length <= 12, all.join(", "));
 });
 
-// decision: REL-451
+// decision: REL-452
 test("each step is found by its segment, its path or a rewritten address, and the segment is dropped", () => {
   assert.deepEqual(stepOf(new Request("https://f.example/api/app/callback?step=callback&code=c&state=s")), {
     step: "callback",
@@ -31,7 +31,7 @@ test("each step is found by its segment, its path or a rewritten address, and th
   assert.equal(stepOf(new Request("https://f.example/app/callback?code=x")).step, "landing");
 });
 
-// decision: REL-451
+// decision: REL-452
 test("every route names a handler for its methods; an unknown step or method is refused", async () => {
   for (const routes of [APP_ROUTES, AUTH_ROUTES])
     for (const [step, byMethod] of Object.entries(routes))
@@ -40,7 +40,7 @@ test("every route names a handler for its methods; an unknown step or method is 
         assert.equal(typeof needs, "function", `${step} ${method}`);
       }
   assert.deepEqual(Object.keys(APP_ROUTES).sort(), [
-    "assertion", "assetlinks", "callback", "delete", "landing", "me", "ready", "signout", "start", "token",
+    "apple", "assertion", "assetlinks", "callback", "delete", "landing", "me", "ready", "signout", "start", "token",
   ]);
   assert.equal((await dispatch(APP_ROUTES, new Request("https://f.example/api/app/nope"))).status, 404);
   assert.equal((await dispatch(APP_ROUTES, new Request("https://f.example/api/app/constructor"))).status, 404);

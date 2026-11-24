@@ -597,9 +597,22 @@ live = ["LIVE-1167"]
 title = "How the apps sign in: /api/app, PKCE one-time codes, opaque rotating tokens, Apple verified locally"
 by = "agent"
 date = 2026-11-24
-status = "active"
+status = "superseded"
+superseded_by = "REL-452"
 supersedes = ["REL-441"]
 rule = "For REL-449's sign-in. site/api/app: start (provider, platform, the app's PKCE S256 challenge and state, a redirect from an exact allowlist: ferb-auth://callback or the Android App Link /app/callback), callback (Google by openid-client; Apple by form_post, its id_token checked against Apple's JWKS; private-relay emails accepted), token (a 120 s one-time code bound to the challenge, then an opaque 1 h access token and a rotating 180-day refresh token, REL-445, kept only as SHA-256; a reused refresh token revokes its family), me, signout, delete, assertion, ready. Rate limits in the database."
 why = "REL-441 without send-link (REL-449). PKCE with an exact redirect allowlist is what RFC 8252 asks of apps; opaque tokens stored hashed mean a database leak gives no usable token; rotation with reuse detection limits a stolen refresh token. node:crypto signs the JWTs."
+paths = ["site/api/app", "site/api/_lib", "site/sql", "site/tests", "site/vercel.json", "site/env.example"]
+live = ["LIVE-1202", "LIVE-1203"]
+
+[REL-452]
+title = "How the apps sign in: /api/app, FERB.app's loopback return, the iPhone's own Sign in with Apple"
+by = "agent"
+date = 2026-11-24
+status = "active"
+supersedes = ["REL-451"]
+rule = "For REL-449, APP-1137. As REL-451 (start, callback, token, me, signout, delete, assertion, ready; PKCE codes; opaque rotating tokens, REL-445; rate limits) with: a Mac returns only to http://127.0.0.1:<port>/callback (port 1024-65535, no leading zeros, nothing else in it), never ferb-auth://callback; apple: the iPhone's identity token checked against Apple's JWKS, audience com.ferb.phone, nonce = SHA-256 hex of the raw nonce sent, each nonce once in 10 minutes, then the code grant's account linking, device record, rate limit and answer."
+why = "PKCE with an exact return rule (RFC 8252): a loopback code is useless to another program without the verifier. No released build used the Mac's scheme; the owner's test build stays signed in. Apple's hashed nonce is its documented form; taking it once stops a replay."
+rejected = ["Keeping ferb-auth://callback for a Mac: a second return path with the system alert, kept only for a test build", "The Apple authorization code exchanged with Apple's token endpoint as well: a client secret for a second client id, and nothing more proven than the signed identity token"]
 paths = ["site/api/app", "site/api/_lib", "site/sql", "site/tests", "site/vercel.json", "site/env.example"]
 live = ["LIVE-1202", "LIVE-1203"]

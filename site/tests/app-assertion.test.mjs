@@ -1,5 +1,5 @@
 // decision: REL-449
-// decision: REL-451
+// decision: REL-452
 // decision: PHN-828
 // The pairing assertion: the site signs which account a phone is signed in to; the Mac's daemon verifies it. The
 // vector in fixtures/assertion-vector.json (an invented TEST key) is the one the daemon's own test verifies too.

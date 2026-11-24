@@ -1,5 +1,5 @@
 // decision: REL-449
-// decision: REL-451
+// decision: REL-452
 // The two plain pages Android's sign-in needs, the routes that reach them, and the settings' names.
 import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -58,6 +58,7 @@ test("vercel.json sends /.well-known/assetlinks.json and /app/callback to their 
     assetlinks: ["GET"],
     landing: ["GET"],
     ready: ["GET"],
+    apple: ["POST"],
   };
   for (const [name, verbs] of Object.entries(methods))
     assert.deepEqual(Object.keys(APP_ROUTES[name] ?? {}).sort(), verbs, name);
@@ -91,7 +92,7 @@ test("the site sends no email: no send-link, no unsubscribe, no mail settings, n
   }
 });
 
-// decision: APP-1128
+// decision: APP-1138
 test("ready says whether a provider's sign-in is set up, so an app says so instead of opening an error page", async () => {
   const ask = async (deps, provider) => {
     const r = appReady(new Request(`https://ferb.example.com/api/app/ready?provider=${provider}`), deps);

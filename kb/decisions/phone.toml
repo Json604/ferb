@@ -4388,9 +4388,22 @@ live = ["LIVE-1203"]
 title = "How the phones sign in: the system sign-in browser, the phone's secure store, the phone-first screen"
 by = "agent"
 date = 2026-11-24
-status = "active"
+status = "superseded"
+superseded_by = "PHN-841"
 supersedes = ["PHN-829"]
 rule = "For PHN-839. Both phones use the site's web flow for Google and Apple with PKCE S256 and the app's state: iPhone through ASWebAuthenticationSession and ferb-auth://callback, Android through Custom Tabs and the verified App Link /app/callback. Tokens live only in the phone's secure store (iPhone Keychain, this device only; Android sealed with a Keystore key). Refresh as on the Mac. The phone-first page shows the download address and pair now, and asks the site nothing. Sign out and Delete account first unpair the phone (phone.forget_self, best effort) and forget the Mac."
 why = "PHN-829 without Send me the link (PHN-839). The same rules as FERB.app (APP-1128) on each phone's own platform tools."
 paths = ["apps/android", "apps/ios"]
+live = ["LIVE-1203"]
+
+[PHN-841]
+title = "How phones sign in: iPhone's Google sheet with Safari's accounts and own Apple sign-in; Android tab"
+by = "agent"
+date = 2026-11-24
+status = "active"
+supersedes = ["PHN-840"]
+rule = "For PHN-839, APP-1137. iPhone: Google in ASWebAuthenticationSession sharing Safari's sign-ins (not ephemeral; iOS's alert stays), back to ferb-auth://callback; Apple through ASAuthorizationAppleIDProvider (name, email, SHA-256 of a 32-byte nonce) to /api/app/apple, the web flow when it can't show; the applesignin entitlement. Android unchanged: a Custom Tab, else the default browser, back by the App Link. PKCE and state on the web flow; tokens only in the secure store; refresh, phone-first page, Sign out and Delete as PHN-840."
+why = "The owner's iPhone choice (APP-1137): the sheet that shows his signed-in accounts, alert and all, over one without them; the system Sign in with Apple has neither a web page nor the alert. Android's Custom Tab already shows in the app with no alert. The rest is PHN-840's."
+rejected = ["SFSafariViewController: in the app with no alert, but it hasn't shared Safari's sign-ins since iOS 11, so no accounts show", "The ephemeral sheet (prefersEphemeralWebBrowserSession = true): no alert, but a fresh browser with no accounts signed in, which the owner's second message ruled out", "Google's iOS sign-in SDK: a dependency that opens the same system sheet, alert included"]
+paths = ["apps/ios/Packages/FerbApp/Sources/FerbAppModel/Account.swift", "apps/ios/Packages/FerbApp/Sources/FerbAppUI/AccountViews.swift", "apps/ios/App/FERB.entitlements", "apps/ios/tools/make_project.py", "apps/android/app/src/main/kotlin/com/ferb/app/SignInBrowser.kt", "apps/android", "apps/ios"]
 live = ["LIVE-1203"]

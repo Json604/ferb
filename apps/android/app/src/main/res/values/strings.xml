@@ -462,7 +462,7 @@
     <!-- the top bar folded into one menu button when there's no room (owner 2026-11-23, PHN-820) -->
     <string name="top_bar_more">More</string>
 
-    <!-- FERB's account (kb PHN-839, PHN-840): the shared sign-in spec's words, plus a few new ones marked "new" -->
+    <!-- FERB's account (kb PHN-839, PHN-841): the shared sign-in spec's words, plus a few new ones marked "new" -->
     <string name="signin_title">Welcome to FERB</string>
     <string name="signin_text">Sign in to use FERB on your phone. Use the same account as on your Mac.</string>
     <string name="signin_google">Continue with Google</string>
@@ -493,7 +493,7 @@
     <string name="delete_text">This deletes %1$s\'s account and signs FERB out on all your devices. It can\'t be undone.</string>
     <string name="delete_yes">Delete account</string>
     <string name="account_delete_failed">FERB couldn\'t delete your account just now. Check your connection and try again.</string>
-    <!-- the phone came first (kb PHN-840) -->
+    <!-- the phone came first (kb PHN-841) -->
     <string name="macfirst_title">FERB runs on your Mac</string>
     <string name="macfirst_text">Your phone works with FERB on your Mac. Install FERB on your Mac, sign in there as %1$s, then pair this phone.</string>
     <string name="macfirst_site">ferb.kartikey.xyz</string>

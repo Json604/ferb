@@ -84,12 +84,12 @@ final class AppSetupController: NSObject {
         return model
     }()
 
-    /// The owner's FERB account (APP-1127, APP-1128): required. Its tokens live in the Keychain through the daemon
+    /// The owner's FERB account (APP-1127, APP-1138): required. Its tokens live in the Keychain through the daemon
     /// (`account.save`, FERB's signed secret helper). Signed out, FERB.app shows the account step, which has no skip.
     lazy var account: AccountSession = {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
         let session = AccountSession(vault: DaemonAccountVault(rpc: model.rpc), server: HTTPAccountServer(),
-                                     web: AccountWebSignIn(), device: AccountDevice.current(defaults, version: version))
+                                     web: AccountWebSignIn.make(), device: AccountDevice.current(defaults, version: version))
         session.onSignedOut = { [weak self] in self?.requireAccount() }
         return session
     }()
@@ -103,7 +103,7 @@ final class AppSetupController: NSObject {
     }
 
     /// Once settled: the account's tokens are refreshed at launch and every few hours. Trouble reaching the server
-    /// keeps the owner signed in; only the server's No signs out (APP-1128).
+    /// keeps the owner signed in; only the server's No signs out (APP-1138).
     private func checkAccount() {
         Task { @MainActor [account] in await account.refresh() }
         guard accountChecks == nil else { return }
@@ -270,7 +270,7 @@ final class AppSetupController: NSObject {
         var progress = self.progress
         progress.plan = nil
         let serviceSetUp = model.serviceAction == .none && !model.serviceRunning
-        if account.state == .signedOut { requireAccount(); return }      // the account is never left behind (APP-1128)
+        if account.state == .signedOut { requireAccount(); return }      // the account is never left behind (APP-1138)
         if account.signedIn { checkAccount() }
         if left.isEmpty && serviceSetUp { onSettled?() }
     }

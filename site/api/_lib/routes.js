@@ -1,7 +1,8 @@
 // The site's functions, by path: Vercel's Hobby plan deploys at most 12 functions, so each folder of endpoints is one
-// function (api/app/[step].js, api/auth/[step].js) that picks its handler here. The addresses are unchanged (REL-451).
+// function (api/app/[step].js, api/auth/[step].js) that picks its handler here. The addresses are unchanged (REL-452).
 import { appDeps, deps, readAppConfig } from "./deps.js";
 import {
+  appAppleNative,
   appAssertion,
   appCallback,
   appDelete,
@@ -19,6 +20,7 @@ const configOnly = () => ({ config: readAppConfig(process.env) });
 
 // step -> method -> [handler, the deps it needs]
 export const APP_ROUTES = {
+  apple: { POST: [appAppleNative, appDeps] },
   assertion: { POST: [appAssertion, appDeps] },
   assetlinks: { GET: [assetLinks, configOnly] },
   callback: { GET: [appCallback, appDeps], POST: [appCallback, appDeps] },

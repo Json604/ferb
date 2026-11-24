@@ -33,7 +33,7 @@ import com.ferb.design.components.PhoneText
 import com.ferb.design.components.Pill
 import com.ferb.design.components.pressable
 
-// FERB's account on the phone (kb PHN-839, PHN-840). Not from the lab: built from its pieces, the lock page's mark
+// FERB's account on the phone (kb PHN-839, PHN-841). Not from the lab: built from its pieces, the lock page's mark
 // and title over the sky, the pair page's white card at the bottom, the black pills. Stateless: the app passes its
 // words (new words live in the app's strings for the owner's approval).
 
@@ -87,7 +87,7 @@ fun SignInPage(
 class MacFirstWords(val title: String, val text: String, val site: String, val pair: String, val signedInAs: String)
 
 /**
- * Signed in with no Mac paired yet (the phone came first, kb PHN-840): FERB runs on the Mac. The download address, the
+ * Signed in with no Mac paired yet (the phone came first, kb PHN-841): FERB runs on the Mac. The download address, the
  * way on to pairing, and who is signed in (a tap opens the account).
  */
 @Composable

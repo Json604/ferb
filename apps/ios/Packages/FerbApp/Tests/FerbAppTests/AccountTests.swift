@@ -73,6 +73,28 @@ final class FakeWeb: WebSignIn {
     }
 }
 
+/// Apple's sheet held open until the test lets it go.
+@MainActor
+final class HeldApple: AppleSignIn {
+    private var held: CheckedContinuation<AppleSignInResult, Never>?
+    func authorize(nonceHash: String) async -> AppleSignInResult { await withCheckedContinuation { held = $0 } }
+    func release(_ result: AppleSignInResult) {
+        held?.resume(returning: result)
+        held = nil
+    }
+}
+
+/// The system's Sign in with Apple for the tests: the nonce hashes it was asked with, and how it ends.
+@MainActor
+final class FakeApple: AppleSignIn {
+    var asked: [String] = []
+    var end: AppleSignInResult = .cancelled
+    func authorize(nonceHash: String) async -> AppleSignInResult {
+        asked.append(nonceHash)
+        return end
+    }
+}
+
 /// FERB's account on the phone (owner 2026-11-24: "required. google and apple."): the gate, the sign-in, the tokens'
 /// place and refresh, phone first, the pairing's account and signing out.
 @MainActor
@@ -136,7 +158,7 @@ final class AccountTests: XCTestCase {
         XCTAssertEqual(start.host, "ferb.kartikey.xyz")
         XCTAssertEqual(start.path, "/api/app/start")
         let q = query(start)
-        XCTAssertEqual(q["provider"], "apple", "Apple through the same web flow")
+        XCTAssertEqual(q["provider"], "apple", "without the system's Sign in with Apple, Apple through the web flow")
         XCTAssertEqual(q["platform"], "ios")
         XCTAssertEqual(q["redirect"], "ferb-auth://callback")
         XCTAssertEqual(q["code_challenge_method"], "S256")
@@ -189,6 +211,92 @@ final class AccountTests: XCTestCase {
         XCTAssertNil(rig.account.account)
     }
 
+    /// Continue with Apple is the system's own Sign in with Apple: the nonce's SHA-256 goes to Apple, the raw nonce and
+    /// Apple's identity token to the site, and the answer is kept as the code grant's.
+    // decision: PHN-841
+    func testAppleUsesTheSystemsOwnSignInWithAppleAndTheSiteChecksItsToken() async throws {
+        rig.account.clearLocal()
+        let apple = FakeApple()
+        rig.account.apple = apple
+        apple.end = .credential(identityToken: "header.claims.signature", name: "Ada Lovelace")
+        http.script("/api/app/apple", (200, FakeHttp.tokens("fa1_apple", "fr1_apple", providers: #"["apple"]"#)))
+        await rig.account.signIn(.apple).value
+
+        XCTAssertTrue(rig.web.opened.isEmpty, "no web page")
+        let sent = try XCTUnwrap(http.sent.first { $0.path == "/api/app/apple" })
+        let nonce = try XCTUnwrap(sent.body["nonce"] as? String)
+        XCTAssertEqual(nonce.count, 43, "32 random bytes, base64url")
+        let hash = SHA256.hash(data: Data(nonce.utf8)).map { String(format: "%02x", $0) }.joined()
+        XCTAssertEqual(apple.asked, [hash], "Apple gets only the nonce's SHA-256")
+        XCTAssertEqual(sent.body["identity_token"] as? String, "header.claims.signature")
+        XCTAssertEqual(sent.body["name"] as? String, "Ada Lovelace")
+        XCTAssertEqual((sent.body["device"] as? [String: Any])?["platform"] as? String, "ios")
+        XCTAssertNil(sent.bearer)
+        XCTAssertEqual(rig.account.account?.providers, ["apple"])
+        let item = String(data: try XCTUnwrap(rig.accountStore.get("account")), encoding: .utf8) ?? ""
+        XCTAssertTrue(item.contains("fr1_apple"))
+        XCTAssertEqual(rig.account.phase, .idle)
+    }
+
+    /// While Apple's own sheet is up the sign-in page says so, not "in your browser".
+    // decision: PHN-841
+    func testWhileApplesSheetIsUpThePageSaysSo() async {
+        rig.account.clearLocal()
+        let apple = HeldApple()
+        rig.account.apple = apple
+        let running = rig.account.signIn(.apple)
+        await eventually("Apple's sheet") { rig.account.phase == .apple }
+        XCTAssertEqual(rig.account.line, "Finishing sign-in with Apple…")
+        apple.release(.cancelled)
+        await running.value
+        XCTAssertEqual(rig.account.phase, .idle)
+    }
+
+    // decision: PHN-841
+    func testAppleCancelledIsSaidAndASystemThatCantShowItFallsBackToTheWebSheet() async {
+        rig.account.clearLocal()
+        let apple = FakeApple()
+        rig.account.apple = apple
+        apple.end = .cancelled
+        await rig.account.signIn(.apple).value
+        XCTAssertEqual(rig.account.problem?.text, "Sign-in was cancelled. Try again when you're ready.")
+        XCTAssertTrue(rig.web.opened.isEmpty)
+
+        apple.end = .failed
+        rig.web.finishes(code: "invented-code")
+        http.script("/api/app/token", (200, FakeHttp.tokens("fa1_w", "fr1_w")))
+        await rig.account.signIn(.apple).value
+        XCTAssertEqual(rig.web.opened.count, 1, "the web sheet instead")
+        XCTAssertEqual(query(rig.web.opened[0])["provider"], "apple")
+        XCTAssertNotNil(rig.account.account)
+
+        // Google never asks the system's Sign in with Apple
+        rig.account.clearLocal()
+        apple.asked = []
+        await rig.account.signIn(.google).value
+        XCTAssertTrue(apple.asked.isEmpty)
+    }
+
+    // decision: PHN-841
+    func testTheSitesAnswersToAppleAreSaidPlainly() async {
+        rig.account.clearLocal()
+        let apple = FakeApple()
+        rig.account.apple = apple
+        apple.end = .credential(identityToken: "t", name: nil)
+        http.script("/api/app/apple", (400, #"{"error":"no_email"}"#), (401, #"{"error":"invalid_grant"}"#))
+        await rig.account.signIn(.apple).value
+        XCTAssertEqual(rig.account.problem?.key, "signin_no_email")
+        await rig.account.signIn(.apple).value
+        XCTAssertEqual(rig.account.problem?.key, "signin_failed")
+        await rig.account.signIn(.apple).value   // nothing scripted: 503
+        XCTAssertEqual(rig.account.problem?.key, "signin_not_answering")
+        http.offline = true
+        await rig.account.signIn(.apple).value
+        XCTAssertEqual(rig.account.problem?.key, "signin_unreachable")
+        XCTAssertNil(rig.account.account)
+        XCTAssertFalse(http.sent.contains { $0.body["name"] != nil }, "no name is sent when Apple shares none")
+    }
+
     // decision: PHN-839
     func testARefreshThatCantReachTheSiteKeepsThePersonSignedInAndInvalidGrantSignsOut() async {
         // an access token about to end
@@ -235,7 +343,7 @@ final class AccountTests: XCTestCase {
     }
 
     /// A call the site refuses again after a refresh: the site no longer knows this sign-in, so it is Sign out's path.
-    // decision: PHN-828, PHN-840
+    // decision: PHN-828, PHN-841
     func testACallRefusedAfterARefreshSignsOutAndLeavesTheMac() async {
         let vm = rig.model()
         rig.session.unlocked()
@@ -252,7 +360,7 @@ final class AccountTests: XCTestCase {
         await eventually("the sign-in") { vm.ui.gate == .signIn }
     }
 
-    // decision: PHN-840
+    // decision: PHN-841
     func testPhoneFirstSaysWhereFERBRunsThenGoesToPairing() async {
         phone.link = FakePhone.status(.idle, paired: false)
         let vm = rig.model()
@@ -321,7 +429,7 @@ final class AccountTests: XCTestCase {
         XCTAssertTrue(vm.pairAccountRefused)
     }
 
-    // decision: PHN-840
+    // decision: PHN-841
     func testSignOutLeavesTheMacAndTheAccount() async {
         rig.prefs.pairedSince = 1_700_000_000_000
         let vm = rig.model()
@@ -339,7 +447,7 @@ final class AccountTests: XCTestCase {
         await eventually("the sign-in") { vm.ui.gate == .signIn }
     }
 
-    // decision: PHN-840
+    // decision: PHN-841
     func testDeleteAccountNeedsTheSiteThenClearsLikeSignOut() async {
         let vm = rig.model()
         rig.session.unlocked()
@@ -356,7 +464,7 @@ final class AccountTests: XCTestCase {
         await eventually("the sign-in") { vm.ui.gate == .signIn }
     }
 
-    // decision: PHN-828, PHN-840
+    // decision: PHN-828, PHN-841
     func testADifferentAccountForgetsTheMacPairedUnderTheOtherOne() async {
         rig.prefs.pairedSince = 1_700_000_000_000
         let vm = rig.model()

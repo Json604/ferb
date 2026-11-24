@@ -1040,7 +1040,7 @@ impl Daemon {
             },
         );
 
-        // APP-1128, PHN-828: FERB.app's sign-in to the owner's FERB account, kept in the Keychain through FERB's signed
+        // APP-1138, PHN-828: FERB.app's sign-in to the owner's FERB account, kept in the Keychain through FERB's signed
         // helper (the runtimes area's, as the API keys are); the phone area matches each pairing against it
         let account = ferb_daemon::account::Account::new(ferb_daemon::account::Seams {
             helper: b.runtimes.deps.helper.clone(),

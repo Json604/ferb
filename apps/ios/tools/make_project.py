@@ -3,7 +3,7 @@
 
 Every line of code is in the Swift packages under apps/ios/Packages; the project only makes the two app bundles and
 the UI tests from three folders it reads as they are (Xcode's synchronized folders, so adding a file never changes
-the project): App/ (the FERB app: one Swift file, its assets and PrivacyInfo.xcprivacy), Gallery/ (the design
+the project): App/ (the FERB app: one Swift file, its assets, PrivacyInfo.xcprivacy and FERB.entitlements), Gallery/ (the design
 gallery, like Android's :gallery) and UITests/. The Info.plist is generated from the build settings below
 (INFOPLIST_KEY_*), so the usage strings and the bundle id are here and only here.
 
@@ -77,6 +77,8 @@ APP_SETTINGS = dict(COMMON_TARGET, **{
     "INFOPLIST_KEY_UISupportedInterfaceOrientations": "UIInterfaceOrientationPortrait",
     "LD_RUNPATH_SEARCH_PATHS": "$(inherited) @executable_path/Frameworks",
     "DEAD_CODE_STRIPPING": "YES",
+    # the system's own Sign in with Apple (kb PHN-841)
+    "CODE_SIGN_ENTITLEMENTS": "App/FERB.entitlements",
     **{"INFOPLIST_KEY_" + k: v for k, v in USAGE.items()},
 })
 

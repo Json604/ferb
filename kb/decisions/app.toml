@@ -4767,10 +4767,35 @@ live = ["LIVE-1202"]
 title = "How FERB.app signs in: an account step after Meet, the system sign-in browser, the Keychain"
 by = "agent"
 date = 2026-11-24
-status = "active"
+status = "superseded"
+superseded_by = "APP-1138"
 rule = "For APP-1127. The tour's account step comes right after Meet (IntroBeat.account, raw value 8), Google or Apple, no skip, repeating with the reason until signed in; an install with no account gets that step alone at its next launch. Sign-in runs in ASWebAuthenticationSession (not ephemeral), which catches ferb-auth://callback itself. Tokens go only to the daemon's account.save (one Keychain item via the signed helper). A refresh that can't reach the server keeps the owner signed in; only the server's No signs out and brings the step back. Settings → Account: who, Sign out, Delete account."
 why = "Before the model sign-in, nothing in FERB.app is reachable signed out. Apple's sign-in browser keeps the password from FERB and the callback from other apps; a universal link needs associated domains the self-signed build can't carry. The daemon is FERB's one way to the Keychain (GATE-543)."
 paths = ["apps/mac/FERBNotch/Sources/NotchCore/Account.swift", "apps/mac/FERBNotch/Sources/FERBNotch/AccountWebSignIn.swift", "apps/mac/FERBNotch/Sources/FERBNotch/IntroSetupBeats.swift", "apps/mac/FERBNotch/Sources/FERBNotch/AppSetupController.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift", "apps/mac/FERBNotch/Sources/NotchCore/IntroPlan.swift", "engine/crates/ferb-daemon"]
+live = ["LIVE-1202"]
+
+[APP-1137]
+title = "Sign-in opens like other apps': the Mac's browser, no alert; in the app on phones, showing accounts"
+by = "owner"
+date = 2026-11-24
+status = "active"
+words = "ok i loggedin in my mac app. BUT why did it shows the dialog 'it wantes to use ferb.kartikey.xyz' ??? it looks fishy as hell, why its nto jsut open the signin link directly int eh browser liek other apps do it??? - i mean it for the phone too, for phone if a inapp browser for this login can be done then thats even better … why cant it show like it does in my android??? if not possible then make it like that where theres teh signedin mails are shown"
+words_source = "Owner 2026-11-24, relayed verbatim: on macOS's \"FERB wants to use ferb.kartikey.xyz to sign in\" alert after his first sign-in, then on the iPhone's sheet that can't skip it."
+rule = "FERB.app opens FERB's sign-in in the person's default browser, as other apps do, with no system \"wants to use … to sign in\" alert, and gets the answer back by itself. On the phones the sign-in shows inside the app: Android's in-app browser tab as built (no alert); on iPhone the in-app sign-in sheet that shows the Google accounts already signed in in Safari (iOS asks its alert first for such a sheet and can't leave it out: his fallback), and Sign in with Apple through the system's own sheet with no web page and no alert. Signing in stays required (APP-1127, PHN-839)."
+why = "He found the alert fishy and asked for the browser like other apps, on a phone in the app; for the iPhone he chose the sheet showing his signed-in accounts. No owner decision named the method: the agent rulings that did (APP-1128, REL-451, PHN-840) give way to APP-1138, REL-452, PHN-841."
+paths = ["apps/mac/FERBNotch/Sources/FERBNotch/AccountWebSignIn.swift", "apps/mac/FERBNotch/Sources/NotchCore/LoopbackReturn.swift", "apps/ios/Packages/FerbApp/Sources/FerbAppUI/AccountViews.swift", "apps/android/app/src/main/kotlin/com/ferb/app/SignInBrowser.kt", "site/api/_lib/app.js"]
+live = ["LIVE-1202", "LIVE-1203"]
+
+[APP-1138]
+title = "How FERB.app signs in: account step after Meet, default browser, loopback return, the Keychain"
+by = "agent"
+date = 2026-11-24
+status = "active"
+supersedes = ["APP-1128"]
+rule = "For APP-1127, APP-1137. The account step right after Meet (IntroBeat.account, raw 8), Google or Apple, no skip, until signed in; alone at the next launch for an install with none. /api/app/start opens in the default browser with redirect http://127.0.0.1:<port>/callback; LoopbackReturn takes one GET /callback with Host 127.0.0.1:<port> and this sign-in's state, else 404. The tab says signed in only once kept. Cancel or 10 minutes end it. Tokens only via the daemon's account.save. Offline refresh keeps the owner signed in; only the server's No signs out."
+why = "RFC 8252's loopback return: the person's own browser and sign-ins, no system alert. PKCE makes a code caught by another program useless. The Host check stops DNS rebinding; 127.0.0.1, never localhost. The daemon is FERB's one way to the Keychain (GATE-543)."
+rejected = ["ASWebAuthenticationSession, not ephemeral (APP-1128): macOS's \"wants to use … to sign in\" alert, which the owner found fishy", "ASWebAuthenticationSession, ephemeral: no alert, but a separate window that knows none of the browser's sign-ins", "A URL scheme registered in Info.plist: any page could open FERB.app with it, and the browser asks \"Open FERB?\"", "A universal link: needs associated domains the self-signed build can't carry"]
+paths = ["apps/mac/FERBNotch/Sources/NotchCore/Account.swift", "apps/mac/FERBNotch/Sources/NotchCore/LoopbackReturn.swift", "apps/mac/FERBNotch/Sources/FERBNotch/AccountWebSignIn.swift", "apps/mac/FERBNotch/Sources/FERBNotch/IntroSetupBeats.swift", "apps/mac/FERBNotch/Sources/FERBNotch/AppSetupController.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift", "apps/mac/FERBNotch/Sources/NotchCore/IntroPlan.swift", "engine/crates/ferb-daemon"]
 live = ["LIVE-1202"]
 
 [APP-1131]

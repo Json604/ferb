@@ -10,7 +10,7 @@ enum IntroAnswer: Equatable {
     case entry(String)
 }
 
-/// FERB.app's first-run tour (kb area app): Meet → Your FERB account (APP-1128) → Sign in → Permissions → Pair browsers → FERB's email →
+/// FERB.app's first-run tour (kb area app): Meet → Your FERB account (APP-1138) → Sign in → Permissions → Pair browsers → FERB's email →
 /// Try → Control → Home. FERB speaks in text lines in the notch, the orb points at places on screen, every grant counts
 /// only when the system confirms it, and every wait shows what FERB is doing, alive, with its elapsed time (APP-665).
 /// Try runs the task the owner picks for real, through the normal chat path (APP-666); the tour never starts a task the
@@ -61,7 +61,7 @@ final class IntroController {
     /// The tasks the owner started in Try, newest last: Control offers to stop one still running and starts none of
     /// its own (APP-696).
     var tryTasks: [UUID] = []
-    /// The owner's FERB account (APP-1128): the account step signs in through it and can't be skipped. Nil (tests that
+    /// The owner's FERB account (APP-1138): the account step signs in through it and can't be skipped. Nil (tests that
     /// aren't about it): the step has nothing to do.
     var account: AccountSession?
     var seenControls: Set<IntroControl> = []

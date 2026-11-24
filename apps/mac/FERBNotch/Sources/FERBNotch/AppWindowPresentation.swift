@@ -154,6 +154,14 @@ enum AppWindowPresentation {
         return open()
     }
 
+    /// FERB comes forward after something the owner finished in another app (the account sign-in in the browser,
+    /// APP-1138), only when `mayActivate` allows: never a Space switch. The notch shows the outcome either way.
+    static func comeForward(_ what: String) {
+        let activates = mayActivate(inDockBefore: policy() == .regular)
+        if activates { activate() }
+        log.notice("FERB comes forward after \(what, privacy: .public): activates \(activates, privacy: .public)")
+    }
+
     /// Insomnia mode's cover takes the front (APP-980, APP-983): when it rises and whenever an app came forward under it.
     /// Its panels are on every Space and join every app (InsomniaCover), so this can't switch the owner's Space; the
     /// owner turned the mode on, and the kiosk options apply only while FERB is the active app (x1 experiment 2).

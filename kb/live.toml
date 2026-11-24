@@ -5155,18 +5155,18 @@ sitting = "website review after deployment"
 title = "FERB.app: signing in to FERB is required; first run, an existing install, Settings → Account"
 area = "app"
 surface = "A FERB.app build with this change installed after the site is deployed with the app sign-in set up; a fresh Mac account or a wiped ~/.ferb for the first run, then the owner's own install"
-request = "First run: go through Meet, then sign in with Google (cancel once first, then finish). Quit; reopen. Settings → Account: check the email and provider, Sign out, sign in with Apple, then Delete account and sign in again. With Wi-Fi off, reopen FERB.app after an hour (the token is old): it keeps working; Settings → Account says it couldn't check. On an install from before this build: open it once."
-pass = "The account step comes right after Meet, says FERB doesn't send you emails (no unsubscribe line), has no Skip, says why after a cancel and moves on only once signed in; reopening asks nothing; Sign out and Delete bring the account step back at once and nothing else in FERB.app is usable until signed in; offline keeps working with the plain line; the older install gets only the short account step, not the whole tour; ferb trace / logs show no token."
-decisions = ["APP-1127", "APP-1128", "REL-449", "REL-451"]
+request = "First run: go through Meet, then sign in with Google: press Cancel in the notch once while the browser tab is open, then finish in the browser. Read the browser tab after it. Quit; reopen. Settings → Account: check the email and provider, Sign out, sign in with Apple, then Delete account and sign in again. With Wi-Fi off, reopen FERB.app after an hour (the token is old): it keeps working; Settings → Account says it couldn't check. On an install from before this build: open it once."
+pass = "The account step follows Meet, says FERB doesn't send you emails, has no Skip, says why after a cancel, moves on only once signed in; the sign-in is a default-browser tab with no \"wants to use … to sign in\" alert, the notch offers Cancel while waiting and the tab ends on You're signed in to FERB; reopening asks nothing; Sign out and Delete bring the step back at once; offline keeps working with the plain line; an older install gets only the account step; no token in ferb trace or logs."
+decisions = ["APP-1127", "APP-1137", "APP-1138", "REL-449", "REL-452"]
 sitting = "app sign-in check after deployment"
 
 [LIVE-1203]
 title = "Phones: sign-in at first launch and the phone-first screen"
 area = "phone"
 surface = "The Android release APK the owner sideloads and the iPhone build, after the site is deployed with the app sign-in set up; a Mac without FERB paired to that phone"
-request = "Open the phone app fresh: unlock, sign in with Google (Android) and with Apple (iPhone). With no Mac paired, read the screen, then press I've installed it — pair now. Sign out from Settings."
-pass = "Sign-in comes first and nothing else is reachable before it; the sign-in screen says FERB doesn't send you emails; the FERB runs on your Mac screen names the signed-in email and shows ferb.kartikey.xyz, with no Send me the link; pair now opens the scanner; Sign out returns to the sign-in screen and the phone is unpaired."
-decisions = ["PHN-839", "PHN-840", "REL-449"]
+request = "Open the phone app fresh: unlock, sign in with Google on Android; on iPhone sign in with Apple, then Sign out and sign in with Google. With no Mac paired, read the screen, then press I've installed it — pair now. Sign out from Settings."
+pass = "Sign-in comes first; Android's Google page opens in the app with no alert; the iPhone's Apple sign-in is the system sheet with no web page or alert; its Google sign-in asks iOS's alert once, then lists Safari's signed-in Google accounts; the sign-in screen says FERB doesn't send emails; FERB runs on your Mac names the email and ferb.kartikey.xyz, no Send me the link; pair now opens the scanner; Sign out returns to sign-in and unpairs."
+decisions = ["PHN-839", "PHN-841", "APP-1137", "REL-449", "REL-452"]
 sitting = "phone sign-in check after deployment"
 
 [LIVE-1204]

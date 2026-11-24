@@ -10,7 +10,8 @@ export const SITE = "https://ferb.example.com";
 export const APP_STATE = "app-state-0123456789abcdef";
 export const VERIFIER = "verifier-0123456789abcdefghijklmnopqrstuvwxyzABCD"; // 49 characters, RFC 7636 alphabet
 export const DEVICE = { id: "mac-device-0123456789", platform: "mac", version: "0.28.0 (202611240101)", name: "Ada's MacBook" };
-export const RETURN = { mac: "ferb-auth://callback", ios: "ferb-auth://callback", android: `${SITE}/app/callback` };
+// FERB.app's loopback return names the port it listens on (REL-452).
+export const RETURN = { mac: "http://127.0.0.1:52345/callback", ios: "ferb-auth://callback", android: `${SITE}/app/callback` };
 export const GOOGLE_CLAIMS = { sub: "google-sub-0001", email: "Ada@Example.com", email_verified: true, name: "Ada L" };
 export const APPLE_SERVICES_ID = "com.ferb.signin.test";
 

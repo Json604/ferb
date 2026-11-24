@@ -52,7 +52,7 @@ internal fun SignIn(vm: FerbViewModel, ui: UiState, insets: PhoneInsets) {
     )
 }
 
-/** Signed in, no Mac paired yet (kb PHN-840): FERB runs on the Mac, its download address; then pair. */
+/** Signed in, no Mac paired yet (kb PHN-841): FERB runs on the Mac, its download address; then pair. */
 @Composable
 internal fun MacFirst(vm: FerbViewModel, ui: UiState, insets: PhoneInsets) {
     val email = ui.account.account?.email.orEmpty()

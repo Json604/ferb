@@ -1,4 +1,4 @@
-//! FERB.app's sign-in to the owner's FERB account (APP-1128, PHN-830; the spec's "Daemon RPCs"): `account.get`,
+//! FERB.app's sign-in to the owner's FERB account (APP-1138, PHN-830; the spec's "Daemon RPCs"): `account.get`,
 //! `account.save`, `account.clear`, FERB.app's own (`app_only`; a phone's class is `never`). FERB.app signs in on
 //! FERB's site and hands the daemon the account and its tokens; the daemon keeps them as ONE Keychain item (service
 //! "ferb", account "ferb.account") written and read only through FERB's signed secret helper ([`KeyHelper`], as the

@@ -55,11 +55,15 @@ screenshots are re-recorded with `TEST_RUNNER_FERB_RECORD_SNAPSHOTS=1` (its READ
   No DNS context is needed on iOS: n0-dns-resolver reads the nameservers through libresolv (PHN-478), so there is no
   `NativeInit` twin.
 - **The scanner** (PHN-564): AVFoundation's QR reader, as PHN-447 named.
-- **FERB's account** (PHN-827..829, the owner's "required. google and apple."): after the lock and before anything else,
-  signed out shows only the sign-in (FerbAppModel `AccountModel`, FerbAppUI `AccountViews.swift`). Google and Apple both
-  go through the site's web flow in ASWebAuthenticationSession (callback `ferb-auth://callback`, PKCE S256 and our own
-  state; no URL scheme registered); a native Sign in with Apple would need a second audience on the server and is not
-  built. The account and its tokens are one Keychain item of the service `com.ferb.phone.account`
+- **FERB's account** (PHN-839..841, the owner's "required. google and apple."): after the lock and before anything else,
+  signed out shows only the sign-in (FerbAppModel `AccountModel`, FerbAppUI `AccountViews.swift`). Google goes through
+  the site's web flow in ASWebAuthenticationSession (callback `ferb-auth://callback`, PKCE S256 and our own state; no
+  URL scheme registered), sharing Safari's sign-ins so Google lists the accounts already signed in; iOS's "wants to use
+  … to sign in" alert comes with that sharing. Apple uses the system's own Sign in with Apple
+  (ASAuthorizationAppleIDProvider, `SystemAppleSignIn`; the nonce's SHA-256 in the request, the raw nonce and Apple's
+  identity token to `/api/app/apple`), and the same web flow when the system can't show it. It needs the
+  `com.apple.developer.applesignin` entitlement (`App/FERB.entitlements`) and, for a device build, Sign in with Apple
+  turned on for the App ID com.ferb.phone. The account and its tokens are one Keychain item of the service `com.ferb.phone.account`
   (AfterFirstUnlockThisDeviceOnly), apart from the vault's so Forget this Mac never signs out; the device id is in
   UserDefaults, and its absence (a new install) deletes what an earlier install left in that service. Signed in with
   no Mac paired: "FERB runs on your Mac" (the download address, then pairing). Pairing first asks the site for

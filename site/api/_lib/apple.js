@@ -73,8 +73,10 @@ export function appleSignIn(settings, { fetch, now }) {
     return jwk || null;
   }
 
-  // The ID token's claims once its signature, issuer, audience, times and nonce check out; throws otherwise.
-  async function verifyIdToken(token, nonce) {
+  // The ID token's claims once its signature, issuer, audience, times and nonce check out; throws otherwise. The
+  // audience is the Services ID for the web sign-in, the iPhone app's bundle id for its own Sign in with Apple
+  // (PHN-841). Every failure of the token itself has a code starting TOKEN_; KEYS_ and fetch errors are Apple's side.
+  async function verifyIdToken(token, nonce, audience = settings.servicesId) {
     const parts = typeof token === "string" ? token.split(".") : [];
     if (parts.length !== 3 || parts.some((p) => !p)) throw failure("TOKEN_MALFORMED");
     const header = decode(parts[0]);
@@ -88,7 +90,7 @@ export function appleSignIn(settings, { fetch, now }) {
     const at = now();
     if (!claims) throw failure("TOKEN_CLAIMS");
     if (claims.iss !== APPLE_ISSUER) throw failure("TOKEN_ISSUER");
-    if (claims.aud !== settings.servicesId) throw failure("TOKEN_AUDIENCE");
+    if (typeof audience !== "string" || !audience || claims.aud !== audience) throw failure("TOKEN_AUDIENCE");
     if (typeof claims.exp !== "number" || !(at < claims.exp)) throw failure("TOKEN_EXPIRED");
     if (typeof claims.iat !== "number" || claims.iat > at + CLOCK_SKEW) throw failure("TOKEN_ISSUED_AT");
     if (!sameText(claims.nonce, nonce)) throw failure("TOKEN_NONCE");

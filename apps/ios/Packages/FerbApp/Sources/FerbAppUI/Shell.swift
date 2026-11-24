@@ -152,7 +152,8 @@ public final class AppShell: ObservableObject {
 
     // ---- the account ------------------------------------------------------------------------------------------------
 
-    /// The real account: the Keychain (its own service, apart from the vault's), URLSession, the system's web sheet.
+    /// The real account: the Keychain (its own service, apart from the vault's), URLSession, the system's web sheet and
+    /// its own Sign in with Apple.
     /// A Debug simulator run by the UI tests (`-FERBUITestUnlock YES`) never reaches the site: an account in memory
     /// (signed in with `-FERBUITestSignedIn YES`) and a stand-in site. Never in a Release build or on a phone.
     private static func account(prefs: Prefs) -> AccountModel {
@@ -171,7 +172,7 @@ public final class AppShell: ObservableObject {
         }
         #endif
         return AccountModel(store: KeychainStore(service: "com.ferb.phone.account"), http: URLSessionHttp(), web: SystemWebSignIn(),
-                            prefs: prefs, version: version)
+                            apple: SystemAppleSignIn(), prefs: prefs, version: version)
     }
 
     // ---- the prompts ------------------------------------------------------------------------------------------------

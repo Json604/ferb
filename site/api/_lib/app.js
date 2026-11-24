@@ -1,8 +1,12 @@
-// The apps' sign-in (REL-440, REL-441) and the phone pairing assertion (PHN-828): FERB.app, the iPhone app and the
+// The apps' sign-in (REL-449, REL-452) and the phone pairing assertion (PHN-828): FERB.app, the iPhone app and the
 // Android app sign in to one FERB account (a row of ferb_users) with Google or Apple. The app opens /api/app/start
 // in a browser with its own PKCE challenge and state; the provider answers /api/app/callback; the site hands the app
 // a one-time code at an allowlisted address; the app trades it with its verifier at /api/app/token for an access
 // token (1 hour) and a refresh token (180 days, REL-445; rotated on each use; a reused one ends the whole sign-in).
+// The addresses (REL-452): FERB.app's loopback http://127.0.0.1:<port>/callback (RFC 8252 §7.3; the port is the
+// one FERB.app is listening on, so it is part of the request), the iPhone's ferb-auth://callback, Android's App Link.
+// The iPhone's Sign in with Apple can also be the system's own (/api/app/apple, PHN-841): Apple's identity token for
+// the app itself, checked here against Apple's keys, then the same account and tokens.
 //
 // Every outside service comes in through `deps`, so tests run these with stand-ins and no network:
 //   deps.config   readAppConfig(): { ready, secret, siteUrl, google, apple, assertion: { key, kid } | null,
@@ -23,8 +27,15 @@ const COOKIE_PATH = "/api/app";
 const COOKIE_SECONDS = 10 * 60;
 const CALLBACK = "/api/app/callback";
 const ANDROID_RETURN = "/app/callback";
-const NATIVE_RETURN = "ferb-auth://callback";
+const IOS_RETURN = "ferb-auth://callback";
+// FERB.app's loopback return: exactly 127.0.0.1 (never "localhost", which a hosts file could point elsewhere), a
+// port FERB.app chose (1024-65535, written without leading zeros), the path /callback; no userinfo, query or fragment.
+const MAC_RETURN = /^http:\/\/127\.0\.0\.1:([1-9][0-9]{3,4})\/callback$/;
 const ANDROID_PACKAGE = "com.ferb.phone";
+// The iPhone app's bundle id: the audience of the identity tokens Sign in with Apple gives it (PHN-841).
+const IOS_BUNDLE = "com.ferb.phone";
+const APPLE_NONCE_SECONDS = 10 * 60;
+const ID_TOKEN_LIMIT = 8 * 1024;
 
 const CODE_SECONDS = 120;
 const ACCESS_SECONDS = 60 * 60;
@@ -60,8 +71,17 @@ function same(a, b) {
 
 const home = (deps, request) => deps.config.siteUrl || new URL(request.url).origin;
 
-// The one address each platform's sign-in may return to (exact string match).
-export const returnAddress = (site, platform) => (platform === "android" ? site + ANDROID_RETURN : NATIVE_RETURN);
+// Whether `target` is the address `platform`'s sign-in may return to: the iPhone's and Android's by exact string,
+// FERB.app's by the exact loopback form with any unprivileged port. Nothing else, including the iPhone's scheme for a
+// Mac (REL-452).
+export function returnAllowed(site, platform, target) {
+  if (typeof target !== "string") return false;
+  if (platform === "android") return target === site + ANDROID_RETURN;
+  if (platform === "ios") return target === IOS_RETURN;
+  if (platform !== "mac") return false;
+  const m = MAC_RETURN.exec(target);
+  return Boolean(m) && Number(m[1]) >= 1024 && Number(m[1]) <= 65535;
+}
 
 const at = (seconds) => new Date(seconds * 1000);
 const why = (error) => error?.code || error?.name || "error";
@@ -130,7 +150,7 @@ export async function appStart(request, deps) {
   if (
     !PROVIDERS.includes(provider) ||
     !PLATFORMS.includes(platform) ||
-    target !== returnAddress(site, platform) ||
+    !returnAllowed(site, platform, target) ||
     !APP_STATE.test(appState || "") ||
     !CHALLENGE.test(challenge || "") ||
     one("code_challenge_method") !== "S256"
@@ -230,7 +250,7 @@ export async function appCallback(request, deps) {
     !signin ||
     !PROVIDERS.includes(signin.pr) ||
     !PLATFORMS.includes(signin.pl) ||
-    signin.r !== returnAddress(site, signin.pl) ||
+    !returnAllowed(site, signin.pl, signin.r) ||
     !APP_STATE.test(signin.as || "")
   ) {
     return signInPage(400, "That sign-in took too long, or started somewhere else. Go back to FERB and try again.", {
@@ -371,6 +391,78 @@ export async function appToken(request, deps) {
     return invalidRequest();
   } catch (error) {
     deps.log(`app token: the database could not be used (${why(error)})`);
+    return unavailable();
+  }
+}
+
+// ---- POST /api/app/apple: the iPhone's own Sign in with Apple (PHN-841) ----
+// {"identity_token", "nonce", "name"?, "device"}: the identity token ASAuthorizationAppleIDProvider gave the iPhone app,
+// and the raw nonce whose SHA-256 (hex) the app put in that request, as Apple documents. The token is checked here
+// against Apple's keys (issuer, audience = the app's bundle id, times, nonce); each nonce is taken once in ten minutes,
+// so a token seen once can't sign in again. Then the account and the tokens exactly as /api/app/token's code grant:
+// the same account linking (apple_sub, then the verified email), device record, rate limit and answer. Apple sends
+// the name only on the first authorization, and only to the app, so the app passes it on; it is a display name only.
+export async function appAppleNative(request, deps) {
+  if (!deps.config?.ready) return unavailable();
+  if (!deps.apple) return unavailable();
+  try {
+    const wait = await limit(deps, [[ipKey(deps, request, "token"), LIMITS.token]]);
+    if (wait) return slowDown(wait);
+  } catch (error) {
+    deps.log(`app apple: the rate limit could not be checked (${why(error)})`);
+    return unavailable();
+  }
+  const body = await readJson(request);
+  const device = parseDevice(body?.device);
+  const token = body?.identity_token;
+  const nonce = body?.nonce;
+  const name = body?.name ?? "";
+  if (
+    !device ||
+    device.platform !== "ios" ||
+    typeof token !== "string" ||
+    !token ||
+    token.length > ID_TOKEN_LIMIT ||
+    typeof nonce !== "string" ||
+    !ONE_TIME_CODE.test(nonce) ||
+    typeof name !== "string" ||
+    [...name].length > 200 ||
+    /[\u0000-\u001f\u007f]/.test(name)
+  ) {
+    return invalidRequest();
+  }
+  let claims;
+  try {
+    claims = await deps.apple.verifyIdToken(token, sha256hex(nonce), IOS_BUNDLE);
+  } catch (error) {
+    if (String(error?.code || "").startsWith("TOKEN_")) {
+      deps.log(`app apple: Apple's identity token was refused (${why(error)})`);
+      return invalidGrant();
+    }
+    deps.log(`app apple: Apple's keys could not be read (${why(error)})`);
+    return unavailable();
+  }
+  const verified = claims.email_verified === true || claims.email_verified === "true";
+  const email = verified && typeof claims.email === "string" ? claims.email.trim().toLowerCase() : "";
+  if (!email) {
+    deps.log("app apple: Apple gave no verified email");
+    return json(400, { error: "no_email" });
+  }
+  const now = deps.now();
+  try {
+    const { count } = await deps.store.hit(`apple-nonce:${sha256hex(nonce)}`, at(now), APPLE_NONCE_SECONDS);
+    if (count > 1) {
+      deps.log("app apple: a nonce came back a second time; refused");
+      return invalidGrant();
+    }
+    const user = await deps.store.appUser({ provider: "apple", sub: claims.sub, email, name: name.trim(), at: at(now) });
+    if (!user) {
+      deps.log("app apple: that email's account is linked to another apple account");
+      return invalidGrant();
+    }
+    return await issue(deps, user.id, deps.random(), device);
+  } catch (error) {
+    deps.log(`app apple: the database could not be used (${why(error)})`);
     return unavailable();
   }
 }

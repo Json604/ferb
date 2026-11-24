@@ -12579,3 +12579,111 @@ sends Google and Apple their sign-in with `https://ferb.kartikey.xyz/api/app/cal
 com.ferb.phone with that fingerprint, `/download/FERB-AppleSilicon.dmg` still 307s to the latest release. Unverified: a
 full sign-in (the owner's live check, LIVE-1202..1204); the list page's sign-in needs
 `https://ferb.kartikey.xyz/api/auth/callback` among the Google client's redirect addresses, which it doesn't have.
+
+## 2026-11-24 · 218 · Sign-in opens like other apps': the Mac's own browser and a loopback return; the iPhone's own Sign in with Apple
+
+**The owner (APP-1137).** After his first sign-in: "ok i loggedin in my mac app. BUT why did it shows the dialog 'it
+wantes to use ferb.kartikey.xyz' ??? it looks fishy as hell, why its nto jsut open the signin link directly int eh
+browser liek other apps do it??? - i mean it for the phone too, for phone if a inapp browser for this login can be done
+then thats even better". Told the iPhone's in-app sheet without that alert can't show Safari's signed-in accounts: "why
+cant it show like it does in my android??? if not possible then make it like that where theres teh signedin mails are
+shown". The alert was macOS's and iOS's own, ASWebAuthenticationSession's consent alert, shown because the sheet shares
+the browser's sign-ins (prefersEphemeralWebBrowserSession = false). No owner decision named the method (APP-1127 and
+PHN-839 stand); the agent rulings that did are superseded: APP-1128 by APP-1138 (Mac), REL-451 by REL-452 (site),
+PHN-840 by PHN-841 (phones). Their tags in code, tests, engine comments, STATUS and LIVE-1202/1203 moved to the new IDs.
+
+**FERB.app (APP-1138).** `BrowserSignIn` (NotchCore/Account.swift) with `LoopbackReturn` (NotchCore/LoopbackReturn.swift,
+Network.framework): before the browser opens, FERB.app listens on 127.0.0.1 only (requiredLocalEndpoint, acceptLocalOnly,
+no reuse), on a port the system picks; the site's start page opens in the default browser (NSWorkspace) with
+`redirect=http://127.0.0.1:<port>/callback`. It takes one request: `GET /callback HTTP/1.x` with exactly one `Host:
+127.0.0.1:<port>` and this sign-in's state (`AccountCallback.read`, constant-time, now also checking http, 127.0.0.1,
+the port and the path). Anything else (another path, method, Host, state; no state; over 8 KB) gets a plain 404 and the
+wait goes on, so another program can neither end nor steer the sign-in; at most 16 connections at once. The taken
+request closes the listener; its tab waits for FERB.app's answer, given after the code exchange and the Keychain save,
+so it says "signed in" only for a sign-in that was kept (60 s without an answer: "Go back to FERB…"). The page is in the
+site's look (its colors, type and logo inline; CSP default-src 'none', no-store, no-referrer; nothing fetched). Cancel
+(the account step's new choice) or 10 minutes close the port. After the answer FERB comes forward through the Space rule's
+new `AppWindowPresentation.comeForward`, only when `mayActivate` allows (APP-796: no Space switch); the notch shows the
+outcome either way. Everything after the code exchange is unchanged (account.save, the Keychain helper, the tour).
+`AccountWebSignIn.swift` is now only the factory with NSWorkspace. Ruled out: the ephemeral sheet (no alert, but no
+browser sign-ins), a registered URL scheme (any page could open FERB.app; the browser asks "Open FERB?"), a universal
+link (associated domains the self-signed build can't carry). This deviates from the brief's order in one point: the
+brief answered the tab before the exchange; the tab here waits for the exchange so it never says signed in wrongly.
+
+**Site (REL-452).** `returnAllowed(site, platform, target)` replaces the exact-string `returnAddress`: a Mac returns only
+to `http://127.0.0.1:<port>/callback` (port 1024–65535 without leading zeros; no userinfo, query, fragment, other host
+such as localhost, [::1], 127.1 or 0.0.0.0); the iPhone to `ferb-auth://callback`; Android to its App Link. The callback
+checks the cookie's address the same way. `ferb-auth://callback` is no longer accepted for a Mac: no released build
+signs in, and keeping it keeps a second path with the alert. Only the owner's own test build used it: it stays signed in
+(refresh doesn't use the address), but after this site deploys its next fresh sign-in needs the new FERB.app. The order
+matters the other way too: a new FERB.app against the old site gets "This sign-in link isn't complete", so the site
+deploys first. PKCE is why the loopback is safe: a code another program on the Mac caught is traded only with this
+sign-in's verifier, which never leaves FERB.app.
+
+**iPhone (PHN-841).** As the owner chose, Google stays in the in-app sheet sharing Safari's sign-ins
+(prefersEphemeralWebBrowserSession = false), so Google lists the accounts already signed in; iOS's alert comes with that
+sharing and stays (SFSafariViewController hasn't shared Safari's cookies since iOS 11; the ephemeral sheet has no alert but
+no accounts). Apple now uses the system's own Sign in with Apple (`SystemAppleSignIn`, ASAuthorizationAppleIDProvider:
+Face ID, no web page, no alert): name and email asked, the request's nonce is the SHA-256 hex of a 32-byte random nonce;
+the identity token, the raw nonce and the name Apple shares go to the new `POST /api/app/apple`. The site checks the
+token against Apple's JWKS (the web flow's `verifyIdToken`, now with an audience argument: `com.ferb.phone`), the nonce
+claim against SHA-256 of the raw nonce, takes each nonce once in 10 minutes (a `ferb_app_limits` row, no new table), then
+does exactly the code grant's work: `appUser` (apple_sub, then the verified email), the device record (ios only), the
+token endpoint's IP limit and the same answer. Apple's side failing (keys unreachable) is 503; a refused token 401
+`invalid_grant`; no verified email 400 `no_email`. When the system sheet can't show (no Apple account on the phone, a
+build without the capability) the app falls back to the web sheet; cancel is said as before. The app now carries
+`App/FERB.entitlements` (`com.apple.developer.applesignin` = Default) through `make_project.py`. While Apple's sheet is up
+the sign-in page says "Finishing sign-in with Apple…" (`SignInPhase.apple`, `AccountModel.line`), not "in your browser".
+
+**Android.** Checked, unchanged: `SignInBrowser.open` launches a Custom Tab of the browser that offers them
+(`CustomTabsClient.getPackageName`, the default browser first when it supports Custom Tabs), which shows inside FERB with
+no system alert; only a phone with no Custom Tabs browser at all gets the default browser through ACTION_VIEW. The answer
+returns by the verified App Link /app/callback. Only its kb tags moved (PHN-840 → PHN-841).
+
+**Words** (owner-facing, new or changed):
+- FERB.app's account step while the browser is open: "Finishing sign-in in your browser…" → "Continue in your browser."
+  (the owner approved the wording on 2026-11-24) with "FERB opened the sign-in page in your browser and comes back here when you're done." and a Cancel choice.
+- FERB.app, new: "Sign-in took too long, so FERB stopped waiting. Try again when you're ready." (10 minutes); "FERB
+  couldn't open the sign-in page in your browser. Try again." (no browser opened, or nothing could listen; this case said
+  "FERB can't reach its sign-in right now…" before).
+- The browser tab after FERB.app's sign-in (new page, heading "sign in", title "sign in · FERB"): "You're signed in to
+  FERB. You can close this tab." / "Sign-in was cancelled. You can close this tab and try again in FERB." / "FERB
+  couldn't finish signing you in. You can close this tab and try again in FERB." / "Go back to FERB to finish signing
+  in. You can close this tab."
+- iPhone, new: "Finishing sign-in with Apple…". Settings → Account (Mac), the phones' other account words and Android:
+  nothing described the old window or alert, so nothing else changed.
+
+**Evidence.**
+- site `npm test` (node_modules linked from the main checkout for the run, then removed): 107 passed, 0 failed. New:
+  every Mac address that isn't the exact loopback form refused (24 cases, the iPhone's scheme among them), 1024/49152/65535
+  accepted, a forged cookie with a non-loopback Mac address gets a page and no redirect, a Mac sign-in returns to the port
+  it named with only code and state; `app-apple-native.test.mjs` (7): a good token signs in with the code grant's answer
+  and refresh, the same account as the web Apple sign-in and linking by email, the web's audience/another app/wrong or
+  unhashed nonce/expired/forged refused with nothing issued, a nonce twice refused, bad requests refused before Apple is
+  asked, no_email, 503 when Apple's keys can't be fetched or nothing is set up, the shared rate limit, the route.
+- FERB.app `swift test` (after `source scripts/swiftpm-anonymous.sh`): 972 tests, 8 skipped, 0 failures; then, after
+  moving tags and comments only, the account, loopback, Space-rule and account-step tests again: 30, 0 failures, six runs.
+  New: `LoopbackReturnTests` (5, real sockets on 127.0.0.1: fifteen wrong requests each a 404 that changes nothing then
+  the one right one taken, its tab answered with the page's headers, the port closed after; failed/cancelled/unanswered
+  pages; Cancel and the timeout close the port; a taken port gives no address, a named free port is used; the whole
+  BrowserSignIn step with injected open/forward), and in `AccountTests`: the callback read at the loopback address, a
+  wrong state or port never exchanged, the tab told signed in only once kept, the account step's wait has Cancel.
+- iPhone `tools/build.sh test` on its own simulator ("FERB iOS signin-wt", deleted after): TEST SUCCEEDED (FerbAppTests
+  228, FERBUITests 8, FerbDesignTests 75, FerbCoreTests 15 with 1 skipped, FerbMobileTests 4); new
+  `AccountTests` cases: Apple through the system sheet (only the nonce's hash to Apple; raw nonce, token, name, device
+  to the site), cancel said, a sheet that can't show falls back to the web sheet, Google never asks Apple, the site's
+  answers said plainly, the Apple line while the sheet is up. `make_project.py --check`, `strings.py --check` clean; the
+  simulator build's entitlements carry `com.apple.developer.applesignin`. The phone library was copied from the main
+  checkout's build (engine unchanged; `build-rust.sh` said up to date).
+- `tools/kb/run kb lock`, `kb gen`, `kb check`: ok. `engine/gate.sh fmt` clean (engine: tag comments only). Android
+  unchanged but for tag comments; its tests not run.
+
+**Unverified.** Nothing deployed or installed; no real sign-in ran. Not checked: that Safari, Chrome and Arc follow the
+site's 303 from https to `http://127.0.0.1:<port>` without a prompt (the usual desktop flow; I didn't verify Chrome's
+local-network rules for top-level navigations); that a signed FERB.app listening on 127.0.0.1 raises no firewall prompt;
+whether FERB comes forward at the end (only where the Space rule allows; during the first-run tour, before FERB is in the
+Dock, the browser stays in front and the notch shows the result). iPhone: the system Sign in with Apple never ran on a
+device or in the simulator's UI; a device build needs Sign in with Apple turned on for the App ID com.ferb.phone (the
+owner's step in Apple's developer site, with T-1243/T-1247's signing), and the same Apple ID gets the same account only if
+Apple gives the app and the Services ID com.ferb.signin the same `sub` (they must be grouped under one primary App ID);
+otherwise it links by the verified email.

@@ -4,10 +4,12 @@ import FerbDesign
 import SwiftUI
 import UIKit
 
-/// The system's web sign-in sheet (kb PHN-827): ASWebAuthenticationSession on the site's start page, its callback
-/// `ferb-auth://callback` caught by the session (no URL scheme registered by the app), the browser's own cookies kept
-/// (prefersEphemeralWebBrowserSession = false: the person's Google or Apple sign-in in Safari can be reused), shown over
-/// the key window. Apple goes through this same page (one path on every platform).
+/// The system's web sign-in sheet (kb PHN-841): ASWebAuthenticationSession on the site's start page, its
+/// callback `ferb-auth://callback` caught by the session (no URL scheme registered by the app), Safari's own sign-ins
+/// shared (prefersEphemeralWebBrowserSession = false: Google's page lists the accounts already signed in, as the owner
+/// asked). iOS asks "FERB wants to use … to sign in" first for a sheet that shares Safari's sign-ins; that alert is the
+/// system's and can't be left out of a shared sheet (SFSafariViewController hasn't shared Safari's cookies since iOS
+/// 11). Shown over the key window. Apple uses it only when the system's own Sign in with Apple can't show.
 @MainActor
 final class SystemWebSignIn: NSObject, WebSignIn, ASWebAuthenticationPresentationContextProviding {
     private var session: ASWebAuthenticationSession?
@@ -47,24 +49,74 @@ final class SystemWebSignIn: NSObject, WebSignIn, ASWebAuthenticationPresentatio
     }
 }
 
-/// The sign-in page with the app's words (kb PHN-827).
+/// The system's own Sign in with Apple (kb PHN-841): Apple's sheet with Face ID, no web page and no alert. The request
+/// asks for the name and email and carries the nonce's SHA-256; Apple's identity token comes back for the site to check
+/// (/api/app/apple). Cancel is `.cancelled`; anything else the system can't do is `.failed`, and the web sheet is used.
+@MainActor
+final class SystemAppleSignIn: NSObject, AppleSignIn, ASAuthorizationControllerDelegate,
+    ASAuthorizationControllerPresentationContextProviding {
+    private var pending: CheckedContinuation<AppleSignInResult, Never>?
+    private var controller: ASAuthorizationController?
+
+    func authorize(nonceHash: String) async -> AppleSignInResult {
+        settle(.cancelled)
+        let request = ASAuthorizationAppleIDProvider().createRequest()
+        request.requestedScopes = [.fullName, .email]
+        request.nonce = nonceHash
+        let c = ASAuthorizationController(authorizationRequests: [request])
+        c.delegate = self
+        c.presentationContextProvider = self
+        controller = c
+        return await withCheckedContinuation { (cont: CheckedContinuation<AppleSignInResult, Never>) in
+            pending = cont
+            c.performRequests()
+        }
+    }
+
+    private func settle(_ result: AppleSignInResult) {
+        controller = nil
+        pending?.resume(returning: result)
+        pending = nil
+    }
+
+    nonisolated func authorizationController(controller: ASAuthorizationController,
+                                             didCompleteWithAuthorization authorization: ASAuthorization) {
+        let credential = authorization.credential as? ASAuthorizationAppleIDCredential
+        let token = credential?.identityToken.flatMap { String(data: $0, encoding: .utf8) }
+        let name = credential?.fullName.map { PersonNameComponentsFormatter.localizedString(from: $0, style: .default) }
+        MainActor.assumeIsolated {
+            guard let token, !token.isEmpty else { return settle(.failed) }
+            settle(.credential(identityToken: token, name: name?.trimmingCharacters(in: .whitespacesAndNewlines)))
+        }
+    }
+
+    nonisolated func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
+        let cancelled = (error as? ASAuthorizationError)?.code == .canceled
+        MainActor.assumeIsolated { settle(cancelled ? .cancelled : .failed) }
+    }
+
+    nonisolated func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
+        MainActor.assumeIsolated {
+            let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
+            return windows.first(where: \.isKeyWindow) ?? windows.first ?? ASPresentationAnchor()
+        }
+    }
+}
+
+/// The sign-in page with the app's words (kb PHN-839).
 struct SignInView: View {
     let account: AccountModel
     let insets: PhoneInsets
 
     var body: some View {
         SignInPage(title: L.s("signin_title"), text: L.s("signin_text"), google: L.s("signin_google"),
-                   apple: L.s("signin_apple"), footnote: L.s("signin_footnote"), line: Self.line(account),
+                   apple: L.s("signin_apple"), footnote: L.s("signin_footnote"), line: account.line,
                    working: account.phase != .idle, insets: insets,
                    onGoogle: { account.signIn(.google) }, onApple: { account.signIn(.apple) })
     }
-
-    static func line(_ account: AccountModel) -> String? {
-        account.phase != .idle ? L.s("signin_finishing") : account.problem?.text
-    }
 }
 
-/// "FERB runs on your Mac" with the app's words (kb PHN-840): phone first, signed in, no Mac paired yet.
+/// "FERB runs on your Mac" with the app's words (kb PHN-841): phone first, signed in, no Mac paired yet.
 struct MacFirstView: View {
     @Bindable var model: AppModel
     let insets: PhoneInsets

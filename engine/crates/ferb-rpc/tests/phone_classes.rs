@@ -77,7 +77,7 @@ fn every_method_of_the_engine_has_exactly_one_phone_class() {
 // decision: PHN-117
 // decision: PHN-466
 // decision: PHN-581
-// decision: APP-1128
+// decision: APP-1138
 #[test]
 fn the_phone_reaches_everything_but_the_never_rows() {
     let never = names(|row| row.class == Class::Never);
@@ -85,7 +85,7 @@ fn the_phone_reaches_everything_but_the_never_rows() {
         never,
         set(&[
             "about.guide",
-            // APP-1128: FERB.app's own sign-in to the owner's FERB account (PHN-828)
+            // APP-1138: FERB.app's own sign-in to the owner's FERB account (PHN-828)
             "account.clear",
             "account.get",
             "account.save",

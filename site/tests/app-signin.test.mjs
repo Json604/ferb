@@ -1,5 +1,6 @@
 // decision: REL-449
-// decision: REL-451
+// decision: REL-452
+// decision: REL-452
 // The browser part of the apps' sign-in: /api/app/start and /api/app/callback.
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -34,7 +35,7 @@ test("start sends the app to Google with the site's own state, nonce and PKCE, k
   const saved = JSON.parse(Buffer.from(body, "base64url").toString());
   assert.deepEqual(
     { pr: saved.pr, pl: saved.pl, r: saved.r, as: saved.as, c: saved.c, x: saved.x },
-    { pr: "google", pl: "mac", r: "ferb-auth://callback", as: APP_STATE, c: s256(VERIFIER), x: NOW + 600 },
+    { pr: "google", pl: "mac", r: RETURN.mac, as: APP_STATE, c: s256(VERIFIER), x: NOW + 600 },
   );
   const [args] = f.calls.authorizationUrl;
   assert.deepEqual(args, { redirectUri: `${SITE}/api/app/callback`, state: saved.s, nonce: saved.n, challenge: s256(saved.v) });
@@ -65,12 +66,40 @@ test("start sends the app to Apple with form_post, the name and email scope, sta
 test("every return address that isn't exactly the platform's own, and every bad parameter, is refused with a page", async () => {
   const f = appFakes();
   const bad = [
-    { redirect: "ferb-auth://callback/" },
-    { redirect: "ferb-auth://callback?x=1" },
-    { redirect: "FERB-AUTH://callback" },
-    { redirect: "ferb-auth://callback#x" },
-    { redirect: "ferb-auth://evil" },
+    // FERB.app: only http://127.0.0.1:<1024-65535>/callback (REL-452); the iPhone's scheme is not a Mac's
+    { redirect: "ferb-auth://callback" },
+    { redirect: "http://127.0.0.1:52345/callback/" },
+    { redirect: "http://127.0.0.1:52345/callback?x=1" },
+    { redirect: "http://127.0.0.1:52345/callback#x" },
+    { redirect: "http://127.0.0.1:52345/" },
+    { redirect: "http://127.0.0.1:52345/callbackx" },
+    { redirect: "http://127.0.0.1/callback" },
+    { redirect: "http://127.0.0.1:80/callback" },
+    { redirect: "http://127.0.0.1:1023/callback" },
+    { redirect: "http://127.0.0.1:65536/callback" },
+    { redirect: "http://127.0.0.1:099999/callback" },
+    { redirect: "http://127.0.0.1:01024/callback" },
+    { redirect: "http://127.0.0.1:0/callback" },
+    { redirect: "http://localhost:52345/callback" },
+    { redirect: "http://[::1]:52345/callback" },
+    { redirect: "http://127.0.0.2:52345/callback" },
+    { redirect: "http://127.1:52345/callback" },
+    { redirect: "http://0.0.0.0:52345/callback" },
+    { redirect: "http://user@127.0.0.1:52345/callback" },
+    { redirect: "http://127.0.0.1:52345@evil.example.com/callback" },
+    { redirect: "http://127.0.0.1.evil.example.com:52345/callback" },
+    { redirect: "https://127.0.0.1:52345/callback" },
+    { redirect: "HTTP://127.0.0.1:52345/callback" },
+    { redirect: " http://127.0.0.1:52345/callback" },
+    { redirect: "http://127.0.0.1:52345/callback\n" },
     { redirect: `${SITE}/app/callback` }, // a Mac app is not Android
+    { platform: "ios", redirect: "http://127.0.0.1:52345/callback" }, // nor is a phone a Mac
+    { platform: "android", redirect: "http://127.0.0.1:52345/callback" },
+    { platform: "ios", redirect: "ferb-auth://callback/" },
+    { platform: "ios", redirect: "ferb-auth://callback?x=1" },
+    { platform: "ios", redirect: "FERB-AUTH://callback" },
+    { platform: "ios", redirect: "ferb-auth://callback#x" },
+    { platform: "ios", redirect: "ferb-auth://evil" },
     { platform: "ios", redirect: `${SITE}/app/callback` },
     { platform: "android", redirect: "ferb-auth://callback" },
     { platform: "android", redirect: `${SITE}/app/callback/` },
@@ -104,10 +133,14 @@ test("every return address that isn't exactly the platform's own, and every bad 
   const twice = `${startUrl(startParams())}&redirect=${encodeURIComponent("https://evil.example.com/")}`;
   assert.equal((await appStart(get(twice), f.deps)).status, 400);
   assert.equal(f.calls.authorizationUrl.length, 0);
-  // The exact addresses work on their platforms.
+  // The exact addresses work on their platforms; FERB.app's with any unprivileged port.
   for (const platform of ["mac", "ios", "android"]) {
     const r = await appStart(get(startUrl(startParams({ platform }))), f.deps);
     assert.equal(r.status, 303, platform);
+  }
+  for (const port of [1024, 49152, 65535]) {
+    const r = await appStart(get(startUrl(startParams({ redirect: `http://127.0.0.1:${port}/callback` }))), f.deps);
+    assert.equal(r.status, 303, String(port));
   }
 });
 
@@ -151,7 +184,7 @@ test("Google: the code grant gets the cookie's verifier, state and nonce; the ap
   });
   assert.equal(f.calls.authorizationUrl[0].nonce, saved.n, "the nonce sent to Google is the one checked");
   assert.equal(done.status, 303);
-  assert.equal(`${back.protocol}//${back.host}`, "ferb-auth://callback");
+  assert.equal(`${back.origin}${back.pathname}`, RETURN.mac);
   assert.deepEqual([...back.searchParams.keys()], ["code", "state"]);
   assert.equal(back.searchParams.get("state"), APP_STATE);
   assert.match(code, /^[A-Za-z0-9_-]{43}$/);
@@ -161,7 +194,7 @@ test("Google: the code grant gets the cookie's verifier, state and nonce; the ap
   const kept = f.store.codes.get(sha256hex(code));
   assert.deepEqual(
     { platform: kept.platform, redirect: kept.redirect, challenge: kept.challenge, expires_at: kept.expires_at, used_at: kept.used_at },
-    { platform: "mac", redirect: "ferb-auth://callback", challenge: s256(VERIFIER), expires_at: new Date((NOW + 120) * 1000), used_at: null },
+    { platform: "mac", redirect: RETURN.mac, challenge: s256(VERIFIER), expires_at: new Date((NOW + 120) * 1000), used_at: null },
   );
   assert.doesNotMatch(JSON.stringify([...f.store.codes.values()]), new RegExp(code));
   const user = f.store.users.get(kept.user_id);
@@ -169,6 +202,33 @@ test("Google: the code grant gets the cookie's verifier, state and nonce; the ap
     { email: user.email, name: user.name, google_sub: user.google_sub, apple_sub: user.apple_sub, providers: user.providers },
     { email: "ada@example.com", name: "Ada L", google_sub: "google-sub-0001", apple_sub: null, providers: ["google"] },
   );
+});
+
+test("FERB.app's sign-in returns to the loopback port it named, with the code and its state, and nothing else", async () => {
+  const f = appFakes();
+  const start = await appStart(get(startUrl(startParams({ redirect: "http://127.0.0.1:61234/callback" }))), f.deps);
+  const cookie = `ferb_app_signin=${cookies(start).ferb_app_signin.value}`;
+  const state = new URL(start.headers.get("location")).searchParams.get("state");
+  const done = await appCallback(get(`/api/app/callback?code=google-code&state=${state}`, cookie), f.deps);
+  const back = new URL(done.headers.get("location"));
+  assert.equal(`${back.protocol}//${back.host}${back.pathname}`, "http://127.0.0.1:61234/callback");
+  assert.deepEqual([...back.searchParams.keys()], ["code", "state"]);
+  assert.equal(back.searchParams.get("state"), APP_STATE);
+  assert.equal(done.headers.get("referrer-policy"), "no-referrer");
+});
+
+test("a cookie whose Mac return address isn't the loopback form gets a plain page, never a redirect", async () => {
+  const f = appFakes();
+  const start = await appStart(get(startUrl(startParams())), f.deps);
+  const [body] = cookies(start).ferb_app_signin.value.split(".");
+  const payload = JSON.parse(Buffer.from(body, "base64url").toString());
+  for (const r of ["ferb-auth://callback", "http://localhost:52345/callback", "http://127.0.0.1:80/callback"]) {
+    const forged = sign(SECRET, { ...payload, r });
+    const state = payload.s;
+    const done = await appCallback(get(`/api/app/callback?code=c&state=${state}`, `ferb_app_signin=${forged}`), f.deps);
+    assert.equal(done.status, 400, r);
+    assert.equal(done.headers.get("location"), null, r);
+  }
 });
 
 test("Android's sign-in returns to the site's own App Link address", async () => {
@@ -186,7 +246,7 @@ test("the provider's state must equal the cookie's; a mismatch goes back to the 
     const q = state === null ? "?code=c" : `?code=c&state=${state}`;
     const r = await appCallback(get(`/api/app/callback${q}`, cookie), f.deps);
     assert.equal(r.status, 303);
-    assert.equal(r.headers.get("location"), `ferb-auth://callback?error=failed&state=${APP_STATE}`);
+    assert.equal(r.headers.get("location"), `${RETURN.mac}?error=failed&state=${APP_STATE}`);
   }
   assert.equal(f.calls.exchange.length, 0, "Google is never asked");
   assert.equal(f.store.codes.size, 0);
@@ -229,13 +289,13 @@ test("the provider's error goes back to the app as cancelled; an unverified emai
     return appCallback(get(`/api/app/callback?${query.replace("STATE", state)}`, cookie), f.deps);
   };
   const back = (r) => r.headers.get("location");
-  assert.equal(back(await once("error=access_denied&state=STATE")), `ferb-auth://callback?error=cancelled&state=${APP_STATE}`);
+  assert.equal(back(await once("error=access_denied&state=STATE")), `${RETURN.mac}?error=cancelled&state=${APP_STATE}`);
   f.claims = { sub: "google-sub-0001", email: "ada@example.com", email_verified: false };
-  assert.equal(back(await once("code=c&state=STATE")), `ferb-auth://callback?error=no_email&state=${APP_STATE}`);
+  assert.equal(back(await once("code=c&state=STATE")), `${RETURN.mac}?error=no_email&state=${APP_STATE}`);
   f.claims = { sub: "google-sub-0001", email_verified: true };
-  assert.equal(back(await once("code=c&state=STATE")), `ferb-auth://callback?error=no_email&state=${APP_STATE}`);
+  assert.equal(back(await once("code=c&state=STATE")), `${RETURN.mac}?error=no_email&state=${APP_STATE}`);
   f.claims = Object.assign(new Error("nonce mismatch"), { code: "OAUTH_JWT_CLAIM_COMPARISON_FAILED" });
-  assert.equal(back(await once("code=c&state=STATE")), `ferb-auth://callback?error=failed&state=${APP_STATE}`);
+  assert.equal(back(await once("code=c&state=STATE")), `${RETURN.mac}?error=failed&state=${APP_STATE}`);
   assert.equal(f.store.users.size, 0);
   assert.equal(f.store.codes.size, 0);
 });
@@ -268,7 +328,7 @@ test("Apple: an ID token whose nonce isn't this sign-in's is refused", async () 
     formPost("/api/app/callback", { code: "apple-code", state: location.searchParams.get("state") }, `ferb_app_signin=${cookies(start).ferb_app_signin.value}`),
     f.deps,
   );
-  assert.equal(r.headers.get("location"), `ferb-auth://callback?error=failed&state=${APP_STATE}`);
+  assert.equal(r.headers.get("location"), `${RETURN.mac}?error=failed&state=${APP_STATE}`);
   assert.equal(f.store.users.size, 0);
   assert.ok(f.logs.some((l) => /TOKEN_NONCE/.test(l)));
 });
@@ -334,7 +394,7 @@ test("a database that can't be reached sends the app back with failed, and the l
   const state = new URL(start.headers.get("location")).searchParams.get("state");
   f.store.fail();
   const r = await appCallback(get(`/api/app/callback?code=c&state=${state}`, `ferb_app_signin=${cookies(start).ferb_app_signin.value}`), f.deps);
-  assert.equal(r.headers.get("location"), `ferb-auth://callback?error=failed&state=${APP_STATE}`);
+  assert.equal(r.headers.get("location"), `${RETURN.mac}?error=failed&state=${APP_STATE}`);
   assert.ok(f.logs.length > 0);
   for (const line of f.logs) assert.doesNotMatch(line, /ada|Ada|example\.com|google-code|google-sub/);
   assert.equal((await appStart(get(startUrl(startParams())), f.deps)).status, 503, "the rate limit can't be checked");

@@ -2,8 +2,9 @@ import Combine
 import CryptoKit
 import Foundation
 
-// FERB's account in FERB.app (REL-440, APP-1127, APP-1128): signing in is required, with Google or Apple, through the
-// site's sign-in (site/api/app) and the same user list as the site's download sign-in. The app holds a short-lived
+// FERB's account in FERB.app (REL-449, APP-1127, APP-1138): signing in is required, with Google or Apple, through the
+// site's sign-in (site/api/app) in the person's own browser, back to FERB.app over the loopback (REL-452,
+// LoopbackReturn), and the same user list as the site's download sign-in. The app holds a short-lived
 // access token and a rotating refresh token, both opaque. They live only in the Keychain, through the daemon's
 // `account.save` and FERB's signed secret helper: never a file, a preference, a log, a trace or anything a model sees.
 // Here: the pieces every part of the flow shares (the request, the callback, the account and its tokens) and the
@@ -19,11 +20,18 @@ public enum AccountProvider: String, CaseIterable, Sendable {
 /// sign-in elsewhere.
 public enum AccountSite {
     public static let base = URL(string: "https://ferb.kartikey.xyz")!
-    /// ASWebAuthenticationSession catches this scheme itself; no other app can take the code from it, and the code is
-    /// useless without this sign-in's PKCE verifier anyway.
-    public static let callbackScheme = "ferb-auth"
-    public static let redirect = "ferb-auth://callback"
     public static let platform = "mac"
+    /// The loopback return (RFC 8252 §7.3, REL-452): the site sends the browser to http://127.0.0.1:<port>/callback,
+    /// the port FERB.app listens on for this sign-in. Another program that saw the code couldn't use it: the site
+    /// trades it only with this sign-in's PKCE verifier.
+    public static let loopbackHost = "127.0.0.1"
+    public static let callbackPath = "/callback"
+    /// How long FERB.app waits for the browser.
+    public static let signInTimeout: TimeInterval = 10 * 60
+
+    public static func returnAddress(port: UInt16) -> URL {
+        URL(string: "http://\(loopbackHost):\(port)\(callbackPath)")!
+    }
 }
 
 /// Who is signed in: never a secret.
@@ -127,12 +135,13 @@ public struct AccountRequest: Equatable, Sendable {
     /// S256: base64url(SHA-256(verifier)).
     public var challenge: String { Self.base64url(Data(SHA256.hash(data: Data(verifier.utf8)))) }
 
-    public func startURL(_ provider: AccountProvider, base: URL = AccountSite.base) -> URL {
+    /// `redirect`: the loopback address FERB.app listens on for this sign-in.
+    public func startURL(_ provider: AccountProvider, redirect: URL, base: URL = AccountSite.base) -> URL {
         var parts = URLComponents(url: base.appendingPathComponent("api/app/start"), resolvingAgainstBaseURL: false)!
         parts.queryItems = [
             URLQueryItem(name: "provider", value: provider.rawValue),
             URLQueryItem(name: "platform", value: AccountSite.platform),
-            URLQueryItem(name: "redirect", value: AccountSite.redirect),
+            URLQueryItem(name: "redirect", value: redirect.absoluteString),
             URLQueryItem(name: "state", value: state),
             URLQueryItem(name: "code_challenge", value: challenge),
             URLQueryItem(name: "code_challenge_method", value: "S256"),
@@ -152,15 +161,18 @@ public struct AccountRequest: Equatable, Sendable {
     }
 }
 
-/// What came back to `ferb-auth://callback`.
+/// What came back to the loopback address.
 public enum AccountCallback: Equatable, Sendable {
     case code(String)
     case cancelled
     case failed
 
-    /// Nil when the address isn't this sign-in's (another scheme or place, or another state: CSRF, RFC 6749 §10.12).
-    public static func read(_ url: URL, state: String) -> AccountCallback? {
-        guard url.scheme == AccountSite.callbackScheme, url.host == "callback",
+    /// Nil when the address isn't this sign-in's (another scheme, host, port or path, or another state: CSRF, RFC 6749
+    /// §10.12).
+    public static func read(_ url: URL, state: String, returnAddress: URL) -> AccountCallback? {
+        guard url.scheme == "http", url.host == AccountSite.loopbackHost, url.port != nil,
+              url.port == returnAddress.port, url.path == AccountSite.callbackPath, url.user == nil,
+              url.fragment == nil,
               let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems,
               let given = items.first(where: { $0.name == "state" })?.value,
               Self.same(given, state) else { return nil }
@@ -345,15 +357,65 @@ public struct DaemonAccountVault: AccountVault, @unchecked Sendable {
 }
 
 public enum WebSignInResult: Equatable, Sendable {
+    /// This sign-in's callback came back to the loopback address.
     case callback(URL)
+    /// Cancel in the account step.
     case cancelled
+    /// Nothing came back in `AccountSite.signInTimeout`.
+    case timedOut
+    /// Nothing could listen, or no browser opened.
     case failed
 }
 
-/// The browser step (ASWebAuthenticationSession in FERB.app).
+/// The browser step: the person's default browser and the loopback return (`BrowserSignIn` in FERB.app).
 @MainActor
 public protocol WebSignIn: AnyObject {
-    func run(_ url: URL, callbackScheme: String) async -> WebSignInResult
+    /// Listens for this sign-in's return, opens `start(returnAddress)` in the browser and waits.
+    func run(state: String, start: (URL) -> URL) async -> WebSignInResult
+    /// Says how the sign-in ended on the browser's tab that brought the callback, and brings FERB forward.
+    func finish(_ ending: LoopbackReturn.Ending)
+    /// Stops waiting (Cancel in the account step).
+    func cancel()
+}
+
+/// The browser step in FERB.app: the person's default browser (`open`, NSWorkspace there) and the loopback return. No
+/// system sign-in window and no system alert: the page is the browser's own tab, like other apps' sign-ins.
+@MainActor
+public final class BrowserSignIn: WebSignIn {
+    private let open: (URL) -> Bool
+    private let bringForward: () -> Void
+    private let port: UInt16
+    private var current: LoopbackReturn?
+
+    /// `port` 0: the system picks one (tests may name one).
+    public init(port: UInt16 = 0, open: @escaping (URL) -> Bool, bringForward: @escaping () -> Void) {
+        self.port = port
+        self.open = open
+        self.bringForward = bringForward
+    }
+
+    public func run(state: String, start: (URL) -> URL) async -> WebSignInResult {
+        current?.cancel()
+        let loopback = LoopbackReturn(state: state, port: port)
+        current = loopback
+        guard let address = await loopback.open() else {
+            loopback.cancel()
+            return .failed
+        }
+        guard open(start(address)) else {
+            loopback.cancel()
+            return .failed
+        }
+        return await loopback.wait()
+    }
+
+    public func finish(_ ending: LoopbackReturn.Ending) {
+        current?.answer(ending)
+        current = nil
+        bringForward()
+    }
+
+    public func cancel() { current?.cancel() }
 }
 
 /// The owner-facing words of the account (plain, friendly; no "AI": the owner's wording rule).
@@ -361,8 +423,16 @@ public enum AccountWords {
     public static let google = "Continue with Google"
     public static let apple = "Continue with Apple"
     public static let kept = "FERB keeps it to know who uses FERB, and doesn't send you emails."
-    public static let waiting = "Finishing sign-in in your browser…"
+    public static let waiting = "Continue in your browser."
+    public static let waitingDetail = "FERB opened the sign-in page in your browser and comes back here when you're done."
     public static let cancelled = "Sign-in was cancelled. Try again when you're ready."
+    public static let timedOut = "Sign-in took too long, so FERB stopped waiting. Try again when you're ready."
+    public static let browserFailed = "FERB couldn't open the sign-in page in your browser. Try again."
+    /// The browser's tab after the sign-in (LoopbackReturn's page).
+    public static let pageSignedIn = "You're signed in to FERB. You can close this tab."
+    public static let pageCancelled = "Sign-in was cancelled. You can close this tab and try again in FERB."
+    public static let pageFailed = "FERB couldn't finish signing you in. You can close this tab and try again in FERB."
+    public static let pageUnanswered = "Go back to FERB to finish signing in. You can close this tab."
     public static let offline = "FERB can't reach its sign-in right now. Check your internet connection and try again."
     public static let serverDown = "FERB's sign-in isn't answering right now. Try again in a minute."
     public static func notSetUp(_ provider: AccountProvider) -> String {
@@ -389,7 +459,7 @@ public enum AccountWords {
     }
 }
 
-/// FERB.app's account: what the tour's account step and Settings → Account show and do (APP-1128).
+/// FERB.app's account: what the tour's account step and Settings → Account show and do (APP-1138).
 /// - Signed out blocks FERB.app (the tour's account step, which has no skip). A definite No from the server (the
 ///   refresh token revoked, reused or expired, the account deleted) signs out.
 /// - A refresh that can't reach the server keeps the owner signed in and working; it is tried again later.
@@ -458,7 +528,7 @@ public final class AccountSession: ObservableObject {
         busy = true
         defer { busy = false }
         line = nil
-        // The site says first whether this sign-in is set up: never a browser opened on an error page (APP-1128).
+        // The site says first whether this sign-in is set up: never a browser opened on an error page (APP-1138).
         switch await server.ready(provider) {
         case .ok(true): break
         case .ok(false), .rejected, .failed:
@@ -469,21 +539,36 @@ public final class AccountSession: ObservableObject {
             return false
         }
         let request = makeRequest()
-        let result = await web.run(request.startURL(provider), callbackScheme: AccountSite.callbackScheme)
-        guard case .callback(let url) = result else {
-            line = result == .cancelled ? AccountWords.cancelled : AccountWords.offline
-            return false
+        var returnAddress: URL?
+        let result = await web.run(state: request.state) { address in
+            returnAddress = address
+            return request.startURL(provider, redirect: address)
         }
-        switch AccountCallback.read(url, state: request.state) {
+        let url: URL
+        switch result {
+        case .callback(let back): url = back
+        case .cancelled: line = AccountWords.cancelled; return false
+        case .timedOut: line = AccountWords.timedOut; return false
+        case .failed: line = AccountWords.browserFailed; return false
+        }
+        // The browser's tab waits for this answer, so it says what really happened.
+        switch returnAddress.flatMap({ AccountCallback.read(url, state: request.state, returnAddress: $0) }) {
         case .code(let code)?:
-            return await finish(server.exchange(code: code, verifier: request.verifier, device: device))
+            let done = await finish(server.exchange(code: code, verifier: request.verifier, device: device))
+            web.finish(done ? .signedIn : .failed)
+            return done
         case .cancelled?:
             line = AccountWords.cancelled
+            web.finish(.cancelled)
         case .failed?, nil:
             line = AccountWords.serverDown
+            web.finish(.failed)
         }
         return false
     }
+
+    /// Cancel while the browser is open: FERB stops waiting for it (the account step's Cancel).
+    public func cancelSignIn() { web?.cancel() }
 
     private func finish(_ reply: AccountReply<AccountGrant>) async -> Bool {
         switch reply {

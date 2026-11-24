@@ -45,7 +45,7 @@ fn names(value: &Value) -> Vec<String> {
 // decision: PHN-581
 // decision: MEM-442
 // decision: MEM-460
-// decision: APP-1128
+// decision: APP-1138
 #[test]
 fn the_method_table_is_python_s_plus_the_stage_2_additions() {
     use ferb_rpc::auth::{
@@ -154,7 +154,7 @@ fn the_method_table_is_python_s_plus_the_stage_2_additions() {
     // the numbers the port was told to expect, and the six of stage 2 (then 8: insomnia mode, T-1274; the last 3:
     // the owner's word on an imported memory and what the Memory page shows of it, MEM-442, not FERB.app's alone;
     // then 4 with his two switches, MEM-459; then 6: the review of an import and its answers, MEM-460; the last 2:
-    // the temporary chat, ORCH-699; the last 3: FERB.app's sign-in to the owner's FERB account, APP-1128)
+    // the temporary chat, ORCH-699; the last 3: FERB.app's sign-in to the owner's FERB account, APP-1138)
     let count = |role| METHODS.iter().filter(|m| m.roles.contains(&role)).count();
     assert_eq!(
         (

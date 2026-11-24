@@ -1,5 +1,5 @@
 //! PHN-828 (owner, 2026-11-24): a phone pairs only with a Mac signed in to the same FERB account, checked by the
-//! daemon from the site's signed statement before the owner is asked; and FERB.app's sign-in itself (APP-1128,
+//! daemon from the site's signed statement before the owner is asked; and FERB.app's sign-in itself (APP-1138,
 //! PHN-830): `account.get`, `account.save`, `account.clear` through a fake Keychain behind FERB's helper seam, the
 //! tokens masked and never journaled, and an account change removing the phones of another (or no) account.
 //!
@@ -322,7 +322,7 @@ fn sign_in(id: &str, email: &str) -> serde_json::Map<String, Value> {
 /// Saved, read back, cleared: one Keychain item (service "ferb", account "ferb.account") through the helper seam; the
 /// tokens come back only in `account.get`, are masked by the redactor, and never reach the journal. A new run reads the
 /// item and masks the tokens on that first read.
-// decision: APP-1128
+// decision: APP-1138
 // decision: PHN-830
 #[test]
 fn the_sign_in_round_trips_through_the_keychain_and_its_tokens_stay_secret() {
@@ -417,7 +417,7 @@ fn the_sign_in_round_trips_through_the_keychain_and_its_tokens_stay_secret() {
 }
 
 /// What isn't a sign-in is refused in plain words, and nothing is stored.
-// decision: APP-1128
+// decision: APP-1138
 #[test]
 fn a_malformed_sign_in_is_refused_and_nothing_is_stored() {
     let a = area(Arc::new(FakeKeychain::default()));
@@ -458,7 +458,7 @@ fn a_malformed_sign_in_is_refused_and_nothing_is_stored() {
 /// "account"); the reply names them. A phone paired before accounts (none recorded) survives every save. The same
 /// account again keeps its phones, and signing out removes none.
 // decision: PHN-828
-// decision: APP-1128
+// decision: APP-1138
 #[tokio::test]
 async fn another_account_removes_the_old_account_s_phones_and_the_same_one_keeps_them() {
     let w = world(None).await;

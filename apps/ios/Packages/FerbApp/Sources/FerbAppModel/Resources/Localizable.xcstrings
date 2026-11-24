@@ -3711,6 +3711,17 @@
         }
       }
     },
+    "signin_finishing_apple": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finishing sign-in with Apple…"
+          }
+        }
+      }
+    },
     "signin_footnote": {
       "extractionState": "manual",
       "localizations": {

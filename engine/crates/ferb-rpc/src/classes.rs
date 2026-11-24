@@ -301,7 +301,7 @@ pub const PHONE_METHODS: &[PhoneMethod] = &[
         "insomnia.camera_frame",
         "is FERB.app's own picture from the Mac's camera; a phone only watches it",
     ),
-    // decision: APP-1128 — FERB.app's own sign-in: a phone signs in to the same account on the phone (PHN-828)
+    // decision: APP-1138 — FERB.app's own sign-in: a phone signs in to the same account on the phone (PHN-828)
     never("account.clear", ACCOUNT_WHY),
     never("account.get", ACCOUNT_WHY),
     never("account.save", ACCOUNT_WHY),

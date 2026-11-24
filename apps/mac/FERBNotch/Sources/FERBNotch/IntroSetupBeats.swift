@@ -8,9 +8,10 @@ private typealias Pick = IntroCopy.Pick
 extension IntroController {
     // MARK: 1b. Your FERB account
 
-    /// Signing in to FERB is required (APP-1127): Google or Apple in the browser (ASWebAuthenticationSession); the
-    /// step has no skip and waits until the owner is signed in, saying plainly what went wrong each time (cancelled,
-    /// offline, the server down). Already signed in (a replay, a resume): one line and on.
+    /// Signing in to FERB is required (APP-1127): Google or Apple in the person's own browser, back over the loopback
+    /// (APP-1138); the step has no skip and waits until the owner is signed in, saying plainly what went wrong each time
+    /// (cancelled, timed out, offline, the server down). While the browser is open the step says so, with Cancel.
+    /// Already signed in (a replay, a resume): one line and on.
     func accountStep() async {
         guard let account else { return }
         if account.state == .unknown { await account.load() }
@@ -19,7 +20,7 @@ extension IntroController {
         while live && !account.signedIn {
             guard case .choice(let id)? = await ask(line) else { return }
             let provider: AccountProvider = id == Pick.accountApple ? .apple : .google
-            let done = await working(IntroCopy.accountWaiting) { await account.signIn(provider) }
+            let done = await signingIn(account, provider)
             line = done ? IntroCopy.account : IntroCopy.accountFailed(account.line)
         }
         guard live, let info = account.account else { return }
@@ -27,6 +28,21 @@ extension IntroController {
         say(removed.isEmpty ? IntroCopy.accountSignedIn(info.email)
                             : IntroCopy.accountPhonesRemoved(info.email, names: removed))
         await dwell(removed.isEmpty ? Timing.line : Timing.line * 4)
+    }
+
+    /// One sign-in with the waiting line and its Cancel; Cancel (or the tour ending) stops the wait for the browser.
+    private func signingIn(_ account: AccountSession, _ provider: AccountProvider) async -> Bool {
+        final class Outcome { var done: Bool? }
+        let outcome = Outcome()
+        let attempt = Task { @MainActor in
+            let done = await account.signIn(provider)
+            outcome.done = done
+            return done
+        }
+        let since = Date()
+        _ = await wait(showing: { IntroCopy.accountWaiting.waiting(since: since) }, until: { outcome.done != nil })
+        if outcome.done == nil { account.cancelSignIn() }
+        return await attempt.value
     }
 
     // MARK: 2. Sign in
