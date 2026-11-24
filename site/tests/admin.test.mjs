@@ -74,10 +74,10 @@ test("the list shows each account's providers, last sign-in and devices, escapes
   const cookie = `ferb_admin=${adminToken(SECRET, ADMIN, NOW)}`;
 
   const html = await (await admin(get("/api/admin", cookie), deps)).text();
-  assert.match(html, /2 people · 1 signed in in the last 30 days/);
+  assert.match(html, /2 people · 1 signed in during the last 30 days/);
   assert.doesNotMatch(html, /downloaded|last download/);
-  assert.match(html, /<th>provider<\/th><th>first sign-in<\/th><th>last sign-in<\/th><th>Mac · iPhone · Android<\/th>/);
-  assert.match(html, /<td>google apple<\/td>.*<td>1 · 0 · 2<\/td>/);
+  assert.match(html, /<th>provider<\/th><th>first sign-in<\/th><th>last sign-in<\/th><th>devices<\/th>/);
+  assert.match(html, /<td>Google, Apple<\/td>.*<td>Mac, 2 Androids<\/td>/);
   assert.doesNotMatch(html, /<script>/);
   assert.match(html, /&lt;script&gt;/);
 

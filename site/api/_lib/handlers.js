@@ -195,6 +195,10 @@ export async function admin(request, deps) {
 const iso = (value) => (value ? new Date(value).toISOString() : "");
 const shortTime = (value) => (value ? iso(value).slice(0, 16).replace("T", " ") + " UTC" : "–");
 const providersOf = (u) => (Array.isArray(u.providers) ? u.providers.join(" ") : "");
+const PROVIDER_NAMES = { google: "Google", apple: "Apple" };
+// The page's form: "Google, Apple" (the CSV keeps the plain ids).
+const providerNames = (u) =>
+  (Array.isArray(u.providers) ? u.providers : []).map((p) => PROVIDER_NAMES[p] || p).join(", ");
 const count = (value) => Number(value) || 0;
 
 // The owner's list (REL-453): each account's provider(s), last sign-in and devices; the download sign-in's own
@@ -207,20 +211,28 @@ export function counts(users, now) {
   };
 }
 
-const devicesOf = (u) => `${count(u.mac)} · ${count(u.ios)} · ${count(u.android)}`;
+// "Mac", "2 Macs, Android", or "–": only the kinds the account has.
+const devicesOf = (u) => {
+  const kinds = [
+    [count(u.mac), "Mac", "Macs"],
+    [count(u.ios), "iPhone", "iPhones"],
+    [count(u.android), "Android", "Androids"],
+  ].filter(([n]) => n > 0);
+  return kinds.length ? kinds.map(([n, one, many]) => (n === 1 ? one : `${n} ${many}`)).join(", ") : "–";
+};
 
 function adminBody(users, now) {
   const c = counts(users, now);
   const rows = users
     .map(
-      (u) => `<tr><td>${escapeHtml(u.email)}</td><td>${escapeHtml(u.name)}</td><td>${escapeHtml(providersOf(u)) || "–"}</td>` +
+      (u) => `<tr><td>${escapeHtml(u.email)}</td><td>${escapeHtml(u.name)}</td><td>${escapeHtml(providerNames(u)) || "–"}</td>` +
         `<td>${shortTime(u.first_signin_at)}</td><td>${shortTime(u.last_signin_at)}</td><td>${devicesOf(u)}</td></tr>`,
     )
     .join("\n");
-  return `<p>${c.people} people · ${c.signedInThisMonth} signed in in the last 30 days</p>
+  return `<p>${c.people} people · ${c.signedInThisMonth} signed in during the last 30 days</p>
 <p><a href="/api/admin?format=csv">Download as CSV</a></p>
 <div class="users"><table>
-<thead><tr><th>email</th><th>name</th><th>provider</th><th>first sign-in</th><th>last sign-in</th><th>Mac · iPhone · Android</th></tr></thead>
+<thead><tr><th>email</th><th>name</th><th>provider</th><th>first sign-in</th><th>last sign-in</th><th>devices</th></tr></thead>
 <tbody>
 ${rows}
 </tbody>
