@@ -1,4 +1,4 @@
-// decision: REL-442
+// decision: REL-449
 // decision: REL-432
 // The update feed, the files Sparkle downloads and the site's own download are all public (sign-in moved into the app).
 import assert from "node:assert/strict";

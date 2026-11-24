@@ -1,6 +1,5 @@
-# Kept out of the deployment: the tests, the owner's mail script, the SQL for running by hand and local settings.
+# Kept out of the deployment: the tests, the SQL for running by hand and local settings.
 tests
-scripts
 .env*
 env.example
 node_modules

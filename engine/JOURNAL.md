@@ -12471,3 +12471,91 @@ a relaunched app first hears that none is on). The owner's own files are sent by
   answer the app gets already holds his message.
 - The Android and iPhone runs used the phone library before its last change (a switch doesn't sync while the app is
   locked; the unlock's sync starts the watch). ferb-mobile's own tests ran after it.
+
+## 2026-11-24 · 216 · FERB sends no email: Send me the link, Resend and the unsubscribe link are gone
+
+**The owner (REL-449, PHN-839).** "lets not do the 'Send me the link' button. so we are not doing resend at all -
+remove it." Recorded twice with his words, once per area: REL-449 (release) supersedes REL-440 and REL-442, PHN-839
+(phone) supersedes PHN-827; each restates what stays of them (the required Google or Apple account in every app, kept
+in ferb_users, deleted with Delete account; the plain Download link; the sign-in screen first on a phone and the
+phone-first page with the download address and "I've installed it — pair now"). The agent rulings that named the mail
+are superseded the same way: REL-436 by REL-450 (the site's list, no mail code or unsubscribe endpoint), REL-441 by
+REL-451 (the apps' sign-in endpoints without send-link), PHN-829 by PHN-840 (the phones' sign-in, the phone-first page
+asks the site nothing). REL-445 (owner) still names "Send me the link" among REL-441's limits; its words and rule are
+left as they are (its rule defers to REL-441, now REL-451, which has none).
+
+**Site.**
+- Removed: `api/app/send-link.js` and `appSendLink`, the `linkSoon`/`linkDay` limits and `slowDown`'s extra body;
+  `api/_lib/mail.js` (Resend's REST call, the update email, List-Unsubscribe headers); `scripts/send-update.mjs`;
+  `api/unsubscribe.js` and the `unsubscribe` handler; `unsubscribeToken`; `readAppConfig().mail` and `appDeps().sendMail`;
+  `RESEND_API_KEY`, `EMAIL_FROM`, `EMAIL_REPLY_TO` from `env.example` (and its unsubscribe wording); `scripts` from
+  `.vercelignore`. Tests: `mail.test.mjs` and `unsubscribe.test.mjs` deleted (the user-list store test moved to
+  `signin.test.mjs`), send-link's two tests deleted, the token tests use the admin token where they used the
+  unsubscribe one.
+- The unsubscribe endpoint: nothing else used it. Its only callers were the link and headers in `mail.js`'s update
+  email; the admin page only counted the flag it set and `store.subscribedUsers` (read only by `send-update.mjs`).
+- Kept: the user list (`ferb_users`) and the admin page with its CSV. The page's "N get emails · N unsubscribed" counts
+  and "emails" column, and the CSV's `unsubscribed` column, are gone (nothing sets the flag now). `ferb_users` is made
+  without `unsubscribed` (store.js SCHEMA and `site/sql/2026-11-24-app-accounts.sql`); a table made before keeps that
+  column, which nothing reads or writes. No column is dropped on a live database.
+- New guard test (`app-pages.test.mjs`, REL-449): the four files are gone, env.example names no mail setting, no
+  function under `api/` mentions Resend, sendMail, send-link or unsubscribe, and index.html and privacy.html make no
+  email promise.
+
+**Phones.** Android: `sendLink` (view model, `AccountModel`, `AccountServer`), `linkNote`, the four `macfirst_send*`
+strings, and `MacFirstPage`'s send pill, line and `sending` (design). iPhone: `AccountModel.sendLink`, `linkLine`,
+`sendingLink`, `MacFirstPage`'s send pill and line, the UI-test site's send-link answer; the catalog rewritten by
+`tools/strings.py` from Android's strings. The page keeps the download address (iPhone: selectable, as before) and
+"I've installed it — pair now". The two tests that used send-link to exercise "refused after a refresh" now use the
+pairing assertion. Goldens re-recorded: Android `account/{sign-in,phone-first}-{360,412}.png`; iPhone
+`app/{mac-first,sign-in,sign-in-cancelled}-*` and `sign-in-browser-402`; `mac-first-sent-*` deleted.
+
+**Words changed** (owner-facing):
+- FERB.app's account step: "One FERB account for your Mac and your phone. Signing in means FERB may email you about
+  important updates. Every email has a one-click unsubscribe." → "One FERB account for your Mac and your phone. FERB
+  keeps it to know who uses FERB, and doesn't send you emails."
+- Both phones' sign-in footnote: "Signing in means FERB may email you about important updates. Every email has a
+  one-click unsubscribe." → "FERB keeps your account to know who uses FERB and to link your phone and Mac. It doesn't
+  send you emails."
+- Removed from both phones: "Send me the link", "Sent. Check %1$s on your Mac.", "The link was sent a moment ago. Check
+  your inbox, or try again in a few minutes.", "FERB couldn't send the link just now. You can also open
+  ferb.kartikey.xyz on your Mac."
+- privacy.html, the website's record: "…(your Google email and name, when you signed in and last downloaded, and
+  whether you unsubscribed) … only to email you about important FERB updates, each with a one-click unsubscribe; emails
+  are sent through Resend. It is never sold… To have your record deleted, reply to any FERB email or ask through the
+  contact below." → "…(your Google email and name, and when you signed in and last downloaded) … to know who uses FERB.
+  FERB doesn't send emails. The record is never sold, shared or used for advertising. To have it deleted, ask through
+  the contact below."
+- privacy.html, the account: "Signing in means FERB may email you about important updates, each with a one-click
+  unsubscribe; emails are sent through Resend. It is never sold…" → "…, so FERB knows who uses it and so you can sign
+  in on your Mac and your phone with the same account. FERB doesn't send emails. Your account is never sold…"; the
+  sentence "If you ask the phone app to send you the download link, it's emailed to your account's address." removed;
+  Delete account deletes "your account, its devices and its sign-ins" (no longer "…and your place on the email list").
+- README.md: "Signing in means FERB may email you about important updates, each with a one-click unsubscribe." → "The
+  account is kept so FERB knows who uses it and so your Mac and phone sign in to the same account; FERB doesn't send
+  emails."
+- The site's unsubscribe pages and the "Your FERB download link" email no longer exist.
+- privacy.html's analytics section is unchanged as asked, so it still says "The pages for unsubscribing, and the list
+  only FERB's maker sees, never load PostHog." although no unsubscribe page exists now.
+
+**kb.** REL-449, REL-450, REL-451, PHN-839, PHN-840 added; REL-436, REL-440, REL-441, REL-442, PHN-827, PHN-829
+superseded; test tags moved to the new IDs. LIVE-1167 loses the update email and unsubscribe steps; LIVE-1202 checks
+the account step's no-email line; LIVE-1203 no longer presses Send me the link. The commit gate's site check is renamed
+(no "unsubscribe"): a `Gate-change:` trailer is needed. Outside the repo, `~/Desktop/FERB-app-signin-setup.md` lost the
+Resend settings, Apple's "Sign in with Apple for Email Communication" step (its 2.5; the domain file step moved from 2.6 to 2.5) and
+the Send me the link check; it says to skip the old site guide's step 3 (Resend). `~/Desktop/FERB-site-signin-setup.md`
+(the superseded download sign-in's guide) is unchanged.
+
+**Evidence.**
+- site `npm test` (node_modules linked from the main checkout for the run, then removed): 95 passed, 0 failed.
+- Android `:app:testDebugUnitTest :design:test`: 361 and 112, 0 failures, after `:app:recordRoborazziDebug --tests
+  com.ferb.app.AccountShotsTest`; the run verified every golden.
+- iPhone: `TEST_RUNNER_FERB_RECORD_SNAPSHOTS=1` for `AppScreensTests/testTheSignInAndPhoneFirstPagesAtBothWidths`, then
+  `tools/build.sh test`: TEST SUCCEEDED (FerbAppTests 224, FERBUITests 8, FerbDesignTests 75, FerbCoreTests 15 with 1
+  skipped, FerbMobileTests 4); `tools/strings.py --check` clean.
+- FERB.app `swift test` (after `source scripts/swiftpm-anonymous.sh`): 965 tests, 8 skipped, 0 failures.
+- `tools/kb/run kb lock`, `kb gen`, `kb check`: ok. `git diff --check` clean. The engine's crates are unchanged; their
+  gate was not run.
+
+**Unverified.** Nothing deployed; whether the owner's Vercel project has `RESEND_API_KEY`/`EMAIL_*` set or the Neon
+table has an `unsubscribed` column was not checked (both are now unused). No device or live check ran.

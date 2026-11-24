@@ -360,8 +360,7 @@ public protocol WebSignIn: AnyObject {
 public enum AccountWords {
     public static let google = "Continue with Google"
     public static let apple = "Continue with Apple"
-    public static let emails = "Signing in means FERB may email you about important updates. Every email has a " +
-        "one-click unsubscribe."
+    public static let kept = "FERB keeps it to know who uses FERB, and doesn't send you emails."
     public static let waiting = "Finishing sign-in in your browser…"
     public static let cancelled = "Sign-in was cancelled. Try again when you're ready."
     public static let offline = "FERB can't reach its sign-in right now. Check your internet connection and try again."

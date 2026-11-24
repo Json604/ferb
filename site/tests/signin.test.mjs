@@ -1,8 +1,9 @@
-// decision: REL-436
-// decision: REL-436
+// decision: REL-450
+// decision: REL-450
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { download, finishSignIn, startSignIn, RELEASES } from "../api/_lib/handlers.js";
+import { makeStore } from "../api/_lib/store.js";
 import { downloadToken, signinToken } from "../api/_lib/tokens.js";
 import { cookies, fakeDeps, get, NOW, SECRET } from "./support.mjs";
 
@@ -40,7 +41,7 @@ test("Google's answer records the person and hands over a short-lived link to th
   });
   // The email is kept lower-case; exactly the owner's five fields.
   assert.deepEqual([...users.values()], [
-    { email: "ada@example.com", name: "Ada L", first_signin_at: new Date(NOW * 1000), last_download_at: null, unsubscribed: false },
+    { email: "ada@example.com", name: "Ada L", first_signin_at: new Date(NOW * 1000), last_download_at: null },
   ]);
   const html = await done.text();
   const link = html.match(/url=(\/download\/FERB-AppleSilicon\.dmg\?t=[^"]+)"/)[1];
@@ -52,15 +53,15 @@ test("Google's answer records the person and hands over a short-lived link to th
   assert.deepEqual(users.get("ada@example.com").last_download_at, new Date(NOW * 1000));
 });
 
-test("signing in again keeps the first sign-in time and never undoes an unsubscribe", async () => {
+test("signing in again keeps the first sign-in time and the one row", async () => {
   const { deps, users } = fakeDeps();
   for (let i = 0; i < 2; i++) {
     const { cookie } = await signIn(deps);
     await finishSignIn(get("/api/auth/callback?code=abc&state=r1", cookie), deps);
-    users.get("ada@example.com").unsubscribed = true;
+    if (i === 0) users.get("ada@example.com").first_signin_at = new Date(0);
   }
   assert.equal(users.size, 1);
-  assert.equal(users.get("ada@example.com").unsubscribed, true);
+  assert.deepEqual(users.get("ada@example.com").first_signin_at, new Date(0));
 });
 
 test("no download without a valid link made for that file", async () => {
@@ -112,4 +113,18 @@ test("before the site is set up, sign-in and download say so instead of failing"
   const deps = { config: null };
   assert.equal((await startSignIn(get("/api/auth/google"), deps)).status, 503);
   assert.equal((await download(get("/api/download?file=FERB-AppleSilicon.dmg"), deps)).status, 503);
+});
+
+test("the user list: signing in again changes only the name; the table is made once", async () => {
+  const queries = [];
+  const store = makeStore({ query: async (text, params) => (queries.push({ text, params }), []) });
+  await store.recordSignIn({ email: "ada@example.com", name: "Ada", at: new Date(0) });
+  await store.recordDownload("ada@example.com", new Date(1000));
+  assert.match(queries[0].text, /CREATE TABLE IF NOT EXISTS ferb_users/);
+  assert.doesNotMatch(queries[0].text, /unsubscribed/);
+  const upsert = queries[1].text.replace(/\s+/g, " ");
+  assert.match(upsert, /ON CONFLICT \(email\) DO UPDATE SET name = EXCLUDED\.name$/);
+  assert.deepEqual(queries[1].params, ["ada@example.com", "Ada", new Date(0)]);
+  assert.equal(queries.filter((q) => /CREATE TABLE/.test(q.text)).length, 1, "the table is made once per instance");
+  assert.match(queries[2].text, /SET last_download_at = \$2 WHERE email = \$1/);
 });

@@ -1,7 +1,7 @@
-// decision: REL-436
+// decision: REL-450
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { adminToken, downloadToken, sign, unsubscribeToken, verify } from "../api/_lib/tokens.js";
+import { adminToken, downloadToken, sign, verify } from "../api/_lib/tokens.js";
 import { NOW, SECRET } from "./support.mjs";
 
 test("a token verifies with its secret and purpose, and carries its payload", () => {
@@ -15,27 +15,27 @@ test("a token verifies with its secret and purpose, and carries its payload", ()
 });
 
 test("a changed payload, a changed signature or another secret is refused", () => {
-  const t = unsubscribeToken(SECRET, "ada@example.com");
+  const t = adminToken(SECRET, "owner@example.com", NOW);
   const [body, mac] = t.split(".");
-  const forged = Buffer.from(JSON.stringify({ p: "unsubscribe", e: "bob@example.com" })).toString("base64url");
-  assert.equal(verify(SECRET, `${forged}.${mac}`, "unsubscribe", NOW), null);
-  assert.equal(verify(SECRET, `${body}.${mac.slice(0, -2)}AA`, "unsubscribe", NOW), null);
-  assert.equal(verify(SECRET, `${body}.`, "unsubscribe", NOW), null);
-  assert.equal(verify("another-secret-0123456789abcdef0123456789", t, "unsubscribe", NOW), null);
+  const forged = Buffer.from(JSON.stringify({ p: "admin", e: "bob@example.com", x: NOW + 3600 })).toString("base64url");
+  assert.ok(verify(SECRET, t, "admin", NOW));
+  assert.equal(verify(SECRET, `${forged}.${mac}`, "admin", NOW), null);
+  assert.equal(verify(SECRET, `${body}.${mac.slice(0, -2)}AA`, "admin", NOW), null);
+  assert.equal(verify(SECRET, `${body}.`, "admin", NOW), null);
+  assert.equal(verify("another-secret-0123456789abcdef0123456789", t, "admin", NOW), null);
 });
 
 test("a token made for one purpose is refused for every other", () => {
   const t = downloadToken(SECRET, "ada@example.com", "FERB-AppleSilicon.dmg", NOW);
-  assert.equal(verify(SECRET, t, "unsubscribe", NOW), null);
+  assert.equal(verify(SECRET, t, "signin", NOW), null);
   assert.equal(verify(SECRET, t, "admin", NOW), null);
-  assert.equal(verify(SECRET, unsubscribeToken(SECRET, "ada@example.com"), "admin", NOW), null);
+  assert.equal(verify(SECRET, adminToken(SECRET, "ada@example.com", NOW), "download", NOW), null);
 });
 
-test("an expired token is refused; an unsubscribe token never expires", () => {
+test("an expired token is refused", () => {
   const t = adminToken(SECRET, "owner@example.com", NOW);
   assert.ok(verify(SECRET, t, "admin", NOW + 8 * 3600 - 1));
   assert.equal(verify(SECRET, t, "admin", NOW + 8 * 3600), null);
-  assert.ok(verify(SECRET, unsubscribeToken(SECRET, "ada@example.com"), "unsubscribe", NOW + 10 * 365 * 86400));
   assert.equal(verify(SECRET, sign(SECRET, { p: "admin", e: "x", x: "later" }), "admin", NOW), null);
 });
 

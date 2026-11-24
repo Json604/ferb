@@ -41,7 +41,7 @@ enum IntroCopy {
     // MARK: 1b. Your FERB account (APP-1128): required, no skip
 
     static let account = IntroLine(text: "To start, sign in to FERB.",
-                                   detail: "One FERB account for your Mac and your phone. " + AccountWords.emails,
+                                   detail: "One FERB account for your Mac and your phone. " + AccountWords.kept,
                                    choices: [IntroChoice(Pick.accountGoogle, AccountWords.google),
                                              IntroChoice(Pick.accountApple, AccountWords.apple)])
     static let accountWaiting = IntroLine(text: AccountWords.waiting)

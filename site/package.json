@@ -2,7 +2,7 @@
   "name": "ferb-site",
   "private": true,
   "type": "module",
-  "description": "ferb.kartikey.xyz: the static pages, the functions for Google sign-in before the download, the apps' Google and Apple sign-in, the unsubscribe link and the owner's user list, and PostHog analytics.",
+  "description": "ferb.kartikey.xyz: the static pages, the functions for Google sign-in before the download, the apps' Google and Apple sign-in and the owner's user list, and PostHog analytics.",
   "engines": {
     "node": "24.x"
   },

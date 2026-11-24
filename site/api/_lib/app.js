@@ -6,11 +6,11 @@
 //
 // Every outside service comes in through `deps`, so tests run these with stand-ins and no network:
 //   deps.config   readAppConfig(): { ready, secret, siteUrl, google, apple, assertion: { key, kid } | null,
-//                 mail: { from, replyTo } | null, androidCerts }
+//                 androidCerts }
 //   deps.now()    Unix seconds;  deps.random()  32 random bytes, base64url (43 characters)
 //   deps.oidc     Google, as in handlers.js (null when Google isn't set up)
 //   deps.apple    appleSignIn() from apple.js (null when Apple isn't set up)
-//   deps.store    makeStore()'s app methods;  deps.sendMail(email, idempotencyKey)  Resend (null without a key)
+//   deps.store    makeStore()'s app methods
 //   deps.log(message)  never given an email, a name, a code or a token
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { appleName } from "./apple.js";
@@ -34,8 +34,6 @@ export const LIMITS = {
   start: [20, 10 * 60],
   token: [30, 10 * 60],
   assertion: [20, 10 * 60],
-  linkSoon: [1, 10 * 60],
-  linkDay: [5, 24 * 60 * 60],
 };
 
 const PROVIDERS = ["google", "apple"];
@@ -80,8 +78,7 @@ const unavailable = () => json(503, { error: "unavailable" });
 const invalidRequest = () => json(400, { error: "invalid_request" });
 const invalidGrant = () => json(401, { error: "invalid_grant" });
 const invalidToken = () => json(401, { error: "invalid_token" }, { "www-authenticate": 'Bearer error="invalid_token"' });
-const slowDown = (retryAfter, body = {}) =>
-  json(429, { error: "slow_down", ...body }, { "retry-after": String(retryAfter) });
+const slowDown = (retryAfter) => json(429, { error: "slow_down" }, { "retry-after": String(retryAfter) });
 
 // ---- rate limits (fixed windows in ferb_app_limits) ----
 
@@ -449,34 +446,6 @@ export const appAssertion = (request, deps) =>
     const { key, kid } = deps.config.assertion;
     const payload = assertionPayload({ kid, sub: account.id, email: account.email, dev: endpoint, now: deps.now() });
     return json(200, { assertion: signAssertion(key, payload), expires_in: ASSERTION_SECONDS });
-  });
-
-// POST /api/app/send-link: emails the download page's address to the account's own email, for a phone-first person.
-export const appSendLink = (request, deps) =>
-  withAccount(request, deps, async (account) => {
-    if (!deps.config.mail || !deps.sendMail) return unavailable();
-    const keys = [
-      [`account:link-soon:${account.id}`, LIMITS.linkSoon],
-      [`account:link-day:${account.id}`, LIMITS.linkDay],
-    ];
-    const wait = await limit(deps, keys);
-    if (wait) return slowDown(wait, { retry_after: wait });
-    const site = home(deps, request);
-    const email = {
-      from: deps.config.mail.from,
-      to: [account.email],
-      ...(deps.config.mail.replyTo ? { reply_to: deps.config.mail.replyTo } : {}),
-      subject: "Your FERB download link",
-      text: `Open this on your Mac to download FERB.\n\n${site}/#download\n`,
-    };
-    try {
-      await deps.sendMail(email, sha256hex(`send-link/${account.id}/${deps.now()}`).slice(0, 48));
-    } catch (error) {
-      deps.log(`send-link: the email was not sent (${why(error)})`);
-      for (const [key] of keys) await deps.store.release(key);
-      return unavailable();
-    }
-    return json(200, { sent: true, email: account.email });
   });
 
 // ---- GET /.well-known/assetlinks.json (rewritten to /api/app/assetlinks) ----

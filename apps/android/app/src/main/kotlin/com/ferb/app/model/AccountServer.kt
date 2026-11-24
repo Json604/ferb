@@ -114,10 +114,6 @@ class AccountServer(private val http: Http, private val device: Device, private 
             o.str("assertion")?.let { Answer.Ok(it) } ?: Answer.Refused(200, "bad_reply")
         }
 
-    /** E-mails the download link to the account's address; the address it went to. */
-    fun sendLink(access: String): Answer<String> =
-        call("POST", "/api/app/send-link", "{}", access).then { o -> Answer.Ok(o.str("email").orEmpty()) }
-
     private fun tokens(body: String): Answer<SignedIn> = call("POST", "/api/app/token", body, null).then { o ->
         val access = o.str("access_token")
         val refresh = o.str("refresh_token")

@@ -1861,50 +1861,6 @@
         }
       }
     },
-    "macfirst_send": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Send me the link"
-          }
-        }
-      }
-    },
-    "macfirst_send_failed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "FERB couldn't send the link just now. You can also open ferb.kartikey.xyz on your Mac."
-          }
-        }
-      }
-    },
-    "macfirst_sent": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sent. Check %1$@ on your Mac."
-          }
-        }
-      }
-    },
-    "macfirst_sent_recently": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The link was sent a moment ago. Check your inbox, or try again in a few minutes."
-          }
-        }
-      }
-    },
     "macfirst_site": {
       "extractionState": "manual",
       "localizations": {
@@ -3761,7 +3717,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Signing in means FERB may email you about important updates. Every email has a one-click unsubscribe."
+            "value": "FERB keeps your account to know who uses FERB and to link your phone and Mac. It doesn't send you emails."
           }
         }
       }

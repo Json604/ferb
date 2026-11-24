@@ -27,7 +27,7 @@ final class FERBUITests: XCTestCase {
 
     /// A fresh install shows the sign-in after the unlock and nothing of FERB's before it (kb PHN-827); the sheet's
     /// stand-in closes at once and the page says so.
-    // decision: PHN-827, PHN-8
+    // decision: PHN-839, PHN-8
     func testAFreshInstallSignsInFirst() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-FERBUITestUnlock", "YES", "-FERBUITestFresh", "YES", "-FERBUITestFirstRunDone", "YES"]

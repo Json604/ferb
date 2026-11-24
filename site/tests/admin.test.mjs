@@ -1,4 +1,4 @@
-// decision: REL-436
+// decision: REL-450
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { admin, csvCell, finishSignIn, startSignIn, toCsv } from "../api/_lib/handlers.js";
@@ -59,12 +59,12 @@ test("only a verified Google account named in ADMIN_EMAILS gets the owner's cook
 
 test("the list shows counts and escapes what Google sent; the CSV defuses formulas", async () => {
   const { deps, users } = fakeDeps();
-  users.set("a@example.com", { email: "a@example.com", name: "<script>x</script>", first_signin_at: new Date((NOW - 86400) * 1000), last_download_at: new Date(NOW * 1000), unsubscribed: false });
-  users.set("b@example.com", { email: "b@example.com", name: '=HYPERLINK("http://x")', first_signin_at: new Date((NOW - 90 * 86400) * 1000), last_download_at: null, unsubscribed: true });
+  users.set("a@example.com", { email: "a@example.com", name: "<script>x</script>", first_signin_at: new Date((NOW - 86400) * 1000), last_download_at: new Date(NOW * 1000) });
+  users.set("b@example.com", { email: "b@example.com", name: '=HYPERLINK("http://x")', first_signin_at: new Date((NOW - 90 * 86400) * 1000), last_download_at: null });
   const cookie = `ferb_admin=${adminToken(SECRET, ADMIN, NOW)}`;
 
   const html = await (await admin(get("/api/admin", cookie), deps)).text();
-  assert.match(html, /2 people · 1 get emails · 1 unsubscribed · 1 downloaded in the last 30 days/);
+  assert.match(html, /2 people · 1 downloaded in the last 30 days/);
   assert.doesNotMatch(html, /<script>/);
   assert.match(html, /&lt;script&gt;/);
 
@@ -72,8 +72,8 @@ test("the list shows counts and escapes what Google sent; the CSV defuses formul
   assert.match(csv.headers.get("content-type"), /^text\/csv/);
   assert.match(csv.headers.get("content-disposition"), /attachment/);
   const lines = (await csv.text()).trim().split("\r\n");
-  assert.equal(lines[0], "email,name,first_signin_at,last_download_at,unsubscribed");
-  assert.equal(lines[2], `b@example.com,"'=HYPERLINK(""http://x"")",${new Date((NOW - 90 * 86400) * 1000).toISOString()},,true`);
+  assert.equal(lines[0], "email,name,first_signin_at,last_download_at");
+  assert.equal(lines[2], `b@example.com,"'=HYPERLINK(""http://x"")",${new Date((NOW - 90 * 86400) * 1000).toISOString()},`);
 });
 
 test("CSV cells: quotes, commas, new lines and formula starts", () => {
@@ -83,7 +83,7 @@ test("CSV cells: quotes, commas, new lines and formula starts", () => {
   assert.equal(csvCell("+1"), "'+1");
   assert.equal(csvCell("@sum"), "'@sum");
   assert.equal(csvCell(null), "");
-  assert.equal(toCsv([]), "email,name,first_signin_at,last_download_at,unsubscribed\r\n");
+  assert.equal(toCsv([]), "email,name,first_signin_at,last_download_at\r\n");
 });
 
 test("the site counts as set up only with a long secret, Google's client and the database", () => {

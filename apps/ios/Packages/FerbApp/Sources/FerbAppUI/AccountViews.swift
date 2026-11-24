@@ -64,7 +64,7 @@ struct SignInView: View {
     }
 }
 
-/// "FERB runs on your Mac" with the app's words (kb PHN-829): phone first, signed in, no Mac paired yet.
+/// "FERB runs on your Mac" with the app's words (kb PHN-840): phone first, signed in, no Mac paired yet.
 struct MacFirstView: View {
     @Bindable var model: AppModel
     let insets: PhoneInsets
@@ -72,9 +72,8 @@ struct MacFirstView: View {
     var body: some View {
         let a = model.account
         MacFirstPage(title: L.s("macfirst_title"), text: L.s("macfirst_text", a.account?.email ?? ""),
-                     address: L.s("macfirst_site"), sendTitle: L.s("macfirst_send"), pairTitle: L.s("macfirst_pair"),
-                     otherTitle: L.s("account_other"), line: a.linkLine?.text, sending: a.sendingLink, insets: insets,
-                     onSend: { a.sendLink() }, onPair: { model.choosePair() }, onOther: { model.show(.signOut) })
+                     address: L.s("macfirst_site"), pairTitle: L.s("macfirst_pair"), otherTitle: L.s("account_other"),
+                     insets: insets, onPair: { model.choosePair() }, onOther: { model.show(.signOut) })
     }
 }
 

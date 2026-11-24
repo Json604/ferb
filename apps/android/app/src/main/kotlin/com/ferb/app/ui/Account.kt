@@ -52,17 +52,14 @@ internal fun SignIn(vm: FerbViewModel, ui: UiState, insets: PhoneInsets) {
     )
 }
 
-/** Signed in, no Mac paired yet (kb PHN-829): FERB runs on the Mac; send the link; then pair. */
+/** Signed in, no Mac paired yet (kb PHN-840): FERB runs on the Mac, its download address; then pair. */
 @Composable
 internal fun MacFirst(vm: FerbViewModel, ui: UiState, insets: PhoneInsets) {
     val email = ui.account.account?.email.orEmpty()
     MacFirstPage(
         MacFirstWords(stringResource(R.string.macfirst_title), stringResource(R.string.macfirst_text, email), stringResource(R.string.macfirst_site),
-            stringResource(R.string.macfirst_send), stringResource(R.string.macfirst_pair), stringResource(R.string.signin_signed_in_as, email)),
+            stringResource(R.string.macfirst_pair), stringResource(R.string.signin_signed_in_as, email)),
         insets,
-        line = ui.linkNote?.let { noteText(it) },
-        sending = "send-link" in ui.busy,
-        onSend = { vm.sendLink() },
         onPair = { vm.pairNow(true) },
         onAccount = { vm.show(Sheet.Account) },
     )

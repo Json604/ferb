@@ -69,7 +69,7 @@ when = ["scripts/**", "assets/**", "THIRD_PARTY_NOTICES.md", "package.json", "pa
 timeout = 600
 
 [[check]]
-name = "Site tests (sign-in, download link, unsubscribe, admin gate, public update feed)"   # under 1 s, no install
+name = "Site tests (sign-in, download link, admin gate, public update feed)"   # under 1 s, no install
 level = "commit"
 run = "node --test site/tests/*.test.mjs"
 when = ["site/**"]

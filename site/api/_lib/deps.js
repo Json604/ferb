@@ -3,7 +3,6 @@
 import { createPrivateKey, randomBytes } from "node:crypto";
 import { appleSignIn } from "./apple.js";
 import { parseAdminEmails } from "./handlers.js";
-import { sendEmail } from "./mail.js";
 import { neonStore } from "./store.js";
 
 const GOOGLE = new URL("https://accounts.google.com");
@@ -40,7 +39,7 @@ export function parseFingerprints(value) {
 }
 
 // The apps' sign-in (REL-440, REL-441). Never null: `ready` says whether AUTH_SECRET and DATABASE_URL are there;
-// each provider, the pairing assertion and the mail are null (or false) until all of their own settings are there.
+// each provider and the pairing assertion are null (or false) until all of their own settings are there.
 export function readAppConfig(env) {
   const secret = env.AUTH_SECRET || "";
   const appleKey = p256Key(env.APPLE_PRIVATE_KEY);
@@ -56,7 +55,6 @@ export function readAppConfig(env) {
         ? { teamId: env.APPLE_TEAM_ID, servicesId: env.APPLE_SERVICES_ID, keyId: env.APPLE_KEY_ID, privateKey: appleKey }
         : null,
     assertion: assertionKey && /^[A-Za-z0-9._-]{1,64}$/.test(kid) ? { key: assertionKey, kid } : null,
-    mail: env.RESEND_API_KEY && env.EMAIL_FROM ? { from: env.EMAIL_FROM, replyTo: env.EMAIL_REPLY_TO || "" } : null,
     androidCerts: parseFingerprints(env.ANDROID_CERT_SHA256),
   };
 }
@@ -142,7 +140,6 @@ export function appDeps() {
       store: await neonStore(env.DATABASE_URL),
       oidc: config.google ? await googleSignIn(env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET) : null,
       apple: config.apple ? appleSignIn(config.apple, { fetch: (...a) => globalThis.fetch(...a), now }) : null,
-      sendMail: config.mail ? (email, key) => sendEmail(email, { apiKey: env.RESEND_API_KEY, key }) : null,
     };
   })().catch((error) => {
     appLoaded = null;

@@ -4273,7 +4273,8 @@ paths = ["apps/android/design/src/main/kotlin/com/ferb/design/MotionHosts.kt", "
 title = "The phone apps: sign in at first launch; a phone installed first is sent to FERB on the Mac"
 by = "owner"
 date = 2026-11-24
-status = "active"
+status = "superseded"
+superseded_by = "PHN-839"
 words = "required. google and apple. a setup step and first launch on the mac, but how are we gonna do those cases where its phone download first???"
 words_source = "Owner 2026-11-24, relayed verbatim by the coordinator, answering \"(a) Required or optional? (b) Google only, or also Sign in with Apple? (c) Where in the app?\"."
 rule = "On a phone the first screen after the app lock (PHN-8) is the sign-in: Continue with Google, Continue with Apple. Signed in with no Mac paired, the phone says FERB runs on the Mac, gives the download address, can email the download link to the signed-in address (Send me the link), and goes to pairing with \"I've installed it — pair now\". Pairing itself is PHN-102's."
@@ -4297,7 +4298,8 @@ live = ["LIVE-1204"]
 title = "How the phones sign in: the system sign-in browser, the phone's secure store, the phone-first screen"
 by = "agent"
 date = 2026-11-24
-status = "active"
+status = "superseded"
+superseded_by = "PHN-840"
 rule = "For PHN-827. Both phones use the site's web flow for Google and Apple with PKCE S256 and the app's state: iPhone through ASWebAuthenticationSession and ferb-auth://callback, Android through Custom Tabs and the verified App Link https://ferb.kartikey.xyz/app/callback. Tokens live only in the phone's secure store (iPhone Keychain, this device only; Android encrypted with a Keystore key). Refresh as on the Mac. Send me the link calls /api/app/send-link. Sign out and Delete account first unpair the phone (phone.forget_self, best effort) and forget the Mac."
 why = "The same rules as FERB.app (APP-1128) on each phone's own platform tools."
 paths = ["apps/android", "apps/ios"]
@@ -4368,3 +4370,27 @@ why = "Android showed + there but a picked file waited as a chip and was never s
 evidence = "ferb-mobile temporary.rs a_temporary_message_carries_its_files_as_the_chat_s; Android SendWithFilesTest and iPhone SendWithFilesTests, the temporary chat's two cases."
 paths = ["engine/crates/ferb-mobile/src/temporary.rs", "apps/android/app/src/main/kotlin/com/ferb/app/model/Outgoing.kt", "apps/android/app/src/main/kotlin/com/ferb/app/FerbViewModel.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/Outgoing.swift", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/AppModel.swift", "apps/ios/Packages/FerbApp/Sources/FerbAppUI/Tabs.swift"]
 live = ["LIVE-1212"]
+
+[PHN-839]
+title = "Phones: sign-in at first launch; a phone installed first is pointed to the Mac, with no email"
+by = "owner"
+date = 2026-11-24
+status = "active"
+words = "lets not do the 'Send me the link' button. so we are not doing resend at all - remove it."
+words_source = "Owner 2026-11-24, relayed verbatim by the coordinator, about the phone-first page's Send me the link (PHN-827, PHN-829); the site's side is REL-449."
+supersedes = ["PHN-827"]
+rule = "The phones send no email: the phone-first page has no Send me the link. The rest of PHN-827 stands: on a phone the first screen after the app lock (PHN-8) is the sign-in: Continue with Google, Continue with Apple. Signed in with no Mac paired, the phone says FERB runs on the Mac, gives the download address, and goes to pairing with \"I've installed it — pair now\". Pairing itself is PHN-102's."
+why = "He dropped the button; the page still hands the person to the Mac and to pairing."
+paths = ["apps/android", "apps/ios"]
+live = ["LIVE-1203"]
+
+[PHN-840]
+title = "How the phones sign in: the system sign-in browser, the phone's secure store, the phone-first screen"
+by = "agent"
+date = 2026-11-24
+status = "active"
+supersedes = ["PHN-829"]
+rule = "For PHN-839. Both phones use the site's web flow for Google and Apple with PKCE S256 and the app's state: iPhone through ASWebAuthenticationSession and ferb-auth://callback, Android through Custom Tabs and the verified App Link /app/callback. Tokens live only in the phone's secure store (iPhone Keychain, this device only; Android sealed with a Keystore key). Refresh as on the Mac. The phone-first page shows the download address and pair now, and asks the site nothing. Sign out and Delete account first unpair the phone (phone.forget_self, best effort) and forget the Mac."
+why = "PHN-829 without Send me the link (PHN-839). The same rules as FERB.app (APP-1128) on each phone's own platform tools."
+paths = ["apps/android", "apps/ios"]
+live = ["LIVE-1203"]

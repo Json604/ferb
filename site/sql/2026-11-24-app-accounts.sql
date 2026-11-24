@@ -10,8 +10,7 @@ CREATE TABLE IF NOT EXISTS ferb_users (
   email text PRIMARY KEY,
   name text NOT NULL DEFAULT '',
   first_signin_at timestamptz NOT NULL,
-  last_download_at timestamptz,
-  unsubscribed boolean NOT NULL DEFAULT false
+  last_download_at timestamptz
 );
 
 ALTER TABLE ferb_users ADD COLUMN IF NOT EXISTS id uuid NOT NULL DEFAULT gen_random_uuid();

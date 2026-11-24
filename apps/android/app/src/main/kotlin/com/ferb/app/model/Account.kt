@@ -243,9 +243,6 @@ class AccountModel(
     /** The server's signed statement of this account for the phone whose link id is [endpoint] (kb PHN-828). */
     suspend fun assertion(endpoint: String): Answer<String> = authed { server.assertion(it, endpoint) }
 
-    /** Sends the download link to the account's e-mail; the address it went to. */
-    suspend fun sendLink(): Answer<String> = authed { server.sendLink(it) }
-
     /** Signs out here: what is kept goes at once, then the server is told (best effort). */
     suspend fun signOut() {
         val s = saved

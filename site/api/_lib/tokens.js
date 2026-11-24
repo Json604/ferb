@@ -1,5 +1,5 @@
-// Signed tokens for the site (REL-434): the sign-in cookie, the short-lived download link, the owner's admin cookie and
-// each person's unsubscribe link. A token is base64url(JSON payload) "." base64url(HMAC-SHA256). The payload names its
+// Signed tokens for the site (REL-434): the sign-in cookie, the short-lived download link and the owner's admin cookie.
+// A token is base64url(JSON payload) "." base64url(HMAC-SHA256). The payload names its
 // purpose (`p`), so a token made for one use is refused for every other; `x` is its expiry in Unix seconds, when it
 // has one. Nothing in a payload is secret: it is signed, not encrypted, and only ever travels to the person it names.
 import { createHmac, timingSafeEqual } from "node:crypto";
@@ -41,9 +41,6 @@ export function verify(secret, token, purpose, now) {
 
 export const downloadToken = (secret, email, file, now) =>
   sign(secret, { p: "download", e: email, f: file, x: now + DOWNLOAD_SECONDS });
-
-// No expiry: an unsubscribe link in an old email keeps working.
-export const unsubscribeToken = (secret, email) => sign(secret, { p: "unsubscribe", e: email });
 
 export const adminToken = (secret, email, now) => sign(secret, { p: "admin", e: email, x: now + ADMIN_SECONDS });
 

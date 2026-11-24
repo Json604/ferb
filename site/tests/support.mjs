@@ -33,17 +33,12 @@ export function fakeDeps({ claims = { email: "Ada@Example.com", email_verified: 
         fail();
         const u = users.get(email);
         if (u) u.name = name;
-        else users.set(email, { email, name, first_signin_at: at, last_download_at: null, unsubscribed: false });
+        else users.set(email, { email, name, first_signin_at: at, last_download_at: null });
       },
       async recordDownload(email, at) {
         fail();
         const u = users.get(email);
         if (u) u.last_download_at = at;
-      },
-      async unsubscribe(email) {
-        fail();
-        const u = users.get(email);
-        if (u) u.unsubscribed = true;
       },
       async listUsers() {
         fail();

@@ -266,8 +266,6 @@ data class UiState(
     val temporary: TemporaryUi? = null,
     /** FERB's account on this phone (kb PHN-827): signed in or not, the sign-in page's line. */
     val account: AccountUi = AccountUi(),
-    /** What "Send me the link" did, on the phone-first page (kb PHN-829). */
-    val linkNote: Note? = null,
     /** The account page's line (a delete that didn't go through). */
     val accountNote: Note? = null,
     /** The Mac's own words for why it removed this phone (an account that isn't its own, kb PHN-828), or null. */
@@ -453,7 +451,7 @@ class FerbViewModel(
             // kb PHN-828: signed out by the server is a sign-out: the Mac is told (bounded) and forgotten here, as Sign out
             account.ended.collect {
                 AppLog.i("the sign-in server ended this sign-in: forgetting the Mac")
-                busy("account") { forgetMac(); saved["pair_now"] = false; _ui.update { it.copy(linkNote = null, accountNote = null) } }
+                busy("account") { forgetMac(); saved["pair_now"] = false; _ui.update { it.copy(accountNote = null) } }
             }
         }
         viewModelScope.launch {
@@ -1297,21 +1295,6 @@ class FerbViewModel(
         if (!on) _sheet.value = null
     }
 
-    /** "Send me the link": the download page's address to the account's e-mail, to open on the Mac. */
-    fun sendLink() = busy("send-link", tap = true) {
-        _ui.update { it.copy(linkNote = null) }
-        val n = when (val r = account.sendLink()) {
-            is Answer.Ok -> Note(R.string.macfirst_sent, r.value.ifEmpty { _ui.value.account.account?.email.orEmpty() })
-            is Answer.Refused -> when {
-                r.error == AccountModel.SIGNED_OUT -> null
-                r.status == 429 -> Note(R.string.macfirst_sent_recently)
-                else -> Note(R.string.macfirst_send_failed)
-            }
-            Answer.Offline -> Note(R.string.macfirst_send_failed)
-        }
-        _ui.update { it.copy(linkNote = n) }
-    }
-
     /**
      * Sign out (after its question): the Mac is asked to remove this phone and everything of it here goes (as Forget
      * this Mac), then the account: kept tokens at once, the server told (best effort). The sign-in page comes.
@@ -1321,7 +1304,7 @@ class FerbViewModel(
         forgetMac()
         account.signOut()
         saved["pair_now"] = false
-        _ui.update { it.copy(linkNote = null, accountNote = null) }
+        _ui.update { it.copy(accountNote = null) }
     }
 
     /** Delete account (after its question): only when the server deleted it, the Mac and everything here go too. */
@@ -1335,7 +1318,6 @@ class FerbViewModel(
         _sheet.value = null
         forgetMac()
         saved["pair_now"] = false
-        _ui.update { it.copy(linkNote = null) }
     }
 
     // ---- chat -----------------------------------------------------------------------------------------------------

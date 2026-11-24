@@ -31,10 +31,9 @@ import com.ferb.design.components.Mark
 import com.ferb.design.components.MarkKind
 import com.ferb.design.components.PhoneText
 import com.ferb.design.components.Pill
-import com.ferb.design.components.PillKind
 import com.ferb.design.components.pressable
 
-// FERB's account on the phone (kb PHN-827, PHN-829). Not from the lab: built from its pieces, the lock page's mark
+// FERB's account on the phone (kb PHN-839, PHN-840). Not from the lab: built from its pieces, the lock page's mark
 // and title over the sky, the pair page's white card at the bottom, the black pills. Stateless: the app passes its
 // words (new words live in the app's strings for the owner's approval).
 
@@ -85,20 +84,16 @@ fun SignInPage(
 }
 
 /** What the phone-first page says (its text already names the account's e-mail). */
-class MacFirstWords(val title: String, val text: String, val site: String, val send: String, val pair: String, val signedInAs: String)
+class MacFirstWords(val title: String, val text: String, val site: String, val pair: String, val signedInAs: String)
 
 /**
- * Signed in with no Mac paired yet (the phone came first, kb PHN-829): FERB runs on the Mac. The download address,
- * "Send me the link" (to the account's e-mail, to open on the Mac), the way on to pairing, and who is signed in (a tap
- * opens the account). [line]: what the last send did, or null.
+ * Signed in with no Mac paired yet (the phone came first, kb PHN-840): FERB runs on the Mac. The download address, the
+ * way on to pairing, and who is signed in (a tap opens the account).
  */
 @Composable
 fun MacFirstPage(
     words: MacFirstWords,
     insets: PhoneInsets = PhoneInsets.Lab,
-    line: String? = null,
-    sending: Boolean = false,
-    onSend: (() -> Unit)? = {},
     onPair: (() -> Unit)? = {},
     onAccount: (() -> Unit)? = {},
 ) {
@@ -114,14 +109,7 @@ fun MacFirstPage(
                     FerbIcon(FerbIcons.laptop, 18f, Ink.black)
                     PhoneText(words.site, 16.5f, FerbType.Semibold)
                 }
-                if (line != null) {
-                    PhoneText(line, 15f, color = Ink.black, lineSpacing = 2f,
-                        modifier = Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite })
-                }
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Pill(words.send, kind = PillKind.GREY, onClick = if (sending) null else onSend)
-                    Pill(words.pair, onClick = onPair)
-                }
+                Pill(words.pair, onClick = onPair)
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                     PhoneText(words.signedInAs, 14f, FerbType.Medium, Ink.detail,
                         Modifier.pressable(onAccount, label = words.signedInAs).padding(horizontal = 12.dp, vertical = 4.dp), align = TextAlign.Center)

@@ -1,8 +1,8 @@
-// decision: REL-440
-// decision: REL-441
+// decision: REL-449
+// decision: REL-451
 // The two plain pages Android's sign-in needs, the routes that reach them, and the settings' names.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import { appLanding, appReady, assetLinks } from "../api/_lib/app.js";
 import { appFakes } from "./app-support.mjs";
@@ -54,7 +54,6 @@ test("vercel.json sends /.well-known/assetlinks.json and /app/callback to their 
     signout: ["POST"],
     delete: ["POST"],
     assertion: ["POST"],
-    "send-link": ["POST"],
     assetlinks: ["GET"],
     landing: ["GET"],
     ready: ["GET"],
@@ -68,10 +67,26 @@ test("vercel.json sends /.well-known/assetlinks.json and /app/callback to their 
 
 test("env.example names every setting the apps' sign-in reads", () => {
   const names = new Set(read("env.example").match(/^[A-Z0-9_]+(?==)/gm));
-  for (const name of ["AUTH_SECRET", "DATABASE_URL", "SITE_URL", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "APPLE_TEAM_ID", "APPLE_SERVICES_ID", "APPLE_KEY_ID", "APPLE_PRIVATE_KEY", "APP_ASSERTION_KEY", "APP_ASSERTION_KID", "ANDROID_CERT_SHA256", "RESEND_API_KEY", "EMAIL_FROM"]) {
+  for (const name of ["AUTH_SECRET", "DATABASE_URL", "SITE_URL", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "APPLE_TEAM_ID", "APPLE_SERVICES_ID", "APPLE_KEY_ID", "APPLE_PRIVATE_KEY", "APP_ASSERTION_KEY", "APP_ASSERTION_KID", "ANDROID_CERT_SHA256"]) {
     assert.ok(names.has(name), name);
   }
   for (const line of read("env.example").split("\n")) if (/^[A-Z0-9_]+=/.test(line)) assert.match(line, /=$/, "names only");
+});
+
+// decision: REL-449
+test("the site sends no email: no send-link, no unsubscribe, no mail settings, no mail service", () => {
+  for (const gone of ["api/app/send-link.js", "api/unsubscribe.js", "api/_lib/mail.js", "scripts/send-update.mjs"]) {
+    assert.equal(existsSync(new URL(gone, site)), false, gone);
+  }
+  assert.doesNotMatch(read("env.example"), /RESEND|EMAIL_FROM|EMAIL_REPLY_TO/);
+  const code = (dir) =>
+    readdirSync(new URL(dir, site), { withFileTypes: true }).flatMap((e) =>
+      e.isDirectory() ? code(`${dir}${e.name}/`) : e.name.endsWith(".js") ? [`${dir}${e.name}`] : [],
+    );
+  for (const file of code("api/")) assert.doesNotMatch(read(file), /resend|sendMail|send-link|unsubscribe/i, file);
+  for (const page of ["index.html", "privacy.html"]) {
+    assert.doesNotMatch(read(page), /Resend|one-click unsubscribe|may email you|Send me the link/i, page);
+  }
 });
 
 // decision: APP-1128

@@ -51,7 +51,7 @@ class AccountModelTest {
     private fun callback(state: String, code: String? = "invented-code", error: String? = null) =
         "${Site.CALLBACK}?" + listOfNotNull(code?.let { "code=$it" }, error?.let { "error=$it" }, "state=$state").joinToString("&")
 
-    // decision: PHN-827
+    // decision: PHN-839
     @Test
     fun the_browser_start_carries_a_pkce_challenge_and_a_state_of_its_own() = runBlocking {
         val m = model()
@@ -71,7 +71,7 @@ class AccountModelTest {
         assertFalse(again["code_challenge"] == q["code_challenge"])
     }
 
-    // decision: PHN-827
+    // decision: PHN-839
     @Test
     fun a_return_with_another_state_or_address_is_ignored() = runBlocking {
         val m = model()
@@ -90,7 +90,7 @@ class AccountModelTest {
         assertTrue(http.requests.isEmpty())
     }
 
-    // decision: PHN-827
+    // decision: PHN-839
     @Test
     fun the_code_is_exchanged_with_its_verifier_and_the_tokens_are_kept_only_sealed() = runBlocking {
         val store = SealedAccountStore(dir, MemoryProtector())
@@ -127,7 +127,7 @@ class AccountModelTest {
         assertFalse(m.returned(callback(start["state"]!!)))
     }
 
-    // decision: PHN-827
+    // decision: PHN-839
     @Test
     fun the_browsers_errors_are_said_in_plain_words() = runBlocking {
         val m = model()
@@ -150,7 +150,7 @@ class AccountModelTest {
 
     private fun signedIn(expiresAt: Long) = MemoryAccountStore(SignedIn(INVENTED_ACCOUNT, Tokens("fa1_old-access", expiresAt, "fr1_old-refresh")))
 
-    // decision: PHN-827
+    // decision: PHN-839
     @Test
     fun a_refresh_that_cant_reach_the_server_keeps_the_person_signed_in_and_invalid_grant_signs_out() = runBlocking {
         val store = signedIn(expiresAt = now + 30_000) // under a minute left: refreshed at the next use
@@ -182,7 +182,7 @@ class AccountModelTest {
         assertNull("nothing kept", store.kept)
     }
 
-    // decision: PHN-827
+    // decision: PHN-839
     @Test
     fun one_refresh_at_a_time() = runBlocking {
         val m = AccountModel(signedIn(expiresAt = now), AccountServer(http, Device("invented-device-0001", "0.1.0-test")) { now }, Dispatchers.IO, { now })
@@ -199,19 +199,19 @@ class AccountModelTest {
         assertEquals(1, http.paths().count { it == "/api/app/token" })
     }
 
-    // decision: PHN-827
+    // decision: PHN-839
     @Test
     fun an_access_token_the_server_refuses_is_refreshed_once_and_the_call_tried_again() = runBlocking {
         val m = model(signedIn(expiresAt = now + 3_600_000))
-        http.reply("/api/app/send-link", 401, """{"error":"invalid_token"}""")
-        http.reply("/api/app/send-link", 200, """{"sent":true,"email":"someone@example.com"}""")
+        http.reply("/api/app/assertion", 401, """{"error":"invalid_token"}""")
+        http.reply("/api/app/assertion", 200, """{"assertion":"fpa1.invented-payload.invented-signature","expires_in":300}""")
         http.reply("/api/app/token", 200, FakeHttp.tokens(access = "fa1_new-access"))
-        assertEquals(Answer.Ok("someone@example.com"), m.sendLink())
-        assertEquals(listOf("/api/app/send-link", "/api/app/token", "/api/app/send-link"), http.paths())
+        assertEquals(Answer.Ok("fpa1.invented-payload.invented-signature"), m.assertion("invented-endpoint"))
+        assertEquals(listOf("/api/app/assertion", "/api/app/token", "/api/app/assertion"), http.paths())
         assertEquals("fa1_new-access", http.requests.last().bearer)
     }
 
-    // decision: PHN-827
+    // decision: PHN-839
     @Test
     fun sign_out_forgets_the_account_here_at_once_and_tells_the_server() = runBlocking {
         val store = signedIn(expiresAt = now + 3_600_000)
@@ -224,7 +224,7 @@ class AccountModelTest {
         assertTrue(http.requests.single().body!!.contains("fr1_old-refresh"))
     }
 
-    // decision: PHN-827
+    // decision: PHN-839
     @Test
     fun delete_keeps_everything_until_the_server_deleted_the_account() = runBlocking {
         val store = signedIn(expiresAt = now + 3_600_000)
@@ -240,7 +240,7 @@ class AccountModelTest {
         assertNull(store.kept)
     }
 
-    // decision: PHN-827
+    // decision: PHN-839
     @Test
     fun nothing_secret_is_in_what_a_log_would_print() {
         val t = Tokens("fa1_SECRET-ACCESS", 1L, "fr1_SECRET-REFRESH")

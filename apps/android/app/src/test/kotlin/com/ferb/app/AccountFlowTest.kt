@@ -36,7 +36,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
-/** FERB's account in the app (kb PHN-827..829): the sign-in gate, the phone-first page, pairing's statement, sign-out. */
+/** FERB's account in the app (kb PHN-828, PHN-839, PHN-840): the sign-in gate, the phone-first page, pairing's statement, sign-out. */
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class, sdk = [35])
@@ -78,7 +78,7 @@ class AccountFlowTest {
     private fun stateOf(url: String) = URI(url).rawQuery.split('&').map { it.split('=', limit = 2) }
         .first { it[0] == "state" }[1].let { URLDecoder.decode(it, "UTF-8") }
 
-    // decision: PHN-827, PHN-8
+    // decision: PHN-839, PHN-8
     @Test
     fun the_first_launch_shows_the_sign_in_page_after_the_lock_and_nothing_else_while_signed_out() {
         // a phone that is even paired and online: signed out, nothing of FERB's shows
@@ -110,7 +110,7 @@ class AccountFlowTest {
         assertEquals("signed in, no Mac yet: the pairing gate (its phone-first page)", Gate.PAIR, vm.ui.value.gate)
     }
 
-    // decision: PHN-827
+    // decision: PHN-839
     @Test
     fun the_browser_closed_without_an_answer_brings_the_buttons_back() {
         val vm = vm(signedOutAccount(http) { now })
@@ -121,7 +121,7 @@ class AccountFlowTest {
         assertEquals(com.ferb.app.model.SignInStep.IDLE, vm.ui.value.account.step)
     }
 
-    // decision: PHN-829
+    // decision: PHN-840
     @Test
     fun signed_in_with_no_mac_shows_the_phone_first_page_until_pair_now() {
         phone.link.value = FakePhone.status(LinkPhase.IDLE, paired = false)
@@ -134,29 +134,6 @@ class AccountFlowTest {
         assertTrue(vm.pairNow.value)
         vm.pairNow(false)
         assertFalse(vm.pairNow.value)
-    }
-
-    // decision: PHN-829
-    @Test
-    fun send_me_the_link_says_what_happened() {
-        phone.link.value = FakePhone.status(LinkPhase.IDLE, paired = false)
-        val vm = vm(signedIn())
-        session.unlocked(); idle()
-        http.reply("/api/app/send-link", 200, """{"sent":true,"email":"someone@example.com"}""")
-        vm.sendLink(); idle()
-        assertEquals(Note(R.string.macfirst_sent, "someone@example.com"), vm.ui.value.linkNote)
-        assertEquals("fa1_invented-access", http.requests.last().bearer)
-        http.replies.clear()
-        http.reply("/api/app/send-link", 429, """{"error":"slow_down","retry_after":540}""", 540)
-        vm.sendLink(); idle()
-        assertEquals(Note(R.string.macfirst_sent_recently), vm.ui.value.linkNote)
-        http.replies.clear()
-        http.reply("/api/app/send-link", 503, """{"error":"unavailable"}""")
-        vm.sendLink(); idle()
-        assertEquals(Note(R.string.macfirst_send_failed), vm.ui.value.linkNote)
-        http.offline = true
-        vm.sendLink(); idle()
-        assertEquals(Note(R.string.macfirst_send_failed), vm.ui.value.linkNote)
     }
 
     // decision: PHN-828
@@ -198,7 +175,7 @@ class AccountFlowTest {
         assertTrue(phone.calls.none { it.startsWith("pair") })
     }
 
-    // decision: PHN-827
+    // decision: PHN-839
     @Test
     fun sign_out_forgets_the_mac_then_the_account() {
         val store = MemoryAccountStore(SignedIn(INVENTED_ACCOUNT, Tokens("fa1_invented-access", 3_600_000L, "fr1_invented-refresh")))
@@ -216,7 +193,7 @@ class AccountFlowTest {
         assertEquals(Gate.SIGN_IN, vm.ui.value.gate)
     }
 
-    // decision: PHN-827
+    // decision: PHN-839
     @Test
     fun delete_must_succeed_on_the_server_before_the_mac_and_the_account_go() {
         val store = MemoryAccountStore(SignedIn(INVENTED_ACCOUNT, Tokens("fa1_invented-access", 3_600_000L, "fr1_invented-refresh")))
@@ -237,7 +214,7 @@ class AccountFlowTest {
         assertEquals(Gate.SIGN_IN, vm.ui.value.gate)
     }
 
-    // decision: PHN-827, PHN-828
+    // decision: PHN-839, PHN-828
     @Test
     fun the_server_ending_the_sign_in_shows_the_sign_in_page_at_the_next_open_and_an_offline_check_does_not() {
         val store = MemoryAccountStore(SignedIn(INVENTED_ACCOUNT, Tokens("fa1_invented-access", 30_000L, "fr1_invented-refresh")))
@@ -265,18 +242,18 @@ class AccountFlowTest {
         val vm = vm(signedIn(store))
         session.unlocked(); idle()
         phone.link.value = FakePhone.status(LinkPhase.IDLE, paired = false)
-        http.reply("/api/app/send-link", 401, """{"error":"invalid_token"}""")
+        http.reply("/api/app/assertion", 401, """{"error":"invalid_token"}""")
         http.reply("/api/app/token", 200, FakeHttp.tokens(access = "fa1_new-access"))
-        vm.sendLink()
-        eventually { "forget" in phone.calls && "account" !in vm.ui.value.busy && "send-link" !in vm.ui.value.busy }
-        assertEquals(listOf("/api/app/send-link", "/api/app/token", "/api/app/send-link"), http.paths())
+        vm.pair("FERB-INVENTED")
+        eventually { "forget" in phone.calls && "account" !in vm.ui.value.busy && "pair" !in vm.ui.value.busy }
+        assertEquals(listOf("/api/app/assertion", "/api/app/token", "/api/app/assertion"), http.paths())
         assertTrue("forget" in phone.calls)
+        assertTrue("nothing handed to the link", phone.calls.none { it.startsWith("pair") })
         assertNull(store.kept)
-        assertNull("signed out: no line", vm.ui.value.linkNote)
         assertEquals(Gate.SIGN_IN, vm.ui.value.gate)
     }
 
-    // decision: PHN-827
+    // decision: PHN-839
     @Test
     fun the_persons_own_check_offline_never_unpairs() {
         val store = MemoryAccountStore(SignedIn(INVENTED_ACCOUNT, Tokens("fa1_invented-access", 30_000L, "fr1_invented-refresh")))

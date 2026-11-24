@@ -4,7 +4,7 @@
 // is before the visitor answers the bar, after "No thanks", and whenever the browser sends Do Not Track or Global
 // Privacy Control (no bar then). After OK, PostHog runs in full: its cookie and storage, autocapture, heatmaps, web
 // vitals, errors and session recordings. The only thing the site itself keeps is the answer, in this browser. The
-// site's server pages (/api/: sign-in, download, unsubscribe and the owner's list) carry no script at all.
+// site's server pages (/api/: sign-in, download and the owner's list) carry no script at all.
 
 export const CHOICE_KEY = "ferb-analytics";
 

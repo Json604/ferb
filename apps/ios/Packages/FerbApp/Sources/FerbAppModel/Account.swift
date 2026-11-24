@@ -4,9 +4,9 @@ import Foundation
 import Observation
 import Security
 
-// FERB's account on the phone (owner 2026-11-24: "required. google and apple."; kb PHN-827..829): the sign-in, the
-// tokens and the account in the Keychain only, their refresh, and the three calls the phone makes with them (the
-// pairing assertion, Send me the link, sign out and delete). The site's API is the shared spec's; this is the iPhone's
+// FERB's account on the phone (owner 2026-11-24: "required. google and apple."; kb PHN-828, PHN-839, PHN-840): the
+// sign-in, the tokens and the account in the Keychain only, their refresh, and the calls the phone makes with them (the
+// pairing assertion, sign out and delete). The site's API is the shared spec's; this is the iPhone's
 // client of it. Apple signs in through the same web flow as Google (one path on every platform): a native Sign in with
 // Apple would need a second audience on the server, which is not built now.
 
@@ -135,9 +135,6 @@ public final class AccountModel {
     public private(set) var problem: Note?
     /// The last refresh couldn't reach the site: FERB keeps working and tries again later.
     public private(set) var checkFailed = false
-    /// Send me the link's answer, or nil.
-    public private(set) var linkLine: Note?
-    public private(set) var sendingLink = false
 
     /// A sign-in finished: the account, and whether it is a different one than the last account signed in here (the
     /// app then forgets the Mac paired under the other one: phones pair only within one account, PHN-828).
@@ -378,24 +375,6 @@ public final class AccountModel {
         }
     }
 
-    /// Send me the link: the download page's address to the account's email; the answer is [linkLine].
-    @discardableResult
-    public func sendLink() -> Task<Void, Never> {
-        Task { [self] in
-            guard !sendingLink, let email = account?.email else { return }
-            sendingLink = true
-            defer { sendingLink = false }
-            switch await bearer("api/app/send-link", [:]) {
-            case .signedOut: linkLine = nil
-            case .offline: linkLine = Note("macfirst_send_failed")
-            case .answered(let status, let data):
-                if status == 200 { linkLine = Note("macfirst_sent", (Self.json(data)?["email"] as? String) ?? email) }
-                else if status == 429 { linkLine = Note("macfirst_sent_recently") }
-                else { linkLine = Note("macfirst_send_failed") }
-            }
-        }
-    }
-
     /// Sign out: the refresh token's family revoked on the site (best effort), everything here cleared.
     public func signOut() async {
         guard let s = saved else { return }
@@ -427,7 +406,6 @@ public final class AccountModel {
         account = nil
         generation += 1
         checkFailed = false
-        linkLine = nil
         problem = nil
     }
 

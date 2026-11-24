@@ -9,7 +9,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { build, MARKER, PAGES, readAnalytics, withAnalytics } from "../build.mjs";
 import { allowExternalScript, cleanUrl, excluded, settings, start, STRINGS } from "../analytics.js";
-import { admin, unsubscribe } from "../api/_lib/handlers.js";
+import { admin } from "../api/_lib/handlers.js";
 import { page } from "../api/_lib/http.js";
 import { banner, buttons, fakePage, loadPostHog, posthogScripts } from "./dom.mjs";
 import { fakeDeps, get } from "./support.mjs";
@@ -98,11 +98,10 @@ test("the host is taken as pasted: a bare host, a trailing path, quotes or PostH
   }
 });
 
-test("the server's pages (sign-in, download, unsubscribe, the owner's list) never load analytics", async () => {
+test("the server's pages (sign-in, download, the owner's list) never load analytics", async () => {
   const pages = [
     page(200, { title: "users", body: "<p>list</p>", wide: true }),
     await admin(get("/api/admin"), fakeDeps().deps),
-    await unsubscribe(get("/api/unsubscribe?t=bad"), fakeDeps().deps),
   ];
   for (const r of pages) {
     const body = await r.text();

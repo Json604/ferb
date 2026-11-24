@@ -4,7 +4,7 @@
 //   deps.now()    Unix seconds
 //   deps.oidc     { random(), challenge(verifier), authorizationUrl({ redirectUri, state, nonce, challenge }),
 //                   exchange(currentUrl, { verifier, state, nonce }) -> the ID token's claims }
-//   deps.store    { recordSignIn({ email, name, at }), recordDownload(email, at), unsubscribe(email), listUsers() }
+//   deps.store    { recordSignIn({ email, name, at }), recordDownload(email, at), listUsers() }
 //   deps.log(message)  never given an email, a name or a token
 import {
   adminToken,
@@ -166,32 +166,6 @@ export async function download(request, deps) {
   return redirect(RELEASES + file, { status: 302 });
 }
 
-// GET (the link in an email) and POST (the mail app's one-click button, RFC 8058) /api/unsubscribe?t=TOKEN.
-export async function unsubscribe(request, deps) {
-  if (!deps.config) return notSetUp();
-  const post = request.method === "POST";
-  const token = verify(deps.config.secret, new URL(request.url).searchParams.get("t"), "unsubscribe", deps.now());
-  if (!token || typeof token.e !== "string") {
-    return post
-      ? text(400, "This unsubscribe link isn't valid.\n")
-      : page(400, {
-          title: "unsubscribe",
-          body: "<p>This unsubscribe link isn't complete. Open it again from the email, or reply to the email and ask to be taken off the list.</p>",
-        });
-  }
-  try {
-    await deps.store.unsubscribe(token.e);
-  } catch (error) {
-    deps.log(`unsubscribe: the user list could not be written (${error?.code || error?.name || "error"})`);
-    return post
-      ? text(503, "Try again in a minute.\n", { "retry-after": "60" })
-      : page(503, { title: "unsubscribe", body: "<p>FERB couldn't save that just now. Open the link again in a minute.</p>" });
-  }
-  return post
-    ? text(200, "Unsubscribed.\n")
-    : page(200, { title: "unsubscribed", body: "<p>You're unsubscribed. FERB won't email you again.</p>" });
-}
-
 // GET /api/admin (the list) and /api/admin?format=csv: only for a signed-in Google account named in ADMIN_EMAILS.
 export async function admin(request, deps) {
   if (!deps.config) return notSetUp();
@@ -225,8 +199,6 @@ export function counts(users, now) {
   const month = (now - 30 * 24 * 60 * 60) * 1000;
   return {
     people: users.length,
-    subscribed: users.filter((u) => !u.unsubscribed).length,
-    unsubscribed: users.filter((u) => u.unsubscribed).length,
     downloadedThisMonth: users.filter((u) => u.last_download_at && new Date(u.last_download_at).getTime() >= month).length,
   };
 }
@@ -236,13 +208,13 @@ function adminBody(users, now) {
   const rows = users
     .map(
       (u) => `<tr><td>${escapeHtml(u.email)}</td><td>${escapeHtml(u.name)}</td><td>${shortTime(u.first_signin_at)}</td>` +
-        `<td>${shortTime(u.last_download_at)}</td><td>${u.unsubscribed ? "unsubscribed" : "yes"}</td></tr>`,
+        `<td>${shortTime(u.last_download_at)}</td></tr>`,
     )
     .join("\n");
-  return `<p>${c.people} people · ${c.subscribed} get emails · ${c.unsubscribed} unsubscribed · ${c.downloadedThisMonth} downloaded in the last 30 days</p>
+  return `<p>${c.people} people · ${c.downloadedThisMonth} downloaded in the last 30 days</p>
 <p><a href="/api/admin?format=csv">Download as CSV</a></p>
 <div class="users"><table>
-<thead><tr><th>email</th><th>name</th><th>first sign-in</th><th>last download</th><th>emails</th></tr></thead>
+<thead><tr><th>email</th><th>name</th><th>first sign-in</th><th>last download</th></tr></thead>
 <tbody>
 ${rows}
 </tbody>
@@ -257,10 +229,10 @@ export function csvCell(value) {
 }
 
 export function toCsv(users) {
-  const lines = [["email", "name", "first_signin_at", "last_download_at", "unsubscribed"].join(",")];
+  const lines = [["email", "name", "first_signin_at", "last_download_at"].join(",")];
   for (const u of users) {
     lines.push(
-      [u.email, u.name, iso(u.first_signin_at), iso(u.last_download_at), u.unsubscribed ? "true" : "false"]
+      [u.email, u.name, iso(u.first_signin_at), iso(u.last_download_at)]
         .map(csvCell)
         .join(","),
     );

@@ -88,7 +88,7 @@ final class AccountTests: XCTestCase {
         Dictionary(uniqueKeysWithValues: (URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []).map { ($0.name, $0.value ?? "") })
     }
 
-    // decision: PHN-827, PHN-8
+    // decision: PHN-839, PHN-8
     func testSignedOutTheSignInShowsAfterTheLockAndNothingElse() async {
         rig.account.clearLocal()
         phone.state = .starting
@@ -122,7 +122,7 @@ final class AccountTests: XCTestCase {
         XCTAssertEqual(vm.ui.note?.text, "You're signed in as someone@example.com.")
     }
 
-    // decision: PHN-827
+    // decision: PHN-839
     func testTheSignInUsesPKCEAndItsOwnStateAndKeepsTokensOnlyInTheSecureStore() async throws {
         rig.account.clearLocal()
         let vm = rig.model()
@@ -163,7 +163,7 @@ final class AccountTests: XCTestCase {
         await eventually("main") { vm.ui.gate == .main }
     }
 
-    // decision: PHN-827
+    // decision: PHN-839
     func testACallbackWithAnotherStateIsIgnored() async {
         rig.account.clearLocal()
         let vm = rig.model()
@@ -189,7 +189,7 @@ final class AccountTests: XCTestCase {
         XCTAssertNil(rig.account.account)
     }
 
-    // decision: PHN-827
+    // decision: PHN-839
     func testARefreshThatCantReachTheSiteKeepsThePersonSignedInAndInvalidGrantSignsOut() async {
         // an access token about to end
         try? rig.accountStore.set("account", AccountModel.savedItem(Rig.someone, accessToken: "fa1_old", accessExpiresAt: Date().addingTimeInterval(20),
@@ -235,15 +235,16 @@ final class AccountTests: XCTestCase {
     }
 
     /// A call the site refuses again after a refresh: the site no longer knows this sign-in, so it is Sign out's path.
-    // decision: PHN-828, PHN-829
+    // decision: PHN-828, PHN-840
     func testACallRefusedAfterARefreshSignsOutAndLeavesTheMac() async {
         let vm = rig.model()
         rig.session.unlocked()
         await eventually("main") { vm.ui.gate == .main }
-        http.script("/api/app/send-link", (401, #"{"error":"invalid_token"}"#), (401, #"{"error":"invalid_token"}"#))
+        http.script("/api/app/assertion", (401, #"{"error":"invalid_token"}"#), (401, #"{"error":"invalid_token"}"#))
         http.script("/api/app/token", (200, FakeHttp.tokens("fa1_second", "fr1_second")))
-        await rig.account.sendLink().value
-        XCTAssertEqual(http.sent.filter { $0.path == "/api/app/send-link" }.map(\.bearer), ["Bearer fa1_first", "Bearer fa1_second"],
+        let answer = await rig.account.assertion(endpoint: "invented-endpoint")
+        XCTAssertEqual(answer, .signedOut)
+        XCTAssertEqual(http.sent.filter { $0.path == "/api/app/assertion" }.map(\.bearer), ["Bearer fa1_first", "Bearer fa1_second"],
                        "one refresh, one more try")
         XCTAssertNil(rig.account.account)
         XCTAssertNil(rig.accountStore.get("account"))
@@ -251,26 +252,13 @@ final class AccountTests: XCTestCase {
         await eventually("the sign-in") { vm.ui.gate == .signIn }
     }
 
-    // decision: PHN-829
-    func testPhoneFirstSaysWhereFERBRunsAndSendsTheLink() async {
+    // decision: PHN-840
+    func testPhoneFirstSaysWhereFERBRunsThenGoesToPairing() async {
         phone.link = FakePhone.status(.idle, paired: false)
         let vm = rig.model()
         rig.session.unlocked()
         await eventually("the pairing gate") { vm.ui.gate == .pair }
         XCTAssertTrue(vm.ui.macFirst, "signed in, no Mac paired: FERB runs on your Mac")
-
-        http.script("/api/app/send-link", (200, #"{"sent":true,"email":"someone@example.com"}"#), (429, #"{"error":"slow_down","retry_after":300}"#),
-                    (503, #"{"error":"unavailable"}"#))
-        await rig.account.sendLink().value
-        XCTAssertEqual(rig.account.linkLine?.text, "Sent. Check someone@example.com on your Mac.")
-        XCTAssertEqual(http.sent.last?.bearer, "Bearer fa1_first")
-        await rig.account.sendLink().value
-        XCTAssertEqual(rig.account.linkLine?.text, "The link was sent a moment ago. Check your inbox, or try again in a few minutes.")
-        await rig.account.sendLink().value
-        XCTAssertEqual(rig.account.linkLine?.text, "FERB couldn't send the link just now. You can also open ferb.kartikey.xyz on your Mac.")
-        http.offline = true
-        await rig.account.sendLink().value
-        XCTAssertEqual(rig.account.linkLine?.key, "macfirst_send_failed")
 
         vm.choosePair()
         XCTAssertEqual(vm.ui.gate, .pair)
@@ -333,7 +321,7 @@ final class AccountTests: XCTestCase {
         XCTAssertTrue(vm.pairAccountRefused)
     }
 
-    // decision: PHN-829
+    // decision: PHN-840
     func testSignOutLeavesTheMacAndTheAccount() async {
         rig.prefs.pairedSince = 1_700_000_000_000
         let vm = rig.model()
@@ -351,7 +339,7 @@ final class AccountTests: XCTestCase {
         await eventually("the sign-in") { vm.ui.gate == .signIn }
     }
 
-    // decision: PHN-829
+    // decision: PHN-840
     func testDeleteAccountNeedsTheSiteThenClearsLikeSignOut() async {
         let vm = rig.model()
         rig.session.unlocked()
@@ -368,7 +356,7 @@ final class AccountTests: XCTestCase {
         await eventually("the sign-in") { vm.ui.gate == .signIn }
     }
 
-    // decision: PHN-828, PHN-829
+    // decision: PHN-828, PHN-840
     func testADifferentAccountForgetsTheMacPairedUnderTheOtherOne() async {
         rig.prefs.pairedSince = 1_700_000_000_000
         let vm = rig.model()
@@ -477,7 +465,7 @@ final class AccountTests: XCTestCase {
         XCTAssertEqual(binds(), 2)
     }
 
-    // decision: PHN-827
+    // decision: PHN-839
     func testANewInstallNeverUsesAnAccountAnEarlierInstallLeftInTheKeychain() {
         let defaults = UserDefaults(suiteName: "ferb-account-new-\(UUID().uuidString)")!
         let prefs = Prefs(defaults: defaults)

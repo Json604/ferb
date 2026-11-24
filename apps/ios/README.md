@@ -62,7 +62,7 @@ screenshots are re-recorded with `TEST_RUNNER_FERB_RECORD_SNAPSHOTS=1` (its READ
   built. The account and its tokens are one Keychain item of the service `com.ferb.phone.account`
   (AfterFirstUnlockThisDeviceOnly), apart from the vault's so Forget this Mac never signs out; the device id is in
   UserDefaults, and its absence (a new install) deletes what an earlier install left in that service. Signed in with
-  no Mac paired: "FERB runs on your Mac" (the address, Send me the link, then pairing). Pairing first asks the site for
+  no Mac paired: "FERB runs on your Mac" (the download address, then pairing). Pairing first asks the site for
   the account's assertion for this phone's link id and carries it to the Mac (`pair(code:account:)`); the Mac's refusal
   is shown in its own words. Sign out, Delete account (This phone → the account's row) and a sign-in the site ended
   (`invalid_grant`, or a call refused after a refresh) all leave the Mac too. A pairing made before sign-in existed is bound to the account

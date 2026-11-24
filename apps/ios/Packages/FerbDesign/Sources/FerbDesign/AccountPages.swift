@@ -65,35 +65,26 @@ public struct SignInPage: View {
 }
 
 /// Phone first (the owner: "how are we gonna do those cases where its phone download first???"): signed in, no Mac
-/// paired yet. The phone and the Mac as the pairing page draws them; in the card why, where to get FERB for the Mac,
-/// Send me the link with its answer, the way on to pairing, and another account.
+/// paired yet. The phone and the Mac as the pairing page draws them; in the card why, where to get FERB for the Mac
+/// (the address can be selected and copied), the way on to pairing, and another account.
 public struct MacFirstPage: View {
     let title: String
     let text: String
     let address: String
-    let sendTitle: String
     let pairTitle: String
     let otherTitle: String
-    let line: String?
-    let sending: Bool
     var insets: PhoneInsets
-    var onSend: (() -> Void)?
     var onPair: (() -> Void)?
     var onOther: (() -> Void)?
 
-    public init(title: String, text: String, address: String, sendTitle: String, pairTitle: String, otherTitle: String,
-                line: String? = nil, sending: Bool = false, insets: PhoneInsets = .lab, onSend: (() -> Void)? = nil,
-                onPair: (() -> Void)? = nil, onOther: (() -> Void)? = nil) {
+    public init(title: String, text: String, address: String, pairTitle: String, otherTitle: String,
+                insets: PhoneInsets = .lab, onPair: (() -> Void)? = nil, onOther: (() -> Void)? = nil) {
         self.title = title
         self.text = text
         self.address = address
-        self.sendTitle = sendTitle
         self.pairTitle = pairTitle
         self.otherTitle = otherTitle
-        self.line = line
-        self.sending = sending
         self.insets = insets
-        self.onSend = onSend
         self.onPair = onPair
         self.onOther = onOther
     }
@@ -114,11 +105,6 @@ public struct MacFirstPage: View {
                     .padding(.horizontal, 16).frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
                     .background(Ink.fill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .accessibilityElement(children: .combine)
-                    Pill(title: sendTitle, kind: .grey, symbol: "envelope", height: 48, onClick: sending ? nil : onSend)
-                    if let line {
-                        Text(line).type(14.5, .regular, Ink.detail).fixedSize(horizontal: false, vertical: true)
-                            .accessibilityAddTraits(.updatesFrequently)
-                    }
                     Pill(title: pairTitle, kind: .black, onClick: onPair).padding(.top, 2)
                     Text(otherTitle).type(15, .medium, Ink.detail)
                         .padding(.horizontal, 16).padding(.vertical, 4)

@@ -113,7 +113,7 @@ NEW = {
     "profile_lock": "%@ to open",
     "pick_photos": "Photos",
     "pick_files": "Files",
-    # FERB's account (kb PHN-827..829): Android's words under its names; only iOS offers another account where the Mac
+    # FERB's account (kb PHN-839, PHN-840): Android's words under its names; only iOS offers another account where the Mac
     # refused this phone's account or before pairing
     "account_other": "Use another account",
 }

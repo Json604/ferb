@@ -218,13 +218,12 @@ public final class AppShell: ObservableObject {
 }
 
 #if DEBUG && targetEnvironment(simulator)
-/// The UI tests' stand-in for FERB's site (Debug, simulator only): an invented pairing assertion, a sent link; nothing
-/// leaves the simulator.
+/// The UI tests' stand-in for FERB's site (Debug, simulator only): an invented pairing assertion; nothing leaves the
+/// simulator.
 final class UITestSite: HttpClient {
     func send(_ request: URLRequest) async throws -> (status: Int, body: Data) {
         switch request.url?.path {
         case "/api/app/assertion": return (200, Data(#"{"assertion":"fpa1.invented.ui-test","expires_in":300}"#.utf8))
-        case "/api/app/send-link": return (200, Data(#"{"sent":true,"email":"someone@example.com"}"#.utf8))
         case "/api/app/signout": return (200, Data(#"{"ok":true}"#.utf8))
         default: return (503, Data(#"{"error":"unavailable"}"#.utf8))
         }

@@ -153,8 +153,8 @@ instructions.
 website keeps an account number, the email and name Google or Apple shares (with Apple's Hide My Email, a private relay
 address), which of the two you used, when you signed in, and for each device its kind, FERB version and when it was
 last seen. Sign-in tokens are kept on your devices only in the Keychain (or, on Android, storage encrypted with a key
-the phone keeps), and on the website only as hashes. Signing in means FERB may email you about important updates, each
-with a one-click unsubscribe. Settings → Account → **Delete account** deletes all of it.
+the phone keeps), and on the website only as hashes. The account is kept so FERB knows who uses it and so your Mac and
+phone sign in to the same account; FERB doesn't send emails. Settings → Account → **Delete account** deletes all of it.
 
 **Your phone.** The iPhone and Android apps work with FERB on your Mac over an end-to-end encrypted connection, direct
 or through a relay that can't read it; no push service is used. A phone pairs only with a Mac signed in to the same

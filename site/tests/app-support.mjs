@@ -51,7 +51,7 @@ export function fakeAppStore() {
     },
     // A row as the download sign-in (recordSignIn) leaves it.
     addDownloadUser(email, name) {
-      const u = { id: `00000000-0000-4000-8000-${String(++ids).padStart(12, "0")}`, email, name, first_signin_at: new Date(0), last_download_at: null, unsubscribed: false, google_sub: null, apple_sub: null, providers: [], last_signin_at: null };
+      const u = { id: `00000000-0000-4000-8000-${String(++ids).padStart(12, "0")}`, email, name, first_signin_at: new Date(0), last_download_at: null, google_sub: null, apple_sub: null, providers: [], last_signin_at: null };
       users.set(u.id, u);
       return u;
     },
@@ -220,12 +220,11 @@ export function appleWorld(now) {
 let sharedApple = null;
 
 // Everything a handler needs. `clock.now` moves with `advance(seconds)`.
-export function appFakes({ claims = GOOGLE_CLAIMS, google = true, apple = true, assertion = null, mail = true, ready = true } = {}) {
+export function appFakes({ claims = GOOGLE_CLAIMS, google = true, apple = true, assertion = null, ready = true } = {}) {
   const clock = { now: NOW };
   const now = () => clock.now;
   const store = fakeAppStore();
   const logs = [];
-  const mails = [];
   const calls = { authorizationUrl: [], exchange: [] };
   let n = 0;
   sharedApple ??= appleWorld(now);
@@ -237,10 +236,8 @@ export function appFakes({ claims = GOOGLE_CLAIMS, google = true, apple = true, 
     advance: (seconds) => (clock.now += seconds),
     store,
     logs,
-    mails,
     calls,
     apple: world,
-    mailFails: false,
     claims,
   };
   f.deps = {
@@ -251,7 +248,6 @@ export function appFakes({ claims = GOOGLE_CLAIMS, google = true, apple = true, 
       google,
       apple: apple ? world.settings : null,
       assertion,
-      mail: mail ? { from: "FERB <hello@ferb.example.com>", replyTo: "" } : null,
       androidCerts: [],
     },
     now,
@@ -272,13 +268,6 @@ export function appFakes({ claims = GOOGLE_CLAIMS, google = true, apple = true, 
       : null,
     apple: apple ? world.client : null,
     store,
-    sendMail: mail
-      ? async (email, key) => {
-          if (f.mailFails) throw Object.assign(new Error("Resend answered 500"), { code: "RESEND" });
-          mails.push({ email, key });
-          return { id: "x" };
-        }
-      : null,
   };
   return f;
 }

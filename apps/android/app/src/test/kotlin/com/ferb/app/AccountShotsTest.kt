@@ -24,8 +24,8 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 /**
- * FERB's account pages (kb PHN-827, PHN-829) over the noon sky, at the smallest common Android width (360 dp) and the
- * lab's (412 dp): the sign-in page (with a line after a cancelled try) and the phone-first page (after a sent link).
+ * FERB's account pages (kb PHN-839, PHN-840) over the noon sky, at the smallest common Android width (360 dp) and the
+ * lab's (412 dp): the sign-in page (with a line after a cancelled try) and the phone-first page.
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -49,18 +49,17 @@ class AccountShotsTest {
     }
 
     private val signedOut = UiState(gate = Gate.SIGN_IN, account = AccountUi(known = true, note = Note(R.string.signin_cancelled)))
-    private val macFirst = UiState(gate = Gate.PAIR, account = AccountUi(known = true, account = INVENTED_ACCOUNT),
-        linkNote = Note(R.string.macfirst_sent, INVENTED_ACCOUNT.email))
+    private val macFirst = UiState(gate = Gate.PAIR, account = AccountUi(known = true, account = INVENTED_ACCOUNT))
 
-    // decision: PHN-827, PHN-416
+    // decision: PHN-839, PHN-416
     @Test @Config(qualifiers = "w360dp-h780dp-port-mdpi") fun sign_in_at_360() = shoot("sign-in-360.png") { SignIn(vm, signedOut, PhoneInsets.Lab) }
 
-    // decision: PHN-827, PHN-416
+    // decision: PHN-839, PHN-416
     @Test @Config(qualifiers = "w412dp-h915dp-port-mdpi") fun sign_in_at_412() = shoot("sign-in-412.png") { SignIn(vm, signedOut, PhoneInsets.Lab) }
 
-    // decision: PHN-829, PHN-416
+    // decision: PHN-840, PHN-416
     @Test @Config(qualifiers = "w360dp-h780dp-port-mdpi") fun phone_first_at_360() = shoot("phone-first-360.png") { MacFirst(vm, macFirst, PhoneInsets.Lab) }
 
-    // decision: PHN-829, PHN-416
+    // decision: PHN-840, PHN-416
     @Test @Config(qualifiers = "w412dp-h915dp-port-mdpi") fun phone_first_at_412() = shoot("phone-first-412.png") { MacFirst(vm, macFirst, PhoneInsets.Lab) }
 }

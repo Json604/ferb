@@ -462,12 +462,12 @@
     <!-- the top bar folded into one menu button when there's no room (owner 2026-11-23, PHN-820) -->
     <string name="top_bar_more">More</string>
 
-    <!-- FERB's account (kb PHN-827, PHN-829): the shared sign-in spec's words, plus a few new ones marked "new" -->
+    <!-- FERB's account (kb PHN-839, PHN-840): the shared sign-in spec's words, plus a few new ones marked "new" -->
     <string name="signin_title">Welcome to FERB</string>
     <string name="signin_text">Sign in to use FERB on your phone. Use the same account as on your Mac.</string>
     <string name="signin_google">Continue with Google</string>
     <string name="signin_apple">Continue with Apple</string>
-    <string name="signin_footnote">Signing in means FERB may email you about important updates. Every email has a one-click unsubscribe.</string>
+    <string name="signin_footnote">FERB keeps your account to know who uses FERB and to link your phone and Mac. It doesn\'t send you emails.</string>
     <string name="signin_finishing">Finishing sign-in in your browser…</string>
     <string name="signin_cancelled">Sign-in was cancelled. Try again when you\'re ready.</string>
     <string name="signin_unreachable">FERB can\'t reach its sign-in right now. Check your internet connection and try again.</string>
@@ -493,14 +493,10 @@
     <string name="delete_text">This deletes %1$s\'s account and signs FERB out on all your devices. It can\'t be undone.</string>
     <string name="delete_yes">Delete account</string>
     <string name="account_delete_failed">FERB couldn\'t delete your account just now. Check your connection and try again.</string>
-    <!-- the phone came first (kb PHN-829) -->
+    <!-- the phone came first (kb PHN-840) -->
     <string name="macfirst_title">FERB runs on your Mac</string>
     <string name="macfirst_text">Your phone works with FERB on your Mac. Install FERB on your Mac, sign in there as %1$s, then pair this phone.</string>
     <string name="macfirst_site">ferb.kartikey.xyz</string>
-    <string name="macfirst_send">Send me the link</string>
     <string name="macfirst_pair">I\'ve installed it — pair now</string>
-    <string name="macfirst_sent">Sent. Check %1$s on your Mac.</string>
-    <string name="macfirst_sent_recently">The link was sent a moment ago. Check your inbox, or try again in a few minutes.</string>
-    <string name="macfirst_send_failed">FERB couldn\'t send the link just now. You can also open ferb.kartikey.xyz on your Mac.</string>
     <string name="pair_needs_internet">Pairing needs the internet to confirm your account.</string>
 </resources>

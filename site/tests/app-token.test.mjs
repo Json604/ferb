@@ -1,11 +1,11 @@
-// decision: REL-440
-// decision: REL-441
+// decision: REL-449
+// decision: REL-451
 // decision: REL-445
-// The apps' side of the sign-in: /api/app/token (code and refresh grants), and the bearer endpoints me, signout,
-// delete and send-link.
+// The apps' side of the sign-in: /api/app/token (code and refresh grants), and the bearer endpoints me, signout and
+// delete.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { appDelete, appMe, appSendLink, appSignOut, appToken, sha256hex } from "../api/_lib/app.js";
+import { appDelete, appMe, appSignOut, appToken, sha256hex } from "../api/_lib/app.js";
 import { NOW } from "./support.mjs";
 import { appFakes, browserSignIn, DEVICE, getWith, postJson, SITE, VERIFIER } from "./app-support.mjs";
 
@@ -245,56 +245,6 @@ test("the token endpoint allows 30 requests per IP in 10 minutes", async () => {
   assert.equal((await token(f, codeGrant("A".repeat(43)), { ip: "203.0.113.10" })).status, 401);
 });
 
-test("send-link emails the download page to the account's own email: once per 10 minutes, five a day", async () => {
-  const f = appFakes();
-  const { access_token } = await signedIn(f);
-  const send = () => appSendLink(postJson("/api/app/send-link", {}, { bearer: access_token }), f.deps);
-  const r = await send();
-  assert.equal(r.status, 200);
-  assert.deepEqual(await r.json(), { sent: true, email: "ada@example.com" });
-  assert.deepEqual(f.mails[0].email, {
-    from: "FERB <hello@ferb.example.com>",
-    to: ["ada@example.com"],
-    subject: "Your FERB download link",
-    text: `Open this on your Mac to download FERB.\n\n${SITE}/#download\n`,
-  });
-  assert.match(f.mails[0].key, /^[0-9a-f]{48}$/);
-
-  const soon = await send();
-  assert.equal(soon.status, 429);
-  assert.deepEqual(await soon.json(), { error: "slow_down", retry_after: 600 });
-  assert.equal(soon.headers.get("retry-after"), "600");
-  f.advance(300);
-  assert.deepEqual(await (await send()).json(), { error: "slow_down", retry_after: 300 });
-
-  for (let i = 0; i < 4; i++) {
-    f.advance(600);
-    assert.equal((await send()).status, 200, `send ${i + 2}`);
-  }
-  f.advance(600);
-  const day = await send();
-  assert.equal(day.status, 429, "five a day");
-  assert.equal((await day.json()).retry_after, 86400 - (300 + 5 * 600));
-  assert.equal(f.mails.length, 5);
-});
-
-test("send-link: a send that fails doesn't use up the person's tries; without mail set up it's 503", async () => {
-  const f = appFakes();
-  const { access_token } = await signedIn(f);
-  const send = () => appSendLink(postJson("/api/app/send-link", {}, { bearer: access_token }), f.deps);
-  f.mailFails = true;
-  const failed = await send();
-  assert.equal(failed.status, 503);
-  assert.deepEqual(await failed.json(), { error: "unavailable" });
-  f.mailFails = false;
-  assert.equal((await send()).status, 200, "it can be tried again right away");
-  assert.equal((await appSendLink(postJson("/api/app/send-link", {}), f.deps)).status, 401);
-
-  const none = appFakes({ mail: false });
-  const s = await signedIn(none);
-  assert.equal((await appSendLink(postJson("/api/app/send-link", {}, { bearer: s.access_token }), none.deps)).status, 503);
-});
-
 test("before the site is set up, or with the database down, the apps get 503 unavailable", async () => {
   const off = appFakes({ ready: false });
   for (const r of [
@@ -320,9 +270,7 @@ test("no log line carries an email, a name, a code or a token", async () => {
   const a = await signedIn(f);
   await token(f, refreshGrant(a.refresh_token));
   await token(f, refreshGrant(a.refresh_token)); // reuse
-  f.mailFails = true;
   const b = await signedIn(f);
-  await appSendLink(postJson("/api/app/send-link", {}, { bearer: b.access_token }), f.deps);
   f.store.fail();
   await token(f, refreshGrant(b.refresh_token));
   await appMe(getWith("/api/app/me", b.access_token), f.deps);

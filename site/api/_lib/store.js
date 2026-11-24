@@ -2,8 +2,6 @@
 // in to download FERB, holding exactly what the owner listed and nothing else. The table is made on first use, so
 // setting up the database needs no SQL by hand.
 //
-// A row's `unsubscribed` is only ever set to true here: signing in again never subscribes someone who left.
-//
 // The apps' accounts (REL-440, REL-441) live in the same table: a row's `id` is the FERB account id, and
 // `google_sub`/`apple_sub` link it to the provider accounts. Their own tables (APP_SCHEMA, the same statements as
 // site/sql/2026-11-24-app-accounts.sql) are made the first time an app endpoint needs them. Codes and tokens are only
@@ -14,8 +12,7 @@ export const SCHEMA = `CREATE TABLE IF NOT EXISTS ferb_users (
   email text PRIMARY KEY,
   name text NOT NULL DEFAULT '',
   first_signin_at timestamptz NOT NULL,
-  last_download_at timestamptz,
-  unsubscribed boolean NOT NULL DEFAULT false
+  last_download_at timestamptz
 )`;
 
 export const APP_SCHEMA = [
@@ -110,15 +107,12 @@ export function makeStore(sql) {
         [email, name, at],
       ),
     recordDownload: (email, at) => run("UPDATE ferb_users SET last_download_at = $2 WHERE email = $1", [email, at]),
-    unsubscribe: (email) => run("UPDATE ferb_users SET unsubscribed = true WHERE email = $1", [email]),
     listUsers: () =>
       run(
-        `SELECT email, name, first_signin_at, last_download_at, unsubscribed
+        `SELECT email, name, first_signin_at, last_download_at
          FROM ferb_users ORDER BY first_signin_at DESC`,
         [],
       ),
-    subscribedUsers: () =>
-      run("SELECT email, name FROM ferb_users WHERE NOT unsubscribed ORDER BY first_signin_at", []),
 
     // The account for a provider's verified sign-in: the row already linked to that provider account, else the row
     // with that email (which gains the link), else a new row. null when the email's row is linked to a different

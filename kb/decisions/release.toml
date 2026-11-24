@@ -410,7 +410,7 @@ words = "just to know user count ig, any works for me but whats future safe? …
 words_source = "Owner 2026-11-22, relayed verbatim by the coordinator: how to count users; why sign-ins; his answer to the proposal (Google or email link, an opt-in box, a list on his Vercel, Resend)."
 rule = "The site's download needs Continue with Google first; no email-link sign-in, no checkbox, nothing else asked. One line under the button says signing in means FERB may email you about important updates, each with a one-click unsubscribe (every email carries one). The list keeps only the Google email, name, first sign-in, last download and an unsubscribed flag. The owner sees it on an admin page only his Google account opens. Update feed and update downloads stay public."
 why = "To know how many people use FERB and to email them about updates (and, if needed, ask for a call), without spamming: the notice is plain and leaving takes one click."
-paths = ["site/index.html", "site/privacy.html", "site/vercel.json", "site/api", "site/scripts/send-update.mjs"]
+paths = ["site/index.html", "site/privacy.html", "site/vercel.json", "site/api"]
 live = ["LIVE-1167"]
 
 [REL-434]
@@ -422,7 +422,7 @@ superseded_by = "REL-436"
 supersedes = ["REL-413"]
 rule = "For REL-433. Pages stay static HTML with one stylesheet, light, no script, web fonts or third-party requests. Server code is Vercel Functions in site/api (Node, ESM, no build step); shared code in site/api/_lib. Google sign-in: openid-client (code flow, PKCE, state, nonce). Tokens are HMAC-SHA256 with AUTH_SECRET, each naming its purpose: sign-in cookie 10 min, download link 10 min, admin cookie 8 h, unsubscribe link no expiry. List: one Neon Postgres table (ferb_users), made on first use. Mail: scripts/send-update.mjs, by hand, dry run unless --send."
 why = "Neon via Vercel: free, plain Postgres he can move, DATABASE_URL set by Vercel. openid-client: the maintained, certified OIDC client under Auth.js; the smallest sound choice with no framework. The DMG stays on the public releases Sparkle needs (REL-430): the sign-in is a front door, not a lock."
-paths = ["site/api", "site/scripts", "site/tests", "site/package.json", "site/package-lock.json", "site/env.example", "site/.vercelignore", "site/styles.css", "site/vercel.json"]
+paths = ["site/api", "site/tests", "site/package.json", "site/package-lock.json", "site/env.example", "site/.vercelignore", "site/styles.css", "site/vercel.json"]
 live = ["LIVE-1167"]
 
 [REL-435]
@@ -442,11 +442,12 @@ live = ["LIVE-1201"]
 title = "How the site signs people in: Vercel Functions, openid-client, Neon, signed tokens, Resend"
 by = "agent"
 date = 2026-11-24
-status = "active"
+status = "superseded"
+superseded_by = "REL-450"
 supersedes = ["REL-434"]
 rule = "For REL-433. Pages are static HTML with one stylesheet, light, no web fonts; no script but REL-437's analytics, and the server's pages none (CSP default-src 'none'). Server code is Vercel Functions in site/api (Node, ESM); shared code in site/api/_lib. Google sign-in: openid-client (code flow, PKCE, state, nonce). Tokens are HMAC-SHA256 with AUTH_SECRET, each naming its purpose: sign-in cookie 10 min, download link 10 min, admin cookie 8 h, unsubscribe link no expiry. List: one Neon Postgres table (ferb_users), made on first use. Mail: scripts/send-update.mjs, by hand, dry run unless --send."
 why = "Neon via Vercel: free, plain Postgres he can move, DATABASE_URL set by Vercel. openid-client: the maintained, certified OIDC client under Auth.js; the smallest sound choice with no framework. The DMG stays on the public releases Sparkle needs (REL-430): the sign-in is a front door, not a lock."
-paths = ["site/api", "site/scripts", "site/tests", "site/package.json", "site/package-lock.json", "site/env.example", "site/.vercelignore", "site/styles.css", "site/vercel.json"]
+paths = ["site/api", "site/tests", "site/package.json", "site/package-lock.json", "site/env.example", "site/.vercelignore", "site/styles.css", "site/vercel.json"]
 live = ["LIVE-1167"]
 
 [REL-437]
@@ -489,7 +490,8 @@ live = ["LIVE-1201"]
 title = "The site's download needs no sign-in; FERB's sign-in is in the app"
 by = "owner"
 date = 2026-11-24
-status = "active"
+status = "superseded"
+superseded_by = "REL-449"
 words = "no, not doing that cause that shifted to the app sing in, i thought you'd catched up."
 words_source = "His answer, relayed by the coordinator, when told the site's Google sign-in before download needed settings in Vercel before deploying."
 rule = "Supersedes REL-433. The site's Download button is a plain link: /download/FILE redirects (307, REL-432) to the latest public release's file; nothing is asked. Signing in happens inside the FERB app (the app sign-in work). The download sign-in's records already kept stay for update emails with their one-click unsubscribe; the privacy page says so."
@@ -500,7 +502,8 @@ paths = ["site/index.html", "site/vercel.json", "site/privacy.html", "site/analy
 title = "FERB's apps need a FERB account: Google or Apple, one account system with the site"
 by = "owner"
 date = 2026-11-24
-status = "active"
+status = "superseded"
+superseded_by = "REL-449"
 words = "also the login is to be added on the app. a proper in app login - see and tell how to do it securely and save in some db too. we can have mongodb or anything you say … required. google and apple. a setup step and first launch on the mac, but how are we gonna do those cases where its phone download first???"
 words_source = "Owner 2026-11-24, relayed verbatim: asking for a proper in-app login kept in a database, then answering \"(a) Required or optional? (b) Google only, or also Apple? (c) Where in the app?\"."
 rule = "FERB.app, the iPhone app and the Android app each need the owner signed in to a FERB account before they can be used: Continue with Google or Continue with Apple, nothing else. The account lives in the site's existing user list (Neon Postgres, ferb_users; REL-442 keeps the download sign-in's rows): one account system, no new service. Signing in says that FERB may email about important updates with a one-click unsubscribe. Deleting the account in an app deletes its row, devices and sign-ins."
@@ -512,7 +515,8 @@ live = ["LIVE-1202", "LIVE-1203"]
 title = "How the apps sign in: /api/app, PKCE one-time codes, opaque rotating tokens, Apple verified locally"
 by = "agent"
 date = 2026-11-24
-status = "active"
+status = "superseded"
+superseded_by = "REL-451"
 rule = "For REL-440. site/api/app: start (provider, platform, the app's PKCE S256 challenge and state, a redirect from an exact allowlist: ferb-auth://callback, or the Android App Link /app/callback), callback (Google by openid-client; Apple by form_post, its id_token checked against Apple's JWKS; private-relay emails accepted), token (a 120 s one-time code bound to the challenge; then an opaque 1 h access token and a rotating refresh token (180 days, REL-445), kept only as SHA-256; a refresh token used twice revokes its family), me, signout, delete, assertion, send-link. Rate limits in the database."
 why = "PKCE with an exact redirect allowlist is what RFC 8252 asks of apps on custom schemes and App Links; opaque tokens stored hashed mean a database leak gives no usable token; rotation with reuse detection limits a stolen refresh token. No new npm dependency: node:crypto signs and verifies the JWTs."
 paths = ["site/api/app", "site/api/_lib", "site/sql", "site/tests", "site/vercel.json", "site/env.example"]
@@ -564,3 +568,38 @@ why = "No DNS work; a rewrite moves later. Moving on after any refusal covers wh
 rejected = ["A Cloudflare custom domain (reports.ferb.kartikey.xyz) on the Worker: a DNS change the owner would make", "A site function that proxies the upload: Vercel Functions take at most 4.5 MB of body", "Trusting X-Real-IP alone: a direct caller could name any address and lift its own limit"]
 paths = ["site/vercel.json", "engine/crates/ferb-daemon/src/areas_b/reports.rs", "engine/crates/ferbd/src/areas_c/records.rs", "engine/crates/ferbd/src/compose/group_c.rs", "relay/worker.mjs", "relay/README.md"]
 live = ["LIVE-1205"]
+
+[REL-449]
+title = "FERB sends no email: no Send me the link, no update emails, no Resend"
+by = "owner"
+date = 2026-11-24
+status = "active"
+words = "lets not do the 'Send me the link' button. so we are not doing resend at all - remove it."
+words_source = "Owner 2026-11-24, relayed verbatim by the coordinator, about the phones' Send me the link (PHN-827) and the website's Resend mail (REL-433, REL-436, REL-440, REL-442)."
+supersedes = ["REL-440", "REL-442"]
+rule = "FERB sends no email: no Send me the link, no update emails, no Resend, no unsubscribe link; no app or page says it may email you. The account is kept to know who uses FERB and to sign in on every device. Otherwise REL-440 and REL-442 stand: the three apps need a FERB account (Google or Apple only) before use, kept in the site's ferb_users (deleting it in an app deletes its row, devices and sign-ins); the site's Download is a plain link (/download/FILE, 307 to the latest release, REL-432), nothing asked; sign-in is in the app; the download sign-in's rows stay."
+why = "The owner dropped Send me the link, the only mail the apps sent, and with it Resend; update emails had no other use for it."
+paths = ["site/api", "site/sql", "site/index.html", "site/privacy.html", "site/vercel.json", "site/analytics.js", "site/env.example", "README.md", "apps/mac/FERBNotch/Sources/NotchCore/Account.swift", "apps/mac/FERBNotch/Sources/FERBNotch/IntroCopy.swift", "apps/android", "apps/ios"]
+live = ["LIVE-1202", "LIVE-1203"]
+
+[REL-450]
+title = "How the site keeps its user list: Vercel Functions, openid-client, Neon, signed tokens; no mail"
+by = "agent"
+date = 2026-11-24
+status = "active"
+supersedes = ["REL-436"]
+rule = "For REL-449. Pages: static HTML, one stylesheet, light, no web fonts; no script but REL-439's analytics; server pages none (CSP default-src 'none'). Server: Vercel Functions in site/api (Node, ESM), shared code in site/api/_lib. Google sign-in: openid-client (code flow, PKCE, state, nonce). HMAC-SHA256 tokens with AUTH_SECRET naming their purpose: sign-in cookie 10 min, download link 10 min, admin cookie 8 h. List: Neon Postgres ferb_users (email, name, first sign-in, last download), made on first use; the admin page shows it and a CSV. No mail code, no unsubscribe endpoint."
+why = "REL-436 without its mail (send-update.mjs, Resend) and the unsubscribe link, which existed only for those emails. Neon via Vercel: free, plain Postgres he can move. openid-client: the maintained, certified OIDC client, the smallest sound choice."
+paths = ["site/api", "site/tests", "site/sql", "site/package.json", "site/package-lock.json", "site/env.example", "site/.vercelignore", "site/styles.css", "site/vercel.json"]
+live = ["LIVE-1167"]
+
+[REL-451]
+title = "How the apps sign in: /api/app, PKCE one-time codes, opaque rotating tokens, Apple verified locally"
+by = "agent"
+date = 2026-11-24
+status = "active"
+supersedes = ["REL-441"]
+rule = "For REL-449's sign-in. site/api/app: start (provider, platform, the app's PKCE S256 challenge and state, a redirect from an exact allowlist: ferb-auth://callback or the Android App Link /app/callback), callback (Google by openid-client; Apple by form_post, its id_token checked against Apple's JWKS; private-relay emails accepted), token (a 120 s one-time code bound to the challenge, then an opaque 1 h access token and a rotating 180-day refresh token, REL-445, kept only as SHA-256; a reused refresh token revokes its family), me, signout, delete, assertion, ready. Rate limits in the database."
+why = "REL-441 without send-link (REL-449). PKCE with an exact redirect allowlist is what RFC 8252 asks of apps; opaque tokens stored hashed mean a database leak gives no usable token; rotation with reuse detection limits a stolen refresh token. node:crypto signs the JWTs."
+paths = ["site/api/app", "site/api/_lib", "site/sql", "site/tests", "site/vercel.json", "site/env.example"]
+live = ["LIVE-1202", "LIVE-1203"]

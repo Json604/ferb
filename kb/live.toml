@@ -4998,12 +4998,12 @@ decisions = ["MEM-441"]
 sitting = "after this build is installed"
 
 [LIVE-1167]
-title = "Google sign-in before the download; the owner's list, the unsubscribe and updates still work"
+title = "Google sign-in before the download; the owner's list and updates still work"
 area = "release"
 surface = "https://ferb.kartikey.xyz after the owner follows the setup guide and deploys site/, on a Mac and a phone, with a second Google account"
-request = "Press Continue with Google with the second account and download; open /api/admin with your own account, then the CSV; send yourself a test update with send-update.mjs --test-to, unsubscribe from it once by its link and once by the mail app's button; open /api/admin with the second account; in FERB.app, Check for Updates."
-pass = "The DMG downloads after sign-in and the notice line shows before it; the list shows the account with its first sign-in and last download; CSV opens; the email arrives with an unsubscribe link and Gmail's unsubscribe button, both mark it unsubscribed; the second account is refused the list; updates are found without signing in."
-decisions = ["REL-433", "REL-434", "REL-432"]
+request = "Press Continue with Google with the second account and download; open /api/admin with your own account, then the CSV; open /api/admin with the second account; in FERB.app, Check for Updates."
+pass = "The DMG downloads after sign-in and the notice line shows before it; the list shows the account with its first sign-in and last download; CSV opens; the second account is refused the list; updates are found without signing in."
+decisions = ["REL-450", "REL-432"]
 sitting = "website review after deployment"
 
 [LIVE-1177]
@@ -5156,17 +5156,17 @@ title = "FERB.app: signing in to FERB is required; first run, an existing instal
 area = "app"
 surface = "A FERB.app build with this change installed after the site is deployed with the app sign-in set up; a fresh Mac account or a wiped ~/.ferb for the first run, then the owner's own install"
 request = "First run: go through Meet, then sign in with Google (cancel once first, then finish). Quit; reopen. Settings → Account: check the email and provider, Sign out, sign in with Apple, then Delete account and sign in again. With Wi-Fi off, reopen FERB.app after an hour (the token is old): it keeps working; Settings → Account says it couldn't check. On an install from before this build: open it once."
-pass = "The account step comes right after Meet, has no Skip, says why after a cancel and moves on only once signed in; reopening asks nothing; Sign out and Delete bring the account step back at once and nothing else in FERB.app is usable until signed in; offline keeps working with the plain line; the older install gets only the short account step, not the whole tour; ferb trace / logs show no token."
-decisions = ["APP-1127", "APP-1128", "REL-440", "REL-441"]
+pass = "The account step comes right after Meet, says FERB doesn't send you emails (no unsubscribe line), has no Skip, says why after a cancel and moves on only once signed in; reopening asks nothing; Sign out and Delete bring the account step back at once and nothing else in FERB.app is usable until signed in; offline keeps working with the plain line; the older install gets only the short account step, not the whole tour; ferb trace / logs show no token."
+decisions = ["APP-1127", "APP-1128", "REL-449", "REL-451"]
 sitting = "app sign-in check after deployment"
 
 [LIVE-1203]
-title = "Phones: sign-in at first launch, the phone-first screen, Send me the link"
+title = "Phones: sign-in at first launch and the phone-first screen"
 area = "phone"
 surface = "The Android release APK the owner sideloads and the iPhone build, after the site is deployed with the app sign-in set up; a Mac without FERB paired to that phone"
-request = "Open the phone app fresh: unlock, sign in with Google (Android) and with Apple (iPhone). With no Mac paired, read the screen, press Send me the link twice in a row, then I've installed it — pair now. Sign out from Settings."
-pass = "Sign-in comes first and nothing else is reachable before it; the FERB runs on your Mac screen names the signed-in email; one email with the download link arrives and the second press says it was just sent; pair now opens the scanner; Sign out returns to the sign-in screen and the phone is unpaired."
-decisions = ["PHN-827", "PHN-829", "REL-440"]
+request = "Open the phone app fresh: unlock, sign in with Google (Android) and with Apple (iPhone). With no Mac paired, read the screen, then press I've installed it — pair now. Sign out from Settings."
+pass = "Sign-in comes first and nothing else is reachable before it; the sign-in screen says FERB doesn't send you emails; the FERB runs on your Mac screen names the signed-in email and shows ferb.kartikey.xyz, with no Send me the link; pair now opens the scanner; Sign out returns to the sign-in screen and the phone is unpaired."
+decisions = ["PHN-839", "PHN-840", "REL-449"]
 sitting = "phone sign-in check after deployment"
 
 [LIVE-1204]
