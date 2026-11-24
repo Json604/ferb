@@ -12905,3 +12905,103 @@ SQL is checked only as text); that Chrome on Android opens the intent link into 
 it isn't installed); that FERB.app's `didBecomeActive` fires often enough to matter for a notch app (the wake
 notification and the 6-hourly timer remain); that the browser follows the start's 303 to the loopback for errors as it
 does for codes; the words of items 6 and 9 await the owner's review.
+
+## 2026-11-25 · 221 · The sign-in buttons carry Google's and Apple's logos, one design on all three apps
+
+**The owner (APP-1140).** On Android's sign-in page ("Continue with Google" / "Continue with Apple", black pills on the
+white card): "add icons here, makes it look more familliar", with his rule of one design everywhere: Android, the
+iPhone and FERB.app's account step. Settings → Account has no sign-in buttons (signed out, the account step comes
+back), so nothing changed there. The iPhone had `apple.logo` on its Apple pill, centred with the words, and nothing on
+Google's; no app uses the system's SignInWithAppleButton. How: APP-1141 (agent).
+
+**What each guideline asks, and what was chosen.**
+- *Google* ("Sign in with Google branding guidelines", developers.google.com/identity/branding-guidelines, read
+  2026-11-25): the G "must be the standard color version (the standard color gradient super G logo)"; "you can't
+  change the size or color"; "Stick with the Google "G" with fixed padding and size"; "Don't … use an outdated Google
+  "G""; scale the button keeping its proportions; padding Android/Web 12 before the G, 10 after; iOS 16 before, 12
+  after; themes Light (#FFFFFF, 1 px #747775 inside, #1F1F1F), Dark (#131314, 1 px #8E918F inside, #E3E3E3), Neutral;
+  font Google Sans Medium 14/20; rectangle or pill; "buttons should be approximately the same size and have similar
+  visual weight". The current asset bundle (signin-assets.zip, linked from that page) draws the 2025 gradient G: the G
+  path as a mask over a conic gradient (CSS `conic-gradient`, 15 stops, turned −45° by its matrix) and six blurred
+  ellipses (feGaussianBlur σ = 1 unit). So the G is that one, not the four-colour flat G of older bundles (an "outdated
+  G"). Its path and every number are copied from "Theme=Dark, Show text=No, Shape=Square, Platform=Android+Web.svg"
+  (checked verbatim by script) and drawn as vectors: Android a Compose Canvas (the G path, then the gradient source-in
+  and the ellipses source-atop with BlurMaskFilter in pixels), the iPhone and FERB.app a SwiftUI Canvas (clip to the G,
+  conic gradient, `blur(radius: 1)` in the file's units). A VectorDrawable or a static SVG/PDF asset can't express
+  the blur, so neither is used; there is no bitmap. Not drawn: the file's 1-unit blur on the gradient layer itself (it
+  only softens where the blue ellipses cover it and at the circle's edge, 2.6 units outside the G). Against Google's own
+  PNG (iOS @4x, dark, square: the G 80 px on #131314), on the G's square: Android's render mean |Δ| 1.4/255, 95th
+  percentile 11, 0.02 % of pixels over 32 (all at the edge); the Swift render 1.9/255, 14, 1.2 % (edge).
+  Proportions: Google's iOS button, the one nearest FERB's 52-high pill (G 20 of 44, 16 from the edge, 12 to the
+  words; its words 14 of 44 are FERB's 16 of 52 within half a point). Colours: on a light surface (the phones' white
+  card) Google's Dark theme exactly, for both buttons, so FERB's #000 pill becomes #131314 with the #8E918F line and
+  #E3E3E3 words; on a dark surface (FERB.app's notch, the phones' FERB surface where `Pill` turns white) Google's Light
+  theme. Deviation: the words stay in FERB's type (Roboto/SF at 16 semibold; the Mac's 12.5 medium), not Google Sans,
+  so both buttons match; and the words are centred in the whole button with the G at the leading edge (the guideline
+  says nothing on a full-width button's alignment; the owner's brief keeps the words centred).
+- *Apple* (Human Interface Guidelines, Sign in with Apple, read from developer.apple.com's JSON 2026-11-25; change log
+  last 2022-09-14): custom buttons may "align logos across multiple sign-in buttons" and "adjust the button's font,
+  bezel, or background appearance"; "Use only the logo artwork downloaded from Apple Design Resources"; "Match the height
+  of the logo file to the height of the button"; "Inset the logo if necessary … to horizontally align the Apple logo with
+  other authentication logos"; the title's font "43% of the button's height"; at least 8 % of the width between the
+  title and the right edge; minimum 140 × 30 pt; black style "on white or light-color backgrounds", white on dark; the
+  corner radius may match the app's buttons. The medium left-aligned logo file at 44 high has a 19-high glyph, so the
+  glyph is h·19/44 (22.5 on the phones' 52, 18.1 on the Mac's 42), the same visual size as the G (h·20/44), centred on
+  the G's centre line. On the iPhone and the Mac it is the system's own `apple.logo` (resizable, as high as that glyph;
+  measured: 100 of 100 on macOS, 73 of 76 at 1× on the iOS simulator at half coverage), white on the dark buttons and
+  black on the Mac's white ones. On Android it is the glyph of Apple's own web Sign in with Apple button
+  (appleid.cdn-apple.com/…/appleid.auth.js, the medium logo, 15 × 19 in 44, path copied verbatim and checked by
+  script): the Design Resources download's licence (the "Apple Design Resources" licence inside
+  Logo-Sign-in-with-Apple.dmg) covers only mock-ups for Apple's systems and forbids embedding, while the web button is
+  what Apple serves to every platform; the two glyphs are the same shape. Deviation: Apple's 43 % title proportion
+  isn't met (FERB's 16 of 52 is 31 %): one shared button can't meet both Google's 14/44 and Apple's 43 %, and the
+  owner's design keeps both buttons alike; App Review judges custom buttons, so this is the one thing to watch on the
+  iPhone.
+
+**The shared spec** (one `SignInButton` per app: Android `design/components/SignInButton.kt`, the iPhone's
+`FerbDesign/SignInButton.swift`, FERB.app's `FERBNotch/SignInButton.swift`), all from the button's height h: the logo
+column h·16/44 from the leading edge and h·20/44 wide, the G h·20/44 square, the Apple glyph h·19/44 high, both centred
+in that column; the words centred in the whole button with h·48/44 clear on each side (so they never run under the
+logo and stay centred) and wrapping to two lines; the fill and 1-pt line drawn inside the app's own shape (phones 16,
+Mac 12). Both buttons have the same height and width. Pressed and waiting are the app's own (`pressable`: scale 0.97 and
+alpha 0.85 on Android; the iPhone's PressStyle; the Mac's whole button at 0.78), the logo inside them, so it stays;
+waiting with no tap looks as before (the pages already show the running line). The logos are decorative (Android
+`contentDescription = null` and a Canvas with no semantics; SwiftUI `accessibilityHidden`), so each button still says
+only "Continue with Google" / "Continue with Apple" (the iPhone's UI test finds `app.buttons["Continue with Google"]`).
+FERB.app: `IntroChoice` gains `provider` (nil for every other choice); the account step's two choices carry
+`.google`/`.apple` and draw as `SignInButton` in Google's light theme on the notch, both alike (before: the first white,
+the second translucent, each with ↗); `introContentHeight` measures their words with that side room (APP-616's height
+test now includes the account step). The Android and iPhone galleries have a `sign-in-buttons` showcase.
+
+**Evidence.**
+- Android: `:design:recordRoborazziDebug` (ComponentShotsTest) and `:app:recordRoborazziDebug --tests
+  com.ferb.app.AccountShotsTest`, then `./gradlew --offline --no-daemon :app:testDebugUnitTest :design:test`: app 374,
+  design 113, 0 failures. Re-recorded and looked at: `account/sign-in-{360,412}.png`,
+  `account/sign-in-signed-out-unheard-412.png`; new `components/sign-in-buttons.png` (both buttons, waiting, on FERB's
+  dark surface, narrow with the Google words on two lines, and the G and the Apple logo at 4× on dark and white). The
+  first recording drew the G's whole gradient square: a DstIn mask paints only where its own path is; fixed by drawing
+  the G first and the rest source-in/source-atop, then looked at again.
+- iPhone: `TEST_RUNNER_FERB_RECORD_SNAPSHOTS=1` for `ScreenshotTests/testComponents`,
+  `AppScreensTests/testTheSignInAndPhoneFirstPagesAtBothWidths` and `testAnotherAccountWhereverThePhoneCanBeOnTheWrongOne`
+  on its own simulator ("FERB iOS icons"): re-recorded and looked at `app/sign-in-{375,402}-noon.png`,
+  `sign-in-cancelled-{375,402}-noon.png`, `sign-in-browser-402-noon.png`, `sign-in-signed-out-unheard-noon.png`; new
+  `components/sign-in-buttons.png` (its first recording overflowed the 412 width with three 176 tiles in a row; the tiles
+  are two rows now, on Android too). `make_project.py --check`, `strings.py --check` clean. The phone library was copied
+  from the main checkout's build (the engine is unchanged), so `build-rust.sh` didn't run.
+  Then `xcodebuild test` (FERB scheme) on that simulator: FerbAppTests 237, FerbDesignTests 75, FerbCoreTests 15 with 1
+  skipped, FerbMobileTests 4, 0 failures; FERBUITests 8 with 1 failure: `testAFreshInstallSignsInFirst` found and tapped
+  "Continue with Google" but the cancelled line didn't show within its 10 s (line 41), under the full run's load. Alone
+  it passed, and the whole FERBUITests suite passed twice after (8/8, 8/8); I infer a timing flake, not the button
+  (the button's label and tap were found in all four runs), but didn't prove it.
+- FERB.app `swift test` (after `source scripts/swiftpm-anonymous.sh`): 980 tests, 8 skipped, 0 failures. APP-616's
+  height test now includes the account step (its two sign-in buttons measured with their side room). The account step
+  was rendered with ImageRenderer at 360 and 540 points on the notch's black, looked at (white buttons, the G and the
+  black Apple logo at the left, the words centred) and its height checked against `introContentHeight`; that throwaway
+  test is not in the change. No Mac snapshot golden exists.
+- `tools/kb/run kb lock`, `kb gen`, `kb check`: ok. `git diff --check` clean.
+
+**Unverified.** Nothing installed; no device, no live check (LIVE-1213 is new for the owner). Not checked: the
+buttons on a real phone or the Mac's notch (only renders); Apple's App Review of the iPhone's custom button with words
+at 31 % of its height instead of Apple's 43 %; whether Google would class the centred-words, leading-G layout or FERB's
+own type as compliant (its guideline doesn't address either); the blur's look on real devices (Robolectric's native
+Skia and SwiftUI's renderer only). The temporary simulator "FERB iOS icons" was deleted after the runs.

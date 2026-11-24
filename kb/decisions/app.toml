@@ -4839,3 +4839,25 @@ why = "Each failure had one shared or wrong line; a lost reply or an unsaved rot
 rejected = ["A longer request timeout: a reply that arrives after the site's 60 s grace can't be retried; a short timeout and an immediate retry stay inside it"]
 paths = ["apps/mac/FERBNotch/Sources/NotchCore/Account.swift", "apps/mac/FERBNotch/Sources/FERBNotch/IntroSetupBeats.swift", "apps/mac/FERBNotch/Sources/FERBNotch/IntroCopy.swift", "apps/mac/FERBNotch/Sources/FERBNotch/AppSetupController.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift"]
 live = ["LIVE-1202"]
+
+[APP-1140]
+title = "The sign-in buttons carry Google's and Apple's logos, the same on every app"
+by = "owner"
+date = 2026-11-25
+status = "active"
+words = "add icons here, makes it look more familliar"
+words_source = "Owner 2026-11-25, relayed verbatim, on Android's Continue with Google / Continue with Apple buttons; with his rule of one design everywhere (Android, iPhone, FERB.app)."
+rule = "\"Continue with Google\" and \"Continue with Apple\" show the provider's own logo (Google's G, the Apple logo) left of their words, as each provider's published brand rules allow, in one design on Android, the iPhone and FERB.app's account step. The words and what the buttons do are unchanged."
+paths = ["apps/android/design/src/main/kotlin/com/ferb/design/components/SignInButton.kt", "apps/ios/Packages/FerbDesign/Sources/FerbDesign/SignInButton.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SignInButton.swift"]
+live = ["LIVE-1213"]
+
+[APP-1141]
+title = "How the sign-in buttons follow Google's and Apple's brand rules"
+by = "agent"
+date = 2026-11-25
+status = "active"
+rule = "For APP-1140. One SignInButton per app, sized from its height h on the providers' 44-pt buttons: Google's current G (its asset bundle's mask, conic gradient and blurred ellipses, drawn as vectors) h·20/44, 16/44 in; the Apple glyph h·19/44 on the G's centre line (apple.logo on Apple systems, Apple's web-button glyph on Android); words centred, h·48/44 clear each side. Light surfaces: Google's dark theme (#131314, 1 px #8E918F, #E3E3E3), white Apple logo; dark surfaces (Mac notch): Google's light theme (#FFFFFF, #747775, #1F1F1F), black logo. Logos decorative."
+why = "Google: the standard G unmodified, fixed size and padding, its theme colours, no outdated G. Apple: logo as high as the button's logo file, inset to line up with others, black on light and white on dark, custom fill and corners allowed. One height-based spec keeps the apps alike."
+rejected = ["The four-colour flat G: Google's guidelines now call an outdated G a don't; its current asset bundle has the gradient G", "Google's dark theme on the Mac's black notch: Apple's black style is only for light backgrounds; the light theme is Google's own other form", "Apple's Design Resources logo file on Android: its licence covers only mock-ups for Apple's systems; the web button's glyph is the one Apple serves to every platform", "The words 43 % of the button's height (Apple's proportion): Google's iOS proportion (14 of 44) is FERB's own 16 of 52, and both buttons must match"]
+paths = ["apps/android/design/src/main/kotlin/com/ferb/design/components/SignInButton.kt", "apps/ios/Packages/FerbDesign/Sources/FerbDesign/SignInButton.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SignInButton.swift", "apps/mac/FERBNotch/Sources/FERBNotch/IntroNarration.swift"]
+live = ["LIVE-1213"]

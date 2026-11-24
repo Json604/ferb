@@ -52,8 +52,9 @@ public struct SignInPage: View {
                         .accessibilityElement(children: .combine)
                         .accessibilityAddTraits(.updatesFrequently)
                     }
-                    Pill(title: google, kind: .black, onClick: working ? nil : onGoogle).padding(.top, 2)
-                    Pill(title: apple, kind: .black, symbol: "apple.logo", onClick: working ? nil : onApple)
+                    // each provider's own logo (owner kb APP-1140), the same on every app
+                    SignInButton(provider: .google, title: google, onClick: working ? nil : onGoogle).padding(.top, 2)
+                    SignInButton(provider: .apple, title: apple, onClick: working ? nil : onApple)
                     Text(footnote).type(13, .regular, Ink.detail).lineSpacing(1).fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, 2)
                 }

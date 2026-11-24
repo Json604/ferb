@@ -93,7 +93,7 @@ final class AppScreensTests: XCTestCase {
 
     /// FERB's account pages at an iPhone SE's width and height (375 by 667, the smallest iOS 17 runs on) and the lab's
     /// (402 by 874): the sign-in, its line, and phone first, with the app's words.
-    // decision: PHN-839, PHN-841, PHN-416
+    // decision: PHN-839, PHN-841, PHN-416, APP-1140
     func testTheSignInAndPhoneFirstPagesAtBothWidths() async {
         let phones: [(String, CGSize, PhoneInsets)] = [("375", CGSize(width: 375, height: 667), PhoneInsets(top: 20, bottom: 0)),
                                                        ("402", PhoneInsets.labSize, .lab)]

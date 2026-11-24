@@ -33,9 +33,14 @@ import com.ferb.design.Phone
 import com.ferb.design.Radius
 import com.ferb.design.Space
 import com.ferb.design.Tone
+import com.ferb.design.components.AppleLogo
 import com.ferb.design.components.Card
 import com.ferb.design.components.CardRow
 import com.ferb.design.components.CloseButton
+import com.ferb.design.components.FerbSurface
+import com.ferb.design.components.GoogleG
+import com.ferb.design.components.SignInButton
+import com.ferb.design.components.SignInProvider
 import com.ferb.design.components.Divide
 import com.ferb.design.components.ExactCommand
 import com.ferb.design.components.ExactItem
@@ -121,6 +126,42 @@ fun ShowTopBars(moment: SkyMoment) = OnSky(moment, Modifier.width(412.dp)) {
     val connection = com.ferb.design.components.Connection(com.ferb.design.components.LinkMark.DIRECT, "Connected directly", null)
     CompositionLocalProvider(com.ferb.design.components.LocalConnection provides connection) {
         for (tab in PhoneTab.entries) TopBar(tab, Modifier.outset(16.dp))
+    }
+}
+
+/**
+ * The sign-in buttons (kb APP-1140, APP-1141): on the white card, waiting (no tap: the same look), on FERB's dark
+ * surface, narrow, and both logos four times their size for a close look.
+ */
+@Composable
+fun ShowSignInButtons() = Column(Modifier.background(Ink.white).padding(16.dp).width(380.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    SignInButton(SignInProvider.GOOGLE, "Continue with Google")
+    SignInButton(SignInProvider.APPLE, "Continue with Apple")
+    SignInButton(SignInProvider.GOOGLE, "Continue with Google", onClick = null)
+    FerbSurface {
+        Column(Modifier.fillMaxWidth().background(Ink.black, RoundedCornerShape(Phone.cardCorner)).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            SignInButton(SignInProvider.GOOGLE, "Continue with Google")
+            SignInButton(SignInProvider.APPLE, "Continue with Apple")
+        }
+    }
+    Row(Modifier.width(260.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            SignInButton(SignInProvider.GOOGLE, "Continue with Google")
+            SignInButton(SignInProvider.APPLE, "Continue with Apple")
+        }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(176.dp).background(Color(0xFF131314), RoundedCornerShape(16.dp)), contentAlignment = Alignment.Center) { GoogleG(80.dp) }
+        Box(Modifier.size(176.dp).background(Color.White, RoundedCornerShape(16.dp)), contentAlignment = Alignment.Center) { GoogleG(80.dp) }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(176.dp).background(Color(0xFF131314), RoundedCornerShape(16.dp)), contentAlignment = Alignment.Center) {
+            AppleLogo(76.dp, Color.White)
+        }
+        Box(Modifier.size(176.dp).background(Color.White, RoundedCornerShape(16.dp)), contentAlignment = Alignment.Center) {
+            AppleLogo(76.dp, Color.Black)
+        }
     }
 }
 
@@ -371,6 +412,7 @@ val SHOWCASES: List<Pair<String, @Composable () -> Unit>> = listOf(
     "tokens" to { ShowTokens() },
     "topbar" to { ShowTopBars(labMoment(12.5)) },
     "marks-pills" to { ShowMarksAndPills() },
+    "sign-in-buttons" to { ShowSignInButtons() },
     "rows" to { ShowRows(labMoment(12.5)) },
     "conversation" to { ShowConversation(labMoment(12.5)) },
     "sheet-pieces" to { ShowSheetPieces() },

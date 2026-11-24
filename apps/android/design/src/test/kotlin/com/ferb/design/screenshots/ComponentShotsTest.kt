@@ -31,7 +31,7 @@ import org.robolectric.annotation.GraphicsMode
 class ComponentShotsTest(private val name: String) {
     @get:Rule val compose = createComposeRule()
 
-    // decision: PHN-416, PHN-455, PHN-456, PHN-458
+    // decision: PHN-416, PHN-455, PHN-456, PHN-458, APP-1140, APP-1141
     @Test
     fun component() {
         val show = SHOWCASES.first { it.first == name }.second

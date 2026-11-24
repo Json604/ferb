@@ -45,12 +45,15 @@ public struct IntroLine: Equatable, Sendable {
 }
 
 /// A button under FERB's line: its id is what the intro controller is told, its title what the owner reads.
+/// `provider`: a sign-in button, drawn with that provider's logo (kb APP-1140, APP-1141).
 public struct IntroChoice: Equatable, Sendable {
     public let id: String
     public let title: String
-    public init(_ id: String, _ title: String) {
+    public let provider: AccountProvider?
+    public init(_ id: String, _ title: String, provider: AccountProvider? = nil) {
         self.id = id
         self.title = title
+        self.provider = provider
     }
 }
 

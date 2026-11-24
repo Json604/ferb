@@ -5213,3 +5213,12 @@ request = "On the phone, tap the dashed bubble. Ask something with a longer answ
 pass = "The reply streams in word by word with its plan and step lines, as in the normal chat, not all at once a moment after; the photo uploads as in the normal chat and FERB answers about it; after the bubble ends the chat, the photo is in neither Downloads › FERB from phone nor anywhere FERB keeps."
 decisions = ["ORCH-715", "ORCH-716", "ORCH-717", "PHN-837", "PHN-838"]
 sitting = "one sitting, about 5 minutes"
+
+[LIVE-1213]
+title = "The sign-in buttons show Google's and Apple's logos, alike on Android, the iPhone and FERB.app"
+area = "app"
+surface = "This build of FERB.app (account step: a fresh install, or signed out from Settings → Account), the Android APK and the iPhone build, each signed out"
+request = "Look at Continue with Google and Continue with Apple on each: the phones' sign-in page, FERB.app's account step in the notch. Press and hold one on a phone; tap one and come back while it waits."
+pass = "Each button has its logo left of its words, the words centred; Google's G in its colours and the Apple logo, the same size as each other; alike on all three apps (dark buttons on the phones' white card, white ones on the Mac's dark notch); the logo stays while pressed and while waiting; the buttons look familiar."
+decisions = ["APP-1140", "APP-1141"]
+sitting = "a minute, with the next sign-in check"

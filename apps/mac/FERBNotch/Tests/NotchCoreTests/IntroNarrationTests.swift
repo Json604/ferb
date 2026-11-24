@@ -6,10 +6,11 @@ import SwiftUI
 
 @MainActor
 final class IntroNarrationTests: XCTestCase {
-    // decision: APP-616
+    // decision: APP-616, APP-1140, APP-1141
     func testSurfaceFitsTheRenderedLineWithoutAnEmptyFooter() throws {
         let model = NotchModel(preferences: scratchDefaults())
-        let lines = [IntroCopy.hello, IntroCopy.signIn, IntroCopy.pasteKey(.anthropic),
+        // the account step's sign-in buttons (APP-1140) keep their words clear of the logos on both sides
+        let lines = [IntroCopy.hello, IntroCopy.account, IntroCopy.signIn, IntroCopy.pasteKey(.anthropic),
                      IntroCopy.suggest(["Find files I could tidy up on my Mac.",
                         "Compare three well-reviewed electric kettles on the web and tell me which is the best value."])]
         for width: CGFloat in [360, 420, 540] {

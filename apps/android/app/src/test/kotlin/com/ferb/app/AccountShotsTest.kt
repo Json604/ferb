@@ -57,10 +57,10 @@ class AccountShotsTest {
     private val signedOutUnheard = UiState(gate = Gate.SIGN_IN, account = AccountUi(known = true, note = Note(R.string.signout_unreachable)))
     private val refusal = "This phone is signed in as someone@example.com, but FERB on this Mac is signed in as other@example.com. Sign in with the same account on both."
 
-    // decision: PHN-839, PHN-416
+    // decision: PHN-839, PHN-416, APP-1140
     @Test @Config(qualifiers = "w360dp-h780dp-port-mdpi") fun sign_in_at_360() = shoot("sign-in-360.png") { SignIn(vm, signedOut, PhoneInsets.Lab) }
 
-    // decision: PHN-839, PHN-416
+    // decision: PHN-839, PHN-416, APP-1140
     @Test @Config(qualifiers = "w412dp-h915dp-port-mdpi") fun sign_in_at_412() = shoot("sign-in-412.png") { SignIn(vm, signedOut, PhoneInsets.Lab) }
 
     // decision: PHN-841, PHN-416

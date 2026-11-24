@@ -17,6 +17,7 @@ public enum Showcases {
         Showcase(name: "tokens") { AnyView(ShowTokens()) },
         Showcase(name: "topbar") { AnyView(OnSky(moment: .lab(12.5)) { ForEach(PhoneTab.allCases, id: \.self) { TopBar(chosen: $0).padding(.horizontal, -16) } }) },
         Showcase(name: "marks-pills") { AnyView(ShowMarksAndPills()) },
+        Showcase(name: "sign-in-buttons") { AnyView(ShowSignInButtons()) },
         Showcase(name: "rows") { AnyView(ShowRows()) },
         Showcase(name: "conversation") { AnyView(ShowConversation()) },
         Showcase(name: "sheet-pieces") { AnyView(ShowSheetPieces()) },
@@ -44,6 +45,45 @@ struct OnSky<Content: View>: View {
             .frame(width: 412)
             .background { SkyView(date: moment.date, latitude: moment.place.latitude, longitude: moment.place.longitude) }
             .environment(\.skyInk, moment.ink)
+    }
+}
+
+/// The sign-in buttons (kb APP-1140, APP-1141), as Android's showcase of the same name: on the white card, waiting (no
+/// tap: the same look), on FERB's dark surface, narrow, and both logos four times their size for a close look.
+struct ShowSignInButtons: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SignInButton(provider: .google, title: "Continue with Google", onClick: {})
+            SignInButton(provider: .apple, title: "Continue with Apple", onClick: {})
+            SignInButton(provider: .google, title: "Continue with Google")
+            VStack(spacing: 10) {
+                SignInButton(provider: .google, title: "Continue with Google", onClick: {})
+                SignInButton(provider: .apple, title: "Continue with Apple", onClick: {})
+            }
+            .padding(16)
+            .background(Ink.black, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .ferbSurface()
+            VStack(spacing: 10) {
+                SignInButton(provider: .google, title: "Continue with Google", onClick: {})
+                SignInButton(provider: .apple, title: "Continue with Apple", onClick: {})
+            }
+            .frame(width: 260)
+            HStack(spacing: 16) {
+                GoogleG(size: 80).frame(width: 176, height: 176)
+                    .background(Color(red: 0x13 / 255, green: 0x13 / 255, blue: 0x14 / 255), in: RoundedRectangle(cornerRadius: 16))
+                GoogleG(size: 80).frame(width: 176, height: 176).background(.white, in: RoundedRectangle(cornerRadius: 16))
+            }
+            HStack(spacing: 16) {
+                Image(systemName: "apple.logo").resizable().scaledToFit().frame(height: 76).foregroundStyle(.white)
+                    .frame(width: 176, height: 176)
+                    .background(Color(red: 0x13 / 255, green: 0x13 / 255, blue: 0x14 / 255), in: RoundedRectangle(cornerRadius: 16))
+                Image(systemName: "apple.logo").resizable().scaledToFit().frame(height: 76).foregroundStyle(.black)
+                    .frame(width: 176, height: 176).background(.white, in: RoundedRectangle(cornerRadius: 16))
+            }
+        }
+        .padding(16)
+        .frame(width: 412)
+        .background(Ink.white)
     }
 }
 

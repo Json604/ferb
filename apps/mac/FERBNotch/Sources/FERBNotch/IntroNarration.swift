@@ -34,9 +34,11 @@ extension NotchModel {
         guard onIntroAction != nil else { return height }
         if line.entry != nil { height += IntroNarrationView.rowSpacing + IntroNarrationView.rowHeight }
         for choice in line.choices {
+            // a sign-in button keeps its words centred, clear of its logo on both sides (SignInButton)
+            let chrome = choice.provider == nil ? IntroNarrationView.choiceChromeWidth
+                : 2 * SignInButton.sideRoom(height: IntroNarrationView.rowHeight)
             height += IntroNarrationView.rowSpacing
-                + max(IntroNarrationView.rowHeight,
-                      measured(choice.title, Self.introChoiceFont, width - IntroNarrationView.choiceChromeWidth) + 12)
+                + max(IntroNarrationView.rowHeight, measured(choice.title, Self.introChoiceFont, width - chrome) + 12)
         }
         return height
     }
@@ -247,20 +249,26 @@ struct IntroNarrationView: View {
                 .frame(height: Self.rowHeight)
             }
             ForEach(Array(line.choices.enumerated()), id: \.element.id) { index, choice in
-                Button { act(.choose(choice.id)) } label: {
-                    HStack(spacing: 8) {
-                        Text(choice.title).font(Font(NotchModel.introChoiceFont))
-                            .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        Image(systemName: "arrow.up.right").font(.system(size: 11, weight: .medium))
-                            .frame(width: 12)
-                            .opacity(0.65)
+                if let provider = choice.provider {
+                    // the account step's Google and Apple (owner kb APP-1140): the phones' sign-in buttons, alike
+                    SignInButton(provider: provider, title: choice.title, height: Self.rowHeight,
+                                 font: Font(NotchModel.introChoiceFont)) { act(.choose(choice.id)) }
+                } else {
+                    Button { act(.choose(choice.id)) } label: {
+                        HStack(spacing: 8) {
+                            Text(choice.title).font(Font(NotchModel.introChoiceFont))
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Image(systemName: "arrow.up.right").font(.system(size: 11, weight: .medium))
+                                .frame(width: 12)
+                                .opacity(0.65)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 6)
+                        .frame(maxWidth: .infinity, minHeight: Self.rowHeight, alignment: .leading)
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 6)
-                    .frame(maxWidth: .infinity, minHeight: Self.rowHeight, alignment: .leading)
+                    .buttonStyle(IntroChoiceStyle(primary: index == 0))
                 }
-                .buttonStyle(IntroChoiceStyle(primary: index == 0))
             }
         }
     }

@@ -47,9 +47,9 @@ final class ScreenshotTests: XCTestCase {
     func testCodes() { shoot(.codes) }
 
     /// A few of the gallery's showcases, at their own size.
-    // decision: PHN-416, PHN-450
+    // decision: PHN-416, PHN-450, APP-1140, APP-1141
     func testComponents() {
-        for name in ["tokens", "marks-pills", "rows", "conversation", "sheet-pieces", "keypad", "link-pictures", "seasons", "moons"] {
+        for name in ["tokens", "marks-pills", "sign-in-buttons", "rows", "conversation", "sheet-pieces", "keypad", "link-pictures", "seasons", "moons"] {
             guard let show = Showcases.all.first(where: { $0.name == name }) else { XCTFail("no showcase \(name)"); continue }
             Snapshot.assert(show.view().stillMotion(), size: nil, path: "components/\(name).png")
         }

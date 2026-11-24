@@ -42,8 +42,8 @@ enum IntroCopy {
 
     static let account = IntroLine(text: "To start, sign in to FERB.",
                                    detail: AccountWords.sameAccount + " " + AccountWords.kept,
-                                   choices: [IntroChoice(Pick.accountGoogle, AccountWords.google),
-                                             IntroChoice(Pick.accountApple, AccountWords.apple)])
+                                   choices: [IntroChoice(Pick.accountGoogle, AccountWords.google, provider: .google),
+                                             IntroChoice(Pick.accountApple, AccountWords.apple, provider: .apple)])
     /// Signed out by the site while FERB.app ran or since it last did: why, instead of "To start" (REL-453).
     static func accountEnded(_ why: AccountEnded) -> IntroLine {
         IntroLine(text: why.words, detail: account.detail, choices: account.choices)

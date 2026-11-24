@@ -31,6 +31,8 @@ import com.ferb.design.components.Mark
 import com.ferb.design.components.MarkKind
 import com.ferb.design.components.PhoneText
 import com.ferb.design.components.Pill
+import com.ferb.design.components.SignInButton
+import com.ferb.design.components.SignInProvider
 import com.ferb.design.components.pressable
 
 // FERB's account on the phone (kb PHN-839, PHN-841). Not from the lab: built from its pieces, the lock page's mark
@@ -74,8 +76,9 @@ fun SignInPage(
                     PhoneText(line, 15.5f, color = Ink.black, lineSpacing = 2f,
                         modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, bottom = 4.dp).semantics { liveRegion = LiveRegionMode.Polite })
                 }
-                Pill(words.google, onClick = if (finishing != null) null else onGoogle)
-                Pill(words.apple, onClick = if (finishing != null) null else onApple)
+                // each provider's own logo (owner kb APP-1140), the same on every app
+                SignInButton(SignInProvider.GOOGLE, words.google, onClick = if (finishing != null) null else onGoogle)
+                SignInButton(SignInProvider.APPLE, words.apple, onClick = if (finishing != null) null else onApple)
                 PhoneText(words.footnote, 13f, color = Ink.detail, lineSpacing = 2f,
                     modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 2.dp), align = TextAlign.Center)
             }
