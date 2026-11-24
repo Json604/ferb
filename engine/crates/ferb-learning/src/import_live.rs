@@ -33,12 +33,13 @@ pub const ASKING: &str = "asking";
 pub const WAITING_MAIL: &str = "waiting_mail";
 pub const CHECKING_MAIL: &str = "checking_mail";
 
-/// MEM-467, MEM-471: how often a website's watch looks in the owner's mail for the export while it waits (a model run;
-/// the 15-minute ticks between are code only and look at nothing). The owner's number; the card says it.
+/// MEM-467, MEM-471: how often a website's watch looks in the owner's mail for the export while it waits and the code can't look (a
+/// model run; MEM-476 looks by code on each tick). The owner's number; the card says it.
 pub const MAIL_CHECK_HOURS: i64 = 12;
 
-/// MEM-448, MEM-476: a website watch's ticks, each a code look at the mail when it can run.
-pub const CODE_CHECK_MINUTES: i64 = 15;
+/// MEM-448, MEM-476, MEM-477: a website watch's ticks, each a code look at the mail when it can run (the owner's
+/// "I check your email for it every 1 hour", 2026-11-24). The card says it ("every hour").
+pub const CODE_CHECK_MINUTES: i64 = 60;
 
 impl RunNow {
     pub fn new(run: &str, source: &str, name: &str, local: bool) -> RunNow {
@@ -271,7 +272,8 @@ fn watch_row(w: &Watch, days: &Days) -> Value {
                 at_words(asked, days)
             ),
             if w.by_code {
-                format!("I check your email for it every {CODE_CHECK_MINUTES} minutes. It can take a day or two.")
+                // decision: MEM-477 — the owner's own words (CODE_CHECK_MINUTES)
+                "I check your email for it every hour. It can take a day or two.".into()
             } else {
                 format!("I look in your email for it every {MAIL_CHECK_HOURS} hours. It can take a day or two.")
             },

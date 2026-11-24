@@ -12236,3 +12236,37 @@ owner-facing words, for his review), the 12-hour line otherwise.
 inactive tab of a background window, and whether `u/0` is the account the site mails, are open (LIVE needed, with the
 owner's profile). The temporary chat's saving is estimated from characters, not measured after the fix; the pruning was
 not run on the owner's Mac. The whole workspace gate was not run (focused tests only).
+
+## 2026-11-24 · 211 · The website watch looks in the mail once an hour: the owner's number
+
+**What the owner decided** (2026-11-24, MEM-477). Asked how often the code should look for the export mail (keep 15
+minutes, every hour, or only while he is away) and "If the email never comes, FERB checks with a model at most every
+48 hours, to tell you it's late. OK?", he quoted the 48-hour line back, accepting it, and wrote "I check your email for
+it every 1 hour." So `import_live::CODE_CHECK_MINUTES` is 60 (15 before): a new watch's schedule ticks hourly
+(`memory_import::MAIL_EVERY_MINUTES` is that constant), so its code check of the mail runs at most once an hour. The
+card's line is his words: "I check your email for it every hour. It can take a day or two." `WATCH_LATE_HOURS` stays
+48, now his number; T-1323 is closed. MEM-451 and MEM-476 (agent rulings) and LIVE-1165's pass line say hourly;
+MEM-448's owner words are kept (MEM-477 refines its 15 minutes).
+
+**Watches already in his store** were made every 15 minutes. Chosen: their schedule is brought to the constant at
+start, not a gate in `watch_tick`. `memory_import::watch_intervals`, called from `memory::start` (which ferbd runs
+before `reconcile_schedules`), changes each active or paused watch whose `every` interval differs, in place through the
+schedule store's own `edit` (the rule with its first run kept as the anchor), journaled once per watch
+(`memory.watch_interval`, from/to). The schedule's next runs then come from the new rule at claim time
+(schedule_store.rs `claim_run` reads the row), and Settings → Schedules says every hour too, which a gate would have
+left at 15 minutes. The run already booked is left as it was: one tick after the upgrade can come less than an hour
+after the previous one, once.
+
+**Android.** The Showcase sample (apps/android/design/.../Showcase.kt:344, "every 15 minutes") is drawn in the design
+goldens `import-card.png` and `import-card-night.png`, so it was left as it is.
+
+**Evidence.** ferb-learning all tests ok (import_live 7: the card's detail is exactly the hourly line). ferb-daemon
+a_memory_flow 14 (new: a_website_watch_made_every_15_minutes_looks_at_the_mail_once_an_hour_after_a_start: a new watch
+steps 3600 s, one with a 15-minute rule steps 900 s until `memory::start`, then 3600 s, one journal row, a second start
+changes nothing; asserts WATCH_LATE_HOURS 48; the 48-hour late run in
+a_website_watch_starts_its_model_run_only_for_mail_the_code_found unchanged and passing), a_memory_live 2,
+a_memory_switch 3, a_more 2, a_replay 6, api_keys_in_memory 1. `cargo clippy -p ferb-learning -p ferb-daemon
+--all-targets -D warnings` clean; `cargo fmt --all --check` clean; `kb check` ok after `kb lock` and `kb gen`.
+
+**Unverified.** The test drives the schedule's run times (`next_after`) and the start's change, not the timer loop
+firing hourly on a running daemon; not run on the owner's store. ferbd and the whole workspace gate were not run.

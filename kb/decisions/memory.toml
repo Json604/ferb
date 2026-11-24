@@ -911,9 +911,9 @@ title = "A job FERB made for itself posts only when it needs the owner; memory.i
 by = "agent"
 date = 2026-11-22
 status = "active"
-rule = "For MEM-448. A website's watch is an ordinary schedule (every 15 minutes, until met, the chosen profile in its scope, a `job` target naming it) the owner sees and can stop; unlike his schedules (ORCH-590) its runs are journaled and posted only when one fails or ends with gaps, once until a run goes well. The workers' memory.import (after browser.downloads, owner identity, never the checker's) takes only a path under FERB's downloads folder and starts the import, which deletes it when done."
+rule = "For MEM-448. A website's watch is an ordinary schedule (every hour since MEM-477, until met, the chosen profile in its scope, a `job` target naming it) the owner sees and can stop; unlike his schedules (ORCH-590) its runs are journaled and posted only when one fails or ends with gaps, once until a run goes well. The workers' memory.import (after browser.downloads, owner identity, never the checker's) takes only a path under FERB's downloads folder and starts the import, which deletes it when done."
 paths = ["engine/crates/ferb-daemon/src/areas_a/schedules.rs::schedule_finished", "engine/crates/ferb-daemon/src/areas_a/memory_import.rs::start_fetched", "engine/crates/ferb-gateway/src/catalog_additions.json", "engine/crates/ferbd/src/compose/supervisor.rs"]
-why = "The owner's 'does the days long process itself and notifies with a good personal message after its done' (MEM-448): a watch posting every 15 minutes for days would bury that message."
+why = "The owner's 'does the days long process itself and notifies with a good personal message after its done' (MEM-448): a watch posting on every tick for days would bury that message."
 live = ["LIVE-1165"]
 
 [MEM-452]
@@ -1177,7 +1177,18 @@ title = "A website watch looks for the export mail in Gmail by code; only found 
 by = "agent"
 date = 2026-11-24
 status = "active"
-rule = "For MEM-467. After the run that requests the export, each 15-minute tick runs a code check: a background tab in the watch's paired profile (already connected, never launched) searches Gmail for mail from the site's own domains after the watch began, reads sender addresses and thread ids from the result rows, and closes. A thread no run took starts the model run; none waits, a run at most every WATCH_LATE_HOURS so a late export is told; no check (no browser, not Gmail) keeps the 12-hour run."
+rule = "For MEM-467. After the run that requests the export, each tick (hourly, MEM-477) runs a code check: a background tab in the watch's paired profile (already connected, never launched) searches Gmail for mail from the site's own domains after the watch began, reads sender addresses and thread ids from the result rows, and closes. A thread no run took starts the model run; none waits, a run at most every WATCH_LATE_HOURS so a late export is told; no check (no browser, not Gmail) keeps the 12-hour run."
 why = "T-1293: the owner wants no model calls while FERB only waits (MEM-467). Sender address and arrival are structural facts; Gmail's own search does the date filter, so no localized date is read and no subject or body is judged (rule 4)."
 evidence = "ferb-daemon tests/a_memory_flow.rs (found, nothing, a found thread already taken, can't check); ferbd compose::mail_check unit tests on invented Gmail markup."
 paths = ["engine/crates/ferb-daemon/src/areas_a/memory_import.rs::watch_tick", "engine/crates/ferbd/src/compose/mail_check.rs", "engine/crates/ferb-learning/src/import_live.rs"]
+
+[MEM-477]
+title = "A website watch looks in the mail once an hour; no mail: a model run every 48 hours (his numbers)"
+by = "owner"
+date = 2026-11-24
+status = "active"
+words = "I check your email for it every 1 hour."
+words_source = "Owner 2026-11-24, relayed: asked how often the code looks (15 min, hourly, while away) and to OK the 48-hour late run (T-1323), he quoted the 48-hour line back and wrote this."
+rule = "Refines MEM-448's and MEM-476's 15 minutes: a website watch ticks, and its code check looks in the owner's mail, at most once an hour per watch (`import_live::CODE_CHECK_MINUTES`, the schedule's interval). The card says \"I check your email for it every hour. It can take a day or two.\" A watch an older build made every 15 minutes is brought to the hourly interval at start, its first run kept. Confirms, as his, MEM-476's `WATCH_LATE_HOURS`: while no mail comes, a model run at most every 48 hours, so a late export is told."
+paths = ["engine/crates/ferb-learning/src/import_live.rs", "engine/crates/ferb-daemon/src/areas_a/memory_import.rs::watch_intervals", "engine/crates/ferb-daemon/src/areas_a/memory_import.rs::make_site_job"]
+live = ["LIVE-1165"]

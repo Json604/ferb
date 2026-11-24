@@ -9,7 +9,7 @@
 //!   was learned stays). On No nothing is read, and it is not asked again.
 //! - **The websites** (ChatGPT, claude.ai): asked once after that, with the browser profiles FERB sees signed in to
 //!   choose from. On a choice FERB makes one quiet watch per site (the schedules' own machinery): it requests the
-//!   export there, then waits for the mail by code: each 15-minute tick looks in his Gmail in that profile for the
+//!   export there, then waits for the mail by code: each hourly tick (MEM-477) looks in his Gmail in that profile for the
 //!   site's mail (MEM-476) and only a mail it hasn't handed on starts a model run (MEM-467; with no code check, a model
 //!   run at most every 12 hours), which downloads only the parts it needs and gives them to
 //!   `memory.import`; the import deletes the file when done (IMP-32) and tells the owner once, warmly. On No: nothing
@@ -485,7 +485,7 @@ pub const SITES_ASKED: (&str, &str) = ("memory", "sites_asked");
 pub const SITES_SETTING: (&str, &str) = ("memory", "sites_import");
 /// The websites FERB brings in by their data export (the owner named ChatGPT and Claude, 2026-11-22).
 pub const SITES: [&str; 2] = ["chatgpt", "claude"];
-/// How often a website's watch checks the mail (IMP-24, the owner's number).
+/// How often a website's watch checks the mail (IMP-24; every hour, the owner's number: MEM-477).
 pub const MAIL_EVERY_MINUTES: i64 = ferb_learning::import_live::CODE_CHECK_MINUTES;
 
 /// The coding assistants' names as the owner knows them ("Claude Code and Codex").
@@ -711,7 +711,7 @@ pub fn sites_answered(st: &Rc<State>, state: &str, choice: &str, ident: &str) ->
     )
 }
 
-/// One website's quiet watch (MEM-448): every 15 minutes until the export is imported, in the chosen profile. Its
+/// One website's quiet watch (MEM-448): every hour (MEM-477) until the export is imported, in the chosen profile. Its
 /// request is what each run's worker does; the schedule's own machinery runs it, survives restarts, and the owner
 /// sees and can stop it on the Schedules page.
 pub fn make_site_job(st: &State, site: &str, profile: &str) -> Result<String, String> {
@@ -750,6 +750,31 @@ pub fn make_site_job(st: &State, site: &str, profile: &str) -> Result<String, St
     let t = super::schedules::book(st, &s, &first, "", None).map_err(|e| e.message)?;
     let _ = st.schedules().set_timer(&s.id, Some(&t.id), Some(&first));
     Ok(s.id)
+}
+
+/// MEM-477, at start: a website watch an older build made ticks every `MAIL_EVERY_MINUTES` too (they were made every
+/// 15 minutes). Its rule is changed in place, its first run kept as the anchor; the run already booked stays, and the
+/// one after it is booked by the new rule. Journaled once per watch changed.
+pub fn watch_intervals(st: &State) {
+    let schedules = st.schedules();
+    for s in schedules.all(&["active", "paused"]).unwrap_or_default() {
+        let older = s.rule.repeat == "every" && s.rule.every_minutes != Some(MAIL_EVERY_MINUTES);
+        if site_of(&s).is_none() || !older {
+            continue;
+        }
+        let mut rule = s.rule.clone();
+        rule.every_minutes = Some(MAIL_EVERY_MINUTES);
+        if schedules
+            .edit(&s.id, None, Some((&rule, &s.first_run)), None, "")
+            .is_ok()
+        {
+            let _ = st.journal(
+                "memory.watch_interval",
+                json!({"schedule_id": s.id, "from": s.rule.every_minutes, "to": MAIL_EVERY_MINUTES}),
+                None,
+            );
+        }
+    }
 }
 
 /// A schedule FERB made for its own job (not the owner's), by the target that names it.
@@ -983,7 +1008,7 @@ pub fn watch_moved(st: &State, s: &ferb_clock::schedules::Schedule) {
 pub const WATCH_MODEL_EVERY_HOURS: i64 = ferb_learning::import_live::MAIL_CHECK_HOURS;
 
 /// MEM-476: while the code check finds no mail, a model run comes at most this often, so a late export is still told
-/// (FERB's proposal: FERB says at the start it can take a day or two; the owner's number to set, T-1323).
+/// (FERB says at the start it can take a day or two; the owner's number, MEM-477).
 pub const WATCH_LATE_HOURS: i64 = 48;
 
 /// MEM-476: the site's own sender domains, where its export mail comes from (structural: the sender's address).

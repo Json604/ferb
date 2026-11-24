@@ -131,7 +131,8 @@ pub(crate) fn wire(st: &Rc<State>) {
 }
 
 /// The start's memory steps (`_build_memory`, memory.py:70-85): memory cleaned once, the core profile seeded and
-/// settled, the old fact-node copies closed, FERB's waiting questions asked again, an interrupted import resumed.
+/// settled, the old fact-node copies closed, FERB's waiting questions asked again, an interrupted import resumed, the
+/// website watches' interval brought to FERB's current one (MEM-477).
 pub fn start(st: &Rc<State>) -> ferb_learning::Result<()> {
     let record = |kind: &str, data: Value| st.journal.append(kind, Some(data), None).map(|_| ());
     ferb_learning::upgrade::clean_before_tier1(&st.memory, &record)?;
@@ -141,6 +142,7 @@ pub fn start(st: &Rc<State>) -> ferb_learning::Result<()> {
     let converted = restore_memory_questions(st)?;
     super::memory_import::review_start(st, converted);
     super::memory_import::resume(st);
+    super::memory_import::watch_intervals(st);
     Ok(())
 }
 

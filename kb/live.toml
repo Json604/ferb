@@ -4984,8 +4984,8 @@ title = "Yes to the websites: FERB requests the exports, waits quietly, imports,
 area = "memory"
 surface = "FERB.app with this build, a paired browser profile signed in to chatgpt.com and claude.ai and to the mail those accounts use; the owner watching over a few days"
 request = "After the coding assistants' question, FERB asks whether to bring in what ChatGPT and Claude know about you: pick the profile you're signed in on. Leave FERB alone; look at Settings → Schedules once. If a site asks you to confirm the request, do it when FERB tells you. Wait for the exports to arrive by mail."
-pass = "Each export is requested in that profile (the first run's trace shows the site's confirmation); the 15-minute checks post nothing while waiting and show as two stoppable schedules; a site's confirmation is told once; on the mail FERB downloads only the needed parts, imports them, leaves nothing under ~/.ferb/workspace/downloads and sends one warm message per site (never 'AI'); the mails stay in your inbox; the schedules end. 'No, thanks' changes nothing."
-decisions = ["MEM-448", "MEM-449", "MEM-440", "MEM-451"]
+pass = "Each export is requested in that profile (the first run's trace shows the site's confirmation); the hourly checks post nothing while waiting and show as two stoppable schedules; a site's confirmation is told once; on the mail FERB downloads only the needed parts, imports them, leaves nothing under ~/.ferb/workspace/downloads and sends one warm message per site (never 'AI'); the mails stay in your inbox; the schedules end. 'No, thanks' changes nothing."
+decisions = ["MEM-448", "MEM-449", "MEM-440", "MEM-451", "MEM-477"]
 sitting = "after this build is installed"
 
 [LIVE-1166]

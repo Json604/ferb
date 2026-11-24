@@ -158,7 +158,7 @@ async fn the_websites_question_makes_two_quiet_watches_in_the_chosen_profile() {
     for (s, site) in all.iter().zip(["chatgpt", "claude"]) {
         assert_eq!(s.targets["job"], json!(format!("memory_import:{site}")));
         assert_eq!(s.watch, "until_met");
-        assert_eq!(s.rule.every_minutes, Some(15));
+        assert_eq!(s.rule.every_minutes, Some(60), "every hour (MEM-477)");
         assert_eq!(s.run_scope().unwrap()["profile"], json!(label));
         assert!(
             s.request
@@ -897,6 +897,74 @@ async fn a_website_watch_starts_its_model_run_only_for_mail_the_code_found() {
     d.clock
         .advance((memory_import::WATCH_MODEL_EVERY_HOURS * 3600 + 60) as f64);
     assert_eq!(tick(&d, &sid).await, None);
+}
+
+// decision: MEM-477 (the owner, 2026-11-24: "I check your email for it every 1 hour") — a watch ticks, and so looks
+// in his mail, once an hour; one an older build made every 15 minutes is brought to it at start; a late export is
+// still told after 48 hours
+#[tokio::test]
+async fn a_website_watch_made_every_15_minutes_looks_at_the_mail_once_an_hour_after_a_start() {
+    let tmp = tempfile::tempdir().unwrap();
+    let d = daemon(tmp.path()).await;
+    assert_eq!(memory_import::MAIL_EVERY_MINUTES, 60);
+    assert_eq!(memory_import::WATCH_LATE_HOURS, 48);
+    let (made, older) = d
+        .on(|st| {
+            Box::pin(async move {
+                let made = memory_import::make_site_job(&st, "chatgpt", "chrome/Default").unwrap();
+                let older = memory_import::make_site_job(&st, "claude", "chrome/Default").unwrap();
+                // the rule an older build gave its watch
+                let s = st.schedules().get(&older).unwrap().unwrap();
+                let mut rule = s.rule.clone();
+                rule.every_minutes = Some(15);
+                st.schedules()
+                    .edit(&older, None, Some((&rule, &s.first_run)), None, "")
+                    .unwrap();
+                (made, older)
+            })
+        })
+        .await;
+    let gaps = |sid: String| {
+        d.on(move |st| {
+            Box::pin(async move {
+                let s = st.schedules().get(&sid).unwrap().unwrap();
+                let mut at = s.first_run;
+                let mut gaps = Vec::new();
+                for _ in 0..4 {
+                    let next = s.next_after(&at).unwrap().unwrap();
+                    gaps.push(ferb_clock::py::total_seconds(&next, &at));
+                    at = next;
+                }
+                (s.rule.every_minutes, gaps)
+            })
+        })
+    };
+    assert_eq!(gaps(made.clone()).await, (Some(60), vec![3600.0; 4]));
+    assert_eq!(gaps(older.clone()).await, (Some(15), vec![900.0; 4]));
+    let changed = || {
+        d.on(|st| {
+            Box::pin(async move {
+                memory::start(&st).unwrap();
+                st.store
+                    .query(
+                        "SELECT data_json FROM journal WHERE kind = 'memory.watch_interval' ORDER BY seq",
+                        ferb_learning::sql![],
+                    )
+                    .unwrap()
+                    .iter()
+                    .map(|r| ferb_py::json::loads(&r.s_at(0)).unwrap())
+                    .collect::<Vec<Value>>()
+            })
+        })
+    };
+    let first = changed().await;
+    assert_eq!(
+        first,
+        [json!({"schedule_id": older, "from": 15, "to": 60})],
+        "only the older watch changes"
+    );
+    assert_eq!(gaps(older.clone()).await, (Some(60), vec![3600.0; 4]));
+    assert_eq!(changed().await, first, "a later start changes nothing");
 }
 
 // decision: MEM-472
