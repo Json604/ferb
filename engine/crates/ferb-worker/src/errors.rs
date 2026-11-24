@@ -20,6 +20,16 @@ pub const REASON_CHARS: usize = 300;
 pub const BUG: &str = "That's a bug in FERB, not something you asked wrong.";
 /// worker.py:74 `ACCOUNT_PROBLEMS`: the account facts no model can change (step 8b, ORCH-315).
 pub const ACCOUNT_PROBLEMS: [&str; 2] = ["usage_limit", "signed_out"];
+/// RUN-474 (T-1045): the ChatGPT plan doesn't include the model FERB asked Codex for (ferb-runtimes' `codex`
+/// `PLAN_LACKS_MODEL`, the same word). Not a refusal Settings → Thinking keeps (RUN-424 reads only
+/// [`ACCOUNT_PROBLEMS`]), but like them no model can change it, so the owner is offered another service.
+pub const PLAN_LACKS_MODEL: &str = "model_not_in_plan";
+
+/// The account facts FERB offers another signed-in service for (ORCH-315, RUN-474): [`ACCOUNT_PROBLEMS`] and
+/// [`PLAN_LACKS_MODEL`].
+pub fn offers_switch(account: &str) -> bool {
+    ACCOUNT_PROBLEMS.contains(&account) || account == PLAN_LACKS_MODEL
+}
 /// answer_rules.py `WRONG_CALLS_CAP` (RUN-446): wrong calls per model run, every role.
 pub const WRONG_CALLS_CAP: u64 = 10;
 
@@ -190,7 +200,7 @@ pub struct AdapterError {
     pub message: String,
     /// The model's window overflowed (`overflow`; Codex's `contextWindowExceeded`, a provider's documented error).
     pub overflow: bool,
-    /// `usage_limit` / `signed_out` / "" (ORCH-315).
+    /// `usage_limit` / `signed_out` / `model_not_in_plan` / "" (ORCH-315, RUN-474).
     pub account: String,
     /// The provider refused an image the request carried (ORCH-524).
     pub image: bool,
@@ -459,7 +469,13 @@ pub fn ended(text: &str) -> String {
 
 /// worker.py:78 `account_problem`: the owner's line for an account fact (ServiceDown), written by code.
 pub fn account_problem(runtime: &str, problem: &str) -> String {
-    if problem == "usage_limit" {
+    if problem == PLAN_LACKS_MODEL {
+        // RUN-474: Codex's own words (RUN-417) stay in the evidence
+        format!(
+            "Your ChatGPT plan doesn't include the model FERB uses with {}, so I couldn't go on with this.",
+            label(runtime)
+        )
+    } else if problem == "usage_limit" {
         format!(
             "{} has reached its usage limit, so I couldn't go on with this.",
             label(runtime)

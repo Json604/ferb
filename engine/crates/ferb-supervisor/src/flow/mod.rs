@@ -237,6 +237,15 @@ pub trait Daemon: Send + Sync {
     fn running_apps(&self) -> Vec<(String, String, i64)>;
     fn shell_process(&self, id: &str) -> Option<Map<String, Value>>;
     fn runtime_account(&self, runtime: &str, account: &str);
+    /// RUN-474: `role` is pointed at `runtime` the way Settings → Thinking points it (`runtimes.use` with that one
+    /// role): the owner's tap on an offer of another service when the plan lacks the model. Err: why it wasn't.
+    fn use_runtime<'a>(
+        &'a self,
+        _runtime: &'a str,
+        _role: &'a str,
+    ) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async { Err("no runtimes here to switch".to_string()) })
+    }
     fn on_violation(&self, runtime: &str, text: &str);
     fn has_route(&self) -> Option<bool>;
 

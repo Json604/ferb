@@ -395,7 +395,7 @@ pub struct TestDaemon {
     pub calls: Mutex<Calls>,
     /// The recorded planner turns' facts, one taken per turn (a test may add one for a turn of its own).
     pub supervise: Mutex<Vec<Value>>,
-    systems: Mutex<Vec<Value>>,
+    pub systems: Mutex<Vec<Value>>,
     contexts: Mutex<Vec<Value>>,
     availability: String,
     requests: Mutex<HashMap<String, Request>>,
@@ -475,6 +475,10 @@ pub struct TestDaemon {
     pub meanings: Mutex<String>,
     pub fresh_reads: Mutex<Vec<bool>>,
     pub capture: Mutex<Option<FrontSeen>>,
+    /// RUN-474: a test's runtimes that can run here (`worker_types`; None: default, codex and claude), and each role
+    /// a tap pointed at another service (`use_runtime`: runtime, role).
+    pub types: Mutex<Option<Vec<String>>>,
+    pub switched: Mutex<Vec<(String, String)>>,
 }
 
 pub struct Gate {
@@ -958,7 +962,22 @@ impl Daemon for TestDaemon {
         self.availability.clone()
     }
     fn worker_types(&self) -> Vec<String> {
-        vec!["default".into(), "codex".into(), "claude".into()]
+        self.types
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap_or_else(|| vec!["default".into(), "codex".into(), "claude".into()])
+    }
+    fn use_runtime<'a>(
+        &'a self,
+        runtime: &'a str,
+        role: &'a str,
+    ) -> BoxFuture<'a, Result<(), String>> {
+        self.switched
+            .lock()
+            .unwrap()
+            .push((runtime.to_string(), role.to_string()));
+        Box::pin(async { Ok(()) })
     }
     fn signals(&self) -> (Option<ferb_clock::py::Time>, Option<ferb_clock::py::Time>) {
         (None, None)
@@ -1957,6 +1976,8 @@ pub fn world_with(name: &str, edit: impl FnOnce(&mut Vec<Value>)) -> World {
         meanings: Mutex::default(),
         fresh_reads: Mutex::default(),
         capture: Mutex::default(),
+        types: Mutex::default(),
+        switched: Mutex::default(),
         lean: AtomicBool::new(false),
         code_look: Mutex::default(),
         probes: Mutex::default(),

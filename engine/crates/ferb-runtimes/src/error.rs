@@ -128,7 +128,7 @@ impl RuntimeError {
         }
     }
 
-    /// `account` as the orchestrator reads it (ORCH-315): "signed_out", "usage_limit" or "".
+    /// `account` as the orchestrator reads it (ORCH-315, RUN-474): "signed_out", "usage_limit", "model_not_in_plan" or "".
     pub fn account(&self) -> &str {
         match self {
             RuntimeError::Protocol { account, .. } | RuntimeError::Provider { account, .. } => {

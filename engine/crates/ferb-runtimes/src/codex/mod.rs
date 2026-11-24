@@ -534,8 +534,9 @@ pub fn codex_failure(
         _ => None,
     };
     let info_str = info.as_ref().and_then(Value::as_str);
-    let prefix = if info_str == Some("modelNotFound") {
-        model_not_found(rt)
+    let model_not_found = info_str == Some("modelNotFound");
+    let prefix = if model_not_found {
+        model_not_found_said(rt).1
     } else {
         prefix.to_string()
     };
@@ -549,6 +550,10 @@ pub fn codex_failure(
     if account.is_empty() && signed_out(error) {
         account = "signed_out".into();
     }
+    // decision: RUN-475 — the plan lacking the model is an account fact the supervisor offers another service for
+    if model_not_found && model_not_found_said(rt).0 == "plan" {
+        account = PLAN_LACKS_MODEL.into();
+    }
     RuntimeError::Protocol {
         message,
         overflow,
@@ -557,21 +562,31 @@ pub fn codex_failure(
     }
 }
 
+/// The account fact of a `modelNotFound` whose cause is the ChatGPT plan (RUN-417's "plan"): the plan, not FERB,
+/// lacks the model, so another signed-in service is offered with one tap (RUN-474, T-1045).
+pub const PLAN_LACKS_MODEL: &str = "model_not_in_plan";
+
 /// codex_stream.py `model_not_found` (RUN-417).
 pub fn model_not_found(rt: Option<&CodexRuntime>) -> String {
+    model_not_found_said(rt).1
+}
+
+/// [`model_not_found`] with its cause ([`model_refusal`]'s "codex", "plan" or "").
+fn model_not_found_said(rt: Option<&CodexRuntime>) -> (&'static str, String) {
     let model = rt.map(|r| r.model.clone()).unwrap_or_default();
     let cause = match rt {
         Some(r) if !model.is_empty() => model_refusal(&r.ferb_home, &model),
         _ => "",
     };
-    match cause {
+    let said = match cause {
         "plan" => format!("Your ChatGPT plan doesn't include {model} right now: renew the plan, or pick another service in Settings → Thinking"),
         "codex" => format!("Codex {CODEX_VERSION} can't run {model}: it needs a newer Codex, which comes with a FERB update"),
         _ => format!(
             "ChatGPT didn't run {} for FERB's ChatGPT account: try again, or pick another service in Settings → Thinking",
             if model.is_empty() { "this model" } else { &model }
         ),
-    }
+    };
+    (cause, said)
 }
 
 fn bundled_path(ferb_home: &Path) -> PathBuf {

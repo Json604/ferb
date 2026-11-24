@@ -29,9 +29,9 @@ use ferb_orchestrator::steering::{ContinueError, Steering};
 use serde_json::{json, Map, Value};
 
 use crate::errors::{
-    account_problem, ended, problem_of, reason, retry_stall_problem, too_large_problem, words,
-    AnswerMissing, Error, MissingKind, RuntimeViolation, ServiceError, ServiceKind,
-    ACCOUNT_PROBLEMS, WRONG_CALLS_CAP,
+    account_problem, ended, offers_switch, problem_of, reason, retry_stall_problem,
+    too_large_problem, words, AnswerMissing, Error, MissingKind, RuntimeViolation, ServiceError,
+    ServiceKind, ACCOUNT_PROBLEMS, WRONG_CALLS_CAP,
 };
 use crate::ports::{ModelRuntime, RunControl, StartedRun, TaskRecord, WorkerHost, WorkerTree};
 use crate::runs::{ActiveRun, ConnectionNotice, Runs, Tell};
@@ -76,7 +76,8 @@ pub struct AttemptOutcome {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum OutcomeKind {
     Plain,
-    /// worker.py:65 `ServiceDown`: an account fact its runtime reported (`problem`: "usage_limit" | "signed_out").
+    /// worker.py:65 `ServiceDown`: an account fact its runtime reported (`problem`: "usage_limit" | "signed_out" |
+    /// "model_not_in_plan", RUN-474).
     ServiceDown {
         runtime: String,
         problem: String,
@@ -718,8 +719,8 @@ impl Worker {
             }
             Error::Service(s) => {
                 let failure = format!("{}: {}", s.runtime, e.failure());
-                if ACCOUNT_PROBLEMS.contains(&s.account.as_str()) {
-                    // step 8b: code writes it and offers another runtime
+                if offers_switch(&s.account) {
+                    // step 8b: code writes it and offers another runtime (RUN-474: the plan lacking the model too)
                     let outcome = outcome(
                         task,
                         OutcomeStatus::Blocked,
@@ -1372,8 +1373,8 @@ impl Worker {
                             .filter(|v| ferb_py::value::truthy(v))
                             .map(py_str)
                             .unwrap_or_default();
-                        let known = ACCOUNT_PROBLEMS.contains(&account.as_str());
-                        if known {
+                        let known = offers_switch(&account);
+                        if ACCOUNT_PROBLEMS.contains(&account.as_str()) {
                             host.runtime_account(&name, &account); // what the runtime said (RUN-424)
                         }
                         return Err(Error::Service(ServiceError::new(

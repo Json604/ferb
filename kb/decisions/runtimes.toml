@@ -677,3 +677,25 @@ why = "The owner: \"why 64mb is a limit??? what if limit hit??/ does it try anot
 evidence = "ferb-runtimes tests/claude_long_lines.rs (3 MiB line, echo dropped, over-guard line skipped and the run goes on, the framer); ferbd tests/tools_context.rs fs_look_keeps_the_largest_picture_and_page_under_the_byte_target; ferb-mac-hands tests/pure.rs."
 paths = ["engine/crates/ferb-runtimes/src/claude/transport.rs", "engine/crates/ferb-mac-hands/src/shots.rs", "engine/crates/ferb-mac-hands/src/native/paint.rs", "engine/crates/ferb-mac-hands/src/native/capture.rs", "engine/crates/ferbd/src/native.rs", "engine/crates/ferb-browser/src/mask.rs::painted"]
 live = ["LIVE-1200"]
+
+[RUN-474]
+title = "When the ChatGPT plan lacks FERB's model, FERB offers another signed-in service with one tap"
+by = "owner"
+date = 2026-11-24
+status = "active"
+words = "Do now"
+words_source = "T-1045: \"When your ChatGPT plan doesn't include FERB's model, should FERB offer to switch to another signed-in service with one tap (it never switches by itself), like it does for usage limits?\""
+rule = "When Codex refuses FERB's model because the ChatGPT plan doesn't include it (RUN-417's plan cause), FERB offers each other service it is signed in to with one tap, as it does for a usage limit (ORCH-315). It never switches by itself."
+live = ["LIVE-1210"]
+paths = ["engine/crates/ferb-runtimes/src/codex/mod.rs", "engine/crates/ferb-supervisor/src/flow/owner_wait.rs"]
+
+[RUN-475]
+title = "The plan's refusal: an account fact, FERB's own question, the role switched as in Settings, a retry"
+by = "agent"
+date = 2026-11-24
+status = "active"
+rule = "For RUN-474. The plan's modelNotFound carries the account fact `model_not_in_plan` (not a refusal Settings keeps, RUN-424). Offered: the runtimes signed in now, never the one that refused. A chat message's turn asks FERB's own question (Use <service> / Not now) and waits, so the Mac and the phone answer it; a task step asks its own (Use <service> / Stop). The tap points that role at the pick through runtimes.use, then the message is thought again once or the step goes on. With nothing else signed in nothing is asked; the line says how to sign in."
+why = "The plan won't run the model again by itself, unlike a usage limit, so the pick is kept for the role; a question before the reply works on the phone, which can't call runtimes.use."
+evidence = "ferb-supervisor tests/plan_lacks_model.rs (stand-ins, one_step_task): the offer, the tap's switch and one retry, Not now, nothing signed in, for a chat message and a task step. ferb-runtimes tests/codex.rs: the plan case's account fact, a named difference."
+live = ["LIVE-1210"]
+paths = ["engine/crates/ferb-runtimes/src/codex/mod.rs", "engine/crates/ferb-worker/src/errors.rs", "engine/crates/ferb-worker/src/worker.rs", "engine/crates/ferb-supervisor/src/flow/owner_wait.rs", "engine/crates/ferb-supervisor/src/flow/turn.rs", "engine/crates/ferbd/src/compose/supervisor.rs"]

@@ -282,7 +282,7 @@ impl Inner {
         self.live().pauses.contains_key(&tree.id)
     }
 
-    fn poll(&self) -> std::time::Duration {
+    pub(crate) fn poll(&self) -> std::time::Duration {
         std::time::Duration::from_secs_f64(self.deps.daemon.hold_poll_s().max(0.0))
     }
 
@@ -842,6 +842,8 @@ impl Inner {
         } else {
             "worker"
         };
+        // RUN-474: the plan lacks the model; the owner's pick is also kept for that role
+        let plan = problem == ferb_worker::errors::PLAN_LACKS_MODEL;
         let choices: Vec<String> = self
             .deps
             .daemon
@@ -860,9 +862,13 @@ impl Inner {
             st.stop_reason = summary.to_string();
             st.stop_by_code = true;
             if choices.is_empty() {
-                st.stop_reason = format!(
-                    "{summary} No other service is signed in for FERB (Settings → Thinking)."
-                );
+                st.stop_reason = if plan {
+                    format!("{summary} {PLAN_NO_OTHER}")
+                } else {
+                    format!(
+                        "{summary} No other service is signed in for FERB (Settings → Thinking)."
+                    )
+                };
                 return Switched::Fail;
             }
         }
@@ -875,7 +881,9 @@ impl Inner {
             .map(|n| format!("Use {}", label(n)))
             .collect();
         options.push(STOP.into());
-        let down_said = if problem == "usage_limit" {
+        let down_said = if plan {
+            PLAN_SWITCH_SAID.to_string()
+        } else if problem == "usage_limit" {
             format!("{} hit its usage limit. Switch service?", label(runtime))
         } else {
             format!(
@@ -892,7 +900,12 @@ impl Inner {
             origin::FERB,
             RUNTIME_ASK,
         );
-        wait.card = obj(json!({"summary": down_said, "detail": RUNTIME_SWITCH_DETAIL}));
+        let detail = if plan {
+            PLAN_SWITCH_DETAIL
+        } else {
+            RUNTIME_SWITCH_DETAIL
+        };
+        wait.card = obj(json!({"summary": down_said, "detail": detail}));
         {
             let mut st = wait.lock();
             st.extra.insert("runtime_switch".into(), offer);
@@ -929,6 +942,17 @@ impl Inner {
                 .and_then(|c| asked.iter().take(choices.len()).position(|o| o == c))
             {
                 let chosen = choices[i].clone();
+                if plan {
+                    // RUN-474: the role points at the pick as Settings → Thinking would; the task goes on with it
+                    // either way (its own runtime below)
+                    if let Err(why) = self.deps.daemon.use_runtime(&chosen, role).await {
+                        self.journal(
+                            "runtime.switch_failed",
+                            json!({"task_id": tree.id, "runtime": chosen, "role": role, "why": why}),
+                            None,
+                        );
+                    }
+                }
                 {
                     let mut st = tree.lock();
                     st.runtime = chosen.clone();
@@ -943,6 +967,110 @@ impl Inner {
             }
         }
         Switched::Fail
+    }
+
+    /// RUN-474 (T-1045): a chat message's thinking stopped because the ChatGPT plan doesn't include FERB's model.
+    /// Before any task exists, FERB asks as its own question (the buttons on the Mac and the phone) which other
+    /// signed-in service to use; it never switches by itself (ORCH-315). The owner's pick points the planner's role
+    /// at it the way Settings → Thinking does; Some(pick) and the turn thinks again once. None when nothing is offered
+    /// (no other service is signed in, no question store), the owner said Not now, the switch failed, or another
+    /// message came (the turn goes on as the chat's line says: restarted, or ended for the queued one).
+    pub(crate) async fn chat_service_down(
+        &self,
+        session_id: &str,
+        lead: &str,
+        runtime: &str,
+        cancel: &super::turn::Cancel,
+    ) -> Option<String> {
+        const ROLE: &str = "orchestrator";
+        let problem = ferb_worker::errors::PLAN_LACKS_MODEL;
+        let choices: Vec<String> = self
+            .deps
+            .daemon
+            .worker_types()
+            .into_iter()
+            .filter(|n| n != "default" && n != runtime)
+            .collect();
+        if choices.is_empty() {
+            return None;
+        }
+        let questions = self.deps.daemon.questions()?;
+        let label = ferb_worker::errors::label;
+        let names: Vec<String> = choices.iter().map(|n| label(n)).collect();
+        let question = format!(
+            "{} Carry on with {} instead?",
+            ferb_worker::errors::account_problem(runtime, problem),
+            names.join(" or ")
+        );
+        let mut options: Vec<String> = choices
+            .iter()
+            .map(|n| format!("Use {}", label(n)))
+            .collect();
+        options.push(NOT_NOW.into());
+        let offer =
+            json!({"runtime": runtime, "problem": problem, "role": ROLE, "choices": choices});
+        let id = questions.ask(&Ask {
+            capability: RUNTIME_ASK.into(),
+            request_id: lead.to_string(),
+            question: question.clone(),
+            options: options.clone(),
+            runtime_switch: Some(offer.clone()),
+            options_only: true,
+            summary: PLAN_SWITCH_SAID.into(),
+            detail: PLAN_SWITCH_DETAIL.into(),
+            ..Ask::default()
+        });
+        let mut data = obj(json!({"request_id": lead, "approval_id": id}));
+        data.extend(obj(offer.clone()));
+        self.journal("runtime.account_problem", Value::Object(data), None);
+        let mut event = obj(json!({"approval_id": id, "capability": RUNTIME_ASK,
+            "kind": "owner_question", "reason": question, "options": options, "task_id": null,
+            "request_id": lead, "summary": PLAN_SWITCH_SAID}));
+        event.extend(questions.card(&id));
+        event.insert("question_kind".into(), json!("runtime_switch"));
+        event.insert("runtime_switch".into(), offer);
+        self.deps
+            .daemon
+            .publish("approval.requested", Value::Object(event));
+        let answered = loop {
+            let queued = self
+                .live()
+                .lines
+                .get(session_id)
+                .is_some_and(|l| !l.chat.queued.is_empty());
+            if cancel.is_set() || queued {
+                questions.supersede(&id);
+                return None;
+            }
+            match questions.get(&id) {
+                None => return None,
+                Some(ap) if ap.state == "pending" => {}
+                Some(ap) => break ap,
+            }
+            tokio::select! {
+                _ = tokio::time::sleep(self.poll()) => {}
+                _ = cancel.wait() => {}
+            }
+        };
+        let picked = (answered.state == "granted")
+            .then_some(answered.choice.as_ref())
+            .flatten()
+            .and_then(|c| options.iter().take(choices.len()).position(|o| o == c))?;
+        let chosen = choices[picked].clone();
+        if let Err(why) = self.deps.daemon.use_runtime(&chosen, ROLE).await {
+            self.journal(
+                "runtime.switch_failed",
+                json!({"request_id": lead, "runtime": chosen, "role": ROLE, "why": why}),
+                None,
+            );
+            return None;
+        }
+        self.journal(
+            "runtime.switched",
+            json!({"request_id": lead, "runtime": chosen, "role": ROLE}),
+            Some(origin::OWNER),
+        );
+        Some(chosen)
     }
 
     /// The attempt loop's service-down branch (`_worker`: `if down is not None and not tree.stop`): Ok(instructions)

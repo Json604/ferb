@@ -347,6 +347,8 @@ impl Inner {
 
     /// supervisor.py:2464 `_turn`.
     async fn turn(&self, session_id: &str, lead: &str, emit: &Emit) -> Flow<()> {
+        // RUN-474: a message is thought again once, on the service the owner picked when the plan lacked the model
+        let mut switched = false;
         let decided: Flow<Decided> = loop {
             let cancel = Arc::new(Cancel::default());
             {
@@ -358,6 +360,19 @@ impl Inner {
                 line.cancel = Some(cancel.clone());
             }
             let r = self.think(session_id, lead, emit, &cancel).await;
+            if let Err(Failure::Worker(ferb_worker::Error::Service(s))) = &r {
+                if !switched && s.account == ferb_worker::errors::PLAN_LACKS_MODEL {
+                    let runtime = s.runtime.clone();
+                    if self
+                        .chat_service_down(session_id, lead, &runtime, &cancel)
+                        .await
+                        .is_some()
+                    {
+                        switched = true;
+                        continue;
+                    }
+                }
+            }
             let (restart, arrivals) = {
                 let live = self.live();
                 let run = live
@@ -459,6 +474,24 @@ impl Inner {
                     json!({"runtime": runtime, "problem": s.account, "role": "orchestrator", "choices": choices}),
                 );
                 ferb_worker::errors::account_problem(&runtime, &s.account)
+            }
+            // RUN-474: the offer was the question asked before this reply; with no other service signed in, how to
+            // get one
+            Failure::Worker(ferb_worker::Error::Service(s))
+                if s.account == ferb_worker::errors::PLAN_LACKS_MODEL =>
+            {
+                let said = ferb_worker::errors::account_problem(&s.runtime, &s.account);
+                let others = self
+                    .deps
+                    .daemon
+                    .worker_types()
+                    .into_iter()
+                    .any(|n| n != "default" && n != s.runtime);
+                if others {
+                    said
+                } else {
+                    format!("{said} {PLAN_NO_OTHER}")
+                }
             }
             other => {
                 let e = match other {

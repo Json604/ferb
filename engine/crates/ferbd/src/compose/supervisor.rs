@@ -1072,6 +1072,24 @@ impl Daemon for SupDaemon {
             let _ = r.runtime_account(runtime, account);
         }
     }
+    /// RUN-474: `runtimes.use {runtime, roles: [role]}`, Settings → Thinking's own path (its config write, journal
+    /// row and `runtimes.changed`).
+    fn use_runtime<'a>(
+        &'a self,
+        runtime: &'a str,
+        role: &'a str,
+    ) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async move {
+            let Some(r) = self.runtimes.get().cloned() else {
+                return Err("the runtimes area isn't running".into());
+            };
+            let params = crate::basics::object(json!({"runtime": runtime, "roles": [role]}));
+            r.use_runtime(&params)
+                .await
+                .map(|_| ())
+                .map_err(|e| e.message)
+        })
+    }
     fn on_violation(&self, runtime: &str, text: &str) {
         // runtimes.py `_runtime_violation`
         self.journal.note(

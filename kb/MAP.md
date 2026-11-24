@@ -12,13 +12,13 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `engine/runtime/identity` | 134 | 5 | 62 |
 | hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extension`, `extension-store` | 208 | 6 | 44 |
 | memory | Memory and memory import | `engine/runtime/memory` | 93 | 9 | 9 |
-| orchestration | Orchestration | `ferb/orchestrator/*.py`, `engine/runtime/decide`, `ferb/clock` | 193 | 10 | 44 |
+| orchestration | Orchestration | `ferb/orchestrator/*.py`, `engine/runtime/decide`, `ferb/clock` | 193 | 9 | 44 |
 | perception | Perception | `ferb/sense` | 27 | 4 | 1 |
 | phone | Phone role, link and phone apps | `apps/android`, `apps/ios`, `engine/patches` | 389 | 13 | 20 |
 | project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `HANDOFF.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `kb`, `tools`, `spikes` | 16 | 5 | 0 |
 | prompts | Prompts and abilities | `engine/runtime/orchestrator/prompts`, `engine/runtime/abilities` | 60 | 5 | 10 |
 | release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 35 | 8 | 7 |
-| runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 64 | 6 | 8 |
+| runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 66 | 6 | 9 |
 | storage | Storage | `engine/runtime/store` | 36 | 5 | 4 |
 | tests | Tests | `tests` | 15 | 8 | 0 |
 | voice | Voice | `ferb/voice` | 3 | 0 | 0 |
@@ -27,7 +27,6 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 
 - T-1020 (gateway): To show the Keychain's exact reason when a saved secret can't be read (for example "user interaction is not allowed"), the small secrets helper has to be rebuilt. After that update, macOS asks once more for your login password for each saved secret on each Mac. Rebuild it now, or keep today's shorter reasons?
 - T-1044 (memory): When FERB can't write up a finished task for later (an episode card), it tries once more, then waits until that task changes. Is 2 tries right?
-- T-1045 (orchestration): When your ChatGPT plan doesn't include FERB's model, should FERB offer to switch to another signed-in service with one tap (it never switches by itself), like it does for usage limits?
 - T-1064 (app): While you're typing into a password field somewhere, should hovering over FERB open it without moving your typing into FERB (you'd click its box to type)?
 - T-1067 (prompts): Approve the review plan, then each proposed prompt wording and claim check.
 - T-1068 (tests): Approve the plan: which tasks, what quality measures, which surfaces.

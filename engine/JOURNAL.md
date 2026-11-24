@@ -12102,3 +12102,75 @@ forwards `X-Real-IP` with the visitor's address and Cloudflare passes it on; whe
 relay's 33 MB (only Functions' 4.5 MB is documented; a cap would send big reports to the Worker's own address); that
 its firewall lets FERB's POSTs through. LIVE-1205 checks them. Installed copies built before this keep sending to
 the workers.dev address directly, which still works.
+
+## 2026-11-24 · 206 · The plan lacking FERB's model: one tap to another signed-in service; Contacts in FERB.app's tests
+
+**What the owner decided (RUN-474, T-1045 deleted).** To "When your ChatGPT plan doesn't include FERB's model, should
+FERB offer to switch to another signed-in service with one tap (it never switches by itself), like it does for usage
+limits?": "Do now". How it is built is RUN-475 (agent).
+
+**How.** Codex's `modelNotFound` whose cause is the plan (RUN-417's `model_refusal` → "plan") now carries the account
+fact `model_not_in_plan` (`ferb-runtimes` `codex::PLAN_LACKS_MODEL`, set in `codex_failure`); its words are unchanged.
+`ferb-worker` offers for it as for ORCH-315's two (`errors::offers_switch`, `PLAN_LACKS_MODEL`): a step that hits it
+ends `ServiceDown` with "Your ChatGPT plan doesn't include the model FERB uses with Codex, so I couldn't go on with
+this." `ACCOUNT_PROBLEMS` (the fixture's frozen constant) is unchanged, so RUN-424's refusal record in Settings →
+Thinking keeps only usage limits and sign-ins. Two places ask:
+- A task step (`owner_wait.rs` `service_down`, unchanged for the other two): its own question, "Use <service>" for each
+  runtime `worker_types` says is available now except the one that refused, then "Stop"; the card says "Your ChatGPT
+  plan doesn't include FERB's model. Switch service?" with "FERB uses the one you pick from now on (you can change it
+  in Settings → Thinking) and tries again. Each uses its own account and billing." The tap now also points that role
+  (worker or checker) at the pick through the new `Daemon::use_runtime` seam, which `ferbd` answers with
+  `Runtimes::use_runtime` (`runtimes.use {runtime, roles: [role]}`: Settings' own config write, journal row and
+  `runtimes.changed`); the step then carries on as before (`tree.runtime`, the attempt loop's next attempt).
+- A chat message, before any task (`turn.rs` `turn`, `owner_wait.rs` `chat_service_down`): when the planner's turn
+  fails for the plan, the turn asks FERB's own question (`runtime.switch`, `options_only`, task id null, the turn's
+  request id, `question_kind: runtime_switch`; "Use <service>" … "Not now") through the same question store and bus
+  event as a task's, so FERB.app and the phone show its buttons, and waits for it while the turn still holds the chat.
+  The tap points the orchestrator role at the pick (`use_runtime`) and the turn thinks again, once (`switched`).
+  Not now, a failed switch or no question store end the turn with the plain line. A message sent meanwhile cancels
+  the wait as ORCH-529's line says (a restart re-thinks and asks again; a queued message ends the wait and runs next).
+- No other service signed in: nothing is asked; the line ends "No other service is signed in for FERB. To use
+  another, sign in to Claude or add an API key in Settings → Thinking."
+
+New owner-facing strings: "Your ChatGPT plan doesn't include the model FERB uses with Codex, so I couldn't go on
+with this." / "… Carry on with <Claude or …> instead?" (the existing ORCH-315 form) / "Your ChatGPT plan doesn't
+include FERB's model. Switch service?" / "FERB uses the one you pick from now on (you can change it in Settings →
+Thinking) and tries again. Each uses its own account and billing." / "No other service is signed in for FERB. To use
+another, sign in to Claude or add an API key in Settings → Thinking." / "Not now". Journal kinds: `runtime.switched`
+and `runtime.account_problem` now also with a `request_id` (chat), and `runtime.switch_failed` (new).
+
+**Evidence.**
+- `ferb-supervisor` `tests/plan_lacks_model.rs` (6, support_control's stand-in runtimes on `one_step_task` with a
+  failing call put in front of the recorded one; worker_types set per test): a chat message offers only the signed-in
+  service (`["Use Claude", "Not now"]`, choices `["claude"]`, role orchestrator, task id null), the tap switches
+  ("claude", "orchestrator") and the planner runs twice, the task then as recorded, nothing failed; Not now: no switch,
+  one planner call, the plain line; nothing else signed in: no question, the sign-in line, no `runtime_switch`; a
+  task's worker offers `["Use Claude", "Stop"]` with the plan card, the tap switches ("claude", "worker") and the
+  worker runs twice; a task's worker with nothing else signed in ends with the sign-in line. All pass.
+- `ferb-runtimes` `tests/codex.rs`: the fixture's "blames the plan" case gains `"account": "model_not_in_plan"` on its
+  error event, the one named difference (RUN-475); 63 of 63 match. `cargo test -p ferb-runtimes -p ferb-worker -p
+  ferb-supervisor` all pass; `cargo clippy -p ferb-runtimes -p ferb-worker -p ferb-supervisor -p ferbd --all-targets
+  -D warnings` clean; `cargo fmt --check` clean.
+
+**Contacts in FERB.app's tests (TEST-508), investigated, nothing changed.** The CoreData lines ("Unable to create token
+NSXPCConnection … com.apple.contactsd.persistence", AddressBook-v22.abcddb) come from macOS, not from FERB's code. Under
+lldb (breakpoints on `+[CNContactStore initialize]` and its blocks): XCTest builds its suite list with
+`objc_copyClassList` (`+[XCTestCase allSubclasses]`), which realizes every class of every loaded image; ContactsUICore's
+`ContactCardDetailsState` metadata touches `CNContactStore`, whose `+initialize` queues a background-QoS block that,
+after `+[CNContactStore authorizationForCurrentProcess]`, opens `+[ABAddressBook sharedAddressBook]` and its change
+listener, which try the contactsd persistence service on every Contacts change. Contacts frameworks are in the test
+process because FERBNotch links QuickLookUI (`import Quartz`, the QLPreviewPanel in PanelCoordinator) and
+AuthenticationServices (AccountWebSignIn, journal 200), each of which loads Contacts, ContactsUI, ContactsUICore and
+AddressBookCore (a probe binary linking either one; neither AppKit, SwiftUI nor the rest of FERBNotch's frameworks
+does). When the lines appear depends on the background queue and on Contacts changes during the run: 50 in a full
+`swift test`, none in single classes. Nothing was read: contactsd's log shows each peer connection from the xctest
+process rejected after its TCC check ("Peer connection was rejected by the listener"), and no store was opened. No
+FERB code calls Contacts (no CNContactStore, ABAddressBook or contact detector in Sources; the one `NSDataDetector`
+is `.link` only, and a probe of it reached nothing); the running FERB.app logged nothing from Contacts in the last 24
+hours. A fix inside the tests isn't available without changing what the app links (the class list is XCTest's), so
+it is proposed, not made: keep the system sign-in sheet and Quick Look out of the module the tests load (a thin app
+target that owns `AccountWebSignIn` and the Quick Look panel, injected through the existing `WebSignIn` seam and a
+preview seam), or accept the refused attempt as harmless noise.
+
+**Unverified.** Live: a real ChatGPT plan without the model (LIVE-1210), the question's buttons on the phone, and
+FERB.app's card for a question with no task id during a turn. The whole workspace's gate wasn't run here.

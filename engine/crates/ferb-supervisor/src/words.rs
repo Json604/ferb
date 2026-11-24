@@ -262,6 +262,16 @@ pub const RESTORED_WAITS: [&str; 2] = ["check_in", "runtime_switch"];
 pub const RUNTIME_ASK: &str = "runtime.switch";
 pub const RUNTIME_SWITCH_DETAIL: &str =
     "This task stopped there. Pick another service to finish it; each uses its own account and billing.";
+/// RUN-474 (T-1045): the offer's card when the ChatGPT plan doesn't include FERB's model. The pick is kept in
+/// Settings → Thinking, since the plan won't run the model again by itself.
+pub const PLAN_SWITCH_SAID: &str =
+    "Your ChatGPT plan doesn't include FERB's model. Switch service?";
+pub const PLAN_SWITCH_DETAIL: &str = "FERB uses the one you pick from now on (you can change it in Settings → Thinking) and tries again. Each uses its own account and billing.";
+/// RUN-474: no other service is signed in, so nothing is offered; the plain line says how to get one.
+pub const PLAN_NO_OTHER: &str =
+    "No other service is signed in for FERB. To use another, sign in to Claude or add an API key in Settings → Thinking.";
+/// RUN-474: a chat message's offer ends without switching.
+pub const NOT_NOW: &str = "Not now";
 pub const CONTINUE: &str = "Continue";
 pub const STOP: &str = "Stop";
 pub const RESUME: &str = "Resume";

@@ -245,6 +245,30 @@ async fn play(case: &Value, index: usize, base_env: &Value, today: &str) -> Valu
     )
 }
 
+// decision: RUN-475
+/// RUN-475's named difference (owner, 2026-11-24, T-1045): a `modelNotFound` whose cause is the ChatGPT plan
+/// (RUN-417's "plan") carries the account fact `model_not_in_plan` on its error event, so the supervisor offers
+/// another signed-in service; Python's event had the message only. Nothing else in a recording changes.
+fn plan_lacks_model(mut python: Value) -> Value {
+    for row in python["log"].as_array_mut().into_iter().flatten() {
+        let Some(text) = row["event"].as_str() else {
+            continue;
+        };
+        let Ok(mut ev) = serde_json::from_str::<Value>(text) else {
+            continue;
+        };
+        let plan = ev["kind"] == "error"
+            && ev["data"]["message"]
+                .as_str()
+                .is_some_and(|m| m.starts_with("Your ChatGPT plan doesn't include "));
+        if plan {
+            ev["data"]["account"] = json!("model_not_in_plan");
+            row["event"] = json!(ferb_py::json::dumps(&ev));
+        }
+    }
+    python
+}
+
 // decision: RUN-405, RUN-410, RUN-415, RUN-416, RUN-420, RUN-421, RUN-422, RUN-425, RUN-426, RUN-449, RUN-451
 #[tokio::test(flavor = "current_thread")]
 async fn codex_matches_python() {
@@ -253,7 +277,7 @@ async fn codex_matches_python() {
     let mut failures = Vec::new();
     for (i, case) in cases.iter().enumerate() {
         let got = play(case, i, &fx["base_env"], fx["today"].as_str().unwrap()).await;
-        let want = &case["python"];
+        let want = &plan_lacks_model(case["python"].clone());
         if let Some(d) = first_diff(&got, want, "") {
             failures.push(format!("{}: {d}", case["scenario"]["name"]));
         }

@@ -5186,3 +5186,12 @@ request = "Send relay/README.md's two test requests to https://ferb.kartikey.xyz
 pass = "The two requests through the domain answer {\"ok\":true,...} and file one issue (Vercel's External Origins shows them); each Send in FERB.app shows Sent with one issue and its linked file; the 25 MB report goes through (through the domain or, if the site refuses it, through the Worker's own address); with the domain unreachable Send still says Sent."
 decisions = ["REL-447", "REL-448"]
 sitting = "website review after deployment"
+
+[LIVE-1210]
+title = "The ChatGPT plan lacking FERB's model: one tap to another signed-in service, then it carries on"
+area = "runtimes"
+surface = "FERB.app on the owner's Mac (and a paired phone), FERB's ChatGPT login on a plan without the chosen Codex model, Claude signed in"
+request = "Set Codex's model in Settings → Thinking to one the plan doesn't include and send a short request; answer from the phone once, from the Mac once. Then sign Claude out and send it again."
+pass = "FERB asks once which service to use, naming the plan, with Use Claude and Not now; Use Claude switches Thinking's planner to Claude (Settings shows it) and the request is answered without sending it again; with nothing else signed in there is no question and the reply says how to sign in to another service. It never switches by itself."
+decisions = ["RUN-474", "RUN-475"]
+sitting = "next live run"

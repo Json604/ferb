@@ -287,14 +287,6 @@ why = "MEM-422 parks an episode card that can't be built after two failures, unt
 decisions = ["MEM-422"]
 ask = "When FERB can't write up a finished task for later (an episode card), it tries once more, then waits until that task changes. Is 2 tries right?"
 
-[T-1045]
-title = "Offer another service with one tap when the plan doesn't include the model"
-area = "orchestration"
-kind = "question"
-status = "open"
-why = "RUN-417 now says plainly when the ChatGPT plan lacks the model; ORCH-315 offers a one-tap switch only for usage limits and sign-in failures."
-decisions = ["RUN-417", "ORCH-315"]
-ask = "When your ChatGPT plan doesn't include FERB's model, should FERB offer to switch to another signed-in service with one tap (it never switches by itself), like it does for usage limits?"
 
 [T-1051]
 title = "Fit the phone companion plan (iPhone and Android) into FERB's kb and work list"
